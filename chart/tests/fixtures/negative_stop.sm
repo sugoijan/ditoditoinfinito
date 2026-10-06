@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: MIT
+#TITLE:Negative Stop;
+#OFFSET:0.000;
+#BPMS:0.000=120.000;
+#STOPS:4.000=-1.000,8.000=0.500;
+#NOTES:
+     dance-single:
+     :
+     Medium:
+     1:
+     :
+1000
+0100
+0010
+0001
+,
+1000
+0100
+0010
+0001
+,
+1000
+0100
+0010
+0001
+;

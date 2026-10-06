@@ -1,0 +1,7 @@
+Code, documentation and the project's own assets are licensed under the MIT
+License (see LICENSES/MIT.txt).
+
+Third-party assets bundled under assets/ (demo songs: audio, charts, graphics)
+are NOT covered by the MIT License. Each is licensed by its own authors under
+the terms recorded in REUSE.toml and CREDITS.md (Creative Commons licences;
+full texts in LICENSES/).

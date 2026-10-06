@@ -1,0 +1,68 @@
+version = 1
+
+# Code, docs, configuration and the project's own assets.
+[[annotations]]
+path = ["**"]
+SPDX-FileCopyrightText = "すごいジャン <me@sugoijan.dev>"
+SPDX-License-Identifier = "MIT"
+
+# Bundled songs live under assets/songs/<slug>/ and are NOT MIT. Each song gets
+# its own annotations below naming the musician, chart authors and graphic
+# authors with the exact licence of each file. See docs/PLAN.md §8.
+
+[[annotations]]
+path = ["assets/fonts/IosevkaCustom-*.ttf"]
+SPDX-FileCopyrightText = "2015-2026 Renzhi Li (aka. Belleve Invis) <belleve@typeof.net>"
+SPDX-License-Identifier = "OFL-1.1"
+
+# --- Bundled demo songs (OutFox Serenity, pinned commit in each PROVENANCE.toml) ---
+
+[[annotations]]
+path = ["assets/songs/some-things-must/*.opus"]
+SPDX-FileCopyrightText = "Sevish"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/songs/some-things-must/*.ssc"]
+SPDX-FileCopyrightText = ["Daniel Rotwind", "Sevish", "-YOSEFU-", "Sudospective", "Marukomuru", "Chriszo", "Jack5", "OutFox Serenity contributors"]
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/songs/some-things-must/*.png"]
+SPDX-FileCopyrightText = "Jack5"
+SPDX-License-Identifier = "CC-BY-3.0"
+
+[[annotations]]
+path = ["assets/songs/some-things-must/credits.txt", "assets/songs/into-my-dream/credits.txt", "assets/songs/sweeteners/credits.txt"]
+SPDX-FileCopyrightText = "OutFox Serenity contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/songs/into-my-dream/*.opus"]
+SPDX-FileCopyrightText = "Lagoona (Andreas Viklund)"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/songs/into-my-dream/*.png"]
+SPDX-FileCopyrightText = ["Kevin Turner", "Step Revolution"]
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/songs/into-my-dream/*.ssc"]
+SPDX-FileCopyrightText = ["Daniel Rotwind", "-YOSEFU-", "48productions", "K.TURN", "Chriszo", "Marukomuru", "OutFox Serenity contributors"]
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/songs/sweeteners/*.opus"]
+SPDX-FileCopyrightText = "Jack5"
+SPDX-License-Identifier = "CC-BY-3.0"
+
+[[annotations]]
+path = ["assets/songs/sweeteners/*.ssc"]
+SPDX-FileCopyrightText = ["Jack5", "Daniel Rotwind", "OutFox Serenity contributors"]
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/songs/sweeteners/*.jpg"]
+SPDX-FileCopyrightText = "Lirodon"
+SPDX-License-Identifier = "CC-BY-4.0"

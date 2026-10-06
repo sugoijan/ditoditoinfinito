@@ -1,0 +1,38 @@
+title = "Into My Dream"
+artist = "Lagoona"
+music = "Into My Dream.opus"
+banner = "Into My Dream-bn.png"
+credit = "Lagoona (Andreas Viklund) · CC BY 4.0"
+# Keep these above the tables: keys after a [[licenses]] header would belong to it.
+excluded = [
+  "Into My Dream-jk.png, Into My Dream-bn.mp4, Into My Dream-bga.mp4, Into My Dream-bga-p.mp4 (too large, not used)",
+  "lyrics.lrc (not used)",
+]
+modifications = [
+  "Into My Dream-bn.png is derived from the upstream Into My Dream-bg.png (1920×1080): centre-cropped to 1920×600 and scaled to 512×160 with macOS sips (`sips -c 600 1920`, then `sips -z 160 512`) to serve as a song-list banner",
+]
+
+[source]
+url = "https://github.com/TeamRizu/OutFox-Serenity"
+commit = "e92f5439f563285dbf26399a88d4b2ada5c46247"
+path = "OutFox Serenity Volume 2/Lagoona - Into My Dream"
+retrieved = "2026-10-06"
+
+[[licenses]]
+part = "music"
+spdx = "CC-BY-4.0"
+holders = ["Lagoona (Andreas Viklund)"]
+url = "https://creativecommons.org/licenses/by/4.0/"
+
+[[licenses]]
+part = "charts"
+spdx = "CC-BY-4.0"
+holders = ["Daniel Rotwind", "-YOSEFU-", "48productions", "K.TURN", "Chriszo", "Marukomuru", "OutFox Serenity contributors"]
+url = "https://projectoutfox.com/serenity-guidelines"
+
+[[licenses]]
+part = "graphics"
+spdx = "CC-BY-4.0"
+holders = ["Kevin Turner", "Step Revolution"]
+url = "https://creativecommons.org/licenses/by/4.0/"
+

@@ -1,0 +1,25 @@
+default_locale = "en"
+site_name = "Dito Dito Infinito (Demo)"
+theme_color_light = "#ffffff"
+theme_color_dark = "#161318"
+canonical_url = "https://sugoijan.dev/ditoditoinfinito/"
+# Relative hrefs resolve correctly under any --public-url (dev and prod).
+favicon_href = "favicon.svg"
+robots = "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
+application_category = "GameApplication"
+operating_system = "Web browser"
+genres = ["Rhythm", "Music"]
+play_modes = ["SinglePlayer"]
+twitter_card = "summary"
+is_accessible_for_free = true
+
+[locales.en]
+lang = "en"
+og_locale = "en_US"
+title = "Dito Dito Infinito (Demo) - a dance rhythm game"
+description = "A free dance rhythm game: hit the arrows in time with the music. Plays StepMania simfiles."
+structured_data_description = "Free dance rhythm game - hit the arrows in time with the music."
+accessible_name = "Dito Dito Infinito (Demo)"
+accessible_summary = "A dance rhythm game. Pick a song and press the arrow keys in time with the arrows reaching the step zone."
+noscript_title = "JavaScript is required."
+noscript = "Enable JavaScript to play."

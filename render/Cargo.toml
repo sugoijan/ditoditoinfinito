@@ -1,0 +1,16 @@
+[package]
+name = "ddi-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: render crate"
+
+[dependencies]
+ddi-chart.workspace = true
+ddi-engine.workspace = true
+wgpu = { workspace = true, features = ["wgsl"] }
+glyphon.workspace = true
+bytemuck.workspace = true

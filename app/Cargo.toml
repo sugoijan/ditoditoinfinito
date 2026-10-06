@@ -1,0 +1,72 @@
+[package]
+name = "ditoditoinfinito"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito web app"
+
+[dependencies]
+ddi-chart.workspace = true
+ddi-engine.workspace = true
+ddi-render.workspace = true
+ddi-platform.workspace = true
+yew.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+gloo = { workspace = true, features = ["net", "storage", "timers"] }
+serde = { workspace = true }
+serde_json.workspace = true
+js-sys.workspace = true
+console_error_panic_hook.workspace = true
+wgpu = { workspace = true, features = ["std", "webgpu", "webgl", "wgsl"] }
+web-sys = { workspace = true, features = [
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+    "AudioContext",
+    "AudioContextLatencyCategory",
+    "AudioContextOptions",
+    "AudioContextState",
+    "AudioDestinationNode",
+    "AudioNode",
+    "AudioParam",
+    "AudioScheduledSourceNode",
+    "BaseAudioContext",
+    "CssStyleDeclaration",
+    "Document",
+    "DomRect",
+    "Element",
+    "Event",
+    "EventTarget",
+    "GainNode",
+    "Gamepad",
+    "GamepadButton",
+    "HtmlCanvasElement",
+    "HashChangeEvent",
+    "HtmlAudioElement",
+    "HtmlMediaElement",
+    "HtmlElement",
+    "HtmlInputElement",
+    "HtmlSelectElement",
+    "KeyboardEvent",
+    "Location",
+    "MediaDevices",
+    "MediaQueryList",
+    "Screen",
+    "Navigator",
+    "Performance",
+    "ResizeObserver",
+    "ResizeObserverEntry",
+    "DomRectReadOnly",
+    "Window",
+    "console",
+] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+# Force getrandom 0.2 "js" feature for transitive wasm32-unknown-unknown deps.
+getrandom_02 = { workspace = true, features = ["js"] }
+
+[dev-dependencies]
+wasm-bindgen-test.workspace = true
