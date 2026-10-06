@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link data-trunk rel="inline" href="target/seo/seo-head.html" type="html" />
+    <script id="boot-inline">
+      (() => {
+        const state = {
+          progress: 0.08,
+          blocked: null,
+          ready: false,
+          crashed: false,
+        };
+        const dom = {
+          ready: false,
+          shell: null,
+          progressFill: null,
+          blocked: null,
+          blockedMessage: null,
+          blockedHint: null,
+        };
+        const clamp01 = (value) => Math.min(1, Math.max(0, value));
+        const resolveDom = () => {
+          if (dom.ready) {
+            return dom;
+          }
+          const shell = document.getElementById("boot-shell");
+          if (!shell) {
+            return null;
+          }
+          dom.shell = shell;
+          dom.progressFill = document.getElementById("boot-progress-fill");
+          dom.blocked = document.getElementById("boot-blocked");
+          dom.blockedMessage = document.getElementById("boot-blocked-message");
+          dom.blockedHint = document.getElementById("boot-blocked-hint");
+          dom.ready = true;
+          return dom;
+        };
+        const applyState = () => {
+          const root = resolveDom();
+          if (!root) {
+            return;
+          }
+          if (root.progressFill) {
+            if (state.progress == null) {
+              root.progressFill.style.width = "10%";
+            } else {
+              const clamped = clamp01(state.progress);
+              const pct = Math.round(clamped * 100);
+              root.progressFill.style.width = `${Math.max(4, pct)}%`;
+            }
+          }
+          if (root.shell) {
+            if (state.blocked) {
+              root.shell.classList.add("is-blocked");
+              root.shell.classList.remove("is-loading");
+            } else if (!state.ready) {
+              root.shell.classList.add("is-loading");
+              root.shell.classList.remove("is-blocked");
+            }
+            if (state.ready) {
+              root.shell.classList.add("is-ready");
+            }
+          }
+          if (state.blocked && root.blocked) {
+            root.blocked.classList.remove("hidden");
+            if (root.blockedMessage) {
+              root.blockedMessage.textContent = state.blocked.message;
+            }
+            if (root.blockedHint) {
+              root.blockedHint.textContent = state.blocked.hint || "";
+            }
+          }
+        };
+        const setProgress = (value) => {
+          state.progress = value;
+          applyState();
+        };
+        const fail = (code, message, hint) => {
+          state.blocked = {
+            code: code || "blocked",
+            message: message || "This browser cannot run the game.",
+            hint: hint || "",
+          };
+          applyState();
+        };
+        const CRASH_RELOADS_KEY = "ddi.crash.reloads";
+        const CRASH_MAX_RELOADS = 2;
+        const CRASH_WINDOW_MS = 60000;
+        const CRASH_COUNTER_RESET_MS = 30000;
+        const readCrashReloads = () => {
+          try {
+            const raw = window.sessionStorage?.getItem(CRASH_RELOADS_KEY);
+            if (!raw) {
+              return null;
+            }
+            const parsed = JSON.parse(raw);
+            if (
+              typeof parsed.count !== "number" ||
+              typeof parsed.firstTs !== "number"
+            ) {
+              return null;
+            }
+            return parsed;
+          } catch (err) {
+            return null;
+          }
+        };
+        const writeCrashReloads = (value) => {
+          try {
+            window.sessionStorage?.setItem(
+              CRASH_RELOADS_KEY,
+              JSON.stringify(value)
+            );
+          } catch (err) {}
+        };
+        const clearCrashReloads = () => {
+          try {
+            window.sessionStorage?.removeItem(CRASH_RELOADS_KEY);
+          } catch (err) {}
+        };
+        const ready = () => {
+          state.ready = true;
+          applyState();
+          // A session that stays healthy for a while earns fresh crash-reload
+          // budget; a boot-loop burns through it and lands on the overlay.
+          window.setTimeout(clearCrashReloads, CRASH_COUNTER_RESET_MS);
+        };
+        const showCrashOverlay = (message, hint) => {
+          state.ready = false;
+          state.blocked = { code: "crashed", message, hint: hint || "" };
+          const root = resolveDom();
+          if (root && root.shell) {
+            // applyState never removes is-ready, and is-ready keeps the
+            // shell invisible and click-through; drop it explicitly so the
+            // overlay shows and blocks input into the dead app.
+            root.shell.classList.remove("is-ready");
+          }
+          applyState();
+        };
+        // A crashed wasm instance cannot be resumed; recovery is teardown +
+        // reload. Reload automatically a couple of times, then fall back to
+        // a manual prompt so a crash-on-boot cannot loop forever.
+        const crash = (message) => {
+          if (state.crashed) {
+            return;
+          }
+          state.crashed = true;
+          window.__DDI_CRASHED = true;
+          const summary =
+            typeof message === "string" && message
+              ? message
+              : "The game hit an unexpected error.";
+          const now = Date.now();
+          let reloads = readCrashReloads();
+          if (!reloads || now - reloads.firstTs > CRASH_WINDOW_MS) {
+            reloads = { count: 0, firstTs: now };
+          }
+          if (reloads.count < CRASH_MAX_RELOADS) {
+            reloads.count += 1;
+            writeCrashReloads(reloads);
+            showCrashOverlay("Something went wrong — reloading…", summary);
+            window.setTimeout(() => window.location.reload(), 300);
+          } else {
+            showCrashOverlay(
+              "Something went wrong. Reload the page to continue.",
+              summary
+            );
+          }
+        };
+        // Catches raw wasm traps (RuntimeError: unreachable / index out of
+        // bounds / …) that escape without going through the Rust panic hook.
+        window.addEventListener("error", (event) => {
+          const err = event.error;
+          const message = event.message || "";
+          const isTrap =
+            (typeof WebAssembly === "object" &&
+              err instanceof WebAssembly.RuntimeError) ||
+            /RuntimeError.*(unreachable|index out of bounds|call_indirect)/i.test(
+              message
+            );
+          if (isTrap) {
+            crash(message || "WebAssembly runtime error");
+          }
+        });
+        window.addEventListener("unhandledrejection", (event) => {
+          const reason = event.reason;
+          if (
+            typeof WebAssembly === "object" &&
+            reason instanceof WebAssembly.RuntimeError
+          ) {
+            crash(String(reason && reason.message ? reason.message : reason));
+          }
+        });
+        window.__DDI_BOOT = {
+          setProgress,
+          fail,
+          ready,
+          crash,
+        };
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", applyState, { once: true });
+        } else {
+          applyState();
+        }
+        const checkCompatibility = () => {
+          if (typeof WebAssembly !== "object") {
+            return {
+              ok: false,
+              code: "no-wasm",
+              message: "Your browser doesn't support WebAssembly.",
+              hint: "Try an up-to-date browser.",
+            };
+          }
+          if (typeof window.fetch !== "function" || typeof Promise !== "function") {
+            return {
+              ok: false,
+              code: "no-fetch",
+              message: "Required web APIs are missing.",
+              hint: "Try an up-to-date browser.",
+            };
+          }
+          if (typeof window.TextDecoder !== "function") {
+            return {
+              ok: false,
+              code: "no-textdecoder",
+              message: "TextDecoder is required for the game.",
+              hint: "Try an up-to-date browser.",
+            };
+          }
+          if (typeof window.requestAnimationFrame !== "function") {
+            return {
+              ok: false,
+              code: "no-raf",
+              message: "requestAnimationFrame is required for rendering.",
+              hint: "Try an up-to-date browser.",
+            };
+          }
+          if (typeof window.PointerEvent !== "function") {
+            return {
+              ok: false,
+              code: "no-pointer",
+              message: "Pointer Events are required for input.",
+              hint: "Try a different browser or update it.",
+            };
+          }
+          if (
+            typeof window.AudioContext !== "function" &&
+            typeof window.webkitAudioContext !== "function"
+          ) {
+            return {
+              ok: false,
+              code: "no-audio",
+              message: "Web Audio is required — this game is played by sound.",
+              hint: "Try an up-to-date browser.",
+            };
+          }
+          return { ok: true };
+        };
+        const normalizeProgress = (progress, fallbackTotal) => {
+          if (typeof progress === "number") {
+            return { loaded: progress, total: fallbackTotal || 0 };
+          }
+          if (!progress || typeof progress !== "object") {
+            return null;
+          }
+          const loaded =
+            progress.loaded ??
+            progress.current ??
+            progress.received ??
+            progress.bytes ??
+            progress.position;
+          const total =
+            progress.total ??
+            progress.size ??
+            progress.length ??
+            progress.expected;
+          if (typeof loaded !== "number" || typeof total !== "number") {
+            return null;
+          }
+          return { loaded, total };
+        };
+        window.__DDI_TRUNK_INIT = () => {
+          let downloadCompleted = false;
+          return {
+            onStart: () => {
+              const compat = checkCompatibility();
+              if (!compat.ok) {
+                fail(compat.code, compat.message, compat.hint);
+                throw new Error(compat.code || "incompatible");
+              }
+              setProgress(0);
+            },
+            onProgress: (...args) => {
+              const [first, second] = args;
+              let progress = null;
+              if (typeof first === "number" && typeof second === "number") {
+                progress = { loaded: first, total: second };
+              } else {
+                progress = normalizeProgress(first, second);
+              }
+              if (progress && progress.total > 0) {
+                const ratio = progress.loaded / progress.total;
+                setProgress(ratio);
+                if (!downloadCompleted && ratio >= 1) {
+                  downloadCompleted = true;
+                }
+              } else {
+                setProgress(null);
+              }
+            },
+            onComplete: () => {
+              if (!downloadCompleted) {
+                downloadCompleted = true;
+                setProgress(1);
+              }
+            },
+            onSuccess: () => {},
+            onFailure: (error) => {
+              const detail =
+                error && typeof error.message === "string"
+                  ? error.message
+                  : "Initialization failed.";
+              fail(
+                "init-failed",
+                "Something went wrong while starting the game.",
+                detail
+              );
+            },
+          };
+        };
+      })();
+    </script>
+    <style>
+      :root {
+        --boot-bg: #ffffff;
+        --boot-bar-track: rgba(0, 0, 0, 0.12);
+        --boot-bar-fill: rgba(0, 0, 0, 0.7);
+        --boot-error: rgba(0, 0, 0, 0.85);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --boot-bg: #161318;
+          --boot-bar-track: rgba(255, 255, 255, 0.2);
+          --boot-bar-fill: rgba(255, 255, 255, 0.75);
+          --boot-error: rgba(255, 255, 255, 0.88);
+        }
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--boot-bg);
+      }
+
+      .boot-shell {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: var(--boot-bg);
+        z-index: 9999;
+      }
+
+      .boot-shell.is-ready {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease;
+      }
+
+      .boot-bar {
+        width: min(320px, 72vw);
+        height: 10px;
+      }
+
+      .boot-bar-track {
+        width: 100%;
+        height: 2px;
+        background: var(--boot-bar-track);
+        position: relative;
+      }
+
+      .boot-bar-fill {
+        position: absolute;
+        left: 0;
+        top: -2px;
+        height: 6px;
+        width: 12%;
+        background: var(--boot-bar-fill);
+      }
+
+      .boot-shell.is-blocked .boot-bar {
+        display: none;
+      }
+
+      .boot-blocked {
+        text-align: left;
+        font-family: ui-monospace, monospace;
+        color: var(--boot-error);
+        max-width: min(480px, 86vw);
+      }
+
+      .hidden {
+        display: none;
+      }
+    </style>
+    <link data-trunk rel="rust" href="app/Cargo.toml" data-initializer="boot-init.js" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
+    <link data-trunk rel="css" href="styles.css" />
+    <link data-trunk rel="copy-file" href="seo/favicon.svg" />
+    <link data-trunk rel="copy-dir" href="assets/songs" data-target-path="songs" />
+    <link data-trunk rel="copy-file" href="target/songs/index.json" data-target-path="songs" />
+    <link data-trunk rel="copy-file" href="target/credits/credits.json" data-target-path="credits" />
+    <link data-trunk rel="copy-file" href="target/seo/sitemap.xml" />
+  </head>
+  <body>
+    <link data-trunk rel="inline" href="target/seo/seo-body.html" type="html" />
+    <div id="boot-shell" class="boot-shell is-loading">
+      <div class="boot-bar" aria-hidden="true">
+        <div class="boot-bar-track">
+          <div id="boot-progress-fill" class="boot-bar-fill"></div>
+        </div>
+      </div>
+      <div id="boot-blocked" class="boot-blocked hidden" role="alert">
+        <div class="boot-blocked-title">This browser cannot run Dito Dito Infinito.</div>
+        <div class="boot-blocked-message" id="boot-blocked-message"></div>
+        <div class="boot-blocked-hint" id="boot-blocked-hint"></div>
+      </div>
+    </div>
+    <div id="app-root"></div>
+  </body>
+</html>

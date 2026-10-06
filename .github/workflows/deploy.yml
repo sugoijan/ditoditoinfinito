@@ -1,0 +1,87 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: REUSE lint
+        uses: fsfe/reuse-action@v5
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Native tests
+        run: cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p xtask
+      - name: Generated files are fresh
+        run: |
+          cargo run -p xtask -- gen-songs
+          cargo run -p xtask -- gen-credits --check
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Cache cargo + trunk
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-directories: |
+            ~/.cargo/bin
+      - name: Install Trunk
+        run: |
+          if ! command -v trunk >/dev/null; then
+            cargo install trunk --locked
+          fi
+      - name: Set public url
+        run: |
+          # Pages serves the repo segment case-insensitively; the site is
+          # referenced as the lowercase path everywhere.
+          REPO_NAME="$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')"
+          if [[ "$REPO_NAME" == *.github.io ]]; then
+            PUBLIC_URL="/"
+          else
+            PUBLIC_URL="/${REPO_NAME}/"
+          fi
+          echo "PUBLIC_URL=$PUBLIC_URL" >> "$GITHUB_ENV"
+      - name: Trunk build
+        run: trunk build --release --public-url "$PUBLIC_URL"
+      - name: Setup Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+      - name: Upload artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: [lint, test, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

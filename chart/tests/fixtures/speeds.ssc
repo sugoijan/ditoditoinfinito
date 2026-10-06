@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: MIT
+#VERSION:0.83;
+#TITLE:Speeds;
+#BPMS:0.000=120.000;
+#SPEEDS:0.000=1.000,4.000=2.000=1.000,8.000=0.500=2.000=1,12.000=3=-1=0;
+#NOTEDATA:;
+#STEPSTYPE:dance-single;
+#DIFFICULTY:Beginner;
+#METER:1;
+#NOTES:
+1000
+;

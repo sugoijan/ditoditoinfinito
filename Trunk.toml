@@ -1,0 +1,31 @@
+[watch]
+ignore = [
+  "target",
+  "dist",
+  "dist-test",
+  "docs",
+  "xtask",
+  # Output of the gen-credits pre_build hook; ignored so regenerating it
+  # does not immediately trigger another rebuild.
+  "CREDITS.md",
+]
+
+# Regenerates target/seo/ from seo/metadata.toml so the fragments inlined by
+# index.html are always fresh and never need to be committed.
+[[hooks]]
+stage = "pre_build"
+command = "cargo"
+command_arguments = ["run", "-p", "xtask", "--", "regen-seo"]
+
+# Song manifest from assets/songs/*/PROVENANCE.toml.
+[[hooks]]
+stage = "pre_build"
+command = "cargo"
+command_arguments = ["run", "-p", "xtask", "--", "gen-songs"]
+
+# CREDITS.md (checked in) and target/credits/credits.json (bundled) from
+# REUSE.toml + PROVENANCE.toml files.
+[[hooks]]
+stage = "pre_build"
+command = "cargo"
+command_arguments = ["run", "-p", "xtask", "--", "gen-credits"]

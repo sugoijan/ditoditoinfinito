@@ -1,0 +1,61 @@
+[workspace]
+resolver = "3"
+members = ["chart", "engine", "render", "platform", "app", "xtask"]
+default-members = ["app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+authors = ["すごいジャン <me@sugoijan.dev>"]
+repository = "https://github.com/sugoijan/DitoDitoInfinito"
+
+[workspace.dependencies]
+# local crates
+ddi-chart = { path = "chart" }
+ddi-engine = { path = "engine" }
+ddi-render = { path = "render" }
+ddi-platform = { path = "platform" }
+
+# app / web
+yew = { version = "0.23", features = ["csr"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+gloo = { version = "0.12", features = ["futures"] }
+js-sys = "0.3"
+web-sys = "0.3"
+console_error_panic_hook = "0.1"
+wasm-bindgen-test = "0.3"
+getrandom_02 = { package = "getrandom", version = "0.2" }
+
+# rendering
+wgpu = { version = "30", default-features = false }
+glyphon = "0.12"
+bytemuck = { version = "1", features = ["derive"] }
+
+# shared
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+thiserror = "2"
+
+# xtask
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+[profile.dev]
+opt-level = 1
+debug = 1
+debug-assertions = true
+overflow-checks = true
+
+[profile.dev.package."*"]
+opt-level = 2

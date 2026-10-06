@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: MIT
+#TITLE:Negative BPM;
+#OFFSET:0.000;
+#BPMS:0.000=120.000,4.000=-120.000,6.000=120.000;
+#STOPS:;
+#NOTES:
+     dance-single:
+     :
+     Challenge:
+     1:
+     :
+1000
+0100
+0010
+0001
+,
+1000
+0100
+0010
+0001
+,
+1000
+0100
+0010
+0001
+;

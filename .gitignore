@@ -1,0 +1,5 @@
+.DS_Store
+/dist
+/target
+/.trunk
+/dist-test/
