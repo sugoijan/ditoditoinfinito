@@ -11,3 +11,9 @@ description = "DitoDitoInfinito: chart crate"
 [dependencies]
 serde.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+# Differential-test oracles: independent .sm/.ssc parsers whose output the
+# importer is compared against (tests/differential.rs). Test-only.
+rgchart = "0.0.15"
+danceparser = "0.2.1"

@@ -46,6 +46,10 @@ the browser are implementation details, not advertised features.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
 - `just test` native tests (chart, engine, platform with `decode`, library,
   xtask). The app crate has no native tests; verify it in a browser.
+- `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
+  compares every `.sm` under a local folder against the two oracle parsers
+  (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`).
+  Third-party songs used this way stay local.
 - `cargo run -p xtask -- gen-songs` / `gen-credits` regenerate the manifest and
   credits (Trunk runs both before every build; CI checks `CREDITS.md` is fresh).
 
