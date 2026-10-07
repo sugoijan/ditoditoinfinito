@@ -169,6 +169,8 @@ Low-latency rendering on desktop: `PresentMode::Mailbox` (or `Immediate` when te
 
 Recommendation: import → store original compressed files (OGG/MP3) + parsed chart JSON in OPFS (IDB fallback) → decode on song start → single `AudioBuffer` → `AudioBufferSourceNode`.
 
+As built (2026-10-07): IndexedDB only, storing the original files as `Blob`s and re-parsing the chart on load; OPFS was dropped because Firefox private windows lack it and Safari gained main-thread `createWritable()` only in Safari 26 ([WebKit bug 231706](https://bugs.webkit.org/show_bug.cgi?id=231706)). See `docs/PLAN.md` decision 8.
+
 ---
 
 ## 7. Text/UI for the in-game HUD

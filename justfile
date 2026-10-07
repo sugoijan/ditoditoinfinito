@@ -16,14 +16,14 @@ app-check:
 
 # Check the platform-independent crates natively
 core-check:
-    @cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p xtask
+    @cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p xtask
 
 # Run all checks
 check: core-check app-check regen-seo reuse-lint
 
 # Run native unit tests
 test:
-    @cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p xtask
+    @cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p xtask --features ddi-platform/decode
 
 # Regenerate the SEO fragments and sitemap from seo/metadata.toml
 # (trunk also runs this automatically as a pre_build hook)

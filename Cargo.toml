@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["chart", "engine", "render", "platform", "app", "xtask"]
+members = ["chart", "engine", "render", "platform", "library", "app", "xtask"]
 default-members = ["app"]
 
 [workspace.package]
@@ -17,6 +17,7 @@ ddi-chart = { path = "chart" }
 ddi-engine = { path = "engine" }
 ddi-render = { path = "render" }
 ddi-platform = { path = "platform" }
+ddi-library = { path = "library" }
 
 # app / web
 yew = { version = "0.23", features = ["csr"] }
@@ -39,6 +40,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
 thiserror = "2"
+miniz_oxide = "0.9"
+symphonia = { version = "0.6.1", default-features = false }
 
 # xtask
 anyhow = "1"

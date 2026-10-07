@@ -215,6 +215,8 @@ Note the prompt had A/B swapped: the readme says "(U+D = A and L+R = B)" and the
 
 Whitespace (`\n \r \t space`) is stripped from step strings before parsing. `//` comments are allowed anywhere.
 
+**Loader regression on `5_1-new` (found 2026-10-07 while implementing `.dwi`):** in July 2026 StepMania's `5_1-new` took ITGmania's "Fix .dwi support" patch (ITGmania commit `829f49f622`, PR #271). Traced by reading the code, it consumes one extra character per jump member, so `<24>` places only Down. The StepMania PR #2302 author, who tested against DWI itself, considered the old loader correct; our importer follows the loader shipped up to 5.1.0.
+
 ---
 
 ## 4. Other formats (import difficulty notes)

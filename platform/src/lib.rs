@@ -86,11 +86,11 @@ pub struct SongSummary {
 
 /// An identity for the audio output path or the display the game is shown
 /// on. On the web it is derived from observable features (latencies, sample
-/// rate, screen geometry, refresh rate); a native shell derives it from the
-/// real device id. Offsets are stored per `id`.
+/// rate, screen geometry); a native shell derives it from the real device
+/// id. Offsets are stored per `id`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DeviceFingerprint {
-    /// Stable key, e.g. `audio:48000:5:170` or `display:1512x982@2:120`.
+    /// Stable key, e.g. `audio:48000:5:170` or `display:1512x982@2`.
     pub id: String,
     /// Human-readable description shown in the UI.
     pub label: String,
@@ -111,3 +111,6 @@ pub struct DeviceProfile {
     pub audio: DeviceFingerprint,
     pub display: DeviceFingerprint,
 }
+
+#[cfg(feature = "decode")]
+pub mod decode;

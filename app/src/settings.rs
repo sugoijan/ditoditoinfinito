@@ -1,5 +1,7 @@
 //! Player settings persisted in `localStorage`.
 
+use std::collections::BTreeMap;
+
 use ddi_engine::clock::ClockOptions;
 use ddi_engine::player::PlayOptions;
 use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod};
@@ -7,6 +9,9 @@ use gloo::storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
 
 const KEY: &str = "ddi.settings.v1";
+
+/// Song offsets closer to zero than this (half a millisecond) are dropped.
+const SONG_OFFSET_EPSILON: f64 = 0.0005;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -34,7 +39,15 @@ pub(crate) struct Settings {
     pub(crate) audio_profiles: Vec<OffsetProfile>,
     /// Per-display calibrated offsets, keyed by fingerprint id.
     pub(crate) display_profiles: Vec<OffsetProfile>,
+    /// Per-song offsets in seconds, keyed by song id; positive moves the
+    /// notes later against the music. Corrects songs whose audio is out of
+    /// sync with the chart (MP3 decoder delay, badly synced packs), which no
+    /// device calibration can fix. Zero entries are not stored.
+    pub(crate) song_offsets: BTreeMap<String, f64>,
 }
+
+/// Song offsets are clamped to this many seconds either way.
+pub(crate) const MAX_SONG_OFFSET: f64 = 1.0;
 
 /// A calibrated offset for one device fingerprint. `audio_offset` /
 /// `visual_offset` on `Settings` remain the defaults for devices without a
@@ -67,6 +80,7 @@ impl Default for Settings {
             receptor_snap: true,
             audio_profiles: Vec::new(),
             display_profiles: Vec::new(),
+            song_offsets: BTreeMap::new(),
             keys_single: layout
                 .lanes
                 .iter()
@@ -143,6 +157,11 @@ impl Settings {
             } else {
                 0.0
             };
+        }
+        self.song_offsets
+            .retain(|_, v| v.is_finite() && v.abs() >= SONG_OFFSET_EPSILON);
+        for v in self.song_offsets.values_mut() {
+            *v = v.clamp(-MAX_SONG_OFFSET, MAX_SONG_OFFSET);
         }
         let lanes = defaults.keys_single.len();
         self.keys_single.resize_with(lanes, Vec::new);
@@ -237,6 +256,19 @@ impl Settings {
         let p = Self::touch_profile(profiles, fp, offset);
         p.offset = offset.clamp(-0.5, 0.5);
         p.calibrated = true;
+    }
+
+    pub(crate) fn song_offset(&self, song_id: &str) -> f64 {
+        self.song_offsets.get(song_id).copied().unwrap_or(0.0)
+    }
+
+    pub(crate) fn set_song_offset(&mut self, song_id: &str, seconds: f64) {
+        let seconds = seconds.clamp(-MAX_SONG_OFFSET, MAX_SONG_OFFSET);
+        if seconds.abs() < SONG_OFFSET_EPSILON {
+            self.song_offsets.remove(song_id);
+        } else {
+            self.song_offsets.insert(song_id.to_string(), seconds);
+        }
     }
 
     pub(crate) fn ruleset(&self) -> ddi_engine::rules::Ruleset {

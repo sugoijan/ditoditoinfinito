@@ -5,9 +5,13 @@ rhythm game) written entirely in Rust. Browser first (wasm, Trunk,
 GitHub Pages at `https://sugoijan.dev/ditoditoinfinito/`), desktop later, with
 the gameplay core shared unchanged between both.
 
-Status (2026-10-06): phases 0–3 implemented (scaffold, chart importers, engine,
-web platform, renderer, song select, options, credits, three bundled CC-BY
-songs). Calibration runs on the real gameplay path (generated 120 BPM chart
+Status (2026-10-07): phases 0–3 done and deployed (scaffold, chart importers,
+engine, web platform, renderer, song select, options, credits, four bundled
+OutFox Serenity songs), phase 4 (format breadth) and phase 5 (import and
+storage) done, phase 8 partial; per-phase status in the roadmap (section 5).
+Players import their own simfile packs (folder, zip or drag and drop; `.sm`,
+`.ssc`, `.dwi`) into IndexedDB, edit a per-song offset on the results, and
+Ogg Vorbis decodes in wasm where the browser cannot. Calibration runs on the real gameplay path (generated 120 BPM chart
 with a click per note) and converges: each batch of 8 hits whose mean error
 is significant (|mean| > 2σ/√n) is applied as a temporary correction, and the
 test ends once 16 residual hits are within noise (`engine/src/calibration.rs`,
@@ -18,11 +22,11 @@ audio offset moves judging and rendering together. Immediate fail
 blanks the field and fades the music. A debug overlay (options) shows backend,
 FPS, frame time, output latency, clock drift and timing-error statistics.
 Offsets are stored per device profile (`ddi_platform::DeviceFingerprint`:
-audio path from sample rate and latencies, display from screen size, DPR and
-measured refresh rate); an unknown device prompts to calibrate at song start,
-and device changes mid-play are flagged on the results. Receptor snap draws a
-note exactly on the receptor in its closest frame. Awaiting the phase-3 review
-before widening scope.
+audio path from sample rate and latencies, display from screen size and DPR;
+the measured refresh rate is shown but not part of the key because
+variable-rate panels change it); an unknown device prompts to calibrate at
+song start, and device changes mid-play are flagged on the results. Receptor
+snap draws a note exactly on the receptor in its closest frame.
 Detailed research with sources lives in [`docs/research/`](research/):
 
 - [`formats-sm-ssc-dwi.md`](research/formats-sm-ssc-dwi.md) — StepMania `.sm`/`.ssc` and DWI formats, timing semantics, existing parsers, test fixtures.
@@ -69,6 +73,8 @@ Semantics an importer must get right (all verified against StepMania source):
 
 Intentional deviations from StepMania 5.1 in our importer (more forgiving, documented in `chart/src/formats/sm.rs`): per-note `{mods:len}` attack suffixes are skipped rather than read as a column; `.ssc` files containing negative BPMs/stops are converted to warps like `.sm` instead of being rejected. `A` note characters are ignored like SM 5.1.
 
+The `.dwi` importer (`chart/src/formats/dwi.rs`, whose module doc lists every deviation) follows the loader StepMania shipped up to 5.1.0. The current `5_1-new` branch carries an ITGmania change (`829f49f622`) that misreads jumps (`<24>` places only Down); we do not reproduce it. Other deviations: steps-type tags are case-insensitive, panels missing from the layout are dropped instead of landing in column 0, `#DISPLAYBPM` is read as decimal, non-positive freezes are dropped, and a chart StepMania would assert on is skipped.
+
 ### 2.2 Rules (judgement, scoring, combo, gauge)
 
 The five games disagree on nearly every axis, which is the argument for a data-driven `Ruleset`:
@@ -93,7 +99,8 @@ Decisions, with the reasoning in `tech-stack.md`:
 - **Playback.** Decode whole song with `decodeAudioData` into one `AudioBuffer` kept in browser memory (never copied into wasm), start with ~100 ms lookahead via `AudioBufferSourceNode.start(when, offset)`. `<audio>` elements only for song-select previews. Prefer OGG/Opus; MP3 without a LAME/Xing header has decoder-dependent ~25 ms gaps that StepMania never trimmed, so per-song offset editing is a first-class feature.
 - **Input.** Keyboard via `event.code` + `event.timeStamp`, ignore repeats, track pressed set. Gamepads must be polled; use a `MessageChannel` 1 ms wake loop rather than rAF (DDR is the W3C's own motivating example). Dance pads enumerate as HID gamepads; WebHID is a Chromium-only extra for later.
 - **Rendering.** wgpu 30 with `webgpu` + `webgl` features (WebGPU is Baseline since Jan 2026 but Firefox/Linux still needs the fallback), atlas-instanced sprites, glyphon for dynamic text, pre-rendered sprites for judgement words. Yew/DOM for everything outside gameplay. No winit on web; rAF + web-sys. Same `render` crate on desktop under winit. Bevy and macroquad rejected: their audio layers hide the hardware clock and scheduled starts.
-- **Storage/import.** Bundled demo songs via Trunk `copy-dir`; user imports via `<input webkitdirectory>`, drag-and-drop, zip (`zip` crate, deflate only), stored in OPFS with IndexedDB fallback, `navigator.storage.persist()` after first import.
+- **Storage/import.** Bundled demo songs via Trunk `copy-dir`; user imports via `<input webkitdirectory>`, drag-and-drop (`webkitGetAsEntry` for folders) or zip, stored as `Blob`s in IndexedDB, `navigator.storage.persist()` after the first import. Zips are read sans-IO by slicing the `File` (`ddi-library::zip`: central directory, then one entry at a time; stored entries go to storage as slices without entering wasm), so a large pack never sits in wasm memory. IndexedDB instead of OPFS: see decision 8.
+- **Fallback decode.** When `decodeAudioData` rejects a file, Symphonia 0.6 (features `ogg` + `vorbis` only, ≈ 95 KB gzip, MPL-2.0) decodes it in wasm (`ddi-platform` feature `decode`). It covers Safari's Ogg Vorbis gap; Opus has no pure-Rust decoder there and stays browser-only.
 - **Desktop parity.** `web-audio-api` 1.7 (Rust Web Audio API on cpal with `current_time`, `output_latency`, `start_at_with_offset`) makes the desktop audio backend a transliteration of the web one. winit 0.30 + gilrs on a 1 kHz input thread, SDL3 as fallback if winit's missing event timestamps hurt.
 - **Constraints.** GitHub Pages cannot set COOP/COEP: no SharedArrayBuffer, no wasm threads, no cpal AudioWorklet backend, 100 µs timers in Chrome. The design never needs them. Firefox rounds event timestamps to 1–2 ms; `resistFingerprinting` makes it 100 ms, so detect and warn.
 - **Size budget.** ≤ 2 MB compressed first load (wgpu both backends ≈ 2–3 MB raw, glyphon ≈ 1–2 MB raw, Yew small) with `opt-level="z"`, fat LTO, `wasm-opt -Oz`.
@@ -115,7 +122,8 @@ DitoDitoInfinito/
   chart/        ddi-chart     chart model + TimingMap + importers (sm, ssc, dwi, danoni, ffr)
   engine/       ddi-engine    SongClock, judge, combo, score, gauge, scroll, options → Frame + events
   render/       ddi-render    wgpu scene (atlas sprites, text), NoteSkin, background layers
-  platform/     ddi-platform  traits: AudioBackend, InputSource, HostClock, SongStore, Surface
+  platform/     ddi-platform  traits: AudioBackend, InputSource, HostClock, SongStore, Surface; optional Vorbis decode
+  library/      ddi-library   pack scanning, sans-IO zip reader, manifest entries (shared by app and xtask)
   app/          ddi (web)     Yew shell, web-sys platform impls, canvas host     [bin, wasm32]
   xtask/                      regen-seo, fixture tools, (later) atlas packing
   assets/       songs/ (CC-licensed .sm fixtures), skins/, fonts/
@@ -123,7 +131,7 @@ DitoDitoInfinito/
   (later) desktop/  ddi-desktop  winit + wgpu + web-audio-api + gilrs            [bin, native]
 ```
 
-Dependency direction: `app` → {`platform-web impls`, `render`, `engine`, `chart`}; `render` → `engine` (reads `Frame`); `engine` → `chart`; `platform` → nothing. `chart`, `engine`, `platform` compile for native and wasm and are tested with plain `cargo test`.
+Dependency direction: `app` → {`platform-web impls`, `render`, `engine`, `library`, `chart`}; `library` → `chart`; `render` → `engine` (reads `Frame`); `engine` → `chart`; `platform` → nothing. `chart`, `engine`, `platform` compile for native and wasm and are tested with plain `cargo test`.
 
 ### 3.2 `chart`: the internal model
 
@@ -231,7 +239,7 @@ pub trait InputSource { fn poll(&mut self, out: &mut Vec<RawInput>); }   // RawI
 pub trait SongStore  { async fn list(&self) -> Vec<SongSummary>; async fn load(&self, id) -> Result<FileSet>; async fn import(&mut self, files: FileSet) -> Result<SongId>; }
 ```
 
-`Bindings` maps `(device, control)` → `(player, lane)` and lives in the engine so a dance pad, a keyboard and a touch overlay are interchangeable. Web implementations: `WebAudioBackend` (noynoynoy's `audio.rs` is the starting point), `WebKeyboard`, `WebGamepadPoller` (MessageChannel loop), `TouchLanes`, `BundledStore` (fetch under `assets/songs/`), `OpfsStore` with IndexedDB fallback, `Zip/Directory import`. The Yew app owns routing (hash router), song select, options, calibration, results, and a canvas component that hosts the wgpu renderer and the game loop (rAF). Desktop later reuses everything except these implementations.
+`Bindings` maps `(device, control)` → `(player, lane)` and lives in the engine so a dance pad, a keyboard and a touch overlay are interchangeable. Web implementations: `WebAudioBackend` (noynoynoy's `audio.rs` is the starting point), `WebKeyboard`, `WebGamepadPoller` (MessageChannel loop), `TouchLanes`, `BundledStore` (fetch under `assets/songs/`), the IndexedDB song library (`app/src/songs.rs`, `app/src/web/idb.rs`) and the folder/zip/drop import (`app/src/import.rs`, `app/src/web/files.rs`). The Yew app owns routing (hash router), song select, options, calibration, results, and a canvas component that hosts the wgpu renderer and the game loop (rAF). Desktop later reuses everything except these implementations.
 
 ---
 
@@ -255,21 +263,27 @@ Definition of done: a chart plays in Chrome, Firefox and Safari with judgements 
 
 ## 5. Roadmap
 
-| Phase | Deliverable | Notes |
-|---|---|---|
-| 0 Scaffold | workspace, crates with empty APIs, Trunk boot shell, SEO xtask, justfile, `REUSE.toml` + `LICENSES/` + `reuse lint` in CI, CI deploy of a "hello" page | copy conventions from noynoynoy/heddobureika and detonito |
-| 1 Core | `chart` (`.sm` parser, `TimingMap` with seconds↔tick, warp conversion) and `engine` (clock, judge, holds, combo, score, gauge, scroll) with native tests and replay fixtures; differential tests vs `rgchart`/`danceparser` | no browser needed; this is where correctness lives |
-| 2 Web platform | `WebAudioBackend`, keyboard, canvas + wgpu renderer, game loop; play a bundled chart | first playable |
-| 3 MVP | song select, options, calibration, results, bundled songs with `PROVENANCE.toml`, `xtask gen-credits` + Credits screen, deploy | ship to Pages, add to landing page |
-| 4 Format breadth | `.ssc` (split timing, warps, speeds, scrolls, fakes), `.dwi`, rolls/lifts/fakes/mines judged, shock arrows | fixtures from StepMania's bundled songs and hand-written DWI |
-| 5 Import & storage | folder/zip/drag-drop import, OPFS/IDB store, per-song offset editor, Symphonia fallback decode | Chromium `showDirectoryPicker` as bonus |
-| 6 Layouts & DanOni | `Layout` as data in the UI, 6-panel solo, DanOni 5/7/7i/9A/11 key modes, onigiri lane, `speed_data`/`boost_data`, colour events, lyrics (`word_data`) | DanOni presets for judge/gauge/score |
-| 7 Input devices | gamepad poller, dance-pad profiles, touch lanes, WebHID experiment | latency measurement tooling |
-| 8 Presentation | skin packs (static/quantized/rainbow/vivid), background layers (BGCHANGES, DanOni back/mask, generative), DDR option set (Boost/Brake/Wave, Hidden/Sudden, Turn, Cut) | |
-| 9 Desktop | `desktop` crate: winit + wgpu + web-audio-api + gilrs; same `engine`/`render`/`chart` | SDL3 if winit timestamps are a problem |
-| 10 Later | FFR `beatBox` import (user-owned data), replays, more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | |
+Status as of 2026-10-07.
 
-## 6. Decisions (confirmed 2026-10-06)
+| Phase | Status | Deliverable | Notes |
+|---|---|---|---|
+| 0 Scaffold | done | workspace, crates with empty APIs, Trunk boot shell, SEO xtask, justfile, `REUSE.toml` + `LICENSES/` + `reuse lint` in CI, CI deploy of a "hello" page | copy conventions from noynoynoy/heddobureika and detonito |
+| 1 Core | done | `chart` (`.sm` parser, `TimingMap` with seconds↔tick, warp conversion) and `engine` (clock, judge, holds, combo, score, gauge, scroll) with native tests and replay fixtures; differential tests vs `rgchart`/`danceparser` | no browser needed; this is where correctness lives. The differential tests were not written |
+| 2 Web platform | done | `WebAudioBackend`, keyboard, canvas + wgpu renderer, game loop; play a bundled chart | first playable |
+| 3 MVP | done | song select, options, calibration, results, bundled songs with `PROVENANCE.toml`, `xtask gen-credits` + Credits screen, deploy | deployed with four OutFox Serenity songs |
+| 4 Format breadth | done | `.ssc` (split timing, warps, speeds, scrolls, fakes), `.dwi`, rolls/lifts/fakes/mines judged, shock arrows | `.ssc` (speeds/scrolls drawn) and `.dwi` (hand-written fixtures, cross-checked against an equivalent `.sm`); rolls/lifts/fakes/mines verified in play with autoplay on a hand-made chart; shock arrows exist in the model and are judged as mines, but no supported format produces them |
+| 5 Import & storage | done | folder/zip/drag-drop import, OPFS/IDB store, per-song offset editor, Symphonia fallback decode | IndexedDB only (decision 8); per-song offset on the results screen; Ogg Vorbis fallback only. Banners/backgrounds without tags are classified by image size like StepMania. Not done: Chromium `showDirectoryPicker` (re-scan a pack in place), Shift-JIS text |
+| 6 Layouts & DanOni | not started | `Layout` as data in the UI, 6-panel solo, DanOni 5/7/7i/9A/11 key modes, onigiri lane, `speed_data`/`boost_data`, colour events, lyrics (`word_data`) | DanOni presets for judge/gauge/score |
+| 7 Input devices | not started | gamepad poller, dance-pad profiles, touch lanes, WebHID experiment | latency measurement tooling |
+| 8 Presentation | partial | skin packs (static/quantized/rainbow/vivid), background layers (BGCHANGES, DanOni back/mask, generative), DDR option set (Boost/Brake/Wave, Hidden/Sudden, Turn, Cut) | one procedural quantized skin; Boost/Brake/Wave are stubs that scroll as Normal; no backgrounds, Hidden/Sudden, Turn or Cut |
+| 9 Desktop | not started | `desktop` crate: winit + wgpu + web-audio-api + gilrs; same `engine`/`render`/`chart` | SDL3 if winit timestamps are a problem |
+| 10 Later | not started | FFR `beatBox` import (user-owned data), replays, more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | |
+
+Done beyond the original plan: calibration that converges on the real
+gameplay path, per-device audio/display offset profiles with app-wide banners,
+receptor snap, fail fade, cancel gesture, debug overlay.
+
+## 6. Decisions (1–7 confirmed 2026-10-06; 8–10 made with phase 5, 2026-10-07)
 
 1. **Licence: MIT.** Bundled songs keep their own licences in `assets/songs/*/LICENSE`.
 2. **Rendering: wgpu from day one** (WebGPU + WebGL2 fallback), not Canvas2D, because desktop parity is a stated goal and heddobureika already proves the wgpu+Trunk path. Costs ~1 MB on the wire.
@@ -278,6 +292,9 @@ Definition of done: a chart plays in Chrome, Firefox and Safari with judgements 
 5. **Deploy path: lowercase `--public-url /ditoditoinfinito/`** derived in the workflow from the repo name, with hash routing. Correction (2026-10-07): on a custom domain GitHub Pages serves the project path **case-sensitively** (`/DitoDitoInfinito/` and `/ditoditoinfinito/` are different URLs), so the repository was renamed to `sugoijan/ditoditoinfinito`; the local folder keeps its mixed-case name.
 6. **Branch: `main`** (matches landing-page and heddobureika).
 7. **MVP ruleset presets: `itg` and `ddr-a`.** DDR A+ exact windows are undocumented, so `ddr-a` uses the community frame table (±16.7/33/92/142 ms) and is labelled approximate in the UI.
+8. **Imported songs live in IndexedDB as `Blob`s, not OPFS** (2026-10-07). The access pattern is write once, read whole files, which IndexedDB handles everywhere; OPFS is absent in Firefox private windows and Safari gained main-thread writes only in version 26. One code path instead of two.
+9. **Fallback decode is Ogg Vorbis only** (2026-10-07): browsers decode MP3/WAV/FLAC natively, Opus has no pure-Rust decoder, and each extra Symphonia codec costs wasm size.
+10. **Per-song offset moves the notes, not the audio**: `Song::shift_notes` lowers `#OFFSET` (and every split timing), like StepMania's song offset edit, stored per song id in the settings. Positive = notes later.
 
 ## 7. Risks
 
@@ -287,6 +304,7 @@ Definition of done: a chart plays in Chrome, Firefox and Safari with judgements 
 - Firefox timestamp precision and `resistFingerprinting`. Mitigation: detect quantised timestamps and warn.
 - Ecosystem churn (wgpu majors every few months, winit 0.31 beta, Trunk 0.22 rc). Mitigation: pin, upgrade deliberately, keep wgpu behind `render`.
 - DDR's exact modern windows and gauge numbers are not public; presets are approximations and should say so in the UI.
+- Imported packs: Shift-JIS simfiles and zip names come out as Windows-1252/CP437 mojibake (the charts still parse); wasm memory grows by a song's raw PCM size after a fallback decode and never shrinks; browsers may evict the library unless `persist()` is granted (Safari's 7-day rule for origins without interaction).
 
 ## 8. Bundled songs: licensing and attribution
 

@@ -54,13 +54,14 @@ pub fn parse_ssc(text: &str) -> Result<Song, ParseError> {
     parse(text, Flavor::Ssc)
 }
 
-/// Dispatch on the file extension (`sm`/`ssc`, with or without the dot,
-/// any case).
+/// Dispatch on the file extension (`sm`/`ssc`/`dwi`, with or without the
+/// dot, any case).
 pub fn parse_simfile(text: &str, extension: &str) -> Result<Song, ParseError> {
     let ext = extension.trim_start_matches('.').to_ascii_lowercase();
     match ext.as_str() {
         "sm" => parse_sm(text),
         "ssc" => parse_ssc(text),
+        "dwi" => crate::formats::dwi::parse_dwi(text),
         other => Err(ParseError::Malformed(format!(
             "unsupported simfile extension `{other}`"
         ))),
@@ -72,7 +73,7 @@ pub fn parse_simfile(text: &str, extension: &str) -> Result<Song, ParseError> {
 // ---------------------------------------------------------------------------
 
 /// Longest numeric prefix as `f64`, `0.0` when none (`StringToFloat`).
-fn sm_float(s: &str) -> f64 {
+pub(crate) fn sm_float(s: &str) -> f64 {
     let s = s.trim();
     let b = s.as_bytes();
     let mut i = 0;
@@ -115,7 +116,7 @@ fn sm_float(s: &str) -> f64 {
 }
 
 /// Longest integer prefix, `0` when none (`atoi`).
-fn sm_int(s: &str) -> i64 {
+pub(crate) fn sm_int(s: &str) -> i64 {
     let s = s.trim();
     let b = s.as_bytes();
     let mut i = 0;
@@ -597,7 +598,7 @@ fn process_bpms_and_stops(
 // ---------------------------------------------------------------------------
 
 /// `OldStyleStringToDifficulty` (DWI-compatible aliases) plus the plain names.
-fn parse_difficulty(s: &str) -> Result<Difficulty, ParseError> {
+pub(crate) fn parse_difficulty(s: &str) -> Result<Difficulty, ParseError> {
     Ok(match s.trim().to_ascii_lowercase().as_str() {
         "beginner" => Difficulty::Beginner,
         "easy" | "basic" | "light" => Difficulty::Easy,
@@ -826,7 +827,7 @@ fn parse_note_data(data: &str, lanes: Option<usize>) -> Vec<Note> {
 // Song-level tags.
 // ---------------------------------------------------------------------------
 
-fn opt_string(s: &str) -> Option<String> {
+pub(crate) fn opt_string(s: &str) -> Option<String> {
     if s.is_empty() {
         None
     } else {
@@ -952,7 +953,7 @@ struct ChartAcc {
     unknown: Vec<(String, String)>,
 }
 
-fn empty_song(format: SourceFormat) -> Song {
+pub(crate) fn empty_song(format: SourceFormat) -> Song {
     Song {
         title: String::new(),
         subtitle: String::new(),
@@ -1531,6 +1532,10 @@ mod tests {
     fn simfile_dispatch() {
         assert!(parse_simfile("#TITLE:x;", ".SM").is_ok());
         assert!(parse_simfile("#TITLE:x;", "ssc").is_ok());
-        assert!(parse_simfile("#TITLE:x;", "dwi").is_err());
+        assert_eq!(
+            parse_simfile("#TITLE:x;", "DWI").unwrap().source.format,
+            SourceFormat::Dwi
+        );
+        assert!(parse_simfile("#TITLE:x;", "ksf").is_err());
     }
 }

@@ -20,15 +20,15 @@ use crate::game_loop::GameLoop;
 use crate::play::{PlaySession, SessionConfig, SessionEvent};
 use crate::router::Route;
 use crate::settings::Settings;
-use crate::songs::{load_manifest, load_song};
+use crate::songs::load_song;
 use crate::web::audio::WebAudio;
 use crate::web::gfx::{BackendPreference, Gfx};
 
 /// What the screen plays.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SongSource {
-    /// A bundled song by manifest id and chart index.
-    Bundled { id: String, chart: usize },
+    /// A bundled or imported song by id and chart index.
+    Song { id: String, chart: usize },
     /// The generated calibration chart.
     Calibration(CalMode),
 }
@@ -59,6 +59,8 @@ pub(crate) enum Msg {
     Session(SessionEvent),
     Retry,
     SaveCalibration,
+    /// On the results: set this song's offset (seconds, notes later).
+    SetSongOffset(f64),
 }
 
 #[derive(Properties, PartialEq)]
@@ -84,6 +86,8 @@ pub(crate) struct GameCanvas {
     names: Option<ddi_engine::rules::JudgeNames>,
     settings: Settings,
     devices: Option<DeviceProfile>,
+    /// Song offset (seconds) the current or last play ran with.
+    played_offset: f64,
     _keys: Option<EventListener>,
 }
 
@@ -124,25 +128,16 @@ impl Component for GameCanvas {
 
     fn create(ctx: &Context<Self>) -> Self {
         match ctx.props().source.clone() {
-            SongSource::Bundled { id, chart: _ } => {
+            SongSource::Song { id, chart: _ } => {
                 ctx.link().send_future(async move {
-                    let r = async {
-                        let manifest = load_manifest().await?;
-                        let entry = manifest
-                            .songs
-                            .iter()
-                            .find(|s| s.id == id)
-                            .cloned()
-                            .ok_or_else(|| format!("unknown song `{id}`"))?;
-                        let loaded = load_song(&entry).await?;
-                        Ok(Rc::new(Loaded {
+                    let r = load_song(&id).await.map(|loaded| {
+                        Rc::new(Loaded {
                             title: loaded.entry.title.clone(),
                             subtitle: loaded.entry.artist.clone(),
                             song: loaded.song,
                             music_bytes: Some(loaded.music_bytes),
-                        }))
-                    }
-                    .await;
+                        })
+                    });
                     Msg::SongLoaded(r)
                 });
             }
@@ -189,6 +184,7 @@ impl Component for GameCanvas {
             names: None,
             settings: Settings::load(),
             devices: None,
+            played_offset: 0.0,
             _keys: keys,
         }
     }
@@ -362,7 +358,7 @@ impl Component for GameCanvas {
                 }
                 match &ctx.props().source {
                     SongSource::Calibration(_) => Route::Calibrate.navigate(),
-                    SongSource::Bundled { .. } => Route::Home.navigate(),
+                    SongSource::Song { .. } => Route::Home.navigate(),
                 }
                 true
             }
@@ -378,6 +374,16 @@ impl Component for GameCanvas {
                     game.clear_session();
                 }
                 self.stage = Stage::Idle;
+                true
+            }
+            Msg::SetSongOffset(seconds) => {
+                let SongSource::Song { id, .. } = &ctx.props().source else {
+                    return false;
+                };
+                let mut settings = Settings::load();
+                settings.set_song_offset(id, seconds);
+                settings.save();
+                self.settings = settings;
                 true
             }
             Msg::SaveCalibration => {
@@ -468,7 +474,16 @@ impl Component for GameCanvas {
                     *device_changed,
                     link,
                 ),
-                _ => results_view(results, self.names.as_ref(), *device_changed, link),
+                (SongSource::Song { id, .. }, _) => results_view(
+                    results,
+                    self.names.as_ref(),
+                    *device_changed,
+                    Some((self.played_offset, self.settings.song_offset(id))),
+                    link,
+                ),
+                (SongSource::Calibration(_), None) => {
+                    results_view(results, self.names.as_ref(), *device_changed, None, link)
+                }
             },
             (_, _, Stage::Saved(o)) => match source {
                 SongSource::Calibration(mode) => calibration_view(
@@ -481,7 +496,7 @@ impl Component for GameCanvas {
                     false,
                     link,
                 ),
-                SongSource::Bundled { .. } => html! {},
+                SongSource::Song { .. } => html! {},
             },
         };
         let debug = if self.settings.debug {
@@ -556,7 +571,7 @@ impl GameCanvas {
             return;
         };
         let (chart, mut config) = match &ctx.props().source {
-            SongSource::Bundled { chart, .. } => (
+            SongSource::Song { chart, .. } => (
                 *chart,
                 SessionConfig::from_settings(
                     &self.settings,
@@ -582,7 +597,21 @@ impl GameCanvas {
         };
         config.auto_bias = ctx.props().auto_bias;
         self.names = Some(config.ruleset.names.clone());
-        match PlaySession::start(&song.song, chart, &self.settings, config, audio, buffer) {
+        let shift = match &ctx.props().source {
+            SongSource::Song { id, .. } => self.settings.song_offset(id),
+            SongSource::Calibration(_) => 0.0,
+        };
+        self.played_offset = shift;
+        let shifted;
+        let play_song = if shift == 0.0 {
+            &song.song
+        } else {
+            let mut s = song.song.clone();
+            s.shift_notes(shift);
+            shifted = s;
+            &shifted
+        };
+        match PlaySession::start(play_song, chart, &self.settings, config, audio, buffer) {
             Ok(session) => {
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.set_session(session);
@@ -659,7 +688,7 @@ impl GameCanvas {
 
 fn back_route(source: &SongSource) -> Route {
     match source {
-        SongSource::Bundled { .. } => Route::Home,
+        SongSource::Song { .. } => Route::Home,
         SongSource::Calibration(_) => Route::Calibrate,
     }
 }
@@ -668,6 +697,7 @@ fn results_view(
     r: &Results,
     names: Option<&ddi_engine::rules::JudgeNames>,
     device_changed: bool,
+    song_offset: Option<(f64, f64)>,
     link: &html::Scope<GameCanvas>,
 ) -> Html {
     let tier_name = |i: usize| -> String {
@@ -711,11 +741,51 @@ fn results_view(
                     <tr><td class="muted">{ "fast / slow" }</td><td>{ format!("{} / {}", r.fast, r.slow) }</td></tr>
                     <tr><td class="muted">{ "mean offset" }</td><td>{ format!("{:+.1} ms (σ {:.1})", r.mean_delta * 1000.0, r.stddev_delta * 1000.0) }</td></tr>
                 </table>
+                { for song_offset.map(|(played, current)| song_offset_editor(r, played, current, link)) }
                 <div class="results-actions">
                     <button onclick={link.callback(|_| Msg::Retry)}>{ "retry" }</button>
                     <a href={Route::Home.to_hash()}>{ "song list" }</a>
                 </div>
             </div>
+        </div>
+    }
+}
+
+/// Hits needed before the mean error is offered as this song's offset.
+const MIN_HITS_FOR_SONG_OFFSET: u32 = 20;
+
+/// Per-song offset on the results: nudge by a millisecond, adopt the mean
+/// error of this play, or reset. Takes effect from the next play. The
+/// suggestion builds on the offset the play ran with, not the current one,
+/// so adopting it twice does not add the error twice.
+fn song_offset_editor(
+    r: &Results,
+    played: f64,
+    current: f64,
+    link: &html::Scope<GameCanvas>,
+) -> Html {
+    let set = |v: f64| link.callback(move |_| Msg::SetSongOffset(v));
+    let ms = |s: f64| (s * 1000.0).round() / 1000.0;
+    let hits = r.fast + r.slow;
+    let suggested = ms(played + r.mean_delta);
+    let suggest = (hits >= MIN_HITS_FOR_SONG_OFFSET
+        && (suggested - played).abs() >= 0.002
+        && (suggested - current).abs() >= 0.001)
+        .then(|| {
+            html! {
+                <button onclick={set(suggested)} title="Shift the notes by this play's mean error. If every song feels off, calibrate instead.">
+                    { format!("use {:+.0} ms", suggested * 1000.0) }
+                </button>
+            }
+        });
+    html! {
+        <div class="song-offset">
+            <span class="muted">{ "song offset" }</span>
+            <button class="small" onclick={set(ms(current - 0.001))} title="notes 1 ms earlier">{ "−1" }</button>
+            <span class="song-offset-value">{ format!("{:+.0} ms", current * 1000.0) }</span>
+            <button class="small" onclick={set(ms(current + 0.001))} title="notes 1 ms later">{ "+1" }</button>
+            { for suggest }
+            { if current != 0.0 { html!{ <button class="small" onclick={set(0.0)}>{ "reset" }</button> } } else { html!{} } }
         </div>
     }
 }

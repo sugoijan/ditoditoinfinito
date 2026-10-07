@@ -1,13 +1,15 @@
 //! `gen-songs`: scan `assets/songs/<id>/` and emit `target/songs/index.json`,
 //! the manifest the app fetches at runtime. Each song directory must contain
-//! exactly one `.ssc`/`.sm` and a `PROVENANCE.toml` naming the audio file.
+//! a simfile (`.ssc`, `.sm` or `.dwi`, preferred in that order, as for imported
+//! songs) and a `PROVENANCE.toml` naming the audio file.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use ddi_chart::formats::sm::parse_simfile;
-use serde::{Deserialize, Serialize};
+use ddi_library::manifest::{EntryMeta, Manifest, summarize};
+use serde::Deserialize;
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -62,41 +64,6 @@ pub(crate) struct LicenseEntry {
     pub(crate) url: String,
 }
 
-#[derive(Debug, Serialize, PartialEq)]
-struct ManifestEntry {
-    id: String,
-    title: String,
-    artist: String,
-    chart: String,
-    music: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    banner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    background: Option<String>,
-    credit: String,
-    bpm: String,
-    preview_start: f64,
-    preview_length: f64,
-    /// Playable charts, in file order; `index` is the position in `Song::charts`.
-    charts: Vec<ChartInfo>,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-struct ChartInfo {
-    index: usize,
-    layout: String,
-    difficulty: String,
-    meter: u32,
-    name: String,
-    credit: String,
-    notes: usize,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-struct Manifest {
-    songs: Vec<ManifestEntry>,
-}
-
 pub(crate) fn scan(root: &Path) -> Result<Vec<(String, Provenance, String)>> {
     let dir = root.join("assets/songs");
     let mut out = Vec::new();
@@ -117,19 +84,14 @@ pub(crate) fn scan(root: &Path) -> Result<Vec<(String, Provenance, String)>> {
                 .with_context(|| format!("reading {}", prov_path.display()))?,
         )
         .with_context(|| format!("parsing {}", prov_path.display()))?;
-        let mut charts: Vec<String> = fs::read_dir(&path)?
+        let names: Vec<String> = fs::read_dir(&path)?
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
-            .filter(|n| n.ends_with(".ssc") || n.ends_with(".sm"))
             .collect();
-        charts.sort();
-        // Prefer .ssc when both exist.
-        let chart = charts
-            .iter()
-            .find(|n| n.ends_with(".ssc"))
-            .or(charts.first())
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("{id}: no .ssc/.sm chart file"))?;
+        // Same choice as for imported songs (.ssc over .sm over .dwi).
+        let chart = ddi_library::pack::pick_chart(names.iter().map(String::as_str))
+            .map(|(name, _)| name.to_string())
+            .ok_or_else(|| anyhow::anyhow!("{id}: no .ssc/.sm/.dwi chart file"))?;
         if !path.join(&prov.music).is_file() {
             bail!("{id}: music file `{}` missing", prov.music);
         }
@@ -151,51 +113,19 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
         let text = fs::read_to_string(root.join("assets/songs").join(id).join(chart))?;
         let ext = chart.rsplit('.').next().unwrap_or("sm");
         let song = parse_simfile(&text, ext).map_err(|e| anyhow::anyhow!("{id}/{chart}: {e}"))?;
-        let (lo, hi) = song.timing.bpm_range();
-        let bpm = if (lo - hi).abs() < 0.01 {
-            format!("{}", lo.round() as i64)
-        } else {
-            format!("{}-{}", lo.round() as i64, hi.round() as i64)
-        };
-        let mut indexed: Vec<_> = song
-            .charts
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| ddi_chart::Layout::builtin(&c.layout).is_some())
-            .collect();
-        // Layout, then difficulty slot, then meter (file order is arbitrary).
-        indexed.sort_by(|(_, a), (_, b)| {
-            a.layout
-                .cmp(&b.layout)
-                .then(a.difficulty.cmp(&b.difficulty))
-                .then(a.meter.cmp(&b.meter))
-        });
-        let charts = indexed
-            .into_iter()
-            .map(|(index, c)| ChartInfo {
-                index,
-                layout: c.layout.clone(),
-                difficulty: format!("{:?}", c.difficulty),
-                meter: c.meter,
-                name: c.name.clone(),
-                credit: c.credit.clone(),
-                notes: c.judged_note_count(),
-            })
-            .collect();
-        entries.push(ManifestEntry {
-            id: id.clone(),
-            title: p.title.clone(),
-            artist: p.artist.clone(),
-            chart: chart.clone(),
-            music: p.music.clone(),
-            banner: p.banner.clone(),
-            background: p.background.clone(),
-            credit: p.credit.clone(),
-            bpm,
-            preview_start: song.preview_start,
-            preview_length: song.preview_length,
-            charts,
-        });
+        entries.push(summarize(
+            EntryMeta {
+                id: id.clone(),
+                title: p.title.clone(),
+                artist: p.artist.clone(),
+                chart: chart.clone(),
+                music: p.music.clone(),
+                banner: p.banner.clone(),
+                background: p.background.clone(),
+                credit: p.credit.clone(),
+            },
+            &song,
+        ));
     }
     let manifest = Manifest { songs: entries };
     let json = serde_json::to_string_pretty(&manifest)? + "\n";

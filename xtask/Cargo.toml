@@ -14,3 +14,4 @@ serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 ddi-chart.workspace = true
+ddi-library.workspace = true

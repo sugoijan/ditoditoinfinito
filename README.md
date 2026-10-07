@@ -1,7 +1,8 @@
 # Dito Dito Infinito (Demo)
 
 A dance rhythm game (four arrows, hit them in time with the music) that plays
-StepMania simfiles. Live at
+StepMania and DWI simfiles: a few bundled songs, plus any packs you import
+(folder, zip or drag and drop; they stay in your browser). Live at
 `https://sugoijan.dev/ditoditoinfinito/`.
 
 Implementation notes: written in Rust; the web build is wasm (Trunk, GitHub

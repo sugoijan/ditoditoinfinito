@@ -30,7 +30,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Native tests
-        run: cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p xtask
+        run: cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p xtask --features ddi-platform/decode
       - name: Generated files are fresh
         run: |
           cargo run -p xtask -- gen-songs
