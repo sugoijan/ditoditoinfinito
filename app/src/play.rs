@@ -82,6 +82,8 @@ pub(crate) struct PlaySession {
     pub(crate) names: JudgeNames,
     pub(crate) render: RenderOptions,
     audio: WebAudio,
+    /// Music volume the session plays at (0 in the muted calibration).
+    volume: f32,
     keyboard: Option<WebKeyboard>,
     bindings: Bindings,
     held: Vec<bool>,
@@ -148,6 +150,11 @@ pub(crate) enum SessionEvent {
 }
 
 impl PlaySession {
+    /// Audio state for the debug overlay (see [`WebAudio::status_line`]).
+    pub(crate) fn audio_status(&self) -> String {
+        format!("{} · volume {:.2}", self.audio.status_line(), self.volume)
+    }
+
     /// Builds the session and schedules the start on the audio clock.
     /// `audio` must have been created inside a user gesture.
     pub(crate) fn start(
@@ -314,6 +321,7 @@ impl PlaySession {
         };
         let lanes = layout.lanes.len();
         Ok(PlaySession {
+            volume: config.volume,
             player,
             layout,
             names,

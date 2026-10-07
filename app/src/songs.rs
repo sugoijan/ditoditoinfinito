@@ -115,19 +115,6 @@ impl Library {
             unreadable,
         })
     }
-
-    pub(crate) fn find(&self, id: &str) -> Option<(&ManifestEntry, Origin)> {
-        self.bundled
-            .iter()
-            .find(|e| e.id == id)
-            .map(|e| (e, Origin::Bundled))
-            .or_else(|| {
-                self.imported
-                    .iter()
-                    .find(|s| s.entry.id == id)
-                    .map(|s| (&s.entry, Origin::Imported))
-            })
-    }
 }
 
 /// Imported songs, and the ids of records that do not parse.
@@ -180,6 +167,16 @@ pub(crate) async fn imported_banner_urls(entries: &[ManifestEntry]) -> Vec<(Stri
         .collect()
 }
 
+/// A song's encoded audio, bundled or imported (for previews).
+pub(crate) async fn load_music(entry: &ManifestEntry) -> Result<Vec<u8>, String> {
+    if is_imported_id(&entry.id) {
+        let db = Db::open().await?;
+        blob_bytes(&imported_blob(&db, &entry.id, &entry.music).await?).await
+    } else {
+        fetch_bytes(&format!("songs/{}/{}", entry.id, entry.music)).await
+    }
+}
+
 /// Key of an imported song's file in the `files` store.
 pub(crate) fn file_key(id: &str, file: &str) -> String {
     format!("{id}/{file}")
@@ -190,24 +187,6 @@ async fn imported_blob(db: &Db, id: &str, file: &str) -> Result<Blob, String> {
         .await?
         .and_then(|v| v.dyn_into::<Blob>().ok())
         .ok_or_else(|| format!("{file} is missing from the stored song; import it again"))
-}
-
-/// An object URL for one of a song's files (banner, music for previews).
-/// Bundled files have a plain URL; imported ones need
-/// [`crate::web::files::revoke_object_url`] when done.
-pub(crate) async fn media_url(
-    entry: &ManifestEntry,
-    origin: Origin,
-    file: &str,
-) -> Result<String, String> {
-    match origin {
-        Origin::Bundled => Ok(asset_url(&format!("songs/{}/{file}", entry.id))),
-        Origin::Imported => {
-            let db = Db::open().await?;
-            let blob = imported_blob(&db, &entry.id, file).await?;
-            object_url(&blob).ok_or_else(|| "could not create an object URL".to_string())
-        }
-    }
 }
 
 /// A song with its chart parsed and audio bytes still encoded.
