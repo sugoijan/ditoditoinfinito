@@ -337,6 +337,12 @@ impl GameLoop {
                 r.slow
             ));
         }
+        if let Some(s) = &self.session {
+            let status = s.audio_status();
+            set("audio", status.as_str().into());
+            text.push('\n');
+            text.push_str(&status);
+        }
         if let Some(d) = self.session.as_ref().and_then(|s| s.devices.as_ref()) {
             text.push_str(&format!(
                 "\naudio: {} · display: {}",

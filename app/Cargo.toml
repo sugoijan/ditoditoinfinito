@@ -24,6 +24,7 @@ js-sys.workspace = true
 console_error_panic_hook.workspace = true
 wgpu = { workspace = true, features = ["std", "webgpu", "webgl", "wgsl"] }
 web-sys = { workspace = true, features = [
+    "AnalyserNode",
     "AudioBuffer",
     "Blob",
     "BlobPropertyBag",

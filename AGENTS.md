@@ -74,6 +74,17 @@ the repo. Real third-party packs on the maintainer's machine may be used for
 one-off local tests only: never copy them into the repository, fixtures or
 published artifacts.
 
+Safari is tested by the maintainer on the published URL after a push: local
+origins are plain HTTP, which Safari treats as insecure, so local Safari
+results are not representative. Firefox and Chrome must not break.
+
+Start media from user gestures synchronously: create the `AudioContext` and
+call `play()` inside the click or key handler, with no `await` (storage read,
+fetch) in between. Safari refuses once the gesture is over, and the headless
+runs (launched with an autoplay override) cannot catch it; for previews, test
+with `--autoplay-policy=document-user-activation-required` and ask the
+maintainer to confirm in Safari.
+
 The autoplayer follows the
 physical cue (heard audio, or drawn arrows in the muted test), not the judged
 timeline; keep it that way or offset tests become meaningless.

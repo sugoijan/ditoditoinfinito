@@ -5,31 +5,36 @@
 use std::collections::HashMap;
 
 use gloo::events::{EventListener, EventListenerOptions};
+use gloo::timers::callback::Timeout;
 use wasm_bindgen::JsCast;
-use web_sys::{DragEvent, HtmlAudioElement, HtmlInputElement};
+use web_sys::{AudioBuffer, DragEvent, HtmlInputElement};
 use yew::prelude::*;
 
 use crate::import::{self, ImportReport};
 use crate::router::Route;
 use crate::settings::Settings;
-use crate::songs::{
-    Library, ManifestEntry, Origin, delete_imported, imported_banner_urls, media_url,
-};
+use crate::songs::{Library, ManifestEntry, delete_imported, imported_banner_urls, load_music};
+use crate::web::audio::WebAudio;
+
 use crate::web::files::{self, PickedFile, revoke_object_url};
+
+/// Preview length when the simfile gives none, and the longest one played.
+const DEFAULT_PREVIEW: f64 = 12.0;
+const MAX_PREVIEW: f64 = 30.0;
+/// Previews play a little under the gameplay volume.
+const PREVIEW_VOLUME: f32 = 0.75;
 
 pub(crate) enum Msg {
     Loaded(Result<Library, String>),
     /// Object URLs for imported banners, by song id, for the library load
     /// numbered by the first field.
     Banners(u64, Vec<(String, String)>),
-    /// Toggle the preview of a song (by id).
-    Preview(String),
-    PreviewReady {
-        id: String,
-        url: String,
-        origin: Origin,
-    },
-    PreviewEnded,
+    /// A preview whose audio context the click handler created.
+    PreviewStarted(Preview),
+    /// The preview's song is decoded; play it.
+    PreviewDecoded(String, AudioBuffer),
+    /// Stop the preview of this song, if it is the one playing.
+    PreviewEnded(String),
     Dragging(bool),
     /// Files picked or dropped; starts an import.
     Picked(Result<Vec<PickedFile>, String>),
@@ -69,13 +74,16 @@ pub(crate) struct SongSelect {
     _drag: Vec<EventListener>,
 }
 
-struct Preview {
+/// A song preview, played through Web Audio like gameplay: `<audio>`
+/// cannot play Ogg in Safari, while `decodeAudioData` (with the wasm
+/// fallback) can. The context is created inside the click, the only place
+/// Safari lets a page start audio.
+pub(crate) struct Preview {
     id: String,
-    audio: HtmlAudioElement,
-    /// Object URL to revoke when the preview stops (imported songs).
-    object_url: Option<String>,
-    /// `ended` and `error` (Safari cannot play Ogg previews).
-    _listeners: [EventListener; 2],
+    entry: ManifestEntry,
+    audio: WebAudio,
+    /// Ends the preview after its length.
+    timer: Option<Timeout>,
 }
 
 enum State {
@@ -135,60 +143,63 @@ impl Component for SongSelect {
                 self.revoke_banners();
                 self.banners = urls.into_iter().collect();
             }
-            Msg::Preview(id) => {
-                let was_playing = self.stop_preview().as_deref() == Some(id.as_str());
-                if was_playing {
-                    return true;
-                }
-                let State::Ready(library) = &self.state else {
-                    return false;
-                };
-                let Some((entry, origin)) = library.find(&id) else {
-                    return false;
-                };
-                let entry = entry.clone();
+            Msg::PreviewStarted(preview) => {
+                self.stop_preview();
+                let (id, entry, decoder) = (
+                    preview.id.clone(),
+                    preview.entry.clone(),
+                    preview.audio.decoder(),
+                );
                 ctx.link().send_future(async move {
-                    match media_url(&entry, origin, &entry.music).await {
-                        Ok(url) => Msg::PreviewReady {
-                            id: entry.id.clone(),
-                            url,
-                            origin,
-                        },
-                        Err(_) => Msg::PreviewEnded,
+                    let decoded = async {
+                        let bytes = load_music(&entry).await?;
+                        decoder.resume().await;
+                        decoder.decode(&bytes).await
+                    }
+                    .await;
+                    match decoded {
+                        Ok(buffer) => Msg::PreviewDecoded(id, buffer),
+                        Err(e) => {
+                            web_sys::console::warn_1(&format!("preview: {e}").into());
+                            Msg::PreviewEnded(id)
+                        }
                     }
                 });
+                self.preview = Some(preview);
             }
-            Msg::PreviewReady { id, url, origin } => {
-                let object_url = (origin == Origin::Imported).then(|| url.clone());
-                let State::Ready(library) = &self.state else {
-                    object_url.iter().for_each(|u| revoke_object_url(u));
+            Msg::PreviewDecoded(id, buffer) => {
+                let Some(p) = self.preview.as_mut().filter(|p| p.id == id) else {
                     return false;
                 };
-                let start = library.find(&id).map(|(e, _)| e.preview_start);
-                let (Some(start), Ok(audio)) = (start, HtmlAudioElement::new_with_src(&url)) else {
-                    object_url.iter().for_each(|u| revoke_object_url(u));
-                    return false;
+                let length = if p.entry.preview_length > 1.0 {
+                    p.entry.preview_length.min(MAX_PREVIEW)
+                } else {
+                    DEFAULT_PREVIEW
                 };
-                self.stop_preview();
-                // The <audio> element is fine for previews: ±50 ms is harmless
-                // here, and it streams instead of decoding the whole file.
-                audio.set_current_time(start);
-                audio.set_volume(0.6);
-                let _ = audio.play();
-                let stop = |kind: &'static str| {
-                    let link = ctx.link().clone();
-                    EventListener::new(&audio, kind, move |_| link.send_message(Msg::PreviewEnded))
-                };
-                let listeners = [stop("ended"), stop("error")];
-                self.preview = Some(Preview {
-                    id,
-                    audio,
-                    object_url,
-                    _listeners: listeners,
-                });
+                let volume = self.settings.volume * PREVIEW_VOLUME;
+                let start = p
+                    .entry
+                    .preview_start
+                    .clamp(0.0, (buffer.duration() - 1.0).max(0.0));
+                if p.audio
+                    .play_preview(&buffer, start, length, volume)
+                    .is_err()
+                {
+                    self.stop_preview();
+                    return true;
+                }
+                let link = ctx.link().clone();
+                p.timer = Some(Timeout::new((length * 1000.0) as u32 + 200, move || {
+                    link.send_message(Msg::PreviewEnded(id))
+                }));
+                return false;
             }
-            Msg::PreviewEnded => {
-                self.stop_preview();
+            Msg::PreviewEnded(id) => {
+                if self.preview.as_ref().is_some_and(|p| p.id == id) {
+                    self.stop_preview();
+                } else {
+                    return false;
+                }
             }
             Msg::Dragging(on) => {
                 if self.dragging == on {
@@ -268,7 +279,7 @@ impl Component for SongSelect {
             State::Ready(l) => l,
         };
         let card = |entry: &ManifestEntry, removal: Option<Removal>| -> Html {
-            let id = entry.id.clone();
+            let playing = self.preview.as_ref().is_some_and(|p| p.id == entry.id);
             let banner = match &entry.banner {
                 Some(_) if removal.is_some() => self.banners.get(&entry.id).cloned(),
                 Some(b) => Some(crate::songs::asset_url(&format!("songs/{}/{b}", entry.id))),
@@ -278,9 +289,9 @@ impl Component for SongSelect {
             song_card(
                 entry,
                 banner,
-                self.preview.as_ref().is_some_and(|p| p.id == entry.id),
+                playing,
                 self.settings.song_offset(&entry.id),
-                link.callback(move |_| Msg::Preview(id.clone())),
+                self.preview_callback(link, entry, playing),
                 remove,
             )
         };
@@ -335,14 +346,41 @@ impl Component for SongSelect {
 }
 
 impl SongSelect {
+    /// The ▶/■ button's handler. The audio context is created inside the
+    /// click event itself: Safari refuses to start audio once the gesture is
+    /// over (Yew runs `update` later, in a microtask).
+    fn preview_callback(
+        &self,
+        link: &html::Scope<Self>,
+        entry: &ManifestEntry,
+        playing: bool,
+    ) -> Callback<MouseEvent> {
+        let id = entry.id.clone();
+        if playing {
+            return link.callback(move |_| Msg::PreviewEnded(id.clone()));
+        }
+        let entry = entry.clone();
+        let link = link.clone();
+        Callback::from(move |_: MouseEvent| match WebAudio::new() {
+            Ok(audio) => {
+                audio.resume_now();
+                link.send_message(Msg::PreviewStarted(Preview {
+                    id: entry.id.clone(),
+                    entry: entry.clone(),
+                    audio,
+                    timer: None,
+                }));
+            }
+            Err(e) => web_sys::console::warn_1(&format!("preview: {e}").into()),
+        })
+    }
+
     /// Stops any preview; returns the id that was playing.
     fn stop_preview(&mut self) -> Option<String> {
         let p = self.preview.take()?;
-        let _ = p.audio.pause();
-        p.audio.set_src("");
-        if let Some(url) = &p.object_url {
-            revoke_object_url(url);
-        }
+        // Dropping the `WebAudio` stops its sounds and closes the context; a
+        // decode still in flight finishes on the closed context and its
+        // result is ignored (the id no longer matches).
         Some(p.id)
     }
 
