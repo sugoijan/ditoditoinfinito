@@ -89,7 +89,7 @@ impl App {
                         { " · " }
                         <a href={Route::Credits.to_hash()}>{ "credits" }</a>
                         { " · " }
-                        <a href="https://github.com/sugoijan/DitoDitoInfinito">{ "source" }</a>
+                        <a href="https://github.com/sugoijan/ditoditoinfinito">{ "source" }</a>
                     </p>
                 </main>
             },

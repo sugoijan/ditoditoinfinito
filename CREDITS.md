@@ -6,6 +6,21 @@ Dito Dito Infinito's code is MIT-licensed. The bundled demo songs and fonts belo
 
 ## Songs
 
+### Beatucada — Kurio Prokos
+
+Source: [https://github.com/TeamRizu/OutFox-Serenity](https://github.com/TeamRizu/OutFox-Serenity) at commit `e92f5439f563285dbf26399a88d4b2ada5c46247`, folder `OutFox Serenity Volume 2/Kurio Prokos - Beatucada` (retrieved 2026-10-07).
+
+- **music**: Kurio Prokos — [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
+- **charts**: Timo Kitsune, Daniel Rotwind, Chriszo, Marukomuru, OutFox Serenity contributors — [CC BY 4.0](https://projectoutfox.com/serenity-guidelines)
+- **graphics**: Jose Varela — [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- **chart authors** (from the simfile's `#CREDIT` tags):
+  - Chriszo: dance-single Hard 11
+  - Daniel Rotwind: dance-single Beginner 1
+  - Marukomuru: dance-double Beginner 2
+  - Timo Kitsune: dance-single Challenge 11, dance-single Easy 3, dance-single Medium 7
+- Not included: Jacket.png (not used)
+- Modifications: none (files are byte-identical to upstream)
+
 ### Into My Dream — Lagoona
 
 Source: [https://github.com/TeamRizu/OutFox-Serenity](https://github.com/TeamRizu/OutFox-Serenity) at commit `e92f5439f563285dbf26399a88d4b2ada5c46247`, folder `OutFox Serenity Volume 2/Lagoona - Into My Dream` (retrieved 2026-10-06).

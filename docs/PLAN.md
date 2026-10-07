@@ -274,7 +274,7 @@ Definition of done: a chart plays in Chrome, Firefox and Safari with judgements 
 2. **Rendering: wgpu from day one** (WebGPU + WebGL2 fallback), not Canvas2D, because desktop parity is a stated goal and heddobureika already proves the wgpu+Trunk path. Costs ~1 MB on the wire.
 3. **Menus in Yew, gameplay in wgpu.** Same split as heddobureika; the HUD stays in the renderer so it exists on desktop.
 4. **Frame-based sources map onto the 48-ticks-per-beat grid via a synthetic tempo** (75 BPM: 1 frame = 1 tick at 60 fps, 2 ticks at 30 fps) instead of adding a seconds-based position variant.
-5. **Deploy path: lowercase `--public-url /ditoditoinfinito/`** derived in the workflow from the repo name, with hash routing. GitHub serves the repo segment case-insensitively, so both casings resolve.
+5. **Deploy path: lowercase `--public-url /ditoditoinfinito/`** derived in the workflow from the repo name, with hash routing. Correction (2026-10-07): on a custom domain GitHub Pages serves the project path **case-sensitively** (`/DitoDitoInfinito/` and `/ditoditoinfinito/` are different URLs), so the repository was renamed to `sugoijan/ditoditoinfinito`; the local folder keeps its mixed-case name.
 6. **Branch: `main`** (matches landing-page and heddobureika).
 7. **MVP ruleset presets: `itg` and `ddr-a`.** DDR A+ exact windows are undocumented, so `ddr-a` uses the community frame table (±16.7/33/92/142 ms) and is labelled approximate in the UI.
 
