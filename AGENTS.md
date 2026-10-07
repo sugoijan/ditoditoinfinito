@@ -26,9 +26,14 @@ the browser are implementation details, not advertised features.
   scroll, calibration maths. No I/O. Replay fixtures in `engine/tests/`.
 - `render/` wgpu scene (procedural SDF arrows, glyphon text). No platform code.
 - `platform/` traits and plain data the shells implement (audio clock, input,
-  device fingerprints).
+  device fingerprints), plus the Ogg Vorbis fallback decoder behind the
+  `decode` feature (Symphonia, MPL-2.0).
+- `library/` song library logic shared by the app and xtask: pack scanning
+  (which file is the chart, music, banner), a sans-IO zip reader, the manifest
+  entry type. Pure, natively tested.
 - `app/` the web shell: Yew for menus, wgpu canvas for play, Web Audio clock,
-  settings in `localStorage`. Compiles for `wasm32-unknown-unknown` only.
+  settings in `localStorage`, imported songs in IndexedDB. Compiles for
+  `wasm32-unknown-unknown` only.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md`.
 - `assets/songs/<id>/` bundled songs with a `PROVENANCE.toml` each;
   `assets/fonts/` the embedded HUD font.
@@ -39,8 +44,8 @@ the browser are implementation details, not advertised features.
   runtime tests).
 - `just build` release build with the production public URL.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
-- `just test` native tests (chart, engine, xtask). The app crate has no native
-  tests; verify it in a browser.
+- `just test` native tests (chart, engine, platform with `decode`, library,
+  xtask). The app crate has no native tests; verify it in a browser.
 - `cargo run -p xtask -- gen-songs` / `gen-credits` regenerate the manifest and
   credits (Trunk runs both before every build; CI checks `CREDITS.md` is fresh).
 
@@ -60,7 +65,16 @@ and read `window.__DDI_DEBUG` for engine state.
 Useful URL parameters: `#/play?song=<id>&chart=<n>` (chart index as in the
 manifest), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
 `&gfx=gl` force WebGL2; `#/calibrate/run?mode=visual|audio|combined` runs a
-calibration (same `auto`/`bias` parameters). The autoplayer follows the
+calibration (same `auto`/`bias` parameters). Imported songs have ids
+`u-<hash>` and play through the same route.
+
+Import is tested by setting files on the import panel's inputs (folder or zip)
+in a fresh browser profile; build test packs in a scratch directory, never in
+the repo. Real third-party packs on the maintainer's machine may be used for
+one-off local tests only: never copy them into the repository, fixtures or
+published artifacts.
+
+The autoplayer follows the
 physical cue (heard audio, or drawn arrows in the muted test), not the judged
 timeline; keep it that way or offset tests become meaningless.
 
@@ -93,6 +107,10 @@ timeline; keep it that way or offset tests become meaningless.
   unknown keys there.
 - Any modification of an asset (resizing, cropping, transcoding) is recorded
   as a modification with the exact command.
+
+Third-party Rust dependencies keep their own licences (e.g. Symphonia is
+MPL-2.0, file-level copyleft, fine to link from MIT code). Only bundled
+assets are tracked in `REUSE.toml`.
 
 ## Deployment
 

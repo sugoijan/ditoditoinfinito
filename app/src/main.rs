@@ -4,6 +4,7 @@ mod calibration;
 mod components;
 mod crash;
 mod game_loop;
+mod import;
 mod play;
 mod router;
 mod settings;

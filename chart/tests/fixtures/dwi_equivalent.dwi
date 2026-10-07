@@ -1,0 +1,21 @@
+// Hand-written DWI fixture; dwi_equivalent.sm is the same chart as .sm.
+#TITLE:Equivalence (Test Mix);
+#ARTIST:ddi;
+#GENRE:Fixture;
+#FILE:song.ogg;
+#MD5:0123456789abcdef;
+#DISPLAYTITLE:Equivalence {heart.png};
+#GAP:120;
+#BPM:150;
+#CHANGEBPM:10=180,32=200;
+#FREEZE:48=500;
+#SINGLE:BASIC:3:
+  4268 2!2008     // measure 1: 8ths, a hold on Down
+  (1397)[8642A0]{8888000000000000}`666666000000'(000)
+  7!40<8!82>0A6B0  // jumps and holds closed by jumps
+  2!28000000       // a hold that is never closed
+;
+#BACKGROUND:
+  M:MOVIE:.\movies\sfx.avi STARTAT:-1.0 LAYER:0;
+  SCRIPT:M.......;
+#END;

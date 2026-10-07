@@ -12,7 +12,8 @@ description = "DitoDitoInfinito web app"
 ddi-chart.workspace = true
 ddi-engine.workspace = true
 ddi-render.workspace = true
-ddi-platform.workspace = true
+ddi-platform = { workspace = true, features = ["decode"] }
+ddi-library.workspace = true
 yew.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
@@ -24,6 +25,30 @@ console_error_panic_hook.workspace = true
 wgpu = { workspace = true, features = ["std", "webgpu", "webgl", "wgsl"] }
 web-sys = { workspace = true, features = [
     "AudioBuffer",
+    "Blob",
+    "BlobPropertyBag",
+    "DataTransfer",
+    "DataTransferItem",
+    "DataTransferItemList",
+    "DomException",
+    "DomStringList",
+    "DragEvent",
+    "File",
+    "FileList",
+    "FileSystemDirectoryEntry",
+    "FileSystemDirectoryReader",
+    "FileSystemEntry",
+    "FileSystemFileEntry",
+    "IdbDatabase",
+    "IdbFactory",
+    "IdbKeyRange",
+    "IdbObjectStore",
+    "IdbOpenDbRequest",
+    "IdbRequest",
+    "IdbTransaction",
+    "IdbTransactionMode",
+    "StorageManager",
+    "Url",
     "AudioBufferSourceNode",
     "AudioContext",
     "AudioContextLatencyCategory",

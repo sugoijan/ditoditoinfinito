@@ -24,6 +24,12 @@ Gameplay waits for a user gesture ("press Enter or click to start"); Esc aborts 
 
 While a session runs, `window.__DDI_DEBUG` is refreshed every 20 frames: `{frames, backend, song_time, combo, max_combo, taps:[W1..Miss], held, let_go, finished, failed, drift, output_latency}`. Read it with `page.evaluate(() => window.__DDI_DEBUG)`.
 
+`window.__DDI_FORCE_WASM_DECODE = true` (set before starting a session, e.g. with `page.addInitScript`) skips `decodeAudioData` and decodes the song with the built-in Symphonia decoder, the fallback Safari needs for Ogg Vorbis. It only handles Ogg Vorbis: on the bundled songs (Ogg Opus) the session must stop on an error naming both decoders ("Built-in decoder: Ogg Opus is not supported"), not crash. To exercise it end to end, transcode a bundled song to Vorbis in a scratch dist only (`ffmpeg -i x.opus -c:a libvorbis x.ogg` if your ffmpeg has libvorbis, else `sndfile-convert -vorbis` from libsndfile; keep the original file name so the manifest still points at it) and check the console for "decoded in wasm instead".
+
+## Imported songs
+
+The song list's import panel has two hidden inputs: `.import-panel input[type=file]` index 0 is the folder picker (`webkitdirectory`), index 1 takes zips or loose files. Playwright's `setInputFiles` accepts a directory path for the first and a `.zip` for the second; wait until `.import-status` no longer says "importing"/"reading". Imports land in IndexedDB (`ddi-library`, stores `songs` and `files`), so use a fresh browser context for a clean library. Build test packs in a scratch dir (a pack folder of song folders; copy a bundled song, rename files to test case-insensitive lookups, write a short `.sm` by hand to cover rolls, mines, lifts and fakes, and zip it with `zip -r` and `zip -r0` for deflated and stored entries). An autoplayed chart must end with only top-tier judgements, `let_go` 0 and no mines hit.
+
 ## Headless Chrome
 
 No playwright in the repo. In a scratch dir: `npm i playwright-core`, then launch the installed Chrome:

@@ -119,6 +119,13 @@ enum Cue {
     Visual,
 }
 
+/// Seconds between the autoplayer's taps on a roll.
+const ROLL_TAP_INTERVAL: f64 = 0.12;
+/// No roll re-tap later than this before the roll's end: beyond the widest
+/// early window (0.18 s) of the next note, and with `ROLL_TAP_INTERVAL`
+/// still within the 0.35 s roll life.
+const ROLL_TAP_STOP: f64 = 0.2;
+
 struct AutoPlay {
     /// (press time, release time, lane), sorted by press time.
     events: Vec<(f64, f64, u8)>,
@@ -215,17 +222,40 @@ impl PlaySession {
                 .notes
                 .iter()
                 .filter(|n| timing.judgeable(n.tick))
-                .filter_map(|n| match n.kind {
-                    NoteKind::Tap | NoteKind::Lift => {
-                        let t = timing.seconds_at(n.tick) + config.auto_bias;
-                        Some((t, t + 0.06, n.lane))
+                .flat_map(|n| -> Vec<(f64, f64, u8)> {
+                    let t = timing.seconds_at(n.tick);
+                    match n.kind {
+                        NoteKind::Tap => {
+                            let t = t + config.auto_bias;
+                            vec![(t, t + 0.06, n.lane)]
+                        }
+                        // Lifts are judged on the release.
+                        NoteKind::Lift => {
+                            let t = t + config.auto_bias;
+                            vec![(t - 0.05, t, n.lane)]
+                        }
+                        NoteKind::HoldHead { end } => {
+                            let t = t + config.auto_bias;
+                            vec![(t, timing.seconds_at(end) + 0.02, n.lane)]
+                        }
+                        // Rolls decay unless re-tapped; tap well inside the
+                        // shortest roll window (ITG's 0.35 s). The last
+                        // re-tap stays far enough before the end that it
+                        // cannot be judged as an early hit on the next note
+                        // in the lane.
+                        NoteKind::RollHead { end } => {
+                            let t = t + config.auto_bias;
+                            let last = timing.seconds_at(end) + config.auto_bias - ROLL_TAP_STOP;
+                            let mut taps = vec![(t, t + 0.04, n.lane)];
+                            let mut k = t + ROLL_TAP_INTERVAL;
+                            while k < last {
+                                taps.push((k, k + 0.04, n.lane));
+                                k += ROLL_TAP_INTERVAL;
+                            }
+                            taps
+                        }
+                        _ => Vec::new(),
                     }
-                    NoteKind::HoldHead { end } | NoteKind::RollHead { end } => Some((
-                        timing.seconds_at(n.tick),
-                        timing.seconds_at(end) + 0.02,
-                        n.lane,
-                    )),
-                    _ => None,
                 })
                 .collect();
             events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
@@ -410,6 +440,9 @@ impl PlaySession {
                     true
                 }
             });
+            // In time order: after a long frame a release can precede a
+            // later press on the same lane.
+            pending.sort_by(|a, b| a.0.total_cmp(&b.0));
             for (song_t, lane, pressed) in pending {
                 // Convert the song time back to a host time by offsetting from now.
                 let host = HostTime(host_now.0 - (heard - song_t));

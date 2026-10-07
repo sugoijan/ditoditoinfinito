@@ -102,7 +102,7 @@ impl App {
             } => html! {
                 <GameCanvas
                     key={format!("{song}/{chart}")}
-                    source={SongSource::Bundled { id: song.clone(), chart: *chart }}
+                    source={SongSource::Song { id: song.clone(), chart: *chart }}
                     auto={*auto}
                     auto_bias={*bias_ms as f64 / 1000.0}
                     backend={if *force_gl { BackendPreference::WebGl2 } else { BackendPreference::Auto }}

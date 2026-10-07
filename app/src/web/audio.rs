@@ -99,8 +99,42 @@ impl WebAudio {
         self.ctx.state() == AudioContextState::Running
     }
 
+    /// Decodes a whole song. The browser's `decodeAudioData` comes first
+    /// (native speed, off the main thread, PCM kept out of wasm memory);
+    /// only when it rejects the file (Ogg Vorbis on Safari) does the
+    /// Symphonia decoder in `ddi_platform::decode` take over.
+    ///
+    /// Test hook: `window.__DDI_FORCE_WASM_DECODE = true` skips the browser
+    /// decoder, so the fallback can be exercised in browsers that decode
+    /// Vorbis natively.
     pub(crate) async fn decode(&self, bytes: &[u8]) -> Result<AudioBuffer, String> {
-        // Uint8Array::from copies, so the wasm-side slice can be dropped freely.
+        let browser_error = if force_wasm_decode() {
+            "skipped by window.__DDI_FORCE_WASM_DECODE".to_string()
+        } else {
+            match self.decode_in_browser(bytes).await {
+                Ok(buffer) => return Ok(buffer),
+                Err(e) => e,
+            }
+        };
+        match self.decode_in_wasm(bytes).await {
+            Ok(buffer) => {
+                web_sys::console::info_1(
+                    &format!("decodeAudioData failed ({browser_error}); decoded in wasm instead")
+                        .into(),
+                );
+                Ok(buffer)
+            }
+            Err(wasm_error) => Err(format!(
+                "could not decode the audio. Browser decoder: {browser_error}. \
+                 Built-in decoder: {wasm_error}"
+            )),
+        }
+    }
+
+    async fn decode_in_browser(&self, bytes: &[u8]) -> Result<AudioBuffer, String> {
+        // `Uint8Array::from` copies into a fresh JS ArrayBuffer, which
+        // `decodeAudioData` detaches; `bytes` stays intact in wasm memory
+        // for the fallback.
         let array = js_sys::Uint8Array::from(bytes);
         let promise = self
             .ctx
@@ -111,6 +145,53 @@ impl WebAudio {
             .map_err(|e| js_err("decodeAudioData", e))?
             .dyn_into::<AudioBuffer>()
             .map_err(|e| js_err("decodeAudioData result", e))
+    }
+
+    /// Decodes with Symphonia on the main thread, yielding to the event loop
+    /// every few milliseconds so the page keeps painting, then copies the
+    /// PCM into an `AudioBuffer` at the file's own rate (the source node
+    /// resamples it on playback, as with any buffer).
+    async fn decode_in_wasm(&self, bytes: &[u8]) -> Result<AudioBuffer, String> {
+        /// Main-thread time per slice before yielding.
+        const SLICE_MS: f64 = 25.0;
+        /// Packets per `step` (~20 ms of audio each, well under 1 ms of work).
+        const PACKETS_PER_STEP: usize = 8;
+
+        let mut decoder = ddi_platform::decode::Decoder::new(bytes).map_err(|e| e.to_string())?;
+        loop {
+            let slice_start = PerformanceClock::now_ms();
+            let mut done = false;
+            while !done && PerformanceClock::now_ms() - slice_start < SLICE_MS {
+                done = decoder.step(PACKETS_PER_STEP).map_err(|e| e.to_string())?;
+            }
+            if done {
+                break;
+            }
+            gloo::timers::future::TimeoutFuture::new(0).await;
+        }
+        let pcm = decoder.finish().map_err(|e| e.to_string())?;
+        if pcm.skipped_packets > 0 {
+            web_sys::console::warn_1(
+                &format!(
+                    "audio decode: skipped {} undecodable packets",
+                    pcm.skipped_packets
+                )
+                .into(),
+            );
+        }
+        let frames = u32::try_from(pcm.frames()).map_err(|_| "audio is too long".to_string())?;
+        let buffer = self
+            .ctx
+            .create_buffer(pcm.channels.len() as u32, frames, pcm.sample_rate as f32)
+            .map_err(|e| js_err("createBuffer", e))?;
+        // Hand each channel over and free it straight away, so wasm memory
+        // never holds more than the PCM once.
+        for (index, samples) in pcm.channels.into_iter().enumerate() {
+            buffer
+                .copy_to_channel(&samples, index as i32)
+                .map_err(|e| js_err("copyToChannel", e))?;
+        }
+        Ok(buffer)
     }
 
     /// Stops and forgets every scheduled or playing sound.
@@ -240,6 +321,14 @@ impl WebAudio {
         self.bad_timestamps.set(Some(0));
         Some((context_time, performance_time))
     }
+}
+
+/// Whether `window.__DDI_FORCE_WASM_DECODE === true` (debug hook).
+fn force_wasm_decode() -> bool {
+    web_sys::window()
+        .and_then(|w| Reflect::get(&w, &JsValue::from_str("__DDI_FORCE_WASM_DECODE")).ok())
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 impl AudioBackend for WebAudio {

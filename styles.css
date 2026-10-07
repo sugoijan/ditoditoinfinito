@@ -363,7 +363,8 @@ a {
   margin: 0.25rem 0;
 }
 
-a.button {
+a.button,
+label.button {
   display: inline-block;
   padding: 0.35rem 1rem;
   border-radius: 999px;
@@ -434,4 +435,104 @@ a.button {
   vertical-align: middle;
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.song-offset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  align-items: center;
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+}
+
+.song-offset button {
+  font: inherit;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #fff 35%, transparent);
+  background: none;
+  color: #fff;
+  cursor: pointer;
+}
+
+.song-offset-value {
+  min-width: 4.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pack-heading {
+  margin: 2rem 0 0;
+  font-size: 1rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.pack-heading .link-button {
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.song-card .link-button {
+  font-size: 0.8rem;
+}
+
+.import-panel {
+  margin: 1.5rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px dashed color-mix(in srgb, var(--fg) 30%, transparent);
+  border-radius: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.import-panel.dragging {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+
+.import-panel label.button {
+  cursor: pointer;
+}
+
+.import-panel label.button.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.import-panel label.button:focus-within {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+.import-status {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.import-report {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.8rem;
+  max-height: 10rem;
+  overflow-y: auto;
+}
+
+@media (max-width: 30rem) {
+  .song-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .song-banner {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 5;
+  }
 }

@@ -1,11 +1,14 @@
 //! MSD lexical layer shared by `.sm`, `.ssc` and `.dwi`:
 //! `#TAG:param:param;` with `//` comments.
 //!
-//! Mirrors StepMania's `MsdFile::ReadBuf` (unescaping mode):
+//! Mirrors StepMania's `MsdFile::ReadBuf`:
 //!
 //! - `//` starts a comment anywhere (even inside a value or a URL) that runs
 //!   to the end of the line.
-//! - `\x` yields `x` literally for any `x` (`\:` `\;` `\#` `\\` `\/` ...).
+//! - `\x` yields `x` literally for any `x` (`\:` `\;` `\#` `\\` `\/` ...)
+//!   in unescaping mode ([`parse_msd`], used for `.sm`/`.ssc`). In raw mode
+//!   ([`parse_msd_raw`], used for `.dwi`) the backslash is kept and only stops
+//!   the next character from acting as a separator.
 //! - A `#` that is the first non-blank character of a line while a value is
 //!   still open terminates that value: many files lack the final `;`.
 //! - An unterminated value at EOF is kept.
@@ -43,7 +46,19 @@ fn trim_edges(s: &str) -> &str {
     s.trim_matches(is_blank)
 }
 
+/// Lex with unescaping (`MsdFile::ReadFile(path, true)`), as the `.sm` and
+/// `.ssc` loaders do.
 pub fn parse_msd(text: &str) -> Vec<MsdTag> {
+    lex(text, true)
+}
+
+/// Lex without unescaping (`MsdFile::ReadFile(path, false)`), as the `.dwi`
+/// loader does: `\x` stays `\x` but `x` is still not a separator.
+pub fn parse_msd_raw(text: &str) -> Vec<MsdTag> {
+    lex(text, false)
+}
+
+fn lex(text: &str, unescape: bool) -> Vec<MsdTag> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
@@ -105,8 +120,9 @@ pub fn parse_msd(text: &str) -> Vec<MsdTag> {
         }
 
         if !reading {
-            // Outside of a value an escape still consumes two characters.
-            i += if c == '\\' { 2 } else { 1 };
+            // Outside of a value an escape still consumes two characters
+            // (only when unescaping, like StepMania).
+            i += if unescape && c == '\\' { 2 } else { 1 };
             continue;
         }
 
@@ -126,6 +142,9 @@ pub fn parse_msd(text: &str) -> Vec<MsdTag> {
                 i += 1;
             }
             '\\' => {
+                if !unescape {
+                    cur.get_or_insert_with(String::new).push(c);
+                }
                 i += 1;
                 if i < len {
                     cur.get_or_insert_with(String::new).push(chars[i]);
@@ -245,6 +264,20 @@ mod tests {
     fn text_outside_values_is_ignored() {
         let t = parse_msd("garbage\n#A:1;trailing\\;junk;#B:2;");
         assert_eq!(t, vec![tag("A", &["1"]), tag("B", &["2"])]);
+    }
+
+    #[test]
+    fn raw_mode_keeps_backslashes_but_not_separators() {
+        let t = parse_msd_raw(r"#FILE:.\music\a\:b.mp3;#Y:2;");
+        assert_eq!(
+            t,
+            vec![tag("FILE", &[r".\music\a\:b.mp3"]), tag("Y", &["2"])]
+        );
+        // `\#` outside a value: unescaping mode skips both characters, raw
+        // mode starts a value at the `#`.
+        let t = parse_msd_raw(r"\#X:1;");
+        assert_eq!(t, vec![tag("X", &["1"])]);
+        assert!(parse_msd(r"\#X:1;").is_empty());
     }
 
     #[test]
