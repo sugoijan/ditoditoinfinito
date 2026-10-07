@@ -5,7 +5,9 @@ accurate: when a convention here changes, change this file in the same commit.
 
 ## What this is
 
-A dance rhythm game that plays StepMania simfiles, written in Rust and shipped
+A dance rhythm game that plays StepMania simfiles; in genre terms a 4K VSRG
+(four-key vertical scrolling rhythm game), which is the vocabulary to use when
+researching comparable games or writing public copy. Written in Rust and shipped
 as a static web app (wasm via Trunk, deployed to GitHub Pages). The gameplay
 core is platform-free so a desktop build can follow. `docs/PLAN.md` holds the
 architecture, decisions and roadmap; `docs/research/` holds the sourced notes

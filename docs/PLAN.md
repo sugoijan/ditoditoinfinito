@@ -1,6 +1,7 @@
 # DitoDitoInfinito — research summary and plan
 
-A DDR-style rhythm game written entirely in Rust. Browser first (wasm, Trunk,
+A DDR-style rhythm game (genre term: 4K VSRG, four-key vertical scrolling
+rhythm game) written entirely in Rust. Browser first (wasm, Trunk,
 GitHub Pages at `https://sugoijan.dev/ditoditoinfinito/`), desktop later, with
 the gameplay core shared unchanged between both.
 
