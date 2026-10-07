@@ -25,7 +25,8 @@ pub(crate) struct Settings {
     pub(crate) audio_offset: f64,
     /// Seconds added to the rendered time only.
     pub(crate) visual_offset: f64,
-    /// 0..=1
+    /// Music gain, 0..=1 (amplitude, not loudness; the options slider maps
+    /// it through [`volume_to_slider`]).
     pub(crate) volume: f32,
     /// Key bindings for `dance-single`, per lane (`KeyboardEvent.code`).
     pub(crate) keys_single: Vec<Vec<String>>,
@@ -44,6 +45,19 @@ pub(crate) struct Settings {
     /// sync with the chart (MP3 decoder delay, badly synced packs), which no
     /// device calibration can fix. Zero entries are not stored.
     pub(crate) song_offsets: BTreeMap<String, f64>,
+}
+
+/// Volume slider position (0..=1) for a gain. Loudness is perceived
+/// roughly logarithmically, so equal slider steps should be roughly equal
+/// steps in decibels: gain = position³ covers about 60 dB that way (50% is
+/// −18 dB, 10% is −60 dB) and still reaches silence at 0.
+pub(crate) fn volume_to_slider(gain: f32) -> f32 {
+    gain.clamp(0.0, 1.0).cbrt()
+}
+
+/// Gain for a volume slider position; inverse of [`volume_to_slider`].
+pub(crate) fn slider_to_volume(position: f32) -> f32 {
+    position.clamp(0.0, 1.0).powi(3)
 }
 
 /// Song offsets are clamped to this many seconds either way.

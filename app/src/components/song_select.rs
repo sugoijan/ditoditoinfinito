@@ -5,24 +5,17 @@
 use std::collections::HashMap;
 
 use gloo::events::{EventListener, EventListenerOptions};
-use gloo::timers::callback::Timeout;
 use wasm_bindgen::JsCast;
 use web_sys::{AudioBuffer, DragEvent, HtmlInputElement};
 use yew::prelude::*;
 
 use crate::import::{self, ImportReport};
+use crate::preview::Preview;
 use crate::router::Route;
 use crate::settings::Settings;
-use crate::songs::{Library, ManifestEntry, delete_imported, imported_banner_urls, load_music};
-use crate::web::audio::WebAudio;
+use crate::songs::{Library, ManifestEntry, delete_imported, imported_banner_urls};
 
 use crate::web::files::{self, PickedFile, revoke_object_url};
-
-/// Preview length when the simfile gives none, and the longest one played.
-const DEFAULT_PREVIEW: f64 = 12.0;
-const MAX_PREVIEW: f64 = 30.0;
-/// Previews play a little under the gameplay volume.
-const PREVIEW_VOLUME: f32 = 0.75;
 
 pub(crate) enum Msg {
     Loaded(Result<Library, String>),
@@ -72,18 +65,6 @@ pub(crate) struct SongSelect {
     folder_input: NodeRef,
     file_input: NodeRef,
     _drag: Vec<EventListener>,
-}
-
-/// A song preview, played through Web Audio like gameplay: `<audio>`
-/// cannot play Ogg in Safari, while `decodeAudioData` (with the wasm
-/// fallback) can. The context is created inside the click, the only place
-/// Safari lets a page start audio.
-pub(crate) struct Preview {
-    id: String,
-    entry: ManifestEntry,
-    audio: WebAudio,
-    /// Ends the preview after its length.
-    timer: Option<Timeout>,
 }
 
 enum State {
@@ -145,19 +126,10 @@ impl Component for SongSelect {
             }
             Msg::PreviewStarted(preview) => {
                 self.stop_preview();
-                let (id, entry, decoder) = (
-                    preview.id.clone(),
-                    preview.entry.clone(),
-                    preview.audio.decoder(),
-                );
+                let id = preview.id.clone();
+                let load = preview.load();
                 ctx.link().send_future(async move {
-                    let decoded = async {
-                        let bytes = load_music(&entry).await?;
-                        decoder.resume().await;
-                        decoder.decode(&bytes).await
-                    }
-                    .await;
-                    match decoded {
+                    match load.await {
                         Ok(buffer) => Msg::PreviewDecoded(id, buffer),
                         Err(e) => {
                             web_sys::console::warn_1(&format!("preview: {e}").into());
@@ -171,27 +143,12 @@ impl Component for SongSelect {
                 let Some(p) = self.preview.as_mut().filter(|p| p.id == id) else {
                     return false;
                 };
-                let length = if p.entry.preview_length > 1.0 {
-                    p.entry.preview_length.min(MAX_PREVIEW)
-                } else {
-                    DEFAULT_PREVIEW
-                };
-                let volume = self.settings.volume * PREVIEW_VOLUME;
-                let start = p
-                    .entry
-                    .preview_start
-                    .clamp(0.0, (buffer.duration() - 1.0).max(0.0));
-                if p.audio
-                    .play_preview(&buffer, start, length, volume)
-                    .is_err()
-                {
+                let link = ctx.link().clone();
+                let end = move || link.send_message(Msg::PreviewEnded(id));
+                if p.play(&buffer, self.settings.volume, end).is_err() {
                     self.stop_preview();
                     return true;
                 }
-                let link = ctx.link().clone();
-                p.timer = Some(Timeout::new((length * 1000.0) as u32 + 200, move || {
-                    link.send_message(Msg::PreviewEnded(id))
-                }));
                 return false;
             }
             Msg::PreviewEnded(id) => {
@@ -346,9 +303,8 @@ impl Component for SongSelect {
 }
 
 impl SongSelect {
-    /// The ▶/■ button's handler. The audio context is created inside the
-    /// click event itself: Safari refuses to start audio once the gesture is
-    /// over (Yew runs `update` later, in a microtask).
+    /// The ▶/■ button's handler; see [`Preview::start`] for why it starts
+    /// in the click handler itself.
     fn preview_callback(
         &self,
         link: &html::Scope<Self>,
@@ -361,27 +317,16 @@ impl SongSelect {
         }
         let entry = entry.clone();
         let link = link.clone();
-        Callback::from(move |_: MouseEvent| match WebAudio::new() {
-            Ok(audio) => {
-                audio.resume_now();
-                link.send_message(Msg::PreviewStarted(Preview {
-                    id: entry.id.clone(),
-                    entry: entry.clone(),
-                    audio,
-                    timer: None,
-                }));
-            }
+        Callback::from(move |_: MouseEvent| match Preview::start(&entry) {
+            Ok(preview) => link.send_message(Msg::PreviewStarted(preview)),
             Err(e) => web_sys::console::warn_1(&format!("preview: {e}").into()),
         })
     }
 
     /// Stops any preview; returns the id that was playing.
     fn stop_preview(&mut self) -> Option<String> {
-        let p = self.preview.take()?;
-        // Dropping the `WebAudio` stops its sounds and closes the context; a
-        // decode still in flight finishes on the closed context and its
-        // result is ignored (the id no longer matches).
-        Some(p.id)
+        // Dropping it closes its audio context (see [`Preview::load`]).
+        self.preview.take().map(|p| p.id)
     }
 
     fn revoke_banners(&mut self) {

@@ -47,6 +47,10 @@ pub(crate) enum Write {
         store: &'static str,
         prefix: String,
     },
+    /// Everything in the store.
+    Clear {
+        store: &'static str,
+    },
 }
 
 fn err(context: &str, e: impl Into<JsValue>) -> String {
@@ -269,7 +273,8 @@ impl Db {
             .map(|w| match w {
                 Write::Put { store, .. }
                 | Write::Delete { store, .. }
-                | Write::DeletePrefix { store, .. } => *store,
+                | Write::DeletePrefix { store, .. }
+                | Write::Clear { store } => *store,
             })
             .collect();
         stores.sort_unstable();
@@ -286,6 +291,9 @@ impl Db {
                 }
                 Write::Delete { store, key } => {
                     tx.object_store(store)?.delete(&JsValue::from_str(&key))?;
+                }
+                Write::Clear { store } => {
+                    tx.object_store(store)?.clear()?;
                 }
                 Write::DeletePrefix { store, prefix } => {
                     tx.object_store(store)?
