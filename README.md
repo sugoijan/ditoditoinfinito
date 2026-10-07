@@ -41,9 +41,10 @@ gameplay core), `render/` (wgpu scene), `platform/` (platform traits), `app/`
 
 The demo songs under `assets/songs/` come from
 [OutFox Serenity](https://github.com/TeamRizu/OutFox-Serenity) and are used
-under CC BY licences; see [`CREDITS.md`](CREDITS.md) for the full attribution
-and `assets/songs/*/PROVENANCE.toml` for the pinned source commits. Only songs
-whose music, charts and graphics are each explicitly CC BY are included.
+under CC BY and CC BY-SA licences; see [`CREDITS.md`](CREDITS.md) for the full
+attribution and `assets/songs/*/PROVENANCE.toml` for the pinned source commits.
+Only songs whose music, charts and graphics each carry an explicit free licence
+in the upstream files are included.
 
 ## Licence
 

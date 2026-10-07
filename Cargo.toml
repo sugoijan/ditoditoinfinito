@@ -9,7 +9,7 @@ edition = "2024"
 rust-version = "1.98"
 license = "MIT"
 authors = ["すごいジャン <me@sugoijan.dev>"]
-repository = "https://github.com/sugoijan/DitoDitoInfinito"
+repository = "https://github.com/sugoijan/ditoditoinfinito"
 
 [workspace.dependencies]
 # local crates

@@ -66,3 +66,23 @@ SPDX-License-Identifier = "CC-BY-4.0"
 path = ["assets/songs/sweeteners/*.jpg"]
 SPDX-FileCopyrightText = "Lirodon"
 SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/songs/beatucada/*.opus"]
+SPDX-FileCopyrightText = "Kurio Prokos"
+SPDX-License-Identifier = "CC-BY-SA-4.0"
+
+[[annotations]]
+path = ["assets/songs/beatucada/*.ssc"]
+SPDX-FileCopyrightText = ["Timo Kitsune", "Daniel Rotwind", "Chriszo", "Marukomuru", "OutFox Serenity contributors"]
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/songs/beatucada/*.png"]
+SPDX-FileCopyrightText = "Jose Varela"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["assets/songs/beatucada/credits.txt"]
+SPDX-FileCopyrightText = "OutFox Serenity contributors"
+SPDX-License-Identifier = "CC-BY-4.0"

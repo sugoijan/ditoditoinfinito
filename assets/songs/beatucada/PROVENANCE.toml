@@ -1,0 +1,33 @@
+title = "Beatucada"
+artist = "Kurio Prokos"
+music = "Beatucada.opus"
+banner = "Banner.png"
+background = "Background.png"
+credit = "Kurio Prokos · CC BY-SA 4.0"
+# Keep these above the tables: keys after a [[licenses]] header would belong to it.
+excluded = ["Jacket.png (not used)"]
+modifications = []
+
+[source]
+url = "https://github.com/TeamRizu/OutFox-Serenity"
+commit = "e92f5439f563285dbf26399a88d4b2ada5c46247"
+path = "OutFox Serenity Volume 2/Kurio Prokos - Beatucada"
+retrieved = "2026-10-07"
+
+[[licenses]]
+part = "music"
+spdx = "CC-BY-SA-4.0"
+holders = ["Kurio Prokos"]
+url = "https://creativecommons.org/licenses/by-sa/4.0/"
+
+[[licenses]]
+part = "charts"
+spdx = "CC-BY-4.0"
+holders = ["Timo Kitsune", "Daniel Rotwind", "Chriszo", "Marukomuru", "OutFox Serenity contributors"]
+url = "https://projectoutfox.com/serenity-guidelines"
+
+[[licenses]]
+part = "graphics"
+spdx = "CC-BY-4.0"
+holders = ["Jose Varela"]
+url = "https://creativecommons.org/licenses/by/4.0/"
