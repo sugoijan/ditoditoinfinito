@@ -95,14 +95,12 @@ impl Component for DeviceWatcher {
                 }));
             }
         }
-        let devicechange = web_sys::window()
-            .and_then(|w| w.navigator().media_devices().ok())
-            .map(|md| {
-                let l = link.clone();
-                EventListener::new(&md, "devicechange", move |_| {
-                    l.send_message(Msg::DevicesChanged)
-                })
-            });
+        let devicechange = crate::web::devices::media_devices().map(|md| {
+            let l = link.clone();
+            EventListener::new(&md, "devicechange", move |_| {
+                l.send_message(Msg::DevicesChanged)
+            })
+        });
         let dpr = {
             let l = link.clone();
             display::dpr_change_listener(move || l.send_message(Msg::DevicesChanged))

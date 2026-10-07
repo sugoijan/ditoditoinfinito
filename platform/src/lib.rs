@@ -28,7 +28,8 @@ pub struct ClockSample {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RawInput {
     pub device: DeviceId,
-    /// `KeyboardEvent.code` for keyboards, `button:<n>` for gamepads, etc.
+    /// `KeyboardEvent.code` for keyboards, a [`gamepad::Control`] string for
+    /// gamepads (`button:3`, `axis:1-`, `hat:9:up`), `lane:<n>` for touch.
     pub control: String,
     pub pressed: bool,
     pub host_time: HostTime,
@@ -37,7 +38,9 @@ pub struct RawInput {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DeviceId {
     Keyboard,
-    Gamepad(u32),
+    /// A gamepad by its description (`Gamepad.id` on the web), which stays
+    /// the same across sessions; identical pads share it.
+    Gamepad(String),
     Touch,
     Other(String),
 }
@@ -114,3 +117,4 @@ pub struct DeviceProfile {
 
 #[cfg(feature = "decode")]
 pub mod decode;
+pub mod gamepad;

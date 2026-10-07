@@ -1,17 +1,31 @@
 //! Options screen: speed, scroll, ruleset, offsets, volume (with a sample
-//! to judge it by), key bindings, and resetting settings or the imported
-//! songs. Settings are saved to `localStorage` on every change.
+//! to judge it by), controls, and resetting settings or the imported songs.
+//! Settings are saved to `localStorage` on every change.
+//!
+//! Controls list the keyboard, every connected controller and every
+//! controller with saved bindings. Controllers are found by polling (there
+//! is no reliable connect event, and some browsers only reveal a pad once
+//! a button is pressed), so the list is refreshed on a timer while the
+//! screen is open. Binding itself is the guided flow in [`BindFlow`].
 
+use ddi_platform::DeviceId;
+use ddi_platform::gamepad::Control;
 use gloo::events::EventListener;
+use gloo::timers::callback::Interval;
 use wasm_bindgen::JsCast;
 use web_sys::{AudioBuffer, HtmlInputElement, HtmlSelectElement, KeyboardEvent};
 use yew::prelude::*;
 
+use crate::components::bind_flow::{BindFlow, Bound};
 use crate::import;
 use crate::preview::Preview;
 use crate::router::Route;
-use crate::settings::{Settings, slider_to_volume, volume_to_slider};
+use crate::settings::{PadBindings, Settings, slider_to_volume, volume_to_slider};
 use crate::songs::{Library, ManifestEntry, clear_imported, is_imported_id};
+use crate::web::gamepad::Gamepads;
+
+/// How often the controller list is compared with the connected pads.
+const PAD_REFRESH_MS: u32 = 300;
 
 pub(crate) enum Msg {
     Speed(f64),
@@ -31,6 +45,16 @@ pub(crate) enum Msg {
     Captured(String),
     ClearLane(usize),
     ResetKeys,
+    /// Open the guided binding flow, for a device or for the next one that
+    /// produces a press.
+    Bind(Option<DeviceId>),
+    BindSaved(Bound),
+    BindClosed,
+    /// Timer: compare the connected controllers with the list shown.
+    PadsTick,
+    ClearPad(String),
+    ForgetPad(String),
+    FastPadPoll(bool),
     /// The song list loaded: a bundled song for the volume sample and the
     /// number of imported songs.
     Library(Option<ManifestEntry>, usize),
@@ -65,7 +89,14 @@ pub(crate) struct Options {
     confirm: Option<Reset>,
     /// Result of the last reset.
     notice: Option<String>,
+    gamepads: Option<Gamepads>,
+    /// Connected controllers `(id, standard mapping, count)`; identical
+    /// controllers share an id and their bindings.
+    connected: Vec<(String, bool, usize)>,
+    /// The guided flow, when open: `Some(None)` waits for any device.
+    binding: Option<Option<DeviceId>>,
     _keys: Option<EventListener>,
+    _pad_refresh: Option<Interval>,
 }
 
 const LANE_NAMES: [&str; 4] = ["Left", "Down", "Up", "Right"];
@@ -89,6 +120,11 @@ impl Component for Options {
                 Err(_) => Msg::Library(None, 0),
             }
         });
+        let gamepads = Gamepads::new();
+        let pad_refresh = gamepads.as_ref().map(|_| {
+            let link = ctx.link().clone();
+            Interval::new(PAD_REFRESH_MS, move || link.send_message(Msg::PadsTick))
+        });
         Options {
             settings: Settings::load(),
             capturing: None,
@@ -97,7 +133,11 @@ impl Component for Options {
             imported: 0,
             confirm: None,
             notice: None,
+            gamepads,
+            connected: Vec::new(),
+            binding: None,
             _keys: keys,
+            _pad_refresh: pad_refresh,
         }
     }
 
@@ -239,6 +279,47 @@ impl Component for Options {
                 }
             }
             Msg::ResetKeys => self.settings.keys_single = Settings::default().keys_single,
+            Msg::Bind(device) => {
+                self.capturing = None;
+                self.binding = Some(device);
+                return true;
+            }
+            Msg::BindClosed => {
+                self.binding = None;
+                return true;
+            }
+            Msg::BindSaved(bound) => {
+                self.binding = None;
+                match bound {
+                    Bound::Keyboard(keys) => self.settings.keys_single = keys,
+                    Bound::Pad(pad) => self.settings.set_pad_bindings(pad),
+                }
+            }
+            Msg::PadsTick => {
+                let Some(g) = &self.gamepads else {
+                    return false;
+                };
+                // Nothing here consumes the hub's edge queue.
+                g.clear();
+                let mut connected: Vec<(String, bool, usize)> = Vec::new();
+                for p in g.pads() {
+                    match connected.iter_mut().find(|(id, _, _)| *id == p.id) {
+                        Some(c) => c.2 += 1,
+                        None => connected.push((p.id, p.standard, 1)),
+                    }
+                }
+                if connected == self.connected {
+                    return false;
+                }
+                self.connected = connected;
+                return true;
+            }
+            Msg::ClearPad(id) => self.settings.set_pad_bindings(PadBindings {
+                id,
+                ..PadBindings::default()
+            }),
+            Msg::ForgetPad(id) => self.settings.forget_pad(&id),
+            Msg::FastPadPoll(v) => self.settings.fast_pad_poll = v,
         }
         self.settings.save();
         true
@@ -318,14 +399,66 @@ impl Component for Options {
                     </label>
                     <p class="muted">
                         { "Diagnostics: " }
-                        <a href={Route::Play { song: "some-things-must".into(), chart: 2, force_gl: false, auto: true, bias_ms: 0 }.to_hash()}>{ "autoplay demo" }</a>
+                        <a href={Route::Play { song: "some-things-must".into(), chart: 2, force_gl: false, auto: true, auto_pad: false, bias_ms: 0 }.to_hash()}>{ "autoplay demo" }</a>
                         { " · " }
-                        <a href={Route::Play { song: "some-things-must".into(), chart: 2, force_gl: true, auto: true, bias_ms: 0 }.to_hash()}>{ "autoplay demo on WebGL2" }</a>
+                        <a href={Route::Play { song: "some-things-must".into(), chart: 2, force_gl: true, auto: true, auto_pad: false, bias_ms: 0 }.to_hash()}>{ "autoplay demo on WebGL2" }</a>
                         { " (forces the fallback renderer)" }
                     </p>
                 </section>
-                <section>
-                    <h2>{ "Keys (4 panels)" }</h2>
+                { self.controls_section(link) }
+                { self.reset_section(link) }
+                <p><a href={Route::Home.to_hash()}>{ "← back" }</a></p>
+                { for self.binding.clone().map(|device| html! {
+                    <BindFlow
+                        {device}
+                        gamepads={self.gamepads.clone()}
+                        on_save={link.callback(Msg::BindSaved)}
+                        on_cancel={link.callback(|_| Msg::BindClosed)}
+                    />
+                }) }
+            </main>
+        }
+    }
+}
+
+impl Options {
+    fn controls_section(&self, link: &html::Scope<Self>) -> Html {
+        let s = &self.settings;
+        let keyboard_status = if s.keys_single == Settings::default().keys_single {
+            "defaults"
+        } else {
+            "saved"
+        };
+        // Connected controllers first, then saved ones not connected now,
+        // most recently used first.
+        let mut pads: Vec<(String, bool, usize)> = self.connected.clone();
+        let mut saved: Vec<&PadBindings> = s
+            .pads
+            .iter()
+            .filter(|p| !self.connected.iter().any(|(id, _, _)| *id == p.id))
+            .collect();
+        saved.sort_by(|a, b| b.last_seen.total_cmp(&a.last_seen));
+        pads.extend(saved.into_iter().map(|p| (p.id.clone(), false, 0)));
+        let fast = link.callback(|e: Event| {
+            Msg::FastPadPoll(
+                e.target_dyn_into::<HtmlInputElement>()
+                    .is_some_and(|i| i.checked()),
+            )
+        });
+        html! {
+            <section>
+                <h2>{ "Controls" }</h2>
+                <p class="muted">
+                    { "Each device keeps its own bindings. “bind arrows” asks you to press each arrow in turn. Controllers show up here once one of their buttons has been pressed." }
+                </p>
+                <p>
+                    <button onclick={link.callback(|_| Msg::Bind(None))}>{ "bind any device…" }</button>
+                </p>
+                <div class="device-block">
+                    <div class="device-head">
+                        <strong>{ "Keyboard" }</strong>
+                        <span class="bind-status">{ keyboard_status }</span>
+                    </div>
                     <table class="keys-table">
                         { for (0..4).map(|lane| {
                             let keys = s.keys_single.get(lane).cloned().unwrap_or_default();
@@ -345,16 +478,92 @@ impl Component for Options {
                             }
                         }) }
                     </table>
-                    <p><button onclick={link.callback(|_| Msg::ResetKeys)}>{ "reset keys" }</button></p>
-                </section>
-                { self.reset_section(link) }
-                <p><a href={Route::Home.to_hash()}>{ "← back" }</a></p>
-            </main>
+                    <p class="device-actions">
+                        <button onclick={link.callback(|_| Msg::Bind(Some(DeviceId::Keyboard)))}>{ "bind arrows" }</button>
+                        <button onclick={link.callback(|_| Msg::ResetKeys)}>{ "reset keys" }</button>
+                    </p>
+                </div>
+                { for pads.iter().map(|(id, standard, count)| self.pad_block(link, id, *standard, *count)) }
+                <label>
+                    <input type="checkbox" checked={s.fast_pad_poll} onchange={fast} />
+                    { " Poll controllers every millisecond during play (smoother timing, more CPU)" }
+                </label>
+                { if self.gamepads.is_none() { html! {
+                    <p class="muted">{ "This browser does not support controllers." }</p>
+                } } else { html! {} } }
+            </section>
         }
     }
-}
 
-impl Options {
+    /// One controller: its controls per lane, Start and Back, and whether
+    /// they are saved, the standard defaults or missing. `count` is how
+    /// many identical controllers are connected (0: none).
+    fn pad_block(&self, link: &html::Scope<Self>, id: &str, standard: bool, count: usize) -> Html {
+        let saved = self.settings.pads.iter().find(|p| p.id == id);
+        let bindings = self.settings.pad_bindings(id, standard);
+        let (status, class) = match (saved, &bindings) {
+            (Some(p), _) if p.is_empty() => ("nothing bound", "missing"),
+            (Some(_), _) => ("saved", ""),
+            (None, Some(_)) => ("defaults (standard layout)", ""),
+            (None, None) => ("not bound yet", "missing"),
+        };
+        let label = |c: &String| {
+            c.parse::<Control>()
+                .map(|c| c.label())
+                .unwrap_or_else(|_| c.clone())
+        };
+        let list = |controls: &[String]| {
+            if controls.is_empty() {
+                "—".to_string()
+            } else {
+                controls.iter().map(label).collect::<Vec<_>>().join(", ")
+            }
+        };
+        let b = bindings.unwrap_or_default();
+        let rows = (0..4)
+            .map(|lane| {
+                (
+                    LANE_NAMES[lane],
+                    list(b.single.get(lane).map(Vec::as_slice).unwrap_or_default()),
+                )
+            })
+            .chain([
+                (
+                    "Start",
+                    b.start.as_ref().map(label).unwrap_or_else(|| "—".into()),
+                ),
+                (
+                    "Back",
+                    b.back.as_ref().map(label).unwrap_or_else(|| "—".into()),
+                ),
+            ]);
+        let presence = match count {
+            0 => "not connected".to_string(),
+            1 => "connected".to_string(),
+            n => format!("{n} connected"),
+        };
+        let (bind_id, clear_id, forget_id) = (id.to_string(), id.to_string(), id.to_string());
+        html! {
+            <div class={classes!("device-block", (count == 0).then_some("absent"))}>
+                <div class="device-head">
+                    <strong>{ id }</strong>
+                    <span class={classes!("bind-status", class)}>{ status }</span>
+                    <span class="muted">{ presence }</span>
+                </div>
+                <table class="keys-table">
+                    { for rows.map(|(name, value)| html! {
+                        <tr><td>{ name }</td><td><code>{ value }</code></td></tr>
+                    }) }
+                </table>
+                <p class="device-actions">
+                    <button onclick={link.callback(move |_| Msg::Bind(Some(DeviceId::Gamepad(bind_id.clone()))))}>{ "bind arrows" }</button>
+                    <button disabled={b.is_empty()} onclick={link.callback(move |_| Msg::ClearPad(clear_id.clone()))}>{ "clear" }</button>
+                    <button disabled={saved.is_none()} onclick={link.callback(move |_| Msg::ForgetPad(forget_id.clone()))}>{ "forget" }</button>
+                </p>
+            </div>
+        }
+    }
+
     fn volume_control(&self, link: &html::Scope<Self>) -> Html {
         let percent = (volume_to_slider(self.settings.volume) * 100.0).round() as i32;
         let db = if self.settings.volume > 0.0 {
@@ -416,7 +625,7 @@ impl Options {
                 <table class="keys-table reset-table">
                     <tr>
                         <td>{ button(Reset::Settings, "reset settings", false) }</td>
-                        <td class="muted">{ "Speed, rules, volume, keys, display options and device calibrations back to defaults. Imported songs and per-song offsets are kept." }</td>
+                        <td class="muted">{ "Speed, rules, volume, keys, controller bindings, display options and device calibrations back to defaults. Imported songs and per-song offsets are kept." }</td>
                     </tr>
                     <tr>
                         <td>{ button(Reset::Songs, "remove imported songs", self.imported == 0 || importing) }</td>

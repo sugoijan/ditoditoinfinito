@@ -1,10 +1,16 @@
 //! Song list with difficulty picker and audio preview, grouped into the
 //! bundled songs and one group per imported pack, plus the import panel
 //! (folder or zip pickers and drag and drop anywhere on the page).
+//!
+//! It also watches the connected controllers and points to the options
+//! when one has no bindings: a controller without the standard mapping has
+//! no defaults (its buttons are numbered arbitrarily), so it would do
+//! nothing in a song.
 
 use std::collections::HashMap;
 
 use gloo::events::{EventListener, EventListenerOptions};
+use gloo::timers::callback::Interval;
 use wasm_bindgen::JsCast;
 use web_sys::{AudioBuffer, DragEvent, HtmlInputElement};
 use yew::prelude::*;
@@ -16,6 +22,10 @@ use crate::settings::Settings;
 use crate::songs::{Library, ManifestEntry, delete_imported, imported_banner_urls};
 
 use crate::web::files::{self, PickedFile, revoke_object_url};
+use crate::web::gamepad::Gamepads;
+
+/// How often the connected controllers are checked for missing bindings.
+const PAD_CHECK_MS: u32 = 500;
 
 pub(crate) enum Msg {
     Loaded(Result<Library, String>),
@@ -38,6 +48,8 @@ pub(crate) enum Msg {
     Remove(Removal),
     Removed(Result<(), String>),
     Usage(Option<f64>),
+    /// Timer: look for connected controllers without bindings.
+    PadsTick,
 }
 
 /// What a remove button removes.
@@ -64,7 +76,13 @@ pub(crate) struct SongSelect {
     usage: Option<f64>,
     folder_input: NodeRef,
     file_input: NodeRef,
+    /// Polled once per frame only, to notice controllers.
+    gamepads: Option<Gamepads>,
+    /// Connected controllers with neither saved bindings nor the standard
+    /// mapping.
+    unbound_pads: Vec<String>,
     _drag: Vec<EventListener>,
+    _pad_check: Option<Interval>,
 }
 
 enum State {
@@ -81,6 +99,11 @@ impl Component for SongSelect {
         ctx.link()
             .send_future(async { Msg::Loaded(Library::load().await) });
         import::watch(Some(ctx.link().callback(|_| Msg::ImportChanged)));
+        let gamepads = Gamepads::new();
+        let pad_check = gamepads.as_ref().map(|_| {
+            let link = ctx.link().clone();
+            Interval::new(PAD_CHECK_MS, move || link.send_message(Msg::PadsTick))
+        });
         SongSelect {
             state: State::Loading,
             banners: HashMap::new(),
@@ -93,7 +116,10 @@ impl Component for SongSelect {
             usage: None,
             folder_input: NodeRef::default(),
             file_input: NodeRef::default(),
+            gamepads,
+            unbound_pads: Vec::new(),
             _drag: drag_listeners(ctx),
+            _pad_check: pad_check,
         }
     }
 
@@ -222,16 +248,45 @@ impl Component for SongSelect {
                 return false;
             }
             Msg::Usage(u) => self.usage = u,
+            Msg::PadsTick => {
+                let Some(g) = &self.gamepads else {
+                    return false;
+                };
+                // Nothing here consumes the hub's edge queue.
+                g.clear();
+                let mut unbound: Vec<String> = Vec::new();
+                for p in g.pads() {
+                    if self.settings.pad_bindings(&p.id, p.standard).is_none()
+                        && !unbound.contains(&p.id)
+                    {
+                        unbound.push(p.id);
+                    }
+                }
+                if unbound == self.unbound_pads {
+                    return false;
+                }
+                self.unbound_pads = unbound;
+            }
         }
         true
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let link = ctx.link();
+        let pads = html! {
+            { for self.unbound_pads.iter().map(|id| html! {
+                <p class="pad-notice">
+                    { format!("Controller “{id}” has no bindings yet — ") }
+                    <a href={Route::Options.to_hash()}>{ "bind it in Options" }</a>
+                </p>
+            }) }
+        };
         let library = match &self.state {
-            State::Loading => return html! { <p class="muted">{ "loading songs…" }</p> },
+            State::Loading => {
+                return html! { <>{ pads }<p class="muted">{ "loading songs…" }</p></> };
+            }
             State::Failed(e) => {
-                return html! { <p class="error">{ format!("could not load the song list: {e}") }</p> };
+                return html! { <>{ pads }<p class="error">{ format!("could not load the song list: {e}") }</p></> };
             }
             State::Ready(l) => l,
         };
@@ -262,6 +317,7 @@ impl Component for SongSelect {
         let grouped = !packs.is_empty();
         html! {
             <>
+                { pads }
                 { self.import_panel(link) }
                 { if let Some(e) = &library.imported_error {
                     html!{ <p class="error">{ format!("imported songs are unavailable: {e}") }</p> }
@@ -533,7 +589,7 @@ fn song_card(
                 <div class="muted song-sub">{ sub.join(" · ") }{ " " }{ for remove }</div>
                 <div class="chart-buttons">
                     { for charts.iter().map(|c| {
-                        let href = Route::Play { song: entry.id.clone(), chart: c.index, force_gl: false, auto: false, bias_ms: 0 }.to_hash();
+                        let href = Route::Play { song: entry.id.clone(), chart: c.index, force_gl: false, auto: false, auto_pad: false, bias_ms: 0 }.to_hash();
                         let class = format!("chart-button diff-{}", c.difficulty.to_lowercase());
                         let title = if c.credit.is_empty() {
                             format!("{} · {} notes", c.name, c.notes)

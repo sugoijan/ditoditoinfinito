@@ -30,6 +30,11 @@ pub(crate) struct Settings {
     pub(crate) volume: f32,
     /// Key bindings for `dance-single`, per lane (`KeyboardEvent.code`).
     pub(crate) keys_single: Vec<Vec<String>>,
+    /// Controller bindings, one entry per `Gamepad.id`.
+    pub(crate) pads: Vec<PadBindings>,
+    /// Poll controllers every millisecond during play; off polls once per
+    /// frame (less CPU, coarser timing).
+    pub(crate) fast_pad_poll: bool,
     /// Debug overlay: backend, FPS, clock drift, timing error stats.
     pub(crate) debug: bool,
     /// Show the signed timing error of each hit under the judgement.
@@ -79,6 +84,80 @@ pub(crate) struct OffsetProfile {
     pub(crate) last_seen: f64,
 }
 
+/// Bindings of one controller model (`Gamepad.id`) for `dance-single`.
+/// Controls are [`ddi_platform::gamepad::Control`] strings.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct PadBindings {
+    pub(crate) id: String,
+    /// Controls per lane (L, D, U, R).
+    pub(crate) single: Vec<Vec<String>>,
+    /// Starts the song from the start prompt.
+    pub(crate) start: Option<String>,
+    /// Quits like Escape (double-tap or hold during play).
+    pub(crate) back: Option<String>,
+    /// Last time the pad was bound or used (ms since epoch).
+    pub(crate) last_seen: f64,
+}
+
+impl Default for PadBindings {
+    fn default() -> PadBindings {
+        PadBindings {
+            id: String::new(),
+            single: vec![Vec::new(); 4],
+            start: None,
+            back: None,
+            last_seen: 0.0,
+        }
+    }
+}
+
+impl PadBindings {
+    /// Whether nothing at all is bound (a cleared entry).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.single.iter().all(Vec::is_empty) && self.start.is_none() && self.back.is_none()
+    }
+
+    /// Defaults for a pad with the standard mapping: d-pad and face
+    /// buttons, Start and Back. Pads without it have no defaults; their
+    /// buttons are numbered arbitrarily.
+    pub(crate) fn standard(id: &str) -> PadBindings {
+        use ddi_platform::gamepad::standard::*;
+        let b = |n: u16| format!("button:{n}");
+        PadBindings {
+            id: id.to_string(),
+            single: vec![
+                vec![b(DPAD_LEFT), b(X)],
+                vec![b(DPAD_DOWN), b(A)],
+                vec![b(DPAD_UP), b(Y)],
+                vec![b(DPAD_RIGHT), b(B)],
+            ],
+            start: Some(b(START)),
+            back: Some(b(BACK)),
+            last_seen: 0.0,
+        }
+    }
+
+    /// Drops controls that do not parse, keeps each control on one lane.
+    fn sanitize(&mut self) {
+        use ddi_platform::gamepad::Control;
+        let valid = |c: &String| c.parse::<Control>().is_ok();
+        self.single.resize_with(4, Vec::new);
+        let mut seen = std::collections::HashSet::new();
+        for controls in &mut self.single {
+            controls.retain(|c| valid(c) && seen.insert(c.clone()));
+        }
+        for c in [&mut self.start, &mut self.back] {
+            if c.as_ref().is_some_and(|c| !valid(c)) {
+                *c = None;
+            }
+        }
+        if !self.last_seen.is_finite() {
+            self.last_seen = 0.0;
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Settings {
         let layout = ddi_chart::Layout::dance_single();
@@ -95,6 +174,8 @@ impl Default for Settings {
             audio_profiles: Vec::new(),
             display_profiles: Vec::new(),
             song_offsets: BTreeMap::new(),
+            pads: Vec::new(),
+            fast_pad_poll: true,
             keys_single: layout
                 .lanes
                 .iter()
@@ -183,6 +264,69 @@ impl Settings {
         for keys in &mut self.keys_single {
             keys.retain(|k| !k.is_empty() && seen.insert(k.clone()));
         }
+        let mut ids = std::collections::HashSet::new();
+        self.pads
+            .retain(|p| !p.id.is_empty() && ids.insert(p.id.clone()));
+        for p in &mut self.pads {
+            p.sanitize();
+        }
+    }
+
+    /// Saved bindings for a controller, else the standard defaults when it
+    /// has the standard mapping.
+    pub(crate) fn pad_bindings(&self, id: &str, standard: bool) -> Option<PadBindings> {
+        self.pads
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
+            .or_else(|| standard.then(|| PadBindings::standard(id)))
+    }
+
+    /// Stores a controller's bindings, replacing earlier ones.
+    pub(crate) fn set_pad_bindings(&mut self, mut pad: PadBindings) {
+        pad.last_seen = Self::now_ms();
+        pad.sanitize();
+        match self.pads.iter_mut().find(|p| p.id == pad.id) {
+            Some(p) => *p = pad,
+            None => self.pads.push(pad),
+        }
+    }
+
+    /// Drops a controller's saved bindings (a controller with the standard
+    /// mapping falls back to the defaults).
+    pub(crate) fn forget_pad(&mut self, id: &str) {
+        self.pads.retain(|p| p.id != id);
+    }
+
+    /// `dance-single` bindings for the keyboard, every saved controller and
+    /// the connected controllers `(id, standard mapping)` without saved
+    /// bindings. With `any_lane`, every control maps to that lane instead.
+    pub(crate) fn single_bindings(
+        &self,
+        connected: &[(String, bool)],
+        any_lane: Option<u8>,
+    ) -> ddi_engine::Bindings {
+        use ddi_platform::DeviceId;
+        let mut b = ddi_engine::Bindings::default();
+        let lane_of = |lane: usize| any_lane.unwrap_or(lane as u8);
+        for (lane, codes) in self.keys_single.iter().enumerate() {
+            for code in codes {
+                b.bind(&DeviceId::Keyboard, code, lane_of(lane));
+            }
+        }
+        let defaults = connected
+            .iter()
+            .filter(|(id, _)| !self.pads.iter().any(|p| &p.id == id))
+            .filter_map(|(id, standard)| self.pad_bindings(id, *standard));
+        for pad in self.pads.iter().cloned().chain(defaults) {
+            let device = DeviceId::Gamepad(pad.id.clone());
+            for (lane, controls) in pad.single.iter().enumerate() {
+                for c in controls {
+                    b.bind(&device, c, lane_of(lane));
+                }
+            }
+        }
+        b
     }
 
     pub(crate) fn save(&self) {

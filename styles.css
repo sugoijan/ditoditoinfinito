@@ -42,6 +42,19 @@ a {
   position: fixed;
   inset: 0;
   background: #050308;
+  /* Fingers on the play screen are lane presses: no text selection, no
+     long-press menu, no tap flash. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* During play, no scrolling, pinch or double-tap zoom anywhere on the
+   screen (the quit button is double-tapped). The overlays before and after
+   keep normal touch behaviour. */
+.game-canvas-host.playing {
+  touch-action: none;
 }
 
 .game-canvas {
@@ -80,6 +93,23 @@ a {
   color: #fff;
   text-decoration: none;
   opacity: 0.7;
+}
+
+.touch-quit {
+  position: absolute;
+  left: max(0.5rem, env(safe-area-inset-left));
+  top: max(0.5rem, env(safe-area-inset-top));
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  opacity: 0.7;
+  touch-action: none;
 }
 
 .song-list {
@@ -178,6 +208,10 @@ a {
 .results {
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
+  /* A phone in landscape is shorter than the card: scroll, don't clip. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.5rem 0;
 }
 
 .results-card {
@@ -257,6 +291,180 @@ a {
 
 .keys-table td {
   padding: 0.2rem 0.6rem 0.2rem 0;
+}
+
+.device-block {
+  border: 1px solid color-mix(in srgb, var(--fg) 15%, transparent);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+}
+
+.device-block.absent {
+  border-style: dashed;
+}
+
+.device-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.75rem;
+  align-items: baseline;
+  margin-bottom: 0.4rem;
+  overflow-wrap: anywhere;
+}
+
+.device-head .muted {
+  font-size: 0.85rem;
+}
+
+.bind-status {
+  padding: 0 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
+}
+
+.bind-status.missing {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0;
+}
+
+.bind-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.bind-dialog {
+  width: min(30rem, 100%);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--fg);
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  overflow-wrap: anywhere;
+}
+
+.bind-dialog:focus {
+  outline: none;
+}
+
+.bind-dialog h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.75rem;
+}
+
+.bind-prompt {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0.5rem 0;
+}
+
+.bind-steps {
+  padding-left: 1.4rem;
+  margin: 0.75rem 0;
+}
+
+.bind-steps li {
+  padding: 0.1rem 0;
+}
+
+.bind-steps li.current {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.bind-steps li.done {
+  color: var(--muted);
+}
+
+.bind-value {
+  margin-left: 0.75rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9rem;
+}
+
+.bind-lanes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.bind-lanes.bind-extra {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.bind-lane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.6rem 0.3rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.bind-lane.lit {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.bind-message,
+.bind-warning {
+  color: #d1483a;
+}
+
+.bind-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.bind-actions button {
+  font: inherit;
+}
+
+.bind-actions button.primary {
+  padding: 0.25rem 1rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.bind-actions .muted {
+  font-size: 0.8rem;
+  margin-left: auto;
+}
+
+.pad-notice {
+  margin: 1rem 0;
+  padding: 0.6rem 1rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
 }
 
 .cal-track {

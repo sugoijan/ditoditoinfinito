@@ -30,7 +30,7 @@ pub use ddi_platform;
 
 pub use clock::{ClockOptions, SongClock};
 pub use frame::{Frame, JudgementFlash, NoteSprite, ReceptorState, SpriteKind};
-pub use input::{Binding, BindingDevice, Bindings, InputEvent};
+pub use input::{Binding, BindingDevice, Bindings, InputEvent, LaneInput};
 pub use judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
 pub use player::{PlayOptions, Player, Results};
 pub use rules::{

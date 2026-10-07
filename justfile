@@ -2,9 +2,11 @@
 default:
     @just --list
 
-# Run the frontend locally (requires trunk)
-dev:
-    @trunk serve
+# Plain HTTP on a LAN address is not a secure context (no gamepads, no
+# WebGPU); from another machine, prefer an SSH tunnel to localhost (AGENTS.md).
+# Run the frontend locally (requires trunk); `just dev 0.0.0.0` serves the LAN
+dev address="127.0.0.1":
+    @trunk serve --address {{address}}
 
 # Release build (same as CI; public URL defaults to /ditoditoinfinito/)
 build public_url="/ditoditoinfinito/":

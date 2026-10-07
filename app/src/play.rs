@@ -1,24 +1,27 @@
 //! One play of one chart: owns the engine `Player`, the audio backend, the
-//! keyboard and the bindings, and advances them once per animation frame.
+//! input sources (keyboard, gamepads, touch lanes) and the bindings, and
+//! advances them once per animation frame.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use ddi_chart::{Layout, NoteKind, Song};
-use ddi_engine::input::{Bindings, InputEvent};
+use ddi_engine::input::{BindingDevice, Bindings, InputEvent, LaneInput};
 use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
 use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::{JudgeNames, Ruleset};
-use ddi_platform::{AudioBackend, DeviceId, DeviceProfile, HostTime, InputSource};
+use ddi_platform::{AudioBackend, DeviceId, DeviceProfile, HostTime, InputSource, RawInput};
 use ddi_render::RenderOptions;
 use gloo::events::EventListener;
 use wasm_bindgen::JsCast;
-use web_sys::AudioBuffer;
+use web_sys::{AudioBuffer, HtmlCanvasElement};
 
 use crate::calibration::{self, CalMode, Calibrator, Outcome};
 use crate::settings::Settings;
 use crate::web::audio::WebAudio;
+use crate::web::gamepad::Gamepads;
 use crate::web::keyboard::WebKeyboard;
+use crate::web::touch::{self, TouchLanes};
 
 /// Lead time between scheduling the start and the first audio sample, so the
 /// buffer source starts exactly on the audio clock.
@@ -32,6 +35,10 @@ const CANCEL_DOUBLE_TAP: f64 = 0.5;
 const CANCEL_HOLD: f64 = 0.7;
 /// How long the hint stays after a single tap.
 const CANCEL_HINT: f64 = 1.5;
+/// The hint when the quit button was touched (no Esc key on a phone).
+const TOUCH_CANCEL_HINT: &str = "hold or double-tap the quit button";
+/// The hint when a controller's Back button was pressed.
+const PAD_CANCEL_HINT: &str = "hold or double-tap Back to quit";
 
 fn is_cancel_key(code: &str) -> bool {
     code == "Escape" || code == "Backspace"
@@ -50,6 +57,13 @@ pub(crate) struct SessionConfig {
     pub(crate) auto_bias: f64,
     /// Devices the session runs on (selects the offsets).
     pub(crate) devices: Option<DeviceProfile>,
+    /// Gamepad poller shared with the screen (start button), if supported.
+    pub(crate) gamepads: Option<Gamepads>,
+    /// Autoplay through a test gamepad (`auto=pad`): presses are scheduled
+    /// on `window.__DDI_FAKE_PAD` instead of fed to the engine directly.
+    pub(crate) auto_pad: bool,
+    /// The play canvas, for touch lanes over it.
+    pub(crate) touch_canvas: Option<HtmlCanvasElement>,
 }
 
 impl SessionConfig {
@@ -68,10 +82,14 @@ impl SessionConfig {
                 hide_notes: false,
                 show_deltas: settings.show_deltas,
                 cancel_progress: 0.0,
+                cancel_hint: "",
             },
             calibration: None,
             auto_bias: 0.0,
             devices,
+            gamepads: None,
+            auto_pad: false,
+            touch_canvas: None,
         }
     }
 }
@@ -85,9 +103,21 @@ pub(crate) struct PlaySession {
     /// Music volume the session plays at (0 in the muted calibration).
     volume: f32,
     keyboard: Option<WebKeyboard>,
-    bindings: Bindings,
+    gamepads: Option<Gamepads>,
+    touch: Option<TouchLanes>,
+    input: LaneInput,
+    /// Pad controls that act like Escape: `(Gamepad.id, control)`.
+    pad_cancel: Vec<(String, String)>,
+    /// Pads whose bindings are settled (saved, or defaults given). A pad
+    /// first seen during play (browsers reveal a pad only once a button is
+    /// pressed) gets the standard defaults then, if it has that mapping.
+    known_pads: Vec<String>,
+    /// Lane that every control maps to (any-key calibration), if any.
+    any_lane: Option<u8>,
+    /// Whether pads get dance-single defaults (other layouts have none).
+    pad_defaults: bool,
     held: Vec<bool>,
-    raw: Vec<ddi_platform::RawInput>,
+    raw: Vec<RawInput>,
     /// Autoplay: scripted presses at each note's judged time.
     auto: Option<AutoPlay>,
     aborted: bool,
@@ -134,6 +164,34 @@ struct AutoPlay {
     next: usize,
     pending_release: Vec<(f64, u8)>,
     cue: Cue,
+    /// `auto=pad`: the pad control per lane that the test pad presses.
+    via_pad: Option<Vec<Option<String>>>,
+}
+
+/// How far ahead `auto=pad` schedules presses on the test pad, seconds: a
+/// few frames, and no more, because the song-to-host conversion uses the
+/// clock as it is now and later clock corrections would shift the edge.
+const AUTO_PAD_LOOKAHEAD: f64 = 0.05;
+
+/// Schedules an edge on the test pad installed by the headless tests
+/// (`window.__DDI_FAKE_PAD.schedule(hostMs, control, pressed)`).
+fn schedule_fake_pad(host: HostTime, control: &str, pressed: bool) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(pad) = js_sys::Reflect::get(&window, &"__DDI_FAKE_PAD".into()) else {
+        return;
+    };
+    if let Ok(f) = js_sys::Reflect::get(&pad, &"schedule".into())
+        .and_then(|f| f.dyn_into::<js_sys::Function>())
+    {
+        let _ = f.call3(
+            &pad,
+            &(host.0 * 1000.0).into(),
+            &control.into(),
+            &pressed.into(),
+        );
+    }
 }
 
 pub(crate) enum SessionEvent {
@@ -173,22 +231,46 @@ impl PlaySession {
             .ok_or_else(|| format!("layout {} not playable", chart.layout))?;
         let names = config.ruleset.names.clone();
         let any_key = config.calibration.is_some_and(|m| m.any_key());
-        let bindings = if layout.id == "dance-single" {
-            let mut b = Bindings::default();
-            for (lane, codes) in settings.keys_single.iter().enumerate() {
-                for code in codes {
-                    let lane = if any_key {
-                        calibration::AUDIO_LANE
-                    } else {
-                        lane as u8
-                    };
-                    b.bind(&DeviceId::Keyboard, code, lane);
-                }
-            }
-            b
+        let any_lane = any_key.then_some(calibration::AUDIO_LANE);
+        let pad_defaults = layout.id == "dance-single";
+        let gamepads = config.gamepads.clone();
+        let connected: Vec<(String, bool)> = gamepads
+            .as_ref()
+            .map(|g| g.pads().into_iter().map(|p| (p.id, p.standard)).collect())
+            .unwrap_or_default();
+        let mut bindings = if layout.id == "dance-single" {
+            settings.single_bindings(&connected, any_lane)
         } else {
             Bindings::from_layout(&layout)
         };
+        let known_pads: Vec<String> = settings
+            .pads
+            .iter()
+            .map(|p| p.id.clone())
+            .chain(connected.iter().map(|(id, _)| id.clone()))
+            .collect();
+        let mut pad_cancel: Vec<(String, String)> = settings
+            .pads
+            .iter()
+            .map(|p| p.id.clone())
+            .chain(connected.iter().map(|(id, _)| id.clone()))
+            .filter_map(|id| {
+                let standard = connected.iter().any(|(c, s)| *c == id && *s);
+                let back = settings.pad_bindings(&id, standard)?.back?;
+                Some((id, back))
+            })
+            .collect();
+        pad_cancel.dedup();
+        let via_pad = (config.auto && config.auto_pad).then(|| {
+            (0..layout.lanes.len() as u8)
+                .map(|lane| {
+                    bindings
+                        .controls_of(lane)
+                        .find(|(d, _)| matches!(d, ddi_engine::BindingDevice::Gamepad(_)))
+                        .map(|(_, c)| c.to_string())
+                })
+                .collect()
+        });
         let mut capture: Vec<String> = bindings
             .bindings
             .iter()
@@ -207,6 +289,18 @@ impl PlaySession {
             .map(|s| s.to_string()),
         );
         let keyboard = WebKeyboard::new(capture);
+        // Touch columns follow the layout, whatever the lane count.
+        for lane in 0..layout.lanes.len() as u8 {
+            let target = if any_key {
+                calibration::AUDIO_LANE
+            } else {
+                lane
+            };
+            bindings.bind(BindingDevice::Touch, &format!("lane:{lane}"), target);
+        }
+        let touch = config.touch_canvas.and_then(|canvas| {
+            TouchLanes::new(canvas, layout.lanes.iter().map(|l| l.column).collect())
+        });
         let interrupted = Rc::new(Cell::new(false));
         let mut interrupt_listeners = Vec::new();
         if let Some(document) = web_sys::window().and_then(|w| w.document()) {
@@ -275,15 +369,21 @@ impl PlaySession {
                 } else {
                     Cue::Audio
                 },
+                via_pad,
             }
         });
-
         let mut player = Player::new(song, chart_index, config.ruleset, config.options);
         let sample = audio.now();
         player.clock_sample(sample);
         let start_ctx = sample.context_time + START_LOOKAHEAD;
         audio.play(&buffer, start_ctx, 0.0, config.volume)?;
         player.start(start_ctx, 0.0);
+        // After the last fallible step: only a session (whose `Drop` turns
+        // it off again) may run the fast loop.
+        if let Some(g) = &gamepads {
+            g.clear();
+            g.set_fast(settings.fast_pad_poll);
+        }
         {
             let flag = interrupted.clone();
             interrupt_listeners.push(EventListener::new(
@@ -304,7 +404,7 @@ impl PlaySession {
         // no permission needed) and display scale (window moved screens).
         let device_changed = Rc::new(Cell::new(false));
         let mut device_listeners = Vec::new();
-        if let Some(md) = web_sys::window().and_then(|w| w.navigator().media_devices().ok()) {
+        if let Some(md) = crate::web::devices::media_devices() {
             let flag = device_changed.clone();
             device_listeners.push(EventListener::new(&md, "devicechange", move |_| {
                 flag.set(true)
@@ -328,7 +428,13 @@ impl PlaySession {
             render: config.render,
             audio,
             keyboard,
-            bindings,
+            gamepads,
+            touch,
+            input: LaneInput::new(bindings),
+            pad_cancel,
+            known_pads,
+            any_lane,
+            pad_defaults,
             held: vec![false; lanes],
             raw: Vec::new(),
             auto,
@@ -388,9 +494,33 @@ impl PlaySession {
         if let Some(kb) = self.keyboard.as_mut() {
             kb.poll(&mut self.raw);
         }
+        if let Some(t) = self.touch.as_mut() {
+            t.poll(&mut self.raw);
+        }
+        // The poller's own loops poll the pads (never from inside this
+        // tick: its edge listener may re-enter the screen component).
+        if let Some(g) = self.gamepads.as_mut() {
+            g.poll(&mut self.raw);
+        }
+        // Sources are drained one after the other; the engine wants each
+        // lane's edges in time order.
+        self.raw
+            .sort_by(|a, b| a.host_time.0.total_cmp(&b.host_time.0));
+        // Pad edges are stamped when polled, which can be after this frame's
+        // timestamp; judge up to the latest edge so a press is never ahead
+        // of the judged time (a mine in between would count as stepped on).
+        let judge_now = self
+            .raw
+            .iter()
+            .fold(host_now.0, |t, r| t.max(r.host_time.0));
         let mut raw_inputs = std::mem::take(&mut self.raw);
         for raw in raw_inputs.drain(..) {
-            if raw.device == DeviceId::Keyboard && is_cancel_key(&raw.control) {
+            if let DeviceId::Gamepad(id) = &raw.device
+                && !self.known_pads.contains(id)
+            {
+                self.adopt_pad(id.clone());
+            }
+            if self.is_cancel(&raw) {
                 if raw.pressed {
                     let now = raw.host_time.0;
                     if self
@@ -401,12 +531,17 @@ impl PlaySession {
                     }
                     self.cancel_pressed_at = Some(now);
                     self.cancel_held = true;
+                    self.render.cancel_hint = match raw.device {
+                        DeviceId::Touch => TOUCH_CANCEL_HINT,
+                        DeviceId::Gamepad(_) => PAD_CANCEL_HINT,
+                        _ => "",
+                    };
                 } else {
                     self.cancel_held = false;
                 }
                 continue;
             }
-            if let Some(ev) = self.bindings.resolve(&raw) {
+            if let Some(ev) = self.input.feed(&raw) {
                 self.apply(ev, &mut events);
             }
         }
@@ -433,8 +568,25 @@ impl PlaySession {
                     Cue::Audio => opts.audio_offset,
                     Cue::Visual => opts.visual_offset,
                 };
+            if let Some(controls) = &auto.via_pad {
+                // Schedule ahead on the test pad; the edges come back through
+                // the poller like a real pad's.
+                while auto.next < auto.events.len()
+                    && auto.events[auto.next].0 <= heard + AUTO_PAD_LOOKAHEAD
+                {
+                    let (t, rel, lane) = auto.events[auto.next];
+                    auto.next += 1;
+                    if let Some(Some(control)) = controls.get(lane as usize) {
+                        schedule_fake_pad(HostTime(host_now.0 + (t - heard)), control, true);
+                        schedule_fake_pad(HostTime(host_now.0 + (rel - heard)), control, false);
+                    }
+                }
+            }
             let mut pending = Vec::new();
-            while auto.next < auto.events.len() && auto.events[auto.next].0 <= heard {
+            while auto.via_pad.is_none()
+                && auto.next < auto.events.len()
+                && auto.events[auto.next].0 <= heard
+            {
                 let (t, rel, lane) = auto.events[auto.next];
                 auto.next += 1;
                 pending.push((t, lane, true));
@@ -465,7 +617,7 @@ impl PlaySession {
             }
         }
 
-        events.extend(self.player.update(host_now));
+        events.extend(self.player.update(HostTime(judge_now)));
         let hits: Vec<f64> = events
             .iter()
             .filter_map(|ev| match ev.kind {
@@ -486,6 +638,7 @@ impl PlaySession {
             self.failed_at = Some(host_now.0);
             self.audio.fade_out(FAIL_FADE);
             self.keyboard = None;
+            self.touch = None;
         }
 
         let outcome = if self.aborted {
@@ -521,6 +674,10 @@ impl PlaySession {
         };
         if outcome.is_some() {
             self.keyboard = None;
+            self.touch = None;
+            if let Some(g) = &self.gamepads {
+                g.set_fast(false);
+            }
         }
         (events, outcome)
     }
@@ -531,6 +688,51 @@ impl PlaySession {
             calibration: self.calibration_outcome(),
             device_changed: self.device_changed.get(),
         }
+    }
+
+    /// Gives a pad first seen during play the standard defaults, if it has
+    /// the standard mapping (saved pads are bound from the start).
+    fn adopt_pad(&mut self, id: String) {
+        let standard = self
+            .gamepads
+            .as_ref()
+            .is_some_and(|g| g.pads().iter().any(|p| p.id == id && p.standard));
+        if standard && self.pad_defaults {
+            let pad = crate::settings::PadBindings::standard(&id);
+            let device = DeviceId::Gamepad(id.clone());
+            for (lane, controls) in pad.single.iter().enumerate() {
+                for c in controls {
+                    let lane = self.any_lane.unwrap_or(lane as u8);
+                    self.input.bindings.bind(&device, c, lane);
+                }
+            }
+            if let Some(back) = pad.back {
+                self.pad_cancel.push((id.clone(), back));
+            }
+        }
+        self.known_pads.push(id);
+    }
+
+    /// Escape/Backspace, a pad's Back control, or the touch quit button.
+    fn is_cancel(&self, raw: &RawInput) -> bool {
+        match &raw.device {
+            DeviceId::Keyboard => is_cancel_key(&raw.control),
+            DeviceId::Touch => raw.control == touch::CANCEL_CONTROL,
+            DeviceId::Gamepad(id) => self
+                .pad_cancel
+                .iter()
+                .any(|(p, c)| p == id && *c == raw.control),
+            _ => false,
+        }
+    }
+
+    /// Which lanes are down, for the debug state.
+    pub(crate) fn held(&self) -> &[bool] {
+        &self.held
+    }
+
+    pub(crate) fn gamepads(&self) -> Option<&Gamepads> {
+        self.gamepads.as_ref()
     }
 
     fn apply(&mut self, ev: InputEvent, out: &mut Vec<JudgeEvent>) {
@@ -556,5 +758,8 @@ impl PlaySession {
 impl Drop for PlaySession {
     fn drop(&mut self) {
         self.audio_stop();
+        if let Some(g) = &self.gamepads {
+            g.set_fast(false);
+        }
     }
 }

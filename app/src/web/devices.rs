@@ -11,6 +11,14 @@ use gloo::render::{AnimationFrame, request_animation_frame};
 use super::audio::WebAudio;
 use super::display;
 
+/// `navigator.mediaDevices`, or `None` where it is missing: browsers leave it
+/// undefined outside secure contexts (e.g. a LAN address over plain HTTP),
+/// and web-sys would hand back `undefined` as if it were the object.
+pub(crate) fn media_devices() -> Option<web_sys::MediaDevices> {
+    let md = web_sys::window()?.navigator().media_devices().ok()?;
+    (!wasm_bindgen::JsValue::from(md.clone()).is_undefined()).then_some(md)
+}
+
 /// Measures the refresh rate over `frames` animation frames and calls `done`
 /// with the snapped rate.
 pub(crate) fn sample_refresh_rate(frames: u32, done: impl Fn(f64) + 'static) -> RefreshSampler {

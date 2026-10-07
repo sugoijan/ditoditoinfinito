@@ -41,7 +41,10 @@ the browser are implementation details, not advertised features.
 ## Commands
 
 - `just dev` dev server (auto-reloads on every rebuild; unsuitable for long
-  runtime tests).
+  runtime tests). `just dev 0.0.0.0` serves the local network, but a LAN
+  address over HTTP is not a secure context (no gamepads, no WebGPU); from
+  another machine, tunnel instead (`ssh -N -L 8080:127.0.0.1:8080 <host>`,
+  then open `http://localhost:8080`).
 - `just build` release build with the production public URL.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
 - `just test` native tests (chart, engine, platform with `decode`, library,
@@ -68,7 +71,9 @@ and read `window.__DDI_DEBUG` for engine state.
 
 Useful URL parameters: `#/play?song=<id>&chart=<n>` (chart index as in the
 manifest), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
-`&gfx=gl` force WebGL2; `#/calibrate/run?mode=visual|audio|combined` runs a
+`&gfx=gl` force WebGL2, `&auto=pad` autoplay through a fake gamepad the test
+installs as `window.__DDI_FAKE_PAD` (see the verify skill);
+`#/calibrate/run?mode=visual|audio|combined` runs a
 calibration (same `auto`/`bias` parameters). Imported songs have ids
 `u-<hash>` and play through the same route.
 
