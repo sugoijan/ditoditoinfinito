@@ -536,3 +536,39 @@ label.button {
     aspect-ratio: 16 / 5;
   }
 }
+
+.volume-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+}
+
+.volume-control input[type="range"] {
+  flex: 1 1 10rem;
+  max-width: 20rem;
+  accent-color: var(--accent);
+}
+
+.volume-value {
+  min-width: 3rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.reset-table td {
+  vertical-align: top;
+  padding-bottom: 0.6rem;
+}
+
+.reset-table td:first-child {
+  white-space: nowrap;
+}
+
+button.danger {
+  color: #fff;
+  background: #d1483a;
+  border: none;
+  border-radius: 4px;
+  padding: 0.15rem 0.6rem;
+  cursor: pointer;
+}

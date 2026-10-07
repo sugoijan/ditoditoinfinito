@@ -242,6 +242,16 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, String> {
     })
 }
 
+/// Removes every imported song and file.
+pub(crate) async fn clear_imported() -> Result<(), String> {
+    let db = Db::open().await?;
+    db.write(vec![
+        Write::Clear { store: idb::SONGS },
+        Write::Clear { store: idb::FILES },
+    ])
+    .await
+}
+
 /// Removes imported songs and their files.
 pub(crate) async fn delete_imported(ids: &[String]) -> Result<(), String> {
     let db = Db::open().await?;

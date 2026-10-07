@@ -879,6 +879,13 @@ fn calibration_view(
             mode.target()
         )
     };
+    // The last step of the guided flow ends it: back to the songs. Earlier
+    // steps leave the flow, so they return to the calibration page.
+    let done = if mode.next().is_none() {
+        Route::Home
+    } else {
+        Route::Calibrate
+    };
     let next = mode.next().map(|m| {
         let label = match m {
             CalMode::Audio => "next: sound only",
@@ -904,7 +911,7 @@ fn calibration_view(
                     } else { html!{} } }
                     <button onclick={link.callback(|_| Msg::Retry)}>{ "again" }</button>
                     { if saved || !meaningful { next.unwrap_or_default() } else { html!{} } }
-                    <a href={Route::Calibrate.to_hash()}>{ "done" }</a>
+                    <a href={done.to_hash()}>{ "done" }</a>
                 </div>
             </div>
         </div>

@@ -151,8 +151,8 @@ impl WebAudio {
     }
 
     /// Plays `length` seconds of `buffer` from `offset`, fading in and out,
-    /// for song-select previews (a context of its own, so the master gain
-    /// carries the fades).
+    /// for previews. The fades are on the sound and the volume on the
+    /// master, so [`Self::set_master_volume`] can change it while it plays.
     pub(crate) fn play_preview(
         &mut self,
         buffer: &AudioBuffer,
@@ -161,20 +161,28 @@ impl WebAudio {
         volume: f32,
     ) -> Result<SoundId, String> {
         const FADE: f64 = 0.5;
+        self.set_master_volume(volume);
         let start = self.ctx.current_time() + 0.05;
         let end = start + length.max(2.0 * FADE);
-        let gain = self.master.gain();
-        let _ = gain.cancel_scheduled_values(0.0);
-        let _ = gain.set_value_at_time(0.0, start);
-        let _ = gain.linear_ramp_to_value_at_time(volume, start + FADE);
-        let _ = gain.set_value_at_time(volume, end - FADE);
-        let _ = gain.linear_ramp_to_value_at_time(0.0, end);
-        let id = self.play(buffer, start, offset, 1.0)?;
+        let id = self.play(buffer, start, offset, 0.0)?;
         if let Some(voice) = self.voices.borrow().live.get(&id) {
+            let gain = voice.gain.gain();
+            let _ = gain.set_value_at_time(0.0, start);
+            let _ = gain.linear_ramp_to_value_at_time(1.0, start + FADE);
+            let _ = gain.set_value_at_time(1.0, end - FADE);
+            let _ = gain.linear_ramp_to_value_at_time(0.0, end);
             let scheduled: &AudioScheduledSourceNode = voice.source.as_ref();
             let _ = scheduled.stop_with_when(end);
         }
         Ok(id)
+    }
+
+    /// Moves the master volume smoothly (no click) to `volume`.
+    pub(crate) fn set_master_volume(&self, volume: f32) {
+        let gain = self.master.gain();
+        let now = self.ctx.current_time();
+        let _ = gain.cancel_scheduled_values(now);
+        let _ = gain.set_target_at_time(volume, now, 0.015);
     }
 
     /// Stops and forgets every scheduled or playing sound.
