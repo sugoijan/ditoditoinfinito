@@ -10,7 +10,7 @@
 use std::rc::Rc;
 
 use ddi_platform::DeviceProfile;
-use gloo::events::{EventListener, EventListenerOptions};
+use gloo::events::EventListener;
 use gloo::timers::callback::Timeout;
 use yew::prelude::*;
 
@@ -38,6 +38,9 @@ pub(crate) enum Msg {
     /// Debounced follow-up to `DevicesChanged`.
     Reprobe,
     Probed(DeviceProfile),
+    /// `Probed`, applied after a short delay so any click in flight on the
+    /// banner that triggered the probe can finish first.
+    Apply(DeviceProfile),
     UseDefaults,
     CopyAudioFrom(String),
     CopyDisplayFrom(String),
@@ -70,6 +73,7 @@ pub(crate) struct DeviceWatcher {
     _sampler: Option<RefreshSampler>,
     _debounce: Option<Timeout>,
     _toast_timer: Option<Timeout>,
+    _apply_timer: Option<Timeout>,
 }
 
 impl Component for DeviceWatcher {
@@ -78,16 +82,17 @@ impl Component for DeviceWatcher {
 
     fn create(ctx: &Context<Self>) -> Self {
         let link = ctx.link();
+        // `click` rather than `pointerdown`: by the time a click bubbles to
+        // the document, a clicked link has already committed its navigation,
+        // so the probe that follows (and the re-render it causes) cannot
+        // race the click itself.
         let mut gesture = Vec::new();
         if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-            for ev in ["pointerdown", "keydown"] {
+            for ev in ["click", "keydown"] {
                 let l = link.clone();
-                gesture.push(EventListener::new_with_options(
-                    &document,
-                    ev,
-                    EventListenerOptions::run_in_capture_phase(),
-                    move |_| l.send_message(Msg::Gesture),
-                ));
+                gesture.push(EventListener::new(&document, ev, move |_| {
+                    l.send_message(Msg::Gesture)
+                }));
             }
         }
         let devicechange = web_sys::window()
@@ -124,6 +129,7 @@ impl Component for DeviceWatcher {
             _sampler: None,
             _debounce: Some(sampler_timer),
             _toast_timer: None,
+            _apply_timer: None,
         }
     }
 
@@ -175,6 +181,13 @@ impl Component for DeviceWatcher {
             }
             Msg::Probed(profile) => {
                 self.probing = false;
+                let link = ctx.link().clone();
+                self._apply_timer = Some(Timeout::new(400, move || {
+                    link.send_message(Msg::Apply(profile))
+                }));
+                false
+            }
+            Msg::Apply(profile) => {
                 let settings = Settings::load();
                 let changed = self.last.as_ref() != Some(&profile);
                 self.last = Some(profile.clone());
@@ -248,7 +261,7 @@ impl Component for DeviceWatcher {
             Some(Banner::FirstRun) => html! {
                 <div class="device-banner">
                     <span>{ "First time here? Calibrate the timing for your audio and display before playing; it takes a minute." }</span>
-                    <a class="button" href={Route::Calibrate.to_hash()}>{ "calibrate" }</a>
+                    <a class="button" href={Route::Calibrate.to_hash()} onclick={go_calibrate()}>{ "calibrate" }</a>
                     <button class="link-button" onclick={link.callback(|_| Msg::Dismiss)}>{ "later" }</button>
                 </div>
             },
@@ -279,7 +292,7 @@ impl Component for DeviceWatcher {
                             { if *new_display { format!("New display: {}. ", profile.display.label) } else { String::new() } }
                             { "No calibration for it yet." }
                         </span>
-                        <a class="button" href={Route::Calibrate.to_hash()}>{ "calibrate" }</a>
+                        <a class="button" href={Route::Calibrate.to_hash()} onclick={go_calibrate()}>{ "calibrate" }</a>
                         <button class="link-button" onclick={link.callback(|_| Msg::UseDefaults)}>{ "use defaults" }</button>
                         { if *new_audio { copies("audio", &settings.audio_profiles) } else { html!{} } }
                         { if *new_display { copies("display", &settings.display_profiles) } else { html!{} } }
@@ -290,6 +303,15 @@ impl Component for DeviceWatcher {
         };
         html! { <>{ banner }{ for toast }</> }
     }
+}
+
+/// Navigate to the calibration hub from the banner regardless of what the
+/// anchor's default action does (the banner may re-render under the click).
+fn go_calibrate() -> Callback<MouseEvent> {
+    Callback::from(|e: MouseEvent| {
+        e.prevent_default();
+        Route::Calibrate.navigate();
+    })
 }
 
 impl DeviceWatcher {
