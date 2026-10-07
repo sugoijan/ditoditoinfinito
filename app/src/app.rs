@@ -98,12 +98,14 @@ impl App {
                 chart,
                 force_gl,
                 auto,
+                auto_pad,
                 bias_ms,
             } => html! {
                 <GameCanvas
                     key={format!("{song}/{chart}")}
                     source={SongSource::Song { id: song.clone(), chart: *chart }}
                     auto={*auto}
+                    auto_pad={*auto_pad}
                     auto_bias={*bias_ms as f64 / 1000.0}
                     backend={if *force_gl { BackendPreference::WebGl2 } else { BackendPreference::Auto }}
                 />

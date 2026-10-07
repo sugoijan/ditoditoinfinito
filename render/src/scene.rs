@@ -139,6 +139,8 @@ pub struct RenderOptions {
     /// Progress of a cancel gesture in 0..=1 (0 = none); draws the "hold to
     /// quit" hint.
     pub cancel_progress: f32,
+    /// The quit hint shown with it; empty for the keyboard's.
+    pub cancel_hint: &'static str,
 }
 
 fn rgba(c: Color) -> [f32; 4] {
@@ -364,7 +366,12 @@ pub fn build(
         let x = geo.width / 2.0;
         let y = geo.height - a * 0.9;
         text.push(TextItem {
-            text: "hold or double-tap Esc to quit".into(),
+            text: if opts.cancel_hint.is_empty() {
+                "hold or double-tap Esc to quit"
+            } else {
+                opts.cancel_hint
+            }
+            .into(),
             x,
             y: y - a * 0.5,
             size: (a * 0.3).max(12.0),

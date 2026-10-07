@@ -14,6 +14,9 @@ pub(crate) enum Route {
         force_gl: bool,
         /// `auto=1` plays the chart automatically (testing / demo).
         auto: bool,
+        /// `auto=pad` autoplays through a test gamepad the headless tests
+        /// install (`window.__DDI_FAKE_PAD`); implies `auto`.
+        auto_pad: bool,
         /// `bias=<ms>` makes autoplay press late by that much (testing).
         bias_ms: i64,
     },
@@ -55,7 +58,8 @@ impl Route {
                     .and_then(|c| c.parse().ok())
                     .unwrap_or(0),
                 force_gl: params.get("gfx").is_some_and(|g| g == "gl"),
-                auto: params.get("auto").is_some_and(|a| a == "1"),
+                auto: params.get("auto").is_some_and(|a| a == "1" || a == "pad"),
+                auto_pad: params.get("auto").is_some_and(|a| a == "pad"),
                 bias_ms: parse_bias(&params),
             },
             "options" => Route::Options,
@@ -81,10 +85,15 @@ impl Route {
                 chart,
                 force_gl,
                 auto,
+                auto_pad,
                 bias_ms,
             } => {
                 let gl = if *force_gl { "&gfx=gl" } else { "" };
-                let auto = if *auto { "&auto=1" } else { "" };
+                let auto = match (*auto, *auto_pad) {
+                    (_, true) => "&auto=pad",
+                    (true, false) => "&auto=1",
+                    (false, false) => "",
+                };
                 format!(
                     "#/play?song={}&chart={chart}{gl}{auto}{}",
                     percent_encode(song),
@@ -222,6 +231,7 @@ mod tests {
                 chart: 2,
                 force_gl: true,
                 auto: true,
+                auto_pad: false,
                 bias_ms: 0,
             }
         );

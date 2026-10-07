@@ -1,6 +1,18 @@
 //! Gameplay screen: loads the song (or generates the calibration one), waits
 //! for a user gesture (the audio context must be created inside one), starts
 //! the play session and shows the results when it ends.
+//!
+//! A controller's Start button starts the song too: Chrome and Firefox treat
+//! a gamepad press as a user gesture, so the audio context is created right
+//! after the poll that saw the press (Yew handles the message in a microtask
+//! of the same task), as a keydown does. Safari does not; when the context
+//! does not start, the prompt asks for a tap, click or key press instead, and
+//! one made while the screen still waits resumes the waiting context.
+//!
+//! On touch screens (a coarse pointer, or once a finger has touched the
+//! screen) the play screen shows a quit button instead of the back link,
+//! since there is no Escape key and a stray tap on a link would leave the
+//! song at once; the button runs the same hold or double-tap gesture.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -22,7 +34,12 @@ use crate::router::Route;
 use crate::settings::Settings;
 use crate::songs::load_song;
 use crate::web::audio::WebAudio;
+use crate::web::gamepad::Gamepads;
 use crate::web::gfx::{BackendPreference, Gfx};
+
+/// How long a context created from a pad press may take to start before the
+/// screen asks for a real gesture, ms.
+const PAD_START_WAIT_MS: u32 = 1500;
 
 /// What the screen plays.
 #[derive(Clone, Debug, PartialEq)]
@@ -48,6 +65,13 @@ pub(crate) enum Msg {
     BackRequested,
     SongLoaded(Result<Rc<Loaded>, String>),
     StartRequested,
+    /// A controller button went down: `(Gamepad.id, control)`.
+    PadPress(String, String),
+    /// Started from a pad, but the browser kept the audio context
+    /// suspended (no gamepad gestures): ask for a tap or key.
+    NeedsGesture,
+    /// A finger or pen touched the screen.
+    TouchSeen,
     Decoded(Result<(WebAudio, AudioBuffer), String>),
     /// On the new-device prompt: start with the (possibly copied) offsets.
     DeviceContinue {
@@ -70,6 +94,9 @@ pub(crate) struct Props {
     pub(crate) backend: BackendPreference,
     #[prop_or_default]
     pub(crate) auto: bool,
+    /// Autoplay through the headless tests' fake gamepad.
+    #[prop_or_default]
+    pub(crate) auto_pad: bool,
     /// Autoplay bias in seconds (testing aid).
     #[prop_or_default]
     pub(crate) auto_bias: f64,
@@ -88,6 +115,14 @@ pub(crate) struct GameCanvas {
     devices: Option<DeviceProfile>,
     /// Song offset (seconds) the current or last play ran with.
     played_offset: f64,
+    gamepads: Option<Gamepads>,
+    /// A pad start left the audio suspended; the prompt asks for a gesture.
+    needs_gesture: bool,
+    /// The context a pad press created, while the screen waits to see
+    /// whether it starts; a tap or key press meanwhile resumes it.
+    pad_start_ctx: Option<web_sys::AudioContext>,
+    /// Touch screen: show the quit button and touch hints.
+    touch: bool,
     _keys: Option<EventListener>,
 }
 
@@ -173,6 +208,15 @@ impl Component for GameCanvas {
                 },
             )
         });
+        let gamepads = Gamepads::new();
+        if let Some(g) = &gamepads {
+            let link = ctx.link().clone();
+            g.set_listener(Some(Box::new(move |edge| {
+                if let (ddi_platform::DeviceId::Gamepad(id), true) = (&edge.device, edge.pressed) {
+                    link.send_message(Msg::PadPress(id.clone(), edge.control.clone()));
+                }
+            })));
+        }
         GameCanvas {
             canvas: NodeRef::default(),
             debug: NodeRef::default(),
@@ -185,6 +229,10 @@ impl Component for GameCanvas {
             settings: Settings::load(),
             devices: None,
             played_offset: 0.0,
+            gamepads,
+            needs_gesture: false,
+            pad_start_ctx: None,
+            touch: coarse_pointer(),
             _keys: keys,
         }
     }
@@ -252,35 +300,59 @@ impl Component for GameCanvas {
                 false
             }
             Msg::StartRequested => {
-                if !matches!(self.stage, Stage::Idle) {
+                if let (Stage::Decoding, Some(audio)) = (&self.stage, &self.pad_start_ctx) {
+                    let _ = audio.resume();
                     return false;
                 }
-                let (Status::Ready(song), Status::Ready(_)) = (&self.song, &self.gfx) else {
+                self.start(ctx, false)
+            }
+            Msg::PadPress(id, control) => {
+                // During play the session owns the pad (Back included).
+                if matches!(self.stage, Stage::Playing | Stage::Decoding) {
+                    return false;
+                }
+                let standard = self
+                    .gamepads
+                    .as_ref()
+                    .and_then(|g| g.pads().into_iter().find(|p| p.id == id))
+                    .is_some_and(|p| p.standard);
+                let Some(pad) = self.settings.pad_bindings(&id, standard) else {
                     return false;
                 };
-                // Must be created synchronously inside the gesture handler.
-                let audio = match WebAudio::new() {
-                    Ok(a) => a,
-                    Err(e) => {
-                        self.stage = Stage::Error(e);
-                        return true;
+                let is_start = pad.start.as_deref() == Some(control.as_str());
+                let is_back = pad.back.as_deref() == Some(control.as_str());
+                match &self.stage {
+                    Stage::Idle if is_start => self.start(ctx, true),
+                    // A player on a pad alone must get past the new-device
+                    // prompt too: Start plays with the default offsets.
+                    Stage::NewDevice { .. } if is_start => <Self as Component>::update(
+                        self,
+                        ctx,
+                        Msg::DeviceContinue {
+                            copy_audio_from: None,
+                            copy_display_from: None,
+                        },
+                    ),
+                    Stage::Finished { .. } | Stage::Interrupted if is_start => {
+                        <Self as Component>::update(self, ctx, Msg::Retry)
                     }
-                };
-                self.stage = Stage::Decoding;
-                let song = song.clone();
-                ctx.link().send_future(async move {
-                    audio.resume().await;
-                    audio.wait_for_latency().await;
-                    let r = match &song.music_bytes {
-                        Some(bytes) => audio.decode(bytes).await,
-                        None => calibration::click_track(&audio, &song.song)
-                            .ok_or_else(|| "could not synthesize the click track".to_string()),
-                    };
-                    Msg::Decoded(r.map(|b| (audio, b)))
-                });
+                    _ if is_back => <Self as Component>::update(self, ctx, Msg::BackRequested),
+                    _ => false,
+                }
+            }
+            Msg::TouchSeen => {
+                let changed = !self.touch;
+                self.touch = true;
+                changed
+            }
+            Msg::NeedsGesture => {
+                self.pad_start_ctx = None;
+                self.stage = Stage::Idle;
+                self.needs_gesture = true;
                 true
             }
             Msg::Decoded(Ok((audio, buffer))) => {
+                self.pad_start_ctx = None;
                 // Probe the devices now that the context is running.
                 let refresh = self
                     .game
@@ -336,6 +408,7 @@ impl Component for GameCanvas {
                 true
             }
             Msg::Decoded(Err(e)) => {
+                self.pad_start_ctx = None;
                 self.stage = Stage::Error(e);
                 true
             }
@@ -425,7 +498,14 @@ impl Component for GameCanvas {
                 <div class="canvas-overlay start-prompt" onclick={link.callback(|_| Msg::StartRequested)}>
                     <div class="start-title">{ &song.title }</div>
                     <div class="muted">{ &song.subtitle }</div>
-                    <div class="start-hint">{ "press Enter or click to start · Esc goes back · during play, hold or double-tap Esc to quit" }</div>
+                    if self.needs_gesture {
+                        <div class="start-hint">{ "This browser needs a tap, click or key press to start the audio." }</div>
+                    }
+                    if self.touch {
+                        <div class="start-hint">{ "tap to start · during play, hold or double-tap the ✕ button to quit" }</div>
+                    } else {
+                        <div class="start-hint">{ "press Enter (or Start on a controller) or click to start · Esc goes back · during play, hold or double-tap Esc (or Back) to quit" }</div>
+                    }
                 </div>
             },
             (
@@ -504,12 +584,23 @@ impl Component for GameCanvas {
         } else {
             html! {}
         };
+        let playing = matches!(self.stage, Stage::Playing);
+        let touch = self.touch;
+        let onpointerdown = link.batch_callback(move |e: PointerEvent| {
+            (!touch && matches!(e.pointer_type().as_str(), "touch" | "pen"))
+                .then_some(Msg::TouchSeen)
+        });
         html! {
-            <div class="game-canvas-host">
+            <div class={classes!("game-canvas-host", playing.then_some("playing"))} {onpointerdown}>
                 <canvas ref={self.canvas.clone()} class="game-canvas"></canvas>
                 { overlay }
                 { debug }
-                <a class="back-link" href={back_route(source).to_hash()}>{ "← back" }</a>
+                if playing && touch {
+                    // The session's touch source handles it (see `web::touch`).
+                    <button class="touch-quit" aria-label="quit: hold or double-tap" title="hold or double-tap to quit">{ "✕" }</button>
+                } else {
+                    <a class="back-link" href={back_route(source).to_hash()}>{ "← back" }</a>
+                }
             </div>
         }
     }
@@ -521,6 +612,53 @@ impl Component for GameCanvas {
 }
 
 impl GameCanvas {
+    /// Creates the audio context (synchronously: this runs inside the key,
+    /// click or pad press that asked for it) and decodes the song.
+    fn start(&mut self, ctx: &Context<Self>, from_pad: bool) -> bool {
+        if !matches!(self.stage, Stage::Idle) {
+            return false;
+        }
+        let (Status::Ready(song), Status::Ready(_)) = (&self.song, &self.gfx) else {
+            return false;
+        };
+        let audio = match WebAudio::new() {
+            Ok(a) => a,
+            Err(e) => {
+                self.stage = Stage::Error(e);
+                return true;
+            }
+        };
+        self.stage = Stage::Decoding;
+        let audio_ctx = audio.context().clone();
+        let song = song.clone();
+        ctx.link().send_future(async move {
+            if from_pad {
+                // `resume()` may never settle without a gesture; poll the
+                // state instead and give up after a while.
+                let mut waited = 0;
+                while !audio.running() && waited < PAD_START_WAIT_MS {
+                    gloo::timers::future::TimeoutFuture::new(50).await;
+                    waited += 50;
+                }
+                if !audio.running() {
+                    return Msg::NeedsGesture;
+                }
+            } else {
+                audio.resume().await;
+            }
+            audio.wait_for_latency().await;
+            let r = match &song.music_bytes {
+                Some(bytes) => audio.decode(bytes).await,
+                None => calibration::click_track(&audio, &song.song)
+                    .ok_or_else(|| "could not synthesize the click track".to_string()),
+            };
+            Msg::Decoded(r.map(|b| (audio, b)))
+        });
+        self.needs_gesture = false;
+        self.pad_start_ctx = from_pad.then(|| audio_ctx.clone());
+        true
+    }
+
     fn refresh_hz(&self) -> f64 {
         self.game
             .borrow()
@@ -596,6 +734,9 @@ impl GameCanvas {
             }
         };
         config.auto_bias = ctx.props().auto_bias;
+        config.auto_pad = ctx.props().auto_pad;
+        config.gamepads = self.gamepads.clone();
+        config.touch_canvas = self.canvas.cast::<HtmlCanvasElement>();
         self.names = Some(config.ruleset.names.clone());
         let shift = match &ctx.props().source {
             SongSource::Song { id, .. } => self.settings.song_offset(id),
@@ -916,6 +1057,13 @@ fn calibration_view(
             </div>
         </div>
     }
+}
+
+/// Whether the primary pointer is a finger (phones, tablets).
+fn coarse_pointer() -> bool {
+    web_sys::window()
+        .and_then(|w| w.match_media("(pointer: coarse)").ok().flatten())
+        .is_some_and(|q| q.matches())
 }
 
 fn schedule(raf: Rc<RefCell<Option<AnimationFrame>>>, game: Rc<RefCell<Option<GameLoop>>>) {

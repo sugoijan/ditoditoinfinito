@@ -314,6 +314,11 @@ impl GameLoop {
             set("taps", taps.into());
             set("held", (r.tally.held as f64).into());
             set("let_go", (r.tally.let_go as f64).into());
+            let pressed = js_sys::Array::new();
+            for &h in s.held() {
+                pressed.push(&h.into());
+            }
+            set("pressed", pressed.into());
             set("finished", p.finished().into());
             set("failed", p.failed().into());
             set("drift", clock.drift().unwrap_or(0.0).into());
@@ -342,6 +347,58 @@ impl GameLoop {
             set("audio", status.as_str().into());
             text.push('\n');
             text.push_str(&status);
+        }
+        if let Some(g) = self.session.as_ref().and_then(|s| s.gamepads()) {
+            let pads = js_sys::Array::new();
+            for p in g.pads() {
+                let total = p.stats.stamped_by_pad + p.stats.stamped_by_poll;
+                let report = p
+                    .stats
+                    .report_interval
+                    .map(|r| format!("{:.1} ms", r * 1000.0))
+                    .unwrap_or_else(|| "—".into());
+                text.push_str(&format!(
+                    "\npad {}: {}{} · pad timestamps {}/{} · reports every {report}",
+                    p.index,
+                    p.id,
+                    if p.standard { " (standard)" } else { "" },
+                    p.stats.stamped_by_pad,
+                    total,
+                ));
+                let o = js_sys::Object::new();
+                let _ = js_sys::Reflect::set(&o, &"id".into(), &p.id.as_str().into());
+                let _ = js_sys::Reflect::set(&o, &"standard".into(), &p.standard.into());
+                let _ = js_sys::Reflect::set(
+                    &o,
+                    &"stamped_by_pad".into(),
+                    &(p.stats.stamped_by_pad as f64).into(),
+                );
+                let _ = js_sys::Reflect::set(
+                    &o,
+                    &"stamped_by_poll".into(),
+                    &(p.stats.stamped_by_poll as f64).into(),
+                );
+                let _ = js_sys::Reflect::set(
+                    &o,
+                    &"report_interval".into(),
+                    &p.stats.report_interval.unwrap_or(f64::NAN).into(),
+                );
+                pads.push(&o);
+            }
+            if pads.length() > 0 {
+                text.push_str(&format!(
+                    "\npad polling: {} /s ({})",
+                    g.polls_per_second(),
+                    if g.fast_running() {
+                        "1 ms loop"
+                    } else {
+                        "per frame"
+                    }
+                ));
+            }
+            set("pads", pads.into());
+            set("pad_polls", (g.polls_per_second() as f64).into());
+            set("pad_fast", g.fast_running().into());
         }
         if let Some(d) = self.session.as_ref().and_then(|s| s.devices.as_ref()) {
             text.push_str(&format!(

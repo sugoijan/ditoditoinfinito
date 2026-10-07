@@ -22,7 +22,7 @@ Gameplay waits for a user gesture ("press Enter or click to start"); Esc aborts 
 
 ## Engine debug state
 
-While a session runs, `window.__DDI_DEBUG` is refreshed every 20 frames: `{frames, backend, song_time, combo, max_combo, taps:[W1..Miss], held, let_go, finished, failed, drift, output_latency, audio}`. `audio` (also a line in the debug overlay) reads e.g. `audio: Running · 48000 Hz · master 1.00 · output peak -20.1 dBFS · volume 0.80`: the output peak comes from an analyser on the master output, so it tells "the game outputs nothing" from "the output goes nowhere". Read it with `page.evaluate(() => window.__DDI_DEBUG)`.
+While a session runs, `window.__DDI_DEBUG` is refreshed every 20 frames: `{frames, backend, song_time, combo, max_combo, taps:[W1..Miss], held, let_go, finished, failed, drift, output_latency, audio, pressed:[per lane], pads, pad_polls, pad_fast}` (`held` counts held notes; `pressed` is which lanes are down right now). `audio` (also a line in the debug overlay) reads e.g. `audio: Running · 48000 Hz · master 1.00 · output peak -20.1 dBFS · volume 0.80`: the output peak comes from an analyser on the master output, so it tells "the game outputs nothing" from "the output goes nowhere". Read it with `page.evaluate(() => window.__DDI_DEBUG)`.
 
 `window.__DDI_FORCE_WASM_DECODE = true` (set before starting a session, e.g. with `page.addInitScript`) skips `decodeAudioData` and decodes the song with the built-in Symphonia decoder, the fallback Safari needs for Ogg Vorbis. It only handles Ogg Vorbis: on the bundled songs (Ogg Opus) the session must stop on an error naming both decoders ("Built-in decoder: Ogg Opus is not supported"), not crash. To exercise it end to end, transcode a bundled song to Vorbis in a scratch dist only (`ffmpeg -i x.opus -c:a libvorbis x.ogg` if your ffmpeg has libvorbis, else `sndfile-convert -vorbis` from libsndfile; keep the original file name so the manifest still points at it) and check the console for "decoded in wasm instead". The same fallback runs when the browser's decode comes back silent (Safari with Ogg Vorbis); it logs "decodeAudioData returned silence; decoded in wasm instead". Previews play through Web Audio: test them with `--autoplay-policy=document-user-activation-required` so only a real click can start them.
 
@@ -41,6 +41,16 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true,
 ```
 
 WebGPU works headless with those flags (the badge in the bottom-right corner shows the backend). Chrome flags do not reliably disable WebGPU; use `&gfx=gl` to exercise the fallback instead. Click `.start-prompt` to start a session; wait; then screenshot and read `__DDI_DEBUG`. A full autoplay of the shortest chart (Sweeteners Beginner, ~2:40) ends on the results overlay (`.results-card`).
+
+## Gamepads without hardware
+
+`fake-gamepad.js` (next to this file) replaces `navigator.getGamepads` with scripted pads: `page.addInitScript({ path })`, then `window.__DDI_FAKE_PAD.add({ id, mapping: '' | 'standard', buttons, axes, hatAxis, trustTimestamp })`, `.press(i, control)`, `.release(i, control)`, `.disconnect(i)`, with controls as stored in bindings (`button:3`, `axis:1-`, `hat:9:left`). Add the pad in an init script (before the app loads) or later; the app finds pads by polling. Bindings for a non-standard pad can be seeded in `localStorage` (`ddi.settings.v1`, `pads: [{ id, single: [[…], …], start, back }]`); a standard pad gets the d-pad/face-button defaults.
+
+`#/play?…&auto=pad` autoplays through pad 0: the autoplayer schedules each press on the fake pad ahead of time (`schedule(hostMs, control, pressed)`), the fake applies it when `getGamepads()` is called at or after that time, and the edge reaches the engine through the real poller. With `trustTimestamp: true` the pad's `timestamp` is the exact edge time and the mean error should be ~0 ms; with `false` the app stamps the poll time and the mean should be about +0.5 ms (1 ms loop), σ well under 1 ms. `__DDI_DEBUG.pads` shows how each pad's edges were stamped, `pad_polls` the polls per second (~900 with the 1 ms loop) and `pad_fast` whether the loop runs. A fresh profile shows the new-device prompt; Start (button 9 on a standard pad) continues past it. Gamepad presses count as a user gesture in Chrome and Firefox only for real pads, so the headless autoplay flag is what lets the audio start here.
+
+## Touch lanes
+
+Use a context with `hasTouch: true, isMobile: true` and a phone viewport (390×844 and 844×390), tap `.start-prompt`, and send touches with CDP `Input.dispatchTouchEvent` (several `touchPoints` for jumps, `touchMove` to slide between columns). Columns split at the midpoints between receptors, the outer ones run to the screen edges; only touch and pen press lanes (mouse never does). On touch devices a ✕ button replaces the back link during play and runs the cancel gesture (hold or double tap). Check `__DDI_DEBUG.pressed` and that the page neither scrolls nor zooms.
 
 ## Checks worth repeating after renderer/engine changes
 

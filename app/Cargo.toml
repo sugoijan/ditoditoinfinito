@@ -80,6 +80,8 @@ web-sys = { workspace = true, features = [
     "Location",
     "MediaDevices",
     "MediaQueryList",
+    "MouseEvent",
+    "PointerEvent",
     "Screen",
     "Navigator",
     "Performance",
