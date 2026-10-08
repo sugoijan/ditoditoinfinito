@@ -195,6 +195,23 @@ pub struct Chart {
     /// SSC split timing; `None` means use `Song::timing`.
     pub timing: Option<TimingMap>,
     pub display_bpm: Option<DisplayBpm>,
+    /// What a Dancing☆Onigiri chart says beyond its notes.
+    #[serde(default)]
+    pub danoni: Option<DanoniChart>,
+}
+
+/// A Dancing☆Onigiri chart's own settings, kept for the rulesets and
+/// speed options that follow that game (`formats::danoni`). Gauge values
+/// stay as written; the DanOni rulesets interpret them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DanoniChart {
+    /// The chart's suggested speed (`difData` third field, default 3.5).
+    pub init_speed: f64,
+    /// `difData` border (or `x`), recovery, damage and initial life.
+    pub gauge: [String; 4],
+    /// Gauge headers as written (`gaugeNormal`, `customGauge`,
+    /// `maxLifeVal`, `frzStartjdgUse`, `frzAttempt`, `excessiveUse`, …).
+    pub headers: Vec<(String, String)>,
 }
 
 impl Chart {

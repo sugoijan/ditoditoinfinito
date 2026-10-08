@@ -6,6 +6,13 @@ path = ["**"]
 SPDX-FileCopyrightText = "すごいジャン <me@sugoijan.dev>"
 SPDX-License-Identifier = "MIT"
 
+# Dancing☆Onigiri key mode and key code tables, generated from danoniplus
+# (https://github.com/cwtickle/danoniplus, js/lib/danoni_constants.js).
+[[annotations]]
+path = ["chart/src/layout/danoni_table.rs", "chart/src/formats/danoni/keycodes.rs"]
+SPDX-FileCopyrightText = "2018 tickle"
+SPDX-License-Identifier = "MIT"
+
 # Bundled songs live under assets/songs/<slug>/ and are NOT MIT. Each song gets
 # its own annotations below naming the musician, chart authors and graphic
 # authors with the exact licence of each file. See docs/PLAN.md §8.

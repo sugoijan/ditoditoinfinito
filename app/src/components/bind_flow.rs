@@ -101,8 +101,8 @@ pub(crate) struct BindFlow {
     steps: Vec<String>,
     /// Lanes of the layout (the steps before [`PAD_STEPS`]).
     lanes: usize,
-    /// Review grid columns (lanes of one pad).
-    columns: usize,
+    /// Review grid rows: lanes of each pad (two-pad layouts) or each row.
+    groups: Vec<Vec<usize>>,
     recorded: Vec<Option<String>>,
     /// A control that must be released before the next step listens.
     waiting: Option<String>,
@@ -154,7 +154,7 @@ impl Component for BindFlow {
             },
             device,
             recorded: vec![None; steps.len()],
-            columns: layout.lanes_of_pad(0).count().max(1),
+            groups: review_groups(layout),
             steps,
             lanes,
             waiting: None,
@@ -493,7 +493,9 @@ impl BindFlow {
         html! {
             <>
                 <p>{ "Press each one to test it: it lights while held." }</p>
-                <div class="bind-lanes" style={format!("--cols: {}", self.columns)}>{ for (0..self.lanes).map(cell) }</div>
+                { for self.groups.iter().map(|g| html! {
+                    <div class="bind-lanes" style={format!("--cols: {}", g.len().clamp(1, 9))}>{ for g.iter().copied().map(cell) }</div>
+                }) }
                 { if self.is_pad() { html! {
                     <div class="bind-lanes bind-extra">{ cell(self.lanes) }{ cell(self.lanes + 1) }</div>
                 } } else { html! {} } }
@@ -560,6 +562,23 @@ fn key_listeners(ctx: &Context<BindFlow>, policy: Rc<RefCell<KeyPolicy>>) -> Vec
         EventListener::new_with_options(&window, "keyup", opts, handler(false)),
         blur,
     ]
+}
+
+/// Lanes of the review grid, one group per pad (two-pad layouts) or per
+/// row of the field.
+fn review_groups(layout: &Layout) -> Vec<Vec<usize>> {
+    let key = |i: usize| {
+        let l = &layout.lanes[i];
+        if layout.pads() > 1 { l.pad } else { l.row }
+    };
+    let mut groups: Vec<(u8, Vec<usize>)> = Vec::new();
+    for i in 0..layout.lane_count() {
+        match groups.iter_mut().find(|(k, _)| *k == key(i)) {
+            Some((_, g)) => g.push(i),
+            None => groups.push((key(i), vec![i])),
+        }
+    }
+    groups.into_iter().map(|(_, g)| g).collect()
 }
 
 /// `F1`…`F24`.

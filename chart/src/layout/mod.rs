@@ -10,6 +10,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod danoni;
+mod danoni_table;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Glyph {
     /// Arrow pointing in `rotation_deg` where 0 = left, -90 = down, 90 = up, 180 = right.
@@ -82,7 +85,12 @@ pub struct Layout {
     pub turn_left: Option<Vec<u8>>,
 }
 
-/// Ids of the built-in layouts, in the order the game lists them.
+/// Dancing☆Onigiri key modes the game plays: the ones close to four lanes
+/// (decision 27). The rest of danoniplus's modes are kept as data only.
+pub const PLAYED_DANONI_MODES: [&str; 5] = ["5", "7", "7i", "9A", "9B"];
+
+/// Ids of the built-in StepMania layouts, in the order the game lists them
+/// (the Dancing☆Onigiri key modes follow, see [`Layout::builtin_ids`]).
 pub const BUILTIN_LAYOUTS: [&str; 3] = ["dance-single", "dance-solo", "dance-double"];
 
 impl Layout {
@@ -216,17 +224,33 @@ impl Layout {
         }
     }
 
-    /// Built-in layout by id.
+    /// Built-in layout by id: the StepMania ones and the
+    /// Dancing☆Onigiri key modes the game plays ([`PLAYED_DANONI_MODES`]),
+    /// as `danoni-<mode>`. Other key modes stay data
+    /// ([`danoni::builtin`]) but are not played.
     pub fn builtin(id: &str) -> Option<Layout> {
         match id {
             "dance-single" => Some(Self::dance_single()),
             "dance-solo" => Some(Self::dance_solo()),
             "dance-double" => Some(Self::dance_double()),
-            _ => None,
+            _ => {
+                let mode = id.strip_prefix("danoni-")?;
+                PLAYED_DANONI_MODES.contains(&mode).then_some(())?;
+                danoni::builtin(mode).map(|k| k.layout(id.to_string()))
+            }
         }
     }
 
-    /// Every built-in layout, in [`BUILTIN_LAYOUTS`] order.
+    /// Ids of every built-in layout, in the order the game lists them.
+    pub fn builtin_ids() -> Vec<String> {
+        BUILTIN_LAYOUTS
+            .iter()
+            .map(|s| s.to_string())
+            .chain(PLAYED_DANONI_MODES.iter().map(|m| danoni::layout_id(m)))
+            .collect()
+    }
+
+    /// The built-in StepMania layouts, in [`BUILTIN_LAYOUTS`] order.
     pub fn builtins() -> Vec<Layout> {
         BUILTIN_LAYOUTS
             .iter()

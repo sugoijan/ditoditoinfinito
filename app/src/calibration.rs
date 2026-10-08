@@ -205,6 +205,7 @@ pub(crate) fn song(mode: CalMode) -> Song {
             notes,
             timing: None,
             display_bpm: None,
+            danoni: None,
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),

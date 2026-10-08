@@ -18,7 +18,7 @@ description: Build, launch and drive the DitoDitoInfinito web app to verify chan
 - `#/calibrate/run?mode=visual|audio|combined` converging calibration on the gameplay path; `&auto=1&bias=<ms>` autoplays with a deliberate late (+) or early (−) bias so convergence can be checked (expect the result card to show `+<bias> ms` and "Converged"). `&bias` also works on `#/play`.
 - `#/options`, `#/calibrate`, `#/credits` (reads `credits/credits.json` from `xtask gen-credits`).
 
-Gameplay waits for a user gesture ("press Enter or click to start"); Esc aborts back to the list. In a fresh profile a manual (non-autoplay) start first shows the new-device prompt: click "play with defaults". The song list shows one style (layout) at a time: `.style-button` picks Single / Solo / Double (only styles the library has charts for; the bundled songs have Single and Double, solo needs an imported `dance-solo` chart). Settings live in `localStorage` under `ddi.settings.v1`.
+Gameplay waits for a user gesture ("press Enter or click to start"); Esc aborts back to the list. In a fresh profile a manual (non-autoplay) start first shows the new-device prompt: click "play with defaults". The song list shows one style (layout) at a time: `.style-button` picks Single / Solo / Double (only styles the library has charts for; the bundled songs have Single and Double, solo needs an imported `dance-solo` chart). Charts on the Dancing☆Onigiri key modes the game plays (5, 7, 7i, 9A, 9B) can be written as `.sm` files with a `danoni-<mode>` steps type (`danoni-7i`, rows as wide as the mode) and imported like any pack; other modes are left out on import. A chart that fails (ITG fails on misses) ends the session and freezes `__DDI_DEBUG`, so manual input tests need charts whose notes start late. Settings live in `localStorage` under `ddi.settings.v1`.
 
 ## Engine debug state
 
@@ -51,6 +51,10 @@ WebGPU works headless with those flags (the badge in the bottom-right corner sho
 ## Touch lanes
 
 Use a context with `hasTouch: true, isMobile: true` and a phone viewport (390×844 and 844×390), tap `.start-prompt`, and send touches with CDP `Input.dispatchTouchEvent` (several `touchPoints` for jumps, `touchMove` to slide between columns). Columns split at the midpoints between receptors, the outer ones run to the screen edges; only touch and pen press lanes (mouse never does). On touch devices a ✕ button replaces the back link during play and runs the cancel gesture (hold or double tap). Check `__DDI_DEBUG.pressed` and that the page neither scrolls nor zooms.
+
+## Dancing☆Onigiri works
+
+Import a folder holding a work's pages (`.html` with an inline `id="dos"` input, or an `externalDos` file next to it) and its `music/` folder, or a dump folder of the research tool (`manifest.json`; the local corpus is `~/Music/DanOni/corpus`, third-party, local only). danoniplus's own sample pages (`danoni/` of its repository, MIT) make a quick site: copy them with a `music/nosound.mp3` (any audio renamed) and import the folder. Charts appear under their key mode in the style selector ("5 keys", "7 keys", "7i keys", "9A keys", "9B keys"); works in other modes are listed as left out. Onigiri, giko and iyo lanes draw as a star, a square and a circle. Autoplay must stay all top tier. `DDI_DANONI_CORPUS=<dir> cargo test -p ddi-chart --test danoni_corpus -- --nocapture` compares the importer with danoniplus's parse of every captured chart.
 
 ## Background changes
 

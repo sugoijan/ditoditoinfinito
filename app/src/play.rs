@@ -288,7 +288,15 @@ impl PlaySession {
         );
         let keyboard = WebKeyboard::new(capture);
         let touch = config.touch_canvas.and_then(|canvas| {
-            TouchLanes::new(canvas, layout.lanes.iter().map(|l| l.column).collect())
+            TouchLanes::new(
+                canvas,
+                layout
+                    .lanes
+                    .iter()
+                    .map(|l| (l.column, l.scroll_sign))
+                    .collect(),
+                config.render.reverse,
+            )
         });
         let interrupted = Rc::new(Cell::new(false));
         let mut interrupt_listeners = Vec::new();
@@ -309,6 +317,8 @@ impl PlaySession {
         let mut options = config.options;
         // A fresh shuffle every play; the seed is kept in the results.
         options.seed = random_seed();
+        // Frame-based works: the x-mod means the same as at their tempo.
+        options.scroll.speed = ddi_engine::scroll::speed_for_song(song, options.scroll.speed);
         let mut player = Player::new(song, chart_index, config.ruleset, options);
         // The autoplayer presses the transformed chart's lanes.
         let auto = config.auto.then(|| AutoPlay {

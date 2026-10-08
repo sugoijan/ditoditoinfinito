@@ -70,6 +70,7 @@ fn song(timing: TimingMap, notes: Vec<Note>) -> Song {
             notes,
             timing: None,
             display_bpm: None,
+            danoni: None,
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),
@@ -742,6 +743,7 @@ fn long_hold_is_drawn_while_its_tail_is_off_screen() {
             )],
             timing: None,
             display_bpm: None,
+            danoni: None,
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),
@@ -824,6 +826,7 @@ fn receptor_snap_lands_the_note_in_its_closest_frame() {
             notes: vec![Note::new(Tick::from_beats(4), 0, NoteKind::Tap)], // at 4.0 s
             timing: None,
             display_bpm: None,
+            danoni: None,
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),
@@ -1220,6 +1223,15 @@ fn hidden_and_sudden_set_note_alpha_in_frames() {
     assert!(f.notes.iter().all(|n| n.alpha == 1.0 && n.glow == 0.0));
 }
 
+/// Solo, double and the Dancing☆Onigiri key modes the game plays.
+fn test_layouts() -> Vec<Layout> {
+    let mut v = vec![Layout::dance_solo(), Layout::dance_double()];
+    for mode in ddi_chart::PLAYED_DANONI_MODES {
+        v.push(Layout::builtin(&format!("danoni-{mode}")).unwrap());
+    }
+    v
+}
+
 /// A chart over every lane of a built-in layout at 150 BPM: a run through
 /// all lanes, jumps (on a diagonal pair for solo, across the two pads for
 /// double), a hold under taps on another lane, a roll, a mine, a lift and
@@ -1267,7 +1279,7 @@ fn layout_song(layout: &Layout) -> Song {
 
 #[test]
 fn every_layout_autoplays_perfectly_under_every_turn() {
-    for layout in [Layout::dance_solo(), Layout::dance_double()] {
+    for layout in test_layouts() {
         let song = layout_song(&layout);
         for ruleset in [
             presets::itg as fn() -> Ruleset,
@@ -1317,8 +1329,8 @@ fn every_layout_autoplays_perfectly_under_every_turn() {
 }
 
 #[test]
-fn turns_move_solo_and_double_lanes_by_stepmania_tables() {
-    for layout in [Layout::dance_solo(), Layout::dance_double()] {
+fn turns_move_lanes_by_layout_tables_and_groups() {
+    for layout in test_layouts() {
         let song = layout_song(&layout);
         let baseline = autoplay_run(presets::itg, &song, PlayOptions::default());
         for (turn, seed) in [
@@ -1339,6 +1351,15 @@ fn turns_move_solo_and_double_lanes_by_stepmania_tables() {
             let take_from = run.player.lane_map().to_vec();
             if let (Turn::Left, Some(table)) = (turn, &layout.turn_left) {
                 assert_eq!(&take_from, table, "{}", layout.id);
+            }
+            // Mirror and Shuffle keep every lane within its shuffle group.
+            for (new, &old) in take_from.iter().enumerate() {
+                assert_eq!(
+                    layout.lanes[new].shuffle_group,
+                    layout.lanes[usize::from(old)].shuffle_group,
+                    "{} {turn:?}",
+                    layout.id
+                );
             }
             let mut dest = vec![0u8; take_from.len()];
             for (new, &old) in take_from.iter().enumerate() {

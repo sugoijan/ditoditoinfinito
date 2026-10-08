@@ -504,14 +504,14 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 /// Directory part of a path (`""` at the root).
-fn parent(path: &str) -> &str {
+pub(crate) fn parent(path: &str) -> &str {
     path.trim_end_matches('/')
         .rsplit_once('/')
         .map_or("", |(dir, _)| dir)
 }
 
 /// Last component of a path.
-fn file_name(path: &str) -> &str {
+pub(crate) fn file_name(path: &str) -> &str {
     let path = path.trim_end_matches('/');
     path.rsplit_once('/').map_or(path, |(_, name)| name)
 }

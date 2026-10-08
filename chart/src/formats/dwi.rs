@@ -431,6 +431,7 @@ fn build_chart(name: &str, tag: &MsdTag) -> Option<Chart> {
         notes,
         timing: None,
         display_bpm: None,
+        danoni: None,
     })
 }
 

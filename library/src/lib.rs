@@ -10,8 +10,10 @@
 //!   background guess by size.
 //! - [`manifest`]: the song list entry shared by bundled and imported songs.
 //! - [`backgrounds`]: `#BGCHANGES` as a timed schedule of still images.
+//! - [`danoni`]: Dancing☆Onigiri works (pages and dumps) in an import.
 
 pub mod backgrounds;
+pub mod danoni;
 pub mod image;
 pub mod manifest;
 pub mod pack;

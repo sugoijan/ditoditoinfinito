@@ -5,7 +5,7 @@
 //! The JSON field names and defaults are the wire format of the generated
 //! manifest; changing them changes `index.json`.
 
-use ddi_chart::Song;
+use ddi_chart::{DisplayBpm, Layout, Song, SourceFormat};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -49,6 +49,10 @@ pub struct ManifestEntry {
     /// position in `Song::charts`.
     #[serde(default)]
     pub charts: Vec<ChartInfo>,
+    /// Layouts the song defines itself (Dancing☆Onigiri custom keys) that
+    /// its charts use, so the song list and the bindings can show them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layouts: Vec<Layout>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -96,8 +100,20 @@ pub struct EntryMeta {
 /// [`Layout`]) sorted by layout, difficulty slot, then meter, since file
 /// order is arbitrary.
 pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
-    let (lo, hi) = song.timing.bpm_range();
-    let bpm = if (lo - hi).abs() < 0.01 {
+    let danoni = song.source.format == SourceFormat::Danoni;
+    let (lo, hi) = if danoni {
+        // The timing's 75 BPM is synthetic; the work declares its own.
+        match song.display_bpm {
+            DisplayBpm::Single(b) => (b, b),
+            DisplayBpm::Range(a, b) => (a, b),
+            _ => (f64::NAN, f64::NAN),
+        }
+    } else {
+        song.timing.bpm_range()
+    };
+    let bpm = if !lo.is_finite() || !hi.is_finite() || lo.abs() > 1e6 || hi.abs() > 1e6 {
+        String::new()
+    } else if (lo - hi).abs() < 0.01 {
         format!("{}", lo.round() as i64)
     } else {
         format!("{}-{}", lo.round() as i64, hi.round() as i64)
@@ -108,12 +124,23 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         .enumerate()
         .filter(|(_, c)| song.layout_of(c).is_some())
         .collect();
-    indexed.sort_by(|(_, a), (_, b)| {
-        a.layout
-            .cmp(&b.layout)
-            .then(a.difficulty.cmp(&b.difficulty))
-            .then(a.meter.cmp(&b.meter))
-    });
+    if danoni {
+        // Works order their charts themselves.
+        indexed.sort_by(|(i, a), (j, b)| a.layout.cmp(&b.layout).then(i.cmp(j)));
+    } else {
+        indexed.sort_by(|(_, a), (_, b)| {
+            a.layout
+                .cmp(&b.layout)
+                .then(a.difficulty.cmp(&b.difficulty))
+                .then(a.meter.cmp(&b.meter))
+        });
+    }
+    let layouts = song
+        .layouts
+        .iter()
+        .filter(|l| indexed.iter().any(|(_, c)| c.layout == l.id))
+        .cloned()
+        .collect();
     let charts = indexed
         .into_iter()
         .map(|(index, c)| ChartInfo {
@@ -137,6 +164,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         bg_images: meta.bg_images,
         bg_shared: meta.bg_shared,
         credit: meta.credit,
+        layouts,
         bpm,
         preview_start: song.preview_start,
         preview_length: song.preview_length,
@@ -237,6 +265,7 @@ mod tests {
             preview_start: 1.0,
             preview_length: 2.0,
             charts: vec![],
+            layouts: Vec::new(),
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert_eq!(

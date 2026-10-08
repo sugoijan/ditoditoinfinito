@@ -69,13 +69,60 @@ const SHAPE_ARROW_OUTLINE: u32 = 2u;
 const SHAPE_MINE: u32 = 3u;
 const SHAPE_CIRCLE: u32 = 4u;
 const SHAPE_HOLD_BODY: u32 = 5u;
-const SHAPE_ONIGIRI: u32 = 6u;
 // An arrow whose colour runs from `color` to `params.rgb` and back down the
 // screen, shifted by `params.w` cycles (a flowing gradient).
 const SHAPE_ARROW_GRADIENT: u32 = 7u;
 // An arrow whose colour runs from `color` at its tail to `params.rgb` at its
 // tip, along the arrow (it points to -x in quad space).
 const SHAPE_ARROW_RAMP: u32 = 8u;
+
+// Lane symbols (Dancing☆Onigiri's non-arrow lanes): ids from SYMBOL_BASE,
+// with a drawing mode in the bits above 8 (keep in sync with
+// render::sprite).
+const SYMBOL_BASE: u32 = 16u;
+const SYMBOL_STAR: u32 = 16u;
+const SYMBOL_SQUARE: u32 = 17u;
+const SYMBOL_DOT: u32 = 18u;
+// A thick stroke along the outline, with a darker rim (as the arrows).
+const MODE_FILL: u32 = 0u;
+// A ring along the outline (receptors).
+const MODE_OUTLINE: u32 = 1u;
+// Rings flowing outward: `color` to `params.rgb` and back, shifted by
+// `params.w` cycles (the arrows' flowing gradient, made radial).
+const MODE_FLOW: u32 = 2u;
+// `params.rgb` at the centre to `color` at the rim (the arrows' tail-to-tip
+// ramp, made radial).
+const MODE_RAMP: u32 = 3u;
+
+// Five-pointed star, a point up (iq's sdStar5; y flipped for quad space).
+fn sd_star(p_in: vec2<f32>) -> f32 {
+    let r = 0.98;
+    let rf = 0.5;
+    let k1 = vec2<f32>(0.809016994375, -0.587785252292);
+    let k2 = vec2<f32>(-k1.x, k1.y);
+    var p = vec2<f32>(abs(p_in.x), -p_in.y + 0.08);
+    p = p - 2.0 * max(dot(k1, p), 0.0) * k1;
+    p = p - 2.0 * max(dot(k2, p), 0.0) * k2;
+    p.x = abs(p.x);
+    p.y = p.y - r;
+    let ba = rf * vec2<f32>(-k1.y, k1.x) - vec2<f32>(0.0, 1.0);
+    let h = clamp(dot(p, ba) / dot(ba, ba), 0.0, r);
+    return length(p - ba * h) * sign(p.y * ba.x - p.x * ba.y) - 0.04;
+}
+
+fn sd_symbol(base: u32, p: vec2<f32>) -> f32 {
+    switch base {
+        case SYMBOL_STAR: {
+            return sd_star(p);
+        }
+        case SYMBOL_SQUARE: {
+            return sd_round_box(p, vec2<f32>(0.74), 0.16);
+        }
+        default: {
+            return length(p) - 0.82;
+        }
+    }
+}
 
 fn sd_box(p: vec2<f32>, b: vec2<f32>) -> f32 {
     let d = abs(p) - b;
@@ -102,18 +149,6 @@ fn sd_arrow(p: vec2<f32>) -> f32 {
     let d_head_b = sd_segment(p, tip, vec2<f32>(-0.05, -0.73)) - w;
     let d_shaft = sd_segment(p, vec2<f32>(-0.62, 0.0), vec2<f32>(0.72, 0.0)) - w;
     return min(min(d_head_a, d_head_b), d_shaft);
-}
-
-fn sd_onigiri(p: vec2<f32>) -> f32 {
-    // Rounded equilateral triangle (iq), apex up. The SDF is written for
-    // y-up; quad space is y-down, so flip y to keep the apex at the top.
-    let k = sqrt(3.0);
-    var q = vec2<f32>(abs(p.x) - 0.75, -p.y + 0.75 / k);
-    if (q.x + k * q.y > 0.0) {
-        q = vec2<f32>(q.x - k * q.y, -k * q.x - q.y) / 2.0;
-    }
-    q.x = q.x - clamp(q.x, -1.5, 0.0);
-    return -length(q) * sign(q.y) - 0.18;
 }
 
 // One sRGB-encoded component to linear light (as render/src/color.rs).
@@ -149,6 +184,33 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let aa = 1.2 / max(min(in.aspect.x, in.aspect.y) * 0.5, 1.0);
     var d: f32 = 1.0;
     var color = in.color;
+    if (in.shape >= SYMBOL_BASE) {
+        let base = in.shape & 0xffu;
+        let mode = in.shape >> 8u;
+        let inner = sd_symbol(base, p);
+        let r = clamp(length(p), 0.0, 1.0);
+        var body = color.rgb;
+        if (mode == MODE_FLOW) {
+            let wave = 0.5 + 0.5 * cos(6.2831853 * (r - in.params.w));
+            body = mix(color.rgb, in.params.rgb, wave);
+        } else if (mode == MODE_RAMP) {
+            body = mix(in.params.rgb, color.rgb, r);
+        }
+        if (mode == MODE_OUTLINE) {
+            d = abs(inner + 0.09) - 0.09;
+        } else {
+            // A thick stroke along the outline, as wide as an arrow's
+            // (0.44), with the arrows' darker rim on both of its edges.
+            d = abs(inner + 0.22) - 0.22;
+            let edge = smoothstep(-0.16 - aa, -0.16, d);
+            color = vec4<f32>(mix(body, body * factor(0.25), edge), color.a);
+        }
+        let alpha = 1.0 - smoothstep(-aa, aa, d);
+        if (alpha <= 0.002) {
+            discard;
+        }
+        return vec4<f32>(color.rgb, color.a * alpha);
+    }
     switch in.shape {
         case SHAPE_RECT: {
             d = sd_round_box(p, vec2<f32>(1.0), in.params.x);
@@ -192,11 +254,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         case SHAPE_HOLD_BODY: {
             // Body: full-height bar, rounded ends; params.x = corner radius (local units)
             d = sd_round_box(p, vec2<f32>(1.0), in.params.x);
-        }
-        case SHAPE_ONIGIRI: {
-            d = sd_onigiri(p);
-            let edge = smoothstep(-0.16 - aa, -0.16, d);
-            color = vec4<f32>(mix(color.rgb, color.rgb * factor(0.3), edge), color.a);
         }
         default: {
             d = sd_box(p, vec2<f32>(1.0));

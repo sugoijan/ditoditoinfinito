@@ -84,7 +84,7 @@ impl Renderer {
         let geo = FieldGeometry::new(
             width as f32,
             height as f32,
-            layout.lanes.len(),
+            scene::field_span(layout),
             opts.reverse,
         );
         let mut scene = scene::build(frame, layout, names, &self.skin, &geo, opts, self.srgb);

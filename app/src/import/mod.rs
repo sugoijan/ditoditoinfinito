@@ -7,8 +7,10 @@
 //! is how most packs keep their audio, go into storage as a slice of the zip
 //! without being read at all.
 
+mod danoni;
+
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ddi_chart::formats::sm::parse_simfile;
 use ddi_library::image::{IMAGE_HEADER_LEN, image_size};
@@ -187,18 +189,11 @@ async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport
         .filter(|p| !in_song(p))
         .filter_map(|p| Some((pack::shared_path(p)?, p.clone())))
         .collect();
-    for (dir, music) in pack::folders_without_simfile(&paths) {
-        report.skipped.push((
-            dir,
-            format!(
-                "has music ({}) but no .sm, .ssc or .dwi simfile",
-                file_name(&music)
-            ),
-        ));
-    }
-    if candidates.is_empty() && shared_files.is_empty() {
+    let maybe_works = !ddi_library::danoni::work_sources(&paths).is_empty();
+    if candidates.is_empty() && shared_files.is_empty() && !maybe_works {
+        report_music_without_simfile(&mut report, &paths, &HashSet::new());
         if report.skipped.is_empty() {
-            report.error = Some("No .sm, .ssc or .dwi files were found in what was picked.".into());
+            report.error = Some(NOTHING_FOUND.into());
         }
         return report;
     }
@@ -255,12 +250,47 @@ async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport
             Err(e) => report.skipped.push((label, e)),
         }
     }
+    let works =
+        danoni::import_works(&db, &sources, &paths, &fallback, &mut report, &progress).await;
+    report_music_without_simfile(&mut report, &paths, &works.music);
+    if candidates.is_empty() && shared_files.is_empty() && !works.found && report.skipped.is_empty()
+    {
+        report.error = Some(NOTHING_FOUND.into());
+    }
     if !report.imported.is_empty() || report.shared_images > 0 {
         // Not awaited: Firefox answers with a permission prompt, and the
         // promise stays pending until the player responds.
         spawn_local(request_persistence());
     }
     report
+}
+
+const NOTHING_FOUND: &str =
+    "No .sm, .ssc or .dwi files or Dancing☆Onigiri works were found in what was picked.";
+
+/// Folders with music but no simfile, except the folders of music that
+/// Dancing☆Onigiri works used.
+fn report_music_without_simfile(
+    report: &mut ImportReport,
+    paths: &[String],
+    used: &HashSet<String>,
+) {
+    let used_dirs: HashSet<&str> = used
+        .iter()
+        .map(|p| p.rsplit_once('/').map_or("", |(d, _)| d))
+        .collect();
+    for (dir, music) in pack::folders_without_simfile(paths) {
+        if used_dirs.contains(dir.as_str()) {
+            continue;
+        }
+        report.skipped.push((
+            dir,
+            format!(
+                "has music ({}) but no .sm, .ssc or .dwi simfile",
+                file_name(&music)
+            ),
+        ));
+    }
 }
 
 /// Id and fallback name of a song. Loose files picked without a folder all

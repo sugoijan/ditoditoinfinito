@@ -1,6 +1,7 @@
 //! Importers. Each format module exposes a `parse_*` function taking the
 //! file text and returning a [`crate::Song`]. See `docs/research/`.
 
+pub mod danoni;
 pub mod dwi;
 pub mod msd;
 pub mod sm;
