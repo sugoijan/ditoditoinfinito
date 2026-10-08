@@ -75,8 +75,9 @@ pub(crate) enum Msg {
     ForgetPad(String),
     FastPadPoll(bool),
     /// The song list loaded: a bundled song for the volume sample, the
-    /// number of imported songs and of shared background images.
-    Library(Option<ManifestEntry>, usize, usize),
+    /// number of imported songs and of shared background images, and the
+    /// layouts it has charts for.
+    Library(Option<ManifestEntry>, usize, usize, Vec<Layout>),
     /// Volume sample: started in the click (see [`Preview::start`]).
     SampleStarted(Preview),
     SampleDecoded(AudioBuffer),
@@ -120,6 +121,8 @@ pub(crate) struct Options {
     binding: Option<Option<DeviceId>>,
     /// Layout whose bindings the controls section shows and edits.
     bind_layout: Layout,
+    /// Layouts the library has charts for.
+    library_styles: Vec<Layout>,
     _keys: Option<EventListener>,
     _pad_refresh: Option<Interval>,
 }
@@ -143,8 +146,16 @@ impl Component for Options {
                 Err(_) => 0,
             };
             match Library::load().await {
-                Ok(l) => Msg::Library(l.bundled.into_iter().next(), l.imported.len(), shared),
-                Err(_) => Msg::Library(None, 0, shared),
+                Ok(l) => {
+                    let styles = crate::components::song_select::library_styles(&l);
+                    Msg::Library(
+                        l.bundled.into_iter().next(),
+                        l.imported.len(),
+                        shared,
+                        styles,
+                    )
+                }
+                Err(_) => Msg::Library(None, 0, shared, Vec::new()),
             }
         });
         let gamepads = Gamepads::new();
@@ -156,6 +167,7 @@ impl Component for Options {
         let bind_layout = Layout::builtin(&settings.style).unwrap_or_else(Layout::dance_single);
         Options {
             bind_layout,
+            library_styles: Vec::new(),
             settings,
             capturing: None,
             sample_song: None,
@@ -175,10 +187,17 @@ impl Component for Options {
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
-            Msg::Library(song, imported, shared) => {
+            Msg::Library(song, imported, shared, styles) => {
                 self.sample_song = song;
                 self.imported = imported;
                 self.shared = shared;
+                // The saved style may be a layout only the library knows.
+                if self.bind_layout.id != self.settings.style
+                    && let Some(l) = styles.iter().find(|l| l.id == self.settings.style)
+                {
+                    self.bind_layout = l.clone();
+                }
+                self.library_styles = styles;
                 return true;
             }
             Msg::SampleStarted(preview) => {
@@ -335,7 +354,7 @@ impl Component for Options {
                     .reset_pad_table(&id, &self.bind_layout.id, standard);
             }
             Msg::BindLayout(id) => {
-                if let Some(l) = Layout::builtin(&id) {
+                if let Some(l) = self.bind_layouts().into_iter().find(|l| l.id == id) {
                     self.bind_layout = l;
                     self.capturing = None;
                 }
@@ -519,6 +538,21 @@ impl Component for Options {
 }
 
 impl Options {
+    /// Layouts the bindings section offers: the StepMania ones, then the
+    /// others the library has charts for, and the one shown.
+    fn bind_layouts(&self) -> Vec<Layout> {
+        let mut layouts = Layout::builtins();
+        for l in &self.library_styles {
+            if !layouts.iter().any(|x| x.id == l.id) {
+                layouts.push(l.clone());
+            }
+        }
+        if !layouts.iter().any(|l| l.id == self.bind_layout.id) {
+            layouts.push(self.bind_layout.clone());
+        }
+        layouts
+    }
+
     /// A controller's saved entry, else its standard defaults (so a table
     /// saved for one layout keeps the others' defaults), else a new entry.
     fn pad_entry(&self, id: &str) -> PadBindings {
@@ -611,7 +645,7 @@ impl Options {
                     { "Each device keeps its own bindings for each style. “bind” asks you to press each lane in turn. Controllers show up here once one of their buttons has been pressed." }
                 </p>
                 <div class="style-select" role="group" aria-label="Bindings for">
-                    { for Layout::builtins().into_iter().map(|l| {
+                    { for self.bind_layouts().into_iter().map(|l| {
                         let selected = l.id == layout.id;
                         let id = l.id.clone();
                         html! {

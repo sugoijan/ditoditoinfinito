@@ -12,13 +12,45 @@ pub enum Shape {
     Mine = 3,
     Circle = 4,
     HoldBody = 5,
-    Onigiri = 6,
     /// An arrow with a flowing two-colour gradient: `color` to
     /// `params[0..3]` down the screen, shifted by `params[3]` cycles.
     ArrowGradient = 7,
     /// An arrow running from `color` at its tail to `params[0..3]` at its
     /// tip.
     ArrowRamp = 8,
+}
+
+/// A lane symbol (Dancing☆Onigiri's non-arrow lanes), drawn by
+/// `shader.wgsl` from `SYMBOL_BASE` on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum Symbol {
+    Star = 16,
+    Square = 17,
+    Dot = 18,
+}
+
+/// How a [`Symbol`] is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum SymbolMode {
+    /// A thick stroke along the outline with a darker rim, as the arrows
+    /// are drawn.
+    Fill = 0,
+    /// A ring along the outline (receptors).
+    Outline = 1,
+    /// Rings flowing outward from `color` to `params[0..3]`, shifted by
+    /// `params[3]` cycles.
+    Flow = 2,
+    /// `params[0..3]` at the centre to `color` at the rim.
+    Ramp = 3,
+}
+
+impl Symbol {
+    /// The instance shape id of this symbol drawn in `mode`.
+    pub fn shape(self, mode: SymbolMode) -> u32 {
+        self as u32 | (mode as u32) << 8
+    }
 }
 
 #[repr(C)]
@@ -208,5 +240,22 @@ impl SpritePipeline {
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.instances.slice(..));
         pass.draw(0..6, 0..count as u32);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The shader parses and validates (the browser would only say so at
+    /// run time, on the player's machine).
+    #[test]
+    fn shader_validates() {
+        let source = include_str!("shader.wgsl");
+        let module = wgpu::naga::front::wgsl::parse_str(source).expect("WGSL parses");
+        wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::all(),
+            wgpu::naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .expect("WGSL validates");
     }
 }

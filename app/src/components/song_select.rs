@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use ddi_chart::{BUILTIN_LAYOUTS, Layout};
+use ddi_chart::Layout;
 use ddi_engine::{ConnectedPad, PadUse};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::timers::callback::Interval;
@@ -274,7 +274,7 @@ impl Component for SongSelect {
                 // Nothing here consumes the hub's edge queue.
                 g.clear();
                 let mut unbound: Vec<String> = Vec::new();
-                let layout = Layout::builtin(&self.shown_style());
+                let layout = self.shown_layout();
                 let connected: Vec<ConnectedPad> = g
                     .pads()
                     .into_iter()
@@ -310,7 +310,7 @@ impl Component for SongSelect {
         let pads = html! {
             { for self.unbound_pads.iter().map(|id| html! {
                 <p class="pad-notice">
-                    { format!("Controller “{id}” has no bindings for {} yet — ", layout_name(&self.shown_style())) }
+                    { format!("Controller “{id}” has no bindings for {} yet — ", self.shown_layout().map_or_else(|| self.settings.style.clone(), |l| l.name)) }
                     <a href={Route::Options.to_hash()}>{ "bind it in Options" }</a>
                 </p>
             }) }
@@ -414,16 +414,22 @@ impl SongSelect {
     /// The style the list shows: the saved one when the library has charts
     /// of it, else the first the library has.
     fn shown_style(&self) -> String {
+        self.shown_layout()
+            .map_or_else(|| self.settings.style.clone(), |l| l.id)
+    }
+
+    /// The layout the list shows (see [`SongSelect::shown_style`]).
+    fn shown_layout(&self) -> Option<Layout> {
         let styles = match &self.state {
             State::Ready(l) => library_styles(l),
             _ => Vec::new(),
         };
         styles
             .iter()
-            .find(|s| **s == self.settings.style)
+            .find(|s| s.id == self.settings.style)
             .or(styles.first())
             .cloned()
-            .unwrap_or_else(|| self.settings.style.clone())
+            .or_else(|| Layout::builtin(&self.settings.style))
     }
 
     /// The ▶/■ button's handler; see [`Preview::start`] for why it starts
@@ -497,7 +503,7 @@ impl SongSelect {
         };
         html! {
             <section class={class}>
-                <span>{ "Add your own songs (StepMania .sm/.ssc or .dwi packs):" }</span>
+                <span>{ "Add your own songs (StepMania .sm/.ssc or .dwi packs, Dancing☆Onigiri works):" }</span>
                 <label class={classes!("button", busy.then_some("disabled"))}>
                     { "choose folder" }
                     <input type="file" class="sr-only" ref={self.folder_input.clone()} webkitdirectory=true multiple=true disabled={busy}
@@ -670,47 +676,53 @@ fn format_bytes(b: f64) -> String {
 }
 
 /// Layouts with charts in the library: the built-in ones in their order,
-/// then any others by id.
-fn library_styles(library: &Library) -> Vec<String> {
-    let mut ids: Vec<&str> = library
-        .bundled
-        .iter()
-        .chain(library.imported.iter().map(|s| &s.entry))
+/// then the ones songs define themselves, by name.
+pub(crate) fn library_styles(library: &Library) -> Vec<Layout> {
+    let entries = || {
+        library
+            .bundled
+            .iter()
+            .chain(library.imported.iter().map(|s| &s.entry))
+    };
+    let mut ids: Vec<&str> = entries()
         .flat_map(|e| e.charts.iter().map(|c| c.layout.as_str()))
         .collect();
-    ids.sort_by_key(|id| {
-        (
-            BUILTIN_LAYOUTS
-                .iter()
-                .position(|b| b == id)
-                .unwrap_or(BUILTIN_LAYOUTS.len()),
-            *id,
-        )
-    });
+    ids.sort_unstable();
     ids.dedup();
-    ids.into_iter().map(String::from).collect()
-}
-
-/// Name of a layout for the style selector.
-pub(crate) fn layout_name(id: &str) -> String {
-    Layout::builtin(id).map_or_else(|| id.to_string(), |l| l.name)
+    let mut layouts: Vec<Layout> = ids
+        .into_iter()
+        .filter_map(|id| {
+            Layout::builtin(id)
+                .or_else(|| entries().find_map(|e| e.layouts.iter().find(|l| l.id == id).cloned()))
+        })
+        .collect();
+    let order = Layout::builtin_ids();
+    layouts.sort_by(|a, b| {
+        let rank = |l: &Layout| order.iter().position(|b| *b == l.id).unwrap_or(order.len());
+        rank(a)
+            .cmp(&rank(b))
+            .then(a.name.cmp(&b.name))
+            .then(a.id.cmp(&b.id))
+    });
+    layouts
 }
 
 /// The style buttons, when the library has charts of more than one layout.
-fn style_select(link: &html::Scope<SongSelect>, styles: &[String], current: &str) -> Html {
+fn style_select(link: &html::Scope<SongSelect>, styles: &[Layout], current: &str) -> Html {
     if styles.len() < 2 {
         return html! {};
     }
     html! {
         <div class="style-select" role="group" aria-label="Style">
-            { for styles.iter().map(|id| {
+            { for styles.iter().map(|l| {
+                let id = &l.id;
                 let selected = id == current;
                 let msg = id.clone();
                 html! {
                     <button class={classes!("style-button", selected.then_some("selected"))}
                         aria-pressed={selected.to_string()}
                         onclick={link.callback(move |_| Msg::Style(msg.clone()))}>
-                        { layout_name(id) }
+                        { &l.name }
                     </button>
                 }
             }) }
@@ -759,10 +771,15 @@ fn song_card(
                         } else {
                             format!("{} · {} notes · steps by {}", c.name, c.notes, c.credit)
                         };
+                        // Edits (and Dancing☆Onigiri charts, which have no
+                        // difficulty slots) go by their name.
+                        let named = c.difficulty == "Edit" && !c.name.trim().is_empty();
+                        let label = if named { c.name.trim() } else { c.difficulty.as_str() };
+                        let show_meter = !named || c.meter > 0;
                         html! {
                             <a class={class} href={href} title={title}>
-                                <span class="chart-diff">{ &c.difficulty }</span>
-                                <span class="chart-meter">{ c.meter }</span>
+                                <span class="chart-diff">{ label }</span>
+                                { if show_meter { html! { <span class="chart-meter">{ c.meter }</span> } } else { html! {} } }
                             </a>
                         }
                     }) }

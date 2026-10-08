@@ -126,6 +126,9 @@ pub struct Player {
     frame_interval: f64,
     /// `take_from[new_lane] = old_lane` of the turn.
     lane_map: Vec<u8>,
+    /// Displayed beat of each judged note's head and tail (they never
+    /// change, and computing them is linear in the scroll segments).
+    displayed: Vec<(f64, f64)>,
 }
 
 impl Player {
@@ -179,9 +182,19 @@ impl Player {
             finished: false,
             frame_interval: 1.0 / 60.0,
             lane_map: transformed.take_from,
+            displayed: Vec::new(),
             judge,
             ruleset,
         };
+        player.displayed = player
+            .judge
+            .notes()
+            .iter()
+            .map(|n| {
+                let at = |t: ddi_chart::Tick| player.timing.displayed_beat(t.beat());
+                (at(n.note.tick), at(n.note.end_tick()))
+            })
+            .collect();
         player.reset_counts();
         player
     }
@@ -456,7 +469,7 @@ impl Player {
         // After an immediate fail nothing is judged any more, so draw nothing:
         // the field goes blank while the shell fades the music out.
         let field_cleared = self.failed && matches!(self.ruleset.fail, FailPolicy::Immediate);
-        for n in self.judge.notes() {
+        for (n, &(head_beat, tail_beat)) in self.judge.notes().iter().zip(&self.displayed) {
             if field_cleared {
                 break;
             }
@@ -469,11 +482,14 @@ impl Player {
                     NoteState::Hit { .. } => continue,
                     _ => SpriteKind::Lift,
                 },
-                NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
+                NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } => {
                     if n.state == NoteState::Held {
                         continue;
                     }
-                    let tail_y = scroll.y(&self.timing, end, n.end_seconds);
+                    // A boosted hold moves as a whole, tail included
+                    // (danoniplus scales the freeze bar too).
+                    let tail_y = scroll.y_displayed(tail_beat, n.end_seconds)
+                        * n.note.speed_mul.unwrap_or(1.0);
                     let active = matches!(n.state, NoteState::HoldActive { .. });
                     let dropped = matches!(n.state, NoteState::LetGo | NoteState::Missed);
                     if matches!(n.note.kind, NoteKind::HoldHead { .. }) {
@@ -502,7 +518,7 @@ impl Player {
                 NoteKind::Dummy => SpriteKind::Dummy,
                 NoteKind::AutoKeysound => continue,
             };
-            let mut y = scroll.y(&self.timing, n.note.tick, n.seconds);
+            let mut y = scroll.y_displayed(head_beat, n.seconds);
             if let Some(m) = n.note.speed_mul {
                 y *= m;
             }

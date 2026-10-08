@@ -3,7 +3,9 @@
 //! between adjacent receptors. The outer columns run to the screen edges, so
 //! a finger anywhere below or above a receptor presses its lane whatever the
 //! aspect ratio, and reverse scroll (which only moves the receptors up or
-//! down) changes nothing.
+//! down) changes nothing. Layouts with two rows (Dancing☆Onigiri 11 keys and
+//! up: one row's receptors at the top, the other's at the bottom) split the
+//! screen in half as well: each half plays the row whose receptors are there.
 //!
 //! Pointer events rather than touch events: they carry a `pointerId` per
 //! finger (several fingers are a jump) and a `pointerType`, so mouse clicks
@@ -45,8 +47,10 @@ enum Hold {
 struct Shared {
     queue: Vec<RawInput>,
     canvas: HtmlCanvasElement,
-    /// Each lane's column in lane widths, as in the layout.
-    columns: Vec<f32>,
+    /// Each lane's `(column, scroll sign)` as in the layout.
+    lanes: Vec<(f32, i8)>,
+    /// Reverse scroll (moves every receptor to the other end).
+    reverse: bool,
     /// Pointers currently down, by `pointerId`.
     pointers: Vec<(i32, Hold)>,
     /// Pointers holding each lane, then the quit button.
@@ -61,21 +65,26 @@ pub(crate) struct TouchLanes {
 
 impl TouchLanes {
     /// Listens on the canvas' parent (the play screen host, which also holds
-    /// the quit button), falling back to the canvas itself. `columns` are
-    /// the layout lanes' columns.
-    pub(crate) fn new(canvas: HtmlCanvasElement, columns: Vec<f32>) -> Option<TouchLanes> {
+    /// the quit button), falling back to the canvas itself. `lanes` are the
+    /// layout lanes' `(column, scroll sign)`.
+    pub(crate) fn new(
+        canvas: HtmlCanvasElement,
+        lanes: Vec<(f32, i8)>,
+        reverse: bool,
+    ) -> Option<TouchLanes> {
         let window = web_sys::window()?;
         let document = window.document()?;
         let host: Element = canvas
             .parent_element()
             .unwrap_or_else(|| canvas.clone().into());
-        let lanes = columns.len();
+        let count = lanes.len();
         let shared = Rc::new(RefCell::new(Shared {
             queue: Vec::new(),
             canvas,
-            columns,
+            lanes,
+            reverse,
             pointers: Vec::new(),
-            lane_count: vec![0; lanes],
+            lane_count: vec![0; count],
             cancel_count: 0,
         }));
         let opts = EventListenerOptions::enable_prevent_default();
@@ -109,7 +118,7 @@ impl TouchLanes {
                         // keep working.
                         return;
                     } else {
-                        match s.lane_at(event.client_x() as f64) {
+                        match s.lane_at(event.client_x() as f64, event.client_y() as f64, None) {
                             Some(lane) => Hold::Lane(lane),
                             None => return,
                         }
@@ -139,7 +148,11 @@ impl TouchLanes {
                 let Hold::Lane(old) = s.pointers[i].1 else {
                     return;
                 };
-                let Some(new) = s.lane_at(event.client_x() as f64) else {
+                // A finger keeps the row it went down on: sliding only moves
+                // it across, so a hold survives drifting past mid-screen.
+                let Some(new) =
+                    s.lane_at(event.client_x() as f64, event.client_y() as f64, Some(old))
+                else {
                     return;
                 };
                 if new != old {
@@ -208,29 +221,41 @@ fn is_touch(event: &PointerEvent) -> bool {
 }
 
 impl Shared {
-    /// The lane whose column contains `client_x` (CSS px in the viewport):
-    /// the nearest receptor, which puts the boundaries at the midpoints. The
-    /// receptors come from the renderer's own geometry on the canvas'
-    /// backing store (CSS size × devicePixelRatio), scaled back to CSS px.
-    fn lane_at(&self, client_x: f64) -> Option<u8> {
+    /// The lane under a touch at `(client_x, client_y)` (CSS px in the
+    /// viewport): of the lanes whose receptors are at the touched end of the
+    /// screen (all of them unless the layout has two rows), the one with the
+    /// nearest receptor column, which puts the boundaries at the midpoints.
+    /// The receptors come from the renderer's own geometry on the canvas'
+    /// backing store (CSS size × devicePixelRatio). With `row_of`, the row
+    /// is that lane's instead of the touched half's.
+    fn lane_at(&self, client_x: f64, client_y: f64, row_of: Option<u8>) -> Option<u8> {
         let rect = self.canvas.get_bounding_client_rect();
         let dpr = web_sys::window()
             .map(|w| w.device_pixel_ratio())
             .unwrap_or(1.0);
+        let span = self.lanes.iter().map(|l| l.0).fold(0.0f32, f32::max) + 1.0;
         let geo = FieldGeometry::new(
             (rect.width() * dpr).round().max(1.0) as f32,
             (rect.height() * dpr).round().max(1.0) as f32,
-            self.columns.len(),
-            false,
+            span,
+            self.reverse,
         );
         let x = ((client_x - rect.left()) * dpr) as f32;
-        self.columns
+        let y = ((client_y - rect.top()) * dpr) as f32;
+        let at_top = |sign: i8| geo.lane_receptor_y(sign) < geo.height / 2.0;
+        let two_rows = self.lanes.iter().any(|l| l.1 < 0) && self.lanes.iter().any(|l| l.1 > 0);
+        let touched_top = match row_of.and_then(|l| self.lanes.get(usize::from(l))) {
+            Some(l) => at_top(l.1),
+            None => y < geo.height / 2.0,
+        };
+        self.lanes
             .iter()
             .enumerate()
+            .filter(|(_, l)| !two_rows || at_top(l.1) == touched_top)
             .min_by(|(_, a), (_, b)| {
-                (geo.lane_x(**a) - x)
+                (geo.lane_x(a.0) - x)
                     .abs()
-                    .total_cmp(&(geo.lane_x(**b) - x).abs())
+                    .total_cmp(&(geo.lane_x(b.0) - x).abs())
             })
             .map(|(lane, _)| lane as u8)
     }

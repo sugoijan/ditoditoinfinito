@@ -1014,6 +1014,7 @@ fn build_chart(
         notes,
         timing: None,
         display_bpm: None,
+        danoni: None,
     })
 }
 

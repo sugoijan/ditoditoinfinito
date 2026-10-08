@@ -297,7 +297,12 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, String> {
         }
     };
     let ext = entry.chart.rsplit('.').next().unwrap_or("sm");
-    let song = parse_simfile(&chart_text, ext).map_err(|e| format!("{}: {e}", entry.chart))?;
+    let song = if ext == ddi_library::danoni::STORED_EXT {
+        ddi_library::danoni::load_stored(&chart_text)
+    } else {
+        parse_simfile(&chart_text, ext).map_err(|e| e.to_string())
+    }
+    .map_err(|e| format!("{}: {e}", entry.chart))?;
     // Images the song's folder lacks may be in a shared folder imported
     // before or after it; looked up now so the order does not matter.
     let shared_bg = match &origin {

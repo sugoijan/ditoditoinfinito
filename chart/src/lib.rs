@@ -14,10 +14,10 @@ pub mod model;
 pub mod song_ext;
 pub mod timing;
 
-pub use layout::{BUILTIN_LAYOUTS, Glyph, Lane, Layout, LayoutFamily};
+pub use layout::{BUILTIN_LAYOUTS, Glyph, Lane, Layout, LayoutFamily, PLAYED_DANONI_MODES};
 pub use model::{
-    Chart, Color, Difficulty, DisplayBpm, EffectEvent, EffectTime, Note, NoteKind, Quantization,
-    Song, SourceFormat, SourceInfo, Tick,
+    Chart, Color, DanoniChart, Difficulty, DisplayBpm, EffectEvent, EffectTime, Note, NoteKind,
+    Quantization, Song, SourceFormat, SourceInfo, Tick,
 };
 pub use timing::{
     BpmSegment, ComboSegment, FakeSegment, Label, ScrollSegment, SpeedSegment, SpeedUnit,

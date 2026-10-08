@@ -8,7 +8,7 @@ use ddi_chart::{Color, Glyph, Layout};
 use ddi_engine::frame::{Frame, NoteSprite, SpriteKind};
 use ddi_engine::rules::{JudgeNames, Judgement};
 
-use crate::sprite::{Instance, Shape};
+use crate::sprite::{Instance, Shape, Symbol, SymbolMode};
 use crate::text::{Align, TextItem};
 
 pub use crate::note_colors::{ColorScheme, Gradient, quantization_color};
@@ -68,11 +68,12 @@ pub struct FieldGeometry {
 }
 
 impl FieldGeometry {
-    pub fn new(width: f32, height: f32, lanes: usize, reverse: bool) -> FieldGeometry {
+    /// Geometry for a field `span` lane widths wide (see [`field_span`]).
+    pub fn new(width: f32, height: f32, span: f32, reverse: bool) -> FieldGeometry {
         let by_height = height / 10.0;
-        let by_width = width / (lanes as f32 + 2.0);
+        let by_width = width / (span + 2.0);
         let arrow = by_height.min(by_width).clamp(24.0, 160.0);
-        let field_w = arrow * lanes as f32;
+        let field_w = arrow * span;
         let left = (width - field_w) / 2.0;
         let (receptor_y, direction) = if reverse {
             (height - arrow * 1.5, -1.0)
@@ -96,6 +97,31 @@ impl FieldGeometry {
     /// Screen y for an engine distance in arrow heights.
     pub fn y(&self, arrows: f32) -> f32 {
         self.receptor_y + arrows * self.arrow * self.direction
+    }
+
+    /// [`FieldGeometry::direction`] of a lane with this scroll sign (a
+    /// Dancing☆Onigiri lower-row lane scrolls the other way).
+    pub fn lane_direction(&self, scroll_sign: i8) -> f32 {
+        if scroll_sign < 0 {
+            -self.direction
+        } else {
+            self.direction
+        }
+    }
+
+    /// Receptor y of a lane with this scroll sign: at the top when its
+    /// notes travel up, at the bottom when they travel down.
+    pub fn lane_receptor_y(&self, scroll_sign: i8) -> f32 {
+        if self.lane_direction(scroll_sign) > 0.0 {
+            self.arrow * 1.5
+        } else {
+            self.height - self.arrow * 1.5
+        }
+    }
+
+    /// Screen y of a lane's note at an engine distance in arrow heights.
+    pub fn lane_y(&self, scroll_sign: i8, arrows: f32) -> f32 {
+        self.lane_receptor_y(scroll_sign) + arrows * self.arrow * self.lane_direction(scroll_sign)
     }
 }
 
@@ -173,18 +199,49 @@ fn glyph_rotation(glyph: &Glyph) -> f32 {
     }
 }
 
-fn glyph_shape(glyph: &Glyph, outline: bool) -> Shape {
-    match glyph {
-        Glyph::Arrow { .. } => {
-            if outline {
-                Shape::ArrowOutline
-            } else {
-                Shape::Arrow
-            }
-        }
-        Glyph::Onigiri => Shape::Onigiri,
-        _ => Shape::Circle,
+/// Width of a layout's field in lane widths: from the leftmost lane's left
+/// edge to the rightmost lane's right edge (rows may overlap).
+pub fn field_span(layout: &Layout) -> f32 {
+    if layout.lanes.is_empty() {
+        return 0.0;
     }
+    layout.lanes.iter().map(|l| l.column).fold(0.0f32, f32::max) + 1.0
+}
+
+/// The shape id of a lane's glyph drawn in `mode`: arrows, or the symbols
+/// standing for Dancing☆Onigiri's other lanes (decision 27): a star for the
+/// onigiri, a square for giko, a circle for iyo and anything else. A
+/// triangle would read as an up arrow.
+fn glyph_shape(glyph: &Glyph, mode: SymbolMode) -> u32 {
+    let symbol = match glyph {
+        Glyph::Arrow { .. } => {
+            return match mode {
+                SymbolMode::Fill => Shape::Arrow,
+                SymbolMode::Outline => Shape::ArrowOutline,
+                SymbolMode::Flow => Shape::ArrowGradient,
+                SymbolMode::Ramp => Shape::ArrowRamp,
+            } as u32;
+        }
+        Glyph::Onigiri => Symbol::Star,
+        Glyph::Giko => Symbol::Square,
+        Glyph::Iyo | Glyph::Custom(_) => Symbol::Dot,
+    };
+    symbol.shape(mode)
+}
+
+/// An instance drawing a lane's glyph.
+fn glyph_instance(
+    center: [f32; 2],
+    size: f32,
+    glyph: &Glyph,
+    mode: SymbolMode,
+    color: [f32; 4],
+) -> Instance {
+    Instance {
+        shape: glyph_shape(glyph, mode),
+        ..Instance::new(center, [size, size], Shape::Rect, color)
+    }
+    .rotated(glyph_rotation(glyph))
 }
 
 /// Build the sprite and text lists for one frame. `srgb_target`: the
@@ -202,9 +259,10 @@ pub fn build(
     let mut text = Vec::with_capacity(8);
     let a = geo.arrow;
 
+    let span = field_span(layout);
     // Field filter: a dark band behind the lanes, over the background.
     if opts.field_filter > 0.0 && !layout.lanes.is_empty() {
-        let lanes = layout.lanes.iter().map(|l| l.column).fold(0.0f32, f32::max) + 1.0;
+        let lanes = span;
         let w = a * (lanes + 0.3);
         instances.push(
             Instance::new(
@@ -230,15 +288,16 @@ pub fn build(
                 color[k] = color[k] + (jc[k] - color[k]) * t;
             }
         }
-        instances.push(
-            Instance::new(
-                [geo.lane_x(lane.column), geo.receptor_y],
-                [a * 0.92 * scale, a * 0.92 * scale],
-                glyph_shape(&lane.glyph, true),
-                color,
-            )
-            .rotated(glyph_rotation(&lane.glyph)),
-        );
+        instances.push(glyph_instance(
+            [
+                geo.lane_x(lane.column),
+                geo.lane_receptor_y(lane.scroll_sign),
+            ],
+            a * 0.92 * scale,
+            &lane.glyph,
+            SymbolMode::Outline,
+            color,
+        ));
     }
 
     // Hold bodies first so heads draw over them.
@@ -269,8 +328,8 @@ pub fn build(
             let w = if is_roll { a * 0.38 } else { a * 0.5 };
             // Only the parts Hidden/Sudden leave visible.
             for (lo, hi) in frame.appearance.visible_spans(note.y, tail_y) {
-                let y0 = geo.y(lo);
-                let y1 = geo.y(hi);
+                let y0 = geo.lane_y(lane.scroll_sign, lo);
+                let y1 = geo.lane_y(lane.scroll_sign, hi);
                 let center_y = (y0 + y1) / 2.0;
                 let h = (y1 - y0).abs().max(1.0);
                 instances.push(
@@ -332,7 +391,7 @@ pub fn build(
     }
 
     // HUD: score, combo, judgement.
-    let field_center_x = geo.left + a * layout.lanes.len() as f32 / 2.0;
+    let field_center_x = geo.left + a * span / 2.0;
     let score_text = match (frame.score.money, frame.score.percent) {
         (Some(money), _) => format!("{money}"),
         (None, Some(p)) => format!("{:.2}%", p * 100.0),
@@ -407,7 +466,17 @@ pub fn build(
         let w = (geo.width * 0.22).min(a * 5.0);
         let h = (a * 0.12).max(6.0);
         let x = geo.width / 2.0;
-        let y = geo.height - a * 0.9;
+        // At the bottom, unless receptors are there (Reverse, the lower row
+        // of a two-row layout): then under the combo.
+        let bottom_receptors = layout
+            .lanes
+            .iter()
+            .any(|l| geo.lane_receptor_y(l.scroll_sign) > geo.height / 2.0);
+        let y = if bottom_receptors {
+            mid_y + a * 2.4
+        } else {
+            geo.height - a * 0.9
+        };
         text.push(TextItem {
             text: if opts.cancel_hint.is_empty() {
                 "hold or double-tap Esc to quit"
@@ -468,7 +537,7 @@ fn push_note(
     };
     let a = geo.arrow;
     let x = geo.lane_x(lane.column);
-    let y = geo.y(note.y);
+    let y = geo.lane_y(lane.scroll_sign, note.y);
     if note.alpha <= 0.0 && note.glow <= 0.0 {
         return;
     }
@@ -476,33 +545,22 @@ fn push_note(
         Some(c) => rgba(c),
         None => scheme.note_color(note.quantization, note.beat_frac, song_beat),
     };
-    // A flowing gradient on arrows of a scheme that has one, unless the
-    // chart colours the note or it is glowing (the glow is plain white).
+    // A flowing gradient on notes of a scheme that has one (along an
+    // arrow, radial on a symbol), unless the chart colours the note or it
+    // is glowing (the glow is plain white).
     let gradient = (note.color.is_none() && note.glow <= 0.0)
         .then(|| scheme.note_gradient(note.beat_frac, song_beat))
-        .flatten()
-        .filter(|_| matches!(lane.glyph, Glyph::Arrow { .. }));
+        .flatten();
     let arrow = |color: [f32; 4], gradient: Option<Gradient>| {
-        let base = Instance::new(
-            [x, y],
-            [a * 0.92, a * 0.92],
-            glyph_shape(&lane.glyph, false),
-            color,
-        )
-        .rotated(glyph_rotation(&lane.glyph));
-        let (shape, params) = match gradient {
+        let (mode, params) = match gradient {
             Some(Gradient::Flow {
                 to: [r, g, b],
                 phase,
-            }) => (Shape::ArrowGradient, [r, g, b, phase]),
-            Some(Gradient::Ramp { tip: [r, g, b] }) => (Shape::ArrowRamp, [r, g, b, 0.0]),
-            None => return base,
+            }) => (SymbolMode::Flow, [r, g, b, phase]),
+            Some(Gradient::Ramp { tip: [r, g, b] }) => (SymbolMode::Ramp, [r, g, b, 0.0]),
+            None => (SymbolMode::Fill, [0.0; 4]),
         };
-        Instance {
-            shape: shape as u32,
-            ..base
-        }
-        .params(params)
+        glyph_instance([x, y], a * 0.92, &lane.glyph, mode, color).params(params)
     };
     color = glowing(color, note);
     match note.kind {
@@ -526,15 +584,13 @@ fn push_note(
         }
         SpriteKind::Fake => {
             color[3] *= 0.6;
-            out.push(
-                Instance::new(
-                    [x, y],
-                    [a * 0.92, a * 0.92],
-                    glyph_shape(&lane.glyph, false),
-                    color,
-                )
-                .rotated(glyph_rotation(&lane.glyph)),
-            );
+            out.push(glyph_instance(
+                [x, y],
+                a * 0.92,
+                &lane.glyph,
+                SymbolMode::Fill,
+                color,
+            ));
         }
         SpriteKind::Mine | SpriteKind::Shock => {
             let m = glowing(skin.mine, note);
@@ -546,6 +602,26 @@ fn push_note(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lower_row_lanes_have_their_receptors_at_the_bottom() {
+        let geo = FieldGeometry::new(1000.0, 1000.0, 7.0, false);
+        assert_eq!(geo.arrow, 100.0);
+        assert_eq!(geo.lane_receptor_y(1), 150.0);
+        assert_eq!(geo.lane_receptor_y(-1), 850.0);
+        // Two arrows away: below the top receptor, above the bottom one.
+        assert_eq!(geo.lane_y(1, 2.0), 350.0);
+        assert_eq!(geo.lane_y(-1, 2.0), 650.0);
+        // Reverse swaps both.
+        let rev = FieldGeometry::new(1000.0, 1000.0, 7.0, true);
+        assert_eq!(rev.lane_receptor_y(1), 850.0);
+        assert_eq!(rev.lane_receptor_y(-1), 150.0);
+        // An 11-key field (kept as data) spans its widest row.
+        let eleven = ddi_chart::layout::danoni::builtin("11")
+            .unwrap()
+            .layout("danoni-11".into());
+        assert_eq!(field_span(&eleven), 7.0);
+    }
     use ddi_chart::Quantization;
     use ddi_engine::Appearance;
     use ddi_engine::frame::ReceptorState;
@@ -592,7 +668,7 @@ mod tests {
 
     fn shapes(f: &Frame, opts: RenderOptions) -> Vec<Instance> {
         let layout = Layout::dance_single();
-        let geo = FieldGeometry::new(1000.0, 1000.0, 4, false);
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
         build(
             f,
             &layout,
@@ -627,7 +703,7 @@ mod tests {
             .filter(|i| i.shape == Shape::HoldBody as u32)
             .collect();
         assert_eq!(bodies.len(), 1);
-        let geo = FieldGeometry::new(1000.0, 1000.0, 4, false);
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
         let top = bodies[0].center[1] - bodies[0].size[1] / 2.0;
         assert!((top - geo.y(140.0 / 48.0)).abs() < 0.5, "{top}");
 

@@ -3,7 +3,7 @@
 //! Positions are in **arrow heights above the receptor** (negative = past
 //! it). At X-mod 1 one beat is one arrow height, matching StepMania.
 
-use ddi_chart::{Tick, TimingMap};
+use ddi_chart::{DisplayBpm, Song, SourceFormat, Tick, TimingMap};
 use serde::{Deserialize, Serialize};
 
 /// Scroll speed.
@@ -87,6 +87,38 @@ impl Default for ScrollOptions {
     }
 }
 
+/// Reference tempo of a frame-based work that declares none.
+pub const FRAME_CHART_REFERENCE_BPM: f64 = 150.0;
+
+/// Highest declared tempo taken as a reference.
+const MAX_REFERENCE_BPM: f64 = 1000.0;
+
+/// The speed a song is played at (decision 23). Frame-based works
+/// (Dancing☆Onigiri) run on a synthetic tempo, so an x-mod there means a
+/// constant speed at the work's declared BPM (the first value of a range;
+/// [`FRAME_CHART_REFERENCE_BPM`] without one): it plays like the same x-mod
+/// on a StepMania song at that tempo. It stays an x-mod against the
+/// synthetic tempo, which is the same constant speed and keeps the work's
+/// own speed changes (scroll segments, which a c-mod ignores); a c-mod
+/// becomes the same.
+pub fn speed_for_song(song: &Song, speed: SpeedMod) -> SpeedMod {
+    if song.source.format != SourceFormat::Danoni {
+        return speed;
+    }
+    let synthetic = ddi_chart::formats::danoni::SYNTHETIC_BPM;
+    let reference = match song.display_bpm {
+        // Bounded, so a nonsense declaration cannot make an infinite speed.
+        DisplayBpm::Single(b) | DisplayBpm::Range(b, _) if b.is_finite() && b > 0.0 => {
+            b.clamp(1.0, MAX_REFERENCE_BPM)
+        }
+        _ => FRAME_CHART_REFERENCE_BPM,
+    };
+    match speed {
+        SpeedMod::XMod(x) => SpeedMod::XMod(x * reference / synthetic),
+        SpeedMod::CMod(bpm) => SpeedMod::XMod(bpm / synthetic),
+    }
+}
+
 /// Per-frame scroll state, so each note's position is a subtraction.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ScrollState {
@@ -117,12 +149,19 @@ impl ScrollState {
     /// judged second (`timing.seconds_at(note_tick)`), precomputed by the
     /// caller.
     pub fn y(&self, timing: &TimingMap, note_tick: Tick, note_seconds: f64) -> f32 {
+        self.y_displayed(timing.displayed_beat(note_tick.beat()), note_seconds)
+    }
+
+    /// [`ScrollState::y`] with the note's displayed beat
+    /// (`timing.displayed_beat`) already known: it never changes during a
+    /// play, so the player computes it once per note rather than once per
+    /// note and frame (a chart may have hundreds of scroll segments).
+    pub fn y_displayed(&self, note_displayed_beat: f64, note_seconds: f64) -> f32 {
         // StepMania's order: distance (with `#SPEEDS` for beat spacing),
         // then the scroll action, then the speed multiplier.
         match self.options.speed {
             SpeedMod::XMod(mult) => {
-                let d = (timing.displayed_beat(note_tick.beat()) - self.displayed_beat)
-                    * self.speed_ratio;
+                let d = (note_displayed_beat - self.displayed_beat) * self.speed_ratio;
                 (self.options.scroll_action.adjust(d) * mult) as f32
             }
             SpeedMod::CMod(bpm) => {

@@ -18,5 +18,5 @@ pub mod text;
 pub use background::{Backdrop, BackgroundPipeline};
 pub use renderer::Renderer;
 pub use scene::{ColorScheme, FieldGeometry, RenderOptions, Skin};
-pub use sprite::{Instance, Shape, SpritePipeline};
+pub use sprite::{Instance, Shape, SpritePipeline, Symbol, SymbolMode};
 pub use text::{Align, TextItem, TextPipeline};
