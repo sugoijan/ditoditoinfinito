@@ -8,7 +8,7 @@ publish = false
 [workspace]
 
 [dependencies]
-ruffle_core = { path = "@UPSTREAM@/core" }
+ruffle_core = { path = "@UPSTREAM@/core", features = ["default_font", "audio", "mp3"] }
 ruffle_render_wgpu = { path = "@UPSTREAM@/render/wgpu" }
 serde_json = "=1.0.151"
 url = "=2.5.8"

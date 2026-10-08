@@ -2,7 +2,7 @@
 use crate::Player;
 use crate::avm1::NativeObject;
 use crate::avm1::{Object, Value};
-use crate::display_object::TDisplayObject;
+use crate::display_object::{BoundsMode, DisplayObject, TDisplayObject};
 use crate::prelude::TDisplayObjectContainer;
 use serde_json::{Value as Json, json};
 use std::collections::HashMap;
@@ -11,6 +11,7 @@ const MAX_OBJECTS: usize = 1024;
 const MAX_PROPERTIES: usize = 20000;
 const MAX_STRING_UNITS: usize = 4096;
 const MAX_TOTAL_STRING_UNITS: usize = 262144;
+const MAX_DISPLAYS: usize = 256;
 
 struct Inspector<'gc> {
     ids: HashMap<usize, usize>,
@@ -85,6 +86,44 @@ pub fn capture(player: &mut Player) -> Json {
             }
         }
         inspect.incomplete |= displays.next().is_some();
+        // Native display traversal can inspect child MovieClip storage without
+        // resolving script MovieClipReference values or invoking user getters.
+        let mut display_queue: Vec<_> = context
+            .stage
+            .iter_render_list()
+            .take(64)
+            .map(|display| (None, display))
+            .collect();
+        let mut display_tree = Vec::new();
+        let mut display_cursor = 0;
+        while display_cursor < display_queue.len() {
+            let (parent, display) = display_queue[display_cursor];
+            let kind = match display {
+                DisplayObject::MovieClip(_) => "movie-clip",
+                DisplayObject::Avm1Button(_) => "avm1-button",
+                DisplayObject::EditText(_) => "edit-text",
+                DisplayObject::Text(_) => "text",
+                _ => "display",
+            };
+            let bounds = display.world_bounds(BoundsMode::Engine);
+            display_tree.push(json!({"id":display_cursor,"parent":parent,
+                "kind":kind,"name":display.name().map(|name| inspect.string(name)),
+                "depth":display.depth(),"visible":display.visible(),
+                "movieFrame":display.as_movie_clip().map(|clip|clip.current_frame()),
+                "stageBoundsPixels":[bounds.x_min.to_pixels(),bounds.y_min.to_pixels(),
+                    bounds.x_max.to_pixels(),bounds.y_max.to_pixels()],
+                "object":display.object1().map(|object|inspect.value(Value::Object(object)))}));
+            if let Some(container) = display.as_container() {
+                for child in container.iter_render_list() {
+                    if display_queue.len() == MAX_DISPLAYS {
+                        inspect.incomplete = true;
+                        break;
+                    }
+                    display_queue.push((Some(display_cursor), child));
+                }
+            }
+            display_cursor += 1;
+        }
         let mut objects = Vec::new();
         let mut cursor = 0;
         while cursor < inspect.queue.len() {
@@ -118,10 +157,11 @@ pub fn capture(player: &mut Player) -> Json {
             cursor += 1;
         }
         json!({"schema":"ddi-avm1-snapshot/experimental-1", "roots":roots,
-            "objects":objects, "incomplete":inspect.incomplete,
+            "objects":objects,"displayTree":display_tree, "incomplete":inspect.incomplete,
             "avm1Halted":context.avm1.ddi_halted(),
             "limits":{"roots":64,"objects":MAX_OBJECTS,"properties":MAX_PROPERTIES,
-                "stringUnits":MAX_STRING_UNITS,"totalStringUnits":MAX_TOTAL_STRING_UNITS},
+                "stringUnits":MAX_STRING_UNITS,"totalStringUnits":MAX_TOTAL_STRING_UNITS,
+                "displays":MAX_DISPLAYS},
             "excluded":["prototypes","accessor-values","movie-clip-references","native-internals"]})
     })
 }

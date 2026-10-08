@@ -489,3 +489,45 @@ not broaden access permissions or make legacy snapshots CW references.
   the source first. The page's source 2.15 label differs from the rendered title's
   Ver 2.16. Those observations identify acquisition/initialization behavior, not
   complete chart or audio equivalence. The pilot inventory records the limits.
+
+### Real legacy projection and music demux (2026-10-09)
+
+The [Higan pilot](danoni-native.md) now captures complete pre-consumption arrays
+and compares reconstructed dos through actual CW parsing. Its 562 taps, 9 holds,
+12 speed events and 342 expanded colour events reproduce with zero conversion
+timing error. The source audio/clock convention and unresolved original Flash
+latency are explicit; this is not a universal Flash-to-CW dialect conversion.
+
+- **Fonts can affect startup logic.** Higan's title/settings controls use
+  autosized text with zero declared hit-state rectangles. Enabling Ruffle's
+  bundled default font allows the original recorded clicks to work. Inspect
+  native child MovieClip state and display bounds when diagnosing controls;
+  a missing font can prevent reaching the chart, beyond changing its appearance.
+  [Pinned fallback registration](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/player.rs),
+  [work page](https://autumnleaves.yukishigure.com/higan/higan.html).
+- **Reference stages must precede consumption and cleanup.** This engine
+  splits `timeline`/`ftimeline`, transforms them into spawn schedules, then
+  deletes the original arrays and consumes schedule entries each frame.
+  Tap/hold spawn frames are note frames minus `set_cnt-correction`; hold tails
+  stay in the source coordinate while durations are stored separately at even
+  endpoint indices. Higan's speed coordinates are also shifted; colour lookup
+  instead compares `frame_num+set_cnt` against unshifted `iro_dac`. These are
+  observed rules of this pinned SWF, not CW field semantics.
+  [Work/source](https://autumnleaves.yukishigure.com/higan/higan.swf),
+  [evidence and projection contract](danoni-native.md).
+- **Nonzero MP3 block seeks need contextual interpretation.** SWF19 describes
+  concatenation for continuous playback and use of per-block `SeekSamples`
+  when seeking to another timeline frame. Head/first-block latency must also
+  be retained. Higan's varying block seek values agree with a continuous,
+  zero-latency stream; skipping them repeatedly would corrupt extraction.
+  Empty blocks still have four-byte samples/seek headers, and use long tag
+  headers even with tiny payloads. The demuxer checks whole MPEG frames and
+  declared sample counts, preserving every block offset/hash and header.
+  [Adobe SWF19, printed pp.182–186](https://open-flash.github.io/mirrors/swf-spec-19.pdf).
+- **A reconstructed early chart can trigger CW padding.** Higan's first note
+  is audio-relative frame 33 under the recorded native music origin. CW adds
+  201 frames during startup; comparisons must remove the observed validated
+  adjustment when converting final frames to audio-relative seconds. This
+  applies neither that padding nor the original native lead-in twice.
+  [Captured deployed v48.4.1 source](https://chipstar64.sakura.ne.jp/js/danoni_main.js),
+  [reproduction](danoni-native.md#reproduce-locally).

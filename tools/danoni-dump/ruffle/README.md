@@ -2,8 +2,11 @@
 
 Experimental native Ruffle host for the [legacy extraction plan](../../../docs/research/danoni-legacy-plan.md).
 It captures stored ActionScript data and optional offscreen pixels. It is **not
-yet a general DanOni SWF-to-dos converter**. Only the original synthetic fixture
-has an export adapter. Existing CW dump `/1` files and schemas are unchanged.
+yet a general DanOni SWF-to-dos converter**. Export adapters cover the original
+synthetic fixture and one pinned real work: Higan's default five-key Normal.
+The [native handover](../../../docs/research/danoni-native.md) records its
+cross-checked arrays, music origin, export contract and remaining limits.
+Existing CW dump `/1` files and schemas are unchanged.
 
 ## Build separately from the game
 
@@ -67,12 +70,19 @@ Exit 0 means this comparison passed; exit 2 means it failed. The tested v48.4.1
 engine preserves the integer fixture exactly. Omitting `--integer` produces a
 240.5-frame note: CW rounds it to 241, and the comparison **must fail** with
 `maxErrorSeconds` approximately `0.5 / 60`. This is a negative test, not an
-accepted lossy export. It validates notes/holds only, not legacy effect semantics.
+accepted lossy export. The synthetic mode validates notes/holds only. Higan's
+mode also compares speed and expanded arrow colours and subtracts CW's observed
+automatic lead-in when comparing audio-relative times.
+
+Run `python3 tools/danoni-dump/ruffle/test_projection.py` for original synthetic
+projection/demux tests, including empty long-form SWF blocks, unknown seek
+patterns, incorrect sample counts and damaged initialization evidence.
 
 Native integration checks cover exact arrays before/after runtime mutation,
 holds, shared/circular references, sparse arrays, undefined/nonfinite/-0 values,
 Japanese strings, getter non-execution, URL query and FlashVars, frame-polled
-Enter, exact offscreen RGB pixels, repeatability, cache integrity, exhausted
+Enter, child-movie-clip data, exact offscreen RGB pixels, delayed stereo PCM
+impulses/sample counts, repeatability, cache integrity, exhausted
 snapshot/audit limits, VM halt rejection, output location, filesystem/network
 denials, and parent time/memory termination. No third-party fixture is committed.
 
@@ -92,6 +102,7 @@ by the worker, so do not use a home directory or a shared scratch root as input.
   "flashVars": { "difficulty": "Hard" },
   "captureFrames": [1, 30, 60],
   "render": true,
+  "mixAudio": false,
   "events": [{ "frame": 40, "type": "enter" }],
   "resources": [{
     "url": "https://example.invalid/work/dos.txt",
@@ -115,6 +126,10 @@ numbers are **not** the movie's timeline frame or a verified song clock.
 the fixed 320×240 viewport. Press occurs before the selected iteration; release
 occurs before the next. Capture beyond the release iteration when inspecting
 post-input state. `render` defaults to false; true uses an offscreen Metal target.
+The upstream bundled default font is enabled, including with rendering disabled.
+Its metrics matter for autosized text button hit testing. `mixAudio` defaults to
+false; true installs an offline stereo 44.1 kHz Ruffle mixer, advancing by the
+cumulative sample count for each header-FPS iteration. No audio device is opened.
 
 ## Output contract (experimental)
 
@@ -124,9 +139,10 @@ post-input state. `render` defaults to false; true uses an offscreen Metal targe
 | `snapshot.json` | Worker result, schema `ddi-ruffle-probe/experimental-1`: Ruffle/build identity, SWF hash, original config, SWF header FPS, clock limitations, `avm1Halted`, `rendered`, `captures`, `audit`. May be absent, empty or partial after termination; check `run.json` first. |
 | `stderr.txt` | Launcher/worker diagnostics. Runtime warnings/errors also enter the bounded audit. |
 | `frame-<iteration>.ppm` | Optional P6 RGB image, 320×240; no alpha. One per requested capture iteration. |
+| `audio.pcm` | With `mixAudio`: raw stereo interleaved signed 16-bit little-endian PCM at 44.1 kHz, starting at worker iteration 1; includes menu/lead-in silence. The snapshot's `audio` report identifies successful stream starts by iteration and exact output sample-frame cursor. |
 
 Each `captures[]` entry is `{frame: integer, state: Snapshot}`. A `Snapshot`
-has schema `ddi-avm1-snapshot/experimental-1`, `roots`, `objects`, `limits`,
+has schema `ddi-avm1-snapshot/experimental-1`, `roots`, `objects`, `displayTree`, `limits`,
 `excluded`, `incomplete`, and `avm1Halted`:
 
 - `roots[]`: `{level: integer, movieFrame: integer|null, value: Value}`.
@@ -134,6 +150,13 @@ has schema `ddi-avm1-snapshot/experimental-1`, `roots`, `objects`, `limits`,
   IDs are zero-based indices local to one snapshot; never compare IDs between
   unrelated captures. Kinds are `object`, `array`, `movie-clip`, `function`,
   `native-unsupported`. Native internal state is not inspected.
+- `displayTree[]`: bounded native display traversal, including child MovieClips;
+  `{id,parent,kind,name,depth,visible,movieFrame,stageBoundsPixels,object}`.
+  Parent is a display index or null, name is StringValue or null, object is a
+  graph reference or null. Bounds `[xmin,ymin,xmax,ymax]` use original stage
+  pixels, before viewport scaling/letterboxing. Kinds additionally include
+  `avm1-button`, `edit-text`, `text`, `display`. Child storage is inspected
+  directly; script MovieClipReference resolution remains excluded.
 - `Property`: `{name: StringValue, value: Value, enumerable: boolean, accessor: boolean}`.
   Only stored own properties are traversed, including non-enumerable properties.
   Arrays keep their stored `length` and index properties: an absent index is a
@@ -148,11 +171,19 @@ has schema `ddi-avm1-snapshot/experimental-1`, `roots`, `objects`, `limits`,
   methods or ActionScript coercion.
 
 `incomplete` means an inspection budget was exhausted, not that all relevant VM
-state was otherwise observed. Bounds: 64 roots, 1,024 objects, 20,000 properties,
+state was otherwise observed. Bounds: 64 roots, 256 displays, 1,024 objects, 20,000 properties,
 4,096 UTF-16 units per string and 262,144 total units per snapshot. Exclusions
 are always explicit. `audit` has `entries:[{kind,detail,truncated}]`,
 `droppedEntries`, `truncatedDetails`, `runtimeErrors`, `truncated`; bounds are
 256 entries and 1,024 characters per detail. Do not silently accept lost evidence.
+
+With mixing enabled, `audio` is `{sampleRate:44100,channels:2,sampleFrames:integer,
+streamStarts:StreamStart[],scope:string}`; otherwise it is null. StreamStart is
+`{iteration,outputSampleFrame,sliceStart,sliceEnd,compression,sampleRate,stereo,
+samplesPerMovieFrame,latencySeek}`. Positions count stereo sample frames;
+`sliceStart`/`sliceEnd` are diagnostic Ruffle movie-data byte offsets, not original
+SWF-file offsets. A start records successful decoder initialization, not perceived
+audible onset. The offline mixer does not verify arbitrary stream seeks.
 
 The synthetic exporter writes `charts/fixture/{chart.dos.txt,chart.html,keys.json}`,
 `media/synthetic.wav`, and `manifest.json` (`ddi-synthetic-export/experimental-1`).
@@ -177,16 +208,19 @@ wall time, 20 s CPU, 2 GiB monitored RSS, 40 MiB per output file, 128 descriptor
 Successful process completion proves a capture was written. It does not prove
 valid chart initialization, successful sound playback or complete playability.
 The host calls `run_frame` then advances timers by a header-FPS step, while
-`getTimer` still reads wall time and `NullAudioBackend` reports sound position
-zero. This is not a coherent virtual Flash/audio clock. `clock.timebaseVerified`
+`getTimer` still reads wall time. The default `NullAudioBackend` reports sound
+position zero; the optional mixer advances a sample cursor. This is not a
+general coherent virtual Flash/audio clock. `clock.timebaseVerified`
 is therefore always false. The fixture's independently known chart clock is
 60 Hz while its SWF header is deliberately 30 Hz. Real-song adapters must
-establish their timebase and audio origin before export. Device fonts are not
-installed into the emulator; missing text is logged and can impede menu diagnosis.
+establish their timebase and audio origin before export. The bundled font is a
+fallback, not a complete recreation of the author's device fonts; rendering may
+still differ. Ruffle's audio feature uses its upstream-constrained Symphonia
+0.5.5; the standalone lockfile pins those transitive dependencies.
 
-Next: establish initialization and timing for one real 5-key family, recover
-complete arrays before consumption, preserve/demux embedded music with codec
-provenance, and validate a reconstructed dos through CW. Then cover a second
-family and the known Straight Soul Flash/HTML5 pair. Chart Reverser can supply
+Higan now has complete pre-consumption arrays, a zero-latency continuous MP3
+demux, repeatable observed music origin and a passing CW comparison. Its original
+Flash latency and full visual/gameplay fidelity remain unmeasured. Next cover a
+second family and the known Straight Soul Flash/HTML5 pair. Chart Reverser can supply
 an additional authoring-grid comparison where first-number/BPM changes are
 known; it cannot independently recover an unknown timebase or original project.

@@ -3,7 +3,7 @@
 Research date: 2026-10-08. The dump tool is implemented in
 [`tools/danoni-dump/`](../../tools/danoni-dump/README.md). Its Chrome integration
 test captures synthetic charts and replays them with the fixture origin shut
-down. Five local works provide seven browser-derived chart references; all seven
+down. Six local HTML5 works provide nine browser-derived chart references; all nine
 reproduce offline. Only the Jam with Pancake dump passes the full startup/assets
 check; the other dumps remain explicitly partial. See the inventory below.
 Work is isolated on `danoni-research`; the importer session owns the game crates
@@ -16,8 +16,10 @@ AVM1 feasibility study. It also specifies the proposed CW dos export alongside
 preserved originals and runtime references. The goal is portable static charts;
 arbitrary custom-engine gameplay is out of scope. A separate
 [native prototype](../../tools/danoni-dump/ruffle/README.md) now proves AVM1
-inspection and synthetic dos reconstruction; real legacy conversion remains
-experimental and does not change the browser dumper's `/1` contract.
+inspection and dos reconstruction, including one pinned real five-key work.
+The [native handover](danoni-native.md) specifies that pilot's observed timing
+and export; broader legacy conversion remains experimental and does not change
+the browser dumper's `/1` contract.
 
 ## Findings and evidence
 
@@ -414,7 +416,7 @@ The local root is `/Users/jan/Music/DanOni/corpus/` (not in Git). Captured and
 verified on 2026-10-08 with installed Chrome; exact browser version, source hashes,
 retrieval times, credits and resource policies live in each dump. The following
 counts come from validated `reference.json`, not an independent dos parser.
-Chart IDs are zero-based. All **seven references match a fresh offline browser
+Chart IDs are zero-based. All **nine references match a fresh offline browser
 conversion**; that result is separate from successful replay of every required
 startup asset.
 
@@ -425,6 +427,7 @@ startup asset.
 | `7ikey-package-25-menu` — [7ikey Package](https://apoi108.sakura.ne.jp/danoni/7ikey_package/) | 24 (source suffix 25), of 55 enumerated charts; 7i; v50.2.0 | Runtime-generated external dos, custom menu/hooks, decoded MP3 from `shinseiji-bugi.js`; 1,475 taps, 54 holds, 7 speed and 3 boost events; 308 modern color events; parsed background/mask effects | Reference matches offline; partial due page errors, non-string effective field and unavailable preview/font resources; other 54 charts not captured |
 | `twilight` — [Twilight](https://cw7.sakura.ne.jp/danoni/2018/0316_Twilight.html) | 0; custom 15-lane `7wi`; v49.1.1 fallback | Inline dos, custom JS, MP3, 1,250 taps, 38 holds, 2 speed events; 47 populated lyric frames | Reference matches offline; partial: shared arrow image missing, CDN unavailable |
 | `defeat-i-doll` — [Defeat,I Doll](https://cw7.sakura.ne.jp/danoni/2016/0273_DefeatIDoll.html) | 0; custom 43-lane `Tr`; v49.1.1 fallback | Inline dos, MP3, 762 taps, 23 holds, 2 speed events; 153 populated lyric frames and 47 key-group frame entries | Reference matches offline; partial: shared arrow image missing, CDN unavailable |
+| `straight-soul-html5` — [Straight Soul -Web Style-](https://cw7.sakura.ne.jp/danoni/2009/0169_StraightSoul.html) | All 0–1; 5-key Normal / 7-key Hard; v49.1.1 fallback | Inline dos, MP3; 1,144/1,515 taps and 9/9 holds; Normal has 5 speed and 9 boost events; custom/key-change scripts delivered, conversion options not activated | Both references and chart startup reproduce offline; work partial due excluded statistics iframe and recorded unavailable bootstrap resources |
 
 The package's parsed boosts are `(6285, -0.5)`, `(6310, -1)`, `(6490, 1)`;
 these differ from source frames by the recorded adjustment. Color counts are
@@ -567,13 +570,13 @@ research acquisitions, not complete importable song dumps.
 
 | Local candidate | Work and credits | Observed coverage | Status |
 |---|---|---|---|
-| `autumn-higan` | [彼岸帰航 ～ Titanic of Stygian～](https://autumnleaves.yukishigure.com/higan/higan.html), chart レク, music どぶウサギ | Five active lanes, holds, speed, separate `iro.txt` colours; Shift_JIS ampersand dos, placeholder values; streaming sound tags in SWF. Page names source 2.15, rendered title says Ver 2.16. | Title and exact cached `dos.txt`/`iro.txt` loads captured offline. Root strings/settings observed. Remains at movie frame 3 after the tested click; device fonts missing. Complete parsed chart, music extraction and timing unverified. |
+| `autumn-higan` | [彼岸帰航 ～ Titanic of Stygian～](https://autumnleaves.yukishigure.com/higan/higan.html), chart レク, music どぶウサギ | Five active lanes, holds, speed, separate `iro.txt` colours; Shift_JIS ampersand dos, placeholder values; streaming sound tags in SWF. Page names source 2.15, rendered title says Ver 2.16. | Initial title failure resolved by bundled font metrics. Complete 562-tap/9-hold native projection and continuous MP3 demux now reproduce offline; reconstructed dos passes CW comparison. Original Flash latency/visual fidelity unmeasured. See [native handover](danoni-native.md). |
 | `autumn-destined-marionette` | [Destined Marionette](https://autumnleaves.yukishigure.com/_9/D_M.html), chart レク, music ビートまりお | Five lanes, holds, speed including zero, boost, external dos, streaming sound tags. Exact source family/revision unresolved. | Original inputs acquired and statically classified; native initialization/export untested. |
 | `cw-straight-soul` | [Straight Soul -Web Style-](https://cw7.sakura.ne.jp/danoni/2009/straights/main.html), chart ティックル, music ASK | 5-key Normal and 7-key Hard; ParaFla trace strings and `< ver fd 4.0.5 based >`; linked [HTML5 port](https://cw7.sakura.ne.jp/danoni/2009/0169_StraightSoul.html). | Original inputs acquired and statically classified; port equivalence and native export untested. Absolute ranking endpoint strings are not probed. |
 
 All three SWFs are CWS/SWF8 with AVM1 action tags, no observed DoABC/AS3 flag,
 and header FPS 60. This does not establish the chart clock or playability.
-None is counted among the seven existing browser-derived chart references.
+None is counted among the nine existing original browser-derived chart references.
 Higan's unrelated sidebar SWF was not acquired. Public retrieval is not proof
 that a work runs correctly in modern browsers or Ruffle.
 
@@ -586,10 +589,20 @@ direct media/SWF hotlinks, stopped at a catalogue JSON 403; it was not retried.
 No login, challenge, ad script or ranking endpoint was used. Acquired SWFs ran
 only through the separately tested native macOS restricted worker.
 
-Next gate: identify a family's complete pre-consumption chart state, prove its
-music origin and frame-to-seconds mapping, then reconstruct dos and compare it
-through CW. Null audio and wall-clock `getTimer` currently prevent declaring
-general audio-synchronized emulation. Missing cosmetics alone need not block a
-static chart export, but unknown note/lane/timing behavior must. Chart Reverser
-is a useful additional source-known authoring-grid reference, not a substitute
-for establishing that mapping.
+The narrow Higan gate now has a complete pre-consumption projection, observed
+music origin and passing CW comparison. Its preserved real export is at
+`~/Music/DanOni/legacy-pilot/exports/autumn-higan-normal/`; original inputs,
+raw native state, parent provenance, demux metadata and browser validation remain
+inside that local folder. The [native handover](danoni-native.md) specifies its
+experimental schemas, distinct frame coordinates and limits. The optional mixer
+advances PCM samples, while wall-clock `getTimer` still prevents declaring
+general audio-synchronized emulation. Next compare a second family and the
+Straight Soul archive/port; their equivalence remains unverified. Missing
+cosmetics alone need not block a static chart export, but unknown note/lane/timing
+behavior must. Chart Reverser is an additional source-known authoring-grid
+reference, not a substitute for establishing that mapping.
+
+Use `~/Music/DanOni/.cache` for future browser and legacy discovery. Its verified
+merge imports the previously separate discovery responses and refusals without
+requests. The duplicate Straight Soul HTML page and robots response keep both
+retrieval histories in the merge report; no provenance was rewritten.

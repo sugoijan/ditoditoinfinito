@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import socket
+import struct
 import tempfile
 import time
 
@@ -32,6 +33,12 @@ def assert_snapshot(snapshot):
         assert root["query"]["text"] == "retained"
         assert root["cachedMarker"]["text"] == "from-cache"
         assert root["chart"] == root["alias"]
+        displays = state["displayTree"]
+        child = next(d for d in displays if d["name"] and d["name"]["text"] == "laneBank")
+        assert child["parent"] == 0 and child["kind"] == "movie-clip"
+        child_notes = properties(state,properties(state,child["object"])["notes"])
+        assert child_notes["length"] == 2
+        assert [child_notes["0"],child_notes["1"]] == [90,210]
         chart = properties(state,root["chart"])
         assert chart["self"] == root["chart"]
         assert chart["fps"] == 60  # Chart clock is deliberately different from SWF FPS.
@@ -102,6 +109,17 @@ def test(worker, directory):
             offset = (50*320+50)*3
             assert pixels[offset:offset+3] == rgb, "ActionScript drawing pixels differ"
     assert captures[0] == captures[1], "fresh worker captures are not reproducible"
+    result = run(worker,inputs/"pcm.json",directory/"pcm")
+    assert result["exitCode"] == 0, (directory/"pcm/stderr.txt").read_text()
+    audio = json.loads((directory/"pcm/snapshot.json").read_text())["audio"]
+    assert audio["sampleFrames"] == 4410 and len(audio["streamStarts"]) == 1
+    assert audio["streamStarts"][0]["iteration"] == 2
+    assert audio["streamStarts"][0]["outputSampleFrame"] == 1470
+    data = (directory/"pcm/audio.pcm").read_bytes()
+    assert len(data) == 4410*4
+    impulses = {1470,1470+734,1470+1469}
+    for i, sample in enumerate(struct.iter_unpack("<hh",data)):
+        assert sample == ((16384,-16384) if i in impulses else (0,0)), (i,sample)
     for name in ["budget","audit"]:
         result = run(worker,inputs/f"{name}.json",directory/name)
         assert result["exitCode"] == 0
@@ -143,7 +161,8 @@ def test(worker, directory):
     print(json.dumps({"passed":True,"directory":str(directory),
         "checks":["outside read/write denied","input write denied","symlink escape denied","network denied",
             "AVM resource requests denied","exact before/after graph","getter not invoked","sparse and special values",
-            "FlashVars and URL parameters","two offscreen pixel buffers","fresh-process repeat","cache integrity",
+            "FlashVars and URL parameters","child movie-clip storage","two offscreen pixel buffers","fresh-process repeat",
+            "delayed PCM stream and exact impulses","cache integrity",
             "budget and audit exhaustion rejected","frame-polled key input","halted initialized chart rejected",
             "Git output guard","outer timeout","outer memory limit"]},indent=2))
 

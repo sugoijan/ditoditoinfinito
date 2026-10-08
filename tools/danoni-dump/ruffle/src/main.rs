@@ -1,3 +1,4 @@
+mod audio;
 mod navigator;
 
 use ruffle_core::{
@@ -163,6 +164,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err("capture 1..16 frames, each in 1..600".into());
     }
     let render = config["render"].as_bool().unwrap_or(false);
+    let mix_audio = config["mixAudio"].as_bool().unwrap_or(false);
     let events = input_events(&config)?;
     let mut executor = NullExecutor::new();
     let audit = navigator::Audit::default();
@@ -182,6 +184,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         .with_max_execution_duration(Duration::from_millis(500))
         .with_viewport_dimensions(320, 240, 1.0)
         .with_autoplay(true);
+    if mix_audio {
+        builder = builder.with_audio(audio::OfflineAudio::new());
+    }
     if render {
         builder = builder.with_renderer(WgpuRenderBackend::for_offscreen(
             (320, 240),
@@ -204,15 +209,35 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err("preload limit exceeded".into());
     }
     let mut captures = Vec::new();
+    let mut pcm = if mix_audio {
+        Some(fs::File::create("audio.pcm")?)
+    } else {
+        None
+    };
     for frame in 1..=*frames.iter().max().unwrap() {
         {
             let mut guard = player.lock().map_err(|_| "player lock poisoned")?;
+            if mix_audio {
+                let mixer = (guard.audio_mut() as &mut dyn Any)
+                    .downcast_mut::<audio::OfflineAudio>()
+                    .ok_or("audio backend type")?;
+                mixer.recorder.iteration = frame;
+            }
             for (_, event) in events.iter().filter(|(at, _)| *at == frame) {
                 guard.handle_event(event.clone());
             }
             guard.run_frame();
             guard.update_timers(FloatDuration::from_millis(1000.0 / fps));
             guard.audio_mut().tick();
+            if let Some(out) = &mut pcm {
+                let target = (frame as f64 * audio::RATE as f64 / fps).floor() as u64;
+                let mixer = (guard.audio_mut() as &mut dyn Any)
+                    .downcast_mut::<audio::OfflineAudio>()
+                    .ok_or("audio backend type")?;
+                for sample in mixer.mix_to(target) {
+                    out.write_all(&sample.to_le_bytes())?;
+                }
+            }
         }
         // Resource completion callbacks acquire the player lock themselves.
         executor.run();
@@ -240,13 +265,26 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
     let halted =
         ruffle_core::ddi_snapshot::halted(&mut *player.lock().map_err(|_| "player lock poisoned")?);
+    let audio_report = if mix_audio {
+        let guard = player.lock().map_err(|_| "player lock poisoned")?;
+        Some(
+            (guard.audio() as &dyn Any)
+                .downcast_ref::<audio::OfflineAudio>()
+                .ok_or("audio backend type")?
+                .report(),
+        )
+    } else {
+        None
+    };
     let output = json!({"schema":"ddi-ruffle-probe/experimental-1", "ruffleRelease":"v0.7.1",
         "ruffleRevision":"89a7049965f3090e706265670df309a5128233ac",
         "build":serde_json::from_str::<Value>(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/build-identity.json")))?,
         "source":{"movieSha256":movie_sha256,"config":config},
         "swfHeaderFps":fps, "clock":{"frames":"one run_frame per iteration","timers":"fixed header-FPS step",
-            "getTimer":"wall clock","audio":"NullAudioBackend: sound position fixed at zero","timebaseVerified":false},
-        "avm1Halted":halted,"rendered":render, "captures":captures, "audit":audit.report()});
+            "getTimer":"wall clock","audio":if mix_audio {"offline PCM sample cursor"} else {"NullAudioBackend: sound position fixed at zero"},
+            "timebaseVerified":false},"defaultFont":true,
+        "avm1Halted":halted,"rendered":render,"audio":audio_report,
+        "captures":captures, "audit":audit.report()});
     let output = serde_json::to_vec(&output)?;
     if output.len() > 32 * 1024 * 1024 {
         return Err("snapshot output size exceeded".into());

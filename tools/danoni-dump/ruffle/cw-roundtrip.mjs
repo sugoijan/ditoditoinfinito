@@ -1,4 +1,4 @@
-// Validate a synthetic export using an actual, previously captured CW engine.
+// Validate a reviewed experimental export using a previously captured CW engine.
 // Every browser request is fulfilled from local bytes; never access the network.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -10,9 +10,16 @@ import { requireExternalDirectory } from '../dump.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const [engineDir, exportDir, outDir] = process.argv.slice(2).map(value => path.resolve(value));
-if (!engineDir || !exportDir || !outDir) throw new Error('Usage: node cw-roundtrip.mjs ENGINE_DUMP SYNTHETIC_EXPORT OUTPUT');
+if (!engineDir || !exportDir || !outDir) throw new Error('Usage: node cw-roundtrip.mjs ENGINE_DUMP EXPORT OUTPUT');
 const manifest = JSON.parse(await readFile(path.join(exportDir, 'manifest.json')));
-if (manifest.schema !== 'ddi-synthetic-export/experimental-1') throw new Error('Only original synthetic exports are supported');
+const legacy = manifest.schema === 'ddi-legacy-export/experimental-1';
+if (!legacy && manifest.schema !== 'ddi-synthetic-export/experimental-1') throw new Error('Unsupported experimental export');
+if (manifest.charts.length !== 1) throw new Error('This comparison supports exactly one selected chart');
+const exportedChart = manifest.charts[0];
+const exportFile = value => {
+  if (typeof value !== 'string' || value.includes('\\') || value.startsWith('/') || value.split('/').some(p => !p || p === '.' || p === '..')) throw new Error('Invalid export-relative path');
+  return path.join(exportDir, value);
+};
 await requireExternalDirectory(outDir);
 await mkdir(outDir, { recursive: false });
 const resources = JSON.parse(await readFile(path.join(engineDir, 'resources.json')));
@@ -28,14 +35,17 @@ for (const record of resources.resources) {
   entries.set(pathname, { record, body });
   sourceEvidence.push({ url: record.url, sha256: record.sha256, retrievedAt: record.retrievedAt });
 }
-const dos = await readFile(path.join(exportDir, 'charts/fixture/chart.dos.txt'), 'utf8');
+const dos = await readFile(exportFile(exportedChart.dos), 'utf8');
 const escape = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-const html = `<!doctype html><meta charset="utf-8"><title>Synthetic AVM1 round trip</title>
+const html = `<!doctype html><meta charset="utf-8"><title>CW export comparison</title>
 <script src="/js/danoni_main.js"></script><link rel="stylesheet" href="/css/danoni_main.css">
 <textarea hidden id="dos">${escape(dos)}</textarea><div id="canvas-frame" style="width:650px;margin:auto"></div>`;
+const music = manifest.music ?? { path: 'media/synthetic.wav', mimeType: 'audio/wav' };
+const musicBody = await readFile(exportFile(music.path));
+if (music.sha256 && sha256(musicBody) !== music.sha256) throw new Error('Corrupt exported music');
 const generated = new Map([
-  ['/charts/fixture/chart.html', { body: Buffer.from(html), mimeType: 'text/html' }],
-  ['/media/synthetic.wav', { body: await readFile(path.join(exportDir, 'media/synthetic.wav')), mimeType: 'audio/wav' }],
+  [`/${exportedChart.page}`, { body: Buffer.from(html), mimeType: 'text/html' }],
+  [`/${music.path}`, { body: musicBody, mimeType: music.mimeType }],
 ]);
 const misses = [];
 const origin = 'https://ddi-ruffle.invalid';
@@ -65,7 +75,7 @@ const network = {
     });
   },
 };
-const capture = await captureBrowser({ url: `${origin}/charts/fixture/chart.html`, network, chartIds: [0], timeoutMs: 15000, onProgress: console.error });
+const capture = await captureBrowser({ url: `${origin}/${exportedChart.page}`, network, chartIds: [0], timeoutMs: 15000, onProgress: console.error });
 await writeFile(path.join(outDir, 'capture.json'), JSON.stringify(capture, null, 2));
 const observed = capture.charts[0];
 const snapshot = observed.snapshots.filter(encoded => decodeSnapshot(encoded).stage === 'scoreConvert-return-full').at(-1);
@@ -73,18 +83,21 @@ if (!snapshot) throw new Error(`No full CW parse: ${JSON.stringify(observed.diag
 const reference = normalizeReference(snapshot, { engineScriptHashes: observed.scripts.map(script => ({ url: script.url, sha256: script.sha256 })), adapterId: 'cw-lexical-cdp/1' });
 await writeFile(path.join(outDir, 'reference.json'), JSON.stringify(reference, null, 2));
 const validation = validateReference(reference);
-const expected = manifest.charts[0];
+const expected = exportedChart;
 const discrepancies = [];
 let maxErrorSeconds = 0;
 // This fixture deliberately needs no padding. Refuse an unexpected origin shift.
-if (reference.timing.intAdjustment !== 0 || reference.timing.preblankFrame !== 0) {
+const shift = legacy ? reference.timing.intAdjustment : 0;
+if ((!legacy && (reference.timing.intAdjustment !== 0 || reference.timing.preblankFrame !== 0)) ||
+  (legacy && (reference.timing.headerAdjustment !== 0 || reference.timing.userAdjustment !== 0 ||
+    reference.timing.playbackRate !== 1 || shift !== reference.timing.preblankFrame))) {
   discrepancies.push({ kind: 'unexpected-timing-transform', timing: reference.timing });
 }
 for (const lane of expected.lanes) {
   const actual = reference.lanes.find(value => value.chara === lane.name);
   if (!actual) { discrepancies.push({ kind: 'missing-lane', lane: lane.name }); continue; }
-  for (const [kind, want, got] of [['taps', lane.tapsSeconds, actual.taps.map(f => f / 60)],
-    ['holds', lane.holdsSeconds.flat(), actual.holds.flat().map(f => f / 60)]]) {
+  for (const [kind, want, got] of [['taps', lane.tapsSeconds, actual.taps.map(f => (f - shift) / 60)],
+    ['holds', lane.holdsSeconds.flat(), actual.holds.flat().map(f => (f - shift) / 60)]]) {
     if (want.length !== got.length) discrepancies.push({ kind: 'count', lane: lane.name, event: kind, expected: want.length, actual: got.length });
     for (let i = 0; i < Math.min(want.length, got.length); i++) {
       const errorSeconds = Math.abs(want[i] - got[i]);
@@ -93,10 +106,24 @@ for (const lane of expected.lanes) {
     }
   }
 }
+for (const [kind, want, got] of [['speed', expected.speed ?? [], reference.speed],
+  ['colors', expected.colors ?? [], reference.colors.legacy]]) {
+  if (!legacy) continue;
+  if (want.length !== got.length) discrepancies.push({ kind: 'event-count', event: kind, expected: want.length, actual: got.length });
+  for (let i = 0; i < Math.min(want.length, got.length); i++) {
+    const errorSeconds = Math.abs(want[i].seconds - (got[i].frame - shift) / 60);
+    maxErrorSeconds = Math.max(maxErrorSeconds, errorSeconds);
+    if (errorSeconds > 1e-12) discrepancies.push({ kind: 'event-timing', event: kind, index: i, errorSeconds });
+    for (const field of kind === 'speed' ? ['multiplier'] : ['target', 'color', 'all']) {
+      if (want[i][field] !== got[i][field]) discrepancies.push({ kind: 'event-value', event: kind, index: i, field, expected: want[i][field], actual: got[i][field] });
+    }
+  }
+}
 const report = { schema: 'ddi-cw-roundtrip/experimental-1', passed: validation.valid && observed.status === 'complete' && !misses.length && !discrepancies.length,
   sourceSnapshotSha256: manifest.sourceSnapshotSha256, exportDosSha256: sha256(Buffer.from(dos)), engine: sourceEvidence,
   browserVersion: capture.browserVersion, maxErrorSeconds, discrepancies, misses, referenceValidation: validation,
-  diagnostics: observed.diagnostics, scope: 'Synthetic notes and holds only; does not validate a legacy engine family or effects' };
+  diagnostics: observed.diagnostics, cwAudioRelativeFrameShift: shift,
+  scope: legacy ? 'Selected legacy static notes, holds, speed and expanded arrow colors; original Flash audio latency and gameplay fidelity unmeasured' : 'Synthetic notes and holds only; does not validate a legacy engine family or effects' };
 await writeFile(path.join(outDir, 'conversion.json'), JSON.stringify(report, null, 2));
 console.log(JSON.stringify({ passed: report.passed, maxErrorSeconds, discrepancies, misses, referenceValidation: validation }, null, 2));
 if (!report.passed) process.exitCode = 2;

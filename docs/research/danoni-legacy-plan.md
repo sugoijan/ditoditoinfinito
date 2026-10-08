@@ -1,7 +1,8 @@
 # DanOni 5/7/9-key corpus and Ruffle extraction work plan
 
-Planning date: 2026-10-08. Status: native AVM1 inspection prototype and synthetic
-CW export comparison implemented; real legacy adapters remain unproven. This extends the
+Planning date: 2026-10-08. Status, updated 2026-10-09: native AVM1 inspection and
+one pinned real five-key export are verified through CW; broad family support
+and original Flash latency remain unproven. This extends the
 [CW Edition corpus work](danoni-corpus.md), with 5-key archives as the priority.
 The importer/gameplay session still owns the game crates and `docs/PLAN.md`.
 
@@ -25,15 +26,40 @@ Three public AVM1 candidates have cached originals and acquisition provenance:
 Higan, Destined Marionette and Straight Soul (5/7-key, with a linked HTML5 port).
 The [inventory](danoni-corpus.md#native-legacy-pilot-2026-10-08) separates these
 from usable browser references. Higan loads its title screen and both sidecars
-offline, but the tested input sequence did not advance past the title. Missing
-device-font diagnostics are retained. This is not a complete legacy export.
+offline, but the initial tested input sequence did not advance past the title.
+Missing device-font diagnostics were retained; this was resolved in the next
+milestone by enabling the bundled default font.
 
 Step 2's inspection/rendering feasibility is established on this macOS host.
-Step 3 still needs a verified initialization point and audio-relative timebase.
+At that first milestone, step 3 still needed a verified initialization point and audio-relative timebase.
 The prototype's fixed timer steps, wall-clock `getTimer`, and null audio backend
 are not a coherent virtual Flash clock. Do not treat `exitCode: 0` or a snapshot
 without budget exhaustion as a valid real-song reference. No real-song music
-demux, family projection or portable export has been completed.
+demux, family projection or portable export had been completed then.
+
+## First real result (2026-10-09)
+
+The [native handover](danoni-native.md) now specifies the Higan pilot's complete
+projection, observed audio origin, demux and experimental export contract.
+Initialization snapshots agree with compiled schedules for 562 taps and 9 holds.
+The continuous zero-latency MP3 payload is preserved without transcoding; native
+projection and PCM prefix reproduce across fresh restricted runs. CW v48.4.1
+comparison preserves all taps, both hold endpoints, 12 speed changes and 342
+expanded arrow-colour changes with zero timing error, accounting for its observed
+201-frame automatic lead-in. Original Flash device/decoder latency is unmeasured.
+This passes the narrow first-work gate, not general engine-family support.
+
+The linked Straight Soul HTML5 port adds two native-mode browser references,
+5-key Normal and 7-key Hard, which match offline. The archived Flash version is
+acquired but not yet projected; port equivalence remains the next comparison.
+The work-level capture remains partial because an embedded statistics document
+was excluded and bootstrap resource failures remain recorded.
+
+Independent legacy/browser acquisition caches have been consolidated with the
+new [cache merge tool](../../tools/danoni-dump/merge-cache.mjs). The HTML5 port's
+small page had been acquired twice through those separate caches; its identical
+body hashes and both retrieval dates remain recorded. Subsequent discovery must
+use the shared cache. The merge itself makes no requests and preserves refusals.
 
 ## Technical basis
 
