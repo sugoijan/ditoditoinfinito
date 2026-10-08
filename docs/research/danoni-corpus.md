@@ -9,6 +9,11 @@ check; the other dumps remain explicitly partial. See the inventory below.
 Work is isolated on `danoni-research`; the importer session owns the game crates
 and `docs/PLAN.md`.
 
+Follow-up direction: prioritize 5-key archives while retaining native 7/9-key
+definitions. The [legacy extraction work plan](danoni-legacy-plan.md) describes
+Japanese discovery, HTML5 corpus expansion and a separate Ruffle/Wasm AVM1
+feasibility study. Ruffle support is planned, not part of the current dumper.
+
 ## Findings and evidence
 
 DanOni is distributed as individual websites, often with a shared engine
