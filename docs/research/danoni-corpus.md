@@ -510,6 +510,45 @@ the chart's resolved music index so its normal hooks run. Flash, other arbitrary
 custom selection controls, alternate-pattern enumeration, multi-stage courses and per-frame
 JavaScript-to-static-event conversion remain outside supported scope.
 
+### Importer integration after the rebase (2026-10-09)
+
+Local `main` at `36e57b1` implements CW import and reads the existing
+`ddi-danoni-dump/1` manifest/effective-dos contract through
+[`library/src/danoni.rs`](../../library/src/danoni.rs). This research branch is
+rebased onto that implementation; the dump schemas are unchanged. The game's
+supported modes are **5, 7, 7i, 9A and 9B**. Other modes and work-defined or
+redefined layouts are reported as unsupported. Retaining those works in the
+research corpus still tests extraction and layout interpretation; it is not a
+promise that the game plays them. See PLAN decisions 26–27 and
+[`PLAYED_DANONI_MODES`](../../chart/src/layout/mod.rs).
+
+The importer now has an opt-in local comparison:
+
+```sh
+DDI_DANONI_CORPUS="$HOME/Music/DanOni/corpus" cargo test -p ddi-chart \
+  --test danoni_corpus -- --nocapture
+```
+
+[`danoni_corpus.rs`](../../chart/tests/danoni_corpus.rs) compares lane names,
+tap/hold frames, speed/boost pairs and integer timing adjustment, and checks
+whether each chart imports according to the supported-mode policy. It does not
+compare colours, lyrics, audio playback, arbitrary custom hooks or legacy export
+manifests. A comparison can use a reference from a partial dump; passing it does
+not upgrade that dump's asset or replay status. The legacy pilot keeps its
+separate [CW round-trip evidence](danoni-native.md).
+
+After rebasing onto `36e57b1`, this test compared all nine captured references
+with zero differences. Six chart entries in earlier incomplete acquisition
+attempts were skipped because they had no effective dos or reference. Unsupported
+modes still participate in the data comparison and are expected to be rejected
+by the game import step.
+
+The importer currently plays at the music's original rate; source playback-rate
+conversion and fractional adjustment need their own targeted validation. B8 of
+[the format research](formats-ffr-danoni.md) records v51.2.2 source-derived
+semantics, while this corpus records the engine version that actually ran.
+Keep that distinction when a future differential case disagrees.
+
 ### Remaining coverage checks
 
 1. **Oracle stage and version drift:** validate adapters on actual served

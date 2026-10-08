@@ -259,6 +259,39 @@ Checked against danoniplus v51.2.2, `develop` @ `80c3c47` (2026-10-08), by readi
 
 **Score.** B5's formula holds, but `sfsf` is never incremented (always 0); it is also the name of the 4-frame hold-start bound. Rank X (no rank) when not every note was judged, with autoplay, or with Excessive off on a chart that requires it.
 
+### Reading B8 with the capture addenda (2026-10-09)
+
+B8 records the importer session's v51.2.2 source analysis. The dated addenda
+below retain observations of deployed engines (including v48.4.1 and v49.1.1)
+and the separately identified legacy SWF. Keep those version and evidence
+boundaries when comparing them; a successful parse comparison does not validate
+all playback-clock or judgement behavior.
+
+- In B8's timing paragraph, “round only for local `file://` music” refers to
+  **`intAdjustment`**, not to the outer `Math.round` in `calcFrame`. The latter
+  rounds note frames in both branches. The fractional-frame CW experiment below
+  confirms this in deployed v48.4.1. The later statement that fractional
+  adjustment affects audio scheduling does not establish a fractional change
+  in note-to-audio alignment: B8's cancellation argument concerns the v51.2.2
+  audio-clock path and remains marked for browser verification.
+  [Source: scoreConvert](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js),
+  [audio scheduling and frame clock](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/mainWindow.js).
+- B8's chart-number suffix rule describes ordinary unlocked numbering. Divided
+  or locked works can use `scoreNos`; the capture addendum and dump contract
+  preserve selection index, resource number and resolved source suffix
+  separately. Likewise, an odd hold endpoint can exist in the full converter
+  return before play preparation drops it. These are different capture stages,
+  not competing interpretations of one snapshot.
+  [Source: setScoreIdHeader, scoreConvert and pushArrows](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
+- Part C is an earlier model proposal. Its boost/spawn wording and claim that
+  frame-to-beat conversion must lose precision are superseded by B8 and the
+  dated capture addendum: boost uses arrival time, non-immediate colours are
+  authored by arrival time and later converted to spawn times, and this
+  repository represents integer 60 Hz frames exactly at 75 BPM / 48 ticks per
+  beat. The [current implementation decisions](../PLAN.md) govern game support;
+  the [corpus contract](danoni-corpus.md) also preserves unsupported modes and
+  effects for research.
+
 ---
 
 ## Part C — Implications for an internal chart model
