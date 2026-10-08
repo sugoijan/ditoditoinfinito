@@ -16,7 +16,8 @@ AVM1 feasibility study. It also specifies the proposed CW dos export alongside
 preserved originals and runtime references. The goal is portable static charts;
 arbitrary custom-engine gameplay is out of scope. A separate
 [native prototype](../../tools/danoni-dump/ruffle/README.md) now proves AVM1
-inspection and dos reconstruction, including one pinned real five-key work.
+inspection and dos reconstruction, including Higan and the six-chart
+[2004 Kouhaku collection](danoni-kouhaku.md).
 The [native handover](danoni-native.md) specifies that pilot's observed timing
 and export; broader legacy conversion remains experimental and does not change
 the browser dumper's `/1` contract.
@@ -645,3 +646,21 @@ Use `~/Music/DanOni/.cache` for future browser and legacy discovery. Its verifie
 merge imports the previously separate discovery responses and refusals without
 requests. The duplicate Straight Soul HTML page and robots response keep both
 retrieval histories in the merge report; no provenance was rewritten.
+
+## 2004 Kouhaku collection milestone (2026-10-09)
+
+The native extractor now covers a second pinned engine family: the maintainer's
+[2004 Kouhaku SWF](http://eucaly.net/~iso50/kouhaku.html), five songs and six
+five-key charts, including the hidden 桃源郷 Hard. All 2,493 taps agree between
+selected menu data and initialized child timelines. Per-chart CW conversion and
+fresh native repeat checks pass; generated five-key simfiles parse in the game.
+The [collection handover](danoni-kouhaku.md) specifies the export, local inventory,
+reproduction and audio limits. Its embedded source music is MP3; playable files
+use untrimmed WAV. Original Flash's 1,633-sample latency/seek compensation remains
+unverified, so this is not added to the zero-latency Higan category.
+
+Import the local `~/Music/DanOni/legacy-pilot/exports/2004-kouhaku/playable/` folder
+for five songs and six charts. Original works, music and raw runtime evidence
+stay outside Git; only the adapter, original synthetic tests and handover are
+committed. The nine original HTML5 browser references and their `/1` contract
+remain a separate corpus count.

@@ -67,7 +67,7 @@ impl<'gc> Inspector<'gc> {
 }
 
 /// Experimental graph snapshot. IDs are local to this snapshot, never VM addresses.
-pub fn capture(player: &mut Player) -> Json {
+pub fn capture(player: &mut Player, inspect_globals: bool) -> Json {
     player.mutate_with_update_context(|context| {
         let mut inspect = Inspector {
             ids: HashMap::new(),
@@ -124,6 +124,29 @@ pub fn capture(player: &mut Player) -> Json {
             }
             display_cursor += 1;
         }
+        // Reading native scope storage does not resolve any ActionScript name.
+        // Keep the two AVM1 case-sensitivity environments explicitly identified.
+        let global_scopes: Vec<_> = if inspect_globals {
+            [6, 7].into_iter().map(|version| {
+                let object = context.avm1.global_scope(version).locals_cell();
+                let (properties, truncated) = object.ddi_properties(inspect.remaining);
+                inspect.remaining -= properties.len();
+                inspect.incomplete |= truncated;
+                let properties: Vec<_> = properties.into_iter()
+                    .filter(|(_, _, _, enumerable)| *enumerable)
+                    .map(|(name, value, accessor, _)| {
+                        let value = if accessor {
+                            json!({"type":"uninspected","reason":"accessor"})
+                        } else if matches!(value, Value::Object(object)
+                            if matches!(object.native(), NativeObject::Function(_))) {
+                            json!({"type":"uninspected","reason":"global-function"})
+                        } else { inspect.value(value) };
+                        json!({"name":inspect.string(name),"value":value,"accessor":accessor})
+                    }).collect();
+                json!({"caseSensitive":version >= 7,"properties":properties,
+                    "excluded":["non-enumerable-properties","function-values"]})
+            }).collect()
+        } else { Vec::new() };
         let mut objects = Vec::new();
         let mut cursor = 0;
         while cursor < inspect.queue.len() {
@@ -157,7 +180,7 @@ pub fn capture(player: &mut Player) -> Json {
             cursor += 1;
         }
         json!({"schema":"ddi-avm1-snapshot/experimental-1", "roots":roots,
-            "objects":objects,"displayTree":display_tree, "incomplete":inspect.incomplete,
+            "objects":objects,"displayTree":display_tree,"globalScopes":global_scopes, "incomplete":inspect.incomplete,
             "avm1Halted":context.avm1.ddi_halted(),
             "limits":{"roots":64,"objects":MAX_OBJECTS,"properties":MAX_PROPERTIES,
                 "stringUnits":MAX_STRING_UNITS,"totalStringUnits":MAX_TOTAL_STRING_UNITS,

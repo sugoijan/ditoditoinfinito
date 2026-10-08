@@ -62,16 +62,49 @@ fn input_events(config: &Value) -> Result<Vec<(u64, PlayerEvent)>, Box<dyn Error
                         },
                     ));
                 }
-                Some("enter") => {
+                Some("enter" | "key") => {
+                    let code = if event["type"] == "enter" {
+                        "Enter"
+                    } else {
+                        event["code"].as_str().ok_or("missing key code")?
+                    };
+                    let (physical_key, logical_key) = match code {
+                        "Enter" => (PhysicalKey::Enter, LogicalKey::Named(NamedKey::Enter)),
+                        "ArrowLeft" => (
+                            PhysicalKey::ArrowLeft,
+                            LogicalKey::Named(NamedKey::ArrowLeft),
+                        ),
+                        "ArrowRight" => (
+                            PhysicalKey::ArrowRight,
+                            LogicalKey::Named(NamedKey::ArrowRight),
+                        ),
+                        "ArrowUp" => (PhysicalKey::ArrowUp, LogicalKey::Named(NamedKey::ArrowUp)),
+                        "ArrowDown" => (
+                            PhysicalKey::ArrowDown,
+                            LogicalKey::Named(NamedKey::ArrowDown),
+                        ),
+                        "Space" => (PhysicalKey::Space, LogicalKey::Character(' ')),
+                        _ => return Err("unsupported pilot key code".into()),
+                    };
+                    let held = match event.get("holdFrames") {
+                        None => 1,
+                        Some(value) => value
+                            .as_u64()
+                            .filter(|n| (1..=120).contains(n))
+                            .ok_or("invalid key holdFrames")?,
+                    };
+                    if frame + held > 601 {
+                        return Err("key release exceeds iteration limit".into());
+                    }
                     let key = KeyDescriptor {
-                        physical_key: PhysicalKey::Enter,
-                        logical_key: LogicalKey::Named(NamedKey::Enter),
+                        physical_key,
+                        logical_key,
                         key_location: KeyLocation::Standard,
                     };
                     result.push((frame, PlayerEvent::KeyDown { key }));
-                    result.push((frame + 1, PlayerEvent::KeyUp { key }));
+                    result.push((frame + held, PlayerEvent::KeyUp { key }));
                 }
-                _ => return Err("pilot supports only click and enter input events".into()),
+                _ => return Err("pilot supports only click, enter and key input events".into()),
             }
         }
     }
@@ -247,7 +280,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         if frames.contains(&frame) {
             captures.push(
-                json!({"frame":frame, "state":ruffle_core::ddi_snapshot::capture(&mut player)}),
+                json!({"frame":frame, "state":ruffle_core::ddi_snapshot::capture(&mut player, config["inspectGlobals"].as_bool().unwrap_or(false))}),
             );
             if render {
                 let renderer = (player.renderer() as &dyn Any)

@@ -136,6 +136,24 @@ def test(worker, directory):
     for capture, expected in zip(data["captures"],[True,False]):
         state = capture["state"]
         assert properties(state,state["roots"][0]["value"])["polledEnter"] is expected
+    result = run(worker,inputs/"global-input.json",directory/"global-key-input")
+    assert result["exitCode"] == 0
+    data = json.loads((directory/"global-key-input/snapshot.json").read_text())
+    for capture in data["captures"]:
+        state = capture["state"]
+        assert not state["incomplete"]
+        root = properties(state,state["roots"][0]["value"])
+        assert root["polledRight"] is True and root["polledEnter"] is False
+        assert root["getterCalls"] == 0
+        scope = next(s for s in state["globalScopes"] if s["caseSensitive"])
+        stored = {p["name"]["text"]:p["value"] for p in scope["properties"]}
+        assert stored["ddiFixtureGlobal"] == root["chart"]
+        assert properties(state,stored["ddiFixtureGlobal"])["trap"] == {"type":"uninspected","reason":"accessor"}
+    for label, event in [("unknown-key",{"frame":1,"type":"key","code":"F13"}),
+                         ("long-key",{"frame":1,"type":"key","code":"ArrowRight","holdFrames":121})]:
+        config = json.loads((inputs/"run.json").read_text());config["events"]=[event]
+        (inputs/f"{label}.json").write_text(json.dumps(config))
+        assert run(worker,inputs/f"{label}.json",directory/label)["exitCode"] != 0
     corrupt = json.loads((inputs/"run.json").read_text())
     corrupt["resources"][0]["sha256"] = "0"*64
     (inputs/"corrupt.json").write_text(json.dumps(corrupt))
@@ -163,7 +181,7 @@ def test(worker, directory):
             "AVM resource requests denied","exact before/after graph","getter not invoked","sparse and special values",
             "FlashVars and URL parameters","child movie-clip storage","two offscreen pixel buffers","fresh-process repeat",
             "delayed PCM stream and exact impulses","cache integrity",
-            "budget and audit exhaustion rejected","frame-polled key input","halted initialized chart rejected",
+            "budget and audit exhaustion rejected","frame-polled key input","bounded held arrow keys","stored global data without getter invocation","halted initialized chart rejected",
             "Git output guard","outer timeout","outer memory limit"]},indent=2))
 
 

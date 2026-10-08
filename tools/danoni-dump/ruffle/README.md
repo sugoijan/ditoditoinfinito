@@ -3,7 +3,8 @@
 Experimental native Ruffle host for the [legacy extraction plan](../../../docs/research/danoni-legacy-plan.md).
 It captures stored ActionScript data and optional offscreen pixels. It is **not
 yet a general DanOni SWF-to-dos converter**. Export adapters cover the original
-synthetic fixture and one pinned real work: Higan's default five-key Normal.
+synthetic fixture, Higan's default five-key Normal and the pinned
+[2004 Kouhaku collection](../../../docs/research/danoni-kouhaku.md) (five songs, six charts).
 The [native handover](../../../docs/research/danoni-native.md) records its
 cross-checked arrays, music origin, export contract and remaining limits.
 Existing CW dump `/1` files and schemas are unchanged.
@@ -122,10 +123,14 @@ AVM2 and LZMA/ZWS inputs are outside this pilot.
 
 `captureFrames` selects 1–16 worker iterations, each from 1 through 600. These
 numbers are **not** the movie's timeline frame or a verified song clock.
-`events` accepts up to 64 actions: `enter`, or `click` with numeric `x`/`y` in
+`events` accepts up to 64 actions: `enter`, `key`, or `click` with numeric `x`/`y` in
 the fixed 320×240 viewport. Press occurs before the selected iteration; release
 occurs before the next. Capture beyond the release iteration when inspecting
-post-input state. `render` defaults to false; true uses an offscreen Metal target.
+post-input state. `key` takes `code` (Enter, ArrowLeft/Right/Up/Down or Space)
+and optional `holdFrames` (1–120; default 1). Releases must fit within the
+iteration limit. `inspectGlobals` defaults to false; true records the two AVM1
+case-sensitivity environments' enumerable stored global properties, excluding
+function values and non-enumerable properties. `render` defaults to false; true uses an offscreen Metal target.
 The upstream bundled default font is enabled, including with rendering disabled.
 Its metrics matter for autosized text button hit testing. `mixAudio` defaults to
 false; true installs an offline stereo 44.1 kHz Ruffle mixer, advancing by the
@@ -142,7 +147,7 @@ cumulative sample count for each header-FPS iteration. No audio device is opened
 | `audio.pcm` | With `mixAudio`: raw stereo interleaved signed 16-bit little-endian PCM at 44.1 kHz, starting at worker iteration 1; includes menu/lead-in silence. The snapshot's `audio` report identifies successful stream starts by iteration and exact output sample-frame cursor. |
 
 Each `captures[]` entry is `{frame: integer, state: Snapshot}`. A `Snapshot`
-has schema `ddi-avm1-snapshot/experimental-1`, `roots`, `objects`, `displayTree`, `limits`,
+has schema `ddi-avm1-snapshot/experimental-1`, `roots`, `objects`, `displayTree`, `globalScopes`, `limits`,
 `excluded`, `incomplete`, and `avm1Halted`:
 
 - `roots[]`: `{level: integer, movieFrame: integer|null, value: Value}`.
@@ -157,6 +162,10 @@ has schema `ddi-avm1-snapshot/experimental-1`, `roots`, `objects`, `displayTree`
   pixels, before viewport scaling/letterboxing. Kinds additionally include
   `avm1-button`, `edit-text`, `text`, `display`. Child storage is inspected
   directly; script MovieClipReference resolution remains excluded.
+- `globalScopes[]`: empty unless requested; otherwise
+  `{caseSensitive:boolean,properties:[{name:StringValue,value:Value,accessor:boolean}],excluded:string[]}`.
+  Stored enumerable data only; global function values are explicit uninspected
+  tags. It uses the same graph/string/property budgets and never runs getters.
 - `Property`: `{name: StringValue, value: Value, enumerable: boolean, accessor: boolean}`.
   Only stored own properties are traversed, including non-enumerable properties.
   Arrays keep their stored `length` and index properties: an absent index is a
@@ -220,7 +229,27 @@ still differ. Ruffle's audio feature uses its upstream-constrained Symphonia
 
 Higan now has complete pre-consumption arrays, a zero-latency continuous MP3
 demux, repeatable observed music origin and a passing CW comparison. Its original
-Flash latency and full visual/gameplay fidelity remain unmeasured. Next cover a
-second family and the known Straight Soul Flash/HTML5 pair. Chart Reverser can supply
+Flash latency and full visual/gameplay fidelity remain unmeasured. The 2004 Kouhaku adapter below adds a second family with explicit nonzero
+latency limits. Next cover the known Straight Soul Flash/HTML5 pair. Chart Reverser can supply
 an additional authoring-grid comparison where first-number/BPM changes are
 known; it cannot independently recover an unknown timebase or original project.
+
+## Pinned multi-song extraction
+
+```sh
+python3 tools/danoni-dump/ruffle/kouhaku.py \
+  "$HOME/Music/DanOni/2004kouhaku.swf" /private/tmp/kouhaku-export-new \
+  --worker /private/tmp/ddi-ruffle/build/target/debug/ddi-ruffle-probe
+node tools/danoni-dump/ruffle/cw-roundtrip.mjs \
+  "$HOME/Music/DanOni/corpus/jam-with-pancake" \
+  /private/tmp/kouhaku-export-new /private/tmp/kouhaku-cw-new tougenkyo
+python3 tools/danoni-dump/ruffle/test_kouhaku.py
+```
+
+The six-chart extractor needs installed FFmpeg. It preserves embedded MP3 and
+uses untrimmed WAV for playback, generates CW dos and `danoni-5` simfiles, and
+puts a five-song import pack under `playable/`. Its nonzero SWF audio latency is
+explicitly unverified; comparison uses the observed Ruffle nominal frame origin.
+The optional final comparison argument chooses a chart id in multi-chart exports.
+See [the collection handover](../../../docs/research/danoni-kouhaku.md) for exact
+counts, schemas, hidden-chart controls, sample-delay limits and validation scope.

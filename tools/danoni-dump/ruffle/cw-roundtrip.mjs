@@ -9,13 +9,15 @@ import { decodeSnapshot } from '../serialization.mjs';
 import { requireExternalDirectory } from '../dump.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
-const [engineDir, exportDir, outDir] = process.argv.slice(2).map(value => path.resolve(value));
+const [engineDir, exportDir, outDir] = process.argv.slice(2, 5).map(value => path.resolve(value));
+const selectedId = process.argv[5];
 if (!engineDir || !exportDir || !outDir) throw new Error('Usage: node cw-roundtrip.mjs ENGINE_DUMP EXPORT OUTPUT');
 const manifest = JSON.parse(await readFile(path.join(exportDir, 'manifest.json')));
 const legacy = manifest.schema === 'ddi-legacy-export/experimental-1';
 if (!legacy && manifest.schema !== 'ddi-synthetic-export/experimental-1') throw new Error('Unsupported experimental export');
-if (manifest.charts.length !== 1) throw new Error('This comparison supports exactly one selected chart');
-const exportedChart = manifest.charts[0];
+if (!selectedId && manifest.charts.length !== 1) throw new Error('Choose a chart id for a multi-chart export');
+const exportedChart = selectedId ? manifest.charts.find(chart => chart.id === selectedId) : manifest.charts[0];
+if (!exportedChart) throw new Error('Selected chart is absent');
 const exportFile = value => {
   if (typeof value !== 'string' || value.includes('\\') || value.startsWith('/') || value.split('/').some(p => !p || p === '.' || p === '..')) throw new Error('Invalid export-relative path');
   return path.join(exportDir, value);
@@ -40,7 +42,7 @@ const escape = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').rep
 const html = `<!doctype html><meta charset="utf-8"><title>CW export comparison</title>
 <script src="/js/danoni_main.js"></script><link rel="stylesheet" href="/css/danoni_main.css">
 <textarea hidden id="dos">${escape(dos)}</textarea><div id="canvas-frame" style="width:650px;margin:auto"></div>`;
-const music = manifest.music ?? { path: 'media/synthetic.wav', mimeType: 'audio/wav' };
+const music = exportedChart.music ?? manifest.music ?? { path: 'media/synthetic.wav', mimeType: 'audio/wav' };
 const musicBody = await readFile(exportFile(music.path));
 if (music.sha256 && sha256(musicBody) !== music.sha256) throw new Error('Corrupt exported music');
 const generated = new Map([
@@ -120,7 +122,7 @@ for (const [kind, want, got] of [['speed', expected.speed ?? [], reference.speed
   }
 }
 const report = { schema: 'ddi-cw-roundtrip/experimental-1', passed: validation.valid && observed.status === 'complete' && !misses.length && !discrepancies.length,
-  sourceSnapshotSha256: manifest.sourceSnapshotSha256, exportDosSha256: sha256(Buffer.from(dos)), engine: sourceEvidence,
+  chartId: exportedChart.id, sourceSnapshotSha256: exportedChart.sourceSnapshotSha256 ?? manifest.sourceSnapshotSha256, exportDosSha256: sha256(Buffer.from(dos)), engine: sourceEvidence,
   browserVersion: capture.browserVersion, maxErrorSeconds, discrepancies, misses, referenceValidation: validation,
   diagnostics: observed.diagnostics, cwAudioRelativeFrameShift: shift,
   scope: legacy ? 'Selected legacy static notes, holds, speed and expanded arrow colors; original Flash audio latency and gameplay fidelity unmeasured' : 'Synthetic notes and holds only; does not validate a legacy engine family or effects' };

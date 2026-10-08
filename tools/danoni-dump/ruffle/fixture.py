@@ -107,6 +107,8 @@ def create(directory, fractional=True):
     first += push("fixture-data.txt") + push("_root") + action(0x9a,b"\xc0")
     first += draw(0xc85028)
     poll = assign("polledEnter",push(13)+push(1)+get("Key")+push("isDown")+action(0x52))
+    poll += assign("polledRight",push(39)+push(1)+get("Key")+push("isDown")+action(0x52))
+    first += member(get("_global"),"ddiFixtureGlobal",get("chart"))
     first += poll
     second = member(get("chart") + push("left") + action(0x4e),0,push(180))
     second += draw(0x28a050) + poll
@@ -127,6 +129,8 @@ def create(directory, fractional=True):
         (directory/f"{name}.swf").write_bytes(movie(first+extra,frames=1))
         (directory/f"{name}.json").write_text(json.dumps({**config,"movie":f"{name}.swf","captureFrames":[1],"render":False})+"\n")
     (directory/"input.json").write_text(json.dumps({**config,"events":[{"frame":1,"type":"enter"}]})+"\n")
+    (directory/"global-input.json").write_text(json.dumps({**config,"inspectGlobals":True,
+        "events":[{"frame":1,"type":"key","code":"ArrowRight","holdFrames":2}]})+"\n")
     # Original stereo PCM impulses; audio starts one movie frame after startup.
     samples = [(16384,-16384) if i in (0,734,1469) else (0,0) for i in range(1470)]
     pcm = b"".join(struct.pack("<hh",*sample) for sample in samples)

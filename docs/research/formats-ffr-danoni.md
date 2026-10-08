@@ -564,3 +564,21 @@ latency are explicit; this is not a universal Flash-to-CW dialect conversion.
   applies neither that padding nor the original native lead-in twice.
   [Captured deployed v48.4.1 source](https://chipstar64.sakura.ne.jp/js/danoni_main.js),
   [reproduction](danoni-native.md#reproduce-locally).
+
+### Older collections can hold several complete songs in one SWF (2026-10-09)
+
+The [2004 Kouhaku page](http://eucaly.net/~iso50/kouhaku.html) publishes one SWF
+containing five songs and six five-key charts. Its original menu selects the
+root data strings; initialized child MovieClips contain split lane timelines,
+while title/default options live in the SWF6 case-insensitive `_global` scope.
+A hidden difficulty can be reached through the original Options/FMV control
+(labelled FMV in the movie). A root-only snapshot is insufficient for this family.
+[Local extraction and validation](danoni-kouhaku.md) records the exact scope.
+
+All five embedded tracks are mono 22,050 Hz MP3 with a declared 1,633-sample
+latency and nonzero block seek metadata. The earlier Higan continuous-zero-latency
+criterion does not cover them. Preserving MP3 bytes and decoding to untrimmed WAV
+keeps the chosen Ruffle sample origin explicit, but does not verify original
+Flash's latency/seek behavior. The [pinned Ruffle stream reader](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/backend/audio/decoders.rs)
+strips block seek fields without applying that compensation. Changing the export
+codec alone cannot resolve this source timing question.

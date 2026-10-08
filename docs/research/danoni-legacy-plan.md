@@ -1,7 +1,8 @@
 # DanOni 5/7/9-key corpus and Ruffle extraction work plan
 
 Planning date: 2026-10-08. Status, updated 2026-10-09: native AVM1 inspection and
-one pinned real five-key export are verified through CW; broad family support
+two pinned engine families are verified through CW (Higan and the six-chart
+2004 Kouhaku collection); broad family support
 and original Flash latency remain unproven. This extends the
 [CW Edition corpus work](danoni-corpus.md), with 5-key archives as the priority.
 The importer/gameplay session still owns the game crates and `docs/PLAN.md`.
@@ -303,3 +304,19 @@ offscreen screenshot, plus a classified shortlist of 5/7/9-key candidates.
 Then prove reconstruction and CW round-trip timing on synthetic charts before
 exporting a real 5-key work. No user gameplay testing is required for these
 milestones. Broad custom-engine playback remains outside the goal.
+
+## Multi-song legacy milestone (2026-10-09)
+
+The [2004 Kouhaku collection handover](danoni-kouhaku.md) records five songs and
+six five-key charts recovered from the maintainer's local SWF. Original menu
+inputs reach every selection, including the built-in FMV hidden-chart control.
+Stored global data and initialized child timelines agree with source lane strings.
+All 2,493 taps convert through cached CW with zero note-time differences; native
+projections and PCM prefixes reproduce in fresh restricted runs. Five-song
+simfile/WAV folder and ZIP exports are ready for local import.
+
+This adds a second family, without broadening Higan's zero-latency audio gate:
+the source is MP3 with declared nonzero delay/seek metadata. The playable WAV
+preserves the untrimmed Ruffle sample origin; original Flash compensation remains
+unverified. Continue with the paired Straight Soul archive/port and missing
+9-key coverage after this requested collection milestone.
