@@ -9,7 +9,9 @@
 //! - [`image`]: image dimensions from file headers, for the banner and
 //!   background guess by size.
 //! - [`manifest`]: the song list entry shared by bundled and imported songs.
+//! - [`backgrounds`]: `#BGCHANGES` as a timed schedule of still images.
 
+pub mod backgrounds;
 pub mod image;
 pub mod manifest;
 pub mod pack;

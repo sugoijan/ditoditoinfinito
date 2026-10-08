@@ -83,7 +83,10 @@ impl SessionConfig {
                 show_deltas: settings.show_deltas,
                 cancel_progress: 0.0,
                 cancel_hint: "",
+                note_colors: settings.note_colors.scheme(),
                 background: settings.bg_brightness,
+                // Chosen each frame by the game loop.
+                backdrop: Default::default(),
                 field_filter: settings.field_filter,
             },
             calibration: None,

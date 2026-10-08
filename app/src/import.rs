@@ -24,6 +24,10 @@ use crate::web::files::{PickedFile, blob_bytes, bytes_blob};
 use crate::web::idb::{self, Db, Write};
 use crate::web::js_err;
 
+/// Background-change images stored per song at most (each is decoded and
+/// kept on the GPU during play).
+const MAX_BG_IMAGES: usize = 32;
+
 /// What an import did, for the panel under the pickers.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ImportReport {
@@ -270,6 +274,14 @@ async fn import_song(
     let music_name = named("music", &music);
     let banner = assets.banner.map(|p| (named("banner", &p), p));
     let background = assets.background.map(|p| (named("background", &p), p));
+    // Images shown by background changes, stored under `bg/<path>`.
+    let mut bg_images = ddi_library::backgrounds::referenced_images(
+        &song,
+        &c.dir,
+        paths,
+        background.as_ref().map(|(_, path)| path.as_str()),
+    );
+    bg_images.truncate(MAX_BG_IMAGES);
     let mut entry = summarize(
         EntryMeta {
             id: id.clone(),
@@ -279,6 +291,7 @@ async fn import_song(
             music: music_name.clone(),
             banner: banner.as_ref().map(|(n, _)| n.clone()),
             background: background.as_ref().map(|(n, _)| n.clone()),
+            bg_images: bg_images.iter().map(|(r, _)| r.clone()).collect(),
             credit: song.credit.trim().to_string(),
         },
         &song,
@@ -299,7 +312,10 @@ async fn import_song(
         music_name,
         read_blob(source(sources, &music)?, mime_type(&music)).await?,
     ));
-    for (name, path) in banner.into_iter().chain(background) {
+    let bg_files = bg_images
+        .into_iter()
+        .map(|(relative, path)| (format!("bg/{relative}"), path));
+    for (name, path) in banner.into_iter().chain(background).chain(bg_files) {
         // A broken image is not worth losing the song over.
         if let Ok(blob) = read_blob(source(sources, &path)?, mime_type(&path)).await {
             files.push((name, blob));

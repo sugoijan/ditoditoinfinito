@@ -330,7 +330,7 @@ pub fn classify_images(assets: &mut ResolvedAssets, sizes: &[(String, (u32, u32)
 /// Joins a simfile reference onto the song directory, resolving `.` and
 /// `..`. `None` for an empty reference or one that climbs above the import
 /// root.
-fn join_relative(dir: &str, reference: &str) -> Option<String> {
+pub(crate) fn join_relative(dir: &str, reference: &str) -> Option<String> {
     let reference = reference.trim().replace('\\', "/");
     if reference.is_empty() {
         return None;
@@ -417,7 +417,7 @@ fn file_name(path: &str) -> &str {
 
 /// Extension of the last component, without the dot. A leading dot alone
 /// (`.ssc`) is not an extension.
-fn extension(path: &str) -> Option<&str> {
+pub(crate) fn extension(path: &str) -> Option<&str> {
     let name = file_name(path);
     match name.rsplit_once('.') {
         Some((stem, ext)) if !stem.is_empty() => Some(ext),

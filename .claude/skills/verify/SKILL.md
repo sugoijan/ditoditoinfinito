@@ -22,7 +22,7 @@ Gameplay waits for a user gesture ("press Enter or click to start"); Esc aborts 
 
 ## Engine debug state
 
-While a session runs, `window.__DDI_DEBUG` is refreshed every 20 frames: `{frames, backend, song_time, combo, max_combo, taps:[W1..Miss], held, let_go, finished, failed, drift, output_latency, audio, pressed:[per lane], pads, pad_polls, pad_fast}` (`held` counts held notes; `pressed` is which lanes are down right now). `audio` (also a line in the debug overlay) reads e.g. `audio: Running · 48000 Hz · master 1.00 · output peak -20.1 dBFS · volume 0.80`: the output peak comes from an analyser on the master output, so it tells "the game outputs nothing" from "the output goes nowhere". Read it with `page.evaluate(() => window.__DDI_DEBUG)`.
+While a session runs, `window.__DDI_DEBUG` is refreshed every 20 frames: `{frames, backend, srgb_view, song_time, combo, max_combo, taps:[W1..Miss], held, let_go, finished, failed, drift, output_latency, audio, pressed:[per lane], pads, pad_polls, pad_fast}` (`held` counts held notes; `pressed` is which lanes are down right now; `srgb_view` is whether the scene is drawn through an sRGB view, expected `true` on both backends). `audio` (also a line in the debug overlay) reads e.g. `audio: Running · 48000 Hz · master 1.00 · output peak -20.1 dBFS · volume 0.80`: the output peak comes from an analyser on the master output, so it tells "the game outputs nothing" from "the output goes nowhere". Read it with `page.evaluate(() => window.__DDI_DEBUG)`.
 
 `window.__DDI_FORCE_WASM_DECODE = true` (set before starting a session, e.g. with `page.addInitScript`) skips `decodeAudioData` and decodes the song with the built-in Symphonia decoder, the fallback Safari needs for Ogg Vorbis. It only handles Ogg Vorbis: on the bundled songs (Ogg Opus) the session must stop on an error naming both decoders ("Built-in decoder: Ogg Opus is not supported"), not crash. To exercise it end to end, transcode a bundled song to Vorbis in a scratch dist only (`ffmpeg -i x.opus -c:a libvorbis x.ogg` if your ffmpeg has libvorbis, else `sndfile-convert -vorbis` from libsndfile; keep the original file name so the manifest still points at it) and check the console for "decoded in wasm instead". The same fallback runs when the browser's decode comes back silent (Safari with Ogg Vorbis); it logs "decodeAudioData returned silence; decoded in wasm instead". Previews play through Web Audio: test them with `--autoplay-policy=document-user-activation-required` so only a real click can start them.
 
@@ -51,6 +51,10 @@ WebGPU works headless with those flags (the badge in the bottom-right corner sho
 ## Touch lanes
 
 Use a context with `hasTouch: true, isMobile: true` and a phone viewport (390×844 and 844×390), tap `.start-prompt`, and send touches with CDP `Input.dispatchTouchEvent` (several `touchPoints` for jumps, `touchMove` to slide between columns). Columns split at the midpoints between receptors, the outer ones run to the screen edges; only touch and pen press lanes (mouse never does). On touch devices a ✕ button replaces the back link during play and runs the cancel gesture (hold or double tap). Check `__DDI_DEBUG.pressed` and that the page neither scrolls nor zooms.
+
+## Background changes
+
+No bundled song has `#BGCHANGES`. Build a test pack in a scratch dir: copy a bundled song folder, add a few generated solid-colour images (one in a subfolder, one with different case), write a `#BGCHANGES` line with cuts, `CrossFade` (field 4 = 1) and named transitions in field 9, import it through the folder input, autoplay it, and sample a background pixel outside the field as `__DDI_DEBUG.song_time` passes each change (crossfades show the in-between colour).
 
 ## Checks worth repeating after renderer/engine changes
 

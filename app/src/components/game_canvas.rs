@@ -37,13 +37,17 @@ use crate::songs::{load_background, load_song};
 use crate::web::audio::WebAudio;
 use crate::web::gamepad::Gamepads;
 use crate::web::gfx::{BackendPreference, Gfx};
+use ddi_library::backgrounds::{self, BgImage};
 
 /// How long a context created from a pad press may take to start before the
 /// screen asks for a real gesture, ms.
 const PAD_START_WAIT_MS: u32 = 1500;
-/// Background images are scaled down to this side at most: the texture
+/// The song background is scaled down to this side at most: the texture
 /// size every WebGL2 device supports, and more than the field needs.
 const MAX_BACKGROUND_SIDE: u32 = 2048;
+/// Background-change images are scaled down further: a song may have
+/// dozens, all kept on the GPU during play.
+const MAX_CHANGE_SIDE: u32 = 1280;
 
 /// What the screen plays.
 #[derive(Clone, Debug, PartialEq)]
@@ -61,6 +65,10 @@ pub(crate) struct Loaded {
     pub(crate) title: String,
     pub(crate) subtitle: String,
     pub(crate) music_bytes: Option<Vec<u8>>,
+    /// Images the background changes show (manifest `bg_images`).
+    pub(crate) bg_images: Vec<String>,
+    /// The song has a background image.
+    pub(crate) has_background: bool,
 }
 
 pub(crate) enum Msg {
@@ -89,9 +97,9 @@ pub(crate) enum Msg {
     SaveCalibration,
     /// On the results: set this song's offset (seconds, notes later).
     SetSongOffset(f64),
-    /// The song's background image, decoded (or `None`: no image, or it
-    /// failed to load).
-    BackgroundLoaded(Option<web_sys::ImageBitmap>),
+    /// A background image decoded: the song's background or a background
+    /// change's (`None`: no such image, or it failed to load).
+    BackgroundLoaded(BgImage, Option<web_sys::ImageBitmap>),
 }
 
 #[derive(Properties, PartialEq)]
@@ -130,9 +138,9 @@ pub(crate) struct GameCanvas {
     pad_start_ctx: Option<web_sys::AudioContext>,
     /// Touch screen: show the quit button and touch hints.
     touch: bool,
-    /// The song's decoded background image until it is copied to the GPU
-    /// (which waits for the renderer, and never happens mid-play).
-    background: Option<web_sys::ImageBitmap>,
+    /// Decoded background images until they are copied to the GPU (which
+    /// waits for the renderer, and never happens mid-play).
+    backgrounds: Vec<(BgImage, web_sys::ImageBitmap)>,
     _keys: Option<EventListener>,
 }
 
@@ -181,29 +189,39 @@ impl Component for GameCanvas {
                         if show_background {
                             // Loads alongside the start prompt; the play
                             // never waits for it.
-                            let entry = loaded.entry.clone();
-                            link.send_future(async move {
-                                let bitmap = match load_background(&entry).await {
-                                    Ok(Some(blob)) => {
-                                        crate::web::image::decode(&blob, MAX_BACKGROUND_SIDE)
-                                            .await
-                                            .map_err(|e| {
-                                                web_sys::console::warn_1(&e.into());
-                                            })
-                                            .ok()
-                                    }
-                                    Ok(None) => None,
-                                    Err(e) => {
-                                        web_sys::console::warn_1(&e.into());
-                                        None
-                                    }
-                                };
-                                Msg::BackgroundLoaded(bitmap)
-                            });
+                            let images = std::iter::once(BgImage::Song)
+                                .chain(loaded.entry.bg_images.iter().cloned().map(BgImage::File));
+                            for what in images {
+                                let entry = loaded.entry.clone();
+                                link.send_future(async move {
+                                    let bitmap = match load_background(&entry, &what).await {
+                                        Ok(Some(blob)) => {
+                                            let side = match what {
+                                                BgImage::Song => MAX_BACKGROUND_SIDE,
+                                                BgImage::File(_) => MAX_CHANGE_SIDE,
+                                            };
+                                            crate::web::image::decode(&blob, side)
+                                                .await
+                                                .map_err(|e| {
+                                                    web_sys::console::warn_1(&e.into());
+                                                })
+                                                .ok()
+                                        }
+                                        Ok(None) => None,
+                                        Err(e) => {
+                                            web_sys::console::warn_1(&e.into());
+                                            None
+                                        }
+                                    };
+                                    Msg::BackgroundLoaded(what, bitmap)
+                                });
+                            }
                         }
                         Rc::new(Loaded {
                             title: loaded.entry.title.clone(),
                             subtitle: loaded.entry.artist.clone(),
+                            bg_images: loaded.entry.bg_images.clone(),
+                            has_background: loaded.entry.background.is_some(),
                             song: loaded.song,
                             music_bytes: Some(loaded.music_bytes),
                         })
@@ -217,6 +235,8 @@ impl Component for GameCanvas {
                     title: mode.title().into(),
                     subtitle: mode.hint().into(),
                     music_bytes: None,
+                    bg_images: Vec::new(),
+                    has_background: false,
                 };
                 ctx.link()
                     .send_message(Msg::SongLoaded(Ok(Rc::new(loaded))));
@@ -268,7 +288,7 @@ impl Component for GameCanvas {
             needs_gesture: false,
             pad_start_ctx: None,
             touch: coarse_pointer(),
-            background: None,
+            backgrounds: Vec::new(),
             _keys: keys,
         }
     }
@@ -321,11 +341,11 @@ impl Component for GameCanvas {
                 self.song = Status::Ready(song);
                 true
             }
-            Msg::BackgroundLoaded(image) => {
-                if let Some(old) = std::mem::replace(&mut self.background, image) {
-                    old.close();
+            Msg::BackgroundLoaded(what, image) => {
+                if let Some(image) = image {
+                    self.backgrounds.push((what, image));
+                    self.apply_background();
                 }
-                self.apply_background();
                 false
             }
             Msg::SongLoaded(Err(e)) => {
@@ -650,7 +670,7 @@ impl Component for GameCanvas {
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
-        if let Some(image) = self.background.take() {
+        for (_, image) in self.backgrounds.drain(..) {
             image.close();
         }
         self.raf.borrow_mut().take();
@@ -751,21 +771,18 @@ impl GameCanvas {
         self.settings = settings;
     }
 
-    /// Hands a decoded background to the GPU once the renderer exists,
-    /// except during play (the upload could cost a frame).
+    /// Hands decoded backgrounds to the game loop once it exists; it
+    /// decides when to copy them to the GPU.
     fn apply_background(&mut self) {
-        if matches!(self.stage, Stage::Playing) {
-            return;
-        }
         let mut game = self.game.borrow_mut();
-        if let (Some(game), Some(image)) = (game.as_mut(), self.background.take()) {
-            game.set_background(Some(image));
+        if let Some(game) = game.as_mut() {
+            for (what, image) in self.backgrounds.drain(..) {
+                game.add_background(what, image);
+            }
         }
     }
 
     fn begin_session(&mut self, ctx: &Context<Self>, audio: WebAudio, buffer: AudioBuffer) {
-        // A background decoded during the start prompt goes up now, before
-        // the music is scheduled.
         self.apply_background();
         let Status::Ready(song) = &self.song else {
             return;
@@ -821,9 +838,17 @@ impl GameCanvas {
             shifted = s;
             &shifted
         };
+        // On the song's timing as played, so the song offset moves them too.
+        let schedule = match &ctx.props().source {
+            SongSource::Song { .. } => {
+                backgrounds::schedule(play_song, &song.bg_images, song.has_background)
+            }
+            SongSource::Calibration(_) => Vec::new(),
+        };
         match PlaySession::start(play_song, chart, &self.settings, config, audio, buffer) {
             Ok(session) => {
                 if let Some(game) = self.game.borrow_mut().as_mut() {
+                    game.set_background_schedule(schedule);
                     game.set_session(session);
                 }
                 self.stage = Stage::Playing;

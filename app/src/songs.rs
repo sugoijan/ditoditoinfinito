@@ -8,6 +8,7 @@
 
 use ddi_chart::Song;
 use ddi_chart::formats::sm::parse_simfile;
+use ddi_library::backgrounds::BgImage;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 use web_sys::Blob;
@@ -189,16 +190,25 @@ async fn imported_blob(db: &Db, id: &str, file: &str) -> Result<Blob, String> {
         .ok_or_else(|| format!("{file} is missing from the stored song; import it again"))
 }
 
-/// The song's background image file, if it has one (bundled or imported).
-pub(crate) async fn load_background(entry: &ManifestEntry) -> Result<Option<Blob>, String> {
-    let Some(file) = entry.background.as_ref() else {
-        return Ok(None);
+/// A background image file of the song (bundled or imported): its
+/// background, or an image its background changes show (stored as
+/// `bg/<path>` when imported). `None` when the song has no background.
+pub(crate) async fn load_background(
+    entry: &ManifestEntry,
+    what: &BgImage,
+) -> Result<Option<Blob>, String> {
+    let (stored, bundled) = match what {
+        BgImage::Song => match entry.background.as_ref() {
+            Some(file) => (file.clone(), file.clone()),
+            None => return Ok(None),
+        },
+        BgImage::File(path) => (format!("bg/{path}"), path.clone()),
     };
     if is_imported_id(&entry.id) {
         let db = Db::open().await?;
-        imported_blob(&db, &entry.id, file).await.map(Some)
+        imported_blob(&db, &entry.id, &stored).await.map(Some)
     } else {
-        let bytes = fetch_bytes(&format!("songs/{}/{}", entry.id, file)).await?;
+        let bytes = fetch_bytes(&format!("songs/{}/{}", entry.id, bundled)).await?;
         crate::web::files::bytes_blob(&bytes, "").map(Some)
     }
 }

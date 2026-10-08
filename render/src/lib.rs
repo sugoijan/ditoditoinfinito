@@ -8,12 +8,14 @@
 //! See `docs/PLAN.md` §3.4.
 
 pub mod background;
+pub mod color;
+pub mod note_colors;
 pub mod renderer;
 pub mod scene;
 pub mod sprite;
 pub mod text;
 
-pub use background::BackgroundPipeline;
+pub use background::{Backdrop, BackgroundPipeline};
 pub use renderer::Renderer;
 pub use scene::{ColorScheme, FieldGeometry, RenderOptions, Skin};
 pub use sprite::{Instance, Shape, SpritePipeline};

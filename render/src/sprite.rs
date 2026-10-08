@@ -13,6 +13,12 @@ pub enum Shape {
     Circle = 4,
     HoldBody = 5,
     Onigiri = 6,
+    /// An arrow with a flowing two-colour gradient: `color` to
+    /// `params[0..3]` down the screen, shifted by `params[3]` cycles.
+    ArrowGradient = 7,
+    /// An arrow running from `color` at its tail to `params[0..3]` at its
+    /// tip.
+    ArrowRamp = 8,
 }
 
 #[repr(C)]
@@ -67,7 +73,10 @@ struct Globals {
     scale: [f32; 2],
     translate: [f32; 2],
     time: f32,
-    _pad: [f32; 3],
+    /// 1 when the target is sRGB: the shader's own colour maths then works
+    /// in linear light.
+    srgb: f32,
+    _pad: [f32; 2],
 }
 
 pub struct SpritePipeline {
@@ -76,6 +85,7 @@ pub struct SpritePipeline {
     bind_group: wgpu::BindGroup,
     instances: wgpu::Buffer,
     capacity: usize,
+    srgb: bool,
 }
 
 impl SpritePipeline {
@@ -153,6 +163,7 @@ impl SpritePipeline {
             bind_group,
             instances,
             capacity,
+            srgb: format.is_srgb(),
         }
     }
 
@@ -172,7 +183,8 @@ impl SpritePipeline {
             scale: [2.0 / width.max(1.0), -2.0 / height.max(1.0)],
             translate: [-1.0, 1.0],
             time,
-            _pad: [0.0; 3],
+            srgb: if self.srgb { 1.0 } else { 0.0 },
+            _pad: [0.0; 2],
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
     }

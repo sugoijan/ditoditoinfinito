@@ -1,12 +1,13 @@
-// The song's background image, cover-fit to the target and dimmed.
+// A background image, cover-fit to the target, dimmed and faded.
 
 struct Params {
     // Texture coordinates: uv = uv_offset + screen01 * uv_scale.
     uv_scale: vec2<f32>,
     uv_offset: vec2<f32>,
-    // Linear-light multiplier.
+    // Brightness multiplier, in the target's colour space.
     brightness: f32,
-    _pad0: f32,
+    // Opacity, for crossfades.
+    alpha: f32,
     _pad1: f32,
     _pad2: f32,
 };
@@ -37,5 +38,5 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureSample(image, image_sampler, in.uv);
-    return vec4<f32>(c.rgb * params.brightness, 1.0);
+    return vec4<f32>(c.rgb * params.brightness, params.alpha);
 }
