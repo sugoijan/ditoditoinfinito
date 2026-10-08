@@ -432,3 +432,24 @@ Part B describes CW Edition, not every Flash-era dos dialect. The upstream
 legacy header/key/color translations; do not silently apply CW semantics to
 an unconverted legacy file. No Flash extraction or protected content is part
 of the tool's corpus scope.
+
+### Dos interchange versus editor save data (2026-10-08)
+
+Dos denotes chart data, not a required `.dos` filename extension. The CW
+[authoring guide](https://github.com/cwtickle/danoniplus/wiki/HowtoMake)
+describes `dos.txt` and the same fields embedded in HTML. Its external `.txt`
+example wraps the text in `externalDosInit()` assigning `g_externalDos`, so
+external files may be executable JavaScript despite their suffix. Preserve both
+the response bytes and the effective chart string; plain text for interchange
+is distinct from a file accepted by the engine's external script loader.
+
+Chart text is also distinct from an editor's save file. The upstream
+[Chart Reverser](https://github.com/cwtickle/danoniplus-reverser) reconstructs
+editor data using first-number, BPM and tempo-change inputs and warns that
+incorrect inputs can place notes in different grid positions. Frame arrays do
+not uniquely identify the original authoring grid or project. Extracted Flash
+arrays can support a reconstructed CW-compatible dos export when lane and
+audio-time semantics are understood, but not a claim of byte-exact original
+source recovery. The [legacy plan](danoni-legacy-plan.md) separates raw source,
+reconstructed chart exports and observed runtime references, and requires a
+CW round trip before accepting reconstructed timing.

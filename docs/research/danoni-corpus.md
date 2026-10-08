@@ -11,8 +11,11 @@ and `docs/PLAN.md`.
 
 Follow-up direction: prioritize 5-key archives while retaining native 7/9-key
 definitions. The [legacy extraction work plan](danoni-legacy-plan.md) describes
-Japanese discovery, HTML5 corpus expansion and a separate Ruffle/Wasm AVM1
-feasibility study. Ruffle support is planned, not part of the current dumper.
+Japanese discovery, HTML5 corpus expansion and a separate native headless Ruffle
+AVM1 feasibility study. It also specifies the proposed CW dos export alongside
+preserved originals and runtime references. The goal is portable static charts;
+arbitrary custom-engine gameplay is out of scope. Ruffle and reconstructed dos
+export are planned, not part of the current dumper or its `/1` contract.
 
 ## Findings and evidence
 
