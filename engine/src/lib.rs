@@ -28,6 +28,7 @@ pub mod clock;
 pub mod frame;
 pub mod input;
 pub mod judge;
+pub mod lyrics;
 pub mod player;
 pub mod rules;
 pub mod scroll;

@@ -4,6 +4,7 @@
 //! and [`GaugeRules`]) for the parts that carry state and formulas. A
 //! [`Ruleset`] bundles one of each; [`presets`] builds the shipped ones.
 
+pub mod danoni;
 pub mod gauge;
 pub mod presets;
 pub mod score;
@@ -109,6 +110,20 @@ pub struct JudgeTable {
     /// display and EX score only. `None` = not used.
     pub w0: Option<f64>,
     pub empty_press: EmptyPress,
+    /// How a hold is kept once its head is hit.
+    #[serde(default)]
+    pub hold: HoldRules,
+    /// How a hold's head is judged.
+    #[serde(default)]
+    pub hold_start: HoldStart,
+    /// danoniplus's rule that an unjudged late note gives way to the next
+    /// one in its lane; `None` = notes wait until they pass every window.
+    #[serde(default)]
+    pub supersede: Option<Supersede>,
+    /// Hits this close to the note count as neither fast nor slow
+    /// (danoniplus `justFrames`); `None` = [`JudgeTable::DEFAULT_JUST`].
+    #[serde(default)]
+    pub just: Option<Window>,
     /// DDR "JUDGMENT TIMING", seconds. Positive means the game expects
     /// presses *later*: a press at a given instant is judged as that much
     /// **earlier** (its delta shrinks), the same direction as
@@ -118,6 +133,23 @@ pub struct JudgeTable {
 }
 
 impl JudgeTable {
+    /// Fast/slow dead zone when a ruleset names none: 1 ms, so presses on
+    /// time (autoplay) count as neither.
+    pub const DEFAULT_JUST: Window = Window::symmetric(0.001);
+
+    /// Whether a hit `delta` seconds off (positive = late) is fast, slow or
+    /// neither (`None`).
+    pub fn fast_slow(&self, delta: f64) -> Option<bool> {
+        let just = self.just.unwrap_or(Self::DEFAULT_JUST);
+        if delta < -just.early {
+            Some(true)
+        } else if delta > just.late {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
     /// `scale * raw + add`.
     pub fn scaled(&self, raw: f64) -> f64 {
         self.scale * raw + self.add
@@ -185,6 +217,59 @@ impl JudgeTable {
     }
 }
 
+/// How a hit hold is kept to its end.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum HoldRules {
+    /// StepMania: released, a hold's life decays over `hold_window`
+    /// (rolls over `roll_window`) and comes back when pressed again.
+    #[default]
+    Decay,
+    /// danoniplus (`frzAttempt`): a hold is dropped once it has been
+    /// released for more than `budget` seconds in all; pressing again stops
+    /// the count but never resets it.
+    ReleaseBudget { budget: f64 },
+}
+
+/// How the head of a hold is judged.
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HoldStart {
+    /// The head gets a tap judgement (StepMania; danoniplus with
+    /// `frzStartjdgUse`). Otherwise a hold only counts by its outcome.
+    pub judged: bool,
+    /// danoniplus: a press within the tap windows starts the hold only
+    /// inside this window; outside it the hold is dropped. `None`: any
+    /// judged press starts it.
+    pub accept: Option<Window>,
+}
+
+impl Default for HoldStart {
+    fn default() -> HoldStart {
+        HoldStart::JUDGED
+    }
+}
+
+impl HoldStart {
+    /// StepMania: the head is judged like a tap and any hit starts the hold.
+    pub const JUDGED: HoldStart = HoldStart {
+        judged: true,
+        accept: None,
+    };
+}
+
+/// danoniplus `judgeNextFunc.arrowOFF`/`frzOFF` (`js/lib/mainWindow.js`
+/// 797–847): a note still unjudged gives way to the next one in its lane.
+/// A tap gives way to the next tap once that is `next_within` seconds away
+/// and the tap `prev_late` seconds late; a hold's start gives way to the
+/// next tap or hold by `hold_next_within` and `hold_prev_late`. A hold
+/// never takes over from an earlier tap.
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Supersede {
+    pub next_within: f64,
+    pub prev_late: f64,
+    pub hold_next_within: f64,
+    pub hold_prev_late: f64,
+}
+
 /// How combo grows and breaks.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComboRules {
@@ -199,6 +284,14 @@ pub struct ComboRules {
     pub let_go_breaks: bool,
     /// Whether hitting a mine breaks the combo.
     pub mine_breaks: bool,
+    /// A tier that neither adds to nor breaks the combo (danoniplus's
+    /// Good, `judgeMatari`); `None` when every tier does one or the other.
+    #[serde(default)]
+    pub neutral: Option<Judgement>,
+    /// A dropped hold loses the full-combo lamp even when it does not break
+    /// the combo (danoniplus keeps a separate hold combo).
+    #[serde(default)]
+    pub let_go_loses_full_combo: bool,
 }
 
 /// What happens when the gauge says "failed".
@@ -277,15 +370,25 @@ impl FullCombo {
     /// Lamp for a finished play.
     pub fn evaluate(tally: &Tally, combo: &ComboRules) -> FullCombo {
         if tally.count(Judgement::Miss) > 0
-            || (combo.let_go_breaks && tally.let_go > 0)
+            || ((combo.let_go_breaks || combo.let_go_loses_full_combo) && tally.let_go > 0)
             || (combo.mine_breaks && tally.mine_hit > 0)
         {
             return FullCombo::None;
         }
         let Some(worst) = tally.worst_tap() else {
-            return FullCombo::None;
+            // Only holds, whose starts were not judged: all held is the
+            // best lamp.
+            return if tally.held > 0 {
+                FullCombo::MarvelousFC
+            } else {
+                FullCombo::None
+            };
         };
-        if worst > combo.continue_min {
+        if worst
+            > combo
+                .continue_min
+                .max(combo.neutral.unwrap_or(combo.continue_min))
+        {
             return FullCombo::None;
         }
         match worst {
@@ -431,6 +534,12 @@ pub trait GaugeRules {
     fn life(&self) -> f32;
     fn failed(&self) -> bool;
     fn danger(&self) -> bool;
+    /// Whether a play ending now fails [`FailPolicy::EndOfSong`] with
+    /// `min_life` (a gauge may compare more exactly than through
+    /// [`GaugeRules::life`]).
+    fn fails_at_end(&self, min_life: f32) -> bool {
+        self.life() < min_life
+    }
     /// A new instance with the same parameters and no state.
     fn fresh(&self) -> Box<dyn GaugeRules>;
 }
@@ -499,6 +608,10 @@ mod tests {
             w0: None,
             empty_press: EmptyPress::Ignore,
             judge_offset: 0.0,
+            hold: HoldRules::Decay,
+            hold_start: HoldStart::JUDGED,
+            supersede: None,
+            just: None,
         }
     }
 
@@ -544,6 +657,8 @@ mod tests {
             held_increments: false,
             let_go_breaks: false,
             mine_breaks: false,
+            neutral: None,
+            let_go_loses_full_combo: false,
         };
         let mut tally = Tally::default();
         tally.taps[0] = 10;

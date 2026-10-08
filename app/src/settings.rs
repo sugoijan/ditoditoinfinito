@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 pub(crate) use ddi_engine::PadBindings;
 use ddi_engine::clock::ClockOptions;
 use ddi_engine::player::PlayOptions;
-use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod};
+use ddi_engine::rules::danoni::DanoniOptions;
+use ddi_engine::rules::presets::RulesetMode;
+use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod, SpeedSource};
 use ddi_engine::{Appearance, ControlBindings, TransformOptions};
 use gloo::storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
@@ -20,6 +22,9 @@ const SONG_OFFSET_EPSILON: f64 = 0.0005;
 pub(crate) struct Settings {
     /// X-mod multiplier.
     pub(crate) speed: f64,
+    /// The speed above everywhere, or a chart's own when it has one.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) speed_source: SpeedSource,
     pub(crate) reverse: bool,
     /// Boost / Brake / Wave: how notes move on their way to the receptors.
     #[serde(deserialize_with = "ddi_engine::lenient")]
@@ -37,6 +42,11 @@ pub(crate) struct Settings {
     /// How notes are coloured.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub(crate) note_colors: NoteColors,
+    /// Draw notes in the colours a chart gives them (Dancing☆Onigiri
+    /// works) instead of `note_colors` (decision 23: off by default).
+    pub(crate) chart_colors: bool,
+    /// Show the lyrics of songs that have them (Dancing☆Onigiri works).
+    pub(crate) lyrics: bool,
     /// Song background brightness, 0..=1; 0 turns the background off.
     pub(crate) bg_brightness: f32,
     /// Darkening behind the lanes, one of [`FIELD_FILTERS`] (0 = off).
@@ -45,6 +55,13 @@ pub(crate) struct Settings {
     pub(crate) style: String,
     /// Ruleset preset id (`itg`, `sm5`, `ddr-a`).
     pub(crate) ruleset: String,
+    /// Which rules each chart is played by (decision 23): the preset above
+    /// for every chart by default.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) ruleset_mode: RulesetMode,
+    /// Gauge, judge range and Excessive under the Dancing☆Onigiri rules.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) danoni: DanoniOptions,
     /// Seconds; positive = you hear the music later than the audio clock says.
     pub(crate) audio_offset: f64,
     /// Seconds added to the rendered time only.
@@ -146,16 +163,21 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             speed: 2.5,
+            speed_source: SpeedSource::Player,
             reverse: false,
             scroll_action: ScrollAction::Normal,
             transform: TransformOptions::default(),
             appearance: Appearance::Visible,
             note_colors: NoteColors::Vivid,
+            chart_colors: false,
+            lyrics: true,
             import_details: false,
             bg_brightness: 0.4,
             field_filter: 0.4,
             style: "dance-single".into(),
             ruleset: "itg".into(),
+            ruleset_mode: RulesetMode::AllStepMania,
+            danoni: DanoniOptions::default(),
             audio_offset: 0.0,
             visual_offset: 0.0,
             volume: 0.8,
@@ -382,6 +404,11 @@ impl Settings {
     pub(crate) fn ruleset(&self) -> ddi_engine::rules::Ruleset {
         ddi_engine::rules::presets::by_id(&self.ruleset)
             .unwrap_or_else(ddi_engine::rules::presets::itg)
+    }
+
+    /// The ruleset `chart` is played with.
+    pub(crate) fn ruleset_for(&self, chart: &ddi_chart::Chart) -> ddi_engine::rules::Ruleset {
+        ddi_engine::rules::presets::for_chart(self.ruleset_mode, &self.ruleset, &self.danoni, chart)
     }
 }
 

@@ -150,6 +150,9 @@ pub struct RenderOptions {
     pub backdrop: crate::background::Backdrop,
     /// How notes are coloured (an explicit chart colour still wins).
     pub note_colors: ColorScheme,
+    /// Draw notes in the colours a chart gives them (Dancing☆Onigiri
+    /// works); otherwise every note follows `note_colors`.
+    pub chart_colors: bool,
     /// Darkening behind the lanes, `0..=1` of perceived brightness removed
     /// (0 = none).
     pub field_filter: f32,
@@ -347,15 +350,7 @@ pub fn build(
 
     // Notes.
     for note in notes {
-        push_note(
-            &mut instances,
-            note,
-            layout,
-            skin,
-            geo,
-            opts.note_colors,
-            frame.beat,
-        );
+        push_note(&mut instances, note, layout, skin, geo, &opts, frame.beat);
     }
 
     // HUD: life bar.
@@ -529,9 +524,10 @@ fn push_note(
     layout: &Layout,
     skin: &Skin,
     geo: &FieldGeometry,
-    scheme: ColorScheme,
+    opts: &RenderOptions,
     song_beat: f64,
 ) {
+    let scheme = opts.note_colors;
     let Some(lane) = layout.lanes.get(note.lane as usize) else {
         return;
     };
@@ -541,14 +537,15 @@ fn push_note(
     if note.alpha <= 0.0 && note.glow <= 0.0 {
         return;
     }
-    let mut color = match note.color {
+    let explicit = note.color.filter(|_| opts.chart_colors);
+    let mut color = match explicit {
         Some(c) => rgba(c),
         None => scheme.note_color(note.quantization, note.beat_frac, song_beat),
     };
     // A flowing gradient on notes of a scheme that has one (along an
     // arrow, radial on a symbol), unless the chart colours the note or it
     // is glowing (the glow is plain white).
-    let gradient = (note.color.is_none() && note.glow <= 0.0)
+    let gradient = (explicit.is_none() && note.glow <= 0.0)
         .then(|| scheme.note_gradient(note.beat_frac, song_beat))
         .flatten();
     let arrow = |color: [f32; 4], gradient: Option<Gradient>| {

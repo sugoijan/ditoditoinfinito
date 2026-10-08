@@ -212,6 +212,24 @@ pub struct DanoniChart {
     /// Gauge headers as written (`gaugeNormal`, `customGauge`,
     /// `maxLifeVal`, `frzStartjdgUse`, `frzAttempt`, `excessiveUse`, …).
     pub headers: Vec<(String, String)>,
+    /// The chart's position in the work (`difData` row), which picks its
+    /// entry of per-chart headers (`gaugeNormal2`, `a$b` lists).
+    #[serde(default)]
+    pub index: usize,
+    /// Song second the play starts at (`startFrame`), when not the start.
+    #[serde(default)]
+    pub start: Option<f64>,
+    /// Song second the music joins in at after a `startFrame` start
+    /// (`blankFrame` frames later), fading in.
+    #[serde(default)]
+    pub music_start: Option<f64>,
+    /// Song second the music stops at (`endFrame`).
+    #[serde(default)]
+    pub end: Option<f64>,
+    /// Song second the music starts fading out at, and the fade's length
+    /// in seconds (`fadeFrame`).
+    #[serde(default)]
+    pub fade: Option<(f64, f64)>,
 }
 
 impl Chart {

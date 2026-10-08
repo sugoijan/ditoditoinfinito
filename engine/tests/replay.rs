@@ -1140,6 +1140,7 @@ fn autoplay_is_perfect_with_every_option() {
             presets::itg as fn() -> Ruleset,
             presets::sm5,
             presets::ddr_a,
+            presets::danoni,
         ] {
             for transform in cuts {
                 for (turn, seed) in turns {
@@ -1175,6 +1176,7 @@ fn autoplay_is_perfect_with_every_option() {
                         );
                         assert_eq!(r.full_combo, FullCombo::MarvelousFC, "{label}");
                         assert_eq!(r.assist, transform.is_assist(), "{label}");
+                        assert_eq!((r.fast, r.slow), (0, 0), "{label}");
                         assert!(run.player.finished() && !run.player.failed(), "{label}");
                     }
                 }

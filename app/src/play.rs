@@ -41,6 +41,14 @@ const TOUCH_CANCEL_HINT: &str = "hold or double-tap the quit button";
 /// The hint when a controller's Back button was pressed.
 const PAD_CANCEL_HINT: &str = "hold or double-tap Back to quit";
 
+/// Seconds over which the music stops at a work's `endFrame` (a ramp, not
+/// a click).
+const MUSIC_STOP_FADE: f64 = 0.1;
+
+/// Seconds a work's music fades in over after a `startFrame` start
+/// (danoniplus raises the volume by 3/1000 a frame).
+const MUSIC_FADE_IN: f64 = 1000.0 / 3.0 / 60.0;
+
 fn is_cancel_key(code: &str) -> bool {
     code == "Escape" || code == "Backspace"
 }
@@ -85,6 +93,7 @@ impl SessionConfig {
                 cancel_progress: 0.0,
                 cancel_hint: "",
                 note_colors: settings.note_colors.scheme(),
+                chart_colors: settings.chart_colors,
                 background: settings.bg_brightness,
                 // Chosen each frame by the game loop.
                 backdrop: Default::default(),
@@ -236,7 +245,12 @@ impl PlaySession {
         let layout = song
             .layout_of(chart)
             .ok_or_else(|| format!("layout {} not playable", chart.layout))?;
-        let names = config.ruleset.names.clone();
+        // Calibration keeps its own ruleset; songs follow the ruleset mode.
+        let ruleset = match config.calibration {
+            Some(_) => config.ruleset,
+            None => settings.ruleset_for(chart),
+        };
+        let names = ruleset.names.clone();
         let any_key = config.calibration.is_some_and(|m| m.any_key());
         let any_lane = any_key.then_some(calibration::AUDIO_LANE);
         let gamepads = config.gamepads.clone();
@@ -318,8 +332,13 @@ impl PlaySession {
         // A fresh shuffle every play; the seed is kept in the results.
         options.seed = random_seed();
         // Frame-based works: the x-mod means the same as at their tempo.
-        options.scroll.speed = ddi_engine::scroll::speed_for_song(song, options.scroll.speed);
-        let mut player = Player::new(song, chart_index, config.ruleset, options);
+        options.scroll.speed = ddi_engine::scroll::speed_for_chart(
+            song,
+            chart_index,
+            options.scroll.speed,
+            settings.speed_source,
+        );
+        let mut player = Player::new(song, chart_index, ruleset, options);
         // The autoplayer presses the transformed chart's lanes.
         let auto = config.auto.then(|| AutoPlay {
             events: ddi_engine::autoplay::script(player.judge().notes(), config.auto_bias)
@@ -338,8 +357,40 @@ impl PlaySession {
         let sample = audio.now();
         player.clock_sample(sample);
         let start_ctx = sample.context_time + START_LOOKAHEAD;
-        audio.play(&buffer, start_ctx, 0.0, config.volume)?;
-        player.start(start_ctx, 0.0);
+        // A work may start part-way into its music (`startFrame`) and end
+        // or fade out before the music does.
+        let danoni = chart
+            .danoni
+            .as_ref()
+            .filter(|_| config.calibration.is_none());
+        let song_offset = danoni
+            .and_then(|d| d.start)
+            .filter(|s| s.is_finite() && *s > 0.0 && *s < buffer.duration())
+            .unwrap_or(0.0);
+        let music_end = danoni.and_then(|d| {
+            let stop = d.end.map(|at| (at, MUSIC_STOP_FADE));
+            [stop, d.fade]
+                .into_iter()
+                .flatten()
+                .filter(|(at, len)| at.is_finite() && len.is_finite())
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+        });
+        // After a `startFrame` the music joins in a little later and fades
+        // in (danoniplus). Fades run on the audio clock, so what is heard
+        // follows the music exactly.
+        let music_offset = danoni
+            .and_then(|d| d.music_start)
+            .filter(|m| m.is_finite() && *m >= song_offset && *m < buffer.duration())
+            .unwrap_or(song_offset);
+        let music_ctx = start_ctx + (music_offset - song_offset);
+        audio.play(&buffer, music_ctx, music_offset, config.volume)?;
+        if song_offset > 0.0 {
+            audio.fade_in_at(music_ctx, MUSIC_FADE_IN);
+        }
+        if let Some((at, fade)) = music_end.filter(|(at, _)| *at > music_offset) {
+            audio.fade_out_at(music_ctx + (at - music_offset), fade);
+        }
+        player.start(start_ctx, song_offset);
         // After the last fallible step: only a session (whose `Drop` turns
         // it off again) may run the fast loop.
         if let Some(g) = &gamepads {

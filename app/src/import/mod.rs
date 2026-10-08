@@ -489,6 +489,7 @@ async fn import_song(
         dir: c.dir.clone(),
         imported: js_sys::Date::now(),
         bytes: files.iter().map(|(_, b)| b.size()).sum(),
+        work: None,
     };
     let json = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     let mut writes = vec![Write::DeletePrefix {

@@ -119,6 +119,55 @@ pub fn speed_for_song(song: &Song, speed: SpeedMod) -> SpeedMod {
     }
 }
 
+/// Arrow heights a second a note moves per unit of danoniplus speed: it
+/// moves `2 × speed` px a frame (`setSpeedOnFrame`, `dataLoader.js`
+/// 1386–1398, at the default `baseSpeed` 1) on 50 px arrows
+/// (`C_ARW_WIDTH`), 60 frames a second. Its default field travels 430 px
+/// (8.6 arrows) to the step zone, about the 8.5 arrow heights of ours, so
+/// the same rate also gives the same reading time.
+pub const DANONI_SPEED_ARROWS_PER_SECOND: f64 = 2.0 * 60.0 / 50.0;
+
+/// Lowest and highest chart speed taken as is.
+const DANONI_SPEED_RANGE: (f64, f64) = (0.25, 20.0);
+
+/// Where the scroll speed comes from.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SpeedSource {
+    /// The player's speed, meaning the same on every song ([`speed_for_song`]).
+    #[default]
+    Player,
+    /// A chart's own suggested speed when it has one (a Dancing☆Onigiri
+    /// chart's `difData` speed), else the player's.
+    Chart,
+}
+
+/// The speed `song.charts[chart]` is played at: the player's `speed` as
+/// [`speed_for_song`] reads it, or with [`SpeedSource::Chart`] the chart's
+/// own Dancing☆Onigiri speed, converted by
+/// [`DANONI_SPEED_ARROWS_PER_SECOND`] (the chart's speed changes still
+/// apply on top).
+pub fn speed_for_chart(
+    song: &Song,
+    chart: usize,
+    speed: SpeedMod,
+    source: SpeedSource,
+) -> SpeedMod {
+    let own = song
+        .charts
+        .get(chart)
+        .and_then(|c| c.danoni.as_ref())
+        .map(|d| d.init_speed)
+        .filter(|s| s.is_finite() && *s > 0.0);
+    match (source, own) {
+        (SpeedSource::Chart, Some(s)) if song.source.format == SourceFormat::Danoni => {
+            let s = s.clamp(DANONI_SPEED_RANGE.0, DANONI_SPEED_RANGE.1);
+            let beats_per_second = ddi_chart::formats::danoni::SYNTHETIC_BPM / 60.0;
+            SpeedMod::XMod(s * DANONI_SPEED_ARROWS_PER_SECOND / beats_per_second)
+        }
+        _ => speed_for_song(song, speed),
+    }
+}
+
 /// Per-frame scroll state, so each note's position is a subtraction.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ScrollState {

@@ -13,7 +13,7 @@
 use ddi_chart::{Note, NoteKind, Tick, TimingMap};
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{EmptyPress, JudgeTable, Judgement};
+use crate::rules::{EmptyPress, HoldRules, JudgeTable, Judgement};
 
 /// Lifecycle of one note.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -65,6 +65,9 @@ pub struct JudgedNote {
     /// Hold/roll body: song second since which life has been decaying.
     /// `None` while a hold is pressed. Rolls always decay.
     decay_from: Option<f64>,
+    /// Seconds a hold has been released in all before `decay_from`
+    /// ([`HoldRules::ReleaseBudget`]).
+    released: f64,
 }
 
 impl JudgedNote {
@@ -170,6 +173,7 @@ impl Judge {
                     },
                     row: None,
                     decay_from: None,
+                    released: 0.0,
                 }
             })
             .collect();
@@ -204,10 +208,18 @@ impl Judge {
         judge
     }
 
+    /// Whether a note gets a tap judgement: tap-like, and for a hold head
+    /// only when the ruleset judges hold starts.
+    fn is_step(&self, n: &JudgedNote) -> bool {
+        n.judgeable
+            && n.is_tap_like()
+            && (self.table.hold_start.judged || !matches!(n.note.kind, NoteKind::HoldHead { .. }))
+    }
+
     fn rebuild_rows(&mut self) {
         self.rows.clear();
         let mut order: Vec<usize> = (0..self.notes.len())
-            .filter(|&i| self.notes[i].judgeable && self.notes[i].is_tap_like())
+            .filter(|&i| self.is_step(&self.notes[i]))
             .collect();
         order.sort_by_key(|&i| self.notes[i].note.tick);
         for i in order {
@@ -258,12 +270,10 @@ impl Judge {
         self.lanes.len()
     }
 
-    /// Judgeable tap-like notes (taps, hold/roll heads, lifts).
+    /// Judgeable tap-like notes (taps, hold/roll heads, lifts), without
+    /// hold heads when hold starts are not judged.
     pub fn judged_note_count(&self) -> u32 {
-        self.notes
-            .iter()
-            .filter(|n| n.judgeable && n.is_tap_like())
-            .count() as u32
+        self.notes.iter().filter(|n| self.is_step(n)).count() as u32
     }
 
     /// Judgeable holds and rolls.
@@ -326,14 +336,72 @@ impl Judge {
         }
     }
 
-    /// Hold life at `song_time` given the decay start (`None` = full).
+    /// Hold life at `song_time` given the decay start (`None` = full, or
+    /// what the release budget has left).
     fn hold_life(&self, idx: usize, song_time: f64) -> f32 {
-        match self.notes[idx].decay_from {
-            None => 1.0,
-            Some(from) => {
-                let until = song_time.min(self.notes[idx].end_seconds);
-                (1.0 - (until - from) / self.hold_window(idx)) as f32
+        let n = &self.notes[idx];
+        let until = song_time.min(n.end_seconds);
+        let open = n.decay_from.map_or(0.0, |from| (until - from).max(0.0));
+        match (self.table.hold, n.is_roll()) {
+            (HoldRules::ReleaseBudget { budget }, false) => {
+                let used = n.released + open;
+                if used > budget {
+                    0.0
+                } else {
+                    (1.0 - used / budget.max(f64::EPSILON)).max(f64::MIN_POSITIVE) as f32
+                }
             }
+            _ => match n.decay_from {
+                None => 1.0,
+                Some(_) => (1.0 - open / self.hold_window(idx)) as f32,
+            },
+        }
+    }
+
+    /// When a hold whose life ran out was dropped.
+    fn drop_time(&self, idx: usize, song_time: f64) -> f64 {
+        let n = &self.notes[idx];
+        let from = n.decay_from.unwrap_or(song_time);
+        let at = match (self.table.hold, n.is_roll()) {
+            (HoldRules::ReleaseBudget { budget }, false) => from + (budget - n.released).max(0.0),
+            _ => from + self.hold_window(idx),
+        };
+        at.min(song_time)
+    }
+
+    /// A released hold is pressed again at `song_time`: under a release
+    /// budget the time it was released for is spent.
+    fn regrab(&mut self, idx: usize, song_time: f64) {
+        let n = &mut self.notes[idx];
+        if let Some(from) = n.decay_from.take()
+            && matches!(self.table.hold, HoldRules::ReleaseBudget { .. })
+        {
+            n.released += (song_time - from).max(0.0);
+        }
+    }
+
+    /// A tap-like note passed unjudged, at `at`: a miss, and for a hold
+    /// whose start is only accepted (danoniplus) a dropped hold too.
+    fn miss_note(&mut self, idx: usize, at: f64, out: &mut Vec<JudgeEvent>) {
+        let is_hold = matches!(self.notes[idx].note.kind, NoteKind::HoldHead { .. });
+        let start = self.table.hold_start;
+        if is_hold && start.accept.is_some() {
+            if start.judged {
+                out.push(self.event(
+                    idx,
+                    JudgeEventKind::Tap(Judgement::Miss, at - self.notes[idx].seconds),
+                    at,
+                ));
+            }
+            self.notes[idx].state = NoteState::LetGo;
+            out.push(self.event(idx, JudgeEventKind::LetGo, at));
+        } else {
+            self.notes[idx].state = NoteState::Missed;
+            out.push(self.event(
+                idx,
+                JudgeEventKind::Tap(Judgement::Miss, at - self.notes[idx].seconds),
+                at,
+            ));
         }
     }
 
@@ -342,15 +410,57 @@ impl Judge {
     fn settle_hold(&mut self, idx: usize, song_time: f64, out: &mut Vec<JudgeEvent>) {
         let life = self.hold_life(idx, song_time);
         if life <= 0.0 {
-            let at = self.notes[idx].decay_from.unwrap_or(song_time) + self.hold_window(idx);
+            let at = self.drop_time(idx, song_time);
             self.notes[idx].state = NoteState::LetGo;
-            out.push(self.event(idx, JudgeEventKind::LetGo, at.min(song_time)));
+            out.push(self.event(idx, JudgeEventKind::LetGo, at));
         } else if song_time >= self.notes[idx].end_seconds {
             self.notes[idx].state = NoteState::Held;
             out.push(self.event(idx, JudgeEventKind::Held, self.notes[idx].end_seconds));
         } else {
             self.notes[idx].state = NoteState::HoldActive { life };
         }
+    }
+
+    /// Misses the tap-like notes of `lane` that passed unjudged by
+    /// `song_time`: past every window, or given way to the next note.
+    fn expire(&mut self, lane: usize, song_time: f64, out: &mut Vec<JudgeEvent>) {
+        let miss_after = self.table.miss_after();
+        let queue = &self.lanes[lane][self.cursor[lane]..];
+        let mut missed = Vec::new();
+        for (qi, &idx) in queue.iter().enumerate() {
+            let n = &self.notes[idx];
+            if n.seconds > song_time {
+                break;
+            }
+            if n.state != NoteState::Pending || !n.is_tap_like() {
+                continue;
+            }
+            // danoniplus: an unjudged late note gives way to the next one
+            // (a hold's start to any note, a tap only to a tap).
+            let superseded = self.table.supersede.and_then(|s| {
+                let hold = matches!(n.note.kind, NoteKind::HoldHead { .. });
+                let next = queue[qi + 1..].iter().find(|&&j| {
+                    let m = &self.notes[j];
+                    m.is_tap_like() && (hold || !matches!(m.note.kind, NoteKind::HoldHead { .. }))
+                })?;
+                let (within, late) = if hold {
+                    (s.hold_next_within, s.hold_prev_late)
+                } else {
+                    (s.next_within, s.prev_late)
+                };
+                let at = (self.notes[*next].seconds - within).max(n.seconds + late);
+                (song_time >= at && at - n.seconds <= miss_after).then_some(at)
+            });
+            if let Some(at) = superseded {
+                missed.push((idx, at));
+            } else if song_time - n.seconds > miss_after {
+                missed.push((idx, n.seconds + miss_after));
+            }
+        }
+        for (idx, at) in missed {
+            self.miss_note(idx, at, out);
+        }
+        self.advance_cursor(lane);
     }
 
     fn advance_cursor(&mut self, lane: usize) {
@@ -367,10 +477,11 @@ impl Judge {
     pub fn press(&mut self, lane: u8, song_time: f64) -> Vec<JudgeEvent> {
         let mut out = Vec::new();
         let lane_idx = usize::from(lane);
-        let Some(queue) = self.lanes.get(lane_idx) else {
+        if lane_idx >= self.lanes.len() {
             return out;
-        };
-        let queue: Vec<usize> = queue[self.cursor[lane_idx]..].to_vec();
+        }
+        self.expire(lane_idx, song_time, &mut out);
+        let queue: Vec<usize> = self.lanes[lane_idx][self.cursor[lane_idx]..].to_vec();
 
         // Active holds get their life back; active rolls restart their decay.
         for &idx in &queue {
@@ -378,13 +489,13 @@ impl Judge {
                 let life = self.hold_life(idx, song_time);
                 if life <= 0.0 {
                     self.settle_hold(idx, song_time, &mut out);
-                } else {
-                    self.notes[idx].decay_from = if self.notes[idx].is_roll() {
-                        Some(song_time)
-                    } else {
-                        None
-                    };
+                } else if self.notes[idx].is_roll() {
+                    self.notes[idx].decay_from = Some(song_time);
                     self.notes[idx].state = NoteState::HoldActive { life: 1.0 };
+                } else {
+                    self.regrab(idx, song_time);
+                    let life = self.hold_life(idx, song_time);
+                    self.notes[idx].state = NoteState::HoldActive { life };
                 }
             }
         }
@@ -426,17 +537,32 @@ impl Judge {
                 self.notes[idx].note.kind,
                 NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
             );
-            self.notes[idx].state = if is_hold {
+            // Hold start rules apply to holds; rolls are StepMania's own.
+            let freeze = matches!(self.notes[idx].note.kind, NoteKind::HoldHead { .. });
+            let start = self.table.hold_start;
+            // danoniplus: a hold starts only within its acceptance window;
+            // a judged press outside it drops the hold.
+            let accepted = !freeze
+                || start.accept.is_none_or(|w| {
+                    let bound = if delta < 0.0 { w.early } else { w.late };
+                    delta.abs() <= self.table.scaled(bound)
+                });
+            if !freeze || start.judged {
+                out.push(self.event(idx, JudgeEventKind::Tap(judgement, delta), song_time));
+            }
+            self.notes[idx].state = if !is_hold {
+                NoteState::Hit { judgement, delta }
+            } else if accepted {
                 NoteState::HoldActive { life: 1.0 }
             } else {
-                NoteState::Hit { judgement, delta }
+                out.push(self.event(idx, JudgeEventKind::LetGo, song_time));
+                NoteState::LetGo
             };
             self.notes[idx].decay_from = if self.notes[idx].is_roll() {
                 Some(song_time)
             } else {
                 None
             };
-            out.push(self.event(idx, JudgeEventKind::Tap(judgement, delta), song_time));
         } else {
             let boo = match self.table.empty_press {
                 EmptyPress::Ignore => false,
@@ -512,28 +638,18 @@ impl Judge {
         let mut out = Vec::new();
         let prev = self.last_time.unwrap_or(song_time);
         self.last_time = Some(song_time);
-        let miss_after = self.table.miss_after();
         let max_ahead = self.table.max_early().max(self.table.mine_window_seconds());
         for lane in 0..self.lanes.len() {
+            self.expire(lane, song_time, &mut out);
             let is_held = held.get(lane).copied().unwrap_or(false);
             let queue: Vec<usize> = self.lanes[lane][self.cursor[lane]..].to_vec();
-            for idx in queue {
+            for &idx in &queue {
                 let n = &self.notes[idx];
                 let seconds = n.seconds;
                 if seconds - song_time > max_ahead {
                     break;
                 }
                 match n.state {
-                    NoteState::Pending if n.is_tap_like() => {
-                        if song_time - seconds > miss_after {
-                            self.notes[idx].state = NoteState::Missed;
-                            out.push(self.event(
-                                idx,
-                                JudgeEventKind::Tap(Judgement::Miss, miss_after),
-                                seconds + miss_after,
-                            ));
-                        }
-                    }
                     NoteState::Pending if n.is_mine() => {
                         if is_held && prev < seconds && seconds <= song_time {
                             self.notes[idx].state = NoteState::MineHit;
@@ -545,7 +661,7 @@ impl Judge {
                     NoteState::HoldActive { .. } => {
                         if !n.is_roll() {
                             if is_held {
-                                self.notes[idx].decay_from = None;
+                                self.regrab(idx, prev);
                             } else if n.decay_from.is_none() {
                                 self.notes[idx].decay_from = Some(prev);
                             }
@@ -842,6 +958,138 @@ mod tests {
         let ev = j.update(10.0, &[false; 3]);
         let order: Vec<_> = ev.iter().map(|e| e.note_index).collect();
         assert_eq!(order, vec![Some(1), Some(0), Some(2)]);
+    }
+
+    fn danoni_table(judged: bool) -> JudgeTable {
+        let mut t = presets::danoni().judge;
+        t.hold_start.judged = judged;
+        t
+    }
+
+    const F: f64 = crate::rules::danoni::FRAME;
+
+    fn one_hold() -> Vec<Note> {
+        vec![Note::new(
+            Tick::from_beats(2),
+            0,
+            NoteKind::HoldHead {
+                end: Tick::from_beats(4),
+            },
+        )]
+    }
+
+    #[test]
+    fn release_budget_counts_released_time_in_all() {
+        let timing = TimingMap::constant(60.0, 0.0);
+        let mut j = Judge::new(&one_hold(), &timing, danoni_table(false));
+        // An unjudged start: no tap event, the hold is active.
+        assert!(j.press(0, 2.0).is_empty());
+        assert!(matches!(j.notes()[0].state, NoteState::HoldActive { .. }));
+        // Three frames released, pressed again: two frames left.
+        j.release(0, 2.5);
+        assert!(j.press(0, 2.5 + 3.0 * F).is_empty());
+        assert!(
+            matches!(j.notes()[0].state, NoteState::HoldActive { life } if (life - 0.4).abs() < 1e-4)
+        );
+        // Pressing again never refills it: the next release drops it after
+        // two more frames.
+        j.release(0, 3.0);
+        assert!(j.update(3.0 + 1.5 * F, &[false]).is_empty());
+        let ev = j.update(3.1, &[false]);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].kind, JudgeEventKind::LetGo);
+        assert!((ev[0].song_time - (3.0 + 2.0 * F)).abs() < 1e-9);
+
+        // Short releases within the budget keep it to the end.
+        let mut j = Judge::new(&one_hold(), &timing, danoni_table(false));
+        j.press(0, 2.0);
+        j.release(0, 2.5);
+        j.press(0, 2.5 + 2.0 * F);
+        j.release(0, 3.5);
+        j.press(0, 3.5 + 2.0 * F);
+        let ev = j.update(4.0, &[true]);
+        assert_eq!(ev[0].kind, JudgeEventKind::Held);
+    }
+
+    #[test]
+    fn hold_starts_only_within_the_acceptance_window() {
+        let timing = TimingMap::constant(60.0, 0.0);
+        // 4.5 frames late is still accepted (bound: 5 frames late).
+        let mut j = Judge::new(&one_hold(), &timing, danoni_table(false));
+        assert!(j.press(0, 2.0 + 4.5 * F).is_empty());
+        assert!(matches!(j.notes()[0].state, NoteState::HoldActive { .. }));
+        // 6 frames late is a dropped hold at once; judged starts also get
+        // their tap judgement.
+        let mut j = Judge::new(&one_hold(), &timing, danoni_table(false));
+        let ev = j.press(0, 2.0 + 6.0 * F);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].kind, JudgeEventKind::LetGo);
+        let mut j = Judge::new(&one_hold(), &timing, danoni_table(true));
+        let ev = j.press(0, 2.0 + 6.0 * F);
+        assert!(matches!(ev[0].kind, JudgeEventKind::Tap(Judgement::W3, _)));
+        assert_eq!(ev[1].kind, JudgeEventKind::LetGo);
+        // A start never pressed: N.G. (and a miss when starts are judged).
+        let mut j = Judge::new(&one_hold(), &timing, danoni_table(false));
+        let ev = j.update(2.5, &[false]);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].kind, JudgeEventKind::LetGo);
+        assert_eq!(j.judged_note_count(), 0);
+        let mut j = Judge::new(&one_hold(), &timing, danoni_table(true));
+        let ev = j.update(2.5, &[false]);
+        assert_eq!(ev.len(), 2);
+        assert!(matches!(
+            ev[0].kind,
+            JudgeEventKind::Tap(Judgement::Miss, _)
+        ));
+        assert_eq!(j.judged_note_count(), 1);
+    }
+
+    #[test]
+    fn a_late_note_gives_way_to_the_next() {
+        // Six frames apart in one lane.
+        let notes = vec![
+            Note::new(Tick::from_beat_f64(1.0), 0, NoteKind::Tap),
+            Note::new(Tick::from_beat_f64(1.1), 0, NoteKind::Tap),
+        ];
+        let timing = TimingMap::constant(60.0, 0.0);
+        let first = timing.seconds_at(notes[0].tick);
+        let second = timing.seconds_at(notes[1].tick);
+        // The first is superseded once the second is 4 frames away and the
+        // first at least 3 frames late; a press then hits the second.
+        let mut j = Judge::new(&notes, &timing, danoni_table(false));
+        let ev = j.press(0, first + 3.5 * F);
+        assert_eq!(ev.len(), 2);
+        assert!(matches!(
+            ev[0].kind,
+            JudgeEventKind::Tap(Judgement::Miss, _)
+        ));
+        assert!((ev[0].song_time - (second - 4.0 * F).max(first + 3.0 * F)).abs() < 1e-9);
+        assert_eq!(ev[1].note_index, Some(1));
+        // Within Ii of the first, the first is still taken.
+        let mut j = Judge::new(&notes, &timing, danoni_table(false));
+        let ev = j.press(0, first + 2.5 * F);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].note_index, Some(0));
+        // A hold never takes over from an earlier tap.
+        let tap_then_hold = vec![
+            Note::new(Tick::from_beat_f64(1.0), 0, NoteKind::Tap),
+            Note::new(
+                Tick::from_beat_f64(1.1),
+                0,
+                NoteKind::HoldHead {
+                    end: Tick::from_beats(3),
+                },
+            ),
+        ];
+        let mut j = Judge::new(&tap_then_hold, &timing, danoni_table(false));
+        let ev = j.press(0, first + 3.5 * F);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].note_index, Some(0));
+        assert!(matches!(ev[0].kind, JudgeEventKind::Tap(Judgement::W2, _)));
+        // StepMania keeps the first until its window ends.
+        let mut j = Judge::new(&notes, &timing, presets::sm5().judge);
+        let ev = j.press(0, first + 3.5 * F);
+        assert_eq!(ev[0].note_index, Some(0));
     }
 
     #[test]
