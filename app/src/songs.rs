@@ -189,6 +189,20 @@ async fn imported_blob(db: &Db, id: &str, file: &str) -> Result<Blob, String> {
         .ok_or_else(|| format!("{file} is missing from the stored song; import it again"))
 }
 
+/// The song's background image file, if it has one (bundled or imported).
+pub(crate) async fn load_background(entry: &ManifestEntry) -> Result<Option<Blob>, String> {
+    let Some(file) = entry.background.as_ref() else {
+        return Ok(None);
+    };
+    if is_imported_id(&entry.id) {
+        let db = Db::open().await?;
+        imported_blob(&db, &entry.id, file).await.map(Some)
+    } else {
+        let bytes = fetch_bytes(&format!("songs/{}/{}", entry.id, file)).await?;
+        crate::web::files::bytes_blob(&bytes, "").map(Some)
+    }
+}
+
 /// A song with its chart parsed and audio bytes still encoded.
 pub(crate) struct LoadedSong {
     pub(crate) entry: ManifestEntry,

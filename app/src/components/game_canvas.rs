@@ -29,10 +29,11 @@ use yew::prelude::*;
 
 use crate::calibration::{self, CalMode, Outcome};
 use crate::game_loop::GameLoop;
+use crate::mods::mods_summary;
 use crate::play::{PlaySession, SessionConfig, SessionEvent};
 use crate::router::Route;
 use crate::settings::Settings;
-use crate::songs::load_song;
+use crate::songs::{load_background, load_song};
 use crate::web::audio::WebAudio;
 use crate::web::gamepad::Gamepads;
 use crate::web::gfx::{BackendPreference, Gfx};
@@ -40,6 +41,9 @@ use crate::web::gfx::{BackendPreference, Gfx};
 /// How long a context created from a pad press may take to start before the
 /// screen asks for a real gesture, ms.
 const PAD_START_WAIT_MS: u32 = 1500;
+/// Background images are scaled down to this side at most: the texture
+/// size every WebGL2 device supports, and more than the field needs.
+const MAX_BACKGROUND_SIDE: u32 = 2048;
 
 /// What the screen plays.
 #[derive(Clone, Debug, PartialEq)]
@@ -85,6 +89,9 @@ pub(crate) enum Msg {
     SaveCalibration,
     /// On the results: set this song's offset (seconds, notes later).
     SetSongOffset(f64),
+    /// The song's background image, decoded (or `None`: no image, or it
+    /// failed to load).
+    BackgroundLoaded(Option<web_sys::ImageBitmap>),
 }
 
 #[derive(Properties, PartialEq)]
@@ -123,6 +130,9 @@ pub(crate) struct GameCanvas {
     pad_start_ctx: Option<web_sys::AudioContext>,
     /// Touch screen: show the quit button and touch hints.
     touch: bool,
+    /// The song's decoded background image until it is copied to the GPU
+    /// (which waits for the renderer, and never happens mid-play).
+    background: Option<web_sys::ImageBitmap>,
     _keys: Option<EventListener>,
 }
 
@@ -164,8 +174,33 @@ impl Component for GameCanvas {
     fn create(ctx: &Context<Self>) -> Self {
         match ctx.props().source.clone() {
             SongSource::Song { id, chart: _ } => {
+                let link = ctx.link().clone();
+                let show_background = Settings::load().bg_brightness > 0.0;
                 ctx.link().send_future(async move {
                     let r = load_song(&id).await.map(|loaded| {
+                        if show_background {
+                            // Loads alongside the start prompt; the play
+                            // never waits for it.
+                            let entry = loaded.entry.clone();
+                            link.send_future(async move {
+                                let bitmap = match load_background(&entry).await {
+                                    Ok(Some(blob)) => {
+                                        crate::web::image::decode(&blob, MAX_BACKGROUND_SIDE)
+                                            .await
+                                            .map_err(|e| {
+                                                web_sys::console::warn_1(&e.into());
+                                            })
+                                            .ok()
+                                    }
+                                    Ok(None) => None,
+                                    Err(e) => {
+                                        web_sys::console::warn_1(&e.into());
+                                        None
+                                    }
+                                };
+                                Msg::BackgroundLoaded(bitmap)
+                            });
+                        }
                         Rc::new(Loaded {
                             title: loaded.entry.title.clone(),
                             subtitle: loaded.entry.artist.clone(),
@@ -233,6 +268,7 @@ impl Component for GameCanvas {
             needs_gesture: false,
             pad_start_ctx: None,
             touch: coarse_pointer(),
+            background: None,
             _keys: keys,
         }
     }
@@ -273,6 +309,7 @@ impl Component for GameCanvas {
                 self.gfx = Status::Ready(game.backend_name());
                 game.set_debug_element(self.debug.cast::<HtmlElement>());
                 *self.game.borrow_mut() = Some(*game);
+                self.apply_background();
                 schedule(self.raf.clone(), self.game.clone());
                 true
             }
@@ -283,6 +320,13 @@ impl Component for GameCanvas {
             Msg::SongLoaded(Ok(song)) => {
                 self.song = Status::Ready(song);
                 true
+            }
+            Msg::BackgroundLoaded(image) => {
+                if let Some(old) = std::mem::replace(&mut self.background, image) {
+                    old.close();
+                }
+                self.apply_background();
+                false
             }
             Msg::SongLoaded(Err(e)) => {
                 self.song = Status::Failed(e);
@@ -606,6 +650,9 @@ impl Component for GameCanvas {
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
+        if let Some(image) = self.background.take() {
+            image.close();
+        }
         self.raf.borrow_mut().take();
         self.game.borrow_mut().take();
     }
@@ -704,7 +751,22 @@ impl GameCanvas {
         self.settings = settings;
     }
 
+    /// Hands a decoded background to the GPU once the renderer exists,
+    /// except during play (the upload could cost a frame).
+    fn apply_background(&mut self) {
+        if matches!(self.stage, Stage::Playing) {
+            return;
+        }
+        let mut game = self.game.borrow_mut();
+        if let (Some(game), Some(image)) = (game.as_mut(), self.background.take()) {
+            game.set_background(Some(image));
+        }
+    }
+
     fn begin_session(&mut self, ctx: &Context<Self>, audio: WebAudio, buffer: AudioBuffer) {
+        // A background decoded during the start prompt goes up now, before
+        // the music is scheduled.
+        self.apply_background();
         let Status::Ready(song) = &self.song else {
             return;
         };
@@ -724,6 +786,13 @@ impl GameCanvas {
                     self.devices.clone(),
                 );
                 c.ruleset = ddi_engine::rules::presets::calibration();
+                // The test measures the plain chart: no turn, no removed
+                // notes, every note drawn at a steady speed.
+                c.options.transform = Default::default();
+                c.options.appearance = Default::default();
+                c.options.scroll.scroll_action = Default::default();
+                c.render.background = 0.0;
+                c.render.field_filter = 0.0;
                 c.render.hide_notes = mode.hide_notes();
                 c.render.show_deltas = true;
                 c.calibration = Some(*mode);
@@ -865,15 +934,29 @@ fn results_view(
         ddi_engine::rules::FullCombo::PerfectFC => "PERFECT FULL COMBO",
         ddi_engine::rules::FullCombo::MarvelousFC => "MARVELOUS FULL COMBO",
     };
+    // An assisted play (notes removed or simplified) says so with its lamp.
+    let (fc, fc_class) = match (fc.is_empty(), r.assist) {
+        (true, true) => ("ASSIST".to_string(), "results-fc results-assist"),
+        (false, true) => (format!("{fc} · ASSIST"), "results-fc"),
+        _ => (fc.to_string(), "results-fc"),
+    };
+    let mods = mods_summary(
+        &r.transform,
+        r.appearance,
+        r.scroll_action,
+        Some(&r.lane_map),
+    )
+    .join(" · ");
     html! {
         <div class="canvas-overlay results">
             <div class="results-card">
                 <div class="results-grade">{ &r.grade }</div>
                 <div class="results-score">{ score }</div>
                 <div class="muted">{ ex }</div>
+                { if mods.is_empty() { html!{} } else { html!{ <div class="muted">{ mods }</div> } } }
                 { if r.failed { html!{ <div class="error">{ "FAILED" }</div> } } else { html!{} } }
                 { if device_changed { html!{ <div class="muted">{ "an audio device or the display changed during play" }</div> } } else { html!{} } }
-                { if fc.is_empty() { html!{} } else { html!{ <div class="results-fc">{ fc }</div> } } }
+                { if fc.is_empty() { html!{} } else { html!{ <div class={fc_class}>{ fc }</div> } } }
                 <table class="results-table">
                     { for (0..6).filter(|i| !tier_name(*i).is_empty()).map(|i| html!{ <tr><td class="muted">{ tier_name(i) }</td><td>{ r.tally.taps[i] }</td></tr> }) }
                     <tr><td class="muted">{ held_name }</td><td>{ format!("{} / {}", r.tally.held, r.tally.let_go) }</td></tr>

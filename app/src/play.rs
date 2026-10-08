@@ -5,7 +5,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use ddi_chart::{Layout, NoteKind, Song};
+use ddi_chart::{Layout, Song};
 use ddi_engine::input::{BindingDevice, Bindings, InputEvent, LaneInput};
 use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
 use ddi_engine::player::{PlayOptions, Player, Results};
@@ -83,6 +83,8 @@ impl SessionConfig {
                 show_deltas: settings.show_deltas,
                 cancel_progress: 0.0,
                 cancel_hint: "",
+                background: settings.bg_brightness,
+                field_filter: settings.field_filter,
             },
             calibration: None,
             auto_bias: 0.0,
@@ -151,13 +153,6 @@ enum Cue {
     Visual,
 }
 
-/// Seconds between the autoplayer's taps on a roll.
-const ROLL_TAP_INTERVAL: f64 = 0.12;
-/// No roll re-tap later than this before the roll's end: beyond the widest
-/// early window (0.18 s) of the next note, and with `ROLL_TAP_INTERVAL`
-/// still within the 0.35 s roll life.
-const ROLL_TAP_STOP: f64 = 0.2;
-
 struct AutoPlay {
     /// (press time, release time, lane), sorted by press time.
     events: Vec<(f64, f64, u8)>,
@@ -166,6 +161,13 @@ struct AutoPlay {
     cue: Cue,
     /// `auto=pad`: the pad control per lane that the test pad presses.
     via_pad: Option<Vec<Option<String>>>,
+}
+
+/// A random 64-bit seed for the Shuffle turn.
+fn random_seed() -> u64 {
+    let hi = (js_sys::Math::random() * 4_294_967_296.0) as u64;
+    let lo = (js_sys::Math::random() * 4_294_967_296.0) as u64;
+    (hi << 32) | lo
 }
 
 /// How far ahead `auto=pad` schedules presses on the test pad, seconds: a
@@ -317,62 +319,25 @@ impl PlaySession {
             ));
         }
 
-        let timing = chart.timing(song).clone();
-        let auto = config.auto.then(|| {
-            let mut events: Vec<(f64, f64, u8)> = chart
-                .notes
-                .iter()
-                .filter(|n| timing.judgeable(n.tick))
-                .flat_map(|n| -> Vec<(f64, f64, u8)> {
-                    let t = timing.seconds_at(n.tick);
-                    match n.kind {
-                        NoteKind::Tap => {
-                            let t = t + config.auto_bias;
-                            vec![(t, t + 0.06, n.lane)]
-                        }
-                        // Lifts are judged on the release.
-                        NoteKind::Lift => {
-                            let t = t + config.auto_bias;
-                            vec![(t - 0.05, t, n.lane)]
-                        }
-                        NoteKind::HoldHead { end } => {
-                            let t = t + config.auto_bias;
-                            vec![(t, timing.seconds_at(end) + 0.02, n.lane)]
-                        }
-                        // Rolls decay unless re-tapped; tap well inside the
-                        // shortest roll window (ITG's 0.35 s). The last
-                        // re-tap stays far enough before the end that it
-                        // cannot be judged as an early hit on the next note
-                        // in the lane.
-                        NoteKind::RollHead { end } => {
-                            let t = t + config.auto_bias;
-                            let last = timing.seconds_at(end) + config.auto_bias - ROLL_TAP_STOP;
-                            let mut taps = vec![(t, t + 0.04, n.lane)];
-                            let mut k = t + ROLL_TAP_INTERVAL;
-                            while k < last {
-                                taps.push((k, k + 0.04, n.lane));
-                                k += ROLL_TAP_INTERVAL;
-                            }
-                            taps
-                        }
-                        _ => Vec::new(),
-                    }
-                })
-                .collect();
-            events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-            AutoPlay {
-                events,
-                next: 0,
-                pending_release: Vec::new(),
-                cue: if config.calibration.is_some_and(|m| m.muted()) {
-                    Cue::Visual
-                } else {
-                    Cue::Audio
-                },
-                via_pad,
-            }
+        let mut options = config.options;
+        // A fresh shuffle every play; the seed is kept in the results.
+        options.seed = random_seed();
+        let mut player = Player::new(song, chart_index, config.ruleset, options);
+        // The autoplayer presses the transformed chart's lanes.
+        let auto = config.auto.then(|| AutoPlay {
+            events: ddi_engine::autoplay::script(player.judge().notes(), config.auto_bias)
+                .into_iter()
+                .map(|p| (p.press, p.release, p.lane))
+                .collect(),
+            next: 0,
+            pending_release: Vec::new(),
+            cue: if config.calibration.is_some_and(|m| m.muted()) {
+                Cue::Visual
+            } else {
+                Cue::Audio
+            },
+            via_pad,
         });
-        let mut player = Player::new(song, chart_index, config.ruleset, config.options);
         let sample = audio.now();
         player.clock_sample(sample);
         let start_ctx = sample.context_time + START_LOOKAHEAD;

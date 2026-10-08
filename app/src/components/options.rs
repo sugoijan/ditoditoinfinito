@@ -1,5 +1,6 @@
-//! Options screen: speed, scroll, ruleset, offsets, volume (with a sample
-//! to judge it by), controls, and resetting settings or the imported songs.
+//! Options screen: speed, scroll, note options, ruleset, offsets, volume
+//! (with a sample to judge it by), display, controls, and resetting
+//! settings or the imported songs.
 //! Settings are saved to `localStorage` on every change.
 //!
 //! Controls list the keyboard, every connected controller and every
@@ -8,6 +9,7 @@
 //! a button is pressed), so the list is refreshed on a timer while the
 //! screen is open. Binding itself is the guided flow in [`BindFlow`].
 
+use ddi_engine::{Appearance, ScrollAction, TimingCut, Turn};
 use ddi_platform::DeviceId;
 use ddi_platform::gamepad::Control;
 use gloo::events::EventListener;
@@ -20,7 +22,7 @@ use crate::components::bind_flow::{BindFlow, Bound};
 use crate::import;
 use crate::preview::Preview;
 use crate::router::Route;
-use crate::settings::{PadBindings, Settings, slider_to_volume, volume_to_slider};
+use crate::settings::{FIELD_FILTERS, PadBindings, Settings, slider_to_volume, volume_to_slider};
 use crate::songs::{Library, ManifestEntry, clear_imported, is_imported_id};
 use crate::web::gamepad::Gamepads;
 
@@ -30,6 +32,12 @@ const PAD_REFRESH_MS: u32 = 300;
 pub(crate) enum Msg {
     Speed(f64),
     Reverse(bool),
+    ScrollAction(ScrollAction),
+    Turn(Turn),
+    Appearance(Appearance),
+    Cut(TimingCut),
+    NoJumps(bool),
+    NoHolds(bool),
     Ruleset(String),
     AudioOffsetMs(f64),
     VisualOffsetMs(f64),
@@ -37,6 +45,9 @@ pub(crate) enum Msg {
     Debug(bool),
     ShowDeltas(bool),
     ReceptorSnap(bool),
+    /// Background brightness, 0..=1.
+    BgBrightness(f32),
+    FieldFilter(f32),
     /// Edit a profile's offset (kind "audio"/"display", id, ms).
     ProfileOffsetMs(&'static str, String, f64),
     DeleteProfile(&'static str, String),
@@ -223,6 +234,12 @@ impl Component for Options {
             }
             Msg::Speed(v) => self.settings.speed = v.clamp(0.25, 10.0),
             Msg::Reverse(v) => self.settings.reverse = v,
+            Msg::ScrollAction(v) => self.settings.scroll_action = v,
+            Msg::Turn(v) => self.settings.transform.turn = v,
+            Msg::Appearance(v) => self.settings.appearance = v,
+            Msg::Cut(v) => self.settings.transform.cut = v,
+            Msg::NoJumps(v) => self.settings.transform.no_jumps = v,
+            Msg::NoHolds(v) => self.settings.transform.no_holds = v,
             Msg::Ruleset(id) => self.settings.ruleset = id,
             Msg::AudioOffsetMs(ms) => self.settings.audio_offset = (ms / 1000.0).clamp(-0.5, 0.5),
             Msg::VisualOffsetMs(ms) => self.settings.visual_offset = (ms / 1000.0).clamp(-0.5, 0.5),
@@ -235,6 +252,8 @@ impl Component for Options {
             Msg::Debug(v) => self.settings.debug = v,
             Msg::ShowDeltas(v) => self.settings.show_deltas = v,
             Msg::ReceptorSnap(v) => self.settings.receptor_snap = v,
+            Msg::BgBrightness(v) => self.settings.bg_brightness = v.clamp(0.0, 1.0),
+            Msg::FieldFilter(v) => self.settings.field_filter = v,
             Msg::ProfileOffsetMs(kind, id, ms) => {
                 let list = if kind == "audio" {
                     &mut self.settings.audio_profiles
@@ -356,7 +375,9 @@ impl Component for Options {
                         <input type="checkbox" checked={s.reverse} onchange={link.callback(|e: Event| Msg::Reverse(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
                         { " Reverse (receptors at the bottom)" }
                     </label>
+                    <label>{ "Scroll action " }{ choice(s.scroll_action, &SCROLL_ACTIONS, link.callback(Msg::ScrollAction)) }</label>
                 </section>
+                { self.note_options_section(link) }
                 <section>
                     <h2>{ "Rules" }</h2>
                     <label>{ "Ruleset " }
@@ -397,6 +418,9 @@ impl Component for Options {
                         <input type="checkbox" checked={s.debug} onchange={link.callback(|e: Event| Msg::Debug(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
                         { " Debug overlay (backend, FPS, clock drift, error stats)" }
                     </label>
+                    { self.background_control(link) }
+                    <label>{ "Field filter " }{ choice(s.field_filter, &FIELD_FILTER_CHOICES, link.callback(Msg::FieldFilter)) }</label>
+                    <p class="muted">{ "The field filter dims the area behind the lanes." }</p>
                     <p class="muted">
                         { "Diagnostics: " }
                         <a href={Route::Play { song: "some-things-must".into(), chart: 2, force_gl: false, auto: true, auto_pad: false, bias_ms: 0 }.to_hash()}>{ "autoplay demo" }</a>
@@ -422,6 +446,53 @@ impl Component for Options {
 }
 
 impl Options {
+    fn note_options_section(&self, link: &html::Scope<Self>) -> Html {
+        let t = &self.settings.transform;
+        let checkbox = |checked: bool, msg: fn(bool) -> Msg, text: &str| {
+            let onchange = link.callback(move |e: Event| {
+                msg(e
+                    .target_dyn_into::<HtmlInputElement>()
+                    .is_some_and(|i| i.checked()))
+            });
+            html! {
+                <label>
+                    <input type="checkbox" {checked} {onchange} />
+                    { format!(" {text}") }
+                </label>
+            }
+        };
+        html! {
+            <section>
+                <h2>{ "Note options" }</h2>
+                <label>{ "Turn " }{ choice(t.turn, &TURNS, link.callback(Msg::Turn)) }</label>
+                <label>{ "Appearance " }{ choice(self.settings.appearance, &APPEARANCES, link.callback(Msg::Appearance)) }</label>
+                <h3>{ "Simplify" }</h3>
+                <label>{ "Notes " }{ choice(t.cut, &CUTS, link.callback(Msg::Cut)) }</label>
+                { checkbox(t.no_jumps, Msg::NoJumps, "No jumps (one panel at a time)") }
+                { checkbox(t.no_holds, Msg::NoHolds, "No holds (holds become taps)") }
+                <p class="muted">{ "Simplified plays are marked as assisted on the results." }</p>
+            </section>
+        }
+    }
+
+    fn background_control(&self, link: &html::Scope<Self>) -> Html {
+        let percent = (self.settings.bg_brightness * 100.0).round() as i32;
+        let oninput = link.callback(|e: InputEvent| {
+            let v = e
+                .target_dyn_into::<HtmlInputElement>()
+                .and_then(|i| i.value().parse::<f32>().ok())
+                .unwrap_or(0.0);
+            Msg::BgBrightness(v / 100.0)
+        });
+        html! {
+            <div class="slider-control">
+                <label for="bg-brightness">{ "Background brightness" }</label>
+                <input id="bg-brightness" type="range" min="0" max="100" step="5" value={percent.to_string()} {oninput} />
+                <span class="slider-value">{ if percent == 0 { "off".to_string() } else { format!("{percent}%") } }</span>
+            </div>
+        }
+    }
+
     fn controls_section(&self, link: &html::Scope<Self>) -> Html {
         let s = &self.settings;
         let keyboard_status = if s.keys_single == Settings::default().keys_single {
@@ -625,7 +696,7 @@ impl Options {
                 <table class="keys-table reset-table">
                     <tr>
                         <td>{ button(Reset::Settings, "reset settings", false) }</td>
-                        <td class="muted">{ "Speed, rules, volume, keys, controller bindings, display options and device calibrations back to defaults. Imported songs and per-song offsets are kept." }</td>
+                        <td class="muted">{ "Speed, scroll and note options, rules, volume, keys, controller bindings, display options and device calibrations back to defaults. Imported songs and per-song offsets are kept." }</td>
                     </tr>
                     <tr>
                         <td>{ button(Reset::Songs, "remove imported songs", self.imported == 0 || importing) }</td>
@@ -639,6 +710,69 @@ impl Options {
                 { for self.notice.as_ref().map(|n| html! { <p>{ n }</p> }) }
             </section>
         }
+    }
+}
+
+const SCROLL_ACTIONS: [(ScrollAction, &str); 4] = [
+    (ScrollAction::Normal, "normal"),
+    (ScrollAction::Boost, "boost: speeds up near the receptors"),
+    (ScrollAction::Brake, "brake: slows down near the receptors"),
+    (ScrollAction::Wave, "wave"),
+];
+
+const TURNS: [(Turn, &str); 5] = [
+    (Turn::Off, "off"),
+    (Turn::Mirror, "mirror"),
+    (Turn::Left, "left"),
+    (Turn::Right, "right"),
+    (Turn::Shuffle, "shuffle: a new lane order each play"),
+];
+
+const APPEARANCES: [(Appearance, &str); 5] = [
+    (Appearance::Visible, "normal"),
+    (
+        Appearance::Hidden,
+        "hidden: notes vanish before the receptors",
+    ),
+    (Appearance::Sudden, "sudden: notes appear late"),
+    (Appearance::HiddenSudden, "hidden + sudden"),
+    (Appearance::Stealth, "stealth: no notes"),
+];
+
+const CUTS: [(TimingCut, &str); 3] = [
+    (TimingCut::Off, "all"),
+    (TimingCut::Quarters, "quarter notes only"),
+    (TimingCut::Eighths, "quarters and eighths"),
+];
+
+const FIELD_FILTER_CHOICES: [(f32, &str); 4] = [
+    (FIELD_FILTERS[0], "off"),
+    (FIELD_FILTERS[1], "dark (40%)"),
+    (FIELD_FILTERS[2], "darker (60%)"),
+    (FIELD_FILTERS[3], "darkest (80%)"),
+];
+
+/// A select over fixed choices; option values are indices into `choices`.
+fn choice<T: Copy + PartialEq + 'static>(
+    current: T,
+    choices: &'static [(T, &'static str)],
+    on: Callback<T>,
+) -> Html {
+    let onchange = Callback::from(move |e: Event| {
+        if let Some(&(v, _)) = e
+            .target_dyn_into::<HtmlSelectElement>()
+            .and_then(|s| s.value().parse::<usize>().ok())
+            .and_then(|i| choices.get(i))
+        {
+            on.emit(v);
+        }
+    });
+    html! {
+        <select {onchange}>
+            { for choices.iter().enumerate().map(|(i, (v, label))| html! {
+                <option value={i.to_string()} selected={*v == current}>{ *label }</option>
+            }) }
+        </select>
     }
 }
 

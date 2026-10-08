@@ -12,3 +12,6 @@ description = "DitoDitoInfinito: deterministic gameplay core"
 ddi-chart.workspace = true
 ddi-platform.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -160,7 +160,6 @@ struct Run {
 /// `latency` and `audio_offset` shift every host timestamp so the heard song
 /// time stays the same.
 fn run(ruleset: Ruleset, song: &Song, latency: f64, audio_offset: f64) -> Run {
-    let shift = latency + audio_offset;
     let options = PlayOptions {
         clock: ClockOptions {
             audio_offset,
@@ -168,6 +167,23 @@ fn run(ruleset: Ruleset, song: &Song, latency: f64, audio_offset: f64) -> Run {
         },
         ..PlayOptions::default()
     };
+    let script: Vec<(f64, u8, bool)> = script()
+        .into_iter()
+        .map(|(t, lane, pressed)| (f64::from(t) / 1000.0, lane, pressed))
+        .collect();
+    run_script(ruleset, song, options, latency, &script)
+}
+
+/// Drives `song` with `script` (`(song seconds, lane, pressed)`, sorted),
+/// updating every 10 ms and drawing a frame each step.
+fn run_script(
+    ruleset: Ruleset,
+    song: &Song,
+    options: PlayOptions,
+    latency: f64,
+    script: &[(f64, u8, bool)],
+) -> Run {
+    let shift = latency + options.clock.audio_offset;
     let mut player = Player::new(song, 0, ruleset, options);
     player.clock_sample(ClockSample {
         context_time: 0.0,
@@ -175,18 +191,18 @@ fn run(ruleset: Ruleset, song: &Song, latency: f64, audio_offset: f64) -> Run {
         output_latency: latency,
     });
     player.start(0.0, 0.0);
-    let script = script();
     let mut next = 0;
     let mut events = Vec::new();
     for step in 0..=1250u32 {
-        let ms = step * 10;
-        events.extend(player.update(HostTime(f64::from(ms) / 1000.0 + shift)));
-        while next < script.len() && script[next].0 < ms + 10 {
+        let now = f64::from(step) / 100.0;
+        events.extend(player.update(HostTime(now + shift)));
+        let _ = player.frame(HostTime(now + shift));
+        while next < script.len() && script[next].0 < now + 0.01 - 1e-9 {
             let (t, lane, pressed) = script[next];
             events.extend(player.input(InputEvent {
                 lane,
                 pressed,
-                host_time: HostTime(f64::from(t) / 1000.0 + shift),
+                host_time: HostTime(t + shift),
             }));
             next += 1;
         }
@@ -843,4 +859,360 @@ fn receptor_snap_lands_the_note_in_its_closest_frame() {
     // 12 ms before arrival (outside half a frame): not snapped.
     let y = make(true).frame(HostTime(3.988)).notes[0].y;
     assert!((y - 0.012).abs() < 1e-6, "{y}");
+}
+
+// --- Play options: transforms, scroll actions, appearance -----------------
+
+use ddi_engine::autoplay;
+use ddi_engine::{Appearance, ScrollAction, SpeedMod, TimingCut, TransformOptions, Turn};
+
+const ACTIONS: [ScrollAction; 4] = [
+    ScrollAction::Normal,
+    ScrollAction::Boost,
+    ScrollAction::Brake,
+    ScrollAction::Wave,
+];
+
+const APPEARANCES: [Appearance; 5] = [
+    Appearance::Visible,
+    Appearance::Hidden,
+    Appearance::Sudden,
+    Appearance::HiddenSudden,
+    Appearance::Stealth,
+];
+
+fn ms_script() -> Vec<(f64, u8, bool)> {
+    script()
+        .into_iter()
+        .map(|(t, lane, pressed)| (f64::from(t) / 1000.0, lane, pressed))
+        .collect()
+}
+
+#[test]
+fn scroll_actions_and_appearance_never_change_judgements() {
+    let song = fixture_song();
+    let baseline = run(presets::itg(), &song, 0.0, 0.0);
+    for speed in [
+        SpeedMod::XMod(1.0),
+        SpeedMod::XMod(3.5),
+        SpeedMod::CMod(450.0),
+    ] {
+        for scroll_action in ACTIONS {
+            for appearance in APPEARANCES {
+                for reverse in [false, true] {
+                    let options = PlayOptions {
+                        scroll: ScrollOptions {
+                            speed,
+                            reverse,
+                            scroll_action,
+                        },
+                        appearance,
+                        ..PlayOptions::default()
+                    };
+                    let r = run_script(presets::itg(), &song, options, 0.0, &ms_script());
+                    assert_eq!(
+                        r.events, baseline.events,
+                        "{speed:?} {scroll_action:?} {appearance:?} reverse {reverse}"
+                    );
+                    assert_eq!(r.player.results().tally, baseline.player.results().tally);
+                }
+            }
+        }
+    }
+}
+
+/// `(kind, tick, lane, song time)` of every event, sorted, for comparing
+/// plays whose note indices differ.
+fn event_set(events: &[JudgeEvent], lane_of: impl Fn(u8) -> u8) -> Vec<String> {
+    let mut v: Vec<String> = events
+        .iter()
+        .map(|e| {
+            let kind = match e.kind {
+                JudgeEventKind::Tap(j, d) => format!("{j:?}{d:.9}"),
+                k => format!("{k:?}"),
+            };
+            format!("{:.9} {} {} {kind}", e.song_time, e.tick.0, lane_of(e.lane))
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn turns_only_move_lanes() {
+    let song = fixture_song();
+    let baseline = run(presets::itg(), &song, 0.0, 0.0);
+    let turns = [
+        (Turn::Mirror, 0),
+        (Turn::Left, 0),
+        (Turn::Right, 0),
+        (Turn::Shuffle, 1),
+        (Turn::Shuffle, 2),
+        (Turn::Shuffle, 0xDD1),
+    ];
+    for (turn, seed) in turns {
+        let options = PlayOptions {
+            transform: TransformOptions {
+                turn,
+                ..Default::default()
+            },
+            seed,
+            ..PlayOptions::default()
+        };
+        let probe = Player::new(&song, 0, presets::itg(), options);
+        let take_from = probe.lane_map().to_vec();
+        let mut dest = [0u8; 4];
+        for (new, &old) in take_from.iter().enumerate() {
+            dest[usize::from(old)] = new as u8;
+        }
+        // The player presses the lanes where the notes went.
+        let script: Vec<(f64, u8, bool)> = ms_script()
+            .into_iter()
+            .map(|(t, lane, p)| (t, dest[usize::from(lane)], p))
+            .collect();
+        let r = run_script(presets::itg(), &song, options, 0.0, &script);
+        assert_eq!(
+            event_set(&r.events, |l| l),
+            event_set(&baseline.events, |l| dest[usize::from(l)]),
+            "{turn:?} seed {seed}"
+        );
+        let res = r.player.results();
+        assert_eq!(res.tally, baseline.player.results().tally);
+        assert_eq!(res.lane_map, take_from);
+        assert!(!res.assist);
+    }
+    // The same seed gives the same shuffle; the seed matters.
+    let map = |seed| {
+        Player::new(
+            &song,
+            0,
+            presets::itg(),
+            PlayOptions {
+                transform: TransformOptions {
+                    turn: Turn::Shuffle,
+                    ..Default::default()
+                },
+                seed,
+                ..PlayOptions::default()
+            },
+        )
+        .lane_map()
+        .to_vec()
+    };
+    assert_eq!(map(42), map(42));
+    assert!(
+        (0..20)
+            .map(map)
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            > 1
+    );
+}
+
+/// 120 BPM; ticks in 48ths of a beat.
+///
+/// | tick | lane | kind |
+/// |------|------|------|
+/// | 0    | 0    | tap |
+/// | 24   | 1    | tap (8th) |
+/// | 36   | 2    | tap (16th) |
+/// | 48   | 0, 3 | jump |
+/// | 64   | 1    | tap (12th) |
+/// | 96   | 2    | hold → 144 |
+/// | 120  | 0    | tap (8th, during the hold) |
+/// | 168  | 3    | mine (8th) |
+/// | 192  | 1    | roll → 264 |
+/// | 216  | 3    | tap (8th, during the roll) |
+/// | 288  | 0    | lift |
+/// | 300  | 2    | tap (16th) |
+/// | 336  | 0, 1, 2 | hand |
+/// | 360  | 3    | fake |
+/// | 384  | 3    | tap |
+fn dense_song() -> Song {
+    let t = |tick: i64, lane: u8, kind| Note::new(Tick(tick), lane, kind);
+    let notes = vec![
+        t(0, 0, NoteKind::Tap),
+        t(24, 1, NoteKind::Tap),
+        t(36, 2, NoteKind::Tap),
+        t(48, 0, NoteKind::Tap),
+        t(48, 3, NoteKind::Tap),
+        t(64, 1, NoteKind::Tap),
+        t(96, 2, NoteKind::HoldHead { end: Tick(144) }),
+        t(120, 0, NoteKind::Tap),
+        t(168, 3, NoteKind::Mine),
+        t(192, 1, NoteKind::RollHead { end: Tick(264) }),
+        t(216, 3, NoteKind::Tap),
+        t(288, 0, NoteKind::Lift),
+        t(300, 2, NoteKind::Tap),
+        t(336, 0, NoteKind::Tap),
+        t(336, 1, NoteKind::Tap),
+        t(336, 2, NoteKind::Tap),
+        t(360, 3, NoteKind::Fake),
+        t(384, 3, NoteKind::Tap),
+    ];
+    song(TimingMap::constant(120.0, 0.0), notes)
+}
+
+fn cut(cut: TimingCut, no_jumps: bool, no_holds: bool) -> TransformOptions {
+    TransformOptions {
+        turn: Turn::Off,
+        cut,
+        no_jumps,
+        no_holds,
+    }
+}
+
+#[test]
+fn cuts_change_the_counted_chart_and_mark_an_assist() {
+    let song = dense_song();
+    let ctx = |transform| {
+        let p = Player::new(
+            &song,
+            0,
+            presets::itg(),
+            PlayOptions {
+                transform,
+                ..PlayOptions::default()
+            },
+        );
+        let c = p.score_ctx();
+        (c.steps, c.holds, c.mines)
+    };
+    // Untransformed: 16 tap-like notes, 2 holds/rolls, 1 mine.
+    assert_eq!(ctx(TransformOptions::default()), (16, 2, 1));
+    // Quarters: ticks 0, 48 ×2, 96, 192, 288, 336 ×3, 384 = 10; the mine is off-beat.
+    assert_eq!(ctx(cut(TimingCut::Quarters, false, false)), (10, 2, 0));
+    // Eighths add 24, 120, 168 (mine), 216.
+    assert_eq!(ctx(cut(TimingCut::Eighths, false, false)), (13, 2, 1));
+    // No holds: same steps, no holds.
+    assert_eq!(ctx(cut(TimingCut::Off, false, true)), (16, 0, 1));
+    // No jumps: the jump and the hand lose 1 and 2; the taps at 120 (during
+    // the hold) and 216 (during the roll) go.
+    assert_eq!(ctx(cut(TimingCut::Off, true, false)), (11, 2, 1));
+
+    let opts = PlayOptions {
+        transform: cut(TimingCut::Quarters, false, false),
+        ..PlayOptions::default()
+    };
+    let mut ruleset = presets::itg();
+    ruleset.fail = FailPolicy::Off;
+    let r = run_script(ruleset, &song, opts, 0.0, &[]).player.results();
+    assert!(r.assist);
+    assert_eq!(r.transform.cut, TimingCut::Quarters);
+    // Every remaining step was missed: 10 misses, nothing for removed notes.
+    assert_eq!(r.tally.taps[5], 10);
+}
+
+/// Plays `song` with the engine's autoplay script under `options`.
+fn autoplay_run(ruleset: fn() -> Ruleset, song: &Song, options: PlayOptions) -> Run {
+    let probe = Player::new(song, 0, ruleset(), options);
+    let mut script: Vec<(f64, u8, bool)> = autoplay::script(probe.judge().notes(), 0.0)
+        .into_iter()
+        .flat_map(|p| [(p.press, p.lane, true), (p.release, p.lane, false)])
+        .collect();
+    script.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.2.cmp(&b.2)));
+    run_script(ruleset(), song, options, 0.0, &script)
+}
+
+#[test]
+fn autoplay_is_perfect_with_every_option() {
+    let cuts = [
+        TransformOptions::default(),
+        cut(TimingCut::Quarters, false, false),
+        cut(TimingCut::Eighths, true, true),
+        cut(TimingCut::Off, true, false),
+    ];
+    let turns = [
+        (Turn::Off, 0),
+        (Turn::Mirror, 0),
+        (Turn::Left, 0),
+        (Turn::Right, 0),
+        (Turn::Shuffle, 7),
+    ];
+    for song in [fixture_song(), dense_song()] {
+        for ruleset in [
+            presets::itg as fn() -> Ruleset,
+            presets::sm5,
+            presets::ddr_a,
+        ] {
+            for transform in cuts {
+                for (turn, seed) in turns {
+                    for (i, scroll_action) in ACTIONS.into_iter().enumerate() {
+                        // Pair each scroll action with every appearance once
+                        // across the turns instead of the full product.
+                        let appearance = APPEARANCES[(i + seed as usize + turn as usize) % 5];
+                        let options = PlayOptions {
+                            scroll: ScrollOptions {
+                                scroll_action,
+                                ..ScrollOptions::default()
+                            },
+                            transform: TransformOptions { turn, ..transform },
+                            appearance,
+                            seed,
+                            ..PlayOptions::default()
+                        };
+                        let run = autoplay_run(ruleset, &song, options);
+                        let ctx = run.player.score_ctx();
+                        let r = run.player.results();
+                        let label = format!(
+                            "{} {transform:?} {turn:?} {scroll_action:?} {appearance:?}",
+                            run.player.ruleset().names.tiers[0]
+                        );
+                        let rows_or_notes: u32 = r.tally.taps.iter().sum();
+                        assert_eq!(r.tally.taps[0], rows_or_notes, "{label}: {:?}", r.tally);
+                        assert_eq!(rows_or_notes, ctx.steps, "{label}");
+                        assert_eq!(r.tally.held, ctx.holds, "{label} {:?}", sequence(&run));
+                        assert_eq!(
+                            (r.tally.let_go, r.tally.mine_hit, r.tally.boo),
+                            (0, 0, 0),
+                            "{label}"
+                        );
+                        assert_eq!(r.full_combo, FullCombo::MarvelousFC, "{label}");
+                        assert_eq!(r.assist, transform.is_assist(), "{label}");
+                        assert!(run.player.finished() && !run.player.failed(), "{label}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn hidden_and_sudden_set_note_alpha_in_frames() {
+    let song = fixture_song();
+    let frame_at = |appearance, t: f64| {
+        let mut p = Player::new(
+            &song,
+            0,
+            presets::itg(),
+            PlayOptions {
+                appearance,
+                ..PlayOptions::default()
+            },
+        );
+        p.clock_sample(ClockSample {
+            context_time: 0.0,
+            host_time: HostTime(0.0),
+            output_latency: 0.0,
+        });
+        p.start(0.0, 0.0);
+        p.frame(HostTime(t))
+    };
+    // At x1 and 120 BPM, a note one beat (0.5 s) away is one arrow up.
+    let lane_alpha = |f: &ddi_engine::Frame, y: f32| {
+        f.notes
+            .iter()
+            .find(|n| (n.y - y).abs() < 1e-3)
+            .map(|n| n.alpha)
+            .expect("note at y")
+    };
+    let f = frame_at(Appearance::Hidden, 0.0);
+    assert_eq!(f.appearance, Appearance::Hidden);
+    assert_eq!(lane_alpha(&f, 1.0), 0.0);
+    assert_eq!(lane_alpha(&f, 5.0), 1.0);
+    let f = frame_at(Appearance::Sudden, 0.0);
+    assert_eq!(lane_alpha(&f, 1.0), 1.0);
+    assert_eq!(lane_alpha(&f, 5.0), 0.0);
+    let f = frame_at(Appearance::Visible, 0.0);
+    assert!(f.notes.iter().all(|n| n.alpha == 1.0 && n.glow == 0.0));
 }

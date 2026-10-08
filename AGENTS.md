@@ -47,7 +47,7 @@ the browser are implementation details, not advertised features.
   then open `http://localhost:8080`).
 - `just build` release build with the production public URL.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
-- `just test` native tests (chart, engine, platform with `decode`, library,
+- `just test` native tests (chart, engine, render, platform with `decode`, library,
   xtask). The app crate has no native tests; verify it in a browser.
 - `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
   compares every `.sm` under a local folder against the two oracle parsers

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use ddi_engine::clock::ClockOptions;
 use ddi_engine::player::PlayOptions;
 use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod};
+use ddi_engine::{Appearance, TransformOptions};
 use gloo::storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +20,20 @@ pub(crate) struct Settings {
     /// X-mod multiplier.
     pub(crate) speed: f64,
     pub(crate) reverse: bool,
+    /// Boost / Brake / Wave: how notes move on their way to the receptors.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) scroll_action: ScrollAction,
+    /// Turn and simplifications applied to the chart of every song (not to
+    /// calibration). Simplified plays are marked as assisted.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) transform: TransformOptions,
+    /// Hidden / Sudden / Stealth (drawing only).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) appearance: Appearance,
+    /// Song background brightness, 0..=1; 0 turns the background off.
+    pub(crate) bg_brightness: f32,
+    /// Darkening behind the lanes, one of [`FIELD_FILTERS`] (0 = off).
+    pub(crate) field_filter: f32,
     /// Ruleset preset id (`itg`, `sm5`, `ddr-a`).
     pub(crate) ruleset: String,
     /// Seconds; positive = you hear the music later than the audio clock says.
@@ -64,6 +79,9 @@ pub(crate) fn volume_to_slider(gain: f32) -> f32 {
 pub(crate) fn slider_to_volume(position: f32) -> f32 {
     position.clamp(0.0, 1.0).powi(3)
 }
+
+/// Field filter strengths the options screen offers (0 = off).
+pub(crate) const FIELD_FILTERS: [f32; 4] = [0.0, 0.4, 0.6, 0.8];
 
 /// Song offsets are clamped to this many seconds either way.
 pub(crate) const MAX_SONG_OFFSET: f64 = 1.0;
@@ -164,6 +182,11 @@ impl Default for Settings {
         Settings {
             speed: 2.5,
             reverse: false,
+            scroll_action: ScrollAction::Normal,
+            transform: TransformOptions::default(),
+            appearance: Appearance::Visible,
+            bg_brightness: 0.4,
+            field_filter: 0.4,
             ruleset: "itg".into(),
             audio_offset: 0.0,
             visual_offset: 0.0,
@@ -217,6 +240,21 @@ impl Settings {
             self.volume.clamp(0.0, 1.0)
         } else {
             defaults.volume
+        };
+        self.bg_brightness = if self.bg_brightness.is_finite() {
+            self.bg_brightness.clamp(0.0, 1.0)
+        } else {
+            defaults.bg_brightness
+        };
+        self.field_filter = if self.field_filter.is_finite() {
+            // Snap to the nearest offered strength so the select shows it.
+            let f = self.field_filter;
+            FIELD_FILTERS
+                .into_iter()
+                .min_by(|a, b| (a - f).abs().total_cmp(&(b - f).abs()))
+                .unwrap_or(defaults.field_filter)
+        } else {
+            defaults.field_filter
         };
         // Older display ids carried the refresh rate (`display:WxH@dpr:hz`);
         // the rate is not an identity (variable-rate panels change it), so
@@ -334,7 +372,8 @@ impl Settings {
     }
 
     /// Play options for the given devices: profile offsets when known,
-    /// else the defaults.
+    /// else the defaults. The shuffle seed is left at 0 for the play session
+    /// to pick.
     pub(crate) fn play_options(
         &self,
         devices: Option<&ddi_platform::DeviceProfile>,
@@ -354,8 +393,10 @@ impl Settings {
             scroll: ScrollOptions {
                 speed: SpeedMod::XMod(self.speed),
                 reverse: self.reverse,
-                scroll_action: ScrollAction::Normal,
+                scroll_action: self.scroll_action,
             },
+            transform: self.transform,
+            appearance: self.appearance,
             clock: ClockOptions {
                 audio_offset,
                 visual_offset,

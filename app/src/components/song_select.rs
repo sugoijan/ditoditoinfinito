@@ -16,6 +16,7 @@ use web_sys::{AudioBuffer, DragEvent, HtmlInputElement};
 use yew::prelude::*;
 
 use crate::import::{self, ImportReport};
+use crate::mods::mods_summary;
 use crate::preview::Preview;
 use crate::router::Route;
 use crate::settings::Settings;
@@ -315,6 +316,12 @@ impl Component for SongSelect {
             }
         }
         let grouped = !packs.is_empty();
+        let mods = mods_summary(
+            &self.settings.transform,
+            self.settings.appearance,
+            self.settings.scroll_action,
+            None,
+        );
         html! {
             <>
                 { pads }
@@ -326,6 +333,12 @@ impl Component for SongSelect {
                     <p class="error">
                         { format!("{} stored song{} could not be read. ", library.unreadable.len(), if library.unreadable.len() == 1 { "" } else { "s" }) }
                         { self.remove_button(link, Removal::Unreadable, "remove them") }
+                    </p>
+                } } }
+                { if mods.is_empty() { html!{} } else { html! {
+                    <p class="muted play-mods">
+                        { "Playing with " }
+                        <a href={Route::Options.to_hash()}>{ mods.join(" · ") }</a>
                     </p>
                 } } }
                 { if grouped { html!{ <h2 class="pack-heading">{ "Bundled songs" }</h2> } } else { html!{} } }
