@@ -14,8 +14,10 @@ definitions. The [legacy extraction work plan](danoni-legacy-plan.md) describes
 Japanese discovery, HTML5 corpus expansion and a separate native headless Ruffle
 AVM1 feasibility study. It also specifies the proposed CW dos export alongside
 preserved originals and runtime references. The goal is portable static charts;
-arbitrary custom-engine gameplay is out of scope. Ruffle and reconstructed dos
-export are planned, not part of the current dumper or its `/1` contract.
+arbitrary custom-engine gameplay is out of scope. A separate
+[native prototype](../../tools/danoni-dump/ruffle/README.md) now proves AVM1
+inspection and synthetic dos reconstruction; real legacy conversion remains
+experimental and does not change the browser dumper's `/1` contract.
 
 ## Findings and evidence
 
@@ -536,3 +538,58 @@ encoding flags, both color forms, deployed data-mutating JS, ordinary/encoded
 audio and multiple engine generations. Include automatic preblank with modern
 colors, scroll and key events before treating those semantics as covered. Assign
 tags from captured state and replay results, never filenames alone.
+
+## Native legacy pilot (2026-10-08)
+
+Native inspection is implemented separately under
+[`tools/danoni-dump/ruffle/`](../../tools/danoni-dump/ruffle/README.md). That README
+specifies config fields, filenames, JSON graph representation, units, bounds,
+provenance and reproduction commands. Its experimental schemas are diagnostic;
+the importer must not read them as a CW `/1` reference or assume arbitrary root
+properties are validated chart arrays. The agreed general export layout and
+multi-chart/custom-key representation remain in the
+[legacy plan](danoni-legacy-plan.md#output-choice-community-dos-plus-preservation-and-reference-data).
+
+Original synthetic fixtures establish exact stored-array capture, repeatability,
+non-invasive inspection and restricted execution. CW v48.4.1 preserves the
+integer fixture's note/hold times exactly; a 240.5-frame note becomes 241 and
+correctly fails comparison by 0.5/60 seconds. This is evidence for the export
+validation path, not for a real Flash engine's timing/effects semantics.
+
+The following bounded acquisition used Japanese discovery and the existing
+paced, robots-aware persistent cache. Exact pages/SWF/sidecars, response hashes,
+retrieval timestamps, credits and static classification are preserved under
+`~/Music/DanOni/legacy-pilot/discovery/`. Prepared input directories with copied
+cached blobs and `provenance.json` are under `legacy-pilot/inputs/`; the final
+Higan title capture is under `legacy-pilot/captures/autumn-higan-title/`.
+Nothing from these works is committed, including screenshots. These are local
+research acquisitions, not complete importable song dumps.
+
+| Local candidate | Work and credits | Observed coverage | Status |
+|---|---|---|---|
+| `autumn-higan` | [彼岸帰航 ～ Titanic of Stygian～](https://autumnleaves.yukishigure.com/higan/higan.html), chart レク, music どぶウサギ | Five active lanes, holds, speed, separate `iro.txt` colours; Shift_JIS ampersand dos, placeholder values; streaming sound tags in SWF. Page names source 2.15, rendered title says Ver 2.16. | Title and exact cached `dos.txt`/`iro.txt` loads captured offline. Root strings/settings observed. Remains at movie frame 3 after the tested click; device fonts missing. Complete parsed chart, music extraction and timing unverified. |
+| `autumn-destined-marionette` | [Destined Marionette](https://autumnleaves.yukishigure.com/_9/D_M.html), chart レク, music ビートまりお | Five lanes, holds, speed including zero, boost, external dos, streaming sound tags. Exact source family/revision unresolved. | Original inputs acquired and statically classified; native initialization/export untested. |
+| `cw-straight-soul` | [Straight Soul -Web Style-](https://cw7.sakura.ne.jp/danoni/2009/straights/main.html), chart ティックル, music ASK | 5-key Normal and 7-key Hard; ParaFla trace strings and `< ver fd 4.0.5 based >`; linked [HTML5 port](https://cw7.sakura.ne.jp/danoni/2009/0169_StraightSoul.html). | Original inputs acquired and statically classified; port equivalence and native export untested. Absolute ranking endpoint strings are not probed. |
+
+All three SWFs are CWS/SWF8 with AVM1 action tags, no observed DoABC/AS3 flag,
+and header FPS 60. This does not establish the chart clock or playability.
+None is counted among the seven existing browser-derived chart references.
+Higan's unrelated sidebar SWF was not acquired. Public retrieval is not proof
+that a work runs correctly in modern browsers or Ruffle.
+
+Robots returned 404 at the explored origins. Reviewed Autumn pages disclosed no
+additional prohibition; this does not imply a free asset licence.
+[Cross Walker's terms](https://cw7.sakura.ne.jp/about.html) distinguish music
+copyright and request title/maker credit for links. A separate discovery branch
+at [Crepe Curtain](https://ccsyouta.sakura.ne.jp/about.html), whose terms discourage
+direct media/SWF hotlinks, stopped at a catalogue JSON 403; it was not retried.
+No login, challenge, ad script or ranking endpoint was used. Acquired SWFs ran
+only through the separately tested native macOS restricted worker.
+
+Next gate: identify a family's complete pre-consumption chart state, prove its
+music origin and frame-to-seconds mapping, then reconstruct dos and compare it
+through CW. Null audio and wall-clock `getTimer` currently prevent declaring
+general audio-synchronized emulation. Missing cosmetics alone need not block a
+static chart export, but unknown note/lane/timing behavior must. Chart Reverser
+is a useful additional source-known authoring-grid reference, not a substitute
+for establishing that mapping.

@@ -9,6 +9,11 @@ The survey and importer-facing contract are in
 [danoni-corpus.md](../../docs/research/danoni-corpus.md). Machine-readable schemas
 are in [schemas/](schemas/).
 
+For Flash research, the separate [native AVM1 prototype](ruffle/README.md)
+provides restricted Ruffle inspection and synthetic dos export validation.
+Real legacy conversion is experimental; it does not change this tool's CW
+capture contract.
+
 ## Requirements
 
 - Node.js 22 or later.

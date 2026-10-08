@@ -453,3 +453,39 @@ audio-time semantics are understood, but not a claim of byte-exact original
 source recovery. The [legacy plan](danoni-legacy-plan.md) separates raw source,
 reconstructed chart exports and observed runtime references, and requires a
 CW round trip before accepting reconstructed timing.
+
+### Native Flash inspection and export precision (2026-10-08)
+
+The earlier statement that Flash extraction is outside the tooling scope is
+superseded by the agreed [native legacy pilot](danoni-legacy-plan.md). It does
+not broaden access permissions or make legacy snapshots CW references.
+
+- **Native execution does not require Wasm bindings.** The prototype embeds
+  Ruffle v0.7.1 with small revision-pinned AVM1 inspection hooks and offscreen
+  rendering. The core exports a native player, but its VM internals are private;
+  using it as a library does not provide general public property enumeration.
+  [Pinned core exports](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/lib.rs),
+  [offscreen texture target](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/render/wgpu/src/target.rs).
+- **A worker iteration is not an established song clock.** Our host's
+  `run_frame` and fixed timer steps coexist with wall-clock `getTimer` and a
+  null audio backend returning sound position zero. The original synthetic SWF
+  deliberately has 30 Hz header FPS and 60 Hz chart data. Do not infer chart
+  units or audio origin from a SWF header or a snapshot capture index.
+  [Player scheduling](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/player.rs),
+  [audio backend](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/backend/audio.rs).
+- **Fractional parsing is not fractional preservation.** In the captured CW
+  v48.4.1, `scoreConvert` rounds note frames after timing conversion. A synthetic
+  240.5-frame tap exported with zero adjustments and playback rate 1 is observed
+  as 241 in the full reference parse: an 8.333… ms change at 60 Hz. Integer
+  note/hold frames round-trip exactly in that fixture. This narrows the earlier
+  fractional-input caveat; do not silently call the reconstructed export exact.
+  [Deployed engine source](https://chipstar64.sakura.ne.jp/js/danoni_main.js),
+  [reproduction and offline comparison](../../tools/danoni-dump/ruffle/README.md).
+- **Legacy data can be split across ordinary load-variable sidecars.**
+  [Higan](https://autumnleaves.yukishigure.com/higan/higan.html) requests `dos.txt`
+  and `iro.txt` separately. Its cached Shift_JIS dos includes unused placeholder
+  strings and a malformed-looking stop field; the observed root contains an
+  empty `stop_data`. Preserve bytes and engine interpretation instead of cleaning
+  the source first. The page's source 2.15 label differs from the rendered title's
+  Ver 2.16. Those observations identify acquisition/initialization behavior, not
+  complete chart or audio equivalence. The pilot inventory records the limits.

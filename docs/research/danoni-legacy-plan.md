@@ -1,9 +1,39 @@
 # DanOni 5/7/9-key corpus and Ruffle extraction work plan
 
-Planning date: 2026-10-08. Status: agreed direction; no Ruffle extractor or
-SWF-runtime capture has been implemented. This extends the
+Planning date: 2026-10-08. Status: native AVM1 inspection prototype and synthetic
+CW export comparison implemented; real legacy adapters remain unproven. This extends the
 [CW Edition corpus work](danoni-corpus.md), with 5-key archives as the priority.
 The importer/gameplay session still owns the game crates and `docs/PLAN.md`.
+
+## First feasibility result (2026-10-08)
+
+The [native prototype](../../tools/danoni-dump/ruffle/README.md) embeds Ruffle
+v0.7.1 at `89a7049965f3090e706265670df309a5128233ac`, independently of the
+game workspace. Three minimal hooks expose stored AVM1 properties and VM halt
+state. Original synthetic SWFs verify exact before/after note arrays, holds,
+sparse/special values, getter non-execution, FlashVars, input and offscreen RGB
+pixels. Repeat captures match. macOS restrictions and parent time/memory limits
+are exercised; no unconfined fallback is provided. The README records build
+cost, dependencies, experimental schemas and reproduction commands.
+
+Synthetic dos round trips through cached CW v48.4.1 preserve integer tap/hold
+times exactly. A half-frame note deliberately fails: 240.5 becomes 241, an
+8.333… ms error at 60 Hz. Preserve this negative test; accepting `parseFloat`
+does not imply that the final CW note arrays retain fractional frames.
+
+Three public AVM1 candidates have cached originals and acquisition provenance:
+Higan, Destined Marionette and Straight Soul (5/7-key, with a linked HTML5 port).
+The [inventory](danoni-corpus.md#native-legacy-pilot-2026-10-08) separates these
+from usable browser references. Higan loads its title screen and both sidecars
+offline, but the tested input sequence did not advance past the title. Missing
+device-font diagnostics are retained. This is not a complete legacy export.
+
+Step 2's inspection/rendering feasibility is established on this macOS host.
+Step 3 still needs a verified initialization point and audio-relative timebase.
+The prototype's fixed timer steps, wall-clock `getTimer`, and null audio backend
+are not a coherent virtual Flash clock. Do not treat `exitCode: 0` or a snapshot
+without budget exhaustion as a valid real-song reference. No real-song music
+demux, family projection or portable export has been completed.
 
 ## Technical basis
 
@@ -98,7 +128,8 @@ Use **CW Edition-compatible dos text** as the portable chart output, with JSON
 for provenance, key definitions, native references and conversion reports. Keep
 the existing CW dump contract unchanged. Legacy captures and exports are
 experimental until the pilot establishes their schema; the paths below are the
-proposed export layout, not files the current tool already writes.
+proposed general export layout. The synthetic-only adapter demonstrates its
+chart/dos/key/media subset; it is not the real-work implementation.
 
 Dos is the chart data, not a mandated `.dos` extension or an editor project.
 The upstream authoring guide describes `dos.txt` and embedding the same fields
@@ -149,6 +180,9 @@ BPM and tempo-change information; its documentation warns that wrong timing
 inputs can reconstruct different grid positions. Runtime note frames do not
 uniquely recover that authoring information. Do not promise the original editor
 project. [Source: Chart Reverser](https://github.com/cwtickle/danoniplus-reverser).
+Use it as an additional reference for source-known first-number/BPM cases;
+agreement is evidence about that reconstruction, not an independent proof of
+unknown Flash timing or exact recovery of the author's original project.
 
 Do not add SM/SSC export in this work: it would require another mapping for
 DanOni key layouts and effects without improving compatibility with the DanOni

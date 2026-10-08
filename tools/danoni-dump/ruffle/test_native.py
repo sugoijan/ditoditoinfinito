@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Integration checks using only original synthetic SWFs and temporary files."""
+import argparse
+import json
+from pathlib import Path
+import socket
+import tempfile
+import time
+
+from fixture import create
+from run import run
+from export_fixture import export, numbers
+from paths import external_directory
+
+
+def properties(state, reference):
+    obj = state["objects"][reference["ref"]]
+    assert obj["id"] == reference["ref"] and not obj["truncated"]
+    return {p["name"]["text"]:p["value"] for p in obj["properties"]}
+
+
+def assert_snapshot(snapshot):
+    assert snapshot["swfHeaderFps"] == 30
+    assert len(snapshot["captures"]) == 2
+    for frame, capture in enumerate(snapshot["captures"],1):
+        assert capture["frame"] == frame
+        state = capture["state"]
+        assert not state["incomplete"] and len(state["roots"]) == 1
+        root = properties(state,state["roots"][0]["value"])
+        assert root["getterCalls"] == 0, "inspection executed an ActionScript getter"
+        assert root["difficulty"]["text"] == "Hard"
+        assert root["query"]["text"] == "retained"
+        assert root["cachedMarker"]["text"] == "from-cache"
+        assert root["chart"] == root["alias"]
+        chart = properties(state,root["chart"])
+        assert chart["self"] == root["chart"]
+        assert chart["fps"] == 60  # Chart clock is deliberately different from SWF FPS.
+        assert chart["title"]["text"] == "合成譜面"
+        assert chart["trap"] == {"type":"uninspected","reason":"accessor"}
+        for lane, expected in [("left",[120 if frame == 1 else 180,240.5]),
+                               ("down",[]),("up",[180]),("right",[300]),("space",[360]),
+                               ("frzLeft",[480,600])]:
+            notes = properties(state,chart[lane])
+            assert notes["length"] == len(expected)
+            assert [notes[str(i)] for i in range(len(expected))] == expected
+        sparse = properties(state,root["sparse"])
+        assert sparse["length"] == 5 and sparse["0"] == {"type":"undefined"}
+        assert sparse["2"] == 42 and not {"1","3","4"} & sparse.keys()
+        nonfinite = properties(state,root["nonfinite"])
+        for i, expected in enumerate(["NaN","Infinity","-Infinity","-0"]):
+            assert nonfinite[str(i)] == {"type":"number","value":expected}
+        assert nonfinite["4"] is None
+    assert not snapshot["avm1Halted"] and not snapshot["audit"]["truncated"]
+    kinds = {entry["kind"] for entry in snapshot["audit"]["entries"]}
+    assert {"navigation-denied","fetch-denied","cache-hit"} <= kinds, snapshot["audit"]
+
+
+def test(worker, directory):
+    for value in [float("nan"),float("inf"),-float("inf")]:
+        fake = {"objects":[{"id":0,"truncated":False,"properties":[
+            {"name":{"text":"length"},"value":1},{"name":{"text":"0"},"value":value}]}]}
+        try:
+            numbers(fake,{"ref":0})
+            raise AssertionError("Nonfinite note accepted")
+        except ValueError:
+            pass
+    inputs = directory/"inputs"
+    create(inputs)
+    fake_checkout = directory/"fake-checkout"
+    (fake_checkout/".git").mkdir(parents=True)
+    try:
+        external_directory(fake_checkout/"dump")
+        raise AssertionError("Git output guard failed")
+    except ValueError:
+        pass
+    secret = directory/"outside-secret"
+    secret.write_text("synthetic denied data")
+    (inputs/"escape-link").symlink_to(secret)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1",0))
+        listener.listen()
+        address = f"127.0.0.1:{listener.getsockname()[1]}"
+        for name, target, readable in [("outside",secret,False),("symlink",inputs/"escape-link",False),
+                                       ("readonly-input",inputs/"fixture.swf",True)]:
+            report = run(worker,inputs/"run.json",directory/name,probe=[str(target),address])
+            assert report["exitCode"] == 0, (directory/name/"stderr.txt").read_text()
+            actual = json.loads((directory/name/"snapshot.json").read_text())
+            assert actual == {"readAllowed":readable,"writeAllowed":False,"networkAllowed":False}, actual
+    captures = []
+    for name in ["first","repeat"]:
+        report = run(worker,inputs/"run.json",directory/name)
+        assert report["exitCode"] == 0, (directory/name/"stderr.txt").read_text()
+        snapshot = json.loads((directory/name/"snapshot.json").read_text())
+        assert_snapshot(snapshot)
+        captures.append(snapshot)
+        for frame, rgb in [(1,bytes([200,80,40])),(2,bytes([40,160,80]))]:
+            data = (directory/name/f"frame-{frame}.ppm").read_bytes()
+            header = b"P6\n320 240\n255\n"
+            assert data.startswith(header) and len(data) == len(header)+320*240*3
+            pixels = data[len(header):]
+            assert pixels[:3] == bytes([17,34,51]), "background pixels differ"
+            offset = (50*320+50)*3
+            assert pixels[offset:offset+3] == rgb, "ActionScript drawing pixels differ"
+    assert captures[0] == captures[1], "fresh worker captures are not reproducible"
+    for name in ["budget","audit"]:
+        result = run(worker,inputs/f"{name}.json",directory/name)
+        assert result["exitCode"] == 0
+        data = json.loads((directory/name/"snapshot.json").read_text())
+        assert data["captures"][0]["state"]["incomplete"] if name == "budget" else data["audit"]["truncated"]
+        try:
+            export(directory/name/"snapshot.json",directory/f"bad-{name}-export")
+            raise AssertionError("Incomplete evidence accepted for export")
+        except ValueError:
+            pass
+    result = run(worker,inputs/"input.json",directory/"polled-input")
+    assert result["exitCode"] == 0
+    data = json.loads((directory/"polled-input/snapshot.json").read_text())
+    for capture, expected in zip(data["captures"],[True,False]):
+        state = capture["state"]
+        assert properties(state,state["roots"][0]["value"])["polledEnter"] is expected
+    corrupt = json.loads((inputs/"run.json").read_text())
+    corrupt["resources"][0]["sha256"] = "0"*64
+    (inputs/"corrupt.json").write_text(json.dumps(corrupt))
+    invalid = run(worker,inputs/"corrupt.json",directory/"corrupt-cache")
+    assert invalid["exitCode"] != 0 and "hash mismatch" in (directory/"corrupt-cache/stderr.txt").read_text()
+    started = time.monotonic()
+    loop = run(worker,inputs/"loop.json",directory/"loop",timeout=5)
+    assert time.monotonic()-started < 7 and loop["termination"] in (None,"wall-time-limit")
+    assert loop["exitCode"] != 0, "halted AVM must not report success"
+    if loop["termination"] is None:
+        snapshot = json.loads((directory/"loop/snapshot.json").read_text())
+        assert snapshot["avm1Halted"] and snapshot["audit"]["runtimeErrors"] > 0
+        try:
+            export(directory/"loop/snapshot.json",directory/"bad-halted-export")
+            raise AssertionError("Halted initialized chart accepted for export")
+        except ValueError:
+            pass
+    # Exercise the independent outer timeout even when the interpreter cooperates.
+    deadline = run(worker,inputs/"loop.json",directory/"deadline",timeout=0)
+    assert deadline["termination"] == "wall-time-limit" and deadline["exitCode"] != 0
+    memory = run(worker,inputs/"run.json",directory/"memory",memory_mb=0)
+    assert memory["termination"] == "resident-memory-limit" and memory["exitCode"] != 0
+    print(json.dumps({"passed":True,"directory":str(directory),
+        "checks":["outside read/write denied","input write denied","symlink escape denied","network denied",
+            "AVM resource requests denied","exact before/after graph","getter not invoked","sparse and special values",
+            "FlashVars and URL parameters","two offscreen pixel buffers","fresh-process repeat","cache integrity",
+            "budget and audit exhaustion rejected","frame-polled key input","halted initialized chart rejected",
+            "Git output guard","outer timeout","outer memory limit"]},indent=2))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("worker",type=Path)
+    parser.add_argument("--directory",type=Path)
+    args = parser.parse_args()
+    directory = args.directory or Path(tempfile.mkdtemp(prefix="ddi-ruffle-test-"))
+    directory.mkdir(parents=True,exist_ok=True)
+    test(args.worker,directory)
