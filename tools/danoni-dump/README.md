@@ -106,6 +106,18 @@ automatically review linked terms. Browser requests retain their actual Accept,
 Origin and Referer, while cookies and Authorization are never forwarded. Cache
 reuse respects `Vary` and fails on a mismatched request context.
 
+Before switching from an independently acquired legacy cache to browser capture,
+consolidate it into the shared cache without concurrent writers:
+
+```sh
+node merge-cache.mjs "$HOME/Music/DanOni/legacy-pilot/discovery/cache" "$HOME/Music/DanOni/.cache"
+```
+
+This makes no requests, verifies imported blobs, preserves refusals and aliases,
+and rejects conflicting response identities. Existing matching target records
+keep their request/Vary context; a merge report retains both retrieval histories.
+Use the resulting shared cache for subsequent discovery and browser captures.
+
 ## Limits and diagnostics
 
 Only explicitly reviewed engine hashes can produce a trusted reference parse.
