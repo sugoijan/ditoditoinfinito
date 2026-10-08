@@ -297,3 +297,89 @@ Checked against danoniplus v51.2.2, `develop` @ `80c3c47` (2026-10-08), by readi
 - danoniplus docs wiki: https://github.com/cwtickle/danoniplus-docs/wiki — pages `dos_header`, `dos_score`, `dos_effect`, `dos_setting`, `AboutJudgment`, `AboutGameSystem`, `AboutFrameProcessing`, `SpeedChange`, `keys`, `dos-e0001-speedData`, `dos-e0002-colorData`, `dos-e0002-ncolorData`, `dos-e0003-wordData`, `dos-e0004-animationData`, `dos-e0005-motionData`, `dos-e0006-keychData`, `dos-e0007-scrollchData`, `dos-e0008-styleData`, `dos-h0001`…`dos-h0105`, `dos-s0003-initialGauge`
 - Community wiki: https://wikiwiki.jp/danoniplus/
 - DDR references: https://remywiki.com/DanceDanceRevolution_Scoring_System ; https://scrapbox.io/0b5vr/Timing_Window
+
+## 2026-10-08 addendum — deployed works and oracle capture corrections
+
+This addendum qualifies/supersedes the corresponding statements in B1 and
+Part C above. Survey and proposed local dump contract:
+[danoni-corpus.md](danoni-corpus.md). No browser reference parses have yet been
+captured. Source inspection below uses danoniplus v51.2.2 at commit
+`80c3c4776ed1727c10c78bcf6eb8963a4ed77523`; deployed works also serve older
+versions, so pin the actual loaded script bytes for differential comparisons.
+
+- **A work need not have one dos text.** Inline input is decoded by the HTML
+  parser, then converted to an object. An external `.txt` or `.js` is loaded
+  as JavaScript, calls `externalDosInit`, and merges `g_externalDos` over that
+  object. Custom code can later alter the object directly. Preserve exact
+  strings passed to `dosConvert`, original responses and the final effective
+  object separately. `dosConvert` also serves key-definition strings, so
+  record caller/stage. Its default accepts both `&` and `|`; HTML flags can
+  disable ampersand splitting or enable URI decoding. Duplicate keys take the
+  last value; the split is at the first `=` and field whitespace is retained.
+  [Source: dosConverter.js, dosConvert/loadChartFile](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dosConverter.js).
+- **Multi-chart numbering is not always an index suffix.** `externalDosDivide`,
+  `externalDosLock`, `dosNo`, resolved `dosNos` and `scoreNos` can separate
+  selection index, file number and note-array suffix. External resource
+  charset can differ from HTML charset. The live
+  [Tanoshii page](https://kt-rpg.sakura.ne.jp/danoni/html5/danoni/danoni_tanoshii.html)
+  explicitly requests Shift_JIS for its external dos.
+  [Authoring controls](https://github.com/cwtickle/danoniplus/wiki/HowtoMake).
+- **B1's expression claim is too broad.** Tap and hold tokens use
+  `parseFloat`, filter nonnumeric tokens, transform/round frames, and sort
+  numerically. Thus `100+20` is read as `100`, not `120`. Several effect
+  fields instead invoke `C_TYP_CALC`. Flat hold endpoints are sorted too;
+  keep an odd trailing endpoint in the parse reference, since later play
+  preparation drops it. When both speed spellings are present, the inspected
+  implementation chooses `speed_change`. Effect list references are resolved
+  by the engine's line/prefix logic, not a general recursive alias evaluator.
+  [Source: dataLoader.js, scoreConvert/getRefData/pushArrows](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
+- **Freeze names require the engine's mapping.** Examples include
+  `leftdia → frzLdia`, `rightdia → frzRdia`, `sleft → sfrzLeft`, and
+  `oni → foni`; `frz` plus capitalization is not a general algorithm.
+  [Source: danoni_constants.js, g_escapeStr.frzName](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/danoni_constants.js).
+- **Source frames and parsed frames are distinct.** Full `scoreConvert`
+  computes `realAdjustment = (userAdjustment + headerAdjustment) /
+  playbackRate + preblankFrame`, then uses its floor for online audio (round
+  for the local-file branch). Each parsed note frame is
+  `round((parseFloat(raw) - blankFrame) / playbackRate + blankFrame +
+  intAdjustment)`. Fractional adjustment affects audio scheduling. Do not
+  zero author timing fields merely to make a reference match raw data.
+  `startFrame` selects the playback start; it is not a universal subtraction
+  applied to every note by `scoreConvert`.
+  [Source: dataLoader.js, scoreConvert/getStartFrame](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
+- **Boost uses arrival time, correcting Part C item 4.** `pushArrows`
+  chooses boost through `getSpdByFrame(arrowArrivalFrm)`. Separately,
+  non-immediate color events are converted to spawn times during
+  `pushArrows`, mutating the score object. A parse oracle must capture the
+  full `scoreConvert` return before that mutation. Startup's analysis-only
+  return omits lyrics and later color merging; play preparation can also
+  repeat conversion with automatic extra lead-in and copy back only selected
+  fields, so its final prepared state need not equal the last converter
+  return. Record every invocation, plus the pre-pushArrows snapshot and stage. [Source: dataLoader.js, prepareScoreData/scoreConvert/pushArrows](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
+- **Frame-to-tick conversion need not be lossy, correcting Part C item 1.**
+  With this repository's 48 ticks/beat and synthetic 75 BPM, one beat is
+  0.8 seconds = 48 frames at 60 Hz. One integer source frame is exactly one
+  tick; 30 Hz sources use two ticks. This follows PLAN §3.2 and decision 4.
+  Fractional input accepted by `parseFloat` and playback-rate rounding remain
+  separate issues to test against the engine.
+- **Music and media may be generated or indirect.** Encoded music `.js`
+  and `.txt` run `musicInit` and expose base64 `g_musicdata`; ordinary online
+  music is fetched before becoming a blob URL. Preserve original music URL,
+  wrapper bytes and derived decoded bytes. Images may come from preloads,
+  CSS and custom JS, and lyrics may be images rather than `word_data`.
+  [Audio source: dataLoader.js, loadAndSetupAudio/musicInit](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js);
+  [preloads: dosConverter.js](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dosConverter.js);
+  [live Summer Sky](https://vorhandensein.sakura.ne.jp/danoni/426_summersky/).
+- **Generated input occurs in published collections.** The live
+  [7ikey Package dos.txt](https://apoi108.sakura.ne.jp/danoni/7ikey_package/dos.txt)
+  constructs its dos from JS objects/arrays; treating it as a plain text score
+  or extracting one template literal would be incomplete. The published
+  [key-change extension](https://github.com/suzme/danoni-key-change/blob/master/js/key_change.js)
+  also demonstrates direct rewriting of difficulty/lane/hold data; its live
+  deployment was not verified in this survey. Keep those mechanisms distinct.
+
+Part B describes CW Edition, not every Flash-era dos dialect. The upstream
+[migration tool](https://github.com/cwtickle/danoniplus-converter) documents
+legacy header/key/color translations; do not silently apply CW semantics to
+an unconverted legacy file. No Flash extraction or protected content is part
+of the proposed corpus.
