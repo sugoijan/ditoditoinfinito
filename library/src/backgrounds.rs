@@ -17,10 +17,12 @@
 //!   StepMania looks the segment up by beat. The per-song offset, which
 //!   shifts the song timing, moves it with the notes. Of several changes on
 //!   one beat the last wins.
-//! - The file is matched case-insensitively against the song's files.
-//!   Videos, scripted animations, folders, `-random-` and missing files show
-//!   the song background instead (StepMania would play them, or pick a
-//!   random animation).
+//! - The file is matched case-insensitively against the song's files, then
+//!   against the shared folders in StepMania's order (`SongMovies/<pack>/`,
+//!   `SongMovies/`, `RandomMovies/`; [`shared_candidates`]). Videos,
+//!   scripted animations, folders, `-random-` and missing files show the
+//!   song background instead (StepMania would play them, or pick a random
+//!   animation).
 //! - The transition is field 9 when present, else `CrossFade` when field 4
 //!   is a non-zero integer, else a cut. `CrossFade` fades over 1 s,
 //!   `CrossFade_Faster` 0.75 s, `CrossFade_Fastest` 0.5 s; StepMania's other
@@ -145,6 +147,155 @@ pub fn referenced_images<S: AsRef<str>>(
         }
     }
     out
+}
+
+/// Names StepMania gives a meaning instead of looking up a file.
+fn is_special(name: &str) -> bool {
+    let name = name.trim();
+    [NO_SONG_BG, SONG_BACKGROUND, "-random-"]
+        .iter()
+        .any(|s| name.eq_ignore_ascii_case(s))
+}
+
+/// The files `song`'s background changes name, as written (trimmed), in
+/// order of first use, without duplicates or StepMania's special names.
+fn change_files(song: &Song) -> Vec<String> {
+    let mut changes: Vec<(Tick, &[String])> = layer_one(song).collect();
+    changes.sort_by_key(|(t, _)| *t);
+    let mut out: Vec<String> = Vec::new();
+    for (_, f) in changes {
+        let name = f[1].trim();
+        if name.is_empty() || is_special(name) {
+            continue;
+        }
+        if !out.iter().any(|o| key(o) == key(name)) {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+/// Shared-folder paths StepMania tries, in order, for a background-change
+/// file the song's folder does not have
+/// (`BackgroundUtil::GetGlobalRandomMoviePaths`): `SongMovies/<pack>/`,
+/// `SongMovies/`, `RandomMovies/`. Paths as from
+/// [`crate::pack::shared_path`].
+pub fn shared_candidates(reference: &str, pack: &str) -> Vec<String> {
+    let Some(name) = join_relative("", reference) else {
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity(3);
+    if !pack.is_empty() {
+        out.push(format!("SongMovies/{pack}/{name}"));
+    }
+    out.push(format!("SongMovies/{name}"));
+    out.push(format!("RandomMovies/{name}"));
+    out
+}
+
+/// Images `song`'s background changes name that its folder `dir` does not
+/// have (any file of the import, `all_paths`, relative to the import root),
+/// as written: the ones to look up in shared folders. A song-folder file
+/// always wins, as in StepMania, even when it is not kept (the song's own
+/// background, or images beyond what is stored).
+pub fn absent_images<S: AsRef<str>>(song: &Song, dir: &str, all_paths: &[S]) -> Vec<String> {
+    change_files(song)
+        .into_iter()
+        .filter(|name| {
+            is_image(name)
+                && !join_relative(dir, name).is_some_and(|w| {
+                    let w = w.to_lowercase();
+                    all_paths.iter().any(|p| p.as_ref().to_lowercase() == w)
+                })
+        })
+        .collect()
+}
+
+/// Of `names` (from [`absent_images`]), those found among `shared`
+/// (shared-folder paths, any case): `(name as written, shared path)`, the
+/// first match in StepMania's order. These go in the schedule's images
+/// under the name as written.
+pub fn shared_images<S: AsRef<str>, T: AsRef<str>>(
+    names: &[S],
+    pack: &str,
+    shared: &[T],
+) -> Vec<(String, String)> {
+    names
+        .iter()
+        .map(AsRef::as_ref)
+        .filter_map(|name| {
+            let found = shared_candidates(name, pack).into_iter().find_map(|c| {
+                let c = c.to_lowercase();
+                shared
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .find(|s| s.to_lowercase() == c)
+            })?;
+            Some((name.to_string(), found.to_string()))
+        })
+        .collect()
+}
+
+/// The images `song`'s background changes name that exist nowhere: not in
+/// its folder `dir` (any file of the import, `all_paths`, relative to the
+/// import root), nor in `shared` (shared-folder paths). For the import's
+/// warnings. Only images count: videos and scripted animations are never
+/// shown, so whether they exist makes no difference.
+pub fn missing_images<S: AsRef<str>, T: AsRef<str>>(
+    song: &Song,
+    dir: &str,
+    all_paths: &[S],
+    pack: &str,
+    shared: &[T],
+) -> Vec<String> {
+    fn has<S: AsRef<str>>(list: &[S], wanted: &str) -> bool {
+        list.iter().any(|p| p.as_ref().to_lowercase() == wanted)
+    }
+    change_files(song)
+        .into_iter()
+        .filter(|name| is_image(name))
+        .filter(|name| {
+            let local = join_relative(dir, name).is_some_and(|w| has(all_paths, &w.to_lowercase()));
+            let in_shared = shared_candidates(name, pack)
+                .iter()
+                .any(|c| has(shared, &c.to_lowercase()));
+            !local && !in_shared
+        })
+        .collect()
+}
+
+/// Background-change files the game never shows (videos, scripted
+/// animations: anything but images), as written, each with whether it
+/// exists in the song's folder `dir` (any file or folder of the import,
+/// `all_paths`) or in `shared` (shared-folder paths). For the import's
+/// notes to pack authors.
+pub fn unshown_files<S: AsRef<str>, T: AsRef<str>>(
+    song: &Song,
+    dir: &str,
+    all_paths: &[S],
+    pack: &str,
+    shared: &[T],
+) -> Vec<(String, bool)> {
+    // `wanted` (lower case) is a file, or a folder (a scripted animation).
+    fn has<S: AsRef<str>>(list: &[S], wanted: &str) -> bool {
+        let folder = format!("{wanted}/");
+        list.iter().any(|p| {
+            let p = p.as_ref().to_lowercase();
+            p == wanted || p.starts_with(&folder)
+        })
+    }
+    change_files(song)
+        .into_iter()
+        .filter(|name| !is_image(name))
+        .map(|name| {
+            let local =
+                join_relative(dir, &name).is_some_and(|w| has(all_paths, &w.to_lowercase()));
+            let in_shared = shared_candidates(&name, pack)
+                .iter()
+                .any(|c| has(shared, &c.to_lowercase()));
+            (name, local || in_shared)
+        })
+        .collect()
 }
 
 /// Seconds of a StepMania background transition (`BackgroundTransitions/`),
@@ -490,6 +641,97 @@ mod tests {
         assert_eq!(shown(&seg, 5.0, &[]).current, None);
         // No schedule (calibration): the song background, if loaded.
         assert_eq!(shown(&[], 1.0, &loaded).current, Some(0));
+    }
+
+    #[test]
+    fn shared_images_follow_stepmanias_search_order() {
+        let s = song(
+            "#BGCHANGES:4=MAX-EXTREME/robot1.png=1=0=0=1,6=robot2.png=1=0=0=1,\
+             8=local.png=1=0=0=1,10=movie.avi=1=0=0=1,12=-nosongbg-=1=0=0=0;",
+        );
+        assert_eq!(
+            shared_candidates("MAX-EXTREME/robot1.png", "Pack"),
+            vec![
+                "SongMovies/Pack/MAX-EXTREME/robot1.png",
+                "SongMovies/MAX-EXTREME/robot1.png",
+                "RandomMovies/MAX-EXTREME/robot1.png"
+            ]
+        );
+        let shared = [
+            "RandomMovies/MAX-EXTREME/Robot1.png",
+            "RandomMovies/robot2.png",
+            "SongMovies/Pack/robot2.png",
+            "RandomMovies/local.png",
+        ];
+        let all = ["Pack/S/s.sm", "Pack/S/local.png", "Pack/S/bg.png"];
+        let absent = absent_images(&s, "Pack/S", &all);
+        assert_eq!(absent, vec!["MAX-EXTREME/robot1.png", "robot2.png"]);
+        assert_eq!(
+            shared_images(&absent, "Pack", &shared),
+            vec![
+                // Case-insensitive, under RandomMovies.
+                (
+                    "MAX-EXTREME/robot1.png".to_string(),
+                    "RandomMovies/MAX-EXTREME/Robot1.png".to_string()
+                ),
+                // The pack's own SongMovies folder comes first.
+                (
+                    "robot2.png".to_string(),
+                    "SongMovies/Pack/robot2.png".to_string()
+                ),
+                // local.png is in the song folder: never looked up, nor
+                // is the video.
+            ]
+        );
+        // A shared image then plays like a local one.
+        let images = ["MAX-EXTREME/robot1.png"];
+        let seg = schedule(&s, &images, true);
+        assert_eq!(seg[1].image, BgImage::File("MAX-EXTREME/robot1.png".into()));
+    }
+
+    #[test]
+    fn missing_images_are_those_found_nowhere() {
+        let s = song(
+            "#BGCHANGES:4=a.png=1=0=0=1,6=movie.avi=1=0=0=1,8=gone.png=1=0=0=1,\
+             10=MAX-EXTREME/robot1.png=1=0=0=1,12=anim=1=0=0=1,14=gone.avi=1=0=0=1,\
+             16=-random-=1=0=0=1;",
+        );
+        let all = [
+            "P/S/s.sm",
+            "P/S/A.PNG",
+            "P/S/movie.avi",
+            "P/S/anim/default.xml",
+        ];
+        let shared = ["RandomMovies/MAX-EXTREME/Robot1.png"];
+        assert_eq!(
+            missing_images(&s, "P/S", &all, "P", &shared),
+            // gone.avi is missing too, but videos are never shown.
+            vec!["gone.png"]
+        );
+    }
+
+    #[test]
+    fn unshown_files_are_everything_but_images() {
+        let s = song(
+            "#BGCHANGES:4=a.png=1=0=0=1,6=movie.avi=1=0=0=1,8=anim=1=0=0=1,\
+             10=gone.avi=1=0=0=1,12=MAX-EXTREME/fire1.avi=1=0=0=1,14=-random-=1=0=0=1;",
+        );
+        let all = [
+            "P/S/s.sm",
+            "P/S/A.PNG",
+            "P/S/Movie.AVI",
+            "P/S/anim/default.xml",
+        ];
+        let shared = ["RandomMovies/MAX-EXTREME/fire1.avi"];
+        assert_eq!(
+            unshown_files(&s, "P/S", &all, "P", &shared),
+            vec![
+                ("movie.avi".to_string(), true),
+                ("anim".to_string(), true),
+                ("gone.avi".to_string(), false),
+                ("MAX-EXTREME/fire1.avi".to_string(), true),
+            ]
+        );
     }
 
     #[test]

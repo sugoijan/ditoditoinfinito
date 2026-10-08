@@ -134,6 +134,8 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
                 banner: p.banner.clone(),
                 background: p.background.clone(),
                 bg_images,
+                // Bundled songs have no shared folders.
+                bg_shared: Vec::new(),
                 credit: p.credit.clone(),
             },
             &song,

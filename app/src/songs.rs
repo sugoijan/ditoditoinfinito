@@ -82,10 +82,11 @@ pub(crate) struct ImportedSong {
 }
 
 /// Where a song's files live.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Origin {
     Bundled,
-    Imported,
+    /// From the library, imported with the pack of this name.
+    Imported(String),
 }
 
 /// Every song the game can list.
@@ -190,13 +191,48 @@ async fn imported_blob(db: &Db, id: &str, file: &str) -> Result<Blob, String> {
         .ok_or_else(|| format!("{file} is missing from the stored song; import it again"))
 }
 
+/// Background-change images a song shows at most, its own and shared ones
+/// together (each is decoded and kept on the GPU during play).
+pub(crate) const MAX_BG_IMAGES: usize = 32;
+
+/// Storage key of an image from a shared background folder
+/// (`RandomMovies/…`, `SongMovies/…`), kept for the whole library.
+pub(crate) fn shared_key(shared_path: &str) -> String {
+    format!("{SHARED_PREFIX}{shared_path}")
+}
+
+const SHARED_PREFIX: &str = "shared/";
+
+/// Paths of the shared background images in the library.
+pub(crate) async fn shared_paths(db: &Db) -> Result<Vec<String>, String> {
+    Ok(db
+        .keys_with_prefix(idb::FILES, SHARED_PREFIX)
+        .await?
+        .into_iter()
+        .filter_map(|k| k.strip_prefix(SHARED_PREFIX).map(str::to_string))
+        .collect())
+}
+
 /// A background image file of the song (bundled or imported): its
 /// background, or an image its background changes show (stored as
-/// `bg/<path>` when imported). `None` when the song has no background.
+/// `bg/<path>` when imported, or found in a shared folder: `shared` maps
+/// names to shared paths). `None` when the song has no background.
 pub(crate) async fn load_background(
     entry: &ManifestEntry,
     what: &BgImage,
+    shared: &[(String, String)],
 ) -> Result<Option<Blob>, String> {
+    if let BgImage::File(name) = what
+        && let Some((_, path)) = shared.iter().find(|(n, _)| n == name)
+    {
+        let db = Db::open().await?;
+        return db
+            .get(idb::FILES, &shared_key(path))
+            .await?
+            .and_then(|v| v.dyn_into::<Blob>().ok())
+            .map(Some)
+            .ok_or_else(|| format!("shared background {path} is no longer stored"));
+    }
     let (stored, bundled) = match what {
         BgImage::Song => match entry.background.as_ref() {
             Some(file) => (file.clone(), file.clone()),
@@ -218,6 +254,9 @@ pub(crate) struct LoadedSong {
     pub(crate) entry: ManifestEntry,
     pub(crate) song: Song,
     pub(crate) music_bytes: Vec<u8>,
+    /// Background-change images found in the library's shared folders:
+    /// `(name as the simfile writes it, shared path)`.
+    pub(crate) shared_bg: Vec<(String, String)>,
 }
 
 /// Finds a song by id among bundled and imported songs and loads it.
@@ -233,7 +272,7 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, String> {
             .ok_or_else(|| format!("unknown song `{id}`"))?;
         let song: ImportedSong =
             serde_json::from_str(&json).map_err(|e| format!("stored song `{id}`: {e}"))?;
-        (song.entry, Origin::Imported)
+        (song.entry, Origin::Imported(song.pack))
     } else {
         let entry = load_manifest()
             .await?
@@ -243,13 +282,13 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, String> {
             .ok_or_else(|| format!("unknown song `{id}`"))?;
         (entry, Origin::Bundled)
     };
-    let (chart_text, music_bytes) = match origin {
+    let (chart_text, music_bytes) = match &origin {
         Origin::Bundled => {
             let chart_text = fetch_text(&format!("songs/{}/{}", entry.id, entry.chart)).await?;
             let music = fetch_bytes(&format!("songs/{}/{}", entry.id, entry.music)).await?;
             (chart_text, music)
         }
-        Origin::Imported => {
+        Origin::Imported(_) => {
             let db = Db::open().await?;
             let chart = blob_bytes(&imported_blob(&db, &entry.id, &entry.chart).await?).await?;
             let music = blob_bytes(&imported_blob(&db, &entry.id, &entry.music).await?).await?;
@@ -259,10 +298,24 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, String> {
     };
     let ext = entry.chart.rsplit('.').next().unwrap_or("sm");
     let song = parse_simfile(&chart_text, ext).map_err(|e| format!("{}: {e}", entry.chart))?;
+    // Images the song's folder lacks may be in a shared folder imported
+    // before or after it; looked up now so the order does not matter.
+    let shared_bg = match &origin {
+        Origin::Imported(pack) => {
+            let db = Db::open().await?;
+            let shared = shared_paths(&db).await.unwrap_or_default();
+            let mut found =
+                ddi_library::backgrounds::shared_images(&entry.bg_shared, pack, &shared);
+            found.truncate(MAX_BG_IMAGES.saturating_sub(entry.bg_images.len()));
+            found
+        }
+        Origin::Bundled => Vec::new(),
+    };
     Ok(LoadedSong {
         entry,
         song,
         music_bytes,
+        shared_bg,
     })
 }
 

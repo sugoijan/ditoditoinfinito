@@ -242,6 +242,30 @@ impl Db {
             .collect())
     }
 
+    /// Keys in `store` starting with `prefix`.
+    pub(crate) async fn keys_with_prefix(
+        &self,
+        store: &str,
+        prefix: &str,
+    ) -> Result<Vec<String>, String> {
+        let tx = self.transaction(&[store], IdbTransactionMode::Readonly)?;
+        let req = prefix_range(prefix)
+            .and_then(|range| tx.object_store(store)?.get_all_keys_with_key(&range.into()))
+            .map_err(|e| err("getAllKeys", e))?;
+        complete(&tx)
+            .await
+            .map_err(|e| err(&format!("reading {store}"), e))?;
+        Ok(req
+            .result()
+            .ok()
+            .and_then(|v| v.dyn_into::<Array>().ok())
+            .map(|a| a.to_vec())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|k| k.as_string())
+            .collect())
+    }
+
     /// Every (key, value) pair of a store, in key order.
     pub(crate) async fn entries(&self, store: &str) -> Result<Vec<(String, JsValue)>, String> {
         let tx = self.transaction(&[store], IdbTransactionMode::Readonly)?;

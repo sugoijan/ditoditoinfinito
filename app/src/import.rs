@@ -19,22 +19,30 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::{Blob, File};
 use yew::Callback;
 
-use crate::songs::{ImportedSong, file_key};
+use crate::songs::{ImportedSong, MAX_BG_IMAGES, file_key};
 use crate::web::files::{PickedFile, blob_bytes, bytes_blob};
 use crate::web::idb::{self, Db, Write};
 use crate::web::js_err;
-
-/// Background-change images stored per song at most (each is decoded and
-/// kept on the GPU during play).
-const MAX_BG_IMAGES: usize = 32;
 
 /// What an import did, for the panel under the pickers.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ImportReport {
     /// Titles of the songs stored.
     pub(crate) imported: Vec<String>,
-    /// (song folder or file, reason) for everything left out.
+    /// (song folder or file, reason) for everything left out: simfiles
+    /// that could not be imported, folders with music but no simfile.
     pub(crate) skipped: Vec<(String, String)>,
+    /// (song folder, problem) for songs imported with something missing.
+    pub(crate) warnings: Vec<(String, String)>,
+    /// (song folder, detail) for inconsistencies that make no difference
+    /// in play (a renamed file that a stand-in replaces, background videos):
+    /// shown to pack authors who ask for details.
+    pub(crate) notes: Vec<(String, String)>,
+    /// Images stored from shared background folders (`RandomMovies`,
+    /// `SongMovies`).
+    pub(crate) shared_images: usize,
+    /// Other files in shared folders, left out (videos are not played).
+    pub(crate) shared_skipped: usize,
     /// Set when the import could not run at all.
     pub(crate) error: Option<String>,
 }
@@ -166,7 +174,29 @@ async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport
     let mut paths: Vec<String> = sources.keys().cloned().collect();
     paths.sort();
     let candidates = pack::find_songs(&paths, &fallback);
-    if candidates.is_empty() {
+    // Shared background folders: every file, for telling what exists, and
+    // the images, which are stored for the whole library.
+    // Nothing inside a song folder is shared, even under a shared name.
+    let in_song = |p: &str| {
+        candidates
+            .iter()
+            .any(|c| !c.dir.is_empty() && p.starts_with(&format!("{}/", c.dir)))
+    };
+    let shared_files: Vec<(String, String)> = paths
+        .iter()
+        .filter(|p| !in_song(p))
+        .filter_map(|p| Some((pack::shared_path(p)?, p.clone())))
+        .collect();
+    for (dir, music) in pack::folders_without_simfile(&paths) {
+        report.skipped.push((
+            dir,
+            format!(
+                "has music ({}) but no .sm, .ssc or .dwi simfile",
+                file_name(&music)
+            ),
+        ));
+    }
+    if candidates.is_empty() && shared_files.is_empty() {
         if report.skipped.is_empty() {
             report.error = Some("No .sm, .ssc or .dwi files were found in what was picked.".into());
         }
@@ -179,6 +209,21 @@ async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport
             return report;
         }
     };
+    let images: Vec<&(String, String)> = shared_files.iter().filter(|(s, _)| is_image(s)).collect();
+    report.shared_skipped = shared_files.len() - images.len();
+    if !images.is_empty() {
+        progress.emit(format!(
+            "storing {} shared background images…",
+            images.len()
+        ));
+        let (stored, failed) = store_shared(&db, &images, &sources).await;
+        report.shared_images = stored;
+        report.skipped.extend(failed);
+    }
+    // What shared folders hold: this import's files and the images already
+    // in the library.
+    let mut shared: Vec<String> = shared_files.iter().map(|(s, _)| s.clone()).collect();
+    shared.extend(crate::songs::shared_paths(&db).await.unwrap_or_default());
     let n = candidates.len();
     // Two folders with the same pack and song folder names share an id.
     let mut seen: HashMap<String, String> = HashMap::new();
@@ -197,12 +242,20 @@ async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport
             continue;
         }
         seen.insert(id.clone(), label.clone());
-        match import_song(&db, c, &id, &name, &sources, &paths).await {
-            Ok(title) => report.imported.push(title),
+        match import_song(&db, c, &id, &name, &sources, &paths, &shared).await {
+            Ok((title, warnings, notes)) => {
+                report.imported.push(title);
+                report
+                    .warnings
+                    .extend(warnings.into_iter().map(|w| (label.clone(), w)));
+                report
+                    .notes
+                    .extend(notes.into_iter().map(|n| (label.clone(), n)));
+            }
             Err(e) => report.skipped.push((label, e)),
         }
     }
-    if !report.imported.is_empty() {
+    if !report.imported.is_empty() || report.shared_images > 0 {
         // Not awaited: Firefox answers with a permission prompt, and the
         // promise stays pending until the player responds.
         spawn_local(request_persistence());
@@ -228,7 +281,10 @@ async fn import_song(
     name: &str,
     sources: &HashMap<String, Source>,
     paths: &[String],
-) -> Result<String, String> {
+    shared: &[String],
+) -> Result<(String, Vec<String>, Vec<String>), String> {
+    let mut warnings = Vec::new();
+    let mut notes = Vec::new();
     let chart_bytes = read_bytes(source(sources, &c.chart)?).await?;
     let text = pack::decode_text(&chart_bytes);
     drop(chart_bytes);
@@ -264,6 +320,36 @@ async fn import_song(
     let music = assets
         .music
         .ok_or("no audio file found next to the simfile")?;
+    // A file the simfile names but the folder lacks is only worth a warning
+    // when nothing stands in for it: StepMania quietly uses the folder's
+    // audio or images instead (`Song::TidyUpData`), and packs often rename
+    // files without updating the simfile. Missing music with no stand-in
+    // already stops the import above.
+    for (tag, reference) in &assets.missing {
+        let stand_in = match *tag {
+            "#BANNER" => assets.banner.is_some(),
+            "#BACKGROUND" => assets.background.is_some(),
+            _ => true,
+        };
+        if !stand_in {
+            warnings.push(format!(
+                "{tag} names {reference}, which is missing; the song has no {}",
+                tag.trim_start_matches('#').to_lowercase()
+            ));
+        } else {
+            let used = match *tag {
+                "#MUSIC" => Some(&music),
+                "#BANNER" => assets.banner.as_ref(),
+                _ => assets.background.as_ref(),
+            };
+            if let Some(used) = used {
+                notes.push(format!(
+                    "{tag} names {reference}, which is missing; {} is used instead",
+                    file_name(used)
+                ));
+            }
+        }
+    }
     let id = id.to_string();
     let (title, artist) = simfile_names(&song, name);
     let named = |role: &str, path: &str| match extension(path) {
@@ -281,7 +367,40 @@ async fn import_song(
         paths,
         background.as_ref().map(|(_, path)| path.as_str()),
     );
-    bg_images.truncate(MAX_BG_IMAGES);
+    if bg_images.len() > MAX_BG_IMAGES {
+        warnings.push(format!(
+            "{} background-change images; only the first {MAX_BG_IMAGES} are kept",
+            bg_images.len()
+        ));
+        bg_images.truncate(MAX_BG_IMAGES);
+    }
+    let missing = ddi_library::backgrounds::missing_images(&song, &c.dir, paths, &c.pack, shared);
+    let unshown = ddi_library::backgrounds::unshown_files(&song, &c.dir, paths, &c.pack, shared);
+    let (present, absent): (Vec<_>, Vec<_>) = unshown.into_iter().partition(|(_, exists)| *exists);
+    let names = |list: Vec<(String, bool)>| {
+        list.into_iter()
+            .map(|(n, _)| n)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if !present.is_empty() {
+        notes.push(format!(
+            "background changes use videos or animations, which are not played (the song background shows instead): {}",
+            names(present)
+        ));
+    }
+    if !absent.is_empty() {
+        notes.push(format!(
+            "background changes name videos or animations that are missing (they would not be played anyway): {}",
+            names(absent)
+        ));
+    }
+    if !missing.is_empty() {
+        warnings.push(format!(
+            "background changes name images that were not found (the song background shows instead): {}",
+            missing.join(", ")
+        ));
+    }
     let mut entry = summarize(
         EntryMeta {
             id: id.clone(),
@@ -292,6 +411,7 @@ async fn import_song(
             banner: banner.as_ref().map(|(n, _)| n.clone()),
             background: background.as_ref().map(|(n, _)| n.clone()),
             bg_images: bg_images.iter().map(|(r, _)| r.clone()).collect(),
+            bg_shared: ddi_library::backgrounds::absent_images(&song, &c.dir, paths),
             credit: song.credit.trim().to_string(),
         },
         &song,
@@ -344,7 +464,64 @@ async fn import_song(
         value: json.into(),
     });
     db.write(writes).await?;
-    Ok(title)
+    Ok((title, warnings, notes))
+}
+
+/// Shared images written per storage transaction at most: a large shared
+/// folder neither sits in memory whole nor fails as a whole.
+const SHARED_BATCH_BYTES: f64 = 32.0 * 1024.0 * 1024.0;
+
+/// Stores the images of shared background folders, keyed by their path in
+/// the folder ([`crate::songs::shared_key`]), replacing earlier copies, in
+/// batches. Returns how many were stored and the ones that were not.
+async fn store_shared(
+    db: &Db,
+    images: &[&(String, String)],
+    sources: &HashMap<String, Source>,
+) -> (usize, Vec<(String, String)>) {
+    let mut stored = 0;
+    let mut failed: Vec<(String, String)> = Vec::new();
+    let mut batch: Vec<(String, Write)> = Vec::new();
+    let mut batch_bytes = 0.0;
+    for (i, (shared, path)) in images.iter().enumerate() {
+        match async { read_blob(source(sources, path)?, mime_type(path)).await }.await {
+            Ok(blob) => {
+                batch_bytes += blob.size();
+                batch.push((
+                    path.clone(),
+                    Write::Put {
+                        store: idb::FILES,
+                        key: crate::songs::shared_key(shared),
+                        value: blob.into(),
+                    },
+                ));
+            }
+            Err(e) => failed.push((path.clone(), e)),
+        }
+        let last = i + 1 == images.len();
+        if !batch.is_empty() && (batch_bytes >= SHARED_BATCH_BYTES || last) {
+            let (paths, writes): (Vec<String>, Vec<Write>) = batch.drain(..).unzip();
+            let n = writes.len();
+            match db.write(writes).await {
+                Ok(()) => stored += n,
+                Err(e) => failed.extend(paths.into_iter().map(|p| (p, e.clone()))),
+            }
+            batch_bytes = 0.0;
+        }
+    }
+    (stored, failed)
+}
+
+fn is_image(path: &str) -> bool {
+    extension(path).is_some_and(|e| {
+        pack::IMAGE_EXTENSIONS
+            .iter()
+            .any(|x| e.eq_ignore_ascii_case(x))
+    })
+}
+
+fn file_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 fn source<'a>(sources: &'a HashMap<String, Source>, path: &str) -> Result<&'a Source, String> {

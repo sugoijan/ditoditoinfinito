@@ -49,6 +49,8 @@ pub(crate) enum Msg {
     Remove(Removal),
     Removed(Result<(), String>),
     Usage(Option<f64>),
+    /// The "details for pack authors" box of the import panel.
+    ImportDetails(bool),
     /// Timer: look for connected controllers without bindings.
     PadsTick,
 }
@@ -143,6 +145,12 @@ impl Component for SongSelect {
                 self.state = State::Ready(library);
             }
             Msg::Loaded(Err(e)) => self.state = State::Failed(e),
+            Msg::ImportDetails(on) => {
+                let mut settings = Settings::load();
+                settings.import_details = on;
+                settings.save();
+                self.settings = settings;
+            }
             Msg::Banners(load, urls) => {
                 if load != self.banner_load {
                     urls.iter().for_each(|(_, u)| revoke_object_url(u));
@@ -438,7 +446,7 @@ impl SongSelect {
         let class = classes!("import-panel", self.dragging.then_some("dragging"));
         let status = match (&running, &report) {
             (Some(text), _) => html! { <p class="import-status">{ text }</p> },
-            (None, Some(r)) => report_view(r),
+            (None, Some(r)) => report_view(r, self.settings.import_details),
             (None, None) => html! {},
         };
         html! {
@@ -456,37 +464,87 @@ impl SongSelect {
                         onchange={on_pick(self.file_input.clone())} />
                 </label>
                 <span class="muted">{ "or drop them anywhere on this page. They stay in this browser only." }</span>
+                <label class="import-details muted">
+                    <input type="checkbox" checked={self.settings.import_details}
+                        onchange={link.callback(|e: Event| Msg::ImportDetails(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
+                    { " details for pack authors" }
+                </label>
                 { status }
             </section>
         }
     }
 }
 
-fn report_view(r: &ImportReport) -> Html {
-    let summary = match (r.imported.len(), r.skipped.len()) {
-        (0, 0) => r
-            .error
+fn report_view(r: &ImportReport, details: bool) -> Html {
+    let plural =
+        |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+    let mut parts = Vec::new();
+    if !r.imported.is_empty() {
+        parts.push(format!(
+            "Imported {}",
+            plural(r.imported.len(), "song", "songs")
+        ));
+    }
+    if r.shared_images > 0 {
+        parts.push(format!(
+            "stored {}",
+            plural(
+                r.shared_images,
+                "shared background image",
+                "shared background images"
+            )
+        ));
+    }
+    if r.shared_skipped > 0 {
+        parts.push(format!(
+            "left out {} from shared folders (videos are not played)",
+            plural(r.shared_skipped, "other file", "other files")
+        ));
+    }
+    if !r.warnings.is_empty() {
+        parts.push(plural(r.warnings.len(), "warning", "warnings"));
+    }
+    if !r.skipped.is_empty() {
+        parts.push(format!("skipped {}", r.skipped.len()));
+    }
+    if details && !r.notes.is_empty() {
+        parts.push(plural(r.notes.len(), "detail", "details"));
+    }
+    let summary = if parts.is_empty() {
+        r.error
             .clone()
-            .unwrap_or_else(|| "No simfiles found in what was picked.".into()),
-        (n, 0) => format!("Imported {n} song{}.", if n == 1 { "" } else { "s" }),
-        (n, k) => format!(
-            "Imported {n} song{}; skipped {k}.",
-            if n == 1 { "" } else { "s" }
-        ),
+            .unwrap_or_else(|| "No simfiles found in what was picked.".into())
+    } else {
+        let mut text = parts.join("; ");
+        if let Some(first) = text.get_mut(0..1) {
+            first.make_ascii_uppercase();
+        }
+        text + "."
     };
-    let class = if r.imported.is_empty() {
+    let class = if r.imported.is_empty() && r.shared_images == 0 && r.shared_skipped == 0 {
         "import-status error"
     } else {
         "import-status"
     };
+    let list = |title: &str, class: &'static str, items: &[(String, String)]| {
+        if items.is_empty() {
+            return html! {};
+        }
+        html! {
+            <>
+                <p class="import-report-title">{ title.to_string() }</p>
+                <ul class={classes!("import-report", class)}>
+                    { for items.iter().map(|(what, why)| html!{ <li>{ format!("{what}: {why}") }</li> }) }
+                </ul>
+            </>
+        }
+    };
     html! {
         <>
             <p class={class}>{ summary }</p>
-            { if r.skipped.is_empty() { html!{} } else { html! {
-                <ul class="import-report muted">
-                    { for r.skipped.iter().map(|(what, why)| html!{ <li>{ format!("{what}: {why}") }</li> }) }
-                </ul>
-            } } }
+            { list("Not imported", "import-errors", &r.skipped) }
+            { list("Imported with problems", "import-warnings muted", &r.warnings) }
+            { if details { list("Details for pack authors (no difference in play)", "import-notes muted", &r.notes) } else { html!{} } }
         </>
     }
 }

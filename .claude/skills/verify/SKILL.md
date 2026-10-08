@@ -54,7 +54,7 @@ Use a context with `hasTouch: true, isMobile: true` and a phone viewport (390×8
 
 ## Background changes
 
-No bundled song has `#BGCHANGES`. Build a test pack in a scratch dir: copy a bundled song folder, add a few generated solid-colour images (one in a subfolder, one with different case), write a `#BGCHANGES` line with cuts, `CrossFade` (field 4 = 1) and named transitions in field 9, import it through the folder input, autoplay it, and sample a background pixel outside the field as `__DDI_DEBUG.song_time` passes each change (crossfades show the in-between colour).
+No bundled song has `#BGCHANGES`. For shared folders, import a folder holding a song and a `RandomMovies/` folder (or the two separately, in either order); the import report must say how many shared images were stored, and warns about images found nowhere (never about videos). Otherwise build a test pack in a scratch dir: copy a bundled song folder, add a few generated solid-colour images (one in a subfolder, one with different case), write a `#BGCHANGES` line with cuts, `CrossFade` (field 4 = 1) and named transitions in field 9, import it through the folder input, autoplay it, and sample a background pixel outside the field as `__DDI_DEBUG.song_time` passes each change (crossfades show the in-between colour).
 
 ## Checks worth repeating after renderer/engine changes
 

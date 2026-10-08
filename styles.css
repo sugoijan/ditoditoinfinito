@@ -736,6 +736,21 @@ label.button {
   overflow-y: auto;
 }
 
+.import-report-title {
+  flex-basis: 100%;
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.import-details {
+  font-size: 0.85rem;
+}
+
+.import-errors {
+  color: #d1483a;
+}
+
 @media (max-width: 30rem) {
   .song-card {
     flex-direction: column;
