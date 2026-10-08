@@ -1,20 +1,18 @@
 //! Short labels for the note and scroll options of a play, shown on the
 //! results and on the song list.
 
+use ddi_chart::{Glyph, Layout};
 use ddi_engine::{Appearance, ScrollAction, TimingCut, TransformOptions, Turn};
 
-/// Arrows of the `dance-single` lanes, left to right.
-const ARROWS: [&str; 4] = ["←", "↓", "↑", "→"];
-
 /// One label per option that differs from the default, empty when none
-/// does. With `lane_map` (`take_from[new_lane] = old_lane`) a shuffle on a
-/// four-lane field also shows the resulting order: lane `i` shows the arrow
-/// of old lane `take_from[i]`.
+/// does. With `lane_map` (`take_from[new_lane] = old_lane`) and the layout
+/// played, a shuffle also shows the resulting order: lane `i` shows the
+/// symbol of old lane `take_from[i]`.
 pub(crate) fn mods_summary(
     transform: &TransformOptions,
     appearance: Appearance,
     scroll_action: ScrollAction,
-    lane_map: Option<&[u8]>,
+    lane_map: Option<(&[u8], &Layout)>,
 ) -> Vec<String> {
     let mut out = Vec::new();
     match transform.turn {
@@ -54,14 +52,32 @@ pub(crate) fn mods_summary(
     out
 }
 
-/// The arrows of a four-lane field after the lane map, or `None` for other
-/// lane counts.
-fn shuffle_order(take_from: &[u8]) -> Option<String> {
-    if take_from.len() != ARROWS.len() {
+/// The lanes' symbols after the lane map, a space between pads, or `None`
+/// when the map does not fit the layout.
+fn shuffle_order((take_from, layout): (&[u8], &Layout)) -> Option<String> {
+    if take_from.len() != layout.lane_count() {
         return None;
     }
-    take_from
-        .iter()
-        .map(|&old| ARROWS.get(usize::from(old)).copied())
-        .collect()
+    let mut out = String::new();
+    for (new, &old) in take_from.iter().enumerate() {
+        if new > 0 && layout.lanes[new].pad != layout.lanes[new - 1].pad {
+            out.push(' ');
+        }
+        out.push_str(symbol(&layout.lanes.get(usize::from(old))?.glyph));
+    }
+    Some(out)
+}
+
+/// A one-character symbol for a lane.
+fn symbol(glyph: &Glyph) -> &'static str {
+    match glyph {
+        Glyph::Arrow { rotation_deg } => {
+            // 0 = left, 90 = up, clockwise in 45° steps.
+            const ARROWS: [&str; 8] = ["←", "↖", "↑", "↗", "→", "↘", "↓", "↙"];
+            let step = (rotation_deg / 45.0).round() as i64;
+            ARROWS[step.rem_euclid(8) as usize]
+        }
+        Glyph::Onigiri => "◉",
+        _ => "●",
+    }
 }

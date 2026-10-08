@@ -143,17 +143,13 @@ impl Player {
             .map(|n| usize::from(n.lane) + 1)
             .max()
             .unwrap_or(0);
-        let layout_lanes = Layout::builtin(&chart.layout).map(|l| l.lane_count());
-        let transformed = transform::apply(
-            &chart.notes,
-            &chart.layout,
-            layout_lanes.unwrap_or(chart_lanes),
-            &options.transform,
-            options.seed,
-        );
+        let layout = song
+            .layout_of(chart)
+            .unwrap_or_else(|| Layout::generic(chart_lanes));
+        let transformed = transform::apply(&chart.notes, &layout, &options.transform, options.seed);
         let judge = Judge::new(&transformed.notes, &timing, ruleset.judge.clone());
-        let lanes = layout_lanes
-            .unwrap_or(0)
+        let lanes = layout
+            .lane_count()
             .max(chart_lanes)
             .max(judge.lane_count())
             .min(usize::from(u8::MAX)) as u8;

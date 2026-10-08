@@ -208,6 +208,7 @@ pub(crate) fn song(mode: CalMode) -> Song {
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),
+        layouts: Vec::new(),
         source: SourceInfo {
             format: SourceFormat::Other("generated".into()),
             unknown_tags: Vec::new(),

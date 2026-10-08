@@ -9,6 +9,8 @@
 
 use std::collections::HashMap;
 
+use ddi_chart::{BUILTIN_LAYOUTS, Layout};
+use ddi_engine::{ConnectedPad, PadUse};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::timers::callback::Interval;
 use wasm_bindgen::JsCast;
@@ -53,6 +55,8 @@ pub(crate) enum Msg {
     ImportDetails(bool),
     /// Timer: look for connected controllers without bindings.
     PadsTick,
+    /// Show the charts of this layout.
+    Style(String),
 }
 
 /// What a remove button removes.
@@ -257,6 +261,12 @@ impl Component for SongSelect {
                 return false;
             }
             Msg::Usage(u) => self.usage = u,
+            Msg::Style(id) => {
+                let mut settings = Settings::load();
+                settings.style = id;
+                settings.save();
+                self.settings = settings;
+            }
             Msg::PadsTick => {
                 let Some(g) = &self.gamepads else {
                     return false;
@@ -264,11 +274,26 @@ impl Component for SongSelect {
                 // Nothing here consumes the hub's edge queue.
                 g.clear();
                 let mut unbound: Vec<String> = Vec::new();
-                for p in g.pads() {
-                    if self.settings.pad_bindings(&p.id, p.standard).is_none()
-                        && !unbound.contains(&p.id)
-                    {
-                        unbound.push(p.id);
+                let layout = Layout::builtin(&self.shown_style());
+                let connected: Vec<ConnectedPad> = g
+                    .pads()
+                    .into_iter()
+                    .map(|p| ConnectedPad {
+                        id: p.id,
+                        index: p.index,
+                        standard: p.standard,
+                    })
+                    .collect();
+                let plan = layout
+                    .map(|l| self.settings.controls.plan(&l, &connected))
+                    .unwrap_or_default();
+                for (p, pad_use) in plan {
+                    // Controllers beyond a two-pad layout's pads have no use
+                    // but are not unbound.
+                    let spare = pad_use == PadUse::Unused
+                        && self.settings.pad_bindings(&p.id, p.standard).is_some();
+                    if !pad_use.plays() && !spare && !unbound.contains(&p.id) {
+                        unbound.push(p.id.clone());
                     }
                 }
                 if unbound == self.unbound_pads {
@@ -285,7 +310,7 @@ impl Component for SongSelect {
         let pads = html! {
             { for self.unbound_pads.iter().map(|id| html! {
                 <p class="pad-notice">
-                    { format!("Controller “{id}” has no bindings yet — ") }
+                    { format!("Controller “{id}” has no bindings for {} yet — ", layout_name(&self.shown_style())) }
                     <a href={Route::Options.to_hash()}>{ "bind it in Options" }</a>
                 </p>
             }) }
@@ -299,6 +324,9 @@ impl Component for SongSelect {
             }
             State::Ready(l) => l,
         };
+        let styles = library_styles(library);
+        let style = self.shown_style();
+        let has_style = |e: &ManifestEntry| e.charts.iter().any(|c| c.layout == style);
         let card = |entry: &ManifestEntry, removal: Option<Removal>| -> Html {
             let playing = self.preview.as_ref().is_some_and(|p| p.id == entry.id);
             let banner = match &entry.banner {
@@ -309,6 +337,7 @@ impl Component for SongSelect {
             let remove = removal.map(|r| self.remove_button(link, r, "remove"));
             song_card(
                 entry,
+                &style,
                 banner,
                 playing,
                 self.settings.song_offset(&entry.id),
@@ -317,13 +346,14 @@ impl Component for SongSelect {
             )
         };
         let mut packs: Vec<(&str, Vec<&crate::songs::ImportedSong>)> = Vec::new();
-        for s in &library.imported {
+        for s in library.imported.iter().filter(|s| has_style(&s.entry)) {
             match packs.last_mut() {
                 Some((p, songs)) if p.to_lowercase() == s.pack.to_lowercase() => songs.push(s),
                 _ => packs.push((&s.pack, vec![s])),
             }
         }
         let grouped = !packs.is_empty();
+        let mut bundled = library.bundled.iter().filter(|e| has_style(e)).peekable();
         let mods = mods_summary(
             &self.settings.transform,
             self.settings.appearance,
@@ -349,9 +379,10 @@ impl Component for SongSelect {
                         <a href={Route::Options.to_hash()}>{ mods.join(" · ") }</a>
                     </p>
                 } } }
-                { if grouped { html!{ <h2 class="pack-heading">{ "Bundled songs" }</h2> } } else { html!{} } }
+                { style_select(link, &styles, &style) }
+                { if grouped && bundled.peek().is_some() { html!{ <h2 class="pack-heading">{ "Bundled songs" }</h2> } } else { html!{} } }
                 <ul class="song-list">
-                    { for library.bundled.iter().map(|e| card(e, None)) }
+                    { for bundled.map(|e| card(e, None)) }
                 </ul>
                 { for packs.into_iter().map(|(pack, songs)| html! {
                     <>
@@ -380,6 +411,21 @@ impl Component for SongSelect {
 }
 
 impl SongSelect {
+    /// The style the list shows: the saved one when the library has charts
+    /// of it, else the first the library has.
+    fn shown_style(&self) -> String {
+        let styles = match &self.state {
+            State::Ready(l) => library_styles(l),
+            _ => Vec::new(),
+        };
+        styles
+            .iter()
+            .find(|s| **s == self.settings.style)
+            .or(styles.first())
+            .cloned()
+            .unwrap_or_else(|| self.settings.style.clone())
+    }
+
     /// The ▶/■ button's handler; see [`Preview::start`] for why it starts
     /// in the click handler itself.
     fn preview_callback(
@@ -623,8 +669,58 @@ fn format_bytes(b: f64) -> String {
     }
 }
 
+/// Layouts with charts in the library: the built-in ones in their order,
+/// then any others by id.
+fn library_styles(library: &Library) -> Vec<String> {
+    let mut ids: Vec<&str> = library
+        .bundled
+        .iter()
+        .chain(library.imported.iter().map(|s| &s.entry))
+        .flat_map(|e| e.charts.iter().map(|c| c.layout.as_str()))
+        .collect();
+    ids.sort_by_key(|id| {
+        (
+            BUILTIN_LAYOUTS
+                .iter()
+                .position(|b| b == id)
+                .unwrap_or(BUILTIN_LAYOUTS.len()),
+            *id,
+        )
+    });
+    ids.dedup();
+    ids.into_iter().map(String::from).collect()
+}
+
+/// Name of a layout for the style selector.
+pub(crate) fn layout_name(id: &str) -> String {
+    Layout::builtin(id).map_or_else(|| id.to_string(), |l| l.name)
+}
+
+/// The style buttons, when the library has charts of more than one layout.
+fn style_select(link: &html::Scope<SongSelect>, styles: &[String], current: &str) -> Html {
+    if styles.len() < 2 {
+        return html! {};
+    }
+    html! {
+        <div class="style-select" role="group" aria-label="Style">
+            { for styles.iter().map(|id| {
+                let selected = id == current;
+                let msg = id.clone();
+                html! {
+                    <button class={classes!("style-button", selected.then_some("selected"))}
+                        aria-pressed={selected.to_string()}
+                        onclick={link.callback(move |_| Msg::Style(msg.clone()))}>
+                        { layout_name(id) }
+                    </button>
+                }
+            }) }
+        </div>
+    }
+}
+
 fn song_card(
     entry: &ManifestEntry,
+    style: &str,
     banner: Option<String>,
     playing: bool,
     song_offset: f64,
@@ -633,11 +729,7 @@ fn song_card(
 ) -> Html {
     let banner =
         banner.map(|src| html! { <img class="song-banner" src={src} alt="" loading="lazy" /> });
-    let charts: Vec<_> = entry
-        .charts
-        .iter()
-        .filter(|c| c.layout == "dance-single")
-        .collect();
+    let charts: Vec<_> = entry.charts.iter().filter(|c| c.layout == style).collect();
     let mut sub = vec![entry.artist.clone()];
     if !entry.bpm.is_empty() {
         sub.push(format!("{} BPM", entry.bpm));

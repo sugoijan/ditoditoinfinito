@@ -975,6 +975,7 @@ pub(crate) fn empty_song(format: SourceFormat) -> Song {
         charts: Vec::new(),
         effects: Vec::new(),
         keysounds: Vec::new(),
+        layouts: Vec::new(),
         source: SourceInfo {
             format,
             unknown_tags: Vec::new(),

@@ -169,6 +169,30 @@ a {
   font-weight: 700;
 }
 
+.style-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 1rem 0;
+}
+
+.style-button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.3rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.style-button.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .diff-beginner { background: #3a8ddb; }
 .diff-easy { background: #3aa65a; }
 .diff-medium { background: #c99a1e; }
@@ -403,13 +427,13 @@ a {
 
 .bind-lanes {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
   gap: 0.5rem;
   margin: 0.75rem 0;
 }
 
 .bind-lanes.bind-extra {
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .bind-lane {

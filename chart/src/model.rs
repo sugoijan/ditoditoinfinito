@@ -277,5 +277,9 @@ pub struct Song {
     pub charts: Vec<Chart>,
     pub effects: Vec<EffectEvent>,
     pub keysounds: Vec<String>,
+    /// Layouts the file defines itself (Dancing☆Onigiri custom keys);
+    /// charts find theirs with [`Song::layout_of`].
+    #[serde(default)]
+    pub layouts: Vec<crate::Layout>,
     pub source: SourceInfo,
 }

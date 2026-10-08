@@ -249,7 +249,7 @@ impl State {
                 self.slots.insert(
                     index,
                     Slot {
-                        tracker: PadTracker::new(&snap.id),
+                        tracker: PadTracker::for_slot(&snap.id, snap.index),
                         id: snap.id.clone(),
                         standard: snap.standard,
                     },

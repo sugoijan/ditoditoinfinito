@@ -8,6 +8,7 @@
 //! Modules:
 //! - [`clock`]: host ↔ audio clock anchor and offsets.
 //! - [`input`]: lane events and device bindings.
+//! - [`bindings`]: saved bindings per device and layout.
 //! - [`rules`]: judge windows, combo, score, gauge, grades, presets.
 //! - [`judge`]: the per-note state machine.
 //! - [`scroll`]: note positions and scroll actions.
@@ -21,6 +22,7 @@
 
 pub mod appearance;
 pub mod autoplay;
+pub mod bindings;
 pub mod calibration;
 pub mod clock;
 pub mod frame;
@@ -35,6 +37,7 @@ pub use ddi_chart;
 pub use ddi_platform;
 
 pub use appearance::Appearance;
+pub use bindings::{ConnectedPad, ControlBindings, LaneTable, PadBindings, PadUse};
 pub use clock::{ClockOptions, SongClock};
 pub use frame::{Frame, JudgementFlash, NoteSprite, ReceptorState, SpriteKind};
 pub use input::{Binding, BindingDevice, Bindings, InputEvent, LaneInput};
