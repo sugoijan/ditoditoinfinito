@@ -208,6 +208,7 @@ struct AxisState {
 #[derive(Clone, Debug)]
 pub struct PadTracker {
     device: DeviceId,
+    slot: u32,
     buttons: Vec<bool>,
     axes: Vec<AxisState>,
     last_timestamp: Option<HostTime>,
@@ -218,8 +219,14 @@ pub struct PadTracker {
 
 impl PadTracker {
     pub fn new(id: &str) -> PadTracker {
+        PadTracker::for_slot(id, 0)
+    }
+
+    /// A tracker whose edges carry `slot` (the pad's `Gamepad.index`).
+    pub fn for_slot(id: &str, slot: u32) -> PadTracker {
         PadTracker {
             device: DeviceId::Gamepad(id.to_string()),
+            slot,
             buttons: Vec::new(),
             axes: Vec::new(),
             last_timestamp: None,
@@ -405,6 +412,7 @@ impl PadTracker {
                     control: control.to_string(),
                     pressed,
                     host_time: t,
+                    slot: self.slot,
                 });
             }
         }
@@ -424,6 +432,7 @@ impl PadTracker {
                 control: control.to_string(),
                 pressed: false,
                 host_time: t,
+                slot: self.slot,
             });
         }
         self.buttons.iter_mut().for_each(|b| *b = false);
@@ -441,6 +450,8 @@ pub mod standard {
     pub const B: u16 = 1;
     pub const X: u16 = 2;
     pub const Y: u16 = 3;
+    pub const LB: u16 = 4;
+    pub const RB: u16 = 5;
     pub const BACK: u16 = 8;
     pub const START: u16 = 9;
     pub const DPAD_UP: u16 = 12;

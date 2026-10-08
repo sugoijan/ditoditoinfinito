@@ -14,7 +14,7 @@ pub mod model;
 pub mod song_ext;
 pub mod timing;
 
-pub use layout::{Glyph, Lane, Layout};
+pub use layout::{BUILTIN_LAYOUTS, Glyph, Lane, Layout, LayoutFamily};
 pub use model::{
     Chart, Color, Difficulty, DisplayBpm, EffectEvent, EffectTime, Note, NoteKind, Quantization,
     Song, SourceFormat, SourceInfo, Tick,

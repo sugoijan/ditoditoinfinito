@@ -10,6 +10,7 @@ use ddi_engine::input::{BindingDevice, Bindings, InputEvent, LaneInput};
 use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
 use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::{JudgeNames, Ruleset};
+use ddi_engine::{ConnectedPad, ControlBindings};
 use ddi_platform::{AudioBackend, DeviceId, DeviceProfile, HostTime, InputSource, RawInput};
 use ddi_render::RenderOptions;
 use gloo::events::EventListener;
@@ -113,14 +114,14 @@ pub(crate) struct PlaySession {
     input: LaneInput,
     /// Pad controls that act like Escape: `(Gamepad.id, control)`.
     pad_cancel: Vec<(String, String)>,
-    /// Pads whose bindings are settled (saved, or defaults given). A pad
-    /// first seen during play (browsers reveal a pad only once a button is
-    /// pressed) gets the standard defaults then, if it has that mapping.
-    known_pads: Vec<String>,
+    /// Pads `(Gamepad.id, Gamepad.index)` the bindings were resolved with.
+    /// A pad first seen during play (browsers reveal a pad only once a
+    /// button is pressed) makes the session resolve them again.
+    known_pads: Vec<(String, u32)>,
     /// Lane that every control maps to (any-key calibration), if any.
     any_lane: Option<u8>,
-    /// Whether pads get dance-single defaults (other layouts have none).
-    pad_defaults: bool,
+    /// The saved bindings the play started with.
+    controls: ControlBindings,
     held: Vec<bool>,
     raw: Vec<RawInput>,
     /// Autoplay: scripted presses at each note's judged time.
@@ -232,39 +233,31 @@ impl PlaySession {
             .charts
             .get(chart_index)
             .ok_or_else(|| format!("chart {chart_index} missing"))?;
-        let layout = Layout::builtin(&chart.layout)
+        let layout = song
+            .layout_of(chart)
             .ok_or_else(|| format!("layout {} not playable", chart.layout))?;
         let names = config.ruleset.names.clone();
         let any_key = config.calibration.is_some_and(|m| m.any_key());
         let any_lane = any_key.then_some(calibration::AUDIO_LANE);
-        let pad_defaults = layout.id == "dance-single";
         let gamepads = config.gamepads.clone();
-        let connected: Vec<(String, bool)> = gamepads
-            .as_ref()
-            .map(|g| g.pads().into_iter().map(|p| (p.id, p.standard)).collect())
-            .unwrap_or_default();
-        let mut bindings = if layout.id == "dance-single" {
-            settings.single_bindings(&connected, any_lane)
-        } else {
-            Bindings::from_layout(&layout)
-        };
-        let known_pads: Vec<String> = settings
-            .pads
-            .iter()
-            .map(|p| p.id.clone())
-            .chain(connected.iter().map(|(id, _)| id.clone()))
-            .collect();
+        let connected = connected_pads(gamepads.as_ref());
+        let controls = settings.controls.clone();
+        let bindings = play_bindings(&controls, &layout, &connected, any_lane);
+        let known_pads: Vec<(String, u32)> =
+            connected.iter().map(|c| (c.id.clone(), c.index)).collect();
         let mut pad_cancel: Vec<(String, String)> = settings
+            .controls
             .pads
             .iter()
             .map(|p| p.id.clone())
-            .chain(connected.iter().map(|(id, _)| id.clone()))
+            .chain(connected.iter().map(|c| c.id.clone()))
             .filter_map(|id| {
-                let standard = connected.iter().any(|(c, s)| *c == id && *s);
+                let standard = connected.iter().any(|c| c.id == id && c.standard);
                 let back = settings.pad_bindings(&id, standard)?.back?;
                 Some((id, back))
             })
             .collect();
+        pad_cancel.sort();
         pad_cancel.dedup();
         let via_pad = (config.auto && config.auto_pad).then(|| {
             (0..layout.lanes.len() as u8)
@@ -294,15 +287,6 @@ impl PlaySession {
             .map(|s| s.to_string()),
         );
         let keyboard = WebKeyboard::new(capture);
-        // Touch columns follow the layout, whatever the lane count.
-        for lane in 0..layout.lanes.len() as u8 {
-            let target = if any_key {
-                calibration::AUDIO_LANE
-            } else {
-                lane
-            };
-            bindings.bind(BindingDevice::Touch, &format!("lane:{lane}"), target);
-        }
         let touch = config.touch_canvas.and_then(|canvas| {
             TouchLanes::new(canvas, layout.lanes.iter().map(|l| l.column).collect())
         });
@@ -402,7 +386,7 @@ impl PlaySession {
             pad_cancel,
             known_pads,
             any_lane,
-            pad_defaults,
+            controls,
             held: vec![false; lanes],
             raw: Vec::new(),
             auto,
@@ -483,10 +467,16 @@ impl PlaySession {
             .fold(host_now.0, |t, r| t.max(r.host_time.0));
         let mut raw_inputs = std::mem::take(&mut self.raw);
         for raw in raw_inputs.drain(..) {
+            // Only a press reveals a pad: releases of a pad that went away
+            // (`release_all`) must not re-resolve the sides mid-song.
             if let DeviceId::Gamepad(id) = &raw.device
-                && !self.known_pads.contains(id)
+                && raw.pressed
+                && !self
+                    .known_pads
+                    .iter()
+                    .any(|(k, slot)| k == id && *slot == raw.slot)
             {
-                self.adopt_pad(id.clone());
+                self.adopt_pads();
             }
             if self.is_cancel(&raw) {
                 if raw.pressed {
@@ -658,27 +648,21 @@ impl PlaySession {
         }
     }
 
-    /// Gives a pad first seen during play the standard defaults, if it has
-    /// the standard mapping (saved pads are bound from the start).
-    fn adopt_pad(&mut self, id: String) {
-        let standard = self
-            .gamepads
-            .as_ref()
-            .is_some_and(|g| g.pads().iter().any(|p| p.id == id && p.standard));
-        if standard && self.pad_defaults {
-            let pad = crate::settings::PadBindings::standard(&id);
-            let device = DeviceId::Gamepad(id.clone());
-            for (lane, controls) in pad.single.iter().enumerate() {
-                for c in controls {
-                    let lane = self.any_lane.unwrap_or(lane as u8);
-                    self.input.bindings.bind(&device, c, lane);
-                }
-            }
-            if let Some(back) = pad.back {
-                self.pad_cancel.push((id.clone(), back));
+    /// Resolves the bindings again with the pads connected now, after a
+    /// pad was first seen during play (saved tables were bound from the
+    /// start; this adds standard defaults and two-pad sides).
+    fn adopt_pads(&mut self) {
+        let connected = connected_pads(self.gamepads.as_ref());
+        self.input.bindings =
+            play_bindings(&self.controls, &self.layout, &connected, self.any_lane);
+        for c in &connected {
+            if let Some(back) = self.controls.pad(&c.id, c.standard).and_then(|p| p.back)
+                && !self.pad_cancel.iter().any(|(id, _)| *id == c.id)
+            {
+                self.pad_cancel.push((c.id.clone(), back));
             }
         }
-        self.known_pads.push(id);
+        self.known_pads = connected.into_iter().map(|c| (c.id, c.index)).collect();
     }
 
     /// Escape/Backspace, a pad's Back control, or the touch quit button.
@@ -730,4 +714,39 @@ impl Drop for PlaySession {
             g.set_fast(false);
         }
     }
+}
+
+/// The controllers connected now.
+fn connected_pads(gamepads: Option<&Gamepads>) -> Vec<ConnectedPad> {
+    gamepads
+        .map(|g| {
+            g.pads()
+                .into_iter()
+                .map(|p| ConnectedPad {
+                    id: p.id,
+                    index: p.index,
+                    standard: p.standard,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A play's bindings: the saved ones for the layout and the touch columns,
+/// which follow the layout whatever its lane count.
+fn play_bindings(
+    controls: &ControlBindings,
+    layout: &Layout,
+    connected: &[ConnectedPad],
+    any_lane: Option<u8>,
+) -> Bindings {
+    let mut b = controls.resolve(layout, connected, any_lane);
+    for lane in 0..layout.lanes.len() as u8 {
+        b.bind(
+            BindingDevice::Touch,
+            &format!("lane:{lane}"),
+            any_lane.unwrap_or(lane),
+        );
+    }
+    b
 }

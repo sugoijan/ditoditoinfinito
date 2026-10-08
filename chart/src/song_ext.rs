@@ -11,11 +11,19 @@ impl Song {
             .find(|c| c.layout == layout && c.difficulty == difficulty)
     }
 
-    /// Charts whose layout has a built-in [`Layout`] (the ones the game can play).
-    pub fn playable_charts(&self) -> impl Iterator<Item = &Chart> {
-        self.charts
+    /// The layout a chart is played on: one the song defines itself, else
+    /// a built-in one. `None` for layouts the game does not know.
+    pub fn layout_of(&self, chart: &Chart) -> Option<Layout> {
+        self.layouts
             .iter()
-            .filter(|c| Layout::builtin(&c.layout).is_some())
+            .find(|l| l.id == chart.layout)
+            .cloned()
+            .or_else(|| Layout::builtin(&chart.layout))
+    }
+
+    /// Charts whose layout is known (the ones the game can play).
+    pub fn playable_charts(&self) -> impl Iterator<Item = &Chart> {
+        self.charts.iter().filter(|c| self.layout_of(c).is_some())
     }
 
     /// Moves every note `seconds` later relative to the music (negative:
@@ -33,6 +41,25 @@ impl Song {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn layouts_resolve_from_the_song_first() {
+        let mut song = crate::formats::sm::parse_simfile(
+            "#BPMS:0=120;\n#NOTES:dance-solo::Easy:1::0000000;\n#NOTES:custom-3::Easy:1::;\n",
+            "sm",
+        )
+        .unwrap();
+        assert_eq!(song.charts.len(), 2);
+        assert_eq!(
+            song.layout_of(&song.charts[0]).map(|l| l.id),
+            Some("dance-solo".into())
+        );
+        assert!(song.layout_of(&song.charts[1]).is_none());
+        let mut custom = crate::Layout::generic(3);
+        custom.id = "custom-3".into();
+        song.layouts.push(custom);
+        assert_eq!(song.playable_charts().count(), 2);
+    }
+
     #[test]
     fn shift_notes_moves_beat_zero_later() {
         let mut song =

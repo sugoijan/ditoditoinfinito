@@ -30,8 +30,8 @@
 //! 3 holds/rolls, 2 mines.
 
 use ddi_chart::{
-    BpmSegment, Chart, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, SourceInfo,
-    StopSegment, Tick, TimingMap,
+    BpmSegment, Chart, Difficulty, DisplayBpm, Layout, Note, NoteKind, Song, SourceFormat,
+    SourceInfo, StopSegment, Tick, TimingMap,
 };
 use ddi_engine::frame::SpriteKind;
 use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
@@ -73,6 +73,7 @@ fn song(timing: TimingMap, notes: Vec<Note>) -> Song {
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),
+        layouts: Vec::new(),
         source: SourceInfo {
             format: SourceFormat::Other("test".into()),
             unknown_tags: Vec::new(),
@@ -744,6 +745,7 @@ fn long_hold_is_drawn_while_its_tail_is_off_screen() {
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),
+        layouts: Vec::new(),
         source: SourceInfo {
             format: SourceFormat::Other("test".into()),
             unknown_tags: Vec::new(),
@@ -825,6 +827,7 @@ fn receptor_snap_lands_the_note_in_its_closest_frame() {
         }],
         effects: Vec::new(),
         keysounds: Vec::new(),
+        layouts: Vec::new(),
         source: SourceInfo {
             format: SourceFormat::Other("test".into()),
             unknown_tags: Vec::new(),
@@ -1215,4 +1218,138 @@ fn hidden_and_sudden_set_note_alpha_in_frames() {
     assert_eq!(lane_alpha(&f, 5.0), 0.0);
     let f = frame_at(Appearance::Visible, 0.0);
     assert!(f.notes.iter().all(|n| n.alpha == 1.0 && n.glow == 0.0));
+}
+
+/// A chart over every lane of a built-in layout at 150 BPM: a run through
+/// all lanes, jumps (on a diagonal pair for solo, across the two pads for
+/// double), a hold under taps on another lane, a roll, a mine, a lift and
+/// a hand.
+fn layout_song(layout: &Layout) -> Song {
+    let n = layout.lane_count() as u8;
+    let t = |tick: i64, lane: u8, kind| Note::new(Tick(tick), lane, kind);
+    let mut notes: Vec<Note> = (0..n)
+        .map(|l| t(i64::from(l) * 12, l, NoteKind::Tap))
+        .collect();
+    let base = i64::from(n) * 12 + 48;
+    notes.extend([
+        t(base, 1, NoteKind::Tap),
+        t(base, n - 2, NoteKind::Tap),
+        t(base + 24, n / 2 - 1, NoteKind::Tap),
+        t(base + 24, n / 2, NoteKind::Tap),
+        t(
+            base + 48,
+            0,
+            NoteKind::HoldHead {
+                end: Tick(base + 144),
+            },
+        ),
+        t(base + 72, n - 1, NoteKind::Tap),
+        t(base + 96, n / 2, NoteKind::Tap),
+        t(base + 120, n - 1, NoteKind::Mine),
+        t(
+            base + 168,
+            1,
+            NoteKind::RollHead {
+                end: Tick(base + 240),
+            },
+        ),
+        t(base + 192, n - 2, NoteKind::Tap),
+        t(base + 264, n - 1, NoteKind::Lift),
+        t(base + 288, 0, NoteKind::Tap),
+        t(base + 288, 2, NoteKind::Tap),
+        t(base + 288, n - 1, NoteKind::Tap),
+    ]);
+    notes.sort_by_key(|n| (n.tick, n.lane));
+    let mut s = song(TimingMap::constant(150.0, 0.0), notes);
+    s.charts[0].layout = layout.id.clone();
+    s
+}
+
+#[test]
+fn every_layout_autoplays_perfectly_under_every_turn() {
+    for layout in [Layout::dance_solo(), Layout::dance_double()] {
+        let song = layout_song(&layout);
+        for ruleset in [
+            presets::itg as fn() -> Ruleset,
+            presets::sm5,
+            presets::ddr_a,
+        ] {
+            for (turn, seed) in [
+                (Turn::Off, 0),
+                (Turn::Mirror, 0),
+                (Turn::Left, 0),
+                (Turn::Right, 0),
+                (Turn::Shuffle, 3),
+                (Turn::Shuffle, 0xD0B1E),
+            ] {
+                for transform in [
+                    TransformOptions::default(),
+                    cut(TimingCut::Eighths, true, true),
+                ] {
+                    let options = PlayOptions {
+                        transform: TransformOptions { turn, ..transform },
+                        seed,
+                        ..PlayOptions::default()
+                    };
+                    let run = autoplay_run(ruleset, &song, options);
+                    let label = format!("{} {turn:?} {transform:?}", layout.id);
+                    let ctx = run.player.score_ctx();
+                    let r = run.player.results();
+                    assert_eq!(usize::from(run.player.lanes()), layout.lane_count());
+                    assert_eq!(r.tally.taps[0], ctx.steps, "{label}: {:?}", r.tally);
+                    assert_eq!(r.tally.taps.iter().sum::<u32>(), ctx.steps, "{label}");
+                    assert_eq!(r.tally.held, ctx.holds, "{label}");
+                    assert_eq!(
+                        (r.tally.let_go, r.tally.mine_hit, r.tally.boo),
+                        (0, 0, 0),
+                        "{label}"
+                    );
+                    assert_eq!(r.full_combo, FullCombo::MarvelousFC, "{label}");
+                    assert!(run.player.finished() && !run.player.failed(), "{label}");
+                    if transform == TransformOptions::default() {
+                        assert!(ctx.steps > u32::from(layout.lane_count() as u8), "{label}");
+                        assert_eq!(ctx.holds, 2, "{label}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn turns_move_solo_and_double_lanes_by_stepmania_tables() {
+    for layout in [Layout::dance_solo(), Layout::dance_double()] {
+        let song = layout_song(&layout);
+        let baseline = autoplay_run(presets::itg, &song, PlayOptions::default());
+        for (turn, seed) in [
+            (Turn::Mirror, 0),
+            (Turn::Left, 0),
+            (Turn::Right, 0),
+            (Turn::Shuffle, 11),
+        ] {
+            let options = PlayOptions {
+                transform: TransformOptions {
+                    turn,
+                    ..Default::default()
+                },
+                seed,
+                ..PlayOptions::default()
+            };
+            let run = autoplay_run(presets::itg, &song, options);
+            let take_from = run.player.lane_map().to_vec();
+            if let (Turn::Left, Some(table)) = (turn, &layout.turn_left) {
+                assert_eq!(&take_from, table, "{}", layout.id);
+            }
+            let mut dest = vec![0u8; take_from.len()];
+            for (new, &old) in take_from.iter().enumerate() {
+                dest[usize::from(old)] = new as u8;
+            }
+            assert_eq!(
+                event_set(&run.events, |l| l),
+                event_set(&baseline.events, |l| dest[usize::from(l)]),
+                "{} {turn:?}",
+                layout.id
+            );
+        }
+    }
 }

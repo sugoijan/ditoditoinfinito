@@ -33,6 +33,10 @@ pub struct RawInput {
     pub control: String,
     pub pressed: bool,
     pub host_time: HostTime,
+    /// Which of several devices sharing one [`DeviceId`] sent the edge (two
+    /// identical pads report the same `Gamepad.id`; this is the pad's
+    /// `Gamepad.index`). 0 for the keyboard and touch.
+    pub slot: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

@@ -59,6 +59,7 @@ impl WebKeyboard {
                     control: code,
                     pressed: true,
                     host_time: PerformanceClock::from_dom_ms(event.time_stamp()),
+                    slot: 0,
                 });
             })
         };
@@ -81,6 +82,7 @@ impl WebKeyboard {
                     control: code,
                     pressed: false,
                     host_time: PerformanceClock::from_dom_ms(event.time_stamp()),
+                    slot: 0,
                 });
             })
         };
@@ -110,6 +112,7 @@ impl Shared {
                 control: code,
                 pressed: false,
                 host_time: now,
+                slot: 0,
             });
         }
     }

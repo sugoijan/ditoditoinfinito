@@ -126,6 +126,8 @@ pub(crate) struct GameCanvas {
     raf: Rc<RefCell<Option<AnimationFrame>>>,
     game: Rc<RefCell<Option<GameLoop>>>,
     names: Option<ddi_engine::rules::JudgeNames>,
+    /// Layout of the chart played, for the results.
+    layout: Option<ddi_chart::Layout>,
     settings: Settings,
     devices: Option<DeviceProfile>,
     /// Song offset (seconds) the current or last play ran with.
@@ -299,6 +301,7 @@ impl Component for GameCanvas {
             raf: Rc::new(RefCell::new(None)),
             game: Rc::new(RefCell::new(None)),
             names: None,
+            layout: None,
             settings: Settings::load(),
             devices: None,
             played_offset: 0.0,
@@ -639,13 +642,19 @@ impl Component for GameCanvas {
                 (SongSource::Song { id, .. }, _) => results_view(
                     results,
                     self.names.as_ref(),
+                    self.layout.as_ref(),
                     *device_changed,
                     Some((self.played_offset, self.settings.song_offset(id))),
                     link,
                 ),
-                (SongSource::Calibration(_), None) => {
-                    results_view(results, self.names.as_ref(), *device_changed, None, link)
-                }
+                (SongSource::Calibration(_), None) => results_view(
+                    results,
+                    self.names.as_ref(),
+                    self.layout.as_ref(),
+                    *device_changed,
+                    None,
+                    link,
+                ),
             },
             (_, _, Stage::Saved(o)) => match source {
                 SongSource::Calibration(mode) => calibration_view(
@@ -865,6 +874,7 @@ impl GameCanvas {
         };
         match PlaySession::start(play_song, chart, &self.settings, config, audio, buffer) {
             Ok(session) => {
+                self.layout = Some(session.layout.clone());
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.set_background_schedule(schedule);
                     game.set_session(session);
@@ -949,6 +959,7 @@ fn back_route(source: &SongSource) -> Route {
 fn results_view(
     r: &Results,
     names: Option<&ddi_engine::rules::JudgeNames>,
+    layout: Option<&ddi_chart::Layout>,
     device_changed: bool,
     song_offset: Option<(f64, f64)>,
     link: &html::Scope<GameCanvas>,
@@ -987,7 +998,7 @@ fn results_view(
         &r.transform,
         r.appearance,
         r.scroll_action,
-        Some(&r.lane_map),
+        layout.map(|l| (r.lane_map.as_slice(), l)),
     )
     .join(" · ");
     html! {

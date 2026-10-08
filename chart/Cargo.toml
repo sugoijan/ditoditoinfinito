@@ -17,3 +17,4 @@ thiserror.workspace = true
 # importer is compared against (tests/differential.rs). Test-only.
 rgchart = "0.0.15"
 danceparser = "0.2.1"
+serde_json.workspace = true

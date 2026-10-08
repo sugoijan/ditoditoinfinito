@@ -289,17 +289,29 @@ async fn import_song(
     let text = pack::decode_text(&chart_bytes);
     drop(chart_bytes);
     let song = parse_simfile(&text, c.format.extension()).map_err(|e| e.to_string())?;
-    if !song.charts.iter().any(|ch| ch.layout == "dance-single") {
-        let mut layouts: Vec<&str> = song.charts.iter().map(|ch| ch.layout.as_str()).collect();
-        layouts.dedup();
-        return Err(if layouts.is_empty() {
+    let mut unplayed: Vec<&str> = song
+        .charts
+        .iter()
+        .filter(|ch| song.layout_of(ch).is_none())
+        .map(|ch| ch.layout.as_str())
+        .collect();
+    unplayed.sort_unstable();
+    unplayed.dedup();
+    if song.playable_charts().next().is_none() {
+        return Err(if unplayed.is_empty() {
             "the simfile has no charts".into()
         } else {
             format!(
-                "no single-pad (dance-single) charts; found {}",
-                layouts.join(", ")
+                "no charts in a layout this game plays; found {}",
+                unplayed.join(", ")
             )
         });
+    }
+    if !unplayed.is_empty() {
+        notes.push(format!(
+            "charts in layouts this game does not play were left out: {}",
+            unplayed.join(", ")
+        ));
     }
     let mut assets = pack::resolve_assets(&song, &c.dir, paths);
     if (assets.banner.is_none() || assets.background.is_none()) && !assets.unclassified.is_empty() {

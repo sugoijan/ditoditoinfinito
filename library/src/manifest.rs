@@ -5,7 +5,7 @@
 //! The JSON field names and defaults are the wire format of the generated
 //! manifest; changing them changes `index.json`.
 
-use ddi_chart::{Layout, Song};
+use ddi_chart::Song;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -106,7 +106,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         .charts
         .iter()
         .enumerate()
-        .filter(|(_, c)| Layout::builtin(&c.layout).is_some())
+        .filter(|(_, c)| song.layout_of(c).is_some())
         .collect();
     indexed.sort_by(|(_, a), (_, b)| {
         a.layout

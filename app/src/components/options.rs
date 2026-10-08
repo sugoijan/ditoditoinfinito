@@ -9,7 +9,8 @@
 //! a button is pressed), so the list is refreshed on a timer while the
 //! screen is open. Binding itself is the guided flow in [`BindFlow`].
 
-use ddi_engine::{Appearance, ScrollAction, TimingCut, Turn};
+use ddi_chart::Layout;
+use ddi_engine::{Appearance, ConnectedPad, PadUse, ScrollAction, TimingCut, Turn};
 use ddi_platform::DeviceId;
 use ddi_platform::gamepad::Control;
 use gloo::events::EventListener;
@@ -59,6 +60,8 @@ pub(crate) enum Msg {
     Captured(String),
     ClearLane(usize),
     ResetKeys,
+    /// Show and edit the bindings of this layout.
+    BindLayout(String),
     /// Open the guided binding flow, for a device or for the next one that
     /// produces a press.
     Bind(Option<DeviceId>),
@@ -67,6 +70,8 @@ pub(crate) enum Msg {
     /// Timer: compare the connected controllers with the list shown.
     PadsTick,
     ClearPad(String),
+    /// Drop a controller's table of the shown layout (back to defaults).
+    DefaultPad(String),
     ForgetPad(String),
     FastPadPoll(bool),
     /// The song list loaded: a bundled song for the volume sample, the
@@ -109,13 +114,15 @@ pub(crate) struct Options {
     /// Connected controllers `(id, standard mapping, count)`; identical
     /// controllers share an id and their bindings.
     connected: Vec<(String, bool, usize)>,
+    /// The same controllers one by one, with their `Gamepad.index`.
+    connected_pads: Vec<ConnectedPad>,
     /// The guided flow, when open: `Some(None)` waits for any device.
     binding: Option<Option<DeviceId>>,
+    /// Layout whose bindings the controls section shows and edits.
+    bind_layout: Layout,
     _keys: Option<EventListener>,
     _pad_refresh: Option<Interval>,
 }
-
-const LANE_NAMES: [&str; 4] = ["Left", "Down", "Up", "Right"];
 
 impl Component for Options {
     type Message = Msg;
@@ -145,8 +152,11 @@ impl Component for Options {
             let link = ctx.link().clone();
             Interval::new(PAD_REFRESH_MS, move || link.send_message(Msg::PadsTick))
         });
+        let settings = Settings::load();
+        let bind_layout = Layout::builtin(&settings.style).unwrap_or_else(Layout::dance_single);
         Options {
-            settings: Settings::load(),
+            bind_layout,
+            settings,
             capturing: None,
             sample_song: None,
             sample: None,
@@ -156,6 +166,7 @@ impl Component for Options {
             notice: None,
             gamepads,
             connected: Vec::new(),
+            connected_pads: Vec::new(),
             binding: None,
             _keys: keys,
             _pad_refresh: pad_refresh,
@@ -297,20 +308,39 @@ impl Component for Options {
                 if code == "Escape" {
                     return true;
                 }
+                let layout = &self.bind_layout;
+                let mut table = self.settings.controls.keyboard(layout);
                 // A key belongs to one lane only.
-                for keys in self.settings.keys_single.iter_mut() {
+                for keys in table.iter_mut() {
                     keys.retain(|k| k != &code);
                 }
-                if let Some(keys) = self.settings.keys_single.get_mut(lane) {
+                if let Some(keys) = table.get_mut(lane) {
                     keys.push(code);
                 }
+                self.settings.controls.set_keyboard(layout, table);
             }
             Msg::ClearLane(lane) => {
-                if let Some(keys) = self.settings.keys_single.get_mut(lane) {
+                let layout = &self.bind_layout;
+                let mut table = self.settings.controls.keyboard(layout);
+                if let Some(keys) = table.get_mut(lane) {
                     keys.clear();
                 }
+                self.settings.controls.set_keyboard(layout, table);
             }
-            Msg::ResetKeys => self.settings.keys_single = Settings::default().keys_single,
+            Msg::ResetKeys => self.settings.controls.reset_keyboard(&self.bind_layout),
+            Msg::DefaultPad(id) => {
+                let standard = self.connected.iter().any(|(c, s, _)| *c == id && *s);
+                self.settings
+                    .controls
+                    .reset_pad_table(&id, &self.bind_layout.id, standard);
+            }
+            Msg::BindLayout(id) => {
+                if let Some(l) = Layout::builtin(&id) {
+                    self.bind_layout = l;
+                    self.capturing = None;
+                }
+                return true;
+            }
             Msg::Bind(device) => {
                 self.capturing = None;
                 self.binding = Some(device);
@@ -323,8 +353,24 @@ impl Component for Options {
             Msg::BindSaved(bound) => {
                 self.binding = None;
                 match bound {
-                    Bound::Keyboard(keys) => self.settings.keys_single = keys,
-                    Bound::Pad(pad) => self.settings.set_pad_bindings(pad),
+                    Bound::Keyboard(keys) => {
+                        self.settings.controls.set_keyboard(&self.bind_layout, keys)
+                    }
+                    Bound::Pad {
+                        id,
+                        table,
+                        start,
+                        back,
+                    } => {
+                        // Keep the controller's other tables (and, for a
+                        // standard controller, its single defaults), and
+                        // Start/Back when skipped.
+                        let mut pad = self.pad_entry(&id);
+                        pad.set_table(&self.bind_layout.id, table);
+                        pad.start = start.or(pad.start);
+                        pad.back = back.or(pad.back);
+                        self.settings.set_pad_bindings(pad);
+                    }
                 }
             }
             Msg::PadsTick => {
@@ -334,23 +380,34 @@ impl Component for Options {
                 // Nothing here consumes the hub's edge queue.
                 g.clear();
                 let mut connected: Vec<(String, bool, usize)> = Vec::new();
+                let mut pads = Vec::new();
                 for p in g.pads() {
+                    pads.push(ConnectedPad {
+                        id: p.id.clone(),
+                        index: p.index,
+                        standard: p.standard,
+                    });
                     match connected.iter_mut().find(|(id, _, _)| *id == p.id) {
                         Some(c) => c.2 += 1,
                         None => connected.push((p.id, p.standard, 1)),
                     }
                 }
-                if connected == self.connected {
+                if pads == self.connected_pads {
                     return false;
                 }
                 self.connected = connected;
+                self.connected_pads = pads;
                 return true;
             }
-            Msg::ClearPad(id) => self.settings.set_pad_bindings(PadBindings {
-                id,
-                ..PadBindings::default()
-            }),
-            Msg::ForgetPad(id) => self.settings.forget_pad(&id),
+            Msg::ClearPad(id) => {
+                let mut pad = self.pad_entry(&id);
+                pad.set_table(
+                    &self.bind_layout.id,
+                    vec![Vec::new(); self.bind_layout.lane_count()],
+                );
+                self.settings.set_pad_bindings(pad);
+            }
+            Msg::ForgetPad(id) => self.settings.controls.forget_pad(&id),
             Msg::FastPadPoll(v) => self.settings.fast_pad_poll = v,
         }
         self.settings.save();
@@ -449,6 +506,8 @@ impl Component for Options {
                 { for self.binding.clone().map(|device| html! {
                     <BindFlow
                         {device}
+                        layout={self.bind_layout.clone()}
+                        controls={self.settings.controls.clone()}
                         gamepads={self.gamepads.clone()}
                         on_save={link.callback(Msg::BindSaved)}
                         on_cancel={link.callback(|_| Msg::BindClosed)}
@@ -460,6 +519,18 @@ impl Component for Options {
 }
 
 impl Options {
+    /// A controller's saved entry, else its standard defaults (so a table
+    /// saved for one layout keeps the others' defaults), else a new entry.
+    fn pad_entry(&self, id: &str) -> PadBindings {
+        let standard = self.connected.iter().any(|(c, s, _)| c == id && *s);
+        self.settings
+            .pad_bindings(id, standard)
+            .unwrap_or_else(|| PadBindings {
+                id: id.to_string(),
+                ..PadBindings::default()
+            })
+    }
+
     fn note_options_section(&self, link: &html::Scope<Self>) -> Html {
         let t = &self.settings.transform;
         let checkbox = |checked: bool, msg: fn(bool) -> Msg, text: &str| {
@@ -509,7 +580,9 @@ impl Options {
 
     fn controls_section(&self, link: &html::Scope<Self>) -> Html {
         let s = &self.settings;
-        let keyboard_status = if s.keys_single == Settings::default().keys_single {
+        let layout = &self.bind_layout;
+        let keyboard_keys = s.controls.keyboard(layout);
+        let keyboard_status = if s.controls.keyboard_is_default(layout) {
             "defaults"
         } else {
             "saved"
@@ -518,6 +591,7 @@ impl Options {
         // most recently used first.
         let mut pads: Vec<(String, bool, usize)> = self.connected.clone();
         let mut saved: Vec<&PadBindings> = s
+            .controls
             .pads
             .iter()
             .filter(|p| !self.connected.iter().any(|(id, _, _)| *id == p.id))
@@ -534,8 +608,27 @@ impl Options {
             <section>
                 <h2>{ "Controls" }</h2>
                 <p class="muted">
-                    { "Each device keeps its own bindings. “bind arrows” asks you to press each arrow in turn. Controllers show up here once one of their buttons has been pressed." }
+                    { "Each device keeps its own bindings for each style. “bind” asks you to press each lane in turn. Controllers show up here once one of their buttons has been pressed." }
                 </p>
+                <div class="style-select" role="group" aria-label="Bindings for">
+                    { for Layout::builtins().into_iter().map(|l| {
+                        let selected = l.id == layout.id;
+                        let id = l.id.clone();
+                        html! {
+                            <button class={classes!("style-button", selected.then_some("selected"))}
+                                aria-pressed={selected.to_string()}
+                                onclick={link.callback(move |_| Msg::BindLayout(id.clone()))}>
+                                { &l.name }
+                            </button>
+                        }
+                    }) }
+                </div>
+                { if layout.pads() > 1 { html! {
+                    <p class="muted">{ format!(
+                        "With two controllers, each plays one pad of {} with its Single bindings (the one connected first on the left), unless it has {} bindings of its own.",
+                        layout.name, layout.name
+                    ) }</p>
+                } } else { html! {} } }
                 <p>
                     <button onclick={link.callback(|_| Msg::Bind(None))}>{ "bind any device…" }</button>
                 </p>
@@ -545,12 +638,12 @@ impl Options {
                         <span class="bind-status">{ keyboard_status }</span>
                     </div>
                     <table class="keys-table">
-                        { for (0..4).map(|lane| {
-                            let keys = s.keys_single.get(lane).cloned().unwrap_or_default();
+                        { for (0..layout.lane_count()).map(|lane| {
+                            let keys = keyboard_keys.get(lane).cloned().unwrap_or_default();
                             let capturing = self.capturing == Some(lane);
                             html! {
                                 <tr>
-                                    <td>{ LANE_NAMES[lane] }</td>
+                                    <td>{ layout.lanes[lane].label() }</td>
                                     <td><code>{ if keys.is_empty() { "—".to_string() } else { keys.join(", ") } }</code></td>
                                     <td>
                                         <button onclick={link.callback(move |_| Msg::Capture(lane))} disabled={self.capturing.is_some()}>
@@ -564,7 +657,7 @@ impl Options {
                         }) }
                     </table>
                     <p class="device-actions">
-                        <button onclick={link.callback(|_| Msg::Bind(Some(DeviceId::Keyboard)))}>{ "bind arrows" }</button>
+                        <button onclick={link.callback(|_| Msg::Bind(Some(DeviceId::Keyboard)))}>{ "bind" }</button>
                         <button onclick={link.callback(|_| Msg::ResetKeys)}>{ "reset keys" }</button>
                     </p>
                 </div>
@@ -584,13 +677,36 @@ impl Options {
     /// they are saved, the standard defaults or missing. `count` is how
     /// many identical controllers are connected (0: none).
     fn pad_block(&self, link: &html::Scope<Self>, id: &str, standard: bool, count: usize) -> Html {
-        let saved = self.settings.pads.iter().find(|p| p.id == id);
+        let layout = &self.bind_layout;
+        let saved = self.settings.controls.pads.iter().find(|p| p.id == id);
+        let has_table = saved.is_some_and(|p| p.table(&layout.id).is_some());
         let bindings = self.settings.pad_bindings(id, standard);
-        let (status, class) = match (saved, &bindings) {
-            (Some(p), _) if p.is_empty() => ("nothing bound", "missing"),
-            (Some(_), _) => ("saved", ""),
-            (None, Some(_)) => ("defaults (standard layout)", ""),
-            (None, None) => ("not bound yet", "missing"),
+        // The use play makes of it: with the controllers connected now, or
+        // for one not connected, as if it were plugged in next.
+        let mut pads = self.connected_pads.clone();
+        if count == 0 {
+            pads.push(ConnectedPad {
+                id: id.to_string(),
+                index: u32::MAX,
+                standard,
+            });
+        }
+        let pad_use = self
+            .settings
+            .controls
+            .plan(layout, &pads)
+            .into_iter()
+            .find(|(c, _)| c.id == id)
+            .map_or(PadUse::Unused, |(_, u)| u);
+        let (status, class) = match &pad_use {
+            PadUse::OnePad { .. } if count > 1 => ("one pad each, Single bindings", ""),
+            PadUse::OnePad { .. } => ("one pad, Single bindings", ""),
+            u if !u.plays() && has_table => ("nothing bound", "missing"),
+            PadUse::Table { defaults: true, .. } if pad_use.plays() => {
+                ("defaults (standard layout)", "")
+            }
+            PadUse::Table { .. } if pad_use.plays() => ("saved", ""),
+            _ => ("not bound yet", "missing"),
         };
         let label = |c: &String| {
             c.parse::<Control>()
@@ -605,20 +721,36 @@ impl Options {
             }
         };
         let b = bindings.unwrap_or_default();
-        let rows = (0..4)
-            .map(|lane| {
+        let one_pad = matches!(pad_use, PadUse::OnePad { .. });
+        let table = match pad_use {
+            PadUse::Table { table, .. } | PadUse::OnePad { single: table, .. } => table,
+            PadUse::Unused => Vec::new(),
+        };
+        let lanes: Vec<String> = if one_pad {
+            Layout::dance_single()
+                .lanes
+                .iter()
+                .map(|l| l.label().to_string())
+                .collect()
+        } else {
+            layout.lanes.iter().map(|l| l.label().to_string()).collect()
+        };
+        let rows = lanes
+            .into_iter()
+            .enumerate()
+            .map(|(lane, name)| {
                 (
-                    LANE_NAMES[lane],
-                    list(b.single.get(lane).map(Vec::as_slice).unwrap_or_default()),
+                    name,
+                    list(table.get(lane).map(Vec::as_slice).unwrap_or_default()),
                 )
             })
             .chain([
                 (
-                    "Start",
+                    "Start".to_string(),
                     b.start.as_ref().map(label).unwrap_or_else(|| "—".into()),
                 ),
                 (
-                    "Back",
+                    "Back".to_string(),
                     b.back.as_ref().map(label).unwrap_or_else(|| "—".into()),
                 ),
             ]);
@@ -628,6 +760,10 @@ impl Options {
             n => format!("{n} connected"),
         };
         let (bind_id, clear_id, forget_id) = (id.to_string(), id.to_string(), id.to_string());
+        let default_id = id.to_string();
+        // Back to the defaults: the standard ones, or one pad of a two-pad
+        // layout with the single bindings.
+        let can_default = has_table && (layout.id != "dance-single" || standard);
         html! {
             <div class={classes!("device-block", (count == 0).then_some("absent"))}>
                 <div class="device-head">
@@ -641,8 +777,11 @@ impl Options {
                     }) }
                 </table>
                 <p class="device-actions">
-                    <button onclick={link.callback(move |_| Msg::Bind(Some(DeviceId::Gamepad(bind_id.clone()))))}>{ "bind arrows" }</button>
-                    <button disabled={b.is_empty()} onclick={link.callback(move |_| Msg::ClearPad(clear_id.clone()))}>{ "clear" }</button>
+                    <button onclick={link.callback(move |_| Msg::Bind(Some(DeviceId::Gamepad(bind_id.clone()))))}>{ "bind" }</button>
+                    <button disabled={matches!(status, "nothing bound" | "not bound yet")} onclick={link.callback(move |_| Msg::ClearPad(clear_id.clone()))}>{ "clear" }</button>
+                    { if can_default { html! {
+                        <button onclick={link.callback(move |_| Msg::DefaultPad(default_id.clone()))}>{ "use defaults" }</button>
+                    } } else { html! {} } }
                     <button disabled={saved.is_none()} onclick={link.callback(move |_| Msg::ForgetPad(forget_id.clone()))}>{ "forget" }</button>
                 </p>
             </div>

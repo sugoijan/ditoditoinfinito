@@ -61,10 +61,15 @@ pub struct Binding {
     /// `hat:<n>:up`), `lane:<n>` for touch.
     pub control: String,
     pub lane: u8,
+    /// Only for edges from this slot of the device (one of two identical
+    /// pads on `dance-double`); `None` matches every slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<u32>,
 }
 
-/// `(device, control)` → lane table. Several controls may map to one lane;
-/// a control maps to at most one lane.
+/// `(device, slot, control)` → lane table. Several controls may map to one
+/// lane; a control maps to at most one lane per slot, and a binding for a
+/// specific slot wins over one for every slot.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bindings {
     pub bindings: Vec<Binding>,
@@ -85,13 +90,26 @@ impl Bindings {
     /// Maps `control` on `device` to `lane`, replacing any previous mapping
     /// of that control.
     pub fn bind(&mut self, device: impl Into<BindingDevice>, control: &str, lane: u8) {
+        self.bind_slot(device, None, control, lane);
+    }
+
+    /// Like [`Bindings::bind`], for edges from one slot of the device only
+    /// (`None`: every slot).
+    pub fn bind_slot(
+        &mut self,
+        device: impl Into<BindingDevice>,
+        slot: Option<u32>,
+        control: &str,
+        lane: u8,
+    ) {
         let device = device.into();
         self.bindings
-            .retain(|b| !(b.device == device && b.control == control));
+            .retain(|b| !(b.device == device && b.slot == slot && b.control == control));
         self.bindings.push(Binding {
             device,
             control: control.to_string(),
             lane,
+            slot,
         });
     }
 
@@ -106,12 +124,27 @@ impl Bindings {
         self.bindings.retain(|b| b.lane != lane);
     }
 
-    /// Lane for a control, if bound.
+    /// Lane for a control of a device's slot 0, if bound (keyboard and
+    /// touch edges always carry slot 0).
     pub fn lane_of(&self, device: &DeviceId, control: &str) -> Option<u8> {
+        self.lane_of_slot(device, 0, control)
+    }
+
+    /// Lane for a control on one slot of a device: a binding for that slot,
+    /// else one for every slot.
+    pub fn lane_of_slot(&self, device: &DeviceId, slot: u32, control: &str) -> Option<u8> {
         let device = BindingDevice::from(device);
+        let matching = |b: &&Binding| b.device == device && b.control == control;
         self.bindings
             .iter()
-            .find(|b| b.device == device && b.control == control)
+            .filter(matching)
+            .find(|b| b.slot == Some(slot))
+            .or_else(|| {
+                self.bindings
+                    .iter()
+                    .filter(matching)
+                    .find(|b| b.slot.is_none())
+            })
             .map(|b| b.lane)
     }
 
@@ -125,7 +158,7 @@ impl Bindings {
 
     /// Turns a device edge into a lane event, or `None` if unbound.
     pub fn resolve(&self, raw: &RawInput) -> Option<InputEvent> {
-        self.lane_of(&raw.device, &raw.control)
+        self.lane_of_slot(&raw.device, raw.slot, &raw.control)
             .map(|lane| InputEvent {
                 lane,
                 pressed: raw.pressed,
@@ -143,8 +176,8 @@ impl Bindings {
 #[derive(Clone, Debug, Default)]
 pub struct LaneInput {
     pub bindings: Bindings,
-    /// Controls currently down, with the lane each one pressed.
-    held: Vec<(DeviceId, String, u8)>,
+    /// Controls currently down `(device, slot, control, lane pressed)`.
+    held: Vec<(DeviceId, u32, String, u8)>,
 }
 
 impl LaneInput {
@@ -161,17 +194,19 @@ impl LaneInput {
         let found = self
             .held
             .iter()
-            .position(|(d, c, _)| *d == raw.device && *c == raw.control);
+            .position(|(d, s, c, _)| *d == raw.device && *s == raw.slot && *c == raw.control);
         let lane = if raw.pressed {
             if found.is_some() {
                 return None;
             }
-            let lane = self.bindings.lane_of(&raw.device, &raw.control)?;
+            let lane = self
+                .bindings
+                .lane_of_slot(&raw.device, raw.slot, &raw.control)?;
             self.held
-                .push((raw.device.clone(), raw.control.clone(), lane));
+                .push((raw.device.clone(), raw.slot, raw.control.clone(), lane));
             lane
         } else {
-            let (_, _, lane) = self.held.swap_remove(found?);
+            let (_, _, _, lane) = self.held.swap_remove(found?);
             if self.lane_held(lane) {
                 return None;
             }
@@ -186,7 +221,7 @@ impl LaneInput {
 
     /// Whether any control holds `lane`.
     pub fn lane_held(&self, lane: u8) -> bool {
-        self.held.iter().any(|(_, _, l)| *l == lane)
+        self.held.iter().any(|(_, _, _, l)| *l == lane)
     }
 }
 
@@ -200,6 +235,7 @@ mod tests {
             control: control.into(),
             pressed,
             host_time: HostTime(t),
+            slot: 0,
         }
     }
 
@@ -249,6 +285,7 @@ mod tests {
             control: "KeyJ".into(),
             pressed: true,
             host_time: HostTime(1.0),
+            slot: 0,
         };
         assert_eq!(
             b.resolve(&raw),

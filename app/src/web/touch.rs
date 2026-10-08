@@ -277,6 +277,7 @@ impl Shared {
             control,
             pressed,
             host_time,
+            slot: 0,
         });
     }
 

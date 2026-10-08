@@ -1,4 +1,5 @@
-//! Guided binding: press each arrow in turn on the device being bound.
+//! Guided binding: press each lane's control in turn on the device being
+//! bound, for one layout.
 //!
 //! Works the same for the keyboard and any controller, whatever its layout.
 //! Controllers without the standard mapping (dance pads, pad adapters, many
@@ -25,25 +26,38 @@ use wasm_bindgen::JsCast;
 use web_sys::{HtmlElement, KeyboardEvent};
 use yew::prelude::*;
 
-use crate::settings::PadBindings;
+use ddi_chart::Layout;
+use ddi_engine::ControlBindings;
+
 use crate::web::gamepad::Gamepads;
 
-/// Steps in order; the keyboard stops after the four arrows.
-const STEPS: [&str; 6] = ["Left", "Down", "Up", "Right", "Start", "Back"];
-const LANES: usize = 4;
+/// Steps after the lanes, for controllers only.
+const PAD_STEPS: [&str; 2] = ["Start", "Back"];
 
-/// What a finished flow binds; it replaces the device's earlier bindings.
+/// What a finished flow binds; it replaces the device's table for the
+/// layout (and a controller's Start and Back).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Bound {
     /// One key per lane (`KeyboardEvent.code`).
     Keyboard(Vec<Vec<String>>),
-    Pad(PadBindings),
+    Pad {
+        id: String,
+        /// One control per lane.
+        table: Vec<Vec<String>>,
+        start: Option<String>,
+        back: Option<String>,
+    },
 }
 
 #[derive(Properties, PartialEq)]
 pub(crate) struct Props {
     /// Device to bind; `None` asks for a press on it first.
     pub(crate) device: Option<DeviceId>,
+    /// Layout whose lanes are bound.
+    pub(crate) layout: Layout,
+    /// The saved bindings: Start and Back cannot take a control that plays
+    /// a lane in another layout's table of the same controller.
+    pub(crate) controls: ControlBindings,
     /// The page's hub; the flow takes its edge listener while open.
     pub(crate) gamepads: Option<Gamepads>,
     pub(crate) on_save: Callback<Bound>,
@@ -64,7 +78,7 @@ pub(crate) enum Msg {
 enum Phase {
     /// Waiting for a press that picks the device.
     Choose,
-    /// Waiting for the control of `STEPS[n]`.
+    /// Waiting for the control of step `n`.
     Step(usize),
     /// Everything recorded: live test, then save.
     Review,
@@ -83,7 +97,13 @@ struct KeyPolicy {
 pub(crate) struct BindFlow {
     device: Option<DeviceId>,
     phase: Phase,
-    recorded: [Option<String>; 6],
+    /// Step names: the layout's lane labels, then [`PAD_STEPS`].
+    steps: Vec<String>,
+    /// Lanes of the layout (the steps before [`PAD_STEPS`]).
+    lanes: usize,
+    /// Review grid columns (lanes of one pad).
+    columns: usize,
+    recorded: Vec<Option<String>>,
     /// A control that must be released before the next step listens.
     waiting: Option<String>,
     message: Option<String>,
@@ -100,6 +120,14 @@ impl Component for BindFlow {
 
     fn create(ctx: &Context<Self>) -> Self {
         let device = ctx.props().device.clone();
+        let layout = &ctx.props().layout;
+        let lanes = layout.lane_count();
+        let steps: Vec<String> = layout
+            .lanes
+            .iter()
+            .map(|l| l.label().to_string())
+            .chain(PAD_STEPS.iter().map(|s| s.to_string()))
+            .collect();
         let policy = Rc::new(RefCell::new(KeyPolicy::default()));
         if let Some(g) = &ctx.props().gamepads {
             let link = ctx.link().clone();
@@ -125,7 +153,10 @@ impl Component for BindFlow {
                 Phase::Choose
             },
             device,
-            recorded: Default::default(),
+            recorded: vec![None; steps.len()],
+            columns: layout.lanes_of_pad(0).count().max(1),
+            steps,
+            lanes,
             waiting: None,
             message: None,
             held,
@@ -139,7 +170,7 @@ impl Component for BindFlow {
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         let redraw = match msg {
-            Msg::Edge(edge) => self.edge(edge),
+            Msg::Edge(edge) => self.edge(ctx, edge),
             Msg::Blur => {
                 if self.device == Some(DeviceId::Keyboard) {
                     self.held.clear();
@@ -149,7 +180,7 @@ impl Component for BindFlow {
             }
             Msg::Skip => {
                 if let Phase::Step(step) = self.phase
-                    && step >= LANES
+                    && step >= self.lanes
                 {
                     self.recorded[step] = None;
                     self.message = None;
@@ -158,7 +189,7 @@ impl Component for BindFlow {
                 true
             }
             Msg::Redo => {
-                self.recorded = Default::default();
+                self.recorded = vec![None; self.steps.len()];
                 self.message = None;
                 self.phase = Phase::Step(0);
                 true
@@ -196,8 +227,12 @@ impl Component for BindFlow {
         let link = ctx.link();
         let title = match &self.device {
             None => "Bind a device".to_string(),
-            Some(DeviceId::Keyboard) => "Bind the keyboard".to_string(),
-            Some(DeviceId::Gamepad(id)) => format!("Bind controller “{id}”"),
+            Some(DeviceId::Keyboard) => {
+                format!("Bind the keyboard for {}", ctx.props().layout.name)
+            }
+            Some(DeviceId::Gamepad(id)) => {
+                format!("Bind controller “{id}” for {}", ctx.props().layout.name)
+            }
             Some(_) => "Bind a device".to_string(),
         };
         let body = match self.phase {
@@ -210,7 +245,7 @@ impl Component for BindFlow {
             Phase::Step(step) => self.step_view(step),
             Phase::Review => self.review_view(),
         };
-        let skip = matches!(self.phase, Phase::Step(s) if s >= LANES);
+        let skip = matches!(self.phase, Phase::Step(s) if s >= self.lanes);
         let review = self.phase == Phase::Review;
         html! {
             <div class="bind-backdrop">
@@ -243,7 +278,11 @@ impl BindFlow {
     }
 
     fn steps(&self) -> usize {
-        if self.is_pad() { STEPS.len() } else { LANES }
+        if self.is_pad() {
+            self.steps.len()
+        } else {
+            self.lanes
+        }
     }
 
     fn label(&self, control: &str) -> String {
@@ -258,7 +297,7 @@ impl BindFlow {
     }
 
     /// Handles one press or release; returns whether to redraw.
-    fn edge(&mut self, edge: RawInput) -> bool {
+    fn edge(&mut self, ctx: &Context<Self>, edge: RawInput) -> bool {
         match &self.device {
             None => {
                 // The first press picks the device; it still has to be
@@ -304,7 +343,17 @@ impl BindFlow {
             self.message = Some(format!(
                 "{} is already {}. Press a different one.",
                 self.label(&edge.control),
-                STEPS[i]
+                self.steps[i]
+            ));
+            return true;
+        }
+        if step >= self.lanes
+            && let Some(DeviceId::Gamepad(id)) = &self.device
+            && self.lane_elsewhere(ctx, id, &edge.control)
+        {
+            self.message = Some(format!(
+                "{} plays a lane in another style's bindings. Press a different one.",
+                self.label(&edge.control)
             ));
             return true;
         }
@@ -313,6 +362,30 @@ impl BindFlow {
         self.message = None;
         self.advance();
         true
+    }
+
+    /// Whether `control` plays a lane of this controller in a layout other
+    /// than the one being bound.
+    fn lane_elsewhere(&self, ctx: &Context<Self>, id: &str, control: &str) -> bool {
+        let props = ctx.props();
+        let standard = props
+            .gamepads
+            .as_ref()
+            .is_some_and(|g| g.pads().iter().any(|p| p.id == id && p.standard));
+        let Some(pad) = props.controls.pad(id, standard) else {
+            return false;
+        };
+        let single = (props.layout.id != "dance-single").then_some(&pad.single);
+        single
+            .into_iter()
+            .chain(
+                pad.layouts
+                    .iter()
+                    .filter(|(l, _)| **l != props.layout.id)
+                    .map(|(_, t)| t),
+            )
+            .flatten()
+            .any(|c| c.iter().any(|c| c == control))
     }
 
     fn advance(&mut self) {
@@ -337,33 +410,35 @@ impl BindFlow {
     }
 
     fn bound(&self) -> Option<Bound> {
-        let lanes: Vec<Vec<String>> = self.recorded[..LANES]
+        let table: Vec<Vec<String>> = self.recorded[..self.lanes]
             .iter()
             .map(|c| c.iter().cloned().collect())
             .collect();
         match &self.device {
-            Some(DeviceId::Keyboard) => Some(Bound::Keyboard(lanes)),
-            Some(DeviceId::Gamepad(id)) => Some(Bound::Pad(PadBindings {
+            Some(DeviceId::Keyboard) => Some(Bound::Keyboard(table)),
+            Some(DeviceId::Gamepad(id)) => Some(Bound::Pad {
                 id: id.clone(),
-                single: lanes,
-                start: self.recorded[4].clone(),
-                back: self.recorded[5].clone(),
-                last_seen: 0.0,
-            })),
+                table,
+                start: self.recorded[self.lanes].clone(),
+                back: self.recorded[self.lanes + 1].clone(),
+            }),
             _ => None,
         }
     }
 
     fn step_view(&self, step: usize) -> Html {
-        let what = match step {
-            4 => "the button for Start (starts a song)".to_string(),
-            5 => "the button for Back (leaves a song)".to_string(),
-            _ => STEPS[step].to_string(),
+        let what = match step.checked_sub(self.lanes) {
+            Some(0) => "the button for Start (starts a song)".to_string(),
+            Some(_) => "the button for Back (leaves a song)".to_string(),
+            None => self.steps[step].clone(),
         };
-        let optional = |i: usize| if i >= LANES { " (optional)" } else { "" };
+        let optional = |i: usize| if i >= self.lanes { " (optional)" } else { "" };
         html! {
             <>
                 <p class="bind-prompt">{ format!("Press {what}") }</p>
+                { if step >= self.lanes { html! {
+                    <p class="muted">{ "Skip keeps the current one; Start and Back are shared by every style." }</p>
+                } } else { html! {} } }
                 { for self.waiting.as_ref().map(|w| html! {
                     <p class="muted">{ format!("Waiting for {} to be released.", self.label(w)) }</p>
                 }) }
@@ -377,7 +452,7 @@ impl BindFlow {
                         };
                         html! {
                             <li {class}>
-                                <span>{ format!("{}{}", STEPS[i], optional(i)) }</span>
+                                <span>{ format!("{}{}", self.steps[i], optional(i)) }</span>
                                 <span class="bind-value">{ value }</span>
                             </li>
                         }
@@ -393,38 +468,38 @@ impl BindFlow {
             let lit = control.is_some_and(|c| self.held.contains(c));
             html! {
                 <div class={classes!("bind-lane", lit.then_some("lit"))}>
-                    <strong>{ STEPS[i] }</strong>
+                    <strong>{ &self.steps[i] }</strong>
                     <span>{ control.map(|c| self.label(c)).unwrap_or_else(|| "—".into()) }</span>
                 </div>
             }
         };
-        let controls: Vec<Option<Control>> = self.recorded[..LANES]
+        let controls: Vec<Option<Control>> = self.recorded[..self.lanes]
             .iter()
             .map(|c| c.as_ref().and_then(|c| c.parse().ok()))
             .collect();
         let mut warnings = Vec::new();
-        for i in 0..LANES {
-            for j in i + 1..LANES {
+        for i in 0..self.lanes {
+            for j in i + 1..self.lanes {
                 if let (Some(a), Some(b)) = (&controls[i], &controls[j])
                     && a.exclusive_with(b)
                 {
                     warnings.push(format!(
                         "{} and {} are opposite ends of one axis: they cannot be pressed together.",
-                        STEPS[i], STEPS[j]
+                        self.steps[i], self.steps[j]
                     ));
                 }
             }
         }
         html! {
             <>
-                <p>{ "Press the arrows to test them: each lights while held." }</p>
-                <div class="bind-lanes">{ for (0..LANES).map(cell) }</div>
+                <p>{ "Press each one to test it: it lights while held." }</p>
+                <div class="bind-lanes" style={format!("--cols: {}", self.columns)}>{ for (0..self.lanes).map(cell) }</div>
                 { if self.is_pad() { html! {
-                    <div class="bind-lanes bind-extra">{ cell(4) }{ cell(5) }</div>
+                    <div class="bind-lanes bind-extra">{ cell(self.lanes) }{ cell(self.lanes + 1) }</div>
                 } } else { html! {} } }
                 { for warnings.iter().map(|w| html! { <p class="bind-warning">{ w }</p> }) }
                 { if warnings.is_empty() { html! {} } else { html! {
-                    <p class="muted">{ "Jumps on those arrows will not register. Some pads have a mode switch that reports the arrows as buttons instead." }</p>
+                    <p class="muted">{ "Pressing those two together will not register. Some pads have a mode switch that reports the arrows as buttons instead." }</p>
                 } } }
             </>
         }
@@ -472,6 +547,7 @@ fn key_listeners(ctx: &Context<BindFlow>, policy: Rc<RefCell<KeyPolicy>>) -> Vec
                 control: code,
                 pressed,
                 host_time: HostTime(0.0),
+                slot: 0,
             }));
         }
     };
