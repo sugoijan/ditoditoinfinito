@@ -4,25 +4,17 @@
 //! centred, one lane is one arrow wide, and one "arrow height" of engine
 //! distance is one arrow of pixels (x-mod 1 = one arrow per beat).
 
-use ddi_chart::{Color, Glyph, Layout, Quantization};
+use ddi_chart::{Color, Glyph, Layout};
 use ddi_engine::frame::{Frame, NoteSprite, SpriteKind};
 use ddi_engine::rules::{JudgeNames, Judgement};
 
 use crate::sprite::{Instance, Shape};
 use crate::text::{Align, TextItem};
 
-/// Colour choice for notes.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ColorScheme {
-    /// One colour for everything.
-    Static([f32; 4]),
-    /// Colour by subdivision (DDR "NOTE", ITG default).
-    Quantized,
-}
+pub use crate::note_colors::{ColorScheme, Gradient, quantization_color};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Skin {
-    pub scheme: ColorScheme,
     pub receptor: [f32; 4],
     pub hold_active: [f32; 4],
     pub hold_inactive: [f32; 4],
@@ -34,7 +26,6 @@ pub struct Skin {
 impl Default for Skin {
     fn default() -> Skin {
         Skin {
-            scheme: ColorScheme::Quantized,
             receptor: [0.75, 0.75, 0.8, 0.9],
             hold_active: [0.55, 0.95, 0.65, 0.95],
             hold_inactive: [0.35, 0.65, 0.45, 0.85],
@@ -47,20 +38,6 @@ impl Default for Skin {
                 a: 1.0,
             },
         }
-    }
-}
-
-pub fn quantization_color(q: Quantization) -> [f32; 4] {
-    match q {
-        Quantization::N4 => [0.95, 0.25, 0.3, 1.0],
-        Quantization::N8 => [0.3, 0.5, 1.0, 1.0],
-        Quantization::N12 => [0.7, 0.35, 0.95, 1.0],
-        Quantization::N16 => [0.95, 0.85, 0.25, 1.0],
-        Quantization::N24 => [0.95, 0.45, 0.75, 1.0],
-        Quantization::N32 => [0.95, 0.6, 0.25, 1.0],
-        Quantization::N48 => [0.3, 0.85, 0.9, 1.0],
-        Quantization::N64 => [0.35, 0.9, 0.45, 1.0],
-        Quantization::N192 => [0.75, 0.75, 0.75, 1.0],
     }
 }
 
@@ -141,8 +118,12 @@ pub struct RenderOptions {
     pub cancel_progress: f32,
     /// The quit hint shown with it; empty for the keyboard's.
     pub cancel_hint: &'static str,
-    /// Perceived brightness of the background image, `0..=1` (0 = off).
+    /// Perceived brightness of the background images, `0..=1` (0 = off).
     pub background: f32,
+    /// Which background images to show this frame.
+    pub backdrop: crate::background::Backdrop,
+    /// How notes are coloured (an explicit chart colour still wins).
+    pub note_colors: ColorScheme,
     /// Darkening behind the lanes, `0..=1` of perceived brightness removed
     /// (0 = none).
     pub field_filter: f32,
@@ -307,7 +288,15 @@ pub fn build(
 
     // Notes.
     for note in notes {
-        push_note(&mut instances, note, layout, skin, geo);
+        push_note(
+            &mut instances,
+            note,
+            layout,
+            skin,
+            geo,
+            opts.note_colors,
+            frame.beat,
+        );
     }
 
     // HUD: life bar.
@@ -471,6 +460,8 @@ fn push_note(
     layout: &Layout,
     skin: &Skin,
     geo: &FieldGeometry,
+    scheme: ColorScheme,
+    song_beat: f64,
 ) {
     let Some(lane) = layout.lanes.get(note.lane as usize) else {
         return;
@@ -481,23 +472,42 @@ fn push_note(
     if note.alpha <= 0.0 && note.glow <= 0.0 {
         return;
     }
-    let mut color = match (&skin.scheme, note.color) {
-        (_, Some(c)) => rgba(c),
-        (ColorScheme::Static(c), None) => *c,
-        (ColorScheme::Quantized, None) => quantization_color(note.quantization),
+    let mut color = match note.color {
+        Some(c) => rgba(c),
+        None => scheme.note_color(note.quantization, note.beat_frac, song_beat),
+    };
+    // A flowing gradient on arrows of a scheme that has one, unless the
+    // chart colours the note or it is glowing (the glow is plain white).
+    let gradient = (note.color.is_none() && note.glow <= 0.0)
+        .then(|| scheme.note_gradient(note.beat_frac, song_beat))
+        .flatten()
+        .filter(|_| matches!(lane.glyph, Glyph::Arrow { .. }));
+    let arrow = |color: [f32; 4], gradient: Option<Gradient>| {
+        let base = Instance::new(
+            [x, y],
+            [a * 0.92, a * 0.92],
+            glyph_shape(&lane.glyph, false),
+            color,
+        )
+        .rotated(glyph_rotation(&lane.glyph));
+        let (shape, params) = match gradient {
+            Some(Gradient::Flow {
+                to: [r, g, b],
+                phase,
+            }) => (Shape::ArrowGradient, [r, g, b, phase]),
+            Some(Gradient::Ramp { tip: [r, g, b] }) => (Shape::ArrowRamp, [r, g, b, 0.0]),
+            None => return base,
+        };
+        Instance {
+            shape: shape as u32,
+            ..base
+        }
+        .params(params)
     };
     color = glowing(color, note);
     match note.kind {
         SpriteKind::Tap | SpriteKind::Lift | SpriteKind::Dummy => {
-            out.push(
-                Instance::new(
-                    [x, y],
-                    [a * 0.92, a * 0.92],
-                    glyph_shape(&lane.glyph, false),
-                    color,
-                )
-                .rotated(glyph_rotation(&lane.glyph)),
-            );
+            out.push(arrow(color, gradient));
             if matches!(note.kind, SpriteKind::Lift) {
                 out.push(Instance::new(
                     [x, y],
@@ -508,20 +518,11 @@ fn push_note(
             }
         }
         SpriteKind::HoldHead { dropped, .. } | SpriteKind::RollHead { dropped, .. } => {
-            let c = if dropped {
-                glowing(skin.hold_dropped, note)
+            if dropped {
+                out.push(arrow(glowing(skin.hold_dropped, note), None));
             } else {
-                color
-            };
-            out.push(
-                Instance::new(
-                    [x, y],
-                    [a * 0.92, a * 0.92],
-                    glyph_shape(&lane.glyph, false),
-                    c,
-                )
-                .rotated(glyph_rotation(&lane.glyph)),
-            );
+                out.push(arrow(color, gradient));
+            }
         }
         SpriteKind::Fake => {
             color[3] *= 0.6;
@@ -655,6 +656,49 @@ mod tests {
         let arrow = out.iter().find(|i| i.shape == Shape::Arrow as u32).unwrap();
         let red = quantization_color(Quantization::N4);
         assert!((arrow.color[1] - (red[1] + (1.0 - red[1]) * 0.5)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_colour_scheme_reaches_the_arrows() {
+        let f = frame(
+            vec![note(1.0, SpriteKind::Tap, Appearance::Visible)],
+            Appearance::Visible,
+        );
+        let single = [0.1, 0.2, 0.3, 1.0];
+        let out = shapes(
+            &f,
+            RenderOptions {
+                note_colors: ColorScheme::Single(single),
+                ..Default::default()
+            },
+        );
+        let arrow = out.iter().find(|i| i.shape == Shape::Arrow as u32).unwrap();
+        assert_eq!(arrow.color, single);
+    }
+
+    #[test]
+    fn rainbow_arrows_carry_a_flowing_gradient() {
+        let f = frame(
+            vec![note(1.0, SpriteKind::Tap, Appearance::Visible)],
+            Appearance::Visible,
+        );
+        let out = shapes(
+            &f,
+            RenderOptions {
+                note_colors: ColorScheme::Rainbow,
+                ..Default::default()
+            },
+        );
+        let arrow = out
+            .iter()
+            .find(|i| i.shape == Shape::ArrowGradient as u32)
+            .expect("gradient arrow");
+        // A quarter note: orange running to yellow, at the song's beat phase.
+        let Some(Gradient::Flow { to, phase }) = ColorScheme::Rainbow.note_gradient(0.0, f.beat)
+        else {
+            panic!("rainbow flows");
+        };
+        assert_eq!(arrow.params, [to[0], to[1], to[2], phase]);
     }
 
     #[test]

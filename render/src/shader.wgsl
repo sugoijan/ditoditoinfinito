@@ -8,7 +8,9 @@ struct Globals {
     scale: vec2<f32>,
     translate: vec2<f32>,
     time: f32,
-    _pad0: f32,
+    // 1.0 on an sRGB target: instance colours arrive in linear light, so
+    // the constants and factors below are converted to match.
+    srgb: f32,
     _pad1: f32,
     _pad2: f32,
 };
@@ -31,6 +33,9 @@ struct VsOut {
     @location(2) @interpolate(flat) shape: u32,
     @location(3) params: vec4<f32>,
     @location(4) aspect: vec2<f32>,      // size in pixels, for AA width
+    // Offset from the centre in screen axes (unrotated), in half heights:
+    // -1..1 across an unrotated quad, for screen-vertical gradients.
+    @location(5) screen: vec2<f32>,
 };
 
 @vertex
@@ -53,6 +58,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     out.shape = inst.shape;
     out.params = inst.params;
     out.aspect = inst.size;
+    out.screen = rotated / max(inst.size.y * 0.5, 1.0);
     return out;
 }
 
@@ -64,6 +70,12 @@ const SHAPE_MINE: u32 = 3u;
 const SHAPE_CIRCLE: u32 = 4u;
 const SHAPE_HOLD_BODY: u32 = 5u;
 const SHAPE_ONIGIRI: u32 = 6u;
+// An arrow whose colour runs from `color` to `params.rgb` and back down the
+// screen, shifted by `params.w` cycles (a flowing gradient).
+const SHAPE_ARROW_GRADIENT: u32 = 7u;
+// An arrow whose colour runs from `color` at its tail to `params.rgb` at its
+// tip, along the arrow (it points to -x in quad space).
+const SHAPE_ARROW_RAMP: u32 = 8u;
 
 fn sd_box(p: vec2<f32>, b: vec2<f32>) -> f32 {
     let d = abs(p) - b;
@@ -104,6 +116,32 @@ fn sd_onigiri(p: vec2<f32>) -> f32 {
     return -length(q) * sign(q.y) - 0.18;
 }
 
+// One sRGB-encoded component to linear light (as render/src/color.rs).
+fn srgb_to_linear(c: f32) -> f32 {
+    if (c <= 0.04045) {
+        return c / 12.92;
+    }
+    return pow((c + 0.055) / 1.055, 2.4);
+}
+
+// A display-space constant (sRGB-encoded) in the space colours arrive in.
+fn display(c: vec3<f32>) -> vec3<f32> {
+    if (globals.srgb > 0.5) {
+        return vec3<f32>(srgb_to_linear(c.r), srgb_to_linear(c.g), srgb_to_linear(c.b));
+    }
+    return c;
+}
+
+// A display-space brightness factor in that space. Scaling an encoded
+// colour by f is close to scaling it in linear light by f^2.2 (the curve is
+// close to a power law); exact for no curve, so this is approximate.
+fn factor(f: f32) -> f32 {
+    if (globals.srgb > 0.5) {
+        return pow(f, 2.2);
+    }
+    return f;
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let p = in.uv;
@@ -119,7 +157,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             d = sd_arrow(p);
             // Darker outline ring.
             let edge = smoothstep(-0.16 - aa, -0.16, d);
-            color = vec4<f32>(mix(color.rgb, color.rgb * 0.25, edge), color.a);
+            color = vec4<f32>(mix(color.rgb, color.rgb * factor(0.25), edge), color.a);
+        }
+        case SHAPE_ARROW_GRADIENT: {
+            d = sd_arrow(p);
+            let wave = 0.5 + 0.5 * cos(6.2831853 * (in.screen.y * 0.5 + in.params.w));
+            let body = mix(color.rgb, in.params.rgb, wave);
+            let edge = smoothstep(-0.16 - aa, -0.16, d);
+            color = vec4<f32>(mix(body, body * factor(0.25), edge), color.a);
+        }
+        case SHAPE_ARROW_RAMP: {
+            d = sd_arrow(p);
+            let body = mix(in.params.rgb, color.rgb, clamp((p.x + 1.0) * 0.5, 0.0, 1.0));
+            let edge = smoothstep(-0.16 - aa, -0.16, d);
+            color = vec4<f32>(mix(body, body * factor(0.25), edge), color.a);
         }
         case SHAPE_ARROW_OUTLINE: {
             let inner = sd_arrow(p);
@@ -133,7 +184,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             let spike = 0.12 * max(0.0, cos(ang * 8.0 + globals.time * 6.0));
             d = d - spike;
             let core = smoothstep(0.30, 0.34, r);
-            color = vec4<f32>(mix(vec3<f32>(1.0, 0.9, 0.8), color.rgb, core), color.a);
+            color = vec4<f32>(mix(display(vec3<f32>(1.0, 0.9, 0.8)), color.rgb, core), color.a);
         }
         case SHAPE_CIRCLE: {
             d = length(p) - 1.0;
@@ -145,7 +196,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         case SHAPE_ONIGIRI: {
             d = sd_onigiri(p);
             let edge = smoothstep(-0.16 - aa, -0.16, d);
-            color = vec4<f32>(mix(color.rgb, color.rgb * 0.3, edge), color.a);
+            color = vec4<f32>(mix(color.rgb, color.rgb * factor(0.3), edge), color.a);
         }
         default: {
             d = sd_box(p, vec2<f32>(1.0));

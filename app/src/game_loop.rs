@@ -4,8 +4,9 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use ddi_library::backgrounds::{self, BgImage, BgSegment};
 use ddi_platform::HostTime;
-use ddi_render::Renderer;
+use ddi_render::{Backdrop, Renderer};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{HtmlCanvasElement, HtmlElement, ResizeObserver, ResizeObserverEntry};
@@ -37,6 +38,14 @@ pub(crate) struct GameLoop {
     /// Background images copied to the GPU, closed after the next submit:
     /// the WebGL2 backend performs the copy then, not when it is issued.
     uploaded_images: Vec<web_sys::ImageBitmap>,
+    /// Background textures by what they show (renderer ids).
+    background_ids: Vec<(BgImage, usize)>,
+    /// Decoded background images waiting to be copied to the GPU.
+    pending_backgrounds: Vec<(BgImage, web_sys::ImageBitmap)>,
+    /// Song time of the last frame drawn during play, `None` outside play.
+    playing_at: Option<f64>,
+    /// The song's background changes; empty outside a song.
+    background_schedule: Vec<BgSegment>,
 }
 
 /// Frames per second over the last second, from rAF timestamps.
@@ -120,7 +129,7 @@ impl GameLoop {
         canvas: HtmlCanvasElement,
         on_event: Callback<SessionEvent>,
     ) -> GameLoop {
-        let renderer = Renderer::new(&gfx.device, &gfx.queue, gfx.config.format, &[FONT]);
+        let renderer = Renderer::new(&gfx.device, &gfx.queue, gfx.view_format(), &[FONT]);
         let rect = canvas.get_bounding_client_rect();
         let css_size = Rc::new(Cell::new((rect.width(), rect.height())));
         let resize = {
@@ -153,6 +162,10 @@ impl GameLoop {
             fps: FpsMeter::new(),
             debug_el: None,
             uploaded_images: Vec::new(),
+            background_ids: Vec::new(),
+            pending_backgrounds: Vec::new(),
+            playing_at: None,
+            background_schedule: Vec::new(),
         }
     }
 
@@ -170,59 +183,107 @@ impl GameLoop {
     }
 
     pub(crate) fn set_session(&mut self, session: PlaySession) {
+        // Everything decoded so far goes up before the music starts.
+        self.playing_at = None;
+        self.upload_backgrounds();
         self.session = Some(session);
         self.done = false;
     }
 
-    /// Shows `image` behind the field, or nothing. The browser decoded it;
-    /// this copies it into a texture and closes it once the copy is done.
-    pub(crate) fn set_background(&mut self, image: Option<web_sys::ImageBitmap>) {
-        let limit = self.gfx.device.limits().max_texture_dimension_2d;
-        let image = match image {
-            Some(img) if img.width().max(img.height()) > limit => {
-                web_sys::console::warn_1(
-                    &format!(
-                        "background {}×{} exceeds the GPU's {limit} px limit; not shown",
-                        img.width(),
-                        img.height()
-                    )
-                    .into(),
-                );
-                img.close();
-                None
+    /// Queues a background image the browser decoded, showing `what` (the
+    /// song's background or a background change's file). It is copied to
+    /// the GPU at the next frame outside play; during play only when no
+    /// change is due within a second, one per frame, so an upload never
+    /// costs a frame at a change.
+    pub(crate) fn add_background(&mut self, what: BgImage, image: web_sys::ImageBitmap) {
+        if self.background_ids.iter().any(|(w, _)| *w == what) {
+            image.close();
+            return;
+        }
+        self.pending_backgrounds.push((what, image));
+    }
+
+    /// Copies queued background images to the GPU, as
+    /// [`GameLoop::add_background`] describes.
+    fn upload_backgrounds(&mut self) {
+        let count = match self.playing_at {
+            None => self.pending_backgrounds.len(),
+            Some(t) => {
+                let next_change = self
+                    .background_schedule
+                    .iter()
+                    .map(|s| s.seconds)
+                    .find(|&s| s > t);
+                usize::from(next_change.is_none_or(|s| s - t >= 1.0))
             }
-            image => image,
         };
-        let texture = image.as_ref().map(|img| {
-            let (width, height) = (img.width().max(1), img.height().max(1));
-            let texture = self
-                .renderer
-                .create_background_texture(&self.gfx.device, width, height);
-            self.gfx.queue.copy_external_image_to_texture(
-                &wgpu::CopyExternalImageSourceInfo {
-                    source: wgpu::ExternalImageSource::ImageBitmap(img.clone()),
-                    origin: wgpu::Origin2d::ZERO,
-                    flip_y: false,
-                },
-                wgpu::CopyExternalImageDestInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                    color_space: wgpu::PredefinedColorSpace::Srgb,
-                    premultiplied_alpha: false,
-                },
-                wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
+        let batch: Vec<_> = self
+            .pending_backgrounds
+            .drain(..count.min(self.pending_backgrounds.len()))
+            .collect();
+        for (what, image) in batch {
+            self.upload_background(what, image);
+        }
+    }
+
+    /// Copies one decoded image into a texture registered as showing `what`;
+    /// the bitmap is closed once the copy is done.
+    fn upload_background(&mut self, what: BgImage, image: web_sys::ImageBitmap) {
+        let limit = self.gfx.device.limits().max_texture_dimension_2d;
+        if image.width().max(image.height()) > limit {
+            web_sys::console::warn_1(
+                &format!(
+                    "background {}×{} exceeds the GPU's {limit} px limit; not shown",
+                    image.width(),
+                    image.height()
+                )
+                .into(),
             );
-            texture
-        });
-        self.renderer
-            .set_background(&self.gfx.device, texture.as_ref());
-        self.uploaded_images.extend(image);
+            image.close();
+            return;
+        }
+        let (width, height) = (image.width().max(1), image.height().max(1));
+        let texture = self
+            .renderer
+            .create_background_texture(&self.gfx.device, width, height);
+        self.gfx.queue.copy_external_image_to_texture(
+            &wgpu::CopyExternalImageSourceInfo {
+                source: wgpu::ExternalImageSource::ImageBitmap(image.clone()),
+                origin: wgpu::Origin2d::ZERO,
+                flip_y: false,
+            },
+            wgpu::CopyExternalImageDestInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+                color_space: wgpu::PredefinedColorSpace::Srgb,
+                premultiplied_alpha: false,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        let id = self.renderer.add_background(&self.gfx.device, &texture);
+        self.background_ids.push((what, id));
+        self.uploaded_images.push(image);
+    }
+
+    /// The background changes of the song about to play (empty: none).
+    pub(crate) fn set_background_schedule(&mut self, schedule: Vec<BgSegment>) {
+        self.background_schedule = schedule;
+    }
+
+    /// What to show behind the field at song second `t`.
+    fn backdrop(&self, t: f64) -> Backdrop {
+        let shown = backgrounds::shown(&self.background_schedule, t, &self.background_ids);
+        Backdrop {
+            current: shown.current,
+            previous: shown.previous,
+            mix: shown.mix,
+        }
     }
 
     pub(crate) fn clear_session(&mut self) {
@@ -253,6 +314,7 @@ impl GameLoop {
     pub(crate) fn frame(&mut self, time_ms: f64) {
         self.fit_canvas();
         self.fps.tick(time_ms);
+        self.upload_backgrounds();
         let host_now = HostTime(time_ms / 1000.0);
 
         let mut outcome = None;
@@ -278,9 +340,10 @@ impl GameLoop {
                 return;
             }
         };
-        let view = surface
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = surface.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(self.gfx.view_format()),
+            ..Default::default()
+        });
         let mut encoder = self
             .gfx
             .device
@@ -290,6 +353,10 @@ impl GameLoop {
         match self.session.as_ref() {
             Some(session) => {
                 let frame = session.player.frame(session.predicted_present(host_now));
+                let mut render = session.render;
+                render.backdrop = self.backdrop(frame.song_time);
+                self.playing_at = (session.player.started() && !session.player.finished())
+                    .then_some(frame.song_time);
                 self.renderer.render(
                     &self.gfx.device,
                     &self.gfx.queue,
@@ -300,10 +367,11 @@ impl GameLoop {
                     &frame,
                     &session.layout,
                     &session.names,
-                    session.render,
+                    render,
                 );
             }
             None => {
+                self.playing_at = None;
                 let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("clear"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -311,7 +379,7 @@ impl GameLoop {
                         resolve_target: None,
                         depth_slice: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(self.renderer.skin.background),
+                            load: wgpu::LoadOp::Clear(self.renderer.clear_color()),
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -349,6 +417,7 @@ impl GameLoop {
         };
         set("frames", (self.frames as f64).into());
         set("backend", self.backend_name().into());
+        set("srgb_view", self.gfx.view_format().is_srgb().into());
         set("fps", self.fps.fps.into());
         let mut text = format!(
             "{} · {:.0} fps · worst {:.1} ms · {}×{}",
@@ -480,6 +549,9 @@ impl Drop for GameLoop {
         // A pending resize callback must not run into a dropped closure.
         if let Some((observer, _)) = &self._resize {
             observer.disconnect();
+        }
+        for (_, image) in self.pending_backgrounds.drain(..) {
+            image.close();
         }
     }
 }

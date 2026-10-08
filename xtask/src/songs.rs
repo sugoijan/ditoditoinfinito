@@ -113,6 +113,17 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
         let text = fs::read_to_string(root.join("assets/songs").join(id).join(chart))?;
         let ext = chart.rsplit('.').next().unwrap_or("sm");
         let song = parse_simfile(&text, ext).map_err(|e| anyhow::anyhow!("{id}/{chart}: {e}"))?;
+        let song_dir = root.join("assets/songs").join(id);
+        let files: Vec<String> = fs::read_dir(&song_dir)?
+            .filter_map(|e| e.ok())
+            .map(|e| format!("{id}/{}", e.file_name().to_string_lossy()))
+            .collect();
+        let background = p.background.as_ref().map(|b| format!("{id}/{b}"));
+        let bg_images =
+            ddi_library::backgrounds::referenced_images(&song, id, &files, background.as_deref())
+                .into_iter()
+                .map(|(relative, _)| relative)
+                .collect();
         entries.push(summarize(
             EntryMeta {
                 id: id.clone(),
@@ -122,6 +133,7 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
                 music: p.music.clone(),
                 banner: p.banner.clone(),
                 background: p.background.clone(),
+                bg_images,
                 credit: p.credit.clone(),
             },
             &song,

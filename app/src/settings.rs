@@ -30,6 +30,9 @@ pub(crate) struct Settings {
     /// Hidden / Sudden / Stealth (drawing only).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub(crate) appearance: Appearance,
+    /// How notes are coloured.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) note_colors: NoteColors,
     /// Song background brightness, 0..=1; 0 turns the background off.
     pub(crate) bg_brightness: f32,
     /// Darkening behind the lanes, one of [`FIELD_FILTERS`] (0 = off).
@@ -78,6 +81,37 @@ pub(crate) fn volume_to_slider(gain: f32) -> f32 {
 /// Gain for a volume slider position; inverse of [`volume_to_slider`].
 pub(crate) fn slider_to_volume(position: f32) -> f32 {
     position.clamp(0.0, 1.0).powi(3)
+}
+
+/// Note colour scheme (see `ddi_render::note_colors`).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum NoteColors {
+    /// By subdivision.
+    Quantized,
+    /// Cycling rainbow, shifted by position in the beat (the default, as
+    /// on DDR from 3rdMIX to 2013).
+    #[default]
+    Vivid,
+    /// Cycling rainbow, all notes alike.
+    Flat,
+    /// By position in the beat, in four colour families with flowing
+    /// gradients (DDR 2014–A3).
+    Rainbow,
+    /// One colour.
+    Single,
+}
+
+impl NoteColors {
+    pub(crate) fn scheme(self) -> ddi_render::ColorScheme {
+        use ddi_render::ColorScheme;
+        match self {
+            NoteColors::Quantized => ColorScheme::Quantized,
+            NoteColors::Vivid => ColorScheme::Vivid,
+            NoteColors::Flat => ColorScheme::Flat,
+            NoteColors::Rainbow => ColorScheme::Rainbow,
+            NoteColors::Single => ColorScheme::Single([0.35, 0.85, 1.0, 1.0]),
+        }
+    }
 }
 
 /// Field filter strengths the options screen offers (0 = off).
@@ -185,6 +219,7 @@ impl Default for Settings {
             scroll_action: ScrollAction::Normal,
             transform: TransformOptions::default(),
             appearance: Appearance::Visible,
+            note_colors: NoteColors::Vivid,
             bg_brightness: 0.4,
             field_filter: 0.4,
             ruleset: "itg".into(),

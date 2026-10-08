@@ -1,9 +1,11 @@
-//! The song's background image behind the field.
+//! Background images behind the field: the song's background and the
+//! images its background changes show, crossfaded.
 //!
-//! The renderer never decodes images: the shell creates the texture with
+//! The renderer never decodes images: the shell creates each texture with
 //! [`BackgroundPipeline::create_texture`] and fills it (the web shell copies
 //! an `ImageBitmap` the browser decoded; a desktop shell would write RGBA
-//! bytes), then hands it over with [`BackgroundPipeline::set_texture`].
+//! bytes), then registers it with [`BackgroundPipeline::add_texture`] and
+//! picks what to show each frame with a [`Backdrop`].
 
 use bytemuck::{Pod, Zeroable};
 
@@ -13,7 +15,52 @@ struct Params {
     uv_scale: [f32; 2],
     uv_offset: [f32; 2],
     brightness: f32,
-    _pad: [f32; 3],
+    alpha: f32,
+    _pad: [f32; 2],
+}
+
+/// What to show behind the field in one frame. While `mix < 1` a crossfade
+/// is running from `previous` to `current` (`mix` = how far, 1 = only
+/// `current`). Ids are from [`BackgroundPipeline::add_texture`]; `None` is
+/// no image, the plain field colour.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Backdrop {
+    pub current: Option<usize>,
+    pub previous: Option<usize>,
+    pub mix: f32,
+}
+
+impl Backdrop {
+    /// One image, fully shown.
+    pub fn image(id: usize) -> Backdrop {
+        Backdrop {
+            current: Some(id),
+            previous: None,
+            mix: 1.0,
+        }
+    }
+
+    /// The draws, back to front: `(id, opacity)`.
+    pub fn layers(&self) -> [Option<(usize, f32)>; 2] {
+        let mix = self.mix.clamp(0.0, 1.0);
+        if mix >= 1.0 || self.previous == self.current {
+            return [self.current.map(|c| (c, 1.0)), None];
+        }
+        match (self.previous, self.current) {
+            (Some(p), Some(c)) => [Some((p, 1.0)), Some((c, mix))],
+            (None, Some(c)) => [Some((c, mix)), None],
+            (Some(p), None) => [Some((p, 1.0 - mix)), None],
+            (None, None) => [None, None],
+        }
+    }
+}
+
+/// One registered image.
+struct Image {
+    group: wgpu::BindGroup,
+    params: wgpu::Buffer,
+    width: f32,
+    height: f32,
 }
 
 /// Texture coordinates `(scale, offset)` that cover a `target_w × target_h`
@@ -44,10 +91,8 @@ pub fn brightness_factor(perceived: f32, srgb_target: bool) -> f32 {
 pub struct BackgroundPipeline {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
-    params: wgpu::Buffer,
     sampler: wgpu::Sampler,
-    /// Bind group and image size of the current texture.
-    current: Option<(wgpu::BindGroup, f32, f32)>,
+    images: Vec<Image>,
     /// The target format is sRGB.
     srgb: bool,
 }
@@ -109,7 +154,7 @@ impl BackgroundPipeline {
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: None,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -123,12 +168,6 @@ impl BackgroundPipeline {
             multiview_mask: None,
             cache: None,
         });
-        let params = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ddi-background-params"),
-            size: std::mem::size_of::<Params>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("ddi-background-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -140,9 +179,8 @@ impl BackgroundPipeline {
         BackgroundPipeline {
             pipeline,
             layout,
-            params,
             sampler,
-            current: None,
+            images: Vec::new(),
             srgb: format.is_srgb(),
         }
     }
@@ -177,63 +215,87 @@ impl BackgroundPipeline {
         })
     }
 
-    /// Shows `texture` (from [`BackgroundPipeline::create_texture`]), or
-    /// nothing.
-    pub fn set_texture(&mut self, device: &wgpu::Device, texture: Option<&wgpu::Texture>) {
-        self.current = texture.map(|t| {
-            let view = t.create_view(&wgpu::TextureViewDescriptor::default());
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ddi-background-bg"),
-                layout: &self.layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.params.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
-            let size = t.size();
-            (group, size.width as f32, size.height as f32)
+    /// Registers a filled texture (from
+    /// [`BackgroundPipeline::create_texture`]); returns its id.
+    pub fn add_texture(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) -> usize {
+        let params = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ddi-background-params"),
+            size: std::mem::size_of::<Params>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ddi-background-bg"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        let size = texture.size();
+        self.images.push(Image {
+            group,
+            params,
+            width: size.width as f32,
+            height: size.height as f32,
+        });
+        self.images.len() - 1
     }
 
-    pub fn has_texture(&self) -> bool {
-        self.current.is_some()
-    }
-
-    /// Uploads the parameters for a `width × height` target; returns
-    /// whether there is anything to draw.
-    pub fn prepare(&self, queue: &wgpu::Queue, width: f32, height: f32, brightness: f32) -> bool {
-        let Some((_, iw, ih)) = &self.current else {
-            return false;
-        };
+    /// Uploads the parameters of `backdrop`'s layers for a `width × height`
+    /// target; returns the layers to draw.
+    pub fn prepare(
+        &self,
+        queue: &wgpu::Queue,
+        width: f32,
+        height: f32,
+        brightness: f32,
+        backdrop: Backdrop,
+    ) -> [Option<(usize, f32)>; 2] {
         if brightness <= 0.0 {
-            return false;
+            return [None, None];
         }
-        let (uv_scale, uv_offset) = cover_uv(width, height, *iw, *ih);
-        let p = Params {
-            uv_scale,
-            uv_offset,
-            brightness: brightness_factor(brightness, self.srgb),
-            _pad: [0.0; 3],
-        };
-        queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&p));
-        true
+        let mut layers = backdrop.layers();
+        for layer in &mut layers {
+            let Some((id, alpha)) = *layer else {
+                continue;
+            };
+            let Some(image) = self.images.get(id).filter(|_| alpha > 0.0) else {
+                *layer = None;
+                continue;
+            };
+            let (uv_scale, uv_offset) = cover_uv(width, height, image.width, image.height);
+            let p = Params {
+                uv_scale,
+                uv_offset,
+                brightness: brightness_factor(brightness, self.srgb),
+                alpha,
+                _pad: [0.0; 2],
+            };
+            queue.write_buffer(&image.params, 0, bytemuck::bytes_of(&p));
+        }
+        layers
     }
 
-    pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        if let Some((group, ..)) = &self.current {
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, group, &[]);
-            pass.draw(0..6, 0..1);
+    /// Draws the layers [`BackgroundPipeline::prepare`] returned.
+    pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, layers: [Option<(usize, f32)>; 2]) {
+        for (id, _) in layers.into_iter().flatten() {
+            if let Some(image) = self.images.get(id) {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &image.group, &[]);
+                pass.draw(0..6, 0..1);
+            }
         }
     }
 }
@@ -257,6 +319,28 @@ mod tests {
             cover_uv(640.0, 480.0, 320.0, 240.0),
             ([1.0, 1.0], [0.0, 0.0])
         );
+    }
+
+    #[test]
+    fn backdrop_layers_crossfade() {
+        assert_eq!(Backdrop::image(2).layers(), [Some((2, 1.0)), None]);
+        assert_eq!(Backdrop::default().layers(), [None, None]);
+        let fade = |previous, current, mix| Backdrop {
+            current,
+            previous,
+            mix,
+        };
+        // Image to image: the old one underneath, the new one fading in.
+        assert_eq!(
+            fade(Some(0), Some(1), 0.25).layers(),
+            [Some((0, 1.0)), Some((1, 0.25))]
+        );
+        // From no image, or to no image, over the field colour.
+        assert_eq!(fade(None, Some(1), 0.25).layers(), [Some((1, 0.25)), None]);
+        assert_eq!(fade(Some(0), None, 0.25).layers(), [Some((0, 0.75)), None]);
+        // Done, or nothing to fade.
+        assert_eq!(fade(Some(0), Some(1), 1.0).layers(), [Some((1, 1.0)), None]);
+        assert_eq!(fade(Some(1), Some(1), 0.5).layers(), [Some((1, 1.0)), None]);
     }
 
     #[test]

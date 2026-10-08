@@ -22,7 +22,9 @@ use crate::components::bind_flow::{BindFlow, Bound};
 use crate::import;
 use crate::preview::Preview;
 use crate::router::Route;
-use crate::settings::{FIELD_FILTERS, PadBindings, Settings, slider_to_volume, volume_to_slider};
+use crate::settings::{
+    FIELD_FILTERS, NoteColors, PadBindings, Settings, slider_to_volume, volume_to_slider,
+};
 use crate::songs::{Library, ManifestEntry, clear_imported, is_imported_id};
 use crate::web::gamepad::Gamepads;
 
@@ -48,6 +50,7 @@ pub(crate) enum Msg {
     /// Background brightness, 0..=1.
     BgBrightness(f32),
     FieldFilter(f32),
+    NoteColors(NoteColors),
     /// Edit a profile's offset (kind "audio"/"display", id, ms).
     ProfileOffsetMs(&'static str, String, f64),
     DeleteProfile(&'static str, String),
@@ -254,6 +257,7 @@ impl Component for Options {
             Msg::ReceptorSnap(v) => self.settings.receptor_snap = v,
             Msg::BgBrightness(v) => self.settings.bg_brightness = v.clamp(0.0, 1.0),
             Msg::FieldFilter(v) => self.settings.field_filter = v,
+            Msg::NoteColors(v) => self.settings.note_colors = v,
             Msg::ProfileOffsetMs(kind, id, ms) => {
                 let list = if kind == "audio" {
                     &mut self.settings.audio_profiles
@@ -418,6 +422,7 @@ impl Component for Options {
                         <input type="checkbox" checked={s.debug} onchange={link.callback(|e: Event| Msg::Debug(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
                         { " Debug overlay (backend, FPS, clock drift, error stats)" }
                     </label>
+                    <label>{ "Note colours " }{ choice(s.note_colors, &NOTE_COLOR_CHOICES, link.callback(Msg::NoteColors)) }</label>
                     { self.background_control(link) }
                     <label>{ "Field filter " }{ choice(s.field_filter, &FIELD_FILTER_CHOICES, link.callback(Msg::FieldFilter)) }</label>
                     <p class="muted">{ "The field filter dims the area behind the lanes." }</p>
@@ -743,6 +748,20 @@ const CUTS: [(TimingCut, &str); 3] = [
     (TimingCut::Off, "all"),
     (TimingCut::Quarters, "quarter notes only"),
     (TimingCut::Eighths, "quarters and eighths"),
+];
+
+const NOTE_COLOR_CHOICES: [(NoteColors, &str); 5] = [
+    (
+        NoteColors::Vivid,
+        "vivid: cycling rainbow, shifted by subdivision",
+    ),
+    (
+        NoteColors::Rainbow,
+        "rainbow: by position in the beat, flowing",
+    ),
+    (NoteColors::Quantized, "by subdivision"),
+    (NoteColors::Flat, "flat: cycling rainbow, all notes alike"),
+    (NoteColors::Single, "single colour"),
 ];
 
 const FIELD_FILTER_CHOICES: [(f32, &str); 4] = [

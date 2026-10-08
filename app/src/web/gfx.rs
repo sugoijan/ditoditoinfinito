@@ -223,6 +223,61 @@ impl Gfx {
         }
         config.present_mode = wgpu::PresentMode::AutoVsync;
         surface.configure(&device, &config);
+        // Draw through an sRGB view everywhere, so blending happens in linear
+        // light and both backends show the same colours. WebGL2 offers an
+        // sRGB surface format; WebGPU canvases do not, but accept an sRGB
+        // view of theirs. A browser that refuses it keeps the plain view
+        // (the renderer adapts its colours to either).
+        if !config.format.is_srgb() {
+            let srgb = config.format.add_srgb_suffix();
+            if srgb != config.format {
+                let mut with_view = config.clone();
+                with_view.view_formats = vec![srgb];
+                // Draw one frame through the view inside the scope: a browser
+                // could accept the configuration and still refuse the view.
+                let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+                surface.configure(&device, &with_view);
+                if let wgpu::CurrentSurfaceTexture::Success(frame)
+                | wgpu::CurrentSurfaceTexture::Suboptimal(frame) = surface.get_current_texture()
+                {
+                    let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
+                        format: Some(srgb),
+                        ..Default::default()
+                    });
+                    let mut encoder =
+                        device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("srgb-probe"),
+                        });
+                    drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("srgb-probe"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            depth_slice: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    }));
+                    queue.submit(Some(encoder.finish()));
+                    queue.present(frame);
+                }
+                match scope.pop().await {
+                    None => config = with_view,
+                    Some(err) => {
+                        web_sys::console::warn_1(&JsValue::from_str(&format!(
+                            "no sRGB view of the canvas, drawing without one: {err}"
+                        )));
+                        surface.configure(&device, &config);
+                    }
+                }
+            }
+        }
         Ok((
             Gfx {
                 surface,
@@ -241,6 +296,15 @@ impl Gfx {
             wgpu::Backend::Gl => "WebGL2",
             _ => "other",
         }
+    }
+
+    /// Format the scene is drawn in: the surface format, or its sRGB view.
+    pub(crate) fn view_format(&self) -> wgpu::TextureFormat {
+        self.config
+            .view_formats
+            .first()
+            .copied()
+            .unwrap_or(self.config.format)
     }
 
     /// Reconfigures the surface when the canvas backing store changes size.
