@@ -196,6 +196,22 @@ impl WebAudio {
         let _ = gain.linear_ramp_to_value_at_time(0.0, now + seconds.max(0.01));
     }
 
+    /// Schedules the master gain on the audio clock: silent from context
+    /// second `from`, rising to full over `seconds`.
+    pub(crate) fn fade_in_at(&self, from: f64, seconds: f64) {
+        let gain = self.master.gain();
+        let _ = gain.set_value_at_time(0.0, from);
+        let _ = gain.linear_ramp_to_value_at_time(1.0, from + seconds.max(0.01));
+    }
+
+    /// Schedules the master gain on the audio clock to fall to silence
+    /// from context second `from` over `seconds`.
+    pub(crate) fn fade_out_at(&self, from: f64, seconds: f64) {
+        let gain = self.master.gain();
+        let _ = gain.set_value_at_time(1.0, from);
+        let _ = gain.linear_ramp_to_value_at_time(0.0, from + seconds.max(0.01));
+    }
+
     pub(crate) fn stop_all(&mut self) {
         let mut voices = self.voices.borrow_mut();
         let live: Vec<Voice> = voices.live.drain().map(|(_, v)| v).collect();

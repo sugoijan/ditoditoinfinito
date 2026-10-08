@@ -1,9 +1,13 @@
 //! Shipped rulesets.
 
+use ddi_chart::Chart;
+use serde::{Deserialize, Serialize};
+
+use super::danoni::DanoniOptions;
 use super::{
     ComboRules, DancePoints, DdrMoney, DdrVariant, EmptyPress, FailPolicy, FixedPercent,
-    GradeBasis, GradeTable, JudgeNames, JudgeTable, Judgement, LifeBar, LifeDeltas, Ruleset,
-    Weights, Window,
+    GradeBasis, GradeTable, HoldRules, HoldStart, JudgeNames, JudgeTable, Judgement, LifeBar,
+    LifeDeltas, Ruleset, Weights, Window,
 };
 
 fn symmetric(tiers: [f64; 5]) -> [Option<Window>; 5] {
@@ -36,6 +40,10 @@ pub fn itg() -> Ruleset {
             w0: Some(0.0135),
             empty_press: EmptyPress::Ignore,
             judge_offset: 0.0,
+            hold: HoldRules::Decay,
+            hold_start: HoldStart::JUDGED,
+            supersede: None,
+            just: None,
         },
         combo: ComboRules {
             continue_min: Judgement::W3,
@@ -43,6 +51,8 @@ pub fn itg() -> Ruleset {
             held_increments: false,
             let_go_breaks: false,
             mine_breaks: false,
+            neutral: None,
+            let_go_loses_full_combo: false,
         },
         score: Box::new(DancePoints::new(
             Weights::new([5, 4, 2, 0, -6, -12], 5, 0, -6),
@@ -128,6 +138,10 @@ pub fn calibration() -> Ruleset {
             w0: None,
             empty_press: EmptyPress::Ignore,
             judge_offset: 0.0,
+            hold: HoldRules::Decay,
+            hold_start: HoldStart::JUDGED,
+            supersede: None,
+            just: None,
         },
         combo: ComboRules {
             continue_min: Judgement::W1,
@@ -135,6 +149,8 @@ pub fn calibration() -> Ruleset {
             held_increments: false,
             let_go_breaks: false,
             mine_breaks: false,
+            neutral: None,
+            let_go_loses_full_combo: false,
         },
         score: Box::new(DancePoints::new(
             Weights::new([1, 0, 0, 0, 0, 0], 0, 0, 0),
@@ -170,6 +186,10 @@ pub fn sm5() -> Ruleset {
             w0: None,
             empty_press: EmptyPress::Ignore,
             judge_offset: 0.0,
+            hold: HoldRules::Decay,
+            hold_start: HoldStart::JUDGED,
+            supersede: None,
+            just: None,
         },
         combo: ComboRules {
             continue_min: Judgement::W3,
@@ -177,6 +197,8 @@ pub fn sm5() -> Ruleset {
             held_increments: false,
             let_go_breaks: false,
             mine_breaks: false,
+            neutral: None,
+            let_go_loses_full_combo: false,
         },
         score: Box::new(DancePoints::new(
             Weights::new([3, 2, 1, 0, 0, 0], 3, 0, -2),
@@ -245,6 +267,10 @@ pub fn ddr_a() -> Ruleset {
             w0: None,
             empty_press: EmptyPress::Ignore,
             judge_offset: 0.0,
+            hold: HoldRules::Decay,
+            hold_start: HoldStart::JUDGED,
+            supersede: None,
+            just: None,
         },
         combo: ComboRules {
             continue_min: Judgement::W4,
@@ -252,6 +278,8 @@ pub fn ddr_a() -> Ruleset {
             held_increments: false,
             let_go_breaks: true,
             mine_breaks: true,
+            neutral: None,
+            let_go_loses_full_combo: false,
         },
         score: Box::new(DdrMoney::new(DdrVariant::A)),
         gauge: Box::new(FixedPercent::ddr_a20()),
@@ -287,10 +315,56 @@ pub fn ddr_a() -> Ruleset {
     }
 }
 
-/// All presets, in menu order.
-/// Presets selectable by players (excludes `calibration`).
+/// Presets selectable by players, in menu order (excludes `calibration`
+/// and the chart-dependent [`danoni`] rules).
 pub fn all() -> Vec<Ruleset> {
     vec![itg(), sm5(), ddr_a()]
+}
+
+/// Dancing☆Onigiri rules with danoniplus's defaults, as for a chart from
+/// another format (see [`super::danoni::ruleset`] for a work's own).
+pub fn danoni() -> Ruleset {
+    super::danoni::ruleset(None, &DanoniOptions::default())
+}
+
+/// Which rules a chart is played by (decision 23).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RulesetMode {
+    /// The chosen StepMania preset for every chart.
+    #[default]
+    AllStepMania,
+    /// Each chart by the rules of the game it was written for.
+    Original,
+    /// Dancing☆Onigiri rules for every chart.
+    AllDanoni,
+}
+
+impl RulesetMode {
+    pub const ALL: [RulesetMode; 3] = [
+        RulesetMode::AllStepMania,
+        RulesetMode::Original,
+        RulesetMode::AllDanoni,
+    ];
+}
+
+/// The ruleset to play `chart` with: the StepMania preset `preset` (ITG
+/// when unknown) or the Dancing☆Onigiri rules, as `mode` says.
+pub fn for_chart(
+    mode: RulesetMode,
+    preset: &str,
+    danoni: &DanoniOptions,
+    chart: &Chart,
+) -> Ruleset {
+    let use_danoni = match mode {
+        RulesetMode::AllStepMania => false,
+        RulesetMode::Original => chart.danoni.is_some(),
+        RulesetMode::AllDanoni => true,
+    };
+    if use_danoni {
+        super::danoni::ruleset(Some(chart), danoni)
+    } else {
+        by_id(preset).unwrap_or_else(itg)
+    }
 }
 
 /// Preset by id.

@@ -10,6 +10,9 @@
 //! screen is open. Binding itself is the guided flow in [`BindFlow`].
 
 use ddi_chart::Layout;
+use ddi_engine::rules::danoni::JudgeRange;
+use ddi_engine::rules::presets::RulesetMode;
+use ddi_engine::scroll::SpeedSource;
 use ddi_engine::{Appearance, ConnectedPad, PadUse, ScrollAction, TimingCut, Turn};
 use ddi_platform::DeviceId;
 use ddi_platform::gamepad::Control;
@@ -34,6 +37,7 @@ const PAD_REFRESH_MS: u32 = 300;
 
 pub(crate) enum Msg {
     Speed(f64),
+    SpeedSource(SpeedSource),
     Reverse(bool),
     ScrollAction(ScrollAction),
     Turn(Turn),
@@ -42,6 +46,10 @@ pub(crate) enum Msg {
     NoJumps(bool),
     NoHolds(bool),
     Ruleset(String),
+    RulesetMode(RulesetMode),
+    DanoniGauge(Option<&'static str>),
+    DanoniRange(JudgeRange),
+    DanoniExcessive(Option<bool>),
     AudioOffsetMs(f64),
     VisualOffsetMs(f64),
     Volume(f32),
@@ -52,6 +60,8 @@ pub(crate) enum Msg {
     BgBrightness(f32),
     FieldFilter(f32),
     NoteColors(NoteColors),
+    ChartColors(bool),
+    Lyrics(bool),
     /// Edit a profile's offset (kind "audio"/"display", id, ms).
     ProfileOffsetMs(&'static str, String, f64),
     DeleteProfile(&'static str, String),
@@ -275,6 +285,7 @@ impl Component for Options {
                 return true;
             }
             Msg::Speed(v) => self.settings.speed = v.clamp(0.25, 10.0),
+            Msg::SpeedSource(v) => self.settings.speed_source = v,
             Msg::Reverse(v) => self.settings.reverse = v,
             Msg::ScrollAction(v) => self.settings.scroll_action = v,
             Msg::Turn(v) => self.settings.transform.turn = v,
@@ -283,6 +294,10 @@ impl Component for Options {
             Msg::NoJumps(v) => self.settings.transform.no_jumps = v,
             Msg::NoHolds(v) => self.settings.transform.no_holds = v,
             Msg::Ruleset(id) => self.settings.ruleset = id,
+            Msg::RulesetMode(v) => self.settings.ruleset_mode = v,
+            Msg::DanoniGauge(v) => self.settings.danoni.gauge = v.map(str::to_string),
+            Msg::DanoniRange(v) => self.settings.danoni.range = v,
+            Msg::DanoniExcessive(v) => self.settings.danoni.excessive = v,
             Msg::AudioOffsetMs(ms) => self.settings.audio_offset = (ms / 1000.0).clamp(-0.5, 0.5),
             Msg::VisualOffsetMs(ms) => self.settings.visual_offset = (ms / 1000.0).clamp(-0.5, 0.5),
             Msg::Volume(v) => {
@@ -297,6 +312,8 @@ impl Component for Options {
             Msg::BgBrightness(v) => self.settings.bg_brightness = v.clamp(0.0, 1.0),
             Msg::FieldFilter(v) => self.settings.field_filter = v,
             Msg::NoteColors(v) => self.settings.note_colors = v,
+            Msg::Lyrics(v) => self.settings.lyrics = v,
+            Msg::ChartColors(v) => self.settings.chart_colors = v,
             Msg::ProfileOffsetMs(kind, id, ms) => {
                 let list = if kind == "audio" {
                     &mut self.settings.audio_profiles
@@ -460,6 +477,7 @@ impl Component for Options {
                 <section>
                     <h2>{ "Scroll" }</h2>
                     <label>{ "Speed (×BPM) " }{ number(s.speed, "0.25", "0.25", "10", link.callback(Msg::Speed)) }</label>
+                    <label>{ "Charts with their own speed " }{ choice(s.speed_source, &SPEED_SOURCES, link.callback(Msg::SpeedSource)) }</label>
                     <label>
                         <input type="checkbox" checked={s.reverse} onchange={link.callback(|e: Event| Msg::Reverse(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
                         { " Reverse (receptors at the bottom)" }
@@ -469,6 +487,7 @@ impl Component for Options {
                 { self.note_options_section(link) }
                 <section>
                     <h2>{ "Rules" }</h2>
+                    <label>{ "Rules for each chart " }{ choice(s.ruleset_mode, &RULESET_MODES, link.callback(Msg::RulesetMode)) }</label>
                     <label>{ "Ruleset " }
                         <select onchange={onruleset}>
                             { for rulesets.iter().map(|r| html!{
@@ -478,6 +497,11 @@ impl Component for Options {
                             }) }
                         </select>
                     </label>
+                    <h3>{ "Dancing☆Onigiri rules" }</h3>
+                    <p class="muted">{ "Used for the charts the setting above plays by Dancing☆Onigiri rules. A chart may offer its own gauges; a gauge it does not offer plays its first one." }</p>
+                    <label>{ "Gauge " }{ choice(s.danoni.gauge.as_deref().and_then(|g| DANONI_GAUGES.iter().find_map(|(n, _)| n.filter(|n| *n == g))), &DANONI_GAUGES, link.callback(Msg::DanoniGauge)) }</label>
+                    <label>{ "Judge range " }{ choice(s.danoni.range, &DANONI_RANGES, link.callback(Msg::DanoniRange)) }</label>
+                    <label>{ "Excessive (early presses cost life) " }{ choice(s.danoni.excessive, &DANONI_EXCESSIVE, link.callback(Msg::DanoniExcessive)) }</label>
                 </section>
                 <section>
                     <h2>{ "Timing" }</h2>
@@ -508,6 +532,14 @@ impl Component for Options {
                         { " Debug overlay (backend, FPS, clock drift, error stats)" }
                     </label>
                     <label>{ "Note colours " }{ choice(s.note_colors, &NOTE_COLOR_CHOICES, link.callback(Msg::NoteColors)) }</label>
+                    <label>
+                        <input type="checkbox" checked={s.chart_colors} onchange={link.callback(|e: Event| Msg::ChartColors(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
+                        { " Use a song's own note colours when it has them (Dancing☆Onigiri works)" }
+                    </label>
+                    <label>
+                        <input type="checkbox" checked={s.lyrics} onchange={link.callback(|e: Event| Msg::Lyrics(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
+                        { " Show lyrics of songs that have them (Dancing☆Onigiri works)" }
+                    </label>
                     { self.background_control(link) }
                     <label>{ "Field filter " }{ choice(s.field_filter, &FIELD_FILTER_CHOICES, link.callback(Msg::FieldFilter)) }</label>
                     <p class="muted">{ "The field filter dims the area behind the lanes." }</p>
@@ -910,6 +942,55 @@ const SCROLL_ACTIONS: [(ScrollAction, &str); 4] = [
     (ScrollAction::Boost, "boost: speeds up near the receptors"),
     (ScrollAction::Brake, "brake: slows down near the receptors"),
     (ScrollAction::Wave, "wave"),
+];
+
+const SPEED_SOURCES: [(SpeedSource, &str); 2] = [
+    (SpeedSource::Player, "play at the speed above"),
+    (
+        SpeedSource::Chart,
+        "play at the chart's speed (Dancing☆Onigiri works)",
+    ),
+];
+
+const RULESET_MODES: [(RulesetMode, &str); 3] = [
+    (
+        RulesetMode::AllStepMania,
+        "the ruleset below, for every chart",
+    ),
+    (
+        RulesetMode::Original,
+        "the rules of the game each chart was made for",
+    ),
+    (
+        RulesetMode::AllDanoni,
+        "Dancing☆Onigiri rules, for every chart",
+    ),
+];
+
+const DANONI_GAUGES: [(Option<&str>, &str); 10] = [
+    (None, "the chart's first gauge"),
+    (Some("Original"), "Original"),
+    (Some("Light"), "Light"),
+    (Some("Heavy"), "Heavy"),
+    (Some("NoRecovery"), "NoRecovery"),
+    (Some("SuddenDeath"), "SuddenDeath"),
+    (Some("Practice"), "Practice"),
+    (Some("Normal"), "Normal (border)"),
+    (Some("Easy"), "Easy (border)"),
+    (Some("Hard"), "Hard (border)"),
+];
+
+const DANONI_RANGES: [(JudgeRange, &str); 4] = [
+    (JudgeRange::Normal, "Normal"),
+    (JudgeRange::Narrow, "Narrow"),
+    (JudgeRange::Hard, "Hard"),
+    (JudgeRange::ExHard, "ExHard"),
+];
+
+const DANONI_EXCESSIVE: [(Option<bool>, &str); 3] = [
+    (None, "as the chart says"),
+    (Some(false), "off"),
+    (Some(true), "on"),
 ];
 
 const TURNS: [(Turn, &str); 5] = [

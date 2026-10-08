@@ -7,9 +7,10 @@ use std::collections::{HashMap, HashSet};
 
 use ddi_chart::Song;
 use ddi_chart::formats::danoni::{self, Dos, source};
-use ddi_library::danoni::{self as work, StoredWork, WorkSource};
+use ddi_library::danoni::{self as work, SharedWork, StoredWork, WorkSource};
 use ddi_library::manifest::{EntryMeta, summarize};
 use ddi_library::pack;
+use wasm_bindgen::JsCast;
 use web_sys::Blob;
 
 use super::{ImportReport, Source, mime_type, read_blob, read_bytes, source};
@@ -75,6 +76,15 @@ pub(super) async fn import_works(
             WorkSource::Page(page) => inside_pack(page),
             WorkSource::Dump(manifest) => inside_pack(parent(manifest)),
         };
+        // The work's fields are stored once, with its first stored song.
+        let shared = match SharedWork::new(&work.dos).stored() {
+            Ok((key, json)) => (free_work_key(db, key, &json).await, json),
+            Err(e) => {
+                report.skipped.push((label, e));
+                continue;
+            }
+        };
+        let mut shared_stored = false;
         let mut uncaptured: Vec<&str> = Vec::new();
         for (k, song) in import.songs.iter().enumerate() {
             let music_no = import.music[k];
@@ -124,13 +134,17 @@ pub(super) async fn import_works(
                 continue;
             }
             seen.insert(id.clone(), label.clone());
-            let stored = StoredWork::new(&work.dos, music_no);
+            let stored = StoredWork::referencing(&shared.0, music_no);
+            let with_work = (!shared_stored).then_some(&shared);
             match store_song(
-                db, sources, &id, &pack, &label, song, &stored, &music, encoded,
+                db, sources, &id, &pack, &label, song, &stored, with_work, &music, encoded,
             )
             .await
             {
-                Ok(title) => report.imported.push(title),
+                Ok(title) => {
+                    shared_stored = true;
+                    report.imported.push(title);
+                }
                 Err(e) => report.skipped.push((song_label, e)),
             }
         }
@@ -145,7 +159,40 @@ pub(super) async fn import_works(
             ));
         }
     }
+    // Works imported again under other fields leave their old ones behind.
+    if out.found
+        && let Err(e) = crate::songs::drop_unused_works(db).await
+    {
+        report.skipped.push(("stored works".into(), e));
+    }
     out
+}
+
+/// `key`, or the first of `key-1`, `key-2`, … that is free or already
+/// holds `json`: a work whose fields hash like another's must not
+/// overwrite them.
+async fn free_work_key(db: &Db, key: String, json: &str) -> String {
+    for n in 0..16 {
+        let candidate = if n == 0 {
+            key.clone()
+        } else {
+            format!("{key}-{n}")
+        };
+        let stored = match db.get(idb::FILES, &candidate).await {
+            Ok(Some(v)) => v.dyn_into::<Blob>().ok(),
+            _ => return candidate,
+        };
+        let same = match stored {
+            Some(blob) => crate::web::files::blob_bytes(&blob)
+                .await
+                .is_ok_and(|b| b == json.as_bytes()),
+            None => false,
+        };
+        if same {
+            return candidate;
+        }
+    }
+    format!("{key}-{}", js_sys::Date::now() as u64)
 }
 
 /// Where a work's music comes from.
@@ -249,6 +296,7 @@ async fn store_song(
     dir: &str,
     song: &Song,
     stored: &StoredWork,
+    shared: Option<&(String, String)>,
     music: &str,
     encoded: bool,
 ) -> Result<String, String> {
@@ -303,6 +351,7 @@ async fn store_song(
         dir: dir.to_string(),
         imported: js_sys::Date::now(),
         bytes: files.iter().map(|(_, b)| b.size()).sum(),
+        work: stored.work.clone(),
     };
     let record = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     let mut writes = vec![Write::DeletePrefix {
@@ -314,6 +363,13 @@ async fn store_song(
         key: file_key(id, &name),
         value: blob.into(),
     }));
+    if let Some((key, json)) = shared {
+        writes.push(Write::Put {
+            store: idb::FILES,
+            key: key.clone(),
+            value: bytes_blob(json.as_bytes(), "application/json;charset=utf-8")?.into(),
+        });
+    }
     writes.push(Write::Put {
         store: idb::SONGS,
         key: id.to_string(),

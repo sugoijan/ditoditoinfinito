@@ -7,8 +7,12 @@ use ddi_chart::formats::danoni::{self, Dos, DosFlags};
 use ddi_chart::{DisplayBpm, NoteKind, Song, Tick};
 use ddi_engine::autoplay;
 use ddi_engine::player::{PlayOptions, Player};
+use ddi_engine::rules::danoni::DanoniOptions;
+use ddi_engine::rules::presets::RulesetMode;
 use ddi_engine::rules::{FullCombo, Ruleset, presets};
-use ddi_engine::scroll::{ScrollOptions, SpeedMod, note_y, speed_for_song};
+use ddi_engine::scroll::{
+    ScrollOptions, SpeedMod, SpeedSource, note_y, speed_for_chart, speed_for_song,
+};
 use ddi_engine::{InputEvent, TransformOptions, Turn};
 use ddi_platform::{ClockSample, HostTime};
 
@@ -25,7 +29,7 @@ fn work(text: &str) -> Song {
 }
 
 /// Autoplays `song`'s first chart; returns the player at the end.
-fn autoplay(ruleset: fn() -> Ruleset, song: &Song, options: PlayOptions) -> Player {
+fn autoplay(ruleset: &dyn Fn() -> Ruleset, song: &Song, options: PlayOptions) -> Player {
     let probe = Player::new(song, 0, ruleset(), options);
     let mut script: Vec<(f64, u8, bool)> = autoplay::script(probe.judge().notes(), 0.0)
         .into_iter()
@@ -74,14 +78,27 @@ const NINE_B: &str = "|difData=9B,N|\
 
 #[test]
 fn works_autoplay_perfectly_under_every_turn() {
-    for text in [SEVEN, SEVEN_I, NINE_B] {
+    let judged_starts = format!("{SEVEN}|frzStartjdgUse=true|excessiveJdgUse=true|");
+    for text in [SEVEN, SEVEN_I, NINE_B, &judged_starts] {
         let song = work(text);
         let layout = song.layout_of(&song.charts[0]).unwrap();
-        for ruleset in [
-            presets::itg as fn() -> Ruleset,
-            presets::sm5,
-            presets::ddr_a,
-        ] {
+        let chart = song.charts[0].clone();
+        let own = move || {
+            presets::for_chart(
+                RulesetMode::Original,
+                "itg",
+                &DanoniOptions::default(),
+                &chart,
+            )
+        };
+        let rulesets: [&dyn Fn() -> Ruleset; 5] = [
+            &presets::itg,
+            &presets::sm5,
+            &presets::ddr_a,
+            &presets::danoni,
+            &own,
+        ];
+        for ruleset in rulesets {
             for (turn, seed) in [(Turn::Off, 0), (Turn::Mirror, 0), (Turn::Shuffle, 5)] {
                 let options = PlayOptions {
                     transform: TransformOptions {
@@ -94,14 +111,19 @@ fn works_autoplay_perfectly_under_every_turn() {
                 let p = autoplay(ruleset, &song, options);
                 let r = p.results();
                 let ctx = p.score_ctx();
-                let label = format!("{} {turn:?}", layout.id);
+                let label = format!("{} {} {turn:?}", layout.id, p.ruleset().id);
                 assert!(ctx.steps > 0, "{label}");
                 assert_eq!(r.tally.taps[0], ctx.steps, "{label}: {:?}", r.tally);
                 assert_eq!(r.tally.taps.iter().sum::<u32>(), ctx.steps, "{label}");
                 assert_eq!(r.tally.held, ctx.holds, "{label}");
                 assert_eq!((r.tally.let_go, r.tally.mine_hit), (0, 0), "{label}");
                 assert_eq!(r.full_combo, FullCombo::MarvelousFC, "{label}");
+                assert_eq!((r.fast, r.slow), (0, 0), "{label}");
                 assert!(p.finished() && !p.failed(), "{label}");
+                if p.ruleset().id == "danoni" {
+                    assert_eq!(r.score.money, Some(1_000_000), "{label}");
+                    assert_eq!(r.grade, "AP", "{label}");
+                }
             }
         }
     }
@@ -217,4 +239,28 @@ fn speed_means_the_same_as_on_a_stepmania_song() {
     };
     let y = note_y(opts, &timing, Tick(300), timing.seconds_at(Tick(300)) - 0.4);
     assert!((y - 1.0).abs() < 1e-4, "{y}");
+}
+
+#[test]
+fn a_chart_can_bring_its_own_speed() {
+    // difData speed 4: 4 × 2.4 = 9.6 arrow heights a second, at the
+    // synthetic 75 BPM (1.25 beats a second) an x-mod of 7.68.
+    let song = work("|musicTitle=T,A,,,180|difData=5,N,4|left_data=300|");
+    let own = speed_for_chart(&song, 0, SpeedMod::XMod(2.0), SpeedSource::Chart);
+    assert!(
+        matches!(own, SpeedMod::XMod(x) if (x - 7.68).abs() < 1e-9),
+        "{own:?}"
+    );
+    // The player's speed otherwise, and on charts without one.
+    assert_eq!(
+        speed_for_chart(&song, 0, SpeedMod::XMod(2.0), SpeedSource::Player),
+        speed_for_song(&song, SpeedMod::XMod(2.0))
+    );
+    let mut sm = song.clone();
+    sm.source.format = ddi_chart::SourceFormat::Sm;
+    sm.charts[0].danoni = None;
+    assert_eq!(
+        speed_for_chart(&sm, 0, SpeedMod::XMod(2.0), SpeedSource::Chart),
+        SpeedMod::XMod(2.0)
+    );
 }

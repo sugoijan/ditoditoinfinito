@@ -12,6 +12,7 @@ use wasm_bindgen::closure::Closure;
 use web_sys::{HtmlCanvasElement, HtmlElement, ResizeObserver, ResizeObserverEntry};
 use yew::Callback;
 
+use crate::lyrics::LyricsView;
 use crate::play::{PlaySession, SessionEvent};
 use crate::web::gfx::Gfx;
 
@@ -46,6 +47,8 @@ pub(crate) struct GameLoop {
     playing_at: Option<f64>,
     /// The song's background changes; empty outside a song.
     background_schedule: Vec<BgSegment>,
+    /// The chart's lyrics, if it has any and they are shown.
+    lyrics: Option<LyricsView>,
 }
 
 /// Frames per second over the last second, from rAF timestamps.
@@ -166,6 +169,7 @@ impl GameLoop {
             pending_backgrounds: Vec::new(),
             playing_at: None,
             background_schedule: Vec::new(),
+            lyrics: None,
         }
     }
 
@@ -286,8 +290,14 @@ impl GameLoop {
         }
     }
 
+    /// The lyrics of the song about to play (`None`: none shown).
+    pub(crate) fn set_lyrics(&mut self, lyrics: Option<LyricsView>) {
+        self.lyrics = lyrics;
+    }
+
     pub(crate) fn clear_session(&mut self) {
         self.session = None;
+        self.lyrics = None;
     }
 
     /// Element that receives the debug text, or `None` to disable.
@@ -357,6 +367,18 @@ impl GameLoop {
                 render.backdrop = self.backdrop(frame.song_time);
                 self.playing_at = (session.player.started() && !session.player.finished())
                     .then_some(frame.song_time);
+                if let Some(lyrics) = self.lyrics.as_mut() {
+                    match self.playing_at {
+                        Some(t) => {
+                            let (w, h) = self.css_size.get();
+                            let span = ddi_render::scene::field_span(&session.layout);
+                            let geo =
+                                ddi_render::FieldGeometry::new(w as f32, h as f32, span, false);
+                            lyrics.update(t, f64::from(geo.arrow * span), h)
+                        }
+                        None => lyrics.hide(),
+                    }
+                }
                 self.renderer.render(
                     &self.gfx.device,
                     &self.gfx.queue,

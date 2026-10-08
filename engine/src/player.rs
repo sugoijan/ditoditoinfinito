@@ -67,10 +67,15 @@ pub struct Results {
     pub grade: String,
     pub full_combo: FullCombo,
     pub failed: bool,
-    /// Hits with a negative delta (early).
+    /// Hits early by more than the ruleset's dead zone
+    /// ([`JudgeTable::fast_slow`](crate::rules::JudgeTable::fast_slow)).
     pub fast: u32,
-    /// Hits with a positive delta (late).
+    /// Hits late by more than the dead zone.
     pub slow: u32,
+    /// Hits counted in the mean and deviation (every hit, fast, slow or
+    /// neither).
+    #[serde(default)]
+    pub hits: u32,
     /// Mean of hit deltas in seconds (0 when nothing was hit).
     pub mean_delta: f64,
     /// Population standard deviation of hit deltas.
@@ -351,7 +356,7 @@ impl Player {
         self.finished = true;
         self.ruleset.score.finish();
         if let FailPolicy::EndOfSong { min_life } = self.ruleset.fail
-            && self.ruleset.gauge.life() < min_life
+            && self.ruleset.gauge.fails_at_end(min_life)
         {
             self.failed = true;
         }
@@ -366,10 +371,10 @@ impl Player {
             if let JudgeEventKind::Tap(j, delta) = ev.kind
                 && j != Judgement::Miss
             {
-                if delta < 0.0 {
-                    self.fast += 1;
-                } else if delta > 0.0 {
-                    self.slow += 1;
+                match self.ruleset.judge.fast_slow(delta) {
+                    Some(true) => self.fast += 1,
+                    Some(false) => self.slow += 1,
+                    None => {}
                 }
                 self.delta_sum += delta;
                 self.delta_sq_sum += delta * delta;
@@ -412,7 +417,9 @@ impl Player {
         let combo = &self.ruleset.combo;
         match ev.kind {
             JudgeEventKind::Tap(j, _) => {
-                if j <= combo.continue_min {
+                if combo.neutral == Some(j) {
+                    // Neither adds to nor breaks the combo.
+                } else if j <= combo.continue_min {
                     self.combo += 1;
                 } else {
                     self.combo = 0;
@@ -615,6 +622,7 @@ impl Player {
             failed: self.failed,
             fast: self.fast,
             slow: self.slow,
+            hits: self.delta_count,
             mean_delta,
             stddev_delta: variance.sqrt(),
             transform: self.options.transform,

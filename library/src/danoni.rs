@@ -9,9 +9,10 @@
 //!   decoded music of each captured chart.
 //!
 //! Each music file of a work becomes one song. What gets stored is the
-//! work's merged dos fields and the song's music number
-//! ([`StoredWork`], file extension [`STORED_EXT`]), so loading re-runs the
-//! importer and an improved importer improves stored songs too.
+//! work's merged dos fields, once for all its songs ([`SharedWork`]), and
+//! per song its music number and a reference to them ([`StoredWork`], file
+//! extension [`STORED_EXT`]), so loading re-runs the importer and an
+//! improved importer improves stored songs too.
 //!
 //! Paths follow danoniplus (`getFullMusicUrl`, `getFilePath`,
 //! `js/lib/dosConverter.js` 620–636, `js/danoni_main.js` 1265–1277): the
@@ -26,7 +27,7 @@ use ddi_chart::formats::danoni::{self, Dos};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::pack::{extension, file_name, is_ignored, join_relative, parent};
+use crate::pack::{extension, file_name, fnv1a64, is_ignored, join_relative, parent};
 
 /// Extension of a stored work (`chart.danoni`).
 pub const STORED_EXT: &str = "danoni";
@@ -34,19 +35,33 @@ pub const STORED_EXT: &str = "danoni";
 /// The dump format this module reads.
 pub const DUMP_SCHEMA: &str = "ddi-danoni-dump/1";
 
-/// What an imported song stores in place of a simfile.
+/// What an imported song stores in place of a simfile: its music number
+/// and the work's dos fields, inline (older imports) or as the key of a
+/// [`SharedWork`] stored once for every song of the work.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StoredWork {
     /// Music number of this song in the work.
     pub music: usize,
-    /// The work's dos fields, merged.
+    /// The work's dos fields, merged; empty when `work` names them.
+    #[serde(default)]
+    pub fields: Vec<(String, String)>,
+    /// Storage key of the work's [`SharedWork`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work: Option<String>,
+}
+
+/// A work's dos fields, stored once for all of its songs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SharedWork {
     pub fields: Vec<(String, String)>,
 }
 
-impl StoredWork {
-    pub fn new(dos: &Dos, music: usize) -> StoredWork {
-        StoredWork {
-            music,
+/// Prefix of the storage keys of [`SharedWork`]s.
+pub const SHARED_WORK_PREFIX: &str = "works/";
+
+impl SharedWork {
+    pub fn new(dos: &Dos) -> SharedWork {
+        SharedWork {
             fields: dos
                 .fields()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -54,25 +69,61 @@ impl StoredWork {
         }
     }
 
-    pub fn dos(&self) -> Dos {
+    /// The JSON to store and the key to store it under, named by its
+    /// content so importing a work again reuses it.
+    pub fn stored(&self) -> Result<(String, String), String> {
+        let json = serde_json::to_string(self).map_err(|e| e.to_string())?;
+        let key = format!("{SHARED_WORK_PREFIX}{:016x}", fnv1a64(json.as_bytes()));
+        Ok((key, json))
+    }
+}
+
+impl StoredWork {
+    /// A song of the work whose fields are stored under `key`.
+    pub fn referencing(key: &str, music: usize) -> StoredWork {
+        StoredWork {
+            music,
+            fields: Vec::new(),
+            work: Some(key.to_string()),
+        }
+    }
+
+    pub fn parse(text: &str) -> Result<StoredWork, String> {
+        serde_json::from_str(text).map_err(|e| e.to_string())
+    }
+
+    /// The work's dos, from `shared` (the [`SharedWork`] JSON stored under
+    /// `work`) when the fields are not inline.
+    pub fn dos(&self, shared: Option<&str>) -> Result<Dos, String> {
+        let fields = match (&self.work, shared) {
+            (None, _) => &self.fields,
+            (Some(_), Some(json)) => {
+                let shared: SharedWork = serde_json::from_str(json).map_err(|e| e.to_string())?;
+                return Ok(Self::to_dos(&shared.fields));
+            }
+            (Some(key), None) => return Err(format!("the work's {key} is not stored")),
+        };
+        Ok(Self::to_dos(fields))
+    }
+
+    fn to_dos(fields: &[(String, String)]) -> Dos {
         let mut d = Dos::default();
-        for (k, v) in &self.fields {
+        for (k, v) in fields {
             d.set(k, v.clone());
         }
         d
     }
-}
 
-/// The song a stored work file describes.
-pub fn load_stored(text: &str) -> Result<Song, String> {
-    let work: StoredWork = serde_json::from_str(text).map_err(|e| e.to_string())?;
-    let import = danoni::import(&work.dos())?;
-    import
-        .music
-        .iter()
-        .position(|m| *m == work.music)
-        .map(|k| import.songs[k].clone())
-        .ok_or_else(|| format!("the work has no music number {}", work.music))
+    /// The song this stored work file describes.
+    pub fn song(&self, shared: Option<&str>) -> Result<Song, String> {
+        let import = danoni::import(&self.dos(shared)?)?;
+        import
+            .music
+            .iter()
+            .position(|m| *m == self.music)
+            .map(|k| import.songs[k].clone())
+            .ok_or_else(|| format!("the work has no music number {}", self.music))
+    }
 }
 
 /// A place a work may be.
@@ -378,11 +429,19 @@ mod tests {
              |left_data=300|left2_data=400|",
             DosFlags::default(),
         );
-        let stored = StoredWork::new(&dos, 1);
-        let text = serde_json::to_string(&stored).unwrap();
-        let song = load_stored(&text).unwrap();
+        let (key, json) = SharedWork::new(&dos).stored().unwrap();
+        assert!(key.starts_with(SHARED_WORK_PREFIX));
+        let text = serde_json::to_string(&StoredWork::referencing(&key, 1)).unwrap();
+        let stored = StoredWork::parse(&text).unwrap();
+        assert_eq!(stored.work.as_deref(), Some(key.as_str()));
+        let song = stored.song(Some(&json)).unwrap();
         assert_eq!(song.title, "B");
         assert_eq!(song.charts[0].notes[0].tick.0, 400);
+        assert!(stored.song(None).is_err());
+        // Earlier imports keep the fields inline.
+        let inline = format!(r#"{{"music":0,"fields":{}}}"#, &json[10..json.len() - 1]);
+        let song = StoredWork::parse(&inline).unwrap().song(None).unwrap();
+        assert_eq!(song.title, "A");
     }
 
     #[test]

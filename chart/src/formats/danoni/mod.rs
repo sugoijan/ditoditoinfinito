@@ -20,12 +20,14 @@
 //! Deviations, each reported as a warning where a work uses it:
 //! - `playbackRate` is not applied: charts play at the music's own speed,
 //!   which is the timing the author wrote against.
-//! - `startFrame`, `endFrame` and `fadeFrame` are kept as unknown fields.
+//! - Notes after `endFrame` are left out (danoniplus ends the play there
+//!   without judging them).
 //! - Divided and locked external dos (`externalDosDivide`, `dosNo`) and key
 //!   patterns other than the first are not read.
 //! - A tap on the same frame and lane as a hold start is dropped (the hold
 //!   remains); danoniplus judges neither of the two in that case.
 
+mod colors;
 pub mod dos;
 pub mod expr;
 mod keycodes;
@@ -40,7 +42,7 @@ use crate::model::{
 use crate::timing::{ScrollSegment, TimingMap};
 
 pub use dos::{Dos, DosFlags};
-use dos::{js_round, parse_float, split_lf, split_lf2};
+use dos::{js_round, parse_float, parse_int, split_lf, split_lf2};
 
 /// The synthetic tempo of frame-based charts: one tick per 60 fps frame.
 pub const SYNTHETIC_BPM: f64 = 75.0;
@@ -55,26 +57,30 @@ const MAX_CHARTS: usize = 512;
 /// Longest value a field reference may expand to.
 const MAX_REF_BYTES: usize = 8 << 20;
 
+/// Rule headers kept per work, and their bytes in all.
+const MAX_RULE_HEADERS: usize = 256;
+const MAX_RULE_HEADER_BYTES: usize = 64 << 10;
+
 /// Default `blankFrame`.
 const DEFAULT_BLANK_FRAME: i64 = 200;
 
-/// Gauge headers kept on each chart for the rulesets.
-const GAUGE_HEADERS: [&str; 14] = [
-    "gaugeNormal",
-    "gaugeEasy",
-    "gaugeHard",
-    "gaugeOriginal",
-    "gaugeLight",
-    "gaugeHeavy",
-    "gaugeNoRecovery",
-    "customGauge",
+/// Headers kept on each chart for the rulesets, besides every `gauge…`
+/// and `customGauge…` header (per-gauge and per-chart settings).
+const RULE_HEADERS: [&str; 6] = [
+    "wordAutoReverse",
     "maxLifeVal",
     "frzStartjdgUse",
     "frzAttempt",
     "excessiveUse",
     "excessiveJdgUse",
-    "gaugeSuddenDeath",
 ];
+
+/// Whether a header carries rules the rulesets read.
+fn is_rule_header(key: &str) -> bool {
+    RULE_HEADERS.contains(&key)
+        || ((key.starts_with("gauge") || key.starts_with("customGauge"))
+            && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+}
 
 /// The songs of a work (one per music file it uses) and what could not be
 /// imported as danoniplus would play it.
@@ -152,21 +158,24 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
         .val("dummyId")
         .map(|d| d.split('$').map(str::to_string).collect())
         .unwrap_or_default();
-    let gauge_headers: Vec<(String, String)> = GAUGE_HEADERS
-        .iter()
-        .filter_map(|k| dos.get(k).map(|v| (k.to_string(), v.to_string())))
+    // Every chart keeps a copy, so the whole set is bounded.
+    let mut header_bytes = 0;
+    let gauge_headers: Vec<(String, String)> = dos
+        .fields()
+        .filter(|(k, _)| is_rule_header(k))
+        .take_while(|(k, v)| {
+            header_bytes += k.len() + v.len();
+            header_bytes <= MAX_RULE_HEADER_BYTES
+        })
+        .take(MAX_RULE_HEADERS)
+        .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
-    for unsupported in ["startFrame", "endFrame", "fadeFrame"] {
-        // `startFrame=0` (the default) changes nothing.
-        let used = dos.val(unsupported).is_some_and(|v| {
-            unsupported != "startFrame" || split_lf2(v).iter().any(|f| f.trim() != "0")
-        });
-        if used {
-            warnings.push(format!("{unsupported} is not applied yet"));
-        }
+    if header_bytes > MAX_RULE_HEADER_BYTES {
+        warnings.push("gauge and rule headers beyond the first 64 KB were left out".into());
     }
 
     let mut songs: Vec<(usize, Song)> = Vec::new();
+    let mut word_budget = MAX_WORK_WORD_BYTES;
     let mut index: Vec<Option<(usize, usize)>> = Vec::new();
     for (i, dif) in difs.iter().enumerate() {
         let fields: Vec<&str> = dif.split(',').collect();
@@ -288,6 +297,21 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
             ));
         }
 
+        // Where the play starts and the music ends (startFrame, endFrame,
+        // fadeFrame); notes after the end are never reached.
+        let span = PlaySpan::of(dos, i, &timing, blank);
+        if let Some(end) = span.end_frame {
+            let before = notes.len();
+            notes.retain(|n| n.kind == NoteKind::Dummy || n.end_tick().0 <= end);
+            notes.retain(|n| n.tick.0 <= end);
+            let dropped = before - notes.len();
+            if dropped > 0 {
+                warnings.push(format!(
+                    "{chart_label}: {dropped} note(s) after endFrame were left out"
+                ));
+            }
+        }
+
         for (frame, ratio) in speed_pairs(dos, &suffix) {
             timing.scrolls.push(ScrollSegment {
                 tick: Tick(frame),
@@ -305,6 +329,28 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
                     n.speed_mul = Some(m as f32);
                 }
             }
+        }
+        // The work's own colours, used when the player asks for them.
+        let palette = colors::Palette::new(dos, &suffix, &def.color);
+        for n in &mut notes {
+            n.color = match n.kind {
+                // danoniplus draws dummy arrows in `setDummyColor`'s greys.
+                NoteKind::Dummy => {
+                    let grey = [0x77, 0x44][usize::from(def.color[usize::from(n.lane)]) % 2];
+                    let c = f32::from(grey as u8) / 255.0;
+                    Some(crate::model::Color {
+                        r: c,
+                        g: c,
+                        b: c,
+                        a: 1.0,
+                    })
+                }
+                kind => palette.color(
+                    usize::from(n.lane),
+                    n.tick.0,
+                    matches!(kind, NoteKind::HoldHead { .. }),
+                ),
+            };
         }
         notes.sort_by_key(|n| (n.tick, n.lane));
 
@@ -327,6 +373,11 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
                 init_speed: field(2).and_then(parse_float).unwrap_or(3.5),
                 gauge,
                 headers: gauge_headers.clone(),
+                index: i,
+                start: span.start,
+                music_start: span.music_start,
+                end: span.end,
+                fade: span.fade,
             }),
         };
 
@@ -346,14 +397,25 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
         }
         // Lyrics and the other effects stay as raw events for later layers,
         // timed in seconds (charts of one song may differ in blankFrame).
+        // The layer names the chart; a work's lyrics are bounded in all.
         let chart_timing = chart.timing.as_ref().expect("set above");
-        for (frame, fields) in words(dos, &suffix) {
-            song.effects.push(EffectEvent {
-                at: EffectTime::Seconds(chart_timing.seconds_at(Tick(frame))),
-                kind: "danoni:word".into(),
-                layer: song.charts.len().min(255) as u8,
-                fields,
-            });
+        let layer = u8::try_from(song.charts.len()).ok();
+        if let Some(layer) = layer.filter(|_| word_budget > 0) {
+            for (frame, fields) in words(dos, &suffix) {
+                let cost = fields.iter().map(String::len).sum::<usize>() + 32;
+                if cost > word_budget {
+                    word_budget = 0;
+                    warnings.push("lyrics beyond the first 4 MB were left out".into());
+                    break;
+                }
+                word_budget -= cost;
+                song.effects.push(EffectEvent {
+                    at: EffectTime::Seconds(chart_timing.seconds_at(Tick(frame))),
+                    kind: "danoni:lyric".into(),
+                    layer,
+                    fields,
+                });
+            }
         }
         song.charts.push(chart);
     }
@@ -599,20 +661,204 @@ fn pairs(dos: &Dos, header: &str, name: &str) -> Vec<(i64, f64)> {
     out
 }
 
-/// `word_data`: `frame,position,text[,…]` per line, kept raw.
+/// danoniplus's music after a fade-out before the play ends, frames
+/// (`C_FRM_AFTERFADE`).
+const AFTER_FADE_FRAMES: f64 = 420.0;
+
+/// `transTimerToFrame` (`danoni_main.js` 2505–2525): `m:ss` or `m:ss.ff`
+/// (the part after the dot counts frames) as frames, else the number.
+fn timer_frames(s: &str) -> Option<f64> {
+    let s = s.trim();
+    // `Number("")` is 0; the result goes through `parseInt`, which
+    // truncates.
+    let num = |t: &str| {
+        let t = t.trim();
+        if t.is_empty() {
+            Some(0.0)
+        } else {
+            t.parse::<f64>().ok()
+        }
+    };
+    let frames = match s.split_once(':') {
+        Some((m, rest)) => {
+            let (sec, ff) = match rest.split_once('.') {
+                Some((sec, ff)) => (num(sec)?, num(ff)?),
+                None => (num(rest)?, 0.0),
+            };
+            60.0 * (num(m)? * 60.0 + sec) + ff
+        }
+        None => parse_int(s)? as f64,
+    };
+    frames
+        .is_finite()
+        .then_some(frames.trunc().clamp(-MAX_FRAME, MAX_FRAME))
+}
+
+/// Where a chart's play starts and its music ends.
+struct PlaySpan {
+    /// `endFrame`, frames.
+    end_frame: Option<i64>,
+    start: Option<f64>,
+    music_start: Option<f64>,
+    end: Option<f64>,
+    fade: Option<(f64, f64)>,
+}
+
+impl PlaySpan {
+    /// Chart `i`'s entries (`dosConverter.js` 1434–1446, `mainWindow.js`
+    /// 198–225, `dataLoader.js` 1351–1357): `startFrame` and `endFrame`
+    /// fall back to the first chart's, `fadeFrame` (`frame,length`) does
+    /// not.
+    fn of(dos: &Dos, i: usize, timing: &TimingMap, blank: f64) -> PlaySpan {
+        let list = |key: &str| dos.val(key).map(split_lf2).unwrap_or_default();
+        let own_or_first = |l: &[String]| {
+            l.get(i)
+                .filter(|v| !v.trim().is_empty())
+                .or(l.first())
+                .and_then(|v| timer_frames(v))
+        };
+        let seconds = |f: f64| timing.seconds_at(Tick(f.round() as i64));
+        let start_frame = own_or_first(&list("startFrame")).filter(|f| *f > 0.0);
+        let start = start_frame.map(seconds);
+        // The music joins `blankFrame` frames later, at the start frame's
+        // position (`mainWindow.js` 175–176, 1825–1830).
+        let music_start = start_frame.map(|f| seconds(f + blank));
+        let end_frame = own_or_first(&list("endFrame")).map(|f| f as i64);
+        let fade = list("fadeFrame").get(i).and_then(|v| {
+            let mut parts = v.split(',');
+            let at = timer_frames(parts.next()?)?;
+            let length = parts
+                .next()
+                .and_then(parse_float)
+                .filter(|l| l.is_finite() && *l >= 0.0)
+                .unwrap_or(AFTER_FADE_FRAMES);
+            // The volume drops by 1.26 of itself per `length` frames
+            // (`C_FRM_AFTERFADE / fadeOutTerm × 3/1000` a frame).
+            Some((seconds(at), length.min(MAX_FRAME) / 60.0 / 1.26))
+        });
+        PlaySpan {
+            end_frame,
+            start,
+            music_start,
+            end: end_frame.map(|f| seconds(f as f64)),
+            fade,
+        }
+    }
+}
+
+/// danoniplus's default lyric fade, frames (`C_WOD_FRAME`).
+const WORD_FADE_FRAMES: i64 = 30;
+
+/// Lyric cues per chart, at most, and the longest lyric kept.
+const MAX_WORDS: usize = 20_000;
+const MAX_WORD_BYTES: usize = 1024;
+
+/// Lyric bytes kept per work, all charts together.
+const MAX_WORK_WORD_BYTES: usize = 4 << 20;
+
+/// `word_data` as `makeSpriteWordData` reads it (`dataLoader.js`
+/// 1081–1136): per line `frame,depth,text` triples, the first text taking
+/// in the fields after it up to the next number, or a single
+/// `frame,depth,command,fadeFrames`; a depth of `-` ends the line. Each cue
+/// is `(frame, [depth, text, fade frames])`, its text plain (see
+/// [`lyric_text`]).
 fn words(dos: &Dos, suffix: &str) -> Vec<(i64, Vec<String>)> {
     let Some(data) = ref_data(dos, "word", &format!("{suffix}_data")) else {
         return Vec::new();
     };
-    split_lf(&data)
-        .filter(|l| !l.is_empty())
-        .filter_map(|line| {
-            let mut parts = line.splitn(3, ',');
-            let frame = expr::eval(parts.next()?).filter(|f| f.abs() <= MAX_FRAME)?;
-            let rest: Vec<String> = parts.map(str::to_string).collect();
-            (rest.first().is_some_and(|p| p != "-")).then(|| (js_round(frame) as i64, rest))
-        })
-        .collect()
+    let mut out = Vec::new();
+    for line in split_lf(&data).filter(|l| !l.trim().is_empty()) {
+        let mut f: Vec<&str> = line.split(',').map(str::trim).collect();
+        let mut k = 0;
+        while k < f.len() && out.len() < MAX_WORDS {
+            if f[k].is_empty() {
+                k += 3;
+                continue;
+            }
+            let depth = f.get(k + 1).copied().unwrap_or("");
+            if depth == "-" {
+                break;
+            }
+            let Some(frame) = expr::eval(f[k]).filter(|v| v.abs() <= MAX_FRAME) else {
+                k += 3;
+                continue;
+            };
+            let depth = expr::eval(depth)
+                .filter(|d| (0.0..=255.0).contains(d))
+                .map_or(0, |d| d as u8);
+            let mut text = f.get(k + 2).copied().unwrap_or("").to_string();
+            if k == 0 && f.len() > 3 {
+                // Text containing commas: take fields until a number.
+                let end = (3..f.len())
+                    .find(|&j| f[j].is_empty() || parse_int(f[j]).is_some())
+                    .unwrap_or(f.len());
+                for part in f.drain(3..end) {
+                    text.push(',');
+                    text.push_str(part);
+                }
+            }
+            if text.len() > MAX_WORD_BYTES {
+                let mut cut = MAX_WORD_BYTES;
+                while !text.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                text.truncate(cut);
+            }
+            let frame = js_round(frame) as i64;
+            if f.len() > 3 && f.len() < 6 {
+                let fade = parse_int(f[3])
+                    .unwrap_or(WORD_FADE_FRAMES)
+                    .clamp(0, 1 << 20);
+                out.push((
+                    frame,
+                    vec![depth.to_string(), lyric_text(&text), fade.to_string()],
+                ));
+                break;
+            }
+            out.push((frame, vec![depth.to_string(), lyric_text(&text)]));
+            k += 3;
+        }
+    }
+    out
+}
+
+/// A lyric as plain text: danoniplus's `*name*` escapes, `<br>` as a line
+/// break, other tags dropped, character references decoded.
+fn lyric_text(s: &str) -> String {
+    const ESCAPES: [(&str, &str); 12] = [
+        ("*amp*", "&"),
+        ("*pipe*", "|"),
+        ("*dollar*", "$"),
+        ("*rsquo*", "\u{2019}"),
+        ("*quot*", "\""),
+        ("*comma*", ","),
+        ("*squo*", "'"),
+        ("*bkquo*", "`"),
+        ("*lt*", "<"),
+        ("*gt*", ">"),
+        ("*lbrace*", "{"),
+        ("*rbrace*", "}"),
+    ];
+    let mut plain = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(p) = rest.find('<') {
+        plain.push_str(&rest[..p]);
+        let Some(end) = rest[p..].find('>') else {
+            plain.push_str(&rest[p..]);
+            rest = "";
+            break;
+        };
+        let tag = rest[p + 1..p + end].trim().to_ascii_lowercase();
+        if tag == "br" || tag == "br/" || tag == "br /" {
+            plain.push('\n');
+        }
+        rest = &rest[p + end + 1..];
+    }
+    plain.push_str(rest);
+    let plain = source::decode_entities(&plain);
+    ESCAPES
+        .iter()
+        .fold(plain, |acc, (from, to)| acc.replace(from, to))
 }
 
 #[cfg(test)]
@@ -768,9 +1014,70 @@ mod tests {
                 .iter()
                 .all(|n| n.kind != NoteKind::Dummy)
         );
+        // A long lyric is cut; its comma-separated parts are joined once.
+        let long = "あ,".repeat(1000);
+        let i = import_text(&format!(
+            "|difData=5,N|left_data=300|word_data=200,0,{long}|"
+        ));
+        let text = &i.songs[0].effects[0].fields[1];
+        assert!(text.len() <= MAX_WORD_BYTES && text.starts_with("あ,あ"));
+
+        // Where a play starts and the music ends: per chart, `m:ss.ff`
+        // timers, the first chart's start and end for the others, but not
+        // its fade.
+        let i = import_text(
+            "|difData=5,A$5,B|blankFrame=140|startFrame=0$200|endFrame=0:05.30|\
+             |fadeFrame=$440,120|left_data=300,500|left2_data=300,800|",
+        );
+        let span = |k: usize| {
+            let d = i.songs[0].charts[k].danoni.clone().unwrap();
+            (d.start, d.end, d.fade)
+        };
+        // endFrame 5 s 30 frames = 330 frames: (330 − 140) / 60 s.
+        let end = Some(190.0 / 60.0);
+        assert_eq!(span(0), (None, end, None));
+        assert_eq!(span(1), (Some(1.0), end, Some((5.0, 2.0 / 1.26))));
+        let music = i.songs[0].charts[1].danoni.as_ref().unwrap().music_start;
+        assert!(music.is_some_and(|m| (m - 200.0 / 60.0).abs() < 1e-9));
+        assert_eq!(timer_frames(":30"), Some(1800.0));
+        assert_eq!(timer_frames("330.6"), Some(330.0));
+        assert_eq!(i.songs[0].charts[0].notes.len(), 1);
+        assert!(i.warnings.iter().any(|w| w.contains("after endFrame")));
+
         // Lyrics are timed in seconds of their chart.
         let i = import_text("|difData=5,N|blankFrame=140|left_data=300|word_data=200,0,hello|");
         assert_eq!(i.songs[0].effects[0].at, EffectTime::Seconds(1.0));
+        // Several cues on a line, commas in a text, commands with a fade,
+        // markup and escapes.
+        let i = import_text(
+            "|difData=5,N|blankFrame=140|left_data=300|word_data=\
+             200,0,a, b,260,1,c<br>d*amp*e\n\
+             230,1,[fadeout],60\n\
+             240,0,*lt*x*gt*<span>y</span>,320,-\n|",
+        );
+        // Fields are trimmed (`trimStr`); times in milliseconds.
+        let cues: Vec<(i64, Vec<&str>)> = i.songs[0]
+            .effects
+            .iter()
+            .map(|e| match e.at {
+                EffectTime::Seconds(s) => (
+                    (s * 1000.0).round() as i64,
+                    e.fields.iter().map(String::as_str).collect(),
+                ),
+                EffectTime::Beat(_) => unreachable!(),
+            })
+            .collect();
+        assert_eq!(
+            cues,
+            vec![
+                (1000, vec!["0", "a,b"]),
+                (2000, vec!["1", "c\nd&e"]),
+                (1500, vec!["1", "[fadeout]", "60"]),
+                // Four or five fields read as a command and its fade,
+                // as in danoniplus.
+                (1667, vec!["0", "<x>y", "320"]),
+            ]
+        );
         // A reference repeated on many lines stays bounded.
         let big = "1,2,".repeat(100_000);
         let many = "speed_x\n".repeat(1000);

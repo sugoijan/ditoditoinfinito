@@ -18,6 +18,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_chart::Song;
+use ddi_engine::lyrics::LyricTrack;
 use ddi_engine::player::Results;
 use ddi_platform::DeviceProfile;
 use gloo::events::{EventListener, EventListenerOptions};
@@ -29,6 +30,7 @@ use yew::prelude::*;
 
 use crate::calibration::{self, CalMode, Outcome};
 use crate::game_loop::GameLoop;
+use crate::lyrics::LyricsView;
 use crate::mods::mods_summary;
 use crate::play::{PlaySession, SessionConfig, SessionEvent};
 use crate::router::Route;
@@ -120,6 +122,8 @@ pub(crate) struct Props {
 pub(crate) struct GameCanvas {
     canvas: NodeRef,
     debug: NodeRef,
+    /// Lyrics overlay (filled by the game loop).
+    lyrics: NodeRef,
     gfx: Status<&'static str>,
     song: Status<Rc<Loaded>>,
     stage: Stage,
@@ -295,6 +299,7 @@ impl Component for GameCanvas {
         GameCanvas {
             canvas: NodeRef::default(),
             debug: NodeRef::default(),
+            lyrics: NodeRef::default(),
             gfx: Status::Pending,
             song: Status::Pending,
             stage: Stage::Idle,
@@ -684,6 +689,7 @@ impl Component for GameCanvas {
         html! {
             <div class={classes!("game-canvas-host", playing.then_some("playing"))} {onpointerdown}>
                 <canvas ref={self.canvas.clone()} class="game-canvas"></canvas>
+                <div class="lyrics" ref={self.lyrics.clone()} aria-hidden="true"></div>
                 { overlay }
                 { debug }
                 if playing && touch {
@@ -850,7 +856,6 @@ impl GameCanvas {
         config.auto_pad = ctx.props().auto_pad;
         config.gamepads = self.gamepads.clone();
         config.touch_canvas = self.canvas.cast::<HtmlCanvasElement>();
-        self.names = Some(config.ruleset.names.clone());
         let shift = match &ctx.props().source {
             SongSource::Song { id, .. } => self.settings.song_offset(id),
             SongSource::Calibration(_) => 0.0,
@@ -875,7 +880,20 @@ impl GameCanvas {
         match PlaySession::start(play_song, chart, &self.settings, config, audio, buffer) {
             Ok(session) => {
                 self.layout = Some(session.layout.clone());
+                // The ruleset is chosen per chart when the session starts.
+                self.names = Some(session.names.clone());
+                let lyrics = self
+                    .settings
+                    .lyrics
+                    .then(|| {
+                        let single_row = session.layout.lanes.iter().all(|l| l.row == 0);
+                        LyricTrack::new(play_song, chart, self.settings.reverse, single_row)
+                    })
+                    .filter(|t| !t.is_empty())
+                    .zip(self.lyrics.cast::<HtmlElement>())
+                    .map(|(track, el)| LyricsView::new(track, el));
                 if let Some(game) = self.game.borrow_mut().as_mut() {
+                    game.set_lyrics(lyrics);
                     game.set_background_schedule(schedule);
                     game.set_session(session);
                 }
@@ -1015,6 +1033,7 @@ fn results_view(
                     { for (0..6).filter(|i| !tier_name(*i).is_empty()).map(|i| html!{ <tr><td class="muted">{ tier_name(i) }</td><td>{ r.tally.taps[i] }</td></tr> }) }
                     <tr><td class="muted">{ held_name }</td><td>{ format!("{} / {}", r.tally.held, r.tally.let_go) }</td></tr>
                     <tr><td class="muted">{ "mines hit" }</td><td>{ r.tally.mine_hit }</td></tr>
+                    { if r.tally.boo > 0 { html!{ <tr><td class="muted">{ "stray presses" }</td><td>{ r.tally.boo }</td></tr> } } else { html!{} } }
                     <tr><td class="muted">{ "max combo" }</td><td>{ r.max_combo }</td></tr>
                     <tr><td class="muted">{ "fast / slow" }</td><td>{ format!("{} / {}", r.fast, r.slow) }</td></tr>
                     <tr><td class="muted">{ "mean offset" }</td><td>{ format!("{:+.1} ms (σ {:.1})", r.mean_delta * 1000.0, r.stddev_delta * 1000.0) }</td></tr>
@@ -1044,7 +1063,7 @@ fn song_offset_editor(
 ) -> Html {
     let set = |v: f64| link.callback(move |_| Msg::SetSongOffset(v));
     let ms = |s: f64| (s * 1000.0).round() / 1000.0;
-    let hits = r.fast + r.slow;
+    let hits = r.hits;
     let suggested = ms(played + r.mean_delta);
     let suggest = (hits >= MIN_HITS_FOR_SONG_OFFSET
         && (suggested - played).abs() >= 0.002

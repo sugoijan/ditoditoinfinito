@@ -79,6 +79,10 @@ pub(crate) struct ImportedSong {
     /// Total stored bytes.
     #[serde(default)]
     pub(crate) bytes: f64,
+    /// Storage key of the Dancing☆Onigiri work the song belongs to, stored
+    /// once for all its songs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) work: Option<String>,
 }
 
 /// Where a song's files live.
@@ -298,7 +302,7 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, String> {
     };
     let ext = entry.chart.rsplit('.').next().unwrap_or("sm");
     let song = if ext == ddi_library::danoni::STORED_EXT {
-        ddi_library::danoni::load_stored(&chart_text)
+        load_work_song(&chart_text).await
     } else {
         parse_simfile(&chart_text, ext).map_err(|e| e.to_string())
     }
@@ -322,6 +326,59 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, String> {
         music_bytes,
         shared_bg,
     })
+}
+
+/// The song a stored Dancing☆Onigiri work file describes, with the work's
+/// fields read from where they are stored once for all its songs.
+async fn load_work_song(text: &str) -> Result<Song, String> {
+    let stored = ddi_library::danoni::StoredWork::parse(text)?;
+    let shared = match &stored.work {
+        Some(key) => {
+            let db = Db::open().await?;
+            let blob = db
+                .get(idb::FILES, key)
+                .await?
+                .and_then(|v| v.dyn_into::<Blob>().ok())
+                .ok_or("the work is no longer stored; import it again")?;
+            Some(String::from_utf8_lossy(&blob_bytes(&blob).await?).into_owned())
+        }
+        None => None,
+    };
+    stored.song(shared.as_deref())
+}
+
+#[derive(Deserialize)]
+struct WorkRef {
+    #[serde(default)]
+    work: Option<String>,
+}
+
+/// Drops the stored Dancing☆Onigiri works no imported song refers to.
+pub(crate) async fn drop_unused_works(db: &Db) -> Result<(), String> {
+    let used: std::collections::HashSet<String> = db
+        .entries(idb::SONGS)
+        .await?
+        .into_iter()
+        .filter_map(|(_, v)| v.as_string())
+        // Only the reference is read, so a record that no longer parses as
+        // a whole still keeps its work.
+        .filter_map(|json| serde_json::from_str::<WorkRef>(&json).ok())
+        .filter_map(|r| r.work)
+        .collect();
+    let unused: Vec<Write> = db
+        .keys_with_prefix(idb::FILES, ddi_library::danoni::SHARED_WORK_PREFIX)
+        .await?
+        .into_iter()
+        .filter(|k| !used.contains(k))
+        .map(|key| Write::Delete {
+            store: idb::FILES,
+            key,
+        })
+        .collect();
+    if unused.is_empty() {
+        return Ok(());
+    }
+    db.write(unused).await
 }
 
 /// Removes every imported song and file.
@@ -352,5 +409,6 @@ pub(crate) async fn delete_imported(ids: &[String]) -> Result<(), String> {
             ]
         })
         .collect();
-    db.write(writes).await
+    db.write(writes).await?;
+    drop_unused_works(&db).await
 }

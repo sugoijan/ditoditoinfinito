@@ -826,3 +826,30 @@ button.danger {
   padding: 0.15rem 0.6rem;
   cursor: pointer;
 }
+
+/* Lyrics (Dancing☆Onigiri works), over the field; sizes are set per line. */
+.lyrics {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.lyric {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100% - 2rem), max(18rem, var(--lyric-width, 40rem)));
+  white-space: pre-line;
+  line-height: 1.25;
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  text-shadow: 0 0 3px #000, 0 0 6px #000;
+}
+
+.lyric.top {
+  top: 5.5%;
+}
+
+.lyric.bottom {
+  bottom: 3.5%;
+}
