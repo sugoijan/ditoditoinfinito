@@ -162,6 +162,10 @@ pub struct ResolvedAssets {
     /// title, jacket, CD image, disc; see [`resolve_assets`]), sorted.
     /// Candidates for [`classify_images`].
     pub unclassified: Vec<String>,
+    /// `(tag, reference)` for `#MUSIC`, `#BANNER` and `#BACKGROUND` values
+    /// that name a file the import does not have (a fallback may still
+    /// have been found).
+    pub missing: Vec<(&'static str, String)>,
 }
 
 /// Resolves the song's `#MUSIC`, `#BANNER` and `#BACKGROUND` against the
@@ -264,12 +268,109 @@ pub fn resolve_assets<S: AsRef<str>>(song: &Song, dir: &str, all_paths: &[S]) ->
         .filter(|p| !names_other_image(&stem(p).to_lowercase()))
         .map(|p| p.to_string())
         .collect();
+    let missing = [
+        ("#MUSIC", song.music.as_deref()),
+        ("#BANNER", song.banner.as_deref()),
+        ("#BACKGROUND", song.background.as_deref()),
+    ]
+    .into_iter()
+    .filter_map(|(tag, reference)| {
+        let reference = reference?.trim();
+        (!reference.is_empty() && find(Some(reference)).is_none())
+            .then(|| (tag, reference.to_string()))
+    })
+    .collect();
     ResolvedAssets {
         music,
         banner,
         background,
         unclassified,
+        missing,
     }
+}
+
+/// StepMania's shared background folders, searched for background-change
+/// files a song's folder does not have.
+pub const SHARED_FOLDERS: [&str; 2] = ["RandomMovies", "SongMovies"];
+
+/// Whether a folder name marks a shared background folder: one of
+/// [`SHARED_FOLDERS`] exactly, or followed by a separator (space, `(`,
+/// `-`, `_`, `.`), ignoring case, so that a picked `RandomMovies (low
+/// rez).zip`, which imports as a folder of that name, counts, but
+/// `RandomMoviesFan` does not.
+fn shared_kind(name: &str) -> Option<&'static str> {
+    let lower = name.to_lowercase();
+    SHARED_FOLDERS.iter().copied().find(|f| {
+        lower
+            .strip_prefix(&f.to_lowercase())
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '(', '-', '_', '.']))
+    })
+}
+
+/// Where `path` sits inside a shared background folder, as
+/// `RandomMovies/<rest>` or `SongMovies/<rest>`, using the innermost such
+/// folder (a `RandomMovies.zip` usually wraps a `RandomMovies/` folder).
+/// `None` outside them, or for the folder itself.
+pub fn shared_path(path: &str) -> Option<String> {
+    let parts: Vec<&str> = path.split('/').filter(|c| !c.is_empty()).collect();
+    let (i, kind) = parts[..parts.len().saturating_sub(1)]
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(i, part)| shared_kind(part).map(|k| (i, k)))?;
+    Some(format!("{kind}/{}", parts[i + 1..].join("/")))
+}
+
+/// Folders of a StepMania installation that hold sounds but are not songs.
+const INSTALL_FOLDERS: [&str; 12] = [
+    "Announcers",
+    "Appearance",
+    "BGAnimations",
+    "BackgroundEffects",
+    "BackgroundTransitions",
+    "Cache",
+    "Characters",
+    "Data",
+    "NoteSkins",
+    "Program",
+    "Scripts",
+    "Themes",
+];
+
+/// Folders that hold music but no simfile (`(folder, music file)`): song
+/// folders whose simfile is missing. Not reported: folders with a simfile
+/// at or below them (a pack folder with a preview track), shared folders,
+/// and a StepMania installation's own folders (themes, note skins, …).
+pub fn folders_without_simfile<S: AsRef<str>>(paths: &[S]) -> Vec<(String, String)> {
+    let mut charts: Vec<&str> = Vec::new();
+    let mut music: BTreeMap<&str, &str> = BTreeMap::new();
+    for p in paths {
+        let p = p.as_ref();
+        if is_ignored(p) || p.ends_with('/') || shared_path(p).is_some() {
+            continue;
+        }
+        if ChartFormat::of(p).is_some() {
+            charts.push(parent(p));
+        } else if extension(p)
+            .is_some_and(|e| AUDIO_EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+        {
+            music.entry(parent(p)).or_insert(p);
+        }
+    }
+    let within = |inner: &str, outer: &str| {
+        inner == outer || outer.is_empty() || inner.starts_with(&format!("{outer}/"))
+    };
+    let install = |dir: &str| {
+        dir.split('/')
+            .any(|c| INSTALL_FOLDERS.iter().any(|f| c.eq_ignore_ascii_case(f)))
+    };
+    music
+        .into_iter()
+        .filter(|(dir, _)| {
+            !install(dir) && !charts.iter().any(|c| within(dir, c) || within(c, dir))
+        })
+        .map(|(dir, file)| (dir.to_string(), file.to_string()))
+        .collect()
 }
 
 /// StepMania's name rules for the song images other than banner and
@@ -447,6 +548,64 @@ mod tests {
     }
 
     #[test]
+    fn shared_folders_are_recognised_by_name_prefix() {
+        assert_eq!(
+            shared_path("StepMania/RandomMovies/MAX-EXTREME/Robot1.png").as_deref(),
+            Some("RandomMovies/MAX-EXTREME/Robot1.png")
+        );
+        // A picked zip imports as a folder named after it.
+        assert_eq!(
+            shared_path("RandomMovies(low rez)/MAX-EXTREME/Robot1.png").as_deref(),
+            Some("RandomMovies/MAX-EXTREME/Robot1.png")
+        );
+        assert_eq!(
+            shared_path("songmovies/Pack/clip.png").as_deref(),
+            Some("SongMovies/Pack/clip.png")
+        );
+        assert_eq!(shared_path("Songs/Pack/Song/bg.png"), None);
+        // A file named like the folder is not inside one.
+        assert_eq!(shared_path("Pack/RandomMovies.png"), None);
+        // A zip wrapping its own folder: the innermost one counts.
+        assert_eq!(
+            shared_path("RandomMovies/RandomMovies/A/b.png").as_deref(),
+            Some("RandomMovies/A/b.png")
+        );
+        assert_eq!(
+            shared_path("RandomMovies (low rez)/RandomMovies/A/b.png").as_deref(),
+            Some("RandomMovies/A/b.png")
+        );
+        // A name that only starts with it is not a shared folder.
+        assert_eq!(shared_path("Songs/RandomMoviesFan/Song/bg.png"), None);
+        assert_eq!(
+            shared_path("RandomMovies-HD/x.png").as_deref(),
+            Some("RandomMovies/x.png")
+        );
+    }
+
+    #[test]
+    fn music_folders_without_a_simfile_are_found() {
+        let paths = [
+            "Pack/Good/song.sm",
+            "Pack/Good/song.ogg",
+            "Pack/Good/sounds/hit.ogg",
+            "Pack/Orphan/track.mp3",
+            "Pack/Orphan/cover.png",
+            "Pack/preview.ogg",
+            "RandomMovies/clip.ogg",
+            "Pack/Art/only.png",
+            "Themes/Default/Sounds/start.ogg",
+            "NoteSkins/dance/x/hit.wav",
+        ];
+        assert_eq!(
+            folders_without_simfile(&paths),
+            vec![(
+                "Pack/Orphan".to_string(),
+                "Pack/Orphan/track.mp3".to_string()
+            )]
+        );
+    }
+
+    #[test]
     fn finds_songs_and_packs() {
         let paths = [
             "Packs/My Pack/Song A/song.sm",
@@ -546,6 +705,9 @@ mod tests {
         assert_eq!(r.music.as_deref(), Some("S/main.mp3"));
         assert_eq!(r.banner.as_deref(), Some("S/song-bn.png"));
         assert_eq!(r.background.as_deref(), Some("S/song-bg.png"));
+        // The missing `#MUSIC` is reported even though a fallback was found;
+        // an empty `#BANNER` names nothing.
+        assert_eq!(r.missing, vec![("#MUSIC", "missing.ogg".to_string())]);
 
         // A single intro-named file is still the music.
         let r = resolve_assets(&song(""), "S", &["S/s.sm", "S/Intro.wav"]);

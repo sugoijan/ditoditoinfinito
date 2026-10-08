@@ -189,12 +189,22 @@ impl Component for GameCanvas {
                         if show_background {
                             // Loads alongside the start prompt; the play
                             // never waits for it.
-                            let images = std::iter::once(BgImage::Song)
-                                .chain(loaded.entry.bg_images.iter().cloned().map(BgImage::File));
+                            let shared = Rc::new(loaded.shared_bg.clone());
+                            let images = std::iter::once(BgImage::Song).chain(
+                                loaded
+                                    .entry
+                                    .bg_images
+                                    .iter()
+                                    .chain(loaded.shared_bg.iter().map(|(name, _)| name))
+                                    .cloned()
+                                    .map(BgImage::File),
+                            );
                             for what in images {
                                 let entry = loaded.entry.clone();
+                                let shared = shared.clone();
                                 link.send_future(async move {
-                                    let bitmap = match load_background(&entry, &what).await {
+                                    let bitmap = match load_background(&entry, &what, &shared).await
+                                    {
                                         Ok(Some(blob)) => {
                                             let side = match what {
                                                 BgImage::Song => MAX_BACKGROUND_SIDE,
@@ -220,7 +230,15 @@ impl Component for GameCanvas {
                         Rc::new(Loaded {
                             title: loaded.entry.title.clone(),
                             subtitle: loaded.entry.artist.clone(),
-                            bg_images: loaded.entry.bg_images.clone(),
+                            // The song's own images, then those found in
+                            // shared folders, under the names it uses.
+                            bg_images: loaded
+                                .entry
+                                .bg_images
+                                .iter()
+                                .chain(loaded.shared_bg.iter().map(|(name, _)| name))
+                                .cloned()
+                                .collect(),
                             has_background: loaded.entry.background.is_some(),
                             song: loaded.song,
                             music_bytes: Some(loaded.music_bytes),

@@ -29,6 +29,11 @@ pub struct ManifestEntry {
     /// each under `bg/<path>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bg_images: Vec<String>,
+    /// Images the background changes name that the song's folder lacks, as
+    /// the simfile writes them ([`crate::backgrounds::absent_images`]):
+    /// looked up in the library's shared folders when the song is played.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bg_shared: Vec<String>,
     /// Short credit line shown in the song list (full credits live in the
     /// Credits screen).
     #[serde(default)]
@@ -82,6 +87,7 @@ pub struct EntryMeta {
     pub banner: Option<String>,
     pub background: Option<String>,
     pub bg_images: Vec<String>,
+    pub bg_shared: Vec<String>,
     pub credit: String,
 }
 
@@ -129,6 +135,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         banner: meta.banner,
         background: meta.background,
         bg_images: meta.bg_images,
+        bg_shared: meta.bg_shared,
         credit: meta.credit,
         bpm,
         preview_start: song.preview_start,
@@ -224,6 +231,7 @@ mod tests {
             banner: None,
             background: Some("bg.png".into()),
             bg_images: Vec::new(),
+            bg_shared: Vec::new(),
             credit: String::new(),
             bpm: "120".into(),
             preview_start: 1.0,

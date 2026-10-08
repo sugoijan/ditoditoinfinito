@@ -69,9 +69,9 @@ pub(crate) enum Msg {
     ClearPad(String),
     ForgetPad(String),
     FastPadPoll(bool),
-    /// The song list loaded: a bundled song for the volume sample and the
-    /// number of imported songs.
-    Library(Option<ManifestEntry>, usize),
+    /// The song list loaded: a bundled song for the volume sample, the
+    /// number of imported songs and of shared background images.
+    Library(Option<ManifestEntry>, usize, usize),
     /// Volume sample: started in the click (see [`Preview::start`]).
     SampleStarted(Preview),
     SampleDecoded(AudioBuffer),
@@ -100,6 +100,8 @@ pub(crate) struct Options {
     sample_song: Option<ManifestEntry>,
     sample: Option<Preview>,
     imported: usize,
+    /// Shared background images in the library.
+    shared: usize,
     confirm: Option<Reset>,
     /// Result of the last reset.
     notice: Option<String>,
@@ -129,9 +131,13 @@ impl Component for Options {
             })
         });
         ctx.link().send_future(async {
+            let shared = match crate::web::idb::Db::open().await {
+                Ok(db) => crate::songs::shared_paths(&db).await.map_or(0, |p| p.len()),
+                Err(_) => 0,
+            };
             match Library::load().await {
-                Ok(l) => Msg::Library(l.bundled.into_iter().next(), l.imported.len()),
-                Err(_) => Msg::Library(None, 0),
+                Ok(l) => Msg::Library(l.bundled.into_iter().next(), l.imported.len(), shared),
+                Err(_) => Msg::Library(None, 0, shared),
             }
         });
         let gamepads = Gamepads::new();
@@ -145,6 +151,7 @@ impl Component for Options {
             sample_song: None,
             sample: None,
             imported: 0,
+            shared: 0,
             confirm: None,
             notice: None,
             gamepads,
@@ -157,9 +164,10 @@ impl Component for Options {
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
-            Msg::Library(song, imported) => {
+            Msg::Library(song, imported, shared) => {
                 self.sample_song = song;
                 self.imported = imported;
+                self.shared = shared;
                 return true;
             }
             Msg::SampleStarted(preview) => {
@@ -233,6 +241,7 @@ impl Component for Options {
                     (_, Ok(())) => "Imported songs removed.".into(),
                 });
                 self.imported = 0;
+                self.shared = 0;
                 return true;
             }
             Msg::Speed(v) => self.settings.speed = v.clamp(0.25, 10.0),
@@ -695,6 +704,11 @@ impl Options {
             1 => "1 imported song".to_string(),
             n => format!("{n} imported songs"),
         };
+        let shared = match self.shared {
+            0 => "none".to_string(),
+            1 => "1 image".to_string(),
+            n => format!("{n} images"),
+        };
         html! {
             <section>
                 <h2>{ "Reset" }</h2>
@@ -704,8 +718,8 @@ impl Options {
                         <td class="muted">{ "Speed, scroll and note options, rules, volume, keys, controller bindings, display options and device calibrations back to defaults. Imported songs and per-song offsets are kept." }</td>
                     </tr>
                     <tr>
-                        <td>{ button(Reset::Songs, "remove imported songs", self.imported == 0 || importing) }</td>
-                        <td class="muted">{ format!("Deletes the songs imported into this browser ({songs}) and their offsets. Settings are kept.") }</td>
+                        <td>{ button(Reset::Songs, "remove imported songs", (self.imported == 0 && self.shared == 0) || importing) }</td>
+                        <td class="muted">{ format!("Deletes the songs imported into this browser ({songs}) and their offsets, and the shared background images ({shared}). Settings are kept.") }</td>
                     </tr>
                     <tr>
                         <td>{ button(Reset::Everything, "reset everything", importing) }</td>

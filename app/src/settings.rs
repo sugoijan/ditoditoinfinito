@@ -30,6 +30,9 @@ pub(crate) struct Settings {
     /// Hidden / Sudden / Stealth (drawing only).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub(crate) appearance: Appearance,
+    /// The import report also lists details for pack authors:
+    /// inconsistencies that make no difference in play.
+    pub(crate) import_details: bool,
     /// How notes are coloured.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub(crate) note_colors: NoteColors,
@@ -220,6 +223,7 @@ impl Default for Settings {
             transform: TransformOptions::default(),
             appearance: Appearance::Visible,
             note_colors: NoteColors::Vivid,
+            import_details: false,
             bg_brightness: 0.4,
             field_filter: 0.4,
             ruleset: "itg".into(),
