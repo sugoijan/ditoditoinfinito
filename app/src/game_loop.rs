@@ -34,6 +34,9 @@ pub(crate) struct GameLoop {
     _resize: Option<ResizeHook>,
     fps: FpsMeter,
     debug_el: Option<HtmlElement>,
+    /// Background images copied to the GPU, closed after the next submit:
+    /// the WebGL2 backend performs the copy then, not when it is issued.
+    uploaded_images: Vec<web_sys::ImageBitmap>,
 }
 
 /// Frames per second over the last second, from rAF timestamps.
@@ -149,6 +152,7 @@ impl GameLoop {
             _resize: resize,
             fps: FpsMeter::new(),
             debug_el: None,
+            uploaded_images: Vec::new(),
         }
     }
 
@@ -168,6 +172,57 @@ impl GameLoop {
     pub(crate) fn set_session(&mut self, session: PlaySession) {
         self.session = Some(session);
         self.done = false;
+    }
+
+    /// Shows `image` behind the field, or nothing. The browser decoded it;
+    /// this copies it into a texture and closes it once the copy is done.
+    pub(crate) fn set_background(&mut self, image: Option<web_sys::ImageBitmap>) {
+        let limit = self.gfx.device.limits().max_texture_dimension_2d;
+        let image = match image {
+            Some(img) if img.width().max(img.height()) > limit => {
+                web_sys::console::warn_1(
+                    &format!(
+                        "background {}×{} exceeds the GPU's {limit} px limit; not shown",
+                        img.width(),
+                        img.height()
+                    )
+                    .into(),
+                );
+                img.close();
+                None
+            }
+            image => image,
+        };
+        let texture = image.as_ref().map(|img| {
+            let (width, height) = (img.width().max(1), img.height().max(1));
+            let texture = self
+                .renderer
+                .create_background_texture(&self.gfx.device, width, height);
+            self.gfx.queue.copy_external_image_to_texture(
+                &wgpu::CopyExternalImageSourceInfo {
+                    source: wgpu::ExternalImageSource::ImageBitmap(img.clone()),
+                    origin: wgpu::Origin2d::ZERO,
+                    flip_y: false,
+                },
+                wgpu::CopyExternalImageDestInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                    color_space: wgpu::PredefinedColorSpace::Srgb,
+                    premultiplied_alpha: false,
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            texture
+        });
+        self.renderer
+            .set_background(&self.gfx.device, texture.as_ref());
+        self.uploaded_images.extend(image);
     }
 
     pub(crate) fn clear_session(&mut self) {
@@ -268,6 +323,9 @@ impl GameLoop {
             }
         }
         self.gfx.queue.submit(Some(encoder.finish()));
+        for image in self.uploaded_images.drain(..) {
+            image.close();
+        }
         self.gfx.queue.present(surface);
 
         if let Some(event) = outcome {

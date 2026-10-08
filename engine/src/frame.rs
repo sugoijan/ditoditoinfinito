@@ -2,6 +2,7 @@
 
 use ddi_chart::{Color, Quantization};
 
+use crate::appearance::Appearance;
 use crate::rules::{Judgement, ScoreView};
 
 /// One lane's receptor.
@@ -58,7 +59,11 @@ pub struct NoteSprite {
     pub beat_frac: f32,
     /// Explicit colour from the chart, if any.
     pub color: Option<Color>,
+    /// 0 or 1 under Hidden/Sudden/Stealth, else 1.
     pub alpha: f32,
+    /// White glow where a note appears or vanishes, `0..=1.3`
+    /// ([`Appearance::visibility`]).
+    pub glow: f32,
 }
 
 /// Snapshot of the play at one render time.
@@ -81,4 +86,7 @@ pub struct Frame {
     pub finished: bool,
     /// Arrow heights above the receptor the renderer should draw.
     pub visible_range: f32,
+    /// For clipping hold bodies ([`Appearance::visible_spans`]); note alphas
+    /// already account for it.
+    pub appearance: Appearance,
 }

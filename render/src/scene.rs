@@ -141,6 +141,40 @@ pub struct RenderOptions {
     pub cancel_progress: f32,
     /// The quit hint shown with it; empty for the keyboard's.
     pub cancel_hint: &'static str,
+    /// Perceived brightness of the background image, `0..=1` (0 = off).
+    pub background: f32,
+    /// Darkening behind the lanes, `0..=1` of perceived brightness removed
+    /// (0 = none).
+    pub field_filter: f32,
+}
+
+/// A note's colour under Hidden/Sudden: hidden notes show only their white
+/// glow, visible ones are tinted towards white by it (StepMania draws the
+/// glow as a white overlay of that opacity).
+fn glowing(color: [f32; 4], note: &NoteSprite) -> [f32; 4] {
+    let g = note.glow.clamp(0.0, 1.0);
+    if note.alpha <= 0.0 {
+        return [1.0, 1.0, 1.0, color[3] * g];
+    }
+    let mut c = color;
+    for k in c.iter_mut().take(3) {
+        *k += (1.0 - *k) * g;
+    }
+    c[3] *= note.alpha;
+    c
+}
+
+/// Alpha of a black overlay that removes `amount` of perceived brightness.
+/// On an sRGB target blending happens in linear light, so the remaining
+/// brightness is converted; on a plain target values are already
+/// perceptual.
+pub fn filter_alpha(amount: f32, srgb_target: bool) -> f32 {
+    let keep = 1.0 - amount.clamp(0.0, 1.0);
+    if srgb_target {
+        1.0 - keep.powf(2.2)
+    } else {
+        1.0 - keep
+    }
 }
 
 fn rgba(c: Color) -> [f32; 4] {
@@ -172,7 +206,8 @@ fn glyph_shape(glyph: &Glyph, outline: bool) -> Shape {
     }
 }
 
-/// Build the sprite and text lists for one frame.
+/// Build the sprite and text lists for one frame. `srgb_target`: the
+/// target's format is sRGB (blending in linear light).
 pub fn build(
     frame: &Frame,
     layout: &Layout,
@@ -180,10 +215,26 @@ pub fn build(
     skin: &Skin,
     geo: &FieldGeometry,
     opts: RenderOptions,
+    srgb_target: bool,
 ) -> SceneOutput {
     let mut instances = Vec::with_capacity(frame.notes.len() * 2 + 32);
     let mut text = Vec::with_capacity(8);
     let a = geo.arrow;
+
+    // Field filter: a dark band behind the lanes, over the background.
+    if opts.field_filter > 0.0 && !layout.lanes.is_empty() {
+        let lanes = layout.lanes.iter().map(|l| l.column).fold(0.0f32, f32::max) + 1.0;
+        let w = a * (lanes + 0.3);
+        instances.push(
+            Instance::new(
+                [geo.left + a * lanes / 2.0, geo.height / 2.0],
+                [w, geo.height + 2.0],
+                Shape::Rect,
+                [0.0, 0.0, 0.0, filter_alpha(opts.field_filter, srgb_target)],
+            )
+            .params([0.0, 0.0, 0.0, 0.0]),
+        );
+    }
 
     // Receptors.
     for (i, lane) in layout.lanes.iter().enumerate() {
@@ -226,8 +277,6 @@ pub fn build(
             let Some(lane) = layout.lanes.get(note.lane as usize) else {
                 continue;
             };
-            let y0 = geo.y(note.y);
-            let y1 = geo.y(tail_y);
             let color = if dropped {
                 skin.hold_dropped
             } else if active {
@@ -237,17 +286,22 @@ pub fn build(
             };
             let is_roll = matches!(note.kind, SpriteKind::RollHead { .. });
             let w = if is_roll { a * 0.38 } else { a * 0.5 };
-            let center_y = (y0 + y1) / 2.0;
-            let h = (y1 - y0).abs().max(1.0);
-            instances.push(
-                Instance::new(
-                    [geo.lane_x(lane.column), center_y],
-                    [w, h],
-                    Shape::HoldBody,
-                    [color[0], color[1], color[2], color[3] * note.alpha],
-                )
-                .params([0.6, 0.0, 0.0, 0.0]),
-            );
+            // Only the parts Hidden/Sudden leave visible.
+            for (lo, hi) in frame.appearance.visible_spans(note.y, tail_y) {
+                let y0 = geo.y(lo);
+                let y1 = geo.y(hi);
+                let center_y = (y0 + y1) / 2.0;
+                let h = (y1 - y0).abs().max(1.0);
+                instances.push(
+                    Instance::new(
+                        [geo.lane_x(lane.column), center_y],
+                        [w, h],
+                        Shape::HoldBody,
+                        color,
+                    )
+                    .params([0.6, 0.0, 0.0, 0.0]),
+                );
+            }
         }
     }
 
@@ -424,12 +478,15 @@ fn push_note(
     let a = geo.arrow;
     let x = geo.lane_x(lane.column);
     let y = geo.y(note.y);
+    if note.alpha <= 0.0 && note.glow <= 0.0 {
+        return;
+    }
     let mut color = match (&skin.scheme, note.color) {
         (_, Some(c)) => rgba(c),
         (ColorScheme::Static(c), None) => *c,
         (ColorScheme::Quantized, None) => quantization_color(note.quantization),
     };
-    color[3] *= note.alpha;
+    color = glowing(color, note);
     match note.kind {
         SpriteKind::Tap | SpriteKind::Lift | SpriteKind::Dummy => {
             out.push(
@@ -446,12 +503,16 @@ fn push_note(
                     [x, y],
                     [a * 0.3, a * 0.3],
                     Shape::Circle,
-                    [1.0, 1.0, 1.0, 0.8 * note.alpha],
+                    [1.0, 1.0, 1.0, 0.8 * color[3]],
                 ));
             }
         }
         SpriteKind::HoldHead { dropped, .. } | SpriteKind::RollHead { dropped, .. } => {
-            let c = if dropped { skin.hold_dropped } else { color };
+            let c = if dropped {
+                glowing(skin.hold_dropped, note)
+            } else {
+                color
+            };
             out.push(
                 Instance::new(
                     [x, y],
@@ -475,9 +536,145 @@ fn push_note(
             );
         }
         SpriteKind::Mine | SpriteKind::Shock => {
-            let mut m = skin.mine;
-            m[3] *= note.alpha;
+            let m = glowing(skin.mine, note);
             out.push(Instance::new([x, y], [a * 0.8, a * 0.8], Shape::Mine, m));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ddi_chart::Quantization;
+    use ddi_engine::Appearance;
+    use ddi_engine::frame::ReceptorState;
+    use ddi_engine::rules::presets;
+
+    fn note(y: f32, kind: SpriteKind, appearance: Appearance) -> NoteSprite {
+        let (alpha, glow) = appearance.visibility(y);
+        NoteSprite {
+            lane: 0,
+            y,
+            kind,
+            quantization: Quantization::N4,
+            beat_frac: 0.0,
+            color: None,
+            alpha,
+            glow,
+        }
+    }
+
+    fn frame(notes: Vec<NoteSprite>, appearance: Appearance) -> Frame {
+        Frame {
+            song_time: 0.0,
+            beat: 0.0,
+            lanes: 4,
+            receptors: vec![
+                ReceptorState {
+                    pressed: false,
+                    flash: None
+                };
+                4
+            ],
+            notes,
+            judgement: None,
+            combo: 0,
+            score: Default::default(),
+            life: 0.5,
+            danger: false,
+            failed: false,
+            finished: false,
+            visible_range: 12.0,
+            appearance,
+        }
+    }
+
+    fn shapes(f: &Frame, opts: RenderOptions) -> Vec<Instance> {
+        let layout = Layout::dance_single();
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4, false);
+        build(
+            f,
+            &layout,
+            &presets::itg().names,
+            &Skin::default(),
+            &geo,
+            opts,
+            false,
+        )
+        .instances
+    }
+
+    fn count(instances: &[Instance], shape: Shape) -> usize {
+        instances.iter().filter(|i| i.shape == shape as u32).count()
+    }
+
+    #[test]
+    fn hidden_notes_are_not_drawn_and_hold_bodies_are_clipped() {
+        let a = Appearance::Hidden;
+        let hold = SpriteKind::HoldHead {
+            tail_y: 6.0,
+            active: false,
+            dropped: false,
+        };
+        let f = frame(vec![note(1.0, SpriteKind::Tap, a), note(0.5, hold, a)], a);
+        let out = shapes(&f, RenderOptions::default());
+        // Receptors only: the tap and the hold head are hidden.
+        assert_eq!(count(&out, Shape::Arrow), 0);
+        // The body is drawn only above the hidden line (140 px / 48 = 2.92).
+        let bodies: Vec<&Instance> = out
+            .iter()
+            .filter(|i| i.shape == Shape::HoldBody as u32)
+            .collect();
+        assert_eq!(bodies.len(), 1);
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4, false);
+        let top = bodies[0].center[1] - bodies[0].size[1] / 2.0;
+        assert!((top - geo.y(140.0 / 48.0)).abs() < 0.5, "{top}");
+
+        let f = frame(
+            vec![note(1.0, SpriteKind::Tap, Appearance::Visible)],
+            Appearance::Visible,
+        );
+        assert_eq!(
+            count(&shapes(&f, RenderOptions::default()), Shape::Arrow),
+            1
+        );
+    }
+
+    #[test]
+    fn a_note_at_the_switch_glows_white() {
+        let a = Appearance::Hidden;
+        let mut n = note(140.0 / 48.0 - 0.01, SpriteKind::Tap, a);
+        assert_eq!(n.alpha, 0.0);
+        assert!(n.glow > 1.0);
+        let out = shapes(&frame(vec![n], a), RenderOptions::default());
+        let arrow = out.iter().find(|i| i.shape == Shape::Arrow as u32).unwrap();
+        assert_eq!(arrow.color, [1.0, 1.0, 1.0, 1.0]);
+        n.alpha = 1.0;
+        n.glow = 0.5;
+        let out = shapes(&frame(vec![n], a), RenderOptions::default());
+        let arrow = out.iter().find(|i| i.shape == Shape::Arrow as u32).unwrap();
+        let red = quantization_color(Quantization::N4);
+        assert!((arrow.color[1] - (red[1] + (1.0 - red[1]) * 0.5)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn field_filter_darkens_behind_the_lanes() {
+        let f = frame(Vec::new(), Appearance::Visible);
+        let off = shapes(&f, RenderOptions::default());
+        let on = shapes(
+            &f,
+            RenderOptions {
+                field_filter: 0.4,
+                ..Default::default()
+            },
+        );
+        assert_eq!(on.len(), off.len() + 1);
+        let band = on[0];
+        assert_eq!(band.shape, Shape::Rect as u32);
+        assert!((band.color[3] - 0.4).abs() < 1e-6);
+        assert!((filter_alpha(0.4, true) - (1.0 - 0.6f32.powf(2.2))).abs() < 1e-6);
+        for srgb in [false, true] {
+            assert!(filter_alpha(0.0, srgb) == 0.0 && filter_alpha(1.0, srgb) == 1.0);
         }
     }
 }

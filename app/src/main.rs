@@ -5,6 +5,7 @@ mod components;
 mod crash;
 mod game_loop;
 mod import;
+mod mods;
 mod play;
 mod preview;
 mod router;

@@ -4,12 +4,14 @@ use ddi_chart::{Layout, NoteKind, Song, TimingMap};
 use ddi_platform::{ClockSample, HostTime};
 use serde::{Deserialize, Serialize};
 
+use crate::appearance::Appearance;
 use crate::clock::{ClockOptions, SongClock};
 use crate::frame::{Frame, JudgementFlash, NoteSprite, ReceptorState, SpriteKind};
 use crate::input::InputEvent;
 use crate::judge::{Judge, JudgeEvent, JudgeEventKind, NoteState};
 use crate::rules::{FailPolicy, FullCombo, Judgement, Ruleset, ScoreCtx, ScoreView, Tally};
-use crate::scroll::{ScrollOptions, ScrollState};
+use crate::scroll::{ScrollAction, ScrollOptions, ScrollState};
+use crate::transform::{self, TransformOptions};
 
 /// Default [`Frame::visible_range`], in arrow heights.
 pub const DEFAULT_VISIBLE_RANGE: f32 = 12.0;
@@ -21,8 +23,15 @@ const FLASH_SECONDS: f32 = 1.0;
 const END_MARGIN: f64 = 1.0;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PlayOptions {
     pub scroll: ScrollOptions,
+    /// Turn and Cut, applied to the chart before judging.
+    pub transform: TransformOptions,
+    /// Hidden / Sudden / Stealth; drawn only.
+    pub appearance: Appearance,
+    /// Fixes the Shuffle permutation, so a play can be reproduced.
+    pub seed: u64,
     pub clock: ClockOptions,
     /// Arrow heights above the receptor to include in frames.
     pub visible_range: f32,
@@ -37,6 +46,9 @@ impl Default for PlayOptions {
     fn default() -> PlayOptions {
         PlayOptions {
             scroll: ScrollOptions::default(),
+            transform: TransformOptions::default(),
+            appearance: Appearance::Visible,
+            seed: 0,
             clock: ClockOptions::default(),
             visible_range: DEFAULT_VISIBLE_RANGE,
             receptor_snap: true,
@@ -63,6 +75,16 @@ pub struct Results {
     pub mean_delta: f64,
     /// Population standard deviation of hit deltas.
     pub stddev_delta: f64,
+    /// The chart transforms played.
+    pub transform: TransformOptions,
+    /// `take_from[new_lane] = old_lane` of the turn played.
+    pub lane_map: Vec<u8>,
+    /// The play's seed, which reproduces a Shuffle.
+    pub seed: u64,
+    pub appearance: Appearance,
+    pub scroll_action: ScrollAction,
+    /// Notes were removed or simplified ([`TransformOptions::is_assist`]).
+    pub assist: bool,
 }
 
 /// Partially judged row (per-row combo grouping).
@@ -102,20 +124,37 @@ pub struct Player {
     finished: bool,
     /// Display frame interval in seconds, for receptor snapping.
     frame_interval: f64,
+    /// `take_from[new_lane] = old_lane` of the turn.
+    lane_map: Vec<u8>,
 }
 
 impl Player {
-    /// Sets up a play of `song.charts[chart_index]`.
+    /// Sets up a play of `song.charts[chart_index]` with the chart
+    /// transformed by `options.transform`.
     ///
     /// # Panics
     /// If `chart_index` is out of range.
     pub fn new(song: &Song, chart_index: usize, ruleset: Ruleset, options: PlayOptions) -> Player {
         let chart = &song.charts[chart_index];
         let timing = chart.timing(song).clone();
-        let judge = Judge::new(&chart.notes, &timing, ruleset.judge.clone());
-        let lanes = Layout::builtin(&chart.layout)
-            .map(|l| l.lane_count())
+        let chart_lanes = chart
+            .notes
+            .iter()
+            .map(|n| usize::from(n.lane) + 1)
+            .max()
+            .unwrap_or(0);
+        let layout_lanes = Layout::builtin(&chart.layout).map(|l| l.lane_count());
+        let transformed = transform::apply(
+            &chart.notes,
+            &chart.layout,
+            layout_lanes.unwrap_or(chart_lanes),
+            &options.transform,
+            options.seed,
+        );
+        let judge = Judge::new(&transformed.notes, &timing, ruleset.judge.clone());
+        let lanes = layout_lanes
             .unwrap_or(0)
+            .max(chart_lanes)
             .max(judge.lane_count())
             .min(usize::from(u8::MAX)) as u8;
         let ruleset = ruleset.fresh();
@@ -143,6 +182,7 @@ impl Player {
             failed: false,
             finished: false,
             frame_interval: 1.0 / 60.0,
+            lane_map: transformed.take_from,
             judge,
             ruleset,
         };
@@ -219,6 +259,11 @@ impl Player {
 
     pub fn lanes(&self) -> u8 {
         self.lanes
+    }
+
+    /// `take_from[new_lane] = old_lane` of the turn played.
+    pub fn lane_map(&self) -> &[u8] {
+        &self.lane_map
     }
 
     pub fn started(&self) -> bool {
@@ -489,6 +534,7 @@ impl Player {
                 continue;
             }
             let beat_pos = n.note.tick.beat();
+            let (alpha, glow) = self.options.appearance.visibility(y);
             notes.push(NoteSprite {
                 lane: n.note.lane,
                 y,
@@ -496,7 +542,8 @@ impl Player {
                 quantization: n.note.tick.quantization(),
                 beat_frac: (beat_pos - beat_pos.floor()) as f32,
                 color: n.note.color,
-                alpha: 1.0,
+                alpha,
+                glow,
             });
         }
 
@@ -533,6 +580,7 @@ impl Player {
             failed: self.failed,
             finished: self.finished,
             visible_range,
+            appearance: self.options.appearance,
         }
     }
 
@@ -557,6 +605,12 @@ impl Player {
             slow: self.slow,
             mean_delta,
             stddev_delta: variance.sqrt(),
+            transform: self.options.transform,
+            lane_map: self.lane_map.clone(),
+            seed: self.options.seed,
+            appearance: self.options.appearance,
+            scroll_action: self.options.scroll.scroll_action,
+            assist: self.options.transform.is_assist(),
         }
     }
 }

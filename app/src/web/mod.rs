@@ -9,6 +9,7 @@ pub(crate) mod files;
 pub(crate) mod gamepad;
 pub(crate) mod gfx;
 pub(crate) mod idb;
+pub(crate) mod image;
 pub(crate) mod keyboard;
 pub(crate) mod touch;
 

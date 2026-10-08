@@ -239,6 +239,10 @@ a {
   margin: 0.5rem 0;
 }
 
+.results-assist {
+  color: #b9a6ff;
+}
+
 .results-table {
   margin: 1rem auto;
   border-collapse: collapse;
@@ -745,20 +749,23 @@ label.button {
   }
 }
 
-.volume-control {
+.volume-control,
+.slider-control {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 0.75rem;
   align-items: center;
 }
 
-.volume-control input[type="range"] {
+.volume-control input[type="range"],
+.slider-control input[type="range"] {
   flex: 1 1 10rem;
   max-width: 20rem;
   accent-color: var(--accent);
 }
 
-.volume-value {
+.volume-value,
+.slider-value {
   min-width: 3rem;
   font-variant-numeric: tabular-nums;
 }

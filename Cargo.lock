@@ -318,6 +318,7 @@ dependencies = [
  "ddi-chart",
  "ddi-platform",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
