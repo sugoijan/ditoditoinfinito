@@ -1,0 +1,15 @@
+{
+  "name": "ddi-danoni-dump",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {"node": ">=22"},
+  "scripts": {"test": "node --test test/*.test.mjs"},
+  "dependencies": {
+    "acorn": "8.19.0",
+    "ajv": "8.20.0",
+    "playwright-core": "1.64.0",
+    "robots-parser": "3.0.1"
+  }
+}

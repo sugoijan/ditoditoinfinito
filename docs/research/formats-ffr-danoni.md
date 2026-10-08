@@ -301,11 +301,16 @@ Checked against danoniplus v51.2.2, `develop` @ `80c3c47` (2026-10-08), by readi
 ## 2026-10-08 addendum — deployed works and oracle capture corrections
 
 This addendum qualifies/supersedes the corresponding statements in B1 and
-Part C above. Survey and proposed local dump contract:
-[danoni-corpus.md](danoni-corpus.md). No browser reference parses have yet been
-captured. Source inspection below uses danoniplus v51.2.2 at commit
+Part C above. The [dump tool](../../tools/danoni-dump/README.md) is implemented;
+the survey, emitted schemas and importer handover are in
+[danoni-corpus.md](danoni-corpus.md). A local capture of
+[Jam with Pancake](https://chipstar64.sakura.ne.jp/danoni/danoni_JwP.html)
+using its deployed v48.4.1 engine completed and passed offline reference replay.
+That verifies this work's captured startup/parse/media scope, not all CW works
+or full-song custom behavior. Source inspection below uses v51.2.2 at commit
 `80c3c4776ed1727c10c78bcf6eb8963a4ed77523`; deployed works also serve older
-versions, so pin the actual loaded script bytes for differential comparisons.
+versions, so retain both actual response bytes and browser-source identity for
+differential comparisons.
 
 - **A work need not have one dos text.** Inline input is decoded by the HTML
   parser, then converted to an object. An external `.txt` or `.js` is loaded
@@ -347,6 +352,17 @@ versions, so pin the actual loaded script bytes for differential comparisons.
   `startFrame` selects the playback start; it is not a universal subtraction
   applied to every note by `scoreConvert`.
   [Source: dataLoader.js, scoreConvert/getStartFrame](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
+- **Resolved timer headers can still be strings.** `transTimerToFrame` returns
+  a number for colon notation, but returns an input without `:` unchanged.
+  Thus a numeric header such as `startFrame=0` can remain the string `"0"` in
+  `g_headerObj.startFrame`, while `endFrame=1:35.20` becomes the number `5720`
+  at 60 fps: `.20` means 20 frames, not 20 hundredths of a second.
+  `startFrame`, `endFrame` and the first `fadeFrame` component use this helper.
+  The dump's native snapshot preserves the type; normalized start/end fields
+  accept complete finite numeric strings as numbers. Empty or partially
+  numeric strings must not be silently converted with `parseFloat` here.
+  [Source: danoni_main.js, transTimerToFrame](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/danoni_main.js);
+  [header conversion: dosConverter.js](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dosConverter.js).
 - **Boost uses arrival time, correcting Part C item 4.** `pushArrows`
   chooses boost through `getSpdByFrame(arrowArrivalFrm)`. Separately,
   non-immediate color events are converted to spawn times during
@@ -356,6 +372,9 @@ versions, so pin the actual loaded script bytes for differential comparisons.
   repeat conversion with automatic extra lead-in and copy back only selected
   fields, so its final prepared state need not equal the last converter
   return. Record every invocation, plus the pre-pushArrows snapshot and stage. [Source: dataLoader.js, prepareScoreData/scoreConvert/pushArrows](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
+  The implemented dumper's third stage, `runtime`, is entry to `mainInit`
+  before its first statement; it is not after main-init custom hooks and does
+  not trace per-frame mutations. [Main initialization: mainWindow.js](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/mainWindow.js).
 - **Frame-to-tick conversion need not be lossy, correcting Part C item 1.**
   With this repository's 48 ticks/beat and synthetic 75 BPM, one beat is
   0.8 seconds = 48 frames at 60 Hz. One integer source frame is exactly one
@@ -375,11 +394,41 @@ versions, so pin the actual loaded script bytes for differential comparisons.
   constructs its dos from JS objects/arrays; treating it as a plain text score
   or extracting one template literal would be incomplete. The published
   [key-change extension](https://github.com/suzme/danoni-key-change/blob/master/js/key_change.js)
-  also demonstrates direct rewriting of difficulty/lane/hold data; its live
-  deployment was not verified in this survey. Keep those mechanisms distinct.
+  also demonstrates direct rewriting of difficulty/lane/hold data. Twilight's
+  browser capture loaded the [publisher's copy](https://cw7.sakura.ne.jp/danoni/js/key_change.js);
+  its `key`/`double` conversion options were not activated in this corpus.
+  Distinguish script delivery from verification of those conversion branches.
+- **Configured engine version can differ from the engine that runs.** Cross
+  Walker's [bootstrap](https://cw7.sakura.ne.jp/danoni/js/danoni_main.js) reads
+  [version.txt](https://cw7.sakura.ne.jp/danoni/js/version.txt), observed as
+  `51.2.2`, and selects a versioned CDN script; failure loads
+  [danoni_main_local.js](https://cw7.sakura.ne.jp/danoni/js/danoni_main_local.js),
+  which declares `49.1.1`. The fallback was selected during local browser
+  capture. Record the actual executed source URL/hash and engine declaration;
+  the manifest file, page year or desired CDN version is not the oracle identity.
+- **Browser-source hashes and response hashes are different measurements.**
+  The inspected deployed scripts, including
+  [chip creation's v48.4.1 source](https://chipstar64.sakura.ne.jp/js/danoni_main.js),
+  contain a UTF-8 BOM that Chrome removes from its decoded source string.
+  `Debugger.getScriptSource` hashing therefore differs from hashing the saved
+  response body, even without a code modification. Retain response-body SHA-256
+  for archive integrity and browser-decoded source SHA-256 for adapter selection;
+  preserve charset provenance too. The tool's
+  [reviewed source registry](../../tools/danoni-dump/engine-hashes.json) labels
+  these variants; [the handover](danoni-corpus.md) specifies the two fields.
+
+The known music-selection extension adds an intermediate song menu before
+options. The tool drives its `lblMusicNumBarSlider` input and Enter handler using
+the chart's resolved music index, so normal selection hooks execute. This does
+not provide a generic adapter for every custom menu, course transition or later
+runtime-generated asset. The published
+[7ikey Package](https://apoi108.sakura.ne.jp/danoni/7ikey_package/) and its
+[external data](https://apoi108.sakura.ne.jp/danoni/7ikey_package/dos.txt) are the
+source-backed example; completed corpus coverage is recorded separately in the
+handover.
 
 Part B describes CW Edition, not every Flash-era dos dialect. The upstream
 [migration tool](https://github.com/cwtickle/danoniplus-converter) documents
 legacy header/key/color translations; do not silently apply CW semantics to
 an unconverted legacy file. No Flash extraction or protected content is part
-of the proposed corpus.
+of the tool's corpus scope.

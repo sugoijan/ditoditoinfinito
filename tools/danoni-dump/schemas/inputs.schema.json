@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sugoijan.dev/ditoditoinfinito/schemas/danoni-inputs.schema.json",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "ddi-danoni-inputs/1"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 0
+          },
+        "chartId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+          "minimum": 0
+        },
+        "captureChartId": {
+          "type": "integer",
+          "minimum": 0
+        },
+          "pageUrl": {
+            "type": "string"
+          },
+          "engineUrl": {
+            "type": "string"
+          },
+          "flags": {
+            "type": "object",
+            "properties": {
+              "enableAmpersandSplit": {
+                "type": "boolean"
+              },
+              "enableDecodeURI": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "enableAmpersandSplit",
+              "enableDecodeURI"
+            ],
+            "additionalProperties": false
+          },
+          "caller": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "functionName": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "functionName",
+                "url",
+                "line"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "textPath": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\).+$"
+          },
+          "stringPath": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\).+$"
+          }
+        },
+        "required": [
+          "sequence",
+          "chartId",
+          "pageUrl",
+          "engineUrl",
+          "flags",
+          "caller",
+          "textPath",
+          "stringPath"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "inputs"
+  ],
+  "additionalProperties": false
+}

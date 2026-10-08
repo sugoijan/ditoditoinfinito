@@ -1,0 +1,96 @@
+{
+  "scripts": [
+    {
+      "kind": "loader",
+      "url": "https://cw7.sakura.ne.jp/danoni/js/danoni_main.js",
+      "sha256": "52d9ff7d44ce84f4892e35178e6ef3650676dc03725055e71007d5b18a965d37",
+      "versionProbePath": "https://cw7.sakura.ne.jp/danoni/js/version.txt",
+      "encodingNote": "Reviewed selector fetches this exact absolute URL with Date.now() as its sole query; the page v parameter selects the CDN engine and must remain significant."
+    },
+    {
+      "kind": "loader",
+      "url": "https://cw7.sakura.ne.jp/danoni/js/danoni_main.js",
+      "sha256": "b6e11fc7176a49dcba04efe82e1df8ae8c78c85b5a17355b241765b4cc28b78a",
+      "versionProbePath": "https://cw7.sakura.ne.jp/danoni/js/version.txt",
+      "encodingNote": "Browser-decoded reviewed selector: UTF-8 BOM removed; only version.txt's sole 13-digit timestamp query may be aliased."
+    },
+    {
+      "version": "49.1.1",
+      "url": "https://cw7.sakura.ne.jp/danoni/js/danoni_main_local.js",
+      "sha256": "2ed11ae92155e2d8146f05e7202330de8a4e7615026dbb7a7b2cd02edfe3bb15",
+      "encodingNote": "Publisher-provided fallback engine; response bytes preserve UTF-8 BOM and CRLF. This is not the requested CDN v51 engine."
+    },
+    {
+      "version": "49.1.1",
+      "url": "https://cw7.sakura.ne.jp/danoni/js/danoni_main_local.js",
+      "sha256": "8c7a61e12f3dba415a3a136cdb7a904483cc4c752aebaef63995bd96d282f630",
+      "encodingNote": "Browser-decoded publisher fallback: UTF-8 BOM removed, CRLF retained. Input, full-return, prepared and main-entry anchors reviewed."
+    },
+    {
+      "version": "47.3.2",
+      "url": "https://vorhandensein.sakura.ne.jp/danoni/js/danoni_main.js",
+      "sha256": "688cb60f621146b1385ceb155634dfc5999fa40b325908687bb45c1e69c2fad5"
+    },
+    {
+      "version": "48.4.1",
+      "url": "https://chipstar64.sakura.ne.jp/js/danoni_main.js",
+      "sha256": "58394f24e7925dd4b1820a3c0000a21ecb2791bdf4f678a07c7de7dda72017a4"
+    },
+    {
+      "version": "50.2.0",
+      "url": "https://kt-rpg.sakura.ne.jp/danoni/html5/js/danoni_main.js",
+      "sha256": "583fed91a173cc5c327fc96e576accfba85dd857723771857c971e7653e3cbec"
+    },
+    {
+      "version": "51.2.2",
+      "url": "https://raw.githubusercontent.com/cwtickle/danoniplus/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dosConverter.js",
+      "sha256": "d103906a01be3657fbaaef21222c215086b18c83234dc6bed5e1c9e7334ea889"
+    },
+    {
+      "version": "51.2.2",
+      "url": "https://raw.githubusercontent.com/cwtickle/danoniplus/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js",
+      "sha256": "2da1012f1470bc7a53903ea7026abbe7b24a45959fca25c099e77a73e94e665a"
+    },
+    {
+      "version": "51.2.2",
+      "url": "https://raw.githubusercontent.com/cwtickle/danoniplus/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dosConverter.js",
+      "sha256": "e049efc375e16d0c160073744641434f5e66619671047f1fd889f01a784f53bc",
+      "encodingNote": "Browser-decoded source: UTF-8 BOM removed; response-byte hash is a separate registry entry."
+    },
+    {
+      "version": "51.2.2",
+      "url": "https://raw.githubusercontent.com/cwtickle/danoniplus/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js",
+      "sha256": "53473e56ef0eeee9b69e4aea8dcb1a1e497505be79edd57dc56e8fb90ee54f05",
+      "encodingNote": "Browser-decoded source: UTF-8 BOM removed; response-byte hash is a separate registry entry."
+    },
+    {
+      "version": "51.2.2",
+      "url": "https://raw.githubusercontent.com/cwtickle/danoniplus/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/mainWindow.js",
+      "sha256": "3d197c302807f0895efb199c5c49b24557670781e42d1b44d602ce001ac58340"
+    },
+    {
+      "version": "51.2.2",
+      "url": "https://raw.githubusercontent.com/cwtickle/danoniplus/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/mainWindow.js",
+      "sha256": "04a62e0f5befcd6c75bf3090f9fcaed7b75320933107036ccb552699e328aeee",
+      "encodingNote": "Browser-decoded source: UTF-8 BOM removed; response-byte hash is a separate registry entry."
+    },
+    {
+      "version": "47.3.2",
+      "url": "https://vorhandensein.sakura.ne.jp/danoni/js/danoni_main.js",
+      "sha256": "61a20c83a1ca9f79988b07b7647fdacd558f7c46e366457bfe07f6aa9e0d7725",
+      "encodingNote": "Browser-decoded source: UTF-8 BOM removed; response-byte hash is a separate registry entry."
+    },
+    {
+      "version": "48.4.1",
+      "url": "https://chipstar64.sakura.ne.jp/js/danoni_main.js",
+      "sha256": "ed12627651c8466cfa53a388919114d94f64b74204a44c3427ad3f3faff0ca38",
+      "encodingNote": "Browser-decoded source: UTF-8 BOM removed; response-byte hash is a separate registry entry."
+    },
+    {
+      "version": "50.2.0",
+      "url": "https://kt-rpg.sakura.ne.jp/danoni/html5/js/danoni_main.js",
+      "sha256": "12efb34b3e43a4d99cbc9e110f4409c728b7873a2576a0f38f02cf48f1f4b420",
+      "encodingNote": "Browser-decoded source: UTF-8 BOM removed; response-byte hash is a separate registry entry."
+    }
+  ]
+}

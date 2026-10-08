@@ -1,10 +1,13 @@
-# DanOni publication survey and local corpus proposal
+# DanOni publication survey, dump contract and importer handover
 
-Research date: 2026-10-08. Status: **survey and proposed contract only**.
-The dump tool has not been built, no reference parses have been captured in a
-browser, and no playable corpus has been dumped. Candidate works below need
-browser validation before inclusion. Work is isolated on `danoni-research` in
-`../ditoditoinfinito-danoni`; the importer session owns the engine and PLAN.
+Research date: 2026-10-08. The dump tool is implemented in
+[`tools/danoni-dump/`](../../tools/danoni-dump/README.md). Its Chrome integration
+test captures synthetic charts and replays them with the fixture origin shut
+down. Five local works provide seven browser-derived chart references; all seven
+reproduce offline. Only the Jam with Pancake dump passes the full startup/assets
+check; the other dumps remain explicitly partial. See the inventory below.
+Work is isolated on `danoni-research`; the importer session owns the game crates
+and `docs/PLAN.md`.
 
 ## Findings and evidence
 
@@ -30,7 +33,7 @@ first five rows below plus the three Cross Walker works in the sixth row.
 does not support ecosystem-wide percentages. Ordinary music-file references
 occur in seven; one collection references encoded-music `.js` files. Five declare custom JS, four contain multiple charts, and three define custom
 keys. Both inline/external and multi-chart/custom-script
-packaging are recurring cases that the first tool should handle. The survey
+packaging are recurring cases, rather than exceptional export paths. The survey
 inspected source, not successful end-to-end browser play.
 
 | Work | Evidence from currently served source |
@@ -77,79 +80,100 @@ chart obfuscation. Broken links and removed works are confirmed obstacles.
 
 Local source evidence is cached under `/private/tmp/danoni-survey/`,
 `/private/tmp/danoni-survey-packaging/` and
-`/private/tmp/danoni-survey-engine/`. No music was downloaded and no fetched
-script was executed. Direct publisher fetches checked robots and were paced;
-the final dumper must retain that policy evidence per work, not rely on this
-temporary survey cache.
+`/private/tmp/danoni-survey-engine/`. During that source-only survey, no music
+was downloaded and no fetched script was executed. Direct publisher fetches
+checked robots and were paced; the implemented dumper retains its own policy
+evidence per work rather than relying on this temporary survey cache.
 
-## Proposed tool
+## Implemented tool
 
-Use `tools/danoni-dump/`: a small Node ESM command-line tool with
-`playwright-core`, installed Chrome, versioned engine adapters, JSON Schemas,
-and synthetic tests. Code is MIT under the existing `REUSE.toml` `**`
-annotation. Any upstream sample dos fixtures need explicit upstream copyright
-annotations; no upstream music. At implementation time resolve the latest
-stable dependency versions and commit the tool's lockfile. No Rust dependency
-or game-crate changes are needed.
+The [Node ESM tool](../../tools/danoni-dump/README.md) uses `playwright-core`,
+installed Chrome, CDP observation, versioned JSON Schemas and synthetic tests.
+Node 22 or later is required. Source, pinned dependency lockfile and original
+synthetic fixtures are MIT under `REUSE.toml`; no third-party work/music is
+committed. No Rust dependency or game-crate changes are needed.
 
-Follow the installed-Chrome recipe in `.claude/skills/verify/SKILL.md`, with a
-fresh ephemeral profile and Chrome's sandbox enabled. GPU flags are unnecessary
-unless a particular work needs them. A real play click loads music. Pack scripts
-execute only in the browser: never Node `eval`, `vm`, imports, or subprocesses.
+Each chart uses a fresh Chrome context with sandbox enabled, `en-US`, 1280×960,
+and autoplay permission. A play-button click loads music. Service workers,
+downloads and embedded documents are excluded. Pack scripts execute only in
+Chrome: never Node `eval`, `vm`, imports, or subprocesses. The tool observes
+browser-decoded engine source without modifying it.
 
-The proposed commands (not implemented yet) are:
+The commands are:
 
 ```sh
 cd tools/danoni-dump
 npm ci
 node cli.mjs capture 'https://example.org/work.html' \
-  --out "$HOME/Music/DanOni/work" --cache "$HOME/Music/DanOni/.cache"
+  --out "$HOME/Music/DanOni/work" --cache "$HOME/Music/DanOni/.cache" \
+  --terms-notes 'Public work; reviewed linked terms on YYYY-MM-DD.'
 node cli.mjs verify "$HOME/Music/DanOni/work" --offline
+npm test
 ```
 
-Capture all author charts by default, with explicit selection for an unusually
-large work. Version 1 captures one selected pattern per author chart (default pattern 0),
-while storing definitions for other patterns. Another captured pattern requires
-a separate dump/run; this keeps the fixed per-chart paths unambiguous.
-Keep one author chart separate from its alternate key patterns;
-neither a different pattern nor a converted key mode silently becomes a new
-source chart. Report inaccessible charts individually.
+Replace the example URL, preserving meaningful queries such as `dos`, `scoreId`,
+`stageNum`, `key` and `v`. Output must be new or empty and outside a Git checkout;
+verification rejects symlinks. The cache defaults to the output directory.
+`--charts 0,2` selects zero-based author indices; without it the runner enumerates
+`g_headerObj.keyLabels`. `--timeout-ms 120000` sets the browser operation timeout
+in milliseconds. Progress goes to stderr, JSON to stdout. Exit 0 means no failed
+selected chart/replay; 2 means an incomplete selected chart or failed replay;
+1 means an invocation/fatal error. A chart subset can exit 0 while the overall
+manifest remains `partial`.
+
+Version 1 captures **one active pattern per author chart**, normally author
+pattern 0 with fresh settings, and stores other available definitions. There is
+no CLI pattern selection/enumeration option. Custom code can force a pattern:
+read `activePattern` rather than assuming `_0`. Author chart, alternate pattern,
+and converted key mode remain distinct concepts.
 
 ### Fetch discipline and completeness
 
-- Check and cache robots.txt and linked applicable terms before work/resources
-  on each origin, including redirects and cross-origin music. Respect stricter
-  crawl delays. Default to one network request at a time per origin and at
-  least one second between request starts. No login, paywall, challenge bypass,
-  or retry through a different host to evade refusal. Unknown terms/robots
-  failures are reported, not treated as positive permission.
-- Route browser traffic through a persistent capture cache; serialize duplicate
-  in-flight requests. Record full request and final URLs, redirects, status,
-  MIME/charset, retrieval UTC time and SHA-256. Never request each asset again
-  just to save it. Engine-added timestamp queries need an adapter-specific,
-  recorded cache alias; never strip arbitrary query parameters. Reuse cached
-  resources across charts and offline verification. Record range responses and
-  require a complete media body before marking an audio file complete.
-- Store all downloaded data beneath the corpus/cache or scratch directory.
-  Preserve response bodies (after HTTP transfer/content decoding) byte for byte.
-  Also retain the scripts containing base64 audio and the decoded media bytes;
-  record that derivation and its MIME type without transcoding.
-- Capture fetched dependencies plus finite URLs in parsed media events, CSS,
-  skins and preloads. Separate engine assets from work media in the manifest.
-  Browse cached resources under their original URLs using request interception,
-  so relative paths, origin rules and `<base>` keep their meanings. An offline
-  pass must fail on a cache miss rather than reach the network.
-- A finite snapshot cannot promise arbitrary JS will never request something
-  later. Record coverage (charts, patterns, scenes/time interval), unresolved
-  URLs, console errors and runtime mutations. Label a dump `partial` when
-  necessary. “Self-contained data for import” and “faithful offline replay of
-  every custom animation” are separate validation results.
+- GET requests run anonymously as `DdiDanoniDump`, with `Accept: */*` and
+  gzip/deflate/Brotli support for direct fetches. Browser-triggered requests
+  forward the browser's actual Accept, Origin and Referer values; these are not
+  invented overrides. Cookies and Authorization are not forwarded; Set-Cookie
+  is not retained. Non-GET requests and WebSockets are
+  blocked. Private/reserved network addresses are rejected by the public CLI;
+  the programmatic exception exists for synthetic local tests only. Sites
+  needing credentials can fail; there is no bypass option. Captured request
+  context is checked against `Vary` before cache reuse; a conflicting or
+  unsupported variant fails rather than refetching a different representation.
+- Robots is checked per origin, including redirects. HTTP 200 is parsed; 404
+  means no robots rules; other failures stop that origin's requests. Requests
+  are serialized per origin and paced at least one second apart, respecting a
+  stricter crawl delay. Duplicate requests share a fetch; persisted bodies and
+  failures prevent repeated downloads/retries. Keep one writer per cache.
+- **Terms need operator review.** `--terms-notes` records that review and
+  `capture.json` lists terms-like page links. The tool does not automatically
+  fetch, interpret or approve all linked terms. Public playability, robots
+  permission and the engine's MIT licence do not grant asset redistribution
+  rights. Do not bypass removed content, protections or refusals.
+- All downloads stay under output/cache or scratch. Response bodies are saved
+  byte-identically after HTTP content decoding, without transcoding. The
+  allowlisted headers retain content type/charset, redirects/cache validators
+  and selected CORS/CSP/origin-policy fields, not a complete HTTP conversation.
+  HTTP 206 is rejected; range fragments are not reconstructed. The current
+  decoded-body limit is 128 MiB and network request deadline is 30 seconds.
+  Base64 music keeps both its script response and decoded bytes.
+- Only reviewed-engine timestamp-only queries and the exact version probe of a
+  hash-reviewed loader are explicitly aliased; semantic queries remain intact.
+  Previously captured timestamp variants can be reused only when their recorded
+  bodies and response metadata agree; conflicting variants fail closed. Replay intercepts original URLs so relative paths and
+  browser origins retain their meanings. Offline misses fail without fetching.
+- Besides startup requests, the runner collects current DOM images, preload
+  links, accessible CSS rule URLs, and `src`/CSS URLs in parsed `htmlText` effect
+  data. Cross-origin CSS inaccessible through CSSOM is saved as a stylesheet;
+  **unrequested nested assets are not exhaustively walked**. Embedded frames,
+  arbitrary future JS URLs, later scenes, course transitions and streaming
+  preview traversal remain outside guaranteed coverage. Review diagnostics;
+  import-data completeness does not promise every custom animation replays.
 
-## Proposed dump layout: `ddi-danoni-dump/1`
+## Dump contract: `ddi-danoni-dump/1`
 
-This is a reviewable design, not yet a frozen interface. Implementation must
-ship machine-readable JSON Schemas and verify them against actual captures
-before the importer treats this version as stable.
+The following layout is emitted by the implemented tool. The linked schemas,
+semantic reference validation and recorded capture stages define its interface;
+real-work coverage is tracked separately from contract support.
 
 ```text
 <work>/
@@ -164,15 +188,37 @@ before the importer treats this version as stable.
     keys.json                    # author definitions plus resolved key patterns
     reference.json               # normalized projection of engine results
     engine-snapshots.json        # invocation log, header, gauge, score, settings
-  media/                         # usable decoded music/images, hash-based names
+  media/<sha256>.<ext>            # decoded/copied gameplay audio; images stay in blobs
   capture.json                   # browser/tool/adapter versions and diagnostics
+  verification.json              # added by verify --offline
 ```
 
-All paths are relative to the work directory; no `..`, absolute paths or
-symlinks. Filenames never come directly from untrusted URL path components.
+Contract paths are relative; no `..`, absolute paths or backslashes. Dump
+verification rejects symlinks. Filenames never come from URL path components.
 `manifest.json` is the only entry point: consumers must not guess chart or
 music association from directory names. Hashes use lowercase SHA-256 hex;
 dates use RFC 3339 UTC; all JSON/text files use UTF-8.
+
+The cache also writes `index.json` (`ddi-danoni-cache/1`), possibly in the work
+folder when the cache defaults there. It is not an importer input. The dump's
+`resources.json` and bodies suffice for replay without that original cache.
+Verification writes a scratch replay directory and reports its path.
+
+| Artifact | Schema/version and authoritative definition |
+|---|---|
+| `manifest.json` | `ddi-danoni-dump/1`; [manifest schema](../../tools/danoni-dump/schemas/manifest.schema.json) |
+| `inputs/index.json` | `ddi-danoni-inputs/1`; [inputs schema](../../tools/danoni-dump/schemas/inputs.schema.json) |
+| `effective-dos.json` | `ddi-danoni-effective-dos/1`; [effective-dos schema](../../tools/danoni-dump/schemas/effective-dos.schema.json) |
+| `keys.json` | `ddi-danoni-keys/1`; [keys schema](../../tools/danoni-dump/schemas/keys.schema.json) |
+| `reference.json` | `ddi-danoni-reference/1`; [reference schema](../../tools/danoni-dump/schemas/reference.schema.json) |
+| Nested native snapshots | `ddi-danoni-snapshot/1`; [snapshot schema](../../tools/danoni-dump/schemas/snapshot.schema.json) and [encoder/decoder/projection](../../tools/danoni-dump/serialization.mjs) |
+| `engine-snapshots.json` | `ddi-danoni-invocations/1`, `{schema,snapshots:[<tagged snapshot>,...]}`; [dump.mjs](../../tools/danoni-dump/dump.mjs) |
+| `capture.json`, `verification.json` | `ddi-danoni-capture/1`, `ddi-danoni-verification/1`; [dump.mjs](../../tools/danoni-dump/dump.mjs) |
+| `resources.json` | `ddi-danoni-resources/1`, `{schema,resources,aliases,diagnostics,offlineMisses}`; [network.mjs](../../tools/danoni-dump/network.mjs) |
+
+The last three rows have implementation-defined wrappers, not standalone JSON
+Schemas. A structurally valid reference with an error diagnostic still fails
+the semantic `validateReference` check.
 
 ### Three distinct representations
 
@@ -181,7 +227,7 @@ dates use RFC 3339 UTC; all JSON/text files use UTF-8.
    Preserve original HTML/JS bodies too. The `.txt` is for inspection and parser
    input; `.string.json` is authoritative if JS contains lone UTF-16 surrogates
    that cannot round-trip as UTF-8. `inputs/index.json` records parser flags,
-   source URL, chart ID, call sequence and both paths.
+   caller locations, URLs, chart IDs, call sequence and both paths.
 2. **Effective dos:** preserve the object actually supplied to the full
    `scoreConvert` invocation after inline/external merges and custom changes.
    It is not an “exact original dos text.” A synthesized `|key=value|` string
@@ -190,12 +236,37 @@ dates use RFC 3339 UTC; all JSON/text files use UTF-8.
    restructures its arrays and records their meaning; it must not independently
    parse dos to manufacture expected results.
 
+`sequence` restarts within each fresh chart capture. `captureChartId` is the
+requested author index; `chartId` is the engine selection at the input call and
+can still be 0 during startup for a later requested chart. Group records by
+`captureChartId`, not observed `chartId`. The two flags are
+`enableAmpersandSplit` and `enableDecodeURI`. External `.txt` can contain
+executable JS: never parse its response as plain dos or execute it in an importer.
+
+`effective-dos.json` has a `fields` map of string-valued properties and a tagged
+`native` projection of the whole converter input. Non-string fields are retained
+only in `native` and make the chart partial. `keys.json.definitions` and
+`reference.effects` are similarly projected native values, not new independent
+parses of the text.
+
+`manifest.engine.scriptHashes` and `reference.engineScriptHashes` hash the
+**browser-decoded source string** read through CDP, encoded as UTF-8 for hashing.
+`resources[].sha256` and `assets[].sha256` hash saved response-body bytes. These
+can differ because of BOM removal or charset decoding. A version label alone
+never selects an adapter. The [registry](../../tools/danoni-dump/engine-hashes.json)
+contains reviewed sources. `--trust-engine SHA256` may be repeated only for
+sources explicitly inspected for this adapter; it is not a blanket assertion
+that every build declaring the same version is compatible.
+
 ### Manifest fields
 
 Required top-level fields are `schema` (literal `ddi-danoni-dump/1`),
 `page` (`requestedUrl`, `finalUrl`, `retrievedAt`), `engine` (`name`, declared
 `version` or null, script URL/hash pairs, adapter ID), `credits`, `charts`,
 `assets`, `status` (`complete|partial|unsupported|blocked`), and `diagnostics`.
+`capturePath` and `resourcesPath` link the supporting files. Null chart artifact
+paths mean that capture did not produce the corresponding result; a partial
+chart can still have an invocation log.
 
 `credits` retains raw `musicTitle`, localized alternatives and `tuning`, plus
 engine-resolved titles/artists/URLs and makers per music/chart. These are
@@ -213,6 +284,13 @@ source URL(s), body hash/path, optional decoded-media path/hash, MIME type,
 chart usage and extraction description. Missing resources have explicit
 diagnostics rather than empty files. `resources.json` additionally retains
 HTTP response metadata and cache aliases. No cookies or authorization secrets.
+Only selected gameplay audio is explicitly mapped to chart IDs; an empty
+image/script chart-ID list means usage was not resolved, not that it is unused.
+Images remain in `blobs/sha256`; audio under `media/` is either decoded from its
+captured music script or copied byte-identically from an audio response.
+`resources[]` includes requested/final URLs, status, allowlisted headers,
+MIME/charset, body path/hash/length, retrieval time, redirect hops, robots-policy
+references, roles and cache origin.
 
 ### Reference fields and units
 
@@ -222,8 +300,8 @@ One `reference.json` per chart and selected pattern has required fields:
 |---|---|
 | `schema` | Literal `ddi-danoni-reference/1` |
 | `chartId`, `patternId` | Zero-based chart index and engine pattern identifier |
-| `engineVersion`, `engineScriptHashes`, `adapterId` | Exact oracle identity |
-| `captureStage`, `invocationId` | `scoreConvert-return-full` and selected call index |
+| `engineVersion`, `engineScriptHashes`, `adapterId` | Exact oracle identity; current adapter is `cw-lexical-cdp/1` |
+| `captureStage`, `invocationId` | `scoreConvert-return-full` and index in this capture's complete snapshot log |
 | `fps` | Observed `g_fps`; initial adapter requires `60`. Explicit frame fields use engine frames, never milliseconds or beats; other effect payload units remain property-specific |
 | `timing` | Raw author timing headers, resolved blank/start/end frames, playbackRate, header/user adjustment, preblankFrame, real/int/decimalAdjustment and any runtime-added padding; unavailable values explicitly null |
 | `difData` | Raw header/row plus resolved keyLabel, difficulty label, creator, numeric difficulty, initialSpeed and raw resolved gauge-header values |
@@ -232,61 +310,81 @@ One `reference.json` per chart and selected pattern has required fields:
 | `colors.legacy` | Ordered `{frame, target:number, color:string, all:boolean}` records from merged colorData |
 | `colors.modern` | Map of engine part names to ordered `{frame, target:string, color:string, all:boolean, part:string}` records from ncolorData |
 | `colors.dummyLegacy`, `colors.dummyModern` | Same shapes from dummyColorData/ncolorDummyData; preserve absent versus empty in snapshots |
-| `effects` | Losslessly encoded native word/back/mask/style/motion/scroll/key-change arrays, with source property names; not silently omitted |
-| `snapshotPath`, `diagnostics` | Pointer to full engine objects and explicit anomalies |
+| `effects` | Tagged native projection of remaining score properties, including word/back/mask/style/motion/scroll/key-change arrays, with source property names |
+| `snapshotPath`, `diagnostics` | Snapshot path relative to the reference's chart directory; anomalies with severity/code/path/message |
 
 `taps` and `holdEndpoints` are exact engine number arrays. `holds` is a
 convenience array of `[start,end]` pairs from adjacent endpoints, with an
 unmatched endpoint reported instead of dropped. Keep duplicates and engine
 ordering, including ties; do not fix malformed holds. Preserve dummy arrays
 separately. Multiplier, adjustment and layout values may be fractional.
+Speed/boost multipliers are unitless. Gauge headers retain engine meanings
+(`Border`, `Recovery`, `Damage`, `Init`, including `Border=x`), not normalized
+life deltas. `effects` retains property-specific units and sparse indexing;
+not every numeric payload member is a frame. Optional absent colors become
+empty normalized collections; snapshots retain absent-versus-empty distinctions.
+`runtimeAddedPadding` currently remains null: the adapter records each call's
+`preblankFrame` rather than deriving this reserved extra field.
 
-The full snapshot uses an explicitly tagged encoding for `undefined`,
-non-finite numbers, sparse arrays and other non-JSON values. Plain
-`JSON.stringify` alone is insufficient: it replaces NaN with null and erases
-undefined properties. The encoder must avoid executing getters and mark
-functions/DOM objects as opaque with a diagnostic. Normalized numeric fields
-must be finite; any violation prevents a successful reference classification.
+Each tagged snapshot has `{schema,root,diagnostics}`. Primitive JSON values are
+literal; tags encode undefined, special numbers, bigint, opaque values,
+references, objects and arrays. Objects contain `id`, `nullPrototype` and ordered
+`[key,node]` entries. Arrays contain `id`, `length` and entries with string
+indices, preserving holes. Reference nodes point to previously encoded IDs.
+See the linked schema for exact tags; this is not ordinary JSON with metadata.
 
-`keys.json` stores the engine's complete relevant `g_keyObj` entries and
-resolved patterns, including lane `chara` names, key bindings, rotations/AA
-glyph names, positions/divisions, color/shuffle/scroll/assist groups, aliases
-and pattern IDs. Keep raw author definitions from dos and their source JS
-resource IDs. Lane index is local to the chosen pattern, not universally L/D/U/R.
-Changes made during gameplay require separate mutation coverage; a startup
-key snapshot is not proof of a fixed layout.
+The encoder avoids getters and `toJSON`; functions, symbols and exotic/DOM
+objects are opaque with diagnostics. `projectSnapshot` extracts subtrees without
+decoding/re-encoding opaque values; referenced nodes outside the subtree are
+included and renumbered. Diagnostic paths retain their original snapshot paths.
+Nonfinite normalized numbers, missing required lane/gauge fields or incomplete
+event tuples invalidate a reference. Unrelated opaque extension functions are
+warnings; executable behavior is never reconstructed.
 
-### Where to observe the engine
+`keys.json` has `keyMode`, `activePattern`, resolved `lanes`, and tagged
+`definitions` projecting captured `g_keyObj`: available patterns, bindings,
+shape/rotation, position/division, color/shuffle/scroll groups and extension
+fields. Raw dos definitions remain in effective fields; original JS remains in
+resources, without per-definition source mapping. `tapDataKey`/`holdDataKey`
+resolve actual engine aliases, including `sfrzLeft_data` and `frzLdia_data`.
+Lane index belongs to this pattern, not a universal arrow order. Definitions do
+not enumerate playable variants or prove the layout stays fixed during play.
+
+### Three engine observation stages
 
 At upstream commit `80c3c4776ed1727c10c78bcf6eb8963a4ed77523` (declares
 v51.2.2), `scoreConvert` lives in `js/lib/dataLoader.js`. Many globals and
 functions are lexical `const`/`let`; `window.g_scoreObj` is not a reliable
-access path. Use browser execution-context bindings or CDP call-frame reads.
+access path. The tool uses CDP call-frame reads.
 
-Proposed first adapter: CDP debugger breakpoints on hash-verified source
-anchors, capture `dosConvert` input and the local `obj` at the **full**
-`scoreConvert` return, then resume. No rewriting of fetched source. Distinguish
-the chart-analysis call (`_scoreAnalyzeFlg=true`, early return) from the full
-parse; analysis omits lyrics and later color merging. Retain every full call; the normalized reference selects the last full call
-as a pure converter result, not as a claim that every returned field reaches
-play unchanged. Preparation can call again with extra blank frames, then copy
-only selected properties back: current `g_dataMinObj` excludes ncolor, scrollch
-and keych data. The prepared state can therefore mix results from two calls.
-Capture pre-`pushArrows` as the authoritative prepared-gameplay snapshot and
-post-custom-hook state separately for audit.
+The [adapter](../../tools/danoni-dump/adapter.mjs) parses reviewed source syntax
+with Acorn and installs CDP breakpoints without rewriting the engine. It captures
+`dosConvert` input separately, then these three snapshot stages:
+
+| Stage | Observation point and use |
+|---|---|
+| `scoreConvert-return-full` | Final top-level return before it executes: local result plus input/header/state/key/gauge. Analysis-only early returns are excluded. The last full call **for the requested chart** becomes the normalized reference. |
+| `prepared` | Immediately before `pushArrows(g_scoreObj,...)`, after preblank handling but before spawn/event scheduling mutates the data. |
+| `runtime` | Entry to `mainInit`, before its first statement. Can include earlier loading-hook changes; **not after main-init custom hooks**, not a post-frame snapshot, and not a mutation trace. |
+
+All full calls remain in the invocation log. Preblank reconversion can copy
+only selected arrays back into `g_scoreObj`; the reviewed v51 `g_dataMinObj`
+excludes ncolor, scrollch and keych. Prepared gameplay can therefore mix two
+converter passes. The selected reference describes a converter result, not a
+claim that every returned field reaches gameplay unchanged.
 
 `pushArrows` changes non-immediate color-event times into spawn times; taking
 only `g_scoreObj` after gameplay starts produces the wrong parse oracle.
 Version-specific source adapters are therefore necessary, including older
-monolithic releases. Unsupported versions should retain raw resources but
-must not claim a successful reference parse.
+monolithic releases. Unsupported sources retain raw resources and diagnostics
+rather than claiming a successful reference parse.
 
 Use fresh settings, user adjustment 0, fade-in 0, shuffle/motion/reverse OFF,
-normal scroll, author pattern 0 and Type0 colors; enable velocity, color,
+normal scroll and author colors; enable velocity, color,
 background and arrow effects. Preserve author adjustment and playbackRate.
 Record all effective options, locale and viewport, including options a work
-forces. Autoplay may be used for subsequent resource traversal, separately
-from the reference capture. In the current engine:
+forces. The current tool does not autoplay through later scenes. In the reviewed
+engines:
 
 ```text
 realAdjustment = (userAdjustment + headerAdjustment) / playbackRate + preblankFrame
@@ -297,32 +395,74 @@ parsedFrame    = round((parseFloat(sourceFrame) - blankFrame) / playbackRate
 
 Source: [dataLoader.js, scoreConvert/prepareScoreData/pushArrows](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
 Metadata and loading: [dosConverter.js](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dosConverter.js).
+The tool navigates HTTP(S) origins, so the local-file branch normally does not
+apply. Older deployments keep equivalent functions in a monolithic main script.
 
-## Candidate corpus and importer handover
+## Corpus inventory
 
-Proposed first local corpus, with **no dumps completed yet**:
+The local root is `/Users/jan/Music/DanOni/corpus/` (not in Git). Captured and
+verified on 2026-10-08 with installed Chrome; exact browser version, source hashes,
+retrieval times, credits and resource policies live in each dump. The following
+counts come from validated `reference.json`, not an independent dos parser.
+Chart IDs are zero-based. All **seven references match a fresh offline browser
+conversion**; that result is separate from successful replay of every required
+startup asset.
 
-| Candidate | Intended coverage and remaining check |
-|---|---|
-| Jam with Pancake | Simple inline 7-key/file-music baseline on v48; verify runtime notes/holds/events before tagging coverage |
-| Tanoshii Dance Time | External JS-wrapped `.txt`, Shift-JIS, three charts, custom eight-lane keys and 9h |
-| Summer Sky | 5/9B/23, multiple charts, older v47, custom JS, timed images/lyric media |
-| Be Alike or Twilight | Per-work custom JS, presentation changes, nontrivial lane/hold field names; Twilight adds 7wi |
-| Defeat,I Doll | Large custom layout, key-group changes and text lyrics; do not assume its historical custom JS is still deployed |
-| Selected entries of 7ikey Package | External runtime-generated dos, collection enumeration, encoded music candidate and custom selector. Start with explicit subset; mark rest uncaptured to keep corpus small |
-| Upstream MIT sample dos (separate from third-party works) | Deterministic holds, speed stops/changes, boost and legacy color fixture coverage already documented in B1. Copy only attributed chart text if fixtures are later added; no music |
+| Directory / public work | Captured charts and engine | Observed coverage | Capture / offline result |
+|---|---|---|---|
+| `jam-with-pancake` — [Jam with Pancake](https://chipstar64.sakura.ne.jp/danoni/danoni_JwP.html) | 0; 7 lanes; v48.4.1 | Inline dos, ordinary MP3, 1,160 taps, 140 holds, 16 speed events | Complete; offline verification passes |
+| `tanoshii` — [Tanoshii Dance Time](https://kt-rpg.sakura.ne.jp/danoni/html5/danoni/danoni_tanoshii.html) | All 0–2; 9h/9h/custom 8-lane `tanoshii`; v50.2.0 | External JS-wrapped Shift_JIS dos, multiple charts and custom keys; 270/423/256 taps | All three references match offline; partial because music returned HTTP 403 |
+| `7ikey-package-25-menu` — [7ikey Package](https://apoi108.sakura.ne.jp/danoni/7ikey_package/) | 24 (source suffix 25), of 55 enumerated charts; 7i; v50.2.0 | Runtime-generated external dos, custom menu/hooks, decoded MP3 from `shinseiji-bugi.js`; 1,475 taps, 54 holds, 7 speed and 3 boost events; 308 modern color events; parsed background/mask effects | Reference matches offline; partial due page errors, non-string effective field and unavailable preview/font resources; other 54 charts not captured |
+| `twilight` — [Twilight](https://cw7.sakura.ne.jp/danoni/2018/0316_Twilight.html) | 0; custom 15-lane `7wi`; v49.1.1 fallback | Inline dos, custom JS, MP3, 1,250 taps, 38 holds, 2 speed events; 47 populated lyric frames | Reference matches offline; partial: shared arrow image missing, CDN unavailable |
+| `defeat-i-doll` — [Defeat,I Doll](https://cw7.sakura.ne.jp/danoni/2016/0273_DefeatIDoll.html) | 0; custom 43-lane `Tr`; v49.1.1 fallback | Inline dos, MP3, 762 taps, 23 holds, 2 speed events; 153 populated lyric frames and 47 key-group frame entries | Reference matches offline; partial: shared arrow image missing, CDN unavailable |
 
-Dreadnought Course is a second-stage candidate for query-dependent stages and
-multiple music resources. Find a browser-confirmed deployed key-rewriting
-extension and a divided-dos work before claiming those corpus coverage tags.
-Likewise confirm modern ncolor and textual word_data in the captured state;
-source filenames or a visually changing page are not sufficient evidence.
+The package's parsed boosts are `(6285, -0.5)`, `(6310, -1)`, `(6490, 1)`;
+these differ from source frames by the recorded adjustment. Color counts are
+8 Arrow + 100 Normal + 100 NormalBar + 50 Hit + 50 HitBar events. Its extra
+`musicTitles` object remains intact in the tagged native effective input; the
+string-only convenience map deliberately does not pretend to contain it.
+Tanoshii's timer-header references were regenerated from the original native
+snapshots after numeric-string handling was corrected; no additional fetch was
+needed, and its manifest records that reprojection.
 
-The importer session can plan around `manifest.json` and the ordered input,
-effective-object and reference separation now; field names remain proposed
-until browser captures validate the adapter. Native differential tests should
-consume local dumps through an opt-in environment variable, never package
-third-party content into fixtures or CI artifacts.
+The initial Tanoshii and Summer Sky captures preceded browser Referer/Origin/
+Accept forwarding. Their music responses were HTTP 403; that does not establish
+that an ordinary browser cannot play them. Those responses were retained and
+not retried. The tool now forwards actual browser headers, without fabricated
+headers or credentials. A Cross Walker probe stopped on an unreviewed engine
+before an in-flight arrow-image request completed; that missing response remains
+visible in the later partial dumps. Never-started queued requests can subsequently
+run, but dispatched failed requests are not retried. The CDN's robots endpoint
+returned HTTP 400, so the tool blocked it; Cross Walker's own loader then selected
+its local v49.1.1 engine. This was normal site fallback behavior.
+
+Additional diagnostic directories are retained locally: `summer-sky` (three
+charts, music 403 before a full parse), `dreadnought-stage-1` (`?stageNum=1`,
+chart 0; course hook reports missing `getStrLength`, music 403),
+`be-alike-probe` (initial unreviewed fallback-engine detection), and
+`7ikey-package-25` (initial custom-menu discovery). These are not usable
+reference corpus entries. Earlier scratch attempts are outside this inventory.
+No failures were hidden by substituting synthetic assets or another engine.
+
+The loaded Twilight resources include the
+[publisher's key-change extension](https://cw7.sakura.ne.jp/danoni/js/key_change.js),
+confirming live delivery of a key-rewriting script. This capture did not activate
+its `key`/`double` URL options, so it does not validate those conversion branches.
+Divided dos, alternate key patterns and later course stages still need separate
+corpus coverage. Current committed fixtures are entirely original synthetic
+content; no third-party charts, music, scripts or images were committed.
+
+## Importer handover and acceptance limits
+
+Use `manifest.json` as the entry point, then validate each chart's status and
+reference contract. For simple inputs, differential tests can merge the ordered
+strings with captured parser flags. For generated/rewritten works,
+`effective-dos.json` supplies the static converter input; importing it must not
+execute captured scripts. Resolve lanes through `keys.json`, compare at the
+recorded timing settings, and investigate prepared/runtime differences
+separately instead of modifying expected notes to hide them. Native differential
+tests should take an opt-in local corpus path; never package third-party dumps
+into fixtures or CI artifacts.
 
 Keep source frames and transformed oracle frames distinct. At 75 BPM and
 48 ticks/beat, an integer 60 Hz source frame maps exactly to one tick. This
@@ -337,14 +477,34 @@ are present in the current implementation; boost selection uses the note's
 arrival frame, not spawn time; colors have different times before and after
 play preparation. See the dated additions in `formats-ffr-danoni.md`.
 
-## Main risks and proposed acceptance checks
+`complete` is a bounded import-data result, not a licence decision or a promise
+of faithful full-song replay. The overall manifest requires all enumerated author
+charts complete and no recorded network limitations. Chart completeness requires
+input/prepared captures, a valid full reference and complete mapped audio; page
+or adapter failures make it partial. `capture.json` reports narrower browser
+startup status; use manifest chart status for importer acceptance.
+
+`verify --offline` hashes saved assets, starts fresh Chrome contexts using only
+the dump, and compares newly normalized last full returns to saved references.
+`verification.comparisons` records `{chartId, referenceMatched}` even when a
+replay is incomplete. Missing cache entries or changed parses fail the overall
+`passed` result. It does not compare every native
+input/header/DOM snapshot, visit every later scene, or prove every hook
+deterministic. `verification.json` and `capture.coverage.offlineVerified` record
+its result; `fullGameplayReplay` remains false. The known music-select extension
+is supported through its `lblMusicNumBarSlider` input and Enter handler, using
+the chart's resolved music index so its normal hooks run. Flash, other arbitrary
+custom selection controls, alternate-pattern enumeration, multi-stage courses and per-frame
+JavaScript-to-static-event conversion remain outside supported scope.
+
+### Remaining coverage checks
 
 1. **Oracle stage and version drift:** validate adapters on actual served
    scripts, record hashes, compare captured note counts with the engine's chart
    details, and reject an analysis-only or post-mutation snapshot.
-2. **Runtime custom data:** retain source inputs, effective objects and hook
-   snapshots. Detect differences and report whether a static importer can
-   represent them. Arbitrary gameplay code cannot be reduced to dos in general.
+2. **Runtime custom data:** compare source inputs, effective objects and the
+   three observed stages. They are not snapshots after every hook; report
+   whether a static importer can represent observed changes.
 3. **Incomplete multi-chart/media traversal:** visit every author chart,
    resolve per-chart audio and divided dos, then replay from cache with network
    disabled. Report chart-level failures and late media cache misses.
@@ -355,10 +515,16 @@ play preparation. See the dated additions in `formats-ffr-danoni.md`.
    that its game still runs or that its assets may be redistributed. Honour
    access rules, stop on removed/Flash-only/protected works, and keep media local.
 
-Before declaring version 1 stable, exercise inline+external precedence,
-split/locked chart numbering, encoding/ampersand flags, holds, speed and boost,
-both color forms, lyrics, custom keys, actual data-mutating custom JS, MP3 and
-base64 music, and at least two deployed engine generations. Include an early first note
-that triggers automatic preblank with modern colors, scroll and key events. Use small
-synthetic or attributed MIT chart fixtures for automated tool tests; real
-works remain opt-in local verification only.
+The automated Chrome test proves two synthetic charts, inline/external merging,
+custom preloading rewrites, exact strings, preblank reconversion, all three
+snapshot stages, custom keys, notes/holds/speed/boost/legacy colors, encoded silent
+WAV, a relative image, fetch deduplication and offline replay after the source
+server closes. Unit tests cover tagged/sparse snapshots, invalid references,
+schemas/paths and robots/cache/network behavior. This proves transport and
+contract behavior, not support for every deployed engine/custom work.
+
+Real coverage still needs explicit inventory evidence for split/locked numbering,
+encoding flags, both color forms, deployed data-mutating JS, ordinary/encoded
+audio and multiple engine generations. Include automatic preblank with modern
+colors, scroll and key events before treating those semantics as covered. Assign
+tags from captured state and replay results, never filenames alone.

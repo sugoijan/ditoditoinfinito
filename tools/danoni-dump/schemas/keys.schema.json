@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sugoijan.dev/ditoditoinfinito/schemas/danoni-keys.schema.json",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "ddi-danoni-keys/1"
+    },
+    "keyMode": {
+      "type": "string"
+    },
+    "activePattern": {
+      "type": "string"
+    },
+    "lanes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "chara": {
+            "type": "string"
+          },
+          "tapDataKey": {
+            "type": "string"
+          },
+          "holdDataKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chara",
+          "tapDataKey",
+          "holdDataKey"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "definitions": {
+      "$ref": "https://sugoijan.dev/ditoditoinfinito/schemas/danoni-snapshot.schema.json"
+    }
+  },
+  "required": [
+    "schema",
+    "keyMode",
+    "activePattern",
+    "lanes",
+    "definitions"
+  ],
+  "additionalProperties": false
+}
