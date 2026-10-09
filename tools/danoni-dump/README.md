@@ -158,3 +158,12 @@ and silent PCM WAV. It exercises multiple charts, custom key metadata, inline an
 external input merging, runtime input rewrites, frame conversion, preblank
 reconversion, relative assets, and encoded music. It is a transport and capture
 fixture, **not** a substitute for comparison with a real danoniplus engine.
+
+## Local artwork study
+
+`node artwork.mjs PREPARED_MANIFEST NEW_EXTERNAL_DIRECTORY 'PACK DISPLAY TITLE'`
+creates editable SVG and PNG song banners/covers and pack artwork from prepared
+metadata. It uses installed Chrome with network requests blocked and keeps
+outputs outside Git. It does not change charts or create a new playable ZIP.
+See [the artwork study](../../docs/research/danoni-artwork.md) for dimensions,
+provenance, source-graphic findings and the proposed export layout.

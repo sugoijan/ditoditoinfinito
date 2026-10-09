@@ -737,3 +737,13 @@ are configurable, with explicit fallback/selection diagnostics. All accepted
 musical note positions, colours, native baseline corrections and audio are
 unchanged. Parser/engine checks run under the maintainer's new Rust 1.99.0;
 old captures/build provenance retain their original toolchain identity.
+
+### Artwork and title study (2026-10-09)
+
+The [artwork study](danoni-artwork.md) records five original Kouhaku song-menu
+captures, recovered link-banner JPEGs and a generic typography prototype. The
+local comparison gallery is
+`~/Music/DanOni/legacy-pilot/artwork/2004-kouhaku-study-v1/index.html`.
+The accepted playable pack is unchanged. Source wordmarks, runtime titles and
+page spellings are retained as separate evidence; no source graphic is assumed
+to be a song cover simply because it is embedded in the movie.

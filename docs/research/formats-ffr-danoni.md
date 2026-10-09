@@ -294,6 +294,21 @@ all playback-clock or judgement behavior.
 
 ---
 
+### Title graphics are not necessarily song metadata (2026-10-09)
+
+The [local artwork study](danoni-artwork.md) finds a concrete legacy case where
+rendered 桃源郷 -Remix- and runtime 桃源郷 differ. Preserve both source variants;
+do not overwrite `musicTitle` from a screenshot. Embedded bitmaps can be
+musician-site/link banners rather than song covers, and wordmarks can be vector
+shapes or font-backed text. For HTML5 captures, an empty image `chartIds` list
+means usage has not been resolved, not that the image is irrelevant.
+
+The reviewed Kouhaku SWF's two `DefineBitsJPEG2` payloads required removal of the
+erroneous leading `FF D9 FF D8` marker pair before normal JPEG decoding. Preserve
+the payload and record a normalized derivative separately. Ruffle explains
+this SWF JPEG behavior and handles marker pairs inside headers as well in
+[`remove_invalid_jpeg_data`](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/render/src/utils.rs).
+
 ## Part C — Implications for an internal chart model
 
 1. **Time base.** FFR = integer frames at 30 fps (plus optional ms per note, plus per-song integer `sync`); DanOni = integer frames at 60 fps with `blankFrame`/`adjustment`/`startFrame` offsets and `playbackRate` rescaling; DDR/SM = beats + BPM/stop segments. A lossless core should store note time as an exact rational or integer in a per-chart **tick base** (e.g., `ticks_per_second` = 30 or 60 for frame charts, beat-based for SM) together with the original frame integer, rather than forcing beats. Conversion to beats is lossy (and FFR charts have no BPM at all).
