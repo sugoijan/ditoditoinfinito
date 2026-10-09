@@ -323,3 +323,23 @@ quantization. It does **not** preserve original DanOni vertical speed. See
 [the independent-motion handover](../../../docs/research/danoni-postprocess.md#scroll-speed-must-stay-independent-of-musical-colouring)
 for the maintainer's clarified target and the difference between compensating an
 old SSC baseline and verifying the actual native engine's motion.
+
+
+## Measured native base scroll
+
+`measure_motion.py` reads stored display bounds from restricted capture outputs;
+caller-selected clip paths, source geometry and verified FPS produce a measured
+arrow-size velocity. It performs no native/script execution or fetching. Then
+`prepare_pack.py --native-scroll REVIEW.json --scroll-factor 1` emits authored
+`#SCROLLS` compensation beneath the user's unchanged X-mod. It can be combined
+with the reviewed musical-grid option; C-mod remains the player's override.
+
+[Review schema, measurement limits and complete commands](../../../docs/research/danoni-postprocess.md#measured-native-scroll-with-a-tunable-correction)
+include six fresh native probes, measured source units and engine comparisons.
+`test_scroll_policy.py` covers original synthetic measurements, per-chart base
+compensation, author changes, evidence binding and adjustable factors.
+The newest local trial is
+`~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-musical-native-scroll-v3/playable.zip`.
+Use `--scroll-factor 1.2` or `0.8` when regenerating a fresh pack for a 20% faster
+or slower authored baseline; BPM, audio, notes, colours and user settings remain
+unchanged. Exact source exports and earlier experimental ZIPs are preserved.

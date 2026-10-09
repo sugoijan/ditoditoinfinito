@@ -615,3 +615,16 @@ coarser musical subdivisions needs a separate error check, with fine-tick
 fallbacks for outliers and tempo changes. The local implementation reports every
 endpoint shift, rejects collisions/collapsed holds and preserves exact source
 references. This optional approximation is not original DanOni metadata.
+
+
+The [native-scroll trial](danoni-postprocess.md#measured-native-scroll-with-a-tunable-correction)
+measures source motion independently of musical tempo. All six default charts in
+the [Kouhaku SWF](http://eucaly.net/~iso50/kouhaku.html) translate at 2 px per 60 Hz
+frame; a selected 43 px receptor-arrow width normalizes that to 120/43 arrow-size
+units/s. An SSC base scroll ratio `nativeUnitsPerSecond*60/musicalBpm` cancels
+BPM-derived X-mod velocity while leaving the player's multiplier on top. This
+compensation changes visual spacing, not judgement timing or musical colour
+buckets. Source relative speed events multiply that base ratio. Units and source
+geometry must be recorded; a raw legacy variable named `SpeedUp` is not itself
+a portable CW `difData` speed. Native relative rate and exact approach time on a
+different field remain distinct measurements.

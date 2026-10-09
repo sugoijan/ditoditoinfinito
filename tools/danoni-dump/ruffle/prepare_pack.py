@@ -18,6 +18,7 @@ import zipfile
 from export_io import digest, write_json
 from musical_grid import validate_grid,position,summarize as musical_summary
 from paths import external_directory
+from scroll_policy import validate_motion,base_ratio,summarize as scroll_summary
 from pack_policy import star_count,tier_for_stars,choose_preview,display_bpm
 
 SCHEMAS={'ddi-legacy-export/experimental-1','ddi-synthetic-export/experimental-1','ddi-normalized-work/experimental-1'}
@@ -55,7 +56,7 @@ def frame(seconds):
     return tick
 
 
-def ssc_chart(chart,tier,stars,grid=None):
+def ssc_chart(chart,tier,stars,grid=None,native_motion=None,scroll_factor=1):
     mode=chart['mode'];lanes=chart['lanes']
     if mode not in MODES or len(lanes)!=MODES[mode]:raise ValueError('Unsupported/incorrect built-in DanOni layout')
     def event_tick(seconds,rhythmic=True):
@@ -78,23 +79,26 @@ def ssc_chart(chart,tier,stars,grid=None):
     speed=chart.get('speed',[])
     padding=max(0,-min([t for t,_,_ in events]+[event_tick(e['seconds'],False) for e in speed]))
     if grid:padding=math.ceil(padding/48)*48  # Preserve musical quantization during pre-roll padding.
+    if native_motion and phase/quantum>padding:
+        padding+=math.ceil((phase/quantum-padding)/192)*192  # Start authored motion before audio zero; preserve the four-beat colour cycle.
     for tick,lane,kind in events:
         row=notes.setdefault(tick+padding,['0']*len(lanes))
         if row[lane]!='0':raise ValueError('Conflicting notes cannot be represented faithfully')
         row[lane]=kind
     rows=','.join('\n'+'\n'.join(''.join(notes.get(m*192+i,['0']*len(lanes))) for i in range(192))
                   for m in range(max(notes)//192+1))
-    scroll=[]
+    compensation=base_ratio(native_motion,bpm,scroll_factor)
+    scroll=[f'0={compensation:.15g}'] if native_motion else []
     for e in speed:
         multiplier=e['multiplier']
         if type(multiplier) not in (float,int) or not math.isfinite(multiplier):raise ValueError('Invalid scroll multiplier')
-        scroll.append(f"{(event_tick(e['seconds'],False)+padding)/48:.15g}={multiplier:.15g}")
+        scroll.append(f"{(event_tick(e['seconds'],False)+padding)/48:.15g}={multiplier*compensation:.15g}")
     return ('#NOTEDATA:;\n'+f'#STEPSTYPE:danoni-{mode};\n#DESCRIPTION:;\n#DIFFICULTY:{tier};\n#METER:{stars if stars is not None else 0};\n'
         +f'#OFFSET:{padding*quantum-phase:.15g};\n#BPMS:0={bpm:.15g};\n'
         +(f"#SCROLLS:{','.join(scroll)};\n" if scroll else '')+f'#NOTES:{rows};\n')
 
 
-def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None,musical_grid=None):
+def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None,musical_grid=None,native_scroll=None,scroll_factor=1):
     if codec not in ('wav','ogg') or tier_policy not in ('stars','edit'):raise ValueError('Unknown audio/tier policy')
     tier_for_stars(None,bounds)
     source,raw,manifest,entries=load_export(source)
@@ -107,6 +111,27 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
             raise ValueError('Musical grid review must match the normalized source manifest')
         if set(review['charts'])!={e['id'] for e in entries}:raise ValueError('Musical grid review must cover every chart id exactly')
         grids={ident:validate_grid(value) for ident,value in review['charts'].items()}
+    motions={};motion_bytes=None;motion_evidence={}
+    base_ratio(None,75,1 if native_scroll else scroll_factor)  # Reject ineffective/nonfinite factor options.
+    if native_scroll:
+        motion_bytes=native_scroll.read_bytes();review=json.loads(motion_bytes)
+        if review.get('schema')!='ddi-reviewed-native-scroll/experimental-1' or review.get('sourceManifestSha256')!=digest(raw):
+            raise ValueError('Native scroll review must match the normalized source manifest')
+        if set(review['charts'])!={e['id'] for e in entries}:raise ValueError('Native scroll review must cover every chart id exactly')
+        motions={ident:validate_motion(value) for ident,value in review['charts'].items()}
+        for ident,motion in motions.items():
+            base_ratio(motion,75,scroll_factor)
+            evidence=motion.get('evidence')
+            if isinstance(evidence,dict) and 'path' in evidence:
+                path=(native_scroll.parent/evidence['path']).resolve(strict=True)
+                if not path.is_relative_to(native_scroll.parent.resolve()):raise ValueError('Motion evidence escapes its review directory')
+                body=path.read_bytes()
+                if digest(body)!=evidence.get('sha256'):raise ValueError('Changed native motion evidence')
+                measured=json.loads(body)
+                if measured.get('schema')!='ddi-native-motion-measurement/experimental-1':raise ValueError('Unexpected native motion evidence schema')
+                if measured.get('baseArrowHeightsPerSecond')!=motion['baseArrowHeightsPerSecond']:raise ValueError('Motion rate disagrees with its evidence')
+                if manifest.get('sourceSwfSha256') and measured.get('sourceSwfSha256')!=manifest['sourceSwfSha256']:raise ValueError('Motion evidence comes from another SWF')
+                motion_evidence[ident]=body
     output=external_directory(output);output.mkdir(parents=True,exist_ok=False)
     (output/'songs').mkdir();(output/'references').mkdir()
     groups={}
@@ -114,6 +139,10 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
     for group in groups.values():
         if grids and any(grids[e['id']]!=grids[group[0]['id']] for e in group):raise ValueError('Charts sharing music need the same reviewed musical grid')
     if grid_bytes:write_json(output/'musical-grid-review.json',json.loads(grid_bytes))
+    if motion_bytes:write_json(output/'native-scroll-review.json',json.loads(motion_bytes))
+    evidence_paths={}
+    for index,(ident,body) in enumerate(motion_evidence.items()):
+        relative=f'references/native-motion-{index}.json';(output/relative).write_bytes(body);evidence_paths[ident]=relative
     songs=[];version=subprocess.check_output([str(ffmpeg),'-version'],text=True).splitlines()[0];used=set()
     for number,group in enumerate(groups.values(),1):
         first=group[0];ident=first['id'] if re.fullmatch(r'[A-Za-z0-9_-]+',first['id']) else f'song-{number}'
@@ -151,11 +180,13 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
         charts=[]
         for i,e in enumerate(group):
             tier=tier_for_stars(e['stars'],bounds) if tier_policy=='stars' else 'Edit'
-            text+=ssc_chart(e['chart'],tier,e['stars'],grids.get(e['id']))
+            native_report=scroll_summary(motions.get(e['id']),timing_bpm,scroll_factor)
+            if native_report and e['id'] in evidence_paths:native_report['evidenceStoredAt']=evidence_paths[e['id']]
+            text+=ssc_chart(e['chart'],tier,e['stars'],grids.get(e['id']),motions.get(e['id']),scroll_factor)
             omitted={key:len(e['chart'].get(key,[])) for key in ['colors','boost','stops','effects'] if e['chart'].get(key)}
             charts.append({'id':e['id'],'difficultyStars':e['stars'],'difficultyClassification':tier,
                 'classificationSource':f'pack heuristic: {tier_policy}','sourceDifficultyClassification':e['metadata'].get('difficultyClassification'),
-                'unrepresentedEffects':omitted,'musicalQuantization':musical_summary(e['chart'],grids[e['id']]) if grids else None})
+                'unrepresentedEffects':omitted,'nativeScroll':native_report,'musicalQuantization':musical_summary(e['chart'],grids[e['id']]) if grids else None})
             write_json(output/'references'/f'{ident}-{i}.json',{'sourceChart':e['chart'],'sourceMetadata':e['metadata'],'sourceReference':e['reference']})
         (folder/'song.ssc').write_text(text)
         songs.append({'id':ident,'title':title,'music':f'songs/{ident}/{name}','musicSha256':digest(destination.read_bytes()),
@@ -166,9 +197,11 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
     report={'schema':'ddi-playable-pack/experimental-1','sourceSchema':manifest['schema'],'sourceManifestSha256':digest(raw),
         'sourceExport':str(source),'prepareSourceSha256':digest(Path(__file__).read_bytes()),
         'policySourceSha256':digest(Path(__file__).with_name('pack_policy.py').read_bytes()),
-        'quantizerSourceSha256':digest(Path(__file__).with_name('musical_grid.py').read_bytes()),'codec':codec,'ffmpeg':version,
+        'quantizerSourceSha256':digest(Path(__file__).with_name('musical_grid.py').read_bytes()),
+        'scrollPolicySourceSha256':digest(Path(__file__).with_name('scroll_policy.py').read_bytes()),'codec':codec,'ffmpeg':version,
         'timingBpm':None if grids else 75,'noteTimingModified':bool(grids),
-        'musicalGridReviewSha256':digest(grid_bytes) if grid_bytes else None,'tierPolicy':{'name':tier_policy,'upperBounds':list(bounds),'tiers':['Beginner','Easy','Medium','Hard','Challenge']},'songs':songs}
+        'musicalGridReviewSha256':digest(grid_bytes) if grid_bytes else None,
+        'nativeScrollReviewSha256':digest(motion_bytes) if motion_bytes else None,'scrollCorrectionFactor':scroll_factor,'tierPolicy':{'name':tier_policy,'upperBounds':list(bounds),'tiers':['Beginner','Easy','Medium','Hard','Challenge']},'songs':songs}
     write_json(output/'manifest.json',report)
     with zipfile.ZipFile(output/'playable.zip','x',compression=zipfile.ZIP_DEFLATED) as archive:
         for f in sorted((output/'songs').rglob('*')):
@@ -182,6 +215,8 @@ if __name__=='__main__':
     p.add_argument('--vorbis-encoder',type=Path);p.add_argument('--tier-policy',choices=['stars','edit'],default='stars')
     p.add_argument('--star-tier-bounds',default='1,3,5,7');p.add_argument('--preview-seconds',type=float,default=12)
     p.add_argument('--musical-grid',type=Path,help='Opt-in source-bound reviewed musical grid JSON; changes timing within a <10 ms budget')
+    p.add_argument('--native-scroll',type=Path,help='Source-bound native baseline motion review JSON')
+    p.add_argument('--scroll-factor',type=float,default=1,help='Scale the native baseline; user X-mod still applies on top')
     p.add_argument('--display-bpm',action='append',default=[],metavar='CHART_ID=BPM|LOW:HIGH|*')
     a=p.parse_args();bounds=tuple(map(int,a.star_tier_bounds.split(',')));reviews={}
     for value in a.display_bpm:
@@ -189,5 +224,5 @@ if __name__=='__main__':
         if ident in reviews:p.error('Duplicate display-BPM chart id')
         reviews[ident]=bpm
     if a.ffmpeg is None:p.error('Installed FFmpeg required')
-    r=prepare(a.source,a.output,a.audio,a.ffmpeg,a.vorbis_encoder,bounds,a.preview_seconds,a.tier_policy,reviews,a.musical_grid)
+    r=prepare(a.source,a.output,a.audio,a.ffmpeg,a.vorbis_encoder,bounds,a.preview_seconds,a.tier_policy,reviews,a.musical_grid,a.native_scroll,a.scroll_factor)
     print(json.dumps({'songs':len(r['songs']),'charts':sum(len(s['charts']) for s in r['songs']),'noteTimingModified':r['noteTimingModified']}))

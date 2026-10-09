@@ -240,3 +240,23 @@ records the current chart-speed support on main, missing SSC metadata and the
 needed independent native motion/grid representation. Default exact reference
 exports remain intact. The target is native timing/motion with musical colours,
 not musical-BPM-driven replacement of the author's speed.
+
+
+### Native base speed beneath the user's multiplier
+
+The maintainer approved the SSC compensation trial. Fresh restricted captures
+now measure default Kouhaku motion in all six charts: 120 source px/s divided by
+a 43 px reference arrow width, about 2.7907 arrow-size units/s. The generic
+[measured-scroll contract](danoni-postprocess.md#measured-native-scroll-with-a-tunable-correction)
+adds a source-bound review and `--scroll-factor`, with inverse-BPM `#SCROLLS`
+ratios. The player's X-mod applies unchanged on top. Native effects and source
+relative speed changes are separate from musical-grid estimation; no musical
+BPM or free-text speed label is used as a substitute for measured base motion.
+
+The local `2004-kouhaku-musical-native-scroll-v3/playable.zip` retains the prior
+musical positions/colours and adds the measured baseline. Independent engine
+checks verify X1/X2/X3 rates for every chart, with no additional timing error or
+audio changes. Reference-normalized motion can still feel different with a
+different playfield height; factors 1.2/0.8 offer simple 20% adjustments without
+altering BPM, notes or player settings. The earlier v3 musical-only ZIP remains
+an uncompensated experimental variant, not the newest native-scroll trial.

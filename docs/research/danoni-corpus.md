@@ -706,3 +706,19 @@ fitted timing BPMs, so the existing menu shows 160/175/110/150/200 and regular
 notes occupy musical colour buckets. 北風 retains 186 fine-tick fallbacks; tempo
 segments and quarter-beat phase still need review. Default exact exports,
 original dos/native evidence, and unchanged audio remain separate.
+
+
+### Measured native-scroll trial (2026-10-09)
+
+The newest private ZIP is
+`~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-musical-native-scroll-v3/playable.zip`.
+Six fresh restricted captures of the cached source verify a common default
+120 px/s and 43 px reference arrow width. The generic
+[motion/SSC policy](danoni-postprocess.md#measured-native-scroll-with-a-tunable-correction)
+uses inverse-BPM scroll ratios, retaining player X-mod and the earlier musical
+colour grid. Every chart's X1/X2/X3 rate and all 2,493 note timestamps are checked
+through the game engine. Native motion evidence/inputs stay in the separate
+`~/Music/DanOni/legacy-pilot/motion/2004-kouhaku/` archive. No work was fetched again.
+The tool's `--scroll-factor` tunes the authored baseline without changing notes,
+audio, BPM or user settings. Source geometry and provisional beat-phase/variable-
+tempo limitations are explicit in the handover.

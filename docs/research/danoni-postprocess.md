@@ -408,8 +408,9 @@ A constant `75/musicalBpm` scroll multiplier can preserve the *previous SSC's*
 X-mod rate while changing its musical grid; that is not proof of matching the
 original SWF. Native preservation needs the original speed scale and field
 geometry/approach time. Higan records `authorSpeed:1.5`, `initialPixelSpeed:3`;
-Kouhaku validates `_global.SpeedUp=2`, `SpeedY=188`, but those raw variables have
-not yet become a verified normalized motion model. Its reconstructed CW
+Kouhaku validates `_global.SpeedUp=2`, `SpeedY=188`; at that point these raw
+variables had not yet become a verified normalized motion model. The fresh
+measurements and explicit baseline export below now cover its default motion. Its reconstructed CW
 `difData` speed 1 is an export placeholder and must not be presented as the
 original author's speed.
 
@@ -428,3 +429,176 @@ positions, source arrow/field dimensions, receptor position and units; record
 base velocity and events separately from inferred BPM. The source's frame clock
 and music origin remain the reference. Quarter-phase review and 北風's changing
 tempo sections are still independent tasks.
+
+
+## Measured native scroll with a tunable correction
+
+The maintainer approved a trial SSC that keeps the reviewed musical grid and
+sets an authored native baseline beneath the player's X-mod. New optional
+`--native-scroll REVIEW.json --scroll-factor F` implements that without changing
+user settings. This applies with or without `--musical-grid`; defaults without
+a native review remain unchanged. A factor other than 1 without a native review
+is rejected rather than silently doing nothing.
+
+### Generic motion measurement
+
+[`measure_motion.py`](../../tools/danoni-dump/ruffle/measure_motion.py) reads
+existing `run.json`/`snapshot.json` from the restricted worker. It never executes
+SWFs, scripts, getters or methods. The caller selects moving clip names, a
+reference sprite and a previously verified frame clock. It matches **scoped
+name paths**, not the local display/object IDs, across adjacent captures.
+
+```sh
+python3 tools/danoni-dump/ruffle/measure_motion.py NATIVE_CAPTURE_DIR /private/tmp/motion-new.json \
+  --fps 60 --moving-name-regex '^(left|down|up|right|space)MC[0-9]+$' \
+  --reference-name left_step --reference-dimension width
+```
+
+The expression/reference above select this particular engine; they are caller
+parameters, not generic-tool song rules. Width or height can be the reference.
+Choose an appropriate square arrow/receptor dimension, not an average across
+wide onigiri symbols. Native FPS must be independently established: do not infer
+it solely from the header of an arbitrary movie. The tool rejects failed parent
+runs, halted/incomplete graphs and lost/error audit evidence. It needs at least
+two moving observations and a stable positive reference dimension. Translation
+must preserve width, height and horizontal position, and every accepted observed
+velocity must agree within 1e-6 source pixels per frame; varying motion needs a
+more specific measurement window/model. Non-translation exclusions are recorded.
+Path reuse by scripts can still alias objects; the family adapter must establish
+identity/lifetime. Normalized velocity does not imply identical spawn geometry,
+field height or reading time on another screen.
+
+The UTF-8 report schema is `ddi-native-motion-measurement/experimental-1`:
+`sourceSwfSha256`, `fps`, `clockSource`, `movingNameRegex`, `referenceName`,
+`referenceDimension`, `referencePixels`, `signedPixelsPerFrame`,
+`pixelsPerSecond` (absolute), `baseArrowHeightsPerSecond`, `samples`,
+`references`, `excluded`, `scope`, `limits`. CLI output also records
+`sourceCapture`, `snapshotSha256`, `parentReportSha256`, `workerSha256`,
+`configSha256`, `sandboxSha256`, `retrievedAt`, `measurementSourceSha256`.
+Samples contain scoped `path`, first/last iteration and stage bounds, and signed
+pixels/frame and pixels/second. Reference records contain iteration, name,
+stage bounds and dimension in pixels. The normalized base is absolute source
+pixels/second divided by the selected reference dimension. No work assets become
+repository fixtures.
+
+### Review and SSC contract
+
+The source-bound native review is UTF-8 JSON:
+
+```json
+{
+  "schema":"ddi-reviewed-native-scroll/experimental-1",
+  "sourceManifestSha256":"<SHA-256 of exact normalized source manifest bytes>",
+  "charts":{
+    "normal":{
+      "baseArrowHeightsPerSecond":2.7906976744186047,
+      "evidence":{"path":"captures/normal/motion.json","sha256":"<measurement bytes SHA-256>"}
+    }
+  }
+}
+```
+
+It must cover every chart ID exactly. Base velocities must be finite, positive,
+and at most 1000 arrow heights/second; additional metadata is preserved. Review
+values may be explicit manual input. When `evidence` contains a path, the tool
+requires its hash, resolves it within the review directory, verifies its schema,
+base velocity and source SWF identity where the normalized manifest provides
+one, and copies the measurement bytes into `references/native-motion-N.json`.
+A changed file, rate mismatch or different SWF rejects preparation. Raw captures
+and source inputs remain in their separate private archive.
+
+For a chart at constant musical BPM `B`, measured native baseline `V` and
+correction factor `F`, the authored base ratio is **`R=V*F*60/B`**. SSC gets an
+initial `#SCROLLS:0=R;`; each source relative speed change `m` becomes a scroll
+ratio `R*m` at its original/quantized event time. This represents native base
+motion plus its relative changes. Per-note boost and other omitted effects
+remain explicitly unrepresented. No `#SPEEDS`, player setting or speed-mod mode
+is forced. With normal X-mod `X`, resulting base velocity is **`V*F*X`**.
+C-mod remains the player's explicit time-based override and ignores the map.
+Other selected visual effects retain their existing semantics.
+
+If a positive musical beat origin would leave the initial authored ratio after
+audio zero, add whole measures of zero note rows and compensate chart offset.
+This begins the native map before music time zero while preserving judgement
+seconds, subdivision buckets and the four-beat colour cycle. Those extra rows
+are padding, not added silence or delay.
+
+New output fields (still `ddi-playable-pack/experimental-1`):
+
+- Top-level `nativeScrollReviewSha256` (null without review),
+  `scrollPolicySourceSha256`, and `scrollCorrectionFactor` (default 1).
+  The review is copied to `native-scroll-review.json`, outside the playable ZIP.
+- Each chart `nativeScroll` is null or
+  `{sourceMotion,correctionFactor,sscBaseRatio,baseArrowHeightsPerSecond,
+  playerMultiplierModified:false,mode,formula}`; it also has `evidenceStoredAt`
+  when a measurement was verified/copied. `sourceMotion` preserves the entire
+  supplied per-chart review. `baseArrowHeightsPerSecond` includes the correction
+  factor; `sscBaseRatio` is the value before source relative changes.
+- Existing source references and `musicalQuantization` diagnostics remain
+  unchanged. `noteTimingModified` concerns musical quantization, not scroll
+  compensation; native scroll alone leaves it false.
+
+### Kouhaku result and tuning
+
+Six fresh restricted runs of the same cached SWF verify all six chart defaults.
+Tracked clips move **−2 source pixels/frame**, or **120 px/s** at the independently
+established 60 Hz clock. The selected `left_step` reference is **43 px wide**,
+giving **120/43 = 2.790697674 arrow-size units/s**. Three/twelve/six/six/four/six
+tracked intervals agree for 桃源郷/Hard/RUN/北風/ころっけ/emy respectively. Static
+inspection also identifies `_y -= _global.SpeedUp`; default `SpeedUp=2` agrees
+with the observed motion. Unlike the old reconstructed CW speed placeholder,
+this is measured evidence. [Original work page](http://eucaly.net/~iso50/kouhaku.html).
+
+Measurements, raw snapshots, sandbox reports and dedicated cached inputs live at
+`~/Music/DanOni/legacy-pilot/motion/2004-kouhaku/`. The review records the archive
+mapping without rewriting original retrieval paths/dates. The earlier music
+and chart-reference exports remain intact; no source file was refetched.
+北風's measurement enters the original menu at iteration 160 instead of waiting
+to 250, so its first arrows fit the existing 600-iteration cap. No script data
+was patched. All runs use the same pinned worker and restrictive sandbox.
+
+The new private pack is
+`~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-musical-native-scroll-v3/playable.zip`
+(3,393,935 bytes). It keeps the earlier musical note positions, colour buckets,
+nominal display labels, audio/previews/tiers and 8.893 ms maximum additional
+source timing error. Its native baseline changes by BPM only through the inverse
+compensation, not through the resulting motion:
+
+| Song | Fitted BPM | Authored base `#SCROLLS` ratio |
+|---|---:|---:|
+| 桃源郷 (both charts) | 159.7875 | 1.047903375 |
+| RUN | 174.7568 | 0.958141978 |
+| 北風 | 109.6703 | 1.526774709 |
+| ころっけ | 149.8127 | 1.117674766 |
+| emy | 199.7594 | 0.838217880 |
+
+The existing game parser and scroll engine independently verify all 2,493 note
+times/colour buckets and all six charts at **X1: 2.7907**, **X2: 5.5814**,
+**X3: 8.3721** arrow heights/s, within 1e-5 of the measured target. The new map
+adds no additional note-time quantization. Audio hashes match the previously
+Chrome-validated musical pack exactly. Reports are `chart-scroll-verification.jsonl`
+and `scroll-only-comparison.json` alongside the pack. Synthetic tests additionally
+cover changing display IDs, malformed/incomplete motion evidence, author speed
+changes, 9-key preparation, source binding, tampered measurements and tunable
+factors. This is relative arrow-size motion; different field heights can yield
+different approach times. Quarter phase and 北風's irregular colour sections
+remain the earlier provisional musical-grid limits.
+
+```sh
+python3 tools/danoni-dump/ruffle/prepare_pack.py \
+  "$HOME/Music/DanOni/legacy-pilot/exports/2004-kouhaku" /private/tmp/native-musical-pack-new \
+  --audio ogg --vorbis-encoder /private/tmp/encode-vorbis \
+  --musical-grid "$HOME/Music/DanOni/legacy-pilot/exports/2004-kouhaku-musical-grid-review.json" \
+  --native-scroll "$HOME/Music/DanOni/legacy-pilot/motion/2004-kouhaku/native-scroll-review.json" \
+  --scroll-factor 1 \
+  --display-bpm tougenkyo=160 --display-bpm run=175 --display-bpm kitakaze=110 \
+  --display-bpm korokke=150 --display-bpm emy=200
+python3 tools/danoni-dump/ruffle/test_scroll_policy.py
+```
+
+For a subjective adjustment, regenerate to another fresh directory with
+`--scroll-factor 1.2` for 20% faster native baseline, or `0.8` for 20% slower.
+The factor is finite, positive and at most 100. It changes authored scroll only;
+notes, BPM, colour quantization, audio and user X-mod remain unchanged. For a
+simple test of the baseline, choose X1 and normal visual scroll; normal user
+multipliers work on top as requested. Nothing changes the game's defaults.
