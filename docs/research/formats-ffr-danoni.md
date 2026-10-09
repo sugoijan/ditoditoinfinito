@@ -605,3 +605,13 @@ numeric stars and puts a configurable tier only in the playable export. Unknown
 ratings stay unknown. Local musical-grid analysis can fit stable sections while
 reporting every excluded portion; consensus in BPM does not imply consensus in
 beat phase. No notes are removed or retimed by that fitting procedure.
+
+
+A separate [approximate musical-grid export](danoni-postprocess.md#opt-in-musical-timing-with-a-strict-error-budget)
+can reposition notes with a conventional musical BPM and reviewed beat origin,
+while keeping each timestamp change below an explicit single-digit millisecond
+cap. Nearest 48-tick rounding costs at most `60/(BPM*48*2)` seconds. Snapping to
+coarser musical subdivisions needs a separate error check, with fine-tick
+fallbacks for outliers and tempo changes. The local implementation reports every
+endpoint shift, rejects collisions/collapsed holds and preserves exact source
+references. This optional approximation is not original DanOni metadata.

@@ -306,3 +306,13 @@ Ranges and explicit unknown are supported. The initial generic pack had no
 such tags. See the [display-BPM handover](../../../docs/research/danoni-postprocess.md#display-bpm-handover-exporter-and-menu-are-separate):
 the current game summary also needs to honor explicit display BPM for SSC
 imports; adding the tag alone will still show 75 until that game-side fix.
+
+
+`prepare_pack.py --musical-grid REVIEW.json` is an opt-in **approximate** musical
+SSC export. It repositions notes and timing together under a strict below-10 ms
+budget, snaps compatible notes to reviewed subdivisions and falls back to fine
+ticks for outliers. Defaults remain exact. Every endpoint shift and fallback is
+reported; invalid/collapsed holds or conflicting cells reject the export. See
+[the review schema and measured limits](../../../docs/research/danoni-postprocess.md#opt-in-musical-timing-with-a-strict-error-budget).
+`test_musical_grid.py` covers the independent synthetic cases. The newest local
+musical variant is `~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-musical-grid-v3/playable.zip`.

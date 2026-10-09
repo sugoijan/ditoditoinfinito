@@ -208,3 +208,22 @@ references remain separate. All 2,493 taps match the source seconds to 1e-12.
 FFmpeg sample counts and fresh Chrome energetic-window comparisons pass for all
 five Oggs, with zero sample lag. These changes do not fix the game's beat colours;
 the separate musical-beat model above is still needed.
+
+
+## Optional approximate musical-grid export
+
+After accepting single-digit millisecond quantization, the maintainer requested
+notes on the fitted musical grid too. The
+[opt-in export contract](danoni-postprocess.md#opt-in-musical-timing-with-a-strict-error-budget)
+adds source-bound reviewed tempo/phase/subdivisions and a strict 9 ms cap.
+Regular notes snap to their chosen rhythmic subdivision; outliers use fine
+48-tick positions instead. This is a separate approximate SSC, not a rewrite of
+the exact reference clock. All 2,493 Kouhaku taps survive with maximum additional
+shift **8.893 ms**; Higan taps/holds/scrolls also pass the cap. Full signed endpoint
+and fallback reports are retained locally.
+
+The private `2004-kouhaku-musical-grid-v3/playable.zip` now provides musical timing
+BPMs and rhythmic colour buckets to the existing game. 北風's changing portions
+remain fine-tick fallbacks, and quarter phase remains provisional. Default exact
+exports still use 75 BPM and need the separate display/beat-model integration;
+the optional approximation does not replace that architectural plan.

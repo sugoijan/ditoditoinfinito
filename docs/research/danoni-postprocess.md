@@ -116,9 +116,9 @@ references/<song-id>-<n>.json    sourceChart, sourceMetadata, sourceReference
 `manifest.json` has these fields:
 
 - `schema`, `sourceSchema`, `sourceManifestSha256`, `sourceExport` (absolute local
-  path), `prepareSourceSha256`, `policySourceSha256`, `codec`, and `ffmpeg`
+  path), `prepareSourceSha256`, `policySourceSha256`, `quantizerSourceSha256`, `codec`, and `ffmpeg`
   (installed version line).
-- `timingBpm:75`, `noteTimingModified:false` and
+- Default `timingBpm:75`, `noteTimingModified:false` and
   `tierPolicy:{name,upperBounds,tiers}`. Bounds are the four increasing inclusive
   maxima for Beginner, Easy, Medium and Hard; larger values become Challenge.
 - `songs[]`: `{id,title,music,musicSha256,sourceAudioSha256,pcmSampleRate,
@@ -140,7 +140,7 @@ references/<song-id>-<n>.json    sourceChart, sourceMetadata, sourceReference
   heuristic, not a claim about perceived first sound. RMS uses normalized PCM
   amplitude across all channels; stereo channels are not summed as waveforms.
 
-SSC uses `#STEPSTYPE:danoni-<mode>`, an empty description, numeric meter, derived
+Default SSC uses `#STEPSTYPE:danoni-<mode>`, an empty description, numeric meter, derived
 tier, and exact 75 BPM frame timing: 192 rows per measure and one frame per tick.
 For negative pre-roll, notes/events are padded together and chart `#OFFSET`
 subtracts that padding. Speed becomes `#SCROLLS`, with its original multiplier.
@@ -268,3 +268,120 @@ entries need reimport or explicit migration/recomputation after that fix.
 This is a display-label fix only. Note colours and beat-driven scroll behavior
 require the separate musical beat-grid work; never replace `#BPMS` with the
 nominal display value without repositioning notes.
+
+
+## Opt-in musical timing with a strict error budget
+
+The maintainer accepts single-digit millisecond changes for a musical-grid
+export. `--musical-grid REVIEW.json` therefore enables a **separate approximate
+export**, while the default exact frame export and source references remain
+unchanged. It repositions notes together with BPM/offset; simply replacing
+`#BPMS:0=75` would change timing substantially. This path works with the current
+game's quantization colours and menu without a game-model change.
+
+The review file is UTF-8 JSON, stored outside Git, with schema
+`ddi-reviewed-musical-grid/experimental-1`:
+
+```json
+{
+  "schema":"ddi-reviewed-musical-grid/experimental-1",
+  "sourceManifestSha256":"<SHA-256 of the exact source manifest bytes>",
+  "charts":{
+    "normal":{
+      "bpm":159.7875,
+      "beatZeroSeconds":0.120866,
+      "subdivisionsPerBeat":2,
+      "maximumErrorMs":9,
+      "phaseStatus":"Provisional subdivision origin; quarter phase unverified"
+    }
+  }
+}
+```
+
+Every source chart ID must appear exactly once. Charts sharing audio must share
+the same grid. BPM must be finite and in 60–240, absolute beat-zero time at most
+600 seconds, subdivisions one of 1/2/3/4/6/8, and maximum error positive and
+**below 10 ms** (default 9). Additional grid/review metadata is retained. This is
+explicit input, not automatic acceptance of an analyzer report. The source
+manifest hash binds the review to its original export.
+
+For each tap or hold endpoint, compute its nearest chosen rhythmic subdivision.
+If its shift fits the budget, use that exact subdivision; otherwise choose the
+nearest 48-ticks-per-beat tick. Reject any endpoint still beyond budget, any
+collapsed/conflicting cell or invalid/overlapping hold. Speed events use fine
+ticks, with the same error cap. For negative pre-roll, pad by whole beats and
+subtract that padding with chart offset, preserving quantization colours.
+
+With `q=60/(BPM*48)`, export time is `beatZeroSeconds + tick*q`. Nearest-fine-tick
+error is at most `q/2`, about 3.1–5.7 ms for these tracks. Snapping frame-rounded
+notes to intended quarters/eighths can remove their one-tick colour noise, but
+may shift them by up to the explicit 9 ms cap. Holds' endpoints are checked
+independently; their duration can change by up to twice that cap. Fitted tempos
+are retained rather than rounded integers, to avoid accumulating phase drift.
+The beat origin is provisional when only a subdivision fit is known; quarter
+versus eighth phase may still need listening/review.
+
+The derived manifest changes as follows:
+
+- Top-level `timingBpm` is null (read each song), `noteTimingModified:true`, and
+  `musicalGridReviewSha256` records the supplied review bytes. Its contents are
+  copied to `musical-grid-review.json` outside the playable ZIP.
+- Songs have `timingBpm` and `timingOffsetSeconds` (negative reviewed beat zero).
+  Chart-specific padding is encoded in SSC. `displayBpm` remains a separate
+  optional nominal label; it does not change the quantizer.
+- Each chart has `musicalQuantization:{grid,noteEndpoints,rhythmicEndpoints,
+  fineTickFallbackEndpoints,maximumNoteErrorMs,meanNoteErrorMs,
+  maximumScrollEventErrorMs,endpoints,scrollEvents,scope}`. Default exact exports
+  have null `musicalQuantization` and null `musicalGridReviewSha256`.
+- Each endpoint is `{lane,kind,index,sourceSeconds,exportSeconds,shiftMs,tick,
+  method}`. `lane` and source array `index` are zero-based; `kind` is `tap`,
+  `hold-head` or `hold-tail`. Signed `shiftMs` is export minus source time;
+  `tick` is the unpadded musical tick. Method is `rhythmic-subdivision` or
+  `fine-tick-fallback`. No fallback is hidden.
+- Scroll event records are `{index,sourceSeconds,exportSeconds,shiftMs,tick,
+  method:"fine-tick"}`. Their multipliers remain unchanged in source references
+  and SSC. All numerical timing units and error limits above apply equally.
+
+```sh
+python3 tools/danoni-dump/ruffle/prepare_pack.py SOURCE_EXPORT /private/tmp/musical-pack-new \
+  --audio ogg --vorbis-encoder /private/tmp/encode-vorbis \
+  --musical-grid /private/tmp/reviewed-grid.json
+python3 tools/danoni-dump/ruffle/test_musical_grid.py
+```
+
+### Measured private musical pack
+
+`~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-musical-grid-v3/playable.zip`
+contains five songs and six charts, with prior audio/previews/tiers preserved.
+Independent parsing compares **all 2,493 notes** with their original timestamps;
+no notes are lost. Menu summaries now report 160/175/110/150/200 because these
+SSC files actually use the fitted musical timing grids, unlike the display-only
+variant. The existing display-tag summary issue remains for exact-frame packs.
+
+| Chart | Fitted timing BPM | Maximum additional note shift | Fine-tick fallbacks |
+|---|---:|---:|---:|
+| 桃源郷 | 159.7875 | 8.431 ms | 0 / 333 |
+| 桃源郷 Hard | 159.7875 | 8.478 ms | 0 / 605 |
+| RUN | 174.7568 | 7.899 ms | 0 / 401 |
+| 北風のメロディー | 109.6703 | 8.893 ms | 186 / 433 |
+| ころっけわっしょい | 149.8127 | 8.331 ms | 0 / 407 |
+| emy | 199.7594 | 8.703 ms | 2 / 314 |
+
+桃源郷 and RUN classify entirely as quarter/eighth notes; ころっけ is all quarters;
+emy has 312 quarter/eighth notes and two finer exceptions. 北風's irregular
+sections retain mixed fine subdivisions rather than being forced onto the
+110 BPM rhythmic lattice (which could shift them over 100 ms). A reviewed
+piecewise tempo map would improve colours there; this exporter currently
+supports one constant musical grid per audio track. Its quarter-beat origins
+remain provisional, so colours are an estimate rather than recovered authoring
+metadata. Changing that phase among equivalent subdivisions can change colour
+labels without changing event times.
+
+The same musical policy also passes on Higan: 562 taps, nine hold pairs and
+12 scroll events, maximum note/endpoint shift about 8.44 ms. Source colours are
+still recorded as unrepresented. Original synthetic tests cover frame-rounded
+rhythmic snapping, fine-tick outliers, strict-budget rejection, collapsed holds,
+whole-beat pre-roll padding, source-bound review files and a 7-key pack. The
+musical ZIP's five audio hashes match the already validated exact pack byte for
+byte; no transcode or source-sync correction was added by grid quantization.
+All music, per-work review JSON and validation reports remain local.

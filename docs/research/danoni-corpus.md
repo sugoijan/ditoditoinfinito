@@ -694,3 +694,15 @@ The newer `2004-kouhaku-display-bpm/playable.zip` adds explicitly reviewed
 records the remaining game-side issue: SSC summary currently ignores that tag
 and uses the synthetic 75 BPM timing. Existing stored library entries need
 reimport/recomputation after the implementation session fixes the summary.
+
+
+### Approximate musical-grid variant (2026-10-09)
+
+The maintainer accepts single-digit millisecond quantization. The generic
+[opt-in musical exporter](danoni-postprocess.md#opt-in-musical-timing-with-a-strict-error-budget)
+now produces `2004-kouhaku-musical-grid-v3/playable.zip`, preserving all 2,493 notes
+with maximum added shift 8.893 ms and full signed shift/fallback reports. It uses
+fitted timing BPMs, so the existing menu shows 160/175/110/150/200 and regular
+notes occupy musical colour buckets. 北風 retains 186 fine-tick fallbacks; tempo
+segments and quarter-beat phase still need review. Default exact exports,
+original dos/native evidence, and unchanged audio remain separate.

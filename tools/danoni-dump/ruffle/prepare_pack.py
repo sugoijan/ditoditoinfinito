@@ -2,7 +2,8 @@
 """Prepare a playable SSC pack from normalized, audio-relative chart exports.
 
 Shared post-processing for any supported export; no SWF execution, fetching,
-family-specific chart parsing or musical-tempo replacement occurs here.
+family-specific chart parsing occurs here. Exact frame timing is the default;
+an explicit source-bound musical grid enables bounded experimental quantization.
 """
 import argparse
 import json
@@ -15,6 +16,7 @@ import wave
 import zipfile
 
 from export_io import digest, write_json
+from musical_grid import validate_grid,position,summarize as musical_summary
 from paths import external_directory
 from pack_policy import star_count,tier_for_stars,choose_preview,display_bpm
 
@@ -53,16 +55,20 @@ def frame(seconds):
     return tick
 
 
-def ssc_chart(chart,tier,stars):
+def ssc_chart(chart,tier,stars,grid=None):
     mode=chart['mode'];lanes=chart['lanes']
     if mode not in MODES or len(lanes)!=MODES[mode]:raise ValueError('Unsupported/incorrect built-in DanOni layout')
+    def event_tick(seconds,rhythmic=True):
+        exact=frame(seconds)
+        return position(seconds,grid,rhythmic)[0] if grid else exact
+    bpm=grid['bpm'] if grid else 75;phase=grid['beatZeroSeconds'] if grid else 0;quantum=60/bpm/48
     notes={};events=[]
     for lane,data in enumerate(lanes):
-        taps=[frame(seconds) for seconds in data['tapsSeconds']];holds=[]
+        taps=[event_tick(seconds) for seconds in data['tapsSeconds']];holds=[]
         for seconds in taps:events.append((seconds,lane,'1'))
         for pair in data['holdsSeconds']:
             if len(pair)!=2:raise ValueError('Unpaired hold')
-            head,tail=map(frame,pair)
+            head,tail=map(event_tick,pair)
             if head>=tail:raise ValueError('Invalid hold duration')
             holds.append((head,tail));events.extend([(head,lane,'2'),(tail,lane,'3')])
         holds.sort()
@@ -70,7 +76,8 @@ def ssc_chart(chart,tier,stars):
             raise ValueError('Overlapping holds/taps cannot be represented faithfully')
     if not events:raise ValueError('Empty chart')
     speed=chart.get('speed',[])
-    padding=max(0,-min([t for t,_,_ in events]+[frame(e['seconds']) for e in speed]))
+    padding=max(0,-min([t for t,_,_ in events]+[event_tick(e['seconds'],False) for e in speed]))
+    if grid:padding=math.ceil(padding/48)*48  # Preserve musical quantization during pre-roll padding.
     for tick,lane,kind in events:
         row=notes.setdefault(tick+padding,['0']*len(lanes))
         if row[lane]!='0':raise ValueError('Conflicting notes cannot be represented faithfully')
@@ -81,22 +88,32 @@ def ssc_chart(chart,tier,stars):
     for e in speed:
         multiplier=e['multiplier']
         if type(multiplier) not in (float,int) or not math.isfinite(multiplier):raise ValueError('Invalid scroll multiplier')
-        scroll.append(f"{(frame(e['seconds'])+padding)/48:.15g}={multiplier:.15g}")
+        scroll.append(f"{(event_tick(e['seconds'],False)+padding)/48:.15g}={multiplier:.15g}")
     return ('#NOTEDATA:;\n'+f'#STEPSTYPE:danoni-{mode};\n#DESCRIPTION:;\n#DIFFICULTY:{tier};\n#METER:{stars if stars is not None else 0};\n'
-        +f'#OFFSET:{padding/60:.15g};\n#BPMS:0=75;\n'
+        +f'#OFFSET:{padding*quantum-phase:.15g};\n#BPMS:0={bpm:.15g};\n'
         +(f"#SCROLLS:{','.join(scroll)};\n" if scroll else '')+f'#NOTES:{rows};\n')
 
 
-def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None):
+def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None,musical_grid=None):
     if codec not in ('wav','ogg') or tier_policy not in ('stars','edit'):raise ValueError('Unknown audio/tier policy')
     tier_for_stars(None,bounds)
     source,raw,manifest,entries=load_export(source)
     reviews={ident:display_bpm(value) for ident,value in (display_bpms or {}).items()}
     if set(reviews)-{e['id'] for e in entries}:raise ValueError('Display BPM refers to an unknown chart')
+    grids={};grid_bytes=None
+    if musical_grid:
+        grid_bytes=musical_grid.read_bytes();review=json.loads(grid_bytes)
+        if review.get('schema')!='ddi-reviewed-musical-grid/experimental-1' or review.get('sourceManifestSha256')!=digest(raw):
+            raise ValueError('Musical grid review must match the normalized source manifest')
+        if set(review['charts'])!={e['id'] for e in entries}:raise ValueError('Musical grid review must cover every chart id exactly')
+        grids={ident:validate_grid(value) for ident,value in review['charts'].items()}
     output=external_directory(output);output.mkdir(parents=True,exist_ok=False)
     (output/'songs').mkdir();(output/'references').mkdir()
     groups={}
     for e in entries:groups.setdefault(e['music']['sha256'],[]).append(e)
+    for group in groups.values():
+        if grids and any(grids[e['id']]!=grids[group[0]['id']] for e in group):raise ValueError('Charts sharing music need the same reviewed musical grid')
+    if grid_bytes:write_json(output/'musical-grid-review.json',json.loads(grid_bytes))
     songs=[];version=subprocess.check_output([str(ffmpeg),'-version'],text=True).splitlines()[0];used=set()
     for number,group in enumerate(groups.values(),1):
         first=group[0];ident=first['id'] if re.fullmatch(r'[A-Za-z0-9_-]+',first['id']) else f'song-{number}'
@@ -124,7 +141,8 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
             decoded.unlink()
         meta=first['metadata'];title=meta.get('title',meta.get('musicTitle',first['id']));artist=meta.get('artist','')
         if any(c in str(title)+str(artist) for c in ';\r\n'):raise ValueError('Unrepresentable header')
-        text=(f'#VERSION:0.83;\n#TITLE:{title};\n#ARTIST:{artist};\n#MUSIC:{name};\n#OFFSET:0;\n#BPMS:0=75;\n'
+        grid=grids.get(first['id']);timing_bpm=grid['bpm'] if grid else 75;phase=grid['beatZeroSeconds'] if grid else 0
+        text=(f'#VERSION:0.83;\n#TITLE:{title};\n#ARTIST:{artist};\n#MUSIC:{name};\n#OFFSET:{-phase:.15g};\n#BPMS:0={timing_bpm:.15g};\n'
               +f"#SAMPLESTART:{preview['startSeconds']:.9g};\n#SAMPLELENGTH:{preview['lengthSeconds']:.9g};\n")
         selected=[reviews[e['id']] for e in group if e['id'] in reviews]
         if selected and any(v!=selected[0] for v in selected):raise ValueError('Conflicting display BPMs for charts sharing music')
@@ -133,22 +151,24 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
         charts=[]
         for i,e in enumerate(group):
             tier=tier_for_stars(e['stars'],bounds) if tier_policy=='stars' else 'Edit'
-            text+=ssc_chart(e['chart'],tier,e['stars'])
+            text+=ssc_chart(e['chart'],tier,e['stars'],grids.get(e['id']))
             omitted={key:len(e['chart'].get(key,[])) for key in ['colors','boost','stops','effects'] if e['chart'].get(key)}
             charts.append({'id':e['id'],'difficultyStars':e['stars'],'difficultyClassification':tier,
                 'classificationSource':f'pack heuristic: {tier_policy}','sourceDifficultyClassification':e['metadata'].get('difficultyClassification'),
-                'unrepresentedEffects':omitted})
+                'unrepresentedEffects':omitted,'musicalQuantization':musical_summary(e['chart'],grids[e['id']]) if grids else None})
             write_json(output/'references'/f'{ident}-{i}.json',{'sourceChart':e['chart'],'sourceMetadata':e['metadata'],'sourceReference':e['reference']})
         (folder/'song.ssc').write_text(text)
         songs.append({'id':ident,'title':title,'music':f'songs/{ident}/{name}','musicSha256':digest(destination.read_bytes()),
             'sourceAudioSha256':music['sha256'],'pcmSampleRate':rate,'pcmChannels':channels,'pcmFrames':count,
             'decodeCommand':decode,'encodingCommand':command,'encoderVersion':encoder_version,
             'encoderSha256':digest(vorbis_encoder.read_bytes()) if codec=='ogg' else None,
-            'preview':preview,'displayBpm':reviewed,'simfile':f'songs/{ident}/song.ssc','charts':charts})
+            'timingBpm':timing_bpm,'timingOffsetSeconds':-phase,'preview':preview,'displayBpm':reviewed,'simfile':f'songs/{ident}/song.ssc','charts':charts})
     report={'schema':'ddi-playable-pack/experimental-1','sourceSchema':manifest['schema'],'sourceManifestSha256':digest(raw),
         'sourceExport':str(source),'prepareSourceSha256':digest(Path(__file__).read_bytes()),
-        'policySourceSha256':digest(Path(__file__).with_name('pack_policy.py').read_bytes()),'codec':codec,'ffmpeg':version,
-        'timingBpm':75,'noteTimingModified':False,'tierPolicy':{'name':tier_policy,'upperBounds':list(bounds),'tiers':['Beginner','Easy','Medium','Hard','Challenge']},'songs':songs}
+        'policySourceSha256':digest(Path(__file__).with_name('pack_policy.py').read_bytes()),
+        'quantizerSourceSha256':digest(Path(__file__).with_name('musical_grid.py').read_bytes()),'codec':codec,'ffmpeg':version,
+        'timingBpm':None if grids else 75,'noteTimingModified':bool(grids),
+        'musicalGridReviewSha256':digest(grid_bytes) if grid_bytes else None,'tierPolicy':{'name':tier_policy,'upperBounds':list(bounds),'tiers':['Beginner','Easy','Medium','Hard','Challenge']},'songs':songs}
     write_json(output/'manifest.json',report)
     with zipfile.ZipFile(output/'playable.zip','x',compression=zipfile.ZIP_DEFLATED) as archive:
         for f in sorted((output/'songs').rglob('*')):
@@ -161,6 +181,7 @@ if __name__=='__main__':
     p.add_argument('--audio',choices=['wav','ogg'],default='wav');p.add_argument('--ffmpeg',type=Path,default=shutil.which('ffmpeg'))
     p.add_argument('--vorbis-encoder',type=Path);p.add_argument('--tier-policy',choices=['stars','edit'],default='stars')
     p.add_argument('--star-tier-bounds',default='1,3,5,7');p.add_argument('--preview-seconds',type=float,default=12)
+    p.add_argument('--musical-grid',type=Path,help='Opt-in source-bound reviewed musical grid JSON; changes timing within a <10 ms budget')
     p.add_argument('--display-bpm',action='append',default=[],metavar='CHART_ID=BPM|LOW:HIGH|*')
     a=p.parse_args();bounds=tuple(map(int,a.star_tier_bounds.split(',')));reviews={}
     for value in a.display_bpm:
@@ -168,5 +189,5 @@ if __name__=='__main__':
         if ident in reviews:p.error('Duplicate display-BPM chart id')
         reviews[ident]=bpm
     if a.ffmpeg is None:p.error('Installed FFmpeg required')
-    r=prepare(a.source,a.output,a.audio,a.ffmpeg,a.vorbis_encoder,bounds,a.preview_seconds,a.tier_policy,reviews)
-    print(json.dumps({'songs':len(r['songs']),'charts':sum(len(s['charts']) for s in r['songs']),'noteTimingModified':False}))
+    r=prepare(a.source,a.output,a.audio,a.ffmpeg,a.vorbis_encoder,bounds,a.preview_seconds,a.tier_policy,reviews,a.musical_grid)
+    print(json.dumps({'songs':len(r['songs']),'charts':sum(len(s['charts']) for s in r['songs']),'noteTimingModified':r['noteTimingModified']}))
