@@ -76,6 +76,47 @@ with a Video setting whose default turns a movie off when it costs frames.
 Verification: `just video` on macOS; CI green on Linux with the same
 hashes; `check.mjs` decodes the three codecs.
 
+**Done 2026-10-09.** What differs from the above, and what later steps need:
+
+- Module: 1,123,345 bytes, 528,520 gzipped. Exports only the `ddi_*`
+  functions (`--export=` per function, not `--export-dynamic`, which also
+  kept FFmpeg's public API); 1 MiB stack placed first (an overflow traps);
+  memory capped at 1 GiB; frames over 3840×2160 refused. Xvid 640×360
+  0.74 ms/frame, H.264 852×480 2.7 ms, 1280×720 3.8 ms under Node.
+- Imports: 20, all `wasi_snapshot_preview1`, but not quite the trial's
+  set: `environ_get`, `environ_sizes_get`, `clock_time_get`, `fd_close`,
+  `fd_fdstat_get`, `fd_fdstat_set_flags`, `fd_filestat_get`,
+  `fd_prestat_get`, `fd_prestat_dir_name`, `fd_read`, `fd_readdir`,
+  `fd_seek`, `fd_write`, `path_filestat_get`, `path_open`,
+  `path_remove_directory`, `path_rename`, `path_unlink_file`,
+  `poll_oneoff`, `proc_exit`. Step 2's worker implements these.
+- Planes: any 8–16-bit planar YUV or grey becomes 8-bit 4:2:0 in the
+  shim (4:4:4 and 4:2:2 chroma averaged, high bit depth rounded).
+- Timestamps follow StepMania 5.1 (`MovieDecoder_FFMpeg::DecodePacketInBuffer`
+  stamps a frame with `frame->pkt_dts`, the packet that released it): with
+  B-frames the first frame is at one or two frame periods, not 0, as packs
+  were timed against. Step 4 shows the first frame from the segment's start
+  ("the first frame is always shown", research section 4); step 6 must stamp
+  WebCodecs frames the same way. `ddi_duration` is −1 when the container
+  only guesses it from the bitrate (raw MPEG-2): the end is known at EOF.
+- Seeking lands on the same frame, byte for byte, as decoding straight
+  through: it backs off by the reorder delay, goes back one keyframe more
+  when the target was an open-GOP B-frame the decoder drops, and decodes
+  from the start when a seek finds nothing (an AVI whose index is lost to
+  truncation). A seek in 720p H.264 with long GOPs took up to 1.2 s, so
+  step 4 opens and seeks early.
+- `video/clips.sh` (behind `just video-check`) generates eight clips with
+  FFmpeg's test pattern (the three pack codecs, 4:4:4, 4:2:2, 10-bit,
+  tagged and untagged BT.709) and compares every frame with the `ffmpeg`
+  command's decode; H.264 is bit-exact, MPEG-4/MPEG-2 ≥ 78 dB.
+- FFmpeg comes from the signed ffmpeg.org release tarball, not GitHub's
+  generated archive (stable bytes). `LICENSES/LGPL-2.1-or-later.txt` is not
+  committed (`reuse lint` rejects a licence no tracked file uses); the
+  build copies FFmpeg's `COPYING.LGPLv2.1` to
+  `target/video/ddivideo.LICENSE.txt`, served next to the module.
+- CI caches only the outputs, keyed on `build.sh`, `FFMPEG.toml` and the
+  shim, and uploads them as the `ddivideo` artifact for step 2's build.
+
 ## Step 2. The worker (commit 2)
 
 `app/src/web/video_worker.js` (plain JS, served by Trunk `copy-file`; it

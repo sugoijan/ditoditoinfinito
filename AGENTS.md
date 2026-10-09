@@ -35,6 +35,9 @@ the browser are implementation details, not advertised features.
   settings in `localStorage`, imported songs in IndexedDB. Compiles for
   `wasm32-unknown-unknown` only.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md`.
+- `video/` the software video decoder: a C shim over a cut-down FFmpeg,
+  built to `target/video/ddivideo.wasm` with wasi-sdk (LGPL module, never
+  committed); `docs/plans/video-backgrounds.md`.
 - `assets/songs/<id>/` bundled songs with a `PROVENANCE.toml` each;
   `assets/fonts/` the embedded HUD font.
 
@@ -53,6 +56,9 @@ the browser are implementation details, not advertised features.
   compares every `.sm` under a local folder against the two oracle parsers
   (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`).
   Third-party songs used this way stay local.
+- `just video` builds the decoder module (downloads the pinned toolchain and
+  FFmpeg into `target/video/`); `just video-check [file]` checks it on a file
+  or on generated clips against the `ffmpeg` command's decode.
 - `cargo run -p xtask -- gen-songs` / `gen-credits` regenerate the manifest and
   credits (Trunk runs both before every build; CI checks `CREDITS.md` is fresh).
 

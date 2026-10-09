@@ -36,6 +36,38 @@ jobs:
           cargo run -p xtask -- gen-songs
           cargo run -p xtask -- gen-credits --check
 
+  # The software video decoder (video/): FFmpeg built with wasi-sdk, checked
+  # on generated clips against the ffmpeg command's own decode.
+  video:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cache the module
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            target/video/ddivideo.wasm
+            target/video/ddivideo.json
+            target/video/ddivideo.LICENSE.txt
+          key: video-${{ hashFiles('video/build.sh', 'video/FFMPEG.toml', 'video/ddivideo.c') }}
+      - name: Build the module
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: video/build.sh
+      - name: Describe the module
+        run: cat target/video/ddivideo.json
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Check the module on generated clips
+        run: video/clips.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ddivideo
+          path: target/video/ddivideo.*
+
   build:
     runs-on: ubuntu-latest
     steps:

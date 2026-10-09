@@ -23,6 +23,20 @@ core-check:
 # Run all checks
 check: core-check app-check regen-seo reuse-lint
 
+# Downloads the wasi-sdk and FFmpeg pinned in video/FFMPEG.toml on first run.
+# Build the software video decoder into target/video/
+video:
+    @video/build.sh
+
+# With no file: generated clips of each codec against ffmpeg's own decode
+# (needs ffmpeg with libx264 and Node 22+).
+# Check the video decoder on a file, or on generated clips
+video-check file="": video
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "{{file}}" ]; then exec video/clips.sh; fi
+    exec node --no-warnings video/check.mjs "{{file}}" --png target/video/check.png
+
 # Run native unit tests
 test:
     @cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p xtask --features ddi-platform/decode

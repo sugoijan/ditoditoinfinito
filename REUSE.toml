@@ -6,6 +6,11 @@ path = ["**"]
 SPDX-FileCopyrightText = "すごいジャン <me@sugoijan.dev>"
 SPDX-License-Identifier = "MIT"
 
+# The video decoder module (target/video/ddivideo.wasm, built by
+# video/build.sh, never committed) is FFmpeg, LGPL-2.1-or-later; the build
+# copies FFmpeg's own licence text next to it (ddivideo.LICENSE.txt) and the
+# site serves both. Its sources here (video/) are MIT like the rest.
+
 # Dancing☆Onigiri key mode and key code tables, generated from danoniplus
 # (https://github.com/cwtickle/danoniplus, js/lib/danoni_constants.js).
 [[annotations]]

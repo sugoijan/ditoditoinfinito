@@ -1,0 +1,59 @@
+# The software video decoder: a cut-down FFmpeg compiled to wasm with
+# wasi-sdk (docs/research/video-backgrounds.md, section 6). Read by
+# `video/build.sh` (one `key = "value"` per line, the configure flags one per
+# line; keep that shape) and by `xtask gen-credits`.
+#
+# The module is LGPL-2.1-or-later (no `--enable-gpl`, no `--enable-nonfree`);
+# it is built, never committed, and served as a separate file.
+
+name = "FFmpeg"
+version = "9.0.2"
+tag = "n9.0.2"
+license = "LGPL-2.1-or-later"
+homepage = "https://ffmpeg.org/"
+source_url = "https://github.com/FFmpeg/FFmpeg/tree/n9.0.2"
+
+# Release tarball, signed with the FFmpeg release key
+# FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8 (checked 2026-10-09).
+tarball_url = "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz"
+tarball_sha256 = "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
+
+# Toolchain: wasi-sdk release tarballs, per host.
+wasi_sdk_version = "34.0"
+wasi_sdk_url = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/"
+wasi_sdk_sha256_arm64_macos = "9c59398106b417f8f14913380fdf0097a8cc0ff4af9eb3ce0065a859e88d49e9"
+wasi_sdk_sha256_x86_64_macos = "87d27fa8adc68dee59bfbf2e22a6d34ef717c34d6bf1d8af2a56fc929d9ce0eb"
+wasi_sdk_sha256_x86_64_linux = "b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4"
+wasi_sdk_sha256_arm64_linux = "f7e243dff54d60bcc576e94d6166b69f410f2500ae4a9ceef34315be10e77971"
+
+# `configure` flags after the toolchain ones (`--cc`, `--ar`, … are added by
+# the build script): only the demuxers, parsers and decoders that packs use
+# (AVI and raw MPEG video; H.264, MPEG-4 Part 2, MPEG-2), single-threaded,
+# no swscale (the worker hands over YUV planes and the renderer converts).
+configure = [
+  "--target-os=none",
+  "--arch=wasm32",
+  "--enable-cross-compile",
+  "--disable-everything",
+  "--disable-programs",
+  "--disable-doc",
+  "--disable-network",
+  "--disable-pthreads",
+  "--disable-w32threads",
+  "--disable-os2threads",
+  "--disable-runtime-cpudetect",
+  "--disable-autodetect",
+  "--disable-debug",
+  "--disable-avdevice",
+  "--disable-avfilter",
+  "--disable-swresample",
+  "--disable-swscale",
+  "--enable-avcodec",
+  "--enable-avformat",
+  "--enable-decoder=h264,mpeg4,mpeg2video",
+  "--enable-parser=h264,mpeg4video,mpegvideo",
+  "--enable-demuxer=avi,mpegvideo",
+  "--enable-protocol=file",
+  "--enable-small",
+  "--extra-cflags=-msimd128 -Oz",
+]
