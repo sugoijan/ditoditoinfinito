@@ -227,3 +227,16 @@ BPMs and rhythmic colour buckets to the existing game. 北風's changing portion
 remain fine-tick fallbacks, and quarter phase remains provisional. Default exact
 exports still use 75 BPM and need the separate display/beat-model integration;
 the optional approximation does not replace that architectural plan.
+
+
+### Follow-up: musical colours must not change native scroll
+
+The maintainer clarifies that original DanOni vertical speed should be retained.
+The musical SSC experiment changes X-mod scroll speed with its BPM, in addition
+to its bounded timestamp quantization. It is not a native-motion export; emy's
+rate at the same X-mod is about 2.663 times its former 75 BPM SSC. The
+[scroll handover](danoni-postprocess.md#scroll-speed-must-stay-independent-of-musical-colouring)
+records the current chart-speed support on main, missing SSC metadata and the
+needed independent native motion/grid representation. Default exact reference
+exports remain intact. The target is native timing/motion with musical colours,
+not musical-BPM-driven replacement of the author's speed.

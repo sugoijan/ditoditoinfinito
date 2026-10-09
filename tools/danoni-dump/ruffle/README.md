@@ -316,3 +316,10 @@ reported; invalid/collapsed holds or conflicting cells reject the export. See
 [the review schema and measured limits](../../../docs/research/danoni-postprocess.md#opt-in-musical-timing-with-a-strict-error-budget).
 `test_musical_grid.py` covers the independent synthetic cases. The newest local
 musical variant is `~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-musical-grid-v3/playable.zip`.
+
+
+The musical variant changes beat-based X-mod scroll velocity as well as note
+quantization. It does **not** preserve original DanOni vertical speed. See
+[the independent-motion handover](../../../docs/research/danoni-postprocess.md#scroll-speed-must-stay-independent-of-musical-colouring)
+for the maintainer's clarified target and the difference between compensating an
+old SSC baseline and verifying the actual native engine's motion.

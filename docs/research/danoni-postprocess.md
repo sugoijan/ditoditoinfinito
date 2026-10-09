@@ -385,3 +385,46 @@ whole-beat pre-roll padding, source-bound review files and a 7-key pack. The
 musical ZIP's five audio hashes match the already validated exact pack byte for
 byte; no transcode or source-sync correction was added by grid quantization.
 All music, per-work review JSON and validation reports remain local.
+
+
+## Scroll speed must stay independent of musical colouring
+
+Maintainer clarification: inferred musical BPM/phase is wanted for rhythmic
+alignment and colours, **not to replace the work's original DanOni vertical
+speed**. These are separate concerns: source judgement times, musical grid, and
+native motion (base speed, speed changes and per-note boost). Keep that separation
+in future normalization and game integration.
+
+The musical SSC variant above changes ordinary beat-based X-mod motion too:
+[`ScrollState`](../../engine/src/scroll.rs) uses displayed beat distance times
+the player multiplier. With no compensating scroll segments, a track at 199.759
+BPM moves about **2.663 times** as fast as its earlier 75 BPM SSC at the same
+setting. The 9 ms bound covers note timestamps only, not visual travel speed.
+C-mod motion ignores timing BPM, but also ignores author scroll segments, so it
+is not a general native-motion preservation solution. The v3 ZIP is therefore a
+rhythmic quantization experiment, **not a native-scroll-fidelity export**.
+
+A constant `75/musicalBpm` scroll multiplier can preserve the *previous SSC's*
+X-mod rate while changing its musical grid; that is not proof of matching the
+original SWF. Native preservation needs the original speed scale and field
+geometry/approach time. Higan records `authorSpeed:1.5`, `initialPixelSpeed:3`;
+Kouhaku validates `_global.SpeedUp=2`, `SpeedY=188`, but those raw variables have
+not yet become a verified normalized motion model. Its reconstructed CW
+`difData` speed 1 is an export placeholder and must not be presented as the
+original author's speed.
+
+The concurrently advanced main checkout already has `SpeedSource::Chart` and
+`speed_for_chart` for native DanOni metadata (`DanoniChart.init_speed`). It maps
+modern CW units independently of musical BPM and keeps author scroll changes.
+SSC charts lack that native metadata, so selecting chart speed cannot recover it
+from v3. Do not change main's code from this research worktree.
+
+Handover target: preserve exact source timing plus measured native motion, and
+attach a separate reviewed musical grid/quantization hint used for colours and
+beat-driven decoration. If an approximate musical SSC remains useful, make its
+scroll compensation and baseline explicit and verify motion against the native
+capture before calling it original-speed preservation. Capture consecutive note
+positions, source arrow/field dimensions, receptor position and units; record
+base velocity and events separately from inferred BPM. The source's frame clock
+and music origin remain the reference. Quarter-phase review and 北風's changing
+tempo sections are still independent tasks.
