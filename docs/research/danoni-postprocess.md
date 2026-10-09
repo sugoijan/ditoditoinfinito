@@ -134,9 +134,10 @@ references/<song-id>-<n>.json    sourceChart, sourceMetadata, sourceReference
   `{kind,sscValue,source}`; numeric kinds also have `minimumBpm`, `maximumBpm`.
   Kinds are `single`, `range`, `unknown`; `source` is `explicit review input`.
   This metadata is independent of playback timing.
-- `preview`: `startSeconds`, `lengthSeconds`, `status`, `thresholdRms`; selected
-  previews also have `firstActiveSeconds`, `activeFraction` and `method`.
-  `status` is `selected` or `no-activity`. `firstActiveSeconds` is an RMS-threshold
+- `preview`: `startSeconds`, `lengthSeconds`, `status`, `thresholdRms` and policy
+  diagnostics. New exports use the [pickup policy](#earliest-music-pickup-previews)
+  below, including explicit fallback statuses. Older energetic excerpts retain
+  their original fields/statuses. `firstActiveSeconds` is an RMS-threshold
   heuristic, not a claim about perceived first sound. RMS uses normalized PCM
   amplitude across all channels; stereo channels are not summed as waveforms.
 
@@ -156,13 +157,13 @@ Default stars-to-tier boundaries are **1,3,5,7**: 0–1 Beginner, 2–3 Easy,
 `--tier-policy edit` for Edit everywhere, or change `--star-tier-bounds` for a
 source rating scale. Extraction references do not acquire those categories.
 
-The preview picker uses half-second RMS windows, an activity threshold of 15%
-of peak RMS (at least one PCM quantization step), and three consecutive active
-windows where available. It selects an energetic, mostly active 12-second
-excerpt after the intro, generally within the middle 20–80% of the track.
-`--preview-seconds` accepts 1–30 seconds and short tracks use their available
-length. Silent tracks report `no-activity`; this is a useful excerpt heuristic,
-not chorus recognition. Long music is bounded to ten minutes, mono/stereo PCM16.
+The earlier energetic preview policy selected a mostly active passage in the
+middle 20–80% of the track, using half-second RMS and a 15%-of-peak threshold.
+Those existing local artifacts remain intact. New exports select the earliest
+[pickup supported by audio and chart heads](#earliest-music-pickup-previews),
+rather than a later energetic excerpt. `--preview-seconds` accepts 1–30 seconds;
+short remaining passages use their available length instead of moving the start
+back into the quiet intro. Music stays bounded to ten minutes, mono/stereo PCM16.
 
 ```sh
 # WAV needs only installed FFmpeg; Ogg additionally needs the compiled helper.
@@ -602,3 +603,132 @@ The factor is finite, positive and at most 100. It changes authored scroll only;
 notes, BPM, colour quantization, audio and user X-mod remain unchanged. For a
 simple test of the baseline, choose X1 and normal visual scroll; normal user
 multipliers work on top as requested. Nothing changes the game's defaults.
+
+
+## Earliest music-pickup previews
+
+Maintainer feedback: previews should begin when the song gets going, taking the
+first note as a candidate but skipping quiet passages and isolated opening
+notes. The new default
+[`preview_policy.py`](../../tools/danoni-dump/ruffle/preview_policy.py) combines
+raw audio-relative chart heads with decoded PCM strength; it does not depend on
+engine family, key count, musical-grid estimation or source star rating. It
+sets `#SAMPLESTART`/`#SAMPLELENGTH` only. Playback audio, note timing, colour grid,
+BPM, native scroll correction and player settings are unchanged.
+
+### Selection rules
+
+1. Measure RMS in **100 ms PCM windows**, combining channel power rather than
+   waveform amplitudes so opposite-phase stereo does not cancel. Ignore windows
+   below one PCM quantization step when finding the typical level. Use their
+   **75th-percentile RMS** as the reference, and default quiet threshold
+   **35% of that level**, with a one-step floor. A single late loud peak therefore
+   does not determine the reference level.
+2. Enumerate distinct nonnegative tap/hold-head timestamps within the audio,
+   per chart and in chronological order across the work. Chords count once;
+   hold tails are not new attacks. Source seconds are used, independently of
+   optional musical quantization or whole-measure SSC padding.
+3. At each candidate, require nearby audio strength over **150 ms** and
+   sustained strength in at least **two of the next three half-second windows**.
+   At a short track's end, use the available windows. This rejects a short loud
+   transient followed by a quiet opening as the full-music cue.
+4. For chart support, require at least **four distinct heads within three
+   seconds**, the first head at most **one second** ahead, and the following
+   head at most **one second** later. A chart that never supplies such a pattern
+   is excluded from density voting. Require a **strict majority** of informative
+   charts, so a dense Hard opening alone cannot override a sparse Normal opening
+   when both charts have informative patterns elsewhere. This remains a
+   conservative song-level heuristic, not semantic detection of an arrangement.
+5. Select the **first** candidate satisfying both audio and chart evidence.
+   Start **80 ms before it** (clamped at audio zero) to retain the attack, and
+   use up to 12 seconds of available music. Do not pull the start backward just
+   to fit a full-length excerpt.
+
+When joint evidence is unavailable, fallback in order to the earliest
+supported-audio note (`audio-note-fallback`), earliest supported audio window
+(`audio-only-fallback`), then the first above-threshold window
+(`short-audio-fallback`). No activity yields start zero with `no-activity`.
+A fallback is explicitly marked rather than claimed as a fully supported
+music/chart pickup. A strong joint choice has status `selected`.
+
+These rules cannot recognize instrumentation, melody entry or a chorus as a
+listener does. Intro/middle sections with similar volume can remain ambiguous,
+and easy chart density is not an objective measure of musical intensity.
+Thresholds are exposed for review and tuning; no song-specific thresholds or
+hardcoded starting timestamps are present.
+
+### Tuning and report fields
+
+The generic builder accepts:
+
+| Option | Default | Meaning |
+|---|---:|---|
+| `--preview-seconds` | 12 | Clip length, 1–30 seconds; shortened at audio end. |
+| `--preview-quiet-ratio` | 0.35 | Required RMS relative to typical strength, positive through 1. Higher skips softer openings. |
+| `--preview-min-notes` | 4 | Distinct heads required, integer 2–64. |
+| `--preview-max-gap` | 1 | Maximum first/following head gap in seconds, 0.1–10. |
+| `--preview-note-window` | 3 | Lookahead for head count in seconds, 0.5–20. |
+| `--preview-lead-in` | 0.08 | Time before chosen cue in seconds, 0–1; zero starts at the cue. |
+
+`previewPolicySourceSha256` is added to the pack manifest. Each song's preview
+records exact `settings`, `anchorSeconds`, `anchorType` (`note`/`audio`),
+`firstNoteSeconds`, `firstActiveSeconds`, `thresholdRms`, `typicalRms`,
+`activeFraction`, `chartIds`, `informativeChartIds`, `sparseChartIds`,
+`requiredChartSupport`, `selectedAudioSupport`, `selectedChartSupport`,
+`skippedCandidates`, `quietCandidates`, `sparseCandidates`,
+`rejectedJointCandidates`, `firstSkippedCandidates` and `method`, along with
+start/length/status. Activity fraction is the fraction of 100 ms windows
+intersecting the excerpt that exceed the quiet threshold; it is not a
+probability of musical correctness.
+
+Audio support is `{startRms,sustainRms,strongHalfSecondWindows,
+availableHalfSecondWindows,supported}`. Chart support maps chart IDs to
+`{notes,firstNoteGapSeconds,nextNoteGapSeconds,supported}`. Diagnostic gaps
+can be null when insufficient heads exist. At most 16 earlier rejected
+candidates are retained, each `{noteSeconds,reason,audio,chartSupport}`;
+reasons are `quiet-or-unsustained-audio` or `isolated-or-sparse-notes`.
+Skip counts concern candidates before the chosen cue; `rejectedJointCandidates`
+counts the whole joint search, which can scan later material before choosing a
+fallback. Silent output has only start/length/status, RMS reference/settings and
+method because no meaningful cue is available.
+
+```sh
+# Append these options to the musical/native-scroll command above if tuning:
+# --preview-quiet-ratio 0.45 --preview-min-notes 4 --preview-max-gap 1 \
+# --preview-note-window 3 --preview-lead-in 0.08 --preview-seconds 12
+python3 tools/danoni-dump/ruffle/test_preview_policy.py
+```
+
+### Current private pack and checks
+
+The new local artifact is
+`~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-pickup-previews-v2/playable.zip`
+(3,393,949 bytes), with these default choices:
+
+| Song | Earlier energetic preview | New pickup preview | Chosen source note |
+|---|---:|---:|---:|
+| 桃源郷 (shared Normal/Hard) | 83.00 s | **14.87 s** | 14.95 s |
+| RUN | 60.00 s | **10.9033 s** | 10.9833 s |
+| 北風のメロディー | 99.50 s | **8.5367 s** | 8.6167 s |
+| ころっけわっしょい | 48.00 s | **8.0033 s** | 8.0833 s |
+| emy | 87.50 s | **11.57 s** | 11.65 s |
+
+All five choices have joint `selected` status; their per-work diagnostics show
+which quiet/isolated candidates were rejected. Higan independently selects a
+4.0333 s head (preview 3.9533 s), skipping three sparse candidates from its first
+head at 0.55 s despite already strong audio. This exercises a different engine,
+stereo input and hold heads without another family rule or new acquisition.
+
+Seven original synthetic tests cover quiet-but-nonzero intros, loud music with
+an isolated early note, misleading loud transients, multi-chart density votes,
+chords/hold tails, late pickup on a short track, silent audio, opposite-phase
+stereo and invalid settings. All related pack/grid/scroll tests pass. The game
+parser/engine comparisons were rebuilt and run with **Rust 1.99.0**, after the
+maintainer's upgrade, and check all six charts' preview tags, 2,493 note times,
+colour buckets and X1/X2/X3 scroll rates against the accepted native-scroll pack.
+A byte comparison of SSC after removing only the two preview tags is identical;
+all five audio hashes are also identical. `preview-only-comparison.json` and
+`chart-scroll-verification.jsonl` retain that evidence beside the ZIP. Existing
+Chrome decoding evidence remains applicable to those identical audio bytes.
+The picker has not been claimed to recover an author's original preview;
+these are starting points for the maintainer to listen to and adjust.

@@ -343,3 +343,28 @@ The newest local trial is
 Use `--scroll-factor 1.2` or `0.8` when regenerating a fresh pack for a 20% faster
 or slower authored baseline; BPM, audio, notes, colours and user settings remain
 unchanged. Exact source exports and earlier experimental ZIPs are preserved.
+
+
+## Preview the first musical passage
+
+The new default preview policy chooses the earliest note cue supported by both
+sustained audio strength and a nearby pattern of distinct note/hold heads.
+Quiet-but-nonzero intros, isolated notes and brief loud transients are skipped;
+chords count once, and density votes are per chart for shared-audio works.
+It adds an 80 ms lead-in and keeps up to 12 seconds, without cropping playback
+music or changing any chart/scroll settings. Sparse/no-chart/audio-only cases
+have explicit fallback statuses.
+
+Use `--preview-quiet-ratio` (default .35), `--preview-min-notes` (4),
+`--preview-max-gap` (1 second), `--preview-note-window` (3 seconds),
+`--preview-lead-in` (.08 seconds) and `--preview-seconds` (12) to tune.
+[Selection rules, report contract and measured starts](../../../docs/research/danoni-postprocess.md#earliest-music-pickup-previews)
+include the limitations of RMS/chart-density heuristics. `test_preview_policy.py`
+uses original synthetic audio/notes; no third-party audio is a fixture.
+
+The newest local variant is
+`~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-pickup-previews-v2/playable.zip`.
+Its music, musical positions/colours and measured native scroll match the
+accepted native-scroll ZIP; only preview tags differ. Parser/engine validation
+for this variant ran with Rust **1.99.0**. The earlier native worker's recorded
+Rust 1.98.0 build identity and original output provenance are unchanged.

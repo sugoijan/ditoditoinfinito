@@ -47,9 +47,10 @@ class Policies(unittest.TestCase):
             for stereo in [False,True]:
                 p=Path(directory)/f'{stereo}.wav';audio(p,stereo)
                 before=hashlib.sha256(p.read_bytes()).hexdigest();preview=choose_preview(p,12)
-                self.assertGreaterEqual(preview['startSeconds'],4)
+                self.assertGreaterEqual(preview['startSeconds'],3.9)
+                self.assertEqual(preview['anchorSeconds'],4)
                 self.assertLessEqual(preview['startSeconds']+preview['lengthSeconds'],20)
-                self.assertEqual(preview['activeFraction'],1)
+                self.assertGreater(preview['activeFraction'],.98)
                 self.assertEqual(before,hashlib.sha256(p.read_bytes()).hexdigest())
 
     def test_other_modes_holds_pre_roll_and_loss_rejection(self):

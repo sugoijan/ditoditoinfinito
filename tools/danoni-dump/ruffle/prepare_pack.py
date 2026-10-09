@@ -98,7 +98,7 @@ def ssc_chart(chart,tier,stars,grid=None,native_motion=None,scroll_factor=1):
         +(f"#SCROLLS:{','.join(scroll)};\n" if scroll else '')+f'#NOTES:{rows};\n')
 
 
-def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None,musical_grid=None,native_scroll=None,scroll_factor=1):
+def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None,musical_grid=None,native_scroll=None,scroll_factor=1,preview_settings=None):
     if codec not in ('wav','ogg') or tier_policy not in ('stars','edit'):raise ValueError('Unknown audio/tier policy')
     tier_for_stars(None,bounds)
     source,raw,manifest,entries=load_export(source)
@@ -155,7 +155,7 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
             rate,channels,count=wav.getframerate(),wav.getnchannels(),wav.getnframes()
             if channels not in (1,2) or count>rate*600:raise ValueError('Unsupported/oversized audio')
             pcm=wav.readframes(count)
-        preview=choose_preview(wav_path,preview_seconds)
+        preview=choose_preview(wav_path,preview_seconds,[e['chart'] for e in group],**(preview_settings or {}))
         name='music.'+codec;destination=folder/name;command=None;encoder_version=None
         if codec=='wav':shutil.copyfile(wav_path,destination)
         else:
@@ -197,6 +197,7 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
     report={'schema':'ddi-playable-pack/experimental-1','sourceSchema':manifest['schema'],'sourceManifestSha256':digest(raw),
         'sourceExport':str(source),'prepareSourceSha256':digest(Path(__file__).read_bytes()),
         'policySourceSha256':digest(Path(__file__).with_name('pack_policy.py').read_bytes()),
+        'previewPolicySourceSha256':digest(Path(__file__).with_name('preview_policy.py').read_bytes()),
         'quantizerSourceSha256':digest(Path(__file__).with_name('musical_grid.py').read_bytes()),
         'scrollPolicySourceSha256':digest(Path(__file__).with_name('scroll_policy.py').read_bytes()),'codec':codec,'ffmpeg':version,
         'timingBpm':None if grids else 75,'noteTimingModified':bool(grids),
@@ -217,6 +218,11 @@ if __name__=='__main__':
     p.add_argument('--musical-grid',type=Path,help='Opt-in source-bound reviewed musical grid JSON; changes timing within a <10 ms budget')
     p.add_argument('--native-scroll',type=Path,help='Source-bound native baseline motion review JSON')
     p.add_argument('--scroll-factor',type=float,default=1,help='Scale the native baseline; user X-mod still applies on top')
+    p.add_argument('--preview-quiet-ratio',type=float,default=.35)
+    p.add_argument('--preview-min-notes',type=int,default=4)
+    p.add_argument('--preview-max-gap',type=float,default=1)
+    p.add_argument('--preview-note-window',type=float,default=3)
+    p.add_argument('--preview-lead-in',type=float,default=.08)
     p.add_argument('--display-bpm',action='append',default=[],metavar='CHART_ID=BPM|LOW:HIGH|*')
     a=p.parse_args();bounds=tuple(map(int,a.star_tier_bounds.split(',')));reviews={}
     for value in a.display_bpm:
@@ -224,5 +230,7 @@ if __name__=='__main__':
         if ident in reviews:p.error('Duplicate display-BPM chart id')
         reviews[ident]=bpm
     if a.ffmpeg is None:p.error('Installed FFmpeg required')
-    r=prepare(a.source,a.output,a.audio,a.ffmpeg,a.vorbis_encoder,bounds,a.preview_seconds,a.tier_policy,reviews,a.musical_grid,a.native_scroll,a.scroll_factor)
+    r=prepare(a.source,a.output,a.audio,a.ffmpeg,a.vorbis_encoder,bounds,a.preview_seconds,a.tier_policy,reviews,a.musical_grid,a.native_scroll,a.scroll_factor,
+        {'quiet_ratio':a.preview_quiet_ratio,'min_notes':a.preview_min_notes,'max_gap':a.preview_max_gap,
+         'note_window':a.preview_note_window,'lead_in':a.preview_lead_in})
     print(json.dumps({'songs':len(r['songs']),'charts':sum(len(s['charts']) for s in r['songs']),'noteTimingModified':r['noteTimingModified']}))

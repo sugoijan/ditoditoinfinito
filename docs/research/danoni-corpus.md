@@ -722,3 +722,18 @@ through the game engine. Native motion evidence/inputs stay in the separate
 The tool's `--scroll-factor` tunes the authored baseline without changing notes,
 audio, BPM or user settings. Source geometry and provisional beat-phase/variable-
 tempo limitations are explicit in the handover.
+
+
+### First-passage previews (2026-10-09)
+
+The latest private pack is
+`~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-pickup-previews-v2/playable.zip`.
+[The generic pickup policy](danoni-postprocess.md#earliest-music-pickup-previews)
+combines sustained audio strength and nearby distinct note/hold heads, skipping
+quiet or isolated openings. Twelve-second excerpts now start at
+14.87/10.9033/8.5367/8.0033/11.57 seconds in song order. Higan also selects an
+earlier supported passage around four seconds. Thresholds and bounded lead-in
+are configurable, with explicit fallback/selection diagnostics. All accepted
+musical note positions, colours, native baseline corrections and audio are
+unchanged. Parser/engine checks run under the maintainer's new Rust 1.99.0;
+old captures/build provenance retain their original toolchain identity.
