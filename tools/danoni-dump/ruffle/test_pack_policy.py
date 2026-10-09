@@ -9,7 +9,7 @@ import tempfile
 import unittest
 import wave
 
-from pack_policy import star_count,tier_for_stars,choose_preview
+from pack_policy import star_count,tier_for_stars,choose_preview,display_bpm
 from prepare_pack import prepare,ssc_chart
 
 
@@ -34,6 +34,13 @@ class Policies(unittest.TestCase):
         self.assertEqual(star_count({}, {'difficultyStars':5}),5)
         for value in [True,-1,1000]:
             with self.assertRaises(ValueError):tier_for_stars(value)
+
+    def test_reviewed_display_bpm_is_separate_metadata(self):
+        self.assertEqual(display_bpm('200')['sscValue'],'200')
+        self.assertEqual(display_bpm('110:220')['kind'],'range')
+        self.assertEqual(display_bpm('*')['kind'],'unknown')
+        for value in ['0','nan','inf','-1','220:110','120:130:140','']:
+            with self.assertRaises(ValueError):display_bpm(value)
 
     def test_preview_skips_silence_including_opposite_phase_stereo(self):
         with tempfile.TemporaryDirectory(prefix='ddi-preview-') as directory:
@@ -68,10 +75,13 @@ class Policies(unittest.TestCase):
             (source/'manifest.json').write_text(json.dumps({'schema':'ddi-normalized-work/experimental-1',
                 'metadata':{'title':'Original synthetic work','artist':'Original fixture'},
                 'music':{'path':'sound.wav','sha256':hashlib.sha256((source/'sound.wav').read_bytes()).hexdigest()},'charts':charts}))
-            result=prepare(source,root/'output','wav',Path(shutil.which('ffmpeg')))
+            result=prepare(source,root/'output','wav',Path(shutil.which('ffmpeg')),display_bpms={'7':'160'})
             self.assertEqual(len(result['songs']),1)
             self.assertEqual([c['difficultyClassification'] for c in result['songs'][0]['charts']],['Medium','Hard'])
             text=(root/'output'/result['songs'][0]['simfile']).read_text()
+            self.assertIn('#DISPLAYBPM:160;',text)
+            self.assertIn('#BPMS:0=75;',text)
+            self.assertEqual(result['songs'][0]['displayBpm']['source'],'explicit review input')
             self.assertIn('#SAMPLESTART:',text);self.assertIn('#SAMPLELENGTH:12;',text)
             self.assertIn('#STEPSTYPE:danoni-7;',text);self.assertIn('#STEPSTYPE:danoni-9B;',text)
             self.assertEqual(result['songs'][0]['pcmChannels'],2)

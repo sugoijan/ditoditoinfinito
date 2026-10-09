@@ -16,7 +16,7 @@ import zipfile
 
 from export_io import digest, write_json
 from paths import external_directory
-from pack_policy import star_count,tier_for_stars,choose_preview
+from pack_policy import star_count,tier_for_stars,choose_preview,display_bpm
 
 SCHEMAS={'ddi-legacy-export/experimental-1','ddi-synthetic-export/experimental-1','ddi-normalized-work/experimental-1'}
 MODES={'5':5,'7':7,'7i':7,'9A':9,'9B':9}
@@ -87,10 +87,12 @@ def ssc_chart(chart,tier,stars):
         +(f"#SCROLLS:{','.join(scroll)};\n" if scroll else '')+f'#NOTES:{rows};\n')
 
 
-def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars'):
+def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None):
     if codec not in ('wav','ogg') or tier_policy not in ('stars','edit'):raise ValueError('Unknown audio/tier policy')
     tier_for_stars(None,bounds)
     source,raw,manifest,entries=load_export(source)
+    reviews={ident:display_bpm(value) for ident,value in (display_bpms or {}).items()}
+    if set(reviews)-{e['id'] for e in entries}:raise ValueError('Display BPM refers to an unknown chart')
     output=external_directory(output);output.mkdir(parents=True,exist_ok=False)
     (output/'songs').mkdir();(output/'references').mkdir()
     groups={}
@@ -124,6 +126,10 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
         if any(c in str(title)+str(artist) for c in ';\r\n'):raise ValueError('Unrepresentable header')
         text=(f'#VERSION:0.83;\n#TITLE:{title};\n#ARTIST:{artist};\n#MUSIC:{name};\n#OFFSET:0;\n#BPMS:0=75;\n'
               +f"#SAMPLESTART:{preview['startSeconds']:.9g};\n#SAMPLELENGTH:{preview['lengthSeconds']:.9g};\n")
+        selected=[reviews[e['id']] for e in group if e['id'] in reviews]
+        if selected and any(v!=selected[0] for v in selected):raise ValueError('Conflicting display BPMs for charts sharing music')
+        reviewed=selected[0] if selected else None
+        if reviewed:text+=f"#DISPLAYBPM:{reviewed['sscValue']};\n"
         charts=[]
         for i,e in enumerate(group):
             tier=tier_for_stars(e['stars'],bounds) if tier_policy=='stars' else 'Edit'
@@ -138,7 +144,7 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
             'sourceAudioSha256':music['sha256'],'pcmSampleRate':rate,'pcmChannels':channels,'pcmFrames':count,
             'decodeCommand':decode,'encodingCommand':command,'encoderVersion':encoder_version,
             'encoderSha256':digest(vorbis_encoder.read_bytes()) if codec=='ogg' else None,
-            'preview':preview,'simfile':f'songs/{ident}/song.ssc','charts':charts})
+            'preview':preview,'displayBpm':reviewed,'simfile':f'songs/{ident}/song.ssc','charts':charts})
     report={'schema':'ddi-playable-pack/experimental-1','sourceSchema':manifest['schema'],'sourceManifestSha256':digest(raw),
         'sourceExport':str(source),'prepareSourceSha256':digest(Path(__file__).read_bytes()),
         'policySourceSha256':digest(Path(__file__).with_name('pack_policy.py').read_bytes()),'codec':codec,'ffmpeg':version,
@@ -155,7 +161,12 @@ if __name__=='__main__':
     p.add_argument('--audio',choices=['wav','ogg'],default='wav');p.add_argument('--ffmpeg',type=Path,default=shutil.which('ffmpeg'))
     p.add_argument('--vorbis-encoder',type=Path);p.add_argument('--tier-policy',choices=['stars','edit'],default='stars')
     p.add_argument('--star-tier-bounds',default='1,3,5,7');p.add_argument('--preview-seconds',type=float,default=12)
-    a=p.parse_args();bounds=tuple(map(int,a.star_tier_bounds.split(',')))
+    p.add_argument('--display-bpm',action='append',default=[],metavar='CHART_ID=BPM|LOW:HIGH|*')
+    a=p.parse_args();bounds=tuple(map(int,a.star_tier_bounds.split(',')));reviews={}
+    for value in a.display_bpm:
+        ident,bpm=value.rsplit('=',1)
+        if ident in reviews:p.error('Duplicate display-BPM chart id')
+        reviews[ident]=bpm
     if a.ffmpeg is None:p.error('Installed FFmpeg required')
-    r=prepare(a.source,a.output,a.audio,a.ffmpeg,a.vorbis_encoder,bounds,a.preview_seconds,a.tier_policy)
+    r=prepare(a.source,a.output,a.audio,a.ffmpeg,a.vorbis_encoder,bounds,a.preview_seconds,a.tier_policy,reviews)
     print(json.dumps({'songs':len(r['songs']),'charts':sum(len(s['charts']) for s in r['songs']),'noteTimingModified':False}))

@@ -123,13 +123,17 @@ references/<song-id>-<n>.json    sourceChart, sourceMetadata, sourceReference
   maxima for Beginner, Easy, Medium and Hard; larger values become Challenge.
 - `songs[]`: `{id,title,music,musicSha256,sourceAudioSha256,pcmSampleRate,
   pcmChannels,pcmFrames,decodeCommand,encodingCommand,encoderVersion,
-  encoderSha256,preview,simfile,charts}`. `music` and `simfile` are relative paths;
+  encoderSha256,preview,displayBpm,simfile,charts}`. `music` and `simfile` are relative paths;
   `pcmFrames` counts sample frames, not interleaved samples. Encoding fields are
   null for WAV. Commands preserve exact argument arrays and local source paths.
 - Each song's `charts[]`: `{id,difficultyStars,difficultyClassification,
   classificationSource,sourceDifficultyClassification,unrepresentedEffects}`.
   Unknown stars are null; source classification is separate from the derived
   string. `unrepresentedEffects` maps populated effect names to array lengths.
+- Song `displayBpm` is null unless explicitly reviewed. Otherwise it is
+  `{kind,sscValue,source}`; numeric kinds also have `minimumBpm`, `maximumBpm`.
+  Kinds are `single`, `range`, `unknown`; `source` is `explicit review input`.
+  This metadata is independent of playback timing.
 - `preview`: `startSeconds`, `lengthSeconds`, `status`, `thresholdRms`; selected
   previews also have `firstActiveSeconds`, `activeFraction` and `method`.
   `status` is `selected` or `no-activity`. `firstActiveSeconds` is an RMS-threshold
@@ -214,3 +218,53 @@ The next corpus work should normalize an existing complete HTML5 7-key dump,
 then cover native 7/9-key families with independent timebase evidence. Musical
 colours still need a separate reviewed beat-grid model in the game; importer and
 play-side changes belong to the other session.
+
+
+## Display BPM handover: exporter and menu are separate
+
+The initial `2004-kouhaku-generic-pack` ZIP contains no `#DISPLAYBPM`; hypotheses
+were left in its separate analysis report. This explains its 75 BPM menu label.
+The shared builder now accepts repeatable `--display-bpm CHART_ID=BPM` or
+`CHART_ID=LOW:HIGH`; quote `CHART_ID=*` for unknown. Only explicit review input
+is emitted. The chart ID selects its shared-audio song; inconsistent overrides
+for charts sharing audio are rejected, as are unknown chart IDs, nonfinite or
+nonpositive values and reversed ranges. Defaults remain unchanged. The option
+is generic and does not load or auto-accept the analyzer's best hypothesis.
+
+```sh
+python3 tools/danoni-dump/ruffle/prepare_pack.py \
+  "$HOME/Music/DanOni/legacy-pilot/exports/2004-kouhaku" /private/tmp/display-pack-new \
+  --audio ogg --vorbis-encoder /private/tmp/encode-vorbis \
+  --display-bpm tougenkyo=160 --display-bpm run=175 --display-bpm kitakaze=110 \
+  --display-bpm korokke=150 --display-bpm emy=200
+```
+
+The private `~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-display-bpm/playable.zip`
+uses these rounded, reviewed nominal musical labels. 北風's 110 is its dominant
+portion's nominal tempo, not a claim of constant tempo through the faster parts.
+The game parser reads all five `DisplayBpm::Single` values while all six charts'
+2,493 note times, previews and difficulty tiers remain unchanged. Audio hashes
+are identical to the prior pack; its existing Chrome proof still applies.
+`chart-verification.jsonl` records parser values and the current menu values.
+
+**The current menu still needs a game-side change.**
+[`library::manifest::summarize`](../../library/src/manifest.rs:103) honors
+`song.display_bpm` only when `song.source.format == SourceFormat::Danoni`.
+Reconstructed `.ssc` files have SSC format, even with `danoni-5` steps types, so
+this function takes `song.timing.bpm_range()` and emits 75. Merely adding the
+standard tag cannot fix that menu. This was reproduced with the real pack:
+parsed display values 160/175/110/150/200, menu values all 75.
+
+The implementation session should honor explicit `DisplayBpm::Single` and
+`Range` regardless of source format. `Actual` should retain the normal timing
+fallback, and DanOni's absent/unknown display tempo should remain blank rather
+than expose the synthetic clock. Preserve the desired Random/unknown policy.
+Suggested regression: parse SSC with `#BPMS:0=75;#DISPLAYBPM:200;` and assert the
+summary's BPM is `200`, while judgement times still use 75. Also cover a range,
+ordinary simfiles without a display override and native DanOni's unknown BPM.
+The imported manifest stores the menu label at import time; previously stored
+entries need reimport or explicit migration/recomputation after that fix.
+
+This is a display-label fix only. Note colours and beat-driven scroll behavior
+require the separate musical beat-grid work; never replace `#BPMS` with the
+nominal display value without repositioning notes.

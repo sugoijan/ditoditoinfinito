@@ -298,3 +298,11 @@ normalization adapter; their existing reference JSON is not this input format.
 describes normalized input, SSC/manifest/ZIP output, tier bounds, previews,
 unsupported effects and cross-family validation. MIT coverage comes from the
 repository's existing REUSE catch-all; no work assets are fixtures.
+
+
+`prepare_pack.py --display-bpm CHART_ID=200` (repeatable) adds reviewed standard
+`#DISPLAYBPM` metadata while keeping `#BPMS:0=75` and all note times unchanged.
+Ranges and explicit unknown are supported. The initial generic pack had no
+such tags. See the [display-BPM handover](../../../docs/research/danoni-postprocess.md#display-bpm-handover-exporter-and-menu-are-separate):
+the current game summary also needs to honor explicit display BPM for SSC
+imports; adding the tag alone will still show 75 until that game-side fix.

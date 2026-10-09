@@ -59,3 +59,16 @@ def choose_preview(wav_path, seconds=12):
     return {'startSeconds':start,'lengthSeconds':min(length,duration-start),'status':'selected',
         'firstActiveSeconds':first_seconds,'activeFraction':best[2] if best else None,
         'thresholdRms':threshold,'method':'sustained RMS activity and energetic excerpt after intro; no audio cropping'}
+
+
+def display_bpm(value):
+    """Explicit reviewed display metadata, independent of the playback grid."""
+    if value=='*':return {'kind':'unknown','sscValue':'*','source':'explicit review input'}
+    try:
+        parts=[float(p) for p in value.split(':')]
+    except (AttributeError,ValueError):raise ValueError('Display BPM must be BPM, LOW:HIGH or *') from None
+    if len(parts) not in (1,2) or any(not math.isfinite(p) or not 0<p<=1e6 for p in parts):
+        raise ValueError('Display BPM must contain one or two finite positive values at most 1e6')
+    if len(parts)==2 and parts[0]>parts[1]:raise ValueError('Display BPM range must be increasing')
+    return {'kind':'single' if len(parts)==1 else 'range','minimumBpm':parts[0],'maximumBpm':parts[-1],
+        'sscValue':':'.join(f'{p:.12g}' for p in parts),'source':'explicit review input'}

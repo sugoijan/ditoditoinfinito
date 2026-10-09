@@ -686,3 +686,11 @@ records dominant-window fits and excluded sections. The latest Kouhaku ZIP is
 `~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-generic-pack/playable.zip`; earlier
 exports and raw source references remain intact. None of these policies changes
 source note timing or automatically adopts a musical BPM/quarter-beat phase.
+
+
+The newer `2004-kouhaku-display-bpm/playable.zip` adds explicitly reviewed
+`#DISPLAYBPM` labels without changing timing/audio. The
+[menu handover](danoni-postprocess.md#display-bpm-handover-exporter-and-menu-are-separate)
+records the remaining game-side issue: SSC summary currently ignores that tag
+and uses the synthetic 75 BPM timing. Existing stored library entries need
+reimport/recomputation after the implementation session fixes the summary.
