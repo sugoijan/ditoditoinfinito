@@ -38,7 +38,7 @@ and six charts. Its `playable.zip` is approximately **3.2 MiB**, versus about
 Installed libvorbis **1.3.7** is the latest stable release listed by
 [Xiph](https://www.xiph.org/downloads/). The small MIT
 [`encode_vorbis.c`](../../tools/danoni-dump/ruffle/encode_vorbis.c) helper accepts
-bounded mono PCM16LE on stdin and uses that public encoder API; it performs no
+bounded mono/stereo PCM16LE on stdin and uses that public encoder API; it performs no
 resampling or timestamp correction. The derived manifest records source/output
 hashes, encoder binary hash/version and command. The system FFmpeg build lacks
 `libvorbis`; attempted Python/libsndfile encoding crashed on full tracks, so
@@ -142,14 +142,15 @@ UV_CACHE_DIR=/private/tmp/ddi-analysis-cache \
 NUMBA_CACHE_DIR=/private/tmp/ddi-numba-cache \
 uv run --python 3.14 --with-requirements tools/danoni-dump/ruffle/requirements-analysis.txt \
   python tools/danoni-dump/ruffle/analyze_tempo.py \
-  "$HOME/Music/DanOni/legacy-pilot/exports/2004-kouhaku" /private/tmp/tempo-new.json
+  "$HOME/Music/DanOni/legacy-pilot/exports/2004-kouhaku" /private/tmp/tempo-new.json \
+  --preferred-bpm emy=200 --preferred-bpm kitakaze=110
 
 # macOS/Homebrew example; installed libvorbis/libogg, not vendored code.
 clang -std=c11 -Wall -Wextra -Werror -O2 \
   -I/opt/homebrew/include -L/opt/homebrew/lib -Wl,-rpath,/opt/homebrew/lib \
   tools/danoni-dump/ruffle/encode_vorbis.c -lvorbisenc -lvorbis -logg \
   -o /private/tmp/encode-vorbis
-python3 tools/danoni-dump/ruffle/repack_kouhaku.py \
+python3 tools/danoni-dump/ruffle/prepare_pack.py \
   "$HOME/Music/DanOni/legacy-pilot/exports/2004-kouhaku" /private/tmp/kouhaku-ogg-new \
   --audio ogg --vorbis-encoder /private/tmp/encode-vorbis
 node tools/danoni-dump/ruffle/verify_audio.mjs \
@@ -157,11 +158,53 @@ node tools/danoni-dump/ruffle/verify_audio.mjs \
   /private/tmp/kouhaku-ogg-new /private/tmp/audio-check-new.json
 ```
 
-Repacking uses preserved passing native/CW evidence, performs no SWF execution
-or fetching, and keeps the source export intact. Its manifest is
-`ddi-kouhaku-playable-pack/experimental-1`, with `songs[]`, per-chart integer
-`difficultyStars`, null classification and raw rating provenance. Simfile timing
-remains 75 BPM. Tests verify synthetic tempo/phase fits and ambiguous aliases,
-Vorbis granule durations/rates and malformed-input rejection, plus every real
-pack note/time/meter and independent Chrome audio alignment. Assets and all
-per-work analysis results remain local.
+The shared builder reads normalized exports, performs no SWF execution or
+fetching, and keeps the source export intact. New manifests use
+`ddi-playable-pack/experimental-1`; the older `stars-ogg-v2` artifact retains its
+`ddi-kouhaku-playable-pack/experimental-1` schema and Edit placeholders. See the
+[generic post-processing contract](danoni-postprocess.md) for source ratings,
+configurable derived tiers, active previews, layouts and output fields. Simfile
+timing remains 75 BPM. Synthetic tests cover tempo/phase ambiguity, changes,
+mono/stereo previews, 7/9-key packs and Vorbis granule durations; real pack
+comparisons check note/hold/scroll timestamps and independent Chrome audio
+alignment. Assets and all per-work analysis results remain local.
+
+
+## Dominant portions and explicit review hints
+
+The generic analyzer accepts `--preferred-bpm CHART_ID=BPM` to choose among
+existing candidate aliases. These are recorded review inputs, never song-name
+rules or assertions that the requested integer is exact. Unknown chart IDs and
+conflicting hints for charts sharing music are rejected. The maintainer's emy
+200 BPM interpretation selects the roughly **199.759** candidate. 北風's 110 hint
+selects the roughly 109.807 global candidate as a starting point.
+
+Twenty-second windows fit near that candidate. Only windows with coherence at
+least 0.94 and p95 residual at most 12 ms are eligible; the dominant cluster is
+weighted by distinct note times, allowing BPM differences of 0.15% of the seed.
+At least two windows must agree. The retained union is refitted, and a poor joint
+phase fit is labelled `tempo-consensus-phase-unresolved`, even if individual
+windows share a tempo. All excluded indices, counts and retained fraction are
+reported. This rejects inconsistent sections from the estimate, not the export.
+The same policy applies to any normalized work; taps and hold heads contribute,
+chords are counted once, and stereo onset envelopes are combined after spectral
+analysis so opposite-phase channels do not cancel in a waveform downmix.
+
+For 北風, three consecutive windows from about **28.62–88.62 s** retain **198 of
+379** distinct note times. Their joint fit is **109.6703 BPM**, coherence 0.9939,
+p95 residual **7.89 ms**. Introductory and later faster/inconsistent portions are
+excluded from that fit. Every original note remains in the pack; this is not a
+whole-song tempo map. emy's reviewed fit uses all 287 distinct note times at
+about **199.7594 BPM**. Reports retain `automaticAcceptance:false` and the
+unverified quarter-beat phase warning. The generic algorithm's synthetic tests
+include a faster minority section and equal-tempo sections with phase jumps.
+
+The newest private pack is
+`~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-generic-pack/playable.zip`:
+five songs, six SSC charts, 3,391,870 bytes. Twelve-second active previews start
+at 83.0/60.0/99.5/48.0/87.5 seconds in song order. Derived tiers are Easy,
+Challenge, Hard, Medium, Medium, Medium; the original numeric stars and source
+references remain separate. All 2,493 taps match the source seconds to 1e-12.
+FFmpeg sample counts and fresh Chrome energetic-window comparisons pass for all
+five Oggs, with zero sample lag. These changes do not fix the game's beat colours;
+the separate musical-beat model above is still needed.

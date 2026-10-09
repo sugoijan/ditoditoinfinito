@@ -47,28 +47,53 @@ def chart_candidates(times):
     return sorted(output,key=lambda c:c['coherence'],reverse=True)
 
 
-def analyze(export, destination):
+def dominant_grid(times, windows, tolerance_bpm=.15):
+    """Fit the best-supported stable windows and report every excluded portion."""
+    import numpy as np
+    eligible=[i for i,w in enumerate(windows) if w['p95GridResidualMs']<=12 and w['coherence']>=.94]
+    if not eligible:return {'status':'insufficient-stable-windows','excludedWindowIndices':list(range(len(windows)))}
+    cluster=max(([i for i in eligible if abs(windows[i]['bpm']-windows[j]['bpm'])<=tolerance_bpm] for j in eligible),
+                key=lambda ids:(sum(windows[i]['notes'] for i in ids),len(ids)))
+    if len(cluster)<2:return {'status':'insufficient-consensus','inlierWindowIndices':cluster,
+        'excludedWindowIndices':[i for i in range(len(windows)) if i not in cluster]}
+    retained=np.array([t for t in times if any(windows[i]['startSeconds']<=t<windows[i]['endSeconds'] for i in cluster)])
+    centre=sum(windows[i]['bpm']*windows[i]['notes'] for i in cluster)/sum(windows[i]['notes'] for i in cluster)
+    subdivisions=windows[cluster[0]]['subdivisionsPerBeat']
+    fit=max((chart_fit(retained,b,subdivisions) for b in np.arange(centre-.15,centre+.1501,.0005)),key=lambda c:c['coherence'])
+    phase_consistent=fit['coherence']>=.94 and fit['p95GridResidualMs']<=12
+    return {'status':'dominant-portions-only' if phase_consistent else 'tempo-consensus-phase-unresolved',
+        'tempoConsensusBpm':centre,'phaseConsistent':phase_consistent,'scope':'Excluded portions retain their original notes/timing; not a whole-song tempo claim',
+        'inlierWindowIndices':cluster,'excludedWindowIndices':[i for i in range(len(windows)) if i not in cluster],
+        'retainedNotes':len(retained),'totalNotes':len(times),'retainedFraction':len(retained)/len(times),
+        'windowBpmTolerance':tolerance_bpm,'fit':fit,'automaticAcceptance':False}
+
+
+def analyze(export, destination, preferred_bpms=None):
     import numpy as np
     import librosa
     import soundfile as sf
-    export=export.resolve(strict=True)
-    manifest_bytes=(export/'manifest.json').read_bytes();manifest=json.loads(manifest_bytes)
+    from prepare_pack import load_export
+    export,manifest_bytes,manifest,entries=load_export(export)
+    preferred_bpms=preferred_bpms or {}
+    if set(preferred_bpms)-{e['id'] for e in entries}:raise ValueError('Preferred BPM refers to an unknown chart')
+    if any(not 60<=b<=240 for b in preferred_bpms.values()):raise ValueError('Preferred BPM must be finite and within 60–240')
     def file(relative):
         path=(export/relative).resolve(strict=True)
         if not path.is_relative_to(export):raise ValueError("Export path escapes its directory")
         return path
     groups={}
-    for chart in manifest['charts']:
+    for entry in entries:
+        chart={**entry['chart'],'music':entry['music']}
         groups.setdefault(chart['music']['path'],[]).append(chart)
     results=[]
     for music,charts in groups.items():
         audio=file(music);body=audio.read_bytes()
         if hashlib.sha256(body).hexdigest()!=charts[0]['music']['sha256']:raise ValueError("Changed source audio")
-        times=sorted(set(t for c in charts for l in c['lanes'] for t in l['tapsSeconds']))
+        times=sorted(set(t for c in charts for l in c['lanes'] for t in l['tapsSeconds']+[pair[0] for pair in l['holdsSeconds']]))
         candidates=chart_candidates(times)
-        y,sr=sf.read(audio,dtype='float32',always_2d=True);y=y.mean(axis=1)
+        y,sr=sf.read(audio,dtype='float32',always_2d=True)
         if len(y)>sr*600:raise ValueError("Audio analysis is limited to ten minutes per track")
-        envelope=librosa.onset.onset_strength(y=y,sr=sr,hop_length=128)
+        envelope=librosa.onset.onset_strength(y=y.T,sr=sr,hop_length=128).mean(axis=0)
         estimates=[]
         for prior in [60,120,180]:
             bpm,beats=librosa.beat.beat_track(onset_envelope=envelope,sr=sr,hop_length=128,start_bpm=prior)
@@ -76,7 +101,10 @@ def analyze(export, destination):
             estimates.append({"tempoPriorBpm":prior,"bpm":float(np.asarray(bpm).item()),"beatTimesSeconds":beat_times.tolist()})
         local=[]
         # A changing best fit or phase between windows warns against one global grid.
-        seed=candidates[0]
+        hints={preferred_bpms[c['id']] for c in charts if c['id'] in preferred_bpms}
+        if len(hints)>1:raise ValueError('Conflicting preferred BPMs for charts sharing music')
+        hint=next(iter(hints),None)
+        seed=min(candidates,key=lambda c:abs(c['bpm']-hint)) if hint is not None else candidates[0]
         for start in np.arange(min(times),max(times),20):
             subset=np.array([t for t in times if start<=t<start+20])
             if len(subset)<8:continue
@@ -85,6 +113,9 @@ def analyze(export, destination):
             local.append({"startSeconds":float(start),"endSeconds":float(start+20),"notes":len(subset),**best})
         result={"chartIds":[c['id'] for c in charts],"music":music,"audioSha256":hashlib.sha256(body).hexdigest(),
             "distinctNoteTimes":len(times),"chartCandidates":candidates,"audioEstimates":estimates,"chartWindows":local,
+            "preferredBpmHint":hint,"preferredCandidate":seed if hint is not None else None,
+            "hintSource":"explicit review input" if hint is not None else None,
+            "dominantGrid":dominant_grid(times,local,tolerance_bpm=seed['bpm']*.0015),
             "automaticAcceptance":False,"beatPhaseStatus":"Unverified: subdivision phase is not necessarily quarter-beat phase",
             "timingModified":False}
         results.append(result)
@@ -106,4 +137,9 @@ def analyze(export, destination):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('export',type=Path);p.add_argument('output',type=Path)
-    a=p.parse_args();analyze(a.export,a.output)
+    p.add_argument('--preferred-bpm',action='append',default=[],metavar='CHART_ID=BPM')
+    a=p.parse_args();hints={}
+    for value in a.preferred_bpm:
+        ident,bpm=value.rsplit('=',1);hints[ident]=float(bpm)
+        if not 60<=hints[ident]<=240:p.error('Preferred BPM must be in the analyzed 60–240 range')
+    analyze(a.export,a.output,hints)

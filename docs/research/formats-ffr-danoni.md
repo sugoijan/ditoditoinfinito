@@ -597,3 +597,11 @@ source-frame timestamps and store inferred/reviewed beat descriptions separately
 changing a simfile's timing BPM without repositioning notes changes playback
 time. Rating extraction likewise retains a typed source number (Kouhaku stars)
 and raw provenance, while named difficulty classification belongs to consumers.
+
+
+A named difficulty tier is a derived policy, not a universally recoverable
+DanOni source field. [Generic pack preparation](danoni-postprocess.md) retains
+numeric stars and puts a configurable tier only in the playable export. Unknown
+ratings stay unknown. Local musical-grid analysis can fit stable sections while
+reporting every excluded portion; consensus in BPM does not imply consensus in
+beat phase. No notes are removed or retimed by that fitting procedure.

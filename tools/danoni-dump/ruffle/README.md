@@ -260,8 +260,9 @@ Kouhaku adapter `/2` extracts `difficultyStars` as an integer and keeps
 `rawDifficulty` only as provenance; `difficultyClassification` is null.
 Simfile meter carries the count, with empty description and the required Edit
 placeholder. Consumers own classification and sorting. Existing `/1` outputs
-are preserved. `repack_kouhaku.py` reprojects existing passing captures and makes
-a separate WAV or Ogg pack without executing the SWF or changing note times.
+are preserved. `prepare_pack.py` shares rating, preview, audio and SSC policies across normalized
+exports. `repack_kouhaku.py` remains a compatibility entry point. Neither executes
+the SWF or changes source note times.
 
 `analyze_tempo.py` is optional and uses `requirements-analysis.txt` independently
 of the game/native build. It combines chart-grid fitting with librosa 1.0.0
@@ -270,5 +271,30 @@ BPM or phase. The synthetic 75 BPM clock remains authoritative.
 
 See [the beat-grid handover](../../../docs/research/danoni-beat-grid.md) for the
 exact numeric-rating contract, measured candidate tempos, limits, Vorbis helper
-build/repack commands and Chrome sample-alignment checks. The requested Ogg pack
-is local at `~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-stars-ogg-v2/playable.zip`.
+build/repack commands and Chrome sample-alignment checks. The newest Ogg pack
+is local at `~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-generic-pack/playable.zip`.
+The older `stars-ogg-v2` variant retains its original schema and Edit tiers.
+
+
+## Generic post-processing
+
+```sh
+python3 tools/danoni-dump/ruffle/prepare_pack.py SOURCE_EXPORT /private/tmp/pack-new \
+  --audio ogg --vorbis-encoder /private/tmp/encode-vorbis \
+  --tier-policy stars --star-tier-bounds 1,3,5,7 --preview-seconds 12
+python3 tools/danoni-dump/ruffle/test_pack_policy.py
+python3 tools/danoni-dump/ruffle/test_vorbis.py /private/tmp/encode-vorbis /opt/homebrew/bin/ffmpeg
+```
+
+Use `--audio wav` without the Vorbis helper; installed FFmpeg is required for
+both. Outputs must be fresh and outside Git. Optional musical-grid analysis
+uses the same normalized inputs and accepts repeatable `--preferred-bpm ID=BPM`
+review hints. No collection IDs, source SWF hashes or musical BPM overrides are
+built into these policies. Native source adapters still establish engine-specific
+chart/audio origins before producing those inputs. HTML5 browser dumps need a
+normalization adapter; their existing reference JSON is not this input format.
+
+[Generic contract and limits](../../../docs/research/danoni-postprocess.md)
+describes normalized input, SSC/manifest/ZIP output, tier bounds, previews,
+unsupported effects and cross-family validation. MIT coverage comes from the
+repository's existing REUSE catch-all; no work assets are fixtures.

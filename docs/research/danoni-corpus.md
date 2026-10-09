@@ -673,3 +673,16 @@ Four Kouhaku tracks have strong regular-grid candidates; 北風 needs further
 tempo/phase review. Estimates remain separate from authoritative note timing.
 Fixing beat-based colours requires a separate musical-beat description in the
 game, which remains owned by the importer/gameplay session.
+
+
+### Shared pack policies (2026-10-09)
+
+[Generic post-processing](danoni-postprocess.md) now separates normalized chart
+extraction from active-preview selection, numeric-stars-to-tier heuristics,
+WAV/Vorbis packaging and chart/audio grid estimates. It works on both native
+families and original synthetic 7/9-key inputs; existing HTML5 dumps still need
+an explicit normalization adapter. The [beat-grid handover](danoni-beat-grid.md)
+records dominant-window fits and excluded sections. The latest Kouhaku ZIP is
+`~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-generic-pack/playable.zip`; earlier
+exports and raw source references remain intact. None of these policies changes
+source note timing or automatically adopts a musical BPM/quarter-beat phase.

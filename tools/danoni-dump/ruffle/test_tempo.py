@@ -1,7 +1,7 @@
 """Known synthetic clocks test tempo/phase fitting and its ambiguities."""
 import unittest
 import numpy as np
-from analyze_tempo import chart_fit, chart_candidates
+from analyze_tempo import chart_fit, chart_candidates, dominant_grid
 
 
 class Grids(unittest.TestCase):
@@ -30,6 +30,33 @@ class Grids(unittest.TestCase):
         self.assertGreater(chart_fit(first,160,2)['coherence'],.999)
         self.assertGreater(chart_fit(second,168,2)['coherence'],.999)
         self.assertLess(chart_fit(np.r_[first,second],160,2)['coherence'],.6)
+
+    def test_dominant_fit_reports_excluded_faster_portions(self):
+        times=[];windows=[]
+        for index,bpm in enumerate([160,160,160,175]):
+            period=60/bpm/2
+            first=max(0,int(np.ceil((index*20-.1)/period)))
+            subset=.1+(first+np.arange(40))*period
+            times.extend(subset.tolist())
+            windows.append({'startSeconds':index*20,'endSeconds':index*20+20,'notes':len(subset),**chart_fit(subset,bpm,2)})
+        result=dominant_grid(times,windows,.2)
+        self.assertEqual(result['inlierWindowIndices'],[0,1,2])
+        self.assertEqual(result['excludedWindowIndices'],[3])
+        self.assertEqual(result['retainedNotes'],120)
+        self.assertEqual(result['totalNotes'],160)
+        self.assertLess(abs(result['fit']['bpm']-160),.01)
+        self.assertFalse(result['automaticAcceptance'])
+
+    def test_equal_tempo_with_phase_jumps_is_not_one_verified_grid(self):
+        times=[];windows=[]
+        for index in range(3):
+            subset=index*20+.1+np.arange(40)*60/160/2
+            times.extend(subset.tolist())
+            windows.append({'startSeconds':index*20,'endSeconds':index*20+20,'notes':40,**chart_fit(subset,160,2)})
+        result=dominant_grid(times,windows,.2)
+        self.assertEqual(result['status'],'tempo-consensus-phase-unresolved')
+        self.assertEqual(result['tempoConsensusBpm'],160)
+        self.assertFalse(result['phaseConsistent'])
 
     def test_insufficient_and_nonfinite_data_is_rejected(self):
         for times in [[0,1,2],np.r_[np.arange(8),np.nan]]:
