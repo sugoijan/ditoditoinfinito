@@ -59,6 +59,20 @@ jobs:
         run: video/build.sh
       - name: Describe the module
         run: cat target/video/ddivideo.json
+      # What configure found, to compare builds on different hosts.
+      - name: Keep the build's configuration
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ddivideo-build
+          path: |
+            target/video/ffmpeg-build/config.h
+            target/video/ffmpeg-build/config_components.h
+            target/video/ffmpeg-build/ffbuild/config.mak
+            target/video/ffmpeg-build/ffbuild/config.log
+            target/video/ffmpeg-build/configure.out
+            target/video/ffmpeg-build/make.out
+            target/video/ffmpeg-build/lib*/lib*.a
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Check the module on generated clips
