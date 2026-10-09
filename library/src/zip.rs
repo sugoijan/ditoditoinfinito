@@ -25,10 +25,10 @@
 //!
 //! Supported: stored and deflated entries, ZIP64 sizes and offsets, UTF-8
 //! names (flag bit 11 or the Info-ZIP Unicode Path extra field) and CP437
-//! names otherwise. Not supported: encryption (reported, never read), other
-//! compression methods, multi-disk archives. Names in a legacy code page other
-//! than CP437 (Shift-JIS from Japanese Windows zippers) come out as CP437
-//! mojibake; the bytes of the entry are unaffected.
+//! names otherwise, with the raw bytes of such legacy names kept so the
+//! caller can read them as UTF-8 or Shift-JIS instead
+//! ([`crate::pack::decode_legacy_name`]). Not supported: encryption
+//! (reported, never read), other compression methods, multi-disk archives.
 
 use thiserror::Error;
 
@@ -158,6 +158,10 @@ pub struct ZipEntry {
     pub is_dir: bool,
     /// General purpose flag bit 0. Such entries cannot be read.
     pub encrypted: bool,
+    /// The raw name when it is in a legacy code page (neither flagged UTF-8
+    /// nor given a Unicode Path), for a caller that can decode more code
+    /// pages than CP437 ([`crate::pack::decode_legacy_name`]).
+    pub legacy_name: Option<Vec<u8>>,
 }
 
 /// Number of tail bytes to read for [`locate_central_directory`].
@@ -347,10 +351,11 @@ pub fn parse_central_directory(
             return Err(truncated());
         }
 
-        let mut name = if flags & FLAG_UTF8 != 0 {
-            String::from_utf8_lossy(raw_name).into_owned()
-        } else {
+        let mut legacy = flags & FLAG_UTF8 == 0;
+        let mut name = if legacy {
             decode_cp437(raw_name)
+        } else {
+            String::from_utf8_lossy(raw_name).into_owned()
         };
 
         for (id, data) in extra_fields(extra) {
@@ -388,6 +393,7 @@ pub fn parse_central_directory(
                         && let Ok(s) = core::str::from_utf8(utf8)
                     {
                         name = s.to_string();
+                        legacy = false;
                     }
                 }
                 _ => {}
@@ -413,6 +419,7 @@ pub fn parse_central_directory(
                 .ok_or(ZipError::Corrupt("local header offset overflows"))?,
             is_dir,
             encrypted: flags & FLAG_ENCRYPTED != 0,
+            legacy_name: legacy.then(|| raw_name.to_vec()),
         });
         p = next;
     }
@@ -546,7 +553,7 @@ const CP437_HIGH: [char; 128] = [
 
 /// Decodes a CP437 name. Bytes below 0x80 are taken as ASCII (the control
 /// glyphs of the original code page never appear in real file names).
-fn decode_cp437(bytes: &[u8]) -> String {
+pub(crate) fn decode_cp437(bytes: &[u8]) -> String {
     bytes
         .iter()
         .map(|&b| {

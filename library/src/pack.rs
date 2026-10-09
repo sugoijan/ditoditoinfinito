@@ -77,6 +77,44 @@ impl SongCandidate {
     pub fn id(&self) -> String {
         song_id(&self.pack, &self.dir)
     }
+
+    /// The pack's folder (`""` for the import root, as for a zip of one
+    /// pack's song folders), or `None` for a song at the root itself.
+    pub fn pack_dir(&self) -> Option<&str> {
+        (!self.dir.is_empty()).then(|| parent(&self.dir))
+    }
+}
+
+/// The pack's banner, as StepMania finds a group banner
+/// (`SongManager::AddGroup`, `src/SongManager.cpp` 270–300, 5_1-new): the
+/// first image directly in the pack folder, `png` before `jpg`, `jpeg`,
+/// `gif` and `bmp` (then `webp`, which browsers also show), else an image
+/// beside the folder with the folder's name (`Packs/Foo.png` for
+/// `Packs/Foo/`). Case-insensitive, like StepMania's file lookups.
+pub fn pack_banner<S: AsRef<str>>(pack_dir: &str, paths: &[S]) -> Option<String> {
+    let ext_rank = |p: &str| {
+        let ext = extension(p)?.to_ascii_lowercase();
+        IMAGE_EXTENSIONS.iter().position(|e| *e == ext)
+    };
+    let pick = |matches: &dyn Fn(&str) -> bool| {
+        paths
+            .iter()
+            .map(AsRef::as_ref)
+            .filter(|p| !is_ignored(p) && matches(p))
+            .filter_map(|p| Some((ext_rank(p)?, p.to_ascii_lowercase(), p)))
+            .min()
+            .map(|(_, _, p)| p.to_string())
+    };
+    pick(&|p| parent(p).eq_ignore_ascii_case(pack_dir)).or_else(|| {
+        if pack_dir.is_empty() {
+            return None;
+        }
+        pick(&|p| {
+            parent(p).eq_ignore_ascii_case(parent(pack_dir))
+                && p.rsplit_once('.')
+                    .is_some_and(|(stem, _)| stem.eq_ignore_ascii_case(pack_dir))
+        })
+    })
 }
 
 /// Files and directories never looked at: macOS resource forks
@@ -463,14 +501,122 @@ pub fn relative_path(dir: &str, path: &str) -> String {
 /// Decodes simfile text: UTF-8 (BOM stripped) when valid, otherwise
 /// Windows-1252 byte for byte. Simfile syntax is ASCII, so either way the
 /// chart parses; only the free text (titles, artists, credits) of files in
-/// other legacy encodings comes out wrong. Shift-JIS, common in Japanese
-/// packs, is a known limitation: its titles turn into Latin mojibake.
+/// other legacy encodings comes out wrong. [`decode_text_with`] also tries
+/// Shift-JIS.
 pub fn decode_text(bytes: &[u8]) -> String {
+    decode_text_with(bytes, |_| None)
+}
+
+/// [`decode_text`], trying Shift-JIS before Windows-1252: `shift_jis`
+/// decodes strictly (`None` on any invalid sequence; the browser's
+/// `TextDecoder` in the app), and its text is taken when it reads as
+/// Japanese ([`reads_as_japanese`]). StepMania itself only tries UTF-8 and
+/// the system code page, so on a Western system it shows such titles as
+/// mojibake; Japanese packs are common enough to do better.
+pub fn decode_text_with(bytes: &[u8], shift_jis: impl FnOnce(&[u8]) -> Option<String>) -> String {
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     match core::str::from_utf8(bytes) {
         Ok(s) => s.to_string(),
-        Err(_) => bytes.iter().map(|&b| windows_1252(b)).collect(),
+        Err(_) => shift_jis(bytes)
+            .filter(|s| reads_as_japanese(s))
+            .unwrap_or_else(|| bytes.iter().map(|&b| windows_1252(b)).collect()),
     }
+}
+
+/// Zip entry names in a legacy code page ([`crate::zip::ZipEntry::legacy_name`]),
+/// decided for the whole archive so a folder never splits between two
+/// readings: UTF-8 when every name is valid UTF-8 (many tools write it
+/// without setting the flag), Shift-JIS when every name decodes strictly
+/// and together they read as Japanese, else CP437 as the format says.
+/// Backslashes become `/` after decoding, like the zip reader's names (a
+/// Shift-JIS trail byte may be 0x5C).
+pub fn decode_legacy_names(
+    raws: &[&[u8]],
+    shift_jis: impl Fn(&[u8]) -> Option<String>,
+) -> Vec<String> {
+    let names: Vec<String> = if raws.iter().all(|r| core::str::from_utf8(r).is_ok()) {
+        raws.iter()
+            .map(|r| String::from_utf8_lossy(r).into_owned())
+            .collect()
+    } else {
+        let sjis: Option<Vec<String>> = raws
+            .iter()
+            .map(|r| {
+                if r.is_ascii() {
+                    Some(String::from_utf8_lossy(r).into_owned())
+                } else {
+                    shift_jis(r)
+                }
+            })
+            .collect();
+        match sjis.filter(|n| reads_as_japanese(&n.join("\n"))) {
+            Some(n) => n,
+            None => raws.iter().map(|r| crate::zip::decode_cp437(r)).collect(),
+        }
+    };
+    names.into_iter().map(|n| n.replace('\\', "/")).collect()
+}
+
+/// Whether text decoded as Shift-JIS reads as Japanese rather than as
+/// Western text that happens to decode. Windows-1252's accented letters
+/// and typographic quotes are Shift-JIS lead bytes and half-width katakana,
+/// so a Western text turns into lone kanji or katakana inside Latin words
+/// ("Don’t" → "Don稚", "Pokémon" → "Pok駑on", "Ökostrom" → "ﾖkostrom"):
+/// such a character rules the text out. Japanese is shown by full-width
+/// kana or forms, runs of kanji or of half-width katakana, or a kanji
+/// standing on its own; every other non-ASCII character must be one
+/// Shift-JIS has (punctuation, symbols, Greek, Cyrillic, NEC's extensions),
+/// and nothing may be a control character.
+pub fn reads_as_japanese(s: &str) -> bool {
+    let kana = |c: char| matches!(c, '\u{3041}'..='\u{30FF}');
+    let full = |c: char| matches!(c, '\u{FF01}'..='\u{FF5E}');
+    let kanji = |c: char| matches!(c, '\u{3400}'..='\u{4DBF}' | '\u{4E00}'..='\u{9FFF}' | '\u{F900}'..='\u{FAFF}');
+    let half = |c: char| matches!(c, '\u{FF61}'..='\u{FF9F}');
+    let symbol = |c: char| {
+        matches!(c,
+            '\u{00A7}' | '\u{00A8}' | '\u{00B0}' | '\u{00B1}' | '\u{00B4}' | '\u{00B6}'
+            | '\u{00D7}' | '\u{00F7}'
+            | '\u{0391}'..='\u{03C9}' // Greek
+            | '\u{0401}'..='\u{0451}' // Cyrillic
+            | '\u{2010}'..='\u{266F}' // punctuation, arrows, maths, box drawing, ★, ♪
+            | '\u{3000}'..='\u{3040}' // CJK punctuation
+            | '\u{3200}'..='\u{33FF}' // NEC row 13: ㈱, ㍻, ㎞
+            | '\u{FFE0}'..='\u{FFE5}'
+        )
+    };
+    let chars: Vec<char> = s.chars().collect();
+    let latin = |i: Option<usize>| {
+        i.and_then(|i| chars.get(i))
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+    };
+    let mut japanese = false;
+    for (i, &c) in chars.iter().enumerate() {
+        if c.is_ascii() {
+            if c.is_control() && !matches!(c, '\n' | '\r' | '\t') {
+                return false;
+            }
+            continue;
+        }
+        if kana(c) || full(c) {
+            japanese = true;
+        } else if kanji(c) || half(c) {
+            let kin = |j: Option<usize>| {
+                j.and_then(|j| chars.get(j))
+                    .is_some_and(|&o| kana(o) || (kanji(c) && kanji(o)) || (half(c) && half(o)))
+            };
+            let (prev, next) = (i.checked_sub(1), Some(i + 1));
+            if kin(prev) || kin(next) {
+                japanese = true;
+            } else if latin(prev) || latin(next) {
+                return false;
+            } else if kanji(c) {
+                japanese = true;
+            }
+        } else if !symbol(c) {
+            return false;
+        }
+    }
+    japanese
 }
 
 /// Windows-1252 as browsers decode it (WHATWG): Latin-1 except 0x80..=0x9F,
@@ -810,6 +956,129 @@ mod tests {
         };
         classify_images(&mut r, &sizes(&[("b", (200, 200))]));
         assert_eq!(r.banner.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn pack_banners_like_stepmania() {
+        let paths = [
+            "Songs/Pack/b.jpg",
+            "Songs/Pack/A.PNG",
+            "Songs/Pack/._c.png",
+            "Songs/Pack/Song/bn.png",
+            "Songs/Pack/Song/song.sm",
+            "Songs/Other.jpg",
+            "Songs/Other/Song/song.sm",
+        ];
+        assert_eq!(
+            pack_banner("Songs/Pack", &paths).as_deref(),
+            Some("Songs/Pack/A.PNG")
+        );
+        assert_eq!(
+            pack_banner("songs/other", &paths).as_deref(),
+            Some("Songs/Other.jpg")
+        );
+        assert_eq!(
+            pack_banner("", &["Song/song.sm", "x.gif"]).as_deref(),
+            Some("x.gif")
+        );
+        assert_eq!(pack_banner("Songs/None", &paths), None);
+        let c = &find_songs(&paths, "Imported")[0];
+        assert_eq!(c.pack_dir(), Some("Songs/Other"));
+    }
+
+    fn shift_jis(bytes: &[u8]) -> Option<String> {
+        let (text, had_errors) = encoding_rs::SHIFT_JIS.decode_without_bom_handling(bytes);
+        (!had_errors).then(|| text.into_owned())
+    }
+
+    #[test]
+    fn shift_jis_text_and_names() {
+        let (sjis, _, _) = encoding_rs::SHIFT_JIS.encode("#TITLE:恋のソナタ;\n#ARTIST:ＤＪ ★;");
+        assert_eq!(
+            decode_text_with(&sjis, shift_jis),
+            "#TITLE:恋のソナタ;\n#ARTIST:ＤＪ ★;"
+        );
+        // Without a Shift-JIS decoder: Windows-1252, as before.
+        assert!(!decode_text(&sjis).contains('恋'));
+        // Western text stays Windows-1252 even where it decodes as
+        // Shift-JIS: "Résumé" fails it, "Rés" reads as a kanji but not as
+        // Japanese text around Latin-1 punctuation.
+        assert_eq!(
+            decode_text_with(b"#TITLE:R\xe9sum\xe9;", shift_jis),
+            "#TITLE:Résumé;"
+        );
+        assert_eq!(
+            decode_text_with(b"Caf\xe9 \x93x\x94", shift_jis),
+            "Café “x”"
+        );
+    }
+
+    #[test]
+    fn western_text_is_not_read_as_shift_jis() {
+        for text in [
+            "#TITLE:Don’t Stop;",
+            "#TITLE:It’s;",
+            "#TITLE:Pokémon;",
+            "#TITLE:Ökostrom;",
+            "#TITLE:Straße;",
+            "#TITLE:Ça va;",
+            "#CREDIT:© 2005;",
+            "#TITLE:10°C;",
+            "#TITLE:½;",
+        ] {
+            let (cp, _, _) = encoding_rs::WINDOWS_1252.encode(text);
+            assert_eq!(decode_text_with(&cp, shift_jis), text, "{text}");
+        }
+        // Japanese with NEC extensions and compatibility kanji.
+        for text in [
+            "#ARTIST:山﨑;",
+            "#TITLE:㈱テスト ㍻;",
+            "#TITLE:桜;",
+            "#TITLE:ｶﾞﾝﾀﾞﾑ;",
+        ] {
+            let (sjis, _, unmappable) = encoding_rs::SHIFT_JIS.encode(text);
+            if unmappable {
+                // encoding_rs writes NEC extensions as IBM's; decode those.
+                continue;
+            }
+            assert_eq!(decode_text_with(&sjis, shift_jis), text, "{text}");
+        }
+        let nec = b"#TITLE:\x87\x8a\x83e\x83X\x83g;"; // ㈱テスト
+        assert_eq!(decode_text_with(nec, shift_jis), "#TITLE:㈱テスト;");
+        let ibm = b"#ARTIST:\x8eR\xfa\xb1;"; // 山﨑 (IBM extension)
+        assert_eq!(decode_text_with(ibm, shift_jis), "#ARTIST:山﨑;");
+    }
+
+    #[test]
+    fn zip_names_are_decided_per_archive() {
+        // "Mötley" (CP437 0x94) and "Café" (0x82) in one archive: both stay
+        // CP437, even though the first alone would decode as Shift-JIS.
+        let names: [&[u8]; 2] = [
+            b"M\x94tley Pack/Kick/kick.sm",
+            b"M\x94tley Pack/Kick/Caf\x82.ogg",
+        ];
+        assert_eq!(
+            decode_legacy_names(&names, shift_jis),
+            ["Mötley Pack/Kick/kick.sm", "Mötley Pack/Kick/Café.ogg"]
+        );
+        let (a, _, _) = encoding_rs::SHIFT_JIS.encode("パック/ソング/song.sm");
+        let (b, _, _) = encoding_rs::SHIFT_JIS.encode("パック/ソング/音.ogg");
+        assert_eq!(
+            decode_legacy_names(&[&a, &b, b"readme.txt"], shift_jis),
+            [
+                "パック/ソング/song.sm",
+                "パック/ソング/音.ogg",
+                "readme.txt"
+            ]
+        );
+        assert_eq!(
+            decode_legacy_names(&["曲/a.sm".as_bytes()], shift_jis),
+            ["曲/a.sm"]
+        );
+        assert_eq!(
+            decode_legacy_names(&[b"a\\b\x82.sm"], |_| None),
+            ["a/bé.sm"]
+        );
     }
 
     #[test]

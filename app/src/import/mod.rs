@@ -45,6 +45,8 @@ pub(crate) struct ImportReport {
     pub(crate) shared_images: usize,
     /// Other files in shared folders, left out (videos are not played).
     pub(crate) shared_skipped: usize,
+    /// Songs removed because their folder is gone from a re-read folder.
+    pub(crate) removed: usize,
     /// Set when the import could not run at all.
     pub(crate) error: Option<String>,
 }
@@ -107,6 +109,26 @@ pub(crate) fn report_error(e: String) {
 
 /// Starts importing unless an import is already running.
 pub(crate) fn start(files: Vec<PickedFile>) -> bool {
+    start_with(files, None)
+}
+
+/// Where an import's files come from when that is a kept folder
+/// ([`crate::web::folders`]).
+pub(crate) struct Origin {
+    /// The folder's storage key ([`crate::songs::keep_folder`]), recorded on
+    /// every song imported, so the folder can be re-read.
+    pub(crate) folder: String,
+    /// The folder is read again: its songs whose folders are gone are
+    /// removed.
+    pub(crate) rescan: bool,
+}
+
+/// [`start`] for the files of a kept folder.
+pub(crate) fn start_from(files: Vec<PickedFile>, origin: Origin) -> bool {
+    start_with(files, Some(origin))
+}
+
+fn start_with(files: Vec<PickedFile>, origin: Option<Origin>) -> bool {
     let busy = SHARED.with(|s| s.borrow().running.is_some());
     if busy || files.is_empty() {
         return false;
@@ -117,7 +139,7 @@ pub(crate) fn start(files: Vec<PickedFile>) -> bool {
     });
     spawn_local(async move {
         let progress = Callback::from(|text: String| notify(|s| s.running = Some(text)));
-        let report = run(files, progress).await;
+        let report = run(files, progress, origin).await;
         notify(|s| {
             s.running = None;
             s.report = Some(report);
@@ -140,7 +162,14 @@ enum Source {
     },
 }
 
-async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport {
+async fn run(
+    files: Vec<PickedFile>,
+    progress: Callback<String>,
+    origin: Option<Origin>,
+) -> ImportReport {
+    let rescan = origin.as_ref().is_some_and(|o| o.rescan);
+    // Zips that could not be read: their songs are not gone.
+    let mut unreadable: Vec<String> = Vec::new();
     let mut report = ImportReport::default();
     // A single picked zip names the pack for songs at its root.
     let zips = files.iter().filter(|f| is_zip(&f.path)).count();
@@ -170,7 +199,10 @@ async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport
                     );
                 }
             }
-            Err(e) => report.skipped.push((f.path, e)),
+            Err(e) => {
+                unreadable.push(f.path[..f.path.len() - ".zip".len()].to_string());
+                report.skipped.push((f.path, e));
+            }
         }
     }
     let mut paths: Vec<String> = sources.keys().cloned().collect();
@@ -190,7 +222,8 @@ async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport
         .filter_map(|p| Some((pack::shared_path(p)?, p.clone())))
         .collect();
     let maybe_works = !ddi_library::danoni::work_sources(&paths).is_empty();
-    if candidates.is_empty() && shared_files.is_empty() && !maybe_works {
+    // A folder read again with nothing left in it still drops its songs.
+    if candidates.is_empty() && shared_files.is_empty() && !maybe_works && !rescan {
         report_music_without_simfile(&mut report, &paths, &HashSet::new());
         if report.skipped.is_empty() {
             report.error = Some(NOTHING_FOUND.into());
@@ -222,6 +255,7 @@ async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport
     let n = candidates.len();
     // Two folders with the same pack and song folder names share an id.
     let mut seen: HashMap<String, String> = HashMap::new();
+    let mut imported_ids: Vec<String> = Vec::new();
     for (i, c) in candidates.iter().enumerate() {
         let (id, name) = identity(c);
         let label = if c.dir.is_empty() {
@@ -240,6 +274,7 @@ async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport
         match import_song(&db, c, &id, &name, &sources, &paths, &shared).await {
             Ok((title, warnings, notes)) => {
                 report.imported.push(title);
+                imported_ids.push(id.clone());
                 report
                     .warnings
                     .extend(warnings.into_iter().map(|w| (label.clone(), w)));
@@ -250,17 +285,29 @@ async fn run(files: Vec<PickedFile>, progress: Callback<String>) -> ImportReport
             Err(e) => report.skipped.push((label, e)),
         }
     }
+    store_pack_art(&db, &candidates, &sources, &paths, &mut report).await;
     let works =
         danoni::import_works(&db, &sources, &paths, &fallback, &mut report, &progress).await;
     report_music_without_simfile(&mut report, &paths, &works.music);
+    if let Some(origin) = &origin {
+        imported_ids.extend(works.ids.iter().cloned());
+        if let Err(e) = tag_folder(&db, &imported_ids, &origin.folder).await {
+            report
+                .warnings
+                .push(("re-reading the folder later".into(), e));
+        }
+        if origin.rescan {
+            match remove_gone(&db, &origin.folder, &paths, &unreadable).await {
+                Ok(n) => report.removed = n,
+                Err(e) => report
+                    .skipped
+                    .push(("removing songs gone from the folder".into(), e)),
+            }
+        }
+    }
     if candidates.is_empty() && shared_files.is_empty() && !works.found && report.skipped.is_empty()
     {
         report.error = Some(NOTHING_FOUND.into());
-    }
-    if !report.imported.is_empty() || report.shared_images > 0 {
-        // Not awaited: Firefox answers with a permission prompt, and the
-        // promise stays pending until the player responds.
-        spawn_local(request_persistence());
     }
     report
 }
@@ -316,7 +363,7 @@ async fn import_song(
     let mut warnings = Vec::new();
     let mut notes = Vec::new();
     let chart_bytes = read_bytes(source(sources, &c.chart)?).await?;
-    let text = pack::decode_text(&chart_bytes);
+    let text = pack::decode_text_with(&chart_bytes, shift_jis);
     drop(chart_bytes);
     let song = parse_simfile(&text, c.format.extension()).map_err(|e| e.to_string())?;
     let mut unplayed: Vec<&str> = song
@@ -490,6 +537,7 @@ async fn import_song(
         imported: js_sys::Date::now(),
         bytes: files.iter().map(|(_, b)| b.size()).sum(),
         work: None,
+        folder: None,
     };
     let json = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     let mut writes = vec![Write::DeletePrefix {
@@ -555,6 +603,107 @@ async fn store_shared(
     (stored, failed)
 }
 
+/// Records on the songs `ids` the kept folder they came from.
+async fn tag_folder(db: &Db, ids: &[String], folder: &str) -> Result<(), String> {
+    let mut writes = Vec::new();
+    for (id, v) in db
+        .get_many(idb::SONGS, ids)
+        .await?
+        .into_iter()
+        .zip(ids)
+        .map(|(v, id)| (id, v))
+    {
+        let Some(json) = v.and_then(|v| v.as_string()) else {
+            continue;
+        };
+        let Ok(mut song) = serde_json::from_str::<ImportedSong>(&json) else {
+            continue;
+        };
+        song.folder = Some(folder.to_string());
+        let json = serde_json::to_string(&song).map_err(|e| e.to_string())?;
+        writes.push(Write::Put {
+            store: idb::SONGS,
+            key: id.clone(),
+            value: json.into(),
+        });
+    }
+    if writes.is_empty() {
+        return Ok(());
+    }
+    db.write(writes).await
+}
+
+/// Removes the songs imported from the kept folder `folder` whose song
+/// folder (or Dancing☆Onigiri page) is no longer in it. Songs inside a zip
+/// that could not be read (`unreadable`, zip paths without `.zip`) stay.
+async fn remove_gone(
+    db: &Db,
+    folder: &str,
+    paths: &[String],
+    unreadable: &[String],
+) -> Result<usize, String> {
+    let lower: Vec<String> = paths.iter().map(|p| p.to_lowercase()).collect();
+    let present = |dir: &str| {
+        let dir = dir.to_lowercase();
+        let inside = format!("{dir}/");
+        let under = |root: &String| {
+            let root = root.to_lowercase();
+            dir == root || dir.starts_with(&format!("{root}/"))
+        };
+        lower.iter().any(|p| *p == dir || p.starts_with(&inside)) || unreadable.iter().any(under)
+    };
+    let gone: Vec<String> = db
+        .entries(idb::SONGS)
+        .await?
+        .into_iter()
+        .filter_map(|(id, v)| {
+            let song: ImportedSong = serde_json::from_str(&v.as_string()?).ok()?;
+            let from_here = song.folder.as_deref() == Some(folder);
+            (from_here && !song.dir.is_empty() && !present(&song.dir)).then_some(id)
+        })
+        .collect();
+    if !gone.is_empty() {
+        crate::songs::delete_imported(&gone).await?;
+    }
+    Ok(gone.len())
+}
+
+/// Stores the banner of each pack this import holds songs of
+/// ([`pack::pack_banner`]), replacing an earlier one; packs without one
+/// keep what they had.
+async fn store_pack_art(
+    db: &Db,
+    candidates: &[SongCandidate],
+    sources: &HashMap<String, Source>,
+    paths: &[String],
+    report: &mut ImportReport,
+) {
+    let mut done: HashSet<String> = HashSet::new();
+    let mut writes = Vec::new();
+    for c in candidates {
+        let Some(dir) = c.pack_dir() else { continue };
+        if !done.insert(c.pack.to_lowercase()) {
+            continue;
+        }
+        let Some(path) = pack::pack_banner(dir, paths) else {
+            continue;
+        };
+        match async { read_blob(source(sources, &path)?, mime_type(&path)).await }.await {
+            Ok(blob) => writes.push(Write::Put {
+                store: idb::FILES,
+                key: crate::songs::pack_art_key(&c.pack),
+                value: blob.into(),
+            }),
+            Err(e) => report.warnings.push((path, format!("pack banner: {e}"))),
+        }
+    }
+    if !writes.is_empty()
+        && let Err(e) = db.write(writes).await
+    {
+        report.warnings.push(("pack banners".into(), e));
+    }
+}
+
 fn is_image(path: &str) -> bool {
     extension(path).is_some_and(|e| {
         pack::IMAGE_EXTENSIONS
@@ -609,7 +758,32 @@ async fn zip_entries(file: &File) -> Result<Vec<ZipEntry>, String> {
         }
     };
     let bytes = read_range(file, cd.offset, cd.offset + cd.size).await?;
-    zip::parse_central_directory(&bytes, &cd).map_err(|e| e.to_string())
+    let mut entries = zip::parse_central_directory(&bytes, &cd).map_err(|e| e.to_string())?;
+    // Legacy names may be UTF-8 or Shift-JIS rather than CP437, decided
+    // for the whole archive.
+    let legacy: Vec<(usize, Vec<u8>)> = entries
+        .iter_mut()
+        .enumerate()
+        .filter_map(|(i, e)| Some((i, e.legacy_name.take()?)))
+        .collect();
+    let raws: Vec<&[u8]> = legacy.iter().map(|(_, r)| r.as_slice()).collect();
+    for ((i, _), name) in legacy
+        .iter()
+        .zip(pack::decode_legacy_names(&raws, shift_jis))
+    {
+        entries[*i].name = name;
+    }
+    Ok(entries)
+}
+
+/// Strict Shift-JIS through the browser's `TextDecoder` (`fatal`), `None`
+/// on any invalid sequence.
+pub(crate) fn shift_jis(bytes: &[u8]) -> Option<String> {
+    let opts = web_sys::TextDecoderOptions::new();
+    opts.set_fatal(true);
+    web_sys::TextDecoder::new_with_label_and_options("shift_jis", &opts)
+        .and_then(|d| d.decode_with_buffer_source(&js_sys::Uint8Array::from(bytes)))
+        .ok()
 }
 
 /// Start of an entry's data, after its local header.
@@ -683,17 +857,5 @@ fn mime_type(path: &str) -> &'static str {
         Some("bmp") => "image/bmp",
         Some("webp") => "image/webp",
         _ => "",
-    }
-}
-
-/// Asks the browser not to evict the library under storage pressure. Chrome
-/// decides silently, Firefox may show a prompt, Safari ignores it; none of
-/// them is an error worth showing.
-async fn request_persistence() {
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    if let Ok(p) = window.navigator().storage().persist() {
-        let _ = wasm_bindgen_futures::JsFuture::from(p).await;
     }
 }
