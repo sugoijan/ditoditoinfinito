@@ -582,3 +582,18 @@ keeps the chosen Ruffle sample origin explicit, but does not verify original
 Flash's latency/seek behavior. The [pinned Ruffle stream reader](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/backend/audio/decoders.rs)
 strips block seek fields without applying that compensation. Changing the export
 codec alone cannot resolve this source timing question.
+
+### Musical tempo is distinct from the frame clock (2026-10-09)
+
+The exact 75 BPM encoding above does not recover a work's musical tempo or beat
+phase. The local [Kouhaku analysis](danoni-beat-grid.md) demonstrates strong
+chart-grid fits with half/double and triplet/binary aliases, and a track whose
+local fits disagree with one global tempo. Audio beat tracking provides useful
+independent hypotheses, not original metadata.
+[Librosa 1.0.0 algorithm](https://github.com/librosa/librosa/blob/1.0.0/librosa/beat.py).
+
+Rhythmic colours need a musical quarter-beat phase in addition to BPM. Retain
+source-frame timestamps and store inferred/reviewed beat descriptions separately;
+changing a simfile's timing BPM without repositioning notes changes playback
+time. Rating extraction likewise retains a typed source number (Kouhaku stars)
+and raw provenance, while named difficulty classification belongs to consumers.

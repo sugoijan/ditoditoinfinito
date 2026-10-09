@@ -664,3 +664,12 @@ for five songs and six charts. Original works, music and raw runtime evidence
 stay outside Git; only the adapter, original synthetic tests and handover are
 committed. The nine original HTML5 browser references and their `/1` contract
 remain a separate corpus count.
+
+### Numeric ratings and musical tempo hypotheses (2026-10-09)
+
+The [beat-grid handover](danoni-beat-grid.md) adds typed source star counts, an
+independently validated Ogg variant and optional chart/audio tempo analysis.
+Four Kouhaku tracks have strong regular-grid candidates; 北風 needs further
+tempo/phase review. Estimates remain separate from authoritative note timing.
+Fixing beat-based colours requires a separate musical-beat description in the
+game, which remains owned by the importer/gameplay session.

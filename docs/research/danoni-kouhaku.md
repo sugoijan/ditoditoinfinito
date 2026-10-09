@@ -161,3 +161,16 @@ state rejection and exact five-key simfile rows. All six CW conversions and
 fresh native projections/PCM prefixes reproduce locally. The standalone game
 parser finds five songs, six charts and all music, and every generated note time
 matches the chosen nominal native reference within 1e-12 seconds.
+
+## Numeric ratings and musical-grid follow-up (2026-10-09)
+
+The original pack above is retained as produced by adapter `/1`. Adapter `/2`
+now records integer `difficultyStars`, null classification and a separate
+`rawDifficulty` provenance string; simfiles use that count as meter. A separate
+local Ogg pack uses the tested sample origin and keeps every note time unchanged.
+The maintainer reports good sync, with a possible uncertain ~20 ms discrepancy
+on some songs; no automatic correction is made.
+
+[danoni-beat-grid.md](danoni-beat-grid.md) gives the revised metadata, codec
+validation, measured musical tempo hypotheses and the importer/gameplay work
+needed to use them for colours while keeping the exact 75 BPM frame clock.

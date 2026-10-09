@@ -253,3 +253,22 @@ explicitly unverified; comparison uses the observed Ruffle nominal frame origin.
 The optional final comparison argument chooses a chart id in multi-chart exports.
 See [the collection handover](../../../docs/research/danoni-kouhaku.md) for exact
 counts, schemas, hidden-chart controls, sample-delay limits and validation scope.
+
+## Ratings, compressed packs and musical-grid analysis
+
+Kouhaku adapter `/2` extracts `difficultyStars` as an integer and keeps
+`rawDifficulty` only as provenance; `difficultyClassification` is null.
+Simfile meter carries the count, with empty description and the required Edit
+placeholder. Consumers own classification and sorting. Existing `/1` outputs
+are preserved. `repack_kouhaku.py` reprojects existing passing captures and makes
+a separate WAV or Ogg pack without executing the SWF or changing note times.
+
+`analyze_tempo.py` is optional and uses `requirements-analysis.txt` independently
+of the game/native build. It combines chart-grid fitting with librosa 1.0.0
+audio hypotheses and local windows; it never automatically applies an inferred
+BPM or phase. The synthetic 75 BPM clock remains authoritative.
+
+See [the beat-grid handover](../../../docs/research/danoni-beat-grid.md) for the
+exact numeric-rating contract, measured candidate tempos, limits, Vorbis helper
+build/repack commands and Chrome sample-alignment checks. The requested Ogg pack
+is local at `~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-stars-ogg-v2/playable.zip`.

@@ -1,0 +1,5 @@
+# Optional local musical-grid analysis; latest stable releases checked 2026-10-09.
+librosa==1.0.0
+numpy==2.5.3
+scipy==1.18.1
+soundfile==0.14.0

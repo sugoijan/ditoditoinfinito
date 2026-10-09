@@ -131,9 +131,10 @@ def project(capture, selection):
             raise ValueError("Native compiled timeline disagrees with source frames")
         lanes.append({"name":lane,"judgementFrames":source,"spawnMovieFrames":[n-150 for n in source],
             "holdFrames":[],"tapsSeconds":[(n-2)/60 for n in source],"holdsSeconds":[]})
-    return {"schema":"ddi-danoni-avm1-reference/experimental-1","adapter":"iso50-kouhaku-2004/1",
+    return {"schema":"ddi-danoni-avm1-reference/experimental-1","adapter":"iso50-kouhaku-2004/2",
         "id":ident,"sourceSwfSha256":SWF_HASH,"ruffle":capture["build"],"fps":60,
-        "metadata":{"title":title,"artist":artist,"difficulty":difficulty,"keyMode":"5","chartAuthor":None},
+        "metadata":{"title":title,"artist":artist,"difficultyStars":difficulty.count("★"),
+            "rawDifficulty":difficulty,"difficultyClassification":None,"keyMode":"5","chartAuthor":None},
         "audioOrigin":{"logicalFrame":2,"iteration":origin["frame"],"outputSampleFrame":starts[0]["outputSampleFrame"],
             "stream":starts[0],"sprite":sprite,"scope":"Nominal native frame grid anchored to the Ruffle stream start; not pixel-perfect receptor-centre timing or original Flash seek compensation"},
         "stages":{"menu":menu["frame"],"initialized":origin["frame"]},"lanes":lanes,"speed":[],"boost":[],"colors":[],
@@ -156,8 +157,8 @@ def sm_text(reference, music_name):
     metadata = reference["metadata"]
     return (f"#TITLE:{metadata['title']};\n#ARTIST:{metadata['artist']};\n#MUSIC:../../media/{music_name};\n"
             "// Synthetic BPM encodes the native 60 Hz grid; not a recovered musical BPM.\n"
-            "#OFFSET:0;\n#BPMS:0=75;\n#NOTES:\n     danoni-5:\n     Reconstructed native frame grid:\n"
-            "     Edit:\n     1:\n     0,0,0,0,0:\n"+",\n".join(measures)+"\n;\n")
+            "#OFFSET:0;\n#BPMS:0=75;\n#NOTES:\n     danoni-5:\n     :\n"
+            f"     Edit:\n     {metadata['difficultyStars']}:\n     0,0,0,0,0:\n"+",\n".join(measures)+"\n;\n")
 
 
 def extract(movie, output, worker, ffmpeg):
@@ -205,7 +206,7 @@ def extract(movie, output, worker, ffmpeg):
         chart_dir = output/"charts"/ident; chart_dir.mkdir(parents=True)
         metadata = ref["metadata"]
         fields = {"musicTitle":f"{metadata['title']},{metadata['artist']},{PAGE}","tuning":f"Chart author not identified,{PAGE}",
-            "difData":f"5,{metadata['difficulty']},1","musicUrl":f"../../media/{sprite}.wav","musicFolder":"./",
+            "difData":f"5,::::{metadata['difficultyStars']},1","musicUrl":f"../../media/{sprite}.wav","musicFolder":"./",
             "blankFrame":"0","adjustment":"0","startFrame":"0","playbackRate":"1"}
         for lane in ref["lanes"]:fields[lane["name"]+"_data"] = ','.join(str(n-2) for n in lane["judgementFrames"])
         if any(any(c in v for c in '|\r\n') for v in fields.values()):raise ValueError("Unsafe dos header")
@@ -215,6 +216,7 @@ def extract(movie, output, worker, ffmpeg):
         (chart_dir/"chart.sm").write_text(sm_text(ref,f"{sprite}.wav"))
         write_json(chart_dir/"keys.json",{"mode":"5","lanes":LANES,"nativeKeyCodes":[37,40,38,39,32],"source":"Reviewed pinned movie key handlers"})
         charts.append({"id":ident,"mode":"5","dos":f"charts/{ident}/chart.dos.txt","page":f"charts/{ident}/chart.html",
+            "difficultyStars":metadata["difficultyStars"],"difficultyClassification":None,
             "simfile":f"charts/{ident}/chart.sm","keys":f"charts/{ident}/keys.json","music":music_files[sprite],
             "sourceSnapshotSha256":digest(snapshot),"nativeReference":f"native/{ident}/reference.json",
             "lanes":ref["lanes"],"speed":[],"colors":[],"validation":f"validation/{ident}/conversion.json"})
@@ -232,13 +234,11 @@ def extract(movie, output, worker, ffmpeg):
         for number, selected in enumerate(ids):
             content = sm_text(references[selected],f"{sprite}.wav")
             content = content.replace(f"../../media/{sprite}.wav","music.wav")
-            label = references[selected]["metadata"]["difficulty"]
-            content = content.replace("Reconstructed native frame grid:",label+" (native frame grid):")
             if number:
                 content = "#NOTES:"+content.split("#NOTES:",1)[1]
             combined.append(content)
         (folder/"song.sm").write_text("\n".join(combined))
-    manifest={"schema":"ddi-legacy-export/experimental-1","adapter":"iso50-kouhaku-2004/1","reconstructed":True,
+    manifest={"schema":"ddi-legacy-export/experimental-1","adapter":"iso50-kouhaku-2004/2","reconstructed":True,
         "adapterSourceSha256":digest(Path(__file__).read_bytes()),"graphReaderSourceSha256":digest((Path(__file__).parent/"higan.py").read_bytes()),"demuxSourceSha256":digest((Path(__file__).parent/'swf_audio.py').read_bytes()),
         "sourceSwfSha256":SWF_HASH,"sourcePageUrl":PAGE,"sourceUrl":SOURCE,"charts":charts,"playablePack":"playable",
         "evidence":{"inputs":"source/inputs"},"assessment":{"nativeReference":"source-and-compiled-arrays-cross-checked",

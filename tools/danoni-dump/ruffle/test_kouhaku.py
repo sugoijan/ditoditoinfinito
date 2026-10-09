@@ -38,6 +38,9 @@ class Projection(unittest.TestCase):
             self.assertEqual(lane['spawnMovieFrames'],[150,270])
             self.assertEqual(lane['tapsSeconds'],[298/60,418/60])
         self.assertFalse(ref['metadata']['chartAuthor'])
+        self.assertEqual(ref['metadata']['difficultyStars'],3)
+        self.assertEqual(ref['metadata']['rawDifficulty'],'★★★')
+        self.assertIsNone(ref['metadata']['difficultyClassification'])
 
     def test_failed_incomplete_mutated_or_unreviewed_state_is_rejected(self):
         for change in [lambda s:s['source'].update(movieSha256='0'*64),
@@ -55,6 +58,8 @@ class Projection(unittest.TestCase):
     def test_simfile_grid_is_exact_and_five_key(self):
         ref=project(synthetic_capture(),SELECTIONS[0]);sm=sm_text(ref,'229.wav')
         self.assertIn('danoni-5:',sm);self.assertIn('#BPMS:0=75;',sm)
+        self.assertIn('Edit:\n     3:',sm)
+        self.assertNotIn('★★★',sm)
         body=sm.split('0,0,0,0,0:\n',1)[1].split(';',1)[0]
         notes=[]
         for measure,section in enumerate(body.split(',')):
