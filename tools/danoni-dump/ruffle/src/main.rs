@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{any::Any, error::Error, fs, io::Write, path::Path, time::Duration};
 
+const MAX_ITERATIONS: u64 = 1200;
 const MAX_INPUT: u64 = 16 * 1024 * 1024;
 
 fn hash(bytes: &[u8]) -> String {
@@ -31,7 +32,7 @@ fn input_events(config: &Value) -> Result<Vec<(u64, PlayerEvent)>, Box<dyn Error
         for event in events {
             let frame = event["frame"]
                 .as_u64()
-                .filter(|f| (1..=600).contains(f))
+                .filter(|f| (1..=MAX_ITERATIONS).contains(f))
                 .ok_or("invalid event frame")?;
             match event["type"].as_str() {
                 Some("click") => {
@@ -61,6 +62,18 @@ fn input_events(config: &Value) -> Result<Vec<(u64, PlayerEvent)>, Box<dyn Error
                             button: MouseButton::Left,
                         },
                     ));
+                }
+                Some("text") => {
+                    let value = event["value"].as_str().ok_or("missing text")?;
+                    if value.is_empty()
+                        || value.chars().count() > 32
+                        || value.chars().any(char::is_control)
+                    {
+                        return Err("text input must contain 1..32 printable characters".into());
+                    }
+                    for codepoint in value.chars() {
+                        result.push((frame, PlayerEvent::TextInput { codepoint }));
+                    }
                 }
                 Some("enter" | "key") => {
                     let code = if event["type"] == "enter" {
@@ -93,7 +106,7 @@ fn input_events(config: &Value) -> Result<Vec<(u64, PlayerEvent)>, Box<dyn Error
                             .filter(|n| (1..=120).contains(n))
                             .ok_or("invalid key holdFrames")?,
                     };
-                    if frame + held > 601 {
+                    if frame + held > MAX_ITERATIONS + 1 {
                         return Err("key release exceeds iteration limit".into());
                     }
                     let key = KeyDescriptor {
@@ -193,8 +206,15 @@ fn run() -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|x| x.as_u64().ok_or("invalid capture frame"))
         .collect::<Result<_, _>>()?;
-    if frames.is_empty() || frames.len() > 16 || frames.iter().any(|&f| f == 0 || f > 600) {
-        return Err("capture 1..16 frames, each in 1..600".into());
+    if frames.is_empty()
+        || frames.len() > 16
+        || frames.iter().any(|&f| f == 0 || f > MAX_ITERATIONS)
+    {
+        return Err("capture 1..16 frames, each in 1..1200".into());
+    }
+    let avm_execution_ms = config["avmExecutionMs"].as_u64().unwrap_or(500);
+    if !(50..=10000).contains(&avm_execution_ms) {
+        return Err("AVM execution budget must be 50..10000 ms".into());
     }
     let render = config["render"].as_bool().unwrap_or(false);
     let mix_audio = config["mixAudio"].as_bool().unwrap_or(false);
@@ -214,7 +234,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         ))
         .with_log(audit.clone())
         .with_page_url(page_url)
-        .with_max_execution_duration(Duration::from_millis(500))
+        .with_max_execution_duration(Duration::from_millis(avm_execution_ms))
         .with_viewport_dimensions(320, 240, 1.0)
         .with_autoplay(true);
     if mix_audio {
@@ -248,6 +268,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         None
     };
     for frame in 1..=*frames.iter().max().unwrap() {
+        audit.set_iteration(frame);
         {
             let mut guard = player.lock().map_err(|_| "player lock poisoned")?;
             if mix_audio {

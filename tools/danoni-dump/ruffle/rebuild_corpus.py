@@ -195,47 +195,77 @@ def cw_dump(source, destination, verification):
             'scope': 'Captured effective dos and music; original source effects remain data, browser custom presentation is not replayed'}
 
 
-def audio_check(prepared, ffmpeg):
-    """Independent decode and sampled correlation; no browser is needed."""
-    report = json.loads((prepared / 'manifest.json').read_text()); results = []
+class AudioQualityError(ValueError):
+    """Only waveform loss can trigger a quality retry; timing/count errors cannot."""
+
+
+def audio_comparison(reference, decoded):
+    def pcm(path):
+        with wave.open(str(path), 'rb') as f:
+            spec = (f.getframerate(), f.getnchannels(), f.getnframes(), f.getsampwidth())
+            if spec[3] != 2: raise ValueError('Expected PCM16')
+            values = array('h', f.readframes(spec[2]))
+            if __import__('sys').byteorder != 'little': values.byteswap()
+            return spec, values
+    a, x = pcm(reference); b, y = pcm(decoded)
+    if a != b: raise ValueError('Encoded audio changed decoded sample count/format')
+    rate, channels, count, _ = a; windows = []
+    length = min(rate, max(1, (count - 64) // 3))
+    for channel in range(channels):
+        for part in range(3):
+            low = max(32, part * count // 3); high = min(count - length - 32, (part + 1) * count // 3 - length)
+            candidates = range(low, high + 1, max(1, length // 2))
+            def energy(at): return sum(x[(at + i) * channels + channel] ** 2 for i in range(0, length, 16))
+            at = max(candidates, key=energy, default=None)
+            if at is None or energy(at) == 0: continue
+            best = (-1., None)
+            for lag in range(-32, 33):
+                xy = xx = yy = 0
+                for i in range(0, length, 16):
+                    u = x[(at + i) * channels + channel]; v = y[(at + i + lag) * channels + channel]
+                    xy += u * v; xx += u * u; yy += v * v
+                corr = xy / math.sqrt(xx * yy) if xx and yy else -1
+                if corr > best[0]: best = (corr, lag)
+            if abs(best[1]) > 1: raise ValueError('Audio origin verification failed')
+            if best[0] < .97: raise AudioQualityError(f'Audio correlation below threshold: {best[0]}')
+            windows.append({'channel': channel, 'part': part, 'startSeconds': at / rate,
+                            'correlation': best[0], 'lagSamples': best[1]})
+    if not windows: raise ValueError('No energetic audio window to verify')
+    return {'sampleRate': rate, 'channels': channels, 'frames': count, 'windows': windows}
+
+
+def audio_check(prepared, ffmpeg, encoder=None):
+    """Independent decode; retry Ogg waveform loss at bounded higher qualities."""
+    report_path = prepared / 'manifest.json'
+    report = json.loads(report_path.read_text()); results = []; attempts = []
     for song in report['songs']:
         reference = prepared / 'references' / (song['id'] + '.wav')
         decoded = prepared / 'references' / (song['id'] + '-verify.wav')
-        subprocess.run([str(ffmpeg), '-nostdin', '-v', 'error', '-i', str(prepared / song['music']),
-                        '-c:a', 'pcm_s16le', str(decoded)], check=True, timeout=30)
-        def pcm(path):
-            with wave.open(str(path), 'rb') as f:
-                spec = (f.getframerate(), f.getnchannels(), f.getnframes(), f.getsampwidth())
-                if spec[3] != 2: raise ValueError('Expected PCM16')
-                values = array('h', f.readframes(spec[2]))
-                if __import__('sys').byteorder != 'little': values.byteswap()
-                return spec, values
-        a, x = pcm(reference); b, y = pcm(decoded)
-        if a != b: raise ValueError('Encoded audio changed decoded sample count/format')
-        rate, channels, count, _ = a; windows = []
-        length = min(rate, max(1, (count - 64) // 3))
-        for channel in range(channels):
-            for part in range(3):
-                low = max(32, part * count // 3); high = min(count - length - 32, (part + 1) * count // 3 - length)
-                candidates = range(low, high + 1, max(1, length // 2))
-                def energy(at): return sum(x[(at + i) * channels + channel] ** 2 for i in range(0, length, 16))
-                at = max(candidates, key=energy, default=None)
-                if at is None or energy(at) == 0: continue
-                best = (-1., None)
-                for lag in range(-32, 33):
-                    xy = xx = yy = 0
-                    for i in range(0, length, 16):
-                        u = x[(at + i) * channels + channel]; v = y[(at + i + lag) * channels + channel]
-                        xy += u * v; xx += u * u; yy += v * v
-                    corr = xy / math.sqrt(xx * yy) if xx and yy else -1
-                    if corr > best[0]: best = (corr, lag)
-                if best[0] < .97 or abs(best[1]) > 1: raise ValueError('Audio correlation/origin verification failed')
-                windows.append({'channel': channel, 'part': part, 'startSeconds': at / rate,
-                                'correlation': best[0], 'lagSamples': best[1]})
-        if not windows: raise ValueError('No energetic audio window to verify')
+        destination = prepared / song['music']
+        for quality in (None, .7, .9, 1.):
+            if quality is not None:
+                if report.get('codec') != 'ogg' or encoder is None: raise ValueError('Cannot retry this codec')
+                with wave.open(str(reference), 'rb') as wav:
+                    command = [str(encoder), str(wav.getframerate()), str(wav.getnchannels()), str(quality)]
+                    raw_pcm = wav.readframes(wav.getnframes())
+                with destination.open('wb') as output:
+                    subprocess.run(command, input=raw_pcm, stdout=output, check=True, timeout=30)
+                song.update(encodingCommand=command, vorbisQuality=quality, musicSha256=digest(destination.read_bytes()))
+            subprocess.run([str(ffmpeg), '-nostdin', '-v', 'error', '-y', '-i', str(destination),
+                            '-c:a', 'pcm_s16le', str(decoded)], check=True, timeout=30)
+            try:
+                comparison = audio_comparison(reference, decoded)
+            except AudioQualityError as error:
+                attempts.append({'song': song['id'], 'quality': .5 if quality is None else quality, 'passed': False, 'error': str(error)})
+                write_json(prepared / 'audio-quality-attempts.json', attempts)
+                if quality == 1. or report.get('codec') != 'ogg' or encoder is None: raise
+            else:
+                attempts.append({'song': song['id'], 'quality': (.5 if quality is None else quality) if report.get('codec') == 'ogg' else None, 'passed': True})
+                results.append({'song': song['id'], **comparison}); break
         decoded.unlink()
-        results.append({'song': song['id'], 'sampleRate': rate, 'channels': channels, 'frames': count, 'windows': windows})
+    write_json(report_path, report)
     result = {'schema': 'ddi-audio-origin-comparison/native-1', 'passed': True, 'comparisons': results,
+              'qualityAttempts': attempts,
               'scope': 'Independent FFmpeg decode, exact sample counts and sampled energetic-window correlation; original Flash/device latency remains unmeasured'}
     write_json(prepared / 'audio-verification.json', result)
     return result
@@ -295,7 +325,7 @@ def build(registry, stage, ffmpeg, encoder, verifier):
                 native = prepare(source.parent, prepared, policy.get('audio', 'ogg'), ffmpeg, encoder,
                                  display_bpms=policy.get('displayBpms'), musical_grid=review('musicalGrid'),
                                  native_scroll=review('nativeScroll'), scroll_factor=policy.get('scrollFactor', 1))
-                audio_check(prepared, ffmpeg)
+                audio_check(prepared, ffmpeg, encoder)
                 (prepared / 'playable.zip').unlink()
                 if entry.get('baseline'):
                     b = entry['baseline']; baseline = checked(root, b['path'], b['sha256'])

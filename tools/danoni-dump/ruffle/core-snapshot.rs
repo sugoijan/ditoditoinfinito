@@ -11,7 +11,7 @@ const MAX_OBJECTS: usize = 1024;
 const MAX_PROPERTIES: usize = 20000;
 const MAX_STRING_UNITS: usize = 4096;
 const MAX_TOTAL_STRING_UNITS: usize = 262144;
-const MAX_DISPLAYS: usize = 256;
+const MAX_DISPLAYS: usize = 512;
 
 struct Inspector<'gc> {
     ids: HashMap<usize, usize>,
@@ -106,10 +106,12 @@ pub fn capture(player: &mut Player, inspect_globals: bool) -> Json {
                 _ => "display",
             };
             let bounds = display.world_bounds(BoundsMode::Engine);
+            let registration = display.local_to_global(swf::Point::default());
             display_tree.push(json!({"id":display_cursor,"parent":parent,
                 "kind":kind,"name":display.name().map(|name| inspect.string(name)),
                 "depth":display.depth(),"visible":display.visible(),
                 "movieFrame":display.as_movie_clip().map(|clip|clip.current_frame()),
+                "stageRegistrationPixels":[registration.x.to_pixels(), registration.y.to_pixels()],
                 "stageBoundsPixels":[bounds.x_min.to_pixels(),bounds.y_min.to_pixels(),
                     bounds.x_max.to_pixels(),bounds.y_max.to_pixels()],
                 "object":display.object1().map(|object|inspect.value(Value::Object(object)))}));

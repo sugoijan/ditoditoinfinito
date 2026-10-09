@@ -789,3 +789,28 @@ explicitly pending, including nine unprojected legacy originals. See
 source comparisons, current limitations and archive/recovery behavior. Historical
 export paths in earlier milestones refer to the preserved old mixed tree in
 `exports-history/`, rather than the current generation.
+
+
+### Native family expansion (2026-10-10)
+
+The [native family contracts](danoni-native-adapters.md) now project all seven
+new single-song SWFs plus Destined Marionette: eight works, nine charts,
+4,414 taps and 73 holds. RE:RAVE includes independently selected LVUP and Hard;
+seven-key Happy Rainbow, Decipher and FAKE800 retain all seven lanes. Source
+frames/schedules, native arrow movement and energetic audio-origin comparisons
+are checked separately. Unknown ratings stay null. Source and generated media
+remain local under `native-adapters-v1/` and `normalized/`.
+
+These facts supersede the earlier title-only/native-untested statuses above.
+Acquisition manifests themselves stay byte-identical; the root corpus inventory
+now links canonical normalized references and final selection recipes. The
+original Straight Soul remains pending: name registration and its URL guard
+prevent the permitted offline flow from reaching initialization. No registration
+is submitted or simulated. Its HTML5 port remains a distinct captured work.
+
+The expanded [export registry](danoni-exports.md) contains 15 required works
+and nine pending entries. Source colour/boost/visual-stop/custom presentation
+limitations remain explicit; validated stored note data is not a promise to
+reproduce arbitrary original runtime behavior. felys's final out-of-order note
+is retained in the reference and its playable/source behavior difference is
+reported. No third-party fixture or music is added to Git.

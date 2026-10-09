@@ -1,5 +1,9 @@
 """Synthetic transaction, eligibility and export-integrity checks; no work assets."""
 import json
+import random
+import wave
+from array import array
+import sys
 from pathlib import Path
 import subprocess
 import tempfile
@@ -11,6 +15,26 @@ from export_io import digest, write_json
 
 
 class Rebuild(unittest.TestCase):
+    def test_audio_loss_is_distinct_from_origin_and_sample_count_errors(self):
+        values=array('h',[random.Random(i).randrange(-12000,12000)for i in range(20000)])
+        def wav(path,data):
+            with wave.open(str(path),'wb') as output:
+                output.setnchannels(1);output.setframerate(4000);output.setsampwidth(2)
+                copy=array('h',data)
+                if sys.byteorder!='little':copy.byteswap()
+                output.writeframes(copy.tobytes())
+        with tempfile.TemporaryDirectory() as d:
+            a,b=Path(d)/'a.wav',Path(d)/'b.wav';wav(a,values);wav(b,values)
+            self.assertTrue(rebuild.audio_comparison(a,b)['windows'])
+            wav(b,[v+random.Random(i+30000).randrange(-6000,6000)for i,v in enumerate(values)])
+            with self.assertRaises(rebuild.AudioQualityError):rebuild.audio_comparison(a,b)
+            wav(b,[0]*7+list(values[:-7]))
+            with self.assertRaises(ValueError) as error:rebuild.audio_comparison(a,b)
+            self.assertNotIsInstance(error.exception,rebuild.AudioQualityError)
+            wav(b,values[:-1])
+            with self.assertRaises(ValueError) as error:rebuild.audio_comparison(a,b)
+            self.assertNotIsInstance(error.exception,rebuild.AudioQualityError)
+
     def generation(self, folder):
         folder.mkdir()
         (folder / 'playable.zip').write_bytes(b'original synthetic archive')

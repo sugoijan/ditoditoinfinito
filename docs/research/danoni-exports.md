@@ -1,18 +1,19 @@
 # Regenerating the local DanOni exports
 
-Implementation date: 2026-10-09. `ruffle/rebuild_corpus.py` now builds the
+Updated: 2026-10-10. `ruffle/rebuild_corpus.py` now builds the
 currently validated subset entirely from saved evidence, checks it with the
 game's actual parsers, and promotes it with archival and rollback journals.
-The remaining source-family projection and CW-to-SSC work below is still a plan.
+[Native family adapters](danoni-native-adapters.md) now cover eight further works.
+A CW-to-SSC bridge and the gated original Straight Soul remain future work.
 All third-party inputs and generated packs stay outside Git.
 
 ## Current generation
 
 The local registry is `~/Music/DanOni/export-registry.json`. Its 24 entries
-include seven required, successful works and 17 explicit pending entries:
-nine legacy gameplay/audio projection cases and eight incomplete/unsupported
-CW captures or exploratory probes. Pending entries are inventory, not playable
-exports. The generation contains **11 songs, 14 charts, 8,482 taps and 259 holds**.
+include 15 required, successful works and nine explicit pending entries:
+the gated original Straight Soul and eight incomplete/unsupported CW captures
+or exploratory probes. Pending entries are inventory, not playable
+exports. The generation contains **19 songs, 23 charts, 12,896 taps and 332 holds**.
 
 | Work | Songs / charts | Output and validation |
 | --- | --- | --- |
@@ -23,8 +24,13 @@ exports. The generation contains **11 songs, 14 charts, 8,482 taps and 259 holds
 | カナリア | 1 / 1 | Native CW dump, 7i; 825 taps, 37 holds |
 | Dancing at Dusk | 1 / 1 | Native CW dump, 5-key; 546 taps, 51 holds |
 | ふしぎなひかり | 1 / 2 | Native CW dump, 9A/9B only; 237 taps, four holds; unsupported 9i omitted |
+| FTHosyu / party 4u / felys | 3 / 3 | Native family SSC/Ogg; embedded/external dos, 190/289/381 taps; felys ordering defect declared |
+| RE:RAVE | 1 / 2 | Native family SSC/Ogg; LVUP 556 taps, Hard 922 taps; independent selection/origin checks, shared music |
+| Happy Rainbow / Decipher | 2 / 2 | Native seven-key SSC/Ogg; 281/609 taps, 38/27 holds, nine/six speed events; visual stop toggles retained in Decipher evidence |
+| Destined Marionette / FAKE800 | 2 / 2 | Independent-counter SSC/Ogg; 645/541 taps, seven/one holds; compiled spawn/travel cross-check, measured native movement |
 
-Higan has no accepted musical-grid review yet. Its 75 BPM is an exact synthetic
+
+Higan and the eight new native works have no accepted musical-grid reviews yet. Its 75 BPM is an exact synthetic
 frame clock, not a recovered musical tempo. Its saved native captures establish
 3 px/frame at 60 FPS and a 45.95 px reference arrow width: approximately
 3.917301415 arrow widths/second. The corresponding `#SCROLLS` preserves that
@@ -45,14 +51,15 @@ The first generation deliberately adds no generated artwork and does not
 normalize CW works to SSC. Native CW preview/rating behavior remains the game's
 importer behavior; shared SSC presentation is a later bridge.
 
-A separate fresh-profile Chrome import of both ZIPs confirmed all 11 songs,
-14 charts and 8,741 judged notes (taps plus hold heads), with exactly the two
+A separate fresh-profile Chrome import of both ZIPs confirms all 19 songs,
+23 charts and 13,228 judged notes (taps plus hold heads), with exactly the two
 collection names above and no page errors. Four current-importer warnings remain:
 `endFrame` is not applied for three CW works, and the unplayed Hikari 9i row is
 reported as unsupported. These are declared importer limitations, not missing
 media or failed supported charts. The local browser check is supplemental;
 the rebuild itself launches no browser. Its report is retained under
-`reviews/export-generation-20261009/browser-import.json`.
+`reviews/export-generation-native-20261010/browser-import.json`.
+The earlier 11-song generation and its browser evidence remain archived.
 
 ## Commands and registry contract
 
@@ -121,7 +128,12 @@ source path/hash, reference paths and declared omitted effects. Detailed game
 parser checks are JSON lines in `validation.jsonl`. The native audio report
 `reports/<work>/audio-verification.json` records exact decoded sample counts,
 rates/channels and energetic-window correlation against the source PCM. This
-checks export origin, not original Flash/device latency.
+checks export origin, not original Flash/device latency. Ogg starts at Vorbis
+quality 0.5. Waveform loss alone can trigger bounded retries at 0.7, 0.9 and 1.0;
+origin/sample-count failures cannot. Every attempt is reported, the same ≥0.97
+correlation and ≤1-sample lag limits apply, and the final encoding command/hash
+is recorded. Decipher needs a higher quality; default-passing accepted Kouhaku
+bytes stay unchanged.
 
 ```text
 exports/
@@ -187,23 +199,25 @@ contains the concrete examples and archive URL bindings supporting this split.
 
 ## What can regenerate now
 
-| Input | Present implementation | Remaining work |
-| --- | --- | --- |
-| Kouhaku | Pinned native adapter, audio demux, normalized export, reviewed musical grid/motion, shared pack preparation | Registered and validated; a future adapter rerun must revalidate hash bindings |
-| Higan Normal | Pinned native adapter and validated note/hold/speed/colour reference, demuxed audio | Registered, packed and measured; musical-grid fitting remains unreviewed |
-| New CW works: Dancing at Dusk, カナリア, ふしぎなひかり 9A/9B | Four complete selected-chart oracles/media captures, verified offline | Unified SSC path: CW dump → normalized-work adapter and verified timing/motion mapping. Existing native-format dumps can be packaged sooner. |
-| Earlier complete usable CW captures, including Jam with Pancake and Straight Soul | Existing oracles/media; some work-level limitations retained | Per-chart/media eligibility checks; normalization only if targeting the shared SSC presentation |
-| Seven new individual-song SWFs | Original pages/movie/sidecars, successful native title captures | Initialization/selection recipes, source-family chart projection, audio assembly/origin, movement proof and independent validation |
-| Destined Marionette and original Straight Soul | Acquired earlier; original SWFs not projected | Same native work; Straight Soul's HTML5 port is corroboration, not an assumed identical chart |
-| Other/custom modes or incomplete dependencies | Evidence may exist | Explicit skipped/unsupported/partial entries; never invent missing music or remap to a supported mode by lane count |
+The registry rebuilds all 15 required works: ten native works (Kouhaku, Higan
+and the eight family-adapter additions), plus five eligible saved CW works.
+Original Straight Soul remains pending; all other acquired legacy originals
+now have validated selected-chart exports. See the [family handover](danoni-native-adapters.md)
+for exact contracts, local recipes, diagnostics and coverage.
 
-The immediately regenerable native set is **six songs/seven charts**: Kouhaku's
-five/six and Higan's one/one. This does not mean all seven newly acquired SWFs
-can already be converted. They and the two earlier unprojected originals make
-**nine pending legacy projection cases**, potentially sharing a smaller number
-of engine-family adapters. Family compatibility must be proved.
+The native additions use their own movement evidence and exact synthetic frame
+clock, generic pickup previews, factual source difficulty labels and null ratings.
+Unsupported native effects remain in references and declared loss reports.
+The seven newly acquired source manifests remain byte-identical; their root
+inventory now points to normalized gameplay evidence. Native nine-key families,
+additional/custom difficulties and musical-grid reviews need new proof.
 
-## Remaining implementation and design constraints
+## Original implementation plan and remaining constraints
+
+The following is the original staged plan. Registry migration, cached CW
+packaging, all three native family adapters, audio-origin matching and staged
+validation/promotion are now implemented as described above. CW normalization,
+automated acquisition/navigation and optional artwork remain separate work.
 
 ### 1. Local corpus registry and reproducible recipes
 
@@ -254,7 +268,7 @@ Do not concatenate every audio block in the movie.
 Prefer validated source-stream assembly. If some sources require native PCM
 rendering, add a bounded full-song audio mode with sparse state captures and
 explicit duration/output limits. The current native worker caps capture/run
-iterations at 600, so it cannot record a typical complete song at 60 FPS. A
+iterations at 1,200, so it cannot record a typical complete song at 60 FPS. A
 larger bound alone does not prove timer/audio-clock fidelity. Keep the
 restricted runner and prove the relevant clock/seek behavior before accepting
 that route. Compare decoded sample counts and onset/origin evidence, then use
@@ -382,5 +396,6 @@ stages are preserved separately under `exports-history/development-stages-202610
 The live single-song inventory's Higan reference now points to
 `normalized/higan/manifest.json`; the original inventory and relocation record
 are retained with the supplemental browser report. No source/music files were
-committed or deleted. The next extraction work is the missing native families,
-starting with the early iso embedded works and their external-dos variant.
+committed or deleted. The 2026-10-10 expansion preserves that generation under exports-history and
+adds the validated native family works; it does not change accepted Kouhaku
+chart/audio bytes or silently accept musical-grid estimates.

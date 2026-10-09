@@ -36,6 +36,7 @@ def assert_snapshot(snapshot):
         displays = state["displayTree"]
         child = next(d for d in displays if d["name"] and d["name"]["text"] == "laneBank")
         assert child["parent"] == 0 and child["kind"] == "movie-clip"
+        assert child["stageRegistrationPixels"] == [13.0,17.0]
         child_notes = properties(state,properties(state,child["object"])["notes"])
         assert child_notes["length"] == 2
         assert [child_notes["0"],child_notes["1"]] == [90,210]
@@ -159,6 +160,16 @@ def test(worker, directory):
     (inputs/"corrupt.json").write_text(json.dumps(corrupt))
     invalid = run(worker,inputs/"corrupt.json",directory/"corrupt-cache")
     assert invalid["exitCode"] != 0 and "hash mismatch" in (directory/"corrupt-cache/stderr.txt").read_text()
+    loud=run(worker,inputs/'loud.json',directory/'loud')
+    assert loud['exitCode']==0
+    samples=struct.unpack('<'+'h'*((directory/'loud/audio.pcm').stat().st_size//2),(directory/'loud/audio.pcm').read_bytes())
+    assert max(samples)==32767 and min(samples)==-32768, 'overlapping loud sounds must saturate PCM16'
+    for label, extra in [('too-many-frames',{'captureFrames':[1201]}), ('bad-budget',{'avmExecutionMs':10001}),
+                         ('empty-text',{'events':[{'frame':1,'type':'text','value':''}]}),
+                         ('control-text',{'events':[{'frame':1,'type':'text','value':'\n'}]})]:
+        cfg=json.loads((inputs/'run.json').read_text());cfg.update(extra)
+        (inputs/(label+'.json')).write_text(json.dumps(cfg))
+        assert run(worker,inputs/(label+'.json'),directory/label)['exitCode']!=0
     started = time.monotonic()
     loop = run(worker,inputs/"loop.json",directory/"loop",timeout=5)
     assert time.monotonic()-started < 7 and loop["termination"] in (None,"wall-time-limit")
@@ -180,7 +191,7 @@ def test(worker, directory):
         "checks":["outside read/write denied","input write denied","symlink escape denied","network denied",
             "AVM resource requests denied","exact before/after graph","getter not invoked","sparse and special values",
             "FlashVars and URL parameters","child movie-clip storage","two offscreen pixel buffers","fresh-process repeat",
-            "delayed PCM stream and exact impulses","cache integrity",
+            "delayed PCM stream and exact impulses","loud overlapping PCM saturation","native registration points","text/budget/iteration bounds","cache integrity",
             "budget and audit exhaustion rejected","frame-polled key input","bounded held arrow keys","stored global data without getter invocation","halted initialized chart rejected",
             "Git output guard","outer timeout","outer memory limit"]},indent=2))
 

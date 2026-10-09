@@ -50,6 +50,7 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
         let song =
             sm::parse_ssc(&fs::read_to_string(prepared.join(strv(&entry["simfile"]))).unwrap())
                 .unwrap();
+        assert_eq!(song.title, strv(&entry["title"]), "song title changed");
         assert!((song.preview_start - num(&entry["preview"]["startSeconds"])).abs() < 1e-6);
         assert!((song.preview_length - num(&entry["preview"]["lengthSeconds"])).abs() < 1e-6);
         assert!(song.preview_start >= 0.0 && song.preview_length > 0.0);
@@ -90,6 +91,9 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
                 .unwrap();
             let chart = &song.charts[index];
             let timing = chart.timing(&song);
+            if let Some(label) = src["metadata"]["difficultyLabel"].as_str() {
+                assert_eq!(song.charts[index].name, label, "difficulty label changed");
+            }
             assert_eq!(chart.layout, format!("danoni-{}", strv(&src["mode"])));
             assert!(ddi_chart::PLAYED_DANONI_MODES.contains(&strv(&src["mode"])));
             assert_eq!(

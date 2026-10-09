@@ -56,6 +56,12 @@ def frame(seconds):
     return tick
 
 
+def ssc_value(value):
+    value=str(value)
+    if any(c in value for c in ';\r\n'):raise ValueError('Unrepresentable header')
+    return ''.join('\\'+c if c in '\\:#/' else c for c in value)
+
+
 def ssc_chart(chart,tier,stars,grid=None,native_motion=None,scroll_factor=1):
     mode=chart['mode'];lanes=chart['lanes']
     if mode not in MODES or len(lanes)!=MODES[mode]:raise ValueError('Unsupported/incorrect built-in DanOni layout')
@@ -93,7 +99,9 @@ def ssc_chart(chart,tier,stars,grid=None,native_motion=None,scroll_factor=1):
         multiplier=e['multiplier']
         if type(multiplier) not in (float,int) or not math.isfinite(multiplier):raise ValueError('Invalid scroll multiplier')
         scroll.append(f"{(event_tick(e['seconds'],False)+padding)/48:.15g}={multiplier*compensation:.15g}")
-    return ('#NOTEDATA:;\n'+f'#STEPSTYPE:danoni-{mode};\n#DESCRIPTION:;\n#DIFFICULTY:{tier};\n#METER:{stars if stars is not None else 0};\n'
+    label=chart.get('metadata',{}).get('difficultyLabel','')
+    if not isinstance(label,str) or any(c in label for c in ';\r\n'):raise ValueError('Unsafe source difficulty label')
+    return ('#NOTEDATA:;\n'+(f'#CHARTNAME:{ssc_value(label)};\n' if label else '')+f'#STEPSTYPE:danoni-{mode};\n#DESCRIPTION:;\n#DIFFICULTY:{tier};\n#METER:{stars if stars is not None else 0};\n'
         +f'#OFFSET:{padding*quantum-phase:.15g};\n#BPMS:0={bpm:.15g};\n'
         +(f"#SCROLLS:{','.join(scroll)};\n" if scroll else '')+f'#NOTES:{rows};\n')
 
@@ -171,7 +179,7 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
         meta=first['metadata'];title=meta.get('title',meta.get('musicTitle',first['id']));artist=meta.get('artist','')
         if any(c in str(title)+str(artist) for c in ';\r\n'):raise ValueError('Unrepresentable header')
         grid=grids.get(first['id']);timing_bpm=grid['bpm'] if grid else 75;phase=grid['beatZeroSeconds'] if grid else 0
-        text=(f'#VERSION:0.83;\n#TITLE:{title};\n#ARTIST:{artist};\n#MUSIC:{name};\n#OFFSET:{-phase:.15g};\n#BPMS:0={timing_bpm:.15g};\n'
+        text=(f'#VERSION:0.83;\n#TITLE:{ssc_value(title)};\n#ARTIST:{ssc_value(artist)};\n#MUSIC:{name};\n#OFFSET:{-phase:.15g};\n#BPMS:0={timing_bpm:.15g};\n'
               +f"#SAMPLESTART:{preview['startSeconds']:.9g};\n#SAMPLELENGTH:{preview['lengthSeconds']:.9g};\n")
         selected=[reviews[e['id']] for e in group if e['id'] in reviews]
         if selected and any(v!=selected[0] for v in selected):raise ValueError('Conflicting display BPMs for charts sharing music')

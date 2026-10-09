@@ -177,6 +177,9 @@ compares every tap, both hold endpoints, speed value and expanded colour value,
 including duplicate events. It never changes expected data to fit CW. Cosmetic
 translation and judgement/gauges remain outside the validated projection.
 
-Next priorities are a second legacy family and the Straight Soul Flash/HTML5
-pair, followed by 9-key examples. Chart Reverser remains useful for source-known
+The [single-song family adapters](danoni-native-adapters.md) now cover eight
+further works, including seven-key examples and two RE:RAVE difficulties. The
+original Straight Soul stays pending because its startup requires server-backed
+registration; its HTML5 port is separately captured. Legacy nine-key adapters
+remain future work. Chart Reverser remains useful for source-known
 BPM/first-number cases; no authoring-grid equivalence is claimed for this pilot.

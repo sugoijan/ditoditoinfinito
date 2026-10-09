@@ -1,19 +1,23 @@
 # Native AVM1 inspection prototype
 
 Experimental native Ruffle host for the [legacy extraction plan](../../../docs/research/danoni-legacy-plan.md).
-It captures stored ActionScript data and optional offscreen pixels. It is **not
-yet a general DanOni SWF-to-dos converter**. Export adapters cover the original
-synthetic fixture, Higan's default five-key Normal and the pinned
+It captures stored ActionScript data and optional offscreen pixels. It is an experimental extractor with verified family contracts, rather than a
+universal SWF converter. Export adapters cover the original synthetic fixture,
+Higan's default five-key Normal and the pinned
 [2004 Kouhaku collection](../../../docs/research/danoni-kouhaku.md) (five songs, six charts).
 The [native handover](../../../docs/research/danoni-native.md) records its
 cross-checked arrays, music origin, export contract and remaining limits.
-Existing CW dump `/1` files and schemas are unchanged.
+The [single-song family adapters](../../../docs/research/danoni-native-adapters.md)
+add eight works/nine charts across early child timelines, seven-key DAC arrays
+and later independent-counter engines. Existing CW dump `/1` schemas are unchanged.
 
 ## Build separately from the game
 
-Tested on macOS with Metal, Rust 1.98.0 and Java 26 (`java` must be on PATH for
+Tested on macOS with Metal, Rust 1.99.0 and Java 26 (`java` must be on PATH for
 Ruffle's playerglobal build). Python 3.10+ runs the preparation and restricted
-launcher. No Python packages are required. Browser comparison additionally uses
+launcher. Worker preparation, launching and normalized-corpus rebuild need no Python
+packages. First-time family audio matching uses the existing pinned NumPy/SciPy
+analysis requirements and FFmpeg. Browser comparison additionally uses
 the parent tool's `npm ci` dependencies and installed Chrome.
 
 Ruffle is pinned to release **v0.7.1**, revision
@@ -121,14 +125,18 @@ inventing a Shift_JIS response header. Only exact cached GETs without a request
 body are served. Missing requests are recorded; nothing fetches them automatically.
 AVM2 and LZMA/ZWS inputs are outside this pilot.
 
-`captureFrames` selects 1–16 worker iterations, each from 1 through 600. These
+`captureFrames` selects 1–16 worker iterations, each from 1 through 1,200. These
 numbers are **not** the movie's timeline frame or a verified song clock.
-`events` accepts up to 64 actions: `enter`, `key`, or `click` with numeric `x`/`y` in
+`events` accepts up to 64 actions: `enter`, `key`, `text`, or `click` with numeric `x`/`y` in
 the fixed 320×240 viewport. Press occurs before the selected iteration; release
 occurs before the next. Capture beyond the release iteration when inspecting
 post-input state. `key` takes `code` (Enter, ArrowLeft/Right/Up/Down or Space)
 and optional `holdFrames` (1–120; default 1). Releases must fit within the
-iteration limit. `inspectGlobals` defaults to false; true records the two AVM1
+iteration limit. `text` takes `value` with 1–32 printable characters, delivered
+as native text-input events. `avmExecutionMs` is 50–10,000 ms (default 500);
+large original converters may require a reviewed larger budget. The parent
+runner still caps CPU at 20 s, wall time at 30 s and resident memory at 2 GiB.
+`inspectGlobals` defaults to false; true records the two AVM1
 case-sensitivity environments' enumerable stored global properties, excluding
 function values and non-enumerable properties. `render` defaults to false; true uses an offscreen Metal target.
 The upstream bundled default font is enabled, including with rendering disabled.
@@ -160,7 +168,8 @@ has schema `ddi-avm1-snapshot/experimental-1`, `roots`, `objects`, `displayTree`
   Parent is a display index or null, name is StringValue or null, object is a
   graph reference or null. Bounds `[xmin,ymin,xmax,ymax]` use original stage
   pixels, before viewport scaling/letterboxing. Kinds additionally include
-  `avm1-button`, `edit-text`, `text`, `display`. Child storage is inspected
+  `avm1-button`, `edit-text`, `text`, `display`. Native `stageRegistrationPixels` adds the
+  transformed local registration point, without invoking any AVM getter. Child storage is inspected
   directly; script MovieClipReference resolution remains excluded.
 - `globalScopes[]`: empty unless requested; otherwise
   `{caseSensitive:boolean,properties:[{name:StringValue,value:Value,accessor:boolean}],excluded:string[]}`.
@@ -180,10 +189,11 @@ has schema `ddi-avm1-snapshot/experimental-1`, `roots`, `objects`, `displayTree`
   methods or ActionScript coercion.
 
 `incomplete` means an inspection budget was exhausted, not that all relevant VM
-state was otherwise observed. Bounds: 64 roots, 256 displays, 1,024 objects, 20,000 properties,
+state was otherwise observed. Bounds: 64 roots, 512 displays, 1,024 objects, 20,000 properties,
 4,096 UTF-16 units per string and 262,144 total units per snapshot. Exclusions
 are always explicit. `audit` has `entries:[{kind,detail,truncated}]`,
-`droppedEntries`, `truncatedDetails`, `runtimeErrors`, `truncated`; bounds are
+`droppedEntries`, `truncatedDetails`, `runtimeErrors`, `truncated`; each audit entry also records its worker iteration
+(0 during preload). Bounds are
 256 entries and 1,024 characters per detail. Do not silently accept lost evidence.
 
 With mixing enabled, `audio` is `{sampleRate:44100,channels:2,sampleFrames:integer,
@@ -230,7 +240,8 @@ still differ. Ruffle's audio feature uses its upstream-constrained Symphonia
 Higan now has complete pre-consumption arrays, a zero-latency continuous MP3
 demux, repeatable observed music origin and a passing CW comparison. Its original
 Flash latency and full visual/gameplay fidelity remain unmeasured. The 2004 Kouhaku adapter below adds a second family with explicit nonzero
-latency limits. Next cover the known Straight Soul Flash/HTML5 pair. Chart Reverser can supply
+latency limits. The [new family adapters](../../../docs/research/danoni-native-adapters.md)
+cover further single-song sources; original Straight Soul remains gated. Chart Reverser can supply
 an additional authoring-grid comparison where first-number/BPM changes are
 known; it cannot independently recover an unknown timebase or original project.
 
@@ -368,7 +379,7 @@ The newest local variant is
 Its music, musical positions/colours and measured native scroll match the
 accepted native-scroll ZIP; only preview tags differ. Parser/engine validation
 for this variant ran with Rust **1.99.0**. The earlier native worker's recorded
-Rust 1.98.0 build identity and original output provenance are unchanged.
+Rust 1.99.0 build identity and original output provenance are unchanged.
 
 
 ## Offline corpus regeneration
@@ -384,3 +395,27 @@ are under `~/Music/DanOni/exports/`; older variants are historical.
 
 Synthetic transaction tests: `python3 tools/danoni-dump/ruffle/test_rebuild_corpus.py`.
 The tool and verifier are MIT under the repository-wide REUSE annotation.
+
+
+## Family extraction from saved native evidence
+
+See [the complete recipe/reference contract](../../../docs/research/danoni-native-adapters.md).
+Each recipe binds initialized, movement and music-start captures plus the
+successful restricted-run/config/PCM hashes. `extract_native.py` refuses changed
+inputs, missing initialization, inconsistent schedules, unexplained runtime
+failures and unverified stream/origin matches. It selects the observed stream
+container, not every MP3 block in the SWF. Shared audio is checked independently
+for both difficulties. Source music and all evidence stay outside Git.
+
+```sh
+uv run --with-requirements tools/danoni-dump/ruffle/requirements-analysis.txt \
+  python -m unittest discover -s tools/danoni-dump/ruffle -p 'test_*.py'
+uv run --with-requirements tools/danoni-dump/ruffle/requirements-analysis.txt \
+  python tools/danoni-dump/ruffle/extract_native.py RECIPE_JSON NEW_EXTERNAL_OUTPUT
+```
+
+These references retain all canonical lanes, native source frames, hold pairs,
+author speed/boost/visual-stop arrays, credits and observed key codes. They do
+not invent a CW `difData`, musical BPM, missing rating or arbitrary custom-key
+mapping. Register/review normalized output with `rebuild_corpus.py` for SSC/Ogg;
+that cached rebuild requires neither scientific Python packages nor a browser.

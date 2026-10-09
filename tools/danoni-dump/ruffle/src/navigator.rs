@@ -122,8 +122,12 @@ struct AuditData {
     dropped: usize,
     truncated_details: usize,
     runtime_errors: usize,
+    iteration: u64,
 }
 impl Audit {
+    pub fn set_iteration(&self, iteration: u64) {
+        self.0.lock().unwrap().iteration = iteration;
+    }
     fn record(&self, kind: &str, detail: &str) {
         let mut data = self.0.lock().unwrap();
         if kind == "runtime-error" {
@@ -135,7 +139,8 @@ impl Audit {
         }
         let truncated = detail.chars().count() > 1024;
         data.truncated_details += usize::from(truncated);
-        data.entries.push(json!({"kind":kind,"detail":detail.chars().take(1024).collect::<String>(),"truncated":truncated}));
+        let iteration = data.iteration;
+        data.entries.push(json!({"iteration":iteration,"kind":kind,"detail":detail.chars().take(1024).collect::<String>(),"truncated":truncated}));
     }
     pub fn report(&self) -> Value {
         let data = self.0.lock().unwrap();

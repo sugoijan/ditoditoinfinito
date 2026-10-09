@@ -71,10 +71,15 @@ impl OfflineAudio {
         let frames = target
             .checked_sub(self.recorder.output_frames)
             .expect("audio sample cursor must be monotonic");
-        let mut samples = vec![0i16; frames as usize * 2];
+        // Mix overlapping loud sources as float, then saturate PCM16 output.
+        // dasp's i16 addition can overflow in debug builds before conversion.
+        let mut samples = vec![0f32; frames as usize * 2];
         self.recorder.mix(&mut samples);
         self.recorder.output_frames = target;
         samples
+            .into_iter()
+            .map(|v| (v * 32768.0).round().clamp(-32768.0, 32767.0) as i16)
+            .collect()
     }
     pub fn report(&self) -> Value {
         json!({"sampleRate":RATE,"channels":2,"sampleFrames":self.recorder.output_frames,

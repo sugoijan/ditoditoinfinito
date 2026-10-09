@@ -98,7 +98,7 @@ def mp3_info(data):
     return samples,frames,formats
 
 
-def demux(path, selected_path):
+def demux(path, selected_path, start_offset=None, end_offset=None):
     original,data,movie = read_movie(path)
     streams, active = [], {}
     for tag in iter_tags(data,movie["tagStart"],len(data)):
@@ -134,6 +134,18 @@ def demux(path, selected_path):
     if len(selected) != 1 or selected[0]["compression"] != 2 or not selected[0]["blocks"]:
         raise ValueError("Select exactly one MP3 stream with blocks")
     head = selected[0]; encoded = bytes(head.pop("bytes")); blocks = head["blocks"]
+    if start_offset is not None or end_offset is not None:
+        if type(start_offset) is not int or type(end_offset) is not int or not 0 <= start_offset < end_offset <= len(data):
+            raise ValueError("Invalid observed native stream slice")
+        kept = [b for b in blocks if start_offset <= b['tagOffset'] < end_offset]
+        if not kept or not any(b['mp3Bytes'] for b in kept): raise ValueError("Observed slice has no song payload")
+        pieces=[];offset=0
+        for b in kept:
+            original_offset=b['mp3Offset'];pieces.append(encoded[original_offset:original_offset+b['mp3Bytes']])
+            b['sourceMp3Offset']=original_offset;b['mp3Offset']=offset;offset+=b['mp3Bytes']
+        head['selection']={'sliceStart':start_offset,'sliceEnd':end_offset,'excludedBlocks':len(blocks)-len(kept),
+                           'scope':'Only blocks in the runtime-observed continuous song slice'}
+        encoded=b''.join(pieces);blocks=kept;head['blocks']=kept
     origin = blocks[0]["movieFrame"]; total = 0; regular = True
     for block in blocks:
         block["sourceSampleOffset"] = total
@@ -143,6 +155,19 @@ def demux(path, selected_path):
             regular = False
         total += block["sampleCount"]
     contiguous = [b["movieFrame"] for b in blocks] == list(range(origin,origin+len(blocks)))
+    # Model the pinned Ruffle StreamTagReader's MP3 gap handling. Missing
+    # timeline blocks after the last payload are harmless tail padding. This
+    # proves concatenation through the payload, not general Flash seek behavior.
+    by_frame={b['movieFrame']:b for b in blocks};buffered=0;break_frame=None
+    last_payload=max(b['movieFrame'] for b in blocks if b['mp3Bytes'])
+    for frame in range(origin,last_payload+1):
+        block=by_frame.get(frame)
+        if block:buffered+=block['sampleCount']
+        buffered-=head['samplesPerMovieFrame']
+        if block is None and buffered<=-head['samplesPerMovieFrame']:
+            break_frame=frame;break
+    head['ruffleContinuousPayloadEligible']=break_frame is None
+    head['firstRufflePayloadGapMovieFrame']=break_frame
     head.update(mp3Sha256=hashlib.sha256(encoded).hexdigest(),mp3Bytes=len(encoded),
         declaredSampleFrames=total,firstBlockMovieFrame=origin,
         continuousZeroLatencyEligible=regular and contiguous and head["latencySeek"] == 0 and blocks[0]["seekSamples"] == 0,

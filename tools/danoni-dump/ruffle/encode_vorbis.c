@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 
 static int emit(ogg_page *page) {
     return fwrite(page->header, 1, (size_t)page->header_len, stdout) != (size_t)page->header_len ||
@@ -18,15 +19,17 @@ int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--version") == 0) {
         puts(vorbis_version_string()); return 0;
     }
-    if (argc != 2 && argc != 3) return 2;
+    if (argc < 2 || argc > 4) return 2;
     char *end; long rate = strtol(argv[1], &end, 10);
     if (*end || rate < 8000 || rate > 96000) return 2;
-    long channels = argc == 3 ? strtol(argv[2], &end, 10) : 1;
-    if ((argc == 3 && *end) || channels < 1 || channels > 2) return 2;
+    long channels = argc >= 3 ? strtol(argv[2], &end, 10) : 1;
+    if ((argc >= 3 && *end) || channels < 1 || channels > 2) return 2;
+    float quality = argc == 4 ? strtof(argv[3], &end) : .5f;
+    if ((argc == 4 && *end) || !isfinite(quality) || quality < 0.f || quality > 1.f) return 2;
     vorbis_info info; vorbis_comment comment; vorbis_dsp_state dsp;
     vorbis_block block; ogg_stream_state stream; ogg_packet packet; ogg_page page;
     vorbis_info_init(&info);
-    if (vorbis_encode_init_vbr(&info, channels, rate, .5f)) return 3;
+    if (vorbis_encode_init_vbr(&info, channels, rate, quality)) return 3;
     vorbis_comment_init(&comment);
     vorbis_comment_add_tag(&comment, "ENCODER", "DDI local libvorbis repack");
     if (vorbis_analysis_init(&dsp, &info) || vorbis_block_init(&dsp, &block) ||

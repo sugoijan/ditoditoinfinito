@@ -668,3 +668,58 @@ nested sprites; tag count is not a song count, and blindly concatenating every
 streaming block is not a validated audio extraction. These files are preserved
 as explicit future adapter/audio cases. Native playable scope remains 5 first,
 plus 7, 7i, 9A and 9B; 9t and larger/custom modes stay outside gameplay support.
+
+
+### Single-song native families and independent clocks (2026-10-10)
+
+The [family extraction handover](danoni-native-adapters.md) adds eight works
+across three structural contracts. The earlier statements that these sources
+have only title captures are superseded by initialized native evidence.
+
+- **Chart clocks differ between legacy families.** Early iso works use advancing
+  root movie frames; later Destined Marionette and FAKE800 use independent
+  `frame_num` / `frameNum` counters while the root timeline stops. Their sparse
+  compiled `mkArrow` / `mkFArrow` indices are spawn frames, while the misleadingly
+  named `judgeY[spawn]` stores travel in frames. Native `spawn + travel` agrees
+  with every raw tap/hold head in both captured works. Dividing worker iteration
+  or root movie frame by 60 would produce incorrect origin/timing here.
+  [Destined Marionette](https://autumnleaves.yukishigure.com/_9/D_M.html),
+  [FAKE800](https://mfv2.sakura.ne.jp/do/__Flash/mfv2_005/danoni/DanOni/FAKE800/DO.FAKE800.html).
+- **Difficulty selection and split sentinels matter.** RE:RAVE's LVUP selects
+  `nleft_data` and matching prefixed lane fields; Hard selects ordinary fields.
+  DAC arrays can end in an empty token, which is not a zero-frame note. Parsed
+  banks are cross-checked against the selected fields rather than merged by name.
+  felys's final right-lane frame is out of order; the stored chart can therefore
+  differ from what its one-way native cursor actually spawns. Preserve/report
+  the defect instead of treating sorted conversion as original runtime behavior.
+  [Archived RE:RAVE](https://web.archive.org/web/20190314171455/http://www.geocities.jp/naotopage2/game/re_rave/re_rave.htm),
+  [felys](http://eucaly.net/~iso50/10/onigiri10.html).
+- **A legacy stop array need not be an audio/timing stop.** Decipher's native
+  `stop_dac` toggles a visual flag; it does not stop the movie/audio clock. The
+  current SSC export preserves that evidence and declares its presentation
+  omission, rather than fabricating StepMania `#STOPS` and changing note times.
+  [Decipher source work](https://cw7.sakura.ne.jp/event/7fes06/works/15decipher/main.html).
+- **Native audio slices have their own offset basis.** Ruffle's `SwfSlice`
+  offsets address decompressed tag data, excluding the header/RECT/FPS section.
+  A static full-file parser must add its `tagStart` before matching container
+  ranges. A root range can enclose a separate menu stream, so format/latency
+  metadata alone cannot identify the song. Match the observed slice's enclosing
+  timeline and retain the selected blocks, not every MP3 head in the movie.
+  [Pinned movie/slice implementation](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/common/src/tag_utils.rs),
+  [party 4u](http://eucaly.net/~iso50/onigiri5.html).
+- **Decoder-origin evidence is separate from musical offset.** The new adapters
+  compare energetic native PCM windows with independently decoded compressed
+  payloads, rejecting silence and inconsistent lags. Decipher's observed Ruffle
+  origin differs by approximately 50 ms from FFmpeg's full-stream decode; its
+  canonical WAV prepends the measured samples and retains the unshifted decode.
+  The pinned reader's buffer/seek rules remain runtime-specific, not a proof of
+  original Flash/device latency. Changing codecs alone does not settle origin.
+  [Pinned decoder](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/backend/audio/decoders.rs),
+  [local measurement contract](danoni-native-adapters.md#music-origin-and-presentation).
+
+The original Straight Soul remains outside initialized extraction: its first-time
+startup performs server-backed name registration after a published-URL check.
+The restricted worker does not POST, alter the guard or simulate its response.
+Its separately captured HTML5 port must not stand in for an unobserved Flash
+reference. [Original work](https://cw7.sakura.ne.jp/danoni/2009/straights/main.html),
+[compatibility limits](danoni-native-adapters.md).
