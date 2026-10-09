@@ -1,0 +1,442 @@
+# Implementation plan: video backgrounds (2026-10-09)
+
+The research and every decision are in
+[`../research/video-backgrounds.md`](../research/video-backgrounds.md)
+(read it first; sections 5 and 6 are the design and the toolchain trial).
+This document turns them into steps, in order, each ending in a commit the
+maintainer makes. `docs/PLAN.md` decisions 18–19 (still backgrounds, shared
+folders) and 33 (linked folders) are the ground this builds on; the timing
+model in `AGENTS.md` is untouched: nothing here feeds the judge.
+
+What gets built, in one sentence: `#BGCHANGES` movies play behind the field
+in the browser, decoded either by WebCodecs (H.264, hardware) or by a
+cut-down FFmpeg compiled to a separate wasm module that is fetched only
+when a song needs it, scheduled from the audio clock like the still images,
+with a Video setting whose default turns a movie off when it costs frames.
+
+## Step 0. Repository layout and conventions
+
+- `video/` (new, top level): the FFmpeg module's sources and build.
+  - `video/ddivideo.c`: the C shim (appendix A).
+  - `video/build.sh`: downloads the pinned wasi-sdk and FFmpeg tarballs into
+    `target/video/` (never into the repository), verifies their SHA-256,
+    runs the configure line (appendix B), builds the four libraries, links
+    the shim, strips, writes `target/video/ddivideo.wasm` and
+    `target/video/ddivideo.json` (version, configure line, size). Idempotent:
+    skips what is already built. Runs on macOS (arm64) and Linux (x86_64,
+    CI); no Docker.
+  - `video/FFMPEG.toml`: version, git tag, source URL, licence, configure
+    line, SHA-256 of the tarballs; read by `xtask gen-credits` for the
+    Credits screen and `CREDITS.md`.
+- `justfile`: `just video` runs the build; `just build`/`just check` do not
+  need it (the app works without the module: section "Without the module"
+  below).
+- `index.html`: `<link data-trunk rel="copy-file" href="target/video/ddivideo.wasm" data-target-path="video" />`
+  only when the file exists: Trunk fails on a missing file, so the copy
+  line is written by the `regen-seo`-style pre-build hook (`xtask video-link`)
+  that emits an include fragment, or the module is produced by a Trunk
+  pre-build hook that runs `video/build.sh` when its inputs exist. Choose
+  the simpler of the two after reading `Trunk.toml`; CI builds the module
+  before `trunk build`.
+- `LICENSES/LGPL-2.1-or-later.txt`; `REUSE.toml` annotation for
+  `video/ddivideo.c` (MIT, ours) and a note that the built module is
+  LGPL-2.1-or-later (built artifacts are not committed).
+- CI (`.github/workflows`): a `video` job that caches `target/video/` keyed
+  by `video/build.sh` + `video/FFMPEG.toml`, runs `video/build.sh`, and the
+  `build` job that consumes it before `trunk build`.
+- Test videos: never in the repository. Local third-party files from
+  `~/Music/Simfiles` are copied into a scratch directory for one-off runs
+  only. For fixtures that may be committed, generate tiny clips with
+  `ffmpeg -f lavfi -i testsrc=size=64x48:rate=30 -t 2 -c:v mpeg4 x.avi`
+  (and `-c:v libx264`/`-c:v mpeg2video -f mpegvideo`): synthetic, ours.
+
+## Step 1. The module and its build (commit 1)
+
+1. Add `video/ddivideo.c` from appendix A, changed from the trial so that
+   `ddi_next` hands over YUV 4:2:0 planes instead of RGBA (research 5.6):
+   one contiguous buffer `Y (w×h), U, V ((w+1)/2 × (h+1)/2)`, plus
+   `ddi_colorspace()` (`f->colorspace`: BT.601 = 5/6, BT.709 = 1, else
+   unspecified → 601 for height < 720, 709 otherwise, as players do) and
+   `ddi_full_range()` (`f->color_range == AVCOL_RANGE_JPEG`). Drop
+   `swscale` from the configure line and the link. Keep `ddi_seek(t)`:
+   `av_seek_frame` to the keyframe before `t` then decode-and-drop until
+   `pts ≥ t` (used when a change is entered late or on loop); on failure
+   reopen.
+2. `video/build.sh` and `video/FFMPEG.toml` as above. Pin wasi-sdk 34.0 and
+   FFmpeg n9.0.2 (the versions the trial used).
+3. A native test harness is not possible (the module is wasm); instead
+   `video/check.mjs` (Node ≥ 22, `node:wasi`) opens a given file, decodes N
+   frames, prints ms/frame and writes one frame as PNG (appendix C). `just
+   video-check <file>` runs it. Used by hand and in the CI `video` job on a
+   generated 2-second clip of each codec.
+4. Expected: `--enable-small -Oz` ≈ 1.5 MB raw / ≈ 630 KB gzipped (the
+   trial's numbers with swscale; without it, less); Xvid 640×360 ≈ 0.8
+   ms/frame under V8.
+
+Verification: `just video` on macOS; CI green on Linux with the same
+hashes; `check.mjs` decodes the three codecs.
+
+## Step 2. The worker (commit 2)
+
+`app/src/web/video_worker.js` (plain JS, served by Trunk `copy-file`; it
+is small and it must run before any Rust) and `app/src/web/video.rs` (the
+Rust side that owns the `Worker`).
+
+The worker:
+- Fetches `video/ddivideo.wasm` on first use (`WebAssembly.instantiateStreaming`),
+  reports download progress to the page (`{type: "loading", loaded, total}`),
+  caches nothing itself (the browser's HTTP cache does).
+- Implements the 20 `wasi_snapshot_preview1` imports the module has
+  (research section 6): a file table where fd 3 is the preopened directory
+  `/v`; `path_open("/v/<name>")` returns a new fd bound to a `Blob` the page
+  sent; `fd_read` reads with `FileReaderSync` in 64 KB slices from the fd's
+  position; `fd_seek`, `fd_filestat_get` (size), `fd_fdstat_get`, `fd_close`
+  as expected; `clock_time_get` from `performance.now()`; `fd_write` to 1/2
+  logs to the console; `environ_*` empty; `proc_exit` throws; `fd_readdir`,
+  `path_*` others, `poll_oneoff` return `ENOSYS` (52); `path_open` of
+  `/dev/urandom` returns `ENOENT` (44). Errno values: WASI preview1.
+- Protocol (page → worker): `open {id, blob, name}`; `seek {id, t}`;
+  `want {id, n}` (decode up to `n` more frames); `close {id}`.
+  Worker → page: `opened {id, width, height, duration, codec, colorspace,
+  full_range}`; `frame {id, pts, planes: ArrayBuffer}` (transferred); `eof
+  {id}`; `error {id, message}`. Frames are decoded only on `want`, so the
+  page controls the queue depth (3 ahead).
+- One worker per play session, created when the session has a movie to
+  show, terminated with the session.
+
+Rust side (`video.rs`): a `VideoDecoder` trait in `platform` (configure
+with a codec id and an opaque source; `seek`; `want(n)`; `poll() ->
+Vec<Frame>`; `close`) with this worker as its web implementation; `Frame
+{pts, width, height, planes}`. The desktop implementation (later) wraps
+`ffmpeg-next`.
+
+Verification: a headless-Chrome page (verify skill) loads the module from a
+worker and decodes a generated clip; the same page run in Firefox and
+Safari by the maintainer, which settles research section 7's first item.
+
+## Step 3. Import: know which songs have playable movies (commit 3)
+
+- `library/src/video.rs`: `sniff(head: &[u8]) -> Option<VideoCodec>` from
+  the first 64 KB: RIFF `AVI ` → `strh`/`strf` fourcc (`H264`/`avc1`/`X264`
+  → H264; `XVID`/`xvid`/`DX50`/`DIVX`/`MP4V`/`FMP4` → Mpeg4; `MPG2`/`mpg2`
+  → Mpeg2; else `Other(fourcc)`); bytes `00 00 01 B3` → Mpeg2 (raw
+  stream); `ftyp` at offset 4 → `Other("mp4")`; anything else `None`.
+  Natively tested with synthetic headers.
+- `ManifestEntry.bg_videos: Vec<VideoRef {name, path, codec}>` (serde
+  default), filled by `import_song` from the movies `#BGCHANGES` names
+  (reusing `backgrounds::unshown_files`, which already lists them) when the
+  file exists in the import or in a shared folder; the import report's
+  note "videos are not played" becomes "N videos will play / M in a format
+  the game cannot play (codec)".
+- Storage: linked imports (decision 33) link movies like other files
+  (`bg/<path>` → `Link`); copying browsers copy a movie only when the new
+  import option `import_videos` (default off) is on, else record it as
+  `absent` with a note. Shared-folder movies: same rule, stored under
+  `shared/` keys with the same option.
+- `backgrounds::schedule` gains `BgImage::Movie(String)` segments for
+  names that resolve to a playable video; the `-random-` marker still picks
+  from images only (StepMania picks random movies; out of scope).
+
+Verification: native tests for `sniff` and the schedule; headless Chrome
+import of a scratch pack with the three codecs plus an unsupported one,
+checking the report and the manifest.
+
+## Step 4. Drawing movies (commit 4)
+
+- `render/src/background.rs`: a second background texture kind, YUV: three
+  `R8Unorm` textures (Y, U, V) and a fragment shader variant that converts
+  with BT.601 or BT.709 and limited or full range from a uniform; the
+  `Backdrop` mix (crossfade) works unchanged across kinds. `Renderer::
+  add_video(width, height)` returns an id like `add_background`;
+  `update_video(id, planes)` writes the three planes with `write_texture`
+  (odd sizes: chroma is `(w+1)/2`). A native WGSL validation test like the
+  one in `render/src/sprite.rs`.
+- `app/src/game_loop.rs`: `MovieState` per scheduled movie segment:
+  `open` 1 s before the segment starts (decoder `open` + `want 3`); on each
+  frame compute `movie_time = (song_time − segment.seconds) × rate`
+  (`rate` from the change's field, default 1), apply loop as `movie_time
+  mod duration` when known (`seek` on wrap), take the newest polled frame
+  with `pts ≤ movie_time`, drop older ones, `want` as many as were
+  consumed, upload at most one frame per display frame. Show nothing new
+  while the decoder is behind (the last frame stays, as StepMania does).
+  A frame decoded more than 0.5 s late twice is "cannot keep up" (step 5).
+  Close the decoder when the segment ends and nothing else uses the movie.
+- `shown()` in `library::backgrounds` resolves `BgImage::Movie` to the
+  video's texture id or, before its first frame arrives, to the song
+  background (so a change to a movie never flashes black).
+- Memory: at most two movies open at once (current and the next segment);
+  the YUV textures are reused when sizes match.
+
+Verification: a scratch pack with a synthetic 30 fps clip whose frames are
+numbered (`drawtext`), autoplayed headless on WebGPU and WebGL2; sample the
+background pixel colour at known song times to confirm the frame shown is
+the one `movie_time` says (within one frame), including after a loop and
+after starting mid-segment (`&song_offset` via the per-song offset or a
+late `#BGCHANGES` beat); `__DDI_DEBUG` gains `video: {decoded, dropped,
+late}`.
+
+## Step 5. The setting and the auto rule (commit 5)
+
+- `Settings.video: VideoMode {Auto, On, Off}` (lenient, default Auto);
+  options page: "Background videos" with the three choices and one line of
+  explanation; `import_videos` checkbox next to the import panel's copy
+  option, visible only in copying browsers.
+- Auto: while a movie is being drawn, if `FpsMeter.fps` stays below 0.8 ×
+  the estimated refresh rate for 3 consecutive seconds, or the decoder
+  reports "cannot keep up", stop the video for the rest of the song (the
+  song background shows), remember `video_stopped: Some(reason)` in the
+  session, and show it on the results ("video was turned off for this
+  song: frames were being dropped" with a link to Options). Never during
+  the first 2 s of a movie (textures warming up). `On` never stops; `Off`
+  never opens a decoder or fetches the module.
+- The start prompt shows "loading the video decoder… 40 %" while the
+  module downloads, and the song can be started before it finishes (the
+  movie joins when ready).
+
+Verification: force the rule with a debug query parameter (`&slow=1`
+making the loop sleep) in headless Chrome and check the results card;
+autoplay stays all top tier throughout (video never touches judging).
+
+## Step 6. WebCodecs for H.264 (commit 6)
+
+- `library/src/avi.rs`: a RIFF/AVI demuxer that yields the video stream's
+  chunks with frame index, keyframe flag (`idx1` `AVIIF_KEYFRAME`, or the
+  `movi` scan when there is no index) and the stream's `scale`/`rate`;
+  natively tested on a generated clip. H.264 in AVI is Annex B with
+  in-band SPS/PPS, which is what `VideoDecoder` takes with no
+  `description`.
+- A second `VideoDecoder` implementation (`app/src/web/webcodecs.rs`):
+  `isConfigSupported({codec: "avc1.<profile from SPS>", optimizeForLatency: true})`,
+  chunks as `EncodedVideoChunk {type: key|delta, timestamp: index × scale /
+  rate × 1e6}`; output `VideoFrame`s uploaded with
+  `copy_external_image_to_texture` (`ExternalImageSource::VideoFrame`, both
+  backends) into an RGBA background texture, then `close()`d. Runs in the
+  worker too (it holds the file), with the `VideoFrame` transferred.
+- Selection per movie: H.264 and `isConfigSupported` → WebCodecs; else the
+  FFmpeg module. The sniffed codec in the manifest makes the choice
+  without opening the file, so the module is fetched only when a song's
+  movies need it (research 5.1–5.2).
+
+Verification: headless Chrome plays an H.264 AVI through WebCodecs (debug
+state says which decoder); Firefox and Safari by the maintainer.
+
+## Step 7. Documentation and handover
+
+- `docs/PLAN.md`: phase 8 row (video done, what is left: overlays,
+  DanOni back/mask), decisions 34 (video pipeline) and 35 (the setting),
+  risks (module size, codecs the module does not have, Firefox/Safari
+  worker differences).
+- `.claude/skills/verify/SKILL.md`: how to run the module check, the
+  synthetic clips, the debug state, the `&slow=1` parameter.
+- `AGENTS.md`: one line under Layout for `video/` and one under Commands
+  for `just video`; keep it short.
+- Credits: FFmpeg entry generated from `video/FFMPEG.toml` with the version
+  and a link to the source tag and the configure line (LGPL notice).
+
+## Without the module
+
+The app must keep working when `target/video/ddivideo.wasm` is absent
+(`just dev` without `just video`, a build host without the toolchain):
+movies in a format WebCodecs handles still play; the others show the song
+background, and the results card says "video decoder not included in this
+build" once. The fetch of a missing module is a 404 handled like any
+load failure, never a crash.
+
+## Order of work and what to measure first
+
+1. Steps 1–2 settle the only open questions (the module in a worker in all
+   three browsers; Firefox/Safari decode speed). Stop and report after
+   them if any browser cannot run it.
+2. Steps 3–5 are the feature.
+3. Step 6 is an optimisation for H.264 (the module already decodes it) and
+   can slip.
+
+Each step: native tests where the code is native, headless Chrome on
+WebGPU and WebGL2 for the rest, an independent review before the handover
+of steps 2, 4 and 6 (worker protocol, scheduling, demuxer), and a
+suggested commit message. Adversarial inputs for the demuxer and the
+sniffer are welcome (truncated AVIs, huge chunk sizes, zero-size streams),
+run under the memory watchdog like every ad-hoc binary.
+
+## Appendix A. The shim as validated on 2026-10-09 (RGBA variant)
+
+Step 1 changes it to hand over planes; this is the version that was built
+and measured.
+
+```c
+// Decoder shim: opens a file through libavformat, decodes the best video
+// stream, converts frames to RGBA. Exported for the worker.
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
+
+#define EXPORT __attribute__((visibility("default"), used))
+
+// wasi-libc declares `clock()` but this sysroot does not define it;
+// libavutil's random seed calls it.
+#include <time.h>
+clock_t clock(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (clock_t)(ts.tv_sec * 1000000 + ts.tv_nsec / 1000);
+}
+
+typedef struct {
+    AVFormatContext *fmt;
+    AVCodecContext *dec;
+    AVPacket *pkt;
+    AVFrame *frame;
+    struct SwsContext *sws;
+    int stream;
+    uint8_t *rgba;
+    int width, height;
+    double time_base;
+} Video;
+
+EXPORT Video *ddi_open(const char *path) {
+    Video *v = calloc(1, sizeof *v);
+    if (!v) return NULL;
+    if (avformat_open_input(&v->fmt, path, NULL, NULL) < 0) goto fail;
+    if (avformat_find_stream_info(v->fmt, NULL) < 0) goto fail;
+    const AVCodec *codec = NULL;
+    v->stream = av_find_best_stream(v->fmt, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0);
+    if (v->stream < 0 || !codec) goto fail;
+    AVStream *st = v->fmt->streams[v->stream];
+    v->dec = avcodec_alloc_context3(codec);
+    if (!v->dec || avcodec_parameters_to_context(v->dec, st->codecpar) < 0) goto fail;
+    v->dec->workaround_bugs = 1;
+    v->dec->error_concealment = 3;
+    if (avcodec_open2(v->dec, codec, NULL) < 0) goto fail;
+    v->pkt = av_packet_alloc();
+    v->frame = av_frame_alloc();
+    v->time_base = av_q2d(st->time_base);
+    return v;
+fail:
+    avcodec_free_context(&v->dec);
+    avformat_close_input(&v->fmt);
+    free(v);
+    return NULL;
+}
+
+EXPORT int ddi_width(Video *v) { return v->dec->width; }
+EXPORT int ddi_height(Video *v) { return v->dec->height; }
+EXPORT const char *ddi_codec(Video *v) { return avcodec_get_name(v->dec->codec_id); }
+EXPORT double ddi_duration(Video *v) {
+    return v->fmt->duration > 0 ? v->fmt->duration / (double)AV_TIME_BASE : -1.0;
+}
+
+// Decodes the next frame into the RGBA buffer; returns its presentation
+// time in seconds, -1 at the end, -2 on error, -3 without a timestamp.
+EXPORT double ddi_next(Video *v) {
+    for (;;) {
+        int r = avcodec_receive_frame(v->dec, v->frame);
+        if (r == 0) break;
+        if (r == AVERROR_EOF) return -1.0;
+        if (r != AVERROR(EAGAIN)) return -2.0;
+        r = av_read_frame(v->fmt, v->pkt);
+        if (r < 0) {
+            avcodec_send_packet(v->dec, NULL);
+            continue;
+        }
+        if (v->pkt->stream_index == v->stream) avcodec_send_packet(v->dec, v->pkt);
+        av_packet_unref(v->pkt);
+    }
+    AVFrame *f = v->frame;
+    if (f->width != v->width || f->height != v->height || !v->rgba) {
+        v->width = f->width;
+        v->height = f->height;
+        free(v->rgba);
+        v->rgba = malloc((size_t)v->width * v->height * 4);
+        sws_freeContext(v->sws);
+        v->sws = NULL;
+    }
+    v->sws = sws_getCachedContext(v->sws, f->width, f->height, f->format, v->width, v->height,
+                                  AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
+    uint8_t *dst[1] = { v->rgba };
+    int stride[1] = { v->width * 4 };
+    sws_scale(v->sws, (const uint8_t *const *)f->data, f->linesize, 0, f->height, dst, stride);
+    int64_t pts = f->best_effort_timestamp;
+    double t = pts == AV_NOPTS_VALUE ? -3.0 : pts * v->time_base;
+    av_frame_unref(f);
+    return t;
+}
+
+EXPORT uint8_t *ddi_rgba(Video *v) { return v->rgba; }
+
+EXPORT void ddi_close(Video *v) {
+    if (!v) return;
+    free(v->rgba);
+    sws_freeContext(v->sws);
+    av_frame_free(&v->frame);
+    av_packet_free(&v->pkt);
+    avcodec_free_context(&v->dec);
+    avformat_close_input(&v->fmt);
+    free(v);
+}
+
+EXPORT void *ddi_malloc(size_t n) { return malloc(n); }
+EXPORT void ddi_free(void *p) { free(p); }
+```
+
+## Appendix B. The build as validated
+
+wasi-sdk 34.0 (`wasi-sdk-34.0-arm64-macos.tar.gz`, `…-x86_64-linux.tar.gz`
+from `https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/`),
+FFmpeg `n9.0.2` (`https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n9.0.2.tar.gz`).
+
+```sh
+WASI=…/wasi-sdk-34.0-<arch>
+./configure --target-os=none --arch=wasm32 --enable-cross-compile \
+  --cc=$WASI/bin/clang --ar=$WASI/bin/ar --ranlib=$WASI/bin/ranlib \
+  --nm=$WASI/bin/nm --strip=$WASI/bin/strip \
+  --disable-everything --disable-programs --disable-doc --disable-network \
+  --disable-pthreads --disable-w32threads --disable-os2threads \
+  --disable-runtime-cpudetect --disable-autodetect --disable-debug \
+  --disable-avdevice --disable-avfilter --disable-swresample \
+  --enable-avcodec --enable-avformat --enable-swscale \
+  --enable-decoder=h264,mpeg4,mpeg2video \
+  --enable-parser=h264,mpeg4video,mpegvideo \
+  --enable-demuxer=avi,mpegvideo --enable-protocol=file \
+  --enable-small --extra-cflags="-msimd128 -Oz"
+make -j8
+$WASI/bin/clang -Oz -msimd128 -I. -o ddivideo.wasm ddivideo.c \
+  libavformat/libavformat.a libavcodec/libavcodec.a \
+  libswscale/libswscale.a libavutil/libavutil.a \
+  -Wl,--no-entry -Wl,--export-dynamic -Wl,--export=malloc -Wl,--export=free \
+  -Wl,--strip-all -mexec-model=reactor
+```
+
+(`configure` probes `stdbit.h` and fails that one test; harmless. Step 1
+drops `--enable-swscale` and `libswscale.a`.) Result: 1,529,923 bytes,
+627,065 gzipped; imports listed in the research note's section 6.
+
+## Appendix C. The Node harness as validated
+
+```js
+import { WASI } from 'node:wasi';
+import { readFile } from 'node:fs/promises';
+const [wasmPath, dir, file, maxFrames] = process.argv.slice(2);
+const wasi = new WASI({ version: 'preview1', preopens: { '/v': dir }, args: [], env: {} });
+const { instance } = await WebAssembly.instantiate(await readFile(wasmPath),
+  { wasi_snapshot_preview1: wasi.wasiImport });
+wasi.initialize(instance); // reactor: `_initialize`, not `_start`
+const e = instance.exports;
+const mem = () => new Uint8Array(e.memory.buffer);
+const cstr = (s) => { const b = Buffer.from(s + '\0'); const p = e.ddi_malloc(b.length); mem().set(b, p); return p; };
+const v = e.ddi_open(cstr('/v/' + file));
+if (!v) { console.log('open failed'); process.exit(1); }
+const w = e.ddi_width(v), h = e.ddi_height(v);
+let frames = 0; const t0 = performance.now();
+for (;;) { const t = e.ddi_next(v); if (t === -1) break; if (t < -1) continue; frames++;
+  if (maxFrames && frames >= Number(maxFrames)) break; }
+const dt = performance.now() - t0;
+e.ddi_close(v);
+console.log(`${file}: ${w}x${h} ${frames} frames ${(dt / frames).toFixed(2)} ms/frame`);
+```
+
+Writing one frame as PNG (to look at it) is twenty more lines with
+`node:zlib`'s `deflateSync`; the trial did that and the frames were right.
