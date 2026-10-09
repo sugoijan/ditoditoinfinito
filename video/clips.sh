@@ -11,19 +11,22 @@ dir=${1:-$root/target/video/clips}
 mkdir -p "$dir"
 failed=()
 
-# clip <name> <check.mjs options> -- <ffmpeg output options>
+# clip <name> <size> <check.mjs options> -- <encoder options> [-- <reference options>]
 clip() {
-  local name=$1 size=$2 checks=()
+  local name=$1 size=$2 checks=() encode=() reference=()
   shift 2
   while [ "$1" != "--" ]; do checks+=("$1"); shift; done
   shift
+  while [ $# -gt 0 ] && [ "$1" != "--" ]; do encode+=("$1"); shift; done
+  if [ $# -gt 0 ]; then shift; reference=("$@"); fi
   ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=$size:rate=30" -t 2 \
-    "$@" "$dir/$name"
+    "${encode[@]}" "$dir/$name"
   # Box-filtered chroma and rounding without dither: the conversion the
-  # shim does, so 4:4:4, 4:2:2 and 10-bit compare exactly.
+  # shim does, so 4:4:4, 4:2:2 and 10-bit compare exactly (with FFmpeg 8;
+  # older versions round 10-bit slightly differently).
   ffmpeg -hide_banner -loglevel error -y -i "$dir/$name" -fps_mode passthrough \
     -sws_flags area+accurate_rnd+bitexact -sws_dither none \
-    -pix_fmt yuv420p -f rawvideo "$dir/$name.yuv"
+    ${reference[@]+"${reference[@]}"} -pix_fmt yuv420p -f rawvideo "$dir/$name.yuv"
   node --no-warnings "$root/video/check.mjs" "$dir/$name" --reference "$dir/$name.yuv" \
     --png "$dir/$name.png" ${checks[@]+"${checks[@]}"} || failed+=("$name")
 }
@@ -47,12 +50,13 @@ clip h264-444.avi 160x90 --min-psnr 60 -- \
   -c:v libx264 -pix_fmt yuv444p -vtag H264
 clip mpeg2-422.avi 320x240 -- \
   -c:v mpeg2video -pix_fmt yuv422p -bf 2 -q:v 4 -f mpeg2video
-clip h264-10bit.avi 320x240 --min-psnr 60 -- \
+clip h264-10bit.avi 320x240 --min-psnr 50 -- \
   -c:v libx264 -pix_fmt yuv420p10le -vtag H264
 # Colour tags: tagged BT.709 full range; untagged HD is taken as BT.709.
 clip h264-709-full.avi 320x240 --min-psnr 99 --colorspace 709 --range full -- \
   -c:v libx264 -pix_fmt yuv420p -colorspace bt709 -color_primaries bt709 \
-  -color_trc bt709 -color_range pc -vtag H264
+  -color_trc bt709 -color_range pc -vtag H264 -- \
+  -vf scale=in_range=full:out_range=full
 clip h264-720.avi 1280x720 --min-psnr 99 --colorspace 709 --range limited -- \
   -c:v libx264 -preset ultrafast -pix_fmt yuv420p -vtag H264
 

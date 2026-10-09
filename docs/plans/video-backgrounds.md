@@ -155,8 +155,13 @@ Verification: a headless-Chrome page (verify skill) loads the module from a
 worker and decodes a generated clip; the same page run in Firefox and
 Safari by the maintainer, which settles research section 7's first item.
 
-**Done 2026-10-09** (Firefox and Safari pending). What differs, and what
-later steps need:
+**Done 2026-10-09** (Safari pending). What differs, and what later steps
+need:
+
+- Firefox (maintainer, by hand, five local pack movies): the module loads
+  in the worker and every seek is exact; H.264 640×360 1.7–2.2 ms/frame,
+  MPEG-2 640×360 0.8 ms, Xvid 320×240 0.5 ms, the slowest seek 0.5 s.
+  SpiderMonkey is as fast as V8 here.
 
 - The worker script is embedded in the app (`include_str!`) and started
   from a blob URL instead of served with `copy-file`, so a cached old
@@ -195,7 +200,10 @@ later steps need:
   message; a truncated AVI plays what it has.
 - Only AVI and raw MPEG video open: MPEG program streams (`.mpg` with
   packs) and MP4 need the `mpegps` and `mov` demuxers, which are not in
-  the configure line. None of the 188 local movies needs them.
+  the configure line. One local movie does: `REVOLUTION.avi` (DDR 2013)
+  is H.264 in an MP4 container under an `.avi` name; the survey in the
+  research note counted it as AVI. Step 3's sniffer must look at the
+  bytes, not the extension (it already plans to: `ftyp` at offset 4).
 - Step 7, from FFmpeg's checklist (https://ffmpeg.org/legal.html) and
   LGPL-2.1 §6: serve the FFmpeg source tarball from the same site (item 8),
   and how the module was built: `ddivideo.c`, `build.sh`, `FFMPEG.toml`
