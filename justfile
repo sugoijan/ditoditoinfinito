@@ -31,11 +31,15 @@ video:
 # With no file: generated clips of each codec against ffmpeg's own decode
 # (needs ffmpeg with libx264 and Node 22+).
 # Check the video decoder on a file, or on generated clips
+[positional-arguments]
 video-check file="": video
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ -z "{{file}}" ]; then exec video/clips.sh; fi
-    exec node --no-warnings video/check.mjs "{{file}}" --png target/video/check.png
+    if [ -z "$1" ]; then exec video/clips.sh; fi
+    # A relative path is where `just` was run from.
+    file=$1
+    case $file in /*) ;; *) file="{{invocation_directory()}}/$file" ;; esac
+    exec node --no-warnings video/check.mjs "$file" --png target/video/check.png
 
 # Run native unit tests
 test:

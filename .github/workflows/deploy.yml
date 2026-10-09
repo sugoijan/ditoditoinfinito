@@ -69,6 +69,7 @@ jobs:
           path: target/video/ddivideo.*
 
   build:
+    needs: video
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,8 +97,16 @@ jobs:
             PUBLIC_URL="/${REPO_NAME}/"
           fi
           echo "PUBLIC_URL=$PUBLIC_URL" >> "$GITHUB_ENV"
+      # After rust-cache, which may clean target/ when it restores. Staged
+      # into the site by Trunk's post_build hook (xtask stage-video).
+      - uses: actions/download-artifact@v4
+        with:
+          name: ddivideo
+          path: target/video
       - name: Trunk build
         run: trunk build --release --public-url "$PUBLIC_URL"
+      - name: The site includes the video decoder
+        run: test -s dist/video/ddivideo.wasm && test -s dist/video/ddivideo.json && test -s dist/video/ddivideo.LICENSE.txt
       - name: Setup Pages
         if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5

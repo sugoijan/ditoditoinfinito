@@ -37,6 +37,15 @@ enum Commands {
         #[arg(long)]
         check: bool,
     },
+    /// Copy the video decoder (target/video/, built by `just video`) into
+    /// the site being built, when it was built. Trunk runs this after a
+    /// build, with TRUNK_STAGING_DIR set.
+    #[command(name = "stage-video")]
+    StageVideo {
+        /// The site's folder (default: $TRUNK_STAGING_DIR).
+        #[arg(long)]
+        dest: Option<PathBuf>,
+    },
 }
 
 struct SeoPaths {
@@ -409,7 +418,38 @@ fn main() -> Result<()> {
         Commands::RegenSeo => regen_seo(&seo_paths()),
         Commands::GenSongs { check } => songs::gen_songs(check),
         Commands::GenCredits { check } => credits::gen_credits(check),
+        Commands::StageVideo { dest } => stage_video(dest),
     }
+}
+
+/// The module, its description and its licence, served from `video/`.
+const VIDEO_FILES: [&str; 3] = ["ddivideo.wasm", "ddivideo.json", "ddivideo.LICENSE.txt"];
+
+fn stage_video(dest: Option<PathBuf>) -> Result<()> {
+    let dest = match dest {
+        Some(d) => d,
+        None => PathBuf::from(
+            std::env::var_os("TRUNK_STAGING_DIR")
+                .context("stage-video needs --dest or TRUNK_STAGING_DIR")?,
+        ),
+    };
+    let built = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/video");
+    if !built.join(VIDEO_FILES[0]).exists() {
+        // The app works without it: movies only the module decodes show
+        // the song background instead.
+        eprintln!(
+            "stage-video: no video decoder in target/video (run `just video`); building without it"
+        );
+        return Ok(());
+    }
+    let out = dest.join("video");
+    fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
+    for name in VIDEO_FILES {
+        let from = built.join(name);
+        fs::copy(&from, out.join(name)).with_context(|| format!("copying {}", from.display()))?;
+    }
+    eprintln!("stage-video: video decoder copied to {}", out.display());
+    Ok(())
 }
 
 #[cfg(test)]

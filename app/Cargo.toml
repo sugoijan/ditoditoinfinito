@@ -98,6 +98,10 @@ web-sys = { workspace = true, features = [
     "ResizeObserverEntry",
     "DomRectReadOnly",
     "Window",
+    "Worker",
+    "MessageEvent",
+    "CanvasRenderingContext2d",
+    "ImageData",
     "console",
 ] }
 

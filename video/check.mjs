@@ -160,6 +160,12 @@ if (n > 1) {
     targets.push([pts[i], i]);
     if (i + 1 < n) targets.push([(pts[i] + pts[i + 1]) / 2, i]);
   }
+  // Into every gap (dropped frames hold the one before), however long the file.
+  const periods = pts.slice(1).map((t, i) => t - pts[i]).sort((a, b) => a - b);
+  const period = periods[periods.length >> 1];
+  for (let i = 0; i + 1 < n; i++) {
+    if (pts[i + 1] - pts[i] > 1.5 * period) targets.push([(pts[i] + pts[i + 1]) / 2, i]);
+  }
   let worst = 0;
   const before = failures.length;
   for (const [t, i] of targets) worst = Math.max(worst, seekTo(t, i));

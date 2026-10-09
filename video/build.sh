@@ -149,17 +149,20 @@ if [ "$relink" = 1 ]; then
     -o "$wasm.part" "$shim" "${libs[@]}" \
     "${export_flags[@]}" -Wl,--stack-first -Wl,-z,stack-size=1048576 \
     -Wl,--max-memory=1073741824 -Wl,--strip-all
-  mv "$wasm.part" "$wasm"
+  built="$wasm.part"
+else
+  built="$wasm"
 fi
 
 # 6. The module is LGPL-2.1-or-later: its licence text, from the FFmpeg
 # source, is served next to it.
 cp "$src/COPYING.LGPLv2.1" "$out/ddivideo.LICENSE.txt"
 
-# 7. Description for the site and the credits.
+# 7. Description for the site and the credits, written before the module
+# is moved into place so the two always match.
 json_string() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
-size=$(wc -c < "$wasm" | tr -d ' ')
-gz_size=$(gzip -9 -c "$wasm" | wc -c | tr -d ' ')
+size=$(wc -c < "$built" | tr -d ' ')
+gz_size=$(gzip -9 -c "$built" | wc -c | tr -d ' ')
 {
   printf '{\n'
   printf '  "name": "FFmpeg",\n'
@@ -184,7 +187,9 @@ gz_size=$(gzip -9 -c "$wasm" | wc -c | tr -d ' ')
   printf '],\n'
   printf '  "size": %s,\n' "$size"
   printf '  "gzip_size": %s,\n' "$gz_size"
-  printf '  "sha256": %s\n' "$(json_string "$(sha256 "$wasm")")"
+  printf '  "sha256": %s\n' "$(json_string "$(sha256 "$built")")"
   printf '}\n'
-} > "$out/ddivideo.json"
+} > "$out/ddivideo.json.part"
+if [ "$built" != "$wasm" ]; then mv "$built" "$wasm"; fi
+mv "$out/ddivideo.json.part" "$out/ddivideo.json"
 say "$wasm: $size bytes, $gz_size gzipped"

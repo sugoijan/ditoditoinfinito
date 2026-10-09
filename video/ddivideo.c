@@ -41,7 +41,13 @@ typedef struct {
     double frame_time; // seconds per frame, from the stream's frame rate
     double last_pts;   // of the last frame decoded, -1 before the first
     double last_dts;   // of the last packet sent to the decoder, -1 unknown
-    double skip_until; // after a seek: drop frames that end before this, -1 off
+    double skip_until; // after a seek: the target time, -1 when not seeking
+    // While seeking: the last frame that starts by the target, kept until a
+    // later one shows it is the one showing at the target; and that later
+    // frame, handed over next.
+    AVFrame *held, *pending;
+    double held_t, held_length, pending_t;
+    int has_held, has_pending;
     int seek_fresh;    // no frame decoded since the last seek
     int64_t seek_key;  // dts of the first packet read since the seek
     int seek_retries;  // seeks back to an earlier keyframe for the same target
@@ -69,6 +75,9 @@ static int guess_colorspace(enum AVColorSpace cs, int height) {
 
 static void close_streams(Video *v) {
     av_frame_free(&v->frame);
+    av_frame_free(&v->held);
+    av_frame_free(&v->pending);
+    v->has_held = v->has_pending = 0;
     av_packet_free(&v->pkt);
     avcodec_free_context(&v->dec);
     avformat_close_input(&v->fmt);
@@ -92,7 +101,9 @@ static int open_streams(Video *v) {
     if (avcodec_open2(v->dec, codec, NULL) < 0) return -1;
     v->pkt = av_packet_alloc();
     v->frame = av_frame_alloc();
-    if (!v->pkt || !v->frame) return -1;
+    v->held = av_frame_alloc();
+    v->pending = av_frame_alloc();
+    if (!v->pkt || !v->frame || !v->held || !v->pending) return -1;
     v->time_base = av_q2d(st->time_base);
     v->start = st->start_time == AV_NOPTS_VALUE ? 0 : st->start_time;
     AVRational rate = av_guess_frame_rate(v->fmt, st, NULL);
@@ -206,10 +217,9 @@ static void copy_plane(uint8_t *dst, int w, int h, const uint8_t *src, int strid
     }
 }
 
-// Copies `frame` into the planes buffer as 8-bit 4:2:0; -1 for a pixel
-// format that is not planar YUV or grey.
-static int take_planes(Video *v) {
-    AVFrame *f = v->frame;
+// Copies `f` into the planes buffer as 8-bit 4:2:0; -1 for a pixel format
+// that is not planar YUV or grey.
+static int take_planes(Video *v, AVFrame *f) {
     const AVPixFmtDescriptor *d = av_pix_fmt_desc_get(f->format);
     if (!d || (d->flags & (AV_PIX_FMT_FLAG_BE | AV_PIX_FMT_FLAG_PAL | AV_PIX_FMT_FLAG_BITSTREAM |
                            AV_PIX_FMT_FLAG_HWACCEL | AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_FLOAT)))
@@ -259,6 +269,9 @@ static int seek_ticks(Video *v, int64_t ts, double t) {
     int r = v->fmt && ts >= 0 ? av_seek_frame(v->fmt, v->stream, ts, AVSEEK_FLAG_BACKWARD) : -1;
     if (r >= 0) {
         avcodec_flush_buffers(v->dec);
+        av_frame_unref(v->held);
+        av_frame_unref(v->pending);
+        v->has_held = v->has_pending = 0;
     } else {
         v->seek_reopened = 1;
         close_streams(v);
@@ -275,6 +288,14 @@ static int seek_ticks(Video *v, int64_t ts, double t) {
     return 0;
 }
 
+// Hands `f` over in the planes buffer: its time `t`, or -2 when its format
+// cannot be handed over.
+static double hand_over(Video *v, AVFrame *f, double t) {
+    int ok = take_planes(v, f);
+    av_frame_unref(f);
+    return ok < 0 ? -2.0 : t;
+}
+
 // Decodes the next frame into the planes buffer and returns its time in
 // seconds from the start of the stream; -1 at the end, -2 when a frame failed
 // to decode or has a format the shim cannot hand over (calling again goes on
@@ -287,6 +308,10 @@ static int seek_ticks(Video *v, int64_t ts, double t) {
 // the end) follows the previous frame, or the last packet, by one period.
 EXPORT double ddi_next(Video *v) {
     if (!v->fmt) return -2.0;
+    if (v->has_pending) {
+        v->has_pending = 0;
+        return hand_over(v, v->pending, v->pending_t);
+    }
     for (;;) {
         int r = receive(v);
         if (r == AVERROR_EOF) {
@@ -296,6 +321,15 @@ EXPORT double ddi_next(Video *v) {
             if (v->seek_fresh && !v->seek_reopened) {
                 if (seek_ticks(v, -1, v->skip_until) < 0) return -2.0;
                 continue;
+            }
+            // A seek into the last frame: it shows for its own period,
+            // and past that the movie has ended.
+            if (v->skip_until >= 0 && v->has_held) {
+                double target = v->skip_until;
+                v->skip_until = -1.0;
+                v->has_held = 0;
+                if (v->held_t + v->held_length > target + 1e-6) return hand_over(v, v->held, v->held_t);
+                av_frame_unref(v->held);
             }
             return -1.0;
         }
@@ -324,18 +358,29 @@ EXPORT double ddi_next(Video *v) {
             }
         }
         if (v->skip_until >= 0) {
-            double length = f->duration > 0 ? f->duration * v->time_base : v->frame_time;
-            // The frame that is showing at `skip_until` is the first kept.
-            if (t + length <= v->skip_until + 1e-6) {
-                av_frame_unref(f);
+            if (t <= v->skip_until + 1e-6) {
+                // Starts by the target: the frame showing at it, unless a
+                // later one does too (frames may be missing in between, a
+                // dropped frame holding the one before).
+                av_frame_unref(v->held);
+                av_frame_move_ref(v->held, f);
+                v->held_t = t;
+                v->held_length = v->held->duration > 0 ? v->held->duration * v->time_base : v->frame_time;
+                v->has_held = 1;
                 continue;
             }
             v->skip_until = -1.0;
+            if (v->has_held) {
+                // This frame starts after the target: the held one is
+                // showing at it, and this one comes next.
+                av_frame_move_ref(v->pending, f);
+                v->pending_t = t;
+                v->has_pending = 1;
+                v->has_held = 0;
+                return hand_over(v, v->held, v->held_t);
+            }
         }
-        int ok = take_planes(v);
-        av_frame_unref(f);
-        if (ok < 0) return -2.0;
-        return t;
+        return hand_over(v, f, t);
     }
 }
 

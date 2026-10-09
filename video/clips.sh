@@ -19,7 +19,10 @@ clip() {
   shift
   ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=$size:rate=30" -t 2 \
     "$@" "$dir/$name"
+  # Box-filtered chroma and rounding without dither: the conversion the
+  # shim does, so 4:4:4, 4:2:2 and 10-bit compare exactly.
   ffmpeg -hide_banner -loglevel error -y -i "$dir/$name" -fps_mode passthrough \
+    -sws_flags area+accurate_rnd+bitexact -sws_dither none \
     -pix_fmt yuv420p -f rawvideo "$dir/$name.yuv"
   node --no-warnings "$root/video/check.mjs" "$dir/$name" --reference "$dir/$name.yuv" \
     --png "$dir/$name.png" ${checks[@]+"${checks[@]}"} || failed+=("$name")
@@ -33,13 +36,18 @@ clip h264.avi 320x240 --min-psnr 99 --colorspace 601 --range limited -- \
   -c:v libx264 -profile:v main -pix_fmt yuv420p -vtag H264
 clip mpeg2.avi 320x240 --colorspace 601 --range limited -- \
   -c:v mpeg2video -bf 2 -q:v 4 -f mpeg2video
-# Converted by the shim itself, against FFmpeg's own (filtered, dithered)
-# conversion: hence the lower bounds.
-clip h264-444.avi 160x90 --min-psnr 35 -- \
+# Dropped frames (Xvid writes them as empty chunks): a seek into the gap
+# must land on the frame before it, which is still showing.
+clip xvid-gap.avi 320x240 -- \
+  -vf "select='not(between(n,10,19))'" -fps_mode passthrough \
+  -c:v mpeg4 -vtag XVID -bf 2 -q:v 4
+# Converted to 8-bit 4:2:0 by the shim itself (exact here; the bound
+# leaves room for other FFmpeg versions' conversion).
+clip h264-444.avi 160x90 --min-psnr 60 -- \
   -c:v libx264 -pix_fmt yuv444p -vtag H264
-clip mpeg2-422.avi 320x240 --min-psnr 40 -- \
+clip mpeg2-422.avi 320x240 -- \
   -c:v mpeg2video -pix_fmt yuv422p -bf 2 -q:v 4 -f mpeg2video
-clip h264-10bit.avi 320x240 --min-psnr 50 -- \
+clip h264-10bit.avi 320x240 --min-psnr 60 -- \
   -c:v libx264 -pix_fmt yuv420p10le -vtag H264
 # Colour tags: tagged BT.709 full range; untagged HD is taken as BT.709.
 clip h264-709-full.avi 320x240 --min-psnr 99 --colorspace 709 --range full -- \

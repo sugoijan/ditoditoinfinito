@@ -1,6 +1,6 @@
 //! Hash routes. The site lives under a sub-path on GitHub Pages, so routing
 //! uses the fragment: `#/`, `#/play?song=<id>&chart=<n>`, `#/options`,
-//! `#/calibrate`, `#/credits`, `#/results`.
+//! `#/calibrate`, `#/credits`, `#/results`, `#/video-check`.
 
 use std::collections::BTreeMap;
 
@@ -30,6 +30,10 @@ pub(crate) enum Route {
         bias_ms: i64,
     },
     Credits,
+    /// The video decoder check; `src=a,b` checks those site files.
+    VideoCheck {
+        sources: Vec<String>,
+    },
     NotFound(String),
 }
 
@@ -73,6 +77,17 @@ impl Route {
                 bias_ms: parse_bias(&params),
             },
             "credits" => Route::Credits,
+            "video-check" => Route::VideoCheck {
+                sources: params
+                    .get("src")
+                    .map(|s| {
+                        s.split(',')
+                            .filter(|p| !p.is_empty())
+                            .map(String::from)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            },
             other => Route::NotFound(other.to_string()),
         }
     }
@@ -111,6 +126,15 @@ impl Route {
                 format!("#/calibrate/run?mode={mode}{auto}{}", bias_param(*bias_ms))
             }
             Route::Credits => "#/credits".into(),
+            Route::VideoCheck { sources } if sources.is_empty() => "#/video-check".into(),
+            Route::VideoCheck { sources } => format!(
+                "#/video-check?src={}",
+                sources
+                    .iter()
+                    .map(|s| percent_encode(s))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
             Route::NotFound(p) => format!("#/{p}"),
         }
     }

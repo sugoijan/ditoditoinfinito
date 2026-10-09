@@ -155,6 +155,56 @@ Verification: a headless-Chrome page (verify skill) loads the module from a
 worker and decodes a generated clip; the same page run in Firefox and
 Safari by the maintainer, which settles research section 7's first item.
 
+**Done 2026-10-09** (Firefox and Safari pending). What differs, and what
+later steps need:
+
+- The worker script is embedded in the app (`include_str!`) and started
+  from a blob URL instead of served with `copy-file`, so a cached old
+  script can never speak an older protocol than the app. It fetches
+  `video/ddivideo.json` revalidated, then `ddivideo.wasm?v=<sha256>`, with
+  progress against the size in the JSON (the body arrives decompressed).
+  A failed download is retried by the next open.
+- The module reaches the site through a Trunk `post_build` hook,
+  `xtask stage-video`, which copies `target/video/ddivideo.{wasm,json,LICENSE.txt}`
+  into `video/` when they exist; `index.html` is unchanged and a build
+  without the module still works. CI's `build` job needs `video`, downloads
+  its artifact after rust-cache (which may clean `target/`) and fails if
+  the site lacks the module.
+- Protocol: `want` carries the seek generation; a seek cancels the wants
+  from before it and the end cancels the rest (`eof` once per generation).
+  `VideoDecoder::pending()` says how many frames are still coming, so step
+  4 asks for `ahead − queued − pending`. Frames also carry their colour
+  tags and decode time.
+- Crashes: anything thrown out of the module (trap, `abort()`, a stack
+  overflow, which V8 reports as `RangeError`) fails every open movie and the
+  one being opened, and the next open gets a fresh instance; the worker's
+  `onerror` fails every movie too.
+- Seeking now lands on the frame showing at the target when frames are
+  missing (Xvid's dropped frames hold the one before): the last frame that
+  starts by the target, held by reference. `video/clips.sh` has a clip
+  with a gap; both checks seek into every gap.
+- Step 4: loop when the decoder reports `End`, not at `duration` (an H.264
+  AVI with B-frames reports 2.0 s with its last frame stamped 2.033 s);
+  `End` carries the last frame's time.
+- `#/video-check` (unlinked) decodes picked movies in the worker, reports
+  ms/frame and seeks compared by fingerprint, and mirrors the results to
+  `window.__DDI_VIDEO_CHECK`; `?src=a,b` checks files of the site.
+- Headless Chrome on an Apple Silicon laptop: Xvid and MPEG-2 640×360
+  0.8 ms/frame, H.264 852×480 3.0 ms, 1280×720 3.9 ms; every seek exact,
+  the slowest 0.85 s (720p H.264). Random and empty files fail with a
+  message; a truncated AVI plays what it has.
+- Only AVI and raw MPEG video open: MPEG program streams (`.mpg` with
+  packs) and MP4 need the `mpegps` and `mov` demuxers, which are not in
+  the configure line. None of the 188 local movies needs them.
+- Step 7, from FFmpeg's checklist (https://ffmpeg.org/legal.html) and
+  LGPL-2.1 §6: serve the FFmpeg source tarball from the same site (item 8),
+  and how the module was built: `ddivideo.c`, `build.sh`, `FFMPEG.toml`
+  (item 6; the shim is linked into the same file); the credit line with a
+  link to that source (item 9); consider a name that says FFmpeg
+  (item 16, no obfuscated names). wasi-libc is linked in too: its musl
+  (MIT) and cloudlibc (BSD-2-Clause) notices must go with the module (the
+  wasi-sdk tarball has none; take them from the wasi-libc repository).
+
 ## Step 3. Import: know which songs have playable movies (commit 3)
 
 - `library/src/video.rs`: `sniff(head: &[u8]) -> Option<VideoCodec>` from
