@@ -271,9 +271,10 @@ BPM or phase. The synthetic 75 BPM clock remains authoritative.
 
 See [the beat-grid handover](../../../docs/research/danoni-beat-grid.md) for the
 exact numeric-rating contract, measured candidate tempos, limits, Vorbis helper
-build/repack commands and Chrome sample-alignment checks. The newest Ogg pack
-is local at `~/Music/DanOni/legacy-pilot/exports/2004-kouhaku-generic-pack/playable.zip`.
-The older `stars-ogg-v2` variant retains its original schema and Edit tiers.
+build/repack commands and Chrome sample-alignment checks. Historical variants,
+including `2004-kouhaku-generic-pack` and `stars-ogg-v2`, now live in the archived
+mixed tree under `~/Music/DanOni/exports-history/`. Current collection ZIPs and
+their exact filenames are listed in [the export contract](../../../docs/research/danoni-exports.md).
 
 
 ## Generic post-processing
@@ -368,3 +369,18 @@ Its music, musical positions/colours and measured native scroll match the
 accepted native-scroll ZIP; only preview tags differ. Parser/engine validation
 for this variant ran with Rust **1.99.0**. The earlier native worker's recorded
 Rust 1.98.0 build identity and original output provenance are unchanged.
+
+
+## Offline corpus regeneration
+
+`rebuild_corpus.py` builds reviewed normalized works and eligible saved CW dumps
+into collection ZIPs, without a browser or fetching. The standalone
+`../pack-verify/` Rust executable compares outputs with the game's real parsers
+and scroll implementation. Fresh stages, exact input hashes, per-work pending
+reports, complete final inventories, accepted-pack comparisons, audio origin
+checks, archival and interrupted-swap recovery are documented in
+[the export contract](../../../docs/research/danoni-exports.md). Current packs
+are under `~/Music/DanOni/exports/`; older variants are historical.
+
+Synthetic transaction tests: `python3 tools/danoni-dump/ruffle/test_rebuild_corpus.py`.
+The tool and verifier are MIT under the repository-wide REUSE annotation.

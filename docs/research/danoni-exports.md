@@ -1,9 +1,168 @@
 # Regenerating the local DanOni exports
 
-Planning date: 2026-10-09. The maintainer wants one clean export generation from
-the updated local corpus, including Kouhaku. This records the implementation
-needed before replacing outputs; no existing source, review or export was moved
-or deleted while preparing this plan.
+Implementation date: 2026-10-09. `ruffle/rebuild_corpus.py` now builds the
+currently validated subset entirely from saved evidence, checks it with the
+game's actual parsers, and promotes it with archival and rollback journals.
+The remaining source-family projection and CW-to-SSC work below is still a plan.
+All third-party inputs and generated packs stay outside Git.
+
+## Current generation
+
+The local registry is `~/Music/DanOni/export-registry.json`. Its 24 entries
+include seven required, successful works and 17 explicit pending entries:
+nine legacy gameplay/audio projection cases and eight incomplete/unsupported
+CW captures or exploratory probes. Pending entries are inventory, not playable
+exports. The generation contains **11 songs, 14 charts, 8,482 taps and 259 holds**.
+
+| Work | Songs / charts | Output and validation |
+| --- | --- | --- |
+| Kouhaku | 5 / 6 | SSC/Ogg, accepted SSC/audio bytes unchanged; reviewed musical grid, display BPM, pickup previews and native scroll; maximum note movement 8.893 ms |
+| Higan Normal | 1 / 1 | SSC/Ogg, exact frame-based note/hold timing; 12 author speed events and its own measured native baseline; 342 expanded source colour events retained only in evidence |
+| Jam with Pancake | 1 / 1 | Native CW dump, 7-key; 1,160 taps, 140 holds |
+| Straight Soul HTML5 | 1 / 2 | Native CW dump, 5/7-key; 2,659 taps, 18 holds |
+| カナリア | 1 / 1 | Native CW dump, 7i; 825 taps, 37 holds |
+| Dancing at Dusk | 1 / 1 | Native CW dump, 5-key; 546 taps, 51 holds |
+| ふしぎなひかり | 1 / 2 | Native CW dump, 9A/9B only; 237 taps, four holds; unsupported 9i omitted |
+
+Higan has no accepted musical-grid review yet. Its 75 BPM is an exact synthetic
+frame clock, not a recovered musical tempo. Its saved native captures establish
+3 px/frame at 60 FPS and a 45.95 px reference arrow width: approximately
+3.917301415 arrow widths/second. The corresponding `#SCROLLS` preserves that
+baseline and multiplies the user's speed setting. Kouhaku keeps its separately
+measured 2.790697674 arrow widths/second. These measurements cover the verified
+native defaults, not arbitrary engine customization or identical screen pixels.
+
+CW packages keep selected effective dos, key/reference/snapshot JSON and music.
+They are importer packages, not complete offline browser replay sites. The
+unaltered original manifest is `source-manifest.json`; the derived `manifest.json`
+uses the existing `ddi-danoni-dump/1` schema, selected chart rows/music assets,
+`status: partial` and `export.schema: ddi-cw-import-package/1`. Source scripts,
+fonts, images and unsupported charts remain in the original corpus. Original
+colour/boost/lyric data is preserved in effective dos/reference JSON; this does
+not promise that arbitrary browser presentation is reproduced by the game.
+
+The first generation deliberately adds no generated artwork and does not
+normalize CW works to SSC. Native CW preview/rating behavior remains the game's
+importer behavior; shared SSC presentation is a later bridge.
+
+A separate fresh-profile Chrome import of both ZIPs confirmed all 11 songs,
+14 charts and 8,741 judged notes (taps plus hold heads), with exactly the two
+collection names above and no page errors. Four current-importer warnings remain:
+`endFrame` is not applied for three CW works, and the unplayed Hikari 9i row is
+reported as unsupported. These are declared importer limitations, not missing
+media or failed supported charts. The local browser check is supplemental;
+the rebuild itself launches no browser. Its report is retained under
+`reviews/export-generation-20261009/browser-import.json`.
+
+## Commands and registry contract
+
+From the research checkout:
+
+```sh
+cargo build --manifest-path tools/danoni-dump/pack-verify/Cargo.toml --target-dir target
+cc -Wall -Wextra -Werror tools/danoni-dump/ruffle/encode_vorbis.c \
+  -I/opt/homebrew/include -L/opt/homebrew/lib -lvorbisenc -lvorbis -logg \
+  -o /private/tmp/encode-vorbis
+python3 tools/danoni-dump/ruffle/rebuild_corpus.py build \
+  "$HOME/Music/DanOni/export-registry.json" "$HOME/Music/DanOni/exports.staging-new" \
+  --vorbis-encoder /private/tmp/encode-vorbis --verifier target/debug/ddi-danoni-pack-verify
+python3 tools/danoni-dump/ruffle/rebuild_corpus.py promote \
+  "$HOME/Music/DanOni/exports.staging-new" "$HOME/Music/DanOni/exports" "$HOME/Music/DanOni/exports-history"
+```
+
+Installed FFmpeg is required. The encoder accepts PCM16 mono/stereo; rebuild
+uses no scientific Python packages, browser, source JS or network. Build the
+encoder from the current checked-in source rather than reusing an old binary.
+The Rust verifier is a standalone MIT package with local chart/engine dependencies;
+it does not change the game crates. It validates all heads/tails, source frame
+arrays, source speed/boost arrays for CW, scroll multiplication, preview bounds,
+ratings and the selected-chart inventory. Its SHA-256 is recorded in the report.
+
+Registry JSON schema `ddi-danoni-export-registry/1`:
+
+- `root`: absolute external corpus root; `collections`: array of unique
+  `{id, title}`; `works`: array of unique work entries.
+- IDs are ASCII `[a-z0-9][a-z0-9_-]{0,79}`. Collection titles are safe single
+  path components and become the game's displayed pack names.
+- Each work has `id`, `collection`, boolean `required`, `kind`, and
+  `source: {path, sha256}`. Every binding uses a root-relative, contained regular
+  file and SHA-256 of its exact bytes. Pending source bindings are also checked.
+- Both recipe kinds require `evidence`: an array of file bindings covering
+  the normalized evidence tree or selected CW chart/key/reference/snapshot files.
+  Music bytes additionally match the source asset hashes.
+- `kind: normalized`: source is `ddi-normalized-work/experimental-1` manifest;
+  optional `baseline` binds an accepted prepared manifest. `policy.audio` is
+  `ogg` or `wav` (default `ogg`); `musicalGrid`/`nativeScroll` are review bindings;
+  `displayBpms` maps chart IDs to reviewed display strings; `scrollFactor`
+  defaults to 1. Generic preview/tier defaults come from the shared preparer.
+- `kind: cw-dump`: source is a saved dump manifest; `verification` binds its
+  successful offline oracle verification. Only complete built-in 5/7/7i/9A/9B
+  charts with captured music and matching references are eligible. Custom or
+  redefined keys are rejected by the native verifier. Uncaptured playable charts
+  in effective dos cannot silently leak through the game's whole-work import.
+- `kind: pending`: `reason` is required and `required` must be false. Unknown
+  kinds, changed bindings or incomplete required works fail the generation.
+
+`bootstrap ROOT NEW_REGISTRY` is a one-time migration for the historical corpus
+layout, not a general discovery command. It copies immutable raw evidence,
+accepted pack and reviews before any archival. A relocated motion review keeps
+its original bytes separately and copies/hash-checks each measurement inside the
+review folder. Source-manifest hash bindings remain unchanged. Higan's measured
+review was added explicitly after measurement; bootstrap does not invent one.
+
+## Output and transaction contract
+
+`exports/index.json` has schema `ddi-danoni-export-generation/1`, generation
+date, registry/builder/verifier hashes, `sourceRoot`, `networkRequests: 0`,
+`browserLaunches: 0`, `passed`, `failedRequiredWorks`, per-work statuses
+(`built`, `pending`, `failed`), and hashes for every generated file and ZIP.
+Each built work identifies its format, chart/song counts or chart/media bindings,
+source path/hash, reference paths and declared omitted effects. Detailed game
+parser checks are JSON lines in `validation.jsonl`. The native audio report
+`reports/<work>/audio-verification.json` records exact decoded sample counts,
+rates/channels and energetic-window correlation against the source PCM. This
+checks export origin, not original Flash/device latency.
+
+```text
+exports/
+  index.json
+  validation.jsonl
+  kouhaku/紅白FLASH合戦 2004.zip
+  kouhaku/files/紅白FLASH合戦 2004/kouhaku--<song>/song.ssc, music.ogg
+  single-songs/DanOni Single Songs.zip
+  single-songs/files/DanOni Single Songs/higan--normal/song.ssc, music.ogg
+  single-songs/files/DanOni Single Songs/<cw-work>/manifest.json, charts/, media/
+  reports/<native-work>/manifest.json, songs/, references/, *-review.json
+```
+
+Actual SSC filenames are the `simfile` fields in prepared manifests. Collections
+contain flat song folders. ZIP filenames equal the collection title: CW
+imports use that filename while SSC imports use the internal folder title, so
+both assign the same stable pack name. Renaming a ZIP can split that grouping.
+Reports/reference PCM never enter playable ZIPs. Music grouping stays within
+one source work; no global song deduplication by audio hash. Optional failures
+have partial importable files moved under `failed/`, outside collection ZIPs.
+ZIP entry ordering, timestamps and permissions are fixed; identical file inputs
+produce identical ZIP bytes. Report retrieval/build dates can differ.
+
+`promote` checks the complete file inventory, media/ZIP hashes, required statuses
+and native-verifier success before moving anything. It archives a previous
+canonical generation and renames the validated stage. Its durable JSON journal
+records `stage`, `destination`, `archive`, generation hash and phase. For an
+interrupted swap run `recover JOURNAL`: it recognizes and validates a completed
+promotion, or restores archived old outputs while retaining the validated stage.
+Unexpected changed/ambiguous paths require manual inspection; recovery never
+removes a directory.
+
+After successful promotion, `retire OLD_MIXED_EXPORTS GENERATION HISTORY`
+verifies the generation, ensures registry bindings no longer depend on the old
+mixed tree, records every old file/hash in a retirement journal, then atomically
+moves that tree into `exports-history/legacy-mixed-<timestamp>-<id>/`. It deletes
+nothing. Interrupted retirement is a single rename: inspect its journal's
+`source`/`archive` paths to determine which exists. Historical internal absolute
+paths remain historical; current registry and corpus inventory point at the
+preserved canonical evidence instead. Failed stages can likewise be archived;
+they are never treated as current packs.
 
 ## Browser-free extraction direction
 
@@ -30,8 +189,8 @@ contains the concrete examples and archive URL bindings supporting this split.
 
 | Input | Present implementation | Remaining work |
 | --- | --- | --- |
-| Kouhaku | Pinned native adapter, audio demux, normalized export, reviewed musical grid/motion, shared pack preparation | Register the accepted recipe and immutable evidence/reviews; preserve/revalidate hash bindings when using the current adapter |
-| Higan Normal | Pinned native adapter and validated note/hold/speed/colour reference, demuxed audio | Register the recipe, prepare a current playable pack, and supply a verified motion baseline before claiming native-speed preservation |
+| Kouhaku | Pinned native adapter, audio demux, normalized export, reviewed musical grid/motion, shared pack preparation | Registered and validated; a future adapter rerun must revalidate hash bindings |
+| Higan Normal | Pinned native adapter and validated note/hold/speed/colour reference, demuxed audio | Registered, packed and measured; musical-grid fitting remains unreviewed |
 | New CW works: Dancing at Dusk, カナリア, ふしぎなひかり 9A/9B | Four complete selected-chart oracles/media captures, verified offline | Unified SSC path: CW dump → normalized-work adapter and verified timing/motion mapping. Existing native-format dumps can be packaged sooner. |
 | Earlier complete usable CW captures, including Jam with Pancake and Straight Soul | Existing oracles/media; some work-level limitations retained | Per-chart/media eligibility checks; normalization only if targeting the shared SSC presentation |
 | Seven new individual-song SWFs | Original pages/movie/sidecars, successful native title captures | Initialization/selection recipes, source-family chart projection, audio assembly/origin, movement proof and independent validation |
@@ -44,7 +203,7 @@ can already be converted. They and the two earlier unprojected originals make
 **nine pending legacy projection cases**, potentially sharing a smaller number
 of engine-family adapters. Family compatibility must be proved.
 
-## Required implementation
+## Remaining implementation and design constraints
 
 ### 1. Local corpus registry and reproducible recipes
 
@@ -168,7 +327,7 @@ the current adapter can change that hash. Reuse preserved normalized evidence,
 or explicitly rebind only after validating chart IDs, arrays, audio origin and
 motion identity. Replacing the stored hash without those comparisons is invalid.
 
-Suggested canonical layout (new directories are proposed):
+Canonical local layout:
 
 ```text
 ~/Music/DanOni/
@@ -180,8 +339,8 @@ Suggested canonical layout (new directories are proposed):
   reviews/<work>/                       # explicit analysis/grid/motion decisions
   exports/                             # generated artifacts only
     index.json                         # inventory, versions, statuses and hashes
-    kouhaku/playable.zip                # one accepted current variant
-    single-songs/playable.zip           # selected, validated individual works
+    kouhaku/紅白FLASH合戦 2004.zip                # one accepted current variant
+    single-songs/DanOni Single Songs.zip           # selected, validated individual works
     reports/                           # timing/audio/feature-loss comparisons
   exports-history/<generation>/        # archived old mixed export directory
 ```
@@ -213,3 +372,15 @@ This can regenerate a useful supported subset early while making pending works
 visible. Regenerating every acquired legacy work faithfully requires the native
 projection/audio steps; index crawling and fresh browser oracle capture are not
 prerequisites for rebuilding the corpus already on disk.
+
+
+The initial migration and promotion completed on 2026-10-09. The old mixed tree
+was archived at
+`~/Music/DanOni/exports-history/legacy-mixed-20261009T201254Z-f39d6376/`:
+510 original files were checked against the retirement journal. Development
+stages are preserved separately under `exports-history/development-stages-20261009/`.
+The live single-song inventory's Higan reference now points to
+`normalized/higan/manifest.json`; the original inventory and relocation record
+are retained with the supplemental browser report. No source/music files were
+committed or deleted. The next extraction work is the missing native families,
+starting with the early iso embedded works and their external-dos variant.

@@ -36,7 +36,9 @@ def measure(capture,fps,moving_pattern,reference_name,dimension='width'):
     audit=capture['audit']
     if capture['avm1Halted'] or any(audit[k] for k in ('truncated','runtimeErrors','droppedEntries','truncatedDetails')):
         raise ValueError('Incomplete execution evidence')
-    if any(e['kind']!='runtime-warning' for e in audit['entries']):raise ValueError('Unexpected runtime request/audit entry')
+    cached_urls={r['url'] for r in capture['source'].get('config',{}).get('resources',[])}
+    if any(e['kind']!='runtime-warning' and not (e['kind']=='cache-hit' and e['detail'] in cached_urls) for e in audit['entries']):
+        raise ValueError('Unexpected runtime request/audit entry')
     regex=re.compile(moving_pattern);frames=[];references=[];excluded=[]
     for item in capture['captures']:
         Graph(item['state'])  # Reject halted/truncated graphs; never invokes ActionScript.

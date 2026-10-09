@@ -776,3 +776,16 @@ with zero differences**. This includes prior unsupported-mode cases as data,
 not as newly playable modes. No game/importer code was changed. Index traversal
 and automatic Wayback fallback remain proposed; the survey records concrete
 page/SWF/sidecar routes and mixed archive capture dates for implementation.
+
+
+## Clean local export generation (2026-10-09)
+
+Current importer-ready ZIPs now live under `~/Music/DanOni/exports/`, separated
+from immutable `normalized/` evidence and `reviews/`. The seven validated source
+works produce 11 songs/14 charts, including Kouhaku and Higan SSC/Ogg and five
+native CW packages spanning 5/7/7i/9A/9B. Seventeen registry entries remain
+explicitly pending, including nine unprojected legacy originals. See
+[the export contract](danoni-exports.md) for registry/output schemas, commands,
+source comparisons, current limitations and archive/recovery behavior. Historical
+export paths in earlier milestones refer to the preserved old mixed tree in
+`exports-history/`, rather than the current generation.

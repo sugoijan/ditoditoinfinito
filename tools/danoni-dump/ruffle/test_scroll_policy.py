@@ -41,6 +41,15 @@ class Scroll(unittest.TestCase):
         c=capture();c['captures'][1]['state']['displayTree'][-1]['stageBoundsPixels'][3]+=1
         with self.assertRaises(ValueError):measure(c,60,r'note[0-9]+','receptor')
 
+    def test_only_declared_cached_requests_are_accepted(self):
+        c=capture();url='https://example.invalid/chart.txt'
+        c['source']['config']={'resources':[{'url':url}]}
+        c['audit']['entries']=[{'kind':'cache-hit','detail':url}]
+        self.assertEqual(measure(c,60,r'note[0-9]+','receptor')['pixelsPerSecond'],120)
+        for entry in [{'kind':'cache-hit','detail':url+'?other'}, {'kind':'network-denied','detail':url}]:
+            c['audit']['entries']=[entry]
+            with self.assertRaises(ValueError):measure(c,60,r'note[0-9]+','receptor')
+
     def test_authored_baseline_is_independent_of_bpm_and_user_multiplier(self):
         motion={'baseArrowHeightsPerSecond':3}
         for bpm in [75,110,160,200]:
