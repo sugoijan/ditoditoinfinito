@@ -5,3 +5,4 @@ pub(crate) mod device_watcher;
 pub(crate) mod game_canvas;
 pub(crate) mod options;
 pub(crate) mod song_select;
+pub(crate) mod video_check;

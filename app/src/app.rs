@@ -11,6 +11,7 @@ use crate::components::device_watcher::DeviceWatcher;
 use crate::components::game_canvas::{GameCanvas, SongSource};
 use crate::components::options::Options;
 use crate::components::song_select::SongSelect;
+use crate::components::video_check::VideoCheck;
 use crate::router::Route;
 use crate::web::gfx::BackendPreference;
 
@@ -129,6 +130,7 @@ impl App {
                 </>
             },
             Route::Options => html! { <Options /> },
+            Route::VideoCheck { sources } => html! { <VideoCheck sources={sources.clone()} /> },
             Route::Calibrate => html! { <Calibrate /> },
             Route::NotFound(p) => html! {
                 <main class="shell">

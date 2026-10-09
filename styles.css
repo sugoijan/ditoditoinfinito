@@ -960,3 +960,14 @@ button.danger {
   color: #fff;
   background: rgba(0, 0, 0, 0.6);
 }
+
+/* #/video-check */
+.video-check-table td {
+  vertical-align: top;
+}
+
+.video-check-frame canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}

@@ -29,3 +29,10 @@ command_arguments = ["run", "-p", "xtask", "--", "gen-songs"]
 stage = "pre_build"
 command = "cargo"
 command_arguments = ["run", "-p", "xtask", "--", "gen-credits"]
+
+# The video decoder (target/video/, `just video`) into the site's video/,
+# when it was built; without it the app still runs.
+[[hooks]]
+stage = "post_build"
+command = "cargo"
+command_arguments = ["run", "-p", "xtask", "--", "stage-video"]
