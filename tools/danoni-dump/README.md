@@ -176,3 +176,15 @@ source corpus and Wayback resource provenance. Current CLI capture still takes
 one work page; `discover` / `capture-list` are proposed commands, not implemented
 options. Target playable modes are 5 (first), 7, 7i, 9A and 9B. Source title
 snapshots are not validated chart references or browser `/1` dump manifests.
+
+
+## Regenerating local exports
+
+The [regeneration plan](../../docs/research/danoni-exports.md) separates immutable
+sources/reviews from replaceable packs and specifies a staged batch rebuild.
+Kouhaku and Higan have native projections; new legacy title captures still need
+projection/audio adapters, and saved CW dumps need a normalization bridge.
+Native SWF extraction should use HTTP/HTML discovery and restricted Ruffle,
+with Playwright only as an optional discovery fallback or separate CW oracle.
+Do not delete the old mixed export tree before preserving its evidence/reviews
+and validating a replacement generation.

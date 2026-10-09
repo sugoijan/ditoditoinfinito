@@ -201,6 +201,20 @@ are under `single-song-corpus-v1/discovery/`. Source sidecars and title snapshot
 are not `reference.json` chart oracles and must not be fed into the current
 browser dump importer. No third-party bytes are committed.
 
+## Browser-free normal path (maintainer direction)
+
+The intended SWF pipeline is HTTP/cache → static HTML link/embed discovery →
+restricted native Ruffle → export. Playwright is an optional discovery fallback,
+not a native extraction dependency. Most inspected child URLs are already HTML
+links, including server-rendered lists and `noscript` embeds. Known CSV wrappers
+can be handled declaratively; ActionScript sidecar names can be observed by
+native Ruffle. Browser navigation requirements remain recorded and site/request
+restrictions must be respected. Arbitrary page JS executes only in a sandboxed
+browser when that fallback is needed. Fresh CW runtime references still require
+a browser as a separate oracle-capture step. Rebuilds can consume saved ones.
+See [the export regeneration plan](danoni-exports.md) for the implementation
+needed to replace the accumulated local export variants.
+
 ## Proposed index-input contract and implementation order
 
 The existing browser CLI still captures **a work URL**. Index crawling is not
