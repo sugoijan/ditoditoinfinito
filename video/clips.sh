@@ -90,7 +90,7 @@ clip divx3.avi 320x240 -- -c:v msmpeg4 -q:v 4
 clip mpeg1.mpg 320x240 -- -c:v mpeg1video -bf 2 -q:v 4 -f mpeg
 clip mpeg2.mpg 320x240 -- -c:v mpeg2video -bf 2 -q:v 4 -f vob
 clip h264.ts 320x240 --min-psnr 99 -- -c:v libx264 -pix_fmt yuv420p -f mpegts
-clip mjpeg.avi 320x240 -- -c:v mjpeg -q:v 4
+clip mjpeg.avi 320x240 -- -c:v mjpeg -q:v 4 -- -vf scale=in_range=full:out_range=full
 clip huffyuv.avi 320x240 --min-psnr 99 -- -c:v huffyuv -pix_fmt yuv422p
 clip ffv1.mkv 320x240 --min-psnr 99 -- -c:v ffv1
 clip cinepak.avi 320x240 --min-psnr 30 -- -c:v cinepak

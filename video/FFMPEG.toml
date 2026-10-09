@@ -24,6 +24,16 @@ zlib_version = "1.3.2"
 zlib_url = "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz"
 zlib_sha256 = "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
 
+# Binaryen's wasm-opt, run on the linked module (clang would run whichever
+# wasm-opt is on PATH; the build passes --no-wasm-opt and runs this one, so
+# every host gives the same module).
+binaryen_version = "version_133"
+binaryen_url = "https://github.com/WebAssembly/binaryen/releases/download/version_133/"
+binaryen_sha256_arm64_macos = "ad66da82ac13f163e424b1643f16c6dfcccc98b5966296b43e52d3cab04f84a8"
+binaryen_sha256_x86_64_macos = "13a9b90be775c6389ce3d1f879cb8627bea56708ba8c122983941d53a8199b95"
+binaryen_sha256_x86_64_linux = "2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489"
+binaryen_sha256_arm64_linux = "89c07ea56faf38d0fbecf36ca8ec0721756716185f265b568e133d427f299bf8"
+
 # Toolchain: wasi-sdk release tarballs, per host.
 wasi_sdk_version = "34.0"
 wasi_sdk_url = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/"

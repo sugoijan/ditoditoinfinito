@@ -15,6 +15,10 @@ toml="$root/video/FFMPEG.toml"
 shim="$root/video/ddivideo.c"
 out="$root/target/video"
 
+# Include and library paths meant for the host (Homebrew sets these) would
+# reach the wasm compiler too.
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH LIBRARY_PATH
+
 say() { printf 'video: %s\n' "$*"; }
 die() { printf 'video: %s\n' "$*" >&2; exit 1; }
 
@@ -67,6 +71,8 @@ case "$(uname -s)-$(uname -m)" in
   *) die "unsupported host $(uname -s)-$(uname -m)" ;;
 esac
 host_key=$(printf '%s' "$host" | tr '-' '_')
+# Binaryen names Linux on ARM `aarch64`.
+binaryen_host=${host/arm64-linux/aarch64-linux}
 
 ffmpeg_version=$(value version)
 ffmpeg_tag=$(value tag)
@@ -78,6 +84,9 @@ wasi_sha=$(value "wasi_sdk_sha256_$host_key")
 zlib_version=$(value zlib_version)
 zlib_url=$(value zlib_url)
 zlib_sha=$(value zlib_sha256)
+binaryen_version=$(value binaryen_version)
+binaryen_url=$(value binaryen_url)
+binaryen_sha=$(value "binaryen_sha256_$host_key")
 
 configure_flags=()
 while IFS= read -r flag; do
@@ -95,6 +104,11 @@ wasi_name="wasi-sdk-$wasi_version-$host"
 fetch "$wasi_url$wasi_name.tar.gz" "$out/downloads/$wasi_name.tar.gz" "$wasi_sha"
 wasi="$out/$wasi_name"
 unpack "$out/downloads/$wasi_name.tar.gz" "$wasi" "$wasi_sha"
+
+binaryen_name="binaryen-$binaryen_version-$binaryen_host"
+fetch "$binaryen_url$binaryen_name.tar.gz" "$out/downloads/$binaryen_name.tar.gz" "$binaryen_sha"
+binaryen="$out/binaryen-$binaryen_version"
+unpack "$out/downloads/$binaryen_name.tar.gz" "$binaryen" "$binaryen_sha"
 
 # 2. FFmpeg source.
 ffmpeg_file=$(basename "$ffmpeg_url")
@@ -175,12 +189,16 @@ if [ "$relink" = 1 ]; then
   for name in "${exports[@]}"; do export_flags+=("-Wl,--export=$name"); done
   # `-v` records the exact linker command and versions (link.out), to
   # compare builds on different hosts.
-  "$wasi/bin/clang" -v -Oz -msimd128 -mexec-model=reactor \
+  "$wasi/bin/clang" -v -Oz -msimd128 -mexec-model=reactor --no-wasm-opt \
     "-ffile-prefix-map=$root=ddi" -I"$build" -I"$src" \
-    -o "$wasm.part" "$shim" "${libs[@]}" \
+    -o "$wasm.linked" "$shim" "${libs[@]}" \
     "${export_flags[@]}" -Wl,--stack-first -Wl,-z,stack-size=1048576 \
-    -Wl,--max-memory=1073741824 -Wl,--strip-all 2> "$build/link.out" ||
-    { cat "$build/link.out" >&2; die "linking failed"; }
+    -Wl,--max-memory=1073741824 -Wl,--strip-all -Wl,--keep-section=target_features \
+    2> "$build/link.out" || { cat "$build/link.out" >&2; die "linking failed"; }
+  say "optimising with wasm-opt ($binaryen_version)"
+  "$binaryen/bin/wasm-opt" -Oz "$wasm.linked" -o "$wasm.part" 2>> "$build/link.out" ||
+    { cat "$build/link.out" >&2; die "wasm-opt failed"; }
+  rm -f "$wasm.linked"
   built="$wasm.part"
 else
   built="$wasm"
@@ -204,6 +222,7 @@ gz_size=$(gzip -9 -c "$built" | wc -c | tr -d ' ')
   printf '  "source_url": %s,\n' "$(json_string "$(value source_url)")"
   printf '  "wasi_sdk": %s,\n' "$(json_string "$wasi_version")"
   printf '  "zlib": %s,\n' "$(json_string "$zlib_version")"
+  printf '  "binaryen": %s,\n' "$(json_string "$binaryen_version")"
   printf '  "configure": ['
   sep=""
   for flag in "${configure_flags[@]}"; do
