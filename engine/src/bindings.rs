@@ -23,6 +23,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::input::Bindings;
 
+/// A press on the song list ([`ControlBindings::menu_input`]).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum MenuInput {
+    Up,
+    Down,
+    Left,
+    Right,
+    Confirm,
+    Back,
+}
+
 /// Controls (or `KeyboardEvent.code` values) per lane, in lane order.
 pub type LaneTable = Vec<Vec<String>>;
 
@@ -313,6 +324,47 @@ impl ControlBindings {
             .or_else(|| standard.then(|| PadBindings::standard(id)))
     }
 
+    /// What a controller press means on the song list. A controller with
+    /// the standard mapping moves with the d-pad or the left stick,
+    /// confirms with A or Start and goes back with B or Back; any other
+    /// (a dance pad) moves with the arrows of its `dance-single` table and
+    /// confirms and goes back with its Start and Back. Saved Start and Back
+    /// controls count for both.
+    pub fn menu_input(&self, id: &str, standard: bool, control: &str) -> Option<MenuInput> {
+        use ddi_platform::gamepad::standard::*;
+        let pad = self.pad(id, standard);
+        if let Some(p) = &pad {
+            if p.start.as_deref() == Some(control) {
+                return Some(MenuInput::Confirm);
+            }
+            if p.back.as_deref() == Some(control) {
+                return Some(MenuInput::Back);
+            }
+        }
+        if standard {
+            return match control {
+                c if c == button(DPAD_UP) || c == "axis:1-" => Some(MenuInput::Up),
+                c if c == button(DPAD_DOWN) || c == "axis:1+" => Some(MenuInput::Down),
+                c if c == button(DPAD_LEFT) || c == "axis:0-" => Some(MenuInput::Left),
+                c if c == button(DPAD_RIGHT) || c == "axis:0+" => Some(MenuInput::Right),
+                c if c == button(A) || c == button(START) => Some(MenuInput::Confirm),
+                c if c == button(B) || c == button(BACK) => Some(MenuInput::Back),
+                _ => None,
+            };
+        }
+        let lanes = [
+            MenuInput::Left,
+            MenuInput::Down,
+            MenuInput::Up,
+            MenuInput::Right,
+        ];
+        pad?.single
+            .iter()
+            .zip(lanes)
+            .find(|(controls, _)| controls.iter().any(|c| c == control))
+            .map(|(_, input)| input)
+    }
+
     /// Stores a controller's bindings, replacing earlier ones.
     pub fn set_pad(&mut self, mut pad: PadBindings, now_ms: f64) {
         pad.last_seen = now_ms;
@@ -502,6 +554,53 @@ pub fn default_keys(layout: &Layout) -> LaneTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_inputs() {
+        let mut b = ControlBindings::default();
+        // A standard pad: d-pad, stick, A/Start, B/Back, whatever its lanes.
+        assert_eq!(b.menu_input("x", true, "button:12"), Some(MenuInput::Up));
+        assert_eq!(b.menu_input("x", true, "axis:0+"), Some(MenuInput::Right));
+        assert_eq!(
+            b.menu_input("x", true, "button:0"),
+            Some(MenuInput::Confirm)
+        );
+        assert_eq!(b.menu_input("x", true, "button:8"), Some(MenuInput::Back));
+        assert_eq!(b.menu_input("x", true, "button:3"), None);
+        // A dance pad: its arrows and its Start and Back.
+        let mut pad = PadBindings {
+            id: "mat".into(),
+            single: vec![
+                vec!["button:4".into()],
+                vec!["button:6".into()],
+                vec!["button:5".into()],
+                vec!["button:7".into()],
+            ],
+            start: Some("button:9".into()),
+            back: Some("button:2".into()),
+            ..PadBindings::default()
+        };
+        b.set_pad(pad.clone(), 0.0);
+        assert_eq!(b.menu_input("mat", false, "button:5"), Some(MenuInput::Up));
+        assert_eq!(
+            b.menu_input("mat", false, "button:7"),
+            Some(MenuInput::Right)
+        );
+        assert_eq!(
+            b.menu_input("mat", false, "button:9"),
+            Some(MenuInput::Confirm)
+        );
+        assert_eq!(
+            b.menu_input("mat", false, "button:2"),
+            Some(MenuInput::Back)
+        );
+        assert_eq!(b.menu_input("mat", false, "button:0"), None);
+        // Unbound pads do nothing.
+        assert_eq!(b.menu_input("other", false, "button:5"), None);
+        pad.back = None;
+        b.set_pad(pad, 0.0);
+        assert_eq!(b.menu_input("mat", false, "button:2"), None);
+    }
     use ddi_platform::{HostTime, RawInput};
 
     fn pad(id: &str, index: u32, standard: bool) -> ConnectedPad {

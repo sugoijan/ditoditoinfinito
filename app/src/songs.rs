@@ -10,7 +10,7 @@ use ddi_chart::Song;
 use ddi_chart::formats::sm::parse_simfile;
 use ddi_library::backgrounds::BgImage;
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, JsValue};
 use web_sys::Blob;
 
 use crate::web::files::{blob_bytes, object_url};
@@ -79,6 +79,10 @@ pub(crate) struct ImportedSong {
     /// Total stored bytes.
     #[serde(default)]
     pub(crate) bytes: f64,
+    /// Storage key of the kept folder it was imported from (Chromium),
+    /// which can re-read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) folder: Option<String>,
     /// Storage key of the Dancing☆Onigiri work the song belongs to, stored
     /// once for all its songs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -169,6 +173,75 @@ pub(crate) async fn imported_banner_urls(entries: &[ManifestEntry]) -> Vec<(Stri
         .filter_map(|((id, _), v)| {
             let blob = v?.dyn_into::<Blob>().ok()?;
             Some((id.to_string(), object_url(&blob)?))
+        })
+        .collect()
+}
+
+const FOLDER_PREFIX: &str = "folders/";
+
+/// Keeps a picked folder's handle, so it can be re-read in place, and
+/// returns its storage key: the key it already has when the same folder
+/// was picked before, else a new one (two folders may share a name).
+pub(crate) async fn keep_folder(handle: &JsValue) -> Result<String, String> {
+    for (key, kept) in kept_folders().await {
+        if crate::web::folders::same(&kept, handle).await {
+            return Ok(key);
+        }
+    }
+    let key = format!(
+        "{FOLDER_PREFIX}{}~{:x}",
+        crate::web::folders::name(handle).to_lowercase(),
+        js_sys::Date::now() as u64
+    );
+    let db = Db::open().await?;
+    db.write(vec![Write::Put {
+        store: idb::FILES,
+        key: key.clone(),
+        value: handle.clone(),
+    }])
+    .await?;
+    Ok(key)
+}
+
+/// The kept folder handles, by storage key.
+pub(crate) async fn kept_folders() -> Vec<(String, JsValue)> {
+    let Ok(db) = Db::open().await else {
+        return Vec::new();
+    };
+    let Ok(keys) = db.keys_with_prefix(idb::FILES, FOLDER_PREFIX).await else {
+        return Vec::new();
+    };
+    let Ok(values) = db.get_many(idb::FILES, &keys).await else {
+        return Vec::new();
+    };
+    keys.into_iter()
+        .zip(values)
+        .filter_map(|(k, v)| Some((k, v?)))
+        .collect()
+}
+
+/// Storage key of a pack's banner (packs are told apart ignoring case).
+pub(crate) fn pack_art_key(pack: &str) -> String {
+    format!("{PACK_ART_PREFIX}{}", pack.to_lowercase())
+}
+
+const PACK_ART_PREFIX: &str = "packs/";
+
+/// Object URLs of the stored pack banners, by lowercased pack name.
+pub(crate) async fn pack_art_urls(packs: &[String]) -> Vec<(String, String)> {
+    let keys: Vec<String> = packs.iter().map(|p| pack_art_key(p)).collect();
+    let Ok(db) = Db::open().await else {
+        return Vec::new();
+    };
+    let Ok(blobs) = db.get_many(idb::FILES, &keys).await else {
+        return Vec::new();
+    };
+    packs
+        .iter()
+        .zip(blobs)
+        .filter_map(|(pack, v)| {
+            let blob = v?.dyn_into::<Blob>().ok()?;
+            Some((pack.to_lowercase(), object_url(&blob)?))
         })
         .collect()
 }
@@ -351,30 +424,47 @@ async fn load_work_song(text: &str) -> Result<Song, String> {
 struct WorkRef {
     #[serde(default)]
     work: Option<String>,
+    #[serde(default)]
+    pack: String,
+    #[serde(default)]
+    folder: Option<String>,
 }
 
-/// Drops the stored Dancing☆Onigiri works no imported song refers to.
-pub(crate) async fn drop_unused_works(db: &Db) -> Result<(), String> {
-    let used: std::collections::HashSet<String> = db
+/// Drops what imported songs share once nothing refers to it: stored
+/// Dancing☆Onigiri works, pack banners and kept folder handles.
+pub(crate) async fn drop_unused_shared(db: &Db) -> Result<(), String> {
+    // Only the references are read, so a record that no longer parses as
+    // a whole still keeps what it uses.
+    let refs: Vec<WorkRef> = db
         .entries(idb::SONGS)
         .await?
         .into_iter()
         .filter_map(|(_, v)| v.as_string())
-        // Only the reference is read, so a record that no longer parses as
-        // a whole still keeps its work.
         .filter_map(|json| serde_json::from_str::<WorkRef>(&json).ok())
-        .filter_map(|r| r.work)
         .collect();
-    let unused: Vec<Write> = db
-        .keys_with_prefix(idb::FILES, ddi_library::danoni::SHARED_WORK_PREFIX)
-        .await?
-        .into_iter()
-        .filter(|k| !used.contains(k))
-        .map(|key| Write::Delete {
-            store: idb::FILES,
-            key,
-        })
+    let used: std::collections::HashSet<String> = refs
+        .iter()
+        .filter_map(|r| r.work.clone())
+        .chain(refs.iter().map(|r| pack_art_key(&r.pack)))
+        .chain(refs.iter().filter_map(|r| r.folder.clone()))
         .collect();
+    let mut unused = Vec::new();
+    for prefix in [
+        ddi_library::danoni::SHARED_WORK_PREFIX,
+        PACK_ART_PREFIX,
+        FOLDER_PREFIX,
+    ] {
+        unused.extend(
+            db.keys_with_prefix(idb::FILES, prefix)
+                .await?
+                .into_iter()
+                .filter(|k| !used.contains(k))
+                .map(|key| Write::Delete {
+                    store: idb::FILES,
+                    key,
+                }),
+        );
+    }
     if unused.is_empty() {
         return Ok(());
     }
@@ -410,5 +500,5 @@ pub(crate) async fn delete_imported(ids: &[String]) -> Result<(), String> {
         })
         .collect();
     db.write(writes).await?;
-    drop_unused_works(&db).await
+    drop_unused_shared(&db).await
 }

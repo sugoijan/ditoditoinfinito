@@ -191,6 +191,8 @@ struct State {
     snapshot: PadSnapshot,
     queue: Vec<RawInput>,
     listener: Option<Listener>,
+    /// When this hub started, on the performance timeline.
+    created: HostTime,
     fast: bool,
     /// Polls in the current one-second window, and the last full count.
     window_start: f64,
@@ -249,7 +251,10 @@ impl State {
                 self.slots.insert(
                     index,
                     Slot {
-                        tracker: PadTracker::for_slot(&snap.id, snap.index),
+                        // A button still held from the page before is not
+                        // a press here.
+                        tracker: PadTracker::for_slot(&snap.id, snap.index)
+                            .held_before(self.created),
                         id: snap.id.clone(),
                         standard: snap.standard,
                     },
@@ -345,6 +350,11 @@ impl Gamepads {
             snapshot: PadSnapshot::default(),
             queue: Vec::new(),
             listener: None,
+            created: HostTime(
+                web_sys::window()
+                    .and_then(|w| w.performance())
+                    .map_or(0.0, |p| p.now() / 1000.0),
+            ),
             fast: false,
             window_start: 0.0,
             window_polls: 0,

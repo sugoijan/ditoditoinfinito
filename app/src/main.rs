@@ -6,6 +6,7 @@ mod crash;
 mod game_loop;
 mod import;
 mod lyrics;
+mod menu;
 mod mods;
 mod play;
 mod preview;

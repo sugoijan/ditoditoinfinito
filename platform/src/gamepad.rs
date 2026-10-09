@@ -215,6 +215,13 @@ pub struct PadTracker {
     last_poll: Option<HostTime>,
     last_edge: HostTime,
     stats: PadStats,
+    /// Presses the pad reports as older than this are not news: a button
+    /// still held from the page before (the Start that picked a song)
+    /// sets the resting state instead of pressing ([`PadTracker::held_before`]).
+    held_before: Option<HostTime>,
+    /// Buttons held when first seen that were not reported; their release
+    /// is not reported either.
+    swallowed: Vec<bool>,
 }
 
 impl PadTracker {
@@ -233,7 +240,18 @@ impl PadTracker {
             last_poll: None,
             last_edge: HostTime(f64::NEG_INFINITY),
             stats: PadStats::default(),
+            held_before: None,
+            swallowed: Vec::new(),
         }
+    }
+
+    /// Buttons found held on the first reading are reported only when the
+    /// pad's timestamp says they went down at or after `since` (a press
+    /// that revealed the pad); older ones, and the release that follows,
+    /// are not. Pads without a timestamp report them as before.
+    pub fn held_before(mut self, since: HostTime) -> PadTracker {
+        self.held_before = Some(since);
+        self
     }
 
     pub fn device(&self) -> &DeviceId {
@@ -291,12 +309,26 @@ impl PadTracker {
         if self.buttons.len() < snap.buttons.len() {
             self.buttons.resize(snap.buttons.len(), false);
         }
+        if self.swallowed.len() < self.buttons.len() {
+            self.swallowed.resize(self.buttons.len(), false);
+        }
+        let stale = first
+            && snap.timestamp.0 > 0.0
+            && self
+                .held_before
+                .is_some_and(|since| snap.timestamp.0 < since.0);
         // Buttons missing from a shorter reading count as released.
         for (i, was) in self.buttons.iter_mut().enumerate() {
             let now_pressed = snap.buttons.get(i).copied().unwrap_or(false);
             if now_pressed != *was {
                 *was = now_pressed;
-                changes.push((Control::Button(i as u16), now_pressed));
+                if stale && now_pressed {
+                    self.swallowed[i] = true;
+                } else if !now_pressed && std::mem::take(&mut self.swallowed[i]) {
+                    // The release of a press that was never reported.
+                } else {
+                    changes.push((Control::Button(i as u16), now_pressed));
+                }
             }
         }
 
@@ -542,6 +574,30 @@ mod tests {
         assert_eq!(hat_directions(1.2857), None);
         assert_eq!(hat_directions(3.2857), None);
         assert_eq!(hat_directions(f64::NAN), None);
+    }
+
+    #[test]
+    fn buttons_held_from_before_are_not_pressed() {
+        let mut out = Vec::new();
+        // Held since 0.5, the page opened at 1.0: neither the press nor its
+        // release is reported; the next press is.
+        let mut t = PadTracker::new("pad").held_before(HostTime(1.0));
+        t.update(&snap(0.5, &[true], &[]), HostTime(1.1), &mut out);
+        assert!(out.is_empty());
+        t.update(&snap(1.2, &[false], &[]), HostTime(1.21), &mut out);
+        assert!(out.is_empty());
+        t.update(&snap(1.3, &[true], &[]), HostTime(1.31), &mut out);
+        assert_eq!(out.len(), 1);
+        // A press that revealed the pad after the page opened counts.
+        let mut out = Vec::new();
+        let mut t = PadTracker::new("pad").held_before(HostTime(1.0));
+        t.update(&snap(1.05, &[true], &[]), HostTime(1.1), &mut out);
+        assert_eq!(out.len(), 1);
+        // Without a timestamp the press is reported as before.
+        let mut out = Vec::new();
+        let mut t = PadTracker::new("pad").held_before(HostTime(1.0));
+        t.update(&snap(0.0, &[true], &[]), HostTime(1.1), &mut out);
+        assert_eq!(out.len(), 1);
     }
 
     #[test]

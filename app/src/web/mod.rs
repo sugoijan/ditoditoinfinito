@@ -6,11 +6,13 @@ pub(crate) mod clock;
 pub(crate) mod devices;
 pub(crate) mod display;
 pub(crate) mod files;
+pub(crate) mod folders;
 pub(crate) mod gamepad;
 pub(crate) mod gfx;
 pub(crate) mod idb;
 pub(crate) mod image;
 pub(crate) mod keyboard;
+pub(crate) mod storage;
 pub(crate) mod touch;
 
 use wasm_bindgen::JsValue;

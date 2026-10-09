@@ -26,6 +26,8 @@ pub(super) struct WorksOutcome {
     pub(super) music: HashSet<String>,
     /// Whether any page or dump was a work at all.
     pub(super) found: bool,
+    /// Ids of the songs stored.
+    pub(super) ids: Vec<String>,
 }
 
 /// Imports every work among `paths` into the library.
@@ -144,6 +146,7 @@ pub(super) async fn import_works(
                 Ok(title) => {
                     shared_stored = true;
                     report.imported.push(title);
+                    out.ids.push(id.clone());
                 }
                 Err(e) => report.skipped.push((song_label, e)),
             }
@@ -161,7 +164,7 @@ pub(super) async fn import_works(
     }
     // Works imported again under other fields leave their old ones behind.
     if out.found
-        && let Err(e) = crate::songs::drop_unused_works(db).await
+        && let Err(e) = crate::songs::drop_unused_shared(db).await
     {
         report.skipped.push(("stored works".into(), e));
     }
@@ -352,6 +355,7 @@ async fn store_song(
         imported: js_sys::Date::now(),
         bytes: files.iter().map(|(_, b)| b.size()).sum(),
         work: stored.work.clone(),
+        folder: None,
     };
     let record = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     let mut writes = vec![Write::DeletePrefix {

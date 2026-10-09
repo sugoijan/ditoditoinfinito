@@ -600,8 +600,11 @@ a {
 }
 
 a.button,
-label.button {
+label.button,
+button.button {
   display: inline-block;
+  border: none;
+  font: inherit;
   padding: 0.35rem 1rem;
   border-radius: 999px;
   background: var(--accent);
@@ -627,6 +630,11 @@ label.button {
   text-decoration: underline;
   cursor: pointer;
   padding: 0;
+}
+
+.link-button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .device-line {
@@ -698,17 +706,105 @@ label.button {
   font-variant-numeric: tabular-nums;
 }
 
-.pack-heading {
-  margin: 2rem 0 0;
-  font-size: 1rem;
-  display: flex;
+/* Packs: an accordion, one open at a time, each headed by its banner. */
+.packs {
+  display: grid;
   gap: 0.75rem;
-  align-items: baseline;
+  margin: 1.5rem 0;
 }
 
-.pack-heading .link-button {
+.pack-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.6rem;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg) 15%, transparent);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.pack-header:hover {
+  background: color-mix(in srgb, var(--fg) 9%, transparent);
+}
+
+.pack.open .pack-header {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* StepMania group banners are about 2.56:1 (418×164); the box keeps that
+   shape whatever the image, so the list does not jump as banners load. */
+.pack-art {
+  flex: none;
+  width: min(40%, 256px);
+  aspect-ratio: 418 / 164;
+  border-radius: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 12%, var(--bg));
+  display: grid;
+  place-items: center;
+}
+
+.pack-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pack-art-name {
+  padding: 0 0.75rem;
+  font-weight: 700;
+  font-size: 1.1rem;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.pack-info {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.pack-name {
+  font-weight: 700;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.pack-chevron {
+  flex: none;
+  font-size: 1.2rem;
+  padding: 0 0.4rem;
+}
+
+.pack-body .song-list {
+  margin: 0.75rem 0 0;
+}
+
+.pack-actions {
+  margin: 0.5rem 0 0;
+  text-align: right;
   font-size: 0.8rem;
-  font-weight: 400;
+}
+
+/* Scrolled to by the list's navigation: clear of the notices fixed at the
+   top of the page. */
+[data-nav-row] {
+  scroll-margin-top: 5rem;
+  scroll-margin-bottom: 1rem;
+}
+
+/* Where the arrow keys or a controller moved to. */
+.nav-current,
+.pack-header:focus-visible,
+.chart-button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .song-card .link-button {
@@ -732,11 +828,12 @@ label.button {
   background: color-mix(in srgb, var(--accent) 8%, var(--bg));
 }
 
-.import-panel label.button {
+.import-panel .button {
   cursor: pointer;
 }
 
-.import-panel label.button.disabled {
+.import-panel label.button.disabled,
+.import-panel button.button:disabled {
   opacity: 0.5;
   cursor: default;
 }

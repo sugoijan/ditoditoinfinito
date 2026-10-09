@@ -38,7 +38,7 @@ pub use ddi_chart;
 pub use ddi_platform;
 
 pub use appearance::Appearance;
-pub use bindings::{ConnectedPad, ControlBindings, LaneTable, PadBindings, PadUse};
+pub use bindings::{ConnectedPad, ControlBindings, LaneTable, MenuInput, PadBindings, PadUse};
 pub use clock::{ClockOptions, SongClock};
 pub use frame::{Frame, JudgementFlash, NoteSprite, ReceptorState, SpriteKind};
 pub use input::{Binding, BindingDevice, Bindings, InputEvent, LaneInput};
