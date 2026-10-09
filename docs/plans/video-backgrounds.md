@@ -116,16 +116,16 @@ hashes; `check.mjs` decodes the three codecs.
   `target/video/ddivideo.LICENSE.txt`, served next to the module.
 - CI caches only the outputs, keyed on `build.sh`, `FFMPEG.toml` and the
   shim, and uploads them as the `ddivideo` artifact for step 2's build.
-- Not reproducible across hosts (yet): two macOS builds match byte for
-  byte, but CI's Linux module is 1,372,730 bytes against 1,123,717 (541 KB
-  against 529 KB gzipped), with 2,798 functions against 2,179 and no
-  `datacount` or `target_features` section. It decodes every clip exactly.
-  FFmpeg's libraries are the same on both (only `version.o`, which holds
-  the paths, differs), and so are wasi-libc and the reactor start file:
-  linking CI's libraries, or the Linux tarball's sysroot and builtins, with
-  the macOS clang gives the macOS module. So the Linux `clang`/`wasm-ld`
-  links differently; the next step is to capture its link with `-v` in
-  CI (the `ddivideo-build` artifact keeps the configure results).
+- Reproducible across hosts (fixed 2026-10-10): CI's Linux module first
+  came out 22 % larger than the macOS one. The verbose link showed why:
+  clang's wasm driver runs whichever `wasm-opt` is on `PATH` after
+  linking (Homebrew's on the Mac, none on the runner), and Homebrew's
+  `C_INCLUDE_PATH`/`CPLUS_INCLUDE_PATH`/`LIBRARY_PATH` reached the wasm
+  compiler too (no header was used: the libraries matched). `build.sh` now
+  clears those variables, links with `--no-wasm-opt` and runs a pinned
+  Binaryen (`version_133`, per-host SHA-256 in `FFMPEG.toml`) itself; a
+  clean macOS rebuild gives the same module byte for byte. CI keeps the
+  verbose link log (`link.out`) in the `ddivideo-build` artifact.
 
 ## Step 2. The worker (commit 2)
 
