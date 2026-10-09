@@ -35,8 +35,9 @@ the browser are implementation details, not advertised features.
   settings in `localStorage`, imported songs in IndexedDB. Compiles for
   `wasm32-unknown-unknown` only.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md`.
-- `video/` the software video decoder: a C shim over a cut-down FFmpeg,
-  built to `target/video/ddivideo.wasm` with wasi-sdk (LGPL module, never
+- `video/` the software video decoder: a C shim over FFmpeg's video
+  decoders (every format StepMania plays), built to
+  `target/video/ddivideo.wasm` with wasi-sdk (LGPL module, never
   committed); `docs/plans/video-backgrounds.md`.
 - `assets/songs/<id>/` bundled songs with a `PROVENANCE.toml` each;
   `assets/fonts/` the embedded HUD font.

@@ -11,14 +11,27 @@ dir=${1:-$root/target/video/clips}
 mkdir -p "$dir"
 failed=()
 
+encoders=$(ffmpeg -hide_banner -encoders 2>/dev/null | awk '{print $2}')
+skipped=()
+
 # clip <name> <size> <check.mjs options> -- <encoder options> [-- <reference options>]
+# The encoder is the value after `-c:v`; a clip whose encoder this ffmpeg
+# lacks is skipped (and listed at the end).
 clip() {
-  local name=$1 size=$2 checks=() encode=() reference=()
+  local name=$1 size=$2 checks=() encode=() reference=() codec=""
   shift 2
   while [ "$1" != "--" ]; do checks+=("$1"); shift; done
   shift
-  while [ $# -gt 0 ] && [ "$1" != "--" ]; do encode+=("$1"); shift; done
+  while [ $# -gt 0 ] && [ "$1" != "--" ]; do
+    if [ "$1" = "-c:v" ]; then codec=$2; fi
+    encode+=("$1")
+    shift
+  done
   if [ $# -gt 0 ]; then shift; reference=("$@"); fi
+  if [ -n "$codec" ] && ! printf '%s\n' "$encoders" | grep -qx -- "$codec"; then
+    skipped+=("$name ($codec)")
+    return
+  fi
   ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=$size:rate=30" -t 2 \
     "${encode[@]}" "$dir/$name"
   # Box-filtered chroma and rounding without dither: the conversion the
@@ -60,6 +73,35 @@ clip h264-709-full.avi 320x240 --min-psnr 99 --colorspace 709 --range full -- \
 clip h264-720.avi 1280x720 --min-psnr 99 --colorspace 709 --range limited -- \
   -c:v libx264 -preset ultrafast -pix_fmt yuv420p -vtag H264
 
+# Other containers and codecs: everything StepMania's FFmpeg plays, so the
+# common ones are checked (MP4/MOV, Matroska/WebM, Ogg, ASF, FLV, MPEG
+# program and transport streams) and so is each way the shim hands frames
+# over (RGB and palette images go through swscale: compared with a bound).
+clip h264.mp4 320x240 --min-psnr 99 -- -c:v libx264 -pix_fmt yuv420p
+clip hevc.mp4 320x240 --min-psnr 99 -- -c:v libx265 -pix_fmt yuv420p -x265-params log-level=error
+clip mpeg4.mov 320x240 -- -c:v mpeg4 -bf 2 -q:v 4
+clip h264.mkv 320x240 --min-psnr 99 -- -c:v libx264 -pix_fmt yuv420p
+clip vp8.webm 320x240 --min-psnr 99 -- -c:v libvpx -b:v 500k
+clip vp9.webm 320x240 --min-psnr 99 -- -c:v libvpx-vp9 -b:v 500k -row-mt 0
+clip theora.ogv 320x240 -- -c:v libtheora -q:v 6
+clip wmv2.wmv 320x240 -- -c:v wmv2 -q:v 4
+clip flv1.flv 320x240 -- -c:v flv -q:v 4
+clip divx3.avi 320x240 -- -c:v msmpeg4 -q:v 4
+clip mpeg1.mpg 320x240 -- -c:v mpeg1video -bf 2 -q:v 4 -f mpeg
+clip mpeg2.mpg 320x240 -- -c:v mpeg2video -bf 2 -q:v 4 -f vob
+clip h264.ts 320x240 --min-psnr 99 -- -c:v libx264 -pix_fmt yuv420p -f mpegts
+clip mjpeg.avi 320x240 -- -c:v mjpeg -q:v 4
+clip huffyuv.avi 320x240 --min-psnr 99 -- -c:v huffyuv -pix_fmt yuv422p
+clip ffv1.mkv 320x240 --min-psnr 99 -- -c:v ffv1
+clip cinepak.avi 320x240 --min-psnr 30 -- -c:v cinepak
+clip msvideo1.avi 320x240 --min-psnr 30 -- -c:v msvideo1
+clip zmbv.avi 320x240 --min-psnr 30 -- -c:v zmbv -pix_fmt bgr0
+clip png.mov 320x240 --min-psnr 30 -- -c:v png -pix_fmt rgb24
+clip qtrle.mov 320x240 --min-psnr 30 -- -c:v qtrle
+
+if [ "${#skipped[@]}" -gt 0 ]; then
+  echo "video: skipped, this ffmpeg has no encoder for: ${skipped[*]}"
+fi
 if [ "${#failed[@]}" -gt 0 ]; then
   echo "video: failed: ${failed[*]}" >&2
   exit 1

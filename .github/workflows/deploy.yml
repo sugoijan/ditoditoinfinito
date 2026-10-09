@@ -72,6 +72,7 @@ jobs:
             target/video/ffmpeg-build/ffbuild/config.log
             target/video/ffmpeg-build/configure.out
             target/video/ffmpeg-build/make.out
+            target/video/ffmpeg-build/link.out
             target/video/ffmpeg-build/lib*/lib*.a
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
