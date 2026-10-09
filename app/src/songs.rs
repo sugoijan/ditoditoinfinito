@@ -6,6 +6,8 @@
 //! `music.<ext>`, `banner.<ext>` and `background.<ext>`, stored as blobs
 //! under `<id>/<file>`.
 
+use std::collections::BTreeMap;
+
 use ddi_chart::Song;
 use ddi_chart::formats::sm::parse_simfile;
 use ddi_library::backgrounds::BgImage;
@@ -83,6 +85,10 @@ pub(crate) struct ImportedSong {
     /// which can re-read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) folder: Option<String>,
+    /// Files left in that folder instead of copied, by the name the entry
+    /// uses (`music.ogg`, `background.png`, `bg/<path>`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) links: BTreeMap<String, Link>,
     /// Storage key of the Dancing☆Onigiri work the song belongs to, stored
     /// once for all its songs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -250,9 +256,100 @@ pub(crate) async fn pack_art_urls(packs: &[String]) -> Vec<(String, String)> {
 pub(crate) async fn load_music(entry: &ManifestEntry) -> Result<Vec<u8>, String> {
     if is_imported_id(&entry.id) {
         let db = Db::open().await?;
-        blob_bytes(&imported_blob(&db, &entry.id, &entry.music).await?).await
+        let song = imported_record(&db, &entry.id).await?;
+        let blob = song_file(&db, &song, &entry.music)
+            .await
+            .map_err(|e| e.message())?;
+        blob_bytes(&blob).await
     } else {
         fetch_bytes(&format!("songs/{}/{}", entry.id, entry.music)).await
+    }
+}
+
+/// Where a linked file of an imported song is: in its kept folder.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Link {
+    /// Path inside the folder, without the folder's own name.
+    pub(crate) path: String,
+    /// For a file inside a zip at `path`, the entry's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) entry: Option<String>,
+}
+
+/// Why a song could not load.
+#[derive(Clone, Debug)]
+pub(crate) enum LoadError {
+    Failed(String),
+    /// Its files are in a kept folder the browser asks again before
+    /// reading (after a restart): ask from a click ([`crate::web::folders::access`]).
+    NeedsAccess {
+        handle: JsValue,
+        name: String,
+    },
+}
+
+impl From<String> for LoadError {
+    fn from(e: String) -> LoadError {
+        LoadError::Failed(e)
+    }
+}
+
+impl From<&str> for LoadError {
+    fn from(e: &str) -> LoadError {
+        LoadError::Failed(e.to_string())
+    }
+}
+
+impl LoadError {
+    pub(crate) fn message(&self) -> String {
+        match self {
+            LoadError::Failed(e) => e.clone(),
+            LoadError::NeedsAccess { name, .. } => {
+                format!("reading the folder “{name}” needs your permission")
+            }
+        }
+    }
+}
+
+/// An imported song's stored record.
+pub(crate) async fn imported_record(db: &Db, id: &str) -> Result<ImportedSong, String> {
+    let json = db
+        .get(idb::SONGS, id)
+        .await?
+        .and_then(|v| v.as_string())
+        .ok_or_else(|| format!("unknown song `{id}`"))?;
+    serde_json::from_str(&json).map_err(|e| format!("stored song `{id}`: {e}"))
+}
+
+/// One of an imported song's files: copied into the browser, or read from
+/// its kept folder when linked.
+pub(crate) async fn song_file(db: &Db, song: &ImportedSong, file: &str) -> Result<Blob, LoadError> {
+    let Some(link) = song.links.get(file) else {
+        return Ok(imported_blob(db, &song.entry.id, file).await?);
+    };
+    let key = song
+        .folder
+        .as_ref()
+        .ok_or("the folder this song plays from is unknown; import it again")?;
+    let handle = db
+        .get(idb::FILES, key)
+        .await?
+        .ok_or("the folder this song plays from is no longer kept; import it again")?;
+    let name = crate::web::folders::name(&handle);
+    if !crate::web::folders::granted(&handle).await {
+        return Err(LoadError::NeedsAccess { handle, name });
+    }
+    let found = crate::web::folders::file(&handle, &link.path)
+        .await
+        .ok_or_else(|| {
+            format!(
+                "{} is no longer in the folder “{name}”; re-read the folder or import the song again",
+                link.path
+            )
+        })?;
+    match &link.entry {
+        None => Ok(found.into()),
+        Some(entry) => Ok(crate::import::zip_entry_blob(&found, entry).await?),
     }
 }
 
@@ -319,7 +416,11 @@ pub(crate) async fn load_background(
     };
     if is_imported_id(&entry.id) {
         let db = Db::open().await?;
-        imported_blob(&db, &entry.id, &stored).await.map(Some)
+        let song = imported_record(&db, &entry.id).await?;
+        song_file(&db, &song, &stored)
+            .await
+            .map(Some)
+            .map_err(|e| e.message())
     } else {
         let bytes = fetch_bytes(&format!("songs/{}/{}", entry.id, bundled)).await?;
         crate::web::files::bytes_blob(&bytes, "").map(Some)
@@ -337,19 +438,16 @@ pub(crate) struct LoadedSong {
 }
 
 /// Finds a song by id among bundled and imported songs and loads it.
-pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, String> {
+pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
     // Bundled songs never wait on IndexedDB (which can be unavailable or
     // blocked by another tab).
+    let mut record = None;
     let (entry, origin) = if is_imported_id(id) {
         let db = Db::open().await?;
-        let json = db
-            .get(idb::SONGS, id)
-            .await?
-            .and_then(|v| v.as_string())
-            .ok_or_else(|| format!("unknown song `{id}`"))?;
-        let song: ImportedSong =
-            serde_json::from_str(&json).map_err(|e| format!("stored song `{id}`: {e}"))?;
-        (song.entry, Origin::Imported(song.pack))
+        let song = imported_record(&db, id).await?;
+        let found = (song.entry.clone(), Origin::Imported(song.pack.clone()));
+        record = Some(song);
+        found
     } else {
         let entry = load_manifest()
             .await?
@@ -366,9 +464,10 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, String> {
             (chart_text, music)
         }
         Origin::Imported(_) => {
+            let song = record.as_ref().ok_or("the stored song went missing")?;
             let db = Db::open().await?;
-            let chart = blob_bytes(&imported_blob(&db, &entry.id, &entry.chart).await?).await?;
-            let music = blob_bytes(&imported_blob(&db, &entry.id, &entry.music).await?).await?;
+            let chart = blob_bytes(&song_file(&db, song, &entry.chart).await?).await?;
+            let music = blob_bytes(&song_file(&db, song, &entry.music).await?).await?;
             // Stored chart bytes are already UTF-8 (decoded at import).
             (String::from_utf8_lossy(&chart).into_owned(), music)
         }

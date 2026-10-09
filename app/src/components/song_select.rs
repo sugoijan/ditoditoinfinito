@@ -68,6 +68,8 @@ pub(crate) enum Msg {
     Persist,
     /// The "details for pack authors" box of the import panel.
     ImportDetails(bool),
+    /// The "store a chosen folder's songs in the browser" box.
+    ImportCopy(bool),
     /// Timer: look for connected controllers without bindings.
     PadsTick,
     /// Show the charts of this layout.
@@ -261,6 +263,12 @@ impl Component for SongSelect {
                 self.state = State::Ready(library);
             }
             Msg::Loaded(Err(e)) => self.state = State::Failed(e),
+            Msg::ImportCopy(on) => {
+                let mut settings = Settings::load();
+                settings.import_copy = on;
+                settings.save();
+                self.settings = settings;
+            }
             Msg::ImportDetails(on) => {
                 let mut settings = Settings::load();
                 settings.import_details = on;
@@ -538,7 +546,11 @@ impl Component for SongSelect {
         let styles = library_styles(library);
         let style = self.shown_style();
         let has_style = |e: &ManifestEntry| e.charts.iter().any(|c| c.layout == style);
-        let card = |entry: &ManifestEntry, removal: Option<Removal>, key: &str| -> Html {
+        let card = |entry: &ManifestEntry,
+                    removal: Option<Removal>,
+                    key: &str,
+                    access: Option<JsValue>|
+         -> Html {
             let playing = self.preview.as_ref().is_some_and(|p| p.id == entry.id);
             let banner = match &entry.banner {
                 Some(_) if removal.is_some() => self.banners.get(&entry.id).cloned(),
@@ -553,7 +565,8 @@ impl Component for SongSelect {
                     banner,
                     playing,
                     song_offset: self.settings.song_offset(&entry.id),
-                    on_preview: self.preview_callback(link, entry, playing),
+                    on_preview: self.preview_callback(link, entry, playing, access.clone()),
+                    access,
                     remove,
                     pack_key: key.to_string(),
                 },
@@ -578,7 +591,7 @@ impl Component for SongSelect {
             let key = menu::pack_key(None);
             let songs = bundled
                 .iter()
-                .map(|e| card(e, None, &key))
+                .map(|e| card(e, None, &key, None))
                 .collect::<Vec<_>>();
             groups.push(self.pack_view(
                 link,
@@ -589,6 +602,7 @@ impl Component for SongSelect {
                     songs,
                     remove: None,
                     folder: None,
+                    linked: false,
                 },
             ));
         }
@@ -597,10 +611,18 @@ impl Component for SongSelect {
             let art = self.pack_art.get(&pack.to_lowercase()).cloned();
             let cards = songs
                 .iter()
-                .map(|s| card(&s.entry, Some(Removal::Song(s.entry.id.clone())), &key))
+                .map(|s| {
+                    card(
+                        &s.entry,
+                        Some(Removal::Song(s.entry.id.clone())),
+                        &key,
+                        self.folder_of(s),
+                    )
+                })
                 .collect::<Vec<_>>();
             let remove = self.remove_button(link, Removal::Pack(pack.to_string()), "remove pack");
             let folder = songs.iter().find_map(|s| s.folder.clone());
+            let linked = songs.iter().any(|s| !s.links.is_empty());
             groups.push(self.pack_view(
                 link,
                 PackGroup {
@@ -610,6 +632,7 @@ impl Component for SongSelect {
                     songs: cards,
                     remove: Some(remove),
                     folder,
+                    linked,
                 },
             ));
         }
@@ -728,6 +751,7 @@ impl SongSelect {
         link: &html::Scope<Self>,
         entry: &ManifestEntry,
         playing: bool,
+        access: Option<JsValue>,
     ) -> Callback<MouseEvent> {
         let id = entry.id.clone();
         if playing {
@@ -735,10 +759,26 @@ impl SongSelect {
         }
         let entry = entry.clone();
         let link = link.clone();
-        Callback::from(move |_: MouseEvent| match Preview::start(&entry) {
-            Ok(preview) => link.send_message(Msg::PreviewStarted(preview)),
-            Err(e) => web_sys::console::warn_1(&format!("preview: {e}").into()),
+        Callback::from(move |_: MouseEvent| {
+            // A linked song's folder may need the permission asked again;
+            // only the click itself can ask.
+            if let Some(h) = &access {
+                folders::ask(h);
+            }
+            match Preview::start(&entry) {
+                Ok(preview) => link.send_message(Msg::PreviewStarted(preview)),
+                Err(e) => web_sys::console::warn_1(&format!("preview: {e}").into()),
+            }
         })
+    }
+
+    /// The kept folder a linked song plays from, to ask for access from a
+    /// click.
+    fn folder_of(&self, song: &crate::songs::ImportedSong) -> Option<JsValue> {
+        if song.links.is_empty() {
+            return None;
+        }
+        self.folders.get(song.folder.as_ref()?).cloned()
     }
 
     /// Stops any preview; returns the id that was playing.
@@ -782,10 +822,12 @@ impl SongSelect {
             songs,
             remove,
             folder,
+            linked,
         } = group;
         let key = key.as_str();
         let name = name.as_str();
         let open = self.open.as_deref() == Some(key);
+        let copy = !linked;
         let reread = folder.and_then(|f| {
             let handle = self.folders.get(&f)?.clone();
             let link = link.clone();
@@ -804,6 +846,7 @@ impl SongSelect {
                         import::Origin {
                             folder,
                             rescan: true,
+                            link: !copy,
                         },
                         files,
                     )
@@ -903,7 +946,7 @@ impl SongSelect {
                 <span>{ "Add your own songs (StepMania .sm/.ssc or .dwi packs, Dancing☆Onigiri works):" }</span>
                 { if folders::supported() { html! {
                     // A kept handle lets the pack be re-read in place later.
-                    <button class="button" disabled={busy} onclick={pick_folder(link)}>{ "choose folder" }</button>
+                    <button class="button" disabled={busy} onclick={pick_folder(link, self.settings.import_copy)}>{ "choose folder" }</button>
                 } } else { html! {
                     <label class={classes!("button", busy.then_some("disabled"))}>
                         { "choose folder" }
@@ -917,7 +960,18 @@ impl SongSelect {
                         accept=".zip,.sm,.ssc,.dwi,.ogg,.oga,.opus,.mp3,.wav,.flac,.png,.jpg,.jpeg,.gif,.bmp,.webp"
                         onchange={on_pick(self.file_input.clone())} />
                 </label>
-                <span class="muted">{ "or drop them anywhere on this page. They stay in this browser only." }</span>
+                <span class="muted">{ if folders::supported() && !self.settings.import_copy {
+                    "or drop them anywhere on this page. A chosen folder's music and backgrounds are read from the folder, the rest is stored in this browser only."
+                } else {
+                    "or drop them anywhere on this page. They stay in this browser only."
+                } }</span>
+                { if folders::supported() { html! {
+                    <label class="import-details muted" title="Copied songs keep playing if the folder is moved or deleted, but take the space of their music in the browser">
+                        <input type="checkbox" checked={self.settings.import_copy}
+                            onchange={link.callback(|e: Event| Msg::ImportCopy(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
+                        { " store a chosen folder's songs in the browser (instead of reading them from the folder)" }
+                    </label>
+                } } else { html! {} } }
                 <label class="import-details muted">
                     <input type="checkbox" checked={self.settings.import_details}
                         onchange={link.callback(|e: Event| Msg::ImportDetails(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
@@ -1086,7 +1140,7 @@ const REVOKE_DELAY_MS: u32 = 5000;
 
 /// The Chromium folder button: the picker opens in the click itself, the
 /// handle is kept for re-reading, and the folder's files are imported.
-fn pick_folder(link: &html::Scope<SongSelect>) -> Callback<MouseEvent> {
+fn pick_folder(link: &html::Scope<SongSelect>, copy: bool) -> Callback<MouseEvent> {
     let link = link.clone();
     Callback::from(move |_: MouseEvent| {
         let _ = storage::request_persist();
@@ -1106,6 +1160,7 @@ fn pick_folder(link: &html::Scope<SongSelect>) -> Callback<MouseEvent> {
                     import::Origin {
                         folder,
                         rescan: false,
+                        link: !copy,
                     },
                     files,
                 ),
@@ -1254,8 +1309,11 @@ struct PackGroup {
     songs: Vec<Html>,
     /// The pack's remove button, for imported packs.
     remove: Option<Html>,
-    /// The kept folder it came from, if any (lowercased name).
+    /// The kept folder it came from, if any (storage key).
     folder: Option<String>,
+    /// Whether its songs read their files from that folder (re-reading
+    /// keeps how the pack was imported).
+    linked: bool,
 }
 
 /// What a song card shows besides the entry.
@@ -1267,6 +1325,8 @@ struct CardInfo {
     remove: Option<Html>,
     /// The pack the card is in ([`menu::pack_key`]).
     pack_key: String,
+    /// The kept folder a linked song plays from.
+    access: Option<JsValue>,
 }
 
 fn song_card(entry: &ManifestEntry, style: &str, info: CardInfo) -> Html {
@@ -1277,6 +1337,7 @@ fn song_card(entry: &ManifestEntry, style: &str, info: CardInfo) -> Html {
         on_preview,
         remove,
         pack_key,
+        access,
     } = info;
     let banner =
         banner.map(|src| html! { <img class="song-banner" src={src} alt="" loading="lazy" /> });
@@ -1323,7 +1384,13 @@ fn song_card(entry: &ManifestEntry, style: &str, info: CardInfo) -> Html {
                                 chart: Some((entry.id.clone(), c.index)),
                                 scroll: 0.0,
                             };
+                            let access = access.clone();
                             Callback::from(move |_: MouseEvent| {
+                                // Ask now for a linked song's folder: the
+                                // play page cannot without a click.
+                                if let Some(h) = &access {
+                                    folders::ask(h);
+                                }
                                 let mut place = place.clone();
                                 place.scroll = web_sys::window().and_then(|w| w.scroll_y().ok()).unwrap_or(0.0);
                                 place.save();

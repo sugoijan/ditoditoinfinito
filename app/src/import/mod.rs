@@ -11,6 +11,7 @@ mod danoni;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use ddi_chart::formats::sm::parse_simfile;
 use ddi_library::image::{IMAGE_HEADER_LEN, image_size};
@@ -121,6 +122,9 @@ pub(crate) struct Origin {
     /// The folder is read again: its songs whose folders are gone are
     /// removed.
     pub(crate) rescan: bool,
+    /// Leave music and backgrounds in the folder and read them from it
+    /// when played, instead of copying them into the browser.
+    pub(crate) link: bool,
 }
 
 /// [`start`] for the files of a kept folder.
@@ -158,8 +162,91 @@ enum Source {
     /// An entry inside a picked zip.
     Zip {
         archive: File,
+        /// The zip's own path in the import.
+        archive_path: String,
         entry: ZipEntry,
     },
+}
+
+impl Source {
+    /// Where the file stays in its kept folder, for a linked import whose
+    /// paths start with the folder's own name.
+    /// `None` when the folder handle could not open it again: Chromium
+    /// lists names containing `\` but refuses to open them, so such files
+    /// are copied.
+    fn link(&self, path: &str) -> Option<crate::songs::Link> {
+        let inside = |p: &str| p.split_once('/').map_or(p, |(_, rest)| rest).to_string();
+        let link = match self {
+            Source::File(_) => crate::songs::Link {
+                path: inside(path),
+                entry: None,
+            },
+            Source::Zip {
+                archive_path,
+                entry,
+                ..
+            } => crate::songs::Link {
+                path: inside(archive_path),
+                entry: Some(entry.name.clone()),
+            },
+        };
+        (!link.path.contains('\\')).then_some(link)
+    }
+}
+
+/// Zip directories read for linked songs: `(name, size, modified)` of the
+/// archive, and its entries.
+type ZipDirKey = (String, f64, f64);
+
+thread_local! {
+    static ZIP_DIRS: std::cell::RefCell<Vec<(ZipDirKey, Rc<Vec<ZipEntry>>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Zip directories kept (a song's files come from one or two archives).
+const ZIP_DIRS_KEPT: usize = 4;
+
+/// A zip entry by name, as a blob ([`crate::songs::Link`] to a file in a
+/// zip): the archive's directory is read again, so a zip rewritten since
+/// the import still works while the entry exists.
+pub(crate) async fn zip_entry_blob(archive: &File, name: &str) -> Result<Blob, String> {
+    // A song reads several files of one zip (music, background images): its
+    // directory is read once while the file is unchanged.
+    let key = (archive.name(), archive.size(), archive.last_modified());
+    let cached = ZIP_DIRS.with(|c| {
+        c.borrow()
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, e)| e.clone())
+    });
+    let entries = match cached {
+        Some(e) => e,
+        None => {
+            let e = Rc::new(zip_entries(archive).await?);
+            ZIP_DIRS.with(|c| {
+                let mut c = c.borrow_mut();
+                c.retain(|(k, _)| *k != key);
+                c.push((key, e.clone()));
+                if c.len() > ZIP_DIRS_KEPT {
+                    c.remove(0);
+                }
+            });
+            e
+        }
+    };
+    // The import kept the last of two entries with one name.
+    let entry = entries
+        .iter()
+        .rev()
+        .find(|e| e.name == name)
+        .cloned()
+        .ok_or_else(|| format!("{name} is no longer in {}", archive.name()))?;
+    let source = Source::Zip {
+        archive: archive.clone(),
+        archive_path: archive.name(),
+        entry,
+    };
+    read_blob(&source, mime_type(name)).await
 }
 
 async fn run(
@@ -194,6 +281,7 @@ async fn run(
                         path,
                         Source::Zip {
                             archive: f.file.clone(),
+                            archive_path: f.path.clone(),
                             entry,
                         },
                     );
@@ -255,7 +343,6 @@ async fn run(
     let n = candidates.len();
     // Two folders with the same pack and song folder names share an id.
     let mut seen: HashMap<String, String> = HashMap::new();
-    let mut imported_ids: Vec<String> = Vec::new();
     for (i, c) in candidates.iter().enumerate() {
         let (id, name) = identity(c);
         let label = if c.dir.is_empty() {
@@ -271,10 +358,16 @@ async fn run(
             continue;
         }
         seen.insert(id.clone(), label.clone());
-        match import_song(&db, c, &id, &name, &sources, &paths, &shared).await {
+        let inputs = Inputs {
+            sources: &sources,
+            paths: &paths,
+            shared: &shared,
+            folder: origin.as_ref().map(|o| o.folder.as_str()),
+            link: origin.as_ref().is_some_and(|o| o.link),
+        };
+        match import_song(&db, c, &id, &name, &inputs).await {
             Ok((title, warnings, notes)) => {
                 report.imported.push(title);
-                imported_ids.push(id.clone());
                 report
                     .warnings
                     .extend(warnings.into_iter().map(|w| (label.clone(), w)));
@@ -286,24 +379,31 @@ async fn run(
         }
     }
     store_pack_art(&db, &candidates, &sources, &paths, &mut report).await;
-    let works =
-        danoni::import_works(&db, &sources, &paths, &fallback, &mut report, &progress).await;
+    let works = danoni::import_works(
+        &db,
+        &sources,
+        &paths,
+        &fallback,
+        &mut report,
+        &progress,
+        origin.as_ref(),
+    )
+    .await;
     report_music_without_simfile(&mut report, &paths, &works.music);
-    if let Some(origin) = &origin {
-        imported_ids.extend(works.ids.iter().cloned());
-        if let Err(e) = tag_folder(&db, &imported_ids, &origin.folder).await {
-            report
-                .warnings
-                .push(("re-reading the folder later".into(), e));
+    if let Some(origin) = origin.as_ref().filter(|o| o.rescan) {
+        match remove_gone(&db, &origin.folder, &paths, &unreadable).await {
+            Ok(n) => report.removed = n,
+            Err(e) => report
+                .skipped
+                .push(("removing songs gone from the folder".into(), e)),
         }
-        if origin.rescan {
-            match remove_gone(&db, &origin.folder, &paths, &unreadable).await {
-                Ok(n) => report.removed = n,
-                Err(e) => report
-                    .skipped
-                    .push(("removing songs gone from the folder".into(), e)),
-            }
-        }
+    }
+    // Once every song is written: shared records nothing refers to any more
+    // (works imported again under other fields, unused folders).
+    if (works.found || !report.imported.is_empty() || rescan)
+        && let Err(e) = crate::songs::drop_unused_shared(&db).await
+    {
+        report.skipped.push(("stored works and folders".into(), e));
     }
     if candidates.is_empty() && shared_files.is_empty() && !works.found && report.skipped.is_empty()
     {
@@ -351,15 +451,34 @@ fn identity(c: &SongCandidate) -> (String, String) {
     }
 }
 
+/// What an import reads songs from.
+struct Inputs<'a> {
+    sources: &'a HashMap<String, Source>,
+    paths: &'a [String],
+    /// Files in the library's shared background folders.
+    shared: &'a [String],
+    /// The kept folder the files come from, recorded on each song (so it
+    /// can be re-read).
+    folder: Option<&'a str>,
+    /// Link files in that folder rather than copy them.
+    link: bool,
+}
+
 async fn import_song(
     db: &Db,
     c: &SongCandidate,
     id: &str,
     name: &str,
-    sources: &HashMap<String, Source>,
-    paths: &[String],
-    shared: &[String],
+    inputs: &Inputs<'_>,
 ) -> Result<(String, Vec<String>, Vec<String>), String> {
+    let Inputs {
+        sources,
+        paths,
+        shared,
+        folder,
+        link,
+    } = *inputs;
+    let linked = link && folder.is_some();
     let mut warnings = Vec::new();
     let mut notes = Vec::new();
     let chart_bytes = read_bytes(source(sources, &c.chart)?).await?;
@@ -517,17 +636,39 @@ async fn import_song(
         chart_name,
         bytes_blob(text.as_bytes(), "text/plain;charset=utf-8")?,
     )];
-    files.push((
-        music_name,
-        read_blob(source(sources, &music)?, mime_type(&music)).await?,
-    ));
+    // Linked: music and backgrounds stay in the folder (the banner is
+    // copied, since the song list shows it before any folder is read).
+    let mut links = std::collections::BTreeMap::new();
+    let music_source = source(sources, &music)?;
+    match music_source.link(&music).filter(|_| linked) {
+        Some(l) => {
+            links.insert(music_name, l);
+        }
+        None => files.push((
+            music_name,
+            read_blob(music_source, mime_type(&music)).await?,
+        )),
+    }
     let bg_files = bg_images
         .into_iter()
         .map(|(relative, path)| (format!("bg/{relative}"), path));
-    for (name, path) in banner.into_iter().chain(background).chain(bg_files) {
+    for (name, path) in banner.into_iter() {
         // A broken image is not worth losing the song over.
         if let Ok(blob) = read_blob(source(sources, &path)?, mime_type(&path)).await {
             files.push((name, blob));
+        }
+    }
+    for (name, path) in background.into_iter().chain(bg_files) {
+        let src = source(sources, &path)?;
+        match src.link(&path).filter(|_| linked) {
+            Some(l) => {
+                links.insert(name, l);
+            }
+            None => {
+                if let Ok(blob) = read_blob(src, mime_type(&path)).await {
+                    files.push((name, blob));
+                }
+            }
         }
     }
     let record = ImportedSong {
@@ -537,7 +678,8 @@ async fn import_song(
         imported: js_sys::Date::now(),
         bytes: files.iter().map(|(_, b)| b.size()).sum(),
         work: None,
-        folder: None,
+        folder: folder.map(str::to_string),
+        links,
     };
     let json = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     let mut writes = vec![Write::DeletePrefix {
@@ -601,36 +743,6 @@ async fn store_shared(
         }
     }
     (stored, failed)
-}
-
-/// Records on the songs `ids` the kept folder they came from.
-async fn tag_folder(db: &Db, ids: &[String], folder: &str) -> Result<(), String> {
-    let mut writes = Vec::new();
-    for (id, v) in db
-        .get_many(idb::SONGS, ids)
-        .await?
-        .into_iter()
-        .zip(ids)
-        .map(|(v, id)| (id, v))
-    {
-        let Some(json) = v.and_then(|v| v.as_string()) else {
-            continue;
-        };
-        let Ok(mut song) = serde_json::from_str::<ImportedSong>(&json) else {
-            continue;
-        };
-        song.folder = Some(folder.to_string());
-        let json = serde_json::to_string(&song).map_err(|e| e.to_string())?;
-        writes.push(Write::Put {
-            store: idb::SONGS,
-            key: id.clone(),
-            value: json.into(),
-        });
-    }
-    if writes.is_empty() {
-        return Ok(());
-    }
-    db.write(writes).await
 }
 
 /// Removes the songs imported from the kept folder `folder` whose song
@@ -798,7 +910,9 @@ async fn zip_data_start(archive: &File, entry: &ZipEntry) -> Result<u64, String>
 async fn read_head(source: &Source, len: u64) -> Result<Vec<u8>, String> {
     match source {
         Source::File(f) => read_range(f, 0, len.min(f.size() as u64)).await,
-        Source::Zip { archive, entry } if entry.method == Method::Stored && !entry.encrypted => {
+        Source::Zip { archive, entry, .. }
+            if entry.method == Method::Stored && !entry.encrypted =>
+        {
             let start = zip_data_start(archive, entry).await?;
             read_range(archive, start, start + len.min(entry.compressed_size)).await
         }
@@ -813,7 +927,7 @@ async fn read_head(source: &Source, len: u64) -> Result<Vec<u8>, String> {
 async fn read_bytes(source: &Source) -> Result<Vec<u8>, String> {
     match source {
         Source::File(f) => blob_bytes(f).await,
-        Source::Zip { archive, entry } => {
+        Source::Zip { archive, entry, .. } => {
             let start = zip_data_start(archive, entry).await?;
             let data = read_range(archive, start, start + entry.compressed_size).await?;
             zip::extract(entry, &data).map_err(|e| e.to_string())
@@ -827,7 +941,9 @@ async fn read_bytes(source: &Source) -> Result<Vec<u8>, String> {
 async fn read_blob(source: &Source, mime: &str) -> Result<Blob, String> {
     match source {
         Source::File(f) => Ok(f.clone().into()),
-        Source::Zip { archive, entry } if entry.method == Method::Stored && !entry.encrypted => {
+        Source::Zip { archive, entry, .. }
+            if entry.method == Method::Stored && !entry.encrypted =>
+        {
             let start = zip_data_start(archive, entry).await?;
             let end = start + entry.compressed_size;
             // `slice` clamps silently; a cut-off archive must not store a
