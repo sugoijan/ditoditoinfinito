@@ -643,3 +643,28 @@ buckets. Source relative speed events multiply that base ratio. Units and source
 geometry must be recorded; a raw legacy variable named `SpeedUp` is not itself
 a portable CW `difData` speed. Native relative rate and exact approach time on a
 different field remain distinct measurements.
+
+
+### Individual-song sites and archived resources (2026-10-09)
+
+The [index-input survey](danoni-indexes.md) records concrete publisher lists and
+single-song SWFs from 2004–2006 and later, distinct from Kouhaku's multi-song
+movie. iso's early pages require normal navigation from their `flash.html`
+index; the 2006 7key Festival retains original embeds inside `noscript` while
+adding Ruffle support. The legacy FAKE800 engine computes a sidecar name:
+restricted native execution requested `no7-31.txt`. Static discovery alone can
+miss such dependencies.
+
+NAOTOPage's archived RE:RAVE page, SWF and external dos resolve to three
+different March 2019 snapshots. Store requested/final capture times per resource
+and retain the original logical URL for native relative loading. Internet Archive
+[documents nearby-date and live-web fallback](https://help.archive.org/help/using-the-wayback-machine/);
+an archived page does not prove that all its dependencies share its snapshot or
+that the captured revision is the original release. Injected archive scripts'
+UTF-8 declarations must not replace the author's EUC-JP HTML encoding.
+
+Several inspected single-song SWFs contain many SoundStreamHead tags across
+nested sprites; tag count is not a song count, and blindly concatenating every
+streaming block is not a validated audio extraction. These files are preserved
+as explicit future adapter/audio cases. Native playable scope remains 5 first,
+plus 7, 7i, 9A and 9B; 9t and larger/custom modes stay outside gameplay support.

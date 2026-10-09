@@ -167,3 +167,12 @@ metadata. It uses installed Chrome with network requests blocked and keeps
 outputs outside Git. It does not change charts or create a new playable ZIP.
 See [the artwork study](../../docs/research/danoni-artwork.md) for dimensions,
 provenance, source-graphic findings and the proposed export layout.
+
+## Indexes, archives and single-song Flash works
+
+The [index discovery survey](../../docs/research/danoni-indexes.md) catalogues
+2004–2006 and later work-list → song-page → SWF examples, a private single-song
+source corpus and Wayback resource provenance. Current CLI capture still takes
+one work page; `discover` / `capture-list` are proposed commands, not implemented
+options. Target playable modes are 5 (first), 7, 7i, 9A and 9B. Source title
+snapshots are not validated chart references or browser `/1` dump manifests.

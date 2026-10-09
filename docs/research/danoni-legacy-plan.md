@@ -240,7 +240,10 @@ four works covering 7, 7i, 9A and 9B. Mixed-mode works can cover several cells.
 Aim for at least three publishers and a mixture of native HTML5 releases and
 older ports. Capture all relevant difficulties where practical, documenting
 subsets to keep downloads bounded. These are selection targets, not verified
-available counts. The legacy pilot is two or three AVM1 works, initially 5-key.
+available counts. The original legacy pilot was two or three AVM1 works, initially
+5-key. The [index-input follow-up](danoni-indexes.md) adds seven single-song source cases
+and makes individual-song discovery the next priority; they have title captures,
+not validated native gameplay projections.
 
 Primary discovery routes:
 
@@ -320,3 +323,22 @@ the source is MP3 with declared nonzero delay/seek metadata. The playable WAV
 preserves the untrimmed Ruffle sample origin; original Flash compensation remains
 unverified. Continue with the paired Straight Soul archive/port and missing
 9-key coverage after this requested collection milestone.
+
+
+## Individual-song/index follow-up (2026-10-09)
+
+The [bounded index survey](danoni-indexes.md) now supplies real 2004–2006 and
+later page → SWF routes, a seven-work local source corpus, a working archived
+RE:RAVE example and a proposed discovery manifest above the capture adapters.
+Its most important acquisition cases are genuine index navigation required by
+page referrer checks, SWF embeds inside `noscript`, dynamic legacy sidecar names,
+semantic query selections, and independently dated Wayback resources. Source
+acquisition/title capture and a validated chart/audio reference remain distinct.
+
+Three modern individual-song CW works add four supported 5/7i/9A/9B references,
+all matching offline. The complete browser corpus has thirteen references and
+zero differences in the existing importer comparison. Five-key stays first;
+playable targets are exactly 5, 7, 7i, 9A and 9B. Other nine-lane modes (including
+9t), larger modes and work-defined/redefined layouts are retained only as source
+evidence. Extend the work-list → work → dependencies path before adding more
+special multi-song SWF adapters; retain Kouhaku as a regression case.

@@ -3,9 +3,11 @@
 Research date: 2026-10-08. The dump tool is implemented in
 [`tools/danoni-dump/`](../../tools/danoni-dump/README.md). Its Chrome integration
 test captures synthetic charts and replays them with the fixture origin shut
-down. Six local HTML5 works provide nine browser-derived chart references; all nine
-reproduce offline. Only the Jam with Pancake dump passes the full startup/assets
-check; the other dumps remain explicitly partial. See the inventory below.
+down. Nine local HTML5 works provide thirteen browser-derived chart references; all
+thirteen reproduce offline. Jam with Pancake and two new individual-song dumps
+pass the full startup/assets check; a third new mixed-mode work passes for both
+selected supported charts and remains partial because 9i was not selected. See
+the inventories below.
 Work is isolated on `danoni-research`; the importer session owns the game crates
 and `docs/PLAN.md`.
 
@@ -747,3 +749,30 @@ local comparison gallery is
 The accepted playable pack is unchanged. Source wordmarks, runtime titles and
 page spellings are retained as separate evidence; no source graphic is assumed
 to be a song cover simply because it is embedded in the movie.
+
+
+### Index discovery and individual-song expansion (2026-10-09)
+
+The [index-input survey and contract](danoni-indexes.md) prioritizes single-song
+SWFs, with one or several difficulties, and explicitly targets 5, 7, 7i, 9A and
+9B. Seven new legacy works are acquired under
+`~/Music/DanOni/single-song-corpus-v1/`, with original indexes/pages/SWFs/sidecars,
+HTTP and genuine-browser navigation evidence, and restricted native title
+snapshots. They span three 2004 iso works, archived 2005 RE:RAVE, two 2006
+festival 7-key works, and 2011 FAKE800. They are source/adapter cases, not yet
+validated chart exports. Existing Higan remains the validated single-song
+native case; Kouhaku remains the collection case.
+
+Three individual-song HTML5 works add four complete selected-chart references:
+
+| Local directory / work | Modes and captured data | Validation |
+| --- | --- | --- |
+| `vh-dancing-at-dusk` — [Dancing at Dusk](https://vorhandensein.sakura.ne.jp/danoni/295_dancing/) | CW v47.3.2, 5-key; 546 taps, 51 holds, 4 speed events; custom JS/title presentation | Complete work; startup/assets and reference match offline |
+| `vh-canaria-7i` — [カナリア](https://vorhandensein.sakura.ne.jp/danoni/366_canaria/) | CW v47.3.2, 7i; 825 taps, 37 holds; custom JS and title PNG | Complete work; startup/assets and reference match offline |
+| `vh-hikari-9ab` — [ふしぎなひかり](https://vorhandensein.sakura.ne.jp/danoni/291_hikari/) | CW v47.3.2; chart 1: 9A, 74 taps/4 holds; chart 2: 9B, 163 taps/no holds | Both selected charts complete and match offline; whole work partial because unsupported 9i chart 0 is deliberately uncaptured |
+
+The existing local importer differential test now compares **13 chart references
+with zero differences**. This includes prior unsupported-mode cases as data,
+not as newly playable modes. No game/importer code was changed. Index traversal
+and automatic Wayback fallback remain proposed; the survey records concrete
+page/SWF/sidecar routes and mixed archive capture dates for implementation.
