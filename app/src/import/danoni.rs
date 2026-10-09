@@ -38,7 +38,10 @@ pub(super) async fn import_works(
     fallback_pack: &str,
     report: &mut ImportReport,
     progress: &yew::Callback<String>,
+    origin: Option<&super::Origin>,
 ) -> WorksOutcome {
+    let folder = origin.map(|o| o.folder.as_str());
+    let link = origin.is_some_and(|o| o.link);
     let mut out = WorksOutcome::default();
     let mut seen: HashMap<String, String> = HashMap::new();
     for ws in work::work_sources(paths) {
@@ -139,7 +142,8 @@ pub(super) async fn import_works(
             let stored = StoredWork::referencing(&shared.0, music_no);
             let with_work = (!shared_stored).then_some(&shared);
             match store_song(
-                db, sources, &id, &pack, &label, song, &stored, with_work, &music, encoded,
+                db, sources, &id, &pack, &label, song, &stored, with_work, &music, encoded, folder,
+                link,
             )
             .await
             {
@@ -161,12 +165,6 @@ pub(super) async fn import_works(
                 ),
             ));
         }
-    }
-    // Works imported again under other fields leave their old ones behind.
-    if out.found
-        && let Err(e) = crate::songs::drop_unused_shared(db).await
-    {
-        report.skipped.push(("stored works".into(), e));
     }
     out
 }
@@ -302,12 +300,30 @@ async fn store_song(
     shared: Option<&(String, String)>,
     music: &str,
     encoded: bool,
+    folder: Option<&str>,
+    link: bool,
 ) -> Result<String, String> {
-    let (music_blob, music_ext) = if encoded {
+    let link = link && folder.is_some();
+    // Linked (a kept folder): the music stays there, unless it is a script
+    // that has to be decoded.
+    let mut links = std::collections::BTreeMap::new();
+    let music_link = source(sources, music)?
+        .link(music)
+        .filter(|_| link && !encoded);
+    let (music_blob, music_ext) = if let Some(music_link) = music_link {
+        let ext = match mime_type(music) {
+            "" => sniff_audio(&read_head_bytes(sources, music).await?)
+                .0
+                .to_string(),
+            _ => super::extension(music).unwrap_or_else(|| "mp3".into()),
+        };
+        links.insert(format!("music.{ext}"), music_link);
+        (None, ext)
+    } else if encoded {
         let js = pack::decode_text(&read_bytes(source(sources, music)?).await?);
         let bytes = work::decode_music(&js).ok_or("its music script holds no audio")?;
         let (ext, mime) = sniff_audio(&bytes);
-        (bytes_blob(&bytes, mime)?, ext.to_string())
+        (Some(bytes_blob(&bytes, mime)?), ext.to_string())
     } else {
         // A file without an audio extension (a dump's blob) is named
         // by what it holds.
@@ -318,7 +334,7 @@ async fn store_song(
             }
             m => (super::extension(music).unwrap_or_else(|| "mp3".into()), m),
         };
-        (read_blob(source(sources, music)?, mime).await?, ext)
+        (Some(read_blob(source(sources, music)?, mime).await?), ext)
     };
     let chart_name = format!("chart.{}", work::STORED_EXT);
     let music_name = format!("music.{music_ext}");
@@ -341,13 +357,13 @@ async fn store_song(
     entry.preview_start = 0.0;
     entry.preview_length = 0.0;
     let json = serde_json::to_string(stored).map_err(|e| e.to_string())?;
-    let files: Vec<(String, Blob)> = vec![
-        (
-            chart_name,
-            bytes_blob(json.as_bytes(), "application/json;charset=utf-8")?,
-        ),
-        (music_name, music_blob),
-    ];
+    let mut files: Vec<(String, Blob)> = vec![(
+        chart_name,
+        bytes_blob(json.as_bytes(), "application/json;charset=utf-8")?,
+    )];
+    if let Some(blob) = music_blob {
+        files.push((music_name, blob));
+    }
     let record = ImportedSong {
         entry,
         pack: pack.to_string(),
@@ -355,7 +371,8 @@ async fn store_song(
         imported: js_sys::Date::now(),
         bytes: files.iter().map(|(_, b)| b.size()).sum(),
         work: stored.work.clone(),
-        folder: None,
+        folder: folder.map(str::to_string),
+        links,
     };
     let record = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     let mut writes = vec![Write::DeletePrefix {

@@ -23,7 +23,7 @@ use ddi_engine::player::Results;
 use ddi_platform::DeviceProfile;
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::render::{AnimationFrame, request_animation_frame};
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{AudioBuffer, HtmlCanvasElement, HtmlElement, KeyboardEvent};
 use yew::prelude::*;
@@ -35,7 +35,7 @@ use crate::mods::mods_summary;
 use crate::play::{PlaySession, SessionConfig, SessionEvent};
 use crate::router::Route;
 use crate::settings::Settings;
-use crate::songs::{load_background, load_song};
+use crate::songs::{LoadError, load_background, load_song};
 use crate::web::audio::WebAudio;
 use crate::web::gamepad::Gamepads;
 use crate::web::gfx::{BackendPreference, Gfx};
@@ -77,7 +77,9 @@ pub(crate) enum Msg {
     GfxReady(Result<Box<GameLoop>, String>),
     /// Escape/Backspace outside of play: leave the screen.
     BackRequested,
-    SongLoaded(Result<Rc<Loaded>, String>),
+    SongLoaded(Result<Rc<Loaded>, LoadError>),
+    /// The answer to asking for a linked song's folder.
+    Access(bool),
     StartRequested,
     /// A controller button went down: `(Gamepad.id, control)`.
     PadPress(String, String),
@@ -126,6 +128,9 @@ pub(crate) struct GameCanvas {
     lyrics: NodeRef,
     gfx: Status<&'static str>,
     song: Status<Rc<Loaded>>,
+    /// A linked song whose folder needs the permission asked again: the
+    /// handle, the folder's name, and why the last ask failed.
+    access: Option<(JsValue, String, Option<String>)>,
     stage: Stage,
     raf: Rc<RefCell<Option<AnimationFrame>>>,
     game: Rc<RefCell<Option<GameLoop>>>,
@@ -187,72 +192,7 @@ impl Component for GameCanvas {
 
     fn create(ctx: &Context<Self>) -> Self {
         match ctx.props().source.clone() {
-            SongSource::Song { id, chart: _ } => {
-                let link = ctx.link().clone();
-                let show_background = Settings::load().bg_brightness > 0.0;
-                ctx.link().send_future(async move {
-                    let r = load_song(&id).await.map(|loaded| {
-                        if show_background {
-                            // Loads alongside the start prompt; the play
-                            // never waits for it.
-                            let shared = Rc::new(loaded.shared_bg.clone());
-                            let images = std::iter::once(BgImage::Song).chain(
-                                loaded
-                                    .entry
-                                    .bg_images
-                                    .iter()
-                                    .chain(loaded.shared_bg.iter().map(|(name, _)| name))
-                                    .cloned()
-                                    .map(BgImage::File),
-                            );
-                            for what in images {
-                                let entry = loaded.entry.clone();
-                                let shared = shared.clone();
-                                link.send_future(async move {
-                                    let bitmap = match load_background(&entry, &what, &shared).await
-                                    {
-                                        Ok(Some(blob)) => {
-                                            let side = match what {
-                                                BgImage::Song => MAX_BACKGROUND_SIDE,
-                                                BgImage::File(_) => MAX_CHANGE_SIDE,
-                                            };
-                                            crate::web::image::decode(&blob, side)
-                                                .await
-                                                .map_err(|e| {
-                                                    web_sys::console::warn_1(&e.into());
-                                                })
-                                                .ok()
-                                        }
-                                        Ok(None) => None,
-                                        Err(e) => {
-                                            web_sys::console::warn_1(&e.into());
-                                            None
-                                        }
-                                    };
-                                    Msg::BackgroundLoaded(what, bitmap)
-                                });
-                            }
-                        }
-                        Rc::new(Loaded {
-                            title: loaded.entry.title.clone(),
-                            subtitle: loaded.entry.artist.clone(),
-                            // The song's own images, then those found in
-                            // shared folders, under the names it uses.
-                            bg_images: loaded
-                                .entry
-                                .bg_images
-                                .iter()
-                                .chain(loaded.shared_bg.iter().map(|(name, _)| name))
-                                .cloned()
-                                .collect(),
-                            has_background: loaded.entry.background.is_some(),
-                            song: loaded.song,
-                            music_bytes: Some(loaded.music_bytes),
-                        })
-                    });
-                    Msg::SongLoaded(r)
-                });
-            }
+            SongSource::Song { id, chart: _ } => load(ctx, id),
             SongSource::Calibration(mode) => {
                 let loaded = Loaded {
                     song: calibration::song(mode),
@@ -302,6 +242,7 @@ impl Component for GameCanvas {
             lyrics: NodeRef::default(),
             gfx: Status::Pending,
             song: Status::Pending,
+            access: None,
             stage: Stage::Idle,
             raf: Rc::new(RefCell::new(None)),
             game: Rc::new(RefCell::new(None)),
@@ -320,6 +261,16 @@ impl Component for GameCanvas {
     }
 
     fn rendered(&mut self, ctx: &Context<Self>, first_render: bool) {
+        // The folder prompt's button takes Enter (a gesture, as the ask
+        // needs); `autofocus` is ignored on inserted elements.
+        if self.access.is_some()
+            && let Some(button) = web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| d.query_selector(".access-prompt button").ok().flatten())
+                .and_then(|b| b.dyn_into::<HtmlElement>().ok())
+        {
+            let _ = button.focus();
+        }
         if !first_render {
             // The debug element is re-created on re-render; keep the loop pointed at it.
             if let Some(game) = self.game.borrow_mut().as_mut() {
@@ -374,8 +325,25 @@ impl Component for GameCanvas {
                 }
                 false
             }
+            Msg::SongLoaded(Err(LoadError::NeedsAccess { handle, name })) => {
+                self.access = Some((handle, name, None));
+                true
+            }
             Msg::SongLoaded(Err(e)) => {
-                self.song = Status::Failed(e);
+                self.song = Status::Failed(e.message());
+                true
+            }
+            Msg::Access(granted) => {
+                if !granted {
+                    if let Some((_, _, refused)) = self.access.as_mut() {
+                        *refused = Some("Reading the folder was not allowed.".into());
+                    }
+                    return true;
+                }
+                self.access = None;
+                if let SongSource::Song { id, .. } = ctx.props().source.clone() {
+                    load(ctx, id);
+                }
                 true
             }
             Msg::BackRequested => {
@@ -580,6 +548,24 @@ impl Component for GameCanvas {
             }
             (_, Status::Failed(e), _) => {
                 html! { <div class="canvas-overlay error">{ format!("song failed to load: {e}") }</div> }
+            }
+            (_, Status::Pending, _) if self.access.is_some() => {
+                let (handle, name, refused) = self.access.clone().expect("checked");
+                // The ask happens in the click itself (a user gesture).
+                let onclick = {
+                    let link = link.clone();
+                    Callback::from(move |_: MouseEvent| {
+                        let answer = crate::web::folders::access(&handle);
+                        link.send_future(async move { Msg::Access(answer.await) });
+                    })
+                };
+                html! {
+                    <div class="canvas-overlay access-prompt">
+                        <div>{ format!("This song plays from the folder “{name}”, which the browser asks about again.") }</div>
+                        <button class="button" {onclick} autofocus=true>{ "allow reading the folder" }</button>
+                        { for refused.map(|r| html! { <div class="error">{ r }</div> }) }
+                    </div>
+                }
             }
             (Status::Pending, _, _) | (_, Status::Pending, _) => {
                 html! { <div class="canvas-overlay muted">{ "loading…" }</div> }
@@ -1234,4 +1220,72 @@ fn schedule(raf: Rc<RefCell<Option<AnimationFrame>>>, game: Rc<RefCell<Option<Ga
         schedule(raf2, game2);
     });
     *raf.borrow_mut() = Some(handle);
+}
+
+/// Loads the song and its background images; the result arrives as
+/// [`Msg::SongLoaded`].
+fn load(ctx: &Context<GameCanvas>, id: String) {
+    let link = ctx.link().clone();
+    let show_background = Settings::load().bg_brightness > 0.0;
+    ctx.link().send_future(async move {
+        let r = load_song(&id).await.map(|loaded| {
+            if show_background {
+                // Loads alongside the start prompt; the play
+                // never waits for it.
+                let shared = Rc::new(loaded.shared_bg.clone());
+                let images = std::iter::once(BgImage::Song).chain(
+                    loaded
+                        .entry
+                        .bg_images
+                        .iter()
+                        .chain(loaded.shared_bg.iter().map(|(name, _)| name))
+                        .cloned()
+                        .map(BgImage::File),
+                );
+                for what in images {
+                    let entry = loaded.entry.clone();
+                    let shared = shared.clone();
+                    link.send_future(async move {
+                        let bitmap = match load_background(&entry, &what, &shared).await {
+                            Ok(Some(blob)) => {
+                                let side = match what {
+                                    BgImage::Song => MAX_BACKGROUND_SIDE,
+                                    BgImage::File(_) => MAX_CHANGE_SIDE,
+                                };
+                                crate::web::image::decode(&blob, side)
+                                    .await
+                                    .map_err(|e| {
+                                        web_sys::console::warn_1(&e.into());
+                                    })
+                                    .ok()
+                            }
+                            Ok(None) => None,
+                            Err(e) => {
+                                web_sys::console::warn_1(&e.into());
+                                None
+                            }
+                        };
+                        Msg::BackgroundLoaded(what, bitmap)
+                    });
+                }
+            }
+            Rc::new(Loaded {
+                title: loaded.entry.title.clone(),
+                subtitle: loaded.entry.artist.clone(),
+                // The song's own images, then those found in
+                // shared folders, under the names it uses.
+                bg_images: loaded
+                    .entry
+                    .bg_images
+                    .iter()
+                    .chain(loaded.shared_bg.iter().map(|(name, _)| name))
+                    .cloned()
+                    .collect(),
+                has_background: loaded.entry.background.is_some(),
+                song: loaded.song,
+                music_bytes: Some(loaded.music_bytes),
+            })
+        });
+        Msg::SongLoaded(r)
+    });
 }

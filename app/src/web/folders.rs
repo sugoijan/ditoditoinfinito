@@ -5,7 +5,9 @@
 //! and a pack is updated by picking its folder again.
 //!
 //! Reading a kept handle again needs the player's permission, asked from a
-//! click ([`access`]).
+//! click ([`access`]). Songs imported from such a folder are linked by
+//! default: their large files stay in the folder and are read from it when
+//! played ([`crate::songs::Link`]).
 
 use js_sys::{Array, Promise};
 use wasm_bindgen::prelude::*;
@@ -61,6 +63,21 @@ export function ddiFolderName(handle) {
 export function ddiSameFolder(a, b) {
     return a.isSameEntry(b);
 }
+
+// Whether the folder may be read without asking.
+export async function ddiFolderGranted(handle) {
+    return (await handle.queryPermission({ mode: "read" })) === "granted";
+}
+
+// The file at `path` (`/`-separated, relative to the folder).
+export async function ddiFolderFile(handle, path) {
+    const parts = path.split("/");
+    let dir = handle;
+    for (const name of parts.slice(0, -1)) {
+        dir = await dir.getDirectoryHandle(name);
+    }
+    return await (await dir.getFileHandle(parts[parts.length - 1])).getFile();
+}
 "#)]
 extern "C" {
     #[wasm_bindgen(js_name = ddiCanPickFolder)]
@@ -75,6 +92,10 @@ extern "C" {
     fn folder_name(handle: &JsValue) -> String;
     #[wasm_bindgen(js_name = ddiSameFolder, catch)]
     fn same_folder(a: &JsValue, b: &JsValue) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(js_name = ddiFolderGranted)]
+    fn folder_granted(handle: &JsValue) -> Promise;
+    #[wasm_bindgen(js_name = ddiFolderFile)]
+    fn folder_file(handle: &JsValue, path: &str) -> Promise;
 }
 
 /// Whether folders can be picked as re-readable handles.
@@ -94,9 +115,17 @@ pub(crate) fn pick() -> Result<impl Future<Output = Result<Option<JsValue>, Stri
     })
 }
 
+thread_local! {
+    /// The last permission request still open: a load started by the same
+    /// click (a preview, the play page) waits for its answer instead of
+    /// finding the permission not granted yet.
+    static PENDING: std::cell::RefCell<Option<Promise>> = const { std::cell::RefCell::new(None) };
+}
+
 /// Asks to read a kept folder again. Call synchronously from a click.
 pub(crate) fn access(handle: &JsValue) -> impl Future<Output = bool> + use<> {
     let promise = folder_access(handle);
+    PENDING.with(|p| *p.borrow_mut() = Some(promise.clone()));
     async move {
         JsFuture::from(promise)
             .await
@@ -106,9 +135,39 @@ pub(crate) fn access(handle: &JsValue) -> impl Future<Output = bool> + use<> {
     }
 }
 
+/// Asks to read a kept folder again without waiting for the answer (the
+/// prompt still shows). Call synchronously from a click.
+pub(crate) fn ask(handle: &JsValue) {
+    let promise = folder_access(handle);
+    PENDING.with(|p| *p.borrow_mut() = Some(promise));
+}
+
 /// The folder's name.
 pub(crate) fn name(handle: &JsValue) -> String {
     folder_name(handle)
+}
+
+/// Whether the folder may be read without asking the player, once any
+/// open request has been answered.
+pub(crate) async fn granted(handle: &JsValue) -> bool {
+    if let Some(open) = PENDING.with(|p| p.borrow().clone()) {
+        let _ = JsFuture::from(open).await;
+        PENDING.with(|p| p.borrow_mut().take());
+    }
+    JsFuture::from(folder_granted(handle))
+        .await
+        .ok()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+/// The file at `path` inside the folder (`None` when it is gone).
+pub(crate) async fn file(handle: &JsValue, path: &str) -> Option<File> {
+    JsFuture::from(folder_file(handle, path))
+        .await
+        .ok()?
+        .dyn_into::<File>()
+        .ok()
 }
 
 /// Whether two handles are the same folder on disk.

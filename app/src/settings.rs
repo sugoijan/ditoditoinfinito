@@ -39,6 +39,9 @@ pub(crate) struct Settings {
     /// The import report also lists details for pack authors:
     /// inconsistencies that make no difference in play.
     pub(crate) import_details: bool,
+    /// Copy a picked folder's songs into the browser even where they can
+    /// be linked (Chromium), so they survive the folder moving.
+    pub(crate) import_copy: bool,
     /// How notes are coloured.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub(crate) note_colors: NoteColors,
@@ -172,6 +175,7 @@ impl Default for Settings {
             chart_colors: false,
             lyrics: true,
             import_details: false,
+            import_copy: false,
             bg_brightness: 0.4,
             field_filter: 0.4,
             style: "dance-single".into(),

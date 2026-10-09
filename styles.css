@@ -950,3 +950,13 @@ button.danger {
 .lyric.bottom {
   bottom: 3.5%;
 }
+
+/* A linked song's folder needs the browser's permission again. */
+.canvas-overlay.access-prompt {
+  align-content: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  text-align: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+}
