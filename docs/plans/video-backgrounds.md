@@ -116,6 +116,16 @@ hashes; `check.mjs` decodes the three codecs.
   `target/video/ddivideo.LICENSE.txt`, served next to the module.
 - CI caches only the outputs, keyed on `build.sh`, `FFMPEG.toml` and the
   shim, and uploads them as the `ddivideo` artifact for step 2's build.
+- Not reproducible across hosts (yet): two macOS builds match byte for
+  byte, but CI's Linux module is 1,372,730 bytes against 1,123,717 (541 KB
+  against 529 KB gzipped), with 2,798 functions against 2,179 and no
+  `datacount` or `target_features` section. It decodes every clip exactly.
+  FFmpeg's libraries are the same on both (only `version.o`, which holds
+  the paths, differs), and so are wasi-libc and the reactor start file:
+  linking CI's libraries, or the Linux tarball's sysroot and builtins, with
+  the macOS clang gives the macOS module. So the Linux `clang`/`wasm-ld`
+  links differently; the next step is to capture its link with `-v` in
+  CI (the `ddivideo-build` artifact keeps the configure results).
 
 ## Step 2. The worker (commit 2)
 
@@ -155,13 +165,22 @@ Verification: a headless-Chrome page (verify skill) loads the module from a
 worker and decodes a generated clip; the same page run in Firefox and
 Safari by the maintainer, which settles research section 7's first item.
 
-**Done 2026-10-09** (Safari pending). What differs, and what later steps
-need:
+**Done 2026-10-09.** What differs, and what later steps need:
 
 - Firefox (maintainer, by hand, five local pack movies): the module loads
   in the worker and every seek is exact; H.264 640×360 1.7–2.2 ms/frame,
   MPEG-2 640×360 0.8 ms, Xvid 320×240 0.5 ms, the slowest seek 0.5 s.
   SpiderMonkey is as fast as V8 here.
+- Safari (maintainer, published site, ten local movies of every kind):
+  the same, within about 20 %: H.264 720p 4.2–4.6 ms/frame, 480p 2.7–3.4,
+  640×360 2.1, MPEG-2 1.0, Xvid and DivX 0.3–0.5; every seek exact; the
+  MP4-in-`.avi` movie refused as expected. The module needs no
+  per-browser rule: `auto` (step 5) judges by the session. A hidden tab
+  throttles the check page's polling (Safari: about once a second), which
+  inflated its "with hand-over" times and one seek to 9 s while the tab
+  was in the background; the decode times measured in the worker were
+  unaffected, and play happens in a visible tab. This settles research
+  section 7's first item.
 
 - The worker script is embedded in the app (`include_str!`) and started
   from a blob URL instead of served with `copy-file`, so a cached old
@@ -198,12 +217,35 @@ need:
   0.8 ms/frame, H.264 852×480 3.0 ms, 1280×720 3.9 ms; every seek exact,
   the slowest 0.85 s (720p H.264). Random and empty files fail with a
   message; a truncated AVI plays what it has.
-- Only AVI and raw MPEG video open: MPEG program streams (`.mpg` with
-  packs) and MP4 need the `mpegps` and `mov` demuxers, which are not in
-  the configure line. One local movie does: `REVOLUTION.avi` (DDR 2013)
-  is H.264 in an MP4 container under an `.avi` name; the survey in the
-  research note counted it as AVI. Step 3's sniffer must look at the
-  bytes, not the extension (it already plans to: `ftyp` at offset 4).
+- One local movie is not AVI: `REVOLUTION.avi` (DDR 2013) is H.264 in an
+  MP4 container under an `.avi` name (the research note's survey counted
+  it as AVI), so step 3's sniffer must look at the bytes, not the
+  extension. That led to the format decision below.
+
+**Formats (2026-10-10, maintainer's decision): everything StepMania plays.**
+StepMania 5.1 builds its FFmpeg (a June 2026 commit) with every built-in
+decoder, demuxer and parser and zlib (`CMake/SetupFfmpeg.cmake`); OutFox's
+engine source is not public, so StepMania is the reference. The module now
+has all 355 demuxers, 67 parsers, the 264 video decoders (FFmpeg's whole
+video set less the hardware and external-library ones; not the audio and
+subtitle decoders, since a movie's sound is ignored), zlib 1.3.2 (compiled
+by `build.sh`; Zlib licence, for step 7's credits) and swscale for the
+pixel formats the shim does not copy itself (RGB and palette images from
+older codecs, packed YUV). No AV1, as in StepMania: FFmpeg decodes it only
+through hardware or libdav1d. Size: 5,889,297 bytes, 2,446,734 gzipped
+(StepMania's exact set, with the audio decoders, would be 3.85 MB
+gzipped), fetched only for songs that have a movie. Measured before the
+decision: MP4/MOV alone +66 KB gzipped, WebM with VP8/VP9 +169 KB, WMV +95
+KB, Ogg/Theora +28 KB. Decoding is as fast as with the AVI-only module.
+`video/clips.sh` checks 30 synthetic formats (MP4, HEVC, MOV, MKV, WebM
+VP8/VP9, Ogg Theora, WMV, FLV, DivX 3, MPEG-1/2 program and transport
+streams, MJPEG, HuffYUV, FFV1, Cinepak, MS Video 1, ZMBV, PNG, QuickTime
+RLE, and the AVI set); a clip whose encoder the local ffmpeg lacks is
+skipped and named. MPEG program streams have no index, so a seek lands
+between keyframes: the shim now steps back 0.5, 1, 2 and 4 s from where a
+seek landed, then decodes from the start, until the target frame comes
+out first. WebCodecs (step 6) still comes first where the browser has the
+codec; the module is the fallback for everything.
 - Step 7, from FFmpeg's checklist (https://ffmpeg.org/legal.html) and
   LGPL-2.1 §6: serve the FFmpeg source tarball from the same site (item 8),
   and how the module was built: `ddivideo.c`, `build.sh`, `FFMPEG.toml`

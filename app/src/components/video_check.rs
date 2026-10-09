@@ -266,8 +266,8 @@ impl Component for VideoCheck {
                 <p>
                     { "Plays movies through the game's own video decoder in this browser, \
                        to see whether it works here and how fast it is. Pick one or more \
-                       movie files from a pack (AVI, or raw MPEG video as .mpg/.m2v); nothing \
-                       is stored." }
+                       movie files from a pack (any format StepMania plays: AVI, MPEG, MP4, \
+                       MOV, MKV, WebM, OGV, WMV, FLV); nothing is stored." }
                 </p>
                 <p class="muted">{ agent }</p>
                 <p>{ self.status_line() }</p>
@@ -275,7 +275,7 @@ impl Component for VideoCheck {
                     <p class="error">{ e }</p>
                 }
                 <p>
-                    <input type="file" multiple=true accept=".avi,.mpg,.mpeg,.m2v"
+                    <input type="file" multiple=true accept=".avi,.f4v,.flv,.m2v,.mkv,.mov,.mp4,.mpeg,.mpg,.ogv,.webm,.wmv,video/*"
                         disabled={self.running} {onchange} />
                 </p>
                 if !self.files.is_empty() {

@@ -75,12 +75,18 @@ ffmpeg_sha=$(value tarball_sha256)
 wasi_version=$(value wasi_sdk_version)
 wasi_url=$(value wasi_sdk_url)
 wasi_sha=$(value "wasi_sdk_sha256_$host_key")
+zlib_version=$(value zlib_version)
+zlib_url=$(value zlib_url)
+zlib_sha=$(value zlib_sha256)
 
 configure_flags=()
 while IFS= read -r flag; do
   configure_flags+=("$flag")
 done < <(sed -n '/^configure = \[/,/^\]/s/^ *"\(.*\)",\{0,1\}$/\1/p' "$toml")
 [ "${#configure_flags[@]}" -gt 0 ] || die "no configure flags in $toml"
+decoders=$(sed -n '/^video_decoders = \[/,/^\]/p' "$toml" | grep -o '"[a-z0-9_]*"' | tr -d '"' | paste -sd, -)
+[ -n "$decoders" ] || die "no video_decoders in $toml"
+configure_flags+=("--enable-decoder=$decoders")
 
 mkdir -p "$out/downloads"
 
@@ -96,7 +102,29 @@ fetch "$ffmpeg_url" "$out/downloads/$ffmpeg_file" "$ffmpeg_sha"
 src="$out/ffmpeg-$ffmpeg_version"
 unpack "$out/downloads/$ffmpeg_file" "$src" "$ffmpeg_sha"
 
-# 3. Configure, out of tree. Paths are mapped away so the module does not
+# 3. zlib, compiled file by file (its configure picks the host's archiver
+# on macOS); FFmpeg finds it through the paths below.
+zlib_file=$(basename "$zlib_url")
+fetch "$zlib_url" "$out/downloads/$zlib_file" "$zlib_sha"
+zsrc="$out/zlib-$zlib_version"
+unpack "$out/downloads/$zlib_file" "$zsrc" "$zlib_sha"
+zlib="$out/zlib-build"
+if [ ! -f "$zlib/lib/libz.a" ] || [ "$zsrc/.ddi-sha256" -nt "$zlib/lib/libz.a" ]; then
+  say "building zlib $zlib_version"
+  mkdir -p "$zlib/obj" "$zlib/include" "$zlib/lib"
+  zobjs=()
+  # Without gz*, zlib's file API, which FFmpeg does not use.
+  for c in adler32 compress crc32 deflate infback inffast \
+    inflate inftrees trees uncompr zutil; do
+    "$wasi/bin/clang" -Oz -msimd128 "-ffile-prefix-map=$zsrc=zlib" -c "$zsrc/$c.c" -o "$zlib/obj/$c.o"
+    zobjs+=("$zlib/obj/$c.o")
+  done
+  rm -f "$zlib/lib/libz.a"
+  "$wasi/bin/ar" rcs "$zlib/lib/libz.a" "${zobjs[@]}"
+  cp "$zsrc/zlib.h" "$zsrc/zconf.h" "$zlib/include/"
+fi
+
+# 4. Configure, out of tree. Paths are mapped away so the module does not
 # depend on where it was built.
 build="$out/ffmpeg-build"
 mkdir -p "$build"
@@ -105,7 +133,8 @@ configure=(
   "--cc=$wasi/bin/clang" "--ar=$wasi/bin/ar" "--ranlib=$wasi/bin/ranlib"
   "--nm=$wasi/bin/nm" "--strip=$wasi/bin/strip"
   "${configure_flags[@]}"
-  "--extra-cflags=-ffile-prefix-map=$src=ffmpeg -ffile-prefix-map=$build=ffmpeg"
+  "--extra-cflags=-ffile-prefix-map=$src=ffmpeg -ffile-prefix-map=$build=ffmpeg -I$zlib/include"
+  "--extra-ldflags=-L$zlib/lib"
 )
 stamp="$build/.ddi-configure"
 if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "${configure[*]}" ]; then
@@ -119,17 +148,17 @@ if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "${configure[*]}" ]; then
   printf '%s' "${configure[*]}" > "$stamp"
 fi
 
-# 4. The four libraries (make itself skips what is current).
+# 5. The libraries (make itself skips what is current).
 jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 say "building libraries (make -j$jobs)"
 make -C "$build" -j"$jobs" > "$build/make.out" 2>&1 ||
   { tail -n 30 "$build/make.out" >&2; die "make failed (log: $build/make.out)"; }
 
-# 5. Link the shim. A reactor (`_initialize`, no `_start`); the stack sits
+# 6. Link the shim. A reactor (`_initialize`, no `_start`); the stack sits
 # below the data so an overflow traps instead of corrupting memory, and the
 # memory is capped so a hostile file cannot take more than 1 GiB.
 libs=("$build/libavformat/libavformat.a" "$build/libavcodec/libavcodec.a"
-  "$build/libavutil/libavutil.a")
+  "$build/libswscale/libswscale.a" "$build/libavutil/libavutil.a" "$zlib/lib/libz.a")
 wasm="$out/ddivideo.wasm"
 exports=()
 while IFS= read -r name; do
@@ -144,21 +173,24 @@ if [ "$relink" = 1 ]; then
   say "linking ddivideo.wasm"
   export_flags=()
   for name in "${exports[@]}"; do export_flags+=("-Wl,--export=$name"); done
-  "$wasi/bin/clang" -Oz -msimd128 -mexec-model=reactor \
+  # `-v` records the exact linker command and versions (link.out), to
+  # compare builds on different hosts.
+  "$wasi/bin/clang" -v -Oz -msimd128 -mexec-model=reactor \
     "-ffile-prefix-map=$root=ddi" -I"$build" -I"$src" \
     -o "$wasm.part" "$shim" "${libs[@]}" \
     "${export_flags[@]}" -Wl,--stack-first -Wl,-z,stack-size=1048576 \
-    -Wl,--max-memory=1073741824 -Wl,--strip-all
+    -Wl,--max-memory=1073741824 -Wl,--strip-all 2> "$build/link.out" ||
+    { cat "$build/link.out" >&2; die "linking failed"; }
   built="$wasm.part"
 else
   built="$wasm"
 fi
 
-# 6. The module is LGPL-2.1-or-later: its licence text, from the FFmpeg
+# 7. The module is LGPL-2.1-or-later: its licence text, from the FFmpeg
 # source, is served next to it.
 cp "$src/COPYING.LGPLv2.1" "$out/ddivideo.LICENSE.txt"
 
-# 7. Description for the site and the credits, written before the module
+# 8. Description for the site and the credits, written before the module
 # is moved into place so the two always match.
 json_string() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
 size=$(wc -c < "$built" | tr -d ' ')
@@ -171,6 +203,7 @@ gz_size=$(gzip -9 -c "$built" | wc -c | tr -d ' ')
   printf '  "license": %s,\n' "$(json_string "$(value license)")"
   printf '  "source_url": %s,\n' "$(json_string "$(value source_url)")"
   printf '  "wasi_sdk": %s,\n' "$(json_string "$wasi_version")"
+  printf '  "zlib": %s,\n' "$(json_string "$zlib_version")"
   printf '  "configure": ['
   sep=""
   for flag in "${configure_flags[@]}"; do

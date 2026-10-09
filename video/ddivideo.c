@@ -15,6 +15,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/pixdesc.h>
+#include <libswscale/swscale.h>
 
 #define EXPORT __attribute__((visibility("default"), used))
 
@@ -55,6 +56,7 @@ typedef struct {
     // The frame handed over: its planes, size and colour tags.
     uint8_t *planes;
     size_t planes_cap;
+    struct SwsContext *sws; // for pixel formats copied through swscale
     int width, height;
     int colorspace; // 601 or 709
     int full_range;
@@ -217,26 +219,36 @@ static void copy_plane(uint8_t *dst, int w, int h, const uint8_t *src, int strid
     }
 }
 
-// Copies `f` into the planes buffer as 8-bit 4:2:0; -1 for a pixel format
-// that is not planar YUV or grey.
-static int take_planes(Video *v, AVFrame *f) {
-    const AVPixFmtDescriptor *d = av_pix_fmt_desc_get(f->format);
-    if (!d || (d->flags & (AV_PIX_FMT_FLAG_BE | AV_PIX_FMT_FLAG_PAL | AV_PIX_FMT_FLAG_BITSTREAM |
-                           AV_PIX_FMT_FLAG_HWACCEL | AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_FLOAT)))
-        return -1;
-    int grey = d->nb_components < 3;
-    int depth = d->comp[0].depth;
-    if (depth < 8 || depth > 16 || d->comp[0].shift || d->comp[0].plane != 0) return -1;
-    if (!grey && (d->comp[1].plane != 1 || d->comp[2].plane != 2 || d->comp[1].shift ||
-                  d->comp[2].shift || d->comp[1].depth != depth || d->comp[2].depth != depth))
-        return -1;
+// Whether `d` is planar YUV (or grey) at 8 to 16 bits per sample, which
+// `copy_plane` handles; `lw`/`lh` get the chroma subsampling against 4:2:0.
+static int copyable(const AVPixFmtDescriptor *d, int *lw, int *lh) {
+    if (d->flags & (AV_PIX_FMT_FLAG_BE | AV_PIX_FMT_FLAG_PAL | AV_PIX_FMT_FLAG_BITSTREAM |
+                    AV_PIX_FMT_FLAG_HWACCEL | AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_FLOAT |
+                    AV_PIX_FMT_FLAG_BAYER | AV_PIX_FMT_FLAG_XYZ))
+        return 0;
+    int depth = d->comp[0].depth, step = depth > 8 ? 2 : 1;
+    if (depth < 8 || depth > 16) return 0;
+    // One sample per `step` bytes in its own plane (not packed with others).
+    for (int i = 0; i < (d->nb_components >= 3 ? 3 : 1); i++) {
+        const AVComponentDescriptor *c = &d->comp[i];
+        if (c->plane != i || c->step != step || c->shift || c->offset || c->depth != depth) return 0;
+    }
+    if (d->nb_components == 2) return 0; // grey with alpha, packed
     // Against 4:2:0: 4:4:4 is twice as dense both ways (-1), 4:2:2 the same
     // horizontally (0) and twice as dense vertically, 4:1:1 half as dense
     // horizontally (1).
-    int lw = d->log2_chroma_w - 1, lh = d->log2_chroma_h - 1;
-    if (lw > 1 || lh > 1) return -1;
+    *lw = d->log2_chroma_w - 1;
+    *lh = d->log2_chroma_h - 1;
+    return *lw <= 1 && *lh <= 1;
+}
+
+// Copies `f` into the planes buffer as 8-bit 4:2:0: planar YUV and grey
+// directly, anything else (RGB and palette images from older codecs, packed
+// or semi-planar YUV) through swscale. -1 when the format cannot be read.
+static int take_planes(Video *v, AVFrame *f) {
+    const AVPixFmtDescriptor *d = av_pix_fmt_desc_get(f->format);
     int w = f->width, h = f->height;
-    if (w <= 0 || h <= 0) return -1;
+    if (!d || w <= 0 || h <= 0) return -1;
     size_t cw = (w + 1) / 2, ch = (h + 1) / 2;
     size_t need = (size_t)w * h + 2 * cw * ch;
     if (need > v->planes_cap) {
@@ -245,19 +257,42 @@ static int take_planes(Video *v, AVFrame *f) {
         v->planes = p;
         v->planes_cap = need;
     }
+    uint8_t *y = v->planes, *u = y + (size_t)w * h, *vv = u + cw * ch;
+    int yuvj = strncmp(d->name, "yuvj", 4) == 0;
+    int full = f->color_range == AVCOL_RANGE_JPEG || yuvj;
+    int lw, lh;
+    if (copyable(d, &lw, &lh)) {
+        int depth = d->comp[0].depth;
+        copy_plane(y, w, h, f->data[0], f->linesize[0], w, h, 0, 0, depth);
+        if (d->nb_components < 3) {
+            memset(u, 128, 2 * cw * ch);
+        } else {
+            int sw = AV_CEIL_RSHIFT(w, d->log2_chroma_w), sh = AV_CEIL_RSHIFT(h, d->log2_chroma_h);
+            copy_plane(u, cw, ch, f->data[1], f->linesize[1], sw, sh, lw, lh, depth);
+            copy_plane(vv, cw, ch, f->data[2], f->linesize[2], sw, sh, lw, lh, depth);
+        }
+        v->colorspace = guess_colorspace(f->colorspace, h);
+        v->full_range = full;
+    } else {
+        if (!sws_isSupportedInput(f->format)) return -1;
+        v->sws = sws_getCachedContext(v->sws, w, h, f->format, w, h, AV_PIX_FMT_YUV420P,
+                                      SWS_BILINEAR | SWS_ACCURATE_RND, NULL, NULL, NULL);
+        if (!v->sws) return -1;
+        // RGB becomes BT.601 limited range; other YUV layouts keep their own
+        // matrix and range (the values are only rearranged).
+        int rgb = (d->flags & (AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_PAL)) || d->nb_components < 3;
+        int matrix = rgb ? 601 : guess_colorspace(f->colorspace, h);
+        const int *coefficients = sws_getCoefficients(matrix == 709 ? SWS_CS_ITU709 : SWS_CS_ITU601);
+        int src_full = rgb ? 1 : full, dst_full = rgb ? 0 : full;
+        sws_setColorspaceDetails(v->sws, coefficients, src_full, coefficients, dst_full, 0, 1 << 16, 1 << 16);
+        uint8_t *dst[4] = {y, u, vv, NULL};
+        int stride[4] = {w, (int)cw, (int)cw, 0};
+        if (sws_scale(v->sws, (const uint8_t *const *)f->data, f->linesize, 0, h, dst, stride) <= 0) return -1;
+        v->colorspace = matrix;
+        v->full_range = dst_full;
+    }
     v->width = w;
     v->height = h;
-    uint8_t *y = v->planes, *u = y + (size_t)w * h, *vv = u + cw * ch;
-    copy_plane(y, w, h, f->data[0], f->linesize[0], w, h, 0, 0, depth);
-    if (grey) {
-        memset(u, 128, 2 * cw * ch);
-    } else {
-        int sw = AV_CEIL_RSHIFT(w, d->log2_chroma_w), sh = AV_CEIL_RSHIFT(h, d->log2_chroma_h);
-        copy_plane(u, cw, ch, f->data[1], f->linesize[1], sw, sh, lw, lh, depth);
-        copy_plane(vv, cw, ch, f->data[2], f->linesize[2], sw, sh, lw, lh, depth);
-    }
-    v->colorspace = guess_colorspace(f->colorspace, h);
-    v->full_range = f->color_range == AVCOL_RANGE_JPEG || strncmp(d->name, "yuvj", 4) == 0;
     return 0;
 }
 
@@ -337,7 +372,10 @@ EXPORT double ddi_next(Video *v) {
         AVFrame *f = v->frame;
         double t;
         if (f->pkt_dts != AV_NOPTS_VALUE) {
+            // An edit list can put the first decode times below zero; such
+            // frames show from the start (and negative values are codes).
             t = (f->pkt_dts - v->start) * v->time_base;
+            if (t < 0) t = 0;
         } else {
             double before = v->last_pts > v->last_dts ? v->last_pts : v->last_dts;
             t = before < 0 ? 0.0 : before + v->frame_time;
@@ -345,15 +383,21 @@ EXPORT double ddi_next(Video *v) {
         v->last_pts = t;
         if (v->seek_fresh) {
             v->seek_fresh = 0;
-            // The first frame after the keyframe starts after the target:
-            // the target was a B-frame coded after that keyframe but
-            // referring to the GOP before (an open GOP), which the decoder
-            // drops. Go back one keyframe more.
-            if (t > v->skip_until + 1e-6 && v->seek_key != AV_NOPTS_VALUE && v->seek_key > v->start &&
-                v->seek_retries < 3) {
+            // The first frame starts after the target: the seek landed past
+            // it. Either the target was a B-frame coded after the keyframe
+            // but referring to the GOP before (an open GOP), which the
+            // decoder drops, or the container has no index and the seek
+            // landed between keyframes (MPEG program streams: the decoder
+            // waits for the next one). Go back from where it landed, further
+            // each time, and in the end decode from the start.
+            if (t > v->skip_until + 1e-6 && !v->seek_reopened) {
                 av_frame_unref(f);
+                int64_t landed = v->seek_key != AV_NOPTS_VALUE ? v->seek_key : v->start;
+                int64_t ts = landed - (int64_t)ceil(0.5 * (1 << v->seek_retries) / v->time_base);
+                if (ts < v->start) ts = v->start;
+                int give_up = v->seek_retries >= 4 || landed <= v->start;
                 v->seek_retries++;
-                if (seek_ticks(v, v->seek_key - 1, v->skip_until) < 0) return -2.0;
+                if (seek_ticks(v, give_up ? -1 : ts, v->skip_until) < 0) return -2.0;
                 continue;
             }
         }
@@ -406,6 +450,7 @@ EXPORT int ddi_seek(Video *v, double t) {
 EXPORT void ddi_close(Video *v) {
     if (!v) return;
     close_streams(v);
+    sws_freeContext(v->sws);
     free(v->planes);
     free(v->path);
     free(v);

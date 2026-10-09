@@ -18,6 +18,12 @@ source_url = "https://github.com/FFmpeg/FFmpeg/tree/n9.0.2"
 tarball_url = "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz"
 tarball_sha256 = "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
 
+# zlib, linked in for what StepMania's build gets from it (compressed MP4
+# headers, PNG and other zlib-based codecs). Zlib licence.
+zlib_version = "1.3.2"
+zlib_url = "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz"
+zlib_sha256 = "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
+
 # Toolchain: wasi-sdk release tarballs, per host.
 wasi_sdk_version = "34.0"
 wasi_sdk_url = "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/"
@@ -26,10 +32,12 @@ wasi_sdk_sha256_x86_64_macos = "87d27fa8adc68dee59bfbf2e22a6d34ef717c34d6bf1d8af
 wasi_sdk_sha256_x86_64_linux = "b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4"
 wasi_sdk_sha256_arm64_linux = "f7e243dff54d60bcc576e94d6166b69f410f2500ae4a9ceef34315be10e77971"
 
-# `configure` flags after the toolchain ones (`--cc`, `--ar`, … are added by
-# the build script): only the demuxers, parsers and decoders that packs use
-# (AVI and raw MPEG video; H.264, MPEG-4 Part 2, MPEG-2), single-threaded,
-# no swscale (the worker hands over YUV planes and the renderer converts).
+# `configure` flags after the toolchain ones (`--cc`, `--ar`, the zlib paths
+# are added by the build script). What StepMania 5.1 builds
+# (CMake/SetupFfmpeg.cmake: every built-in decoder, demuxer and parser, with
+# zlib; no devices, no filters), less the audio and subtitle decoders, since
+# a movie's sound is ignored; single-threaded; swscale for the pixel formats
+# the shim does not copy itself.
 configure = [
   "--target-os=none",
   "--arch=wasm32",
@@ -47,13 +55,57 @@ configure = [
   "--disable-avdevice",
   "--disable-avfilter",
   "--disable-swresample",
-  "--disable-swscale",
   "--enable-avcodec",
   "--enable-avformat",
-  "--enable-decoder=h264,mpeg4,mpeg2video",
-  "--enable-parser=h264,mpeg4video,mpegvideo",
-  "--enable-demuxer=avi,mpegvideo",
+  "--enable-swscale",
+  "--enable-demuxers",
+  "--enable-parsers",
   "--enable-protocol=file",
+  "--enable-zlib",
   "--enable-small",
   "--extra-cflags=-msimd128 -Oz",
+]
+
+# Every video decoder FFmpeg has built in, one `--enable-decoder=` for all
+# of them. Derived for 9.0.2 as the decoders `configure --list-decoders`
+# names that `ffmpeg -decoders` lists as video (some under other names:
+# `fourxm` is 4xm, `eightbps` 8bps, `zero12v` 012v), without the hardware
+# and external-library ones configure drops anyway. Recheck on an FFmpeg
+# upgrade. No AV1: FFmpeg decodes it only through hardware or libdav1d, and
+# StepMania links neither.
+video_decoders = [
+  "aasc", "agm", "aic", "alias_pix", "amv", "anm", "ansi", "apng", "apv",
+  "arbc", "argo", "asv1", "asv2", "aura", "aura2", "avrn", "avrp",
+  "avs", "avui", "bethsoftvid", "bfi", "bink", "bintext", "bitpacked",
+  "bmp", "bmv_video", "brender_pix", "c93", "cavs", "cdgraphics", "cdtoons",
+  "cdxl", "cfhd", "cinepak", "clearvideo", "cljr", "cllc", "cpia", "cri",
+  "cscd", "cyuv", "dds", "dfa", "dirac", "dnxhd", "dpx", "dsicinvideo",
+  "dvvideo", "dxa", "dxtory", "dxv", "eacmv", "eamad", "eatgq", "eatgv",
+  "eatqi", "eightbps", "escape124", "escape130", "exr", "ffv1", "ffvhuff",
+  "fic", "fits", "flashsv", "flashsv2", "flic", "flv", "fmvc", "fourxm",
+  "fraps", "frwu", "g2m", "gdv", "gem", "gif", "h261", "h263", "h263i",
+  "h263p", "h264", "hap", "hdr", "hevc", "hnm4_video", "hq_hqa", "hqx",
+  "huffyuv", "hymt", "idcin", "idf", "iff_ilbm", "imm4", "imm5", "indeo2",
+  "indeo3", "indeo4", "indeo5", "interplay_video", "ipu", "jpeg2000",
+  "jpegls", "jv", "kgv1", "kmvc", "lagarith", "lead", "loco", "lscr",
+  "m101", "magicyuv", "mdec", "media100", "mimic", "mjpeg", "mjpegb",
+  "mmvideo", "mobiclip", "motionpixels", "mpeg1video", "mpeg2video",
+  "mpeg4", "mpegvideo", "msa1", "mscc", "msmpeg4v1", "msmpeg4v2",
+  "msmpeg4v3", "msp2", "msrle", "mss1", "mss2", "msvideo1", "mszh", "mts2",
+  "mv30", "mvc1", "mvc2", "mvdv", "mvha", "mwsc", "mxpeg", "notchlc", "nuv",
+  "paf_video", "pam", "pbm", "pcx", "pdv", "pfm", "pgm", "pgmyuv", "pgx",
+  "phm", "photocd", "pictor", "pixlet", "png", "ppm", "prores",
+  "prores_raw", "prosumer", "psd", "ptx", "qdraw", "qoi", "qpeg", "qtrle",
+  "r10k", "r210", "rasc", "rawvideo", "rl2", "roq", "rpza", "rscc", "rtv1",
+  "rv10", "rv20", "rv30", "rv40", "rv60", "sanm", "scpr", "screenpresso",
+  "sga", "sgi", "sgirle", "sheervideo", "simbiosis_imx", "smacker", "smc",
+  "smvjpeg", "snow", "sp5x", "speedhq", "srgc", "sunrast", "svq1", "svq3",
+  "targa", "targa_y216", "tdsc", "theora", "thp", "tiertexseqvideo", "tiff",
+  "tmv", "truemotion1", "truemotion2", "truemotion2rt", "tscc", "tscc2",
+  "txd", "ulti", "utvideo", "v210", "v210x", "vb", "vble", "vbn", "vc1",
+  "vc1image", "vcr1", "vmdvideo", "vmix", "vmnc", "vp3", "vp4", "vp5",
+  "vp6", "vp6a", "vp6f", "vp7", "vp8", "vp9", "vqa", "vqc", "vvc", "wbmp",
+  "wcmv", "webp", "webp_anim", "wmv1", "wmv2", "wmv3", "wmv3image", "wnv1",
+  "xan_wc3", "xan_wc4", "xbin", "xbm", "xface", "xl", "xpm", "xwd", "y41p",
+  "ylc", "yop", "yuv4", "zero12v", "zerocodec", "zlib", "zmbv"
 ]
