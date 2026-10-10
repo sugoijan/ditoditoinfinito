@@ -250,6 +250,291 @@ pub trait VideoBackend {
     fn open(&mut self, source: Self::Source, name: &str, format: &VideoFormat) -> Self::Decoder;
 }
 
+/// Where StepMania's movie clock goes after a movie's last frame when it
+/// loops (`MovieTexture_Generic::UpdateFrame`, 5_1-new: "best effort"
+/// 0.5 s, for the gap in looping preview music): later laps skip the first
+/// half second.
+pub const LOOP_RESTART: f64 = 0.5;
+
+/// A decoded frame this far behind the clock counts as late (the decoder is
+/// not keeping up).
+pub const LATE_SECONDS: f64 = 0.5;
+
+/// When the clock jumps this far ahead between two updates (the tab was in
+/// the background, a long frame), seeking is quicker than decoding up to
+/// it. A decoder that is merely slow is not helped by seeking: its frames
+/// are shown as they come, counted late.
+pub const SEEK_GAP_SECONDS: f64 = 2.0;
+
+/// A run from a movie's start keeps its frames up to this many bytes; when
+/// it reaches the end within them, every later lap plays from memory, as
+/// StepMania loops without seeking (a seek per lap would be slower than a
+/// lap of a short movie).
+pub const LOOP_CACHE_BYTES: usize = 24 << 20;
+
+/// Counts for the debug state and the "cannot keep up" rule.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MovieStats {
+    pub decoded: u64,
+    pub shown: u64,
+    /// Decoded frames passed over without being shown (the clock was
+    /// already past them).
+    pub dropped: u64,
+    /// Frames that arrived more than [`LATE_SECONDS`] after their time.
+    pub late: u64,
+    pub seeks: u64,
+}
+
+/// Plays one movie for the game loop: keeps frames decoded ahead, picks the
+/// frame for a position on the movie's clock (the newest not after it; the
+/// first frame of a run as soon as it arrives), loops or holds the last
+/// frame at the end as StepMania does, and seeks when the clock jumps or
+/// loops. Positions are in movie seconds before looping
+/// (`ddi_library::backgrounds::movie_position`).
+pub struct MovieTrack {
+    looping: bool,
+    ahead: u32,
+    queue: std::collections::VecDeque<VideoFrame>,
+    /// Where the decoder was last sent, in movie seconds.
+    origin: f64,
+    /// Which lap that was (0 before the first loop).
+    lap: u64,
+    /// The last frame's time, once known (from this track or an earlier
+    /// one of the same movie).
+    end: Option<f64>,
+    /// No more frames until the next seek.
+    ended: bool,
+    /// A seek has gone out and nothing has come back yet: no other seek
+    /// until it does (a slow seek must not be overtaken).
+    seeking: bool,
+    /// Time of the frame shown last in this run, `None` before the first.
+    shown: Option<f64>,
+    last_decoded: Option<f64>,
+    /// Where the clock was at the previous update.
+    previous: Option<f64>,
+    /// Frames of a run from the start, while they fit [`LOOP_CACHE_BYTES`].
+    collecting: Option<(Vec<VideoFrame>, usize)>,
+    /// Every frame of the movie, once a run from the start reached the end
+    /// within the budget: laps play from here.
+    all_frames: Option<Vec<VideoFrame>>,
+    info: Option<VideoInfo>,
+    error: Option<String>,
+    pub stats: MovieStats,
+    events: Vec<VideoEvent>,
+}
+
+impl MovieTrack {
+    /// `looping`: loop at the end (else hold the last frame); `ahead`:
+    /// frames to keep decoded or asked for; `end`: the last frame's time if
+    /// an earlier track of the movie learned it.
+    pub fn new(looping: bool, ahead: u32, end: Option<f64>) -> MovieTrack {
+        MovieTrack {
+            looping,
+            ahead: ahead.max(1),
+            queue: std::collections::VecDeque::new(),
+            origin: 0.0,
+            lap: 0,
+            end: end.filter(|e| e.is_finite() && *e >= 0.0),
+            ended: false,
+            seeking: false,
+            shown: None,
+            last_decoded: None,
+            previous: None,
+            collecting: None,
+            all_frames: None,
+            info: None,
+            error: None,
+            stats: MovieStats::default(),
+            events: Vec::new(),
+        }
+    }
+
+    pub fn info(&self) -> Option<&VideoInfo> {
+        self.info.as_ref()
+    }
+
+    /// Loops at the end or holds the last frame, from now on (a later
+    /// change of the movie may stop it looping).
+    pub fn set_looping(&mut self, looping: bool) {
+        self.looping = looping;
+    }
+
+    /// The last frame's time, once known: for the next track of the movie.
+    pub fn end(&self) -> Option<f64> {
+        self.end
+    }
+
+    /// Why the movie cannot play, once the decoder said so.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    /// Where `position` (before looping) is in the file, and on which lap.
+    /// Until the end is known, the position itself.
+    pub fn local(&self, position: f64) -> (f64, u64) {
+        let position = if position.is_finite() {
+            position.max(0.0)
+        } else {
+            0.0
+        };
+        let Some(end) = self.end.filter(|&e| position >= e) else {
+            return (position, 0);
+        };
+        if !self.looping {
+            return (end, 0);
+        }
+        // A movie shorter than the restart point starts over from 0.
+        let restart = if end > LOOP_RESTART {
+            LOOP_RESTART
+        } else {
+            0.0
+        };
+        let period = (end - restart).max(1e-3);
+        let laps = ((position - end) / period).floor();
+        let local = restart + (position - end - laps * period);
+        (
+            local.clamp(restart, end),
+            (laps.min(1e15) as u64).saturating_add(1),
+        )
+    }
+
+    /// Starts a run at `position`: the decoder seeks there and decodes
+    /// ahead. For a change becoming current (or about to).
+    pub fn start(&mut self, decoder: &mut impl VideoDecoder, position: f64) {
+        let (local, lap) = self.local(position);
+        self.shown = None;
+        self.previous = None;
+        if self.all_frames.is_some() {
+            self.lap = lap;
+            return;
+        }
+        self.seek(decoder, local, lap);
+    }
+
+    fn seek(&mut self, decoder: &mut impl VideoDecoder, local: f64, lap: u64) {
+        decoder.seek(local);
+        self.origin = local;
+        self.lap = lap;
+        self.stats.dropped += self.queue.len() as u64;
+        self.queue.clear();
+        self.ended = false;
+        self.seeking = true;
+        self.last_decoded = None;
+        // A run from the start may hold the whole movie.
+        self.collecting = (local <= 1e-6).then(|| (Vec::new(), 0));
+        self.stats.seeks += 1;
+        decoder.want(self.ahead);
+    }
+
+    /// The frame to upload for `position` now, if another one is due. Keeps
+    /// the decoder fed; never returns the same frame twice in a run.
+    pub fn update(&mut self, decoder: &mut impl VideoDecoder, position: f64) -> Option<VideoFrame> {
+        decoder.poll(&mut self.events);
+        let now = self.local(position).0;
+        for event in std::mem::take(&mut self.events) {
+            match event {
+                VideoEvent::Opened(info) => self.info = Some(info),
+                VideoEvent::Frame(frame) => {
+                    self.stats.decoded += 1;
+                    if now - frame.pts > LATE_SECONDS {
+                        self.stats.late += 1;
+                    }
+                    self.seeking = false;
+                    self.last_decoded = Some(frame.pts);
+                    if let Some((frames, bytes)) = self.collecting.as_mut() {
+                        if *bytes + frame.planes.len() <= LOOP_CACHE_BYTES {
+                            *bytes += frame.planes.len();
+                            frames.push(frame.clone());
+                        } else {
+                            self.collecting = None;
+                        }
+                    }
+                    self.queue.push_back(frame);
+                }
+                VideoEvent::End { last_pts } => {
+                    self.ended = true;
+                    self.seeking = false;
+                    // The decoder reports the file's last frame even when a
+                    // seek past it decoded it without handing it over.
+                    if let Some(last) = last_pts.or(self.last_decoded).filter(|l| l.is_finite()) {
+                        self.end = Some(last);
+                    }
+                    if let Some((frames, _)) = self.collecting.take()
+                        && !frames.is_empty()
+                    {
+                        self.all_frames = Some(frames);
+                    }
+                }
+                VideoEvent::Error(e) => self.error = Some(e),
+            }
+        }
+        if self.error.is_some() {
+            return None;
+        }
+        let (local, lap) = self.local(position);
+        if let Some(frames) = &self.all_frames {
+            return self.frame_in_memory(frames.len(), local, lap);
+        }
+        if !self.seeking {
+            if lap != self.lap && self.looping {
+                // A short movie starts over from 0 so that the run keeps
+                // every frame and later laps need no seek.
+                let short = self.end.is_some_and(|e| e <= 10.0);
+                self.seek(decoder, if short { 0.0 } else { local }, lap);
+            } else {
+                let jumped = self
+                    .previous
+                    .is_some_and(|p| local - p > SEEK_GAP_SECONDS && lap == self.lap);
+                let before = local + 1e-6 < self.origin;
+                if (jumped && !self.ended) || before {
+                    self.seek(decoder, local, lap);
+                }
+            }
+        }
+        self.previous = Some(local);
+        let due = self.queue.iter().rposition(|f| f.pts <= local + 1e-9);
+        let frame = match due {
+            Some(i) => {
+                self.stats.dropped += i as u64;
+                self.queue.drain(..i);
+                self.queue.pop_front()
+            }
+            // StepMania shows a run's first frame as soon as it is decoded.
+            None if self.shown.is_none() && !self.seeking => self.queue.pop_front(),
+            None => None,
+        };
+        if let Some(f) = &frame {
+            self.shown = Some(f.pts);
+            self.stats.shown += 1;
+        }
+        let have = self.queue.len() as u32 + decoder.pending();
+        if !self.ended && have < self.ahead {
+            decoder.want(self.ahead - have);
+        }
+        frame
+    }
+
+    /// The frame due at `local` from the frames kept in memory.
+    fn frame_in_memory(&mut self, count: usize, local: f64, lap: u64) -> Option<VideoFrame> {
+        let frames = self.all_frames.as_ref()?;
+        let i = frames
+            .iter()
+            .rposition(|f| f.pts <= local + 1e-9)
+            .unwrap_or(0)
+            .min(count - 1);
+        let pts = frames[i].pts;
+        self.lap = lap;
+        // The same picture again (a one-frame movie, or one lap ending on
+        // the frame the next starts with) needs no upload.
+        if self.shown == Some(pts) {
+            return None;
+        }
+        self.shown = Some(pts);
+        self.stats.shown += 1;
+        Some(frames[i].clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,6 +621,278 @@ mod tests {
         let json = serde_json::to_string(&other).unwrap();
         assert_eq!(json, r#"{"container":"mpegps","codec":{"other":"wmv3"}}"#);
         assert_eq!(serde_json::from_str::<VideoFormat>(&json).unwrap(), other);
+    }
+
+    /// A movie of `frames` frames at 30 fps, stamped `lag` frames late as
+    /// the module stamps B-frame streams; frames come back `delay` polls
+    /// after they are asked for.
+    struct FakeDecoder {
+        frames: usize,
+        lag: usize,
+        delay: usize,
+        plane_len: usize,
+        next: usize,
+        asked: u32,
+        in_flight: Vec<(usize, usize)>,
+        ended: bool,
+        seeks: Vec<f64>,
+        events: Vec<VideoEvent>,
+    }
+
+    impl FakeDecoder {
+        fn new(frames: usize, lag: usize, delay: usize) -> FakeDecoder {
+            FakeDecoder {
+                frames,
+                lag,
+                delay,
+                plane_len: 6,
+                next: 0,
+                asked: 0,
+                in_flight: Vec::new(),
+                ended: false,
+                seeks: Vec::new(),
+                events: Vec::new(),
+            }
+        }
+
+        fn pts(&self, i: usize) -> f64 {
+            (i + self.lag) as f64 / 30.0
+        }
+    }
+
+    impl VideoDecoder for FakeDecoder {
+        fn seek(&mut self, t: f64) {
+            self.seeks.push(t);
+            self.in_flight.clear();
+            self.asked = 0;
+            self.ended = false;
+            // The frame showing at `t`; past the last frame's period, the end
+            // (the shim decodes up to it and reports its time at the end).
+            self.next = if t >= self.pts(self.frames - 1) + 1.0 / 30.0 {
+                self.frames
+            } else {
+                (0..self.frames)
+                    .rev()
+                    .find(|&i| self.pts(i) <= t + 1e-9)
+                    .unwrap_or(0)
+            };
+        }
+
+        fn want(&mut self, n: u32) {
+            self.asked += n;
+        }
+
+        fn pending(&self) -> u32 {
+            self.asked
+        }
+
+        fn poll(&mut self, out: &mut Vec<VideoEvent>) {
+            out.append(&mut self.events);
+            let mut end = None;
+            while self.asked > 0 && !self.ended {
+                if self.next >= self.frames {
+                    self.ended = true;
+                    self.asked = 0;
+                    end = Some(VideoEvent::End {
+                        last_pts: Some(self.pts(self.frames - 1)),
+                    });
+                    break;
+                }
+                self.in_flight.push((self.next, self.delay));
+                self.next += 1;
+                self.asked -= 1;
+            }
+            let mut ready = Vec::new();
+            self.in_flight.retain_mut(|(i, wait)| {
+                if *wait == 0 {
+                    ready.push(*i);
+                    false
+                } else {
+                    *wait -= 1;
+                    true
+                }
+            });
+            let ready_frames = ready;
+            for i in ready_frames {
+                out.push(VideoEvent::Frame(VideoFrame {
+                    pts: self.pts(i),
+                    width: 2,
+                    height: 2,
+                    matrix: YuvMatrix::Bt601,
+                    full_range: false,
+                    planes: vec![i as u8; self.plane_len],
+                    decode_ms: 0.0,
+                }));
+            }
+            // As the worker posts them: the end after the frames before it,
+            // once nothing is still on its way.
+            if let Some(end) = end {
+                if self.in_flight.is_empty() {
+                    out.push(end);
+                } else {
+                    self.events.push(end);
+                }
+            }
+        }
+    }
+
+    /// The frame numbers shown at each of `positions`, `None` where no new
+    /// frame was due.
+    fn play(track: &mut MovieTrack, d: &mut FakeDecoder, positions: &[f64]) -> Vec<Option<u8>> {
+        positions
+            .iter()
+            .map(|&p| track.update(d, p).map(|f| f.planes[0]))
+            .collect()
+    }
+
+    fn display_frames(from: f64, to: f64) -> Vec<f64> {
+        let n = ((to - from) * 60.0).round() as usize;
+        (0..=n).map(|i| from + i as f64 / 60.0).collect()
+    }
+
+    #[test]
+    fn a_track_shows_the_newest_frame_due_and_the_first_at_once() {
+        let mut d = FakeDecoder::new(60, 2, 0);
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut d, 0.0);
+        let shown = play(&mut track, &mut d, &display_frames(0.0, 0.5));
+        // Frame 0 at once, though stamped at 2/30 s; then each frame from
+        // its time on, every other 60 Hz display frame.
+        assert_eq!(shown[0], Some(0));
+        assert_eq!(shown[1..4], [None, None, None]);
+        // At 4/60 = 2/30 s frame 0 is due, but it was shown: frame 1 waits
+        // for 3/30 s (6/60).
+        assert_eq!(shown[6], Some(1));
+        assert_eq!(shown[8], Some(2));
+        assert_eq!(shown[30], Some(13));
+        assert_eq!(track.stats.dropped, 0);
+        assert_eq!(track.stats.late, 0);
+        assert!(d.pending() + track.queue.len() as u32 <= 3);
+    }
+
+    #[test]
+    fn a_track_loops_like_stepmania_and_holds_without_looping() {
+        // 30 frames, the last at 29/30 s.
+        let mut d = FakeDecoder::new(30, 0, 0);
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut d, 0.0);
+        play(&mut track, &mut d, &display_frames(0.0, 0.95));
+        // Past the end: the clock goes on from 0.5 s.
+        let end = 29.0 / 30.0;
+        assert_eq!(track.local(end + 0.1).0, LOOP_RESTART + 0.1);
+        assert_eq!(track.local(end + 0.1).1, 1);
+        // A short movie decoded from its start loops from memory: the frame
+        // showing at 0.6 s (18/30) at once, with no seek.
+        let shown = play(&mut track, &mut d, &[end + 0.1]);
+        assert_eq!(d.seeks, vec![0.0]);
+        assert_eq!(shown, vec![Some(18)]);
+        // A second lap: the period is end - 0.5.
+        assert_eq!(track.local(end + (end - 0.5) + 0.05).1, 2);
+
+        let mut d = FakeDecoder::new(30, 0, 0);
+        let mut held = MovieTrack::new(false, 3, None);
+        held.start(&mut d, 0.0);
+        play(&mut held, &mut d, &display_frames(0.0, 1.0));
+        let after = play(&mut held, &mut d, &display_frames(1.0, 2.0));
+        assert!(after.iter().all(Option::is_none), "the last frame stays");
+        assert_eq!(held.local(5.0), (end, 0));
+        assert_eq!(d.seeks.len(), 1);
+    }
+
+    #[test]
+    fn a_track_seeks_on_jumps_and_counts_late_frames() {
+        let mut d = FakeDecoder::new(600, 0, 0);
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut d, 0.0);
+        play(&mut track, &mut d, &[0.0, 0.1]);
+        // Ten seconds on: seek rather than decode through.
+        let shown = play(&mut track, &mut d, &[10.0, 10.0]);
+        assert_eq!(d.seeks.last().copied(), Some(10.0));
+        assert_eq!(shown, vec![None, Some(44)]); // frame 300 = 300 mod 256
+        // A decoder that answers late: frames arrive behind the clock.
+        let mut slow = FakeDecoder::new(600, 0, 40);
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut slow, 0.0);
+        play(&mut track, &mut slow, &display_frames(0.0, 1.5));
+        assert!(track.stats.late > 0);
+        assert!(track.stats.dropped > 0);
+    }
+
+    #[test]
+    fn a_track_loops_a_big_movie_by_seeking_and_a_tiny_one_from_memory() {
+        // 2 s of 1 MB frames: more than the cache holds.
+        let mut d = FakeDecoder::new(60, 0, 0);
+        d.plane_len = 1 << 20;
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut d, 0.0);
+        let first = play(&mut track, &mut d, &display_frames(0.0, 2.0));
+        assert!(first.iter().flatten().count() > 50);
+        // Past the end: a seek back to 0 (a short movie), then frames again.
+        let later = play(&mut track, &mut d, &display_frames(2.1, 3.0));
+        assert!(d.seeks.len() >= 2 && d.seeks[1] == 0.0, "{:?}", d.seeks);
+        assert!(later.iter().flatten().count() > 20);
+        // A one-frame movie: shown once, then nothing to seek for.
+        let mut one = FakeDecoder::new(1, 0, 0);
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut one, 0.0);
+        let shown = play(&mut track, &mut one, &display_frames(0.0, 3.0));
+        assert_eq!(shown.iter().flatten().collect::<Vec<_>>(), vec![&0]);
+        assert_eq!(one.seeks.len(), 1);
+    }
+
+    #[test]
+    fn a_track_resumed_past_the_end_wraps_instead_of_stalling() {
+        // A 5 s movie (150 frames, the last at 149/30 s) resumed at 12 s.
+        let end = 149.0 / 30.0;
+        // Without knowing its end: the seek finds the end, then it wraps.
+        let mut d = FakeDecoder::new(150, 0, 0);
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut d, 12.0);
+        let shown = play(&mut track, &mut d, &display_frames(12.0, 13.0));
+        assert_eq!(track.end(), Some(end));
+        assert!(shown.iter().flatten().count() > 20, "{shown:?}");
+        // Knowing it (an earlier track learned it): straight to the frame.
+        let mut d = FakeDecoder::new(150, 0, 0);
+        let mut track = MovieTrack::new(true, 3, Some(end));
+        track.start(&mut d, 12.0);
+        let (local, _) = track.local(12.0);
+        assert_eq!(d.seeks, vec![local]);
+        let shown = play(&mut track, &mut d, &[12.0, 12.0]);
+        assert_eq!(shown[0], Some((local * 30.0 + 1e-9).floor() as u8));
+    }
+
+    #[test]
+    fn a_slow_seek_is_not_overtaken() {
+        // Each answer takes 150 polls (2.5 s at 60 Hz), longer than the
+        // seek gap: it must not seek again before the first one answers.
+        let mut d = FakeDecoder::new(1200, 0, 150);
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut d, 0.0);
+        let shown = play(&mut track, &mut d, &display_frames(0.0, 10.0));
+        assert!(shown.iter().flatten().count() > 0);
+        assert!(d.seeks.len() <= 4, "{} seeks", d.seeks.len());
+    }
+
+    #[test]
+    fn absurd_positions_do_not_panic() {
+        let mut track = MovieTrack::new(true, 3, Some(2.0));
+        for p in [1e300, f64::INFINITY, f64::NAN, -5.0] {
+            let (local, _) = track.local(p);
+            assert!(local.is_finite() && (0.0..=2.0).contains(&local));
+        }
+        let mut d = FakeDecoder::new(60, 0, 0);
+        track.start(&mut d, f64::INFINITY);
+        play(&mut track, &mut d, &[1e300, f64::NAN]);
+    }
+
+    #[test]
+    fn a_track_reports_decoder_errors() {
+        let mut d = FakeDecoder::new(30, 0, 0);
+        d.events.push(VideoEvent::Error("broken".into()));
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut d, 0.0);
+        assert_eq!(track.update(&mut d, 0.0), None);
+        assert_eq!(track.error(), Some("broken"));
     }
 
     #[test]

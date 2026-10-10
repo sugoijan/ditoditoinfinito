@@ -30,7 +30,19 @@
 //!   `CrossFade_Faster` 0.75 s, `CrossFade_Fastest` 0.5 s; StepMania's other
 //!   transitions (wipes and slides, 1 s each) become 1 s fades, and an
 //!   unknown name is a cut (StepMania reports it and switches at once).
-//! - A change to what is already shown is ignored.
+//! - A change to what is already shown is ignored, unless it is a movie
+//!   that the change restarts or plays at another rate (StepMania then
+//!   skips the transition but runs the effect's `On` command again).
+//! - Movies play as StepMania's background effects play them
+//!   (`BackgroundEffects/Stretch*.lua`, picked by `LoadFromBGChangesVector`):
+//!   field 3 is the rate; field 5 = 0 (no loop) restarts the movie at each
+//!   change and holds its last frame at the end, field 6 = 1 (rewind)
+//!   restarts it at each change; otherwise the movie resumes where it was
+//!   when it last lost focus, and loops ([`movie_position`]). Field 7
+//!   names the effect directly. Every change naming a file shares one movie
+//!   texture (`RageTextureManager`), so a restart resets it for the later
+//!   changes too, and once a change stops it looping it stays that way
+//!   ([`movie_loops`]).
 //!
 //! Deviation: StepMania splits the tag by matching the song folder's file
 //! names first, so a name may contain `,` or `=`; the chart importer splits
@@ -60,6 +72,47 @@ pub struct BgSegment {
     pub image: BgImage,
     /// Crossfade from the previous segment, seconds (0 = cut).
     pub fade: f64,
+    /// A movie's playback rate (field 3; 1 for images).
+    pub rate: f64,
+    pub effect: MovieEffect,
+}
+
+/// How a movie plays, after StepMania's background effects.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MovieEffect {
+    /// `StretchNormal`: resumes where it was when it last lost focus; loops.
+    #[default]
+    Normal,
+    /// `StretchRewind`: starts over at each change; loops.
+    Rewind,
+    /// `StretchNoLoop`: starts over at each change; holds its last frame.
+    NoLoop,
+}
+
+impl MovieEffect {
+    /// Whether the movie starts again at the beginning at each change.
+    pub fn restarts(self) -> bool {
+        self != MovieEffect::Normal
+    }
+
+    /// Whether the movie loops at its end (else its last frame stays).
+    pub fn loops(self) -> bool {
+        self != MovieEffect::NoLoop
+    }
+
+    /// The effect of a change's fields, as `SMLoader::LoadFromBGChangesVector`
+    /// picks it: field 7 when given; else field 5 = 0 is `StretchNoLoop`;
+    /// else field 6 ≠ 0 is `StretchRewind`.
+    fn of(fields: &[String]) -> MovieEffect {
+        match fields.get(6).map(|e| e.trim()).filter(|e| !e.is_empty()) {
+            Some(e) if e.eq_ignore_ascii_case("StretchNoLoop") => MovieEffect::NoLoop,
+            Some(e) if e.eq_ignore_ascii_case("StretchRewind") => MovieEffect::Rewind,
+            Some(_) => MovieEffect::Normal,
+            None if fields.get(5).is_some_and(|l| leading_int(l) == 0) => MovieEffect::NoLoop,
+            None if fields.get(4).is_some_and(|r| leading_int(r) != 0) => MovieEffect::Rewind,
+            None => MovieEffect::Normal,
+        }
+    }
 }
 
 /// Which segments to draw at one moment: `current` faded in over `previous`
@@ -109,6 +162,37 @@ fn is_media(path: &str) -> bool {
 /// `.`/`..` resolved, `/` separators, lower case.
 fn key(reference: &str) -> Option<String> {
     join_relative("song", reference).map(|p| p.to_lowercase())
+}
+
+/// StepMania's `StringToFloat` (`strtof`): the leading decimal number, with
+/// an exponent, 0 if none (hexadecimal floats are left out).
+fn leading_float(s: &str) -> f64 {
+    let s = s.trim();
+    let b = s.as_bytes();
+    let mut i = usize::from(matches!(b.first(), Some(b'+' | b'-')));
+    let digits = |i: &mut usize| {
+        let from = *i;
+        while b.get(*i).is_some_and(u8::is_ascii_digit) {
+            *i += 1;
+        }
+        *i - from
+    };
+    let mut count = digits(&mut i);
+    if b.get(i) == Some(&b'.') {
+        i += 1;
+        count += digits(&mut i);
+    }
+    if count == 0 {
+        return 0.0;
+    }
+    // An exponent only when digits follow it.
+    if matches!(b.get(i), Some(b'e' | b'E')) {
+        let mut j = i + 1 + usize::from(matches!(b.get(i + 1), Some(b'+' | b'-')));
+        if digits(&mut j) > 0 {
+            i = j;
+        }
+    }
+    s[..i].parse().unwrap_or(0.0)
 }
 
 /// StepMania's `StringToInt` (`atoi`): the leading integer, 0 if none.
@@ -412,10 +496,12 @@ pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
         seconds: f64::NEG_INFINITY,
         image: BgImage::Song,
         fade: 0.0,
+        rate: 1.0,
+        effect: MovieEffect::Normal,
     }];
     for (tick, change) in changes {
-        let (image, fade) = match change {
-            Change::SongBackground => (BgImage::Song, 0.0),
+        let (image, fade, rate, effect) = match change {
+            Change::SongBackground => (BgImage::Song, 0.0, 1.0, MovieEffect::Normal),
             Change::Fields(f) => {
                 let wanted = key(f[1].trim());
                 let matching = |i: &&str| key(i) == wanted;
@@ -436,7 +522,25 @@ pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
                     None if f.get(3).is_some_and(|s| leading_int(s) != 0) => 1.0,
                     None => 0.0,
                 };
-                (image, fade)
+                // Only movies have a rate and an effect that matter. Below 0
+                // StepMania stops on an assertion (`Actor::Update` with a
+                // negative delta); here the movie stays still. Above 1000 it
+                // is held at 1000, so the clock stays finite.
+                let (rate, effect) = match image {
+                    BgImage::Movie(_) => (
+                        f.get(2).map_or(1.0, |r| {
+                            let r = leading_float(r);
+                            if r.is_finite() {
+                                r.clamp(0.0, 1000.0)
+                            } else {
+                                0.0
+                            }
+                        }),
+                        MovieEffect::of(f),
+                    ),
+                    _ => (1.0, MovieEffect::Normal),
+                };
+                (image, fade, rate, effect)
             }
         };
         // The song reaches the beat at the start of a delay on it.
@@ -445,16 +549,72 @@ pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
         if segments.len() > 1 && segments.last().is_some_and(|s| s.seconds == seconds) {
             segments.pop();
         }
-        if segments.last().is_some_and(|s| s.image == image) {
+        let same = segments.last().is_some_and(|s| {
+            s.image == image
+                && !(matches!(image, BgImage::Movie(_)) && (effect.restarts() || s.rate != rate))
+        });
+        if same {
             continue;
         }
+        // To the same thing (a movie started over): no transition.
+        let fade = if segments.last().is_some_and(|s| s.image == image) {
+            0.0
+        } else {
+            fade
+        };
         segments.push(BgSegment {
             seconds,
             image,
             fade,
+            rate,
+            effect,
         });
     }
     segments
+}
+
+/// Where in its movie segment `index` is at song second `t`, in movie
+/// seconds before looping: the time the movie's file has played since it
+/// last started over (the earlier segments naming it, each for as long as
+/// it was current, at its rate; a restarting one starts the count again)
+/// plus the time into this segment at its rate. 0 before the segment
+/// starts; for a segment that is not a movie, 0.
+pub fn movie_position(segments: &[BgSegment], index: usize, t: f64) -> f64 {
+    let Some(seg) = segments.get(index) else {
+        return 0.0;
+    };
+    if !matches!(seg.image, BgImage::Movie(_)) {
+        return 0.0;
+    }
+    let mut played = 0.0;
+    for (j, s) in segments[..=index].iter().enumerate() {
+        if s.image != seg.image {
+            continue;
+        }
+        if s.effect.restarts() {
+            played = 0.0;
+        }
+        if j < index {
+            // Current until the next segment starts (a crossfade pauses the
+            // movie that fades out).
+            let end = segments.get(j + 1).map_or(s.seconds, |n| n.seconds);
+            played += (end - s.seconds).max(0.0) * s.rate;
+        }
+    }
+    let position = played + (t - seg.seconds).max(0.0) * seg.rate;
+    if position.is_finite() { position } else { 0.0 }
+}
+
+/// Whether the movie of segment `index` loops at its end: not once a change
+/// naming its file (this one or an earlier one) stopped it looping, as the
+/// texture they share keeps `loop(false)`.
+pub fn movie_loops(segments: &[BgSegment], index: usize) -> bool {
+    let Some(seg) = segments.get(index) else {
+        return true;
+    };
+    !segments[..=index]
+        .iter()
+        .any(|s| s.image == seg.image && !s.effect.loops())
 }
 
 /// What `segments` show at song second `t`.
@@ -823,6 +983,97 @@ mod tests {
         assert_eq!(shown(&seg, 4.5, &loaded).current, Some(0));
         let playing = [(BgImage::Song, 0), (BgImage::Movie("movie.avi".into()), 7)];
         assert_eq!(shown(&seg, 5.5, &playing).current, Some(7));
+    }
+
+    #[test]
+    fn movies_resume_restart_and_change_rate_like_stepmania() {
+        // 120 BPM: beat b at b/2 s. intro.avi (normal) at 4, image at 8,
+        // intro.avi again at 12 (resumes), at 16 at half rate (a new
+        // segment, no fade), loop.avi rewinding at 20 and again at 24 (each
+        // starts over), end.avi without looping at 28.
+        let s = song(
+            "#BGCHANGES:4=intro.avi=1.000=1=0=1,8=a.png=1=0=0=0,12=intro.avi=1=0=0=1,\
+             16=intro.avi=0.5=0=0=1,20=loop.avi=1=0=1=1,24=loop.avi=1=0=1=1,\
+             28=end.avi=2=0=0=0,30=end.avi==0=0=0;",
+        );
+        let movies = ["intro.avi", "loop.avi", "end.avi"];
+        let seg = schedule(&s, &["A.png"], &movies, true);
+        let kinds: Vec<(f64, BgImage, f64, f64, MovieEffect)> = seg
+            .iter()
+            .map(|s| (s.seconds, s.image.clone(), s.fade, s.rate, s.effect))
+            .collect();
+        let movie = |n: &str| BgImage::Movie(n.into());
+        use MovieEffect::*;
+        assert_eq!(
+            kinds,
+            vec![
+                (f64::NEG_INFINITY, BgImage::Song, 0.0, 1.0, Normal),
+                (2.0, movie("intro.avi"), 1.0, 1.0, Normal),
+                (4.0, BgImage::File("A.png".into()), 0.0, 1.0, Normal),
+                (6.0, movie("intro.avi"), 0.0, 1.0, Normal),
+                // Same movie, another rate: kept, without a transition.
+                (8.0, movie("intro.avi"), 0.0, 0.5, Normal),
+                (10.0, movie("loop.avi"), 0.0, 1.0, Rewind),
+                // Same movie restarting: kept.
+                (12.0, movie("loop.avi"), 0.0, 1.0, Rewind),
+                (14.0, movie("end.avi"), 0.0, 2.0, NoLoop),
+                // An empty rate is StringToFloat's 0: a frozen movie.
+                (15.0, movie("end.avi"), 0.0, 0.0, NoLoop),
+                // Back to the song background at the last beat (32).
+                (16.0, BgImage::Song, 0.0, 1.0, Normal),
+            ]
+        );
+        let at = |i: usize, t: f64| movie_position(&seg, i, t);
+        // The first segment from 0; before it starts, 0.
+        assert_eq!(at(1, 1.0), 0.0);
+        assert_eq!(at(1, 3.0), 1.0);
+        // Resumes after the 2 s it played (2..4), whatever came between.
+        assert_eq!(at(3, 6.0), 2.0);
+        assert!(movie_loops(&seg, 3));
+        assert!(!movie_loops(&seg, 8), "end.avi does not loop");
+        assert_eq!(at(3, 7.5), 3.5);
+        // Then 2 more (6..8), and on at half rate.
+        assert_eq!(at(4, 9.0), 4.5);
+        // Rewinding: from 0 at each change.
+        assert_eq!(at(5, 11.0), 1.0);
+        assert_eq!(at(6, 13.0), 1.0);
+        // No loop: from 0, at double rate; then frozen at 0.
+        assert_eq!(at(7, 14.5), 1.0);
+        assert_eq!(at(8, 15.5), 0.0);
+        // Not a movie.
+        assert_eq!(at(2, 5.0), 0.0);
+        assert_eq!(at(99, 5.0), 0.0);
+    }
+
+    #[test]
+    fn one_file_shares_its_clock_across_effects() {
+        // StepMania's shared texture: bg.avi plays 0..4 s (normal), a
+        // rewinding change at 8 s starts it over (plays 8..10), and the
+        // normal change at 16 s resumes from there, at 2 s.
+        let s = song(
+            "#BGCHANGES:0=bg.avi=1=0=0=1,8=a.png=1=0=0=0,16=bg.avi=1=0=1=1,\
+             20=a.png=1=0=0=0,32=bg.avi=1=0=0=1,40=other.avi=1=0=0=0,44=bg.avi=1=0=0=1;",
+        );
+        let seg = schedule(&s, &["A.png"], &["bg.avi", "other.avi"], true);
+        let index = |t: f64| seg.iter().rposition(|s| s.seconds <= t).unwrap();
+        assert_eq!(movie_position(&seg, index(16.0), 16.0), 2.0);
+        // other.avi stops looping; bg.avi keeps looping (another file).
+        assert!(!movie_loops(&seg, index(20.5)));
+        assert!(movie_loops(&seg, index(22.5)));
+    }
+
+    #[test]
+    fn leading_float_reads_like_strtof() {
+        assert_eq!(leading_float("1.000"), 1.0);
+        assert_eq!(leading_float(" 0.5x"), 0.5);
+        assert_eq!(leading_float("-2"), -2.0);
+        assert_eq!(leading_float(""), 0.0);
+        assert_eq!(leading_float("."), 0.0);
+        assert_eq!(leading_float("1.2.3"), 1.2);
+        assert_eq!(leading_float("1e2"), 100.0);
+        assert_eq!(leading_float("2.5E-1x"), 0.25);
+        assert_eq!(leading_float("3e"), 3.0);
+        assert_eq!(leading_float("1e400"), f64::INFINITY);
     }
 
     #[test]

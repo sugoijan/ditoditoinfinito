@@ -106,6 +106,8 @@ pub(crate) enum Msg {
     /// A background image decoded: the song's background or a background
     /// change's (`None`: no such image, or it failed to load).
     BackgroundLoaded(BgImage, Option<web_sys::ImageBitmap>),
+    /// A background movie's file, for the game loop to play.
+    MovieLoaded(String, web_sys::Blob, ddi_platform::video::VideoFormat),
 }
 
 #[derive(Properties, PartialEq)]
@@ -154,6 +156,8 @@ pub(crate) struct GameCanvas {
     /// Decoded background images until they are copied to the GPU (which
     /// waits for the renderer, and never happens mid-play).
     backgrounds: Vec<(BgImage, web_sys::ImageBitmap)>,
+    /// Movie files loaded before the game loop was there.
+    movies: Vec<(String, web_sys::Blob, ddi_platform::video::VideoFormat)>,
     _keys: Option<EventListener>,
 }
 
@@ -259,6 +263,7 @@ impl Component for GameCanvas {
             pad_start_ctx: None,
             touch: coarse_pointer(),
             backgrounds: Vec::new(),
+            movies: Vec::new(),
             _keys: keys,
         }
     }
@@ -326,6 +331,11 @@ impl Component for GameCanvas {
                     self.backgrounds.push((what, image));
                     self.apply_background();
                 }
+                false
+            }
+            Msg::MovieLoaded(name, blob, format) => {
+                self.movies.push((name, blob, format));
+                self.apply_background();
                 false
             }
             Msg::SongLoaded(Err(LoadError::NeedsAccess { handle, name })) => {
@@ -801,6 +811,9 @@ impl GameCanvas {
             for (what, image) in self.backgrounds.drain(..) {
                 game.add_background(what, image);
             }
+            for (name, blob, format) in self.movies.drain(..) {
+                game.add_movie(name, blob, format);
+            }
         }
     }
 
@@ -1274,6 +1287,42 @@ fn load(ctx: &Context<GameCanvas>, id: String) {
                             }
                         };
                         Msg::BackgroundLoaded(what, bitmap)
+                    });
+                }
+                // Movies: their files (stored, linked or in a shared
+                // folder), opened by the game loop as their changes come.
+                // Shared ones were not sniffed; the decoder probes them.
+                let shared_videos = Rc::new(loaded.shared_videos.clone());
+                let unknown = ddi_platform::video::VideoFormat {
+                    container: ddi_platform::video::VideoContainer::Unknown,
+                    codec: ddi_platform::video::VideoCodec::Unknown,
+                };
+                let movies: Vec<_> = loaded
+                    .entry
+                    .bg_videos
+                    .iter()
+                    .filter(|v| v.plays())
+                    .map(|v| (v.name.clone(), v.format.clone()))
+                    .chain(
+                        loaded
+                            .shared_videos
+                            .iter()
+                            .map(|(name, _)| (name.clone(), unknown.clone())),
+                    )
+                    .collect();
+                for (name, format) in movies {
+                    let entry = loaded.entry.clone();
+                    let shared = shared_videos.clone();
+                    link.send_future_batch(async move {
+                        let what = BgImage::Movie(name.clone());
+                        match load_background(&entry, &what, &shared).await {
+                            Ok(Some(blob)) => vec![Msg::MovieLoaded(name, blob, format)],
+                            Ok(None) => Vec::new(),
+                            Err(e) => {
+                                web_sys::console::warn_1(&e.into());
+                                Vec::new()
+                            }
+                        }
                     });
                 }
             }

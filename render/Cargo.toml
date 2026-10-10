@@ -14,3 +14,6 @@ ddi-engine.workspace = true
 wgpu = { workspace = true, features = ["wgsl"] }
 glyphon.workspace = true
 bytemuck.workspace = true
+
+[dev-dependencies]
+ddi-platform.workspace = true

@@ -8,6 +8,7 @@ mod import;
 mod lyrics;
 mod menu;
 mod mods;
+mod movies;
 mod play;
 mod preview;
 mod router;

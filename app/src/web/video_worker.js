@@ -366,7 +366,10 @@ function want({ id, n, gen }) {
     const ms = performance.now() - start;
     if (pts === -1) {
       video.ended = true;
-      post({ type: "eof", id, gen: video.gen, last: video.last >= 0 ? video.last : null });
+      // The last frame of the file, even when a seek past the end decoded
+      // it without handing it over.
+      const last = Math.max(video.last, exports.ddi_last_time(video.ptr));
+      post({ type: "eof", id, gen: video.gen, last: last >= 0 ? last : null });
       return;
     }
     if (pts < 0) {

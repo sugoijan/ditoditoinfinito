@@ -49,6 +49,13 @@ pub(crate) struct GameLoop {
     background_schedule: Vec<BgSegment>,
     /// The chart's lyrics, if it has any and they are shown.
     lyrics: Option<LyricsView>,
+    /// The song's background movies.
+    movies: crate::movies::MovieDeck,
+    /// Image and movie textures for the backdrop, rebuilt when either
+    /// changes (`(images, movie version)`).
+    shown_cache: (Vec<(BgImage, usize)>, (usize, u64)),
+    /// The movies were stopped at the end of the song.
+    movies_stopped: bool,
 }
 
 /// Frames per second over the last second, from rAF timestamps.
@@ -170,6 +177,9 @@ impl GameLoop {
             playing_at: None,
             background_schedule: Vec::new(),
             lyrics: None,
+            movies: crate::movies::MovieDeck::default(),
+            shown_cache: (Vec::new(), (0, u64::MAX)),
+            movies_stopped: false,
         }
     }
 
@@ -275,14 +285,39 @@ impl GameLoop {
         self.uploaded_images.push(image);
     }
 
+    /// A background movie of the song (a stored or linked file), played
+    /// when its changes come.
+    pub(crate) fn add_movie(
+        &mut self,
+        name: String,
+        blob: web_sys::Blob,
+        format: ddi_platform::video::VideoFormat,
+    ) {
+        self.movies.add_source(name, blob, format);
+    }
+
     /// The background changes of the song about to play (empty: none).
     pub(crate) fn set_background_schedule(&mut self, schedule: Vec<BgSegment>) {
         self.background_schedule = schedule;
     }
 
-    /// What to show behind the field at song second `t`.
-    fn backdrop(&self, t: f64) -> Backdrop {
-        let shown = backgrounds::shown(&self.background_schedule, t, &self.background_ids);
+    /// What to show behind the field at song second `t` (fields passed
+    /// one by one, so a session can stay borrowed).
+    fn backdrop(
+        cache: &mut (Vec<(BgImage, usize)>, (usize, u64)),
+        images: &[(BgImage, usize)],
+        movies: &crate::movies::MovieDeck,
+        schedule: &[BgSegment],
+        t: f64,
+    ) -> Backdrop {
+        let key = (images.len(), movies.version());
+        if cache.1 != key {
+            *cache = (
+                images.iter().cloned().chain(movies.shown_ids()).collect(),
+                key,
+            );
+        }
+        let shown = backgrounds::shown(schedule, t, &cache.0);
         Backdrop {
             current: shown.current,
             previous: shown.previous,
@@ -298,6 +333,7 @@ impl GameLoop {
     pub(crate) fn clear_session(&mut self) {
         self.session = None;
         self.lyrics = None;
+        self.movies.stop();
     }
 
     /// Element that receives the debug text, or `None` to disable.
@@ -363,8 +399,40 @@ impl GameLoop {
         match self.session.as_ref() {
             Some(session) => {
                 let frame = session.player.frame(session.predicted_present(host_now));
+                // The song time of each drawn frame, for tests that read
+                // the screen (the debug state is refreshed every 10 frames).
+                if let Some(window) = web_sys::window() {
+                    let _ = js_sys::Reflect::set(
+                        &window,
+                        &"__DDI_SONG_TIME".into(),
+                        &frame.song_time.into(),
+                    );
+                }
+                // Movies follow the song time the notes are drawn at, until
+                // the song is over (the results show the last frame).
+                if session.player.finished() {
+                    if !self.movies_stopped {
+                        self.movies.stop();
+                        self.movies_stopped = true;
+                    }
+                } else {
+                    self.movies_stopped = false;
+                    self.movies.update(
+                        &self.background_schedule,
+                        frame.song_time,
+                        &mut self.renderer,
+                        &self.gfx.device,
+                        &self.gfx.queue,
+                    );
+                }
                 let mut render = session.render;
-                render.backdrop = self.backdrop(frame.song_time);
+                render.backdrop = Self::backdrop(
+                    &mut self.shown_cache,
+                    &self.background_ids,
+                    &self.movies,
+                    &self.background_schedule,
+                    frame.song_time,
+                );
                 self.playing_at = (session.player.started() && !session.player.finished())
                     .then_some(frame.song_time);
                 if let Some(lyrics) = self.lyrics.as_mut() {
@@ -438,6 +506,7 @@ impl GameLoop {
             let _ = js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(k), &v);
         };
         set("frames", (self.frames as f64).into());
+        set("video", self.movies.debug().into());
         set("backend", self.backend_name().into());
         set("srgb_view", self.gfx.view_format().is_srgb().into());
         set("fps", self.fps.fps.into());

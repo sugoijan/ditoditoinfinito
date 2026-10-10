@@ -358,6 +358,7 @@ dependencies = [
  "bytemuck",
  "ddi-chart",
  "ddi-engine",
+ "ddi-platform",
  "glyphon",
  "wgpu",
 ]
