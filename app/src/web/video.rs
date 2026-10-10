@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use ddi_platform::video::{
-    VideoBackend, VideoCodec, VideoDecoder, VideoEvent, VideoFrame, VideoInfo, YuvMatrix,
+    VideoBackend, VideoDecoder, VideoEvent, VideoFormat, VideoFrame, VideoInfo, YuvMatrix,
 };
 use js_sys::{ArrayBuffer, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -130,7 +130,7 @@ impl VideoBackend for VideoWorker {
     type Source = Blob;
     type Decoder = WorkerVideo;
 
-    fn open(&mut self, source: Blob, name: &str, _codec: &VideoCodec) -> WorkerVideo {
+    fn open(&mut self, source: Blob, name: &str, _format: &VideoFormat) -> WorkerVideo {
         let id = self.0.next_id.get();
         self.0.next_id.set(id + 1);
         self.0.shared.borrow_mut().movies.insert(

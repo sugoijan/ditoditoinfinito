@@ -10,7 +10,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use ddi_platform::video::{
-    VideoBackend, VideoCodec, VideoDecoder, VideoEvent, VideoFrame, YuvMatrix,
+    VideoBackend, VideoCodec, VideoContainer, VideoDecoder, VideoEvent, VideoFormat, VideoFrame,
+    YuvMatrix,
 };
 use gloo::timers::callback::Interval;
 use gloo::timers::future::TimeoutFuture;
@@ -467,7 +468,13 @@ async fn check_file(
         ..FileCheck::default()
     };
     report(&check);
-    let mut video = worker.open(blob, &name, &VideoCodec::Other(String::new()));
+    // The worker probes the file itself; what the import would sniff does
+    // not matter to it.
+    let unknown = VideoFormat {
+        container: VideoContainer::Unknown,
+        codec: VideoCodec::Unknown,
+    };
+    let mut video = worker.open(blob, &name, &unknown);
     let mut events = Vec::new();
     // Straight through: every frame's time and fingerprint.
     let mut frames: Vec<(f64, u64)> = Vec::new();

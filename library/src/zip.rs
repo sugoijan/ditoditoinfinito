@@ -511,6 +511,24 @@ pub fn inflate(compressed: &[u8], expected_len: u64) -> Result<Vec<u8>, ZipError
         .map_err(|e| ZipError::Inflate(e.to_string()))
 }
 
+/// The first `max_out` bytes a raw deflate stream inflates to, from the
+/// start of the stream: for sniffing a large entry without inflating it
+/// whole. `compressed` may be cut off, but must hold enough of the stream
+/// to produce `max_out` bytes: when the input runs out first, what was
+/// inflated is not reliable (miniz_oxide's partial output can go wrong
+/// before its end), so the result is empty. Shorter when the whole stream
+/// is shorter; empty when it is corrupt.
+pub fn inflate_prefix(compressed: &[u8], max_out: usize) -> Vec<u8> {
+    use miniz_oxide::inflate::TINFLStatus;
+    let mut out = match miniz_oxide::inflate::decompress_to_vec_with_limit(compressed, max_out) {
+        Ok(out) => out,
+        Err(e) if e.status == TINFLStatus::HasMoreOutput => e.output,
+        Err(_) => Vec::new(),
+    };
+    out.truncate(max_out);
+    out
+}
+
 const CRC_TABLE: [u32; 256] = {
     let mut table = [0u32; 256];
     let mut i = 0;
@@ -569,6 +587,23 @@ pub(crate) fn decode_cp437(bytes: &[u8]) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn inflate_prefix_reads_the_start_of_a_cut_off_stream() {
+        let data: Vec<u8> = (0..300_000u32)
+            .map(|i| (i.wrapping_mul(2654435761) >> 13) as u8)
+            .collect();
+        let packed = miniz_oxide::deflate::compress_to_vec(&data, 6);
+        let head = inflate_prefix(&packed, 65536);
+        let differs = head.iter().zip(&data).position(|(a, b)| a != b);
+        assert_eq!((head.len(), differs), (65536, None));
+        // Cut off before 64 KB came out: nothing rather than a wrong start.
+        let small = 1000;
+        assert!(inflate_prefix(&packed[..small], 65536).is_empty());
+        // The whole stream, shorter than the limit.
+        assert_eq!(inflate_prefix(&packed, usize::MAX), data);
+        assert!(inflate_prefix(&[0xff; 64], 1024).is_empty());
+    }
 
     /// One file for the test writer.
     pub(crate) struct TestFile<'a> {

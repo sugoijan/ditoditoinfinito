@@ -44,8 +44,16 @@ pub(crate) struct ImportReport {
     /// Images stored from shared background folders (`RandomMovies`,
     /// `SongMovies`).
     pub(crate) shared_images: usize,
-    /// Other files in shared folders, left out (videos are not played).
+    /// Movies from shared background folders kept (copied or linked).
+    pub(crate) shared_videos: usize,
+    /// Other files in shared folders, left out (scripted animations and
+    /// anything that is neither an image nor a movie).
     pub(crate) shared_skipped: usize,
+    /// Background-change movies of the imported songs that will play.
+    pub(crate) videos: usize,
+    /// Movies left out because songs were copied without "also store
+    /// background videos" (songs and shared folders).
+    pub(crate) videos_left_out: usize,
     /// Songs removed because their folder is gone from a re-read folder.
     pub(crate) removed: usize,
     /// Set when the import could not run at all.
@@ -325,8 +333,21 @@ async fn run(
             return report;
         }
     };
+    let keep_videos = crate::settings::Settings::load().import_videos;
     let images: Vec<&(String, String)> = shared_files.iter().filter(|(s, _)| is_image(s)).collect();
-    report.shared_skipped = shared_files.len() - images.len();
+    let movies: Vec<&(String, String)> = shared_files
+        .iter()
+        .filter(|(s, _)| ddi_library::video::is_movie(s))
+        .collect();
+    report.shared_skipped = shared_files.len() - images.len() - movies.len();
+    if !movies.is_empty() {
+        let linked = origin.as_ref().filter(|o| o.link);
+        let (kept, failed) =
+            keep_shared_movies(&db, &movies, &sources, linked, keep_videos, &progress).await;
+        report.shared_videos = kept;
+        report.videos_left_out += movies.len().saturating_sub(kept + failed.len());
+        report.skipped.extend(failed);
+    }
     if !images.is_empty() {
         progress.emit(format!(
             "storing {} shared background images…",
@@ -364,16 +385,19 @@ async fn run(
             shared: &shared,
             folder: origin.as_ref().map(|o| o.folder.as_str()),
             link: origin.as_ref().is_some_and(|o| o.link),
+            keep_videos,
         };
         match import_song(&db, c, &id, &name, &inputs).await {
-            Ok((title, warnings, notes)) => {
-                report.imported.push(title);
+            Ok(song) => {
+                report.imported.push(song.title);
+                report.videos += song.videos;
+                report.videos_left_out += song.videos_left_out;
                 report
                     .warnings
-                    .extend(warnings.into_iter().map(|w| (label.clone(), w)));
+                    .extend(song.warnings.into_iter().map(|w| (label.clone(), w)));
                 report
                     .notes
-                    .extend(notes.into_iter().map(|n| (label.clone(), n)));
+                    .extend(song.notes.into_iter().map(|n| (label.clone(), n)));
             }
             Err(e) => report.skipped.push((label, e)),
         }
@@ -462,6 +486,19 @@ struct Inputs<'a> {
     folder: Option<&'a str>,
     /// Link files in that folder rather than copy them.
     link: bool,
+    /// Copy background-change movies too when copying.
+    keep_videos: bool,
+}
+
+/// What importing one song gave, for the report.
+struct Imported {
+    title: String,
+    warnings: Vec<String>,
+    notes: Vec<String>,
+    /// Background-change movies that will play.
+    videos: usize,
+    /// Movies left out (copied without "also store background videos").
+    videos_left_out: usize,
 }
 
 async fn import_song(
@@ -470,13 +507,14 @@ async fn import_song(
     id: &str,
     name: &str,
     inputs: &Inputs<'_>,
-) -> Result<(String, Vec<String>, Vec<String>), String> {
+) -> Result<Imported, String> {
     let Inputs {
         sources,
         paths,
         shared,
         folder,
         link,
+        keep_videos,
     } = *inputs;
     let linked = link && folder.is_some();
     let mut warnings = Vec::new();
@@ -582,7 +620,46 @@ async fn import_song(
         ));
         bg_images.truncate(MAX_BG_IMAGES);
     }
-    let missing = ddi_library::backgrounds::missing_images(&song, &c.dir, paths, &c.pack, shared);
+    // Movies: what each is; kept when linked, or copied with "also store
+    // background videos"; never when the game cannot play them.
+    let mut bg_videos = Vec::new();
+    let mut video_files = Vec::new();
+    let mut unplayable = Vec::new();
+    let mut left_out = Vec::new();
+    for (relative, path) in ddi_library::backgrounds::referenced_movies(&song, &c.dir, paths) {
+        let src = source(sources, &path)?;
+        let format = sniff_movie(src).await;
+        let playable = format.playable();
+        let linkable = src.link(&path).filter(|_| linked).is_some();
+        let stored = playable && (linkable || keep_videos);
+        if !playable {
+            unplayable.push(format!("{relative} ({})", format.describe()));
+        } else if !stored {
+            left_out.push(relative.clone());
+        }
+        if stored {
+            video_files.push((format!("bg/{relative}"), path));
+        }
+        bg_videos.push(ddi_library::manifest::VideoRef {
+            name: relative,
+            format,
+            stored,
+        });
+    }
+    let videos = bg_videos.iter().filter(|v| v.plays()).count();
+    if !unplayable.is_empty() {
+        warnings.push(format!(
+            "background videos in a format the game cannot play (the song background shows instead): {}",
+            unplayable.join(", ")
+        ));
+    }
+    if !left_out.is_empty() {
+        notes.push(format!(
+            "background videos not stored (\"also store background videos\" is off): {}",
+            left_out.join(", ")
+        ));
+    }
+    let missing = ddi_library::backgrounds::missing_files(&song, &c.dir, paths, &c.pack, shared);
     let unshown = ddi_library::backgrounds::unshown_files(&song, &c.dir, paths, &c.pack, shared);
     let (present, absent): (Vec<_>, Vec<_>) = unshown.into_iter().partition(|(_, exists)| *exists);
     let names = |list: Vec<(String, bool)>| {
@@ -593,19 +670,19 @@ async fn import_song(
     };
     if !present.is_empty() {
         notes.push(format!(
-            "background changes use videos or animations, which are not played (the song background shows instead): {}",
+            "background changes use scripted animations, which are not played (the song background shows instead): {}",
             names(present)
         ));
     }
     if !absent.is_empty() {
         notes.push(format!(
-            "background changes name videos or animations that are missing (they would not be played anyway): {}",
+            "background changes name scripted animations that are missing (they would not be played anyway): {}",
             names(absent)
         ));
     }
     if !missing.is_empty() {
         warnings.push(format!(
-            "background changes name images that were not found (the song background shows instead): {}",
+            "background changes name images or videos that were not found (the song background shows instead): {}",
             missing.join(", ")
         ));
     }
@@ -619,7 +696,8 @@ async fn import_song(
             banner: banner.as_ref().map(|(n, _)| n.clone()),
             background: background.as_ref().map(|(n, _)| n.clone()),
             bg_images: bg_images.iter().map(|(r, _)| r.clone()).collect(),
-            bg_shared: ddi_library::backgrounds::absent_images(&song, &c.dir, paths),
+            bg_videos,
+            bg_shared: ddi_library::backgrounds::absent_files(&song, &c.dir, paths),
             credit: song.credit.trim().to_string(),
         },
         &song,
@@ -658,7 +736,7 @@ async fn import_song(
             files.push((name, blob));
         }
     }
-    for (name, path) in background.into_iter().chain(bg_files) {
+    for (name, path) in background.into_iter().chain(bg_files).chain(video_files) {
         let src = source(sources, &path)?;
         match src.link(&path).filter(|_| linked) {
             Some(l) => {
@@ -697,7 +775,69 @@ async fn import_song(
         value: json.into(),
     });
     db.write(writes).await?;
-    Ok((title, warnings, notes))
+    Ok(Imported {
+        title,
+        warnings,
+        notes,
+        videos,
+        videos_left_out: left_out.len(),
+    })
+}
+
+/// Keeps the movies of shared background folders: linked imports record
+/// where each is in the kept folder ([`crate::songs::SharedLink`]), copying
+/// ones store it only with "also store background videos". Returns how
+/// many were kept and the ones that failed.
+async fn keep_shared_movies(
+    db: &Db,
+    movies: &[&(String, String)],
+    sources: &HashMap<String, Source>,
+    linked: Option<&Origin>,
+    keep_videos: bool,
+    progress: &Callback<String>,
+) -> (usize, Vec<(String, String)>) {
+    let mut links = Vec::new();
+    let mut copies = Vec::new();
+    for movie in movies {
+        let (shared, path) = *movie;
+        let link = linked.and_then(|o| Some((o, source(sources, path).ok()?.link(path)?)));
+        match link {
+            Some((origin, link)) => {
+                let record = crate::songs::SharedLink {
+                    folder: origin.folder.clone(),
+                    link,
+                };
+                if let Ok(json) = serde_json::to_string(&record) {
+                    links.push(Write::Put {
+                        store: idb::FILES,
+                        key: crate::songs::shared_key(shared),
+                        value: json.into(),
+                    });
+                }
+            }
+            None if keep_videos => copies.push(*movie),
+            None => {}
+        }
+    }
+    let mut kept = 0;
+    let mut failed = Vec::new();
+    if !links.is_empty() {
+        let n = links.len();
+        match db.write(links).await {
+            Ok(()) => kept += n,
+            Err(e) => failed.push(("shared background videos".into(), e)),
+        }
+    }
+    if !copies.is_empty() {
+        progress.emit(format!(
+            "storing {} shared background videos…",
+            copies.len()
+        ));
+        let (stored, more) = store_shared(db, &copies, sources).await;
+        kept += stored;
+        failed.extend(more);
+    }
+    (kept, failed)
 }
 
 /// Shared images written per storage transaction at most: a large shared
@@ -905,8 +1045,9 @@ async fn zip_data_start(archive: &File, entry: &ZipEntry) -> Result<u64, String>
     zip::local_data_offset(&header, entry).map_err(|e| e.to_string())
 }
 
-/// The first `len` bytes of a file (all of it if shorter). Deflated zip
-/// entries are inflated whole; images are small enough for that.
+/// The first `len` bytes of a file (all of it if shorter). Of a deflated
+/// zip entry only the start of the stream is inflated (a movie is tens of
+/// megabytes), the whole entry when that was not enough.
 async fn read_head(source: &Source, len: u64) -> Result<Vec<u8>, String> {
     match source {
         Source::File(f) => read_range(f, 0, len.min(f.size() as u64)).await,
@@ -916,12 +1057,63 @@ async fn read_head(source: &Source, len: u64) -> Result<Vec<u8>, String> {
             let start = zip_data_start(archive, entry).await?;
             read_range(archive, start, start + len.min(entry.compressed_size)).await
         }
+        Source::Zip { archive, entry, .. }
+            if entry.method == Method::Deflated && !entry.encrypted =>
+        {
+            let start = zip_data_start(archive, entry).await?;
+            let want = entry.compressed_size.min((len * 16).max(1 << 20));
+            let compressed = read_range(archive, start, start + want).await?;
+            let head = zip::inflate_prefix(&compressed, len as usize);
+            if !head.is_empty() || want == entry.compressed_size {
+                return Ok(head);
+            }
+            let mut bytes = read_bytes(source).await?;
+            bytes.truncate(len as usize);
+            Ok(bytes)
+        }
         Source::Zip { .. } => {
             let mut bytes = read_bytes(source).await?;
             bytes.truncate(len as usize);
             Ok(bytes)
         }
     }
+}
+
+/// `len` bytes of a file from `start`: for a file or a stored zip entry
+/// (a deflated one would have to be inflated up to there).
+async fn read_at(source: &Source, start: u64, len: u64) -> Result<Vec<u8>, String> {
+    match source {
+        Source::File(f) => {
+            let size = f.size() as u64;
+            read_range(f, start.min(size), start.saturating_add(len).min(size)).await
+        }
+        Source::Zip { archive, entry, .. }
+            if entry.method == Method::Stored && !entry.encrypted =>
+        {
+            let data = zip_data_start(archive, entry).await?;
+            let end = start.saturating_add(len).min(entry.compressed_size);
+            read_range(archive, data + start.min(end), data + end).await
+        }
+        Source::Zip { .. } => Err("a compressed zip entry".into()),
+    }
+}
+
+/// What a movie of the import is ([`ddi_library::video::sniff`], with the
+/// MP4 index where the head points to it). Never fails: a file that
+/// cannot be read is of an unrecognised format, which the decoder still
+/// tries.
+async fn sniff_movie(source: &Source) -> ddi_platform::video::VideoFormat {
+    use ddi_library::video::{MP4_INDEX_LEN, SNIFF_LEN, mp4_index_at, mp4_index_codec, sniff};
+    let head = read_head(source, SNIFF_LEN as u64)
+        .await
+        .unwrap_or_default();
+    let mut format = sniff(&head);
+    if let Some(at) = mp4_index_at(&head)
+        && let Ok(index) = read_at(source, at, MP4_INDEX_LEN as u64).await
+    {
+        format.codec = mp4_index_codec(&index);
+    }
+    format
 }
 
 async fn read_bytes(source: &Source) -> Result<Vec<u8>, String> {

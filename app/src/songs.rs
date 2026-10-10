@@ -331,6 +331,11 @@ pub(crate) async fn song_file(db: &Db, song: &ImportedSong, file: &str) -> Resul
         .folder
         .as_ref()
         .ok_or("the folder this song plays from is unknown; import it again")?;
+    linked_file(db, key, link).await
+}
+
+/// A file in a kept folder (`key`, its storage key).
+async fn linked_file(db: &Db, key: &str, link: &Link) -> Result<Blob, LoadError> {
     let handle = db
         .get(idb::FILES, key)
         .await?
@@ -377,6 +382,33 @@ pub(crate) fn shared_key(shared_path: &str) -> String {
 
 const SHARED_PREFIX: &str = "shared/";
 
+/// A shared-folder movie a linked import left in its kept folder, stored as
+/// JSON under [`shared_key`] where a copied file is a blob.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SharedLink {
+    /// Storage key of the kept folder.
+    pub(crate) folder: String,
+    #[serde(flatten)]
+    pub(crate) link: Link,
+}
+
+/// A file of a shared background folder: stored, or linked.
+async fn shared_file(db: &Db, shared_path: &str) -> Result<Blob, String> {
+    let value = db
+        .get(idb::FILES, &shared_key(shared_path))
+        .await?
+        .ok_or_else(|| format!("shared background {shared_path} is no longer stored"))?;
+    if let Some(json) = value.as_string() {
+        let shared: SharedLink = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+        return linked_file(db, &shared.folder, &shared.link)
+            .await
+            .map_err(|e| e.message());
+    }
+    value
+        .dyn_into::<Blob>()
+        .map_err(|_| format!("shared background {shared_path} is not a file"))
+}
+
 /// Paths of the shared background images in the library.
 pub(crate) async fn shared_paths(db: &Db) -> Result<Vec<String>, String> {
     Ok(db
@@ -387,8 +419,8 @@ pub(crate) async fn shared_paths(db: &Db) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// A background image file of the song (bundled or imported): its
-/// background, or an image its background changes show (stored as
+/// A background file of the song (bundled or imported): its background, or
+/// an image or movie its background changes show (stored or linked as
 /// `bg/<path>` when imported, or found in a shared folder: `shared` maps
 /// names to shared paths). `None` when the song has no background.
 pub(crate) async fn load_background(
@@ -396,23 +428,18 @@ pub(crate) async fn load_background(
     what: &BgImage,
     shared: &[(String, String)],
 ) -> Result<Option<Blob>, String> {
-    if let BgImage::File(name) = what
+    if let BgImage::File(name) | BgImage::Movie(name) = what
         && let Some((_, path)) = shared.iter().find(|(n, _)| n == name)
     {
         let db = Db::open().await?;
-        return db
-            .get(idb::FILES, &shared_key(path))
-            .await?
-            .and_then(|v| v.dyn_into::<Blob>().ok())
-            .map(Some)
-            .ok_or_else(|| format!("shared background {path} is no longer stored"));
+        return shared_file(&db, path).await.map(Some);
     }
     let (stored, bundled) = match what {
         BgImage::Song => match entry.background.as_ref() {
             Some(file) => (file.clone(), file.clone()),
             None => return Ok(None),
         },
-        BgImage::File(path) => (format!("bg/{path}"), path.clone()),
+        BgImage::File(path) | BgImage::Movie(path) => (format!("bg/{path}"), path.clone()),
     };
     if is_imported_id(&entry.id) {
         let db = Db::open().await?;
@@ -435,6 +462,8 @@ pub(crate) struct LoadedSong {
     /// Background-change images found in the library's shared folders:
     /// `(name as the simfile writes it, shared path)`.
     pub(crate) shared_bg: Vec<(String, String)>,
+    /// Background-change movies found there, the same way.
+    pub(crate) shared_videos: Vec<(String, String)>,
 }
 
 /// Finds a song by id among bundled and imported songs and loads it.
@@ -481,22 +510,25 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
     .map_err(|e| format!("{}: {e}", entry.chart))?;
     // Images the song's folder lacks may be in a shared folder imported
     // before or after it; looked up now so the order does not matter.
-    let shared_bg = match &origin {
+    let (shared_bg, shared_videos) = match &origin {
         Origin::Imported(pack) => {
             let db = Db::open().await?;
             let shared = shared_paths(&db).await.unwrap_or_default();
-            let mut found =
-                ddi_library::backgrounds::shared_images(&entry.bg_shared, pack, &shared);
-            found.truncate(MAX_BG_IMAGES.saturating_sub(entry.bg_images.len()));
-            found
+            let found = ddi_library::backgrounds::shared_images(&entry.bg_shared, pack, &shared);
+            let (videos, mut images): (Vec<_>, Vec<_>) = found
+                .into_iter()
+                .partition(|(name, _)| ddi_library::video::is_movie(name));
+            images.truncate(MAX_BG_IMAGES.saturating_sub(entry.bg_images.len()));
+            (images, videos)
         }
-        Origin::Bundled => Vec::new(),
+        Origin::Bundled => (Vec::new(), Vec::new()),
     };
     Ok(LoadedSong {
         entry,
         song,
         music_bytes,
         shared_bg,
+        shared_videos,
     })
 }
 
@@ -541,11 +573,23 @@ pub(crate) async fn drop_unused_shared(db: &Db) -> Result<(), String> {
         .filter_map(|(_, v)| v.as_string())
         .filter_map(|json| serde_json::from_str::<WorkRef>(&json).ok())
         .collect();
+    // Shared-folder movies left in a kept folder keep it too.
+    let shared_keys = db.keys_with_prefix(idb::FILES, SHARED_PREFIX).await?;
+    let shared_folders: Vec<String> = db
+        .get_many(idb::FILES, &shared_keys)
+        .await?
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_string())
+        .filter_map(|json| serde_json::from_str::<SharedLink>(&json).ok())
+        .map(|l| l.folder)
+        .collect();
     let used: std::collections::HashSet<String> = refs
         .iter()
         .filter_map(|r| r.work.clone())
         .chain(refs.iter().map(|r| pack_art_key(&r.pack)))
         .chain(refs.iter().filter_map(|r| r.folder.clone()))
+        .chain(shared_folders)
         .collect();
     let mut unused = Vec::new();
     for prefix in [

@@ -333,6 +333,7 @@ name = "ddi-library"
 version = "0.1.0"
 dependencies = [
  "ddi-chart",
+ "ddi-platform",
  "encoding_rs",
  "miniz_oxide",
  "serde",
@@ -345,6 +346,8 @@ name = "ddi-platform"
 version = "0.1.0"
 dependencies = [
  "ddi-chart",
+ "serde",
+ "serde_json",
  "symphonia",
 ]
 
@@ -2705,6 +2708,7 @@ dependencies = [
  "clap",
  "ddi-chart",
  "ddi-library",
+ "ddi-platform",
  "serde",
  "serde_json",
  "toml",

@@ -69,6 +69,8 @@ pub(crate) struct Loaded {
     pub(crate) music_bytes: Option<Vec<u8>>,
     /// Images the background changes show (manifest `bg_images`).
     pub(crate) bg_images: Vec<String>,
+    /// Movies they play (manifest `bg_videos` that play, and shared ones).
+    pub(crate) bg_videos: Vec<String>,
     /// The song has a background image.
     pub(crate) has_background: bool,
 }
@@ -200,6 +202,7 @@ impl Component for GameCanvas {
                     subtitle: mode.hint().into(),
                     music_bytes: None,
                     bg_images: Vec::new(),
+                    bg_videos: Vec::new(),
                     has_background: false,
                 };
                 ctx.link()
@@ -858,9 +861,12 @@ impl GameCanvas {
         };
         // On the song's timing as played, so the song offset moves them too.
         let schedule = match &ctx.props().source {
-            SongSource::Song { .. } => {
-                backgrounds::schedule(play_song, &song.bg_images, song.has_background)
-            }
+            SongSource::Song { .. } => backgrounds::schedule(
+                play_song,
+                &song.bg_images,
+                &song.bg_videos,
+                song.has_background,
+            ),
             SongSource::Calibration(_) => Vec::new(),
         };
         match PlaySession::start(play_song, chart, &self.settings, config, audio, buffer) {
@@ -1250,7 +1256,9 @@ fn load(ctx: &Context<GameCanvas>, id: String) {
                             Ok(Some(blob)) => {
                                 let side = match what {
                                     BgImage::Song => MAX_BACKGROUND_SIDE,
-                                    BgImage::File(_) => MAX_CHANGE_SIDE,
+                                    // Movies are not loaded here (only images
+                                    // are listed above).
+                                    BgImage::File(_) | BgImage::Movie(_) => MAX_CHANGE_SIDE,
                                 };
                                 crate::web::image::decode(&blob, side)
                                     .await
@@ -1280,6 +1288,16 @@ fn load(ctx: &Context<GameCanvas>, id: String) {
                     .iter()
                     .chain(loaded.shared_bg.iter().map(|(name, _)| name))
                     .cloned()
+                    .collect(),
+                // Until movies are drawn (docs/plans/video-backgrounds.md,
+                // step 4) a movie segment shows the song background.
+                bg_videos: loaded
+                    .entry
+                    .bg_videos
+                    .iter()
+                    .filter(|v| v.plays())
+                    .map(|v| v.name.clone())
+                    .chain(loaded.shared_videos.iter().map(|(name, _)| name.clone()))
                     .collect(),
                 has_background: loaded.entry.background.is_some(),
                 song: loaded.song,

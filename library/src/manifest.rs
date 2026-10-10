@@ -6,6 +6,7 @@
 //! manifest; changing them changes `index.json`.
 
 use ddi_chart::{DisplayBpm, Layout, Song, SourceFormat};
+use ddi_platform::video::VideoFormat;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -29,9 +30,15 @@ pub struct ManifestEntry {
     /// each under `bg/<path>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bg_images: Vec<String>,
-    /// Images the background changes name that the song's folder lacks, as
-    /// the simfile writes them ([`crate::backgrounds::absent_images`]):
-    /// looked up in the library's shared folders when the song is played.
+    /// Movies the song's background changes play, in order of first use
+    /// ([`crate::backgrounds::referenced_movies`]), with what each is.
+    /// Imported songs store or link each under `bg/<name>`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bg_videos: Vec<VideoRef>,
+    /// Images and movies the background changes name that the song's
+    /// folder lacks, as the simfile writes them
+    /// ([`crate::backgrounds::absent_files`]): looked up in the library's
+    /// shared folders when the song is played.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bg_shared: Vec<String>,
     /// Short credit line shown in the song list (full credits live in the
@@ -53,6 +60,30 @@ pub struct ManifestEntry {
     /// its charts use, so the song list and the bindings can show them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layouts: Vec<Layout>,
+}
+
+/// A movie of a song's background changes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VideoRef {
+    /// Path relative to the song directory, as the schedule matches it.
+    pub name: String,
+    pub format: VideoFormat,
+    /// Whether the import kept it (copied or linked). A copying import
+    /// leaves movies out unless asked to keep them; the song background
+    /// shows instead.
+    #[serde(default = "kept")]
+    pub stored: bool,
+}
+
+fn kept() -> bool {
+    true
+}
+
+impl VideoRef {
+    /// Whether the game plays it: kept and in a format the decoder has.
+    pub fn plays(&self) -> bool {
+        self.stored && self.format.playable()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -91,6 +122,7 @@ pub struct EntryMeta {
     pub banner: Option<String>,
     pub background: Option<String>,
     pub bg_images: Vec<String>,
+    pub bg_videos: Vec<VideoRef>,
     pub bg_shared: Vec<String>,
     pub credit: String,
 }
@@ -162,6 +194,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         banner: meta.banner,
         background: meta.background,
         bg_images: meta.bg_images,
+        bg_videos: meta.bg_videos,
         bg_shared: meta.bg_shared,
         credit: meta.credit,
         layouts,
@@ -259,6 +292,7 @@ mod tests {
             banner: None,
             background: Some("bg.png".into()),
             bg_images: Vec::new(),
+            bg_videos: Vec::new(),
             bg_shared: Vec::new(),
             credit: String::new(),
             bpm: "120".into(),

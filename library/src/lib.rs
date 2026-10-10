@@ -11,10 +11,12 @@
 //! - [`manifest`]: the song list entry shared by bundled and imported songs.
 //! - [`backgrounds`]: `#BGCHANGES` as a timed schedule of still images.
 //! - [`danoni`]: Dancing☆Onigiri works (pages and dumps) in an import.
+//! - [`video`]: which background-change files are movies and what they are.
 
 pub mod backgrounds;
 pub mod danoni;
 pub mod image;
 pub mod manifest;
 pub mod pack;
+pub mod video;
 pub mod zip;
