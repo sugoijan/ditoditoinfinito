@@ -4,16 +4,17 @@ Updated: 2026-10-10. `ruffle/rebuild_corpus.py` now builds the
 currently validated subset entirely from saved evidence, checks it with the
 game's actual parsers, and promotes it with archival and rollback journals.
 [Native family adapters](danoni-native-adapters.md) now cover eight further works.
-A CW-to-SSC bridge and the gated original Straight Soul remain future work.
+A CW-to-SSC bridge remains future work. The registration-gated original Straight
+Soul was deliberately removed from the active list; its HTML5 port remains.
 All third-party inputs and generated packs stay outside Git.
 
 ## Current generation
 
-The local registry is `~/Music/DanOni/export-registry.json`. Its 24 entries
-include 15 required, successful works and nine explicit pending entries:
-the gated original Straight Soul and eight incomplete/unsupported CW captures
-or exploratory probes. Pending entries are inventory, not playable
-exports. The generation contains **19 songs, 23 charts, 12,896 taps and 332 holds**.
+The local registry is `~/Music/DanOni/export-registry.json`. Its 23 entries
+include 15 required, successful works and eight explicit pending entries:
+incomplete/unsupported CW captures or exploratory probes. Original Straight
+Soul is excluded; its acquisition and exclusion provenance remain local.
+Pending entries are inventory, not playable exports. The generation contains **19 songs, 23 charts, 12,896 taps and 332 holds**.
 
 | Work | Songs / charts | Output and validation |
 | --- | --- | --- |
@@ -201,7 +202,7 @@ contains the concrete examples and archive URL bindings supporting this split.
 
 The registry rebuilds all 15 required works: ten native works (Kouhaku, Higan
 and the eight family-adapter additions), plus five eligible saved CW works.
-Original Straight Soul remains pending; all other acquired legacy originals
+Original Straight Soul is excluded; all other acquired legacy originals
 now have validated selected-chart exports. See the [family handover](danoni-native-adapters.md)
 for exact contracts, local recipes, diagnostics and coverage.
 
@@ -399,3 +400,11 @@ are retained with the supplemental browser report. No source/music files were
 committed or deleted. The 2026-10-10 expansion preserves that generation under exports-history and
 adds the validated native family works; it does not change accepted Kouhaku
 chart/audio bytes or silently accept musical-grid estimates.
+
+
+The maintainer excluded original Straight Soul from the active registry on
+2026-10-10 because startup requires registration. Rebuilding after that removal
+preserves both playable ZIPs byte-for-byte; only the work inventory/status changes.
+The [presentation follow-up](danoni-presentation.md) records recovered page-star
+ratings, unhinted BPM analysis of all ten normalized works and source-informed
+cover priorities. Those findings are separate from current playable metadata.

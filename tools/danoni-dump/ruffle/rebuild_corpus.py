@@ -145,7 +145,8 @@ def bootstrap(root, registry):
         source = root / 'single-song-corpus-v1' / work['manifest']
         works.append({'id': slug(work['id']), 'kind': 'pending', 'source': binding(root, source),
                       'required': False, 'collection': 'single-songs', 'reason': 'Title captured; gameplay projection/audio assembly not validated'})
-    for ident in ['autumn-destined-marionette', 'cw-straight-soul']:
+    # Registration-gated original Straight Soul is deliberately excluded.
+    for ident in ['autumn-destined-marionette']:
         source = root / 'legacy-pilot/inputs' / ident / 'provenance.json'
         works.append({'id': ident, 'kind': 'pending', 'source': binding(root, source), 'required': False,
                       'collection': 'single-songs', 'reason': 'Legacy original acquired; native gameplay projection not validated'})

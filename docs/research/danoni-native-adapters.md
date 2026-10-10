@@ -32,7 +32,7 @@ ratings: unknown star counts remain `null`, and SSC uses `Edit` / meter 0 with
 `#CHARTNAME` distinguishing difficulties.
 
 The original [Straight Soul Flash work](https://cw7.sakura.ne.jp/danoni/2009/straights/main.html)
-remains pending. Its first-time Play path checks its published URL and submits a
+is excluded from the active corpus at the maintainer's request. Its first-time Play path checks its published URL and submits a
 name registration to a server before initializing gameplay. Cached pre-game state
 and static bytecode inspection establish the dependency; the tool does not submit
 registration, simulate a server response, alter the URL guard or claim an
@@ -211,3 +211,10 @@ suite exercises read-only inspection, network/filesystem/process restrictions,
 getter avoidance, offscreen geometry, overlapping PCM clipping and bounded text,
 frame and execution inputs. Real local exports are additionally checked with the
 game parsers, native scroll multiplication and independent Ogg audio decoding.
+
+
+The [presentation follow-up](danoni-presentation.md) corrects the earlier lack of
+page-rating extraction: some surrounding HTML pages contain genuine stars even
+when runtime metadata only supplies a label. It also records generic BPM
+analysis for every normalized work. Current immutable native references and
+playable metadata are not rewritten by that investigation.

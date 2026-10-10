@@ -814,3 +814,15 @@ limitations remain explicit; validated stored note data is not a promise to
 reproduce arbitrary original runtime behavior. felys's final out-of-order note
 is retained in the reference and its playable/source behavior difference is
 reported. No third-party fixture or music is added to Git.
+
+
+### Presentation follow-up and excluded original (2026-10-10)
+
+At the maintainer's request, original Straight Soul is removed from active
+corpus/export lists because it requires registration. Historical source records
+are retained, and the separately captured HTML5 port remains included. The
+active registry now has 23 entries: 15 required and eight pending CW cases.
+See [the presentation follow-up](danoni-presentation.md) for ratings found on
+cached work pages, all-native-work BPM analysis, and the proposed generic
+metadata/grid/artwork pipeline. New entries from parallel corpus work must be
+preserved when updating these lists.

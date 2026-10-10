@@ -179,7 +179,7 @@ translation and judgement/gauges remain outside the validated projection.
 
 The [single-song family adapters](danoni-native-adapters.md) now cover eight
 further works, including seven-key examples and two RE:RAVE difficulties. The
-original Straight Soul stays pending because its startup requires server-backed
-registration; its HTML5 port is separately captured. Legacy nine-key adapters
+original Straight Soul is excluded from the active corpus because its startup
+requires server-backed registration; its HTML5 port is separately captured. Legacy nine-key adapters
 remain future work. Chart Reverser remains useful for source-known
 BPM/first-number cases; no authoring-grid equivalence is claimed for this pilot.
