@@ -30,6 +30,10 @@
 //!   `CrossFade_Faster` 0.75 s, `CrossFade_Fastest` 0.5 s; StepMania's other
 //!   transitions (wipes and slides, 1 s each) become 1 s fades, and an
 //!   unknown name is a cut (StepMania reports it and switches at once).
+//! - A song with no background changes on either layer and exactly one
+//!   movie among its folder's own files plays that movie from beat 0
+//!   without looping, until the end (`Song::TidyUpData`: "assume they are
+//!   DWI style"; [`implicit_movie`]).
 //! - A change to what is already shown is ignored, unless it is a movie
 //!   that the change restarts or plays at another rate (StepMania then
 //!   skips the transition but runs the effect's `On` command again).
@@ -222,13 +226,52 @@ pub fn referenced_images<S: AsRef<str>>(
 }
 
 /// The movies `song`'s background changes refer to that exist in the
-/// import, as [`referenced_images`] lists images.
+/// import, as [`referenced_images`] lists images; for a song without
+/// changes, its [`implicit_movie`].
 pub fn referenced_movies<S: AsRef<str>>(
     song: &Song,
     dir: &str,
     all_paths: &[S],
 ) -> Vec<(String, String)> {
+    if !has_changes(song) {
+        return implicit_movie(song, dir, all_paths).into_iter().collect();
+    }
     referenced(song, dir, all_paths, None, is_movie)
+}
+
+/// StepMania's `Song::HasBGChanges`: a change on either background layer.
+fn has_changes(song: &Song) -> bool {
+    song.effects
+        .iter()
+        .any(|e| e.kind == "bgchange" && e.fields.len() >= 2)
+}
+
+/// The movie StepMania plays for a song without background changes: the
+/// only movie among the song folder's own files (not in subfolders), as
+/// `(path relative to dir, path in the import)`; `None` with none, several,
+/// or any change. [`schedule`] plays it from beat 0 without looping.
+pub fn implicit_movie<S: AsRef<str>>(
+    song: &Song,
+    dir: &str,
+    all_paths: &[S],
+) -> Option<(String, String)> {
+    if has_changes(song) {
+        return None;
+    }
+    let prefix = if dir.is_empty() {
+        String::new()
+    } else {
+        format!("{dir}/")
+    };
+    let mut movies = all_paths.iter().map(AsRef::as_ref).filter(|p| {
+        p.strip_prefix(prefix.as_str())
+            .is_some_and(|name| !name.contains('/') && is_movie(name))
+    });
+    let movie = movies.next()?;
+    if movies.next().is_some() {
+        return None;
+    }
+    Some((crate::pack::relative_path(dir, movie), movie.to_string()))
 }
 
 fn referenced<S: AsRef<str>>(
@@ -454,8 +497,9 @@ enum Change<'a> {
 /// [`referenced_images`] and [`referenced_movies`], or names as written
 /// for shared ones); a [`BgImage::File`] or [`BgImage::Movie`] carries the
 /// matching entry. A movie that cannot play is left out of `movies` by the
-/// caller, so it shows the song background. `has_background`: the song's
-/// background image exists.
+/// caller, so it shows the song background. A song without changes plays
+/// the one movie given, its [`implicit_movie`], from beat 0 without
+/// looping. `has_background`: the song's background image exists.
 pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
     song: &Song,
     images: &[S],
@@ -499,6 +543,18 @@ pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
         rate: 1.0,
         effect: MovieEffect::Normal,
     }];
+    if !has_changes(song) {
+        if let [movie] = movies {
+            segments.push(BgSegment {
+                seconds: song.timing.seconds_at(Tick(0)) - song.timing.delay_at(Tick(0)),
+                image: BgImage::Movie(movie.as_ref().to_string()),
+                fade: 0.0,
+                rate: 1.0,
+                effect: MovieEffect::NoLoop,
+            });
+        }
+        return segments;
+    }
     for (tick, change) in changes {
         let (image, fade, rate, effect) = match change {
             Change::SongBackground => (BgImage::Song, 0.0, 1.0, MovieEffect::Normal),
@@ -1060,6 +1116,42 @@ mod tests {
         // other.avi stops looping; bg.avi keeps looping (another file).
         assert!(!movie_loops(&seg, index(20.5)));
         assert!(movie_loops(&seg, index(22.5)));
+    }
+
+    #[test]
+    fn a_song_without_changes_plays_its_only_movie() {
+        let s = song("");
+        let one = [
+            "P/S/s.sm",
+            "P/S/Song.AVI",
+            "P/S/bg.png",
+            "P/S/sub/other.avi",
+        ];
+        // Only the folder's own files count.
+        assert_eq!(
+            implicit_movie(&s, "P/S", &one),
+            Some(("Song.AVI".to_string(), "P/S/Song.AVI".to_string()))
+        );
+        assert_eq!(referenced_movies(&s, "P/S", &one).len(), 1);
+        let two = ["P/S/s.sm", "P/S/a.avi", "P/S/b.mpg"];
+        assert_eq!(implicit_movie(&s, "P/S", &two), None);
+        // Any change, on either layer, turns the rule off.
+        let layer2 = song("#BGCHANGES2:0=bg.png=1=0=0=0;");
+        assert_eq!(implicit_movie(&layer2, "P/S", &one), None);
+        assert!(referenced_movies(&layer2, "P/S", &one).is_empty());
+        // From beat 0, without looping, and no return to the background.
+        let seg = schedule(&s, &[] as &[&str], &["Song.AVI"], true);
+        assert_eq!(
+            shown_images(&seg),
+            vec![
+                (f64::NEG_INFINITY, BgImage::Song, 0.0),
+                (0.0, BgImage::Movie("Song.AVI".into()), 0.0),
+            ]
+        );
+        assert_eq!(seg[1].effect, MovieEffect::NoLoop);
+        assert!(!movie_loops(&seg, 1));
+        // Without a playable movie, just the background.
+        assert_eq!(schedule(&s, &[] as &[&str], NO_MOVIES, true).len(), 1);
     }
 
     #[test]

@@ -417,9 +417,25 @@ late}`.
   per-file texture sharing and the rest fixed above.
 - Step 5's "cannot keep up" rule can read `MovieStats::late` (and
   `dropped`) from `MovieDeck::stats`.
+- Songs without background changes: StepMania's `Song::TidyUpData` plays
+  the only movie among the song folder's own files from beat 0, without
+  looping ("DWI style"), when neither layer has a change
+  (`backgrounds::implicit_movie`; the import keeps it like a named one).
+  Two local songs rely on it (Koi hadou Moro Hadou OK Houteishiki!!, DDR
+  2014; REVOLUTION, DDR 2013) and play.
+- Fit: backgrounds and movies are both covered (StepMania's default
+  `BackgroundFitMode`, `CoverPreserve`). Many pack movies are 4:3 pictures
+  pillarboxed in a 16:9 frame next to a 4:3 background still, so on a
+  wide screen the change looks like a zoom; StepMania's other fit modes
+  (`FitInside`, `FitInsideAvoidLetter`, `FitInsideAvoidPillar`,
+  `CoverDistort`) align them at the cost of bars. Step 5 adds that
+  preference to the options; cropping a movie's own black bars would align
+  them without bars (not in StepMania; later, if wanted).
 
 ## Step 5. The setting and the auto rule (commit 5)
 
+- `Settings.background_fit` as StepMania's `BackgroundFitMode` (default
+  cover), for images and movies alike (step 4's notes).
 - `Settings.video: VideoMode {Auto, On, Off}` (lenient, default Auto);
   options page: "Background videos" with the three choices and one line of
   explanation. (The `import_videos` checkbox came with step 3.)
