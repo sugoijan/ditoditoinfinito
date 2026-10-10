@@ -603,7 +603,8 @@ impl MovieDeck {
         };
         let (blob, format, browser) = (source.blob.clone(), source.format.clone(), source.browser);
         let name = name.clone();
-        let backend = if browser {
+        // The browser path may have been turned off since (RGB frames).
+        let backend = if browser && webcodecs::available() {
             Backend::Browser(WebCodecsVideo::open(blob))
         } else {
             let worker = match self.worker() {
