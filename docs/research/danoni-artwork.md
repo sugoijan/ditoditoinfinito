@@ -278,12 +278,11 @@ Original source/reference files are not rewritten and no gameplay background
 is assigned from a cover.
 
 The current local generation supplies five original Kouhaku panels and nine
-plain native-work banners: **14 songs with artwork**. All 19 songs/23 charts
-still import. The five songs packaged as native CW dumps currently lack banner
-support in the game importer: `app/src/import/danoni.rs::store_song` constructs
-`banner: None` even on inspected `main`. This is a handover item for the importer
-session (resolve/store an explicit per-song banner), or can be addressed by the
-planned CW normalization-to-SSC bridge. No game files are changed here.
+plain native-work banners: **14 songs with artwork** in that generation. The
+subsequent [CW bridge and default fitting](danoni-default-tempo.md) adds the five
+remaining title banners via SSC, giving all 19 songs artwork. Native game CW
+imports still lack a banner resolver; converting saved verified references avoids
+requiring a game change. No game files are changed here.
 
 Only **9A and 9B** are eligible nine-key exports. The current Hikari package
 contains those two selected charts; 9i remains solely an unsupported row in the

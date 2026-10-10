@@ -6,6 +6,10 @@ roughly 20 ms discrepancy on a few songs whose origin is uncertain. This is
 useful play-test evidence, not a measured per-song offset. No timing correction
 has been applied; source Flash compensation remains unverified.
 
+The [default-tempo policy](danoni-default-tempo.md) now applies bounded fitting
+automatically to all normalized works; the experiments below remain historical
+evidence. Explicit Kouhaku reviews still take precedence.
+
 ## Difficulty is a source rating
 
 The Kouhaku adapter `/2` exposes `difficultyStars` as an integer: **3, 8, 6, 5,

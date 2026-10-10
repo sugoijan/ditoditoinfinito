@@ -14,6 +14,10 @@ provides restricted Ruffle inspection and synthetic dos export validation.
 Real legacy conversion is experimental; it does not change this tool's CW
 capture contract.
 
+Saved verified CW dumps can also use the [offline normalization and SSC
+preparer](../../docs/research/danoni-default-tempo.md) for banners, pickup previews
+and default musical BPM fitting. Original captures remain unchanged.
+
 ## Requirements
 
 - Node.js 22 or later.

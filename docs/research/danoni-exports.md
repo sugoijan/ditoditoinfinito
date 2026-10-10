@@ -4,7 +4,7 @@ Updated: 2026-10-10. `ruffle/rebuild_corpus.py` now builds the
 currently validated subset entirely from saved evidence, checks it with the
 game's actual parsers, and promotes it with archival and rollback journals.
 [Native family adapters](danoni-native-adapters.md) now cover eight further works.
-A CW-to-SSC bridge remains future work. The registration-gated original Straight
+The [CW bridge and default BPM fitting](danoni-default-tempo.md) are now implemented. The registration-gated original Straight
 Soul was deliberately removed from the active list; its HTML5 port remains.
 All third-party inputs and generated packs stay outside Git.
 
@@ -19,48 +19,31 @@ Pending entries are inventory, not playable exports. The generation contains **1
 | Work | Songs / charts | Output and validation |
 | --- | --- | --- |
 | Kouhaku | 5 / 6 | SSC/Ogg, accepted chart data/audio unchanged; new banner header; reviewed musical grid, display BPM, pickup previews and native scroll; maximum note movement 8.893 ms |
-| Higan Normal | 1 / 1 | SSC/Ogg, exact frame-based note/hold timing; 12 author speed events and its own measured native baseline; 342 expanded source colour events retained only in evidence |
-| Jam with Pancake | 1 / 1 | Native CW dump, 7-key; 1,160 taps, 140 holds |
-| Straight Soul HTML5 | 1 / 2 | Native CW dump, 5/7-key; 2,659 taps, 18 holds |
-| カナリア | 1 / 1 | Native CW dump, 7i; 825 taps, 37 holds |
-| Dancing at Dusk | 1 / 1 | Native CW dump, 5-key; 546 taps, 51 holds |
-| ふしぎなひかり | 1 / 2 | Native CW dump, 9A/9B only; 237 taps, four holds; unsupported 9i omitted |
+| Higan Normal | 1 / 1 | SSC/Ogg, default bounded musical fitting; 12 author speed events and its own measured native baseline; 342 expanded source colour events retained only in evidence |
+| Jam with Pancake | 1 / 1 | CW-derived SSC/Ogg with title banner, 7-key; 1,160 taps, 140 holds |
+| Straight Soul HTML5 | 1 / 2 | CW-derived SSC/Ogg with title banner, 5/7-key; 2,659 taps, 18 holds |
+| カナリア | 1 / 1 | CW-derived SSC/Ogg with title banner, 7i; 825 taps, 37 holds |
+| Dancing at Dusk | 1 / 1 | CW-derived SSC/Ogg with title banner, 5-key; 546 taps, 51 holds |
+| ふしぎなひかり | 1 / 2 | CW-derived SSC/Ogg with title banner, 9A/9B only; 237 taps, four holds; unsupported 9i omitted |
 | FTHosyu / party 4u / felys | 3 / 3 | Native family SSC/Ogg; embedded/external dos, 190/289/381 taps; felys ordering defect declared |
 | RE:RAVE | 1 / 2 | Native family SSC/Ogg; LVUP 556 taps, Hard 922 taps; independent selection/origin checks, shared music |
 | Happy Rainbow / Decipher | 2 / 2 | Native seven-key SSC/Ogg; 281/609 taps, 38/27 holds, nine/six speed events; visual stop toggles retained in Decipher evidence |
 | Destined Marionette / FAKE800 | 2 / 2 | Independent-counter SSC/Ogg; 645/541 taps, seven/one holds; compiled spawn/travel cross-check, measured native movement |
 
 
-Higan and the eight new native works have no accepted musical-grid reviews yet. Its 75 BPM is an exact synthetic
-frame clock, not a recovered musical tempo. Its saved native captures establish
-3 px/frame at 60 FPS and a 45.95 px reference arrow width: approximately
-3.917301415 arrow widths/second. The corresponding `#SCROLLS` preserves that
-baseline and multiplies the user's speed setting. Kouhaku keeps its separately
-measured 2.790697674 arrow widths/second. These measurements cover the verified
-native defaults, not arbitrary engine customization or identical screen pixels.
+All non-Kouhaku works now use default chart/audio BPM fitting, with a 9 ms
+endpoint budget and collision-safe fine-tick fallback. All 19 songs have reviewed
+banners. Higan's independently measured 3.917301415 arrow widths/second and
+Kouhaku's 2.790697674 remain the base movement, compensated through `#SCROLLS`.
+The five saved CW works now normalize to the same SSC/Ogg presentation path;
+original effective dos, snapshots and references remain local evidence.
+Unsupported 9i is absent from playable exports.
 
-CW packages keep selected effective dos, key/reference/snapshot JSON and music.
-They are importer packages, not complete offline browser replay sites. The
-unaltered original manifest is `source-manifest.json`; the derived `manifest.json`
-uses the existing `ddi-danoni-dump/1` schema, selected chart rows/music assets,
-`status: partial` and `export.schema: ddi-cw-import-package/1`. Source scripts,
-fonts, images and unsupported charts remain in the original corpus. Original
-colour/boost/lyric data is preserved in effective dos/reference JSON; this does
-not promise that arbitrary browser presentation is reproduced by the game.
-
-The initial generation deliberately added no generated artwork and does not
-normalize CW works to SSC. Native CW preview/rating behavior remains the game's
-importer behavior; shared SSC presentation is a later bridge.
-
-A separate fresh-profile Chrome import of both ZIPs confirms all 19 songs,
-23 charts and 13,228 judged notes (taps plus hold heads), with exactly the two
-collection names above and no page errors. Four current-importer warnings remain:
-`endFrame` is not applied for three CW works, and the unplayed Hikari 9i row is
-reported as unsupported. These are declared importer limitations, not missing
-media or failed supported charts. The local browser check is supplemental;
-the rebuild itself launches no browser. Its report is retained under
-`reviews/export-generation-native-20261010/browser-import.json`.
-The earlier 11-song generation and its browser evidence remain archived.
+The [default-tempo handover](danoni-default-tempo.md) defines conversion units,
+cache/fallback behavior and effect omissions. Straight Soul's nine per-note boosts
+are retained in evidence but cannot be represented in SSC. Earlier generation
+reports remain archived; current validation includes the original CW parser as
+an independent normalization oracle.
 
 ## Commands and registry contract
 
@@ -79,7 +62,8 @@ python3 tools/danoni-dump/ruffle/rebuild_corpus.py promote \
 ```
 
 Installed FFmpeg is required. The encoder accepts PCM16 mono/stereo; rebuild
-uses no scientific Python packages, browser, source JS or network. Build the
+uses scientific Python packages for uncached automatic tempo analysis, and no
+browser, source JS execution or source network access. See the [analysis command](danoni-default-tempo.md#run-and-evidence). Build the
 encoder from the current checked-in source rather than reusing an old binary.
 The Rust verifier is a standalone MIT package with local chart/engine dependencies;
 it does not change the game crates. It validates all heads/tails, source frame
@@ -102,7 +86,8 @@ Registry JSON schema `ddi-danoni-export-registry/1`:
   optional `baseline` binds an accepted prepared manifest. `policy.audio` is
   `ogg` or `wav` (default `ogg`); `musicalGrid`/`nativeScroll`/`artwork` are review bindings;
   `displayBpms` maps chart IDs to reviewed display strings; `scrollFactor`
-  defaults to 1. Generic preview/tier defaults come from the shared preparer.
+  defaults to 1; `tempoPolicy` is `auto` by default, or `exact`. Generic
+  preview/tier defaults come from the shared preparer.
 - `kind: cw-dump`: source is a saved dump manifest; `verification` binds its
   successful offline oracle verification. Only complete built-in 5/7/7i/9A/9B
   charts with captured music and matching references are eligible. Custom or
@@ -422,3 +407,16 @@ no banner, so five CW songs remain without artwork pending importer support or
 the normalization bridge. The only playable nine-key layouts are 9A and 9B;
 Hikari's unplayed 9i source row remains local original evidence and can cause the
 already documented unsupported-mode warning.
+
+
+### CW banners and default tempo generation (2026-10-10)
+
+The [offline CW bridge and default BPM fitting](danoni-default-tempo.md) supersede
+the artwork-only generation above. All 19 songs now have banners and SSC/Ogg;
+all 14 non-Kouhaku songs use fitted musical grids, with original source timing
+retained in evidence and endpoint movements below 9 ms. Explicit Kouhaku reviews
+and audio remain unchanged. Fresh Chrome import confirms 19 decoded banners,
+23 charts and 13,228 judged notes across 5/7/7i/9A/9B, without import warnings.
+The source Jam with Pancake display range is retained in the SSC tag; the older
+static browser test build displays its fitted 255 BPM summary. Supplemental
+browser evidence is local in `reviews/default-tempo-generation-20261010/`.

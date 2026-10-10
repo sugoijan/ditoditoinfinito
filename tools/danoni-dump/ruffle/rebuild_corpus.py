@@ -287,7 +287,7 @@ def build(registry, stage, ffmpeg, encoder, verifier):
     if config.get('schema') != SCHEMA: raise ValueError('Unsupported registry schema')
     root = external_directory(config['root']).resolve(strict=True)
     stage = external_directory(stage)
-    protected = [root / name for name in ('normalized', 'reviews', 'corpus', 'single-song-corpus-v1', 'legacy-pilot', 'exports', 'exports-history')]
+    protected = [root / name for name in ('normalized', 'reviews', 'corpus', 'single-song-corpus-v1', 'legacy-pilot', 'exports', 'exports-history', 'tempo-cache')]
     if stage == root or any(stage.is_relative_to(p) or p.is_relative_to(stage) for p in protected):
         raise ValueError('Staging directory must not overlap evidence/reviews')
     stage.mkdir(parents=True, exist_ok=False)
@@ -326,7 +326,7 @@ def build(registry, stage, ffmpeg, encoder, verifier):
                 prepared = stage / 'reports' / ident
                 native = prepare(source.parent, prepared, policy.get('audio', 'ogg'), ffmpeg, encoder,
                                  display_bpms=policy.get('displayBpms'), musical_grid=review('musicalGrid'),
-                                 native_scroll=review('nativeScroll'), scroll_factor=policy.get('scrollFactor', 1), artwork_review=review('artwork'))
+                                 native_scroll=review('nativeScroll'), scroll_factor=policy.get('scrollFactor', 1), artwork_review=review('artwork'), tempo_policy=policy.get('tempoPolicy','auto'), tempo_cache=root/'tempo-cache')
                 audio_check(prepared, ffmpeg, encoder)
                 (prepared / 'playable.zip').unlink()
                 if entry.get('baseline'):

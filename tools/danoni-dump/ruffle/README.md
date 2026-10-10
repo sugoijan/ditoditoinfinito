@@ -326,7 +326,8 @@ imports; adding the tag alone will still show 75 until that game-side fix.
 `prepare_pack.py --musical-grid REVIEW.json` is an opt-in **approximate** musical
 SSC export. It repositions notes and timing together under a strict below-10 ms
 budget, snaps compatible notes to reviewed subdivisions and falls back to fine
-ticks for outliers. Defaults remain exact. Every endpoint shift and fallback is
+ticks for outliers. Explicit reviews override the newer default automatic fitting;
+`--tempo-policy exact` retains the source-frame clock. Every endpoint shift and fallback is
 reported; invalid/collapsed holds or conflicting cells reject the export. See
 [the review schema and measured limits](../../../docs/research/danoni-postprocess.md#opt-in-musical-timing-with-a-strict-error-budget).
 `test_musical_grid.py` covers the independent synthetic cases. The newest local
@@ -421,7 +422,9 @@ These references retain all canonical lanes, native source frames, hold pairs,
 author speed/boost/visual-stop arrays, credits and observed key codes. They do
 not invent a CW `difData`, musical BPM, missing rating or arbitrary custom-key
 mapping. Register/review normalized output with `rebuild_corpus.py` for SSC/Ogg;
-that cached rebuild requires neither scientific Python packages nor a browser.
+complete cached tempo decisions need no scientific imports or browser. Initial
+automatic fitting uses the pinned analysis environment. See the [default-tempo
+contract](../../../docs/research/danoni-default-tempo.md).
 
 
 ## Native title panels and plain artwork

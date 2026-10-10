@@ -76,7 +76,7 @@ class Policies(unittest.TestCase):
             (source/'manifest.json').write_text(json.dumps({'schema':'ddi-normalized-work/experimental-1',
                 'metadata':{'title':'Original synthetic work','artist':'Original fixture'},
                 'music':{'path':'sound.wav','sha256':hashlib.sha256((source/'sound.wav').read_bytes()).hexdigest()},'charts':charts}))
-            result=prepare(source,root/'output','wav',Path(shutil.which('ffmpeg')),display_bpms={'7':'160'})
+            result=prepare(source,root/'output','wav',Path(shutil.which('ffmpeg')),display_bpms={'7':'160'},tempo_policy='exact')
             self.assertEqual(len(result['songs']),1)
             self.assertEqual([c['difficultyClassification'] for c in result['songs'][0]['charts']],['Medium','Hard'])
             text=(root/'output'/result['songs'][0]['simfile']).read_text()

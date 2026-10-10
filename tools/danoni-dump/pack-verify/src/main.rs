@@ -127,6 +127,37 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
                     holds += 1;
                 }
             }
+            if src["cwReference"].is_object() {
+                let root = source.parent().unwrap().join("source");
+                let effective = read(&root.join(strv(&src["cwReference"]["effectiveDos"])));
+                let mut dos = Dos::default();
+                for (key, value) in effective["fields"].as_object().unwrap() {
+                    dos.set(key, strv(value).to_string());
+                }
+                let mode = keys::canonical_label(strv(&src["mode"]));
+                let (def, custom) = keys::key_def(&dos, mode).unwrap().unwrap();
+                assert!(
+                    !custom,
+                    "custom/redefined CW keys are outside the SSC bridge scope"
+                );
+                for (chara, lane) in def.chara.iter().zip(src["lanes"].as_array().unwrap()) {
+                    assert_eq!(chara, strv(&lane["name"]), "CW lane order changed");
+                }
+                let original = danoni::import(&dos).expect("original CW import");
+                let id = src["cwReference"]["chartId"].as_u64().unwrap() as usize;
+                let (si, ci) = original.charts[id].expect("selected CW chart");
+                let native = notes(&original.songs[si].charts[ci], &original.songs[si]);
+                let mut normalized = wanted.clone();
+                normalized.sort_by(|a, b| a.0.cmp(&b.0).then(a.2.total_cmp(&b.2)));
+                assert_eq!(native.len(), normalized.len(), "CW note count changed");
+                for (a, b) in native.iter().zip(normalized) {
+                    assert_eq!((a.0, a.1), (b.0, b.1));
+                    assert!(
+                        (a.2 - b.2).abs() < 1e-10 && (a.3 - b.3).abs() < 1e-10,
+                        "CW origin/normalization changed"
+                    );
+                }
+            }
             wanted.sort_by(|a, b| a.0.cmp(&b.0).then(a.2.total_cmp(&b.2)));
             let got = notes(chart, &song);
             assert_eq!(wanted.len(), got.len());
@@ -154,9 +185,15 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
             if native {
                 assert_eq!(timing.scrolls[0].tick, ddi_chart::Tick(0));
                 assert!((timing.scrolls[0].ratio - base).abs() < 1e-12);
-                // Use a small interval before the first author change.
+                // Probe before every author change, including one snapped ahead of the first note.
                 let first = &chart.notes[0];
-                let sec = timing.seconds_at(first.tick);
+                let sec = timing
+                    .scrolls
+                    .iter()
+                    .skip(extra)
+                    .map(|s| timing.seconds_at(s.tick))
+                    .fold(timing.seconds_at(first.tick), f64::min)
+                    - 0.01;
                 let dt = 0.001;
                 for x in [1.0, 2.0, 3.0] {
                     let opt = ddi_engine::scroll::ScrollOptions {

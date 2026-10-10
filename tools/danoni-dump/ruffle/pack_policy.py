@@ -34,3 +34,10 @@ def display_bpm(value):
     if len(parts)==2 and parts[0]>parts[1]:raise ValueError('Display BPM range must be increasing')
     return {'kind':'single' if len(parts)==1 else 'range','minimumBpm':parts[0],'maximumBpm':parts[-1],
         'sscValue':':'.join(f'{p:.12g}' for p in parts),'source':'explicit review input'}
+
+
+def authored_display_bpm(value):
+    """Recognize numeric CW BPM metadata, preserving unknown placeholders as absent."""
+    if not isinstance(value,str) or not re.fullmatch(r'[0-9]+(?:\.[0-9]+)?(?:-[0-9]+(?:\.[0-9]+)?)?',value):return None
+    try:return {**display_bpm(value.replace('-',':')),'source':'authored CW header'}
+    except ValueError:return None

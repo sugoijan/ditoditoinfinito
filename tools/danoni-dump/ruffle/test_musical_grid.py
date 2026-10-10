@@ -39,7 +39,7 @@ class Musical(unittest.TestCase):
         rows=ssc.split('#NOTES:',1)[1].split(';')[0].strip().splitlines()
         self.assertEqual([i for i,row in enumerate(rows) if row=='10000'],[24,72])
 
-    def test_invalid_grid_and_collapsed_hold_are_rejected(self):
+    def test_invalid_grid_rejected_and_short_hold_uses_fine_fallback(self):
         grid={'bpm':180,'beatZeroSeconds':0,'subdivisionsPerBeat':2}
         for key,value in [('bpm',float('nan')),('beatZeroSeconds',float('inf')),('bpm',0),
                           ('subdivisionsPerBeat',5),('maximumErrorMs',10),('maximumErrorMs',0)]:
@@ -47,7 +47,10 @@ class Musical(unittest.TestCase):
         grid=validate_grid({'bpm':180,'beatZeroSeconds':1/120,'subdivisionsPerBeat':2})
         lanes=[{'tapsSeconds':[],'holdsSeconds':[]} for _ in range(5)]
         lanes[0]['holdsSeconds']=[[0,1/60]]
-        with self.assertRaises(ValueError):ssc_chart({'mode':'5','lanes':lanes},'Easy',3,grid)
+        text=ssc_chart({'mode':'5','lanes':lanes},'Easy',3,grid)
+        self.assertIn('2',text);self.assertIn('3',text)
+        report=summarize({'lanes':lanes},grid)
+        self.assertTrue(all(e['method']=='lane-collision-fine-fallback'for e in report['endpoints']))
 
     def test_source_bound_opt_in_pack_reports_every_shift(self):
         with tempfile.TemporaryDirectory(prefix='ddi-musical-grid-') as directory:

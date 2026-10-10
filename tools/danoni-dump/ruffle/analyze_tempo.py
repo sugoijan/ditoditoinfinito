@@ -31,7 +31,7 @@ def chart_candidates(times):
     times = np.asarray(times,dtype=float)
     if len(times)<8 or not np.isfinite(times).all():
         raise ValueError("Need at least eight finite distinct note times")
-    bpms=np.arange(60,240.001,.02); output=[]
+    bpms=np.arange(60,360.001,.02); output=[]
     for subdivisions in [1,2,3,4,6,8]:
         periods=60/bpms/subdivisions;valid=periods*60>=3
         response=abs(np.exp(2j*np.pi*times[:,None]/periods[None,:]).mean(axis=0))
@@ -76,7 +76,7 @@ def analyze(export, destination, preferred_bpms=None):
     export,manifest_bytes,manifest,entries=load_export(export)
     preferred_bpms=preferred_bpms or {}
     if set(preferred_bpms)-{e['id'] for e in entries}:raise ValueError('Preferred BPM refers to an unknown chart')
-    if any(not 60<=b<=240 for b in preferred_bpms.values()):raise ValueError('Preferred BPM must be finite and within 60–240')
+    if any(not 60<=b<=360 for b in preferred_bpms.values()):raise ValueError('Preferred BPM must be finite and within 60–360')
     def file(relative):
         path=(export/relative).resolve(strict=True)
         if not path.is_relative_to(export):raise ValueError("Export path escapes its directory")
@@ -124,7 +124,7 @@ def analyze(export, destination, preferred_bpms=None):
     report={"schema":"ddi-tempo-analysis/experimental-1","sourceManifestSha256":hashlib.sha256(manifest_bytes).hexdigest(),
         "analysisSourceSha256":hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "versions":{p:version(p) for p in ['librosa','numpy','scipy','soundfile']},
-        "settings":{"audioHopSamples":128,"tempoPriorsBpm":[60,120,180],"chartBpmRange":[60,240],
+        "settings":{"audioHopSamples":128,"tempoPriorsBpm":[60,120,180],"chartBpmRange":[60,360],
             "minimumGridSpacingSourceFrames":3,"chartWindowSeconds":20},"tracks":results,
         "limits":["Estimates do not identify original musical BPM or editor grid uniquely",
             "Half/double and triplet/binary aliases require musical review",
@@ -141,5 +141,5 @@ if __name__=='__main__':
     a=p.parse_args();hints={}
     for value in a.preferred_bpm:
         ident,bpm=value.rsplit('=',1);hints[ident]=float(bpm)
-        if not 60<=hints[ident]<=240:p.error('Preferred BPM must be in the analyzed 60–240 range')
+        if not 60<=hints[ident]<=360:p.error('Preferred BPM must be in the analyzed 60–360 range')
     analyze(a.export,a.output,hints)
