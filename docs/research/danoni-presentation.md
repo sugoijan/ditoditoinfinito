@@ -7,6 +7,10 @@ its independently captured HTML5 port remains eligible. The maintainer may
 expand the corpus in another session: updates must reread the latest inventory
 and preserve unrelated new entries rather than replacing it with a fixed list.
 
+The [source-rating review and SSC integration](danoni-source-ratings.md) now
+recover 15 of 17 single-song ratings. The [default-tempo bridge](danoni-default-tempo.md)
+and banners are also implemented; the study below records their earlier motivation.
+
 ## Ratings missed by native projection
 
 The family adapters checked initialized runtime labels, not the surrounding
@@ -145,4 +149,5 @@ The maintainer subsequently preferred native source-title panels and plain
 white-on-black fallback cards. That direction is now implemented and packaged
 for the 14 normalized native songs; see [the artwork handover](danoni-artwork.md#original-selector-panels-and-plain-fallback-2026-10-10).
 It supersedes the optional decorative/illustration direction as the default.
-Page ratings and musical-grid application remain separate pending work.
+Page ratings and musical-grid application are now implemented through the linked
+source-rating and default-tempo contracts.

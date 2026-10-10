@@ -326,7 +326,7 @@ def build(registry, stage, ffmpeg, encoder, verifier):
                 prepared = stage / 'reports' / ident
                 native = prepare(source.parent, prepared, policy.get('audio', 'ogg'), ffmpeg, encoder,
                                  display_bpms=policy.get('displayBpms'), musical_grid=review('musicalGrid'),
-                                 native_scroll=review('nativeScroll'), scroll_factor=policy.get('scrollFactor', 1), artwork_review=review('artwork'), tempo_policy=policy.get('tempoPolicy','auto'), tempo_cache=root/'tempo-cache')
+                                 native_scroll=review('nativeScroll'), scroll_factor=policy.get('scrollFactor', 1), artwork_review=review('artwork'), tempo_policy=policy.get('tempoPolicy','auto'), tempo_cache=root/'tempo-cache',ratings_review=review('ratings'))
                 audio_check(prepared, ffmpeg, encoder)
                 (prepared / 'playable.zip').unlink()
                 if entry.get('baseline'):
@@ -438,7 +438,7 @@ def retire(old, generation, history):
     registry = json.loads(raw_registry)
     root = Path(registry['root']).resolve(strict=True)
     for work in registry['works']:
-        for b in [work['source'], work.get('baseline'), work.get('verification'), *work.get('evidence', []), *[work.get('policy', {}).get(k) for k in ('musicalGrid', 'nativeScroll', 'artwork')]]:
+        for b in [work['source'], work.get('baseline'), work.get('verification'), *work.get('evidence', []), *[work.get('policy', {}).get(k) for k in ('musicalGrid', 'nativeScroll', 'artwork', 'ratings')]]:
             if b and checked(root, b['path'], b['sha256']).is_relative_to(old): raise ValueError('Registry still depends on old exports')
     history.mkdir(parents=True, exist_ok=True)
     ident = 'legacy-mixed-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]

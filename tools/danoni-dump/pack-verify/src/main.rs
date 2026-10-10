@@ -99,7 +99,19 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
             let chart = &song.charts[index];
             let timing = chart.timing(&song);
             if let Some(label) = src["metadata"]["difficultyLabel"].as_str() {
-                assert_eq!(song.charts[index].name, label, "difficulty label changed");
+                assert_eq!(
+                    c["sourceDifficultyLabel"], label,
+                    "source label lost from provenance"
+                );
+                let displayed = if c["difficultyStars"].is_null() {
+                    label
+                } else {
+                    ""
+                };
+                assert_eq!(
+                    song.charts[index].name, displayed,
+                    "rated charts must show their standard tier"
+                );
             }
             assert_eq!(chart.layout, format!("danoni-{}", strv(&src["mode"])));
             assert!(ddi_chart::PLAYED_DANONI_MODES.contains(&strv(&src["mode"])));

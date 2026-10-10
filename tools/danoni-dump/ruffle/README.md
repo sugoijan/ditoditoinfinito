@@ -445,3 +445,13 @@ Shared-music difficulties must share artwork. The accepted chart/audio baseline
 allows only the explicit new `#BANNER:banner.png;` header; musical data remains
 unchanged. Native CW dump banner import is a separate game-side handover item.
 Supported nine-key outputs are 9A/9B; 9i/9t are never selected for export.
+
+
+## Cached-page numeric difficulty
+
+`prepare_pack.py --ratings-review REVIEW.json` (registry `policy.ratings`) extracts
+source-bound counts, numbered stars and ranges from exact reviewed HTML excerpts.
+These supplement absent runtime ratings, use the same tier thresholds as Kouhaku
+and keep original names in provenance while rated charts display their standard
+tier/meter. Publisher scales and uncertain alternatives remain explicit. See the
+[review schema and current results](../../../docs/research/danoni-source-ratings.md).

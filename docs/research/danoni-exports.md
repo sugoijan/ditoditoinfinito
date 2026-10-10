@@ -85,6 +85,7 @@ Registry JSON schema `ddi-danoni-export-registry/1`:
 - `kind: normalized`: source is `ddi-normalized-work/experimental-1` manifest;
   optional `baseline` binds an accepted prepared manifest. `policy.audio` is
   `ogg` or `wav` (default `ogg`); `musicalGrid`/`nativeScroll`/`artwork` are review bindings;
+  `ratings` binds a cached-page numeric difficulty review;
   `displayBpms` maps chart IDs to reviewed display strings; `scrollFactor`
   defaults to 1; `tempoPolicy` is `auto` by default, or `exact`. Generic
   preview/tier defaults come from the shared preparer.
@@ -420,3 +421,16 @@ and audio remain unchanged. Fresh Chrome import confirms 19 decoded banners,
 The source Jam with Pancake display range is retained in the SSC tag; the older
 static browser test build displays its fitted 255 BPM summary. Supplemental
 browser evidence is local in `reviews/default-tempo-generation-20261010/`.
+
+
+### Published source-rating generation (2026-10-10)
+
+[Cached-page rating reviews](danoni-source-ratings.md) now supply 15 of the 17
+single-song charts with published numerical difficulty. They use Kouhaku's
+existing thresholds and put the source count in `#METER`; rated charts omit
+`#CHARTNAME` so the menu shows the standard tier instead of a free-text label.
+Original labels and alternative author scales remain in the report, including
+RE:RAVE's 1–12 progression and カナリア's two author ratings. FAKE800 uses its
+current exact-work author-catalogue level 22, retaining the old page's distinct
+three-star scale separately. The two festival charts without verified numeric
+ratings remain unrated. Chart/audio/presentation timing is unchanged.

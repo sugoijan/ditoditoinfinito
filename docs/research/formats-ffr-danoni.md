@@ -145,6 +145,20 @@ A "dos" (ダンおにスコア) is plain text of pipe-delimited `|key=value|` pa
 - `scrollch_data`: `frame,colorNo,±1[,layerGroup,transform]` per-lane scroll reversal (`.../dos-e0007-scrollchData`).
 - `style_data` (`styletitle_`, `styleresult_`…): `frame,--css-custom-property,value` (`.../dos-e0008-styleData`).
 
+**Published ratings outside dos (2026-10-10 corpus observation).** An absent
+`name::maker::level` does not imply that no author rating exists. The
+[Straight Soul work page](https://cw7.sakura.ne.jp/danoni/2009/0169_StraightSoul.html)
+publishes levels 13/18 for its 5/7-key charts while their captured `difData` names
+omit the optional level; the third comma-separated value 3.5 remains initial
+speed. [Jam with Pancake](https://chipstar64.sakura.ne.jp/danoni/danoni_JwP.html)
+uses numbered-star notation `☆08`, while
+[Hikari](https://vorhandensein.sakura.ne.jp/danoni/291_hikari/) associates `★×2`
+and `★×6` with separate 9A/9B table rows. Work pages and exact author-catalogue
+rows can therefore supplement missing runtime ratings, with source bytes,
+encoding, chart association and publisher scale retained. Do not reuse a tool
+score, key count or initial speed as difficulty. The [source-rating contract](danoni-source-ratings.md)
+keeps factual counts/ranges separate from derived SSC classification.
+
 **Example** from the bundled sample (`danoniplus:danoni/dos/0001_ThrustUp.txt`): `|difData=5,Thrust,3.5$7,Hard,3.5,75,1,7$11L,Upper,3.5,75,1,7|`, `|left_data=608,875,...|`, `|frzLeft_data=1728,1781,4093,4135,...|`, `|speed_data=284,1,954,0,1100,1,5475,1.125,6144,1|`, `|color_data=210,20,0x80FFFF,...|`. The second sample uses `|oni_data=...|foni_data=|` for a 14-key onigiri lane, `|speed_change=400,0.25|`, `|boost_data=200,3|`, and per-gauge overrides `|gaugeEasy=$50,3,5,40$...|` (`danoni/danoniA.txt`).
 
 ### B2. Key modes

@@ -103,16 +103,22 @@ def ssc_chart(chart,tier,stars,grid=None,native_motion=None,scroll_factor=1):
         scroll.append(f"{(event_tick(e['seconds'],False)+padding)/48:.15g}={multiplier*compensation:.15g}")
     label=chart.get('metadata',{}).get('difficultyLabel','')
     if not isinstance(label,str) or any(c in label for c in ';\r\n'):raise ValueError('Unsafe source difficulty label')
-    return ('#NOTEDATA:;\n'+(f'#CHARTNAME:{ssc_value(label)};\n' if label else '')+f'#STEPSTYPE:danoni-{mode};\n#DESCRIPTION:;\n#DIFFICULTY:{tier};\n#METER:{stars if stars is not None else 0};\n'
+    return ('#NOTEDATA:;\n'+(f'#CHARTNAME:{ssc_value(label)};\n' if label and stars is None else '')+f'#STEPSTYPE:danoni-{mode};\n#DESCRIPTION:;\n#DIFFICULTY:{tier};\n#METER:{stars if stars is not None else 0};\n'
         +f'#OFFSET:{padding*quantum-phase:.15g};\n#BPMS:0={bpm:.15g};\n'
         +(f"#SCROLLS:{','.join(scroll)};\n" if scroll else '')+f'#NOTES:{rows};\n')
 
 
-def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None,musical_grid=None,native_scroll=None,scroll_factor=1,preview_settings=None,artwork_review=None,tempo_policy="auto",tempo_cache=None):
+def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None,musical_grid=None,native_scroll=None,scroll_factor=1,preview_settings=None,artwork_review=None,tempo_policy="auto",tempo_cache=None,ratings_review=None):
     if tempo_policy not in ('auto','exact'):raise ValueError('Unknown tempo policy')
     if codec not in ('wav','ogg') or tier_policy not in ('stars','edit'):raise ValueError('Unknown audio/tier policy')
     tier_for_stars(None,bounds)
     source,raw,manifest,entries=load_export(source)
+    ratings_bytes=None;ratings={}
+    if ratings_review:
+        from source_ratings import load_review as load_ratings
+        ratings_bytes,ratings=load_ratings(ratings_review,digest(raw),entries)
+        for entry in entries:
+            if entry['id']in ratings:entry['stars']=ratings[entry['id']]['meter']
     reviews={ident:display_bpm(value) for ident,value in (display_bpms or {}).items()}
     if set(reviews)-{e['id'] for e in entries}:raise ValueError('Display BPM refers to an unknown chart')
     for entry in entries:
@@ -152,6 +158,15 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
         artwork_bytes,artwork=load_review(artwork_review,digest(raw),[e['id']for e in entries],manifest.get('sourceSwfSha256'))
     output=external_directory(output);output.mkdir(parents=True,exist_ok=False)
     (output/'songs').mkdir();(output/'references').mkdir()
+    if ratings_bytes:
+        (output/'ratings').mkdir()
+        (output/'ratings/review.json').write_bytes(ratings_bytes)
+        for row in ratings.values():
+            for value in row['ratings']:
+                binding=value['source'];target=output/'ratings'/binding['path'];target.parent.mkdir(parents=True,exist_ok=True)
+                body=(ratings_review.parent/binding['path']).read_bytes()
+                if digest(body)!=binding['sha256']:raise ValueError('Rating evidence changed during copy')
+                target.write_bytes(body)
     automatic=None
     if not grids and tempo_policy=='auto':
         from automatic_tempo import automatic_review
@@ -218,8 +233,10 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
             omitted={key:len(e['chart'].get(key,[])) for key in ['colors','boost','stops','effects'] if e['chart'].get(key)}
             charts.append({'id':e['id'],'difficultyStars':e['stars'],'difficultyClassification':tier,
                 'classificationSource':f'pack heuristic: {tier_policy}','sourceDifficultyClassification':e['metadata'].get('difficultyClassification'),
+                'sourceDifficultyLabel':e['metadata'].get('difficultyLabel',e['metadata'].get('label')),
+                'sourceRating':ratings.get(e['id']),
                 'unrepresentedEffects':omitted,'nativeScroll':native_report,'musicalQuantization':musical_summary(e['chart'],grids[e['id']]) if grids else None})
-            write_json(output/'references'/f'{ident}-{i}.json',{'sourceChart':e['chart'],'sourceMetadata':e['metadata'],'sourceReference':e['reference']})
+            write_json(output/'references'/f'{ident}-{i}.json',{'sourceChart':e['chart'],'sourceMetadata':e['metadata'],'sourceReference':e['reference'],'sourceRating':ratings.get(e['id'])})
         (folder/'song.ssc').write_text(text)
         songs.append({'id':ident,'title':title,'music':f'songs/{ident}/{name}','musicSha256':digest(destination.read_bytes()),
             'sourceAudioSha256':music['sha256'],'banner':f'songs/{ident}/banner.png' if banner else None,
@@ -228,7 +245,7 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
             'encoderSha256':digest(vorbis_encoder.read_bytes()) if codec=='ogg' else None,
             'timingBpm':timing_bpm,'timingOffsetSeconds':-phase,'preview':preview,'displayBpm':reviewed,'simfile':f'songs/{ident}/song.ssc','charts':charts})
     report={'schema':'ddi-playable-pack/experimental-1','sourceSchema':manifest['schema'],'sourceManifestSha256':digest(raw),
-        'sourceExport':str(source),'artworkReviewSha256':digest(artwork_bytes) if artwork_bytes else None,'prepareSourceSha256':digest(Path(__file__).read_bytes()),
+        'sourceExport':str(source),'ratingsReviewSha256':digest(ratings_bytes)if ratings_bytes else None,'ratingsReviewStoredAt':'ratings/review.json'if ratings_bytes else None,'ratingsPolicySourceSha256':digest(Path(__file__).with_name('source_ratings.py').read_bytes()),'artworkReviewSha256':digest(artwork_bytes) if artwork_bytes else None,'prepareSourceSha256':digest(Path(__file__).read_bytes()),
         'policySourceSha256':digest(Path(__file__).with_name('pack_policy.py').read_bytes()),
         'previewPolicySourceSha256':digest(Path(__file__).with_name('preview_policy.py').read_bytes()),
         'quantizerSourceSha256':digest(Path(__file__).with_name('musical_grid.py').read_bytes()),
@@ -246,7 +263,7 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('source',type=Path);p.add_argument('output',type=Path)
-    p.add_argument('--tempo-policy',choices=['auto','exact'],default='auto');p.add_argument('--tempo-cache',type=Path);p.add_argument('--artwork-review',type=Path);p.add_argument('--audio',choices=['wav','ogg'],default='wav');p.add_argument('--ffmpeg',type=Path,default=shutil.which('ffmpeg'))
+    p.add_argument('--ratings-review',type=Path);p.add_argument('--tempo-policy',choices=['auto','exact'],default='auto');p.add_argument('--tempo-cache',type=Path);p.add_argument('--artwork-review',type=Path);p.add_argument('--audio',choices=['wav','ogg'],default='wav');p.add_argument('--ffmpeg',type=Path,default=shutil.which('ffmpeg'))
     p.add_argument('--vorbis-encoder',type=Path);p.add_argument('--tier-policy',choices=['stars','edit'],default='stars')
     p.add_argument('--star-tier-bounds',default='1,3,5,7');p.add_argument('--preview-seconds',type=float,default=12)
     p.add_argument('--musical-grid',type=Path,help='Opt-in source-bound reviewed musical grid JSON; changes timing within a <10 ms budget')
@@ -266,5 +283,5 @@ if __name__=='__main__':
     if a.ffmpeg is None:p.error('Installed FFmpeg required')
     r=prepare(a.source,a.output,a.audio,a.ffmpeg,a.vorbis_encoder,bounds,a.preview_seconds,a.tier_policy,reviews,a.musical_grid,a.native_scroll,a.scroll_factor,
         {'quiet_ratio':a.preview_quiet_ratio,'min_notes':a.preview_min_notes,'max_gap':a.preview_max_gap,
-         'note_window':a.preview_note_window,'lead_in':a.preview_lead_in},artwork_review=a.artwork_review,tempo_policy=a.tempo_policy,tempo_cache=a.tempo_cache)
+         'note_window':a.preview_note_window,'lead_in':a.preview_lead_in},artwork_review=a.artwork_review,tempo_policy=a.tempo_policy,tempo_cache=a.tempo_cache,ratings_review=a.ratings_review)
     print(json.dumps({'songs':len(r['songs']),'charts':sum(len(s['charts']) for s in r['songs']),'noteTimingModified':r['noteTimingModified']}))
