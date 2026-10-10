@@ -17,6 +17,7 @@ import zipfile
 from export_io import digest, write_json
 from paths import external_directory
 from prepare_pack import prepare
+from artwork_review import undecorated_simfile
 
 MODES = {'5', '7', '7i', '9A', '9B'}
 SCHEMA = 'ddi-danoni-export-registry/1'
@@ -325,7 +326,7 @@ def build(registry, stage, ffmpeg, encoder, verifier):
                 prepared = stage / 'reports' / ident
                 native = prepare(source.parent, prepared, policy.get('audio', 'ogg'), ffmpeg, encoder,
                                  display_bpms=policy.get('displayBpms'), musical_grid=review('musicalGrid'),
-                                 native_scroll=review('nativeScroll'), scroll_factor=policy.get('scrollFactor', 1))
+                                 native_scroll=review('nativeScroll'), scroll_factor=policy.get('scrollFactor', 1), artwork_review=review('artwork'))
                 audio_check(prepared, ffmpeg, encoder)
                 (prepared / 'playable.zip').unlink()
                 if entry.get('baseline'):
@@ -334,7 +335,9 @@ def build(registry, stage, ffmpeg, encoder, verifier):
                     for song in native['songs']:
                         old = next(row for row in golden['songs'] if row['id'] == song['id'])
                         for field in ('simfile', 'music'):
-                            if (prepared / song[field]).read_bytes() != (baseline.parent / old[field]).read_bytes():
+                            actual=(prepared / song[field]).read_bytes()
+                            if field=='simfile' and song.get('banner'):actual=undecorated_simfile(actual)
+                            if actual != (baseline.parent / old[field]).read_bytes():
                                 raise ValueError('Accepted Kouhaku chart/audio bytes changed')
                 for song in native['songs']:
                     folder = stage / collection / 'files' / collections[collection] / (ident + '--' + song['id'])
@@ -435,7 +438,7 @@ def retire(old, generation, history):
     registry = json.loads(raw_registry)
     root = Path(registry['root']).resolve(strict=True)
     for work in registry['works']:
-        for b in [work['source'], work.get('baseline'), work.get('verification'), *work.get('evidence', []), *[work.get('policy', {}).get(k) for k in ('musicalGrid', 'nativeScroll')]]:
+        for b in [work['source'], work.get('baseline'), work.get('verification'), *work.get('evidence', []), *[work.get('policy', {}).get(k) for k in ('musicalGrid', 'nativeScroll', 'artwork')]]:
             if b and checked(root, b['path'], b['sha256']).is_relative_to(old): raise ValueError('Registry still depends on old exports')
     history.mkdir(parents=True, exist_ok=True)
     ident = 'legacy-mixed-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]

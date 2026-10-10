@@ -187,3 +187,106 @@ modifications. For multi-chart songs, share the song cover instead of using a
 difficulty-specific cover unless the source actually supplies one. The importer
 session need not implement a new title/art format to consume the standard
 folder layout and `#BANNER` references above.
+
+## Original selector panels and plain fallback (2026-10-10)
+
+The maintainer prefers the rectangular song-title treatments already present in
+Kouhaku's selector, including their fonts, spacing and placement. All five are
+now recovered through **native Ruffle**, without browser execution or new
+acquisition. A named `music_select` MovieClip contains the complete title and
+border. Its selected timeline frames are 1, 31, 61, 91 and 121 in source song
+order; these match the earlier menu captures. The source's graphic wording,
+including `-Remix-` and its ころっけ spelling, remains intact without changing
+canonical song metadata.
+
+The worker adds bounded `renderScale` (integer 1–4, default 1), scaling the
+320×240 offscreen target and its device scale together. Recorded clicks retain
+logical 320×240 coordinates: move, press and release are mapped to output pixels.
+It redraws source vectors/fonts at 1280×960 rather than enlarging an old image.
+Snapshots expose `stageToViewport: [a,b,c,d,tx,ty]`, a native affine transform
+from stage pixels to captured pixels; existing stage bounds retain their units.
+The original synthetic integration checks high-resolution pixels and both mouse
+press/release coordinates, together with the unchanged sandbox checks.
+
+[`capture_title.py`](../../tools/danoni-dump/ruffle/capture_title.py) consumes a
+successful restricted `snapshot.json` / `run.json` and its rendered PPM. It
+requires a unique visible named MovieClip (including visible ancestors), complete
+state/audit, and optionally the reviewed selected timeline frame. It transforms
+all four bounds corners, rounds outward and adds one pixel for edge antialiasing.
+An out-of-viewport or ambiguous crop fails. FFmpeg emits a lossless `panel.png`
+and an aspect-preserving 640×200 `banner.png` on a black matte. It does not retype
+the original wordmark. The current source crop is 766×174 output pixels.
+
+```sh
+python3 tools/danoni-dump/ruffle/run.py WORKER CONFIG_JSON NEW_CAPTURE
+python3 tools/danoni-dump/ruffle/capture_title.py \
+  NEW_CAPTURE/snapshot.json 90 music_select NEW_PANEL_DIRECTORY \
+  --expected-clip-frame 1
+```
+
+`panel.json` uses `ddi-native-title-panel/1`: source SWF/page URLs and hash,
+capture date, native worker/build identity, snapshot/run/image hashes,
+`captureFrame`, `clipName`, `clipMovieFrame`, native stage bounds/viewport matrix,
+`cropPixels: [x,y,width,height]`, banner dimensions, background, `titleReplaced:
+false`, exact FFmpeg commands/version and PNG hashes. Original captures remain
+local at `~/Music/DanOni/reviews/kouhaku/title-panels-v2/`; `contact-sheet.png`
+shows the five recovered panels. Earlier failed experiments remain separate.
+
+For sources without an associated usable panel, `artwork.mjs` now defaults to
+`plain-title/1`: centered original song title in white on black, with verified
+artist credits only when available. The title is not translated or shortened.
+There are no decorative lane motifs in this default. `--background '#rrggbb'`
+and `--foreground '#rrggbb'` allow a known source-page scheme; `--style lanes`
+retains the earlier study template. PNG rasterization still uses installed Chrome
+and fonts in a separate, network-denied composition step. SWF panel extraction
+itself uses no Playwright. SVG/PNG/environment provenance remains recorded.
+
+## Reviewed banner integration
+
+The preparer accepts `--artwork-review FILE`; registry recipes use
+`policy.artwork: {path,sha256}`. Review schema `ddi-reviewed-song-artwork/1`:
+
+```json
+{
+  "schema": "ddi-reviewed-song-artwork/1",
+  "sourceManifestSha256": "<exact normalized manifest SHA-256>",
+  "charts": {
+    "tougenkyo": {
+      "origin": "native-title-panel",
+      "banner": {"path": "songs/tougenkyo/banner.png", "sha256": "<PNG SHA-256>"},
+      "evidence": {"path": "songs/tougenkyo/panel.json", "sha256": "<JSON SHA-256>"}
+    }
+  }
+}
+```
+
+Paths are contained, regular files relative to the review, with no symlinks.
+Each covered chart needs a 640×200 PNG and matching evidence. Native evidence
+must bind the source SWF, resulting PNG and unchanged title pixels. `plain-title`
+evidence must be the matching `ddi-artwork-study/experimental-1` record with
+`template: plain-title/1`. Unknown chart IDs, changed bytes and conflicting or
+missing banners among difficulties sharing music are rejected. The actual
+Kouhaku review covers all six charts; both 桃源郷 difficulties share one panel.
+
+Output song folders add `banner.png` and `#BANNER:banner.png;`. Prepared manifests
+record banner path/hash, origin, dimensions, evidence hash and review hash.
+The game-parser verifier resolves the tag and checks the image dimensions.
+Accepted Kouhaku simfile bytes must remain identical after removing **only**
+that exact new banner header; music remains byte-identical. Note/hold timing,
+scroll, BPM, previews and ratings retain the existing independent checks.
+Original source/reference files are not rewritten and no gameplay background
+is assigned from a cover.
+
+The current local generation supplies five original Kouhaku panels and nine
+plain native-work banners: **14 songs with artwork**. All 19 songs/23 charts
+still import. The five songs packaged as native CW dumps currently lack banner
+support in the game importer: `app/src/import/danoni.rs::store_song` constructs
+`banner: None` even on inspected `main`. This is a handover item for the importer
+session (resolve/store an explicit per-song banner), or can be addressed by the
+planned CW normalization-to-SSC bridge. No game files are changed here.
+
+Only **9A and 9B** are eligible nine-key exports. The current Hikari package
+contains those two selected charts; 9i remains solely an unsupported row in the
+retained original effective dos, explaining the import warning. The new synthetic
+packaging regression proves 9i and 9t charts/media references cannot be selected
+alongside 9A/9B. It does not rewrite original oracle data to remove that warning.

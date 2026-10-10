@@ -138,7 +138,10 @@ large original converters may require a reviewed larger budget. The parent
 runner still caps CPU at 20 s, wall time at 30 s and resident memory at 2 GiB.
 `inspectGlobals` defaults to false; true records the two AVM1
 case-sensitivity environments' enumerable stored global properties, excluding
-function values and non-enumerable properties. `render` defaults to false; true uses an offscreen Metal target.
+function values and non-enumerable properties. `render` defaults to false; true uses an offscreen Metal target. `renderScale` is an integer 1–4
+(default 1), requires rendering, and scales output pixels/device scale together;
+click coordinates remain logical 320×240. Snapshots add the native affine
+`stageToViewport: [a,b,c,d,tx,ty]` transform for exact crop mapping.
 The upstream bundled default font is enabled, including with rendering disabled.
 Its metrics matter for autosized text button hit testing. `mixAudio` defaults to
 false; true installs an offline stereo 44.1 kHz Ruffle mixer, advancing by the
@@ -419,3 +422,23 @@ author speed/boost/visual-stop arrays, credits and observed key codes. They do
 not invent a CW `difData`, musical BPM, missing rating or arbitrary custom-key
 mapping. Register/review normalized output with `rebuild_corpus.py` for SSC/Ogg;
 that cached rebuild requires neither scientific Python packages nor a browser.
+
+
+## Native title panels and plain artwork
+
+`capture_title.py SNAPSHOT FRAME CLIP NEW_DIRECTORY [--expected-clip-frame N]`
+selects a unique visible title MovieClip, maps native stage bounds into captured
+pixels, and emits a lossless crop plus an aspect-preserving 640×200 banner.
+It requires successful restricted execution and complete/audited state, invokes
+FFmpeg only for image transforms, and records capture/build/hash/command
+provenance. Work scripts are not executed by the crop tool. Native title-panel
+capture needs no browser; optional plain SVG title cards use `artwork.mjs` and
+installed Chrome with all network requests denied.
+
+See [the artwork contract](../../../docs/research/danoni-artwork.md#reviewed-banner-integration)
+for `ddi-reviewed-song-artwork/1`. `prepare_pack.py --artwork-review FILE` and
+`rebuild_corpus.py`'s `policy.artwork` bind banners to exact normalized sources.
+Shared-music difficulties must share artwork. The accepted chart/audio baseline
+allows only the explicit new `#BANNER:banner.png;` header; musical data remains
+unchanged. Native CW dump banner import is a separate game-side handover item.
+Supported nine-key outputs are 9A/9B; 9i/9t are never selected for export.

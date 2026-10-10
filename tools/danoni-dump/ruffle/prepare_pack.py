@@ -18,6 +18,7 @@ import zipfile
 from export_io import digest, write_json
 from musical_grid import validate_grid,position,summarize as musical_summary
 from paths import external_directory
+from artwork_review import load_review
 from scroll_policy import validate_motion,base_ratio,summarize as scroll_summary
 from pack_policy import star_count,tier_for_stars,choose_preview,display_bpm
 
@@ -106,7 +107,7 @@ def ssc_chart(chart,tier,stars,grid=None,native_motion=None,scroll_factor=1):
         +(f"#SCROLLS:{','.join(scroll)};\n" if scroll else '')+f'#NOTES:{rows};\n')
 
 
-def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None,musical_grid=None,native_scroll=None,scroll_factor=1,preview_settings=None):
+def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),preview_seconds=12,tier_policy='stars',display_bpms=None,musical_grid=None,native_scroll=None,scroll_factor=1,preview_settings=None,artwork_review=None):
     if codec not in ('wav','ogg') or tier_policy not in ('stars','edit'):raise ValueError('Unknown audio/tier policy')
     tier_for_stars(None,bounds)
     source,raw,manifest,entries=load_export(source)
@@ -140,6 +141,9 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
                 if measured.get('baseArrowHeightsPerSecond')!=motion['baseArrowHeightsPerSecond']:raise ValueError('Motion rate disagrees with its evidence')
                 if manifest.get('sourceSwfSha256') and measured.get('sourceSwfSha256')!=manifest['sourceSwfSha256']:raise ValueError('Motion evidence comes from another SWF')
                 motion_evidence[ident]=body
+    artwork_bytes=None;artwork={}
+    if artwork_review:
+        artwork_bytes,artwork=load_review(artwork_review,digest(raw),[e['id']for e in entries],manifest.get('sourceSwfSha256'))
     output=external_directory(output);output.mkdir(parents=True,exist_ok=False)
     (output/'songs').mkdir();(output/'references').mkdir()
     groups={}
@@ -176,11 +180,16 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
             with wave.open(str(decoded),'rb') as wav:
                 if (wav.getframerate(),wav.getnchannels(),wav.getnframes())!=(rate,channels,count):raise ValueError('Decoded Vorbis count/rate/channels differ')
             decoded.unlink()
+        selected_art=[artwork.get(e['id'])for e in group]
+        banner=next((v for v in selected_art if v is not None),None)
+        if banner and any(v!=banner for v in selected_art):raise ValueError('Shared-music charts must have the same reviewed banner')
+        if banner:(folder/'banner.png').write_bytes(banner['bytes'])
         meta=first['metadata'];title=meta.get('title',meta.get('musicTitle',first['id']));artist=meta.get('artist','')
         if any(c in str(title)+str(artist) for c in ';\r\n'):raise ValueError('Unrepresentable header')
         grid=grids.get(first['id']);timing_bpm=grid['bpm'] if grid else 75;phase=grid['beatZeroSeconds'] if grid else 0
         text=(f'#VERSION:0.83;\n#TITLE:{ssc_value(title)};\n#ARTIST:{ssc_value(artist)};\n#MUSIC:{name};\n#OFFSET:{-phase:.15g};\n#BPMS:0={timing_bpm:.15g};\n'
               +f"#SAMPLESTART:{preview['startSeconds']:.9g};\n#SAMPLELENGTH:{preview['lengthSeconds']:.9g};\n")
+        if banner:text+='#BANNER:banner.png;\n'
         selected=[reviews[e['id']] for e in group if e['id'] in reviews]
         if selected and any(v!=selected[0] for v in selected):raise ValueError('Conflicting display BPMs for charts sharing music')
         reviewed=selected[0] if selected else None
@@ -198,12 +207,13 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
             write_json(output/'references'/f'{ident}-{i}.json',{'sourceChart':e['chart'],'sourceMetadata':e['metadata'],'sourceReference':e['reference']})
         (folder/'song.ssc').write_text(text)
         songs.append({'id':ident,'title':title,'music':f'songs/{ident}/{name}','musicSha256':digest(destination.read_bytes()),
-            'sourceAudioSha256':music['sha256'],'pcmSampleRate':rate,'pcmChannels':channels,'pcmFrames':count,
+            'sourceAudioSha256':music['sha256'],'banner':f'songs/{ident}/banner.png' if banner else None,
+            'artwork':{k:v for k,v in banner.items()if k!='bytes'} if banner else None,'pcmSampleRate':rate,'pcmChannels':channels,'pcmFrames':count,
             'decodeCommand':decode,'encodingCommand':command,'encoderVersion':encoder_version,
             'encoderSha256':digest(vorbis_encoder.read_bytes()) if codec=='ogg' else None,
             'timingBpm':timing_bpm,'timingOffsetSeconds':-phase,'preview':preview,'displayBpm':reviewed,'simfile':f'songs/{ident}/song.ssc','charts':charts})
     report={'schema':'ddi-playable-pack/experimental-1','sourceSchema':manifest['schema'],'sourceManifestSha256':digest(raw),
-        'sourceExport':str(source),'prepareSourceSha256':digest(Path(__file__).read_bytes()),
+        'sourceExport':str(source),'artworkReviewSha256':digest(artwork_bytes) if artwork_bytes else None,'prepareSourceSha256':digest(Path(__file__).read_bytes()),
         'policySourceSha256':digest(Path(__file__).with_name('pack_policy.py').read_bytes()),
         'previewPolicySourceSha256':digest(Path(__file__).with_name('preview_policy.py').read_bytes()),
         'quantizerSourceSha256':digest(Path(__file__).with_name('musical_grid.py').read_bytes()),
@@ -211,6 +221,7 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
         'timingBpm':None if grids else 75,'noteTimingModified':bool(grids),
         'musicalGridReviewSha256':digest(grid_bytes) if grid_bytes else None,
         'nativeScrollReviewSha256':digest(motion_bytes) if motion_bytes else None,'scrollCorrectionFactor':scroll_factor,'tierPolicy':{'name':tier_policy,'upperBounds':list(bounds),'tiers':['Beginner','Easy','Medium','Hard','Challenge']},'songs':songs}
+    if artwork_bytes:(output/'artwork-review.json').write_bytes(artwork_bytes)
     write_json(output/'manifest.json',report)
     with zipfile.ZipFile(output/'playable.zip','x',compression=zipfile.ZIP_DEFLATED) as archive:
         for f in sorted((output/'songs').rglob('*')):
@@ -220,7 +231,7 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('source',type=Path);p.add_argument('output',type=Path)
-    p.add_argument('--audio',choices=['wav','ogg'],default='wav');p.add_argument('--ffmpeg',type=Path,default=shutil.which('ffmpeg'))
+    p.add_argument('--artwork-review',type=Path);p.add_argument('--audio',choices=['wav','ogg'],default='wav');p.add_argument('--ffmpeg',type=Path,default=shutil.which('ffmpeg'))
     p.add_argument('--vorbis-encoder',type=Path);p.add_argument('--tier-policy',choices=['stars','edit'],default='stars')
     p.add_argument('--star-tier-bounds',default='1,3,5,7');p.add_argument('--preview-seconds',type=float,default=12)
     p.add_argument('--musical-grid',type=Path,help='Opt-in source-bound reviewed musical grid JSON; changes timing within a <10 ms budget')
@@ -240,5 +251,5 @@ if __name__=='__main__':
     if a.ffmpeg is None:p.error('Installed FFmpeg required')
     r=prepare(a.source,a.output,a.audio,a.ffmpeg,a.vorbis_encoder,bounds,a.preview_seconds,a.tier_policy,reviews,a.musical_grid,a.native_scroll,a.scroll_factor,
         {'quiet_ratio':a.preview_quiet_ratio,'min_notes':a.preview_min_notes,'max_gap':a.preview_max_gap,
-         'note_window':a.preview_note_window,'lead_in':a.preview_lead_in})
+         'note_window':a.preview_note_window,'lead_in':a.preview_lead_in},artwork_review=a.artwork_review)
     print(json.dumps({'songs':len(r['songs']),'charts':sum(len(s['charts']) for s in r['songs']),'noteTimingModified':r['noteTimingModified']}))

@@ -11,7 +11,13 @@ const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', 
 const font = '"Hiragino Sans", "Noto Sans CJK JP", "Noto Sans JP", sans-serif';
 const formats = { banner: [640, 200], cover: [768, 768], pack: [836, 328] };
 
-function svg(title, artist, seed, kind, lines, size) {
+function svg(title, artist, seed, kind, lines, size, options) {
+  if (options.style === 'plain') {
+    const [w, h] = formats[kind];
+    const baseline = (h - size * 1.2 * (lines.length - 1)) / 2 + size * .32 - (artist ? 14 : 0);
+    const titleText = lines.map((line, i) => `<text x="${w / 2}" y="${baseline + i * size * 1.2}" font-size="${size}">${escape(line)}</text>`).join('');
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${escape(title)}"><rect width="${w}" height="${h}" fill="${options.background}"/><g fill="${options.foreground}" font-family="${escape(font)}" text-anchor="middle">${titleText}${artist ? `<text x="${w / 2}" y="${h - 27}" font-size="${kind === 'cover' ? 24 : 18}" opacity=".75">${escape(artist)}</text>` : ''}</g></svg>`;
+  }
   const [w, h] = formats[kind], square = kind === 'cover', hue = parseInt(seed.slice(0, 4), 16) % 360;
   const pad = square ? 55 : 32, baseline = square ? 505 : h * .48;
   const ornament = Array.from({ length: 5 }, (_, i) => {
@@ -26,13 +32,13 @@ function svg(title, artist, seed, kind, lines, size) {
 <g fill="#f6f5ef" font-family="${escape(font)}">${text}<text x="${pad}" y="${square ? 705 : h - 27}" font-size="${square ? 24 : 18}" fill="#c8cbd0">${escape(artist)}</text></g></svg>`;
 }
 
-async function layout(page, title, artist, kind) {
-  return page.evaluate(({ title, artist, kind, formats, font }) => {
+async function layout(page, title, artist, kind, style) {
+  return page.evaluate(({ title, artist, kind, formats, font, style }) => {
     const [w, h] = formats[kind], square = kind === 'cover', canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
-    const width = w - (square ? 110 : 64), maxSize = square ? 64 : kind === 'pack' ? 44 : 36;
+    const width = w - (square ? 110 : 64), maxSize = square ? 64 : kind === 'pack' ? (style === 'plain' ? 60 : 44) : (style === 'plain' ? 52 : 36);
     let chosen;
     for (let size = maxSize; size >= 16; size--) {
-      ctx.font = `700 ${size}px ${font}`;
+      ctx.font = `${style === 'plain' ? 400 : 700} ${size}px ${font}`;
       const lines = []; let line = '';
       // Prefer word boundaries; split oversized words only at grapheme boundaries.
       for (const { segment } of new Intl.Segmenter('ja', { granularity: 'word' }).segment(title)) {
@@ -51,10 +57,12 @@ async function layout(page, title, artist, kind) {
     ctx.font = `${square ? 24 : 18}px ${font}`;
     if (ctx.measureText(artist).width > width) throw new Error('Credit needs manual typography review');
     return chosen;
-  }, { title, artist, kind, formats, font });
+  }, { title, artist, kind, formats, font, style });
 }
 
-export async function study(manifestFile, output, packTitle) {
+export async function study(manifestFile, output, packTitle, options = {}) {
+  options = { style: 'plain', background: '#000000', foreground: '#ffffff', ...options };
+  if (!['plain', 'lanes'].includes(options.style) || ![options.background, options.foreground].every(c => /^#[0-9a-f]{6}$/i.test(c))) throw new Error('Expected plain/lanes style and six-digit hex colours');
   if (!packTitle?.trim() || packTitle.length > 300 || /[\u0000-\u001f]/u.test(packTitle)) throw new Error('Provide a plain-text pack title, at most 300 characters');
   const bytes = await readFile(manifestFile), manifest = JSON.parse(bytes);
   if (manifest.schema !== 'ddi-playable-pack/experimental-1' || !manifest.songs?.length) throw new Error('Expected prepared playable-pack manifest');
@@ -82,8 +90,8 @@ export async function study(manifestFile, output, packTitle) {
       const relative = item.referenceSha256 ? `songs/${item.id}` : 'pack';
       const dir = path.join(output, relative); await mkdir(dir, { recursive: true });
       for (const kind of item.kinds) {
-        const fitted = await layout(page, item.title, item.artist, kind);
-        const body = svg(item.title, item.artist, item.seed, kind, fitted.lines, fitted.size);
+        const fitted = await layout(page, item.title, item.artist, kind, options.style);
+        const body = svg(item.title, item.artist, item.seed, kind, fitted.lines, fitted.size, options);
         const stem = `${relative}/${kind}`; await writeFile(path.join(output, `${stem}.svg`), body, { flag: 'wx' });
         await page.setContent(`<html lang="ja"><body style="margin:0">${body}</body></html>`);
         await page.evaluate(() => document.fonts.ready);
@@ -92,8 +100,8 @@ export async function study(manifestFile, output, packTitle) {
       }
     }
     const cards = records.map(r => `<figure><img src="${escape(r.png)}" alt="${escape(r.title)}"/><figcaption>${escape(r.title)} · ${escape(r.role)}</figcaption></figure>`).join('');
-    await writeFile(path.join(output, 'index.html'), `<!doctype html><html lang="ja"><meta charset="utf-8"><title>Artwork study</title><style>body{background:#11151d;color:#ecebe7;font-family:${font};padding:32px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px}figure{margin:0}img{display:block;width:100%;height:auto}figcaption{padding:12px 0;color:#acb4c3}</style><h1>Artwork study</h1><p>Generated typography and abstract motifs. Original titles and artist credits. No audio, timing, or simfile changes.</p><main>${cards}</main></html>`, { flag: 'wx' });
-    const report = { schema: 'ddi-artwork-study/experimental-1', generatedAt: new Date().toISOString(), sourceManifest: path.resolve(manifestFile), sourceManifestSha256: hash(bytes), generatorSha256: hash(await readFile(fileURLToPath(import.meta.url))), template: 'typographic-lanes/1', browser: browser.version(), platform: process.platform, fontStack: font, fontReproducibility: 'Uses installed fonts; exact pixels may differ across machines. No font files distributed.', packTitle: { value: packTitle, origin: 'caller-provided display label' }, originalAssetsUsed: false, networkRequests: 0, records };
+    await writeFile(path.join(output, 'index.html'), `<!doctype html><html lang="ja"><meta charset="utf-8"><title>Artwork study</title><style>body{background:#11151d;color:#ecebe7;font-family:${font};padding:32px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px}figure{margin:0}img{display:block;width:100%;height:auto}figcaption{padding:12px 0;color:#acb4c3}</style><h1>Artwork study</h1><p>${options.style === 'plain' ? 'Plain title cards.' : 'Generated typography and abstract motifs.'} Original titles and artist credits. No audio, timing, or simfile changes.</p><main>${cards}</main></html>`, { flag: 'wx' });
+    const report = { schema: 'ddi-artwork-study/experimental-1', generatedAt: new Date().toISOString(), sourceManifest: path.resolve(manifestFile), sourceManifestSha256: hash(bytes), generatorSha256: hash(await readFile(fileURLToPath(import.meta.url))), template: options.style === 'plain' ? 'plain-title/1' : 'typographic-lanes/1', colours: { background: options.background, foreground: options.foreground }, browser: browser.version(), platform: process.platform, fontStack: font, fontReproducibility: 'Uses installed fonts; exact pixels may differ across machines. No font files distributed.', packTitle: { value: packTitle, origin: 'caller-provided display label' }, originalAssetsUsed: false, networkRequests: 0, records };
     await writeFile(path.join(output, 'artwork.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
     return report;
   } finally { await browser.close(); }
@@ -101,8 +109,14 @@ export async function study(manifestFile, output, packTitle) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    if (process.argv.length !== 5) throw new Error('Usage: node artwork.mjs PREPARED_MANIFEST NEW_EXTERNAL_DIRECTORY PACK_TITLE');
-    const report = await study(process.argv[2], path.resolve(process.argv[3]), process.argv[4]);
+    if (process.argv.length < 5) throw new Error('Usage: node artwork.mjs PREPARED_MANIFEST NEW_EXTERNAL_DIRECTORY PACK_TITLE [--style plain|lanes] [--background #rrggbb] [--foreground #rrggbb]');
+    const options = {};
+    for (let i = 5; i < process.argv.length; i += 2) {
+      const key = process.argv[i];
+      if (!['--style', '--background', '--foreground'].includes(key) || !process.argv[i + 1]) throw new Error('Unknown/missing artwork option');
+      options[key.slice(2)] = process.argv[i + 1];
+    }
+    const report = await study(process.argv[2], path.resolve(process.argv[3]), process.argv[4], options);
     console.log(JSON.stringify({ images: report.records.length, output: path.resolve(process.argv[3]) }));
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

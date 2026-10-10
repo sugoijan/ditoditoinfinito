@@ -218,6 +218,16 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
     let render = config["render"].as_bool().unwrap_or(false);
     let mix_audio = config["mixAudio"].as_bool().unwrap_or(false);
+    let render_scale = match config.get("renderScale") {
+        None => 1,
+        Some(value) => value
+            .as_u64()
+            .filter(|n| (1..=4).contains(n))
+            .ok_or("renderScale must be an integer in 1..4")? as u32,
+    };
+    if render_scale != 1 && !render {
+        return Err("renderScale requires rendering".into());
+    }
     let events = input_events(&config)?;
     let mut executor = NullExecutor::new();
     let audit = navigator::Audit::default();
@@ -235,14 +245,14 @@ fn run() -> Result<(), Box<dyn Error>> {
         .with_log(audit.clone())
         .with_page_url(page_url)
         .with_max_execution_duration(Duration::from_millis(avm_execution_ms))
-        .with_viewport_dimensions(320, 240, 1.0)
+        .with_viewport_dimensions(320 * render_scale, 240 * render_scale, render_scale as f64)
         .with_autoplay(true);
     if mix_audio {
         builder = builder.with_audio(audio::OfflineAudio::new());
     }
     if render {
         builder = builder.with_renderer(WgpuRenderBackend::for_offscreen(
-            (320, 240),
+            (320 * render_scale, 240 * render_scale),
             wgpu::Backends::METAL,
             wgpu::PowerPreference::LowPower,
         )?);
@@ -278,7 +288,30 @@ fn run() -> Result<(), Box<dyn Error>> {
                 mixer.recorder.iteration = frame;
             }
             for (_, event) in events.iter().filter(|(at, _)| *at == frame) {
-                guard.handle_event(event.clone());
+                let event = match event.clone() {
+                    PlayerEvent::MouseMove { x, y } => PlayerEvent::MouseMove {
+                        x: x * render_scale as f64,
+                        y: y * render_scale as f64,
+                    },
+                    PlayerEvent::MouseDown {
+                        x,
+                        y,
+                        button,
+                        index,
+                    } => PlayerEvent::MouseDown {
+                        x: x * render_scale as f64,
+                        y: y * render_scale as f64,
+                        button,
+                        index,
+                    },
+                    PlayerEvent::MouseUp { x, y, button } => PlayerEvent::MouseUp {
+                        x: x * render_scale as f64,
+                        y: y * render_scale as f64,
+                        button,
+                    },
+                    event => event,
+                };
+                guard.handle_event(event);
             }
             guard.run_frame();
             guard.update_timers(FloatDuration::from_millis(1000.0 / fps));
@@ -337,7 +370,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         "swfHeaderFps":fps, "clock":{"frames":"one run_frame per iteration","timers":"fixed header-FPS step",
             "getTimer":"wall clock","audio":if mix_audio {"offline PCM sample cursor"} else {"NullAudioBackend: sound position fixed at zero"},
             "timebaseVerified":false},"defaultFont":true,
-        "avm1Halted":halted,"rendered":render,"audio":audio_report,
+        "avm1Halted":halted,"rendered":render,"renderScale":render_scale,"audio":audio_report,
         "captures":captures, "audit":audit.report()});
     let output = serde_json::to_vec(&output)?;
     if output.len() > 32 * 1024 * 1024 {

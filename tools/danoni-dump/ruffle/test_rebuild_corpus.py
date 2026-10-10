@@ -35,6 +35,22 @@ class Rebuild(unittest.TestCase):
             with self.assertRaises(ValueError) as error:rebuild.audio_comparison(a,b)
             self.assertNotIsInstance(error.exception,rebuild.AudioQualityError)
 
+    def test_only_9a_and_9b_are_packaged_from_a_mixed_nine_key_work(self):
+        with tempfile.TemporaryDirectory()as d:
+            root=Path(d);charts=[]
+            for index,mode in enumerate(['9i','9A','9B','9t']):
+                paths={key:f'{index}-{key}.json'for key in ['effectiveDos','keys','reference','snapshots']}
+                for key,path in paths.items():write_json(root/path,{'chartId':index}if key=='reference'else{})
+                charts.append({'chartId':index,'keyMode':mode,'status':'complete'if mode in ('9A','9B')else'partial','paths':paths})
+            (root/'music.ogg').write_bytes(b'original synthetic media')
+            m={'schema':'ddi-danoni-dump/1','status':'partial','charts':charts,'assets':[{'role':'music','path':'music.ogg','sha256':digest((root/'music.ogg').read_bytes()),'chartIds':[1,2]}]}
+            write_json(root/'manifest.json',m)
+            report=rebuild.cw_dump(root/'manifest.json',root/'package',{'passed':True,'comparisons':[{'chartId':i,'referenceMatched':True}for i in [1,2]]})
+            packaged=json.loads((root/'package/manifest.json').read_text())
+            self.assertEqual([c['keyMode']for c in packaged['charts']],['9A','9B'])
+            self.assertEqual([c['mode']for c in report['charts']],['9A','9B'])
+            self.assertFalse((root/'package/0-reference.json').exists());self.assertFalse((root/'package/3-reference.json').exists())
+
     def generation(self, folder):
         folder.mkdir()
         (folder / 'playable.zip').write_bytes(b'original synthetic archive')

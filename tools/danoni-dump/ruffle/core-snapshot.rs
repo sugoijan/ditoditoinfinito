@@ -181,7 +181,10 @@ pub fn capture(player: &mut Player, inspect_globals: bool) -> Json {
             );
             cursor += 1;
         }
+        let viewport = context.stage.view_matrix();
         json!({"schema":"ddi-avm1-snapshot/experimental-1", "roots":roots,
+            "stageToViewport":[viewport.a,viewport.b,viewport.c,viewport.d,
+                viewport.tx.to_pixels(),viewport.ty.to_pixels()],
             "objects":objects,"displayTree":display_tree,"globalScopes":global_scopes, "incomplete":inspect.incomplete,
             "avm1Halted":context.avm1.ddi_halted(),
             "limits":{"roots":64,"objects":MAX_OBJECTS,"properties":MAX_PROPERTIES,

@@ -81,7 +81,9 @@ def movie(actions, second=b"", frames=2):
 
 def create(directory, fractional=True):
     directory.mkdir(parents=True, exist_ok=False)
-    first = assign("getterCalls",push(0))
+    mouse = assign('mouseX',get('_root')+push('_xmouse')+action(0x4e))
+    mouse += assign('mouseY',get('_root')+push('_ymouse')+action(0x4e))
+    first = mouse + assign("getterCalls",push(0))
     first += assign("chart", push(0) + action(0x43))
     for lane, notes in [("left",[120,240.5 if fractional else 240]),("down",[]),("up",[180]),("right",[300]),("space",[360])]:
         first += member(get("chart"),lane,array(notes))
@@ -111,7 +113,7 @@ def create(directory, fractional=True):
     poll += assign("polledRight",push(39)+push(1)+get("Key")+push("isDown")+action(0x52))
     first += member(get("_global"),"ddiFixtureGlobal",get("chart"))
     first += poll
-    second = member(get("chart") + push("left") + action(0x4e),0,push(180))
+    second = mouse + member(get("chart") + push("left") + action(0x4e),0,push(180))
     second += draw(0x28a050) + poll
     (directory/"fixture.swf").write_bytes(movie(first,second))
     resource = b"cachedMarker=from-cache&number=17"

@@ -18,7 +18,7 @@ Pending entries are inventory, not playable exports. The generation contains **1
 
 | Work | Songs / charts | Output and validation |
 | --- | --- | --- |
-| Kouhaku | 5 / 6 | SSC/Ogg, accepted SSC/audio bytes unchanged; reviewed musical grid, display BPM, pickup previews and native scroll; maximum note movement 8.893 ms |
+| Kouhaku | 5 / 6 | SSC/Ogg, accepted chart data/audio unchanged; new banner header; reviewed musical grid, display BPM, pickup previews and native scroll; maximum note movement 8.893 ms |
 | Higan Normal | 1 / 1 | SSC/Ogg, exact frame-based note/hold timing; 12 author speed events and its own measured native baseline; 342 expanded source colour events retained only in evidence |
 | Jam with Pancake | 1 / 1 | Native CW dump, 7-key; 1,160 taps, 140 holds |
 | Straight Soul HTML5 | 1 / 2 | Native CW dump, 5/7-key; 2,659 taps, 18 holds |
@@ -48,7 +48,7 @@ fonts, images and unsupported charts remain in the original corpus. Original
 colour/boost/lyric data is preserved in effective dos/reference JSON; this does
 not promise that arbitrary browser presentation is reproduced by the game.
 
-The first generation deliberately adds no generated artwork and does not
+The initial generation deliberately added no generated artwork and does not
 normalize CW works to SSC. Native CW preview/rating behavior remains the game's
 importer behavior; shared SSC presentation is a later bridge.
 
@@ -100,7 +100,7 @@ Registry JSON schema `ddi-danoni-export-registry/1`:
   Music bytes additionally match the source asset hashes.
 - `kind: normalized`: source is `ddi-normalized-work/experimental-1` manifest;
   optional `baseline` binds an accepted prepared manifest. `policy.audio` is
-  `ogg` or `wav` (default `ogg`); `musicalGrid`/`nativeScroll` are review bindings;
+  `ogg` or `wav` (default `ogg`); `musicalGrid`/`nativeScroll`/`artwork` are review bindings;
   `displayBpms` maps chart IDs to reviewed display strings; `scrollFactor`
   defaults to 1. Generic preview/tier defaults come from the shared preparer.
 - `kind: cw-dump`: source is a saved dump manifest; `verification` binds its
@@ -408,3 +408,17 @@ preserves both playable ZIPs byte-for-byte; only the work inventory/status chang
 The [presentation follow-up](danoni-presentation.md) records recovered page-star
 ratings, unhinted BPM analysis of all ten normalized works and source-informed
 cover priorities. Those findings are separate from current playable metadata.
+
+
+### Artwork generation (2026-10-10)
+
+The [reviewed banner integration](danoni-artwork.md#reviewed-banner-integration)
+adds five original Kouhaku selector panels rendered/cropped by native Ruffle,
+plus nine plain white-on-black native-work title cards. Song folders use
+`banner.png` and SSC `#BANNER`; shared difficulties share a cover. Accepted
+Kouhaku chart bytes differ only by that header and its audio bytes are unchanged.
+No BPM/rating/preview/scroll policy is changed. Native CW imports still construct
+no banner, so five CW songs remain without artwork pending importer support or
+the normalization bridge. The only playable nine-key layouts are 9A and 9B;
+Hikari's unplayed 9i source row remains local original evidence and can cause the
+already documented unsupported-mode warning.

@@ -139,3 +139,10 @@ joint-evidence musical-grid application (including the CW bridge), then a
 source-informed artwork contact sheet and reviewed pack integration. The exact
 source references, accepted Kouhaku bytes and native-motion policy remain the
 comparison baseline throughout.
+
+
+The maintainer subsequently preferred native source-title panels and plain
+white-on-black fallback cards. That direction is now implemented and packaged
+for the 14 normalized native songs; see [the artwork handover](danoni-artwork.md#original-selector-panels-and-plain-fallback-2026-10-10).
+It supersedes the optional decorative/illustration direction as the default.
+Page ratings and musical-grid application remain separate pending work.

@@ -110,6 +110,23 @@ def test(worker, directory):
             offset = (50*320+50)*3
             assert pixels[offset:offset+3] == rgb, "ActionScript drawing pixels differ"
     assert captures[0] == captures[1], "fresh worker captures are not reproducible"
+    scaled_config=json.loads((inputs/'run.json').read_text());scaled_config['renderScale']=4
+    scaled_config['events']=[{'frame':1,'type':'click','x':50,'y':50}]
+    (inputs/'scaled.json').write_text(json.dumps(scaled_config))
+    assert run(worker,inputs/'scaled.json',directory/'scaled')['exitCode']==0
+    scaled=json.loads((directory/'scaled/snapshot.json').read_text())
+    assert scaled['renderScale']==4
+    for captured in scaled['captures']:
+        root=properties(captured['state'],captured['state']['roots'][0]['value'])
+        assert abs(root['mouseX']-50)<.05 and abs(root['mouseY']-50)<.05, 'scaled press/release must keep logical coordinates'
+    for frame,rgb in [(1,bytes([200,80,40])),(2,bytes([40,160,80]))]:
+        image=(directory/'scaled'/f'frame-{frame}.ppm').read_bytes()
+        header=b'P6\n1280 960\n255\n';assert image.startswith(header)
+        assert len(image)==len(header)+1280*960*3
+        offset=(200*1280+200)*3+len(header);assert image[offset:offset+3]==rgb
+    for value in [0,5,1.5,'4']:
+        (inputs/'invalid-scale.json').write_text(json.dumps({**scaled_config,'renderScale':value}))
+        assert run(worker,inputs/'invalid-scale.json',directory/('invalid-scale-'+str(value)))['exitCode']!=0
     result = run(worker,inputs/"pcm.json",directory/"pcm")
     assert result["exitCode"] == 0, (directory/"pcm/stderr.txt").read_text()
     audio = json.loads((directory/"pcm/snapshot.json").read_text())["audio"]
@@ -190,7 +207,7 @@ def test(worker, directory):
     print(json.dumps({"passed":True,"directory":str(directory),
         "checks":["outside read/write denied","input write denied","symlink escape denied","network denied",
             "AVM resource requests denied","exact before/after graph","getter not invoked","sparse and special values",
-            "FlashVars and URL parameters","child movie-clip storage","two offscreen pixel buffers","fresh-process repeat",
+            "FlashVars and URL parameters","child movie-clip storage","two offscreen pixel buffers","4x native rendering and logical press/release coordinates","fresh-process repeat",
             "delayed PCM stream and exact impulses","loud overlapping PCM saturation","native registration points","text/budget/iteration bounds","cache integrity",
             "budget and audit exhaustion rejected","frame-polled key input","bounded held arrow keys","stored global data without getter invocation","halted initialized chart rejected",
             "Git output guard","outer timeout","outer memory limit"]},indent=2))

@@ -50,6 +50,13 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
         let song =
             sm::parse_ssc(&fs::read_to_string(prepared.join(strv(&entry["simfile"]))).unwrap())
                 .unwrap();
+        if let Some(banner) = entry["banner"].as_str() {
+            assert_eq!(song.banner.as_deref(), Some("banner.png"));
+            let png = fs::read(prepared.join(banner)).expect("banner file");
+            assert!(png.len() >= 24 && &png[..8] == b"\x89PNG\r\n\x1a\n");
+            assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 640);
+            assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 200);
+        }
         assert_eq!(song.title, strv(&entry["title"]), "song title changed");
         assert!((song.preview_start - num(&entry["preview"]["startSeconds"])).abs() < 1e-6);
         assert!((song.preview_length - num(&entry["preview"]["lengthSeconds"])).abs() < 1e-6);
