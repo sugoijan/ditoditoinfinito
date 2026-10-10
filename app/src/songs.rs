@@ -614,12 +614,15 @@ pub(crate) async fn drop_unused_shared(db: &Db) -> Result<(), String> {
     db.write(unused).await
 }
 
-/// Removes every imported song and file.
+/// Removes every imported song, noteskin and file.
 pub(crate) async fn clear_imported() -> Result<(), String> {
     let db = Db::open().await?;
     db.write(vec![
         Write::Clear { store: idb::SONGS },
         Write::Clear { store: idb::FILES },
+        Write::Clear {
+            store: idb::NOTESKINS,
+        },
     ])
     .await
 }

@@ -11,6 +11,7 @@ use crate::songs::fetch_text;
 struct Credits {
     songs: Vec<SongCredit>,
     fonts: Vec<FontCredit>,
+    video: VideoCredit,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -36,6 +37,27 @@ struct PartCredit {
     part: String,
     spdx: String,
     holders: Vec<String>,
+    url: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct VideoCredit {
+    name: String,
+    version: String,
+    spdx: String,
+    homepage: String,
+    source_url: String,
+    tarball_url: String,
+    tarball_sha256: String,
+    configure: Vec<String>,
+    components: Vec<ComponentCredit>,
+    notices: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct ComponentCredit {
+    name: String,
+    spdx: String,
     url: String,
 }
 
@@ -81,7 +103,7 @@ impl Component for CreditsScreen {
             Some(Err(e)) => html! { <p class="error">{ e }</p> },
             Some(Ok(c)) => html! {
                 <>
-                    <p>{ "Dito Dito Infinito's code is MIT-licensed. The bundled demo songs and fonts are third-party works used under their own licences, credited here as those licences require." }</p>
+                    <p>{ "Dito Dito Infinito's code is MIT-licensed. The bundled demo songs and fonts and the video decoder are third-party works used under their own licences, credited here as those licences require." }</p>
                     <h2>{ "Songs" }</h2>
                     { for c.songs.iter().map(song) }
                     <h2>{ "Fonts" }</h2>
@@ -94,6 +116,7 @@ impl Component for CreditsScreen {
                             </li>
                         }) }
                     </ul>
+                    { video(&c.video) }
                 </>
             },
         };
@@ -127,6 +150,37 @@ fn song(s: &SongCredit) -> Html {
                 { if s.excluded.is_empty() { html!{} } else { html!{ <li class="muted">{ "not included: " }{ s.excluded.join("; ") }</li> } } }
                 <li class="muted">{ if s.modifications.is_empty() { "modifications: none".to_string() } else { format!("modifications: {}", s.modifications.join("; ")) } }</li>
             </ul>
+        </section>
+    }
+}
+
+fn video(v: &VideoCredit) -> Html {
+    let tarball = v.tarball_url.rsplit('/').next().unwrap_or(&v.tarball_url);
+    html! {
+        <section>
+            <h2>{ "Video decoder" }</h2>
+            <p>
+                { "Background videos the browser cannot decode play through a separate module, fetched only when a song needs it. It uses code of " }
+                <a href={v.homepage.clone()}>{ format!("{} {}", v.name, v.version) }</a>
+                { format!(" licensed under the {}; its source, unmodified: ", v.spdx) }
+                <a href={v.tarball_url.clone()}>{ tarball }</a>
+                { " (" }<a href={v.source_url.clone()}>{ "tag" }</a>
+                { ", SHA-256 " }<code class="credit-hash">{ &v.tarball_sha256 }</code>
+                { "). It is built by video/build.sh in this game's repository with the flags below and linked with the game's own code (MIT)." }
+            </p>
+            <ul>
+                { for v.components.iter().map(|c| html! {
+                    <li><a href={c.url.clone()}>{ &c.name }</a>{ " — " }{ &c.spdx }</li>
+                }) }
+            </ul>
+            <p class="muted">
+                <a href={v.notices.clone()}>{ "Licence texts" }</a>
+                { " (served with the module, in builds that include it)." }
+            </p>
+            <details>
+                <summary>{ "Configure flags" }</summary>
+                <pre class="credit-flags">{ v.configure.join("\n") }</pre>
+            </details>
         </section>
     }
 }

@@ -71,6 +71,10 @@ pub(crate) struct GameLoop {
     frozen_frame: Option<Option<f32>>,
     /// Width over height of the song's background image.
     song_bg_aspect: Option<f32>,
+    /// The noteskin of this play, if one is chosen and fits the layout.
+    noteskin: Option<ddi_render::noteskin::NoteskinPlay>,
+    /// A noteskin readied while a play was on: used from the next play.
+    next_noteskin: Option<(ddi_render::noteskin::NoteskinPlay, Vec<Option<web_sys::ImageBitmap>>)>,
 }
 
 /// Width over height of the screens pack art was made for.
@@ -219,6 +223,8 @@ impl GameLoop {
             frame_setting: BackgroundFrame::Auto,
             frozen_frame: None,
             song_bg_aspect: None,
+            noteskin: None,
+            next_noteskin: None,
         }
     }
 
@@ -241,6 +247,13 @@ impl GameLoop {
         self.guard = VideoGuard::default();
         self.refresh_at_start = self.refresh_hz();
         self.upload_backgrounds();
+        if let Some((play, images)) = self.next_noteskin.take() {
+            self.install_noteskin(Some(play), images);
+        }
+        // A retry plays the noteskin's commands from the start again.
+        if let Some(n) = self.noteskin.as_mut() {
+            n.restart();
+        }
         self.session = Some(session);
         self.done = false;
     }
@@ -355,6 +368,11 @@ impl GameLoop {
         self.movies.off()
     }
 
+    /// What kept movies from playing this play, for the results.
+    pub(crate) fn video_trouble(&self) -> Option<String> {
+        self.movies.trouble()
+    }
+
     /// Where the video decoder stands, once a movie asked for it.
     pub(crate) fn video_status(&self) -> Option<crate::web::video::ModuleStatus> {
         self.movies.module_status()
@@ -417,6 +435,78 @@ impl GameLoop {
     /// The lyrics of the song about to play (`None`: none shown).
     pub(crate) fn set_lyrics(&mut self, lyrics: Option<LyricsView>) {
         self.lyrics = lyrics;
+    }
+
+    /// Uses `play` for the plays to come, with its skin images decoded
+    /// (`images[i]` for texture `i`, `None` for built-in art); `None` draws
+    /// the built-in skin.
+    pub(crate) fn set_noteskin(
+        &mut self,
+        play: Option<ddi_render::noteskin::NoteskinPlay>,
+        images: Vec<Option<web_sys::ImageBitmap>>,
+    ) {
+        // Mid-play the arrows do not change: from the next play on.
+        if self.session.is_some() {
+            if let Some(play) = play {
+                if let Some((_, old)) = self.next_noteskin.replace((play, images)) {
+                    old.into_iter().flatten().for_each(|b| b.close());
+                }
+            }
+            return;
+        }
+        self.install_noteskin(play, images);
+    }
+
+    fn install_noteskin(
+        &mut self,
+        play: Option<ddi_render::noteskin::NoteskinPlay>,
+        images: Vec<Option<web_sys::ImageBitmap>>,
+    ) {
+        self.renderer.clear_noteskin_textures();
+        let srgb = self.renderer.srgb();
+        self.noteskin = play.map(|mut play| {
+            play.set_srgb(srgb);
+            let keys = play.texture_keys().to_vec();
+            for (i, key) in keys.iter().enumerate() {
+                let id = match (key, images.get(i).cloned().flatten()) {
+                    (ddi_noteskin::build::TextureKey::BuiltIn(name), _) => self
+                        .renderer
+                        .add_builtin_art(&self.gfx.device, &self.gfx.queue, name),
+                    (_, Some(image)) => {
+                        let (w, h) = (image.width().max(1), image.height().max(1));
+                        let texture = self
+                            .renderer
+                            .create_noteskin_texture(&self.gfx.device, w, h);
+                        self.gfx.queue.copy_external_image_to_texture(
+                            &wgpu::CopyExternalImageSourceInfo {
+                                source: wgpu::ExternalImageSource::ImageBitmap(image.clone()),
+                                origin: wgpu::Origin2d::ZERO,
+                                flip_y: false,
+                            },
+                            wgpu::CopyExternalImageDestInfo {
+                                texture: &texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d::ZERO,
+                                aspect: wgpu::TextureAspect::All,
+                                color_space: wgpu::PredefinedColorSpace::Srgb,
+                                premultiplied_alpha: false,
+                            },
+                            wgpu::Extent3d {
+                                width: w,
+                                height: h,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                        self.uploaded_images.push(image);
+                        self.renderer
+                            .add_noteskin_texture(&self.gfx.device, &texture)
+                    }
+                    (_, None) => continue,
+                };
+                play.set_texture(i, id);
+            }
+            play
+        });
     }
 
     pub(crate) fn clear_session(&mut self) {
@@ -558,6 +648,18 @@ impl GameLoop {
                         None => lyrics.hide(),
                     }
                 }
+                let layer = match self.noteskin.as_mut() {
+                    Some(play) => {
+                        let from = play.next_seq();
+                        play.update(
+                            &frame,
+                            session.player.skin_events_since(from),
+                            render.reverse,
+                        );
+                        Some(play as &mut dyn ddi_render::noteskin::NoteLayer)
+                    }
+                    None => None,
+                };
                 self.renderer.render(
                     &self.gfx.device,
                     &self.gfx.queue,
@@ -569,6 +671,7 @@ impl GameLoop {
                     &session.layout,
                     &session.names,
                     render,
+                    layer,
                 );
             }
             None => {
@@ -618,6 +721,31 @@ impl GameLoop {
         };
         set("frames", (self.frames as f64).into());
         set("video", self.movies.debug().into());
+        set(
+            "noteskin",
+            match &self.noteskin {
+                Some(n) => {
+                    let o = js_sys::Object::new();
+                    let _ = js_sys::Reflect::set(&o, &"name".into(), &n.name.as_str().into());
+                    let notes: js_sys::Array = n
+                        .notes
+                        .iter()
+                        .map(|s| wasm_bindgen::JsValue::from_str(s))
+                        .collect();
+                    let _ = js_sys::Reflect::set(&o, &"notes".into(), &notes);
+                    let problems: js_sys::Array = n
+                        .problems()
+                        .iter()
+                        .map(|s| wasm_bindgen::JsValue::from_str(s))
+                        .collect();
+                    let _ = js_sys::Reflect::set(&o, &"problems".into(), &problems);
+                    let _ =
+                        js_sys::Reflect::set(&o, &"quads".into(), &(n.last_quads() as u32).into());
+                    o.into()
+                }
+                None => wasm_bindgen::JsValue::NULL,
+            },
+        );
         set("backend", self.backend_name().into());
         set("srgb_view", self.gfx.view_format().is_srgb().into());
         set("fps", self.fps.fps.into());

@@ -138,6 +138,17 @@ if [ ! -f "$zlib/lib/libz.a" ] || [ "$zsrc/.ddi-sha256" -nt "$zlib/lib/libz.a" ]
   cp "$zsrc/zlib.h" "$zsrc/zconf.h" "$zlib/include/"
 fi
 
+# wasi-libc's licence files, for the notices (step 7).
+libc_commit=$(value wasi_libc_commit)
+libc_url="$(value wasi_libc_url)$libc_commit"
+libc="$out/downloads/wasi-libc-$libc_commit"
+mkdir -p "$libc"
+libc_files=(LICENSE LICENSE-MIT libc-top-half/musl/COPYRIGHT libc-bottom-half/cloudlibc/LICENSE)
+libc_keys=(LICENSE LICENSE_MIT musl_COPYRIGHT cloudlibc_LICENSE)
+for i in "${!libc_files[@]}"; do
+  fetch "$libc_url/${libc_files[$i]}" "$libc/${libc_keys[$i]}" "$(value "wasi_libc_sha256_${libc_keys[$i]}")"
+done
+
 # 4. Configure, out of tree. Paths are mapped away so the module does not
 # depend on where it was built.
 build="$out/ffmpeg-build"
@@ -204,9 +215,44 @@ else
   built="$wasm"
 fi
 
-# 7. The module is LGPL-2.1-or-later: its licence text, from the FFmpeg
-# source, is served next to it.
-cp "$src/COPYING.LGPLv2.1" "$out/ddivideo.LICENSE.txt"
+# 7. The notices served next to the module: what is in it, where its
+# source is, and the licence texts (FFmpeg's LGPL from its source, zlib's,
+# wasi-libc's and those of the parts of it the module links).
+notice() {
+  printf '\n\n==== %s ====\n\n' "$1"
+  cat "$2"
+}
+{
+  cat <<NOTICE
+ddivideo.wasm, the video decoder of Dito Dito Infinito
+($(value project_url))
+
+This module uses code of FFmpeg $ffmpeg_version ($(value homepage)), licensed
+under the GNU Lesser General Public License version 2.1 or later (below).
+Its source, unmodified: $ffmpeg_url
+(tag $ffmpeg_tag, $(value source_url)).
+The module is built from it by video/build.sh in the repository above,
+with the configure flags in video/FFMPEG.toml (also listed in
+ddivideo.json next to this file), and linked with video/ddivideo.c, the
+repository's own code (MIT). Running the build script rebuilds the module,
+also against a modified FFmpeg.
+
+It also contains:
+- zlib $zlib_version (https://zlib.net/), under the zlib licence (below);
+- wasi-libc from wasi-sdk $wasi_version, under the MIT licence (below),
+  with parts from musl (MIT), cloudlibc (BSD-2-Clause) and dlmalloc
+  (public domain, CC0): https://github.com/WebAssembly/wasi-libc
+  at commit $libc_commit;
+- LLVM's compiler-rt builtins from wasi-sdk $wasi_version, under the Apache
+  License 2.0 with LLVM Exceptions (no notice needed in compiled form).
+NOTICE
+  notice "FFmpeg: GNU Lesser General Public License version 2.1" "$src/COPYING.LGPLv2.1"
+  notice "zlib $zlib_version: licence" "$zsrc/LICENSE"
+  notice "wasi-libc: licensing" "$libc/LICENSE"
+  notice "wasi-libc: MIT licence" "$libc/LICENSE_MIT"
+  notice "musl (in wasi-libc): COPYRIGHT" "$libc/musl_COPYRIGHT"
+  notice "cloudlibc (in wasi-libc): licence" "$libc/cloudlibc_LICENSE"
+} > "$out/ddivideo.LICENSE.txt"
 
 # 8. Description for the site and the credits, written before the module
 # is moved into place so the two always match.

@@ -1006,6 +1006,12 @@ fn report_view(r: &ImportReport, details: bool) -> Html {
             plural(r.imported.len(), "song", "songs")
         ));
     }
+    if !r.noteskins.is_empty() {
+        parts.push(format!(
+            "stored {} (choose it under Options, Arrows)",
+            plural(r.noteskins.len(), "noteskin", "noteskins")
+        ));
+    }
     if r.shared_images > 0 {
         parts.push(format!(
             "stored {}",
@@ -1071,6 +1077,7 @@ fn report_view(r: &ImportReport, details: bool) -> Html {
         text + "."
     };
     let class = if r.imported.is_empty()
+        && r.noteskins.is_empty()
         && r.shared_images == 0
         && r.shared_videos == 0
         && r.shared_skipped == 0
@@ -1097,6 +1104,7 @@ fn report_view(r: &ImportReport, details: bool) -> Html {
     html! {
         <>
             <p class={class}>{ summary }</p>
+            { list("Noteskins", "import-noteskins muted", &r.noteskins) }
             { list("Not imported", "import-errors", &r.skipped) }
             { list("Imported with problems", "import-warnings muted", &r.warnings) }
             { if details { list("Details for pack authors (no difference in play)", "import-notes muted", &r.notes) } else { html!{} } }

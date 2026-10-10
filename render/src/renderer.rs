@@ -6,13 +6,16 @@ use ddi_engine::rules::JudgeNames;
 
 use crate::background::BackgroundPipeline;
 use crate::color::to_target;
-use crate::scene::{self, FieldGeometry, RenderOptions, Skin};
+use crate::noteskin::NoteLayer;
+use crate::scene::{self, FieldGeometry, RenderOptions, Segment, Skin};
 use crate::sprite::SpritePipeline;
 use crate::text::TextPipeline;
+use crate::textured::TexturedPipeline;
 
 pub struct Renderer {
     background: BackgroundPipeline,
     sprites: SpritePipeline,
+    textured: TexturedPipeline,
     text: TextPipeline,
     pub skin: Skin,
     instance_count: usize,
@@ -30,6 +33,7 @@ impl Renderer {
         Renderer {
             background: BackgroundPipeline::new(device, format),
             sprites: SpritePipeline::new(device, format),
+            textured: TexturedPipeline::new(device, format),
             text: TextPipeline::new(device, queue, format, fonts),
             skin: Skin::default(),
             instance_count: 0,
@@ -78,6 +82,66 @@ impl Renderer {
             .set_video_frame(device, queue, id, width, height, planes, bt709, full_range)
     }
 
+    /// A texture for a noteskin image ([`Renderer::add_noteskin_texture`]),
+    /// filled by the shell with sRGB-encoded pixels.
+    pub fn create_noteskin_texture(
+        &self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        self.background.create_texture(device, width, height)
+    }
+
+    /// Registers a filled noteskin texture; returns the id its quads use.
+    pub fn add_noteskin_texture(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) -> u32 {
+        self.textured.add_texture(device, texture)
+    }
+
+    /// Registers the built-in art standing in for one of StepMania's own
+    /// skins' images (`ddi_noteskin::build::TextureKey::BuiltIn`).
+    pub fn add_builtin_art(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        name: &str,
+    ) -> u32 {
+        let art = crate::art::builtin(name);
+        let texture = self
+            .background
+            .create_texture(device, art.width, art.height);
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &art.rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(art.width * 4),
+                rows_per_image: Some(art.height),
+            },
+            wgpu::Extent3d {
+                width: art.width,
+                height: art.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.textured.add_texture(device, &texture)
+    }
+
+    /// Forgets the noteskin textures (another skin, or none).
+    pub fn clear_noteskin_textures(&mut self) {
+        self.textured.clear_textures();
+    }
+
+    /// The target format is sRGB.
+    pub fn srgb(&self) -> bool {
+        self.srgb
+    }
+
     /// The skin's background colour as the target expects it.
     pub fn clear_color(&self) -> wgpu::Color {
         let c = self.skin.background;
@@ -104,6 +168,7 @@ impl Renderer {
         layout: &Layout,
         names: &JudgeNames,
         opts: RenderOptions,
+        layer: Option<&mut dyn NoteLayer>,
     ) {
         let geo = FieldGeometry::new(
             width as f32,
@@ -111,7 +176,9 @@ impl Renderer {
             scene::field_span(layout),
             opts.reverse,
         );
-        let mut scene = scene::build(frame, layout, names, &self.skin, &geo, opts, self.srgb);
+        let mut scene = scene::build(
+            frame, layout, names, &self.skin, &geo, opts, self.srgb, layer,
+        );
         for i in &mut scene.instances {
             i.color = to_target(i.color, self.srgb);
             if i.shape == crate::sprite::Shape::ArrowGradient as u32
@@ -141,6 +208,8 @@ impl Renderer {
             .set_viewport(queue, width as f32, height as f32, frame.song_time as f32);
         self.sprites.upload(device, queue, &scene.instances);
         self.instance_count = scene.instances.len();
+        self.textured
+            .prepare(device, queue, width as f32, height as f32, &scene.quads);
         let _ = self.text.prepare(device, queue, width, height, &scene.text);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -160,7 +229,12 @@ impl Renderer {
                 multiview_mask: None,
             });
             self.background.draw(&mut pass, &background);
-            self.sprites.draw(&mut pass, self.instance_count);
+            for segment in &scene.order {
+                match segment {
+                    Segment::Sprites(r) => self.sprites.draw_range(&mut pass, r.clone()),
+                    Segment::Quads(r) => self.textured.draw(&mut pass, r.clone()),
+                }
+            }
             self.text.draw(&mut pass);
         }
         self.text.trim();

@@ -10,6 +10,14 @@ use super::js_err;
 /// Decodes `blob` and scales it down, keeping the aspect ratio, so neither
 /// side exceeds `max_side` (GPU texture limits and memory).
 pub(crate) async fn decode(blob: &Blob, max_side: u32) -> Result<ImageBitmap, String> {
+    Ok(decode_sized(blob, max_side).await?.0)
+}
+
+/// [`decode`], with the image's size before any scaling down.
+pub(crate) async fn decode_sized(
+    blob: &Blob,
+    max_side: u32,
+) -> Result<(ImageBitmap, (u32, u32)), String> {
     let window = web_sys::window().ok_or("no window")?;
     let promise = window
         .create_image_bitmap_with_blob(blob)
@@ -24,7 +32,7 @@ pub(crate) async fn decode(blob: &Blob, max_side: u32) -> Result<ImageBitmap, St
         return Err("empty image".into());
     }
     if w.max(h) <= max_side {
-        return Ok(full);
+        return Ok((full, (w, h)));
     }
     let scale = f64::from(max_side) / f64::from(w.max(h));
     let options = ImageBitmapOptions::new();
@@ -40,5 +48,5 @@ pub(crate) async fn decode(blob: &Blob, max_side: u32) -> Result<ImageBitmap, St
         .dyn_into()
         .map_err(|e| js_err("resize image", e));
     full.close();
-    scaled
+    scaled.map(|s| (s, (w, h)))
 }

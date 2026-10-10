@@ -22,12 +22,18 @@
 //! a decoder that stops answering are the module's (the caller falls
 //! back).
 //!
-//! Only YUV frames give the module's pixels. A browser whose hardware
-//! decoder hands out RGB (Firefox on macOS gives `BGRX`, already converted
-//! with its own guess at the matrix and range) is asked for its software
-//! decoder instead (`hardwareAcceleration: "prefer-software"`, from then
-//! on); when that is refused or gives RGB too, the browser path is off for
-//! the session ([`available`]) and every movie plays through the module.
+//! Only YUV frames give the module's pixels. A browser whose decoder
+//! hands out RGB (Firefox on macOS gives `BGRX`, already converted with its
+//! own guess at the matrix and range, from its hardware and its software
+//! decoder alike) has its frames go straight to the GPU instead, from then
+//! on: each `VideoFrame` becomes an `ImageBitmap` (`createImageBitmap`, on
+//! the GPU; the frame is closed at once, so the decoder has its buffer
+//! back), a [`DirectFrame`] the deck copies into a texture
+//! (`copy_external_image_to_texture`, which wgpu's WebGL2 backend takes
+//! from a bitmap but not from a frame), with no copy through memory, so an
+//! old machine keeps hardware decoding. When that copy fails, the
+//! browser path is off for the session ([`available`]) and every movie
+//! plays through the module.
 //!
 //! Runs on the page: the decoding is the browser's, off the main thread.
 
@@ -38,8 +44,8 @@ use std::rc::Rc;
 use ddi_library::avi::{self, Avi, Chunk};
 use ddi_library::h264::{self, ExactSeek, Offer, OutputOrder, PictureOrder, Stream};
 use ddi_platform::video::{
-    VideoCodec, VideoContainer, VideoDecoder, VideoEvent, VideoFormat, VideoFrame, VideoInfo,
-    YuvMatrix,
+    ExternalFrame, VideoCodec, VideoContainer, VideoDecoder, VideoEvent, VideoFormat, VideoFrame,
+    VideoInfo, YuvMatrix,
 };
 use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -115,46 +121,104 @@ const READ_CHUNKS: usize = 32;
 /// whose SPS says none (`demux.c`); chunks looked at for that.
 const PROBE_CHUNKS: usize = 64;
 
-/// How the browser's decoder is asked to decode, learned this session.
+/// How the browser's frames are taken, learned this session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
-    /// As the browser likes (usually in hardware).
-    Default,
-    /// Its default decoder gave RGB frames: its software decoder.
-    Software,
-    /// That gave RGB too, or is refused: the module plays every movie.
+    /// Copied out as YUV planes: the module's pixels.
+    Planes,
+    /// The browser gives RGB: frames go to the GPU as they are.
+    Direct,
+    /// That failed too: the module plays every movie.
     Off,
 }
 
 thread_local! {
-    static MODE: Cell<Mode> = const { Cell::new(Mode::Default) };
+    static MODE: Cell<Mode> = const { Cell::new(Mode::Planes) };
+}
+
+fn mode() -> Mode {
+    MODE.with(Cell::get)
 }
 
 /// The start of the error for an RGB frame, which changes [`MODE`].
 const RGB_FRAMES: &str = "frames in RGB";
 
-/// An RGB frame came out with the decoder in `software` or not: whether to
-/// try the software decoder (else the browser path is off).
-fn rgb_frames(software: bool) -> bool {
-    let next = if software { Mode::Off } else { Mode::Software };
-    MODE.with(|m| {
-        if m.get() != Mode::Off && m.get() != next {
+/// The browser gave an RGB frame: from now on its frames go to the GPU as
+/// they are (when they did already, the browser path is off). Whether
+/// that is a change to try.
+fn rgb_frames() -> bool {
+    match mode() {
+        Mode::Planes => {
             web_sys::console::info_1(
-                &match next {
-                    Mode::Software => "video: the browser's decoder gives RGB frames; asking for its software decoder",
-                    _ => "video: the browser gives only RGB frames; the video decoder plays every movie",
-                }
-                .into(),
+                &"video: the browser's decoder gives RGB frames; they go straight to the GPU, in the browser's colours"
+                    .into(),
             );
-            m.set(next);
+            MODE.with(|m| m.set(Mode::Direct));
+            true
         }
-    });
-    !software
+        _ => false,
+    }
 }
 
-/// Testing aid (`window.__DDI_FAKE_RGB = true`): the default decoder's
-/// frames count as RGB, as Firefox on macOS gives them, so the switch to
-/// the software decoder can be checked in Chrome.
+/// Copying a browser frame to the GPU failed (`why`): the module plays
+/// every movie from now on.
+pub(crate) fn direct_failed(why: &str) {
+    if mode() != Mode::Off {
+        web_sys::console::warn_1(
+            &format!("video: the browser's frames cannot be drawn ({why}); the video decoder plays every movie").into(),
+        );
+        MODE.with(|m| m.set(Mode::Off));
+    }
+}
+
+/// How the browser's frames are taken now, for the debug state.
+pub(crate) fn mode_name() -> &'static str {
+    match mode() {
+        Mode::Planes => "planes",
+        Mode::Direct => "direct",
+        Mode::Off => "off",
+    }
+}
+
+/// A browser frame kept for the GPU (the direct path), as an image bitmap;
+/// closed when the last handle to it goes.
+pub(crate) struct DirectFrame(web_sys::ImageBitmap);
+
+impl DirectFrame {
+    pub(crate) fn bitmap(&self) -> &web_sys::ImageBitmap {
+        &self.0
+    }
+}
+
+/// `createImageBitmap(frame)`: the frame as the browser draws it, on the
+/// GPU.
+async fn bitmap_of(frame: &JsFrame) -> Result<web_sys::ImageBitmap, String> {
+    let global = js_sys::global();
+    let create: js_sys::Function = Reflect::get(&global, &"createImageBitmap".into())
+        .ok()
+        .and_then(|f| f.dyn_into().ok())
+        .ok_or("no createImageBitmap")?;
+    let promise: Promise = create
+        .call1(&global, frame)
+        .map_err(|e| js_err("createImageBitmap", e))?
+        .dyn_into()
+        .map_err(|_| "createImageBitmap gave no promise".to_string())?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| js_err("createImageBitmap", e))?
+        .dyn_into()
+        .map_err(|_| "createImageBitmap gave no bitmap".to_string())
+}
+
+impl Drop for DirectFrame {
+    fn drop(&mut self) {
+        self.0.close();
+    }
+}
+
+/// Testing aid (`window.__DDI_FAKE_RGB = true`): frames copied out count
+/// as RGB, as Firefox on macOS gives them, so the switch to the direct
+/// path can be checked in Chrome.
 fn fake_rgb() -> bool {
     Reflect::get(&js_sys::global(), &"__DDI_FAKE_RGB".into()).is_ok_and(|v| v.is_truthy())
 }
@@ -163,7 +227,7 @@ fn fake_rgb() -> bool {
 /// tests have not asked for the module: `window.__DDI_VIDEO_DECODER =
 /// "module"`).
 pub(crate) fn available() -> bool {
-    if MODE.with(Cell::get) == Mode::Off {
+    if mode() == Mode::Off {
         return false;
     }
     let global = js_sys::global();
@@ -207,8 +271,6 @@ struct Media {
     stream: Stream,
     delay: u32,
     config: Object,
-    /// Decoding in software (`hardwareAcceleration: "prefer-software"`).
-    software: bool,
 }
 
 impl Media {
@@ -324,13 +386,8 @@ async fn load(blob: &Blob) -> Result<Media, String> {
     set(&config, "codec", sps.codec());
     set(&config, "codedWidth", sps.width);
     set(&config, "codedHeight", sps.height);
-    let software = match MODE.with(Cell::get) {
-        Mode::Default => false,
-        Mode::Software => true,
-        Mode::Off => return Err("the browser gives only RGB frames".into()),
-    };
-    if software {
-        set(&config, "hardwareAcceleration", "prefer-software");
+    if mode() == Mode::Off {
+        return Err("the browser's frames cannot be drawn".into());
     }
     if let Some(avcc) = &stream.avcc {
         set(&config, "description", Uint8Array::from(&avcc[..]));
@@ -339,9 +396,6 @@ async fn load(blob: &Blob) -> Result<Media, String> {
         .await
         .map_err(|e| js_err("VideoDecoder.isConfigSupported", e))?;
     if !get(&support, "supported").is_truthy() {
-        if software {
-            rgb_frames(true);
-        }
         return Err(format!("this browser does not decode {}", sps.codec()));
     }
     Ok(Media {
@@ -350,18 +404,27 @@ async fn load(blob: &Blob) -> Result<Media, String> {
         stream,
         delay,
         config,
-        software,
     })
+}
+
+/// What the movie reports as its codec: which way frames are taken.
+fn codec_name() -> String {
+    match mode() {
+        Mode::Direct => "h264 (browser colours)".into(),
+        _ => "h264".into(),
+    }
 }
 
 /// A frame copied out of the browser: its visible picture as YUV 4:2:0
 /// planes, rows packed, and its range when the browser says (a decoder may
-/// hand over full-range frames from a limited-range stream).
+/// hand over full-range frames from a limited-range stream); or, on the
+/// direct path, the browser's frame itself at its display size.
 struct Copied {
     width: u32,
     height: u32,
     planes: Vec<u8>,
     full_range: Option<bool>,
+    external: Option<ExternalFrame>,
 }
 
 /// Copies `frame` out. Only the formats a browser's H.264 decoder gives
@@ -443,7 +506,49 @@ async fn planes_of(frame: &JsFrame) -> Result<Copied, String> {
         height: h as u32,
         planes: out,
         full_range,
+        external: None,
     })
+}
+
+/// The luma of an RGB frame (for the black-bar probe on the direct path),
+/// BT.601 limited range as the probe reads it: `(width, height, Y)`.
+async fn luma_of(frame: &JsFrame) -> Result<(u32, u32, Vec<u8>), String> {
+    let format = frame.format().unwrap_or_default();
+    let bgr = format.starts_with("BGR");
+    let rect = frame.visible_rect().ok_or("a frame without a picture")?;
+    let (w, h) = (
+        get(&rect, "width").as_f64().unwrap_or(0.0) as usize,
+        get(&rect, "height").as_f64().unwrap_or(0.0) as usize,
+    );
+    let options = Object::new();
+    let size = frame
+        .allocation_size(&options)
+        .map_err(|e| js_err("VideoFrame.allocationSize", e))?;
+    let buffer = Uint8Array::new_with_length(size as u32);
+    let layout = JsFuture::from(frame.copy_to(&buffer, &options))
+        .await
+        .map_err(|e| js_err("VideoFrame.copyTo", e))?;
+    let p = Array::from(&layout).get(0);
+    let n = |k: &str| get(&p, k).as_f64().unwrap_or(0.0) as usize;
+    let (offset, stride) = (n("offset"), n("stride"));
+    let x0 = get(&rect, "x").as_f64().unwrap_or(0.0) as usize;
+    let y0 = get(&rect, "y").as_f64().unwrap_or(0.0) as usize;
+    let data = buffer.to_vec();
+    let mut y = Vec::with_capacity(w * h);
+    for row in 0..h {
+        let at = offset + (y0 + row) * stride + x0 * 4;
+        let line = data.get(at..at + 4 * w).ok_or("a short frame")?;
+        for px in line.as_chunks::<4>().0 {
+            let (r, g, b) = if bgr {
+                (px[2], px[1], px[0])
+            } else {
+                (px[0], px[1], px[2])
+            };
+            let luma = 16.0 + 0.257 * f64::from(r) + 0.504 * f64::from(g) + 0.098 * f64::from(b);
+            y.push(luma.round().clamp(0.0, 255.0) as u8);
+        }
+    }
+    Ok((w as u32, h as u32, y))
 }
 
 /// One pass of the decoder from a chunk on (straight through, or a seek).
@@ -585,11 +690,7 @@ fn start_decoder(inner: &Rc<RefCell<Inner>>, media: Media) -> Result<(), String>
         width: media.stream.sps.width,
         height: media.stream.sps.height,
         duration: Some(f64::from(last + 1) * media.frame_time()),
-        codec: if media.software {
-            "h264 (software)".into()
-        } else {
-            "h264".into()
-        },
+        codec: codec_name(),
     }));
     s.media = Some(media);
     s.decoder = Some(decoder);
@@ -663,12 +764,12 @@ fn fail(inner: &Rc<RefCell<Inner>>, e: String) {
     }
 }
 
-/// A frame from the browser: known by its chunk, copied out, then given
-/// out in display order.
+/// A frame from the browser: known by its chunk, copied out (or, on the
+/// direct path, kept as it is), then given out in display order.
 fn output(inner: &Rc<RefCell<Inner>>, frame: JsFrame) {
-    let (run_id, chunk, fake_rgb) = {
+    let direct = mode() == Mode::Direct;
+    let (run_id, chunk) = {
         let mut s = inner.borrow_mut();
-        let fake = !s.media.as_ref().is_some_and(|m| m.software) && fake_rgb();
         let ts = frame.timestamp();
         let from = (ts / RUN_SPAN).floor();
         let chunk = (ts - from * RUN_SPAN).round() as usize;
@@ -683,11 +784,20 @@ fn output(inner: &Rc<RefCell<Inner>>, frame: JsFrame) {
             return;
         }
         run.copying += 1;
-        (run.id, chunk, fake)
+        (run.id, chunk)
     };
+    let fake = !direct && fake_rgb();
     let weak = Rc::downgrade(inner);
     spawn_local(async move {
-        let copied = if fake_rgb {
+        let copied = if direct {
+            bitmap_of(&frame).await.map(|bitmap| Copied {
+                width: bitmap.width(),
+                height: bitmap.height(),
+                planes: Vec::new(),
+                full_range: None,
+                external: Some(ExternalFrame(Rc::new(DirectFrame(bitmap)))),
+            })
+        } else if fake {
             Err(format!("{RGB_FRAMES} (BGRX, faked)"))
         } else {
             planes_of(&frame).await
@@ -710,7 +820,7 @@ fn output(inner: &Rc<RefCell<Inner>>, frame: JsFrame) {
 /// Gives out the frames copied so far, in display order, through the
 /// exact seek.
 fn give_out(inner: &Rc<RefCell<Inner>>) {
-    let (error, software) = {
+    let (error, restart) = {
         let mut guard = inner.borrow_mut();
         let s = &mut *guard;
         let (Some(media), Some(run)) = (&s.media, s.run.as_mut()) else {
@@ -720,7 +830,7 @@ fn give_out(inner: &Rc<RefCell<Inner>>) {
         let frame_time = media.frame_time();
         let mut error = None;
         let mut retry = false;
-        let mut software = false;
+        let mut restart = false;
         while let Some(&(chunk, stamp)) = run.sequence.front() {
             let Some(copied) = run.copied.remove(&chunk) else {
                 // Still coming, or one the browser dropped: skipped once
@@ -740,14 +850,10 @@ fn give_out(inner: &Rc<RefCell<Inner>>) {
             run.sequence.pop_front();
             let copied = match copied {
                 Ok(c) => c,
-                // RGB from the first frame on: the software decoder, from
-                // the start of this run.
-                Err(e)
-                    if e.starts_with(RGB_FRAMES)
-                        && run.last.is_none()
-                        && rgb_frames(media.software) =>
-                {
-                    software = true;
+                // RGB from the first frame on: this run again, its frames
+                // kept for the GPU.
+                Err(e) if e.starts_with(RGB_FRAMES) && run.last.is_none() && rgb_frames() => {
+                    restart = true;
                     break;
                 }
                 Err(e) => {
@@ -768,6 +874,7 @@ fn give_out(inner: &Rc<RefCell<Inner>>) {
                 full_range: copied.full_range.unwrap_or(sps.full_range),
                 planes: copied.planes,
                 decode_ms: 0.0,
+                external: copied.external,
             };
             run.last = Some(t);
             match run.seek.offer(frame, t) {
@@ -795,55 +902,30 @@ fn give_out(inner: &Rc<RefCell<Inner>>) {
             }
             s.ready.push_back(Ready::End(run.last));
         }
-        (error, software)
+        (error, restart)
     };
     if let Some(e) = error {
         fail(inner, e);
-    } else if software {
-        to_software(inner);
-    }
-}
-
-/// Reconfigures the decoder for the browser's software decoder and starts
-/// the run again (no frame of it was given out).
-fn to_software(inner: &Rc<RefCell<Inner>>) {
-    let config = {
-        let s = inner.borrow();
-        let Some(media) = &s.media else { return };
-        let config = Object::new();
-        let _ = Object::assign(&config, &media.config);
-        set(&config, "hardwareAcceleration", "prefer-software");
-        config
-    };
-    let weak = Rc::downgrade(inner);
-    spawn_local(async move {
-        let support = JsFuture::from(JsVideoDecoder::is_config_supported(&config)).await;
-        let Some(inner) = weak.upgrade() else { return };
-        if !support.is_ok_and(|s| get(&s, "supported").is_truthy()) {
-            rgb_frames(true);
-            return fail(&inner, "the browser gives only RGB frames".into());
-        }
+    } else if restart {
+        // Frames of the old run still coming are told apart by its id.
         {
             let mut guard = inner.borrow_mut();
             let s = &mut *guard;
-            let Some(media) = s.media.as_mut() else {
-                return;
-            };
-            media.config = config;
-            media.software = true;
-            s.events.push(VideoEvent::Opened(VideoInfo {
+            let Some(media) = &s.media else { return };
+            let info = VideoInfo {
                 width: media.stream.sps.width,
                 height: media.stream.sps.height,
                 duration: Some(
                     f64::from(media.chunks.last().map_or(0, |c| c.frame) + 1) * media.frame_time(),
                 ),
-                codec: "h264 (software)".into(),
-            }));
+                codec: codec_name(),
+            };
+            s.events.push(VideoEvent::Opened(info));
             let target = s.run.as_ref().and_then(|r| r.target);
             begin(s, target, None);
         }
-        pump(&inner);
-    });
+        pump(inner);
+    }
 }
 
 /// Keeps the decoder fed while frames are wanted: reads chunks ahead,
@@ -871,12 +953,34 @@ fn pump(inner: &Rc<RefCell<Inner>>) {
         let now = PerformanceClock::now_ms();
         let starved = (frames_ready as u32) < s.wanted && !run.flushing;
         if starved && in_decoder > 0 && now - run.heard > STALL_MS {
-            error = Some("the browser's decoder stopped answering".to_string());
+            // The state, for telling why (a browser that holds frames
+            // back, or one that drops them).
+            let front = run.sequence.front().map(|f| f.0);
+            error = Some(format!(
+                "the browser's decoder stopped answering (chunks {}..{} of {}, fed {}, given back {}, \
+                 in the decoder {in_decoder}, queue {}, allowance {}, copying {}, waiting {:?}, \
+                 next in order {front:?} of {}, wanted {}, ready {frames_ready})",
+                run.start,
+                run.next,
+                media.chunks.len(),
+                run.next - run.start,
+                run.outputs,
+                decoder.decode_queue_size(),
+                run.allowance,
+                run.copying,
+                run.copied.keys().collect::<BTreeSet<_>>(),
+                run.sequence.len(),
+                s.wanted,
+            ));
         } else {
             // A decoder that holds more frames than thought is fed one
-            // more ahead each time it goes quiet.
-            if starved && in_decoder >= run.allowance && now - run.heard.max(run.nudged) > NUDGE_MS
-            {
+            // more ahead each time it goes quiet while feeding is held
+            // back. Frames already given back count against the
+            // allowance too, and some wait for one the decoder still
+            // holds (Firefox gives frames out in timestamp order, which
+            // here is decode order), so nothing comes until it is fed.
+            let blocked = coming + in_decoder >= s.wanted as usize + run.allowance;
+            if starved && blocked && in_decoder > 0 && now - run.heard.max(run.nudged) > NUDGE_MS {
                 run.allowance = (run.allowance + 1).min(IN_FLIGHT);
                 run.nudged = now;
             }
@@ -1094,16 +1198,6 @@ impl Drop for WebCodecsVideo {
 /// at or before each of a few times spread through the movie (the module
 /// samples the same way).
 pub(crate) async fn probe(blob: &Blob) -> Result<Picture, String> {
-    let software = MODE.with(Cell::get) == Mode::Software;
-    match probe_once(blob).await {
-        // RGB frames: once more through the software decoder.
-        Err(e) if e.starts_with(RGB_FRAMES) && rgb_frames(software) => probe_once(blob).await,
-        Err(e) if e.starts_with(RGB_FRAMES) => Err(e),
-        r => r,
-    }
-}
-
-async fn probe_once(blob: &Blob) -> Result<Picture, String> {
     let media = load(blob).await?;
     let frames: Rc<RefCell<Vec<JsFrame>>> = Rc::default();
     let on_frame = Closure::<dyn FnMut(JsFrame)>::new({
@@ -1156,14 +1250,25 @@ async fn probe_once(blob: &Blob) -> Result<Picture, String> {
         }
         let taken: Vec<JsFrame> = frames.borrow_mut().drain(..).collect();
         for f in taken {
-            let copied = planes_of(&f).await;
+            // An RGB frame: its luma, computed here (and the movies' frames
+            // go to the GPU from now on).
+            let copied = match planes_of(&f).await {
+                Err(e) if e.starts_with(RGB_FRAMES) => {
+                    rgb_frames();
+                    luma_of(&f).await.map(|(w, h, y)| (w, h, y, Some(false)))
+                }
+                c => c.map(|c| {
+                    let luma = c.planes[..(c.width * c.height) as usize].to_vec();
+                    (c.width, c.height, luma, c.full_range)
+                }),
+            };
             f.close_frame();
             match copied {
-                Ok(c) if planes.is_empty() || (c.width, c.height) == (width, height) => {
-                    width = c.width;
-                    height = c.height;
-                    full = c.full_range.unwrap_or(full);
-                    planes.push(c.planes[..(c.width * c.height) as usize].to_vec());
+                Ok((w, h, luma, range)) if planes.is_empty() || (w, h) == (width, height) => {
+                    width = w;
+                    height = h;
+                    full = range.unwrap_or(full);
+                    planes.push(luma);
                 }
                 Ok(_) => {}
                 Err(e) => result = Err(e),

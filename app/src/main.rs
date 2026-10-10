@@ -9,6 +9,7 @@ mod lyrics;
 mod menu;
 mod mods;
 mod movies;
+mod noteskins;
 mod play;
 mod preview;
 mod router;

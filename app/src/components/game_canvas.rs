@@ -117,6 +117,9 @@ pub(crate) enum Msg {
     ),
     /// Time to look at the video decoder's download again (start prompt).
     VideoTick,
+    /// The chosen noteskin, readied for the chart's layout (`None`: the
+    /// built-in arrows).
+    NoteskinLoaded(Option<Box<crate::noteskins::Prepared>>),
 }
 
 #[derive(Properties, PartialEq)]
@@ -178,6 +181,8 @@ pub(crate) struct GameCanvas {
     )>,
     /// The video decoder's download, for the start prompt.
     video_line: Option<String>,
+    /// The noteskin readied before the game loop was there.
+    noteskin: Option<Box<crate::noteskins::Prepared>>,
     _video_tick: gloo::timers::callback::Interval,
     _keys: Option<EventListener>,
 }
@@ -206,6 +211,8 @@ enum Stage {
         device_changed: bool,
         /// Why the automatic setting turned the background videos off.
         video_stopped: Option<ddi_platform::video::StopReason>,
+        /// What kept background videos from playing.
+        video_trouble: Option<String>,
     },
     /// Calibration result saved to the settings.
     Saved(Outcome),
@@ -221,7 +228,7 @@ impl Component for GameCanvas {
 
     fn create(ctx: &Context<Self>) -> Self {
         match ctx.props().source.clone() {
-            SongSource::Song { id, chart: _ } => load(ctx, id),
+            SongSource::Song { id, chart } => load(ctx, id, chart),
             SongSource::Calibration(mode) => {
                 let loaded = Loaded {
                     song: calibration::song(mode),
@@ -291,6 +298,7 @@ impl Component for GameCanvas {
             touch: coarse_pointer(),
             backgrounds: Vec::new(),
             movies: Vec::new(),
+            noteskin: None,
             video_line: None,
             _video_tick: video_tick,
             _keys: keys,
@@ -367,6 +375,15 @@ impl Component for GameCanvas {
                 self.apply_background();
                 false
             }
+            Msg::NoteskinLoaded(prepared) => {
+                // A second load (after asking for a folder) replaces one
+                // not handed over yet.
+                if let Some(old) = std::mem::replace(&mut self.noteskin, prepared) {
+                    old.close();
+                }
+                self.apply_background();
+                false
+            }
             Msg::VideoTick => {
                 if !matches!(self.stage, Stage::Idle) {
                     return false;
@@ -406,8 +423,8 @@ impl Component for GameCanvas {
                     return true;
                 }
                 self.access = None;
-                if let SongSource::Song { id, .. } = ctx.props().source.clone() {
-                    load(ctx, id);
+                if let SongSource::Song { id, chart } = ctx.props().source.clone() {
+                    load(ctx, id, chart);
                 }
                 true
             }
@@ -540,16 +557,21 @@ impl Component for GameCanvas {
                 calibration,
                 device_changed,
             }) => {
-                let video_stopped = self
+                let (video_stopped, video_trouble) = self
                     .game
                     .try_borrow()
                     .ok()
-                    .and_then(|g| g.as_ref()?.video_stopped());
+                    .and_then(|g| {
+                        let g = g.as_ref()?;
+                        Some((g.video_stopped(), g.video_trouble()))
+                    })
+                    .unwrap_or_default();
                 self.stage = Stage::Finished {
                     results: *results,
                     calibration,
                     device_changed,
                     video_stopped,
+                    video_trouble,
                 };
                 true
             }
@@ -693,6 +715,7 @@ impl Component for GameCanvas {
                     calibration,
                     device_changed,
                     video_stopped,
+                    video_trouble,
                 },
             ) => match (source, calibration) {
                 (SongSource::Calibration(mode), Some(o)) => calibration_view(
@@ -711,6 +734,7 @@ impl Component for GameCanvas {
                     self.layout.as_ref(),
                     *device_changed,
                     *video_stopped,
+                    video_trouble.as_deref(),
                     Some((self.played_offset, self.settings.song_offset(id))),
                     link,
                 ),
@@ -719,6 +743,7 @@ impl Component for GameCanvas {
                     self.names.as_ref(),
                     self.layout.as_ref(),
                     *device_changed,
+                    None,
                     None,
                     None,
                     link,
@@ -768,6 +793,9 @@ impl Component for GameCanvas {
     fn destroy(&mut self, _ctx: &Context<Self>) {
         for (_, image) in self.backgrounds.drain(..) {
             image.close();
+        }
+        if let Some(p) = self.noteskin.take() {
+            p.close();
         }
         self.raf.borrow_mut().take();
         self.game.borrow_mut().take();
@@ -877,6 +905,9 @@ impl GameCanvas {
             }
             for (name, blob, format, probe) in self.movies.drain(..) {
                 game.add_movie(name, blob, format, probe);
+            }
+            if let Some(p) = self.noteskin.take() {
+                game.set_noteskin(Some(p.play), p.images);
             }
         }
     }
@@ -1054,6 +1085,7 @@ fn results_view(
     layout: Option<&ddi_chart::Layout>,
     device_changed: bool,
     video_stopped: Option<ddi_platform::video::StopReason>,
+    video_trouble: Option<&str>,
     song_offset: Option<(f64, f64)>,
     link: &html::Scope<GameCanvas>,
 ) -> Html {
@@ -1068,6 +1100,9 @@ fn results_view(
                 <a href={Route::Options.to_hash()}>{ "options" }</a>
             </div>
         }
+    });
+    let video_trouble = video_trouble.map(|why| {
+        html! { <div class="muted video-stopped">{ format!("{why}; the song background showed") }</div> }
     });
     let tier_name = |i: usize| -> String {
         names
@@ -1116,6 +1151,7 @@ fn results_view(
                 { if r.failed { html!{ <div class="error">{ "FAILED" }</div> } } else { html!{} } }
                 { if device_changed { html!{ <div class="muted">{ "an audio device or the display changed during play" }</div> } } else { html!{} } }
                 { for video_stopped }
+                { for video_trouble }
                 { if fc.is_empty() { html!{} } else { html!{ <div class={fc_class}>{ fc }</div> } } }
                 <table class="results-table">
                     { for (0..6).filter(|i| !tier_name(*i).is_empty()).map(|i| html!{ <tr><td class="muted">{ tier_name(i) }</td><td>{ r.tally.taps[i] }</td></tr> }) }
@@ -1324,11 +1360,12 @@ fn schedule(raf: Rc<RefCell<Option<AnimationFrame>>>, game: Rc<RefCell<Option<Ga
     *raf.borrow_mut() = Some(handle);
 }
 
-/// Loads the song and its background images; the result arrives as
-/// [`Msg::SongLoaded`].
-fn load(ctx: &Context<GameCanvas>, id: String) {
+/// Loads the song and its background images, and readies the chosen
+/// noteskin for the chart's layout; the song arrives as [`Msg::SongLoaded`].
+fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
     let link = ctx.link().clone();
     let settings = Settings::load();
+    let noteskin = settings.noteskin.clone();
     let show_background = settings.bg_brightness > 0.0;
     // Off: no movie file is read and the decoder is never fetched.
     let play_videos = show_background && settings.video != VideoMode::Off;
@@ -1453,6 +1490,14 @@ fn load(ctx: &Context<GameCanvas>, id: String) {
                 music_bytes: Some(loaded.music_bytes),
             })
         });
+        if let (Some(key), Ok(loaded)) = (noteskin, &r)
+            && let Some(c) = loaded.song.charts.get(chart)
+            && let Some(layout) = loaded.song.layout_of(c)
+        {
+            link.send_future(async move {
+                Msg::NoteskinLoaded(crate::noteskins::prepare(&key, &layout).await.map(Box::new))
+            });
+        }
         Msg::SongLoaded(r)
     });
 }

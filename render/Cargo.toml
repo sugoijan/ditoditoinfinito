@@ -11,6 +11,7 @@ description = "DitoDitoInfinito: render crate"
 [dependencies]
 ddi-chart.workspace = true
 ddi-engine.workspace = true
+ddi-noteskin.workspace = true
 wgpu = { workspace = true, features = ["wgsl"] }
 glyphon.workspace = true
 bytemuck.workspace = true

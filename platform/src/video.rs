@@ -119,7 +119,26 @@ impl YuvMatrix {
     }
 }
 
-/// One decoded frame as 8-bit YUV 4:2:0.
+/// A frame the platform keeps itself (a browser's frame on the GPU), drawn
+/// without its pixels passing through here; the last clone dropped
+/// releases it.
+#[derive(Clone)]
+pub struct ExternalFrame(pub std::rc::Rc<dyn std::any::Any>);
+
+impl std::fmt::Debug for ExternalFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ExternalFrame")
+    }
+}
+
+impl PartialEq for ExternalFrame {
+    fn eq(&self, other: &Self) -> bool {
+        std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// One decoded frame as 8-bit YUV 4:2:0, or one the platform keeps
+/// ([`VideoFrame::external`]: its planes are empty).
 #[derive(Clone, Debug, PartialEq)]
 pub struct VideoFrame {
     /// Seconds from the start of the movie, stamped as StepMania stamps
@@ -135,6 +154,9 @@ pub struct VideoFrame {
     pub planes: Vec<u8>,
     /// Milliseconds the decoder spent on this frame (diagnostics).
     pub decode_ms: f64,
+    /// The frame as the platform keeps it, when it is not in `planes`
+    /// (`width × height` is its size; matrix and range do not apply).
+    pub external: Option<ExternalFrame>,
 }
 
 /// Size of each chroma plane of a 4:2:0 frame (odd sizes round up).
@@ -441,6 +463,11 @@ impl MovieTrack {
                     }
                     self.seeking = false;
                     self.last_decoded = Some(frame.pts);
+                    // A frame the platform keeps holds a decoder's buffer:
+                    // never kept for later laps.
+                    if frame.external.is_some() {
+                        self.collecting = None;
+                    }
                     if let Some((frames, bytes)) = self.collecting.as_mut() {
                         if *bytes + frame.planes.len() <= LOOP_CACHE_BYTES {
                             *bytes += frame.planes.len();
@@ -780,6 +807,8 @@ mod tests {
         ended: bool,
         seeks: Vec<f64>,
         events: Vec<VideoEvent>,
+        /// Frames the platform keeps (a browser's GPU frames).
+        external: bool,
     }
 
     impl FakeDecoder {
@@ -795,6 +824,7 @@ mod tests {
                 ended: false,
                 seeks: Vec::new(),
                 events: Vec::new(),
+                external: false,
             }
         }
 
@@ -863,8 +893,15 @@ mod tests {
                     height: 2,
                     matrix: YuvMatrix::Bt601,
                     full_range: false,
-                    planes: vec![i as u8; self.plane_len],
+                    planes: if self.external {
+                        Vec::new()
+                    } else {
+                        vec![i as u8; self.plane_len]
+                    },
                     decode_ms: 0.0,
+                    external: self
+                        .external
+                        .then(|| ExternalFrame(std::rc::Rc::new(i as u8))),
                 }));
             }
             // As the worker posts them: the end after the frames before it,
@@ -884,7 +921,12 @@ mod tests {
     fn play(track: &mut MovieTrack, d: &mut FakeDecoder, positions: &[f64]) -> Vec<Option<u8>> {
         positions
             .iter()
-            .map(|&p| track.update(d, p).map(|f| f.planes[0]))
+            .map(|&p| {
+                track.update(d, p).map(|f| match &f.external {
+                    Some(e) => *e.0.downcast_ref::<u8>().expect("a fake frame"),
+                    None => f.planes[0],
+                })
+            })
             .collect()
     }
 
@@ -984,6 +1026,25 @@ mod tests {
     }
 
     #[test]
+    fn frames_the_platform_keeps_are_never_kept_for_later_laps() {
+        // A short movie loops from memory, once its frames are its own…
+        let mut own = FakeDecoder::new(20, 0, 0);
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut own, 0.0);
+        let _ = play(&mut track, &mut own, &display_frames(0.0, 3.0));
+        assert_eq!(own.seeks.len(), 1);
+        // …but a browser's frames hold its decoder's buffers: each lap
+        // decodes again.
+        let mut kept = FakeDecoder::new(20, 0, 0);
+        kept.external = true;
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut kept, 0.0);
+        let shown = play(&mut track, &mut kept, &display_frames(0.0, 3.0));
+        assert!(kept.seeks.len() >= 3, "{:?}", kept.seeks);
+        assert!(shown.iter().flatten().count() > 60);
+    }
+
+    #[test]
     fn a_track_resumed_past_the_end_wraps_instead_of_stalling() {
         // A 5 s movie (150 frames, the last at 149/30 s) resumed at 12 s.
         let end = 149.0 / 30.0;
@@ -1060,6 +1121,7 @@ mod tests {
             full_range: false,
             planes,
             decode_ms: 0.0,
+            external: None,
         };
         let (y, u, v) = frame.split().unwrap();
         assert_eq!((y.len(), u.len(), v.len()), (9, 4, 4));

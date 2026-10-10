@@ -8,8 +8,10 @@ use ddi_chart::{Color, Glyph, Layout};
 use ddi_engine::frame::{Frame, NoteSprite, SpriteKind};
 use ddi_engine::rules::{JudgeNames, Judgement};
 
+use crate::noteskin::{LayerPart, NoteLayer};
 use crate::sprite::{Instance, Shape, Symbol, SymbolMode};
 use crate::text::{Align, TextItem};
+use crate::textured::TexQuad;
 
 pub use crate::note_colors::{ColorScheme, Gradient, quantization_color};
 
@@ -128,6 +130,66 @@ impl FieldGeometry {
 pub struct SceneOutput {
     pub instances: Vec<Instance>,
     pub text: Vec<TextItem>,
+    /// A noteskin's quads.
+    pub quads: Vec<TexQuad>,
+    /// The order the two kinds are drawn in.
+    pub order: Vec<Segment>,
+}
+
+/// A run of the scene's drawing.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Segment {
+    Sprites(std::ops::Range<u32>),
+    Quads(std::ops::Range<u32>),
+}
+
+/// Cuts the scene into runs as drawing switches between the procedural
+/// sprites and a noteskin's quads.
+#[derive(Default)]
+struct Order {
+    segments: Vec<Segment>,
+    sprites: u32,
+    quads: u32,
+}
+
+impl Order {
+    fn sprites(&mut self, end: usize) {
+        let end = end as u32;
+        if end > self.sprites {
+            self.segments.push(Segment::Sprites(self.sprites..end));
+            self.sprites = end;
+        }
+    }
+
+    fn quads(&mut self, end: usize) {
+        let end = end as u32;
+        if end > self.quads {
+            self.segments.push(Segment::Quads(self.quads..end));
+            self.quads = end;
+        }
+    }
+}
+
+/// Which part of the built-in skin a note is.
+fn layer_part(kind: &SpriteKind) -> LayerPart {
+    match kind {
+        SpriteKind::Tap | SpriteKind::Dummy => LayerPart::Tap,
+        SpriteKind::Lift => LayerPart::Lift,
+        SpriteKind::Fake => LayerPart::Fake,
+        SpriteKind::Mine | SpriteKind::Shock => LayerPart::Mine,
+        SpriteKind::HoldHead { .. } => LayerPart::Hold,
+        SpriteKind::RollHead { .. } => LayerPart::Roll,
+    }
+}
+
+/// Which part of the built-in skin a note's head is (a hold's head is
+/// drawn apart from its body).
+fn head_part(kind: &SpriteKind) -> LayerPart {
+    match kind {
+        SpriteKind::HoldHead { .. } => LayerPart::HoldHead,
+        SpriteKind::RollHead { .. } => LayerPart::RollHead,
+        other => layer_part(other),
+    }
 }
 
 /// Per-frame presentation switches that are not part of the skin.
@@ -252,6 +314,7 @@ fn glyph_instance(
 
 /// Build the sprite and text lists for one frame. `srgb_target`: the
 /// target's format is sRGB (blending in linear light).
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     frame: &Frame,
     layout: &Layout,
@@ -260,9 +323,15 @@ pub fn build(
     geo: &FieldGeometry,
     opts: RenderOptions,
     srgb_target: bool,
+    mut layer: Option<&mut dyn NoteLayer>,
 ) -> SceneOutput {
     let mut instances = Vec::with_capacity(frame.notes.len() * 2 + 32);
     let mut text = Vec::with_capacity(8);
+    let mut quads = Vec::new();
+    let mut order = Order::default();
+    let drawn = |layer: &Option<&mut dyn NoteLayer>, lane: usize, part: LayerPart| {
+        layer.as_ref().is_some_and(|l| l.draws(lane, part))
+    };
     let a = geo.arrow;
 
     let span = field_span(layout);
@@ -281,8 +350,16 @@ pub fn build(
         );
     }
 
-    // Receptors.
+    // Receptors: the noteskin's, then the built-in ones.
+    order.sprites(instances.len());
+    if let Some(l) = layer.as_mut() {
+        l.receptors(frame, layout, geo, &mut quads);
+    }
+    order.quads(quads.len());
     for (i, lane) in layout.lanes.iter().enumerate() {
+        if drawn(&layer, i, LayerPart::Receptor) {
+            continue;
+        }
         let state = frame.receptors.get(i);
         let pressed = state.is_some_and(|s| s.pressed);
         let scale = if pressed { 0.88 } else { 1.0 };
@@ -323,6 +400,9 @@ pub fn build(
             let Some(lane) = layout.lanes.get(note.lane as usize) else {
                 continue;
             };
+            if drawn(&layer, usize::from(note.lane), layer_part(&note.kind)) {
+                continue;
+            }
             let color = if dropped {
                 skin.hold_dropped
             } else if active {
@@ -351,10 +431,30 @@ pub fn build(
         }
     }
 
+    // The noteskin's holds over the built-in bodies.
+    order.sprites(instances.len());
+    if !opts.hide_notes
+        && let Some(l) = layer.as_mut()
+    {
+        l.holds(frame, layout, geo, &mut quads);
+    }
+    order.quads(quads.len());
+
     // Notes.
     for note in notes {
+        if drawn(&layer, usize::from(note.lane), head_part(&note.kind)) {
+            continue;
+        }
         push_note(&mut instances, note, layout, skin, geo, &opts, frame.beat);
     }
+    order.sprites(instances.len());
+    if let Some(l) = layer.as_mut() {
+        if !opts.hide_notes {
+            l.notes(frame, layout, geo, &mut quads);
+        }
+        l.explosions(frame, layout, geo, &mut quads);
+    }
+    order.quads(quads.len());
 
     // HUD: life bar.
     let bar_w = (geo.width * 0.3).min(a * 6.0);
@@ -518,7 +618,13 @@ pub fn build(
         });
     }
 
-    SceneOutput { instances, text }
+    order.sprites(instances.len());
+    SceneOutput {
+        instances,
+        text,
+        quads,
+        order: order.segments,
+    }
 }
 
 fn push_note(
@@ -638,6 +744,8 @@ mod tests {
             color: None,
             alpha,
             glow,
+            beat: 0.0,
+            hold_life: 1.0,
         }
     }
 
@@ -649,7 +757,8 @@ mod tests {
             receptors: vec![
                 ReceptorState {
                     pressed: false,
-                    flash: None
+                    flash: None,
+                    holding: None,
                 };
                 4
             ],
@@ -677,6 +786,7 @@ mod tests {
             &geo,
             opts,
             false,
+            None,
         )
         .instances
     }

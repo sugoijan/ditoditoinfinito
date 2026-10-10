@@ -212,6 +212,16 @@ a {
   margin-bottom: 0.25rem;
 }
 
+.credit-hash {
+  overflow-wrap: anywhere;
+}
+
+.credit-flags {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+}
+
 .start-prompt {
   cursor: pointer;
   text-align: center;
@@ -970,4 +980,16 @@ button.danger {
   display: block;
   max-width: 100%;
   height: auto;
+}
+
+/* A file's frames from each decoder, side by side. */
+.video-check-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.video-check-pair .video-check-frame {
+  flex: 1 1 18rem;
+  margin: 0;
 }

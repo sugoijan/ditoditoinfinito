@@ -22,12 +22,15 @@ use web_sys::{
 };
 
 const NAME: &str = "ddi-library";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// Song records (JSON strings) keyed by song id.
 pub(crate) const SONGS: &str = "songs";
-/// File blobs keyed by `<song id>/<file name>`.
+/// File blobs keyed by `<song id>/<file name>` (a noteskin's by
+/// `noteskin/<game>/<name>/<path>`).
 pub(crate) const FILES: &str = "files";
+/// Imported noteskins (JSON strings) keyed by `<game>/<name>` (version 2).
+pub(crate) const NOTESKINS: &str = "noteskins";
 
 pub(crate) struct Db(IdbDatabase);
 
@@ -182,15 +185,22 @@ impl Db {
                 return;
             };
             let names = db.object_store_names();
-            for store in [SONGS, FILES] {
+            for store in [SONGS, FILES, NOTESKINS] {
                 if !names.contains(store) {
                     let _ = db.create_object_store(store);
                 }
             }
         });
-        let db = request(&open)
-            .await
-            .map_err(|e| err("opening the song library", e))?;
+        let db = request(&open).await.map_err(|e| {
+            let e = err("opening the song library", e);
+            // This tab's code is older than the library (the game was
+            // updated in another tab).
+            if e.contains("VersionError") {
+                "the game was updated in another tab; reload this one".to_string()
+            } else {
+                e
+            }
+        })?;
         Ok(db.unchecked_into())
     }
 
@@ -333,7 +343,7 @@ impl Db {
         complete(&tx).await.map_err(|e| {
             let e = err("writing the song library", e);
             if e.contains("QuotaExceeded") {
-                "the browser ran out of storage for imported songs".to_string()
+                "the browser ran out of storage for imported songs and noteskins".to_string()
             } else {
                 e
             }

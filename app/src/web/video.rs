@@ -375,6 +375,7 @@ fn receive(shared: &mut Shared, msg: &JsValue) {
                 full_range: field(msg, "full_range").is_truthy(),
                 planes,
                 decode_ms: number(msg, "decode_ms"),
+                external: None,
             })
         }
         "eof" if current => VideoEvent::End {

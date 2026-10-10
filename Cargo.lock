@@ -342,6 +342,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddi-noteskin"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "ddi-platform"
 version = "0.1.0"
 dependencies = [
@@ -358,6 +365,7 @@ dependencies = [
  "bytemuck",
  "ddi-chart",
  "ddi-engine",
+ "ddi-noteskin",
  "ddi-platform",
  "glyphon",
  "wgpu",
@@ -371,6 +379,7 @@ dependencies = [
  "ddi-chart",
  "ddi-engine",
  "ddi-library",
+ "ddi-noteskin",
  "ddi-platform",
  "ddi-render",
  "getrandom",

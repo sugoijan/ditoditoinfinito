@@ -40,7 +40,10 @@ pub use ddi_platform;
 pub use appearance::Appearance;
 pub use bindings::{ConnectedPad, ControlBindings, LaneTable, MenuInput, PadBindings, PadUse};
 pub use clock::{ClockOptions, SongClock};
-pub use frame::{Frame, JudgementFlash, NoteSprite, ReceptorState, SpriteKind};
+pub use frame::{
+    Frame, HoldKind, JudgementFlash, NoteSprite, ReceptorState, SkinEvent, SkinEventKind,
+    SpriteKind,
+};
 pub use input::{Binding, BindingDevice, Bindings, InputEvent, LaneInput};
 pub use judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
 pub use player::{PlayOptions, Player, Results};

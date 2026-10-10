@@ -21,8 +21,8 @@
 
 use ddi_library::backgrounds::{self, BgImage, BgSegment};
 use ddi_platform::video::{
-    MovieStats, MovieTrack, StopReason, VideoBackend, VideoDecoder, VideoEvent, VideoFormat,
-    VideoFrame,
+    ExternalFrame, MovieStats, MovieTrack, StopReason, VideoBackend, VideoDecoder, VideoEvent,
+    VideoFormat, VideoFrame,
 };
 use ddi_render::Renderer;
 use std::cell::RefCell;
@@ -30,7 +30,7 @@ use std::rc::Rc;
 use web_sys::Blob;
 
 use crate::web::video::{ModuleStatus, Picture, VideoWorker, WorkerVideo};
-use crate::web::webcodecs::{self, WebCodecsVideo};
+use crate::web::webcodecs::{self, DirectFrame, WebCodecsVideo};
 
 /// A movie is opened this long before its segment starts: opening and
 /// seeking a long-GOP H.264 file took up to 1.2 s (step 1).
@@ -148,7 +148,13 @@ struct Probe {
 /// A movie's texture.
 struct Texture {
     name: String,
+    /// The texture shown: `yuv` or `rgb`'s, the one written last.
     id: usize,
+    /// Planes for decoded frames (renderer id).
+    yuv: Option<usize>,
+    /// An RGBA texture for the browser's own frames (the direct path):
+    /// the texture, its renderer id and size.
+    rgb: Option<(wgpu::Texture, usize, u32, u32)>,
     /// It holds a frame of the current run: before that (a retry, a change
     /// that starts the movie over), the song background shows instead of
     /// an old frame.
@@ -178,6 +184,17 @@ pub(crate) struct MovieDeck {
     shown_any: bool,
     /// Turned off for the rest of this play by the automatic setting.
     off: Option<StopReason>,
+    /// Movies that failed this play, for the results (`failed` is cleared
+    /// when the song ends).
+    trouble: Vec<(String, String)>,
+    /// The browser frames copied to the GPU last frame: kept open until
+    /// that frame's work is submitted (WebGL2 copies then, as with the
+    /// background images).
+    kept: Vec<ExternalFrame>,
+    /// Copies of browser frames still checked for an error, and the first
+    /// error one reported.
+    checks: u32,
+    direct_error: Rc<RefCell<Option<String>>>,
 }
 
 impl MovieDeck {
@@ -348,6 +365,19 @@ impl MovieDeck {
         self.off
     }
 
+    /// What kept movies from playing this play, in a line for the results
+    /// (a build without the module says so once, not per movie).
+    pub(crate) fn trouble(&self) -> Option<String> {
+        let ((name, first), rest) = self.trouble.split_first()?;
+        Some(if rest.is_empty() {
+            format!("the video {name} could not play: {first}")
+        } else if rest.iter().all(|(_, e)| e == first) {
+            format!("{} videos could not play: {first}", rest.len() + 1)
+        } else {
+            format!("{} videos could not play; {name}: {first}", rest.len() + 1)
+        })
+    }
+
     /// Closes every decoder (the song ended). Sources, textures and what
     /// was learned stay for a retry, which shows no old frame and tries
     /// failed movies again (with a new worker if the old one stopped);
@@ -359,6 +389,8 @@ impl MovieDeck {
         for texture in &mut self.textures {
             texture.fresh = false;
         }
+        // Their copies were submitted with the frame before.
+        self.kept.clear();
         self.failed.clear();
         self.current = None;
         if self
@@ -376,6 +408,7 @@ impl MovieDeck {
     pub(crate) fn reset(&mut self) {
         self.stop();
         self.off = None;
+        self.trouble.clear();
     }
 
     /// Changes whenever [`MovieDeck::shown_ids`] would.
@@ -403,8 +436,20 @@ impl MovieDeck {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
+        // Last frame's work is submitted: its browser frames may close.
+        self.kept.clear();
         if schedule.is_empty() || self.sources.is_empty() || self.off.is_some() {
             return;
+        }
+        // A browser frame could not be drawn: the module plays every movie.
+        let direct_error = self.direct_error.borrow_mut().take();
+        if let Some(e) = direct_error {
+            webcodecs::direct_failed(&e);
+            for open in &mut self.open {
+                if matches!(open.decoder.backend, Backend::Browser(_)) {
+                    open.decoder.fallback.get_or_insert_with(|| e.clone());
+                }
+            }
         }
         let current = backgrounds::state_at(schedule, t).current;
         if self.current != Some(current) {
@@ -488,7 +533,12 @@ impl MovieDeck {
                 }
             } else if let Some(frame) = frame {
                 // Its texture is made now, not on the frame of the change.
-                early.push((open.name.clone(), frame.width, frame.height));
+                early.push((
+                    open.name.clone(),
+                    frame.width,
+                    frame.height,
+                    frame.external.is_some(),
+                ));
                 open.held = Some(frame);
             }
         }
@@ -507,8 +557,8 @@ impl MovieDeck {
         for open in gone {
             self.close(open);
         }
-        for (name, width, height) in early {
-            self.texture(&name, width, height, renderer, device);
+        for (name, width, height, external) in early {
+            self.texture(&name, width, height, external, renderer, device);
         }
         if let Some((name, frame)) = upload {
             self.upload(&name, &frame, renderer, device, queue);
@@ -536,6 +586,9 @@ impl MovieDeck {
         web_sys::console::warn_1(
             &format!("background video {name}: {e}; the song background shows").into(),
         );
+        if !self.trouble.iter().any(|(n, _)| n == name) {
+            self.trouble.push((name.to_string(), e.clone()));
+        }
         self.failed.push((name.to_string(), e));
         self.version += 1;
     }
@@ -650,6 +703,7 @@ impl MovieDeck {
         name: &str,
         width: u32,
         height: u32,
+        external: bool,
         renderer: &mut Renderer,
         device: &wgpu::Device,
     ) -> Option<usize> {
@@ -661,15 +715,41 @@ impl MovieDeck {
             );
             return None;
         }
-        if let Some(t) = self.textures.iter().find(|t| t.name == name) {
-            return Some(t.id);
+        let i = match self.textures.iter().position(|t| t.name == name) {
+            Some(i) => i,
+            None => {
+                self.textures.push(Texture {
+                    name: name.to_string(),
+                    id: usize::MAX,
+                    yuv: None,
+                    rgb: None,
+                    fresh: false,
+                });
+                self.textures.len() - 1
+            }
+        };
+        let t = &mut self.textures[i];
+        let id = if external {
+            if !t
+                .rgb
+                .as_ref()
+                .is_some_and(|r| (r.2, r.3) == (width, height))
+            {
+                let texture = renderer.create_background_texture(device, width, height);
+                let id = renderer.add_background(device, &texture);
+                t.rgb = Some((texture, id, width, height));
+            }
+            t.rgb.as_ref().map(|r| r.1)
+        } else {
+            Some(
+                *t.yuv
+                    .get_or_insert_with(|| renderer.add_video(device, width, height)),
+            )
+        }?;
+        if t.id != id {
+            t.id = id;
+            self.version += 1;
         }
-        let id = renderer.add_video(device, width, height);
-        self.textures.push(Texture {
-            name: name.to_string(),
-            id,
-            fresh: false,
-        });
         Some(id)
     }
 
@@ -681,13 +761,18 @@ impl MovieDeck {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
+        if let Some(external) = &frame.external {
+            self.upload_direct(name, frame, external, renderer, device, queue);
+            return;
+        }
         // A malformed frame never reaches a texture (it would show green:
         // new textures are zeroed).
         if frame.split().is_none() {
             self.fail(name, "a malformed frame".into());
             return;
         }
-        let Some(id) = self.texture(name, frame.width, frame.height, renderer, device) else {
+        let Some(id) = self.texture(name, frame.width, frame.height, false, renderer, device)
+        else {
             return;
         };
         let written = renderer.set_video_frame(
@@ -704,6 +789,74 @@ impl MovieDeck {
             self.shown_any = true;
             self.set_fresh(name, true);
         }
+    }
+
+    /// Copies a browser frame (the direct path) into the movie's RGBA
+    /// texture, GPU to GPU, in the browser's colours. The first copies are
+    /// checked for errors: a browser whose frames cannot be copied moves
+    /// every movie to the module.
+    fn upload_direct(
+        &mut self,
+        name: &str,
+        frame: &VideoFrame,
+        external: &ExternalFrame,
+        renderer: &mut Renderer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        let Some(direct) = external.0.downcast_ref::<DirectFrame>() else {
+            self.fail(name, "a frame of another kind".into());
+            return;
+        };
+        if self
+            .texture(name, frame.width, frame.height, true, renderer, device)
+            .is_none()
+        {
+            return;
+        }
+        let Some((texture, ..)) = self
+            .textures
+            .iter()
+            .find(|t| t.name == name)
+            .and_then(|t| t.rgb.as_ref())
+        else {
+            return;
+        };
+        let scope =
+            (self.checks < 4).then(|| device.push_error_scope(wgpu::ErrorFilter::Validation));
+        queue.copy_external_image_to_texture(
+            &wgpu::CopyExternalImageSourceInfo {
+                source: wgpu::ExternalImageSource::ImageBitmap(direct.bitmap().clone()),
+                origin: wgpu::Origin2d::ZERO,
+                flip_y: false,
+            },
+            wgpu::CopyExternalImageDestInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+                color_space: wgpu::PredefinedColorSpace::Srgb,
+                premultiplied_alpha: false,
+            },
+            wgpu::Extent3d {
+                width: frame.width,
+                height: frame.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        if let Some(scope) = scope {
+            self.checks += 1;
+            let error = Rc::clone(&self.direct_error);
+            let popped = scope.pop();
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Some(e) = popped.await {
+                    error.borrow_mut().get_or_insert(e.to_string());
+                }
+            });
+        }
+        self.kept.push(external.clone());
+        self.shown_any = true;
+        self.set_fresh(name, true);
     }
 
     /// Counts over every track so far.
@@ -736,6 +889,7 @@ impl MovieDeck {
         }
         set("playing", playing.into());
         set("decoders", decoders.into());
+        set("browser_frames", webcodecs::mode_name().into());
         let failed = js_sys::Array::new();
         for (name, e) in &self.failed {
             failed.push(&format!("{name}: {e}").into());
