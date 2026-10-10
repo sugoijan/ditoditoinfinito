@@ -94,5 +94,18 @@ class Ratings(unittest.TestCase):
             self.assertEqual((source/'manifest.json').read_bytes(),raw)
             self.assertEqual((root/'pack/ratings/page.html').read_bytes(),(root/'page.html').read_bytes())
 
+    def test_equal_ratings_preserve_names_for_chart_identity_without_changing_tiers(self):
+        with tempfile.TemporaryDirectory(prefix='ddi-equal-ratings-') as directory:
+            root=Path(directory);source=root/'source';source.mkdir();audio(source/'music.wav')
+            charts=[{'id':name.lower(),'mode':'5','difficultyStars':13,'metadata':{'difficultyLabel':name},
+                     'lanes':[{'tapsSeconds':[1,2]if i==0 else[],'holdsSeconds':[]}for i in range(5)]}for name in ['Remake','Hard']]
+            manifest={'schema':'ddi-normalized-work/experimental-1','charts':charts,'music':{'path':'music.wav','sha256':digest((source/'music.wav').read_bytes())}}
+            (source/'manifest.json').write_text(json.dumps(manifest))
+            result=prepare(source,root/'pack','wav',Path(shutil.which('ffmpeg')),tempo_policy='exact')
+            text=(root/'pack'/result['songs'][0]['simfile']).read_text()
+            self.assertIn('#CHARTNAME:Remake;',text);self.assertIn('#CHARTNAME:Hard;',text)
+            self.assertEqual(text.count('#DIFFICULTY:Challenge;'),2)
+            self.assertTrue(all(c['preservedDuplicateLabel']for c in result['songs'][0]['charts']))
+
 
 if __name__=='__main__':unittest.main()

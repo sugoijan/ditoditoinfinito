@@ -148,6 +148,16 @@ def test(worker, directory):
             raise AssertionError("Incomplete evidence accepted for export")
         except ValueError:
             pass
+    extended = json.loads((inputs/"budget.json").read_text())
+    extended["inspectionScale"] = 4
+    (inputs/"budget-extended.json").write_text(json.dumps(extended))
+    result = run(worker,inputs/"budget-extended.json",directory/"budget-extended")
+    assert result["exitCode"] == 0
+    data = json.loads((directory/"budget-extended/snapshot.json").read_text())
+    state = data["captures"][0]["state"]
+    assert not state["incomplete"] and state["limits"]["properties"] == 80000
+    root = properties(state,state["roots"][0]["value"])
+    assert properties(state,root["large"])["20009"] == 1
     result = run(worker,inputs/"input.json",directory/"polled-input")
     assert result["exitCode"] == 0
     data = json.loads((directory/"polled-input/snapshot.json").read_text())

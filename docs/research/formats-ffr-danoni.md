@@ -323,6 +323,36 @@ the payload and record a normalized derivative separately. Ruffle explains
 this SWF JPEG behavior and handles marker pairs inside headers as well in
 [`remove_invalid_jpeg_data`](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/render/src/utils.rs).
 
+### Legacy constant-travel sources and missing colour sidecars (2026-10-10)
+
+Native observations of [灼冬赫夜](http://autumnleaves.yukishigure.com/noname08/noname.html),
+[END of AIR](http://autumnleaves.yukishigure.com/DOSMF08/END_of_AIR/END.html)
+and seven related レク sources establish a distinct 2.17 engine family.
+Split `timeline`/`ftimeline` contain raw judgment frames; compiled
+`mkArrow`/`mkFArrow` use `head - set_cnt`. The mutable tap and hold-head banks
+are overwritten with spawn frames, while hold tails and cached durations remain
+in judgment-frame units. A snapshot must identify the conversion stage; reading
+an arbitrary live array as raw dos timing is incorrect. The native reference
+preserves both stages and cross-checks every scheduled head.
+[Runtime evidence and adapter contract](danoni-corpus-v2-admission.md#new-native-contract-and-proof).
+
+`set_spi` is the initial pixel increment (`2 * dif_spi`) in these observed
+sources. A speed change may precede audio zero, so the first visible arrow can
+already move at twice that increment. Extracting that observed speed as the
+baseline and applying the speed array again would double the author change.
+The adapter separates the initial increment and active multiplier and proves
+both against motion. `iro.txt` is optional presentation data in five observed
+works whose actual cached responses are HTTP 404; chart data still initializes.
+This is a narrowly bound exception, not a rule that any missing dependency can
+be ignored. Original errors, response bodies and parsed `iro_dac` values stay
+in local evidence. [Native adapter details](danoni-native-adapters.md).
+
+The [NEEDS page](https://vorhandensein.sakura.ne.jp/danoni/433_needs/)
+publishes 200–252.5 BPM and explicitly names 252.5 as its main tempo, even
+though its captured `difData` BPM text is undeclared. Metadata can therefore
+require page/catalogue evidence outside the dos header. An estimated constant
+grid is a presentation approximation, not recovery of those tempo changes.
+
 ## Part C — Implications for an internal chart model
 
 1. **Time base.** FFR = integer frames at 30 fps (plus optional ms per note, plus per-song integer `sync`); DanOni = integer frames at 60 fps with `blankFrame`/`adjustment`/`startFrame` offsets and `playbackRate` rescaling; DDR/SM = beats + BPM/stop segments. A lossless core should store note time as an exact rational or integer in a per-chart **tick base** (e.g., `ticks_per_second` = 30 or 60 for frame charts, beat-based for SM) together with the original frame integer, rather than forcing beats. Conversion to beats is lossy (and FFR charts have no BPM at all).

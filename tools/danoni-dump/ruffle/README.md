@@ -136,6 +136,11 @@ iteration limit. `text` takes `value` with 1–32 printable characters, delivere
 as native text-input events. `avmExecutionMs` is 50–10,000 ms (default 500);
 large original converters may require a reviewed larger budget. The parent
 runner still caps CPU at 20 s, wall time at 30 s and resident memory at 2 GiB.
+`inspectionScale` is an integer 1–4 (default 1). It scales only the bounded
+stored-state graph budgets: at 4, 4,096 objects, 80,000 properties, 16,384
+UTF-16 units per string and 1,048,576 total UTF-16 units. Display/root counts
+and parent process limits remain unchanged. A larger scale is an explicit
+recipe choice, not automatic unbounded expansion.
 `inspectGlobals` defaults to false; true records the two AVM1
 case-sensitivity environments' enumerable stored global properties, excluding
 function values and non-enumerable properties. `render` defaults to false; true uses an offscreen Metal target. `renderScale` is an integer 1–4
@@ -455,3 +460,8 @@ These supplement absent runtime ratings, use the same tier thresholds as Kouhaku
 and keep original names in provenance while rated charts display their standard
 tier/meter. Publisher scales and uncertain alternatives remain explicit. See the
 [review schema and current results](../../../docs/research/danoni-source-ratings.md).
+
+The [first v2 admission batch](../../../docs/research/danoni-corpus-v2-admission.md)
+adds the `scheduled-constant` family, exact optional-colour 404 reviews and
+source-bound published-tempo evidence. The expanded local registry inventories
+all 113 v2 sources, including those still pending runtime/engine review.

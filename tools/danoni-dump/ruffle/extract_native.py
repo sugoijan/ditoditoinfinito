@@ -7,7 +7,7 @@ import shutil
 from export_io import digest,write_json
 from paths import external_directory
 from rebuild_corpus import checked,copy_tree
-from native_families import extract_movie_arrays,scheduled_projection,movie_observation,movie_audio_origin,relative_chart,audit_ok
+from native_families import constant_projection,review_optional_colors,extract_movie_arrays,scheduled_projection,movie_observation,movie_audio_origin,relative_chart,audit_ok
 from native_audio import canonical_audio
 from swf_audio import demux,read_movie,iter_tags
 
@@ -66,16 +66,23 @@ def extract(recipe_path, output, ffmpeg):
         if not isinstance(ident,str) or not ident.replace('-','').replace('_','').isalnum() or ident in reviews:raise ValueError('Unsafe/duplicate chart id')
         saved,state,parent=capture(root,row['projection'],swf_hash,inputs)
         family=row['family']
+        optional_review=None;optional_errors=[]
+        if row.get('optionalColorReview'):
+            b=row['optionalColorReview'];optional_review=json.loads(checked(root,b['path'],b['sha256']).read_text())
+            for missing in optional_review['missingResources']:checked(root,missing['path'],missing['sha256'])
+            state,optional_errors=review_optional_colors(state,optional_review)
         if family in ('child-timeline-5','dac-7'):
             projected,iteration=extract_movie_arrays(state,family,row.get('sourcePrefix',''));clock=None
-        elif family=='scheduled-counter':
-            projected=scheduled_projection(state,row['mode'],allow_missing_decorative_sprites=row.get('reviewMissingDecorativeSprites',False));clock=projected['clockField'];iteration=projected['preparedIteration']
+        elif family in ('scheduled-counter','scheduled-constant'):
+            projected=constant_projection(state,row['mode'])if family=='scheduled-constant'else scheduled_projection(state,row['mode'],allow_missing_decorative_sprites=row.get('reviewMissingDecorativeSprites',False));clock=projected['clockField'];iteration=projected['preparedIteration']
         else:raise ValueError('Unknown native family')
         motion_path,motion_state,motion_parent=capture(root,row['motionCapture'],swf_hash,inputs)
+        if optional_review:motion_state,_=review_optional_colors(motion_state,optional_review)
         motion_args=row['motion'];observed={**motion_state,'captures':[i for i in motion_state['captures']if i['frame']in motion_args['iterations']]}
         motion=movie_observation(observed,projected,motion_args['note'],motion_args['receptor'],motion_args['lane'],
                                  motion_args.get('targetY'),motion_args.get('geometryReference'),clock)
         audio_path,audio_state,audio_parent=capture(root,row['audioCapture'],swf_hash,inputs)
+        if optional_review:audio_state,_=review_optional_colors(audio_state,optional_review)
         audit_ok(audio_state,projected.get('presentationDiagnostics',[]))
         origin=movie_audio_origin(audio_state,clock)
         # Bind the logical counter clock between observed music start and motion,
@@ -107,7 +114,7 @@ def extract(recipe_path, output, ffmpeg):
             if label.startswith('Artist'):metadata['artist']=label[len('Artist'):].strip()
         if source.get('artist') and not metadata.get('artist'):metadata['artist']=source['artist']
         chart=relative_chart(projected,origin['logicalFrame']);chart.update(id=ident,music=media[mp3_hash],audioOrigin=origin,
-            nativeReference=f'references/{ident}.json',effects=[{'type':'source-cursor-order','lane':index,**issue} for index,lane in enumerate(projected['lanes']) for issue in lane.get('sourceOrderIssues',[])],metadata={**metadata,'difficultyLabel':row.get('label',projected['metadata'].get('diffi',''))},difficultyStars=None)
+            nativeReference=f'references/{ident}.json',effects=([{'type':'missing-optional-color','review':optional_review,'diagnostics':optional_errors}]if optional_review else[])+([{'type':'unmapped-native-presentation','data':projected['nativePresentation']}]if projected.get('nativePresentation',{}).get('iro_dac')else[])+[{'type':'source-cursor-order','lane':index,**issue} for index,lane in enumerate(projected['lanes']) for issue in lane.get('sourceOrderIssues',[])],metadata={**metadata,'difficultyLabel':row.get('label',projected['metadata'].get('diffi',''))},difficultyStars=None)
         reference={'schema':'ddi-native-family-reference/experimental-1','family':family,'sourceSwfSha256':swf_hash,
                    'preparedIteration':iteration,'clock':clock or 'root movie frame','audioOrigin':origin,'projection':projected,
                    'motion':motion,'metadata':chart['metadata'],'sourceSnapshotSha256':digest(saved.read_bytes()),

@@ -6,6 +6,7 @@ family-specific chart parsing occurs here. Default musical fitting is bounded;
 explicit source-bound reviews override it, and exact frame timing remains available.
 """
 import argparse
+from collections import Counter
 import json
 import math
 from pathlib import Path
@@ -63,7 +64,7 @@ def ssc_value(value):
     return ''.join('\\'+c if c in '\\:#/' else c for c in value)
 
 
-def ssc_chart(chart,tier,stars,grid=None,native_motion=None,scroll_factor=1):
+def ssc_chart(chart,tier,stars,grid=None,native_motion=None,scroll_factor=1,preserve_label=False):
     mode=chart['mode'];lanes=chart['lanes']
     if mode not in MODES or len(lanes)!=MODES[mode]:raise ValueError('Unsupported/incorrect built-in DanOni layout')
     def event_tick(seconds,rhythmic=True):
@@ -103,7 +104,7 @@ def ssc_chart(chart,tier,stars,grid=None,native_motion=None,scroll_factor=1):
         scroll.append(f"{(event_tick(e['seconds'],False)+padding)/48:.15g}={multiplier*compensation:.15g}")
     label=chart.get('metadata',{}).get('difficultyLabel','')
     if not isinstance(label,str) or any(c in label for c in ';\r\n'):raise ValueError('Unsafe source difficulty label')
-    return ('#NOTEDATA:;\n'+(f'#CHARTNAME:{ssc_value(label)};\n' if label and stars is None else '')+f'#STEPSTYPE:danoni-{mode};\n#DESCRIPTION:;\n#DIFFICULTY:{tier};\n#METER:{stars if stars is not None else 0};\n'
+    return ('#NOTEDATA:;\n'+(f'#CHARTNAME:{ssc_value(label)};\n' if label and(stars is None or preserve_label)else '')+f'#STEPSTYPE:danoni-{mode};\n#DESCRIPTION:;\n#DIFFICULTY:{tier};\n#METER:{stars if stars is not None else 0};\n'
         +f'#OFFSET:{padding*quantum-phase:.15g};\n#BPMS:0={bpm:.15g};\n'
         +(f"#SCROLLS:{','.join(scroll)};\n" if scroll else '')+f'#NOTES:{rows};\n')
 
@@ -225,15 +226,17 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
         reviewed=selected[0] if selected else None
         if reviewed:text+=f"#DISPLAYBPM:{reviewed['sscValue']};\n"
         charts=[]
+        duplicates=Counter((e['chart']['mode'],e['stars'])for e in group if e['stars']is not None)
         for i,e in enumerate(group):
             tier=tier_for_stars(e['stars'],bounds) if tier_policy=='stars' else 'Edit'
             native_report=scroll_summary(motions.get(e['id']),timing_bpm,scroll_factor)
             if native_report and e['id'] in evidence_paths:native_report['evidenceStoredAt']=evidence_paths[e['id']]
-            text+=ssc_chart(e['chart'],tier,e['stars'],grids.get(e['id']),motions.get(e['id']),scroll_factor)
+            preserve_label=duplicates[(e['chart']['mode'],e['stars'])]>1
+            text+=ssc_chart(e['chart'],tier,e['stars'],grids.get(e['id']),motions.get(e['id']),scroll_factor,preserve_label)
             omitted={key:len(e['chart'].get(key,[])) for key in ['colors','boost','stops','effects'] if e['chart'].get(key)}
             charts.append({'id':e['id'],'difficultyStars':e['stars'],'difficultyClassification':tier,
                 'classificationSource':f'pack heuristic: {tier_policy}','sourceDifficultyClassification':e['metadata'].get('difficultyClassification'),
-                'sourceDifficultyLabel':e['metadata'].get('difficultyLabel',e['metadata'].get('label')),
+                'preservedDuplicateLabel':preserve_label,'sourceDifficultyLabel':e['metadata'].get('difficultyLabel',e['metadata'].get('label')),
                 'sourceRating':ratings.get(e['id']),
                 'unrepresentedEffects':omitted,'nativeScroll':native_report,'musicalQuantization':musical_summary(e['chart'],grids[e['id']]) if grids else None})
             write_json(output/'references'/f'{ident}-{i}.json',{'sourceChart':e['chart'],'sourceMetadata':e['metadata'],'sourceReference':e['reference'],'sourceRating':ratings.get(e['id'])})

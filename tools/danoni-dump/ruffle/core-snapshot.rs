@@ -19,13 +19,14 @@ struct Inspector<'gc> {
     remaining: usize,
     string_remaining: usize,
     incomplete: bool,
+    scale: usize,
 }
 
 impl<'gc> Inspector<'gc> {
     fn string(&mut self, s: crate::string::AvmString<'gc>) -> Json {
         let units: Vec<u16> = s
             .iter()
-            .take(MAX_STRING_UNITS.min(self.string_remaining))
+            .take((MAX_STRING_UNITS * self.scale).min(self.string_remaining))
             .collect();
         self.string_remaining -= units.len();
         let truncated = s.len() > units.len();
@@ -49,7 +50,7 @@ impl<'gc> Inspector<'gc> {
                 if let Some(id) = self.ids.get(&ptr) {
                     return json!({"ref":id});
                 }
-                if self.queue.len() == MAX_OBJECTS {
+                if self.queue.len() == MAX_OBJECTS * self.scale {
                     self.incomplete = true;
                     return json!({"type":"uninspected", "reason":"object-limit"});
                 }
@@ -67,14 +68,15 @@ impl<'gc> Inspector<'gc> {
 }
 
 /// Experimental graph snapshot. IDs are local to this snapshot, never VM addresses.
-pub fn capture(player: &mut Player, inspect_globals: bool) -> Json {
+pub fn capture(player: &mut Player, inspect_globals: bool, scale: usize) -> Json {
     player.mutate_with_update_context(|context| {
         let mut inspect = Inspector {
             ids: HashMap::new(),
             queue: Vec::new(),
-            remaining: MAX_PROPERTIES,
-            string_remaining: MAX_TOTAL_STRING_UNITS,
+            remaining: MAX_PROPERTIES * scale,
+            string_remaining: MAX_TOTAL_STRING_UNITS * scale,
             incomplete: false,
+            scale,
         };
         let mut roots = Vec::new();
         let mut displays = context.stage.iter_render_list();
@@ -187,8 +189,8 @@ pub fn capture(player: &mut Player, inspect_globals: bool) -> Json {
                 viewport.tx.to_pixels(),viewport.ty.to_pixels()],
             "objects":objects,"displayTree":display_tree,"globalScopes":global_scopes, "incomplete":inspect.incomplete,
             "avm1Halted":context.avm1.ddi_halted(),
-            "limits":{"roots":64,"objects":MAX_OBJECTS,"properties":MAX_PROPERTIES,
-                "stringUnits":MAX_STRING_UNITS,"totalStringUnits":MAX_TOTAL_STRING_UNITS,
+            "limits":{"roots":64,"objects":MAX_OBJECTS * scale,"properties":MAX_PROPERTIES * scale,
+                "stringUnits":MAX_STRING_UNITS * scale,"totalStringUnits":MAX_TOTAL_STRING_UNITS * scale,
                 "displays":MAX_DISPLAYS},
             "excluded":["prototypes","accessor-values","movie-clip-references","native-internals"]})
     })

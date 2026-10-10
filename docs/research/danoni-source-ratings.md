@@ -2,7 +2,7 @@
 
 Updated: 2026-10-10. Numeric source difficulty now reaches SSC through a
 source-bound review of cached work pages and catalogue rows, supplementing
-ratings already extracted from the runtime. **15 of the 17 single-song charts**
+ratings already extracted from the runtime. **32 of the 43 single-song charts**
 have verified published ratings. They use the same classifier as Kouhaku:
 
 | Source count / chosen range maximum | SSC tier |
@@ -50,10 +50,14 @@ chart and must not donate its rating. Runtime selection counters named
 `difficulty`, key counts in legacy `difStep`, initial scroll speed, tool scores,
 note counts and source names such as Hard are not used as source ratings.
 
-Rated charts omit `#CHARTNAME`, allowing the menu to show their standard tier and
+Rated charts normally omit `#CHARTNAME`, allowing the menu to show their standard tier and
 meter just as it does for Kouhaku. Original labels such as Original, LVUP and
 Retrospective remain in `sourceDifficultyLabel` and the unchanged source
-reference. Unrated charts retain their source names for identity.
+reference. Unrated charts retain their source names for identity. Rated charts sharing a song,
+key mode and identical meter also retain their names, recorded as
+`preservedDuplicateLabel: true`; otherwise their identities would be ambiguous.
+The [v2 admission](danoni-corpus-v2-admission.md) documents the new source ratings
+and the equal-meter 灼冬赫夜 pair.
 
 ## Review contract and usage
 
@@ -124,7 +128,7 @@ are never committed or included in test fixtures.
 
 The game's actual SSC parser checks standard tiers, meters and label behavior;
 source note/hold timing and compensated movement still undergo the existing
-independent checks. Fresh-profile Chrome import verifies all 15 single-song
+independent checks. The previous generation's fresh-profile Chrome import verified all 15 single-song
 ratings, both unrated charts, 19 banners, 23 charts and 13,228 judged notes.
 BPMs, beat/color grids, scroll maps, previews, banners and audio are unchanged
 from the previous accepted generation. Kouhaku's ZIP is byte-identical. The

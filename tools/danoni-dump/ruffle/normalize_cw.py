@@ -93,7 +93,7 @@ def normalize(source, output, ffmpeg):
             write_json(directory/'decode.json',{'sourceSha256':sha,'command':command,'originShiftSamples':0,'scope':'Ordinary CW file decode; source clock/padding handled in chart normalization'})
         ident=f"chart-{c['chartId']}";level=reference['difData']['rawRow'].split(',')[1].split('::')
         stars=reference['difData']['difficulty']if len(level)>=3 and level[2].strip()else None
-        credits={'title':metadata['title'],'artist':metadata['artist'],'creator':metadata['creator'],'difficultyLabel':reference['difData']['label'],'sourceChartId':c['chartId'],'sourcePageUrl':m.get('pageUrl'),'declaredDisplayBpm':metadata.get('referenceBpm')}
+        credits={'title':metadata['title'],'artist':metadata['artist'],'creator':metadata['creator'],'difficultyLabel':reference['difData']['label'],'sourceChartId':c['chartId'],'sourcePageUrl':m.get('pageUrl',m.get('page',{}).get('finalUrl')),'declaredDisplayBpm':metadata.get('referenceBpm')}
         colors=[{'kind':k,'data':v}for k,v in reference['colors'].items()if v]
         effects=[{'kind':'cw-presentation','snapshot':reference['effects']}]
         if reference['timing'].get('endFrame')is not None:effects.append({'kind':'endFrame','nativeFrame':reference['timing']['endFrame']})
@@ -109,7 +109,7 @@ def normalize(source, output, ffmpeg):
         motions[ident]={'baseArrowHeightsPerSecond':rate,'evidence':{'path':str(path),'sha256':digest(path.read_bytes())},'scope':measurement['scope']}
         charts.append(chart)
     manifest={'schema':'ddi-normalized-work/experimental-1','adapter':'cw-reference/1','adapterSourceSha256':digest(Path(__file__).read_bytes()),
-              'sourceManifestSha256':digest(raw),'verificationSha256':digest(verification_raw),'sourcePageUrl':m.get('pageUrl'),'metadata':{},'charts':charts,
+              'sourceManifestSha256':digest(raw),'verificationSha256':digest(verification_raw),'sourcePageUrl':m.get('pageUrl',m.get('page',{}).get('finalUrl')),'metadata':{},'charts':charts,
               'assessment':{'notes':'Saved CW oracle; rate 1, zero user/fractional adjustment and padding independently identified','effects':'Source colours, boosts and presentation retained; omissions declared by SSC preparation'}}
     write_json(output/'manifest.json',manifest)
     write_json(output/'native-scroll-review.json',{'schema':'ddi-reviewed-native-scroll/experimental-1','sourceManifestSha256':digest((output/'manifest.json').read_bytes()),'charts':motions})

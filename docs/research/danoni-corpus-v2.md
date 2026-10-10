@@ -253,3 +253,12 @@ acquisition and triage scripts, and `discovery/logs/` holds fetch logs and
 capture stdout/stderr. Public availability and robots permission do not grant
 redistribution rights. Everything stays local, and catalogue credits are
 attribution, not licences.
+
+## First extraction admission (2026-10-10)
+
+The [admission handover](danoni-corpus-v2-admission.md) records 12 accepted works:
+the three complete CW captures and all nine Higan-build sources, with 26 charts.
+Native execution identified a separate constant-travel family; static matching
+was not sufficient. The expanded exports have 31 songs / 49 charts. The other
+101 v2 sources are explicit pending registry entries; they have not been claimed
+as playable references. Original acquisition counts above remain historical.

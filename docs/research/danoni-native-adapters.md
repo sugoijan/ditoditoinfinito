@@ -78,6 +78,27 @@ with every required seven-key receptor present. FAKE800's two errors remain in
 `presentationDiagnostics`; unknown errors are rejected. This is an explicit,
 limited presentation review, not permission to ignore runtime errors generally.
 
+## Constant-travel family added for v2
+
+`scheduled-constant` proves every split raw tap/hold head against its compiled
+spawn at `raw - set_cnt`, checks mutated banks and native hold-duration caches,
+and requires the pre-consumption `frame_num == 0` state. `initialPixelSpeed`
+is the native `set_spi`, proved to equal `dif_spi * 2`; `constantTravelFrames`
+records `set_cnt`. Original coded `iro_dac` values remain in `nativePresentation`.
+See [the nine-work runtime evidence](danoni-corpus-v2-admission.md).
+
+Motion measurements now record `observedAuthorMultiplier`. For this family,
+base speed uses `initialPixelSpeed`, and the actual measured velocity must match
+that speed times the already active author multiplier. The older contracts
+retain their existing measurement behavior.
+
+A chart recipe may bind `optionalColorReview: {path,sha256}` with schema
+`ddi-native-optional-color-review/1`, `sourceSwfSha256`, and `missingResources`.
+Each missing resource has contained `path`, `sha256`, `url`, `retrievedAt` and
+`status: 404`. Only the exact requested `iro.txt` and matching denied-fetch/error
+pair qualify. Original capture bytes stay intact and normalized effects retain
+the review and diagnostics. No successful substitute response is served.
+
 ## Recipe and normalized layout
 
 ```text

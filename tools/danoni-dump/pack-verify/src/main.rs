@@ -103,11 +103,12 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
                     c["sourceDifficultyLabel"], label,
                     "source label lost from provenance"
                 );
-                let displayed = if c["difficultyStars"].is_null() {
-                    label
-                } else {
-                    ""
-                };
+                let displayed =
+                    if c["difficultyStars"].is_null() || c["preservedDuplicateLabel"] == true {
+                        label
+                    } else {
+                        ""
+                    };
                 assert_eq!(
                     song.charts[index].name, displayed,
                     "rated charts must show their standard tier"
@@ -206,7 +207,7 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
                     .map(|s| timing.seconds_at(s.tick))
                     .fold(timing.seconds_at(first.tick), f64::min)
                     - 0.01;
-                let dt = 0.001;
+                let dt = 0.01;
                 for x in [1.0, 2.0, 3.0] {
                     let opt = ddi_engine::scroll::ScrollOptions {
                         speed: ddi_engine::scroll::SpeedMod::XMod(x),
@@ -218,7 +219,9 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
                         / dt;
                     assert!(
                         (velocity - num(&c["nativeScroll"]["baseArrowHeightsPerSecond"]) * x).abs()
-                            < 0.001
+                            < 0.001,
+                        "base velocity {velocity} for x{x}, expected {}",
+                        num(&c["nativeScroll"]["baseArrowHeightsPerSecond"]) * x
                     );
                 }
             }

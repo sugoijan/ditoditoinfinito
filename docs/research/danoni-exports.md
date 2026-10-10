@@ -10,6 +10,13 @@ All third-party inputs and generated packs stay outside Git.
 
 ## Current generation
 
+The [first v2 admission batch](danoni-corpus-v2-admission.md) expands the accepted
+exports to **31 songs / 49 charts, 39,021 taps and 1,176 holds**. The registry now
+has 136 entries: 27 required and 109 explicit pending sources. All 31 songs have
+banners. The previous generation below is retained as the comparison baseline.
+
+## Previous accepted generation
+
 The local registry is `~/Music/DanOni/export-registry.json`. Its 23 entries
 include 15 required, successful works and eight explicit pending entries:
 incomplete/unsupported CW captures or exploratory probes. Original Straight

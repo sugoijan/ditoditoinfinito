@@ -151,11 +151,22 @@ def movie_observation(capture, chart, note_name, receptor_name, lane, target_y=N
     arrival=a['movieFrame']+(a['targetY']-a['y'])/velocity
     raw=chart['lanes'][lane]['nativeFrames'][0]
     if abs(arrival-raw)>1.5:raise ValueError('Arrow arrival does not agree with source frame')
+    base_velocity=abs(velocity);author_ratio=1.0
+    if 'initialPixelSpeed'in chart:
+        def active(frame):
+            ratio=1.0
+            for event in chart['speed']:
+                if event['nativeFrame']<=frame:ratio=event['multiplier']
+            return ratio
+        ratios=[active(f['movieFrame'])for f in frames]
+        if any(r!=ratios[0]for r in ratios)or ratios[0]<=0:raise ValueError('Need one positive author speed segment for base movement')
+        author_ratio=ratios[0];base_velocity=chart['initialPixelSpeed']
+        if abs(abs(velocity)-base_velocity*author_ratio)>1e-6:raise ValueError('Observed movement disagrees with initial units and author ratio')
     # Receptor art registration differs slightly from the judgment target in
     # early sources; target_y can be supplied only after independent native proof.
     return {'schema':'ddi-native-motion-measurement/experimental-1','sourceSwfSha256':capture['source']['movieSha256'],
             'fps':60,'pixelsPerSecond':abs(velocity)*60,'referencePixels':widths[0],
-            'baseArrowHeightsPerSecond':abs(velocity)*60/widths[0],'noteName':note_name,'receptorName':receptor_name,'geometryReferenceName':geometry_name or receptor_name,'clockField':clock_field,
+            'baseArrowHeightsPerSecond':base_velocity*60/widths[0],'observedAuthorMultiplier':author_ratio,'noteName':note_name,'receptorName':receptor_name,'geometryReferenceName':geometry_name or receptor_name,'clockField':clock_field,
             'arrivalDifferenceFrames':arrival-raw,
             'rawFirstFrame':raw,'observedArrivalMovieFrame':arrival,'samples':frames,
             'scope':'Observed native default movement, measured source geometry and verified raw movie-frame arrival'}
@@ -267,3 +278,76 @@ def scheduled_projection(capture, mode, *, allow_missing_decorative_sprites=Fals
             'nativeSchedules':{'taps':[{'frame':f,'lane':l,'count':n}for (f,l),n in sorted(taps.items())],
                                'holds':[{'frame':f,'lane':l,'count':n}for (f,l),n in sorted(freezes.items())]},
             'presentationDiagnostics':diagnostics}
+
+
+def constant_projection(capture,mode):
+    """Cross-check split judgement arrays, constant travel and compiled schedules."""
+    audit_ok(capture)
+    if mode not in ('5','7') or capture['swfHeaderFps']!=60:raise ValueError('Unsupported constant schedule mode/clock')
+    definitions=FIVE if mode=='5'else SEVEN
+    indices=[0,2,4,6,3]if mode=='5'else list(range(7))
+    before=None
+    for item in capture['captures']:
+        graph=Graph(item['state']);root=graph.root()
+        if any(k not in root for k in ['timeline','ftimeline','mkArrow','mkFArrow','frame_num','set_cnt']):continue
+        if numeric(root['frame_num'])!=0:continue
+        taps=graph.array(root['timeline']);holds=graph.array(root['ftimeline'])
+        lanes=[{'name':name,'nativeFrames':numbers(graph,taps[i]),'nativeHoldFrames':numbers(graph,holds[i])}for (name,_),i in zip(definitions,indices)]
+        if before is None:
+            # Split source strings precede numeric spawn-time mutation.
+            values=[v for i in indices for v in graph.array(taps[i])]
+            if not values or not all(isinstance(v,dict)and v.get('type')=='string'for v in values):continue
+            for lane in lanes:
+                values=lane['nativeHoldFrames']
+                if len(values)%2:raise ValueError('Unpaired constant-family holds')
+                lane['nativeHoldFrames']=list(zip(values[::2],values[1::2]))
+                if any(b<=a for a,b in lane['nativeHoldFrames']):raise ValueError('Invalid constant-family hold duration')
+            before=(item,lanes,numeric(root['set_cnt']))
+            continue
+        original,raw,travel=before
+        if not 0<travel<=12000 or numeric(root['set_cnt'])!=travel:raise ValueError('Unstable constant travel setting')
+        compiled=schedule(graph,root['mkArrow'],indices);freezes=schedule(graph,root['mkFArrow'],indices)
+        expected=Counter((f-travel,i)for i,lane in zip(indices,raw)for f in lane['nativeFrames'])
+        expected_h=Counter((a-travel,i)for i,lane in zip(indices,raw)for a,b in lane['nativeHoldFrames'])
+        if not compiled:continue
+        if compiled!=expected or freezes!=expected_h:raise ValueError('Constant travel disagrees with compiled schedule')
+        for source,prepared in zip(raw,lanes):
+            if prepared['nativeFrames']!=[f-travel for f in source['nativeFrames']]:raise ValueError('Constant tap mutation mismatch')
+            expected_holds=[v for a,b in source['nativeHoldFrames']for v in(a-travel,b)]
+            if prepared['nativeHoldFrames']!=expected_holds:raise ValueError('Constant hold mutation mismatch')
+        lengths=graph.array(root['frzLength'])
+        for index,source in zip(indices,raw):
+            if source['nativeHoldFrames']:
+                duration=graph.props(lengths[index])
+                if any(numeric(duration[str(i*2)])!=b-a for i,(a,b)in enumerate(source['nativeHoldFrames'])):raise ValueError('Constant hold duration cache mismatch')
+        metadata={k:text(root[k])for k in ['diffi','keyLabel','musicTitle','tuning']if isinstance(root.get(k),dict)and root[k].get('type')=='string'}
+        if metadata.get('keyLabel')!=mode:raise ValueError('Constant schedule key mode changed')
+        speed=numbers(graph,root['speed_dac'])
+        if len(speed)%2:raise ValueError('Unpaired constant-family speeds')
+        if any(a>b for a,b in zip(speed[::2],speed[2::2])):raise ValueError('Unordered constant-family speeds')
+        if numeric(root['set_spi'])!=numeric(root['dif_spi'])*2:raise ValueError('Unproved initial constant-family pixel speed')
+        return {'mode':mode,'lanes':raw,'speed':[{'nativeFrame':f,'multiplier':v}for f,v in zip(speed[::2],speed[1::2])],
+                'boost':[],'colors':[],'metadata':metadata,'nativeLaneIndices':indices,'nativeKeyCodes':numbers(graph,root['keyCtrl']),
+                'initialPixelSpeed':numeric(root['set_spi']),'clockField':'frame_num','scheduleAgreement':True,'preparedIteration':item['frame'],'splitIteration':original['frame'],'constantTravelFrames':travel,
+                'nativeSchedules':{'taps':[{'frame':f,'lane':l,'count':n}for(f,l),n in sorted(compiled.items())],
+                                   'holds':[{'frame':f,'lane':l,'count':n}for(f,l),n in sorted(freezes.items())]},
+                'nativePresentation':{'iro_dac':graph.array(root['iro_dac'])if root.get('iro_dac',UNDEFINED)!=UNDEFINED else[]}}
+    raise ValueError('Need split and compiled constant-family snapshots before consumption')
+
+
+def review_optional_colors(capture,review):
+    """Accept only captured HTTP-404 color dependencies, retaining their diagnostics."""
+    if review.get('schema')!='ddi-native-optional-color-review/1' or review.get('sourceSwfSha256')!=capture['source']['movieSha256']:raise ValueError('Optional color review must bind this movie')
+    rows=review['missingResources']
+    if not rows or any(r.get('status')!=404 or not r.get('url','').endswith('/iro.txt')or not r.get('sha256')or not r.get('retrievedAt')for r in rows):raise ValueError('Need observed 404 provenance for the color sidecar')
+    from urllib.parse import urljoin
+    if {r['url']for r in rows}!={urljoin(capture['source']['config']['sourceUrl'],'iro.txt')}:raise ValueError('Color review does not match the requested sidecar')
+    denied=[e for e in capture['audit']['entries']if e['kind']=='fetch-denied']
+    errors=[e for e in capture['audit']['entries']if e['kind']=='runtime-error']
+    message='message=Asynchronous error occurred: Could not fetch: "Invalid URL iro.txt: no exact GET match in immutable resource cache" '
+    if len(denied)!=1 or len(errors)!=1 or denied[0]['detail']!='iro.txt' or errors[0]['detail']!=message or denied[0]['iteration']!=errors[0]['iteration']:raise ValueError('Unknown missing-resource failure cannot be treated as optional color')
+    retained=denied+errors
+    clean={**capture,'audit':{**capture['audit'],'entries':[e for e in capture['audit']['entries']if e not in retained],
+                             'runtimeErrors':capture['audit']['runtimeErrors']-1}}
+    audit_ok(clean)
+    return clean,retained

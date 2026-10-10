@@ -228,6 +228,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     if render_scale != 1 && !render {
         return Err("renderScale requires rendering".into());
     }
+    let inspection_scale = match config.get("inspectionScale") {
+        None => 1,
+        Some(value) => value
+            .as_u64()
+            .filter(|n| (1..=4).contains(n))
+            .ok_or("inspectionScale must be an integer in 1..4")? as usize,
+    };
     let events = input_events(&config)?;
     let mut executor = NullExecutor::new();
     let audit = navigator::Audit::default();
@@ -334,7 +341,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         if frames.contains(&frame) {
             captures.push(
-                json!({"frame":frame, "state":ruffle_core::ddi_snapshot::capture(&mut player, config["inspectGlobals"].as_bool().unwrap_or(false))}),
+                json!({"frame":frame, "state":ruffle_core::ddi_snapshot::capture(&mut player, config["inspectGlobals"].as_bool().unwrap_or(false), inspection_scale)}),
             );
             if render {
                 let renderer = (player.renderer() as &dyn Any)

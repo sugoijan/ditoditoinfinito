@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from test_projection import OriginalGraph, string
-from native_families import source_field, extract_movie_arrays, scheduled_projection, movie_audio_origin, movie_observation
+from native_families import constant_projection,review_optional_colors,movie_observation,source_field, extract_movie_arrays, scheduled_projection, movie_audio_origin
 from native_audio import origin_match
 from extract_native import stream_path
 from fixture import rect,tag
@@ -52,6 +52,20 @@ def scheduled():
     return capture([root])
 
 
+def constant():
+    indices=[0,2,4,6,3]
+    bank=[[]for _ in range(7)];holds=[[]for _ in range(7)]
+    for i in indices:bank[i]=[str(200+i*10)]
+    holds[0]=['300','360']
+    raw={'frame_num':0,'set_cnt':100,'set_spi':3,'dif_spi':1.5,'keyLabel':'5','diffi':'Normal','timeline':bank,'ftimeline':holds,
+         'mkArrow':{},'mkFArrow':{},'speed_dac':['400','1.5'],'keyCtrl':[37,65,40,32,38,68,39]}
+    compiled=copy.deepcopy(raw)
+    for i in indices:compiled['timeline'][i]=[100+i*10]
+    compiled['ftimeline'][0]=[200,360]
+    compiled.update(mkArrow={str(100+i*10):[i]for i in indices},mkFArrow={'200':[0]},frzLength=[{'0':60}]+[{}for _ in range(6)])
+    return capture([raw,compiled])
+
+
 class Families(unittest.TestCase):
     def test_selected_suffix_layout_is_unambiguous(self):
         self.assertEqual(source_field({'left_hard_data':1},'left','_hard'),'left_hard_data')
@@ -82,6 +96,45 @@ class Families(unittest.TestCase):
         with self.assertRaises(ValueError):scheduled_projection(bad,'7')
         bad=scheduled();bad['audit']['runtimeErrors']=1;bad['audit']['entries']=[{'kind':'runtime-error','detail':'unknown','iteration':20}]
         with self.assertRaises(ValueError):scheduled_projection(bad,'7',allow_missing_decorative_sprites=True)
+
+    def test_constant_travel_preserves_raw_frames_and_independent_duration_cache(self):
+        data=constant();chart=constant_projection(data,'5')
+        self.assertEqual(chart['lanes'][0]['nativeFrames'],[200])
+        self.assertEqual(chart['lanes'][0]['nativeHoldFrames'],[(300,360)])
+        self.assertEqual(chart['constantTravelFrames'],100)
+        bad=constant();state=bad['captures'][1]['state']
+        cache=next(o for o in state['objects']if any(p['name']['text']=='0'and p['value']==60 for p in o['properties']))
+        next(p for p in cache['properties']if p['name']['text']=='0')['value']=61
+        with self.assertRaises(ValueError):constant_projection(bad,'5')
+        with self.assertRaises(ValueError):constant_projection(capture([]),'5')
+
+    def test_base_velocity_does_not_double_apply_an_active_author_ratio(self):
+        data=capture([{'frame_num':148},{'frame_num':149},{'frame_num':150}])
+        for item,y in zip(data['captures'],[92,86,80]):
+            item['state']['displayTree']=[{'kind':'movie-clip','name':string('le_s0'),'visible':True,'stageRegistrationPixels':[10,y]},
+                {'kind':'movie-clip','name':string('le_step'),'visible':True,'stageRegistrationPixels':[10,20],'stageBoundsPixels':[0,0,50,50]}]
+        chart={'initialPixelSpeed':3,'lanes':[{'nativeFrames':[160]}],'speed':[{'nativeFrame':0,'multiplier':2}]}
+        measured=movie_observation(data,chart,'le_s0','le_step',0,clock_field='frame_num')
+        self.assertEqual(measured['pixelsPerSecond'],360)
+        self.assertEqual(measured['baseArrowHeightsPerSecond'],3.6)
+        self.assertEqual(measured['observedAuthorMultiplier'],2)
+        chart['initialPixelSpeed']=6
+        with self.assertRaises(ValueError):movie_observation(data,chart,'le_s0','le_step',0,clock_field='frame_num')
+
+    def test_optional_color_review_cannot_hide_other_failures(self):
+        data=constant();data['source']['config']['sourceUrl']='https://example.invalid/song/game.swf'
+        denied={'kind':'fetch-denied','detail':'iro.txt','iteration':2}
+        error={'kind':'runtime-error','detail':'message=Asynchronous error occurred: Could not fetch: "Invalid URL iro.txt: no exact GET match in immutable resource cache" ','iteration':2}
+        data['audit'].update(entries=[denied,error],runtimeErrors=1)
+        review={'schema':'ddi-native-optional-color-review/1','sourceSwfSha256':'0'*64,
+                'missingResources':[{'url':'https://example.invalid/song/iro.txt','status':404,'sha256':'1'*64,'retrievedAt':'2026-10-10'}]}
+        cleaned,retained=review_optional_colors(data,review)
+        self.assertEqual(retained,[denied,error]);self.assertEqual(data['audit']['runtimeErrors'],1)
+        self.assertEqual(constant_projection(cleaned,'5')['lanes'][0]['nativeFrames'],[200])
+        changed=copy.deepcopy(data);changed['audit']['entries'][0]['detail']='dos.txt'
+        with self.assertRaises(ValueError):review_optional_colors(changed,review)
+        changed=copy.deepcopy(review);changed['missingResources'][0]['status']=200
+        with self.assertRaises(ValueError):review_optional_colors(data,changed)
 
     def test_audio_start_selects_first_instance_and_limits_restarts(self):
         c=five();c['audio']={'streamStarts':[{'iteration':10,'compression':'Mp3','outputSampleFrame':6615},
