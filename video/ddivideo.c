@@ -450,6 +450,28 @@ EXPORT int ddi_seek(Video *v, double t) {
     return seek_ticks(v, ts, t);
 }
 
+// Moves near `t` seconds, without the exactness of `ddi_seek`: the next
+// `ddi_next` returns the first frame decoded from the keyframe at or before
+// `t` (or wherever the container could seek). For sampling a movie's
+// picture (the black-bar probe), where a decode up to `t` would only cost
+// time. 0, or -1 when the container cannot seek (the position is kept).
+EXPORT int ddi_seek_key(Video *v, double t) {
+    if (!v->fmt) return -1;
+    if (!(t >= 0)) t = 0;
+    int64_t ts = v->start + (int64_t)floor(t / v->time_base);
+    if (av_seek_frame(v->fmt, v->stream, ts, AVSEEK_FLAG_BACKWARD) < 0) return -1;
+    avcodec_flush_buffers(v->dec);
+    av_frame_unref(v->held);
+    av_frame_unref(v->pending);
+    v->has_held = v->has_pending = 0;
+    v->last_pts = -1.0;
+    v->last_dts = -1.0;
+    v->skip_until = -1.0;
+    v->seek_fresh = 0;
+    v->seek_key = AV_NOPTS_VALUE;
+    return 0;
+}
+
 EXPORT void ddi_close(Video *v) {
     if (!v) return;
     close_streams(v);

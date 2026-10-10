@@ -1403,7 +1403,7 @@ fn song_card(entry: &ManifestEntry, style: &str, info: CardInfo) -> Html {
                 <div class="muted song-sub">{ sub.join(" · ") }{ " " }{ for remove }</div>
                 <div class="chart-buttons">
                     { for charts.iter().map(|c| {
-                        let href = Route::Play { song: entry.id.clone(), chart: c.index, force_gl: false, auto: false, auto_pad: false, bias_ms: 0 }.to_hash();
+                        let href = Route::Play { song: entry.id.clone(), chart: c.index, force_gl: false, auto: false, auto_pad: false, bias_ms: 0, slow: false }.to_hash();
                         let class = format!("chart-button diff-{}", c.difficulty.to_lowercase());
                         let title = if c.credit.is_empty() {
                             format!("{} · {} notes", c.name, c.notes)

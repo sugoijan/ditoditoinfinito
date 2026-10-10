@@ -101,6 +101,7 @@ impl App {
                 auto,
                 auto_pad,
                 bias_ms,
+                slow,
             } => html! {
                 <GameCanvas
                     key={format!("{song}/{chart}")}
@@ -108,6 +109,7 @@ impl App {
                     auto={*auto}
                     auto_pad={*auto_pad}
                     auto_bias={*bias_ms as f64 / 1000.0}
+                    slow={*slow}
                     backend={if *force_gl { BackendPreference::WebGl2 } else { BackendPreference::Auto }}
                 />
             },

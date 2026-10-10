@@ -34,11 +34,12 @@ use crate::lyrics::LyricsView;
 use crate::mods::mods_summary;
 use crate::play::{PlaySession, SessionConfig, SessionEvent};
 use crate::router::Route;
-use crate::settings::Settings;
+use crate::settings::{Settings, VideoMode};
 use crate::songs::{LoadError, load_background, load_song};
 use crate::web::audio::WebAudio;
 use crate::web::gamepad::Gamepads;
 use crate::web::gfx::{BackendPreference, Gfx};
+use crate::web::video::ModuleStatus;
 use ddi_library::backgrounds::{self, BgImage};
 
 /// How long a context created from a pad press may take to start before the
@@ -106,8 +107,16 @@ pub(crate) enum Msg {
     /// A background image decoded: the song's background or a background
     /// change's (`None`: no such image, or it failed to load).
     BackgroundLoaded(BgImage, Option<web_sys::ImageBitmap>),
-    /// A background movie's file, for the game loop to play.
-    MovieLoaded(String, web_sys::Blob, ddi_platform::video::VideoFormat),
+    /// A background movie's file, for the game loop to play; whether it
+    /// is the song's first movie (probed for the background frame).
+    MovieLoaded(
+        String,
+        web_sys::Blob,
+        ddi_platform::video::VideoFormat,
+        bool,
+    ),
+    /// Time to look at the video decoder's download again (start prompt).
+    VideoTick,
 }
 
 #[derive(Properties, PartialEq)]
@@ -123,6 +132,10 @@ pub(crate) struct Props {
     /// Autoplay bias in seconds (testing aid).
     #[prop_or_default]
     pub(crate) auto_bias: f64,
+    /// Frames take longer while a movie is drawn (testing aid for the
+    /// automatic video setting).
+    #[prop_or_default]
+    pub(crate) slow: bool,
 }
 
 pub(crate) struct GameCanvas {
@@ -157,7 +170,15 @@ pub(crate) struct GameCanvas {
     /// waits for the renderer, and never happens mid-play).
     backgrounds: Vec<(BgImage, web_sys::ImageBitmap)>,
     /// Movie files loaded before the game loop was there.
-    movies: Vec<(String, web_sys::Blob, ddi_platform::video::VideoFormat)>,
+    movies: Vec<(
+        String,
+        web_sys::Blob,
+        ddi_platform::video::VideoFormat,
+        bool,
+    )>,
+    /// The video decoder's download, for the start prompt.
+    video_line: Option<String>,
+    _video_tick: gloo::timers::callback::Interval,
     _keys: Option<EventListener>,
 }
 
@@ -183,6 +204,8 @@ enum Stage {
         results: Results,
         calibration: Option<Outcome>,
         device_changed: bool,
+        /// Why the automatic setting turned the background videos off.
+        video_stopped: Option<ddi_platform::video::StopReason>,
     },
     /// Calibration result saved to the settings.
     Saved(Outcome),
@@ -243,6 +266,10 @@ impl Component for GameCanvas {
                 }
             })));
         }
+        let video_tick = {
+            let link = ctx.link().clone();
+            gloo::timers::callback::Interval::new(250, move || link.send_message(Msg::VideoTick))
+        };
         GameCanvas {
             canvas: NodeRef::default(),
             debug: NodeRef::default(),
@@ -264,6 +291,8 @@ impl Component for GameCanvas {
             touch: coarse_pointer(),
             backgrounds: Vec::new(),
             movies: Vec::new(),
+            video_line: None,
+            _video_tick: video_tick,
             _keys: keys,
         }
     }
@@ -333,10 +362,33 @@ impl Component for GameCanvas {
                 }
                 false
             }
-            Msg::MovieLoaded(name, blob, format) => {
-                self.movies.push((name, blob, format));
+            Msg::MovieLoaded(name, blob, format, probe) => {
+                self.movies.push((name, blob, format, probe));
                 self.apply_background();
                 false
+            }
+            Msg::VideoTick => {
+                if !matches!(self.stage, Stage::Idle) {
+                    return false;
+                }
+                let status = self
+                    .game
+                    .try_borrow()
+                    .ok()
+                    .and_then(|g| g.as_ref()?.video_status());
+                let line = status.and_then(|s| match s {
+                    ModuleStatus::Idle => Some("loading the video decoder…".to_string()),
+                    ModuleStatus::Loading { loaded, total } if total > 0.0 => Some(format!(
+                        "loading the video decoder… {:.0} %",
+                        (loaded / total * 100.0).min(100.0)
+                    )),
+                    ModuleStatus::Loading { .. } => Some("loading the video decoder…".to_string()),
+                    ModuleStatus::Ready { .. } => None,
+                    ModuleStatus::Failed(e) => Some(format!("background videos cannot play: {e}")),
+                });
+                let changed = line != self.video_line;
+                self.video_line = line;
+                changed
             }
             Msg::SongLoaded(Err(LoadError::NeedsAccess { handle, name })) => {
                 self.access = Some((handle, name, None));
@@ -488,10 +540,16 @@ impl Component for GameCanvas {
                 calibration,
                 device_changed,
             }) => {
+                let video_stopped = self
+                    .game
+                    .try_borrow()
+                    .ok()
+                    .and_then(|g| g.as_ref()?.video_stopped());
                 self.stage = Stage::Finished {
                     results: *results,
                     calibration,
                     device_changed,
+                    video_stopped,
                 };
                 true
             }
@@ -590,6 +648,9 @@ impl Component for GameCanvas {
                     if self.needs_gesture {
                         <div class="start-hint">{ "This browser needs a tap, click or key press to start the audio." }</div>
                     }
+                    if let Some(line) = &self.video_line {
+                        <div class="muted">{ line }</div>
+                    }
                     if self.touch {
                         <div class="start-hint">{ "tap to start · during play, hold or double-tap the ✕ button to quit" }</div>
                     } else {
@@ -631,6 +692,7 @@ impl Component for GameCanvas {
                     results,
                     calibration,
                     device_changed,
+                    video_stopped,
                 },
             ) => match (source, calibration) {
                 (SongSource::Calibration(mode), Some(o)) => calibration_view(
@@ -648,6 +710,7 @@ impl Component for GameCanvas {
                     self.names.as_ref(),
                     self.layout.as_ref(),
                     *device_changed,
+                    *video_stopped,
                     Some((self.played_offset, self.settings.song_offset(id))),
                     link,
                 ),
@@ -656,6 +719,7 @@ impl Component for GameCanvas {
                     self.names.as_ref(),
                     self.layout.as_ref(),
                     *device_changed,
+                    None,
                     None,
                     link,
                 ),
@@ -811,8 +875,8 @@ impl GameCanvas {
             for (what, image) in self.backgrounds.drain(..) {
                 game.add_background(what, image);
             }
-            for (name, blob, format) in self.movies.drain(..) {
-                game.add_movie(name, blob, format);
+            for (name, blob, format, probe) in self.movies.drain(..) {
+                game.add_movie(name, blob, format, probe);
             }
         }
     }
@@ -898,6 +962,11 @@ impl GameCanvas {
                     .zip(self.lyrics.cast::<HtmlElement>())
                     .map(|(track, el)| LyricsView::new(track, el));
                 if let Some(game) = self.game.borrow_mut().as_mut() {
+                    game.set_video(
+                        self.settings.video,
+                        self.settings.background_frame,
+                        ctx.props().slow,
+                    );
                     game.set_lyrics(lyrics);
                     game.set_background_schedule(schedule);
                     game.set_session(session);
@@ -984,9 +1053,22 @@ fn results_view(
     names: Option<&ddi_engine::rules::JudgeNames>,
     layout: Option<&ddi_chart::Layout>,
     device_changed: bool,
+    video_stopped: Option<ddi_platform::video::StopReason>,
     song_offset: Option<(f64, f64)>,
     link: &html::Scope<GameCanvas>,
 ) -> Html {
+    let video_stopped = video_stopped.map(|reason| {
+        let why = match reason {
+            ddi_platform::video::StopReason::DroppedFrames => "frames were being dropped",
+            ddi_platform::video::StopReason::DecoderBehind => "the decoder could not keep up",
+        };
+        html! {
+            <div class="muted video-stopped">
+                { format!("video was turned off for this song: {why} · ") }
+                <a href={Route::Options.to_hash()}>{ "options" }</a>
+            </div>
+        }
+    });
     let tier_name = |i: usize| -> String {
         names
             .map(|n| n.tiers[i].clone())
@@ -1033,6 +1115,7 @@ fn results_view(
                 { if mods.is_empty() { html!{} } else { html!{ <div class="muted">{ mods }</div> } } }
                 { if r.failed { html!{ <div class="error">{ "FAILED" }</div> } } else { html!{} } }
                 { if device_changed { html!{ <div class="muted">{ "an audio device or the display changed during play" }</div> } } else { html!{} } }
+                { for video_stopped }
                 { if fc.is_empty() { html!{} } else { html!{ <div class={fc_class}>{ fc }</div> } } }
                 <table class="results-table">
                     { for (0..6).filter(|i| !tier_name(*i).is_empty()).map(|i| html!{ <tr><td class="muted">{ tier_name(i) }</td><td>{ r.tally.taps[i] }</td></tr> }) }
@@ -1245,7 +1328,10 @@ fn schedule(raf: Rc<RefCell<Option<AnimationFrame>>>, game: Rc<RefCell<Option<Ga
 /// [`Msg::SongLoaded`].
 fn load(ctx: &Context<GameCanvas>, id: String) {
     let link = ctx.link().clone();
-    let show_background = Settings::load().bg_brightness > 0.0;
+    let settings = Settings::load();
+    let show_background = settings.bg_brightness > 0.0;
+    // Off: no movie file is read and the decoder is never fetched.
+    let play_videos = show_background && settings.video != VideoMode::Off;
     ctx.link().send_future(async move {
         let r = load_song(&id).await.map(|loaded| {
             if show_background {
@@ -1309,14 +1395,28 @@ fn load(ctx: &Context<GameCanvas>, id: String) {
                             .iter()
                             .map(|(name, _)| (name.clone(), unknown.clone())),
                     )
+                    .filter(|_| play_videos)
                     .collect();
+                // The movie the song shows first sets the background frame.
+                let first = backgrounds::schedule(
+                    &loaded.song,
+                    &[] as &[String],
+                    &movies.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
+                    false,
+                )
+                .into_iter()
+                .find_map(|s| match s.image {
+                    BgImage::Movie(name) => Some(name),
+                    _ => None,
+                });
                 for (name, format) in movies {
+                    let probe = first.as_ref() == Some(&name);
                     let entry = loaded.entry.clone();
                     let shared = shared_videos.clone();
                     link.send_future_batch(async move {
                         let what = BgImage::Movie(name.clone());
                         match load_background(&entry, &what, &shared).await {
-                            Ok(Some(blob)) => vec![Msg::MovieLoaded(name, blob, format)],
+                            Ok(Some(blob)) => vec![Msg::MovieLoaded(name, blob, format, probe)],
                             Ok(None) => Vec::new(),
                             Err(e) => {
                                 web_sys::console::warn_1(&e.into());

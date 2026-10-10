@@ -535,6 +535,149 @@ impl MovieTrack {
     }
 }
 
+/// Why the automatic video setting turned a movie off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StopReason {
+    /// The display fell behind its refresh rate while the movie played.
+    DroppedFrames,
+    /// The decoder's frames came too late to be shown on time.
+    DecoderBehind,
+}
+
+/// A movie plays this long (ms of wall time) before [`VideoGuard`] judges
+/// it: textures and the decoder warm up.
+pub const GUARD_WARMUP_MS: f64 = 2000.0;
+/// A measured second below this share of the refresh rate counts as slow.
+pub const GUARD_SLOW_SHARE: f64 = 0.8;
+/// Consecutive slow seconds that turn the movie off.
+pub const GUARD_SLOW_SECONDS: u32 = 3;
+/// A measured second with this many late frames counts as behind ...
+pub const GUARD_LATE_FRAMES: u64 = 2;
+/// ... and this many behind seconds in a row turn the movie off (a single
+/// stall, a collection pause, makes one burst of late frames, not two).
+pub const GUARD_BEHIND_SECONDS: u32 = 2;
+
+/// The rule of the automatic video setting
+/// (`docs/plans/video-backgrounds.md`, step 5): while a movie is drawn,
+/// past its first [`GUARD_WARMUP_MS`], three seconds in a row below
+/// [`GUARD_SLOW_SHARE`] of the refresh rate, or two in a row with late
+/// frames, turn it off for the rest of the song.
+#[derive(Clone, Debug, Default)]
+pub struct VideoGuard {
+    /// What is drawn and since when (ms); a new movie or segment starts the
+    /// warm-up again.
+    shown: Option<(usize, f64)>,
+    /// Late frames counted when the current second began.
+    late_base: Option<u64>,
+    slow_seconds: u32,
+    behind_seconds: u32,
+}
+
+impl VideoGuard {
+    /// One display frame at `now_ms`: `shown` identifies the movie being
+    /// drawn (`None`: none), `second` is the frame rate of a measuring
+    /// second that ended with this frame, `refresh` the display's rate and
+    /// `late` the late frames counted so far ([`MovieStats::late`]).
+    pub fn update(
+        &mut self,
+        now_ms: f64,
+        shown: Option<usize>,
+        second: Option<f64>,
+        refresh: f64,
+        late: u64,
+    ) -> Option<StopReason> {
+        let Some(shown) = shown else {
+            *self = VideoGuard::default();
+            return None;
+        };
+        if self.shown.is_none_or(|(s, _)| s != shown) {
+            *self = VideoGuard {
+                shown: Some((shown, now_ms)),
+                ..VideoGuard::default()
+            };
+        }
+        let since = self.shown.map_or(now_ms, |(_, t)| t);
+        if now_ms - since < GUARD_WARMUP_MS {
+            return None;
+        }
+        let Some(fps) = second else {
+            // The first second judged starts after the warm-up.
+            self.late_base.get_or_insert(late);
+            return None;
+        };
+        let base = self.late_base.replace(late)?;
+        let count = |n: &mut u32, bad: bool| *n = if bad { *n + 1 } else { 0 };
+        count(&mut self.slow_seconds, fps < GUARD_SLOW_SHARE * refresh);
+        count(
+            &mut self.behind_seconds,
+            late.saturating_sub(base) >= GUARD_LATE_FRAMES,
+        );
+        if self.behind_seconds >= GUARD_BEHIND_SECONDS {
+            Some(StopReason::DecoderBehind)
+        } else if self.slow_seconds >= GUARD_SLOW_SECONDS {
+            Some(StopReason::DroppedFrames)
+        } else {
+            None
+        }
+    }
+}
+
+/// Luma at or below this (limited range; scaled for full range) is black
+/// for [`picture_bounds`]: bars are coded black with some noise.
+const BAR_LUMA: u32 = 16 + 12;
+
+/// The picture inside a movie's own black bars (pillarboxed or letterboxed
+/// into its frame): `(x, y, width, height)` of the union of the non-black
+/// areas of sampled frames' Y planes (`width × height` each), or `None`
+/// when every frame is black (fade-ins are skipped; dark scenes are covered
+/// by the other samples). A row or column is black when its mean is at
+/// most [`BAR_LUMA`] and no pixel is far above it.
+pub fn picture_bounds(
+    frames: &[&[u8]],
+    width: u32,
+    height: u32,
+    full_range: bool,
+) -> Option<(u32, u32, u32, u32)> {
+    let (w, h) = (width as usize, height as usize);
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let (mean_max, peak_max) = if full_range {
+        (u32::from(BAR_LUMA as u8 - 16) * 255 / 219, 64 * 255 / 219)
+    } else {
+        (BAR_LUMA, 80)
+    };
+    let black = |samples: &mut dyn Iterator<Item = u8>| {
+        let (mut sum, mut n, mut peak) = (0u32, 0u32, 0u8);
+        for s in samples {
+            sum += u32::from(s);
+            n += 1;
+            peak = peak.max(s);
+        }
+        n == 0 || (sum <= mean_max * n && u32::from(peak) <= peak_max)
+    };
+    let mut union: Option<(usize, usize, usize, usize)> = None;
+    for y_plane in frames {
+        if y_plane.len() < w * h {
+            continue;
+        }
+        let row = |r: usize| black(&mut y_plane[r * w..(r + 1) * w].iter().copied());
+        let Some(top) = (0..h).find(|&r| !row(r)) else {
+            continue;
+        };
+        let bottom = (0..h).rev().find(|&r| !row(r)).unwrap_or(top);
+        let column = |c: usize| black(&mut (top..=bottom).map(|r| y_plane[r * w + c]));
+        let left = (0..w).find(|&c| !column(c)).unwrap_or(0);
+        let right = (0..w).rev().find(|&c| !column(c)).unwrap_or(w - 1);
+        union = Some(match union {
+            None => (left, top, right, bottom),
+            Some((l, t, r, b)) => (l.min(left), t.min(top), r.max(right), b.max(bottom)),
+        });
+    }
+    let (l, t, r, b) = union?;
+    Some((l as u32, t as u32, (r - l + 1) as u32, (b - t + 1) as u32))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -930,5 +1073,106 @@ mod tests {
             ..frame
         };
         assert_eq!(short.split(), None);
+    }
+
+    #[test]
+    fn the_guard_waits_out_the_warm_up_then_counts_slow_seconds() {
+        let mut g = VideoGuard::default();
+        // 30 fps on a 60 Hz display, one measuring second ending each 1000 ms.
+        let mut stop = None;
+        let mut at = 0.0;
+        for ms in (0..=8000).step_by(50) {
+            let ms = f64::from(ms);
+            let second = (ms > 0.0 && ms % 1000.0 == 0.0).then_some(30.0);
+            if let Some(r) = g.update(ms, Some(0), second, 60.0, 0) {
+                stop = Some(r);
+                at = ms;
+                break;
+            }
+        }
+        // Warm-up to 2 s, the first second judged ends at 3 s: 3, 4, 5.
+        assert_eq!(stop, Some(StopReason::DroppedFrames));
+        assert_eq!(at, 5000.0);
+        // A good second in between starts the count again.
+        let mut g = VideoGuard::default();
+        let rates = [60.0, 60.0, 30.0, 30.0, 59.0, 30.0, 30.0, 58.0];
+        for (i, fps) in rates.iter().enumerate() {
+            let ms = 1000.0 * (i + 1) as f64;
+            assert_eq!(g.update(ms, Some(0), Some(*fps), 60.0, 0), None);
+        }
+        // Without a movie, nothing counts, and a new one warms up again.
+        let mut g = VideoGuard::default();
+        for i in 1..=10 {
+            let shown = if i < 6 { None } else { Some(i) };
+            let ms = 1000.0 * f64::from(i as u32);
+            assert_eq!(g.update(ms, shown, Some(10.0), 60.0, 0), None);
+        }
+    }
+
+    #[test]
+    fn the_guard_stops_a_decoder_that_stays_behind() {
+        let mut g = VideoGuard::default();
+        let mut late = 0;
+        let mut stop = None;
+        for i in 1..=10u32 {
+            let ms = 1000.0 * f64::from(i);
+            // Late frames from the start: the warm-up ones do not count.
+            late += 20;
+            if let Some(r) = g.update(ms, Some(3), Some(60.0), 60.0, late) {
+                stop = Some((r, i));
+                break;
+            }
+        }
+        // Drawn from 1 s: the warm-up ends at 3 s and the judged seconds
+        // at 4 s and 5 s.
+        assert_eq!(stop, Some((StopReason::DecoderBehind, 5)));
+        // One burst (a stall) is not enough.
+        let mut g = VideoGuard::default();
+        let lates = [0, 0, 0, 5, 5, 5, 5, 9, 9, 9];
+        for (i, l) in lates.iter().enumerate() {
+            let ms = 1000.0 * (i + 1) as f64;
+            assert_eq!(g.update(ms, Some(0), Some(60.0), 60.0, *l), None, "{i}");
+        }
+    }
+
+    #[test]
+    fn picture_bounds_find_bars_across_samples() {
+        let (w, h) = (16usize, 12usize);
+        // A 4:3-in-16:9-like pillarbox: columns 2..14 hold the picture.
+        let frame = |fill: &dyn Fn(usize, usize) -> u8| -> Vec<u8> {
+            (0..w * h).map(|i| fill(i % w, i / w)).collect()
+        };
+        let black = frame(&|_, _| 16);
+        let dark_left = frame(&|x, _| {
+            if (2..8).contains(&x) {
+                18
+            } else if (2..14).contains(&x) {
+                120
+            } else {
+                17
+            }
+        });
+        let bright = frame(&|x, _| if (2..14).contains(&x) { 100 } else { 16 });
+        let samples: [&[u8]; 3] = [&black, &dark_left, &bright];
+        assert_eq!(
+            picture_bounds(&samples, 16, 12, false),
+            Some((2, 0, 12, 12))
+        );
+        // Only black frames, or none: no answer.
+        assert_eq!(picture_bounds(&[&black], 16, 12, false), None);
+        assert_eq!(picture_bounds(&[], 16, 12, false), None);
+        // Letterbox in full range: rows 0..2 and 10..12 at 0.
+        let letterbox = frame(&|_, y| if (2..10).contains(&y) { 90 } else { 0 });
+        assert_eq!(
+            picture_bounds(&[&letterbox], 16, 12, true),
+            Some((0, 2, 16, 8))
+        );
+        // A bright pixel in a bar keeps its column.
+        let mut speck = bright.clone();
+        speck[w * 11] = 200;
+        assert_eq!(
+            picture_bounds(&[&speck], 16, 12, false),
+            Some((0, 0, 14, 12))
+        );
     }
 }

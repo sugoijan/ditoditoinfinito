@@ -9,8 +9,31 @@
 //! once with [`BackgroundPipeline::add_video`] and given each frame's YUV
 //! planes with [`BackgroundPipeline::set_video_frame`]; the shader converts
 //! them, so images and movies crossfade alike.
+//!
+//! Layers are cover-fitted into a frame, a centred rectangle of a chosen
+//! shape (the screen the pack's art was made for), and the rest of the
+//! screen shows a blurred, dimmed extension of them: the same layers drawn
+//! small over the whole screen and blurred (`blur.wgsl`).
 
 use bytemuck::{Pod, Zeroable};
+
+/// Uniform slots per image: its draw in the frame and the one into the
+/// extension.
+const SLOTS: u64 = 2;
+/// The extension is drawn at this share of the screen's size, at most
+/// [`WIDE_MAX`] pixels on its long side, then blurred and stretched.
+const WIDE_SCALE: f32 = 1.0 / 12.0;
+const WIDE_MAX: f32 = 192.0;
+/// Perceived brightness of the extension against the frame's.
+const WIDE_DIM: f32 = 0.6;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct BlurParams {
+    step: [f32; 2],
+    brightness: f32,
+    _pad: f32,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -62,7 +85,8 @@ impl Backdrop {
     }
 }
 
-/// One registered image or movie.
+/// One registered image or movie. Its parameters have one slot per draw
+/// ([`SLOTS`]), picked by a dynamic offset.
 struct Image {
     group: wgpu::BindGroup,
     params: wgpu::Buffer,
@@ -106,6 +130,41 @@ pub fn cover_uv(target_w: f32, target_h: f32, image_w: f32, image_h: f32) -> ([f
     }
 }
 
+/// Texture coordinates of the part `(scale, offset)` of the frame (in the
+/// frame's own `0..1` coordinates) within an image shown in the frame at
+/// `frame`'s coordinates.
+fn extension_uv(
+    (frame_scale, frame_offset): ([f32; 2], [f32; 2]),
+    (part_scale, part_offset): ([f32; 2], [f32; 2]),
+) -> ([f32; 2], [f32; 2]) {
+    (
+        [
+            frame_scale[0] * part_scale[0],
+            frame_scale[1] * part_scale[1],
+        ],
+        [
+            frame_offset[0] + frame_scale[0] * part_offset[0],
+            frame_offset[1] + frame_scale[1] * part_offset[1],
+        ],
+    )
+}
+
+/// The frame for a `width × height` target and a frame shape (width over
+/// height): `(x, y, width, height)` in pixels, centred and as large as fits;
+/// `None` for the whole target (no shape, or one within a pixel of it).
+pub fn frame_rect(width: f32, height: f32, aspect: Option<f32>) -> Option<[f32; 4]> {
+    let aspect = aspect.filter(|a| a.is_finite() && *a > 0.0)?;
+    if width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+    let (w, h) = if width / height > aspect {
+        (height * aspect, height)
+    } else {
+        (width, width / aspect)
+    };
+    (width - w >= 1.0 || height - h >= 1.0).then(|| [(width - w) / 2.0, (height - h) / 2.0, w, h])
+}
+
 /// Multiplier for a perceived brightness in `0..=1`. On an sRGB target the
 /// shader works in linear light, where 0.4 would look much brighter than
 /// 40 %; on a plain target the image's values pass through encoded.
@@ -114,13 +173,40 @@ pub fn brightness_factor(perceived: f32, srgb_target: bool) -> f32 {
     if srgb_target { p.powf(2.2) } else { p }
 }
 
+/// What [`BackgroundPipeline::prepare`] set up for one frame.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Prepared {
+    layers: [Option<(usize, f32)>; 2],
+    /// The frame, when it is not the whole target (the extension is drawn).
+    frame: Option<[f32; 4]>,
+    target: (f32, f32),
+}
+
+/// The extension's two small targets (drawn into `a`, blurred through `b`
+/// back into `a`) and the bind groups of its passes: blur `a` into `b`,
+/// `b` into `a`, composite `a`.
+struct Wide {
+    size: (u32, u32),
+    a: wgpu::TextureView,
+    b: wgpu::TextureView,
+    groups: [wgpu::BindGroup; 3],
+    params: [wgpu::Buffer; 3],
+}
+
 pub struct BackgroundPipeline {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     yuv_pipeline: wgpu::RenderPipeline,
     yuv_layout: wgpu::BindGroupLayout,
+    blur_pipeline: wgpu::RenderPipeline,
+    composite_pipeline: wgpu::RenderPipeline,
+    blur_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     images: Vec<Image>,
+    wide: Option<Wide>,
+    format: wgpu::TextureFormat,
+    /// Bytes between an image's parameter slots.
+    stride: u64,
     /// The target format is sRGB.
     srgb: bool,
 }
@@ -141,17 +227,18 @@ impl BackgroundPipeline {
             },
             count: None,
         };
-        let common = [
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
+        let uniform = |dynamic| wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: dynamic,
+                min_binding_size: None,
             },
+            count: None,
+        };
+        let common = [
+            uniform(true),
             texture_entry(1),
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
@@ -174,7 +261,18 @@ impl BackgroundPipeline {
                 texture_entry(4),
             ],
         });
-        let pipeline_for = |layout: &wgpu::BindGroupLayout, fragment: &str| {
+        let blur_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("ddi-background-blur"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("blur.wgsl").into()),
+        });
+        let blur_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("ddi-background-blur-bgl"),
+            entries: &[uniform(false), common[1], common[2]],
+        });
+        let pipeline_for = |layout: &wgpu::BindGroupLayout,
+                            shader: &wgpu::ShaderModule,
+                            fragment: &str,
+                            blend: Option<wgpu::BlendState>| {
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("ddi-background-layout"),
                 bind_group_layouts: &[Some(layout)],
@@ -184,18 +282,18 @@ impl BackgroundPipeline {
                 label: Some("ddi-background-pipeline"),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: &shader,
+                    module: shader,
                     entry_point: Some("vs_main"),
                     compilation_options: Default::default(),
                     buffers: &[],
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &shader,
+                    module: shader,
                     entry_point: Some(fragment),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        blend,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -210,8 +308,16 @@ impl BackgroundPipeline {
                 cache: None,
             })
         };
-        let pipeline = pipeline_for(&layout, "fs_main");
-        let yuv_pipeline = pipeline_for(&yuv_layout, "fs_yuv");
+        let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
+        let pipeline = pipeline_for(&layout, &shader, "fs_main", alpha);
+        let yuv_pipeline = pipeline_for(&yuv_layout, &shader, "fs_yuv", alpha);
+        let blur_pipeline = pipeline_for(&blur_layout, &blur_shader, "fs_blur", None);
+        let composite_pipeline = pipeline_for(
+            &blur_layout,
+            &blur_shader,
+            "fs_composite",
+            Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+        );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("ddi-background-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -220,13 +326,21 @@ impl BackgroundPipeline {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let stride = u64::from(device.limits().min_uniform_buffer_offset_alignment)
+            .max(std::mem::size_of::<Params>() as u64);
         BackgroundPipeline {
             pipeline,
             layout,
             yuv_pipeline,
             yuv_layout,
+            blur_pipeline,
+            composite_pipeline,
+            blur_layout,
             sampler,
             images: Vec::new(),
+            wide: None,
+            format,
+            stride,
             srgb: format.is_srgb(),
         }
     }
@@ -261,12 +375,21 @@ impl BackgroundPipeline {
         })
     }
 
-    fn params_buffer(device: &wgpu::Device) -> wgpu::Buffer {
+    fn params_buffer(&self, device: &wgpu::Device) -> wgpu::Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ddi-background-params"),
-            size: std::mem::size_of::<Params>() as u64,
+            size: self.stride * SLOTS,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
+        })
+    }
+
+    /// One slot of an image's parameters, as its bind group binds it.
+    fn params_binding(params: &wgpu::Buffer) -> wgpu::BindingResource<'_> {
+        wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+            buffer: params,
+            offset: 0,
+            size: wgpu::BufferSize::new(std::mem::size_of::<Params>() as u64),
         })
     }
 
@@ -274,7 +397,7 @@ impl BackgroundPipeline {
     /// planes are zeroed, which shows green: register it with the backdrop
     /// only once [`BackgroundPipeline::set_video_frame`] has written a frame.
     pub fn add_video(&mut self, device: &wgpu::Device, width: u32, height: u32) -> usize {
-        let params = Self::params_buffer(device);
+        let params = self.params_buffer(device);
         let (planes, group) = self.video_planes(device, &params, width, height);
         self.images.push(Image {
             group,
@@ -331,7 +454,7 @@ impl BackgroundPipeline {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: params.as_entire_binding(),
+                    resource: Self::params_binding(params),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -436,7 +559,7 @@ impl BackgroundPipeline {
     /// Registers a filled texture (from
     /// [`BackgroundPipeline::create_texture`]); returns its id.
     pub fn add_texture(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) -> usize {
-        let params = Self::params_buffer(device);
+        let params = self.params_buffer(device);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ddi-background-bg"),
@@ -444,7 +567,7 @@ impl BackgroundPipeline {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: params.as_entire_binding(),
+                    resource: Self::params_binding(&params),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -467,38 +590,125 @@ impl BackgroundPipeline {
         self.images.len() - 1
     }
 
+    /// The extension's targets for a `width × height` screen, made or
+    /// remade when its size changes; their size.
+    fn wide(&mut self, device: &wgpu::Device, width: f32, height: f32) -> (u32, u32) {
+        let scale = WIDE_SCALE.min(WIDE_MAX / width.max(height));
+        let size = (
+            (width * scale).round().max(1.0) as u32,
+            (height * scale).round().max(1.0) as u32,
+        );
+        if self.wide.as_ref().is_some_and(|w| w.size == size) {
+            return size;
+        }
+        let target = || {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("ddi-background-wide"),
+                    size: wgpu::Extent3d {
+                        width: size.0,
+                        height: size.1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: self.format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        };
+        let (a, b) = (target(), target());
+        let params = std::array::from_fn(|_| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("ddi-background-blur-params"),
+                size: std::mem::size_of::<BlurParams>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        });
+        let group = |source: &wgpu::TextureView, params: &wgpu::Buffer| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("ddi-background-blur-bg"),
+                layout: &self.blur_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: params.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(source),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            })
+        };
+        let [p0, p1, p2] = &params;
+        let groups = [group(&a, p0), group(&b, p1), group(&a, p2)];
+        self.wide = Some(Wide {
+            size,
+            a,
+            b,
+            groups,
+            params,
+        });
+        size
+    }
+
     /// Uploads the parameters of `backdrop`'s layers for a `width × height`
-    /// target; returns the layers to draw.
+    /// target, fitted into a frame of shape `frame` (width over height;
+    /// `None`: the whole target); returns what to draw.
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare(
-        &self,
+        &mut self,
+        device: &wgpu::Device,
         queue: &wgpu::Queue,
         width: f32,
         height: f32,
         brightness: f32,
         backdrop: Backdrop,
-    ) -> [Option<(usize, f32)>; 2] {
+        frame: Option<f32>,
+    ) -> Prepared {
+        let mut prepared = Prepared {
+            target: (width, height),
+            ..Prepared::default()
+        };
         if brightness <= 0.0 {
-            return [None, None];
+            return prepared;
         }
         let mut layers = backdrop.layers();
         for layer in &mut layers {
-            let Some((id, alpha)) = *layer else {
-                continue;
-            };
-            let Some(image) = self.images.get(id).filter(|_| alpha > 0.0) else {
+            if !layer.is_some_and(|(id, alpha)| alpha > 0.0 && id < self.images.len()) {
                 *layer = None;
-                continue;
-            };
-            let (uv_scale, uv_offset) = cover_uv(width, height, image.width, image.height);
+            }
+        }
+        prepared.layers = layers;
+        if layers.iter().all(Option::is_none) {
+            return prepared;
+        }
+        prepared.frame = frame_rect(width, height, frame);
+        let wide = prepared.frame.map(|_| self.wide(device, width, height));
+        let [fw, fh] = prepared
+            .frame
+            .map_or([width, height], |[_, _, w, h]| [w, h]);
+        for (id, alpha) in layers.into_iter().flatten() {
+            let image = &self.images[id];
             let (bt709, full_range) = image
                 .video
                 .as_ref()
                 .map_or((false, false), |v| (v.bt709, v.full_range));
             let (kr, kb) = weights(bt709);
-            let p = Params {
+            let (frame_scale, frame_offset) = cover_uv(fw, fh, image.width, image.height);
+            let params = |(uv_scale, uv_offset): ([f32; 2], [f32; 2]), brightness: f32| Params {
                 uv_scale,
                 uv_offset,
-                brightness: brightness_factor(brightness, self.srgb),
+                brightness,
                 alpha,
                 kr,
                 kb,
@@ -506,25 +716,118 @@ impl BackgroundPipeline {
                 linear_out: if self.srgb { 1.0 } else { 0.0 },
                 _pad: [0.0; 2],
             };
-            queue.write_buffer(&image.params, 0, bytemuck::bytes_of(&p));
+            let framed = params(
+                (frame_scale, frame_offset),
+                brightness_factor(brightness, self.srgb),
+            );
+            queue.write_buffer(&image.params, 0, bytemuck::bytes_of(&framed));
+            if let Some((ww, wh)) = wide {
+                // What the frame shows, enlarged to cover the screen (not
+                // the whole image: a movie's own bars stay out); undimmed
+                // here, the composite dims it.
+                let uv = extension_uv(
+                    (frame_scale, frame_offset),
+                    cover_uv(ww as f32, wh as f32, fw, fh),
+                );
+                let wide = params(uv, 1.0);
+                queue.write_buffer(&image.params, self.stride, bytemuck::bytes_of(&wide));
+            }
         }
-        layers
+        if let (Some(w), Some((ww, wh))) = (&self.wide, wide) {
+            let blur = [
+                [1.0 / ww as f32, 0.0, 0.0, 0.0],
+                [0.0, 1.0 / wh as f32, 0.0, 0.0],
+                [
+                    0.0,
+                    0.0,
+                    brightness_factor(brightness * WIDE_DIM, self.srgb),
+                    0.0,
+                ],
+            ];
+            for (buffer, [x, y, b, _]) in w.params.iter().zip(blur) {
+                let p = BlurParams {
+                    step: [x, y],
+                    brightness: b,
+                    _pad: 0.0,
+                };
+                queue.write_buffer(buffer, 0, bytemuck::bytes_of(&p));
+            }
+        }
+        prepared
     }
 
-    /// Draws the layers [`BackgroundPipeline::prepare`] returned.
-    pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, layers: [Option<(usize, f32)>; 2]) {
-        for (id, _) in layers.into_iter().flatten() {
+    fn draw_layers(&self, pass: &mut wgpu::RenderPass<'_>, prepared: &Prepared, slot: u64) {
+        for (id, _) in prepared.layers.into_iter().flatten() {
             if let Some(image) = self.images.get(id) {
                 pass.set_pipeline(if image.video.is_some() {
                     &self.yuv_pipeline
                 } else {
                     &self.pipeline
                 });
-                pass.set_bind_group(0, &image.group, &[]);
+                pass.set_bind_group(0, &image.group, &[(slot * self.stride) as u32]);
                 pass.draw(0..6, 0..1);
             }
         }
     }
+
+    /// Draws and blurs the extension, when [`BackgroundPipeline::prepare`]
+    /// asked for one; before the scene's pass, which composites it.
+    pub fn draw_extension(&self, encoder: &mut wgpu::CommandEncoder, prepared: &Prepared) {
+        let (Some(_), Some(wide)) = (prepared.frame, &self.wide) else {
+            return;
+        };
+        {
+            let mut p = wide_pass(encoder, &wide.a);
+            self.draw_layers(&mut p, prepared, 1);
+        }
+        for (group, target) in [(&wide.groups[0], &wide.b), (&wide.groups[1], &wide.a)] {
+            let mut p = wide_pass(encoder, target);
+            p.set_pipeline(&self.blur_pipeline);
+            p.set_bind_group(0, group, &[]);
+            p.draw(0..3, 0..1);
+        }
+    }
+
+    /// Draws what [`BackgroundPipeline::prepare`] set up: the extension
+    /// (from [`BackgroundPipeline::draw_extension`]) over the whole target,
+    /// then the layers in the frame.
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, prepared: &Prepared) {
+        match (prepared.frame, &self.wide) {
+            (Some([x, y, w, h]), Some(wide)) => {
+                pass.set_pipeline(&self.composite_pipeline);
+                pass.set_bind_group(0, &wide.groups[2], &[]);
+                pass.draw(0..3, 0..1);
+                pass.set_viewport(x, y, w, h, 0.0, 1.0);
+                self.draw_layers(pass, prepared, 0);
+                let (tw, th) = prepared.target;
+                pass.set_viewport(0.0, 0.0, tw, th, 0.0, 1.0);
+            }
+            _ => self.draw_layers(pass, prepared, 0),
+        }
+    }
+}
+
+/// A pass into one of the extension's targets, cleared transparent.
+fn wide_pass<'e>(
+    encoder: &'e mut wgpu::CommandEncoder,
+    target: &wgpu::TextureView,
+) -> wgpu::RenderPass<'e> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("ddi-background-wide"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: target,
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    })
 }
 
 #[cfg(test)]
@@ -546,6 +849,41 @@ mod tests {
             cover_uv(640.0, 480.0, 320.0, 240.0),
             ([1.0, 1.0], [0.0, 0.0])
         );
+    }
+
+    #[test]
+    fn the_frame_is_centred_and_as_large_as_fits() {
+        // 4:3 on 16:9: full height, bars at the sides.
+        assert_eq!(
+            frame_rect(1920.0, 1080.0, Some(4.0 / 3.0)),
+            Some([240.0, 0.0, 1440.0, 1080.0])
+        );
+        // 16:9 on a portrait phone: full width, centred vertically.
+        assert_eq!(
+            frame_rect(900.0, 1600.0, Some(16.0 / 9.0)),
+            Some([0.0, 546.875, 900.0, 506.25])
+        );
+        // The screen's own shape, within a pixel, or none: the whole screen.
+        assert_eq!(frame_rect(1920.0, 1080.0, Some(16.0 / 9.0)), None);
+        assert_eq!(frame_rect(1366.0, 768.0, Some(16.0 / 9.0)), None);
+        assert_eq!(frame_rect(1920.0, 1080.0, None), None);
+        assert_eq!(frame_rect(1920.0, 1080.0, Some(f32::NAN)), None);
+    }
+
+    #[test]
+    fn the_extension_enlarges_what_the_frame_shows() {
+        // A 16:9 movie with a 4:3 picture in a 4:3 frame on a 16:9 screen:
+        // the frame shows the middle 3/4 of its width ...
+        let framed = cover_uv(1440.0, 1080.0, 852.0, 480.0);
+        assert!((framed.0[0] - 0.7512).abs() < 1e-3 && framed.0[1] == 1.0);
+        // ... and the extension covers the screen with that part, cropped
+        // top and bottom to the screen's shape: never the bars at the sides.
+        let (s, o) = extension_uv(framed, cover_uv(1920.0, 1080.0, 1440.0, 1080.0));
+        assert!((s[0] - framed.0[0]).abs() < 1e-6 && (o[0] - framed.1[0]).abs() < 1e-6);
+        assert!((s[1] - 0.75).abs() < 1e-6 && (o[1] - 0.125).abs() < 1e-6);
+        // A frame the screen's shape: the extension is the frame's view.
+        let same = cover_uv(1920.0, 1080.0, 640.0, 480.0);
+        assert_eq!(extension_uv(same, ([1.0, 1.0], [0.0, 0.0])), same);
     }
 
     #[test]
@@ -572,14 +910,15 @@ mod tests {
 
     #[test]
     fn shader_validates() {
-        let source = include_str!("background.wgsl");
-        let module = wgpu::naga::front::wgsl::parse_str(source).expect("WGSL parses");
-        wgpu::naga::valid::Validator::new(
-            wgpu::naga::valid::ValidationFlags::all(),
-            wgpu::naga::valid::Capabilities::empty(),
-        )
-        .validate(&module)
-        .expect("WGSL validates");
+        for source in [include_str!("background.wgsl"), include_str!("blur.wgsl")] {
+            let module = wgpu::naga::front::wgsl::parse_str(source).expect("WGSL parses");
+            wgpu::naga::valid::Validator::new(
+                wgpu::naga::valid::ValidationFlags::all(),
+                wgpu::naga::valid::Capabilities::empty(),
+            )
+            .validate(&module)
+            .expect("WGSL validates");
+        }
         // Params is laid out as the shader reads it.
         assert_eq!(std::mem::size_of::<Params>(), 48);
     }
