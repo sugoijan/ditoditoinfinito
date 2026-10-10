@@ -15,6 +15,7 @@ pub(crate) mod keyboard;
 pub(crate) mod storage;
 pub(crate) mod touch;
 pub(crate) mod video;
+pub(crate) mod webcodecs;
 
 use wasm_bindgen::JsValue;
 
