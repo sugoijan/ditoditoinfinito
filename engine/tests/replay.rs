@@ -1376,3 +1376,100 @@ fn turns_move_lanes_by_layout_tables_and_groups() {
         }
     }
 }
+
+#[test]
+fn skin_events_follow_stepmanias_receptor_and_explosion_rules() {
+    use ddi_engine::frame::{HoldKind, SkinEventKind};
+    let song = fixture_song();
+    let mut ruleset = presets::itg();
+    ruleset.fail = FailPolicy::Off;
+    let mut player = Player::new(&song, 0, ruleset, PlayOptions::default());
+    player.clock_sample(ClockSample::default());
+    player.start(0.0, 0.0);
+    let press = |p: &mut Player, lane: u8, pressed: bool, at: f64| {
+        p.input(InputEvent {
+            lane,
+            pressed,
+            host_time: HostTime(at),
+        });
+    };
+    let kinds = |p: &Player, from: u64| -> Vec<(u8, SkinEventKind)> {
+        p.skin_events_since(from)
+            .map(|e| (e.lane, e.kind))
+            .collect()
+    };
+    player.update(HostTime(0.0));
+    press(&mut player, 0, true, 0.0);
+    press(&mut player, 0, false, 0.05);
+    // An empty press: the receptor's `None`, no explosion.
+    press(&mut player, 2, true, 0.25);
+    assert_eq!(
+        kinds(&player, 0),
+        [
+            (0, SkinEventKind::Step(Some(Judgement::W1))),
+            (0, SkinEventKind::Press),
+            (
+                0,
+                SkinEventKind::Tap {
+                    judgement: Judgement::W1,
+                    bright: false
+                }
+            ),
+            (0, SkinEventKind::Lift),
+            (2, SkinEventKind::Step(None)),
+            (2, SkinEventKind::Press),
+        ]
+    );
+    press(&mut player, 2, false, 0.3);
+    // Notes 1–3 go by unpressed: misses never flash.
+    player.update(HostTime(1.95));
+    let seq = player.skin_events_since(0).last().unwrap().seq + 1;
+    assert!(kinds(&player, seq).is_empty());
+    // The jump at beat 4 flashes both lanes once its second note is hit.
+    press(&mut player, 0, true, 2.0);
+    assert_eq!(
+        kinds(&player, seq),
+        [
+            (0, SkinEventKind::Step(Some(Judgement::W1))),
+            (0, SkinEventKind::Press)
+        ]
+    );
+    press(&mut player, 3, true, 2.01);
+    let after: Vec<_> = kinds(&player, seq).into_iter().skip(2).collect();
+    assert_eq!(
+        after,
+        [
+            (3, SkinEventKind::Step(Some(Judgement::W1))),
+            (3, SkinEventKind::Press),
+            (
+                0,
+                SkinEventKind::Tap {
+                    judgement: Judgement::W1,
+                    bright: false
+                }
+            ),
+            (
+                3,
+                SkinEventKind::Tap {
+                    judgement: Judgement::W1,
+                    bright: false
+                }
+            ),
+        ]
+    );
+    press(&mut player, 0, false, 2.05);
+    press(&mut player, 3, false, 2.05);
+    // The hold at beat 8 (4 s) to beat 10: holding while pressed, then
+    // `Held`.
+    player.update(HostTime(3.99));
+    press(&mut player, 1, true, 4.0);
+    player.update(HostTime(4.4));
+    let frame = player.frame(HostTime(4.4));
+    assert_eq!(frame.receptors[1].holding, Some(HoldKind::Hold));
+    let hold = frame.notes.iter().find(|n| n.lane == 1).unwrap();
+    assert_eq!((hold.beat, hold.hold_life), (8.0, 1.0));
+    let seq = player.skin_events_since(0).last().unwrap().seq + 1;
+    player.update(HostTime(5.2));
+    assert!(kinds(&player, seq).contains(&(1, SkinEventKind::Held { bright: false })));
+    assert_eq!(player.frame(HostTime(5.2)).receptors[1].holding, None);
+}

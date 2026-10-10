@@ -616,16 +616,30 @@ state says which decoder); Firefox and Safari by the maintainer.
 - Only YUV frames give the module's pixels. Firefox on macOS hands out
   `BGRX` (already converted, with its own guess at the matrix and range),
   from its hardware decoder and with `hardwareAcceleration:
-  "prefer-software"` alike (the maintainer's check, 2026-10-10): after RGB
-  from the default decoder the session asks for the software one, and
-  after RGB from that too the browser path is off for the session, so
-  Firefox on macOS plays every movie through the module. Usually the
-  probe finds out during the start prompt, before any movie opens.
-  Taking RGB frames (a separate upload path, 2.7× the bytes, colours as
-  the browser converts them) is left open; it would matter for weak
-  machines with HD movies, where Chrome and Safari give YUV anyway.
-  `window.__DDI_FAKE_RGB = true` makes the default decoder's frames count
-  as RGB, to check the switch in Chrome.
+  "prefer-software"` alike (the maintainer's check, 2026-10-10). After
+  the first RGB frame the session takes the browser's frames as they are
+  (the direct path, follow-up commit): each `VideoFrame` becomes an
+  `ImageBitmap` (`createImageBitmap`, on the GPU; the frame closes at once
+  and the decoder has its buffer back), copied into an RGBA texture with
+  `copy_external_image_to_texture` and drawn like a still background,
+  with no copy through memory, so an old machine keeps hardware decoding.
+  (wgpu's WebGL2 backend takes a bitmap but not a `VideoFrame` without
+  web-sys's unstable APIs: it panicked.) A bitmap is kept until the frame
+  after its upload (WebGL2 copies at submit); the first copies are
+  checked in an error scope, and a failure moves every movie to the
+  module. Such frames are never kept for later laps (a lap decodes
+  again), and the probe reads their luma from the RGB. Usually the probe
+  sees the RGB during the start prompt, before any movie opens.
+  `window.__DDI_FAKE_RGB = true` makes copied-out frames count as RGB,
+  to check this in Chrome: there JOMANDA played the direct path on WebGPU
+  and WebGL2, all top tier, about 605 frames shown by 20 s, none late.
+- `#/video-check?decoder=both` shows each file's frame from both decoders
+  side by side (frame 900, 30 s in, or 30 in a short movie), and for
+  frames in the browser's colours compares times only and measures the
+  colours: the mean difference (of 255) from the module's frame converted
+  under BT.601 and BT.709, limited and full range. Chrome's own
+  conversion came out closest to what the module uses (BT.601 limited
+  0.6 for 640×360, BT.709 limited 0.4 for 1280×720).
 
 ## Step 7. Documentation and handover
 
@@ -639,6 +653,30 @@ state says which decoder); Firefox and Safari by the maintainer.
   for `just video`; keep it short.
 - Credits: FFmpeg entry generated from `video/FFMPEG.toml` with the version
   and a link to the source tag and the configure line (LGPL notice).
+
+**Done 2026-10-10.** What differs:
+
+- Decision 34 (the background frame, step 5) already holds the setting, so
+  the pipeline is decision 35; the risks name the module's size, AV1, and
+  how WebCodecs differs per browser.
+- `ddivideo.LICENSE.txt`, served next to the module, now starts with a
+  notice (FFmpeg's version, the unmodified source tarball and tag, how
+  the build script rebuilds the module, also against a modified FFmpeg)
+  and holds every licence text the module needs: FFmpeg's LGPL 2.1,
+  zlib's, and wasi-libc's MIT with the musl and cloudlibc notices (the
+  wasi-sdk tarball ships none: the build downloads them from wasi-libc at
+  the commit wasi-sdk 34 builds, pinned by hash in `FFMPEG.toml`).
+  compiler-rt (Apache 2.0 with LLVM Exceptions) needs no notice in
+  compiled form and is named only.
+- `xtask gen-credits` reads `video/FFMPEG.toml`: `CREDITS.md` and the
+  Credits screen have a "Video decoder" section with FFmpeg's version,
+  licence, source tarball (with its SHA-256) and tag, the other parts of
+  the module, a link to the licence texts and the configure flags.
+- "Without the module" below: movies that fail are now named on the
+  results card once, after the song ("3 videos could not play: the video
+  decoder is not included in this build; the song background showed"),
+  besides the start prompt's line. Checked on a bundle with `video/`
+  removed and on the full one (no line).
 
 ## Without the module
 

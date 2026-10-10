@@ -56,6 +56,8 @@ pub(crate) struct ImportReport {
     pub(crate) videos_left_out: usize,
     /// Songs removed because their folder is gone from a re-read folder.
     pub(crate) removed: usize,
+    /// (noteskin, what of it draws) for the noteskins imported.
+    pub(crate) noteskins: Vec<(String, String)>,
     /// Set when the import could not run at all.
     pub(crate) error: Option<String>,
 }
@@ -318,8 +320,14 @@ async fn run(
         .filter_map(|p| Some((pack::shared_path(p)?, p.clone())))
         .collect();
     let maybe_works = !ddi_library::danoni::work_sources(&paths).is_empty();
+    let skins = ddi_noteskin::import::find_skins(&paths);
     // A folder read again with nothing left in it still drops its songs.
-    if candidates.is_empty() && shared_files.is_empty() && !maybe_works && !rescan {
+    if candidates.is_empty()
+        && shared_files.is_empty()
+        && !maybe_works
+        && skins.is_empty()
+        && !rescan
+    {
         report_music_without_simfile(&mut report, &paths, &HashSet::new());
         if report.skipped.is_empty() {
             report.error = Some(NOTHING_FOUND.into());
@@ -333,6 +341,9 @@ async fn run(
             return report;
         }
     };
+    if !skins.is_empty() {
+        store_noteskins(&db, &skins, &sources, &paths, &mut report, &progress).await;
+    }
     let keep_videos = crate::settings::Settings::load().import_videos;
     let images: Vec<&(String, String)> = shared_files.iter().filter(|(s, _)| is_image(s)).collect();
     let movies: Vec<&(String, String)> = shared_files
@@ -429,7 +440,11 @@ async fn run(
     {
         report.skipped.push(("stored works and folders".into(), e));
     }
-    if candidates.is_empty() && shared_files.is_empty() && !works.found && report.skipped.is_empty()
+    if candidates.is_empty()
+        && shared_files.is_empty()
+        && !works.found
+        && report.skipped.is_empty()
+        && report.noteskins.is_empty()
     {
         report.error = Some(NOTHING_FOUND.into());
     }
@@ -437,7 +452,155 @@ async fn run(
 }
 
 const NOTHING_FOUND: &str =
-    "No .sm, .ssc or .dwi files or Dancing☆Onigiri works were found in what was picked.";
+    "No .sm, .ssc or .dwi files, Dancing☆Onigiri works or noteskins were found in what was picked.";
+
+/// Stores the noteskins found among the import's files (dance and common
+/// ones; other games' are reported as skipped), then sums up what of each
+/// draws.
+fn plural_skins(n: usize) -> String {
+    if n == 1 {
+        "1 noteskin".into()
+    } else {
+        format!("{n} noteskins")
+    }
+}
+
+/// A file's size in the import (a zip entry's uncompressed).
+fn source_size(source: &Source) -> u64 {
+    match source {
+        Source::File(f) => f.size() as u64,
+        Source::Zip { entry, .. } => entry.uncompressed_size,
+    }
+}
+
+async fn store_noteskins(
+    db: &Db,
+    skins: &[ddi_noteskin::import::Found],
+    sources: &HashMap<String, Source>,
+    paths: &[String],
+    report: &mut ImportReport,
+    progress: &Callback<String>,
+) {
+    use crate::noteskins::{MAX_FILES, MAX_SKINS, MAX_TEXT, StoredSkin, kept_file, store};
+    let mut imported: Vec<StoredSkin> = Vec::new();
+    // Other games' skins (a whole StepMania install has dozens): one line.
+    let other: Vec<&str> = skins
+        .iter()
+        .filter(|f| !ddi_noteskin::import::kept_game(&f.game))
+        .map(|f| f.game.as_str())
+        .collect();
+    if !other.is_empty() {
+        let mut games: Vec<&str> = other.clone();
+        games.sort();
+        games.dedup();
+        report.skipped.push((
+            plural_skins(other.len()),
+            format!("for other games ({}), not dance", games.join(", ")),
+        ));
+    }
+    let dance: Vec<&ddi_noteskin::import::Found> = skins
+        .iter()
+        .filter(|f| ddi_noteskin::import::kept_game(&f.game))
+        .collect();
+    if dance.len() > MAX_SKINS {
+        report.warnings.push((
+            plural_skins(dance.len()),
+            format!("only the first {MAX_SKINS} were imported"),
+        ));
+    }
+    for found in dance.into_iter().take(MAX_SKINS) {
+        let key = crate::noteskins::skin_key(&found.game, &found.name);
+        if imported.iter().any(|s| s.key() == key) {
+            report.skipped.push((
+                found.dir.clone(),
+                "another noteskin of this import has the same name".into(),
+            ));
+            continue;
+        }
+        progress.emit(format!("storing the noteskin {}…", found.name));
+        let prefix = format!("{}/", found.dir);
+        let files: Vec<String> = paths
+            .iter()
+            .filter_map(|p| p.strip_prefix(&prefix))
+            .map(str::to_string)
+            .collect();
+        let kept = files.iter().filter(|f| kept_file(f)).count();
+        if kept > MAX_FILES {
+            report.warnings.push((
+                found.dir.clone(),
+                format!("{kept} images and scripts; only the first {MAX_FILES} were kept"),
+            ));
+        }
+        let mut texts = Vec::new();
+        let mut blobs = Vec::new();
+        let mut stored = Vec::new();
+        for f in &files {
+            let Some(source) = sources.get(&format!("{prefix}{f}")) else {
+                continue;
+            };
+            let lower = f.to_ascii_lowercase();
+            let is_text = lower == "metrics.ini" || lower.ends_with(".redir");
+            if is_text && source_size(source) > MAX_TEXT {
+                report.warnings.push((found.dir.clone(), format!("{f} is too large; left out")));
+            } else if is_text {
+                match read_bytes(source).await {
+                    Ok(bytes) => {
+                        texts.push((f.clone(), String::from_utf8_lossy(&bytes).into_owned()))
+                    }
+                    Err(e) => report
+                        .warnings
+                        .push((found.dir.clone(), format!("{f}: {e}"))),
+                }
+            }
+            // The texts always; the rest up to the limit.
+            if kept_file(f) && (is_text || stored.len() < MAX_FILES) {
+                match read_blob(source, mime_type(f)).await {
+                    Ok(blob) => {
+                        blobs.push((f.clone(), blob));
+                        stored.push(f.clone());
+                    }
+                    Err(e) => report
+                        .warnings
+                        .push((found.dir.clone(), format!("{f}: {e}"))),
+                }
+            }
+        }
+        let skin = StoredSkin {
+            game: found.game.clone(),
+            name: found.name.clone(),
+            files,
+            texts,
+            origin: found.dir.clone(),
+            stored,
+        };
+        match store(&skin, blobs) {
+            Ok(writes) => match db.write(writes).await {
+                Ok(()) => imported.push(skin),
+                Err(e) => report.skipped.push((found.dir.clone(), e)),
+            },
+            Err(e) => report.skipped.push((found.dir.clone(), e)),
+        }
+    }
+    // What draws, with every skin in the library as fallbacks.
+    let all = crate::noteskins::all(db).await.unwrap_or_default();
+    let folders: Vec<ddi_noteskin::Folder> = all
+        .iter()
+        .map(|s| ddi_noteskin::Folder {
+            game: s.game.clone(),
+            name: s.name.clone(),
+            files: s.files.clone(),
+            texts: s.texts.clone(),
+        })
+        .collect();
+    for skin in imported {
+        let line = if skin.game == "dance" {
+            crate::noteskins::summary(&folders, &skin.game, &skin.name)
+        } else {
+            "shared files for other skins".to_string()
+        };
+        report.noteskins.push((skin.name, line));
+    }
+}
 
 /// Folders with music but no simfile, except the folders of music that
 /// Dancing☆Onigiri works used.

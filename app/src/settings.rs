@@ -49,6 +49,9 @@ pub(crate) struct Settings {
     /// How notes are coloured.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub(crate) note_colors: NoteColors,
+    /// The imported noteskin dance layouts are drawn with (its store key,
+    /// `dance/<name>`); `None`: the built-in arrows.
+    pub(crate) noteskin: Option<String>,
     /// Draw notes in the colours a chart gives them (Dancing☆Onigiri
     /// works) instead of `note_colors` (decision 23: off by default).
     pub(crate) chart_colors: bool,
@@ -211,6 +214,7 @@ impl Default for Settings {
             transform: TransformOptions::default(),
             appearance: Appearance::Visible,
             note_colors: NoteColors::Vivid,
+            noteskin: None,
             chart_colors: false,
             lyrics: true,
             import_details: false,

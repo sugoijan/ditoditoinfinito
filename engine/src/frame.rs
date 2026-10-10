@@ -11,6 +11,46 @@ pub struct ReceptorState {
     pub pressed: bool,
     /// Most recent hit in this lane and its age in seconds.
     pub flash: Option<(Judgement, f32)>,
+    /// A hold (or roll) of this lane is held with life left (StepMania's
+    /// `HoldingOn`/`RollOn`, `GhostArrowRow::Update`).
+    pub holding: Option<HoldKind>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum HoldKind {
+    Hold,
+    Roll,
+}
+
+/// What a lane's receptor and explosion react to, in a noteskin
+/// (`ReceptorArrow::Step`, `GhostArrowRow::DidTapNote`/`DidHoldNote`).
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SkinEventKind {
+    /// The lane's button went down (`Press`).
+    Press,
+    /// … and up (`Lift`).
+    Lift,
+    /// What a press did, for the receptor: the judgement of the note it
+    /// hit, `None` when it hit nothing.
+    Step(Option<Judgement>),
+    /// A press set off a mine (the receptor's `HitMine`).
+    StepMine,
+    /// A tap judged; with per-row combo, every lane of a row once a press
+    /// completes it, with the row's last judgement (`FlashGhostRow`).
+    Tap { judgement: Judgement, bright: bool },
+    /// A hold or roll kept to its end.
+    Held { bright: bool },
+    /// A mine went off (the explosion's `HitMine`).
+    HitMine,
+}
+
+/// One event, numbered in order.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct SkinEvent {
+    pub seq: u64,
+    pub lane: u8,
+    pub kind: SkinEventKind,
+    pub song_time: f64,
 }
 
 /// The judgement text to show.
@@ -64,6 +104,11 @@ pub struct NoteSprite {
     /// White glow where a note appears or vanishes, `0..=1.3`
     /// ([`Appearance::visibility`]).
     pub glow: f32,
+    /// The note's beat (noteskin animation and colours).
+    pub beat: f32,
+    /// A hold's life, `0..=1`: 1 until it is let go, then what is left (a
+    /// noteskin greys it); 1 for other notes.
+    pub hold_life: f32,
 }
 
 /// Snapshot of the play at one render time.

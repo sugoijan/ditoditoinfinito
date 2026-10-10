@@ -6,7 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::appearance::Appearance;
 use crate::clock::{ClockOptions, SongClock};
-use crate::frame::{Frame, JudgementFlash, NoteSprite, ReceptorState, SpriteKind};
+use std::collections::VecDeque;
+
+use crate::frame::{
+    Frame, HoldKind, JudgementFlash, NoteSprite, ReceptorState, SkinEvent, SkinEventKind,
+    SpriteKind,
+};
 use crate::input::InputEvent;
 use crate::judge::{Judge, JudgeEvent, JudgeEventKind, NoteState};
 use crate::rules::{FailPolicy, FullCombo, Judgement, Ruleset, ScoreCtx, ScoreView, Tally};
@@ -21,6 +26,11 @@ const FLASH_SECONDS: f32 = 1.0;
 
 /// Silence after the last note before the play finishes.
 const END_MARGIN: f64 = 1.0;
+/// Skin events kept for the renderer to catch up on.
+const SKIN_EVENTS: usize = 256;
+/// `[Player] BrightGhostComboThreshold` (`Themes/_fallback/metrics.ini`):
+/// above this combo explosions are bright.
+const BRIGHT_COMBO: u32 = 100;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -134,6 +144,15 @@ pub struct Player {
     /// Displayed beat of each judged note's head and tail (they never
     /// change, and computing them is linear in the scroll segments).
     displayed: Vec<(f64, f64)>,
+    /// The lanes of each row's notes.
+    row_lanes: Vec<Vec<u8>>,
+    /// Notes of each row judged so far, for explosions: in the dance game
+    /// StepMania flashes a row once it is completely judged, whatever the
+    /// ruleset counts (`m_bCountNotesSeparately`, `GameManager.cpp:506`).
+    row_judged: Vec<u32>,
+    /// The latest skin events, oldest first.
+    skin_events: VecDeque<SkinEvent>,
+    next_seq: u64,
 }
 
 impl Player {
@@ -188,9 +207,20 @@ impl Player {
             frame_interval: 1.0 / 60.0,
             lane_map: transformed.take_from,
             displayed: Vec::new(),
+            row_lanes: Vec::new(),
+            row_judged: Vec::new(),
+            skin_events: VecDeque::new(),
+            next_seq: 0,
             judge,
             ruleset,
         };
+        player.row_lanes = vec![Vec::new(); player.judge.rows().len()];
+        player.row_judged = vec![0; player.judge.rows().len()];
+        for n in player.judge.notes() {
+            if let Some(r) = n.row {
+                player.row_lanes[r].push(n.note.lane);
+            }
+        }
         player.displayed = player
             .judge
             .notes()
@@ -206,6 +236,7 @@ impl Player {
 
     fn reset_counts(&mut self) {
         self.rows = vec![RowAcc::default(); self.judge.rows().len()];
+        self.row_judged = vec![0; self.judge.rows().len()];
         self.ctx = ScoreCtx {
             steps: if self.ruleset.combo.per_row {
                 self.judge.row_count()
@@ -333,8 +364,50 @@ impl Player {
         } else {
             self.judge.release(ev.lane, t)
         };
+        if ev.pressed {
+            // `ReceptorArrow::Step` plays the press's score at once; `Press`
+            // comes from the next draw (`ReceptorArrow::DrawPrimitives`).
+            // An older note missed on the way (`Judge::press` expires first)
+            // is not the press's.
+            let step = events
+                .iter()
+                .filter(|e| e.lane == ev.lane)
+                .find_map(|e| match e.kind {
+                    JudgeEventKind::Tap(j, _) if !j.is_miss() => Some(SkinEventKind::Step(Some(j))),
+                    JudgeEventKind::HitMine => Some(SkinEventKind::StepMine),
+                    _ => None,
+                })
+                .unwrap_or(SkinEventKind::Step(None));
+            self.skin_event(ev.lane, step, t);
+            self.skin_event(ev.lane, SkinEventKind::Press, t);
+        } else {
+            self.skin_event(ev.lane, SkinEventKind::Lift, t);
+        }
         self.apply(&events);
         events
+    }
+
+    fn skin_event(&mut self, lane: u8, kind: SkinEventKind, song_time: f64) {
+        if self.skin_events.len() >= SKIN_EVENTS {
+            self.skin_events.pop_front();
+        }
+        self.skin_events.push_back(SkinEvent {
+            seq: self.next_seq,
+            lane,
+            kind,
+            song_time,
+        });
+        self.next_seq += 1;
+    }
+
+    /// The skin events numbered `seq` and on still kept, oldest first.
+    pub fn skin_events_since(&self, seq: u64) -> impl Iterator<Item = &SkinEvent> {
+        self.skin_events.iter().filter(move |e| e.seq >= seq)
+    }
+
+    /// Explosions are bright above a combo of 100.
+    fn bright(&self) -> bool {
+        self.combo > BRIGHT_COMBO
     }
 
     /// Advances to `host_now`: misses, hold life, fail and finish checks.
@@ -381,6 +454,8 @@ impl Player {
                 self.delta_count += 1;
                 self.lane_flash[usize::from(ev.lane)] = Some((j, ev.song_time));
             }
+            // `FlashGhostRow` runs before the row's score raises the combo.
+            let bright = self.bright();
             let row = match (self.ruleset.combo.per_row, ev.kind, ev.note_index) {
                 (true, JudgeEventKind::Tap(..), Some(idx)) => {
                     self.judge.note(idx).and_then(|n| n.row)
@@ -409,6 +484,46 @@ impl Player {
                 }
                 None => self.score_event(ev),
             }
+            self.flash(ev, bright);
+        }
+    }
+
+    /// The explosions an event sets off (`Player::Step`, `FlashGhostRow`,
+    /// `Player.cpp:2555-2575,2834-2856`).
+    fn flash(&mut self, ev: &JudgeEvent, bright: bool) {
+        match ev.kind {
+            JudgeEventKind::Tap(j, _) => {
+                let Some(r) = ev
+                    .note_index
+                    .and_then(|i| self.judge.note(i))
+                    .and_then(|n| n.row)
+                else {
+                    return;
+                };
+                self.row_judged[r] += 1;
+                // Every lane of the row with the last judgement, once the
+                // row is completely judged by a press: a row that ends on a
+                // miss (judged by time) does not flash.
+                if self.row_judged[r] >= self.judge.rows()[r].size && !j.is_miss() {
+                    for lane in self.row_lanes[r].clone() {
+                        self.skin_event(
+                            lane,
+                            SkinEventKind::Tap {
+                                judgement: j,
+                                bright,
+                            },
+                            ev.song_time,
+                        );
+                    }
+                }
+            }
+            JudgeEventKind::Held => {
+                self.skin_event(ev.lane, SkinEventKind::Held { bright }, ev.song_time)
+            }
+            JudgeEventKind::HitMine => {
+                self.skin_event(ev.lane, SkinEventKind::HitMine, ev.song_time)
+            }
+            JudgeEventKind::LetGo | JudgeEventKind::Boo => {}
         }
     }
 
@@ -473,6 +588,7 @@ impl Player {
         let age = |at: f64| (song_time - at).max(0.0) as f32;
 
         let mut notes = Vec::new();
+        let mut holding = vec![None; usize::from(self.lanes)];
         // After an immediate fail nothing is judged any more, so draw nothing:
         // the field goes blank while the shell fades the music out.
         let field_cleared = self.failed && matches!(self.ruleset.fail, FailPolicy::Immediate);
@@ -499,6 +615,16 @@ impl Player {
                         * n.note.speed_mul.unwrap_or(1.0);
                     let active = matches!(n.state, NoteState::HoldActive { .. });
                     let dropped = matches!(n.state, NoteState::LetGo | NoteState::Missed);
+                    if let NoteState::HoldActive { life } = n.state
+                        && life > 0.0
+                        && let Some(h) = holding.get_mut(usize::from(n.note.lane))
+                    {
+                        *h = Some(if matches!(n.note.kind, NoteKind::RollHead { .. }) {
+                            HoldKind::Roll
+                        } else {
+                            HoldKind::Hold
+                        });
+                    }
                     if matches!(n.note.kind, NoteKind::HoldHead { .. }) {
                         SpriteKind::HoldHead {
                             tail_y,
@@ -554,6 +680,11 @@ impl Player {
             }
             let beat_pos = n.note.tick.beat();
             let (alpha, glow) = self.options.appearance.visibility(y);
+            let hold_life = match n.state {
+                NoteState::HoldActive { life } => life,
+                NoteState::LetGo | NoteState::Missed => 0.0,
+                _ => 1.0,
+            };
             notes.push(NoteSprite {
                 lane: n.note.lane,
                 y,
@@ -563,12 +694,15 @@ impl Player {
                 color: n.note.color,
                 alpha,
                 glow,
+                beat: beat_pos as f32,
+                hold_life,
             });
         }
 
         let receptors = (0..usize::from(self.lanes))
             .map(|lane| ReceptorState {
                 pressed: self.held[lane],
+                holding: holding[lane],
                 flash: self.lane_flash[lane]
                     .map(|(j, at)| (j, age(at)))
                     .filter(|(_, a)| *a < FLASH_SECONDS),

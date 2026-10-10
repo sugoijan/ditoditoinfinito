@@ -233,13 +233,18 @@ impl SpritePipeline {
     }
 
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, count: usize) {
-        if count == 0 {
+        self.draw_range(pass, 0..count as u32);
+    }
+
+    /// Draws the uploaded instances `range`.
+    pub fn draw_range<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, range: std::ops::Range<u32>) {
+        if range.is_empty() {
             return;
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.instances.slice(..));
-        pass.draw(0..6, 0..count as u32);
+        pass.draw(0..6, range);
     }
 }
 

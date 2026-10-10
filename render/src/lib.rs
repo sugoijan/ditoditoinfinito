@@ -7,13 +7,16 @@
 //!
 //! See `docs/PLAN.md` §3.4.
 
+pub mod art;
 pub mod background;
 pub mod color;
 pub mod note_colors;
+pub mod noteskin;
 pub mod renderer;
 pub mod scene;
 pub mod sprite;
 pub mod text;
+pub mod textured;
 
 pub use background::{Backdrop, BackgroundPipeline};
 pub use renderer::Renderer;

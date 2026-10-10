@@ -32,6 +32,9 @@ use crate::web::webcodecs::WebCodecsVideo;
 const BATCH: u32 = 8;
 /// The frame shown for each file.
 const SAMPLE_FRAME: usize = 30;
+/// …and later in a long movie, for the colour comparison (frame 30 is
+/// often a fade).
+const LATE_SAMPLE_FRAME: usize = 900;
 /// About this many seek targets per file.
 const SEEK_TARGETS: usize = 24;
 /// A seek that has not delivered a frame after this long fails, and so does
@@ -47,6 +50,9 @@ pub(crate) struct FileCheck {
     /// With both decoders checked, on the browser's row: whether every
     /// frame had the module's time and pixels, or the first difference.
     compared: Option<String>,
+    /// With both checked and the browser's frames in its own colours: how
+    /// close they are to the module's frame under each matrix and range.
+    colours: Option<String>,
     /// `waiting`, `decoding`, `seeking`, `done` or `failed`.
     state: String,
     error: Option<String>,
@@ -67,6 +73,9 @@ pub(crate) struct FileCheck {
     slowest_seek_ms: f64,
     #[serde(skip)]
     sample: Option<Sample>,
+    /// The module's frame behind `sample`, for the colour comparison.
+    #[serde(skip)]
+    sample_yuv: Option<VideoFrame>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -189,6 +198,7 @@ impl Component for VideoCheck {
                     let mut row = first;
                     for (name, blob) in files {
                         let mut module_frames = None;
+                        let mut module_yuv = None;
                         for &decoder in &decoders {
                             let report = {
                                 let link = link.clone();
@@ -221,9 +231,19 @@ impl Component for VideoCheck {
                                 return;
                             }
                             match (decoder, &module_frames) {
-                                ("module", _) => module_frames = Some(frames),
+                                ("module", _) => {
+                                    module_yuv = check.sample_yuv.take();
+                                    module_frames = Some(frames);
+                                }
                                 ("webcodecs", Some(expected)) => {
                                     check.compared = Some(compare(expected, &frames));
+                                    let browser_colours =
+                                        !frames.is_empty() && frames.iter().all(|f| f.1 == 0);
+                                    if let (true, Some(m), Some(b)) =
+                                        (browser_colours, &module_yuv, &check.sample)
+                                    {
+                                        check.colours = Some(colour_match(m, b));
+                                    }
                                     report(&check);
                                 }
                                 _ => {}
@@ -340,15 +360,22 @@ impl Component for VideoCheck {
                         </tr>
                         { for self.files.iter().map(row) }
                     </table>
-                    { for self.files.iter().zip(&self.canvases).map(|(f, canvas)| html! {
-                        if let Some(s) = &f.sample {
-                            <figure class="video-check-frame">
-                                <canvas ref={canvas.clone()} />
-                                <figcaption class="muted">
-                                    { format!("{}: frame {} at {:.3} s", f.name, s.index, s.pts) }
-                                </figcaption>
-                            </figure>
-                        }
+                    { for self.pairs().into_iter().map(|rows| html! {
+                        <div class="video-check-pair">
+                            { for rows.into_iter().map(|i| {
+                                let (f, canvas) = (&self.files[i], &self.canvases[i]);
+                                html! {
+                                    if let Some(s) = &f.sample {
+                                        <figure class="video-check-frame">
+                                            <canvas ref={canvas.clone()} />
+                                            <figcaption class="muted">
+                                                { format!("{} · {}: frame {} at {:.3} s", f.name, f.decoder, s.index, s.pts) }
+                                            </figcaption>
+                                        </figure>
+                                    }
+                                }
+                            }) }
+                        </div>
                     }) }
                 }
                 <p><a href={Route::Home.to_hash()}>{ "← back" }</a></p>
@@ -358,6 +385,18 @@ impl Component for VideoCheck {
 }
 
 impl VideoCheck {
+    /// The rows of each file, its decoders side by side.
+    fn pairs(&self) -> Vec<Vec<usize>> {
+        let mut out: Vec<Vec<usize>> = Vec::new();
+        for (i, f) in self.files.iter().enumerate() {
+            match out.last_mut() {
+                Some(rows) if self.files[rows[0]].name == f.name => rows.push(i),
+                _ => out.push(vec![i]),
+            }
+        }
+        out
+    }
+
     fn status_line(&self) -> String {
         match self.worker.as_ref().map(VideoWorker::status) {
             None | Some(ModuleStatus::Idle) => {
@@ -442,13 +481,25 @@ fn row(f: &FileCheck) -> Html {
                 <td>{ &f.name }{ " · " }{ &f.decoder }</td><td>{ movie }</td><td>{ frames }</td>
                 <td>{ decode }</td><td>{ seeks }</td><td>{ state }</td>
             </tr>
+            { for f.colours.iter().map(|c| html! {
+                <tr><td></td><td colspan="5">{ format!("browser colours: {c}") }</td></tr>
+            }) }
             { for f.compared.iter().map(|c| html! {
-                <tr><td></td><td colspan="5" class={if c == "same" { "" } else { "error" }}>{ format!("against the module: {c}") }</td></tr>
+                <tr><td></td><td colspan="5" class={if c.starts_with("same") { "" } else { "error" }}>{ format!("against the module: {c}") }</td></tr>
             }) }
             { for f.seek_failures.iter().map(|s| html! {
                 <tr><td></td><td colspan="5" class="error">{ s }</td></tr>
             }) }
         </>
+    }
+}
+
+/// A frame's fingerprint; 0 for one in the browser's colours (no planes).
+fn print_of(frame: &VideoFrame) -> u64 {
+    if frame.external.is_some() {
+        0
+    } else {
+        fingerprint(&frame.planes)
     }
 }
 
@@ -513,18 +564,109 @@ async fn next_frame(
 /// Whether the browser's frames are the module's: the same times and the
 /// same pixels, frame for frame.
 fn compare(module: &[(f64, u64)], browser: &[(f64, u64)]) -> String {
+    // Frames in the browser's colours have no planes to compare (print 0).
+    let colours = !browser.is_empty() && browser.iter().all(|b| b.1 == 0);
     for (i, (m, b)) in module.iter().zip(browser).enumerate() {
         if (m.0 - b.0).abs() > 1e-6 {
             return format!("frame {i} at {:.4} s, the module's at {:.4} s", b.0, m.0);
         }
-        if m.1 != b.1 {
+        if m.1 != b.1 && !colours {
             return format!("frame {i} ({:.4} s) has other pixels", m.0);
         }
     }
     if module.len() != browser.len() {
         return format!("{} frames, the module gave {}", browser.len(), module.len());
     }
-    "same".into()
+    if colours {
+        "same times (the pixels are in the browser's colours: see the frames)".into()
+    } else {
+        "same".into()
+    }
+}
+
+/// How close the browser's frame (`browser`, RGBA as drawn) is to the
+/// module's frame converted under each matrix and range, closest first,
+/// as mean differences in 1/255.
+fn colour_match(module: &VideoFrame, browser: &Sample) -> String {
+    use ddi_platform::video::{YuvMatrix, yuv_to_rgb};
+    if (module.width, module.height) != (browser.width, browser.height) {
+        return format!(
+            "the browser's frame is {}×{}, the module's {}×{}",
+            browser.width, browser.height, module.width, module.height
+        );
+    }
+    let Some((y, u, v)) = module.split() else {
+        return "no module frame to compare".into();
+    };
+    let (w, h) = (module.width as usize, module.height as usize);
+    let cw = w.div_ceil(2);
+    let mut scores = Vec::new();
+    for (matrix, matrix_name) in [(YuvMatrix::Bt601, "BT.601"), (YuvMatrix::Bt709, "BT.709")] {
+        for (full, range) in [(false, "limited"), (true, "full")] {
+            let mut sum = 0.0;
+            for row in 0..h {
+                for col in 0..w {
+                    let c = (row / 2) * cw + col / 2;
+                    let rgb = yuv_to_rgb(y[row * w + col], u[c], v[c], matrix, full);
+                    let at = 4 * (row * w + col);
+                    for (k, c) in rgb.iter().enumerate() {
+                        sum += (c * 255.0 - f32::from(browser.rgba[at + k])).abs() as f64;
+                    }
+                }
+            }
+            scores.push((sum / (3 * w * h) as f64, format!("{matrix_name} {range}")));
+        }
+    }
+    scores.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let used = format!(
+        "{} {}",
+        if module.matrix == YuvMatrix::Bt709 {
+            "BT.709"
+        } else {
+            "BT.601"
+        },
+        if module.full_range { "full" } else { "limited" }
+    );
+    let list: Vec<String> = scores
+        .iter()
+        .map(|(d, name)| format!("{name} {d:.1}"))
+        .collect();
+    format!(
+        "closest to {} (mean difference of 255: {}); the module uses {used}",
+        scores[0].1,
+        list.join(", ")
+    )
+}
+
+/// A browser frame on the direct path drawn as the browser draws it, for
+/// the side by side.
+fn sample_external(index: usize, frame: &VideoFrame) -> Option<Sample> {
+    let external = frame.external.as_ref()?;
+    let direct = external
+        .0
+        .downcast_ref::<crate::web::webcodecs::DirectFrame>()?;
+    let document = web_sys::window()?.document()?;
+    let canvas: HtmlCanvasElement = document.create_element("canvas").ok()?.dyn_into().ok()?;
+    canvas.set_width(frame.width);
+    canvas.set_height(frame.height);
+    let context: CanvasRenderingContext2d = canvas.get_context("2d").ok()??.dyn_into().ok()?;
+    // `drawImage(bitmap, 0, 0)`.
+    let draw: js_sys::Function = js_sys::Reflect::get(&context, &"drawImage".into())
+        .ok()?
+        .dyn_into()
+        .ok()?;
+    draw.call3(&context, direct.bitmap(), &0.into(), &0.into())
+        .ok()?;
+    let image = context
+        .get_image_data(0.0, 0.0, f64::from(frame.width), f64::from(frame.height))
+        .ok()?;
+    Some(Sample {
+        index,
+        pts: frame.pts,
+        width: frame.width,
+        height: frame.height,
+        rgba: image.data().0,
+    })
 }
 
 /// Decodes a movie straight through and seeks in it; the frames' times and
@@ -573,8 +715,13 @@ async fn check_file(
                 }
                 VideoEvent::Frame(frame) => {
                     let index = frames.len();
-                    if index == 0 || index == SAMPLE_FRAME {
-                        check.sample = sample(index, &frame);
+                    if index == 0 || index == SAMPLE_FRAME || index == LATE_SAMPLE_FRAME {
+                        check.sample = if frame.external.is_some() {
+                            sample_external(index, &frame)
+                        } else {
+                            check.sample_yuv = Some(frame.clone());
+                            sample(index, &frame)
+                        };
                     }
                     if index == 0 {
                         check.first_pts = Some(frame.pts);
@@ -586,7 +733,7 @@ async fn check_file(
                     }
                     check.last_pts = Some(frame.pts);
                     decode_ms += frame.decode_ms;
-                    frames.push((frame.pts, fingerprint(&frame.planes)));
+                    frames.push((frame.pts, print_of(&frame)));
                 }
                 VideoEvent::End { .. } => break 'decode,
                 VideoEvent::Error(e) => {
@@ -657,7 +804,7 @@ async fn check_file(
         check.seeks += 1;
         let (pts, print) = frames[expect];
         match got {
-            Ok(Some(f)) if (f.pts - pts).abs() < 1e-6 && fingerprint(&f.planes) == print => {
+            Ok(Some(f)) if (f.pts - pts).abs() < 1e-6 && print_of(&f) == print => {
                 check.seeks_ok += 1
             }
             Ok(Some(f)) if (f.pts - pts).abs() < 1e-6 => check.seek_failures.push(format!(

@@ -31,6 +31,11 @@ the browser are implementation details, not advertised features.
 - `library/` song library logic shared by the app and xtask: pack scanning
   (which file is the chart, music, banner), a sans-IO zip reader, the manifest
   entry type. Pure, natively tested.
+- `noteskin/` StepMania noteskins: fallback chains, file lookup and
+  redirects, `metrics.ini`, file name hints, what each element is (stand-ins
+  for StepMania's `default` and `common`; a skin's Lua does not run yet),
+  actors and their commands. Pure, natively tested;
+  `docs/plans/noteskins.md`. `render/src/noteskin.rs` draws a skin in play.
 - `app/` the web shell: Yew for menus, wgpu canvas for play, Web Audio clock,
   settings in `localStorage`, imported songs in IndexedDB. Compiles for
   `wasm32-unknown-unknown` only.
@@ -52,11 +57,14 @@ the browser are implementation details, not advertised features.
 - `just build` release build with the production public URL.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
 - `just test` native tests (chart, engine, render, platform with `decode`, library,
-  xtask). The app crate has no native tests; verify it in a browser.
+  noteskin, xtask). The app crate has no native tests; verify it in a browser.
 - `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
   compares every `.sm` under a local folder against the two oracle parsers
   (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`).
   Third-party songs used this way stay local.
+- `DDI_NOTESKINS=<dir>[:<dir>…] cargo test -p ddi-noteskin --test local_skins -- --nocapture`
+  resolves every element of every skin under local `NoteSkins` folders
+  (`DDI_NOTESKINS_STANDINS=1`: without their `default` and `common`).
 - `just video` builds the decoder module (downloads the pinned toolchain and
   FFmpeg into `target/video/`); `just video-check [file]` checks it on a file
   or on generated clips against the `ffmpeg` command's decode.

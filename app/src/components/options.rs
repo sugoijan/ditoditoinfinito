@@ -62,6 +62,11 @@ pub(crate) enum Msg {
     Video(crate::settings::VideoMode),
     BackgroundFrame(crate::settings::BackgroundFrame),
     NoteColors(NoteColors),
+    /// The imported noteskins one can pick, `(key, name)`, or why they
+    /// could not be read.
+    Noteskins(Result<Vec<(String, String)>, String>),
+    Noteskin(Option<String>),
+    DeleteNoteskin(String),
     ChartColors(bool),
     Lyrics(bool),
     /// Edit a profile's offset (kind "audio"/"display", id, ms).
@@ -120,6 +125,10 @@ pub(crate) struct Options {
     imported: usize,
     /// Shared background images in the library.
     shared: usize,
+    /// Imported noteskins `(key, name)`.
+    noteskins: Vec<(String, String)>,
+    /// The skin whose "remove" was clicked once.
+    confirm_noteskin: Option<String>,
     confirm: Option<Reset>,
     /// Result of the last reset.
     notice: Option<String>,
@@ -170,6 +179,8 @@ impl Component for Options {
                 Err(_) => Msg::Library(None, 0, shared, Vec::new()),
             }
         });
+        ctx.link()
+            .send_future(async { Msg::Noteskins(crate::noteskins::choices().await) });
         let gamepads = Gamepads::new();
         let pad_refresh = gamepads.as_ref().map(|_| {
             let link = ctx.link().clone();
@@ -186,6 +197,8 @@ impl Component for Options {
             sample: None,
             imported: 0,
             shared: 0,
+            noteskins: Vec::new(),
+            confirm_noteskin: None,
             confirm: None,
             notice: None,
             gamepads,
@@ -284,6 +297,8 @@ impl Component for Options {
                 });
                 self.imported = 0;
                 self.shared = 0;
+                ctx.link()
+                    .send_future(async { Msg::Noteskins(crate::noteskins::choices().await) });
                 return true;
             }
             Msg::Speed(v) => self.settings.speed = v.clamp(0.25, 10.0),
@@ -316,6 +331,42 @@ impl Component for Options {
             Msg::Video(v) => self.settings.video = v,
             Msg::BackgroundFrame(v) => self.settings.background_frame = v,
             Msg::NoteColors(v) => self.settings.note_colors = v,
+            Msg::Noteskins(list) => {
+                let list = match list {
+                    Ok(l) => l,
+                    // Storage could not be read (another tab upgrading it):
+                    // keep the choice.
+                    Err(e) => {
+                        web_sys::console::warn_1(&e.into());
+                        return false;
+                    }
+                };
+                // A chosen skin that is no longer there: the built-in arrows.
+                if let Some(k) = &self.settings.noteskin
+                    && !list.iter().any(|(key, _)| key == k)
+                {
+                    self.settings.noteskin = None;
+                    self.settings.save();
+                }
+                self.noteskins = list;
+                return true;
+            }
+            Msg::Noteskin(v) => self.settings.noteskin = v,
+            Msg::DeleteNoteskin(key) => {
+                // The first click asks for a second one.
+                if self.confirm_noteskin.as_deref() != Some(key.as_str()) {
+                    self.confirm_noteskin = Some(key);
+                    return true;
+                }
+                self.confirm_noteskin = None;
+                ctx.link().send_future(async move {
+                    if let Err(e) = crate::noteskins::delete(&key).await {
+                        web_sys::console::warn_1(&e.into());
+                    }
+                    Msg::Noteskins(crate::noteskins::choices().await)
+                });
+                return false;
+            }
             Msg::Lyrics(v) => self.settings.lyrics = v,
             Msg::ChartColors(v) => self.settings.chart_colors = v,
             Msg::ProfileOffsetMs(kind, id, ms) => {
@@ -536,6 +587,7 @@ impl Component for Options {
                         { " Debug overlay (backend, FPS, clock drift, error stats)" }
                     </label>
                     <label>{ "Note colours " }{ choice(s.note_colors, &NOTE_COLOR_CHOICES, link.callback(Msg::NoteColors)) }</label>
+                    { self.noteskin_choice(link) }
                     <label>
                         <input type="checkbox" checked={s.chart_colors} onchange={link.callback(|e: Event| Msg::ChartColors(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
                         { " Use a song's own note colours when it has them (Dancing☆Onigiri works)" }
@@ -578,6 +630,44 @@ impl Component for Options {
 }
 
 impl Options {
+    /// "Arrows": the built-in ones or an imported noteskin (for dance
+    /// layouts; the colour scheme above is the built-in ones').
+    fn noteskin_choice(&self, link: &html::Scope<Self>) -> Html {
+        if self.noteskins.is_empty() {
+            return html! {};
+        }
+        let list = self.noteskins.clone();
+        let onchange = link.callback(move |e: Event| {
+            let v = e
+                .target_dyn_into::<HtmlSelectElement>()
+                .map(|s| s.value())
+                .unwrap_or_default();
+            Msg::Noteskin(list.iter().find(|(k, _)| *k == v).map(|(k, _)| k.clone()))
+        });
+        let current = self.settings.noteskin.clone();
+        let delete = current.clone().map(|key| {
+            let label = if self.confirm_noteskin.as_deref() == Some(key.as_str()) {
+                "click again to remove it"
+            } else {
+                "remove this noteskin"
+            };
+            let onclick = link.callback(move |_| Msg::DeleteNoteskin(key.clone()));
+            html! { <button type="button" class="link" {onclick}>{ label }</button> }
+        });
+        html! {
+            <label>{ "Arrows " }
+                <select {onchange}>
+                    <option value="" selected={current.is_none()}>{ "built in" }</option>
+                    { for self.noteskins.iter().map(|(k, name)| html! {
+                        <option value={k.clone()} selected={current.as_deref() == Some(k.as_str())}>{ format!("noteskin: {name}") }</option>
+                    }) }
+                </select>
+                { " (dance layouts) " }
+                { for delete }
+            </label>
+        }
+    }
+
     /// Layouts the bindings section offers: the StepMania ones, then the
     /// others the library has charts for, and the one shown.
     fn bind_layouts(&self) -> Vec<Layout> {
@@ -931,7 +1021,7 @@ impl Options {
                         <td class="muted">{ "Speed, scroll and note options, rules, volume, keys, controller bindings, display options and device calibrations back to defaults. Imported songs and per-song offsets are kept." }</td>
                     </tr>
                     <tr>
-                        <td>{ button(Reset::Songs, "remove imported songs", (self.imported == 0 && self.shared == 0) || importing) }</td>
+                        <td>{ button(Reset::Songs, "remove imported songs and noteskins", (self.imported == 0 && self.shared == 0 && self.noteskins.is_empty()) || importing) }</td>
                         <td class="muted">{ format!("Deletes the songs imported into this browser ({songs}) and their offsets, and the shared background images ({shared}). Settings are kept.") }</td>
                     </tr>
                     <tr>
