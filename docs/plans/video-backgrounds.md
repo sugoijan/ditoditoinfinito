@@ -613,6 +613,19 @@ state says which decoder); Firefox and Safari by the maintainer.
   `#/video-check?decoder=both` runs both decoders on each file and
   compares every frame's time and pixels: the check to run in Firefox
   and Safari.
+- Only YUV frames give the module's pixels. Firefox on macOS hands out
+  `BGRX` (already converted, with its own guess at the matrix and range),
+  from its hardware decoder and with `hardwareAcceleration:
+  "prefer-software"` alike (the maintainer's check, 2026-10-10): after RGB
+  from the default decoder the session asks for the software one, and
+  after RGB from that too the browser path is off for the session, so
+  Firefox on macOS plays every movie through the module. Usually the
+  probe finds out during the start prompt, before any movie opens.
+  Taking RGB frames (a separate upload path, 2.7× the bytes, colours as
+  the browser converts them) is left open; it would matter for weak
+  machines with HD movies, where Chrome and Safari give YUV anyway.
+  `window.__DDI_FAKE_RGB = true` makes the default decoder's frames count
+  as RGB, to check the switch in Chrome.
 
 ## Step 7. Documentation and handover
 
