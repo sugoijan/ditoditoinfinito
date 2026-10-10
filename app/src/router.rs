@@ -33,9 +33,12 @@ pub(crate) enum Route {
         bias_ms: i64,
     },
     Credits,
-    /// The video decoder check; `src=a,b` checks those site files.
+    /// The video decoder check; `src=a,b` checks those site files,
+    /// `decoder=webcodecs` the browser's decoder and `decoder=both` both,
+    /// comparing their frames.
     VideoCheck {
         sources: Vec<String>,
+        decoder: String,
     },
     NotFound(String),
 }
@@ -91,6 +94,7 @@ impl Route {
                             .collect()
                     })
                     .unwrap_or_default(),
+                decoder: params.get("decoder").cloned().unwrap_or_default(),
             },
             other => Route::NotFound(other.to_string()),
         }
@@ -132,15 +136,21 @@ impl Route {
                 format!("#/calibrate/run?mode={mode}{auto}{}", bias_param(*bias_ms))
             }
             Route::Credits => "#/credits".into(),
-            Route::VideoCheck { sources } if sources.is_empty() => "#/video-check".into(),
-            Route::VideoCheck { sources } => format!(
-                "#/video-check?src={}",
-                sources
-                    .iter()
-                    .map(|s| percent_encode(s))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
+            Route::VideoCheck { sources, decoder } => {
+                let mut query = Vec::new();
+                if !sources.is_empty() {
+                    let list: Vec<_> = sources.iter().map(|s| percent_encode(s)).collect();
+                    query.push(format!("src={}", list.join(",")));
+                }
+                if !decoder.is_empty() {
+                    query.push(format!("decoder={}", percent_encode(decoder)));
+                }
+                if query.is_empty() {
+                    "#/video-check".into()
+                } else {
+                    format!("#/video-check?{}", query.join("&"))
+                }
+            }
             Route::NotFound(p) => format!("#/{p}"),
         }
     }

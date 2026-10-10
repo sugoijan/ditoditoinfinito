@@ -84,7 +84,8 @@ frames 40 ms longer while a movie is drawn (forces the automatic video
 rule);
 `#/calibrate/run?mode=visual|audio|combined` runs a
 calibration (same `auto`/`bias` parameters); `#/video-check` runs the
-video decoder on picked movies. Imported songs have ids
+video decoder on picked movies (`?decoder=both` compares the browser's
+WebCodecs decoder with it frame by frame). Imported songs have ids
 `u-<hash>` and play through the same route.
 
 Import is tested by setting files on the import panel's inputs (folder or zip)

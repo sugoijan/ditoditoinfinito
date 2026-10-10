@@ -550,6 +550,70 @@ autoplay stays all top tier throughout (video never touches judging).
 Verification: headless Chrome plays an H.264 AVI through WebCodecs (debug
 state says which decoder); Firefox and Safari by the maintainer.
 
+**Done 2026-10-10.** What differs, and what later steps need:
+
+- Frames are copied out (`VideoFrame.copyTo`, I420 or NV12) into the
+  module's YUV planes and closed at once, instead of
+  `copy_external_image_to_texture`: the track keeps frames queued ahead
+  and short movies whole, and a hardware decoder stalls when its few
+  output buffers are held. The upload, the shader and the track are the
+  module's, unchanged. It runs on the page, not in the worker: the
+  decoding is the browser's, off the main thread; the page reads the
+  chunks (`Blob.slice`, 1 MB at a time) and copies each frame.
+- Frames are known by their own chunk (carried in the chunk timestamp),
+  never by the order the browser gives them out in: Chrome reorders by
+  the bitstream, Firefox and Safari by the timestamps (the review found
+  this; Chrome alone would have hidden it). Each chunk's picture order
+  count comes from its slice header (`h264::PictureOrder`, POC types 0
+  and 2), and `h264::OutputOrder` replays FFmpeg's
+  `h264_select_output_frame` with the SPS's fixed reorder delay: which
+  picture each packet releases (stamped with that packet's frame), which
+  it drops, and the drain at the end. The frames go out in that order
+  with those times; one the browser never gives out is skipped after
+  eight later ones. `optimizeForLatency` is not set (Firefox stops
+  reordering with it). Seeks are the module's (`seek_start` backs off by
+  the delay; `ExactSeek` holds up to the target; a late first frame goes
+  back 0.5 s, doubling, four times, then from the start for good).
+- A local check against FFmpeg's own decode
+  (`library/tests/local_h264.rs`): all 93 local H.264 AVIs give out the
+  pictures FFmpeg does, in its order (each frame's packet, `pkt_pos`) and
+  with its times (`pkt_dts`); 78 have delay 0, 9 delay 1, 6 delay 2;
+  every keyframe of their indexes is an IDR, and every one has the
+  restriction, POC type 0 and progressive frames. In headless Chrome,
+  `#/video-check?decoder=both` on 12 of them (delays 0–2, 304×176 to
+  1280×720, BT.601 and BT.709) gave every frame the module's time and
+  pixels, and every seek was exact.
+- Left to the module: no bitstream restriction (FFmpeg grows the delay
+  as it sees reordering), interlaced, not 8-bit 4:2:0, POC type 1, no
+  index, a start keyframe that is not an IDR (other non-IDR keyframes go
+  in as delta chunks), and anything the browser refuses. A movie the
+  browser fails on, or whose decoder stays silent 4 s with frames wanted,
+  moves to the module, which the track seeks to where the movie stands
+  (checked with a copy whose index was shifted by two bytes: the probe
+  and the movie moved to the module, 604 frames shown by 20 s, none
+  late). A memory-management reset (MMCO 5) is not modelled; no local
+  stream has one. FFmpeg's probe rule is kept: a B slice in the first
+  chunks of a stream whose SPS says no delay holds one frame back.
+- `library::avi` reads the stream header (with `dwStart`: frames count
+  from it, as in FFmpeg), the extradata (`strf` after its 40-byte header:
+  the parameter sets, in Annex B before every IDR, or an `avcC` record as
+  the decoder's description) and the OpenDML index when there is one,
+  else the legacy `idx1` (looked for past `JUNK`); frame numbers count
+  empty chunks and repeated entries without making packets of them. On
+  the 163 local AVIs its video packet counts are FFmpeg's. The parsers
+  take hostile input without panicking (checked arithmetic; FFmpeg's SPS
+  limits: bit depth 8–14, a crop smaller than the picture, at most 16
+  reorder frames).
+- The module is fetched only for a movie that needs it: a song whose
+  movies are all H.264 AVIs never downloads it (JOMANDA, full plays on
+  WebGPU and WebGL2: no request for it, all top tier, 3714 frames shown,
+  none dropped or late), and its black-bar probe samples IDR keyframes
+  through WebCodecs. `window.__DDI_VIDEO_DECODER = "module"` forces the
+  module (tests); `__DDI_DEBUG.video.decoders` names each open movie's.
+  `#/video-check?decoder=both` runs both decoders on each file and
+  compares every frame's time and pixels: the check to run in Firefox
+  and Safari.
+
 ## Step 7. Documentation and handover
 
 - `docs/PLAN.md`: phase 8 row (video done, what is left: overlays,

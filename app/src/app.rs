@@ -132,7 +132,9 @@ impl App {
                 </>
             },
             Route::Options => html! { <Options /> },
-            Route::VideoCheck { sources } => html! { <VideoCheck sources={sources.clone()} /> },
+            Route::VideoCheck { sources, decoder } => {
+                html! { <VideoCheck sources={sources.clone()} decoder={decoder.clone()} /> }
+            }
             Route::Calibrate => html! { <Calibrate /> },
             Route::NotFound(p) => html! {
                 <main class="shell">

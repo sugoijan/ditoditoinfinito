@@ -4,7 +4,9 @@
 //! seeks that must land on the frames decoding straight through gave. Not
 //! linked from the menus; `docs/plans/video-backgrounds.md`, step 2.
 //! `?src=a,b` checks files of the site instead (headless tests), and the
-//! results are mirrored to `window.__DDI_VIDEO_CHECK`.
+//! results are mirrored to `window.__DDI_VIDEO_CHECK`. `?decoder=webcodecs`
+//! checks the browser's decoder (H.264 AVIs, step 6) and `?decoder=both`
+//! both, each file's frames compared between them (times and pixels).
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -23,6 +25,7 @@ use yew::prelude::*;
 use crate::router::Route;
 use crate::web::clock::PerformanceClock;
 use crate::web::video::{ModuleStatus, VideoWorker};
+use crate::web::webcodecs::WebCodecsVideo;
 
 /// Frames asked for at a time, and how few may be outstanding before more
 /// are asked for.
@@ -38,7 +41,12 @@ const TIMEOUT_MS: f64 = 30_000.0;
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub(crate) struct FileCheck {
     name: String,
+    /// `module` or `webcodecs`.
+    decoder: String,
     bytes: f64,
+    /// With both decoders checked, on the browser's row: whether every
+    /// frame had the module's time and pixels, or the first difference.
+    compared: Option<String>,
     /// `waiting`, `decoding`, `seeking`, `done` or `failed`.
     state: String,
     error: Option<String>,
@@ -75,12 +83,15 @@ pub(crate) struct Props {
     /// Site paths to check instead of picked files.
     #[prop_or_default]
     pub sources: Vec<String>,
+    /// `module` (also when empty), `webcodecs` or `both`.
+    #[prop_or_default]
+    pub decoder: String,
 }
 
 pub(crate) enum Msg {
     Picked(Vec<(String, Blob)>),
     Fetched(Result<Vec<(String, Blob)>, String>),
-    Update(usize, FileCheck),
+    Update(usize, Box<FileCheck>),
     Finished,
     Tick,
 }
@@ -151,31 +162,73 @@ impl Component for VideoCheck {
                         }
                     },
                 };
+                let decoders: &[&str] = match ctx.props().decoder.as_str() {
+                    "webcodecs" => &["webcodecs"],
+                    "both" => &["module", "webcodecs"],
+                    _ => &["module"],
+                };
                 let first = self.files.len();
                 for (name, blob) in &files {
-                    self.files.push(FileCheck {
-                        name: name.clone(),
-                        bytes: blob.size(),
-                        state: "waiting".into(),
-                        ..FileCheck::default()
-                    });
-                    self.canvases.push(NodeRef::default());
-                    self.drawn.push(false);
+                    for decoder in decoders {
+                        self.files.push(FileCheck {
+                            name: name.clone(),
+                            decoder: decoder.to_string(),
+                            bytes: blob.size(),
+                            state: "waiting".into(),
+                            ..FileCheck::default()
+                        });
+                        self.canvases.push(NodeRef::default());
+                        self.drawn.push(false);
+                    }
                 }
                 self.running = true;
                 let link = ctx.link().clone();
                 let cancelled = Rc::clone(&self.cancelled);
+                let decoders: Vec<&'static str> = decoders.to_vec();
                 wasm_bindgen_futures::spawn_local(async move {
-                    for (i, (name, blob)) in files.into_iter().enumerate() {
-                        let report = {
-                            let link = link.clone();
-                            move |check: &FileCheck| {
-                                link.send_message(Msg::Update(first + i, check.clone()))
+                    let mut row = first;
+                    for (name, blob) in files {
+                        let mut module_frames = None;
+                        for &decoder in &decoders {
+                            let report = {
+                                let link = link.clone();
+                                let at = row;
+                                move |check: &FileCheck| {
+                                    link.send_message(Msg::Update(at, Box::new(check.clone())))
+                                }
+                            };
+                            let mut check = FileCheck {
+                                name: name.clone(),
+                                decoder: decoder.into(),
+                                bytes: blob.size(),
+                                state: "decoding".into(),
+                                ..FileCheck::default()
+                            };
+                            let frames = if decoder == "webcodecs" {
+                                let video = WebCodecsVideo::open(blob.clone());
+                                check_file(video, &mut check, &report, &cancelled).await
+                            } else {
+                                // The worker probes the file itself; what
+                                // the import would sniff does not matter.
+                                let unknown = VideoFormat {
+                                    container: VideoContainer::Unknown,
+                                    codec: VideoCodec::Unknown,
+                                };
+                                let video = worker.clone().open(blob.clone(), &name, &unknown);
+                                check_file(video, &mut check, &report, &cancelled).await
+                            };
+                            if cancelled.get() {
+                                return;
                             }
-                        };
-                        check_file(worker.clone(), blob, name, &report, &cancelled).await;
-                        if cancelled.get() {
-                            return;
+                            match (decoder, &module_frames) {
+                                ("module", _) => module_frames = Some(frames),
+                                ("webcodecs", Some(expected)) => {
+                                    check.compared = Some(compare(expected, &frames));
+                                    report(&check);
+                                }
+                                _ => {}
+                            }
+                            row += 1;
                         }
                     }
                     link.send_message(Msg::Finished);
@@ -193,7 +246,7 @@ impl Component for VideoCheck {
                     if check.sample != slot.sample {
                         self.drawn[i] = false;
                     }
-                    *slot = check;
+                    *slot = *check;
                 }
                 self.publish();
                 true
@@ -386,9 +439,12 @@ fn row(f: &FileCheck) -> Html {
     html! {
         <>
             <tr>
-                <td>{ &f.name }</td><td>{ movie }</td><td>{ frames }</td>
+                <td>{ &f.name }{ " · " }{ &f.decoder }</td><td>{ movie }</td><td>{ frames }</td>
                 <td>{ decode }</td><td>{ seeks }</td><td>{ state }</td>
             </tr>
+            { for f.compared.iter().map(|c| html! {
+                <tr><td></td><td colspan="5" class={if c == "same" { "" } else { "error" }}>{ format!("against the module: {c}") }</td></tr>
+            }) }
             { for f.seek_failures.iter().map(|s| html! {
                 <tr><td></td><td colspan="5" class="error">{ s }</td></tr>
             }) }
@@ -454,27 +510,33 @@ async fn next_frame(
     }
 }
 
+/// Whether the browser's frames are the module's: the same times and the
+/// same pixels, frame for frame.
+fn compare(module: &[(f64, u64)], browser: &[(f64, u64)]) -> String {
+    for (i, (m, b)) in module.iter().zip(browser).enumerate() {
+        if (m.0 - b.0).abs() > 1e-6 {
+            return format!("frame {i} at {:.4} s, the module's at {:.4} s", b.0, m.0);
+        }
+        if m.1 != b.1 {
+            return format!("frame {i} ({:.4} s) has other pixels", m.0);
+        }
+    }
+    if module.len() != browser.len() {
+        return format!("{} frames, the module gave {}", browser.len(), module.len());
+    }
+    "same".into()
+}
+
+/// Decodes a movie straight through and seeks in it; the frames' times and
+/// fingerprints, for comparing decoders.
 async fn check_file(
-    mut worker: VideoWorker,
-    blob: Blob,
-    name: String,
+    mut video: impl VideoDecoder,
+    check: &mut FileCheck,
     report: &impl Fn(&FileCheck),
     cancelled: &Cell<bool>,
-) {
-    let mut check = FileCheck {
-        name: name.clone(),
-        bytes: blob.size(),
-        state: "decoding".into(),
-        ..FileCheck::default()
-    };
-    report(&check);
-    // The worker probes the file itself; what the import would sniff does
-    // not matter to it.
-    let unknown = VideoFormat {
-        container: VideoContainer::Unknown,
-        codec: VideoCodec::Unknown,
-    };
-    let mut video = worker.open(blob, &name, &unknown);
+) -> Vec<(f64, u64)> {
+    let check = &mut *check;
+    report(check);
     let mut events = Vec::new();
     // Straight through: every frame's time and fingerprint.
     let mut frames: Vec<(f64, u64)> = Vec::new();
@@ -484,7 +546,7 @@ async fn check_file(
     let mut last_event = last_report;
     'decode: loop {
         if cancelled.get() {
-            return;
+            return frames;
         }
         if video.pending() < BATCH {
             video.want(BATCH);
@@ -497,8 +559,8 @@ async fn check_file(
         } else if now - last_event > TIMEOUT_MS {
             check.state = "failed".into();
             check.error = Some("the decoder stopped answering".into());
-            report(&check);
-            return;
+            report(check);
+            return frames;
         }
         for event in events.drain(..) {
             match event {
@@ -530,8 +592,8 @@ async fn check_file(
                 VideoEvent::Error(e) => {
                     check.state = "failed".into();
                     check.error = Some(e);
-                    report(&check);
-                    return;
+                    report(check);
+                    return frames;
                 }
             }
         }
@@ -543,7 +605,7 @@ async fn check_file(
         }
         if now - last_report > 250.0 {
             last_report = now;
-            report(&check);
+            report(check);
         }
     }
     check.frames = frames.len();
@@ -554,14 +616,14 @@ async fn check_file(
     if frames.is_empty() {
         check.state = "failed".into();
         check.error = Some("no frame decoded".into());
-        report(&check);
-        return;
+        report(check);
+        return frames;
     }
 
     // Seeks: to frames' own times and to the middle of their periods, the
     // first and the last frame, then past the end.
     check.state = "seeking".into();
-    report(&check);
+    report(check);
     let n = frames.len();
     let step = (n / SEEK_TARGETS).max(1);
     let mut targets = vec![(0.0, 0), (frames[n - 1].0, n - 1)];
@@ -583,7 +645,7 @@ async fn check_file(
     }
     for (t, expect) in targets {
         if cancelled.get() {
-            return;
+            return frames;
         }
         let start = PerformanceClock::now_ms();
         video.seek(t);
@@ -613,8 +675,8 @@ async fn check_file(
                 // only time out.
                 check.seek_failures.push(format!("seek to {t:.4} s: {e}"));
                 check.state = "failed".into();
-                report(&check);
-                return;
+                report(check);
+                return frames;
             }
         }
     }
@@ -629,5 +691,6 @@ async fn check_file(
         Err(e) => check.seek_failures.push(format!("seek past the end: {e}")),
     }
     check.state = "done".into();
-    report(&check);
+    report(check);
+    frames
 }

@@ -13,15 +13,24 @@
 //! movie is probed for its black bars (the background frame), and the
 //! automatic setting can turn the movies off for the rest of a play
 //! ([`MovieDeck::turn_off`]).
+//!
+//! Step 6: H.264 AVIs play through the browser's decoder (WebCodecs,
+//! `web::webcodecs`) and the rest through the module; the module is
+//! fetched only for a movie that needs it, and a movie the browser fails
+//! on moves to the module where it stands ([`MovieDecoder`]).
 
 use ddi_library::backgrounds::{self, BgImage, BgSegment};
 use ddi_platform::video::{
-    MovieStats, MovieTrack, StopReason, VideoBackend, VideoFormat, VideoFrame,
+    MovieStats, MovieTrack, StopReason, VideoBackend, VideoDecoder, VideoEvent, VideoFormat,
+    VideoFrame,
 };
 use ddi_render::Renderer;
+use std::cell::RefCell;
+use std::rc::Rc;
 use web_sys::Blob;
 
 use crate::web::video::{ModuleStatus, Picture, VideoWorker, WorkerVideo};
+use crate::web::webcodecs::{self, WebCodecsVideo};
 
 /// A movie is opened this long before its segment starts: opening and
 /// seeking a long-GOP H.264 file took up to 1.2 s (step 1).
@@ -34,22 +43,103 @@ struct Source {
     name: String,
     blob: Blob,
     format: VideoFormat,
+    /// Played through the browser's decoder (until it fails on it).
+    browser: bool,
+}
+
+/// A movie's decoder: the browser's, or the module's, which takes over
+/// from the browser's where it stands when that one fails.
+pub(crate) struct MovieDecoder {
+    backend: Backend,
+    /// Why the browser's decoder failed: the deck moves the movie.
+    fallback: Option<String>,
+}
+
+enum Backend {
+    Module(WorkerVideo),
+    Browser(WebCodecsVideo),
+}
+
+impl MovieDecoder {
+    fn kind(&self) -> &'static str {
+        match self.backend {
+            Backend::Module(_) => "module",
+            Backend::Browser(_) => "webcodecs",
+        }
+    }
+
+    /// Hands the movie to the module (the track then seeks it to where
+    /// the movie stands).
+    fn fall_back(&mut self, module: WorkerVideo) {
+        self.backend = Backend::Module(module);
+        self.fallback = None;
+    }
+}
+
+impl VideoDecoder for MovieDecoder {
+    fn seek(&mut self, t: f64) {
+        match &mut self.backend {
+            Backend::Module(d) => d.seek(t),
+            Backend::Browser(d) => d.seek(t),
+        }
+    }
+
+    fn want(&mut self, n: u32) {
+        match &mut self.backend {
+            Backend::Module(d) => d.want(n),
+            Backend::Browser(d) => d.want(n),
+        }
+    }
+
+    fn pending(&self) -> u32 {
+        match &self.backend {
+            Backend::Module(d) => d.pending(),
+            Backend::Browser(d) => d.pending(),
+        }
+    }
+
+    fn poll(&mut self, out: &mut Vec<VideoEvent>) {
+        match &mut self.backend {
+            Backend::Module(d) => d.poll(out),
+            Backend::Browser(d) => {
+                let mut events = Vec::new();
+                d.poll(&mut events);
+                for event in events {
+                    match event {
+                        // The deck moves the movie to the module.
+                        VideoEvent::Error(e) => {
+                            self.fallback.get_or_insert(e);
+                        }
+                        // The module reports the movie open again.
+                        VideoEvent::Opened(_) if self.fallback.is_some() => {}
+                        e if self.fallback.is_none() => out.push(e),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
 }
 
 struct Open {
     /// The schedule segment it plays.
     segment: usize,
     name: String,
-    decoder: WorkerVideo,
+    decoder: MovieDecoder,
     track: MovieTrack,
     /// A frame that came due before its segment started (prefetch): shown
     /// when the segment starts, so the change never waits for a decode.
     held: Option<VideoFrame>,
 }
 
+/// Where the browser's probe leaves its answer.
+type ProbeAnswer = Rc<RefCell<Option<Result<Picture, String>>>>;
+
 /// The black-bar probe of the song's first movie.
 struct Probe {
     name: String,
+    /// Sampled by the browser's decoder: its answer, once it came.
+    browser: Option<ProbeAnswer>,
     /// Its id in the worker, once sent (the file may still be loading).
     id: Option<u32>,
     answer: Option<Result<Picture, String>>,
@@ -104,14 +194,32 @@ impl MovieDeck {
         if self.sources.iter().any(|s| s.name == name) {
             return;
         }
-        if self.worker().is_ok() && probe && self.probe.is_none() {
+        let browser = webcodecs::may_play(&format);
+        // The module only for a movie that needs it.
+        let worker = browser || self.worker().is_ok();
+        if worker && probe && self.probe.is_none() {
+            let answer = browser.then(|| {
+                let answer: ProbeAnswer = Rc::default();
+                let (cell, blob) = (Rc::clone(&answer), blob.clone());
+                wasm_bindgen_futures::spawn_local(async move {
+                    let got = webcodecs::probe(&blob).await;
+                    *cell.borrow_mut() = Some(got);
+                });
+                answer
+            });
             self.probe = Some(Probe {
                 name: name.clone(),
+                browser: answer,
                 id: None,
                 answer: None,
             });
         }
-        self.sources.push(Source { name, blob, format });
+        self.sources.push(Source {
+            name,
+            blob,
+            format,
+            browser,
+        });
         self.send_probe();
     }
 
@@ -127,7 +235,11 @@ impl MovieDeck {
     }
 
     fn send_probe(&mut self) {
-        let Some(probe) = self.probe.as_mut().filter(|p| p.id.is_none()) else {
+        let Some(probe) = self
+            .probe
+            .as_mut()
+            .filter(|p| p.id.is_none() && p.browser.is_none())
+        else {
             return;
         };
         let (Some(source), Some(worker)) = (
@@ -146,10 +258,33 @@ impl MovieDeck {
         let Some(probe) = self.probe.as_mut() else {
             return Err(false);
         };
-        let Some(id) = probe.id else {
-            return Err(true);
+        let browser_answer = probe.browser.as_ref().map(|cell| cell.borrow_mut().take());
+        match browser_answer {
+            None => {}
+            Some(None) => return Err(true),
+            Some(Some(Ok(p))) => {
+                probe.answer = Some(Ok(p));
+                probe.browser = None;
+            }
+            // The module samples it instead.
+            Some(Some(Err(e))) => {
+                web_sys::console::info_1(
+                    &format!("background video {}: browser probe failed: {e}", probe.name).into(),
+                );
+                probe.browser = None;
+                if self.worker().is_ok() {
+                    self.send_probe();
+                }
+                return Err(self.probe.as_ref().is_some_and(|p| p.id.is_some()));
+            }
+        }
+        let Some(probe) = self.probe.as_mut() else {
+            return Err(false);
         };
         if probe.answer.is_none() {
+            let Some(id) = probe.id else {
+                return Err(true);
+            };
             probe.answer = self.worker.as_ref().and_then(|w| w.probe_result(id));
             if let Some(a) = &probe.answer {
                 let line = match a {
@@ -336,9 +471,13 @@ impl MovieDeck {
         let mut upload = None;
         let mut early = Vec::new();
         let mut errors = Vec::new();
-        for open in &mut self.open {
+        let mut moved = Vec::new();
+        for (i, open) in self.open.iter_mut().enumerate() {
             let position = backgrounds::movie_position(schedule, open.segment, t);
             let frame = open.track.update(&mut open.decoder, position);
+            if open.decoder.fallback.is_some() {
+                moved.push(i);
+            }
             if let Some(e) = open.track.error() {
                 errors.push((open.name.clone(), e.to_string()));
                 continue;
@@ -352,6 +491,9 @@ impl MovieDeck {
                 early.push((open.name.clone(), frame.width, frame.height));
                 open.held = Some(frame);
             }
+        }
+        for i in moved {
+            self.fall_back(i, schedule, t);
         }
         for (name, e) in errors {
             self.fail(&name, e);
@@ -398,6 +540,47 @@ impl MovieDeck {
         self.version += 1;
     }
 
+    /// Moves open movie `i` from the browser's decoder to the module, and
+    /// its later openings too, seeking it to where the movie stands at
+    /// song second `t`.
+    fn fall_back(&mut self, i: usize, schedule: &[BgSegment], t: f64) {
+        let open = &self.open[i];
+        let name = open.name.clone();
+        let reason = open.decoder.fallback.clone().unwrap_or_default();
+        web_sys::console::warn_1(
+            &format!("background video {name}: the browser's decoder failed ({reason}); the video decoder takes over").into(),
+        );
+        let Some(source) = self.sources.iter_mut().find(|s| s.name == name) else {
+            return;
+        };
+        source.browser = false;
+        let (blob, format) = (source.blob.clone(), source.format.clone());
+        let module = match self.worker() {
+            Ok(worker) => match worker.status() {
+                // A worker that stopped answers nothing.
+                ModuleStatus::Failed(e) => Err(e),
+                _ => Ok(worker.open(blob, &name, &format)),
+            },
+            Err(e) => Err(e),
+        };
+        let module = match module {
+            Ok(m) => m,
+            Err(e) => {
+                self.fail(&name, e);
+                return;
+            }
+        };
+        let open = &mut self.open[i];
+        open.decoder.fall_back(module);
+        open.held = None;
+        let segment = open.segment;
+        let at = t.max(schedule[segment].seconds);
+        open.track.start(
+            &mut open.decoder,
+            backgrounds::movie_position(schedule, segment, at),
+        );
+    }
+
     fn set_fresh(&mut self, name: &str, fresh: bool) {
         if let Some(t) = self.textures.iter_mut().find(|t| t.name == name)
             && t.fresh != fresh
@@ -418,21 +601,29 @@ impl MovieDeck {
             // Not loaded yet: tried again next frame.
             return;
         };
-        let (blob, format) = (source.blob.clone(), source.format.clone());
+        let (blob, format, browser) = (source.blob.clone(), source.format.clone(), source.browser);
         let name = name.clone();
-        let worker = match self.worker() {
-            Ok(w) => w,
-            Err(e) => {
+        let backend = if browser {
+            Backend::Browser(WebCodecsVideo::open(blob))
+        } else {
+            let worker = match self.worker() {
+                Ok(w) => w,
+                Err(e) => {
+                    self.fail(&name, e);
+                    return;
+                }
+            };
+            // A worker that stopped answers nothing: the movie cannot play.
+            if let ModuleStatus::Failed(e) = worker.status() {
                 self.fail(&name, e);
                 return;
             }
+            Backend::Module(worker.open(blob, &name, &format))
         };
-        // A worker that stopped answers nothing: the movie cannot play.
-        if let ModuleStatus::Failed(e) = worker.status() {
-            self.fail(&name, e);
-            return;
-        }
-        let mut decoder = worker.open(blob, &name, &format);
+        let mut decoder = MovieDecoder {
+            backend,
+            fallback: None,
+        };
         let end = self.ends.iter().find(|(n, _)| *n == name).map(|(_, e)| *e);
         let mut track = MovieTrack::new(backgrounds::movie_loops(schedule, segment), AHEAD, end);
         // From where the movie stands when the segment starts, or now when
@@ -537,10 +728,13 @@ impl MovieDeck {
         set("seeks", (s.seeks as f64).into());
         set("open", (self.open.len() as f64).into());
         let playing = js_sys::Array::new();
+        let decoders = js_sys::Array::new();
         for open in &self.open {
             playing.push(&open.name.clone().into());
+            decoders.push(&open.decoder.kind().into());
         }
         set("playing", playing.into());
+        set("decoders", decoders.into());
         let failed = js_sys::Array::new();
         for (name, e) in &self.failed {
             failed.push(&format!("{name}: {e}").into());
