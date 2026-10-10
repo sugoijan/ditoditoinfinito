@@ -359,6 +359,65 @@ after starting mid-segment (`&song_offset` via the per-song offset or a
 late `#BGCHANGES` beat); `__DDI_DEBUG` gains `video: {decoded, dropped,
 late}`.
 
+**Done 2026-10-10.** What differs, and what later steps need:
+
+- The movie clock follows StepMania's source, not the sketch above
+  (`Background.cpp`, `BackgroundEffects/Stretch*.lua`,
+  `MovieTexture_Generic.cpp`, 5_1-new). Field 3 is the rate (`StringToFloat`:
+  an empty field is 0, a frozen movie); field 5 = 0 is `StretchNoLoop` and
+  field 6 ≠ 0 `StretchRewind` (field 7 names the effect directly): those
+  start over at each change, `StretchNoLoop` holds its last frame. Every
+  change naming a file shares one movie texture (`RageTextureManager`), so
+  the default effect resumes where the file was when it lost focus, a
+  restart resets that for the later changes, and once a change stops it
+  looping it stays so (`backgrounds::movie_position`, `movie_loops`). A
+  movie fading out is paused. A change to the movie already shown is kept
+  when it restarts it or changes its rate. Looping restarts the clock at
+  0.5 s, StepMania's "best effort" (`platform::video::LOOP_RESTART`).
+- Deliberate differences: StepMania shows at most one frame per update and
+  never drops one, so a slow display drifts behind the music; here the
+  newest frame not after the clock shows, frames passed over are dropped,
+  and the movie stays on the music. After a loop StepMania flashes frame 0
+  and catches up; here it goes straight to the frame due. A movie whose
+  change is earlier than StepMania's own start time is a little further
+  in here. Chroma is sampled centre-sited (H.264 and MPEG-2 are
+  left-sited: half a luma pixel, invisible on a dimmed background).
+- `platform::video::MovieTrack` is the playback policy, natively tested
+  with a fake decoder: frames kept three ahead; the first frame of a run as
+  soon as it arrives; seeks when the clock jumps (not when the decoder is
+  merely slow: its frames show as they come, counted late), never while a
+  seek is unanswered; a run from the start keeps its frames (up to 24 MB)
+  and, reaching the end within them, plays every later lap from memory
+  without seeking (a seek per lap would be slower than a short movie's
+  lap); the end learned by one track seeds the movie's next ones; laps
+  saturate. The worker reports the file's last frame time at the end even
+  when a seek past it decoded it without handing it over
+  (`ddi_last_time`).
+- `app/src/movies.rs` (`MovieDeck`): the current and next movie segments
+  (opened 2 s ahead) at most; a decoder moves to its movie's next segment
+  instead of reopening the file; one texture per movie, shown only once it
+  holds a frame of the current run (a retry or a restarting change shows
+  the song background until then); a movie that fails shows the song
+  background and is tried again on a retry, with a new worker if the old
+  one stopped; decoding stops when the song ends (the results show the
+  song background). The renderer's YUV kind (three `R8Unorm` planes,
+  BT.601/709, limited/full range, linearised on sRGB targets) draws behind
+  the field with the images' brightness and crossfades.
+- Checked headless on WebGPU and WebGL2 with numbered clips (each frame a
+  colour coding its number) read back from the screen at chosen song
+  times (`window.__DDI_SONG_TIME`): first run, image between, resume,
+  rewinding loop (from memory), double rate, a long clip wrapping at its
+  end, a change at a negative beat (joined 8 s in), two movies alternating
+  every 0.5 s, one movie in consecutive segments with rewinds and a rate
+  change, a broken and a missing movie, a retry; every sample on the frame
+  due. A local pack song (H.264 640×360) plays at 60 fps with no late or
+  dropped frame. An independent review (movie clock against StepMania,
+  the app's lifecycle, the render path) found the resume-past-the-end
+  freeze, the per-lap seeking of short loops, slow-seek live-lock, the
+  per-file texture sharing and the rest fixed above.
+- Step 5's "cannot keep up" rule can read `MovieStats::late` (and
+  `dropped`) from `MovieDeck::stats`.
+
 ## Step 5. The setting and the auto rule (commit 5)
 
 - `Settings.video: VideoMode {Auto, On, Off}` (lenient, default Auto);

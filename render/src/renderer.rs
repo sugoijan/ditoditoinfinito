@@ -54,6 +54,30 @@ impl Renderer {
         self.background.add_texture(device, texture)
     }
 
+    /// Registers a movie for [`Renderer::set_video_frame`]; returns the id a
+    /// [`Backdrop`](crate::Backdrop) shows it by.
+    pub fn add_video(&mut self, device: &wgpu::Device, width: u32, height: u32) -> usize {
+        self.background.add_video(device, width, height)
+    }
+
+    /// Shows a decoded movie frame (8-bit YUV 4:2:0 planes) in movie `id`;
+    /// whether it was written.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_video_frame(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        id: usize,
+        width: u32,
+        height: u32,
+        planes: &[u8],
+        bt709: bool,
+        full_range: bool,
+    ) -> bool {
+        self.background
+            .set_video_frame(device, queue, id, width, height, planes, bt709, full_range)
+    }
+
     /// The skin's background colour as the target expects it.
     pub fn clear_color(&self) -> wgpu::Color {
         let c = self.skin.background;

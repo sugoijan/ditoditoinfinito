@@ -140,6 +140,9 @@ EXPORT const char *ddi_codec(Video *v) { return v->dec ? avcodec_get_name(v->dec
 EXPORT int ddi_colorspace(Video *v) { return v->colorspace; }
 EXPORT int ddi_full_range(Video *v) { return v->full_range; }
 EXPORT uint8_t *ddi_planes(Video *v) { return v->planes; }
+// Time of the last frame decoded, handed over or not (a seek past the end
+// decodes up to it and drops it): -1 before any since the last seek.
+EXPORT double ddi_last_time(Video *v) { return v->last_pts; }
 EXPORT size_t ddi_planes_size(Video *v) {
     size_t cw = (v->width + 1) / 2, ch = (v->height + 1) / 2;
     return (size_t)v->width * v->height + 2 * cw * ch;
