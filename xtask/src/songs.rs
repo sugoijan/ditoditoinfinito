@@ -105,6 +105,24 @@ pub(crate) fn scan(root: &Path) -> Result<Vec<(String, Provenance, String)>> {
     Ok(out)
 }
 
+/// What a bundled movie is ([`ddi_library::video::sniff`], with the MP4
+/// index read where the head points to it).
+fn sniff_file(path: &Path) -> Result<ddi_platform::video::VideoFormat> {
+    use ddi_library::video::{MP4_INDEX_LEN, SNIFF_LEN, mp4_index_at, mp4_index_codec, sniff};
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = fs::File::open(path)?;
+    let mut head = Vec::new();
+    (&mut file).take(SNIFF_LEN as u64).read_to_end(&mut head)?;
+    let mut format = sniff(&head);
+    if let Some(at) = mp4_index_at(&head) {
+        let mut index = Vec::new();
+        file.seek(SeekFrom::Start(at))?;
+        file.take(MP4_INDEX_LEN as u64).read_to_end(&mut index)?;
+        format.codec = mp4_index_codec(&index);
+    }
+    Ok(format)
+}
+
 pub(crate) fn gen_songs(check: bool) -> Result<()> {
     let root = repo_root();
     let songs = scan(&root)?;
@@ -124,6 +142,16 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
                 .into_iter()
                 .map(|(relative, _)| relative)
                 .collect();
+        let bg_videos = ddi_library::backgrounds::referenced_movies(&song, id, &files)
+            .into_iter()
+            .map(|(name, _)| {
+                Ok(ddi_library::manifest::VideoRef {
+                    format: sniff_file(&song_dir.join(&name))?,
+                    name,
+                    stored: true,
+                })
+            })
+            .collect::<Result<_>>()?;
         entries.push(summarize(
             EntryMeta {
                 id: id.clone(),
@@ -134,6 +162,7 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
                 banner: p.banner.clone(),
                 background: p.background.clone(),
                 bg_images,
+                bg_videos,
                 // Bundled songs have no shared folders.
                 bg_shared: Vec::new(),
                 credit: p.credit.clone(),

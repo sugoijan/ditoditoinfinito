@@ -282,6 +282,49 @@ Verification: native tests for `sniff` and the schedule; headless Chrome
 import of a scratch pack with the three codecs plus an unsupported one,
 checking the report and the manifest.
 
+**Done 2026-10-10.** What differs, and what later steps need:
+
+- Formats: with every StepMania format playable (step 1's decision), the
+  sniffer returns a `VideoFormat {container, codec}` (`platform::video`;
+  serde as `{"container":"avi","codec":"h264"}`) for AVI, MP4/MOV,
+  Matroska/WebM, Ogg, ASF, FLV, MPEG program, transport and raw streams;
+  unrecognised bytes are `unknown` and still tried. Only AV1 is
+  unplayable (and so never stored). A file is a movie by StepMania's
+  extensions (`video::MOVIE_EXTENSIONS`), as `ActorUtil` decides, then by
+  its bytes.
+- MP4s usually keep their index after the media data: the top-level box
+  sizes in the first 64 KB say where (`mp4_index_at`), and the import reads
+  up to 4 MB from there for the codec. Of a deflated zip entry only the
+  start is inflated (`zip::inflate_prefix`), so an MP4 inside a compressed
+  zip keeps an unknown codec. All 188 local movies sniff as `ffprobe`
+  reads them (`DDI_MOVIES=<dir> cargo test -p ddi-library local_movies`).
+- Manifest: `bg_videos: [{name, format, stored}]`; `bg_shared` now lists
+  absent movies as well as images (`absent_files`), and play time splits
+  the shared ones (`LoadedSong::shared_videos`). The schedule takes the
+  playable movie names and gives `BgImage::Movie` segments; until step 4
+  draws them they show the song background (`shown` falls back), so play
+  looks as before. `load_background` already returns a movie's blob,
+  stored, linked or shared.
+- Storage: linked imports link movies (`bg/<name>`); copying ones store
+  them only with the new "also store background videos" box (setting
+  `import_videos`, default off; added here rather than in step 5, since
+  the import needs it), otherwise `stored: false` and a note. Shared-folder
+  movies follow the same rule: copied as blobs under `shared/`, or, when
+  linked, a `SharedLink {folder, path, entry}` JSON at the same key; a kept
+  folder that such a link uses is not dropped as unused.
+- Report: "N background videos will play", "kept N shared background
+  videos", "left out N background videos (\"also store background videos\"
+  is off)"; warnings for unplayable formats (named, e.g. "AV1 in
+  Matroska") and for images or videos found nowhere; scripted animations
+  are the only "not played" notes left.
+- Checked in headless Chrome with a scratch pack (synthetic H.264 AVI, MP4
+  with the index at the end, MPEG-2 program stream, AV1 MKV, a missing
+  movie, a scripted animation, a shared movie and image): copied with the
+  box off and on, linked through a kept OPFS folder (then re-read after
+  removing the song folder: the folder and the shared link stay), and a
+  deflated zip; the linked song autoplays past its movie changes on WebGPU
+  and WebGL2 with every judgement top tier and no console errors.
+
 ## Step 4. Drawing movies (commit 4)
 
 - `render/src/background.rs`: a second background texture kind, YUV: three
@@ -320,8 +363,7 @@ late}`.
 
 - `Settings.video: VideoMode {Auto, On, Off}` (lenient, default Auto);
   options page: "Background videos" with the three choices and one line of
-  explanation; `import_videos` checkbox next to the import panel's copy
-  option, visible only in copying browsers.
+  explanation. (The `import_videos` checkbox came with step 3.)
 - Auto: while a movie is being drawn, if `FpsMeter.fps` stays below 0.8 ×
   the estimated refresh rate for 3 consecutive seconds, or the decoder
   reports "cannot keep up", stop the video for the rest of the song (the

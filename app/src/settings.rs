@@ -42,6 +42,10 @@ pub(crate) struct Settings {
     /// Copy a picked folder's songs into the browser even where they can
     /// be linked (Chromium), so they survive the folder moving.
     pub(crate) import_copy: bool,
+    /// Also copy background-change movies when songs are copied into the
+    /// browser (they are most of a pack's size); linked songs read them
+    /// from their folder either way.
+    pub(crate) import_videos: bool,
     /// How notes are coloured.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub(crate) note_colors: NoteColors,
@@ -176,6 +180,7 @@ impl Default for Settings {
             lyrics: true,
             import_details: false,
             import_copy: false,
+            import_videos: false,
             bg_brightness: 0.4,
             field_filter: 0.4,
             style: "dance-single".into(),

@@ -349,6 +349,7 @@ async fn store_song(
             banner: None,
             background: None,
             bg_images: Vec::new(),
+            bg_videos: Vec::new(),
             bg_shared: Vec::new(),
             credit: song.credit.trim().to_string(),
         },

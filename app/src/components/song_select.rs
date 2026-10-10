@@ -70,6 +70,8 @@ pub(crate) enum Msg {
     ImportDetails(bool),
     /// The "store a chosen folder's songs in the browser" box.
     ImportCopy(bool),
+    /// The "also store background videos" box.
+    ImportVideos(bool),
     /// Timer: look for connected controllers without bindings.
     PadsTick,
     /// Show the charts of this layout.
@@ -266,6 +268,12 @@ impl Component for SongSelect {
             Msg::ImportCopy(on) => {
                 let mut settings = Settings::load();
                 settings.import_copy = on;
+                settings.save();
+                self.settings = settings;
+            }
+            Msg::ImportVideos(on) => {
+                let mut settings = Settings::load();
+                settings.import_videos = on;
                 settings.save();
                 self.settings = settings;
             }
@@ -957,7 +965,7 @@ impl SongSelect {
                 <label class={classes!("button", busy.then_some("disabled"))}>
                     { "choose zip or files" }
                     <input type="file" class="sr-only" ref={self.file_input.clone()} multiple=true disabled={busy}
-                        accept=".zip,.sm,.ssc,.dwi,.ogg,.oga,.opus,.mp3,.wav,.flac,.png,.jpg,.jpeg,.gif,.bmp,.webp"
+                        accept=".zip,.sm,.ssc,.dwi,.ogg,.oga,.opus,.mp3,.wav,.flac,.png,.jpg,.jpeg,.gif,.bmp,.webp,.avi,.f4v,.flv,.mkv,.mp4,.mpeg,.mpg,.mov,.ogv,.webm,.wmv"
                         onchange={on_pick(self.file_input.clone())} />
                 </label>
                 <span class="muted">{ if folders::supported() && !self.settings.import_copy {
@@ -972,6 +980,11 @@ impl SongSelect {
                         { " store a chosen folder's songs in the browser (instead of reading them from the folder)" }
                     </label>
                 } } else { html! {} } }
+                <label class="import-details muted" title="Background videos are most of a pack's size; songs read from a chosen folder play them from the folder either way">
+                    <input type="checkbox" checked={self.settings.import_videos}
+                        onchange={link.callback(|e: Event| Msg::ImportVideos(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
+                    { " also store background videos when songs are stored in the browser" }
+                </label>
                 <label class="import-details muted">
                     <input type="checkbox" checked={self.settings.import_details}
                         onchange={link.callback(|e: Event| Msg::ImportDetails(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
@@ -1003,10 +1016,32 @@ fn report_view(r: &ImportReport, details: bool) -> Html {
             )
         ));
     }
+    if r.shared_videos > 0 {
+        parts.push(format!(
+            "kept {}",
+            plural(
+                r.shared_videos,
+                "shared background video",
+                "shared background videos"
+            )
+        ));
+    }
     if r.shared_skipped > 0 {
         parts.push(format!(
-            "left out {} from shared folders (videos are not played)",
+            "left out {} from shared folders",
             plural(r.shared_skipped, "other file", "other files")
+        ));
+    }
+    if r.videos > 0 {
+        parts.push(format!(
+            "{} will play",
+            plural(r.videos, "background video", "background videos")
+        ));
+    }
+    if r.videos_left_out > 0 {
+        parts.push(format!(
+            "left out {} (\"also store background videos\" is off)",
+            plural(r.videos_left_out, "background video", "background videos")
         ));
     }
     if r.removed > 0 {
@@ -1035,13 +1070,17 @@ fn report_view(r: &ImportReport, details: bool) -> Html {
         }
         text + "."
     };
-    let class =
-        if r.imported.is_empty() && r.shared_images == 0 && r.shared_skipped == 0 && r.removed == 0
-        {
-            "import-status error"
-        } else {
-            "import-status"
-        };
+    let class = if r.imported.is_empty()
+        && r.shared_images == 0
+        && r.shared_videos == 0
+        && r.shared_skipped == 0
+        && r.videos_left_out == 0
+        && r.removed == 0
+    {
+        "import-status error"
+    } else {
+        "import-status"
+    };
     let list = |title: &str, class: &'static str, items: &[(String, String)]| {
         if items.is_empty() {
             return html! {};

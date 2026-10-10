@@ -1,7 +1,8 @@
-//! Background changes (`#BGCHANGES`) as a timed schedule of still images.
+//! Background changes (`#BGCHANGES`) as a timed schedule of still images
+//! and movies.
 //!
 //! Follows StepMania 5.1 (`src/Background.cpp`, `src/NotesLoaderSM.cpp` at
-//! `825467b`) for what the game can show, which is still images only:
+//! `825467b`) for what the game can show, which is still images and movies:
 //!
 //! - Only the first layer is played (`#BGCHANGES`; `#BGCHANGES2` and
 //!   `#FGCHANGES` overlays are not).
@@ -19,10 +20,11 @@
 //!   one beat the last wins.
 //! - The file is matched case-insensitively against the song's files, then
 //!   against the shared folders in StepMania's order (`SongMovies/<pack>/`,
-//!   `SongMovies/`, `RandomMovies/`; [`shared_candidates`]). Videos,
-//!   scripted animations, folders, `-random-` and missing files show the
-//!   song background instead (StepMania would play them, or pick a random
-//!   animation).
+//!   `SongMovies/`, `RandomMovies/`; [`shared_candidates`]). Movies (by
+//!   extension, [`crate::video::is_movie`]) become [`BgImage::Movie`]
+//!   segments; scripted animations, folders, `-random-` and missing files
+//!   show the song background instead (StepMania would play them, or pick
+//!   a random movie).
 //! - The transition is field 9 when present, else `CrossFade` when field 4
 //!   is a non-zero integer, else a cut. `CrossFade` fades over 1 s,
 //!   `CrossFade_Faster` 0.75 s, `CrossFade_Fastest` 0.5 s; StepMania's other
@@ -37,6 +39,7 @@
 use ddi_chart::{EffectTime, Song, Tick};
 
 use crate::pack::{IMAGE_EXTENSIONS, extension, join_relative};
+use crate::video::is_movie;
 
 /// What a segment shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +48,8 @@ pub enum BgImage {
     Song,
     /// An image, as listed in the images given to [`schedule`].
     File(String),
+    /// A movie, as listed in the movies given to [`schedule`].
+    Movie(String),
 }
 
 /// One background, shown from `seconds` on.
@@ -95,6 +100,11 @@ fn is_image(path: &str) -> bool {
     extension(path).is_some_and(|e| IMAGE_EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
+/// What the game shows of a background-change file: an image or a movie.
+fn is_media(path: &str) -> bool {
+    is_image(path) || is_movie(path)
+}
+
 /// A reference or path in a comparable form: relative to the song folder,
 /// `.`/`..` resolved, `/` separators, lower case.
 fn key(reference: &str) -> Option<String> {
@@ -124,6 +134,26 @@ pub fn referenced_images<S: AsRef<str>>(
     all_paths: &[S],
     background: Option<&str>,
 ) -> Vec<(String, String)> {
+    referenced(song, dir, all_paths, background, is_image)
+}
+
+/// The movies `song`'s background changes refer to that exist in the
+/// import, as [`referenced_images`] lists images.
+pub fn referenced_movies<S: AsRef<str>>(
+    song: &Song,
+    dir: &str,
+    all_paths: &[S],
+) -> Vec<(String, String)> {
+    referenced(song, dir, all_paths, None, is_movie)
+}
+
+fn referenced<S: AsRef<str>>(
+    song: &Song,
+    dir: &str,
+    all_paths: &[S],
+    background: Option<&str>,
+    wanted_kind: fn(&str) -> bool,
+) -> Vec<(String, String)> {
     let background = background.map(str::to_lowercase);
     let mut changes: Vec<(Tick, &[String])> = layer_one(song).collect();
     changes.sort_by_key(|(t, _)| *t);
@@ -138,7 +168,7 @@ pub fn referenced_images<S: AsRef<str>>(
         let Some(path) = all_paths
             .iter()
             .map(AsRef::as_ref)
-            .find(|p| p.to_lowercase() == wanted && is_image(p))
+            .find(|p| p.to_lowercase() == wanted && wanted_kind(p))
         else {
             continue;
         };
@@ -193,16 +223,17 @@ pub fn shared_candidates(reference: &str, pack: &str) -> Vec<String> {
     out
 }
 
-/// Images `song`'s background changes name that its folder `dir` does not
-/// have (any file of the import, `all_paths`, relative to the import root),
-/// as written: the ones to look up in shared folders. A song-folder file
-/// always wins, as in StepMania, even when it is not kept (the song's own
-/// background, or images beyond what is stored).
-pub fn absent_images<S: AsRef<str>>(song: &Song, dir: &str, all_paths: &[S]) -> Vec<String> {
+/// Images and movies `song`'s background changes name that its folder
+/// `dir` does not have (any file of the import, `all_paths`, relative to the
+/// import root), as written: the ones to look up in shared folders. A
+/// song-folder file always wins, as in StepMania, even when it is not kept
+/// (the song's own background, images beyond what is stored, movies not
+/// copied).
+pub fn absent_files<S: AsRef<str>>(song: &Song, dir: &str, all_paths: &[S]) -> Vec<String> {
     change_files(song)
         .into_iter()
         .filter(|name| {
-            is_image(name)
+            is_media(name)
                 && !join_relative(dir, name).is_some_and(|w| {
                     let w = w.to_lowercase();
                     all_paths.iter().any(|p| p.as_ref().to_lowercase() == w)
@@ -211,7 +242,7 @@ pub fn absent_images<S: AsRef<str>>(song: &Song, dir: &str, all_paths: &[S]) -> 
         .collect()
 }
 
-/// Of `names` (from [`absent_images`]), those found among `shared`
+/// Of `names` (from [`absent_files`]), those found among `shared`
 /// (shared-folder paths, any case): `(name as written, shared path)`, the
 /// first match in StepMania's order. These go in the schedule's images
 /// under the name as written.
@@ -236,12 +267,12 @@ pub fn shared_images<S: AsRef<str>, T: AsRef<str>>(
         .collect()
 }
 
-/// The images `song`'s background changes name that exist nowhere: not in
-/// its folder `dir` (any file of the import, `all_paths`, relative to the
-/// import root), nor in `shared` (shared-folder paths). For the import's
-/// warnings. Only images count: videos and scripted animations are never
+/// The images and movies `song`'s background changes name that exist
+/// nowhere: not in its folder `dir` (any file of the import, `all_paths`,
+/// relative to the import root), nor in `shared` (shared-folder paths). For
+/// the import's warnings. Scripted animations do not count: they are never
 /// shown, so whether they exist makes no difference.
-pub fn missing_images<S: AsRef<str>, T: AsRef<str>>(
+pub fn missing_files<S: AsRef<str>, T: AsRef<str>>(
     song: &Song,
     dir: &str,
     all_paths: &[S],
@@ -253,7 +284,7 @@ pub fn missing_images<S: AsRef<str>, T: AsRef<str>>(
     }
     change_files(song)
         .into_iter()
-        .filter(|name| is_image(name))
+        .filter(|name| is_media(name))
         .filter(|name| {
             let local = join_relative(dir, name).is_some_and(|w| has(all_paths, &w.to_lowercase()));
             let in_shared = shared_candidates(name, pack)
@@ -264,8 +295,8 @@ pub fn missing_images<S: AsRef<str>, T: AsRef<str>>(
         .collect()
 }
 
-/// Background-change files the game never shows (videos, scripted
-/// animations: anything but images), as written, each with whether it
+/// Background-change files the game never shows (scripted animations:
+/// anything but images and movies), as written, each with whether it
 /// exists in the song's folder `dir` (any file or folder of the import,
 /// `all_paths`) or in `shared` (shared-folder paths). For the import's
 /// notes to pack authors.
@@ -286,7 +317,7 @@ pub fn unshown_files<S: AsRef<str>, T: AsRef<str>>(
     }
     change_files(song)
         .into_iter()
-        .filter(|name| !is_image(name))
+        .filter(|name| !is_media(name))
         .map(|name| {
             let local =
                 join_relative(dir, &name).is_some_and(|w| has(all_paths, &w.to_lowercase()));
@@ -334,11 +365,19 @@ enum Change<'a> {
     SongBackground,
 }
 
-/// The schedule of `song`'s background changes. `images` are the image
-/// files available (paths relative to the song folder, as from
-/// [`referenced_images`]); a [`BgImage::File`] carries the matching entry.
-/// `has_background`: the song's background image exists.
-pub fn schedule<S: AsRef<str>>(song: &Song, images: &[S], has_background: bool) -> Vec<BgSegment> {
+/// The schedule of `song`'s background changes. `images` and `movies` are
+/// the files available (paths relative to the song folder, as from
+/// [`referenced_images`] and [`referenced_movies`], or names as written
+/// for shared ones); a [`BgImage::File`] or [`BgImage::Movie`] carries the
+/// matching entry. A movie that cannot play is left out of `movies` by the
+/// caller, so it shows the song background. `has_background`: the song's
+/// background image exists.
+pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
+    song: &Song,
+    images: &[S],
+    movies: &[T],
+    has_background: bool,
+) -> Vec<BgSegment> {
     // Stable: changes on the same beat keep their file order.
     let mut changes: Vec<(Tick, Change)> = layer_one(song)
         .map(|(t, f)| (t, Change::Fields(f)))
@@ -378,14 +417,20 @@ pub fn schedule<S: AsRef<str>>(song: &Song, images: &[S], has_background: bool) 
         let (image, fade) = match change {
             Change::SongBackground => (BgImage::Song, 0.0),
             Change::Fields(f) => {
-                let image = key(f[1].trim())
-                    .and_then(|k| {
-                        images
-                            .iter()
-                            .map(AsRef::as_ref)
-                            .find(|i| key(i).as_deref() == Some(k.as_str()))
-                    })
-                    .map_or(BgImage::Song, |i| BgImage::File(i.to_string()));
+                let wanted = key(f[1].trim());
+                let matching = |i: &&str| key(i) == wanted;
+                let image = match wanted {
+                    None => BgImage::Song,
+                    Some(_) => {
+                        if let Some(i) = images.iter().map(AsRef::as_ref).find(matching) {
+                            BgImage::File(i.to_string())
+                        } else if let Some(m) = movies.iter().map(AsRef::as_ref).find(matching) {
+                            BgImage::Movie(m.to_string())
+                        } else {
+                            BgImage::Song
+                        }
+                    }
+                };
                 let fade = match f.get(8).map(|s| s.trim()).filter(|s| !s.is_empty()) {
                     Some(transition) => transition_seconds(transition).unwrap_or(0.0),
                     None if f.get(3).is_some_and(|s| leading_int(s) != 0) => 1.0,
@@ -481,6 +526,8 @@ mod tests {
         "Pack/Song/bg.png",
     ];
 
+    const NO_MOVIES: &[&str] = &[];
+
     fn shown_images(seg: &[BgSegment]) -> Vec<(f64, BgImage, f64)> {
         seg.iter()
             .map(|s| (s.seconds, s.image.clone(), s.fade))
@@ -511,7 +558,7 @@ mod tests {
              24=A.png=1=0=0=0=StretchNoLoop==SlideLeft==,\
              28=bgs/b.jpg=1=0=0=0=StretchNoLoop==NoSuchTransition==,99999=-nosongbg-=1=0=0=0;",
         );
-        let seg = schedule(&s, &["A.png", "bgs/b.JPG"], true);
+        let seg = schedule(&s, &["A.png", "bgs/b.JPG"], NO_MOVIES, true);
         assert_eq!(
             shown_images(&seg),
             vec![
@@ -539,7 +586,7 @@ mod tests {
     #[test]
     fn without_the_marker_the_song_background_returns_at_the_last_beat() {
         let s = song("#BGCHANGES:4=a.png=1=1=0=0;");
-        let seg = schedule(&s, &["A.png"], true);
+        let seg = schedule(&s, &["A.png"], NO_MOVIES, true);
         assert_eq!(seg.len(), 3);
         assert_eq!(
             (seg[2].seconds, &seg[2].image, seg[2].fade),
@@ -548,18 +595,18 @@ mod tests {
         // Not when the song has no background, nor when a change already
         // sits at or after the last beat, nor when the last change already
         // shows the background.
-        assert_eq!(schedule(&s, &["A.png"], false).len(), 2);
+        assert_eq!(schedule(&s, &["A.png"], NO_MOVIES, false).len(), 2);
         let late = song("#BGCHANGES:4=a.png=1=1=0=0,32=a.png=1=0=0=0;");
-        assert_eq!(schedule(&late, &["A.png"], true).len(), 2);
+        assert_eq!(schedule(&late, &["A.png"], NO_MOVIES, true).len(), 2);
         let back = song("#BGCHANGES:4=a.png=1=1=0=0,8=BG.PNG=1=0=0=0;");
-        let seg = schedule(&back, &["A.png"], true);
+        let seg = schedule(&back, &["A.png"], NO_MOVIES, true);
         assert_eq!(seg.len(), 3);
         assert_eq!(seg[2].seconds, 4.0);
     }
 
     #[test]
     fn a_song_without_changes_shows_its_background() {
-        let seg = schedule::<&str>(&song(""), &[], true);
+        let seg = schedule::<&str, &str>(&song(""), &[], NO_MOVIES, true);
         assert_eq!(seg.len(), 1);
         assert_eq!(seg[0].image, BgImage::Song);
         assert_eq!(state_at(&seg, -5.0).current, 0);
@@ -569,7 +616,7 @@ mod tests {
     #[test]
     fn the_last_change_on_a_beat_wins() {
         let s = song("#BGCHANGES:4=a.png=1=0=0=0,8=a.png=1=0=0=0,8=bgs/b.jpg=1=1=0=0;");
-        let seg = schedule(&s, &["A.png", "bgs/b.JPG"], true);
+        let seg = schedule(&s, &["A.png", "bgs/b.JPG"], NO_MOVIES, true);
         // B crossfades from A, the one actually shown before it.
         assert_eq!(seg[2].image, BgImage::File("bgs/b.JPG".into()));
         assert_eq!(state_at(&seg, 4.5).previous, Some(1));
@@ -579,7 +626,7 @@ mod tests {
     #[test]
     fn state_crossfades_and_cuts() {
         let s = song("#BGCHANGES:4=a.png=1=1=0=0,8=bgs/b.jpg=1=0=0=0,99999=-nosongbg-;");
-        let seg = schedule(&s, &["A.png", "bgs/b.JPG"], true);
+        let seg = schedule(&s, &["A.png", "bgs/b.JPG"], NO_MOVIES, true);
         assert_eq!(
             state_at(&seg, 1.9),
             BgState {
@@ -613,18 +660,18 @@ mod tests {
     fn changes_use_the_song_timing_and_start_with_a_delay() {
         // A BPM change halfway: beat 8 is at 2 s + 4 beats at 240 BPM = 3 s.
         let s = song("#BPMS:0=120,4=240;#BGCHANGES:8=a.png=1=0=0=0;");
-        let seg = schedule(&s, &["a.png"], false);
+        let seg = schedule(&s, &["a.png"], NO_MOVIES, false);
         assert!((seg[1].seconds - 3.0).abs() < 1e-9);
         // A 0.5 s delay on beat 4: the change shows when the delay begins.
         let s = song("#DELAYS:4=0.5;#BGCHANGES:4=a.png=1=0=0=0;");
-        let seg = schedule(&s, &["a.png"], false);
+        let seg = schedule(&s, &["a.png"], NO_MOVIES, false);
         assert!((seg[1].seconds - 2.0).abs() < 1e-9);
     }
 
     #[test]
     fn shown_falls_back_to_the_song_background() {
         let s = song("#BGCHANGES:4=a.png=1=1=0=0,8=bgs/b.jpg=1=0=0=0,99999=-nosongbg-;");
-        let seg = schedule(&s, &["A.png", "bgs/b.JPG"], true);
+        let seg = schedule(&s, &["A.png", "bgs/b.JPG"], NO_MOVIES, true);
         let loaded = [(BgImage::Song, 0), (BgImage::File("A.png".into()), 1)];
         // Mid-crossfade from the song background into A.
         assert_eq!(
@@ -664,8 +711,12 @@ mod tests {
             "RandomMovies/local.png",
         ];
         let all = ["Pack/S/s.sm", "Pack/S/local.png", "Pack/S/bg.png"];
-        let absent = absent_images(&s, "Pack/S", &all);
-        assert_eq!(absent, vec!["MAX-EXTREME/robot1.png", "robot2.png"]);
+        let absent = absent_files(&s, "Pack/S", &all);
+        // The movie is absent too: shared folders hold movies as well.
+        assert_eq!(
+            absent,
+            vec!["MAX-EXTREME/robot1.png", "robot2.png", "movie.avi"]
+        );
         assert_eq!(
             shared_images(&absent, "Pack", &shared),
             vec![
@@ -679,18 +730,18 @@ mod tests {
                     "robot2.png".to_string(),
                     "SongMovies/Pack/robot2.png".to_string()
                 ),
-                // local.png is in the song folder: never looked up, nor
-                // is the video.
+                // local.png is in the song folder: never looked up; the
+                // movie is in no shared folder.
             ]
         );
         // A shared image then plays like a local one.
         let images = ["MAX-EXTREME/robot1.png"];
-        let seg = schedule(&s, &images, true);
+        let seg = schedule(&s, &images, NO_MOVIES, true);
         assert_eq!(seg[1].image, BgImage::File("MAX-EXTREME/robot1.png".into()));
     }
 
     #[test]
-    fn missing_images_are_those_found_nowhere() {
+    fn missing_files_are_those_found_nowhere() {
         let s = song(
             "#BGCHANGES:4=a.png=1=0=0=1,6=movie.avi=1=0=0=1,8=gone.png=1=0=0=1,\
              10=MAX-EXTREME/robot1.png=1=0=0=1,12=anim=1=0=0=1,14=gone.avi=1=0=0=1,\
@@ -704,14 +755,14 @@ mod tests {
         ];
         let shared = ["RandomMovies/MAX-EXTREME/Robot1.png"];
         assert_eq!(
-            missing_images(&s, "P/S", &all, "P", &shared),
-            // gone.avi is missing too, but videos are never shown.
-            vec!["gone.png"]
+            missing_files(&s, "P/S", &all, "P", &shared),
+            // The scripted animation and `-random-` never count.
+            vec!["gone.png", "gone.avi"]
         );
     }
 
     #[test]
-    fn unshown_files_are_everything_but_images() {
+    fn unshown_files_are_everything_but_images_and_movies() {
         let s = song(
             "#BGCHANGES:4=a.png=1=0=0=1,6=movie.avi=1=0=0=1,8=anim=1=0=0=1,\
              10=gone.avi=1=0=0=1,12=MAX-EXTREME/fire1.avi=1=0=0=1,14=-random-=1=0=0=1;",
@@ -725,13 +776,53 @@ mod tests {
         let shared = ["RandomMovies/MAX-EXTREME/fire1.avi"];
         assert_eq!(
             unshown_files(&s, "P/S", &all, "P", &shared),
+            vec![("anim".to_string(), true)]
+        );
+    }
+
+    #[test]
+    fn movies_get_their_own_segments() {
+        let s = song(
+            "#BGCHANGES:4=a.png=1=0=0=0,8=Movie.AVI=1=1=0=0,12=gone.avi=1=0=0=0,\
+             16=bgs/clip.mp4=1=0=0=0,20=unplayable.mp4=1=0=0=0;",
+        );
+        let found = referenced_movies(
+            &s,
+            "Pack/Song",
+            &[
+                "Pack/Song/song.sm",
+                "Pack/Song/movie.avi",
+                "Pack/Song/bgs/clip.mp4",
+                "Pack/Song/unplayable.mp4",
+            ],
+        );
+        let relative: Vec<&str> = found.iter().map(|(r, _)| r.as_str()).collect();
+        assert_eq!(
+            relative,
+            vec!["movie.avi", "bgs/clip.mp4", "unplayable.mp4"]
+        );
+        // The caller leaves out what cannot play (unplayable.mp4).
+        let seg = schedule(&s, &["A.png"], &["movie.avi", "bgs/clip.mp4"], true);
+        assert_eq!(
+            shown_images(&seg),
             vec![
-                ("movie.avi".to_string(), true),
-                ("anim".to_string(), true),
-                ("gone.avi".to_string(), false),
-                ("MAX-EXTREME/fire1.avi".to_string(), true),
+                (f64::NEG_INFINITY, BgImage::Song, 0.0),
+                (2.0, BgImage::File("A.png".into()), 0.0),
+                // Matched case-insensitively; field 4 = 1 crossfades.
+                (4.0, BgImage::Movie("movie.avi".into()), 1.0),
+                // Missing: the song background.
+                (6.0, BgImage::Song, 0.0),
+                (8.0, BgImage::Movie("bgs/clip.mp4".into()), 0.0),
+                // Cannot play: the song background (already shown at the
+                // end of the song: not repeated).
+                (10.0, BgImage::Song, 0.0),
             ]
         );
+        // Until a movie has a frame, the song background stands in.
+        let loaded = [(BgImage::Song, 0), (BgImage::File("A.png".into()), 1)];
+        assert_eq!(shown(&seg, 4.5, &loaded).current, Some(0));
+        let playing = [(BgImage::Song, 0), (BgImage::Movie("movie.avi".into()), 7)];
+        assert_eq!(shown(&seg, 5.5, &playing).current, Some(7));
     }
 
     #[test]

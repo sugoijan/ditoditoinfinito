@@ -4,16 +4,102 @@
 //! module (`video/`); a desktop shell would link FFmpeg itself. Nothing here
 //! touches judging: movies follow the audio clock like still backgrounds.
 
-/// What a movie's video stream is, as sniffed at import. It picks the
-/// decoder (WebCodecs or the FFmpeg module) without opening the file.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+use serde::{Deserialize, Serialize};
+
+/// A movie file's container, as sniffed at import
+/// (`ddi_library::video::sniff`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VideoContainer {
+    Avi,
+    /// ISO media: MP4, QuickTime `.mov`, F4V, 3GP.
+    Mp4,
+    /// Matroska and WebM.
+    Matroska,
+    Ogg,
+    /// ASF (`.wmv`).
+    Asf,
+    Flv,
+    /// MPEG program stream (`.mpg`, `.mpeg`, VOB).
+    MpegPs,
+    /// MPEG transport stream.
+    MpegTs,
+    /// A raw MPEG-1/2 video stream (what packs often name `.avi`).
+    MpegVideo,
+    /// Not recognised; FFmpeg may still know it.
+    Unknown,
+}
+
+/// A movie's video codec, as far as the first bytes tell. Named where the
+/// choice of decoder (WebCodecs or the FFmpeg module) or the import report
+/// needs it; anything else by FFmpeg's name or its fourcc.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum VideoCodec {
     H264,
-    /// MPEG-4 Part 2 (Xvid, DivX).
-    Mpeg4,
+    Hevc,
+    Mpeg1,
     Mpeg2,
-    /// Anything else, by its fourcc or container name.
+    /// MPEG-4 Part 2 (Xvid, DivX 4/5).
+    Mpeg4,
+    Vp8,
+    Vp9,
+    Av1,
     Other(String),
+    /// The container was recognised but does not say yet (an MP4 whose
+    /// index sits at the end, a stream without its header in the first
+    /// bytes).
+    Unknown,
+}
+
+/// What a movie file is.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct VideoFormat {
+    pub container: VideoContainer,
+    pub codec: VideoCodec,
+}
+
+impl VideoFormat {
+    /// Whether the game can play it: the FFmpeg module has every video
+    /// decoder FFmpeg builds in except AV1 (only hardware or libdav1d decode
+    /// it; StepMania cannot either). Unknown formats are tried.
+    pub fn playable(&self) -> bool {
+        self.codec != VideoCodec::Av1
+    }
+
+    /// For the import report, e.g. "H.264 in AVI".
+    pub fn describe(&self) -> String {
+        let codec = match &self.codec {
+            VideoCodec::H264 => "H.264",
+            VideoCodec::Hevc => "HEVC",
+            VideoCodec::Mpeg1 => "MPEG-1",
+            VideoCodec::Mpeg2 => "MPEG-2",
+            VideoCodec::Mpeg4 => "MPEG-4 Part 2",
+            VideoCodec::Vp8 => "VP8",
+            VideoCodec::Vp9 => "VP9",
+            VideoCodec::Av1 => "AV1",
+            VideoCodec::Other(name) => name.as_str(),
+            VideoCodec::Unknown => "",
+        };
+        let container = match self.container {
+            VideoContainer::Avi => "AVI",
+            VideoContainer::Mp4 => "MP4",
+            VideoContainer::Matroska => "Matroska",
+            VideoContainer::Ogg => "Ogg",
+            VideoContainer::Asf => "ASF",
+            VideoContainer::Flv => "FLV",
+            VideoContainer::MpegPs => "an MPEG program stream",
+            VideoContainer::MpegTs => "an MPEG transport stream",
+            VideoContainer::MpegVideo => "a raw MPEG stream",
+            VideoContainer::Unknown => "",
+        };
+        match (codec.is_empty(), container.is_empty()) {
+            (true, true) => "an unrecognised format".into(),
+            (true, false) => container.to_string(),
+            (false, true) => codec.to_string(),
+            (false, false) => format!("{codec} in {container}"),
+        }
+    }
 }
 
 /// The YUV-to-RGB matrix of a frame.
@@ -160,8 +246,8 @@ pub trait VideoBackend {
     type Decoder: VideoDecoder;
 
     /// Starts opening `source`; `name` is the file's name (its extension is
-    /// a hint for the demuxer) and `codec` what the import sniffed.
-    fn open(&mut self, source: Self::Source, name: &str, codec: &VideoCodec) -> Self::Decoder;
+    /// a hint for the demuxer) and `format` what the import sniffed.
+    fn open(&mut self, source: Self::Source, name: &str, format: &VideoFormat) -> Self::Decoder;
 }
 
 #[cfg(test)]
@@ -217,6 +303,39 @@ mod tests {
             yuv_to_rgb(63, 102, 240, YuvMatrix::Bt601, false),
             [1.0, 0.0, 0.0]
         ));
+    }
+
+    #[test]
+    fn formats_describe_and_play() {
+        let h264 = VideoFormat {
+            container: VideoContainer::Avi,
+            codec: VideoCodec::H264,
+        };
+        assert_eq!(h264.describe(), "H.264 in AVI");
+        assert!(h264.playable());
+        let av1 = VideoFormat {
+            container: VideoContainer::Mp4,
+            codec: VideoCodec::Av1,
+        };
+        assert!(!av1.playable());
+        let unknown = VideoFormat {
+            container: VideoContainer::Unknown,
+            codec: VideoCodec::Unknown,
+        };
+        assert_eq!(unknown.describe(), "an unrecognised format");
+        assert!(unknown.playable());
+        // The manifest's wire format.
+        assert_eq!(
+            serde_json::to_string(&h264).unwrap(),
+            r#"{"container":"avi","codec":"h264"}"#
+        );
+        let other = VideoFormat {
+            container: VideoContainer::MpegPs,
+            codec: VideoCodec::Other("wmv3".into()),
+        };
+        let json = serde_json::to_string(&other).unwrap();
+        assert_eq!(json, r#"{"container":"mpegps","codec":{"other":"wmv3"}}"#);
+        assert_eq!(serde_json::from_str::<VideoFormat>(&json).unwrap(), other);
     }
 
     #[test]

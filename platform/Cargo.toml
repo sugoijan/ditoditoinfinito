@@ -10,9 +10,13 @@ description = "DitoDitoInfinito: platform crate"
 
 [dependencies]
 ddi-chart.workspace = true
+serde.workspace = true
 # Pure-Rust audio decoding (Ogg Vorbis only), the fallback for files the
 # browser's `decodeAudioData` rejects. Off by default; the web app enables it.
 symphonia = { workspace = true, optional = true, features = ["ogg", "vorbis"] }
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [features]
 decode = ["dep:symphonia"]
