@@ -5,7 +5,9 @@
 //! a [`WorkerVideo`] implementing [`VideoDecoder`]. The worker's script is
 //! part of the app, started from a blob URL, so it always speaks the app's
 //! protocol; it fetches the module (`video/ddivideo.wasm`) on the first
-//! open, and a build without the module reports that as an error.
+//! open (or on [`VideoWorker::preload`]), and a build without the module
+//! reports that as an error. [`VideoWorker::probe`] samples a movie for its
+//! black bars (step 5).
 //! Dropping the last handle terminates the worker.
 
 use std::cell::{Cell, RefCell};
@@ -45,9 +47,31 @@ struct Movie {
     events: Vec<VideoEvent>,
 }
 
+/// A movie's picture as the black-bar probe found it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Picture {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    /// The area inside the movie's own black bars, `(x, y, width, height)`;
+    /// `None` when every sample was black.
+    pub(crate) bounds: Option<(u32, u32, u32, u32)>,
+}
+
+impl Picture {
+    /// Width over height of what the movie shows (bars left out).
+    pub(crate) fn aspect(&self) -> Option<f32> {
+        let (w, h) = self
+            .bounds
+            .map_or((self.width, self.height), |(_, _, w, h)| (w, h));
+        (w > 0 && h > 0).then(|| w as f32 / h as f32)
+    }
+}
+
 struct Shared {
     status: ModuleStatus,
     movies: HashMap<u32, Movie>,
+    /// Black-bar probes: `None` until answered.
+    probes: HashMap<u32, Option<Result<Picture, String>>>,
 }
 
 struct Inner {
@@ -82,6 +106,7 @@ impl VideoWorker {
         let shared = Rc::new(RefCell::new(Shared {
             status: ModuleStatus::Idle,
             movies: HashMap::new(),
+            probes: HashMap::new(),
         }));
         let on_message = {
             let shared = Rc::clone(&shared);
@@ -106,6 +131,9 @@ impl VideoWorker {
                 for movie in shared.movies.values_mut() {
                     movie.events.push(VideoEvent::Error(message.clone()));
                 }
+                for probe in shared.probes.values_mut() {
+                    probe.get_or_insert_with(|| Err(message.clone()));
+                }
             })
         };
         worker.set_onerror(Some(on_error.as_ref().unchecked_ref()));
@@ -124,6 +152,40 @@ impl VideoWorker {
     pub(crate) fn status(&self) -> ModuleStatus {
         self.0.shared.borrow().status.clone()
     }
+
+    /// Fetches the module now (while the start prompt is up), so a movie
+    /// does not wait for the download.
+    pub(crate) fn preload(&self) {
+        post(&self.0.worker, &message("load", &[]));
+    }
+
+    fn next_id(&self) -> u32 {
+        let id = self.0.next_id.get();
+        self.0.next_id.set(id + 1);
+        id
+    }
+
+    /// Samples a movie's picture for its black bars; the answer comes with
+    /// [`VideoWorker::probe_result`].
+    pub(crate) fn probe(&self, source: &Blob, name: &str) -> u32 {
+        let id = self.next_id();
+        self.0.shared.borrow_mut().probes.insert(id, None);
+        let msg = message(
+            "probe",
+            &[
+                ("id", id.into()),
+                ("blob", source.into()),
+                ("name", name.into()),
+            ],
+        );
+        post(&self.0.worker, &msg);
+        id
+    }
+
+    /// The answer to probe `id`, once it came.
+    pub(crate) fn probe_result(&self, id: u32) -> Option<Result<Picture, String>> {
+        self.0.shared.borrow().probes.get(&id).cloned().flatten()
+    }
 }
 
 impl VideoBackend for VideoWorker {
@@ -131,8 +193,7 @@ impl VideoBackend for VideoWorker {
     type Decoder = WorkerVideo;
 
     fn open(&mut self, source: Blob, name: &str, _format: &VideoFormat) -> WorkerVideo {
-        let id = self.0.next_id.get();
-        self.0.next_id.set(id + 1);
+        let id = self.next_id();
         self.0.shared.borrow_mut().movies.insert(
             id,
             Movie {
@@ -278,6 +339,14 @@ fn receive(shared: &mut Shared, msg: &JsValue) {
         _ => {}
     }
     let id = number(msg, "id") as u32;
+    if let Some(probe) = shared.probes.get_mut(&id) {
+        match kind.as_str() {
+            "probed" => *probe = Some(Ok(picture(msg))),
+            "error" => *probe = Some(Err(text(msg, "message"))),
+            _ => {}
+        }
+        return;
+    }
     let Some(movie) = shared.movies.get_mut(&id) else {
         return;
     };
@@ -315,4 +384,26 @@ fn receive(shared: &mut Shared, msg: &JsValue) {
         _ => return,
     };
     movie.events.push(event);
+}
+
+/// A `probed` message's samples, measured.
+fn picture(msg: &JsValue) -> Picture {
+    let width = number(msg, "width") as u32;
+    let height = number(msg, "height") as u32;
+    let planes: Vec<Vec<u8>> = js_sys::Array::from(&field(msg, "planes"))
+        .iter()
+        .filter_map(|p| p.dyn_into::<ArrayBuffer>().ok())
+        .map(|b| Uint8Array::new(&b).to_vec())
+        .collect();
+    let samples: Vec<&[u8]> = planes.iter().map(Vec::as_slice).collect();
+    Picture {
+        width,
+        height,
+        bounds: ddi_platform::video::picture_bounds(
+            &samples,
+            width,
+            height,
+            field(msg, "full_range").is_truthy(),
+        ),
+    }
 }

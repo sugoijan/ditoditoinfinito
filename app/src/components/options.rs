@@ -59,6 +59,8 @@ pub(crate) enum Msg {
     /// Background brightness, 0..=1.
     BgBrightness(f32),
     FieldFilter(f32),
+    Video(crate::settings::VideoMode),
+    BackgroundFrame(crate::settings::BackgroundFrame),
     NoteColors(NoteColors),
     ChartColors(bool),
     Lyrics(bool),
@@ -311,6 +313,8 @@ impl Component for Options {
             Msg::ReceptorSnap(v) => self.settings.receptor_snap = v,
             Msg::BgBrightness(v) => self.settings.bg_brightness = v.clamp(0.0, 1.0),
             Msg::FieldFilter(v) => self.settings.field_filter = v,
+            Msg::Video(v) => self.settings.video = v,
+            Msg::BackgroundFrame(v) => self.settings.background_frame = v,
             Msg::NoteColors(v) => self.settings.note_colors = v,
             Msg::Lyrics(v) => self.settings.lyrics = v,
             Msg::ChartColors(v) => self.settings.chart_colors = v,
@@ -541,13 +545,17 @@ impl Component for Options {
                         { " Show lyrics of songs that have them (Dancing☆Onigiri works)" }
                     </label>
                     { self.background_control(link) }
+                    <label>{ "Background videos " }{ choice(s.video, &VIDEO_CHOICES, link.callback(Msg::Video)) }</label>
+                    <p class="muted">{ "Videos play behind the field in time with the music; automatic turns one off for the rest of a song when it costs frames. Off never loads the video decoder." }</p>
+                    <label>{ "Background frame " }{ choice(s.background_frame, &FRAME_CHOICES, link.callback(Msg::BackgroundFrame)) }</label>
+                    <p class="muted">{ "Backgrounds and videos fill this shape, as on the screen they were made for; the rest of the screen shows a blur of them." }</p>
                     <label>{ "Field filter " }{ choice(s.field_filter, &FIELD_FILTER_CHOICES, link.callback(Msg::FieldFilter)) }</label>
                     <p class="muted">{ "The field filter dims the area behind the lanes." }</p>
                     <p class="muted">
                         { "Diagnostics: " }
-                        <a href={Route::Play { song: "some-things-must".into(), chart: 2, force_gl: false, auto: true, auto_pad: false, bias_ms: 0 }.to_hash()}>{ "autoplay demo" }</a>
+                        <a href={Route::Play { song: "some-things-must".into(), chart: 2, force_gl: false, auto: true, auto_pad: false, bias_ms: 0, slow: false }.to_hash()}>{ "autoplay demo" }</a>
                         { " · " }
-                        <a href={Route::Play { song: "some-things-must".into(), chart: 2, force_gl: true, auto: true, auto_pad: false, bias_ms: 0 }.to_hash()}>{ "autoplay demo on WebGL2" }</a>
+                        <a href={Route::Play { song: "some-things-must".into(), chart: 2, force_gl: true, auto: true, auto_pad: false, bias_ms: 0, slow: false }.to_hash()}>{ "autoplay demo on WebGL2" }</a>
                         { " (forces the fallback renderer)" }
                     </p>
                 </section>
@@ -1030,6 +1038,22 @@ const NOTE_COLOR_CHOICES: [(NoteColors, &str); 5] = [
     (NoteColors::Quantized, "by subdivision"),
     (NoteColors::Flat, "flat: cycling rainbow, all notes alike"),
     (NoteColors::Single, "single colour"),
+];
+
+const VIDEO_CHOICES: [(crate::settings::VideoMode, &str); 3] = [
+    (crate::settings::VideoMode::Auto, "automatic"),
+    (crate::settings::VideoMode::On, "on"),
+    (crate::settings::VideoMode::Off, "off"),
+];
+
+const FRAME_CHOICES: [(crate::settings::BackgroundFrame, &str); 4] = [
+    (
+        crate::settings::BackgroundFrame::Auto,
+        "automatic (the song's video, else its background)",
+    ),
+    (crate::settings::BackgroundFrame::FourThree, "4:3"),
+    (crate::settings::BackgroundFrame::SixteenNine, "16:9"),
+    (crate::settings::BackgroundFrame::Screen, "the whole screen"),
 ];
 
 const FIELD_FILTER_CHOICES: [(f32, &str); 4] = [

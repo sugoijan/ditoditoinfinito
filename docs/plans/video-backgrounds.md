@@ -434,8 +434,34 @@ late}`.
 
 ## Step 5. The setting and the auto rule (commit 5)
 
-- `Settings.background_fit` as StepMania's `BackgroundFitMode` (default
-  cover), for images and movies alike (step 4's notes).
+- The background frame (decided 2026-10-10, the maintainer's idea): pack
+  assets were drawn for a cabinet's screen, not for the player's, so
+  backgrounds and movies are fitted (StepMania's `CoverPreserve`) into a
+  virtual frame, and outside it the screen shows a blurred, dimmed
+  extension of what is in the frame (moving with the movie; a small blur
+  pass at low resolution). `Settings.background_frame`: `Auto` (default),
+  `4:3`, `16:9`, `Screen` (the whole display: today's behaviour,
+  StepMania's on a wide display).
+  - Auto takes the song's movie picture: its frame less its own black bars
+    (JOMANDA's movie, DDR 2014, is a 4:3 picture pillarboxed in 852×480,
+    so the frame is 4:3, its 4:3 still covers it exactly and the bars are
+    cropped: no jump at the change, as on the cabinet). Without a movie,
+    the song background's shape; with several movies, the first one's.
+    (KUNG FU FIGHTING, the song that raised this, has a full 16:9 movie
+    and a 4:3 still: its frame is 16:9 and the change still zooms; the
+    4:3 setting lines the two up there.)
+  - A local survey (188 songs with one movie, 2026-10-10): 70 have a 4:3
+    still and a full 16:9 movie, 30 both 4:3, 22 a 16:9 still and a 4:3
+    movie, 12 both 16:9, 24 a square jacket as background, about 25 a
+    movie with bars inside its frame. Stills and movies come from
+    different releases, so the movie, which plays most of the song, sets
+    the frame; where the still differs in content it still zooms at the
+    change, no worse than now.
+  - Bars are found before the movie shows (a frame change mid-song would
+    be a jump of its own): the worker samples a handful of frames spread
+    through the movie while the start prompt is up, skipping all-black
+    ones (fade-ins), and takes the largest non-black area that stays
+    consistent; about a second per movie, overlapped with the prompt.
 - `Settings.video: VideoMode {Auto, On, Off}` (lenient, default Auto);
   options page: "Background videos" with the three choices and one line of
   explanation. (The `import_videos` checkbox came with step 3.)
@@ -454,6 +480,52 @@ late}`.
 Verification: force the rule with a debug query parameter (`&slow=1`
 making the loop sleep) in headless Chrome and check the results card;
 autoplay stays all top tier throughout (video never touches judging).
+
+**Done 2026-10-10.** What differs, and what later steps need:
+
+- The frame snaps to a cabinet shape: Auto takes the nearest of 4:3 and
+  16:9 (split at their geometric mean, 1.54), so a square jacket fills a
+  4:3 frame and an ultrawide picture a 16:9 one. It settles once a movie
+  frame shows, or when the song starts with no probe running, and never
+  changes after that (`GameLoop::frame_aspect`). The renderer draws the
+  layers cover-fitted into the frame through the viewport; the extension
+  is what the frame shows, enlarged to cover the screen (so a movie's own
+  bars stay out of it), drawn at 1/12 of the screen (192 px at most),
+  blurred by a 13-tap Gaussian, one pass each way (σ = 3 texels, about 36 screen
+  pixels) and composited at 60 % of the frame's brightness, premultiplied
+  (`render/src/blur.wgsl`, `background::frame_rect`). Nothing is drawn
+  outside a frame within a pixel of the screen.
+- The probe runs in the worker (`probe` message): six frames at 15–90 % of
+  the duration (or at 1–20 s when it is unknown), each the first after a
+  new shim export, `ddi_seek_key` (keyframe at or before the time, no
+  exact decode; under 2 ms a sample on the clips). Without a keyframe
+  index (MPEG-TS) a seek can land past the last keyframe; that sample is
+  redone with `ddi_seek`. The Y planes come back and
+  `platform::video::picture_bounds` takes the union of the non-black
+  areas (a row or column is black at mean luma ≤ 28 and no sample above
+  80, limited range; scaled for full range), skipping all-black frames.
+  Sample aspect ratios are ignored, as StepMania ignores them. The module
+  check (`check.mjs`) now runs six keyframe seeks on every clip and
+  checks each gives a frame decoded straight through.
+- The automatic rule is `platform::video::VideoGuard`, natively tested: a
+  movie (each new segment) warms up for 2 s, then three measured seconds
+  in a row below 80 % of the refresh rate measured before the play, or
+  two in a row with at least two late frames each (one stall, a
+  collection pause, makes one burst, not two), turn the movies off for
+  the rest of the play. Retry plays them again. The results card says
+  "video was turned off for this song: frames were being dropped" (or
+  "the decoder could not keep up") with a link to the options.
+- The worker starts, and fetches the module (`load` message), as soon as
+  the first movie file of the song is read, during the start prompt;
+  the prompt shows "loading the video decoder… N %" and the song can
+  start at any time. Off reads no movie file: no worker, no fetch.
+- Verified on JOMANDA (local, 852×480 H.264 with bars): the probe found
+  (106, 0, 640, 480), as `cropdetect` does; full plays on WebGPU and
+  WebGL2 all top tier with 3714 frames shown, none dropped or late; with
+  `&slow=1` the movie turned off about 5 s in, the card said so and the
+  judgements stayed all top tier; with On and `&slow=1` it played on at
+  24 fps; Off fetched nothing. Throttled to 1.5 MB/s the prompt counted
+  from 3 % to 99 %.
 
 ## Step 6. WebCodecs for H.264 (commit 6)
 

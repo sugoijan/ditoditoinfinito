@@ -7,13 +7,21 @@
 //! a movie that fades out or resumes later keeps its last frame, as
 //! StepMania pauses it; a decoder moves on to its movie's next segment
 //! instead of opening the file again. Nothing here touches judging.
+//!
+//! Step 5: the worker starts, and fetches the module, as soon as the first
+//! movie is known (the start prompt shows the download), the song's first
+//! movie is probed for its black bars (the background frame), and the
+//! automatic setting can turn the movies off for the rest of a play
+//! ([`MovieDeck::turn_off`]).
 
 use ddi_library::backgrounds::{self, BgImage, BgSegment};
-use ddi_platform::video::{MovieStats, MovieTrack, VideoBackend, VideoFormat, VideoFrame};
+use ddi_platform::video::{
+    MovieStats, MovieTrack, StopReason, VideoBackend, VideoFormat, VideoFrame,
+};
 use ddi_render::Renderer;
 use web_sys::Blob;
 
-use crate::web::video::{ModuleStatus, VideoWorker, WorkerVideo};
+use crate::web::video::{ModuleStatus, Picture, VideoWorker, WorkerVideo};
 
 /// A movie is opened this long before its segment starts: opening and
 /// seeking a long-GOP H.264 file took up to 1.2 s (step 1).
@@ -37,6 +45,14 @@ struct Open {
     /// A frame that came due before its segment started (prefetch): shown
     /// when the segment starts, so the change never waits for a decode.
     held: Option<VideoFrame>,
+}
+
+/// The black-bar probe of the song's first movie.
+struct Probe {
+    name: String,
+    /// Its id in the worker, once sent (the file may still be loading).
+    id: Option<u32>,
+    answer: Option<Result<Picture, String>>,
 }
 
 /// A movie's texture.
@@ -66,19 +82,141 @@ pub(crate) struct MovieDeck {
     closed: MovieStats,
     /// Changes whenever [`MovieDeck::shown_ids`] would.
     version: u64,
+    /// The movie probed for the background frame.
+    probe: Option<Probe>,
+    /// A frame of a movie has been shown this session.
+    shown_any: bool,
+    /// Turned off for the rest of this play by the automatic setting.
+    off: Option<StopReason>,
 }
 
 impl MovieDeck {
-    /// A movie of the song, as the import kept it.
-    pub(crate) fn add_source(&mut self, name: String, blob: Blob, format: VideoFormat) {
-        if !self.sources.iter().any(|s| s.name == name) {
-            self.sources.push(Source { name, blob, format });
+    /// A movie of the song, as the import kept it; `probe`: the song's
+    /// first movie, whose picture sets the background frame. The worker
+    /// starts fetching the module now.
+    pub(crate) fn add_source(
+        &mut self,
+        name: String,
+        blob: Blob,
+        format: VideoFormat,
+        probe: bool,
+    ) {
+        if self.sources.iter().any(|s| s.name == name) {
+            return;
+        }
+        if self.worker().is_ok() && probe && self.probe.is_none() {
+            self.probe = Some(Probe {
+                name: name.clone(),
+                id: None,
+                answer: None,
+            });
+        }
+        self.sources.push(Source { name, blob, format });
+        self.send_probe();
+    }
+
+    /// The session's worker, started (and told to fetch the module) when
+    /// there is none.
+    fn worker(&mut self) -> Result<&mut VideoWorker, String> {
+        if self.worker.is_none() {
+            let worker = VideoWorker::new()?;
+            worker.preload();
+            self.worker = Some(worker);
+        }
+        Ok(self.worker.as_mut().expect("just set"))
+    }
+
+    fn send_probe(&mut self) {
+        let Some(probe) = self.probe.as_mut().filter(|p| p.id.is_none()) else {
+            return;
+        };
+        let (Some(source), Some(worker)) = (
+            self.sources.iter().find(|s| s.name == probe.name),
+            self.worker.as_ref(),
+        ) else {
+            return;
+        };
+        probe.id = Some(worker.probe(&source.blob, &source.name));
+    }
+
+    /// The probed movie's picture shape (width over height, its own black
+    /// bars left out): `Err(true)` while the probe runs, `Err(false)` when
+    /// there is none or it failed.
+    pub(crate) fn picture_aspect(&mut self) -> Result<f32, bool> {
+        let Some(probe) = self.probe.as_mut() else {
+            return Err(false);
+        };
+        let Some(id) = probe.id else {
+            return Err(true);
+        };
+        if probe.answer.is_none() {
+            probe.answer = self.worker.as_ref().and_then(|w| w.probe_result(id));
+            if let Some(a) = &probe.answer {
+                let line = match a {
+                    Ok(p) => format!("background video {}: picture {p:?}", probe.name),
+                    Err(e) => format!("background video {}: probe failed: {e}", probe.name),
+                };
+                web_sys::console::info_1(&line.into());
+            }
+        }
+        match &probe.answer {
+            None => Err(true),
+            Some(Ok(p)) => p.aspect().ok_or(false),
+            Some(Err(_)) => Err(false),
         }
     }
 
-    /// Closes every decoder (the session ended). Sources, textures and what
+    /// A movie frame has been shown this session (the background frame is
+    /// settled from then on).
+    pub(crate) fn shown_any(&self) -> bool {
+        self.shown_any
+    }
+
+    /// Where the module stands, once a movie asked for it.
+    pub(crate) fn module_status(&self) -> Option<ModuleStatus> {
+        self.worker.as_ref().map(VideoWorker::status)
+    }
+
+    /// The movie segment being drawn now (its texture holds a frame of
+    /// this run), for the automatic setting's rule.
+    pub(crate) fn drawing(&self, schedule: &[BgSegment]) -> Option<usize> {
+        let current = self.current?;
+        let BgImage::Movie(name) = &schedule.get(current)?.image else {
+            return None;
+        };
+        self.shown_ids()
+            .any(|(what, _)| what == BgImage::Movie(name.clone()))
+            .then_some(current)
+    }
+
+    /// Stops every movie for the rest of this play (the song background
+    /// shows); a retry plays them again.
+    pub(crate) fn turn_off(&mut self, reason: StopReason) {
+        if self.off.is_some() {
+            return;
+        }
+        web_sys::console::warn_1(
+            &format!("background videos turned off for this play: {reason:?}").into(),
+        );
+        self.off = Some(reason);
+        for open in std::mem::take(&mut self.open) {
+            self.close(open);
+        }
+        for texture in &mut self.textures {
+            texture.fresh = false;
+        }
+        self.version += 1;
+    }
+
+    /// Why the movies were turned off for this play, if they were.
+    pub(crate) fn off(&self) -> Option<StopReason> {
+        self.off
+    }
+
+    /// Closes every decoder (the song ended). Sources, textures and what
     /// was learned stay for a retry, which shows no old frame and tries
-    /// failed movies again (with a new worker if the old one stopped).
+    /// failed movies again (with a new worker if the old one stopped);
+    /// why the movies were turned off stays for the results.
     pub(crate) fn stop(&mut self) {
         for open in self.open.drain(..) {
             add_stats(&mut self.closed, &open.track.stats);
@@ -96,6 +234,13 @@ impl MovieDeck {
             self.worker = None;
         }
         self.version += 1;
+    }
+
+    /// Stops for good (the session is over): the next play starts with the
+    /// movies on.
+    pub(crate) fn reset(&mut self) {
+        self.stop();
+        self.off = None;
     }
 
     /// Changes whenever [`MovieDeck::shown_ids`] would.
@@ -123,7 +268,7 @@ impl MovieDeck {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        if schedule.is_empty() || self.sources.is_empty() {
+        if schedule.is_empty() || self.sources.is_empty() || self.off.is_some() {
             return;
         }
         let current = backgrounds::state_at(schedule, t).current;
@@ -273,27 +418,22 @@ impl MovieDeck {
             // Not loaded yet: tried again next frame.
             return;
         };
-        if self.worker.is_none() {
-            match VideoWorker::new() {
-                Ok(w) => self.worker = Some(w),
-                Err(e) => {
-                    let name = name.clone();
-                    self.fail(&name, e);
-                    return;
-                }
+        let (blob, format) = (source.blob.clone(), source.format.clone());
+        let name = name.clone();
+        let worker = match self.worker() {
+            Ok(w) => w,
+            Err(e) => {
+                self.fail(&name, e);
+                return;
             }
-        }
-        let Some(worker) = self.worker.as_mut() else {
-            return;
         };
         // A worker that stopped answers nothing: the movie cannot play.
         if let ModuleStatus::Failed(e) = worker.status() {
-            let name = name.clone();
             self.fail(&name, e);
             return;
         }
-        let mut decoder = worker.open(source.blob.clone(), &source.name, &source.format);
-        let end = self.ends.iter().find(|(n, _)| n == name).map(|(_, e)| *e);
+        let mut decoder = worker.open(blob, &name, &format);
+        let end = self.ends.iter().find(|(n, _)| *n == name).map(|(_, e)| *e);
         let mut track = MovieTrack::new(backgrounds::movie_loops(schedule, segment), AHEAD, end);
         // From where the movie stands when the segment starts, or now when
         // it already has.
@@ -304,7 +444,7 @@ impl MovieDeck {
         );
         self.open.push(Open {
             segment,
-            name: name.clone(),
+            name,
             decoder,
             track,
             held: None,
@@ -369,6 +509,7 @@ impl MovieDeck {
             frame.full_range,
         );
         if written {
+            self.shown_any = true;
             self.set_fresh(name, true);
         }
     }

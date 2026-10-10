@@ -97,6 +97,7 @@ impl SessionConfig {
                 background: settings.bg_brightness,
                 // Chosen each frame by the game loop.
                 backdrop: Default::default(),
+                frame_aspect: None,
                 field_filter: settings.field_filter,
             },
             calibration: None,

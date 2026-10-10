@@ -173,6 +173,38 @@ if (n > 1) {
   if (failures.length === before) console.log(`  ${targets.length} seeks landed on the frames decoded straight through (slowest ${worst.toFixed(0)} ms)`);
 }
 
+// Keyframe seeks (the black-bar probe's samples): each gives a frame, one
+// that decoding straight through gave when every frame is known.
+if (n > 1) {
+  const duration = e.ddi_duration(v);
+  const end = duration > 0 ? duration : pts[n - 1];
+  const known = new Set(crcs);
+  let worst = 0;
+  let exact = 0;
+  const before = failures.length;
+  for (const share of [0.15, 0.3, 0.45, 0.6, 0.75, 0.9]) {
+    const t = share * end;
+    const start = performance.now();
+    const sample = (seek) => {
+      seek(v, t);
+      let got = -2;
+      for (let tries = 0; tries < 8 && got === -2; tries++) got = e.ddi_next(v);
+      return got;
+    };
+    // Without a keyframe index (MPEG-TS) the seek can land past the last
+    // keyframe: the worker then seeks exactly, as here.
+    let got = sample(e.ddi_seek_key);
+    if (got === -1) {
+      exact++;
+      got = sample(e.ddi_seek);
+    }
+    worst = Math.max(worst, performance.now() - start);
+    if (got < 0) fail(`keyframe seek to ${t.toFixed(3)} s gave no frame (${got})`);
+    else if (n < maxFrames && !known.has(crc32(planes()))) fail(`keyframe seek to ${t.toFixed(3)} s gave a frame not decoded straight through`);
+  }
+  if (failures.length === before) console.log(`  6 keyframe seeks gave frames (slowest ${worst.toFixed(0)} ms${exact ? `, ${exact} redone exactly` : ''})`);
+}
+
 if (keep && opt.png) {
   await writeFile(opt.png, png(keep.w, keep.h, toRgb(keep)));
   console.log(`  frame ${keep.n} (${keep.t.toFixed(3)} s) written to ${opt.png}`);

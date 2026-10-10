@@ -79,7 +79,9 @@ and read `window.__DDI_DEBUG` for engine state.
 Useful URL parameters: `#/play?song=<id>&chart=<n>` (chart index as in the
 manifest), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
 `&gfx=gl` force WebGL2, `&auto=pad` autoplay through a fake gamepad the test
-installs as `window.__DDI_FAKE_PAD` (see the verify skill);
+installs as `window.__DDI_FAKE_PAD` (see the verify skill), `&slow=1`
+frames 40 ms longer while a movie is drawn (forces the automatic video
+rule);
 `#/calibrate/run?mode=visual|audio|combined` runs a
 calibration (same `auto`/`bias` parameters); `#/video-check` runs the
 video decoder on picked movies. Imported songs have ids

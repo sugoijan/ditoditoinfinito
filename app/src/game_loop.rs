@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use ddi_library::backgrounds::{self, BgImage, BgSegment};
 use ddi_platform::HostTime;
+use ddi_platform::video::{StopReason, VideoGuard};
 use ddi_render::{Backdrop, Renderer};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
@@ -14,6 +15,7 @@ use yew::Callback;
 
 use crate::lyrics::LyricsView;
 use crate::play::{PlaySession, SessionEvent};
+use crate::settings::{BackgroundFrame, VideoMode};
 use crate::web::gfx::Gfx;
 
 /// The observer and the closure it calls, kept alive together and
@@ -56,6 +58,33 @@ pub(crate) struct GameLoop {
     shown_cache: (Vec<(BgImage, usize)>, (usize, u64)),
     /// The movies were stopped at the end of the song.
     movies_stopped: bool,
+    video_mode: VideoMode,
+    /// The automatic setting's rule.
+    guard: VideoGuard,
+    /// The refresh rate measured before the play started.
+    refresh_at_start: f64,
+    /// Testing aid: each frame takes 40 ms longer while a movie is drawn.
+    slow: bool,
+    frame_setting: BackgroundFrame,
+    /// The automatic frame, once settled: it never changes while a movie
+    /// shows (that would be a jump of its own).
+    frozen_frame: Option<Option<f32>>,
+    /// Width over height of the song's background image.
+    song_bg_aspect: Option<f32>,
+}
+
+/// Width over height of the screens pack art was made for.
+const FOUR_THREE: f32 = 4.0 / 3.0;
+const SIXTEEN_NINE: f32 = 16.0 / 9.0;
+
+/// The cabinet screen shape nearest to `aspect` (by ratio): a square
+/// jacket fills a 4:3 frame, an ultrawide picture a 16:9 one.
+fn cabinet_shape(aspect: f32) -> f32 {
+    if aspect < (FOUR_THREE * SIXTEEN_NINE).sqrt() {
+        FOUR_THREE
+    } else {
+        SIXTEEN_NINE
+    }
 }
 
 /// Frames per second over the last second, from rAF timestamps.
@@ -107,7 +136,8 @@ impl FpsMeter {
         Some(from_rate.max(from_interval.min(from_rate * 1.5)))
     }
 
-    fn tick(&mut self, time_ms: f64) {
+    /// Counts a frame; the rate of a second that ended with it, if one did.
+    fn tick(&mut self, time_ms: f64) -> Option<f64> {
         if let Some(last) = self.last {
             let dt = time_ms - last;
             self.worst_ms = self.worst_ms.max(dt);
@@ -129,7 +159,9 @@ impl FpsMeter {
             if self.history.len() > 4 {
                 self.history.remove(0);
             }
+            return Some(self.fps);
         }
+        None
     }
 }
 
@@ -180,6 +212,13 @@ impl GameLoop {
             movies: crate::movies::MovieDeck::default(),
             shown_cache: (Vec::new(), (0, u64::MAX)),
             movies_stopped: false,
+            video_mode: VideoMode::Auto,
+            guard: VideoGuard::default(),
+            refresh_at_start: 60.0,
+            slow: false,
+            frame_setting: BackgroundFrame::Auto,
+            frozen_frame: None,
+            song_bg_aspect: None,
         }
     }
 
@@ -199,6 +238,8 @@ impl GameLoop {
     pub(crate) fn set_session(&mut self, session: PlaySession) {
         // Everything decoded so far goes up before the music starts.
         self.playing_at = None;
+        self.guard = VideoGuard::default();
+        self.refresh_at_start = self.refresh_hz();
         self.upload_backgrounds();
         self.session = Some(session);
         self.done = false;
@@ -280,20 +321,68 @@ impl GameLoop {
                 depth_or_array_layers: 1,
             },
         );
+        if what == BgImage::Song {
+            self.song_bg_aspect = Some(width as f32 / height as f32);
+        }
         let id = self.renderer.add_background(&self.gfx.device, &texture);
         self.background_ids.push((what, id));
         self.uploaded_images.push(image);
     }
 
     /// A background movie of the song (a stored or linked file), played
-    /// when its changes come.
+    /// when its changes come; `probe`: the song's first movie, whose
+    /// picture sets the automatic background frame.
     pub(crate) fn add_movie(
         &mut self,
         name: String,
         blob: web_sys::Blob,
         format: ddi_platform::video::VideoFormat,
+        probe: bool,
     ) {
-        self.movies.add_source(name, blob, format);
+        self.movies.add_source(name, blob, format, probe);
+    }
+
+    /// The video settings of the plays to come; `slow` is the testing aid
+    /// that forces the automatic rule.
+    pub(crate) fn set_video(&mut self, mode: VideoMode, frame: BackgroundFrame, slow: bool) {
+        self.video_mode = mode;
+        self.frame_setting = frame;
+        self.slow = slow;
+    }
+
+    /// Why the automatic setting turned the movies off this play.
+    pub(crate) fn video_stopped(&self) -> Option<StopReason> {
+        self.movies.off()
+    }
+
+    /// Where the video decoder stands, once a movie asked for it.
+    pub(crate) fn video_status(&self) -> Option<crate::web::video::ModuleStatus> {
+        self.movies.module_status()
+    }
+
+    /// The shape backgrounds are fitted into (`None`: the whole screen).
+    /// The automatic one follows the song's first movie, else its
+    /// background image, and settles once a movie frame shows, or when the
+    /// song starts with nothing left to learn.
+    fn frame_aspect(&mut self, started: bool) -> Option<f32> {
+        match self.frame_setting {
+            BackgroundFrame::Screen => return None,
+            BackgroundFrame::FourThree => return Some(FOUR_THREE),
+            BackgroundFrame::SixteenNine => return Some(SIXTEEN_NINE),
+            BackgroundFrame::Auto => {}
+        }
+        if let Some(frame) = self.frozen_frame {
+            return frame;
+        }
+        let (movie, probing) = match self.movies.picture_aspect() {
+            Ok(a) => (Some(a), false),
+            Err(probing) => (None, probing),
+        };
+        let frame = movie.or(self.song_bg_aspect).map(cabinet_shape);
+        if self.movies.shown_any() || (started && !probing) {
+            self.frozen_frame = Some(frame);
+        }
+        frame
     }
 
     /// The background changes of the song about to play (empty: none).
@@ -333,7 +422,7 @@ impl GameLoop {
     pub(crate) fn clear_session(&mut self) {
         self.session = None;
         self.lyrics = None;
-        self.movies.stop();
+        self.movies.reset();
     }
 
     /// Element that receives the debug text, or `None` to disable.
@@ -359,8 +448,20 @@ impl GameLoop {
     /// One animation frame. `time_ms` is the rAF timestamp (performance timeline).
     pub(crate) fn frame(&mut self, time_ms: f64) {
         self.fit_canvas();
-        self.fps.tick(time_ms);
+        let second = self.fps.tick(time_ms);
         self.upload_backgrounds();
+        let drawing = self.movies.drawing(&self.background_schedule);
+        if self.slow && drawing.is_some() {
+            let now = || {
+                web_sys::window()
+                    .and_then(|w| w.performance())
+                    .map_or(0.0, |p| p.now())
+            };
+            let until = now() + 40.0;
+            while now() < until {}
+        }
+        let started = self.session.as_ref().is_some_and(|s| s.player.started());
+        let frame_aspect = self.frame_aspect(started);
         let host_now = HostTime(time_ms / 1000.0);
 
         let mut outcome = None;
@@ -424,8 +525,18 @@ impl GameLoop {
                         &self.gfx.device,
                         &self.gfx.queue,
                     );
+                    if self.video_mode == VideoMode::Auto {
+                        let refresh = self.refresh_at_start.max(self.refresh_hz());
+                        let late = self.movies.stats().late;
+                        if let Some(reason) =
+                            self.guard.update(time_ms, drawing, second, refresh, late)
+                        {
+                            self.movies.turn_off(reason);
+                        }
+                    }
                 }
                 let mut render = session.render;
+                render.frame_aspect = frame_aspect;
                 render.backdrop = Self::backdrop(
                     &mut self.shown_cache,
                     &self.background_ids,

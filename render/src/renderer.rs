@@ -127,13 +127,16 @@ impl Renderer {
             // accurate colour mode showed it in linear light.
             t.color = to_target(t.color, self.srgb);
         }
-        let background_layers = self.background.prepare(
+        let background = self.background.prepare(
+            device,
             queue,
             width as f32,
             height as f32,
             opts.background,
             opts.backdrop,
+            opts.frame_aspect,
         );
+        self.background.draw_extension(encoder, &background);
         self.sprites
             .set_viewport(queue, width as f32, height as f32, frame.song_time as f32);
         self.sprites.upload(device, queue, &scene.instances);
@@ -156,7 +159,7 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            self.background.draw(&mut pass, background_layers);
+            self.background.draw(&mut pass, &background);
             self.sprites.draw(&mut pass, self.instance_count);
             self.text.draw(&mut pass);
         }

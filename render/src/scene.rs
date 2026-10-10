@@ -148,6 +148,9 @@ pub struct RenderOptions {
     pub background: f32,
     /// Which background images to show this frame.
     pub backdrop: crate::background::Backdrop,
+    /// The shape (width over height) backgrounds are fitted into, centred,
+    /// with a blurred extension around it; `None`: the whole screen.
+    pub frame_aspect: Option<f32>,
     /// How notes are coloured (an explicit chart colour still wins).
     pub note_colors: ColorScheme,
     /// Draw notes in the colours a chart gives them (Dancing☆Onigiri

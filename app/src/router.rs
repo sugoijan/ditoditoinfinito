@@ -19,6 +19,9 @@ pub(crate) enum Route {
         auto_pad: bool,
         /// `bias=<ms>` makes autoplay press late by that much (testing).
         bias_ms: i64,
+        /// `slow=1` makes each frame 40 ms longer while a background movie
+        /// is drawn, to test the automatic video setting.
+        slow: bool,
     },
     Options,
     Calibrate,
@@ -65,6 +68,7 @@ impl Route {
                 auto: params.get("auto").is_some_and(|a| a == "1" || a == "pad"),
                 auto_pad: params.get("auto").is_some_and(|a| a == "pad"),
                 bias_ms: parse_bias(&params),
+                slow: params.get("slow").is_some_and(|v| v == "1"),
             },
             "options" => Route::Options,
             "calibrate" => Route::Calibrate,
@@ -102,15 +106,17 @@ impl Route {
                 auto,
                 auto_pad,
                 bias_ms,
+                slow,
             } => {
                 let gl = if *force_gl { "&gfx=gl" } else { "" };
+                let slow = if *slow { "&slow=1" } else { "" };
                 let auto = match (*auto, *auto_pad) {
                     (_, true) => "&auto=pad",
                     (true, false) => "&auto=1",
                     (false, false) => "",
                 };
                 format!(
-                    "#/play?song={}&chart={chart}{gl}{auto}{}",
+                    "#/play?song={}&chart={chart}{gl}{auto}{}{slow}",
                     percent_encode(song),
                     bias_param(*bias_ms)
                 )
@@ -247,7 +253,7 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn parse_play_route() {
-        let r = Route::parse("#/play?song=into%2Dmy%2Ddream&chart=2&gfx=gl&auto=1");
+        let r = Route::parse("#/play?song=into%2Dmy%2Ddream&chart=2&gfx=gl&auto=1&slow=1");
         assert_eq!(
             r,
             Route::Play {
@@ -257,6 +263,7 @@ mod tests {
                 auto: true,
                 auto_pad: false,
                 bias_ms: 0,
+                slow: true,
             }
         );
         assert_eq!(Route::parse(""), Route::Home);

@@ -56,6 +56,12 @@ pub(crate) struct Settings {
     pub(crate) lyrics: bool,
     /// Song background brightness, 0..=1; 0 turns the background off.
     pub(crate) bg_brightness: f32,
+    /// Whether background-change movies play.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) video: VideoMode,
+    /// The shape backgrounds and movies are fitted into.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) background_frame: BackgroundFrame,
     /// Darkening behind the lanes, one of [`FIELD_FILTERS`] (0 = off).
     pub(crate) field_filter: f32,
     /// Layout id the song list shows charts of (`dance-single`, …).
@@ -111,6 +117,35 @@ pub(crate) fn volume_to_slider(gain: f32) -> f32 {
 /// Gain for a volume slider position; inverse of [`volume_to_slider`].
 pub(crate) fn slider_to_volume(position: f32) -> f32 {
     position.clamp(0.0, 1.0).powi(3)
+}
+
+/// Whether background-change movies play.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum VideoMode {
+    /// Play them, and turn one off for the rest of the song when it costs
+    /// frames (the display falls behind or the decoder cannot keep up).
+    #[default]
+    Auto,
+    /// Always play them.
+    On,
+    /// Never: the decoder is never fetched.
+    Off,
+}
+
+/// The shape backgrounds and movies are fitted into (StepMania's cover
+/// fit inside it); outside it the screen shows a blurred extension of it.
+/// Pack assets were drawn for a cabinet's screen, so a still and a movie
+/// line up in the frame they were made for.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum BackgroundFrame {
+    /// The song's movie picture (its frame less its own black bars), else
+    /// the background image's shape.
+    #[default]
+    Auto,
+    FourThree,
+    SixteenNine,
+    /// The whole screen (StepMania's look on the same display).
+    Screen,
 }
 
 /// Note colour scheme (see `ddi_render::note_colors`).
@@ -182,6 +217,8 @@ impl Default for Settings {
             import_copy: false,
             import_videos: false,
             bg_brightness: 0.4,
+            video: VideoMode::Auto,
+            background_frame: BackgroundFrame::Auto,
             field_filter: 0.4,
             style: "dance-single".into(),
             ruleset: "itg".into(),

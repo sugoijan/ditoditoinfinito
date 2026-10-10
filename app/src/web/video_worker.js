@@ -3,16 +3,20 @@
 // is a WASI reactor: this file implements the WASI calls it imports, over
 // the `Blob`s the page sends, read with `FileReaderSync`. Embedded in the
 // app (`video.rs`) and started from a blob URL, so it always matches the
-// app's protocol; the module is fetched on the first `open`.
+// app's protocol; the module is fetched on `load` or the first `open`.
 //
 // Page → worker: {type: "init", base} (URL of the module's folder), then
+//   {type: "load"} (fetch the module now, while the start prompt is up),
 //   {type: "open", id, blob, name}, {type: "seek", id, t, gen},
-//   {type: "want", id, n, gen}, {type: "close", id}.
+//   {type: "want", id, n, gen}, {type: "close", id},
+//   {type: "probe", id, blob, name} (sample the picture; step 5).
 // Worker → page: {type: "loading", loaded, total}, {type: "ready", ms,
 //   version}, {type: "failed", message} (the module), {type: "opened", id,
 //   width, height, duration, codec}, {type: "frame", id, gen, pts, width,
 //   height, colorspace, full_range, decode_ms, planes} (planes transferred),
-//   {type: "eof", id, gen, last}, {type: "error", id, message}.
+//   {type: "eof", id, gen, last}, {type: "error", id, message},
+//   {type: "probed", id, width, height, full_range, planes} (Y planes of
+//   the sampled frames, transferred).
 // Messages are handled one at a time, in order; frames are decoded only on
 // `want`, so the page sets the queue depth. A seek cancels the wants from
 // before it (they carry the old `gen`), and so does the end of the movie:
@@ -29,6 +33,10 @@ const READ_AHEAD = 64 * 1024;
 const MAX_LOG_LINES = 200;
 // Consecutive frames that fail to decode before the movie counts as broken.
 const MAX_BAD_FRAMES = 50;
+// Where the black-bar probe samples a movie, as shares of its duration, or
+// in seconds when the duration is unknown.
+const PROBE_SHARES = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9];
+const PROBE_SECONDS = [1, 3, 6, 10, 15, 20];
 
 let base = null;
 let compiled = null; // the compiled module, kept to restart after a crash
@@ -326,22 +334,41 @@ function cStringAt(ptr) {
 
 // --- Messages -----------------------------------------------------------
 
-async function open({ id, blob, name }) {
+// The module, ready to open movies; false (with `failed` and `error`
+// posted) when it could not be loaded.
+async function ready(id) {
   try {
     await ensureInstance();
+    return true;
   } catch (e) {
     post({ type: "failed", message: e.message || String(e) });
-    post({ type: "error", id, message: e.message || String(e) });
-    return;
+    if (id !== undefined) post({ type: "error", id, message: e.message || String(e) });
+    return false;
   }
-  const extension = (/\.[A-Za-z0-9]{1,8}$/.exec(name || "") || [""])[0];
-  const fileName = id + extension.toLowerCase();
+}
+
+// Opens `blob` in the module as `/v/<fileName>`: the movie, or 0 (the name
+// is then released).
+function openFile(fileName, blob) {
   files.set(fileName, blob);
   const path = cString(PREOPEN + "/" + fileName);
   const ptr = exports.ddi_open(path);
   exports.ddi_free(path);
+  if (!ptr) files.delete(fileName);
+  return ptr;
+}
+
+const extensionOf = (name) => ((/\.[A-Za-z0-9]{1,8}$/.exec(name || "") || [""])[0]).toLowerCase();
+
+async function preload() {
+  await ready();
+}
+
+async function open({ id, blob, name }) {
+  if (!(await ready(id))) return;
+  const fileName = id + extensionOf(name);
+  const ptr = openFile(fileName, blob);
   if (!ptr) {
-    files.delete(fileName);
     post({ type: "error", id, message: "cannot open " + name + " (not a movie the decoder knows)" });
     return;
   }
@@ -421,7 +448,54 @@ function close({ id }) {
   files.delete(video.fileName);
 }
 
-const handlers = { open, want, seek, close };
+// Samples the movie's picture for the black-bar probe: the Y planes of a
+// few frames spread through it, each the first from a keyframe
+// (`ddi_seek_key`; a module without it seeks exactly, which is slower).
+async function probe({ id, blob, name }) {
+  if (!(await ready(id))) return;
+  const fileName = "probe-" + id + extensionOf(name);
+  const ptr = openFile(fileName, blob);
+  if (!ptr) {
+    post({ type: "error", id, message: "cannot open " + name + " (not a movie the decoder knows)" });
+    return;
+  }
+  const duration = exports.ddi_duration(ptr);
+  const times = duration > 0 ? PROBE_SHARES.map((s) => s * duration) : PROBE_SECONDS;
+  const seekKey = exports.ddi_seek_key || exports.ddi_seek;
+  const planes = [];
+  let width = 0;
+  let height = 0;
+  let fullRange = false;
+  const sample = (seek, t) => {
+    seek(ptr, t);
+    let pts = -2;
+    for (let tries = 0; tries < 8 && pts === -2; tries++) pts = exports.ddi_next(ptr);
+    return pts;
+  };
+  for (const t of times) {
+    let pts = sample(seekKey, t);
+    // Without a keyframe index (MPEG-TS) the seek can land past the last
+    // keyframe: seek exactly instead.
+    if (pts === -1) pts = sample(exports.ddi_seek, t);
+    if (pts < 0) continue;
+    const w = exports.ddi_width(ptr);
+    const h = exports.ddi_height(ptr);
+    if (!planes.length) {
+      width = w;
+      height = h;
+      fullRange = exports.ddi_full_range(ptr) !== 0;
+    } else if (w !== width || h !== height) {
+      continue;
+    }
+    const at = exports.ddi_planes(ptr);
+    planes.push(exports.memory.buffer.slice(at, at + w * h));
+  }
+  exports.ddi_close(ptr);
+  files.delete(fileName);
+  post({ type: "probed", id, width, height, full_range: fullRange, planes }, planes);
+}
+
+const handlers = { load: preload, open, want, seek, close, probe };
 let queue = Promise.resolve();
 
 self.onmessage = (event) => {
@@ -434,7 +508,7 @@ self.onmessage = (event) => {
   if (!handler) return;
   queue = queue.then(async () => {
     // A movie whose open failed has no state; later messages are dropped.
-    if (msg.type !== "open" && !videos.has(msg.id)) return;
+    if (msg.type !== "open" && msg.type !== "probe" && msg.type !== "load" && !videos.has(msg.id)) return;
     try {
       await handler(msg);
     } catch (e) {
