@@ -53,8 +53,12 @@ def cap(color):
 png(f"{out}/Down Hold BottomCap Active.png", F, 32, cap([60, 230, 90]))
 png(f"{out}/Down Hold BottomCap Inactive.png", F, 32, cap([150, 150, 150]))
 def receptor(x, y):
-    u, v = (x + 0.5) / F, (y + 0.5) / F
-    edge = arrow(u, v) and not arrow(0.5 + (u - 0.5) * 1.25, 0.5 + (v - 0.5) * 1.25)
+    # A 3 px outline of the arrow: inside it, with a pixel outside nearby.
+    def inside(px, py):
+        return 0 <= px < F and 0 <= py < F and arrow((px + 0.5) / F, (py + 0.5) / F)
+    if not inside(x, y):
+        return [0, 0, 0, 0]
+    edge = any(not inside(x + dx, y + dy) for dx in range(-3, 4) for dy in range(-3, 4))
     return [255, 255, 255, 255] if edge else [0, 0, 0, 0]
 png(f"{out}/Down Receptor.png", F, F, receptor)
 def glow(x, y):

@@ -640,6 +640,18 @@ state says which decoder); Firefox and Safari by the maintainer.
   under BT.601 and BT.709, limited and full range. Chrome's own
   conversion came out closest to what the module uses (BT.601 limited
   0.6 for 640×360, BT.709 limited 0.4 for 1280×720).
+- Firefox on macOS (maintainer, 2026-10-11): every file's times match the
+  module's; its conversion is closest to BT.709 limited for every size
+  (mean difference 0.3–0.7 of 255; against BT.601 limited, which the
+  module uses for SD, 1.1–2.2), no difference visible side by side, so it
+  is left as it is.
+  Seeks with two frames of delay used to stop near a movie's end: Firefox
+  holds frames back and gives them out in timestamp order, copied frames
+  waiting on a held one counted toward the frames in flight, and the nudge
+  only looked at the decoder's. It now nudges whenever the queue is
+  starved and blocked; the four such files seek 53 or 54 of 53 or 54
+  exact. JOMANDA plays on the direct path (`browser_frames: "direct"`,
+  none dropped or late).
 
 ## Step 7. Documentation and handover
 
