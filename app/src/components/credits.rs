@@ -12,6 +12,20 @@ struct Credits {
     songs: Vec<SongCredit>,
     fonts: Vec<FontCredit>,
     video: VideoCredit,
+    #[serde(default)]
+    code: Vec<CodeCredit>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct CodeCredit {
+    name: String,
+    what: String,
+    license: String,
+    holders: Vec<String>,
+    source: String,
+    commit: String,
+    license_url: String,
+    notice: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -103,7 +117,7 @@ impl Component for CreditsScreen {
             Some(Err(e)) => html! { <p class="error">{ e }</p> },
             Some(Ok(c)) => html! {
                 <>
-                    <p>{ "Dito Dito Infinito's code is MIT-licensed. The bundled demo songs and fonts and the video decoder are third-party works used under their own licences, credited here as those licences require." }</p>
+                    <p>{ "Dito Dito Infinito's code is MIT-licensed. The bundled demo songs and fonts, the video decoder and the code from other projects are third-party works used under their own licences, credited here as those licences require." }</p>
                     <h2>{ "Songs" }</h2>
                     { for c.songs.iter().map(song) }
                     <h2>{ "Fonts" }</h2>
@@ -117,6 +131,12 @@ impl Component for CreditsScreen {
                         }) }
                     </ul>
                     { video(&c.video) }
+                    { if c.code.is_empty() { html!{} } else { html! {
+                        <section>
+                            <h2>{ "Code from other projects" }</h2>
+                            { for c.code.iter().map(code) }
+                        </section>
+                    } } }
                 </>
             },
         };
@@ -150,6 +170,25 @@ fn song(s: &SongCredit) -> Html {
                 { if s.excluded.is_empty() { html!{} } else { html!{ <li class="muted">{ "not included: " }{ s.excluded.join("; ") }</li> } } }
                 <li class="muted">{ if s.modifications.is_empty() { "modifications: none".to_string() } else { format!("modifications: {}", s.modifications.join("; ")) } }</li>
             </ul>
+        </section>
+    }
+}
+
+fn code(k: &CodeCredit) -> Html {
+    html! {
+        <section class="credit-song">
+            <h3>{ &k.name }</h3>
+            <p>{ &k.what }</p>
+            <p class="muted">
+                { format!("{} · ", k.holders.join("; ")) }
+                <a href={k.source.clone()}>{ "source" }</a>
+                { format!(" (commit {}) · ", &k.commit[..k.commit.len().min(10)]) }
+                <a href={k.license_url.clone()}>{ &k.license }</a>
+            </p>
+            <details>
+                <summary>{ "Notice" }</summary>
+                <pre class="credit-flags">{ &k.notice }</pre>
+            </details>
         </section>
     }
 }

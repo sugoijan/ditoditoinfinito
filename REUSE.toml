@@ -19,6 +19,15 @@ path = ["chart/src/layout/danoni_table.rs", "chart/src/formats/danoni/keycodes.r
 SPDX-FileCopyrightText = "2018 tickle"
 SPDX-License-Identifier = "MIT"
 
+# StepMania 5.1's noteskin metrics (NoteSkins/dance/default/metrics.ini and
+# NoteSkins/common/common/metrics.ini at stepmania/stepmania 825467b),
+# byte for byte; its licence is Docs/Licenses.txt there. Credited through
+# THIRD_PARTY.toml.
+[[annotations]]
+path = ["noteskin/src/builtin/stepmania/**"]
+SPDX-FileCopyrightText = ["Chris Danford, the StepMania development team, et al.", "AJ Kelly, Midiman, shakesoda (the spinal shark collective), and other contributors"]
+SPDX-License-Identifier = "LicenseRef-StepMania"
+
 # Bundled songs live under assets/songs/<slug>/ and are NOT MIT. Each song gets
 # its own annotations below naming the musician, chart authors and graphic
 # authors with the exact licence of each file. See docs/PLAN.md §8.
