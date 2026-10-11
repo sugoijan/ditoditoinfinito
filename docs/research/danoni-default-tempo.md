@@ -132,3 +132,17 @@ All other works fit automatically, with maximum endpoint shifts below 9 ms.
 The canonical packs remain under `~/Music/DanOni/exports/`; originals, tempo
 cache and previous generations stay local. Reimporting formerly native CW songs
 creates SSC-based IDs, so an existing user library may retain its old copies.
+
+## Shared-song timing refinement (2026-10-11)
+
+The [shared-song fitting handover](danoni-shared-tempo.md) supersedes the
+assumption that multiple charts need one identical musical grid. Raw spectral
+analysis is reused, while independent chart phases and tightly bounded tempo
+refinements require majority support and audio agreement. SSC chart-local
+`#OFFSET`, `#BPMS` and `#SCROLLS` carry each grid; the song header uses the shared
+consensus. Native compensation uses each chart's BPM. The source endpoint budget,
+collision safeguards, explicit reviews, original music and single-chart policy
+remain unchanged. Weak phases retain conservative fallback rather than forcing
+all notes onto a lattice. Complete candidate/support evidence is cached beside
+`analysis.json` and `grid.json`; synthetic tests exercise noisy/disagreeing
+charts, refinement boundaries, per-chart serialization and cache reuse.

@@ -83,8 +83,9 @@ def select_grid(track):
 
 def automatic_review(source, manifest_bytes, entries, output, cache=None):
     import analyze_tempo
+    import shared_tempo
     source_hash=digest(manifest_bytes)
-    key=digest((source_hash+digest(Path(__file__).with_name('musical_grid.py').read_bytes())+digest(Path(__file__).read_bytes())+digest(Path(analyze_tempo.__file__).read_bytes())+digest(Path(__file__).with_name('requirements-analysis.txt').read_bytes())+digest(Path(__file__).with_name('pack_policy.py').read_bytes())).encode())
+    key=digest((source_hash+digest(Path(__file__).with_name('musical_grid.py').read_bytes())+digest(Path(__file__).read_bytes())+digest(Path(analyze_tempo.__file__).read_bytes())+digest(Path(__file__).with_name('requirements-analysis.txt').read_bytes())+digest(Path(__file__).with_name('pack_policy.py').read_bytes())+digest(Path(shared_tempo.__file__).read_bytes())).encode())
     folder=external_directory(cache)/key if cache else output/'automatic-tempo'
     target=folder/'grid.json'
     def insufficient(reason):
@@ -115,7 +116,7 @@ def automatic_review(source, manifest_bytes, entries, output, cache=None):
         except ValueError as error:
             if str(error)!='Need at least eight finite distinct note times':raise
             return insufficient(str(error))
-        charts={}
+        charts={};shared_evidence=[]
         for track in report['tracks']:
             selected=[e for e in entries if e['id']in track['chartIds']]
             track={**track,'distinctTimesSeconds':sorted(set(t for e in selected for l in e['chart']['lanes']for t in l['tapsSeconds']+[a for a,b in l['holdsSeconds']]))}
@@ -125,17 +126,24 @@ def automatic_review(source, manifest_bytes, entries, output, cache=None):
             except ValueError as error:
                 if str(error)!='No usable audio pulse to establish a musical tempo':raise
                 return insufficient(str(error))
+            grids={entry['id']:grid for entry in selected}
+            if len(selected)>1:
+                times={e['id']:sorted(set(t for lane in e['chart']['lanes']for t in lane['tapsSeconds']+[a for a,b in lane['holdsSeconds']]))for e in selected}
+                grids,evidence=shared_tempo.select_shared_grids(track,times,grid['alternativePulses'],grid)
+                shared_evidence.append({'chartIds':track['chartIds'],**evidence})
             # Verify lane relationships before accepting an estimated grid.
             try:
-                for entry in selected:quantize_lanes(entry['chart'],grid);charts[entry['id']]=grid
+                for entry in selected:quantize_lanes(entry['chart'],grids[entry['id']]);charts[entry['id']]=grids[entry['id']]
             except ValueError as error:
                 if str(error)not in ('Musical quantization exceeds its explicit timing budget','Fine musical grid cannot preserve lane relationships'):raise
                 return insufficient(str(error))
         review={'schema':'ddi-reviewed-musical-grid/experimental-1','sourceManifestSha256':source_hash,'charts':charts,
                 'origin':'default estimated grid, independently bounded against every source endpoint','analysisSha256':digest((folder/'analysis.json').read_bytes()),'cacheKey':key}
+        if shared_evidence:write_json(folder/'shared-charts.json',{'schema':'ddi-shared-tempo-analysis/experimental-1','sourceManifestSha256':source_hash,'policySourceSha256':digest(Path(shared_tempo.__file__).read_bytes()),'tracks':shared_evidence})
         write_json(target,review)
     if folder!=output/'automatic-tempo':
         destination=output/'automatic-tempo';destination.mkdir()
         shutil.copyfile(target,destination/'grid.json')
-        if (folder/'analysis.json').exists():shutil.copyfile(folder/'analysis.json',destination/'analysis.json')
+        for name in ('analysis.json','shared-charts.json'):
+            if (folder/name).exists():shutil.copyfile(folder/name,destination/name)
     return review

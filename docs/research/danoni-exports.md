@@ -17,6 +17,11 @@ has 40 required and 96 pending source entries; one extra タイヨウノハナ s
 remains explicitly pending within an admitted work. The previous 33 songs retain
 their accepted playable files.
 
+The [shared-song timing refinement](danoni-shared-tempo.md) regenerates the same
+44-song corpus with independently fitted chart phases and tempo refinements.
+Shared-song SSC timing can change; original source references and media remain
+unchanged. Chart-specific inverse scroll compensation retains native movement.
+
 ## Previous paired-source admission
 
 The [paired-source admission](danoni-paired-ports.md) added Saigetsu and the

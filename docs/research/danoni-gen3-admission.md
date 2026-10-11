@@ -111,9 +111,10 @@ fallback when joint chart coherence is weak. Their fine-tick fallback endpoint
 counts are 3,336/3,786, 2,332/3,067 and 1,196/1,562 respectively. These preserve
 timing but offer weaker musical coloring evidence than the other new works.
 Cynthia's catalogue additionally publishes 187 BPM; the automatic audio fallback
-selects approximately 186.233. The next fitting investigation should compare
-individual chart phases and independent tempo candidates for shared music,
-rather than giving each pack its own thresholds. Original native note frames,
+selects approximately 186.233. These were the original admission results. The
+[subsequent generic refinement](danoni-shared-tempo.md) now compares independent
+chart phases and tightly bounded tempo refinements: rhythmic endpoint coverage
+rises to 91%, 97% and 95% respectively, without pack-specific thresholds. Original native note frames,
 PCM and fit diagnostics remain available for that comparison.
 
 ## Local layout and reruns

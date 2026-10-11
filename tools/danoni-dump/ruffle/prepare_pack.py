@@ -179,8 +179,7 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
                 motions={e['id']:{'baseArrowHeightsPerSecond':75/60,'scope':'Preserves the prior 75 BPM SSC baseline; native movement was not measured'}for e in entries}
     groups={}
     for e in entries:groups.setdefault(e['music']['sha256'],[]).append(e)
-    for group in groups.values():
-        if grids and any(grids[e['id']]!=grids[group[0]['id']] for e in group):raise ValueError('Charts sharing music need the same reviewed musical grid')
+    if grids and set(grids)!={e['id']for e in entries}:raise ValueError('Musical grid review must cover every chart exactly')
     if grid_bytes:write_json(output/'musical-grid-review.json',json.loads(grid_bytes))
     if motion_bytes:write_json(output/'native-scroll-review.json',json.loads(motion_bytes))
     evidence_paths={}
@@ -217,7 +216,7 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
         if banner:(folder/'banner.png').write_bytes(banner['bytes'])
         meta=first['metadata'];title=meta.get('title',meta.get('musicTitle',first['id']));artist=meta.get('artist','')
         if any(c in str(title)+str(artist) for c in ';\r\n'):raise ValueError('Unrepresentable header')
-        grid=grids.get(first['id']);timing_bpm=grid['bpm'] if grid else 75;phase=grid['beatZeroSeconds'] if grid else 0
+        grid=grids.get(first['id']);timing_bpm=grid.get('sharedTempo',{}).get('consensusBpm',grid['bpm']) if grid else 75;phase=grid['beatZeroSeconds'] if grid else 0
         text=(f'#VERSION:0.83;\n#TITLE:{ssc_value(title)};\n#ARTIST:{ssc_value(artist)};\n#MUSIC:{name};\n#OFFSET:{-phase:.15g};\n#BPMS:0={timing_bpm:.15g};\n'
               +f"#SAMPLESTART:{preview['startSeconds']:.9g};\n#SAMPLELENGTH:{preview['lengthSeconds']:.9g};\n")
         if banner:text+='#BANNER:banner.png;\n'
@@ -229,7 +228,8 @@ def prepare(source,output,codec,ffmpeg,vorbis_encoder=None,bounds=(1,3,5,7),prev
         duplicates=Counter((e['chart']['mode'],e['stars'])for e in group if e['stars']is not None)
         for i,e in enumerate(group):
             tier=tier_for_stars(e['stars'],bounds) if tier_policy=='stars' else 'Edit'
-            native_report=scroll_summary(motions.get(e['id']),timing_bpm,scroll_factor)
+            chart_grid=grids.get(e['id']);chart_bpm=chart_grid['bpm']if chart_grid else 75
+            native_report=scroll_summary(motions.get(e['id']),chart_bpm,scroll_factor)
             if native_report and e['id'] in evidence_paths:native_report['evidenceStoredAt']=evidence_paths[e['id']]
             preserve_label=duplicates[(e['chart']['mode'],e['stars'])]>1
             text+=ssc_chart(e['chart'],tier,e['stars'],grids.get(e['id']),motions.get(e['id']),scroll_factor,preserve_label)

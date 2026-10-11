@@ -826,3 +826,20 @@ A selector is not accepted solely because its sibling charts work: the fifth
 タイヨウノハナ converter halts under the bounded native executor. Its diagnostics
 and published rating remain evidence, without an exported chart. Author boosts,
 custom fades and other presentation retain the existing explicit limitations.
+
+### Shared recordings do not imply identical chart grids (2026-10-11)
+
+The [shared-song fitting comparison](danoni-shared-tempo.md) finds distinct
+phases and small authored tempo approximations among charts sharing exactly
+the same canonical PCM. Pooling all head timestamps can cancel circular phase
+evidence; fit chart phases independently and preserve weak/non-grid portions.
+The generic policy requires majority chart support and agreement with audio,
+allows at most a 0.15% local tempo refinement, and retains the 9 ms endpoint
+budget. Original frame references and decoder origins remain authoritative.
+
+SSC's existing [split timing](formats-sm-ssc-dwi.md) expresses these estimates
+with each chart's own `#OFFSET`, `#BPMS` and `#SCROLLS`. Native scroll compensation
+must use that chart's BPM, even when the song-level header uses a shared median.
+This changes musical coordinates/coloring without changing the music or the
+player's speed setting. No fitted grid establishes the original editor's
+downbeat, a unique tempo octave, or a recovered variable-tempo map.

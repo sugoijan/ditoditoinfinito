@@ -44,6 +44,29 @@ class Automatic(unittest.TestCase):
                     self.assertEqual(report['sourceManifestSha256'],digest(raw))
                     self.assertEqual(report['fallback'],'exact source frame clock')
 
+    def test_shared_decision_cache_preserves_distinct_grids_and_diagnostics(self):
+        grids={ident:validate_grid({'bpm':bpm,'beatZeroSeconds':phase,'subdivisionsPerBeat':2})
+               for ident,bpm,phase in [('a',120,.1),('b',120.1,.13)]}
+        entries=[{'id':ident,'metadata':{},'chart':{'lanes':[{'tapsSeconds':[1,2,3],'holdsSeconds':[[4,5]]}]}}for ident in grids]
+        raw=b'original shared-music manifest'
+        with tempfile.TemporaryDirectory(prefix='ddi-shared-cache-')as directory:
+            root=Path(directory)
+            def analyze(source,path):
+                report={'sourceManifestSha256':digest(raw),'tracks':[{'chartIds':['a','b']}]}
+                path.write_text(json.dumps(report));return report
+            legacy={**grids['a'],'alternativePulses':[]}
+            with patch('analyze_tempo.analyze',side_effect=analyze)as analyzer,patch('automatic_tempo.select_grid',return_value=legacy),patch('shared_tempo.select_shared_grids',return_value=(grids,{'status':'synthetic-consensus'}))as selector:
+                for name in ['first','cached']:
+                    out=root/name;out.mkdir();result=automatic_review(root,raw,entries,out,root/'cache')
+                    self.assertEqual(result['charts'],grids)
+                    evidence=json.loads((out/'automatic-tempo/shared-charts.json').read_text())
+                    self.assertEqual(evidence['sourceManifestSha256'],digest(raw))
+                    self.assertEqual(evidence['tracks'][0]['chartIds'],['a','b'])
+                self.assertEqual(analyzer.call_count,1);self.assertEqual(selector.call_count,1)
+                entries[1]['chart']['lanes'][0]['tapsSeconds']=[1,1]
+                out=root/'changed';out.mkdir()
+                with self.assertRaises(ValueError):automatic_review(root,raw,entries,out,root/'cache')
+
     def test_decision_cache_reuses_analysis_and_rechecks_current_notes(self):
         grid=validate_grid({'bpm':120,'beatZeroSeconds':0,'subdivisionsPerBeat':2})
         chart={'lanes':[{'tapsSeconds':[1,2,3],'holdsSeconds':[[4,5]]}]}
