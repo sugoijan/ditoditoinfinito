@@ -177,43 +177,12 @@ impl Builder<'_, '_> {
         }
     }
 
-    /// `LoadActor` of a bitmap: a sprite of the texture's frames, 0.1 s
-    /// each (`Sprite::LoadStatesFromTexture`).
     fn image_sprite(&mut self, f: &FileRef) -> Option<Actor> {
-        let (w, h) = self.images.size(f.dir, &f.path)?;
-        let sheet = self.skin.hints(f).sheet(w, h, self.images.max_size());
-        let count = sheet.frame_count().min(4096);
-        let states = (0..count)
-            .map(|i| State {
-                rect: sheet.frame_rect(i),
-                delay: 0.1,
-            })
-            .collect();
-        let (fw, fh) = sheet.frame_size();
-        let id = self.textures.id(TextureKey::Skin {
-            dir: f.dir,
-            path: f.path.clone(),
-        });
-        let mut sprite = Sprite::new(id, states, [fw, fh]);
-        sprite.padded_to_image = sheet.from_padded([1.0, 1.0]);
-        Some(Actor::new(Kind::Sprite(sprite)))
+        image_sprite(self.skin, self.textures, self.images, f)
     }
 
-    /// A stand-in's image: its frames from its name, each shown at 64 px.
     fn builtin_sprite(&mut self, name: &str) -> Actor {
-        let hints = crate::hints::Hints::parse(name);
-        let (cols, rows) = hints.frames.unwrap_or((1, 1));
-        let k = if hints.doubleres { 128 } else { 64 };
-        let sheet = hints.sheet(cols * k, rows * k, u32::MAX);
-        let states = (0..sheet.frame_count())
-            .map(|i| State {
-                rect: sheet.frame_rect(i),
-                delay: 0.1,
-            })
-            .collect();
-        let id = self.textures.id(TextureKey::BuiltIn(name.to_string()));
-        let (fw, fh) = sheet.frame_size();
-        Actor::new(Kind::Sprite(Sprite::new(id, states, [fw, fh])))
+        builtin_sprite(self.textures, name)
     }
 
     /// `NOTESKIN:GetMetricA(section, name)`; a metric that is not there
@@ -330,6 +299,50 @@ impl Builder<'_, '_> {
         }
         f
     }
+}
+
+/// `LoadActor` of a bitmap: a sprite of the texture's frames, 0.1 s each
+/// (`Sprite::LoadStatesFromTexture`); `None` when the image cannot be read.
+pub(crate) fn image_sprite(
+    skin: &Skin<'_>,
+    textures: &mut Textures,
+    images: &dyn Images,
+    f: &FileRef,
+) -> Option<Actor> {
+    let (w, h) = images.size(f.dir, &f.path)?;
+    let sheet = skin.hints(f).sheet(w, h, images.max_size());
+    let count = sheet.frame_count().min(4096);
+    let states = (0..count)
+        .map(|i| State {
+            rect: sheet.frame_rect(i),
+            delay: 0.1,
+        })
+        .collect();
+    let (fw, fh) = sheet.frame_size();
+    let id = textures.id(TextureKey::Skin {
+        dir: f.dir,
+        path: f.path.clone(),
+    });
+    let mut sprite = Sprite::new(id, states, [fw, fh]);
+    sprite.padded_to_image = sheet.from_padded([1.0, 1.0]);
+    Some(Actor::new(Kind::Sprite(sprite)))
+}
+
+/// A stand-in's image: its frames from its name, each shown at 64 px.
+pub(crate) fn builtin_sprite(textures: &mut Textures, name: &str) -> Actor {
+    let hints = crate::hints::Hints::parse(name);
+    let (cols, rows) = hints.frames.unwrap_or((1, 1));
+    let k = if hints.doubleres { 128 } else { 64 };
+    let sheet = hints.sheet(cols * k, rows * k, u32::MAX);
+    let states = (0..sheet.frame_count())
+        .map(|i| State {
+            rect: sheet.frame_rect(i),
+            delay: 0.1,
+        })
+        .collect();
+    let id = textures.id(TextureKey::BuiltIn(name.to_string()));
+    let (fw, fh) = sheet.frame_size();
+    Actor::new(Kind::Sprite(Sprite::new(id, states, [fw, fh])))
 }
 
 fn visible(on: bool) -> Call {

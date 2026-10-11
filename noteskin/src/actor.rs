@@ -186,6 +186,10 @@ pub struct Sprite {
     /// The renderer's texture (an index it hands out).
     pub texture: u32,
     pub states: Vec<State>,
+    /// The texture's frames (what `Frames` and `SetStateProperties` index)
+    /// and the size one is shown at.
+    pub frames: Vec<[f32; 4]>,
+    pub frame_size: [f32; 2],
     /// The size a frame is shown at (`m_size`).
     pub size: [f32; 2],
     current: usize,
@@ -215,6 +219,8 @@ impl Sprite {
         };
         Sprite {
             texture,
+            frames: states.iter().map(|s| s.rect).collect(),
+            frame_size: size,
             states,
             size,
             current: 0,
@@ -283,6 +289,8 @@ pub enum Kind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Actor {
     pub name: String,
+    /// The actor's handle in its skin's Lua (`0`: none).
+    pub id: u32,
     pub kind: Kind,
     current: TweenState,
     start: TweenState,
@@ -311,6 +319,121 @@ pub struct Actor {
     rng: u64,
 }
 
+/// The methods [`Actor::call`] runs (the setters a skin's Lua may call);
+/// `playcommand` is the Lua driver's in a Lua skin.
+pub const METHODS: &[&str] = &[
+    "MaskDest",
+    "MaskSource",
+    "SetAllStateDelays",
+    "SetDrawByZPosition",
+    "SetHeight",
+    "SetSecondsIntoAnimation",
+    "SetTextureFiltering",
+    "SetUpdateRate",
+    "SetWidth",
+    "accelerate",
+    "addrotationz",
+    "addx",
+    "addy",
+    "addz",
+    "animate",
+    "basealpha",
+    "baserotationx",
+    "baserotationy",
+    "baserotationz",
+    "basezoom",
+    "basezoomx",
+    "basezoomy",
+    "blend",
+    "bob",
+    "bounce",
+    "bouncebegin",
+    "bounceend",
+    "clearzbuffer",
+    "cullmode",
+    "customtexturerect",
+    "decelerate",
+    "diffuse",
+    "diffusealpha",
+    "diffuseblink",
+    "diffusecolor",
+    "diffuseramp",
+    "diffuseshift",
+    "draworder",
+    "drop",
+    "effect_hold_at_full",
+    "effectclock",
+    "effectcolor1",
+    "effectcolor2",
+    "effectmagnitude",
+    "effectoffset",
+    "effectperiod",
+    "effecttiming",
+    "finishtweening",
+    "fov",
+    "glow",
+    "glowblink",
+    "glowramp",
+    "glowshift",
+    "halign",
+    "heartbeat",
+    "hibernate",
+    "horizalign",
+    "hurrytweening",
+    "linear",
+    "pause",
+    "play",
+    "pulse",
+    "queuecommand",
+    "rainbow",
+    "rotationx",
+    "rotationy",
+    "rotationz",
+    "set_use_effect_clock_for_texcoords",
+    "setsize",
+    "setstate",
+    "shadowlength",
+    "shadowlengthx",
+    "shadowlengthy",
+    "sleep",
+    "smooth",
+    "spin",
+    "spring",
+    "stopeffect",
+    "stoptweening",
+    "texcoordvelocity",
+    "thump",
+    "valign",
+    "vertalign",
+    "vibrate",
+    "visible",
+    "wag",
+    "x",
+    "xy",
+    "y",
+    "z",
+    "zbuffer",
+    "zoom",
+    "zoomto",
+    "zoomx",
+    "zoomy",
+    "zoomz",
+    "ztest",
+    "ztestmode",
+    "zwrite",
+];
+
+/// What a getter returns to Lua.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Num(f32),
+    Str(String),
+    Bool(bool),
+    Color(Rgba),
+    /// Several results.
+    Many(Vec<Value>),
+}
+
 /// Commands that went wrong, and methods this runtime does not have.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Problems {
@@ -328,7 +451,10 @@ impl Problems {
     fn spend(&mut self, actor: &str) -> bool {
         self.calls += 1;
         if self.calls == MAX_CALLS + 1 {
-            self.push(actor, "commands play each other without end; stopped".into());
+            self.push(
+                actor,
+                "commands play each other without end; stopped".into(),
+            );
         }
         self.calls <= MAX_CALLS
     }
@@ -383,6 +509,7 @@ impl Actor {
     pub fn new(kind: Kind) -> Actor {
         let mut a = Actor {
             name: String::new(),
+            id: 0,
             kind,
             current: TweenState::default(),
             start: TweenState::default(),
@@ -914,11 +1041,15 @@ impl Actor {
             Ok((t >= 0.0).then_some(t))
         };
         let negative = |problems: &mut Problems, name: &str| {
-            problems.push(name, format!("{}: tween time must not be negative", call.method));
+            problems.push(
+                name,
+                format!("{}: tween time must not be negative", call.method),
+            );
         };
         match call.method.as_str() {
             // Tweens.
-            "linear" | "accelerate" | "decelerate" | "spring" | "smooth" | "bouncebegin" | "bounceend" | "drop" | "sleep" => {
+            "linear" | "accelerate" | "decelerate" | "spring" | "smooth" | "bouncebegin"
+            | "bounceend" | "drop" | "sleep" => {
                 let Some(t) = tween_time()? else {
                     negative(problems, &self.name);
                     return Ok(());
@@ -1203,7 +1334,8 @@ impl Actor {
                 let v = [num(0)?, num(1)?];
                 if let Kind::Sprite(s) = &mut self.kind {
                     // Padded-texture units, as StepMania's coordinates are.
-                    s.texcoord_velocity = [v[0] * s.padded_to_image[0], v[1] * s.padded_to_image[1]];
+                    s.texcoord_velocity =
+                        [v[0] * s.padded_to_image[0], v[1] * s.padded_to_image[1]];
                     // `SetCustomTextureCoords`: the frame stays as it is.
                     if v != [0.0; 2] && s.custom.is_none() {
                         s.custom = Some(s.states[s.current].rect);
@@ -1263,6 +1395,64 @@ impl Actor {
             other => return Err(format!("{other} is not supported")),
         }
         Ok(())
+    }
+
+    /// What getter `method` answers (`Actor`'s and `Sprite`'s Lua
+    /// methods that read state, `src/Actor.cpp`, `src/Sprite.cpp`); `None`
+    /// for anything else. Positions, zooms and colours are the destination
+    /// of the tweens queued so far, as `DestTweenState` is.
+    pub fn getter(&self, method: &str) -> Option<Value> {
+        let d = self.tweens.last().map_or(&self.current, |t| &t.dest);
+        let size = self.size();
+        let zoom = |i: usize| d.scale[i] * self.base_scale[i];
+        Some(match method {
+            "GetName" => Value::Str(self.name.clone()),
+            "GetX" => Value::Num(d.pos[0]),
+            "GetY" => Value::Num(d.pos[1]),
+            "GetZ" => Value::Num(d.pos[2]),
+            "GetZoom" | "GetZoomX" => Value::Num(d.scale[0]),
+            "GetZoomY" => Value::Num(d.scale[1]),
+            "GetZoomZ" => Value::Num(d.scale[2]),
+            "GetRotationX" => Value::Num(d.rotation[0]),
+            "GetRotationY" => Value::Num(d.rotation[1]),
+            "GetRotationZ" => Value::Num(d.rotation[2]),
+            "GetBaseZoomX" => Value::Num(self.base_scale[0]),
+            "GetBaseZoomY" => Value::Num(self.base_scale[1]),
+            "GetBaseZoomZ" => Value::Num(self.base_scale[2]),
+            "GetBaseRotationX" => Value::Num(self.base_rotation[0]),
+            "GetBaseRotationY" => Value::Num(self.base_rotation[1]),
+            "GetBaseRotationZ" => Value::Num(self.base_rotation[2]),
+            "GetDiffuse" => Value::Color(d.diffuse),
+            "GetDiffuseAlpha" => Value::Num(d.diffuse[3]),
+            "GetGlow" => Value::Color(d.glow),
+            "GetVisible" => Value::Bool(self.visible),
+            "GetWidth" => Value::Num(size[0]),
+            "GetHeight" => Value::Num(size[1]),
+            "GetZoomedWidth" => Value::Num(size[0] * zoom(0)),
+            "GetZoomedHeight" => Value::Num(size[1] * zoom(1)),
+            "GetTweenTimeLeft" => Value::Num(self.tweens.iter().map(|t| t.left).sum()),
+            "GetSecsIntoEffect" => Value::Num(self.secs_into_effect),
+            "GetEffectDelta" => Value::Num(self.effect_delta),
+            "GetEffectMagnitude" => {
+                return Some(Value::Many(self.magnitude.map(Value::Num).to_vec()));
+            }
+            "GetHAlign" => Value::Num(self.halign),
+            "GetVAlign" => Value::Num(self.valign),
+            "GetNumStates" => Value::Num(match &self.kind {
+                Kind::Sprite(s) => s.states.len() as f32,
+                _ => 0.0,
+            }),
+            "GetState" => Value::Num(match &self.kind {
+                Kind::Sprite(s) => s.current as f32,
+                _ => 0.0,
+            }),
+            "GetAnimationLengthSeconds" => Value::Num(match &self.kind {
+                Kind::Sprite(s) => s.animation_length(),
+                _ => 0.0,
+            }),
+            "GetNumChildren" => Value::Num(self.children().len() as f32),
+            _ => return None,
+        })
     }
 
     /// The size the actor is drawn at (a sprite's frame).
@@ -1369,6 +1559,23 @@ pub const TRANSFORM_IDENTITY: [f32; 6] = IDENTITY;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn every_listed_method_is_one_call_runs() {
+        for &m in super::METHODS {
+            let mut a = super::Actor::new(super::Kind::Frame(Vec::new()));
+            let args = vec![super::Arg::Num(1.0); 4];
+            let call = super::Call {
+                method: m.to_string(),
+                args,
+            };
+            let r = a.call(&call, &mut super::Problems::default(), 0);
+            assert!(
+                !matches!(&r, Err(e) if e.contains("is not supported")),
+                "{m}: {r:?}"
+            );
+        }
+    }
+
     use super::*;
     use crate::commands::parse;
 
@@ -1629,7 +1836,10 @@ mod tests {
         // Twice per level, 32 levels deep: billions of calls without a
         // budget.
         let mut a = Actor::new(Kind::Actor);
-        a.set_command("Init", parse("playcommand,'Init';playcommand,'Init'").unwrap());
+        a.set_command(
+            "Init",
+            parse("playcommand,'Init';playcommand,'Init'").unwrap(),
+        );
         let mut p = Problems::default();
         let t = std::time::Instant::now();
         a.play("Init", &mut p);

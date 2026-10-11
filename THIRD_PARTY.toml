@@ -10,8 +10,22 @@
 
 [[code]]
 name = "StepMania 5.1"
-what = "The metrics.ini files of its dance/default and common/common noteskins, byte for byte: the stand-ins every imported noteskin falls back to."
-files = ["noteskin/src/builtin/stepmania/dance/default/metrics.ini", "noteskin/src/builtin/stepmania/common/common/metrics.ini"]
+what = "The metrics.ini and Lua files of its dance/default and common/common noteskins, byte for byte: the stand-ins every imported noteskin falls back to."
+files = [
+  "noteskin/src/builtin/stepmania/dance/default/metrics.ini",
+  "noteskin/src/builtin/stepmania/dance/default/NoteSkin.lua",
+  "noteskin/src/builtin/stepmania/dance/default/Down Receptor.lua",
+  "noteskin/src/builtin/stepmania/dance/default/Down Tap Lift.lua",
+  "noteskin/src/builtin/stepmania/dance/default/Down Tap Note.lua",
+  "noteskin/src/builtin/stepmania/common/common/metrics.ini",
+  "noteskin/src/builtin/stepmania/common/common/NoteSkin.lua",
+  "noteskin/src/builtin/stepmania/common/common/Fallback Explosion.lua",
+  "noteskin/src/builtin/stepmania/common/common/Fallback Receptor.lua",
+  "noteskin/src/builtin/stepmania/common/common/Fallback Tap Mine.lua",
+  "noteskin/src/builtin/stepmania/common/common/_Tap Lead-in Receptor.lua",
+  "noteskin/src/builtin/stepmania/common/common/_Tap Press.lua",
+  "noteskin/src/builtin/stepmania/common/common/_Tap Receptor.lua",
+]
 spdx = "LicenseRef-StepMania"
 holders = ["Chris Danford, the StepMania development team, et al.", "AJ Kelly, Midiman, shakesoda (the spinal shark collective), and other contributors"]
 source = "https://github.com/stepmania/stepmania"

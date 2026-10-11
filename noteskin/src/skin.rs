@@ -3,6 +3,7 @@
 //! `GetPathFromDirAndFile`, `src/NoteSkinManager.cpp:115-544`; directory
 //! listings, `src/RageFileManager.cpp`, `src/RageUtil_FileDB.cpp`; 5_1-new).
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -19,13 +20,14 @@ pub struct Folder {
     pub name: String,
     /// Every file, relative to the skin folder, `/`-separated.
     pub files: Vec<String>,
-    /// The text of `metrics.ini` and of every `.redir`, by path as in
-    /// `files`.
+    /// The text of `metrics.ini`, of every `.redir` and of every `.lua`, by
+    /// path as in `files`.
     pub texts: Vec<(String, String)>,
 }
 
 impl Folder {
-    fn text(&self, path: &str) -> Option<&str> {
+    /// The text of `path` (ignoring case), if it was kept.
+    pub fn text(&self, path: &str) -> Option<&str> {
         let want = path.to_lowercase();
         self.texts
             .iter()
@@ -195,8 +197,9 @@ impl Listing {
 
     /// `GetDirListing(dir + mask)`: the entries of `mask`'s folder whose
     /// names match its last part, with up to two `*`
-    /// (`GetFilesSimpleMatch`: begins with, contains, ends with).
-    fn matching(&self, mask: &str) -> Vec<&Entry> {
+    /// (`GetFilesSimpleMatch`: begins with, contains, ends with); the
+    /// first `limit` of them (callers need one, or to know there are more).
+    fn matching(&self, mask: &str, limit: usize) -> Vec<&Entry> {
         let (sub, pattern) = match mask.rfind('/') {
             Some(i) => (&mask[..i], &mask[i + 1..]),
             None => ("", mask),
@@ -229,8 +232,24 @@ impl Listing {
                         && middle.is_none_or(|m| rest[..rest.len() - end.len()].contains(m))
                 }
             })
+            .take(limit)
             .collect()
     }
+}
+
+/// `s` after `prefix`, comparing character by character ignoring case
+/// (lowercasing can change a character's length in bytes, so the rest is
+/// found in `s` itself).
+fn strip_prefix_ignoring_case<'s>(s: &'s str, prefix: &str) -> Option<&'s str> {
+    let mut rest = s.char_indices();
+    for p in prefix.chars() {
+        let (_, c) = rest.next()?;
+        if !c.to_lowercase().eq(p.to_lowercase()) {
+            return None;
+        }
+    }
+    let at = rest.next().map_or(s.len(), |(i, _)| i);
+    s.get(at..)
 }
 
 /// `NormalizePath`: `\` to `/`, `.` and empty parts dropped, `dir/..`
@@ -255,12 +274,17 @@ fn normalize(path: &str) -> Option<String> {
 pub struct Skin<'a> {
     pub name: String,
     pub game: String,
-    folders: &'a [Folder],
+    /// Borrowed, or owned by a skin that has to live on its own (the Lua
+    /// host's, [`Skin::into_owned`]).
+    folders: Cow<'a, [Folder]>,
     /// Search order: the skin, then each fallback.
     pub chain: Vec<Dir>,
     pub metrics: Ini,
     listings: HashMap<Dir, Listing>,
     cache: RefCell<HashMap<(String, String), Result<FileRef, PathError>>>,
+    /// Each imported folder's kept texts by lowercased path, built when
+    /// first needed.
+    text_index: RefCell<HashMap<usize, HashMap<String, usize>>>,
     warnings: RefCell<Vec<String>>,
 }
 
@@ -280,11 +304,12 @@ impl<'a> Skin<'a> {
         let mut skin = Skin {
             name: name.to_string(),
             game: game.to_string(),
-            folders,
+            folders: Cow::Borrowed(folders),
             chain: Vec::new(),
             metrics: Ini::default(),
             listings: HashMap::new(),
             cache: RefCell::new(HashMap::new()),
+            text_index: RefCell::new(HashMap::new()),
             warnings: RefCell::new(Vec::new()),
         };
         let (mut loaded_base, mut loaded_common) = (false, false);
@@ -325,8 +350,23 @@ impl<'a> Skin<'a> {
         Ok(skin)
     }
 
+    /// The same skin owning a copy of its folders.
+    pub fn into_owned(self) -> Skin<'static> {
+        Skin {
+            name: self.name,
+            game: self.game,
+            folders: Cow::Owned(self.folders.into_owned()),
+            chain: self.chain,
+            metrics: self.metrics,
+            listings: self.listings,
+            cache: self.cache,
+            text_index: self.text_index,
+            warnings: self.warnings,
+        }
+    }
+
     /// The folder `dir` stands for.
-    pub fn folder(&self, dir: Dir) -> Option<&'a Folder> {
+    pub fn folder(&self, dir: Dir) -> Option<&Folder> {
         match dir {
             Dir::Folder(i) => self.folders.get(i),
             Dir::BuiltIn(_) => None,
@@ -404,7 +444,11 @@ impl<'a> Skin<'a> {
             return r.clone();
         }
         let r = self.find_path(button, element);
-        self.cache.borrow_mut().insert(key, r.clone());
+        // Bounded: a script can ask for any number of names.
+        let mut cache = self.cache.borrow_mut();
+        if cache.len() < 4096 && button.len() + element.len() <= 256 {
+            cache.insert(key, r.clone());
+        }
         r
     }
 
@@ -441,10 +485,7 @@ impl<'a> Skin<'a> {
         if let Some(Virtual::Redir(t)) = file.virt {
             return t.to_string();
         }
-        let text = self
-            .folder(file.dir)
-            .and_then(|f| f.text(&file.path))
-            .unwrap_or("");
+        let text = self.folder_text(file.dir, &file.path).unwrap_or("");
         let line = text.split('\n').next().unwrap_or("");
         line.trim_end_matches(['\r', '\n']).to_string()
     }
@@ -455,7 +496,7 @@ impl<'a> Skin<'a> {
         let mask = normalize(&format!("{name}*"))?;
         for dir in &self.chain {
             let listing = &self.listings[dir];
-            let matches = listing.matching(&mask);
+            let matches = listing.matching(&mask, 9);
             let Some(first) = matches.first() else {
                 continue;
             };
@@ -463,7 +504,11 @@ impl<'a> Skin<'a> {
                 let names: Vec<&str> = matches.iter().take(8).map(|m| m.path.as_str()).collect();
                 self.warn(format!(
                     "{} files in {} match {name}: {}{}",
-                    matches.len(),
+                    if matches.len() > 8 {
+                        "9 or more".to_string()
+                    } else {
+                        matches.len().to_string()
+                    },
                     self.dir_name(*dir),
                     names.join(", "),
                     if matches.len() > 8 { ", …" } else { "" }
@@ -479,12 +524,146 @@ impl<'a> Skin<'a> {
         None
     }
 
+    /// The folder of `dir` as StepMania names it to Lua:
+    /// `/NoteSkins/<game>/<skin>/`.
+    pub fn dir_path(&self, dir: Dir) -> String {
+        let game = match dir {
+            Dir::BuiltIn(BuiltIn::Common) => COMMON,
+            Dir::BuiltIn(BuiltIn::DanceDefault) => "dance",
+            Dir::Folder(i) => &self.folders[i].game,
+        };
+        format!("/NoteSkins/{game}/{}/", self.dir_name(dir))
+    }
+
+    /// `file` as StepMania's paths name it (`GetPath`'s result).
+    pub fn file_path(&self, file: &FileRef) -> String {
+        format!("{}{}", self.dir_path(file.dir), file.path)
+    }
+
+    /// The folder of the chain and the path inside it that `path` names
+    /// (`/NoteSkins/<game>/<skin>/<file>`, ignoring case); `None` outside
+    /// the chain's folders or out of them by `..`.
+    pub fn locate(&self, path: &str) -> Option<(Dir, String)> {
+        let path = format!("/{}", normalize(path)?);
+        self.chain.iter().find_map(|&d| {
+            strip_prefix_ignoring_case(&path, &self.dir_path(d)).map(|rest| (d, rest.to_string()))
+        })
+    }
+
+    /// `ActorUtil::ResolvePath` on `path` (`src/ActorUtil.cpp:44-110`): the
+    /// file or folder itself, else the one file or folder whose name begins
+    /// so (several: the first, with a warning), a folder holding
+    /// `default.lua` as that file, and `.redir` files followed
+    /// (`DerefRedir`: relative to the redirect, a hundred at most).
+    pub fn resolve_path(&self, path: &str) -> Result<FileRef, String> {
+        let (dir, rel) = self
+            .locate(path)
+            .ok_or_else(|| format!("{path}: not in the skin's folders"))?;
+        let listing = &self.listings[&dir];
+        let entry = |e: &Entry| FileRef {
+            dir,
+            path: e.path.clone(),
+            virt: e.virt,
+            is_dir: e.is_dir,
+        };
+        let mut file = match listing.matching(&rel, 1).first() {
+            Some(e) => entry(e),
+            None => {
+                let matches = listing.matching(&format!("{rel}*"), 9);
+                let first = matches
+                    .first()
+                    .ok_or_else(|| format!("references a file \"{path}\" which doesn't exist"))?;
+                if matches.len() > 1 {
+                    self.warn(format!(
+                        "references a file \"{path}\" which has multiple matches: {}",
+                        matches
+                            .iter()
+                            .take(8)
+                            .map(|m| m.path.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+                entry(first)
+            }
+        };
+        if file.is_dir {
+            if let Some(lua) = self.dir_has(dir, &format!("{}/default.lua", file.path)) {
+                return Ok(FileRef {
+                    path: lua,
+                    is_dir: false,
+                    virt: None,
+                    dir,
+                });
+            }
+            return Ok(file);
+        }
+        for _ in 0..100 {
+            if file.extension() != "redir" {
+                return Ok(file);
+            }
+            let target = self.redirect_target(&file);
+            if target.is_empty() {
+                return Err(format!("the redirect {} is empty", file.path));
+            }
+            let base = file.path.rfind('/').map_or("", |i| &file.path[..=i]);
+            let mask = normalize(&format!("{base}{target}*"))
+                .ok_or_else(|| format!("the redirect {} leaves the folder", file.path))?;
+            let matches = listing.matching(&mask, 2);
+            file = match matches.as_slice() {
+                [one] => entry(one),
+                [] => {
+                    return Err(format!(
+                        "the redirect {} references a file \"{target}\" which doesn't exist",
+                        file.path
+                    ));
+                }
+                _ => {
+                    return Err(format!(
+                        "the redirect {} references a file \"{target}\" with multiple matches",
+                        file.path
+                    ));
+                }
+            };
+        }
+        Err(format!("circular redirect {}", file.path))
+    }
+
+    /// The text of a Lua file of the chain: a stand-in's (StepMania's own),
+    /// or one kept with an imported folder.
+    pub fn lua_text(&self, file: &FileRef) -> Option<&str> {
+        match file.dir {
+            Dir::BuiltIn(b) => b.lua_source(&file.path),
+            Dir::Folder(_) => self.folder_text(file.dir, &file.path),
+        }
+    }
+
+    /// A kept text of an imported folder (ignoring case), through an index.
+    fn folder_text(&self, dir: Dir, path: &str) -> Option<&str> {
+        let Dir::Folder(i) = dir else { return None };
+        let folder = self.folders.get(i)?;
+        let at = {
+            let mut index = self.text_index.borrow_mut();
+            let texts = index.entry(i).or_insert_with(|| {
+                folder
+                    .texts
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .map(|(n, (p, _))| (p.to_lowercase(), n))
+                    .collect()
+            });
+            *texts.get(&path.to_lowercase())?
+        };
+        folder.texts.get(at).map(|(_, t)| t.as_str())
+    }
+
     /// Whether `dir` holds `path` (a file, ignoring case).
     pub(crate) fn dir_has(&self, dir: Dir, path: &str) -> Option<String> {
         let mask = normalize(path)?;
         self.listings
             .get(&dir)?
-            .matching(&mask)
+            .matching(&mask, 4)
             .into_iter()
             .find(|e| !e.is_dir)
             .map(|e| e.path.clone())
@@ -529,7 +708,7 @@ pub(crate) mod tests {
                 .iter()
                 .filter(|(p, _)| {
                     let l = p.to_ascii_lowercase();
-                    l == "metrics.ini" || l.ends_with(".redir")
+                    l == "metrics.ini" || l.ends_with(".redir") || l.ends_with(".lua")
                 })
                 .map(|(p, t)| (p.to_string(), t.to_string()))
                 .collect(),
@@ -753,6 +932,23 @@ pub(crate) mod tests {
             skin.get_path("Down", "Upper").unwrap().path,
             "Down Upper.REDIR"
         );
+    }
+
+    #[test]
+    fn located_paths_ignore_case_whatever_their_length_in_bytes() {
+        // KELVIN SIGN lowercases to a one-byte `k`; `İ` to two characters.
+        let folders = [
+            folder("dance", "k日", &[("x.png", "")]),
+            folder("dance", "İ", &[("日.png", "")]),
+        ];
+        let skin = Skin::load(&folders, "dance", "k日").unwrap();
+        let kelvin = "/NoteS\u{212A}ins/dance/k日/x.png";
+        assert_eq!(skin.locate(kelvin), Some((Dir::Folder(0), "x.png".into())));
+        assert!(skin.resolve_path(kelvin).is_ok());
+        let skin = Skin::load(&folders, "dance", "İ").unwrap();
+        let dotted = "/NoteSkins/dance/İ/日.png";
+        assert_eq!(skin.locate(dotted), Some((Dir::Folder(1), "日.png".into())));
+        assert!(skin.resolve_path(dotted).is_ok());
     }
 
     #[test]

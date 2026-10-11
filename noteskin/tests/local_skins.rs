@@ -8,6 +8,12 @@
 //! on its own). Prints, per skin,
 //! how many elements are the skin's images, the stand-ins' (built in), Lua,
 //! models, other files, blank or missing.
+//!
+//! With `DDI_NOTESKINS_LUA=1`, `local_skins_lua` loads each skin with its
+//! Lua instead (`ddi_noteskin::lua`), builds every element the engine asks
+//! for, and prints what came from Lua, the time, fuel and memory, and
+//! why a skin's Lua failed. Run the test binary under a memory watchdog:
+//! third-party scripts.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -76,7 +82,7 @@ fn folder(path: &Path) -> Folder {
         .iter()
         .filter(|p| {
             let l = p.to_ascii_lowercase();
-            l == "metrics.ini" || l.ends_with(".redir")
+            l == "metrics.ini" || l.ends_with(".redir") || l.ends_with(".lua")
         })
         .filter_map(|p| {
             let bytes = std::fs::read(path.join(p)).ok()?;
@@ -251,4 +257,155 @@ fn local_skins() {
         totals.get("actors").copied().unwrap_or(0),
         totals.get("lua commands").copied().unwrap_or(0)
     );
+}
+
+#[test]
+fn local_skins_lua() {
+    use ddi_noteskin::lua::{Env, LoadBudget, LuaSkin};
+    use std::time::Instant;
+    let (Some(dirs), Some(_)) = (
+        std::env::var_os("DDI_NOTESKINS"),
+        std::env::var_os("DDI_NOTESKINS_LUA"),
+    ) else {
+        return;
+    };
+    let only = std::env::var("DDI_NOTESKINS_ONLY").ok();
+    let (mut seen, mut ok, mut failed) = (0, 0, 0);
+    let mut totals: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut worst = (0.0f64, String::new());
+    let mut failures: BTreeMap<String, usize> = BTreeMap::new();
+    let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
+    for root in std::env::split_paths(&dirs) {
+        let mut paths = Vec::new();
+        skins(&root, &mut paths);
+        let folders: Vec<Folder> = paths.iter().map(|p| folder(p)).collect();
+        for (path, f) in paths.iter().zip(&folders) {
+            if f.game != "dance" || f.name.eq_ignore_ascii_case("default") && folders.len() > 1 {
+                continue;
+            }
+            if only
+                .as_deref()
+                .is_some_and(|o| !f.name.eq_ignore_ascii_case(o))
+            {
+                continue;
+            }
+            seen += 1;
+            let Ok(skin) = Skin::load(&folders, &f.game, &f.name) else {
+                continue;
+            };
+            let start = Instant::now();
+            let clock = Box::new(move || start.elapsed().as_secs_f64());
+            let result = LuaSkin::new(
+                skin.into_owned(),
+                Env {
+                    trace_missing: std::env::var_os("DDI_NOTESKINS_WARNINGS").is_some(),
+                    ..Env::default()
+                },
+                ddi_lua::Settings::default(),
+                LoadBudget::default(),
+                clock,
+            );
+            let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+            let mut error = None;
+            let mut lua = match result {
+                Ok(l) => Some(l),
+                Err(e) => {
+                    error = Some(format!("chain: {e}"));
+                    None
+                }
+            };
+            let mut textures = Textures::default();
+            if let Some(l) = &mut lua {
+                'all: for b in Button::ALL {
+                    for e in ENGINE_ELEMENTS {
+                        match l.element(b, e, &mut textures, &AnySize) {
+                            Ok(el) => {
+                                if matches!(el.built, Built::BuiltIn) {
+                                    // Why, without paths and line numbers.
+                                    let n = el.notes.first().cloned().unwrap_or_default();
+                                    let key: String = n
+                                        .rsplit(": ")
+                                        .next()
+                                        .unwrap_or(&n)
+                                        .chars()
+                                        .filter(|c| !c.is_ascii_digit())
+                                        .take(60)
+                                        .collect();
+                                    if std::env::var_os("DDI_NOTESKINS_NOTES").is_some()
+                                        && !key.contains("D model")
+                                        && !key.contains("blank filename")
+                                    {
+                                        println!("\t\t{} {e}: {n}", b.name());
+                                    }
+                                    *reasons.entry(key).or_default() += 1;
+                                }
+                                let k = match el.built {
+                                    Built::Actor(_) => "actor",
+                                    Built::BuiltIn => "builtin",
+                                    Built::Blank => "blank",
+                                };
+                                *counts.entry(k).or_default() += 1;
+                                *totals.entry(k).or_default() += 1;
+                            }
+                            Err(err) => {
+                                error = Some(format!("{} {e}: {err}", b.name()));
+                                break 'all;
+                            }
+                        }
+                    }
+                }
+            }
+            let secs = start.elapsed().as_secs_f64();
+            if secs > worst.0 {
+                worst = (secs, f.name.clone());
+            }
+            let (fuel, memory, warnings) = lua.as_ref().map_or((0, 0, 0), |l| {
+                (l.fuel_used(), l.memory(), l.warnings().len())
+            });
+            match &error {
+                Some(e) => {
+                    failed += 1;
+                    // Group by the message without the file and line.
+                    let key: String = e.split(": ").last().unwrap_or(e).chars().take(80).collect();
+                    *failures.entry(key).or_default() += 1;
+                }
+                None => ok += 1,
+            }
+            println!(
+                "{}\t{}\t{:.1} ms\tfuel {}\t{:.1} MiB\tactor {} builtin {} blank {}\twarnings {}{}",
+                path.display(),
+                if error.is_some() { "FAILED" } else { "ok" },
+                secs * 1e3,
+                fuel,
+                memory as f64 / f64::from(1 << 20),
+                counts.get("actor").copied().unwrap_or(0),
+                counts.get("builtin").copied().unwrap_or(0),
+                counts.get("blank").copied().unwrap_or(0),
+                warnings,
+                error.map(|e| format!("\t{e}")).unwrap_or_default()
+            );
+            if let (Some(_), Some(l)) = (std::env::var_os("DDI_NOTESKINS_WARNINGS"), &lua) {
+                for w in l.warnings() {
+                    println!("\t\twarning: {w}");
+                }
+            }
+        }
+    }
+    println!(
+        "{ok} of {seen} skins' Lua loaded, {failed} failed; elements: actor {}, builtin {}, blank {}; slowest {:.1} ms ({})",
+        totals.get("actor").copied().unwrap_or(0),
+        totals.get("builtin").copied().unwrap_or(0),
+        totals.get("blank").copied().unwrap_or(0),
+        worst.0 * 1e3,
+        worst.1
+    );
+    for (f, n) in &failures {
+        println!("  {n}\t{f}");
+    }
+    let mut reasons: Vec<_> = reasons.into_iter().collect();
+    reasons.sort_by_key(|r| std::cmp::Reverse(r.1));
+    println!("built in, by reason:");
+    for (r, n) in reasons.iter().take(40) {
+        println!("  {n}\t{r}");
+    }
 }

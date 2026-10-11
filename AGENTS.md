@@ -33,9 +33,10 @@ the browser are implementation details, not advertised features.
   entry type. Pure, natively tested.
 - `noteskin/` StepMania noteskins: fallback chains, file lookup and
   redirects, `metrics.ini`, file name hints, what each element is (stand-ins
-  for StepMania's `default` and `common`; a skin's Lua does not run yet),
-  actors and their commands. Pure, natively tested;
-  `docs/plans/noteskins.md`. `render/src/noteskin.rs` draws a skin in play.
+  for StepMania's `default` and `common`), actors and their commands, and
+  (`noteskin/src/lua/`) a skin's Lua run at load over `lua/`. Pure,
+  natively tested; `docs/plans/noteskins.md`. `render/src/noteskin.rs`
+  draws a skin in play (not yet with its Lua).
 - `lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`): a
   hardened fork of piccolo with per-VM memory and string limits, fuel and
   a deadline per call, StepMania's `cmd` keyword, Lua 5.1's globals and
@@ -68,7 +69,9 @@ the browser are implementation details, not advertised features.
   Third-party songs used this way stay local.
 - `DDI_NOTESKINS=<dir>[:<dir>…] cargo test -p ddi-noteskin --test local_skins -- --nocapture`
   resolves every element of every skin under local `NoteSkins` folders
-  (`DDI_NOTESKINS_STANDINS=1`: without their `default` and `common`).
+  (`DDI_NOTESKINS_STANDINS=1`: without their `default` and `common`;
+  `DDI_NOTESKINS_LUA=1`, in release under the watchdog: with each skin's
+  Lua).
 - `DDI_LUA_CORPUS=<dir>[:<dir>…]` / `DDI_LUA_CASES=<cases.txt>` with
   `cargo test --release -p ddi-lua --test local -- --nocapture` compile
   local skins' Lua, or run the piccolo fork's exported limit cases with

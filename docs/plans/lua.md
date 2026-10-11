@@ -171,6 +171,71 @@ is:
 - Measured natively on the local corpus (third-party skins stay local): load
   time, fuel and heap peak per skin, to set the load bounds and the cap.
 
+**Done 2026-10-11, natively** (the app does not use it yet). `ddi_noteskin::lua::LuaSkin` loads a skin's Lua and builds
+any element StepMania's engine asks for. What differs from the plan, and
+what step 4 needs:
+
+- The stand-ins run StepMania's own Lua: `common`'s and `dance/default`'s
+  `NoteSkin.lua`, `Fallback Explosion.lua`, `Fallback Tap Mine.lua`,
+  `Fallback Receptor.lua` and its helpers, `dance/default`'s tap note, lift
+  and receptor, byte for byte under `noteskin/src/builtin/stepmania/`
+  (credited in `THIRD_PARTY.toml` with the metrics). Their art stays the
+  built-in skin's; the native versions of the same Lua remain the fallback
+  when a skin's Lua cannot run.
+- Every command of such a skin is a Lua function: metrics commands are
+  compiled as `ParseCommandList` writes them (`commands::to_lua`; a metric
+  that does not compile is warned about and nil, as in StepMania). They are
+  kept in the VM by actor id; actors stay native (`Stage`), and their Lua
+  handles (userdata with fields of their own, `Actor`/`Sprite`/
+  `ActorFrame`/`Model` method tables skins may extend) call the native
+  methods and getters. `playcommand` and `Init` (children first) are
+  played by the prelude's driver.
+- Def tables are converted as `XNodeFromTable` and the `LoadFromNode`
+  functions read them: `Condition`, `Class`/`Type`, `Name`, `Base*`,
+  `*Command`, `Texture` (relative to the file that wrote the table, found
+  as `Def`'s `debug.getinfo` loop finds it, so past tail calls too),
+  `Frames` and `FrameNNNN`/`DelayNNNN`, `children` or the array. A model,
+  text, a movie or another unsupported actor makes the element the built-in
+  skin's, as before.
+- Failures: a Lua error while an element loads makes that element the
+  built-in skin's with a note (StepMania shows a blank one and goes on); a
+  failing command is reported and the other actors' go on; a table already
+  on the way down is skipped (`ProcessedTables`). The memory limit, the
+  load's fuel (20 million) or deadline (5 s), or a host limit (4,096
+  actors, 200,000 table entries and frames read per element, nesting 32
+  deep) turn the whole skin's Lua off. The converter and host functions
+  run outside the VM's fuel, so they read strings only up to a bound
+  (names and paths 4 KiB, method arguments 256 bytes), read each table once
+  per element, stop matching file names once they know enough, keep the
+  path cache bounded and index the folders' texts.
+- Reviewed independently: it found a panic on paths whose lowercase
+  differs in length (KELVIN SIGN, `İ`), a class chain a skin could turn
+  into an endless native loop, unbounded recursion in the `cmd` rewrite
+  (now 200 levels), host memory and time outside the caps (names, paths,
+  `_Source` and `queuecommand` strings copied per actor, cleared arrays,
+  the path cache, redirects re-reading every text), and `GetChild`/
+  `GetChildren` with children of one name (now StepMania's pass-through
+  tables). Each is fixed and in `hostile_skins_end_quickly` or its own
+  test; every hostile case ends within 2 s and the VM's 32 MiB.
+- ITGmania's `Var "Color"` reads "4th": notes load once, not once per
+  quantization colour as ITGmania loads them (STARLiGHT and ITGmania's
+  `couples` ask for it).
+- Checked: unit tests on synthetic skins (the stand-ins, a Delta-like skin,
+  fields and added methods, `SetStateProperties`, sandboxing, errors and
+  limits, hostile tables and loops, each ending within 2 s); the local
+  corpus, `DDI_NOTESKINS_LUA=1`: all 27 dance skins of StepMania 5.1 and
+  ITGmania and all 318 community skins whose fallbacks are present load,
+  in 8–45 ms, 0.25–0.45 million fuel and under 1 MiB each. The elements
+  left to the built-in skin are 3D models (4,734 of about 53,800), legacy
+  formats StepMania 5 does not load either (`.model`, `.sprite`, `.xml`:
+  4,458) and one skin in the abandoned "newskin" format. The community
+  clones hold no images (file lists only), so images are placeholders.
+- Left for step 4: building the play's elements through `LuaSkin` (the
+  app keeps `.lua` texts with imported skins), playing event commands and
+  `queuecommand`s through the driver, update functions
+  (`SetUpdateFunction`), the song position during play, and per-colour
+  notes.
+
 ## Step 4. Lua during play (commit 4)
 
 - Commands and update functions run in the frame their event happens, from
