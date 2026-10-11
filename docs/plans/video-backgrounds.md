@@ -684,6 +684,13 @@ state says which decoder); Firefox and Safari by the maintainer.
   Credits screen have a "Video decoder" section with FFmpeg's version,
   licence, source tarball (with its SHA-256) and tag, the other parts of
   the module, a link to the licence texts and the configure flags.
+- The source tarball the credits named was ffmpeg.org's until 2026-10-11;
+  since then `xtask stage-video` serves the release tarball the build
+  checked next to the module (`video/ffmpeg-<version>.tar.xz`, 12 MB, not
+  downloaded by players) and refuses to stage the module without it, as
+  LGPL 2.1 §4 asks (source offered from the same place); the credits and
+  the notice link that copy, ffmpeg.org's as the release. CI caches the
+  tarball with the module.
 - "Without the module" below: movies that fail are now named on the
   results card once, after the song ("3 videos could not play: the video
   decoder is not included in this build; the song background showed"),

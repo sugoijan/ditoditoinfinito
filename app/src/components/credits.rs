@@ -62,6 +62,7 @@ struct VideoCredit {
     homepage: String,
     source_url: String,
     tarball_url: String,
+    tarball: String,
     tarball_sha256: String,
     configure: Vec<String>,
     components: Vec<ComponentCredit>,
@@ -194,17 +195,18 @@ fn code(k: &CodeCredit) -> Html {
 }
 
 fn video(v: &VideoCredit) -> Html {
-    let tarball = v.tarball_url.rsplit('/').next().unwrap_or(&v.tarball_url);
+    let tarball = v.tarball.rsplit('/').next().unwrap_or(&v.tarball);
     html! {
         <section>
             <h2>{ "Video decoder" }</h2>
             <p>
                 { "Background videos the browser cannot decode play through a separate module, fetched only when a song needs it. It uses code of " }
                 <a href={v.homepage.clone()}>{ format!("{} {}", v.name, v.version) }</a>
-                { format!(" licensed under the {}; its source, unmodified: ", v.spdx) }
-                <a href={v.tarball_url.clone()}>{ tarball }</a>
-                { " (" }<a href={v.source_url.clone()}>{ "tag" }</a>
-                { ", SHA-256 " }<code class="credit-hash">{ &v.tarball_sha256 }</code>
+                { format!(" licensed under the {}; its source, unmodified, is served next to the module: ", v.spdx) }
+                <a href={v.tarball.clone()}>{ tarball }</a>
+                { " (SHA-256 " }<code class="credit-hash">{ &v.tarball_sha256 }</code>
+                { "; the " }<a href={v.tarball_url.clone()}>{ "release" }</a>
+                { " at FFmpeg, " }<a href={v.source_url.clone()}>{ "tag" }</a>
                 { "). It is built by video/build.sh in this game's repository with the flags below and linked with the game's own code (MIT)." }
             </p>
             <ul>

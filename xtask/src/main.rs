@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
@@ -433,7 +433,8 @@ fn stage_video(dest: Option<PathBuf>) -> Result<()> {
                 .context("stage-video needs --dest or TRUNK_STAGING_DIR")?,
         ),
     };
-    let built = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/video");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let built = root.join("target/video");
     if !built.join(VIDEO_FILES[0]).exists() {
         // The app works without it: movies only the module decodes show
         // the song background instead.
@@ -442,13 +443,29 @@ fn stage_video(dest: Option<PathBuf>) -> Result<()> {
         );
         return Ok(());
     }
+    // FFmpeg's source goes with the module (LGPL 2.1 section 4: offered
+    // from the same place), as the release tarball the build checked.
+    let tarball = credits::ffmpeg_tarball(&root)?;
+    let source = built.join("downloads").join(&tarball);
+    if !source.exists() {
+        bail!(
+            "stage-video: {} is missing; the module is never served without its source (run `just video`)",
+            source.display()
+        );
+    }
     let out = dest.join("video");
     fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
-    for name in VIDEO_FILES {
-        let from = built.join(name);
+    for (from, name) in VIDEO_FILES
+        .iter()
+        .map(|name| (built.join(name), *name))
+        .chain([(source.clone(), tarball.as_str())])
+    {
         fs::copy(&from, out.join(name)).with_context(|| format!("copying {}", from.display()))?;
     }
-    eprintln!("stage-video: video decoder copied to {}", out.display());
+    eprintln!(
+        "stage-video: video decoder and its source copied to {}",
+        out.display()
+    );
     Ok(())
 }
 
