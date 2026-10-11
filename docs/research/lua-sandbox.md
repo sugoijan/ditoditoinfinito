@@ -171,7 +171,7 @@ rehash, stack growth, constructors); with that, the fixed-size allocations
 of one fuel unit bound the overshoot. Everything else (the string library
 with patterns and `format`, Lua 5.1's extra functions, the host API) is
 written on top of its public API, as callbacks and sequences that charge
-the same fuel. The fork is pinned and vendored with its patches listed;
+the same fuel. The fork is pinned by revision with its patches listed;
 they suit upstream's own goals and can be offered there. PUC Lua 5.1.5
 stays the reference and the oracle for differential tests.
 

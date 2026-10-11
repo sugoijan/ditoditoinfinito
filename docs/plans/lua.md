@@ -55,68 +55,56 @@ a separate process.
   normal runs, so a skin behaves the same on every platform. The deadline
   is only the backstop for slow machines.
 
-Proposed bounds, to be set from measurements in steps 1 and 4: during play
+Proposed bounds, to be set from measurements in steps 3 and 4: during play
 1 ms and a matching fuel budget per frame for all of a skin's Lua; at load
 a fuel budget per frame of the loading screen and 5 s per skin; 32 MiB per
 skin; source 1 MB per file; at most 4,096 actors a skin.
 
 ## Step 0. Conventions
 
-- The fork: piccolo at trunk (`ce709eb`) with gc-arena at the revision it
-  pins, vendored under `vendor/piccolo/` and `vendor/gc-arena/` (MIT; their
-  licence files kept, `REUSE.toml` updated), each patch a commit of ours
-  listed in a `PATCHES.md` next to it. Upstream reports or pull requests
-  only with the maintainer's go-ahead.
-- New crate `lua/` (`ddi-lua`) over the fork: platform-free and with no
+- The fork: piccolo at trunk (`ce709eb`), forked by the maintainer on
+  GitHub; the workspace depends on it by git revision (gc-arena stays at
+  the revision piccolo pins). Its work follows
+  [`piccolo-fork.md`](piccolo-fork.md), a self-contained brief with a
+  definition of done, and runs in parallel with steps 2 and 3. Upstream
+  reports or pull requests only with the maintainer's go-ahead.
+- New crate `lua/` (`ddi-lua`) over piccolo: platform-free and with no
   dependencies on the game's crates. Its API: compile a chunk, run a
-  function step by step with a `Budget` (fuel, memory cap, a clock from the
-  host), host functions registered as callbacks that charge the same
-  budget. It holds everything that can live on top of piccolo's API: the
-  `cmd` rewrite, the libraries and Lua 5.1's behaviour.
+  function step by step with a `Budget` (fuel per call, the fork's
+  `Limits`, a deadline checked between steps against a clock from the
+  host), host functions registered as callbacks that charge the same fuel.
+  It holds what StepMania adds on top of Lua: the `cmd` rewrite, the
+  sandbox's globals, Lua 5.1's aliases.
 - The noteskin host API (`Def.*`, `NOTESKIN`, `GAMESTATE`, …) lives in
   `ddi-noteskin` behind a module of its own, over `ddi-lua`.
 - Semantics follow PUC Lua 5.1.5 as StepMania vendors it (MIT; `cmd` as a
-  keyword). A local differential test runs every case and the corpus's
-  syntax through a PUC `lua5.1` when one is installed, like the chart
-  importers' oracle tests; expected outputs are committed so CI needs no
-  oracle.
-- Every adversarial case lives in the crate's tests and runs natively and as
-  wasm under Node (to check the stack depths and that nothing traps), all
-  under the memory watchdog. A fuzz target (scripts generated from a
-  grammar, plus mutated corpus syntax) runs locally with budgets; its
-  findings become tests.
+  keyword), with the fork's `Lua51` setting on.
+- Every adversarial case runs natively and as wasm under Node, under the
+  memory watchdog; third-party skins stay local.
 
-## Step 1. The fork's core (commit 1)
+## Step 1. The fork (in parallel)
 
-- Vendor the fork and patch its core: a memory budget in the context,
-  checked before every size-dependent allocation, and fuel charged by size
-  for the same operations (concatenation, string results, table growth and
-  rehash, stack growth, constructors); the two crashes found (the `a.b.b…`
-  recursion guard, integer `%` and `//` overflow at run time and when
-  folding constants); a string metatable; numbers printed as `%.14g`; a
-  spent budget or deadline as an error `pcall` cannot catch, so a script
-  cannot swallow its own abort. Then the lint pass over its panicking sites.
-- `ddi-lua`'s budget and stepping API, the `cmd` rewrite, the sandbox's
-  globals (only what we register; no `io`, loaders or `debug`).
-- Tests: every adversarial case of the research, natively and as wasm under
-  Node, each ending in a clean error within its bound (endless loops,
-  `pcall` and coroutine loops, deep recursion and nesting, long operator
-  chains, growing tables and strings, `..` doubling, huge sources, integer
-  edge cases); the measured overshoot of the deadline and the cap; the
-  recursion depths in wasm; the corpus's 521 files compiling.
+Done when the brief's definition of done holds and the maintainer has
+pushed it: limits checked before size-dependent allocations and charged as
+fuel, the crashes fixed and panicking constructs denied, the string library
+and the rest of Lua 5.1's behaviour, the limit cases, the Lua 5.1 outputs
+and fuzzing, natively and in wasm.
 
-## Step 2. The libraries (commit 2)
+## Step 2. `ddi-lua` (commit 2, in parallel with step 1)
 
-- On top of piccolo's API, as callbacks and sequences that charge fuel:
-  string (`find`, `match`, `gmatch`, `gsub` with patterns charged per step
-  and depth-limited, `format` with PUC Lua's limits, `rep`, `byte`, `char`
-  with result sizes charged up front), `xpcall` and `error` levels,
-  Lua 5.1's names (`unpack`, `table.getn`, `math.mod`, …), a per-VM seeded
-  `math.random`; piccolo's own base, table and math functions checked
-  against PUC Lua and fixed where skins would see a difference.
-- Tests: against PUC Lua's outputs; the research's library cases
-  (pathological patterns, `string.rep` of 1.5 GB, `unpack({}, 1, 1e8)`,
-  `%99999d`); a fuzzing round over the whole VM.
+- Written against upstream trunk (`ce709eb`), which has the same API less
+  `Limits`: the budget and stepping API, the `cmd` rewrite (the research's
+  token rewriter, ported, line numbers kept), the sandbox's globals (only
+  what is registered: no `io`, `os`, loaders, `debug` or `collectgarbage`;
+  `loadfile` comes from the host), Lua 5.1's aliases (`unpack`,
+  `table.getn`, `math.mod`, `math.pow`, …).
+- Tests: the rewrite on synthetic sources (nested `cmd`, strings and
+  comments containing `cmd(`, line numbers in errors); a skin-shaped
+  script stepped to completion under a budget; the deadline stopping an
+  endless loop. Locally, the corpus's 521 files compile after the rewrite.
+- When the fork is done: the dependency moves to its revision, `Limits`
+  joins the budget, and the brief's limit cases run again through
+  `ddi-lua` (natively and in wasm), with the deadline as the host's stop.
 
 ## Step 3. The host API and loading skins (commit 3)
 
