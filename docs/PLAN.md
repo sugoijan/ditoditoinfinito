@@ -42,8 +42,9 @@ Detailed research with sources lives in [`docs/research/`](research/):
 - [`cc-songs.md`](research/cc-songs.md) — freely redistributable simfiles (OutFox Serenity per-song licences, Sockpuppet pack), traps, attribution requirements.
 - [`video-backgrounds.md`](research/video-backgrounds.md) — what `#BGCHANGES` movies packs ship (AVI with H.264, Xvid, MPEG-2), what browsers decode, WebCodecs and a cut-down FFmpeg wasm module loaded on demand, StepMania's movie timing, the desktop path.
 - [`noteskins.md`](research/noteskins.md) — StepMania's noteskin format (lookup, sprite sheets, beat-locked animation, holds, receptor and explosion commands), the Lua real skins depend on and how to run it in wasm, what players use and what may be bundled.
+- [`lua-sandbox.md`](research/lua-sandbox.md) — running untrusted Lua (noteskins, later backgrounds): what the VM (rilua) can enforce and where it falls short, why it runs in its own worker and wasm instance, how much skin Lua must stay live during play, what scripted backgrounds and modfiles use.
 
-Implementation plans for larger steps live in [`docs/plans/`](plans/): [`video-backgrounds.md`](plans/video-backgrounds.md) (steps, commits, verification for the video pipeline), [`noteskins.md`](plans/noteskins.md) (imported StepMania noteskins, without their Lua first).
+Implementation plans for larger steps live in [`docs/plans/`](plans/): [`video-backgrounds.md`](plans/video-backgrounds.md) (steps, commits, verification for the video pipeline), [`noteskins.md`](plans/noteskins.md) (imported StepMania noteskins, without their Lua first), [`lua.md`](plans/lua.md) (running noteskins' Lua safely).
 
 Reference implementations to consult while building: StepMania 5.1 (`5_1-new` branch) for parsing and timing semantics, [Project OutFox](https://projectoutfox.com/) (the actively developed StepMania fork; its [wiki](https://outfox.wiki/) documents formats and mode support and its Serenity packs are CC-BY), ITGmania / Simply Love for ITG rules, danoniplus for Dancing☆Onigiri, rCubed for FFR.
 
