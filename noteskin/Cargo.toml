@@ -10,3 +10,7 @@ description = "DitoDitoInfinito: StepMania noteskins (lookup, metrics, sprite sh
 
 [dependencies]
 serde.workspace = true
+ddi-lua.workspace = true
+
+[dev-dependencies]
+ddi-lua.workspace = true

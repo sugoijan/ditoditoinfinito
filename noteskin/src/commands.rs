@@ -69,6 +69,34 @@ pub fn parse(commands: &str) -> Result<Vec<Call>, CommandError> {
     Ok(calls)
 }
 
+/// The Lua source StepMania compiles a command string to
+/// (`LuaHelpers::ParseCommandList`, non-legacy): `%` and the rest as an
+/// expression, else `return function(self)` with a `self:<name>(<args>)`
+/// line per command, the arguments as written (a leading `+` dropped, a
+/// `#rrggbb[aa]` part as four numbers). Evaluating the chunk gives the
+/// function. Precompiled chunks (`\x1b`) are refused.
+pub fn to_lua(commands: &str) -> String {
+    if let Some(expression) = commands.strip_prefix('%') {
+        return format!("return {expression}");
+    }
+    if commands.starts_with('\u{1b}') {
+        return "error('precompiled Lua is not supported', 0)".into();
+    }
+    let mut s = String::from("return function(self)\n");
+    for command in split_with_quotes(commands, b';') {
+        let mut parts = command.split(',');
+        // `Command::GetName`: `Trim`'s white space.
+        let name = parts
+            .next()
+            .unwrap_or("")
+            .trim_matches([' ', '\r', '\n', '\t']);
+        let args: Vec<String> = parts.map(argument).collect();
+        s.push_str(&format!("\tself:{name}({})\n", args.join(",")));
+    }
+    s.push_str("end\n");
+    s
+}
+
 /// `SplitWithQuotes(…, ';', …, true)`: a quote runs to the next same quote
 /// (or the end), empty pieces are dropped.
 fn split_with_quotes(s: &str, delimiter: u8) -> Vec<&str> {
@@ -102,9 +130,27 @@ fn argument(part: &str) -> String {
         // `RageColor::FromString` on the part, written as four numbers
         // (white when it does not parse).
         let c = color_from_string(part);
-        return format!("{},{},{},{}", c[0], c[1], c[2], c[3]);
+        return format!("{},{},{},{}", g6(c[0]), g6(c[1]), g6(c[2]), g6(c[3]));
     }
     part.to_string()
+}
+
+/// A float as an `ostream` writes it (six significant digits, `%g`).
+fn g6(v: f32) -> String {
+    if v == 0.0 {
+        return "0".into();
+    }
+    let exp = (v.abs() as f64).log10().floor() as i32;
+    if !(-5..6).contains(&exp) {
+        return format!("{v:e}");
+    }
+    let decimals = (5 - exp).max(0) as usize;
+    let s = format!("{:.*}", decimals, v as f64);
+    if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        s
+    }
 }
 
 /// `RageColor::FromString` (`src/RageTypes.h:231-256`): `r,g,b[,a]` as
@@ -522,14 +568,12 @@ mod tests {
                 call("visible", vec![Bool(false)])
             ]
         );
-        // `#rrggbb` parts become four numbers; enum and alignment globals.
+        // `#rrggbb` parts become four numbers, written with six significant
+        // digits as an `ostream` writes them; enum and alignment globals.
         assert_eq!(
             calls("diffuse,#FF0080;vertalign,bottom;blend,BlendMode_Add;effecttiming,.2,0,.8,0"),
             [
-                call(
-                    "diffuse",
-                    vec![Num(1.0), Num(0.0), Num(128.0 / 255.0), Num(1.0)]
-                ),
+                call("diffuse", vec![Num(1.0), Num(0.0), Num(0.501961), Num(1.0)]),
                 call("vertalign", vec![Str("VertAlign_Bottom".into())]),
                 call("blend", vec![Str("BlendMode_Add".into())]),
                 call("effecttiming", vec![Num(0.2), Num(0.0), Num(0.8), Num(0.0)])
@@ -603,5 +647,15 @@ mod tests {
         );
         assert!(evaluate("1 -- comment").unwrap() == [Num(1.0)]);
         assert!(evaluate("'\\300'").is_err());
+    }
+
+    #[test]
+    fn metrics_compile_to_lua_as_parse_command_list_writes_it() {
+        assert_eq!(
+            to_lua("zoom,+.5;diffuse,#FF0080;; playcommand,\"A;B\";glow,color(\"1,1,1,0\")"),
+            "return function(self)\n\tself:zoom(.5)\n\tself:diffuse(1,0,0.501961,1)\n\tself:playcommand(\"A;B\")\n\tself:glow(color(\"1,1,1,0\"))\nend\n"
+        );
+        assert_eq!(to_lua(""), "return function(self)\nend\n");
+        assert_eq!(to_lua("%function(self) end"), "return function(self) end");
     }
 }

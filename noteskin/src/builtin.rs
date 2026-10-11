@@ -5,9 +5,11 @@
 //! what it finds is drawn by the built-in skin. Their redirects, the
 //! behaviour of their Lua (reimplemented natively) and their metrics are
 //! StepMania 5.1's (`NoteSkins/dance/default/`, `NoteSkins/common/common/`
-//! at `5_1-new` 825467b). The two `metrics.ini` files are StepMania's, kept
-//! byte for byte under `builtin/stepmania/` with StepMania's licence
-//! (`LICENSES/LicenseRef-StepMania.txt`, credited in `THIRD_PARTY.toml`).
+//! at `5_1-new` 825467b). Their `metrics.ini` and Lua files are StepMania's,
+//! kept byte for byte under `builtin/stepmania/` with StepMania's licence
+//! (`LICENSES/LicenseRef-StepMania.txt`, credited in `THIRD_PARTY.toml`):
+//! the Lua runs when a skin's Lua does (`crate::lua`), the native versions
+//! stand in when it cannot.
 
 /// The stand-ins' Lua files.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,6 +171,76 @@ const COMMON_FILES: &[(&str, Virtual)] = &[
 ];
 
 /// StepMania's files, byte for byte (`REUSE.toml` names their licence).
+/// StepMania's Lua for the stand-ins, byte for byte (run when a skin's Lua
+/// runs; the native versions above stand in when it cannot).
+const LUA_SOURCES: &[(BuiltIn, &str, &str)] = &[
+    (
+        BuiltIn::Common,
+        "NoteSkin.lua",
+        include_str!("builtin/stepmania/common/common/NoteSkin.lua"),
+    ),
+    (
+        BuiltIn::Common,
+        "Fallback Explosion.lua",
+        include_str!("builtin/stepmania/common/common/Fallback Explosion.lua"),
+    ),
+    (
+        BuiltIn::Common,
+        "Fallback Receptor.lua",
+        include_str!("builtin/stepmania/common/common/Fallback Receptor.lua"),
+    ),
+    (
+        BuiltIn::Common,
+        "Fallback Tap Mine.lua",
+        include_str!("builtin/stepmania/common/common/Fallback Tap Mine.lua"),
+    ),
+    (
+        BuiltIn::Common,
+        "_Tap Lead-in Receptor.lua",
+        include_str!("builtin/stepmania/common/common/_Tap Lead-in Receptor.lua"),
+    ),
+    (
+        BuiltIn::Common,
+        "_Tap Press.lua",
+        include_str!("builtin/stepmania/common/common/_Tap Press.lua"),
+    ),
+    (
+        BuiltIn::Common,
+        "_Tap Receptor.lua",
+        include_str!("builtin/stepmania/common/common/_Tap Receptor.lua"),
+    ),
+    (
+        BuiltIn::DanceDefault,
+        "NoteSkin.lua",
+        include_str!("builtin/stepmania/dance/default/NoteSkin.lua"),
+    ),
+    (
+        BuiltIn::DanceDefault,
+        "Down Receptor.lua",
+        include_str!("builtin/stepmania/dance/default/Down Receptor.lua"),
+    ),
+    (
+        BuiltIn::DanceDefault,
+        "Down Tap Lift.lua",
+        include_str!("builtin/stepmania/dance/default/Down Tap Lift.lua"),
+    ),
+    (
+        BuiltIn::DanceDefault,
+        "Down Tap Note.lua",
+        include_str!("builtin/stepmania/dance/default/Down Tap Note.lua"),
+    ),
+];
+
+impl BuiltIn {
+    /// The source of the stand-in's Lua file `path`.
+    pub fn lua_source(self, path: &str) -> Option<&'static str> {
+        LUA_SOURCES
+            .iter()
+            .find(|(b, p, _)| *b == self && p.eq_ignore_ascii_case(path))
+            .map(|(_, _, s)| *s)
+    }
+}
+
 const DANCE_DEFAULT_METRICS: &str = include_str!("builtin/stepmania/dance/default/metrics.ini");
 
 const COMMON_METRICS: &str = include_str!("builtin/stepmania/common/common/metrics.ini");

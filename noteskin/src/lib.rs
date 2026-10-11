@@ -6,7 +6,8 @@
 //!
 //! Follows StepMania 5.1 (`5_1-new` @ 825467b); `docs/research/noteskins.md`
 //! has the sources, `docs/plans/noteskins.md` the steps. A skin's own Lua
-//! does not run yet: what needs it is reported and drawn built in.
+//! runs at load in a sandboxed VM ([`lua`], `docs/plans/lua.md`); without
+//! it, what needs Lua is reported and drawn built in.
 
 pub mod actor;
 pub mod build;
@@ -16,6 +17,7 @@ pub mod hints;
 pub mod import;
 pub mod ini;
 pub mod load;
+pub mod lua;
 pub mod metrics;
 pub mod notes;
 pub mod skin;
