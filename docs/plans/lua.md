@@ -90,6 +90,14 @@ fuel, the crashes fixed and panicking constructs denied, the string library
 and the rest of Lua 5.1's behaviour, the limit cases, the Lua 5.1 outputs
 and fuzzing, natively and in wasm.
 
+**Done 2026-10-11**: two rounds (the brief and its second round, R1–R7),
+pushed to `sugoijan/piccolo`, branch `hardening`, at `c8a4b77`; the
+workspace depends on that revision. Checked here on it: piccolo's suite,
+the limit cases' outcomes and CPU-time gates natively and in wasm, and
+every case again through `ddi-lua`. Open: R8 (`%s` with a width or
+precision scans its argument uncharged, older than both rounds), and the
+wall-time gates, to rerun on an idle machine.
+
 ## Step 2. `ddi-lua` (commit 2, in parallel with step 1)
 
 - Written against upstream trunk (`ce709eb`), which has the same API less
@@ -105,6 +113,45 @@ and fuzzing, natively and in wasm.
 - When the fork is done: the dependency moves to its revision, `Limits`
   joins the budget, and the brief's limit cases run again through
   `ddi-lua` (natively and in wasm), with the deadline as the host's stop.
+
+**Done 2026-10-11**, first on the fork's first round, whose review and
+these runs found ways past the guarantees (a `__call` chain, colliding
+interned strings, garbage counted against the cap, the pattern matcher's
+cap) that became the brief's second round; then on the pushed revision,
+where the 120 limit cases end as expected natively and in wasm. What it
+is:
+
+- `ddi_lua::Vm` (`lua/src/lib.rs`): one skin's state, built from
+  `Lua::empty()` with the host's hash seed (`Settings::hash_seed`: the app
+  must give each VM one from the platform's randomness, or strings can be
+  built to collide), `Compat::Lua51`, the host's `math.random` seed and
+  `Limits` (32 MiB, strings of 1 MiB). `Vm::load` takes at most 1 MB of
+  source, rewrites `cmd`, and compiles with a work cap (2,000,000 units of
+  the fork's `CompileBudget`); synthetic 1 MB sources stop earlier, at the
+  memory limit (the compiler counts 384 bytes a token), after 12–32 ms,
+  and the corpus's largest file (17 KB) compiles in 0.85 ms; `Vm::run` steps a `Task` 1,000 fuel at a time under
+  a `Budget` (fuel for the call, a deadline on the host's clock) and ends
+  `Done`, `Paused` (fuel spent: a load goes on next frame) or `Failed`
+  (`Compile`, `Error`, `Limit`, `Deadline`). An uncaught error's message is
+  made without running Lua (a looping `__tostring` cannot hang the report).
+- `cmd` (`lua/src/cmd.rs`): tokens replaced in place, so lines and errors
+  match StepMania's; `;`-separated parts, empty parts, `...`, nested `cmd`,
+  and function arguments whose bodies contain `;` (block keywords are
+  tracked) as `lparser.c`'s `cmd_body`; malformed `cmd(...)` gives
+  StepMania's messages.
+- The globals (`lua/src/sandbox.rs`): base, `string`, `table`, `math`,
+  `coroutine`; `load` and `collectgarbage` removed; `_G`, `_VERSION` "Lua
+  5.1", `unpack`, `table.getn`, `math.mod`, `math.pow`, `string.gfind`.
+  `print`, `loadfile` and the rest come with the host API (step 3).
+- Checked: unit and VM tests (`cargo test -p ddi-lua`); 658 distinct `.lua`
+  files of the local skin corpus compile in 40 ms in all, except three that
+  StepMania rejects too (a UTF-8 byte order mark, which `luaL_loadbuffer`
+  does not skip, and two syntax errors, in the abandoned 5.1 "newskin"
+  format and a `Docs` file); the fork's 103 limit cases through a `Vm`,
+  natively in release (every outcome as expected, eleven of them differing
+  from the fork's default mode because of Lua 5.1 and the missing `load`,
+  listed in `lua/tests/local.rs`) and in wasm under Node (no trap, memory
+  growth at most 38.4 MiB).
 
 ## Step 3. The host API and loading skins (commit 3)
 

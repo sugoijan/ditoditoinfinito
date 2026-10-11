@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["chart", "engine", "render", "platform", "library", "noteskin", "app", "xtask"]
+members = ["chart", "engine", "render", "platform", "library", "noteskin", "lua", "app", "xtask"]
 default-members = ["app"]
 
 [workspace.package]
@@ -19,6 +19,11 @@ ddi-render = { path = "render" }
 ddi-platform = { path = "platform" }
 ddi-library = { path = "library" }
 ddi-noteskin = { path = "noteskin" }
+ddi-lua = { path = "lua" }
+
+# The hardened fork of piccolo (docs/plans/piccolo-fork.md), branch
+# `hardening`; gc-arena stays at the revision it pins.
+piccolo = { git = "https://github.com/sugoijan/piccolo.git", rev = "c8a4b77ef8bd3e148d3d994192c07de95693e931" }
 
 # app / web
 yew = { version = "0.23", features = ["csr"] }
