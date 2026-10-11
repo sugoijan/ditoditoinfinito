@@ -146,10 +146,17 @@ timeline; keep it that way or offset tests become meaningless.
   unknown keys there.
 - Any modification of an asset (resizing, cropping, transcoding) is recorded
   as a modification with the exact command.
+- Code or data copied from another project (StepMania's noteskin metrics,
+  danoniplus's key tables) keeps its upstream form where possible, gets a
+  `REUSE.toml` annotation and a `THIRD_PARTY.toml` entry (the credits ship
+  its notice). Copy only from permissive sources: never from ITGmania
+  (GPLv3 since 2024-09-20; StepMania 5.1 has the same older files under its
+  MIT-style licence). Reading GPL code to learn behaviour is fine;
+  transcribing it is not.
 
 Third-party Rust dependencies keep their own licences (e.g. Symphonia is
 MPL-2.0, file-level copyleft, fine to link from MIT code). Only bundled
-assets are tracked in `REUSE.toml`.
+assets and copied code are tracked in `REUSE.toml`.
 
 ## Deployment
 

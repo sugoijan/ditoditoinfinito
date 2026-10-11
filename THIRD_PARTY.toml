@@ -1,0 +1,30 @@
+# Code and data from other projects compiled into the game, credited by
+# `cargo run -p xtask -- gen-credits` in CREDITS.md and on the Credits
+# screen, with the notice each licence asks to ship. REUSE.toml annotates
+# the same files. Rust dependencies are not listed here.
+#
+# Fields: name, what (what is used and where), files (repository paths),
+# spdx, holders, source, commit, license_url, and notice: a file holding
+# the notice to reproduce (for MIT, omit it: the notice is LICENSES/MIT.txt
+# with the holders' copyright line).
+
+[[code]]
+name = "StepMania 5.1"
+what = "The metrics.ini files of its dance/default and common/common noteskins, byte for byte: the stand-ins every imported noteskin falls back to."
+files = ["noteskin/src/builtin/stepmania/dance/default/metrics.ini", "noteskin/src/builtin/stepmania/common/common/metrics.ini"]
+spdx = "LicenseRef-StepMania"
+holders = ["Chris Danford, the StepMania development team, et al.", "AJ Kelly, Midiman, shakesoda (the spinal shark collective), and other contributors"]
+source = "https://github.com/stepmania/stepmania"
+commit = "825467bcd81c812b33ad684dc04dd151b2d5dec3"
+license_url = "https://github.com/stepmania/stepmania/blob/825467bcd81c812b33ad684dc04dd151b2d5dec3/Docs/Licenses.txt"
+notice = "LICENSES/LicenseRef-StepMania.txt"
+
+[[code]]
+name = "danoniplus (Dancing☆Onigiri CW Edition) v51.2.2"
+what = "Its built-in key mode tables and key codes (js/lib/danoni_constants.js), converted to Rust."
+files = ["chart/src/layout/danoni_table.rs", "chart/src/formats/danoni/keycodes.rs"]
+spdx = "MIT"
+holders = ["2018 tickle"]
+source = "https://github.com/cwtickle/danoniplus"
+commit = "80c3c47"
+license_url = "https://github.com/cwtickle/danoniplus/blob/80c3c47/LICENSE"
