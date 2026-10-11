@@ -305,3 +305,60 @@ steps, fuel, peak heap, longest step, worst time per fuel; native and
 wasm), the fuzzing runs, the `Lua51` differences left, and anything that
 needed a decision (a gc-arena change, a gate that could not be met and
 why).
+
+## Second round (2026-10-11)
+
+The first round met every gate above. Integrating it into the game
+(`lua/`, `ddi-lua`: Lua 5.1 mode, 32 MiB and 1 MiB limits, 1,000 fuel a
+step) and an independent review found ways past the guarantees that the
+limit cases did not cover. Measured on an Apple M1 Max, release builds.
+Fix these on the same branch, one commit each with its limit case, then
+publish.
+
+| Id | Source (sketch) | Now | Required |
+|---|---|---|---|
+| R1 | `local t = setmetatable({}, {}) getmetatable(t).__call = t return t()` | every hop `push_front`s the callee into the arguments (`meta_ops::call`), shifting them all uncharged: steps of ~1,000 fuel take 6 ms after 2 s, 32 ms after 40 s; from `t(table.unpack(a))` with 250,000 values, 19 ms native, 18 ms wasm | the shift charged (`cost::VALUES`) or the chain bounded; host stop or error, every step within the gates |
+| R2 | 65,536 strings built at run time whose interner hash collides (see below) | the interner hashes with `AHasher::default()`, fixed keys known to anyone with the source: one step of 4,785 fuel took 37 ms (the interner's rehash), 55 ms in a loop; the same count of ordinary strings peaks at 0.9 ms | hashing keyed by a seed the host sets per instance (`Lua::set_hash_seed(u64)`, for the interner and tables alike, as `set_random_seed`), so collisions cannot be computed offline; probes charged where a step can make many |
+| R3 | `local keep = {} for i = 1, 60000 do keep[i] = {i} end while true do local s = ("x"):rep(2^19) end` | about 15 MiB live, the rest garbage: the uncatchable limit fires at 29.8 MiB because uncollected garbage counts and nothing collects before refusing | a script whose live data stays under half the memory limit never reaches the limit, whatever garbage it makes (a full collection before an allocation is refused, or between steps once near the limit); host stop |
+| R4 | `string.find(("a"):rep(30), ("a*"):rep(30) .. "b")` (C11) | 10^6 matcher steps per attempt in one step: 6.7 ms native at `opt-level = 3`, 9.9 ms at `opt-level = "z"` (the game's wasm profile), 11.1 ms in wasm | the cap lowered so one attempt fits 2 ms in wasm (10^5 is ample for skins), or the matcher suspends inside an attempt |
+| R5 | `string.format('%q', ('\0'):rep(2^20))`, default mode | output checked and charged after writing: 14.5 ms native, 36 ms wasm, for 24 fuel | charged and checked before writing, as Lua51 mode does (1.3 ms) |
+| R6 | `load(('x=' .. ('9'):rep(20) .. ' '):rep(40000))` | 16.5 ms native, 17.5 ms wasm, ending in the uncatchable limit | `LOAD_MAX_WORK` set so a `load` fits the step gates; exceeding it a catchable error |
+| R7 | (gates) | step times are thread CPU time; compile time is not gated (P3a takes 34 ms) | gate wall time too; report compile time per case |
+
+R2's strings: brute-force integers `n` for which `"k<n>"` hashes, with the
+interner's hasher, to a value whose low 16 bits are zero (46 s on 8
+threads), and have the script build each with `"k" .. n` from a string of
+the numbers (so the chunk itself holds no colliding constants):
+
+```rust
+use std::hash::Hasher;
+fn h(s: &[u8]) -> u64 { let mut st = ahash::AHasher::default(); st.write(s); st.finish() }
+// for n in 0.. { if h(format!("k{n}").as_bytes()) & 0xffff == 0 { keep n } }
+```
+
+With a host seed, the same search must find nothing better than chance;
+the limit case then keeps strings colliding under the default seed and
+checks they no longer collide under another.
+
+Lower priority, document if not done: the ASan fuzz runs and their eight
+`oom-*` files (they replay clean without ASan, at most 30 MB RSS);
+`PATCHES.md`'s "about 0.25 µs per fuel for any work" and "about 5 ms" for
+the matcher cap, both too optimistic as measured; runtime errors as
+positioned strings (`attempt to index a nil value` with a line), which the
+game's import report would show.
+
+Done when the eight gates above still hold, R1–R7 are limit cases that
+meet them (natively and in wasm), and the game's `ddi-lua` tests pass
+against the new revision.
+
+## After the second round (2026-10-11)
+
+Checked on `c8a4b77`: piccolo's suite, clippy, the limit cases' outcomes
+and CPU-time gates natively and in wasm, and the game's `ddi-lua` and
+noteskin tests and corpus on it, all pass. The wall-time gates could not
+be checked (the fuzzers kept the load average near 200). One gap left,
+older than both rounds:
+
+| Id | Source (sketch) | Now | Required |
+|---|---|---|---|
+| R8 | `local s = ('x'):rep(2^20) while true do local r = ('%5.2s'):format(s) end` (also `%.2s`, and `%5s` in the default mode) | with a width or precision, `%s` scans the whole argument for zero bytes (`split` to the first zero, and `contains(&0)` in the default mode) uncharged: about 25 fuel a call for about 0.75 ms on a loaded machine, 25–35 µs per fuel, steps of 60–100 ms; the same on `5db689c` | the scan charged (`cost::BYTES_PROCESSED`) or, in Lua51 mode, stopped at the precision; a limit case meeting the gates |

@@ -1,0 +1,12 @@
+[package]
+name = "ddi-lua"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: StepMania's Lua, sandboxed (piccolo with budgets, the cmd keyword, Lua 5.1's globals)"
+
+[dependencies]
+piccolo.workspace = true

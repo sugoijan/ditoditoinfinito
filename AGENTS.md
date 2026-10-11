@@ -36,6 +36,10 @@ the browser are implementation details, not advertised features.
   for StepMania's `default` and `common`; a skin's Lua does not run yet),
   actors and their commands. Pure, natively tested;
   `docs/plans/noteskins.md`. `render/src/noteskin.rs` draws a skin in play.
+- `lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`): a
+  hardened fork of piccolo with per-VM memory and string limits, fuel and
+  a deadline per call, StepMania's `cmd` keyword, Lua 5.1's globals and
+  nothing that reaches outside. Platform-free, natively tested.
 - `app/` the web shell: Yew for menus, wgpu canvas for play, Web Audio clock,
   settings in `localStorage`, imported songs in IndexedDB. Compiles for
   `wasm32-unknown-unknown` only.
@@ -57,7 +61,7 @@ the browser are implementation details, not advertised features.
 - `just build` release build with the production public URL.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
 - `just test` native tests (chart, engine, render, platform with `decode`, library,
-  noteskin, xtask). The app crate has no native tests; verify it in a browser.
+  noteskin, lua, xtask). The app crate has no native tests; verify it in a browser.
 - `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
   compares every `.sm` under a local folder against the two oracle parsers
   (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`).
@@ -65,6 +69,10 @@ the browser are implementation details, not advertised features.
 - `DDI_NOTESKINS=<dir>[:<dir>…] cargo test -p ddi-noteskin --test local_skins -- --nocapture`
   resolves every element of every skin under local `NoteSkins` folders
   (`DDI_NOTESKINS_STANDINS=1`: without their `default` and `common`).
+- `DDI_LUA_CORPUS=<dir>[:<dir>…]` / `DDI_LUA_CASES=<cases.txt>` with
+  `cargo test --release -p ddi-lua --test local -- --nocapture` compile
+  local skins' Lua, or run the piccolo fork's exported limit cases with
+  their time gates (under the memory watchdog).
 - `just video` builds the decoder module (downloads the pinned toolchain and
   FFmpeg into `target/video/`); `just video-check [file]` checks it on a file
   or on generated clips against the `ffmpeg` command's decode.
