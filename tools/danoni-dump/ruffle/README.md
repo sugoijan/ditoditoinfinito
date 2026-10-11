@@ -465,3 +465,8 @@ The [first v2 admission batch](../../../docs/research/danoni-corpus-v2-admission
 adds the `scheduled-constant` family, exact optional-colour 404 reviews and
 source-bound published-tempo evidence. The expanded local registry inventories
 all 113 v2 sources, including those still pending runtime/engine review.
+
+[The ParaFla pair handover](../../../docs/research/danoni-paired-ports.md) adds
+`parafla-counter`, split sidecar selection, parsed pixel-speed normalization and
+explicit inactive schedules. `compare_ports.py` compares saved source frames
+without assuming a later port has the same chart or music; outputs stay external.

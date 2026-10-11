@@ -353,6 +353,24 @@ though its captured `difData` BPM text is undeclared. Metadata can therefore
 require page/catalogue evidence outside the dos header. An estimated constant
 grid is a presentation approximation, not recovery of those tempo changes.
 
+### ParaFla ports and carried source fields (2026-10-11)
+
+[Saigetsu](http://autumnleaves.yukishigure.com/Saigetsu/saigetsu.html) and
+[ESS](https://mfv2.sakura.ne.jp/do/__Flash/danoniwinterfes/No200/DO.ESS.html)
+use runtime-loaded chart sidecars. Static gen4 resemblance does not mean embedded
+data or the same engine revision. Divided ESS sidecars load into unsuffixed
+fields despite numeric `diffin`; its 55 is a menu count rather than a difficulty
+rating. The engine's `arrowSpd` stores pixel increments, and retained source
+fields can belong to a previously selected key mode. The adapter retains
+inactive key-code-zero schedules separately and reads actual parsed speed state.
+[Native observations and exact contracts](danoni-paired-ports.md).
+
+[Saigetsu's HTML5 port](https://mfv2.sakura.ne.jp/do/_rekuAL/?id=saigetsu)
+has 682 taps versus the SWF's 679, with frame/hold edits. A later port therefore
+needs chart-identity checks before being used as an equality oracle. Identical
+offline converter references and complete playable-work verification are also
+different results; preserve both status fields. [Comparison report contract](danoni-paired-ports.md#generic-comparison-utility-and-local-layout).
+
 ## Part C — Implications for an internal chart model
 
 1. **Time base.** FFR = integer frames at 30 fps (plus optional ms per note, plus per-song integer `sync`); DanOni = integer frames at 60 fps with `blankFrame`/`adjustment`/`startFrame` offsets and `playbackRate` rescaling; DDR/SM = beats + BPM/stop segments. A lossless core should store note time as an exact rational or integer in a per-chart **tick base** (e.g., `ticks_per_second` = 30 or 60 for frame charts, beat-based for SM) together with the original frame integer, rather than forcing beats. Conversion to beats is lossy (and FFR charts have no BPM at all).

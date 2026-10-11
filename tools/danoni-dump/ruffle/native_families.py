@@ -31,6 +31,13 @@ def split_numbers(value):
     return result
 
 
+def source_suffix(value):
+    if isinstance(value,dict):return text(value)
+    if type(value)in(int,float)and math.isfinite(value)and 0<=value<=999 and int(value)==value:
+        return str(int(value))
+    raise ValueError('Source suffix must be a complete string or nonnegative integer')
+
+
 def source_field(root, stem, suffix='', prefix=''):
     # Historical forks place the difficulty suffix on either side of _data.
     names={prefix+stem+suffix+'_data',prefix+stem+'_data'+suffix}
@@ -81,7 +88,7 @@ def extract_movie_arrays(capture, family, source_prefix=""):
             taps=numbers(graph,bank[lane+'_timeline' if mode=='5' else clip+'_dac'])
             holds=numbers(graph,root.get('f'+clip+'_dac',UNDEFINED)) if mode=='7' else []
             if len(holds)%2 or any(b<a for a,b in zip(holds[::2],holds[1::2])):raise ValueError('Malformed holds')
-            suffix=text(root['diffin']) if 'diffin'in root else ''
+            suffix=source_suffix(root['diffin']) if 'diffin'in root else ''
             field=source_field(root,lane,suffix,source_prefix)
             if field in root and split_numbers(root[field])!=taps:raise ValueError('Native taps disagree with loaded source')
             if mode=='7':
@@ -205,7 +212,7 @@ def schedule(graph, reference, lane_indices):
     return result
 
 
-def scheduled_projection(capture, mode, *, allow_missing_decorative_sprites=False):
+def scheduled_projection(capture, mode, *, allow_missing_decorative_sprites=False, parafla=False):
     """Cross-check independent raw lane banks and the native spawn/travel table."""
     # AVM errors from missing optional attachments can only be reviewed after
     # converter completion. They are retained; a halted VM is always rejected.
@@ -236,7 +243,10 @@ def scheduled_projection(capture, mode, *, allow_missing_decorative_sprites=Fals
                 lanes.append({'name':lane,'nativeFrames':numbers(graph,bank[index]),'nativeHoldFrames':list(zip(values[::2],values[1::2]))})
         else:
             # Later ParaFla families retain raw loaded fields through converter cleanup.
-            suffix=text(root['diffin'])
+            suffix=source_suffix(root['diffin'])
+            # Divided ParaFla sidecars load the selected chart into unsuffixed
+            # fields. The complete compiled schedule proves that association.
+            if root.get('DOS_DIVIDE')is True:suffix=''
             lanes=[]
             for lane,_ in definitions:
                 field=source_field(root,lane,suffix)
@@ -250,8 +260,16 @@ def scheduled_projection(capture, mode, *, allow_missing_decorative_sprites=Fals
         if not any(l['nativeFrames'] for l in lanes):continue
         source_clock='frameNum' if 'frameNum'in root else 'frame_num'
         raw=(item,graph,root,lanes,source_clock)
-        taps=schedule(graph,root['mkArrow'],lane_indices)
-        freezes=schedule(graph,root['mkFArrow'],lane_indices)
+        inactive=[]
+        if parafla:
+            codes=numbers(graph,root['keyCtrl'])
+            if 'frameNum'not in root or 'arrowSpd'not in root or len(codes)!=7 or numeric(root['setSpd'])!=2*numeric(root['difSpd'])or numeric(root['setSpd'])<=0:
+                raise ValueError('Unproved ParaFla clock, keys or initial speed units')
+            inactive=[index for index,code in enumerate(codes)if code==0 and index not in lane_indices]
+        all_taps=schedule(graph,root['mkArrow'],lane_indices+inactive)
+        all_freezes=schedule(graph,root['mkFArrow'],lane_indices+inactive)
+        taps=Counter({k:v for k,v in all_taps.items()if k[1]in lane_indices})
+        freezes=Counter({k:v for k,v in all_freezes.items()if k[1]in lane_indices})
         if not taps:continue
         travel=graph.props(root['judgeY'])
         recovered=Counter((frame+numeric(travel[str(frame)]),lane)for frame,lane in taps.elements())
@@ -264,16 +282,28 @@ def scheduled_projection(capture, mode, *, allow_missing_decorative_sprites=Fals
     item,graph,root,lanes,clock,taps,freezes=prepared
     if diagnostics:
         if any(e['iteration']<=item['frame']for e in diagnostics):raise ValueError('Failure preceded converter completion')
-        required=[clip+'_step'for _,clip in SEVEN]
+        required=[clip+'_step'for index,(_,clip)in enumerate(SEVEN)if index in lane_indices]
         if not any(all(display_map(i).get(name) for name in required)for i in capture['captures']):raise ValueError('Required selected-mode sprites are missing')
     metadata={k:text(root[k])for k in ['musicTitle','GAME_TITLE','TUNING_NAME','TUNING_NAMES','tuning','diffi','VERSION','keyLabel','ARTIST_NAME','ARTIST_URL','CREDIT','CREATOR_NAME']if k in root and isinstance(root[k],dict)and root[k].get('type')=='string'}
     if metadata.get('keyLabel',mode)!=mode:raise ValueError('Selected key mode differs')
     speeds=numbers(graph,root['speed_dac']) if 'speed_dac'in root else split_numbers(root.get('speed_change',root.get('speed_data')))
     boosts=numbers(graph,root.get('boost_dac',root.get('boostDac',UNDEFINED)))
+    parafla_data={}
+    if parafla:
+        initial=numeric(root['setSpd']);pixels=numbers(graph,root['arrowSpd'])
+        if len(pixels)%2 or not pixels or pixels[:2]!=[0,initial]or any(a>=b for a,b in zip(pixels[::2],pixels[2::2])):
+            raise ValueError('Invalid parsed ParaFla pixel speed bank')
+        # The first pair initializes base movement; it is not an author change.
+        speeds=[value/initial if index%2 else value for index,value in enumerate(pixels[2:])]
+        parafla_data={'initialPixelSpeed':initial,'parsedPixelSpeeds':pixels,
+            'sourceSelection':{'runtimeSuffix':source_suffix(root['diffin']),'splitDos':root.get('DOS_DIVIDE')is True,'loadedFieldSuffix':suffix},
+            'inactiveSchedules':{'nativeKeyCodes':numbers(graph,root['keyCtrl']),
+                'taps':[{'frame':f,'lane':l,'count':n}for(f,l),n in sorted(all_taps.items())if l in inactive],
+                'holds':[{'frame':f,'lane':l,'count':n}for(f,l),n in sorted(all_freezes.items())if l in inactive]}}
     def events(flat):
         if len(flat)%2:raise ValueError('Unpaired native events')
         return [{'nativeFrame':f,'multiplier':v}for f,v in zip(flat[::2],flat[1::2])]
-    return {'mode':mode,'lanes':lanes,'speed':events(speeds),'boost':events(boosts),'colors':[],
+    return {**parafla_data,'mode':mode,'lanes':lanes,'speed':events(speeds),'boost':events(boosts),'colors':[],
             'metadata':metadata,'nativeLaneIndices':lane_indices,'nativeKeyCodes':numbers(graph,root['keyCtrl']) if isinstance(root.get('keyCtrl'),dict) and 'ref' in root['keyCtrl'] else None,'clockField':clock,'scheduleAgreement':True,'preparedIteration':item['frame'],
             'nativeSchedules':{'taps':[{'frame':f,'lane':l,'count':n}for (f,l),n in sorted(taps.items())],
                                'holds':[{'frame':f,'lane':l,'count':n}for (f,l),n in sorted(freezes.items())]},

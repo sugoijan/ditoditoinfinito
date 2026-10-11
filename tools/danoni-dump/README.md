@@ -192,3 +192,8 @@ Native SWF extraction should use HTTP/HTML discovery and restricted Ruffle,
 with Playwright only as an optional discovery fallback or separate CW oracle.
 Do not delete the old mixed export tree before preserving its evidence/reviews
 and validating a replacement generation.
+
+The [MFV2 paired-source review](../../docs/research/danoni-paired-ports.md)
+registers one exact v50.0.0 engine and a separate helper policy for early sole
+timestamp requests. This fixes reference replay before engine startup, while
+keeping semantic queries, partial-work status and robots failures intact.

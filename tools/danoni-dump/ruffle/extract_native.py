@@ -73,8 +73,8 @@ def extract(recipe_path, output, ffmpeg):
             state,optional_errors=review_optional_colors(state,optional_review)
         if family in ('child-timeline-5','dac-7'):
             projected,iteration=extract_movie_arrays(state,family,row.get('sourcePrefix',''));clock=None
-        elif family in ('scheduled-counter','scheduled-constant'):
-            projected=constant_projection(state,row['mode'])if family=='scheduled-constant'else scheduled_projection(state,row['mode'],allow_missing_decorative_sprites=row.get('reviewMissingDecorativeSprites',False));clock=projected['clockField'];iteration=projected['preparedIteration']
+        elif family in ('scheduled-counter','scheduled-constant','parafla-counter'):
+            projected=constant_projection(state,row['mode'])if family=='scheduled-constant'else scheduled_projection(state,row['mode'],allow_missing_decorative_sprites=row.get('reviewMissingDecorativeSprites',False),parafla=family=='parafla-counter');clock=projected['clockField'];iteration=projected['preparedIteration']
         else:raise ValueError('Unknown native family')
         motion_path,motion_state,motion_parent=capture(root,row['motionCapture'],swf_hash,inputs)
         if optional_review:motion_state,_=review_optional_colors(motion_state,optional_review)
@@ -111,10 +111,10 @@ def extract(recipe_path, output, ffmpeg):
         metadata={**recipe.get('metadata',{})}
         if not metadata.get('artist'):
             label=projected['metadata'].get('ARTIST_NAME','')
-            if label.startswith('Artist'):metadata['artist']=label[len('Artist'):].strip()
+            if label.startswith('Artist')and(artist:=label[len('Artist'):].strip())not in ('','undefined','null'):metadata['artist']=artist
         if source.get('artist') and not metadata.get('artist'):metadata['artist']=source['artist']
         chart=relative_chart(projected,origin['logicalFrame']);chart.update(id=ident,music=media[mp3_hash],audioOrigin=origin,
-            nativeReference=f'references/{ident}.json',effects=([{'type':'missing-optional-color','review':optional_review,'diagnostics':optional_errors}]if optional_review else[])+([{'type':'unmapped-native-presentation','data':projected['nativePresentation']}]if projected.get('nativePresentation',{}).get('iro_dac')else[])+[{'type':'source-cursor-order','lane':index,**issue} for index,lane in enumerate(projected['lanes']) for issue in lane.get('sourceOrderIssues',[])],metadata={**metadata,'difficultyLabel':row.get('label',projected['metadata'].get('diffi',''))},difficultyStars=None)
+            nativeReference=f'references/{ident}.json',effects=([{'type':'missing-optional-color','review':optional_review,'diagnostics':optional_errors}]if optional_review else[])+([{'type':'unmapped-native-presentation','data':projected['nativePresentation']}]if projected.get('nativePresentation',{}).get('iro_dac')else[])+([{'type':'inactive-native-lane-schedules','data':projected['inactiveSchedules']}]if any(projected.get('inactiveSchedules',{}).get(k)for k in ('taps','holds'))else[])+[{'type':'source-cursor-order','lane':index,**issue} for index,lane in enumerate(projected['lanes']) for issue in lane.get('sourceOrderIssues',[])],metadata={**metadata,'difficultyLabel':row.get('label',projected['metadata'].get('diffi',''))},difficultyStars=None)
         reference={'schema':'ddi-native-family-reference/experimental-1','family':family,'sourceSwfSha256':swf_hash,
                    'preparedIteration':iteration,'clock':clock or 'root movie frame','audioOrigin':origin,'projection':projected,
                    'motion':motion,'metadata':chart['metadata'],'sourceSnapshotSha256':digest(saved.read_bytes()),

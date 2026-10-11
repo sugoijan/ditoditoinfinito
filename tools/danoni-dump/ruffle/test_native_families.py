@@ -174,3 +174,38 @@ class Audio(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+class ParaFla(unittest.TestCase):
+    def test_numeric_suffix_is_bounded_and_not_a_rating(self):
+        from native_families import source_suffix
+        self.assertEqual(source_suffix(33.0),'33')
+        self.assertEqual(source_suffix(string('')),'')
+        for value in [True,-1,1.5,float('nan'),1000]:
+            with self.assertRaises(ValueError):source_suffix(value)
+
+    def fixture(self):
+        root={'frameNum':0,'keyLabel':'5','diffin':33,'DOS_DIVIDE':True,'setSpd':5,'difSpd':2.5,
+            'keyCtrl':[37,0,40,32,38,0,39],'arrowSpd':[0,5,400,7.5],'speed_change':'900,3',
+            'speed_data':'401,1.5','boostDac':[],
+            'mkArrow':{'110':[0],'120':[2],'130':[4],'140':[6],'150':[3],'160':[1]},
+            'mkFArrow':{},'judgeY':{str(f):100 for f in [110,120,130,140,150,160]}}
+        for name,frame in zip(['left','down','up','right','space'],[210,220,230,240,250]):root[name+'_data']=str(frame)
+        return capture([root])
+
+    def test_divided_fields_parsed_speeds_and_inactive_schedules(self):
+        c=scheduled_projection(self.fixture(),'5',parafla=True)
+        self.assertEqual(c['speed'],[{'nativeFrame':400,'multiplier':1.5}])
+        self.assertEqual(c['initialPixelSpeed'],5)
+        self.assertEqual(c['sourceSelection'],{'runtimeSuffix':'33','splitDos':True,'loadedFieldSuffix':''})
+        self.assertEqual(c['inactiveSchedules']['taps'],[{'frame':160,'lane':1,'count':1}])
+        self.assertEqual(sum(len(l['nativeFrames'])for l in c['lanes']),5)
+        with self.assertRaises(ValueError):scheduled_projection(self.fixture(),'5')
+
+    def test_active_extra_lane_and_wrong_speed_units_fail(self):
+        for field in ['keyCtrl','setSpd']:
+            c=self.fixture();g=c['captures'][0]['state'];root=g['objects'][g['roots'][0]['value']['ref']]['properties']
+            if field=='setSpd':next(p for p in root if p['name']['text']==field)['value']=6
+            else:
+                ref=next(p for p in root if p['name']['text']==field)['value']['ref']
+                next(p for p in g['objects'][ref]['properties']if p['name']['text']=='1')['value']=65
+            with self.assertRaises(ValueError):scheduled_projection(c,'5',parafla=True)

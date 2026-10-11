@@ -262,3 +262,13 @@ Native execution identified a separate constant-travel family; static matching
 was not sufficient. The expanded exports have 31 songs / 49 charts. The other
 101 v2 sources are explicit pending registry entries; they have not been claimed
 as playable references. Original acquisition counts above remain historical.
+
+## ParaFla pair admission (2026-10-11)
+
+[Saigetsu and ESS](danoni-paired-ports.md) now have verified native references
+and playable exports. The gen4 static hint incorrectly described their chart
+data as embedded: actual runs request `dos.txt` and `no200_.txt` / `no200_33.txt`.
+ESS has 55 menu choices; this admission covers only レク[Normal]. Saigetsu's CW
+converter replays identically but its chart differs from the SWF. The ESS port
+comparison is still pending startup compatibility. Fourteen v2 works are now
+admitted and 99 remain pending; acquisition metadata above remains historical.

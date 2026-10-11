@@ -239,3 +239,13 @@ page-rating extraction: some surrounding HTML pages contain genuine stars even
 when runtime metadata only supplies a label. It also records generic BPM
 analysis for every normalized work. Current immutable native references and
 playable metadata are not rewritten by that investigation.
+
+## ParaFla counter extension (2026-10-11)
+
+`parafla-counter` additionally proves parsed `arrowSpd` pixel increments against
+`setSpd == 2 * difSpd`, retains numeric/divided sidecar selection and records
+unplayed key-code-zero schedules separately. It does not discard an active extra
+lane. The initial pixel assignment is the baseline, not an author change.
+[Exact fields, proofs and omissions](danoni-paired-ports.md#the-parafla-counter-contract)
+describe the two admitted charts. Unknown artist placeholders do not override
+source-bound artist hints; the original runtime credit strings remain intact.

@@ -1,8 +1,8 @@
 # Published difficulty ratings in the single-song exports
 
-Updated: 2026-10-10. Numeric source difficulty now reaches SSC through a
+Updated: 2026-10-11. Numeric source difficulty now reaches SSC through a
 source-bound review of cached work pages and catalogue rows, supplementing
-ratings already extracted from the runtime. **32 of the 43 single-song charts**
+ratings already extracted from the runtime. **34 of the 45 single-song charts**
 have verified published ratings. They use the same classifier as Kouhaku:
 
 | Source count / chosen range maximum | SSC tier |
@@ -18,7 +18,11 @@ publishers' scales equivalent: a 40-level author's 18 remains 18, rather than
 being rescaled or replaced with a guessed difficulty. Unknown ratings remain
 null in the report and `Edit` / meter 0 in SSC.
 
-## Current source evidence
+## Original single-song source evidence
+
+The [first v2 admission](danoni-corpus-v2-admission.md) and
+[paired-source admission](danoni-paired-ports.md) document the additional rows,
+including Saigetsu 11 and Earthquake Super Shock / レク[Normal] 25.
 
 All pages below were already cached locally. This change downloads nothing and
 executes no acquired script. Exact source bodies, encodings, retrieval dates,

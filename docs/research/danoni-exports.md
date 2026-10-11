@@ -1,6 +1,6 @@
 # Regenerating the local DanOni exports
 
-Updated: 2026-10-10. `ruffle/rebuild_corpus.py` now builds the
+Updated: 2026-10-11. `ruffle/rebuild_corpus.py` now builds the
 currently validated subset entirely from saved evidence, checks it with the
 game's actual parsers, and promotes it with archival and rollback journals.
 [Native family adapters](danoni-native-adapters.md) now cover eight further works.
@@ -9,6 +9,13 @@ Soul was deliberately removed from the active list; its HTML5 port remains.
 All third-party inputs and generated packs stay outside Git.
 
 ## Current generation
+
+The [paired-source admission](danoni-paired-ports.md) now adds Saigetsu and the
+レク chart of Earthquake Super Shock: **33 songs / 51 charts, 40,977 taps and
+1,230 holds**. The registry has 29 required and 107 pending entries. The prior
+31 songs remain byte-identical.
+
+## Previous v2 admission
 
 The [first v2 admission batch](danoni-corpus-v2-admission.md) expands the accepted
 exports to **31 songs / 49 charts, 39,021 taps and 1,176 holds**. The registry now

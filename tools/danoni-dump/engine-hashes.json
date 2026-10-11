@@ -91,6 +91,29 @@
       "url": "https://kt-rpg.sakura.ne.jp/danoni/html5/js/danoni_main.js",
       "sha256": "12efb34b3e43a4d99cbc9e110f4409c728b7873a2576a0f38f02cf48f1f4b420",
       "encodingNote": "Browser-decoded source: UTF-8 BOM removed; response-byte hash is a separate registry entry."
+    },
+    {
+      "version": "50.0.0",
+      "url": "https://mfv2.sakura.ne.jp/do/js/danoni_main.js",
+      "sha256": "54bf2c5c7833d2fcb9971cc55178aa15b59d41d39e23fcc558b4ac12008d16dd",
+      "encodingNote": "Browser-decoded source (UTF-8 BOM removed). Reviewed dosConvert input, six-argument full scoreConvert return, pre-pushArrows state and mainInit entry; frame/adjustment, lane and event layouts match the lexical adapter. Converter observed in Saigetsu on 2026-10-11."
+    },
+    {
+      "kind": "loader",
+      "url": "https://mfv2.sakura.ne.jp/do/js/danoni_custom_utils.js?20261011024413",
+      "sha256": "2d0df288cd600c72852effe9c359ff02a9efb8e5e06d06943dc2bba298ab859a",
+      "timestampResources": {
+        "pageQueryParam": "id",
+        "templates": [
+          "{id}/dos.js",
+          "{id}/dos.txt",
+          "../music/_artistDataList.csv",
+          "../music/_musicDataList.csv",
+          "music/_artistDataList.csv",
+          "music/_musicDataList.csv"
+        ]
+      },
+      "encodingNote": "Browser-decoded source (UTF-8 BOM removed). Reviewed loadDosText and load-event CSV paths append Date.now as the sole query before engine startup. Query id keeps its helper-defined path semantics; source getter double-decodes URLSearchParams value with one plus replacement. This policy permits exact aliases only; no helper execution in Node or robots exception."
     }
   ]
 }

@@ -91,6 +91,7 @@ export class EngineObserver {
   }
 
   async attach(page) {
+    this.page = page;
     const registry = JSON.parse(await readFile(new URL('./engine-hashes.json', import.meta.url), 'utf8'));
     this.trusted = new Set([...registry.scripts.filter(s => s.kind !== 'loader').map(s => s.sha256), ...this.extraHashes]);
     this.loaderPolicies = new Map(registry.scripts.filter(s => s.kind === 'loader').map(s => [s.sha256, s]));
@@ -118,6 +119,30 @@ export class EngineObserver {
         const url = frame?.url || this.scriptUrls?.get(scriptId) || '';
         const loaderPolicy = this.loaderPolicies?.get(sha256);
         if (loaderPolicy) {
+          if (loaderPolicy.timestampResources) {
+            // Use Playwright's already observed frame URL. Runtime/DOM protocol
+            // evaluation during a beforeScriptExecution pause can deadlock.
+            // These hash-reviewed templates use the publisher's page-relative
+            // paths; a request outside those exact paths receives no alias.
+            const page = { url: this.page.url(), baseURI: this.page.url() };
+            const policy = loaderPolicy.timestampResources;
+            const parameter = new URL(page.url).searchParams.get(policy.pageQueryParam);
+            // The reviewed helper double-decodes this query parameter. Its own
+            // path construction remains in Chrome; here we identify cache keys.
+            const id = parameter === null ? null : decodeURIComponent(parameter.replace('+', ' '));
+            const targets = [];
+            for (const template of policy.templates) {
+              if (template.includes('{id}') && id === null) continue;
+              const target = new URL(template.replaceAll('{id}', id ?? ''), page.baseURI);
+              if (!['http:', 'https:'].includes(target.protocol) || target.search || target.hash || target.username || target.password) {
+                throw new Error('Reviewed timestamp resource must have an anonymous URL without query or fragment');
+              }
+              targets.push(target.href);
+            }
+            for (const target of targets) this.cacheBusterUrls.add(target);
+            this.loaderScripts.push({ url, sha256, timestampResourceUrls: targets });
+            return;
+          }
           const probe = new URL(loaderPolicy.versionProbePath, url || loaderPolicy.url);
           if (!['https:', 'http:'].includes(probe.protocol) || probe.search || probe.hash || probe.username || probe.password) {
             throw new Error('Invalid reviewed loader version-probe policy');
