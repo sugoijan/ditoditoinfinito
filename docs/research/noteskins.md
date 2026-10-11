@@ -269,6 +269,11 @@ Measured with `wasm-opt -Oz` standalone builds (the app's wasm was 4.73 MB,
 | PUC Lua 5.1.5 (StepMania's patched copy) built with wasi-sdk as a separate module, like the video decoder | 137 KB / 66 KB | runs `cmd` natively; errors need Wasm exception handling (Chrome 137, Firefox 131, Safari 18.4) and JS glue | all |
 | no runtime: recognise common shapes and interpret command strings | — | breaks on every new template | 37 % with a model loader, 20 % without |
 
+(Superseded for the choice of VM by `docs/research/lua-sandbox.md`: with
+untrusted scripts and a native build to come, none of these enforces time
+and memory limits in-process as it is; the plan is a hardened fork of
+piccolo.)
+
 rilua keeps everything in one wasm with typed Rust callbacks and runs
 natively for tests; the host API skins need is narrow (section 8), so
 replacing the VM later is cheap. The patched C build is the fallback and a
