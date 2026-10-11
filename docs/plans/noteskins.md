@@ -6,8 +6,9 @@ the default and the look of every other layout. Research and sources:
 `docs/research/noteskins.md` (cited below as "research §n").
 
 **Scope of this round: everything that does not run a skin's Lua.** Lua
-(research §8–9: rilua behind a narrow host API) and MilkShape 3D models are
-later steps (7 and 8 below). Until then an element that a skin defines only
+(research §8; a hardened fork of piccolo behind a narrow host API,
+`docs/plans/lua.md`) and MilkShape 3D models are later steps (7 and 8
+below). Until then an element that a skin defines only
 in Lua (`Down Tap Note.lua`) or as a model is drawn by the built-in skin, and
 the import says which. In practice nearly every real skin defines its tap
 note and receptor in Lua (all of StepMania 5.1's, ITGmania's and OutFox's
