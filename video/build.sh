@@ -229,7 +229,9 @@ ddivideo.wasm, the video decoder of Dito Dito Infinito
 
 This module uses code of FFmpeg $ffmpeg_version ($(value homepage)), licensed
 under the GNU Lesser General Public License version 2.1 or later (below).
-Its source, unmodified: $ffmpeg_url
+Its source, unmodified, is served next to this file as $ffmpeg_file,
+SHA-256 $ffmpeg_sha:
+the release at $ffmpeg_url
 (tag $ffmpeg_tag, $(value source_url)).
 The module is built from it by video/build.sh in the repository above,
 with the configure flags in video/FFMPEG.toml (also listed in

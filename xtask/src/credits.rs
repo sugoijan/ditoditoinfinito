@@ -31,6 +31,15 @@ struct CreditsJson {
     fonts: Vec<FontCredit>,
     video: VideoCredit,
     code: Vec<CodeCredit>,
+    /// The published site (`seo/metadata.toml`), for CREDITS.md's links to
+    /// files the site serves; the Credits screen links them relatively.
+    #[serde(skip)]
+    site_url: String,
+}
+
+#[derive(serde::Deserialize)]
+struct SiteMetadata {
+    canonical_url: String,
 }
 
 /// Code or data from another project compiled into the game
@@ -163,7 +172,10 @@ struct VideoCredit {
     spdx: String,
     homepage: String,
     source_url: String,
+    /// The release tarball at FFmpeg, and the same file served next to the
+    /// module (`xtask stage-video`), as a path relative to the site.
     tarball_url: String,
+    tarball: String,
     tarball_sha256: String,
     /// The flags after the toolchain ones, the decoders last.
     configure: Vec<String>,
@@ -197,9 +209,24 @@ struct FfmpegPin {
     video_decoders: Vec<String>,
 }
 
+fn ffmpeg_pin(root: &Path) -> Result<FfmpegPin> {
+    toml::from_str(&fs::read_to_string(root.join("video/FFMPEG.toml"))?)
+        .context("parsing video/FFMPEG.toml")
+}
+
+/// The file name of FFmpeg's release tarball, which `stage-video` serves
+/// next to the module.
+pub fn ffmpeg_tarball(root: &Path) -> Result<String> {
+    let pin = ffmpeg_pin(root)?;
+    match pin.tarball_url.rsplit('/').next() {
+        Some(name) if !name.is_empty() => Ok(name.to_string()),
+        _ => bail!("video/FFMPEG.toml: tarball_url has no file name"),
+    }
+}
+
 fn video_credit(root: &Path) -> Result<VideoCredit> {
-    let pin: FfmpegPin = toml::from_str(&fs::read_to_string(root.join("video/FFMPEG.toml"))?)
-        .context("parsing video/FFMPEG.toml")?;
+    let tarball = format!("video/{}", ffmpeg_tarball(root)?);
+    let pin = ffmpeg_pin(root)?;
     let mut configure = pin.configure;
     configure.push(format!("--enable-decoder={}", pin.video_decoders.join(",")));
     let wasi_sdk = pin.wasi_sdk_version;
@@ -210,6 +237,7 @@ fn video_credit(root: &Path) -> Result<VideoCredit> {
         homepage: pin.homepage,
         source_url: pin.source_url,
         tarball_url: pin.tarball_url,
+        tarball,
         tarball_sha256: pin.tarball_sha256,
         configure,
         components: vec![
@@ -359,6 +387,12 @@ fn collect(root: &Path) -> Result<CreditsJson> {
         fonts,
         video: video_credit(root)?,
         code: code_credits(root)?,
+        site_url: {
+            let meta: SiteMetadata =
+                toml::from_str(&fs::read_to_string(root.join("seo/metadata.toml"))?)
+                    .context("parsing seo/metadata.toml")?;
+            meta.canonical_url
+        },
     })
 }
 
@@ -425,15 +459,17 @@ fn render_markdown(c: &CreditsJson) -> String {
     md.push_str("## Video decoder\n\n");
     let _ = writeln!(
         md,
-        "Background videos the browser cannot decode play through a separate module, `video/ddivideo.wasm`, fetched only when a song needs it. It uses code of [{} {}]({}) licensed under the [{}]({}); its source, unmodified: [{}]({}) (SHA-256 `{}`; tag: {}). It is built by `video/build.sh` with the configure flags below and linked with `video/ddivideo.c` (this repository's code, MIT); the build script rebuilds it, also against a modified {}.\n",
+        "Background videos the browser cannot decode play through a separate module, `video/ddivideo.wasm`, fetched only when a song needs it. It uses code of [{} {}]({}) licensed under the [{}]({}); its source, unmodified, is served next to the module: [`{}`]({}{}) (SHA-256 `{}`; the [release]({}) at FFmpeg, tag: {}). It is built by `video/build.sh` with the configure flags below and linked with `video/ddivideo.c` (this repository's code, MIT); the build script rebuilds it, also against a modified {}.\n",
         v.name,
         v.version,
         v.homepage,
         license_name(&v.spdx),
         license_url(&v.spdx),
-        v.tarball_url.rsplit('/').next().unwrap_or(&v.tarball_url),
-        v.tarball_url,
+        v.tarball,
+        c.site_url,
+        v.tarball,
         v.tarball_sha256,
+        v.tarball_url,
         v.source_url,
         v.name
     );

@@ -45,6 +45,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # With FFmpeg's release tarball, served next to the module as its
+      # source (xtask stage-video).
       - name: Cache the module
         id: cache
         uses: actions/cache@v4
@@ -53,6 +55,7 @@ jobs:
             target/video/ddivideo.wasm
             target/video/ddivideo.json
             target/video/ddivideo.LICENSE.txt
+            target/video/downloads/ffmpeg-*.tar.xz
           key: video-${{ hashFiles('video/build.sh', 'video/FFMPEG.toml', 'video/ddivideo.c') }}
       - name: Build the module
         if: steps.cache.outputs.cache-hit != 'true'
@@ -81,7 +84,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ddivideo
-          path: target/video/ddivideo.*
+          path: |
+            target/video/ddivideo.*
+            target/video/downloads/ffmpeg-*.tar.xz
 
   build:
     needs: video
@@ -120,8 +125,11 @@ jobs:
           path: target/video
       - name: Trunk build
         run: trunk build --release --public-url "$PUBLIC_URL"
-      - name: The site includes the video decoder
-        run: test -s dist/video/ddivideo.wasm && test -s dist/video/ddivideo.json && test -s dist/video/ddivideo.LICENSE.txt
+      - name: The site includes the video decoder and its source
+        run: |
+          test -s dist/video/ddivideo.wasm && test -s dist/video/ddivideo.json && test -s dist/video/ddivideo.LICENSE.txt
+          tarball="$(sed -n 's|^tarball_url = ".*/\(.*\)"$|\1|p' video/FFMPEG.toml)"
+          test -n "$tarball" && test -s "dist/video/$tarball"
       - name: Setup Pages
         if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
