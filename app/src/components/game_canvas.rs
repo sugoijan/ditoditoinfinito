@@ -907,7 +907,7 @@ impl GameCanvas {
                 game.add_movie(name, blob, format, probe);
             }
             if let Some(p) = self.noteskin.take() {
-                game.set_noteskin(Some(p.play), p.images);
+                game.set_noteskin(Some(p.play), p.images, p.key);
             }
         }
     }
@@ -1494,8 +1494,13 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
             && let Some(c) = loaded.song.charts.get(chart)
             && let Some(layout) = loaded.song.layout_of(c)
         {
+            let env = crate::noteskins::lua_env(&loaded.song, c, &layout);
             link.send_future(async move {
-                Msg::NoteskinLoaded(crate::noteskins::prepare(&key, &layout).await.map(Box::new))
+                Msg::NoteskinLoaded(
+                    crate::noteskins::prepare(&key, &layout, env)
+                        .await
+                        .map(Box::new),
+                )
             });
         }
         Msg::SongLoaded(r)

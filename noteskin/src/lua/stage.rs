@@ -1,12 +1,22 @@
 //! Where a skin's actors live while its Lua can reach them: each loaded
 //! element's tree, and where every actor with a Lua handle is in it.
+//!
+//! A play holds the trees it draws ([`Stage::reclaim`]); while Lua runs
+//! it lends them back ([`Stage::lend`]), so there is one copy of each
+//! actor and Lua's methods act on what is drawn. While a tree is out, Lua
+//! cannot reach its actors ("the actor is gone").
 
 use crate::actor::{Actor, Kind};
 
 #[derive(Default)]
 pub(crate) struct Stage {
-    /// The elements' trees, by the index handed out by [`Stage::add`].
-    roots: Vec<Actor>,
+    /// The elements' trees, by the index handed out by [`Stage::add`]
+    /// (a placeholder while the play holds one). Boxed: lending swaps
+    /// the boxes, not the trees.
+    #[allow(clippy::vec_box)]
+    roots: Vec<Box<Actor>>,
+    /// Whether the play holds tree `i`.
+    out: Vec<bool>,
     /// For actor id `i + 1`: its tree and the child indices down to it.
     places: Vec<(usize, Vec<u16>)>,
 }
@@ -29,12 +39,48 @@ impl Stage {
     }
 
     pub fn add(&mut self, tree: Actor) -> usize {
-        self.roots.push(tree);
+        self.roots.push(Box::new(tree));
+        self.out.push(false);
         self.roots.len() - 1
     }
 
-    pub fn root(&self, root: usize) -> Option<&Actor> {
-        self.roots.get(root)
+    /// The tree of `tree`'s root id, if `tree` is a root here and is
+    /// `out` (held by the play) or not.
+    fn slot(&self, tree: &Actor, out: bool) -> Option<usize> {
+        let (root, path) = self.places.get(tree.id.checked_sub(1)? as usize)?;
+        (path.is_empty() && self.out.get(*root) == Some(&out)).then_some(*root)
+    }
+
+    /// Takes the stage's tree for the play, giving `tree` (a copy, or a
+    /// placeholder the play got back from [`Stage::lend`]) in exchange.
+    /// False when `tree` is no root here or the play holds it already.
+    pub fn reclaim(&mut self, tree: &mut Box<Actor>) -> bool {
+        self.exchange(tree, false)
+    }
+
+    /// Lends the play's tree back to the stage while Lua runs. False when
+    /// `tree` is no root here or the stage has it already.
+    pub fn lend(&mut self, tree: &mut Box<Actor>) -> bool {
+        self.exchange(tree, true)
+    }
+
+    fn exchange(&mut self, tree: &mut Box<Actor>, out: bool) -> bool {
+        let Some(root) = self.slot(tree, out) else {
+            return false;
+        };
+        match (self.roots.get_mut(root), self.out.get_mut(root)) {
+            (Some(slot), Some(flag)) => {
+                std::mem::swap(slot, tree);
+                *flag = !out;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether tree `root` is on the stage (not held by the play).
+    fn here(&self, root: usize) -> bool {
+        self.out.get(root) == Some(&false)
     }
 
     fn walk<'s>(mut a: &'s Actor, path: &[u16]) -> Option<&'s Actor> {
@@ -46,12 +92,18 @@ impl Stage {
 
     pub fn get(&self, id: u32) -> Option<&Actor> {
         let (root, path) = self.places.get(id.checked_sub(1)? as usize)?;
+        if !self.here(*root) {
+            return None;
+        }
         Self::walk(self.roots.get(*root)?, path)
     }
 
     pub fn get_mut(&mut self, id: u32) -> Option<&mut Actor> {
         let (root, path) = self.places.get(id.checked_sub(1)? as usize)?;
-        let mut a = self.roots.get_mut(*root)?;
+        if !self.here(*root) {
+            return None;
+        }
+        let mut a: &mut Actor = self.roots.get_mut(*root)?;
         for &i in path {
             a = match &mut a.kind {
                 Kind::Frame(c) => c.get_mut(usize::from(i))?,
@@ -63,6 +115,9 @@ impl Stage {
 
     pub fn parent(&self, id: u32) -> Option<u32> {
         let (root, path) = self.places.get(id.checked_sub(1)? as usize)?;
+        if !self.here(*root) {
+            return None;
+        }
         let (_, up) = path.split_last()?;
         let p = Self::walk(self.roots.get(*root)?, up)?;
         (p.id != 0).then_some(p.id)

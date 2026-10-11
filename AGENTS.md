@@ -36,7 +36,7 @@ the browser are implementation details, not advertised features.
   for StepMania's `default` and `common`), actors and their commands, and
   (`noteskin/src/lua/`) a skin's Lua run at load over `lua/`. Pure,
   natively tested; `docs/plans/noteskins.md`. `render/src/noteskin.rs`
-  draws a skin in play (not yet with its Lua).
+  draws a skin in play and runs its Lua each frame.
 - `lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`): a
   hardened fork of piccolo with per-VM memory and string limits, fuel and
   a deadline per call, StepMania's `cmd` keyword, Lua 5.1's globals and
@@ -71,7 +71,8 @@ the browser are implementation details, not advertised features.
   resolves every element of every skin under local `NoteSkins` folders
   (`DDI_NOTESKINS_STANDINS=1`: without their `default` and `common`;
   `DDI_NOTESKINS_LUA=1`, in release under the watchdog: with each skin's
-  Lua).
+  Lua; `DDI_NOTESKINS_LUA_PLAY=1` also plays 20 s at 60 and 144 Hz and
+  reports the Lua's fuel per frame).
 - `DDI_LUA_CORPUS=<dir>[:<dir>…]` / `DDI_LUA_CASES=<cases.txt>` with
   `cargo test --release -p ddi-lua --test local -- --nocapture` compile
   local skins' Lua, or run the piccolo fork's exported limit cases with

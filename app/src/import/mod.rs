@@ -538,10 +538,11 @@ async fn store_noteskins(
             let Some(source) = sources.get(&format!("{prefix}{f}")) else {
                 continue;
             };
-            let lower = f.to_ascii_lowercase();
-            let is_text = lower == "metrics.ini" || lower.ends_with(".redir");
+            let is_text = crate::noteskins::kept_text(f);
             if is_text && source_size(source) > MAX_TEXT {
-                report.warnings.push((found.dir.clone(), format!("{f} is too large; left out")));
+                report
+                    .warnings
+                    .push((found.dir.clone(), format!("{f} is too large; left out")));
             } else if is_text {
                 match read_bytes(source).await {
                     Ok(bytes) => {
@@ -572,17 +573,26 @@ async fn store_noteskins(
             texts,
             origin: found.dir.clone(),
             stored,
+            lua_broken: None,
         };
         match store(&skin, blobs) {
             Ok(writes) => match db.write(writes).await {
-                Ok(()) => imported.push(skin),
+                Ok(()) => {
+                    // A new import gets its Lua's chances back.
+                    crate::noteskins::forget_stops(&skin.key());
+                    imported.push(skin);
+                }
                 Err(e) => report.skipped.push((found.dir.clone(), e)),
             },
             Err(e) => report.skipped.push((found.dir.clone(), e)),
         }
     }
-    // What draws, with every skin in the library as fallbacks.
-    let all = crate::noteskins::all(db).await.unwrap_or_default();
+    // What draws, with every skin in the library as fallbacks (older
+    // records given their `.lua` texts).
+    let mut all = crate::noteskins::all(db).await.unwrap_or_default();
+    for s in &mut all {
+        crate::noteskins::add_lua_texts(db, s).await;
+    }
     let folders: Vec<ddi_noteskin::Folder> = all
         .iter()
         .map(|s| ddi_noteskin::Folder {
@@ -594,7 +604,8 @@ async fn store_noteskins(
         .collect();
     for skin in imported {
         let line = if skin.game == "dance" {
-            crate::noteskins::summary(&folders, &skin.game, &skin.name)
+            progress.emit(format!("running the noteskin {}'s Lua…", skin.name));
+            crate::noteskins::summary(&folders, &skin.game, &skin.name).await
         } else {
             "shared files for other skins".to_string()
         };

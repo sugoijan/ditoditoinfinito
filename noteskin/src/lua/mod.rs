@@ -11,13 +11,23 @@
 //! Every command of such a skin is a Lua function (metrics strings are
 //! compiled as `ParseCommandList` compiles them) kept in the VM by actor
 //! id; methods a command calls act on the native actors in [`Stage`].
-//! Running commands during play is the next step; this one loads.
+//!
+//! During a play ([`LuaSkin::begin_frame`]) the play holds the trees it
+//! draws ([`LuaSkin::reclaim`], once every element is loaded, so elements
+//! can reach each other while they load) and lends them back while Lua
+//! runs ([`LuaSkin::lend`]): the
+//! engine's events play commands ([`LuaSkin::play`]) and each tree's
+//! update ([`LuaSkin::update`]) plays its queued commands and calls its
+//! update functions through Lua, all of a frame within one budget.
 //!
 //! A Lua error while an element loads makes that element the built-in
-//! skin's, with a note (StepMania shows a blank one); the memory limit,
-//! the deadline, the fuel or a host limit (too many actors) fail the whole
-//! skin's Lua, and the caller falls back to the native build
-//! ([`crate::build::build`]), as the plan's guarantees ask.
+//! skin's, with a note (StepMania shows a blank one); a command or update
+//! function that fails is reported and the play goes on, as in StepMania.
+//! The memory limit, the deadline, the fuel or a host limit (too many
+//! actors) end the skin's Lua: at load the caller falls back to the native
+//! build ([`crate::build::build`]); during a play every later call
+//! returns the same failure and the play draws the built-in skin, as the
+//! plan's guarantees ask.
 
 #![deny(
     clippy::unwrap_used,
@@ -33,11 +43,17 @@ mod host;
 mod stage;
 
 use std::cell::RefCell;
+use std::collections::HashSet;
+use std::future::Future;
+use std::pin::Pin;
 use std::rc::Rc;
+use std::task::{Context as TaskContext, Poll, Waker};
 
+use ddi_chart::timing::TimingMap;
 use ddi_lua::piccolo::{StashedFunction, StashedTable, Table, Value};
 use ddi_lua::{Budget, Failure, Outcome, Settings, Vm};
 
+use crate::actor::{Actor, Clocks, Problems, TweenSteps};
 use crate::build::{Built, Element, Images, Textures};
 use crate::load::{Button, sprite_only};
 use crate::skin::Skin;
@@ -61,12 +77,8 @@ pub struct Env {
     pub player_options: String,
     /// `Difficulty_Beginner` … `Difficulty_Edit`.
     pub difficulty: String,
-    /// `GetGameplayLeadIn`: the song has not started yet.
-    pub lead_in: bool,
-    /// The song's tempo while loading (`GetCurBPS`, the timing data's
-    /// conversions: a single tempo from `offset` seconds).
-    pub bpm: f64,
-    pub offset: f64,
+    /// The steps' timing (`GetTimingData`, `GetSongBeat`, `GetCurBPS`).
+    pub timing: TimingMap,
     pub first_beat: f64,
     pub last_beat: f64,
     /// Note every global and actor method a script reads that is not
@@ -82,9 +94,7 @@ impl Default for Env {
             columns: 4,
             player_options: String::new(),
             difficulty: "Difficulty_Medium".into(),
-            lead_in: true,
-            bpm: 120.0,
-            offset: 0.0,
+            timing: TimingMap::constant(120.0, 0.0),
             first_beat: 0.0,
             last_beat: 0.0,
             trace_missing: false,
@@ -123,6 +133,55 @@ impl Default for LoadBudget {
     }
 }
 
+/// What a skin's Lua may spend in one frame of a play, over all its
+/// calls.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameBudget {
+    pub fuel: u64,
+    /// Seconds on the host's clock: the backstop for slow machines.
+    pub seconds: f64,
+}
+
+impl Default for FrameBudget {
+    fn default() -> FrameBudget {
+        // Measured on the local corpus (`docs/plans/lua.md`, step 4).
+        FrameBudget {
+            fuel: FRAME_FUEL,
+            seconds: 0.05,
+        }
+    }
+}
+
+/// Fuel for one frame of a play.
+pub const FRAME_FUEL: u64 = 200_000;
+
+/// Fuel a load runs between two turns of the host ([`Pause`]).
+pub const LOAD_SLICE: u64 = 100_000;
+
+/// Fuel every call into the VM costs on top of its instructions (starting
+/// it, the clock): cheap calls many times a frame are not free.
+const RUN_FEE: u64 = 200;
+
+/// The song's position in a frame (`GAMESTATE:GetSongPosition()`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Position {
+    /// Music seconds (negative before the music starts).
+    pub seconds: f64,
+    pub beat: f64,
+}
+
+/// A parameter of a message's command (`Message::SetParam`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Param {
+    Str(String),
+    Int(i64),
+    Bool(bool),
+}
+
+/// Gives the host its turn between slices of a load (a loading screen
+/// keeps drawing): resolves once the host has had it.
+pub type Pause = dyn FnMut() -> Pin<Box<dyn Future<Output = ()>>>;
+
 /// What the host functions share with [`LuaSkin`].
 pub(crate) struct Host {
     pub skin: Skin<'static>,
@@ -130,6 +189,10 @@ pub(crate) struct Host {
     pub settings: Settings,
     pub warnings: Vec<String>,
     pub stage: Stage,
+    /// Frames with an update function.
+    pub updating: HashSet<u32>,
+    /// The frame's song position; `None` while loading.
+    pub position: Option<Position>,
 }
 
 impl Host {
@@ -159,6 +222,16 @@ struct Driver {
     chain: StashedFunction,
     template: StashedFunction,
     init: StashedFunction,
+    play: StashedFunction,
+    update: StashedFunction,
+}
+
+/// What is left to spend: of the load, or of the current frame.
+#[derive(Clone, Copy, Debug)]
+struct Allowance {
+    fuel: u64,
+    /// Seconds spent in Lua count; the host's turns between slices do not.
+    seconds: f64,
 }
 
 /// A skin with its Lua running.
@@ -167,10 +240,12 @@ pub struct LuaSkin {
     host: Rc<RefCell<Host>>,
     registries: Registries,
     driver: Driver,
-    budget: LoadBudget,
+    left: Allowance,
     fuel_used: u64,
+    frame_fuel: u64,
     clock: Box<dyn FnMut() -> f64>,
-    started: f64,
+    /// Why the Lua stopped: every later call fails the same way.
+    failed: Option<Failure>,
 }
 
 impl LuaSkin {
@@ -181,9 +256,22 @@ impl LuaSkin {
         env: Env,
         settings: Settings,
         budget: LoadBudget,
-        mut clock: Box<dyn FnMut() -> f64>,
+        clock: Box<dyn FnMut() -> f64>,
     ) -> Result<LuaSkin, Failure> {
-        let started = clock();
+        now(LuaSkin::new_sliced(
+            skin, env, settings, budget, clock, None,
+        ))
+    }
+
+    /// [`LuaSkin::new`], giving the host a turn every [`LOAD_SLICE`] fuel.
+    pub async fn new_sliced(
+        skin: Skin<'static>,
+        env: Env,
+        settings: Settings,
+        budget: LoadBudget,
+        clock: Box<dyn FnMut() -> f64>,
+        mut pause: Option<&mut Pause>,
+    ) -> Result<LuaSkin, Failure> {
         let scripts: Vec<(String, String)> = skin
             .scripts()
             .into_iter()
@@ -203,6 +291,8 @@ impl LuaSkin {
             settings,
             warnings: Vec::new(),
             stage: Stage::default(),
+            updating: HashSet::new(),
+            position: None,
         }));
         let mut vm = Vm::new(settings);
         let (prelude, h, registries) = vm.lua().enter(|ctx| {
@@ -220,13 +310,25 @@ impl LuaSkin {
                 chain: prelude.clone(),
                 template: prelude.clone(),
                 init: prelude.clone(),
+                play: prelude.clone(),
+                update: prelude.clone(),
             },
-            budget,
+            left: Allowance {
+                fuel: budget.fuel,
+                seconds: budget.seconds,
+            },
             fuel_used: 0,
+            frame_fuel: 0,
             clock,
-            started,
+            failed: None,
         };
-        let results = skin.run(&prelude, move |ctx| vec![Value::Table(ctx.fetch(&h))])?;
+        let results = skin
+            .run(
+                &prelude,
+                move |ctx| vec![Value::Table(ctx.fetch(&h))],
+                pause.as_deref_mut(),
+            )
+            .await?;
         let driver = skin.vm.lua().enter(|ctx| {
             let Some(Value::Table(t)) = results.first().map(|v| ctx.fetch(v)) else {
                 return None;
@@ -239,6 +341,8 @@ impl LuaSkin {
                 chain: f("chain")?,
                 template: f("template")?,
                 init: f("init")?,
+                play: f("play")?,
+                update: f("update")?,
             })
         });
         skin.driver = driver.ok_or_else(|| Failure::Error("the prelude did not load".into()))?;
@@ -259,13 +363,18 @@ impl LuaSkin {
             }
         }
         let chain = skin.driver.chain.clone();
-        skin.run(&chain, move |ctx| {
-            let t = Table::new(&ctx);
-            for (i, f) in compiled.iter().enumerate() {
-                let _ = t.set(ctx, i as i64 + 1, ctx.fetch(f));
-            }
-            vec![Value::Table(t)]
-        })?;
+        skin.run(
+            &chain,
+            move |ctx| {
+                let t = Table::new(&ctx);
+                for (i, f) in compiled.iter().enumerate() {
+                    let _ = t.set(ctx, i as i64 + 1, ctx.fetch(f));
+                }
+                vec![Value::Table(t)]
+            },
+            pause,
+        )
+        .await?;
         Ok(skin)
     }
 
@@ -275,6 +384,22 @@ impl LuaSkin {
         let mut w = h.warnings.clone();
         w.extend(h.skin.warnings());
         w
+    }
+
+    /// The skin the Lua runs for.
+    pub fn skin(&self) -> std::cell::Ref<'_, Skin<'static>> {
+        std::cell::Ref::map(self.host.borrow(), |h| &h.skin)
+    }
+
+    /// Warnings after the first `seen` ([`LuaSkin::warnings`] keeps at
+    /// most 64).
+    pub fn warnings_since(&self, seen: usize) -> Vec<String> {
+        self.host
+            .borrow()
+            .warnings
+            .get(seen..)
+            .map(<[String]>::to_vec)
+            .unwrap_or_default()
     }
 
     /// Fuel spent so far.
@@ -287,31 +412,82 @@ impl LuaSkin {
         self.vm.memory()
     }
 
-    /// Runs `f` to the end within what is left of the budget.
-    fn run<A>(
+    /// Fuel spent in the current frame (since [`LuaSkin::begin_frame`]).
+    pub fn frame_fuel(&self) -> u64 {
+        self.frame_fuel
+    }
+
+    /// Why the skin's Lua stopped, if it did.
+    pub fn failure(&self) -> Option<&Failure> {
+        self.failed.as_ref()
+    }
+
+    /// Runs `f` to the end within what is left of the allowance, in
+    /// slices of [`LOAD_SLICE`] fuel with the host's turn between them
+    /// when `pause` is given. Limits, fuel and the deadline end the skin's
+    /// Lua; an error is returned as it is.
+    async fn run<A>(
         &mut self,
         f: &StashedFunction,
         args: A,
+        mut pause: Option<&mut Pause>,
     ) -> Result<Vec<ddi_lua::piccolo::StashedValue>, Failure>
     where
         A: for<'gc> FnOnce(ddi_lua::piccolo::Context<'gc>) -> Vec<Value<'gc>>,
     {
-        let mut task = self.vm.start(f, args);
-        let fuel = self.budget.fuel.saturating_sub(self.fuel_used);
-        let deadline = self.started + self.budget.seconds;
-        let outcome = self
-            .vm
-            .run(&mut task, Budget { fuel, deadline }, &mut *self.clock);
-        self.fuel_used = self.fuel_used.saturating_add(task.fuel_used());
-        match outcome {
-            Outcome::Done => Ok(task.results().to_vec()),
-            Outcome::Paused => Err(Failure::Fuel),
-            Outcome::Failed(f) => Err(f),
+        if let Some(f) = &self.failed {
+            return Err(f.clone());
         }
+        if self.left.fuel <= RUN_FEE {
+            self.failed = Some(Failure::Fuel);
+            return Err(Failure::Fuel);
+        }
+        self.left.fuel -= RUN_FEE;
+        self.fuel_used = self.fuel_used.saturating_add(RUN_FEE);
+        self.frame_fuel = self.frame_fuel.saturating_add(RUN_FEE);
+        let mut task = self.vm.start(f, args);
+        let outcome = loop {
+            let slice = match pause {
+                Some(_) => self.left.fuel.min(LOAD_SLICE),
+                None => self.left.fuel,
+            };
+            let started = (self.clock)();
+            let deadline = started + self.left.seconds.max(0.0);
+            let before = task.fuel_used();
+            let outcome = self.vm.run(
+                &mut task,
+                Budget {
+                    fuel: slice,
+                    deadline,
+                },
+                &mut *self.clock,
+            );
+            let used = task.fuel_used().saturating_sub(before);
+            let elapsed = (self.clock)() - started;
+            self.left.fuel = self.left.fuel.saturating_sub(used);
+            self.left.seconds -= elapsed.max(0.0);
+            self.fuel_used = self.fuel_used.saturating_add(used);
+            self.frame_fuel = self.frame_fuel.saturating_add(used);
+            match (outcome, pause.as_deref_mut()) {
+                (Outcome::Paused, Some(p)) if self.left.fuel > 0 => p().await,
+                (outcome, _) => break outcome,
+            }
+        };
+        let r = match outcome {
+            Outcome::Done => return Ok(task.results().to_vec()),
+            Outcome::Paused => Failure::Fuel,
+            Outcome::Failed(f) => f,
+        };
+        if !matches!(r, Failure::Error(_) | Failure::Compile(_)) {
+            self.failed = Some(r.clone());
+        }
+        Err(r)
     }
 
     /// `NOTESKIN:LoadActor(button, element)` as the engine calls it: the
-    /// element's table from `Load()`, its actors, their `Init`.
+    /// element's table from `Load()`, its actors, their `Init`. The tree
+    /// is the caller's to draw; a play lends it back with
+    /// [`LuaSkin::swap`].
     pub fn element(
         &mut self,
         button: Button,
@@ -319,20 +495,39 @@ impl LuaSkin {
         textures: &mut Textures,
         images: &dyn Images,
     ) -> Result<Element, Failure> {
+        now(self.element_sliced(button, element, textures, images, None))
+    }
+
+    /// [`LuaSkin::element`], giving the host a turn every [`LOAD_SLICE`]
+    /// fuel.
+    pub async fn element_sliced(
+        &mut self,
+        button: Button,
+        element: &str,
+        textures: &mut Textures,
+        images: &dyn Images,
+        mut pause: Option<&mut Pause>,
+    ) -> Result<Element, Failure> {
         let only_sprite = sprite_only(element);
         let template = self.driver.template.clone();
         let (b, e) = (button.name().to_string(), element.to_string());
-        let results = self.run(&template, move |ctx| {
-            vec![
-                Value::String(ctx.intern(b.as_bytes())),
-                Value::String(ctx.intern(e.as_bytes())),
-                Value::Boolean(only_sprite),
-            ]
-        });
+        let results = self
+            .run(
+                &template,
+                move |ctx| {
+                    vec![
+                        Value::String(ctx.intern(b.as_bytes())),
+                        Value::String(ctx.intern(e.as_bytes())),
+                        Value::Boolean(only_sprite),
+                    ]
+                },
+                pause.as_deref_mut(),
+            )
+            .await;
         // A Lua error loads nothing for the element (StepMania shows a
         // blank sprite and reports it); the built-in skin stands in.
         let results = match results {
-            Err(Failure::Error(m)) => return Ok(built_in(m)),
+            Err(Failure::Error(m)) if self.failed.is_none() => return Ok(built_in(m)),
             r => r?,
         };
         let host = self.host.clone();
@@ -343,35 +538,51 @@ impl LuaSkin {
             };
             let mut host = host.borrow_mut();
             convert::element(ctx, &mut host, registries, textures, images, t).map(Some)
-        })?;
+        });
+        let converted = match converted {
+            Err(f) => {
+                // A host limit ends the skin's Lua like the VM's own.
+                self.failed = Some(f.clone());
+                return Err(f);
+            }
+            Ok(c) => c,
+        };
         let Some(converted) = converted else {
             return Ok(built_in(format!("{element}: Load did not return a table")));
         };
         let mut notes = converted.notes;
-        let Some((root_index, root_id)) = converted.root else {
+        let Some((_, root_id)) = converted.root else {
             return Ok(Element {
                 built: Built::Blank,
                 notes,
             });
         };
         let init = self.driver.init.clone();
-        match self.run(&init, move |_| vec![Value::Integer(i64::from(root_id))]) {
-            Err(Failure::Error(m)) => return Ok(built_in(m)),
+        match self
+            .run(
+                &init,
+                move |_| vec![Value::Integer(i64::from(root_id))],
+                pause,
+            )
+            .await
+        {
+            Err(Failure::Error(m)) if self.failed.is_none() => return Ok(built_in(m)),
             r => r?,
         };
-        let tree = self
-            .host
-            .borrow()
-            .stage
-            .root(root_index)
-            .cloned()
-            .ok_or_else(|| Failure::Error("the element was lost".into()))?;
         if converted.unsupported {
             return Ok(Element {
                 built: Built::BuiltIn,
                 notes,
             });
         }
+        // The stage keeps the tree until the play reclaims it.
+        let tree = self
+            .host
+            .borrow()
+            .stage
+            .get(root_id)
+            .cloned()
+            .ok_or_else(|| Failure::Error("the element was lost".into()))?;
         if only_sprite && !matches!(tree.kind, crate::actor::Kind::Sprite(_)) {
             // `NoteSkinManager::LoadActor`: "must be a Sprite", a blank one.
             notes.push(format!("{element} must be a Sprite"));
@@ -384,6 +595,154 @@ impl LuaSkin {
             built: Built::Actor(tree),
             notes,
         })
+    }
+
+    // The play.
+
+    /// Starts a frame of a play: the song's position for the scripts, and
+    /// a new allowance.
+    pub fn begin_frame(&mut self, position: Position, budget: FrameBudget) {
+        self.host.borrow_mut().position = Some(position);
+        self.left = Allowance {
+            fuel: budget.fuel,
+            seconds: budget.seconds,
+        };
+        self.frame_fuel = 0;
+    }
+
+    /// Takes the stage's tree of an element [`LuaSkin::element`] built
+    /// for the play, in exchange for `tree` (its copy): once every element
+    /// is loaded, then after each [`LuaSkin::lend`]. False when `tree` is
+    /// no element of this skin or the play holds it already.
+    pub fn reclaim(&mut self, tree: &mut Box<Actor>) -> bool {
+        self.host.borrow_mut().stage.reclaim(tree)
+    }
+
+    /// Lends a tree the play holds back to the skin's Lua while it runs.
+    /// False when `tree` is no element of this skin or is lent already.
+    pub fn lend(&mut self, tree: &mut Box<Actor>) -> bool {
+        self.host.borrow_mut().stage.lend(tree)
+    }
+
+    /// `PlayCommand(name)` on actor `id` and its children (a message's
+    /// command, `HandleMessage`, with `params`; an empty table without,
+    /// as StepMania's `Message` always has one). The tree must be lent.
+    /// A command that fails is reported ([`LuaSkin::warnings`]).
+    pub fn play(&mut self, id: u32, name: &str, params: &[(&str, Param)]) -> Result<(), Failure> {
+        let play = self.driver.play.clone();
+        let name = name.to_string();
+        let params: Vec<(String, Param)> = params
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect();
+        let r = now(self.run(
+            &play,
+            move |ctx| {
+                let t = Table::new(&ctx);
+                for (k, v) in &params {
+                    let v = match v {
+                        Param::Str(s) => Value::String(ctx.intern(s.as_bytes())),
+                        Param::Int(i) => Value::Integer(*i),
+                        Param::Bool(b) => Value::Boolean(*b),
+                    };
+                    let _ = t.set(ctx, ctx.intern(k.as_bytes()), v);
+                }
+                let p = Value::Table(t);
+                vec![
+                    Value::Integer(i64::from(id)),
+                    Value::String(ctx.intern(name.as_bytes())),
+                    p,
+                ]
+            },
+            None,
+        ));
+        self.soft(r)
+    }
+
+    /// `Actor::Update` of actor `id` and its children for `dt` seconds:
+    /// the native update, with the commands its tweens queued and the
+    /// frames' update functions played through Lua. The tree must be lent.
+    pub fn update(&mut self, id: u32, dt: f32, clocks: &Clocks) -> Result<(), Failure> {
+        self.update_depth(id, dt, clocks, 0)
+    }
+
+    fn update_depth(
+        &mut self,
+        id: u32,
+        dt: f32,
+        clocks: &Clocks,
+        depth: u32,
+    ) -> Result<(), Failure> {
+        // As deep as an element can be.
+        if depth > 40 {
+            return Ok(());
+        }
+        let mut problems = Problems::default();
+        let Some(dt) = self
+            .host
+            .borrow_mut()
+            .stage
+            .get_mut(id)
+            .and_then(|a| a.update_begin(dt, clocks))
+        else {
+            return Ok(());
+        };
+        let mut steps = TweenSteps::new(dt);
+        loop {
+            let command = self
+                .host
+                .borrow_mut()
+                .stage
+                .get_mut(id)
+                .and_then(|a| a.tween_step(&mut steps, &mut problems));
+            let Some(command) = command else { break };
+            self.play(id, &command, &[])?;
+        }
+        let children = {
+            let mut host = self.host.borrow_mut();
+            if let Some(a) = host.stage.get_mut(id) {
+                a.update_end(dt);
+            }
+            for p in problems.messages {
+                host.warn(p);
+            }
+            host.stage.children(id)
+        };
+        for c in children {
+            self.update_depth(c, dt, clocks, depth + 1)?;
+        }
+        if self.host.borrow().updating.contains(&id) {
+            let update = self.driver.update.clone();
+            let r = now(self.run(
+                &update,
+                move |_| vec![Value::Integer(i64::from(id)), Value::Number(f64::from(dt))],
+                None,
+            ));
+            self.soft(r)?;
+        }
+        Ok(())
+    }
+
+    /// An error the driver let through is reported; anything else ends
+    /// the skin's Lua, and so does any failure once it has ended.
+    fn soft<T>(&mut self, r: Result<T, Failure>) -> Result<(), Failure> {
+        match r {
+            Ok(_) => Ok(()),
+            Err(Failure::Error(m) | Failure::Compile(m)) if self.failed.is_none() => {
+                self.host.borrow_mut().warn(m);
+                Ok(())
+            }
+            Err(f) => Err(f),
+        }
+    }
+}
+
+/// Runs a future that never waits (no [`Pause`]) to its end.
+fn now<T>(f: impl Future<Output = Result<T, Failure>>) -> Result<T, Failure> {
+    let mut f = std::pin::pin!(f);
+    match f.as_mut().poll(&mut TaskContext::from_waker(Waker::noop())) {
+        Poll::Ready(r) => r,
+        Poll::Pending => Err(Failure::Error("the load waited without a pause".into())),
     }
 }
 
