@@ -150,14 +150,16 @@ def movie_observation(capture, chart, note_name, receptor_name, lane, target_y=N
                        'targetY':rp[1] if target_y is None else target_y})
         widths.append(bounds[2]-bounds[0])
     if len(frames)<3 or min(widths)<=0 or max(widths)-min(widths)>1e-6:raise ValueError('Need multiple stable arrow/reference observations')
-    a,b=frames[0],frames[1];velocity=(b['y']-a['y'])/(b['movieFrame']-a['movieFrame'])
+    a,b=frames[0],frames[-1];velocity=(b['y']-a['y'])/(b['movieFrame']-a['movieFrame'])
+    # Flash stage positions are quantized to twentieths of a pixel (twips).
+    tolerance=.05+1e-9
     if velocity>=0:raise ValueError('Expected upward linear movement')
     for f in frames:
-        if f['movieFrame']-a['movieFrame']!=f['iteration']-a['iteration'] or abs(f['x']-a['x'])>1e-6 or abs(f['y']-(a['y']+velocity*(f['movieFrame']-a['movieFrame'])))>1e-6:
+        if f['movieFrame']-a['movieFrame']!=f['iteration']-a['iteration'] or abs(f['x']-a['x'])>1e-6 or abs(f['y']-(a['y']+velocity*(f['movieFrame']-a['movieFrame'])))>tolerance:
             raise ValueError('Nonlinear/reused arrow or non-movie clock')
     arrival=a['movieFrame']+(a['targetY']-a['y'])/velocity
     raw=chart['lanes'][lane]['nativeFrames'][0]
-    if abs(arrival-raw)>1.5:raise ValueError('Arrow arrival does not agree with source frame')
+    if 'initialPixelSpeed'not in chart and abs(arrival-raw)>1.5:raise ValueError('Arrow arrival does not agree with source frame')
     base_velocity=abs(velocity);author_ratio=1.0
     if 'initialPixelSpeed'in chart:
         def active(frame):
@@ -168,13 +170,22 @@ def movie_observation(capture, chart, note_name, receptor_name, lane, target_y=N
         ratios=[active(f['movieFrame'])for f in frames]
         if any(r!=ratios[0]for r in ratios)or ratios[0]<=0:raise ValueError('Need one positive author speed segment for base movement')
         author_ratio=ratios[0];base_velocity=chart['initialPixelSpeed']
-        if abs(abs(velocity)-base_velocity*author_ratio)>1e-6:raise ValueError('Observed movement disagrees with initial units and author ratio')
+        # Assigning _y can round each increment to one native twip. Corroborate
+        # the stored pixel increment per frame, rather than accumulating an
+        # impossible sub-twip position prediction across multiple assignments.
+        if abs(abs(velocity)-base_velocity*author_ratio)>tolerance:
+            raise ValueError('Observed movement disagrees with initial units and author ratio')
+        for previous,current in zip(frames,frames[1:]):
+            ticks=current['movieFrame']-previous['movieFrame']
+            if abs((previous['y']-current['y'])-base_velocity*author_ratio*ticks)>tolerance*ticks:
+                raise ValueError('Native increment does not explain quantized movement')
+        if abs(arrival-raw)>1.5:raise ValueError('Arrow arrival does not agree with source frame')
     # Receptor art registration differs slightly from the judgment target in
     # early sources; target_y can be supplied only after independent native proof.
     return {'schema':'ddi-native-motion-measurement/experimental-1','sourceSwfSha256':capture['source']['movieSha256'],
             'fps':60,'pixelsPerSecond':abs(velocity)*60,'referencePixels':widths[0],
             'baseArrowHeightsPerSecond':base_velocity*60/widths[0],'observedAuthorMultiplier':author_ratio,'noteName':note_name,'receptorName':receptor_name,'geometryReferenceName':geometry_name or receptor_name,'clockField':clock_field,
-            'arrivalDifferenceFrames':arrival-raw,
+            'stagePositionTolerancePixels':.05,'arrivalDifferenceFrames':arrival-raw,
             'rawFirstFrame':raw,'observedArrivalMovieFrame':arrival,'samples':frames,
             'scope':'Observed native default movement, measured source geometry and verified raw movie-frame arrival'}
 
@@ -289,6 +300,11 @@ def scheduled_projection(capture, mode, *, allow_missing_decorative_sprites=Fals
     speeds=numbers(graph,root['speed_dac']) if 'speed_dac'in root else split_numbers(root.get('speed_change',root.get('speed_data')))
     boosts=numbers(graph,root.get('boost_dac',root.get('boostDac',UNDEFINED)))
     parafla_data={}
+    if not parafla and 'set_spi' in root and 'dif_spi' in root:
+        initial=numeric(root['set_spi'])
+        if initial<=0 or initial!=2*numeric(root['dif_spi']):
+            raise ValueError('Unproved scheduled-family initial pixel speed')
+        parafla_data['initialPixelSpeed']=initial
     if parafla:
         initial=numeric(root['setSpd']);pixels=numbers(graph,root['arrowSpd'])
         if len(pixels)%2 or not pixels or pixels[:2]!=[0,initial]or any(a>=b for a,b in zip(pixels[::2],pixels[2::2])):

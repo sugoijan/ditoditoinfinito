@@ -785,3 +785,44 @@ The restricted worker does not POST, alter the guard or simulate its response.
 Its separately captured HTML5 port must not stand in for an unobserved Flash
 reference. [Original work](https://cw7.sakura.ne.jp/danoni/2009/straights/main.html),
 [compatibility limits](danoni-native-adapters.md).
+
+### Gen3 SWF selectors, parsed speeds and stage units (2026-10-11)
+
+The [gen3 native corpus](danoni-gen3-admission.md) adds further evidence from
+[レク's work list](https://cw7.sakura.ne.jp/lst/ds0065/) and the original SWFs:
+
+- A work list can omit charts and modes inside the linked SWF.
+  [Cynthia](http://ikazch.ikaduchi.com/cynthia/cynthia.html) offers six selections,
+  including tickle and Air's 7-key charts; the レク catalogue records only its
+  5-key chart. [タイヨウノハナ](http://autumnleaves.yukishigure.com/DOXF04/flower/SUN.html)
+  has five author selections and [G Free](http://autumnleaves.yukishigure.com/DOXF04/G/Free.html)
+  three. Runtime `diffin` / `difficulty` are selectors, not numeric ratings.
+- Gen3's prepared raw lane banks agree with every compiled `mkArrow` /
+  `mkFArrow` head through `spawn + judgeY`. Its independently observed
+  `frame_num` clock and music origin, rather than the worker iteration number,
+  determine seconds. Origins in this batch are 145, 152 or 157 source frames.
+- `set_spi == 2 * dif_spi` proves default pixel increments in these captured
+  builds. Preserve parsed `speed_dac`: [Crow](http://autumnleaves.yukishigure.com/Crow/aya.html)
+  loads 1.3 at frame 485 from `option.txt`, then overwrites it with 1.25 from
+  `dos.txt`; the compiled bank contains 1.25. This is load precedence, not
+  multiplier quantization. An early text snapshot cannot represent final state.
+- Stage coordinates use twips, 20 per pixel. The pinned
+  [Ruffle conversion](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/swf/src/types/twips.rs)
+  truncates pixel-to-twip conversion. An observed 4.4-pixel movement can agree
+  with an authored 4.375-pixel increment after each `_y` assignment. Movement
+  proofs must account for that quantization and author changes during flight;
+  neither observation justifies shifting note times or widening arrival bounds.
+- The two collaborator pages above explicitly publish integer levels attributed
+  to それは秘密's tool. These are usable published levels with their scale retained.
+  Cynthia's decimal page levels are different evidence, not star counts; keep
+  them separate from a linked catalogue's selected integer rating.
+- A URL redirect and a runtime decoding error are separate problems.
+  [曽根崎心中](https://sound.jp/kkkkk_1126/doxf04/sonezaki/shinju.html) needs its
+  cached sidecar's recorded HTTPS final URL when loaded from the HTTPS movie.
+  Some native Japanese credits still decode incorrectly. Preserve original
+  bytes and runtime strings; surrounding cached HTML supplies readable metadata.
+
+A selector is not accepted solely because its sibling charts work: the fifth
+タイヨウノハナ converter halts under the bounded native executor. Its diagnostics
+and published rating remain evidence, without an exported chart. Author boosts,
+custom fades and other presentation retain the existing explicit limitations.

@@ -97,6 +97,22 @@ class Families(unittest.TestCase):
         bad=scheduled();bad['audit']['runtimeErrors']=1;bad['audit']['entries']=[{'kind':'runtime-error','detail':'unknown','iteration':20}]
         with self.assertRaises(ValueError):scheduled_projection(bad,'7',allow_missing_decorative_sprites=True)
 
+    def test_scheduled_initial_speed_uses_native_units_and_parsed_events(self):
+        data=scheduled();graph=data['captures'][0]['state']
+        root=OriginalGraph();value=root.obj({'frameNum':0,'keyLabel':'7','diffin':'',
+            'set_spi':3,'dif_spi':1.5,'speed_change':'400,1.3','speed_dac':[400,1.25],
+            'mkArrow':{str(110+i*10):[i]for i in range(7)},'mkFArrow':{'210':[0]},
+            'judgeY':{**{str(110+i*10):100 for i in range(7)},'210':100},
+            **{name+'_data':str(210+i*10)for i,name in enumerate(['left','leftdia','down','space','up','rightdia','right'])},
+            'frzLeft_data':'310,350'})
+        graph.update(objects=root.objects,roots=[{'level':0,'value':value,'movieFrame':10}])
+        chart=scheduled_projection(data,'7')
+        self.assertEqual(chart['initialPixelSpeed'],3)
+        self.assertEqual(chart['speed'],[{'nativeFrame':400,'multiplier':1.25}])
+        obj=root.objects[0]
+        next(p for p in obj['properties']if p['name']['text']=='set_spi')['value']=4
+        with self.assertRaises(ValueError):scheduled_projection(data,'7')
+
     def test_constant_travel_preserves_raw_frames_and_independent_duration_cache(self):
         data=constant();chart=constant_projection(data,'5')
         self.assertEqual(chart['lanes'][0]['nativeFrames'],[200])
@@ -119,6 +135,20 @@ class Families(unittest.TestCase):
         self.assertEqual(measured['baseArrowHeightsPerSecond'],3.6)
         self.assertEqual(measured['observedAuthorMultiplier'],2)
         chart['initialPixelSpeed']=6
+        with self.assertRaises(ValueError):movie_observation(data,chart,'le_s0','le_step',0,clock_field='frame_num')
+
+    def test_twip_quantization_preserves_fractional_native_speed_proof(self):
+        data=capture([{'frame_num':v}for v in range(830,836)])
+        for item,clock in zip(data['captures'],range(830,836)):
+            y=50+(836-clock)*4.4
+            item['state']['displayTree']=[{'kind':'movie-clip','name':string('le_s0'),'visible':True,'stageRegistrationPixels':[85,y]},
+                {'kind':'movie-clip','name':string('le_step'),'visible':True,'stageRegistrationPixels':[85,50],'stageBoundsPixels':[0,0,50,50]}]
+        chart={'initialPixelSpeed':3.5,'lanes':[{'nativeFrames':[835]}],'speed':[{'nativeFrame':778,'multiplier':1.25}]}
+        measured=movie_observation(data,chart,'le_s0','le_step',0,clock_field='frame_num')
+        self.assertAlmostEqual(measured['pixelsPerSecond'],264)
+        self.assertEqual(measured['baseArrowHeightsPerSecond'],4.2)
+        self.assertAlmostEqual(measured['arrivalDifferenceFrames'],1,delta=.02)
+        data['captures'][2]['state']['displayTree'][0]['stageRegistrationPixels'][1]+=.2
         with self.assertRaises(ValueError):movie_observation(data,chart,'le_s0','le_step',0,clock_field='frame_num')
 
     def test_optional_color_review_cannot_hide_other_failures(self):

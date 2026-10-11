@@ -10,10 +10,19 @@ All third-party inputs and generated packs stay outside Git.
 
 ## Current generation
 
-The [paired-source admission](danoni-paired-ports.md) now adds Saigetsu and the
+The [gen3 native admission](danoni-gen3-admission.md) adds eleven source works
+and 21 proved charts, including Cynthia's two seven-key charts: **44 songs /
+72 charts, 52,627 taps and 1,906 holds**. Every song has a banner. The registry
+has 40 required and 96 pending source entries; one extra タイヨウノハナ selector
+remains explicitly pending within an admitted work. The previous 33 songs retain
+their accepted playable files.
+
+## Previous paired-source admission
+
+The [paired-source admission](danoni-paired-ports.md) added Saigetsu and the
 レク chart of Earthquake Super Shock: **33 songs / 51 charts, 40,977 taps and
-1,230 holds**. The registry has 29 required and 107 pending entries. The prior
-31 songs remain byte-identical.
+1,230 holds**. Its registry had 29 required and 107 pending entries. The prior
+31 songs remained byte-identical.
 
 ## Previous v2 admission
 

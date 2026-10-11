@@ -826,3 +826,14 @@ See [the presentation follow-up](danoni-presentation.md) for ratings found on
 cached work pages, all-native-work BPM analysis, and the proposed generic
 metadata/grid/artwork pipeline. New entries from parallel corpus work must be
 preserved when updating these lists.
+
+### Gen3 admission (2026-10-11)
+
+The [gen3 handover](danoni-gen3-admission.md) adds eleven source works and
+21 independently proved charts: 19 five-key and two seven-key. Shared SWFs can
+contain more charts/key modes than their catalogue rows advertise. One further
+タイヨウノハナ selection remains explicitly pending after a native converter
+halt. Current exports contain 44 songs / 72 charts; 50 of 66 single-song charts
+have published integer ratings. Native movement quantization, exact audio start
+clocks and stable movement segments are source-bound rather than guessed.
+Original acquisition manifests, third-party works and media remain local.

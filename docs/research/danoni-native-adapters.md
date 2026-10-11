@@ -249,3 +249,14 @@ lane. The initial pixel assignment is the baseline, not an author change.
 [Exact fields, proofs and omissions](danoni-paired-ports.md#the-parafla-counter-contract)
 describe the two admitted charts. Unknown artist placeholders do not override
 source-bound artist hints; the original runtime credit strings remain intact.
+
+## Gen3 scheduled-counter extension (2026-10-11)
+
+The [gen3 admission](danoni-gen3-admission.md) proves 21 further 5/7-key charts
+from eleven works. The existing schedule/raw-head cross-check is retained.
+`set_spi == 2 * dif_spi > 0` supplies independently corroborated baseline units
+when present; later dos fields can overwrite earlier option-file speed values.
+Movement proofs now account for a single native twip (0.05 source-stage pixels)
+of positional/increment quantization, while retaining the 1.5-frame arrival
+bound. Stable samples near arrival avoid extrapolation across author changes.
+One source's fifth selector halts in native conversion and remains pending.
