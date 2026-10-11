@@ -4,12 +4,20 @@
 //! `GhostArrowRow` and `NoteDisplay` do (5_1-new; `docs/research/noteskins.md`
 //! sections 4–7). Elements the skin cannot provide yet are drawn by the
 //! built-in skin ([`NoteLayer::draws`]).
+//!
+//! A skin built through its Lua ([`NoteskinPlay::with_lua`]) plays its
+//! commands, queued commands and update functions through that Lua each
+//! frame, within [`FrameBudget`]; if the Lua stops (its budget, memory or
+//! a host limit), every element is the built-in skin's for the rest of
+//! the play ([`NoteskinPlay::lua_failure`]).
 
 use ddi_chart::Layout;
 use ddi_engine::frame::{Frame, HoldKind, NoteSprite, SkinEvent, SkinEventKind, SpriteKind};
 use ddi_engine::rules::Judgement;
+use ddi_lua::Failure;
 use ddi_noteskin::actor::{Actor, Blend, Clocks, Kind, Problems, Quad};
 use ddi_noteskin::build::{Built, Images, TextureKey, Textures, build};
+use ddi_noteskin::lua::{FrameBudget, LuaSkin, Param, Pause, Position};
 use ddi_noteskin::metrics::{NoteDisplay, Part};
 use ddi_noteskin::notes::{animation_percent, color_offset};
 use ddi_noteskin::{Button, Skin};
@@ -140,7 +148,46 @@ pub struct NoteskinPlay {
     pub notes: Vec<String>,
     problems: Problems,
     srgb: bool,
+    /// The skin's Lua, when its elements were built through it.
+    lua: Option<LuaSkin>,
+    /// Lua warnings already copied to the problems.
+    lua_seen: usize,
+    /// Why the skin's Lua stopped during the play, and whether only the
+    /// clock stopped it (the backstop: a stalled machine, not the skin).
+    lua_failure: Option<(String, bool)>,
+    /// Fuel the skin's Lua spent in the last frame, and at most in one.
+    lua_fuel: (u64, u64),
 }
+
+/// The elements of a lane, in the order they are built.
+const LANE_ELEMENTS: [&str; 26] = [
+    "Hold Head Inactive",
+    "Hold Head Active",
+    "Hold Tail Inactive",
+    "Hold Tail Active",
+    "Hold Topcap Inactive",
+    "Hold Topcap Active",
+    "Hold Body Inactive",
+    "Hold Body Active",
+    "Hold Bottomcap Inactive",
+    "Hold Bottomcap Active",
+    "Roll Head Inactive",
+    "Roll Head Active",
+    "Roll Tail Inactive",
+    "Roll Tail Active",
+    "Roll Topcap Inactive",
+    "Roll Topcap Active",
+    "Roll Body Inactive",
+    "Roll Body Active",
+    "Roll Bottomcap Inactive",
+    "Roll Bottomcap Active",
+    "Receptor",
+    "Explosion",
+    "Tap Note",
+    "Tap Lift",
+    "Tap Fake",
+    "Tap Mine",
+];
 
 /// The engine's tier as StepMania names it (`TapNoteScoreNames`).
 fn score_name(j: Judgement) -> &'static str {
@@ -151,6 +198,107 @@ fn score_name(j: Judgement) -> &'static str {
         Judgement::W4 => "W4",
         Judgement::W5 => "W5",
         Judgement::Miss => "Miss",
+    }
+}
+
+/// What a built element is to the play, its notes added to `notes`.
+fn to_element(
+    built: ddi_noteskin::build::Element,
+    button: Button,
+    name: &str,
+    textures: &Textures,
+    notes: &mut Vec<String>,
+) -> Element {
+    for n in built.notes {
+        let n = format!("{}: {n}", button.name());
+        if !notes.contains(&n) {
+            notes.push(n);
+        }
+    }
+    match built.built {
+        // A note made of the stand-ins' art only: the built-in skin's own
+        // shape, as for the rest.
+        Built::Actor(a)
+            if name != "Explosion"
+                && a.textures()
+                    .iter()
+                    .all(|&t| matches!(textures.keys()[t as usize], TextureKey::BuiltIn(_))) =>
+        {
+            Element::BuiltIn
+        }
+        Built::Actor(a) => Element::Actor(Box::new(a)),
+        Built::BuiltIn => Element::BuiltIn,
+        Built::Blank => Element::Blank,
+    }
+}
+
+impl Lane {
+    /// A lane from its elements, built in [`LANE_ELEMENTS`]' order.
+    fn assemble(elements: Vec<Element>, metrics: NoteDisplay, scroll_sign: i8) -> Lane {
+        let mut e = elements.into_iter();
+        let mut next = || e.next().unwrap_or(Element::BuiltIn);
+        let mut pair = || [next(), next()];
+        let mut parts = || HoldParts {
+            head: pair(),
+            tail: pair(),
+            topcap: pair(),
+            body: pair(),
+            bottomcap: pair(),
+        };
+        let hold = parts();
+        let roll = parts();
+        Lane {
+            metrics,
+            receptor: next(),
+            explosion: next(),
+            tap: next(),
+            lift: next(),
+            fake: next(),
+            mine: next(),
+            hold,
+            roll,
+            holding: None,
+            scroll_sign,
+        }
+    }
+}
+
+/// Plays commands and updates on elements: natively, or through the
+/// skin's Lua (its trees lent) until it fails.
+struct Commands<'a> {
+    lua: Option<&'a mut LuaSkin>,
+    failed: Option<Failure>,
+}
+
+impl Commands<'_> {
+    fn play(&mut self, e: &mut Element, name: &str, params: &[(&str, Param)], p: &mut Problems) {
+        let Element::Actor(a) = e else {
+            return;
+        };
+        match &mut self.lua {
+            Some(lua) if self.failed.is_none() => {
+                if let Err(f) = lua.play(a.id, name, params) {
+                    self.failed = Some(f);
+                }
+            }
+            Some(_) => {}
+            None => a.play(name, p),
+        }
+    }
+
+    fn update(&mut self, e: &mut Element, dt: f32, clocks: &Clocks, p: &mut Problems) {
+        let Element::Actor(a) = e else {
+            return;
+        };
+        match &mut self.lua {
+            Some(lua) if self.failed.is_none() => {
+                if let Err(f) = lua.update(a.id, dt, clocks) {
+                    self.failed = Some(f);
+                }
+            }
+            Some(_) => {}
+            None => a.update(dt, clocks, p),
+        }
     }
 }
 
@@ -168,65 +316,93 @@ impl NoteskinPlay {
         let mut lanes = Vec::new();
         for lane in &layout.lanes {
             let button = Button::from_lane(&lane.name)?;
-            let mut element = |name: &str| -> Element {
-                let built = build(skin, button, name, &mut textures, images);
-                for n in built.notes {
-                    let n = format!("{}: {n}", button.name());
-                    if !notes.contains(&n) {
-                        notes.push(n);
-                    }
-                }
-                match built.built {
-                    // A note made of the stand-ins' art only: the built-in
-                    // skin's own shape, as for the rest.
-                    Built::Actor(a)
-                        if name != "Explosion"
-                            && a.textures().iter().all(|&t| {
-                                matches!(textures.keys()[t as usize], TextureKey::BuiltIn(_))
-                            }) =>
-                    {
-                        Element::BuiltIn
-                    }
-                    Built::Actor(a) => Element::Actor(Box::new(a)),
-                    Built::BuiltIn => Element::BuiltIn,
-                    Built::Blank => Element::Blank,
-                }
-            };
-            let pair = |element: &mut dyn FnMut(&str) -> Element,
-                        base: &str,
-                        part: &str|
-             -> [Element; 2] {
-                [
-                    element(&format!("{base} {part} Inactive")),
-                    element(&format!("{base} {part} Active")),
-                ]
-            };
-            let parts = |element: &mut dyn FnMut(&str) -> Element, base: &str| HoldParts {
-                head: pair(element, base, "Head"),
-                tail: pair(element, base, "Tail"),
-                topcap: pair(element, base, "Topcap"),
-                body: pair(element, base, "Body"),
-                bottomcap: pair(element, base, "Bottomcap"),
-            };
-            let hold = parts(&mut element, "Hold");
-            let roll = parts(&mut element, "Roll");
-            lanes.push(Lane {
-                metrics: NoteDisplay::read(skin, button.name()),
-                receptor: element("Receptor"),
-                explosion: element("Explosion"),
-                tap: element("Tap Note"),
-                lift: element("Tap Lift"),
-                fake: element("Tap Fake"),
-                mine: element("Tap Mine"),
-                hold,
-                roll,
-                holding: None,
-                scroll_sign: lane.scroll_sign,
-            });
+            let elements = LANE_ELEMENTS
+                .iter()
+                .map(|name| {
+                    let built = build(skin, button, name, &mut textures, images);
+                    to_element(built, button, name, &textures, &mut notes)
+                })
+                .collect();
+            let metrics = NoteDisplay::read(skin, button.name());
+            lanes.push(Lane::assemble(elements, metrics, lane.scroll_sign));
         }
+        Some(NoteskinPlay::from_lanes(
+            skin.name.clone(),
+            lanes,
+            textures,
+            notes,
+            srgb,
+            None,
+        ))
+    }
+
+    /// Builds every lane's elements through the skin's Lua, giving the host
+    /// a turn between slices of it. `Ok(None)` when the layout's lanes are
+    /// not dance buttons; an error when the skin's Lua stopped (the caller
+    /// builds it natively instead, [`NoteskinPlay::new`]).
+    pub async fn with_lua(
+        mut lua: LuaSkin,
+        layout: &Layout,
+        images: &dyn Images,
+        srgb: bool,
+        mut pause: Option<&mut Pause>,
+    ) -> Result<Option<NoteskinPlay>, Failure> {
+        let Some(buttons) = layout
+            .lanes
+            .iter()
+            .map(|l| Button::from_lane(&l.name))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Ok(None);
+        };
+        let mut textures = Textures::default();
+        let mut notes = Vec::new();
+        let mut lanes = Vec::new();
+        for (lane, button) in layout.lanes.iter().zip(buttons) {
+            let mut elements = Vec::new();
+            for name in LANE_ELEMENTS {
+                let built = lua
+                    .element_sliced(button, name, &mut textures, images, pause.as_deref_mut())
+                    .await?;
+                elements.push(to_element(built, button, name, &textures, &mut notes));
+            }
+            let metrics = NoteDisplay::read(&lua.skin(), button.name());
+            lanes.push(Lane::assemble(elements, metrics, lane.scroll_sign));
+        }
+        // Every element is loaded: the play takes the trees it draws.
+        for lane in &mut lanes {
+            for e in lane.elements_mut() {
+                if let Element::Actor(a) = e
+                    && !lua.reclaim(a)
+                {
+                    *e = Element::BuiltIn;
+                }
+            }
+        }
+        let name = lua.skin().name.clone();
+        let mut play = NoteskinPlay::from_lanes(name, lanes, textures, notes, srgb, Some(lua));
+        if let Some(lua) = &play.lua {
+            for w in lua.warnings() {
+                if !play.notes.contains(&w) {
+                    play.notes.push(w);
+                }
+            }
+            play.lua_seen = lua.warnings_since(0).len();
+        }
+        Ok(Some(play))
+    }
+
+    fn from_lanes(
+        name: String,
+        lanes: Vec<Lane>,
+        textures: Textures,
+        notes: Vec<String>,
+        srgb: bool,
+        lua: Option<LuaSkin>,
+    ) -> NoteskinPlay {
         let count = textures.keys().len();
         let mut play = NoteskinPlay {
-            name: skin.name.clone(),
+            name,
             quads: std::cell::Cell::new(0),
             initial: lanes.clone(),
             lanes,
@@ -239,9 +415,42 @@ impl NoteskinPlay {
             notes,
             problems: Problems::default(),
             srgb,
+            lua,
+            lua_seen: 0,
+            lua_failure: None,
+            lua_fuel: (0, 0),
         };
         play.notes.append(&mut play.problems.messages);
-        Some(play)
+        play
+    }
+
+    /// How many of lane `lane`'s elements the skin draws (or blanks)
+    /// rather than the built-in skin.
+    pub fn own_elements(&self, lane: usize) -> usize {
+        self.lanes
+            .get(lane)
+            .map_or(0, |l| l.elements().filter(|e| e.is_skin()).count())
+    }
+
+    /// Whether the skin's Lua runs in this play.
+    pub fn runs_lua(&self) -> bool {
+        self.lua.is_some()
+    }
+
+    /// Why the skin's Lua stopped during the play, if it did.
+    pub fn lua_failure(&self) -> Option<&str> {
+        self.lua_failure.as_ref().map(|(m, _)| m.as_str())
+    }
+
+    /// Whether the skin's Lua stopped on the clock alone (not its fuel,
+    /// memory or a host limit): a slow or stalled machine, not the skin.
+    pub fn lua_stopped_on_clock(&self) -> bool {
+        self.lua_failure.as_ref().is_some_and(|(_, clock)| *clock)
+    }
+
+    /// Fuel the skin's Lua spent in the last frame, and the most in one.
+    pub fn lua_fuel(&self) -> (u64, u64) {
+        self.lua_fuel
     }
 
     /// The textures the actors draw, by index.
@@ -294,71 +503,171 @@ impl NoteskinPlay {
         events: impl Iterator<Item = &'e SkinEvent>,
         reverse: bool,
     ) {
-        let p = &mut self.problems;
-        if !self.started {
-            self.started = true;
+        if let Some(lua) = &mut self.lua {
+            lua.begin_frame(
+                Position {
+                    seconds: frame.song_time,
+                    beat: frame.beat,
+                },
+                FrameBudget::default(),
+            );
             for lane in &mut self.lanes {
+                for e in lane.elements_mut() {
+                    if let Element::Actor(a) = e {
+                        let lent = lua.lend(a);
+                        debug_assert!(lent);
+                    }
+                }
+            }
+        }
+        let failed = self.play_frame(frame, events, reverse);
+        if let Some(lua) = &mut self.lua {
+            for lane in &mut self.lanes {
+                for e in lane.elements_mut() {
+                    if let Element::Actor(a) = e {
+                        let back = lua.reclaim(a);
+                        debug_assert!(back);
+                    }
+                }
+            }
+            let fuel = lua.frame_fuel();
+            self.lua_fuel = (fuel, self.lua_fuel.1.max(fuel));
+            for w in lua.warnings_since(self.lua_seen) {
+                self.lua_seen += 1;
+                if self.problems.messages.len() < 64 {
+                    self.problems.messages.push(w);
+                }
+            }
+        }
+        if let Some(f) = failed {
+            self.stop_lua(&f);
+        }
+    }
+
+    /// The skin's Lua stopped: it is dropped, and every element is the
+    /// built-in skin's for the rest of the play (a retry too).
+    fn stop_lua(&mut self, f: &Failure) {
+        self.lua = None;
+        let message = format!("the skin's Lua stopped ({f}); the built-in skin is drawn");
+        self.problems.messages.push(message.clone());
+        self.lua_failure = Some((message, matches!(f, Failure::Deadline)));
+        for lane in self.lanes.iter_mut().chain(self.initial.iter_mut()) {
+            for e in lane.elements_mut() {
+                *e = Element::BuiltIn;
+            }
+        }
+    }
+
+    /// [`NoteskinPlay::update`]'s commands and updates, the trees lent to
+    /// the Lua when there is one; the failure that stopped the Lua.
+    fn play_frame<'e>(
+        &mut self,
+        frame: &Frame,
+        events: impl Iterator<Item = &'e SkinEvent>,
+        reverse: bool,
+    ) -> Option<Failure> {
+        let NoteskinPlay {
+            lanes,
+            lua,
+            problems: p,
+            started,
+            next_seq,
+            ..
+        } = self;
+        let mut cmd = Commands {
+            lua: lua.as_mut(),
+            failed: None,
+        };
+        if !*started {
+            *started = true;
+            for lane in lanes.iter_mut() {
                 // Each column's own reverse (`ReceptorArrow::Update`); a
                 // play's scroll does not change once started.
                 let reversed = reverse != (lane.scroll_sign < 0);
-                if let Element::Actor(a) = &mut lane.receptor {
-                    a.play(if reversed { "ReverseOn" } else { "ReverseOff" }, p);
-                    a.play("On", p);
-                }
+                cmd.play(
+                    &mut lane.receptor,
+                    if reversed { "ReverseOn" } else { "ReverseOff" },
+                    &[],
+                    p,
+                );
+                cmd.play(&mut lane.receptor, "On", &[], p);
             }
         }
         for e in events {
-            if e.seq < self.next_seq {
+            if e.seq < *next_seq {
                 continue;
             }
-            self.next_seq = e.seq + 1;
-            let Some(lane) = self.lanes.get_mut(usize::from(e.lane)) else {
+            *next_seq = e.seq + 1;
+            let column = i64::from(e.lane);
+            let Some(lane) = lanes.get_mut(usize::from(e.lane)) else {
                 continue;
             };
-            let receptor = |name: &str, lane: &mut Lane, p: &mut Problems| {
-                if let Element::Actor(a) = &mut lane.receptor {
-                    a.play(name, p);
-                }
-            };
-            let explode = |names: &[&str], lane: &mut Lane, p: &mut Problems| {
-                if let Element::Actor(a) = &mut lane.explosion {
-                    for n in names {
-                        a.play(n, p);
-                    }
-                }
-            };
             let bright = |b: bool| if b { "Bright" } else { "Dim" };
+            // `GhostArrowRow::DidTapNote`/`DidHoldNote`: the message, then
+            // the commands.
+            let mut explode = |score: (&str, String),
+                               b: bool,
+                               names: &[&str],
+                               cmd: &mut Commands,
+                               p: &mut Problems| {
+                let mut params = vec![
+                    (score.0, Param::Str(score.1)),
+                    ("Column", Param::Int(column)),
+                ];
+                if b {
+                    params.push(("Bright", Param::Bool(true)));
+                }
+                cmd.play(&mut lane.explosion, "ColumnJudgmentMessage", &params, p);
+                for n in names {
+                    cmd.play(&mut lane.explosion, n, &[], p);
+                }
+            };
+            let tap = |s: &str| ("TapNoteScore", format!("TapNoteScore_{s}"));
             match e.kind {
-                SkinEventKind::Press => receptor("Press", lane, p),
-                SkinEventKind::Lift => receptor("Lift", lane, p),
-                SkinEventKind::Step(Some(j)) => receptor(score_name(j), lane, p),
-                SkinEventKind::Step(None) => receptor("None", lane, p),
-                SkinEventKind::StepMine => receptor("HitMine", lane, p),
+                SkinEventKind::Press => cmd.play(&mut lane.receptor, "Press", &[], p),
+                SkinEventKind::Lift => cmd.play(&mut lane.receptor, "Lift", &[], p),
+                SkinEventKind::Step(Some(j)) => cmd.play(&mut lane.receptor, score_name(j), &[], p),
+                SkinEventKind::Step(None) => cmd.play(&mut lane.receptor, "None", &[], p),
+                SkinEventKind::StepMine => cmd.play(&mut lane.receptor, "HitMine", &[], p),
                 SkinEventKind::Tap {
                     judgement,
                     bright: b,
-                } => explode(&["Judgment", bright(b), score_name(judgement)], lane, p),
-                SkinEventKind::Held { bright: b } => {
-                    explode(&["Judgment", bright(b), "Held"], lane, p)
-                }
-                SkinEventKind::HitMine => explode(&["Judgment", "Dim", "HitMine"], lane, p),
+                } => explode(
+                    tap(score_name(judgement)),
+                    b,
+                    &["Judgment", bright(b), score_name(judgement)],
+                    &mut cmd,
+                    p,
+                ),
+                SkinEventKind::Held { bright: b } => explode(
+                    ("HoldNoteScore", "HoldNoteScore_Held".into()),
+                    b,
+                    &["Judgment", bright(b), "Held"],
+                    &mut cmd,
+                    p,
+                ),
+                SkinEventKind::HitMine => explode(
+                    tap("HitMine"),
+                    false,
+                    &["Judgment", "Dim", "HitMine"],
+                    &mut cmd,
+                    p,
+                ),
             }
         }
         // `GhostArrowRow::Update`: HoldingOn/Off and RollOn/Off on change.
-        for (i, lane) in self.lanes.iter_mut().enumerate() {
+        for (i, lane) in lanes.iter_mut().enumerate() {
             let now = frame.receptors.get(i).and_then(|r| r.holding);
             if now != lane.holding {
-                if let Element::Actor(a) = &mut lane.explosion {
-                    match lane.holding {
-                        Some(HoldKind::Hold) => a.play("HoldingOff", p),
-                        Some(HoldKind::Roll) => a.play("RollOff", p),
-                        None => {}
-                    }
-                    match now {
-                        Some(HoldKind::Hold) => a.play("HoldingOn", p),
-                        Some(HoldKind::Roll) => a.play("RollOn", p),
-                        None => {}
-                    }
+                match lane.holding {
+                    Some(HoldKind::Hold) => cmd.play(&mut lane.explosion, "HoldingOff", &[], p),
+                    Some(HoldKind::Roll) => cmd.play(&mut lane.explosion, "RollOff", &[], p),
+                    None => {}
+                }
+                match now {
+                    Some(HoldKind::Hold) => cmd.play(&mut lane.explosion, "HoldingOn", &[], p),
+                    Some(HoldKind::Roll) => cmd.play(&mut lane.explosion, "RollOn", &[], p),
+                    None => {}
                 }
                 lane.holding = now;
             }
@@ -378,11 +687,10 @@ impl NoteskinPlay {
         };
         for lane in &mut self.lanes {
             for e in lane.elements_mut() {
-                if let Element::Actor(a) = e {
-                    a.update(dt, &clocks, p);
-                }
+                cmd.update(e, dt, &clocks, &mut self.problems);
             }
         }
+        cmd.failed
     }
 
     /// Appends `actor`'s quads at `transform`, coloured, with `offset` added
@@ -496,6 +804,20 @@ impl NoteskinPlay {
 }
 
 impl Lane {
+    fn elements(&self) -> impl Iterator<Item = &Element> {
+        [
+            &self.receptor,
+            &self.explosion,
+            &self.tap,
+            &self.lift,
+            &self.fake,
+            &self.mine,
+        ]
+        .into_iter()
+        .chain(self.hold.all())
+        .chain(self.roll.all())
+    }
+
     fn elements_mut(&mut self) -> impl Iterator<Item = &mut Element> {
         [
             &mut self.receptor,
@@ -512,6 +834,15 @@ impl Lane {
 }
 
 impl HoldParts {
+    fn all(&self) -> impl Iterator<Item = &Element> {
+        self.head
+            .iter()
+            .chain(self.tail.iter())
+            .chain(self.topcap.iter())
+            .chain(self.body.iter())
+            .chain(self.bottomcap.iter())
+    }
+
     fn all_mut(&mut self) -> impl Iterator<Item = &mut Element> {
         self.head
             .iter_mut()
@@ -860,7 +1191,11 @@ impl NoteskinPlay {
             })
             .collect();
         // A cap shows when the end of the body it is attached to does.
-        let shown_at = |y: f32| visible.iter().any(|&(v0, v1)| v0 <= y + 0.5 && v1 >= y - 0.5);
+        let shown_at = |y: f32| {
+            visible
+                .iter()
+                .any(|&(v0, v1)| v0 <= y + 0.5 && v1 >= y - 0.5)
+        };
         let c = d.color_scale;
         let color = to_target([c, c, c, 1.0], self.srgb);
         let quad = |texture: u32, y0: f32, y1: f32, width: f32, uv: [f32; 4], wrap: bool| TexQuad {
@@ -950,5 +1285,182 @@ mod tests {
         assert_eq!(score_name(Judgement::W1), "W1");
         assert_eq!(score_name(Judgement::Miss), "Miss");
         assert_eq!(lerp(0.25, 1.0, 0.0), 0.25);
+    }
+
+    use ddi_engine::appearance::Appearance;
+    use ddi_engine::frame::ReceptorState;
+    use ddi_noteskin::Folder;
+    use ddi_noteskin::lua::{Env, LoadBudget};
+
+    struct NoImages;
+
+    impl Images for NoImages {
+        fn size(&self, _: ddi_noteskin::Dir, _: &str) -> Option<(u32, u32)> {
+            Some((64, 64))
+        }
+
+        fn max_size(&self) -> u32 {
+            4096
+        }
+    }
+
+    fn frame(song_time: f64, holding: Option<HoldKind>) -> Frame {
+        Frame {
+            song_time,
+            beat: song_time * 2.0,
+            lanes: 4,
+            receptors: vec![
+                ReceptorState {
+                    pressed: false,
+                    flash: None,
+                    holding,
+                };
+                4
+            ],
+            notes: Vec::new(),
+            judgement: None,
+            combo: 0,
+            score: Default::default(),
+            life: 0.5,
+            danger: false,
+            failed: false,
+            finished: false,
+            visible_range: 12.0,
+            appearance: Appearance::Visible,
+        }
+    }
+
+    /// A skin's Lua through a play: `tap` is its `Down Tap Note.lua`.
+    fn lua_play(tap: &str) -> NoteskinPlay {
+        let file = |name: &str, text: &str| (name.to_string(), text.to_string());
+        let texts = vec![
+            file("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            file(
+                "Down Explosion.lua",
+                "return Def.ActorFrame {\n\
+                   ColumnJudgmentMessageCommand = function(self, p)\n\
+                     self:x(p.Column * 10 + (p.Bright and 1 or 0))\n\
+                     self.last = p.TapNoteScore or p.HoldNoteScore\n\
+                   end;\n\
+                   W2Command = function(self) self:y(self.last == 'TapNoteScore_W2' and 2 or -1) end;\n\
+                   HoldingOnCommand = function(self) self:zoom(3) end;\n\
+                   Def.Sprite { Texture = 'x.png' };\n\
+                 }\n",
+            ),
+            file(
+                "Down Receptor.lua",
+                "return Def.ActorFrame {\n\
+                   InitCommand = function(self)\n\
+                     self:SetUpdateFunction(function(s) s:y(GAMESTATE:GetSongBeat()) end)\n\
+                   end;\n\
+                   PressCommand = function(self) self:x(7) end;\n\
+                   Def.Sprite { Texture = 'x.png' };\n\
+                 }\n",
+            ),
+            file("Down Tap Note.lua", tap),
+        ];
+        let mut files: Vec<String> = texts.iter().map(|(n, _)| n.clone()).collect();
+        files.push("x.png".into());
+        let folders = vec![Folder {
+            game: "dance".into(),
+            name: "live".into(),
+            files,
+            texts,
+        }];
+        let skin = Skin::load(&folders, "dance", "live").unwrap().into_owned();
+        let mut t = 0.0;
+        let lua = LuaSkin::new(
+            skin,
+            Env::default(),
+            ddi_lua::Settings::default(),
+            LoadBudget::default(),
+            Box::new(move || {
+                t += 1e-6;
+                t
+            }),
+        )
+        .unwrap();
+        let layout = Layout::dance_single();
+        let mut f = std::pin::pin!(NoteskinPlay::with_lua(lua, &layout, &NoImages, false, None));
+        match f
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+        {
+            std::task::Poll::Ready(r) => r.unwrap().unwrap(),
+            std::task::Poll::Pending => panic!("pending"),
+        }
+    }
+
+    fn actor(e: &Element) -> &Actor {
+        match e {
+            Element::Actor(a) => a,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    use std::future::Future;
+
+    #[test]
+    fn a_skins_lua_plays_the_engines_events() {
+        let mut play = lua_play("return Def.ActorFrame { Def.Sprite { Texture = 'x.png' } }\n");
+        assert!(play.runs_lua());
+        let down = 1;
+        let events = [
+            SkinEvent {
+                seq: 0,
+                lane: down,
+                kind: SkinEventKind::Press,
+                song_time: 0.0,
+            },
+            SkinEvent {
+                seq: 1,
+                lane: down,
+                kind: SkinEventKind::Tap {
+                    judgement: Judgement::W2,
+                    bright: true,
+                },
+                song_time: 0.0,
+            },
+        ];
+        play.update(&frame(0.0, None), events.iter(), false);
+        play.update(&frame(0.5, Some(HoldKind::Hold)), [].iter(), false);
+        let lane = &play.lanes[usize::from(down)];
+        assert_eq!(actor(&lane.receptor).current().pos[..2], [7.0, 1.0]);
+        let ex = actor(&lane.explosion).current();
+        assert_eq!(ex.pos[..2], [11.0, 2.0]);
+        assert_eq!(ex.scale[0], 3.0);
+        assert!(play.problems().is_empty(), "{:?}", play.problems());
+        assert!(play.lua_fuel().1 > 0);
+        // A retry starts from the trees as built; the Lua goes on.
+        play.restart();
+        play.update(&frame(0.0, None), [].iter(), false);
+        assert_eq!(
+            actor(&play.lanes[1].receptor).current().pos[..2],
+            [0.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn a_skins_lua_that_stops_leaves_the_built_in_skin() {
+        let mut play = lua_play(
+            "return Def.ActorFrame {\n\
+               InitCommand = function(self) self:SetUpdateFunction(function() while true do end end) end;\n\
+               Def.Sprite { Texture = 'x.png' };\n\
+             }\n",
+        );
+        assert!(play.draws(1, LayerPart::Receptor));
+        play.update(&frame(0.0, None), [].iter(), false);
+        assert!(!play.runs_lua());
+        assert!(
+            play.lua_failure().is_some_and(|f| f.contains("fuel")),
+            "{:?}",
+            play.lua_failure()
+        );
+        for part in [LayerPart::Receptor, LayerPart::Tap] {
+            assert!(!play.draws(1, part));
+        }
+        play.restart();
+        assert!(!play.draws(1, LayerPart::Receptor));
+        play.update(&frame(0.1, None), [].iter(), false);
     }
 }

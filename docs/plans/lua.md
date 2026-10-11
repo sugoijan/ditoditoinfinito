@@ -246,6 +246,87 @@ what step 4 needs:
   (Schneider's update functions, explosion round robins), on a desktop and a
   phone, to set the per-frame budget.
 
+**Done 2026-10-11** (native and headless Chrome; Firefox, Safari and a
+phone by hand). What it does, and what differs from the plan:
+
+- The trees stay with the skin's Lua until every element is loaded (an
+  element's Load or Init may reach another's actors, as in StepMania);
+  then the play holds them (`LuaSkin::reclaim`) and lends them back while
+  Lua runs (`LuaSkin::lend`), so there is one copy of each actor and Lua's
+  getters read what is drawn. Lua reaching a tree the play holds fails
+  visibly ("the actor is gone"). A frame starts with the song's position
+  (`GAMESTATE:GetSongPosition()`, `GetSongBeat`, `GetCurBPS` and the
+  timing's conversions now follow the chart's own timing) and one budget
+  for all of the skin's Lua that frame.
+- Events play through the prelude's driver (`playcommand`, children
+  after the actor) with `GhostArrowRow`'s `ColumnJudgment` message first
+  (`TapNoteScore`/`HoldNoteScore`, `Column`, `Bright`), for native skins
+  too; commands the engine plays, queued ones and `Init` get an empty
+  table without parameters (StepMania's `Message` always has one), a
+  script's own `playcommand` nil. A tree's update is the native one split into steps
+  (`Actor::update_begin`, `tween_step`, `update_end`), so a command a
+  tween queued plays through Lua at the moment it begins, then frames'
+  update functions (`SetUpdateFunction`, frames only as in StepMania)
+  after their children with the seconds.
+- The budget: 200,000 fuel and 50 ms per frame. Every call into the VM
+  costs 200 fuel besides its instructions, and actor methods that walk a
+  tree or a sprite's states (`finishtweening`, `hurrytweening`,
+  `SetAllStateDelays`) pay per actor, tween and state. Measured on the
+  local corpus (`DDI_NOTESKINS_LUA_PLAY=1`, a note every 0.2 s and a jump
+  of four every 2 s, 20 s at 60 and 144 Hz): no skin above 49,882 fuel in
+  a frame (the jumps), most below 12,000, 0.02–0.06 ms per frame on
+  average natively; an endless loop reaches the budget in about 1.5 ms.
+  Times on this machine were noisy (the fuzzers ran); a phone is still to
+  measure.
+- Loads run in slices of 100,000 fuel with the page's turn between them;
+  the load's deadline counts the time spent in Lua only. Each play loads
+  the skin's Lua twice, as the native build did: once to learn which
+  images it asks for, once with their sizes.
+- Skins with no Lua of their own (nor in the imported skins they fall
+  back on) play natively, as before: the native stand-ins are the same
+  Lua's behaviour, without its cost or risks.
+- Failures: a command or update function that errors is reported and the
+  play goes on. The fuel, the deadline, the memory limit or a host limit
+  end the skin's Lua, and every later call fails the same way: at load
+  the skin is built without it (natively, its images decoded for that);
+  in a play its VM is dropped and every element is the built-in skin's
+  for the rest of the play and its retries. The next play tries again
+  (the first stop is remembered for the session, and forgotten when the
+  skin is imported again); a second stop turns the skin's Lua off until
+  it is imported again (`lua_broken` in its record, "its Lua is off"
+  under Options). A play stopped by the 50 ms deadline alone is not held
+  against the skin (a stalled machine). The import report runs each Lua
+  skin's Lua and says how many elements are its own and why the others
+  are not, or why its Lua stopped.
+- Imports keep `.lua` texts with the skin's record; skins imported before
+  get theirs from their stored files when first played.
+- Each play's VMs get a hash seed from the platform's randomness
+  (`crypto.getRandomValues`), the same for its two loads so they ask for
+  the same images.
+- A retry restores the actors as built; the Lua's own state (upvalues,
+  fields) carries over, where StepMania would load the skin again.
+- Reviewed independently (two reviewers): fixed native work bought for a
+  few fuel (above), missing empty parameter tables, copies of held trees
+  silently taking Lua's calls, a host limit turning into a soft error on
+  later calls, strikes surviving a re-import, the native fallback after a
+  failed second load missing images, image-only skins exposed to the
+  Lua's deadline, blank elements left blank after a stop, records
+  rewritten on every play.
+- Not done: per-colour notes (ITGmania's `Var "Color"` still reads
+  "4th"), `ShowNoteUpcoming`/`MinefieldOn`, the per-frame cost on a phone.
+  A skin readied for a song the player leaves keeps loading in the
+  background (its slices yield) and its stop still counts.
+- Checked: unit tests on synthetic skins (events with parameters, a
+  round robin re-armed by `queuecommand`, an update function reading the
+  song's position, a frame out of fuel, a sliced load) and through the
+  renderer (`render/src/noteskin.rs`); the corpus as above; in headless
+  Chrome on WebGPU and WebGL2 a live skin (beat flash from an update
+  function, explosions coloured by the message's score), a skin whose
+  update function loops after 4 s (stops, the built-in skin takes over,
+  a second play stops again and the third runs without Lua) and one whose
+  `NoteSkin.lua` never returns (the import reports it; it plays
+  natively).
+
 ## Step 5. Documentation and the first bundled skin
 
 `docs/PLAN.md` (a decision for script safety), `AGENTS.md`, the verify

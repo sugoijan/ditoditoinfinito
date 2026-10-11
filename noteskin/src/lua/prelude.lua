@@ -291,6 +291,7 @@ local song_position = {
 }
 local timing = {
 	GetBeatFromElapsedTime = function(_, t) return H.timing("beat", t) end,
+	GetBPMAtBeat = function(_, b) return H.timing("bps", b) * 60 end,
 	GetElapsedTimeFromBeat = function(_, b) return H.timing("seconds", b) end,
 }
 local steps = {
@@ -437,7 +438,8 @@ local function init(id, depth)
 	if k then
 		for i = 1, #k do init(k[i], depth + 1) end
 	end
-	play_own(id, "Init")
+	-- `PlayCommandNoRecurse(Message("Init"))`: an empty table.
+	play_own(id, "Init", {})
 end
 
 -- What a skin reads that is not there stays nil, as in StepMania; noted
@@ -465,4 +467,13 @@ return {
 	init = function(id) init(id, 0) end,
 	play = function(id, name, params) play(id, name, params, 0) end,
 	play_own = play_own,
+	-- A frame's update function, as `ActorFrame::UpdateInternal` calls
+	-- it (an error is reported and the play goes on).
+	update = function(id, dt)
+		local f = H.update_functions[id]
+		if f then
+			local ok, err = pcall(f, actors[id], dt)
+			if not ok then H.warn("UpdateFunction: " .. tostring(err)) end
+		end
+	end,
 }

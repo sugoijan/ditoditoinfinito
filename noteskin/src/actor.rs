@@ -116,6 +116,21 @@ struct Tween {
     command: Option<String>,
 }
 
+/// What is left of one update's tweening ([`Actor::tween_step`]).
+#[derive(Clone, Copy, Debug)]
+pub struct TweenSteps {
+    dt: f32,
+    /// Tweens begun so far: a command that queues itself with no time
+    /// between would otherwise never end.
+    guard: u32,
+}
+
+impl TweenSteps {
+    pub fn new(dt: f32) -> TweenSteps {
+        TweenSteps { dt, guard: 0 }
+    }
+}
+
 /// `Actor::Effect`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Effect {
@@ -829,14 +844,40 @@ impl Actor {
         self.update_depth(dt.max(0.0), clocks, problems, 0);
     }
 
-    fn update_depth(&mut self, mut dt: f32, clocks: &Clocks, problems: &mut Problems, depth: u32) {
+    fn update_depth(&mut self, dt: f32, clocks: &Clocks, problems: &mut Problems, depth: u32) {
         if depth > MAX_DEPTH {
             return;
         }
+        let Some(dt) = self.update_begin(dt, clocks) else {
+            return;
+        };
+        let mut tweens = TweenSteps::new(dt);
+        while let Some(c) = self.tween_step(&mut tweens, problems) {
+            self.play_depth(&c, problems, depth + 1);
+        }
+        self.update_end(dt);
+        if let Kind::Frame(children) = &mut self.kind {
+            for c in children {
+                c.update_depth(dt, clocks, problems, depth + 1);
+            }
+        }
+    }
+
+    /// The start of this actor's own `Update` (not its children's): the
+    /// hibernation, a frame's update rate, the effect clock. The seconds
+    /// left for its tweens, its animation and its children, or `None`
+    /// while it hibernates.
+    ///
+    /// A host that plays queued commands itself (a skin's Lua) updates an
+    /// actor as [`Actor::update`] does: this, [`Actor::tween_step`] until
+    /// it returns `None` (playing each command it returns), then
+    /// [`Actor::update_end`], then the children.
+    pub fn update_begin(&mut self, dt: f32, clocks: &Clocks) -> Option<f32> {
+        let mut dt = dt.max(0.0);
         if self.hibernate > 0.0 {
             self.hibernate -= dt;
             if self.hibernate > 0.0 {
-                return;
+                return None;
             }
             dt = -self.hibernate;
             self.hibernate = 0.0;
@@ -871,54 +912,29 @@ impl Actor {
                     .rem_euclid(360.0);
             }
         }
-        self.update_tweening(dt, problems, depth);
-        let effect_delta = self.effect_delta;
-        match &mut self.kind {
-            Kind::Frame(children) => {
-                for c in children {
-                    c.update_depth(dt, clocks, problems, depth + 1);
-                }
-            }
-            Kind::Sprite(sprite) => {
-                if self.animating {
-                    sprite.secs_into_state += effect_delta;
-                    if sprite.secs_into_state < 0.0 {
-                        let length = sprite.animation_length();
-                        if length > 0.0 {
-                            sprite.secs_into_state = sprite.secs_into_state.rem_euclid(length);
-                        }
-                    }
-                    sprite.advance();
-                    let d = if sprite.use_effect_clock_for_texcoords {
-                        effect_delta
-                    } else {
-                        dt
-                    };
-                    for i in 0..2 {
-                        let v = sprite.texcoord_offset[i] + d * sprite.texcoord_velocity[i];
-                        sprite.texcoord_offset[i] = v - v.floor();
-                    }
-                }
-            }
-            Kind::Actor => {}
-        }
+        Some(dt)
     }
 
-    /// `Actor::UpdateTweening`.
-    fn update_tweening(&mut self, mut dt: f32, problems: &mut Problems, depth: u32) {
-        let mut guard = 0;
-        while !self.tweens.is_empty() && dt > 0.0 {
-            guard += 1;
-            if guard > 1000 {
+    /// `Actor::UpdateTweening` up to the next queued command that begins:
+    /// the command (to play now, after which the tweening goes on), or
+    /// `None` once `steps`' seconds are used up.
+    pub fn tween_step(
+        &mut self,
+        steps: &mut TweenSteps,
+        problems: &mut Problems,
+    ) -> Option<String> {
+        while !self.tweens.is_empty() && steps.dt > 0.0 {
+            steps.guard += 1;
+            if steps.guard > 1000 {
                 problems.push(&self.name, "tweens queue themselves without end".into());
                 self.stop_tweening();
-                return;
+                return None;
             }
             let t = &mut self.tweens[0];
             let beginning = t.left == t.time;
-            let step = t.left.min(dt);
+            let step = t.left.min(steps.dt);
             t.left -= step;
-            dt -= step;
+            steps.dt -= step;
             let command = if beginning { t.command.take() } else { None };
             if beginning {
                 self.start = self.current;
@@ -931,8 +947,35 @@ impl Actor {
                 let through = 1.0 - t.left / t.time;
                 self.current = TweenState::between(&self.start, &t.dest, t.ease.apply(through));
             }
-            if let Some(c) = command {
-                self.play_depth(&c, problems, depth + 1);
+            if command.is_some() {
+                return command;
+            }
+        }
+        None
+    }
+
+    /// The end of this actor's own `Update`: a sprite's animation.
+    pub fn update_end(&mut self, dt: f32) {
+        let effect_delta = self.effect_delta;
+        if let Kind::Sprite(sprite) = &mut self.kind
+            && self.animating
+        {
+            sprite.secs_into_state += effect_delta;
+            if sprite.secs_into_state < 0.0 {
+                let length = sprite.animation_length();
+                if length > 0.0 {
+                    sprite.secs_into_state = sprite.secs_into_state.rem_euclid(length);
+                }
+            }
+            sprite.advance();
+            let d = if sprite.use_effect_clock_for_texcoords {
+                effect_delta
+            } else {
+                dt
+            };
+            for i in 0..2 {
+                let v = sprite.texcoord_offset[i] + d * sprite.texcoord_velocity[i];
+                sprite.texcoord_offset[i] = v - v.floor();
             }
         }
     }
@@ -982,6 +1025,23 @@ impl Actor {
             for c in children {
                 c.play_depth(name, problems, depth + 1);
             }
+        }
+    }
+
+    /// The native work method `method` does on this actor beyond a fixed
+    /// cost, in actors and tweens visited and states written (the Lua host
+    /// charges fuel for it).
+    pub fn work(&self, method: &str) -> usize {
+        fn tree(a: &Actor) -> usize {
+            1 + a.tweens.len() + a.children().iter().map(tree).sum::<usize>()
+        }
+        match method {
+            "finishtweening" | "hurrytweening" => tree(self),
+            "SetAllStateDelays" => match &self.kind {
+                Kind::Sprite(s) => s.states.len(),
+                _ => 0,
+            },
+            _ => 0,
         }
     }
 

@@ -74,7 +74,15 @@ pub(crate) struct GameLoop {
     /// The noteskin of this play, if one is chosen and fits the layout.
     noteskin: Option<ddi_render::noteskin::NoteskinPlay>,
     /// A noteskin readied while a play was on: used from the next play.
-    next_noteskin: Option<(ddi_render::noteskin::NoteskinPlay, Vec<Option<web_sys::ImageBitmap>>)>,
+    next_noteskin: Option<(
+        ddi_render::noteskin::NoteskinPlay,
+        Vec<Option<web_sys::ImageBitmap>>,
+        String,
+    )>,
+    /// The noteskin's store key, and whether its Lua stopping was
+    /// reported.
+    noteskin_key: String,
+    lua_stop_reported: bool,
 }
 
 /// Width over height of the screens pack art was made for.
@@ -225,6 +233,8 @@ impl GameLoop {
             song_bg_aspect: None,
             noteskin: None,
             next_noteskin: None,
+            noteskin_key: String::new(),
+            lua_stop_reported: false,
         }
     }
 
@@ -247,8 +257,8 @@ impl GameLoop {
         self.guard = VideoGuard::default();
         self.refresh_at_start = self.refresh_hz();
         self.upload_backgrounds();
-        if let Some((play, images)) = self.next_noteskin.take() {
-            self.install_noteskin(Some(play), images);
+        if let Some((play, images, key)) = self.next_noteskin.take() {
+            self.install_noteskin(Some(play), images, key);
         }
         // A retry plays the noteskin's commands from the start again.
         if let Some(n) = self.noteskin.as_mut() {
@@ -444,24 +454,28 @@ impl GameLoop {
         &mut self,
         play: Option<ddi_render::noteskin::NoteskinPlay>,
         images: Vec<Option<web_sys::ImageBitmap>>,
+        key: String,
     ) {
         // Mid-play the arrows do not change: from the next play on.
         if self.session.is_some() {
             if let Some(play) = play {
-                if let Some((_, old)) = self.next_noteskin.replace((play, images)) {
+                if let Some((_, old, _)) = self.next_noteskin.replace((play, images, key)) {
                     old.into_iter().flatten().for_each(|b| b.close());
                 }
             }
             return;
         }
-        self.install_noteskin(play, images);
+        self.install_noteskin(play, images, key);
     }
 
     fn install_noteskin(
         &mut self,
         play: Option<ddi_render::noteskin::NoteskinPlay>,
         images: Vec<Option<web_sys::ImageBitmap>>,
+        key: String,
     ) {
+        self.noteskin_key = key;
+        self.lua_stop_reported = false;
         self.renderer.clear_noteskin_textures();
         let srgb = self.renderer.srgb();
         self.noteskin = play.map(|mut play| {
@@ -656,6 +670,22 @@ impl GameLoop {
                             session.player.skin_events_since(from),
                             render.reverse,
                         );
+                        // The skin's Lua stopped: the play goes on with
+                        // the built-in skin; the next one tries again.
+                        if let Some(why) = play.lua_failure()
+                            && !self.lua_stop_reported
+                        {
+                            self.lua_stop_reported = true;
+                            let (key, why) = (self.noteskin_key.clone(), why.to_string());
+                            if play.lua_stopped_on_clock() {
+                                // A stall, not the skin: not held against it.
+                                web_sys::console::warn_1(&format!("noteskin {key}: {why}").into());
+                            } else {
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    crate::noteskins::lua_stopped(&key, &why).await;
+                                });
+                            }
+                        }
                         Some(play as &mut dyn ddi_render::noteskin::NoteLayer)
                     }
                     None => None,
@@ -741,6 +771,19 @@ impl GameLoop {
                     let _ = js_sys::Reflect::set(&o, &"problems".into(), &problems);
                     let _ =
                         js_sys::Reflect::set(&o, &"quads".into(), &(n.last_quads() as u32).into());
+                    let (fuel, max_fuel) = n.lua_fuel();
+                    let lua = js_sys::Object::new();
+                    let _ = js_sys::Reflect::set(&lua, &"runs".into(), &n.runs_lua().into());
+                    let _ = js_sys::Reflect::set(&lua, &"fuel".into(), &(fuel as f64).into());
+                    let _ =
+                        js_sys::Reflect::set(&lua, &"max_fuel".into(), &(max_fuel as f64).into());
+                    let _ = js_sys::Reflect::set(
+                        &lua,
+                        &"stopped".into(),
+                        &n.lua_failure()
+                            .map_or(wasm_bindgen::JsValue::NULL, |f| f.into()),
+                    );
+                    let _ = js_sys::Reflect::set(&o, &"lua".into(), &lua);
                     o.into()
                 }
                 None => wasm_bindgen::JsValue::NULL,

@@ -112,6 +112,12 @@ fn str_arg<'gc>(
         .ok_or_else(|| error(ctx, format!("{what}: argument {} must be a string", i + 1)))
 }
 
+/// What reading the timing costs, in bytes' worth of fuel: its maths
+/// walks every segment.
+fn segments(t: &ddi_chart::timing::TimingMap) -> usize {
+    (t.bpms.len() + t.stops.len() + t.delays.len() + t.warps.len()) * 16
+}
+
 fn charge(exec: &mut Execution<'_, '_>, bytes: usize) {
     let fuel = i32::try_from(4 + bytes / 64).unwrap_or(i32::MAX);
     exec.fuel().consume(fuel);
@@ -515,19 +521,25 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
         })),
     );
 
-    // While loading the song has not started: its position is the start.
+    // The song's position: the start while loading, the frame's during a
+    // play (`LuaSkin::begin_frame`).
     let shared = host.clone();
     set(
         "song_position",
-        func(Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+        func(Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
             let kind = string(stack.get(0)).unwrap_or_default();
             let host = shared.borrow();
-            let env = &host.env;
+            let timing = &host.env.timing;
+            charge(&mut exec, segments(timing));
+            let (seconds, beat) = match host.position {
+                Some(p) => (p.seconds, p.beat),
+                None => (0.0, timing.beat_at(0.0)),
+            };
             let v = match kind.as_str() {
-                "seconds" => Value::Number(0.0),
-                "beat" => Value::Number(-env.offset * env.bpm / 60.0),
-                "bps" => Value::Number(env.bpm / 60.0),
-                "lead_in" => Value::Boolean(env.lead_in),
+                "seconds" => Value::Number(seconds),
+                "beat" => Value::Number(beat),
+                "bps" => Value::Number(timing.bpm_at_beat(beat) / 60.0),
+                "lead_in" => Value::Boolean(host.position.is_none_or(|p| p.seconds < 0.0)),
                 _ => Value::Nil,
             };
             stack.replace(ctx, v);
@@ -538,15 +550,23 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
     let shared = host.clone();
     set(
         "timing",
-        func(Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+        func(Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
             let kind = string(stack.get(0)).unwrap_or_default();
             let x = stack.get(1).to_number().unwrap_or(0.0);
             let host = shared.borrow();
             let env = &host.env;
-            let bps = env.bpm / 60.0;
+            charge(&mut exec, segments(&env.timing));
+            // Beats and seconds a script passes may be anything; the
+            // timing's maths wants finite ones.
+            let x = if x.is_finite() {
+                x.clamp(-1e9, 1e9)
+            } else {
+                0.0
+            };
             let v = match kind.as_str() {
-                "beat" => (x - env.offset) * bps,
-                "seconds" => x / bps + env.offset,
+                "beat" => env.timing.beat_at(x),
+                "seconds" => env.timing.seconds_at_beat(x),
+                "bps" => env.timing.bpm_at_beat(x) / 60.0,
                 "first_beat" => env.first_beat,
                 "last_beat" => env.last_beat,
                 _ => 0.0,
@@ -617,7 +637,6 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
                 for i in 1..stack.len().min(17) {
                     args.push(arg(ctx, stack.get(i), m, i)?);
                 }
-                charge(&mut exec, 0);
                 let call = Call {
                     method: m.to_string(),
                     args,
@@ -626,6 +645,9 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
                 let Some(actor) = host.stage.get_mut(id) else {
                     return Err(error(ctx, format!("{m}: the actor is gone")));
                 };
+                // Methods that walk a tree or a sprite's states pay for
+                // what they visit.
+                charge(&mut exec, actor.work(m) * 64);
                 let mut problems = Problems::default();
                 let r = actor.call(&call, &mut problems, 0);
                 for p in problems.messages {
@@ -711,21 +733,6 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
             Ok(CallbackReturn::Return)
         }),
     );
-    // `SetUpdateFunction`: kept for the play step.
-    let updates = Table::new(&ctx);
-    set("update_functions", Value::Table(updates));
-    let _ = methods.set(
-        ctx,
-        "SetUpdateFunction",
-        Callback::from_fn_with(&ctx, updates, |updates, ctx, _, mut stack| {
-            let this = stack.get(0);
-            let id = actor_id(ctx, this)?;
-            let _ = updates.set(ctx, i64::from(id), stack.get(1));
-            stack.replace(ctx, this);
-            Ok(CallbackReturn::Return)
-        }),
-    );
-
     let class = |parent: Table<'gc>| {
         let t = Table::new(&ctx);
         let mt = Table::new(&ctx);
@@ -736,6 +743,35 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
     let sprite = class(methods);
     let frame = class(methods);
     let model = class(methods);
+    // `SetUpdateFunction` (frames only): called with the frame and the
+    // seconds after its children's update, during a play.
+    let updates = Table::new(&ctx);
+    set("update_functions", Value::Table(updates));
+    let shared = host.clone();
+    let _ = frame.set(
+        ctx,
+        "SetUpdateFunction",
+        Callback::from_fn_with(&ctx, updates, move |updates, ctx, _, mut stack| {
+            let this = stack.get(0);
+            let id = actor_id(ctx, this)?;
+            let f = stack.get(1);
+            if !matches!(f, Value::Nil | Value::Function(_)) {
+                return Err(error(
+                    ctx,
+                    "SetUpdateFunction: argument 1 must be a function",
+                ));
+            }
+            updates.set(ctx, i64::from(id), f)?;
+            let mut host = shared.borrow_mut();
+            if f.is_nil() {
+                host.updating.remove(&id);
+            } else {
+                host.updating.insert(id);
+            }
+            stack.replace(ctx, this);
+            Ok(CallbackReturn::Return)
+        }),
+    );
     for &m in MODEL_ONLY {
         let _ = model.set(
             ctx,

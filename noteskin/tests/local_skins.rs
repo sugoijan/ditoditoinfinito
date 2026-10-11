@@ -275,6 +275,7 @@ fn local_skins_lua() {
     let mut worst = (0.0f64, String::new());
     let mut failures: BTreeMap<String, usize> = BTreeMap::new();
     let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
+    let mut play_worst: Vec<(u64, f64, String)> = Vec::new();
     for root in std::env::split_paths(&dirs) {
         let mut paths = Vec::new();
         skins(&root, &mut paths);
@@ -315,11 +316,17 @@ fn local_skins_lua() {
                 }
             };
             let mut textures = Textures::default();
+            // The trees of dance-single's lanes, for the play.
+            let mut trees: Vec<(usize, &str, Box<ddi_noteskin::actor::Actor>)> = Vec::new();
             if let Some(l) = &mut lua {
                 'all: for b in Button::ALL {
                     for e in ENGINE_ELEMENTS {
                         match l.element(b, e, &mut textures, &AnySize) {
                             Ok(el) => {
+                                let lane = Button::ALL[..4].iter().position(|x| *x == b);
+                                if let (Some(lane), Built::Actor(a)) = (lane, &el.built) {
+                                    trees.push((lane, e, Box::new(a.clone())));
+                                }
                                 if matches!(el.built, Built::BuiltIn) {
                                     // Why, without paths and line numbers.
                                     let n = el.notes.first().cloned().unwrap_or_default();
@@ -358,6 +365,36 @@ fn local_skins_lua() {
             let secs = start.elapsed().as_secs_f64();
             if secs > worst.0 {
                 worst = (secs, f.name.clone());
+            }
+            if let (Some(l), None, Some(_)) =
+                (&mut lua, &error, std::env::var_os("DDI_NOTESKINS_LUA_PLAY"))
+            {
+                for (_, _, a) in trees.iter_mut() {
+                    l.reclaim(a);
+                }
+                for hz in [60.0, 144.0] {
+                    let r = play(l, &mut trees, hz, 20.0);
+                    println!(
+                        "\tplay {hz} Hz: fuel per frame mean {:.0}, p99 {}, max {}; time per frame mean {:.3} ms, max {:.3} ms{}",
+                        r.mean,
+                        r.p99,
+                        r.max,
+                        r.mean_ms,
+                        r.max_ms,
+                        r.error
+                            .map(|e| format!("; STOPPED: {e}"))
+                            .unwrap_or_default()
+                    );
+                    if hz == 60.0 {
+                        play_worst.push((r.max, r.max_ms, f.name.clone()));
+                    }
+                }
+                let new = l.warnings_since(0);
+                if std::env::var_os("DDI_NOTESKINS_WARNINGS").is_some() {
+                    for w in new {
+                        println!("\t\tplay warning: {w}");
+                    }
+                }
             }
             let (fuel, memory, warnings) = lua.as_ref().map_or((0, 0, 0), |l| {
                 (l.fuel_used(), l.memory(), l.warnings().len())
@@ -402,10 +439,175 @@ fn local_skins_lua() {
     for (f, n) in &failures {
         println!("  {n}\t{f}");
     }
+    if !play_worst.is_empty() {
+        play_worst.sort_by_key(|w| std::cmp::Reverse(w.0));
+        println!("most fuel in one frame at 60 Hz:");
+        for (fuel, ms, name) in play_worst.iter().take(15) {
+            println!("  {fuel}\t{ms:.3} ms\t{name}");
+        }
+        play_worst.sort_by(|a, b| b.1.total_cmp(&a.1));
+        println!("longest frame at 60 Hz:");
+        for (fuel, ms, name) in play_worst.iter().take(5) {
+            println!("  {ms:.3} ms\t{fuel}\t{name}");
+        }
+    }
     let mut reasons: Vec<_> = reasons.into_iter().collect();
     reasons.sort_by_key(|r| std::cmp::Reverse(r.1));
     println!("built in, by reason:");
     for (r, n) in reasons.iter().take(40) {
         println!("  {n}\t{r}");
+    }
+}
+
+struct PlayCost {
+    mean: f64,
+    p99: u64,
+    max: u64,
+    mean_ms: f64,
+    max_ms: f64,
+    error: Option<String>,
+}
+
+/// `seconds` of a play at `hz` with what the engine sends a skin
+/// (`render/src/noteskin.rs`): receptors' `ReverseOff` and `On`, then a
+/// note every 0.2 s on the next lane and a jump of four every 2 s
+/// (`Press`, its judgement, the
+/// explosion's `ColumnJudgment` message and commands, `Lift`), a hold
+/// every 4 s (`HoldingOn`/`Off`), a mine every 5 s, and every tree's
+/// update each frame.
+fn play(
+    lua: &mut ddi_noteskin::lua::LuaSkin,
+    trees: &mut [(usize, &str, Box<ddi_noteskin::actor::Actor>)],
+    hz: f64,
+    seconds: f64,
+) -> PlayCost {
+    use ddi_noteskin::actor::Clocks;
+    use ddi_noteskin::lua::{FrameBudget, Param, Position};
+    use std::time::Instant;
+    let frames = (seconds * hz) as usize;
+    let dt = 1.0 / hz;
+    let mut fuel = Vec::with_capacity(frames);
+    let (mut total_ms, mut max_ms) = (0.0f64, 0.0f64);
+    let mut error = None;
+    let scores = ["W1", "W2", "W3", "W1", "W4", "W2", "Miss"];
+    let mut note = 0usize;
+    'frames: for i in 0..frames {
+        let t = i as f64 * dt;
+        let start = Instant::now();
+        lua.begin_frame(
+            Position {
+                seconds: t,
+                beat: t * 2.5,
+            },
+            FrameBudget::default(),
+        );
+        for (_, _, a) in trees.iter_mut() {
+            lua.lend(a);
+        }
+        type Call = (usize, &'static str, String, Vec<(&'static str, Param)>);
+        let mut calls: Vec<Call> = Vec::new();
+        fn on(calls: &mut Vec<Call>, lane: usize, element: &'static str, name: &str) {
+            calls.push((lane, element, name.to_string(), Vec::new()))
+        }
+        if i == 0 {
+            for lane in 0..4 {
+                on(&mut calls, lane, "Receptor", "ReverseOff");
+                on(&mut calls, lane, "Receptor", "On");
+            }
+        }
+        let tick = |s: f64| (t / s).floor() != ((t - dt) / s).floor() || i == 0;
+        // A note every 0.2 s, a jump of all four every 2 s.
+        let lanes: Vec<usize> = if tick(2.0) {
+            (0..4).collect()
+        } else if tick(0.2) {
+            vec![note % 4]
+        } else {
+            Vec::new()
+        };
+        for lane in lanes {
+            let score = scores[note % scores.len()];
+            note += 1;
+            on(&mut calls, lane, "Receptor", "Press");
+            on(&mut calls, lane, "Receptor", score);
+            calls.push((
+                lane,
+                "Explosion",
+                "ColumnJudgmentMessage".into(),
+                vec![
+                    ("TapNoteScore", Param::Str(format!("TapNoteScore_{score}"))),
+                    ("Column", Param::Int(lane as i64)),
+                ],
+            ));
+            on(&mut calls, lane, "Explosion", "Judgment");
+            on(&mut calls, lane, "Explosion", "Dim");
+            on(&mut calls, lane, "Explosion", score);
+        }
+        if tick(0.2) && i > 0 {
+            on(&mut calls, (note + 3) % 4, "Receptor", "Lift");
+        }
+        if tick(4.0) {
+            on(
+                &mut calls,
+                0,
+                "Explosion",
+                if ((t / 4.0) as u64).is_multiple_of(2) {
+                    "HoldingOn"
+                } else {
+                    "HoldingOff"
+                },
+            );
+        }
+        if tick(5.0) {
+            on(&mut calls, 2, "Explosion", "HitMine");
+        }
+        for (lane, element, name, params) in &calls {
+            for (l, e, a) in trees.iter() {
+                if l == lane
+                    && e == element
+                    && let Err(f) = lua.play(a.id, name, params)
+                {
+                    error = Some(f.to_string());
+                }
+            }
+        }
+        let clocks = Clocks {
+            timer: t as f32,
+            music_seconds: t as f32,
+            beat: (t * 2.5) as f32,
+            music_seconds_no_offset: t as f32,
+            beat_no_offset: (t * 2.5) as f32,
+        };
+        for (_, _, a) in trees.iter() {
+            if error.is_some() {
+                break;
+            }
+            if let Err(f) = lua.update(a.id, dt as f32, &clocks) {
+                error = Some(f.to_string());
+            }
+        }
+        for (_, _, a) in trees.iter_mut() {
+            lua.reclaim(a);
+        }
+        let ms = start.elapsed().as_secs_f64() * 1e3;
+        total_ms += ms;
+        max_ms = max_ms.max(ms);
+        fuel.push(lua.frame_fuel());
+        if error.is_some() {
+            break 'frames;
+        }
+    }
+    let n = fuel.len().max(1);
+    let mean = fuel.iter().sum::<u64>() as f64 / n as f64;
+    let max = fuel.iter().copied().max().unwrap_or(0);
+    let mut sorted = fuel.clone();
+    sorted.sort_unstable();
+    let p99 = sorted.get(n * 99 / 100).copied().unwrap_or(max);
+    PlayCost {
+        mean,
+        p99,
+        max,
+        mean_ms: total_ms / n as f64,
+        max_ms,
+        error,
     }
 }

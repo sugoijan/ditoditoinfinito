@@ -542,3 +542,350 @@ fn children_of_one_name_and_failing_commands() {
         skin.warnings()
     );
 }
+
+/// A skin whose Lua lives during a play: an explosion with a message
+/// command taking parameters and a round robin re-armed by
+/// `queuecommand`, a receptor with an update function on the beat.
+fn live() -> Vec<Folder> {
+    vec![folder(
+        "dance",
+        "live",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Explosion.lua",
+                "local n = 0\n\
+                 return Def.ActorFrame {\n\
+                   ColumnJudgmentMessageCommand = function(self, p)\n\
+                     self:x(p.Column):y(p.Bright and 1 or 0)\n\
+                     self.score = p.TapNoteScore\n\
+                   end;\n\
+                   W1Command = function(self)\n\
+                     assert(self.score == 'TapNoteScore_W1')\n\
+                     self:diffusealpha(0.5)\n\
+                   end;\n\
+                   Def.Actor {\n\
+                     Name = 'emit';\n\
+                     OnCommand = function(self) self:sleep(0.1):queuecommand('Emit') end;\n\
+                     EmitCommand = function(self)\n\
+                       n = n + 1\n\
+                       self:y(n):sleep(0.1):queuecommand('Emit')\n\
+                     end;\n\
+                     HitMineCommand = function(self) error('boom') end;\n\
+                   };\n\
+                   LiftCommand = function(self, p) assert(p.Column == nil) end;\n\
+                 }\n",
+            ),
+            (
+                "Down Receptor.lua",
+                "return Def.ActorFrame {\n\
+                   InitCommand = function(self)\n\
+                     self:SetUpdateFunction(function(s, dt)\n\
+                       s.t = (s.t or 0) + dt\n\
+                       s:x(s.t)\n\
+                       local beat = GAMESTATE:GetSongPosition():GetSongBeat()\n\
+                       s:GetChild('r'):y(beat)\n\
+                       s:z(s:GetChild('inner').n)\n\
+                     end)\n\
+                   end;\n\
+                   Def.Actor { Name = 'r' };\n\
+                   Def.ActorFrame {\n\
+                     Name = 'inner';\n\
+                     InitCommand = function(self)\n\
+                       self:SetUpdateFunction(function(s) s.n = (s.n or 0) + 1 end)\n\
+                     end;\n\
+                   };\n\
+                 }\n",
+            ),
+            (
+                "Down Tap Note.lua",
+                "return Def.ActorFrame {\n\
+                   InitCommand = function(self)\n\
+                     self:SetUpdateFunction(function(s) while true do end end)\n\
+                   end;\n\
+                 }\n",
+            ),
+        ],
+    )]
+}
+
+/// An element as the play holds it.
+fn boxed(skin: &mut LuaSkin, element: &str) -> Box<crate::actor::Actor> {
+    let mut textures = Textures::default();
+    let mut tree = Box::new(built(skin.element(
+        Button::Down,
+        element,
+        &mut textures,
+        &Sizes(vec![]),
+    )));
+    assert!(skin.reclaim(&mut tree));
+    tree
+}
+
+#[test]
+fn events_play_commands_with_their_parameters() {
+    let mut skin = lua_skin(&live(), "live").unwrap_or_else(|e| panic!("{e}"));
+    let mut ex = boxed(&mut skin, "Explosion");
+    let id = ex.id;
+    skin.begin_frame(Position::default(), FrameBudget::default());
+    assert!(skin.lend(&mut ex));
+    assert!(!skin.lend(&mut ex));
+    let params = [
+        ("TapNoteScore", Param::Str("TapNoteScore_W1".into())),
+        ("Column", Param::Int(1)),
+        ("Bright", Param::Bool(true)),
+    ];
+    skin.play(id, "ColumnJudgmentMessage", &params).unwrap();
+    skin.play(id, "W1", &[]).unwrap();
+    // A failing command is reported and the play goes on.
+    skin.play(id, "HitMine", &[]).unwrap();
+    // Commands the engine plays get an empty table, as StepMania's
+    // messages always have one.
+    skin.play(id, "Lift", &[]).unwrap();
+    assert!(skin.reclaim(&mut ex));
+    assert!(!skin.reclaim(&mut ex));
+    assert_eq!(ex.current().pos[..2], [1.0, 1.0]);
+    assert_eq!(ex.current().diffuse[3], 0.5);
+    assert!(
+        skin.warnings().iter().any(|w| w.contains("boom")),
+        "{:?}",
+        skin.warnings()
+    );
+    assert!(
+        !skin.warnings().iter().any(|w| w.contains("Lift")),
+        "{:?}",
+        skin.warnings()
+    );
+    assert!(skin.frame_fuel() > 0);
+}
+
+#[test]
+fn queued_commands_and_update_functions_run_through_lua() {
+    let mut skin = lua_skin(&live(), "live").unwrap_or_else(|e| panic!("{e}"));
+    let mut ex = boxed(&mut skin, "Explosion");
+    let mut receptor = boxed(&mut skin, "Receptor");
+    let clocks = Clocks::default();
+    for frame in 0..30 {
+        let seconds = f64::from(frame) / 60.0;
+        skin.begin_frame(
+            Position {
+                seconds,
+                beat: seconds * 2.0,
+            },
+            FrameBudget::default(),
+        );
+        assert!(skin.lend(&mut ex) && skin.lend(&mut receptor));
+        if frame == 0 {
+            skin.play(ex.id, "On", &[]).unwrap();
+        }
+        skin.update(ex.id, 1.0 / 60.0, &clocks).unwrap();
+        skin.update(receptor.id, 1.0 / 60.0, &clocks).unwrap();
+        assert!(skin.reclaim(&mut ex) && skin.reclaim(&mut receptor));
+    }
+    // Half a second: `Emit` ran every 0.1 s, re-armed by itself, its
+    // count kept in Lua.
+    let emit = &ex.children()[0];
+    assert!(
+        (4.0..=5.0).contains(&emit.current().pos[1]),
+        "{:?}",
+        emit.current()
+    );
+    // The update function ran each frame with the seconds, after the
+    // children's (the inner frame's count is already this frame's), and
+    // read the frame's song position.
+    assert!((receptor.current().pos[0] - 0.5).abs() < 1e-4);
+    assert!((receptor.children()[0].current().pos[1] - 29.0 / 30.0).abs() < 1e-4);
+    assert_eq!(receptor.current().pos[2], 30.0);
+    assert!(skin.warnings().is_empty(), "{:?}", skin.warnings());
+}
+
+#[test]
+fn a_frame_out_of_fuel_ends_the_lua() {
+    let mut skin = lua_skin(&live(), "live").unwrap_or_else(|e| panic!("{e}"));
+    let mut tap = boxed(&mut skin, "Tap Note");
+    let mut ex = boxed(&mut skin, "Explosion");
+    skin.begin_frame(Position::default(), FrameBudget::default());
+    assert!(skin.lend(&mut tap) && skin.lend(&mut ex));
+    let clocks = Clocks::default();
+    let start = std::time::Instant::now();
+    assert!(matches!(
+        skin.update(tap.id, 1.0 / 60.0, &clocks),
+        Err(Failure::Fuel)
+    ));
+    assert!(start.elapsed().as_secs_f64() < 0.5);
+    assert!(skin.frame_fuel() >= FRAME_FUEL);
+    // Every later call, in this frame or the next, fails the same way;
+    // the trees still go back.
+    skin.begin_frame(Position::default(), FrameBudget::default());
+    assert!(matches!(skin.play(ex.id, "On", &[]), Err(Failure::Fuel)));
+    assert!(matches!(skin.failure(), Some(Failure::Fuel)));
+    assert!(skin.reclaim(&mut tap) && skin.reclaim(&mut ex));
+    assert_eq!(tap.children().len(), 0);
+    assert!(!skin.lend(&mut Box::new(crate::actor::Actor::new(Kind::Actor))));
+}
+
+#[test]
+fn a_sliced_load_gives_the_host_turns() {
+    use std::cell::Cell;
+    let turns = Rc::new(Cell::new(0));
+    let folders = vec![folder(
+        "dance",
+        "slow",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Tap Note.lua",
+                "local x = 0\nfor i = 1, 200000 do x = x + i end\nreturn Def.Actor { Name = tostring(x) }\n",
+            ),
+        ],
+    )];
+    let skin = Skin::load(&folders, "dance", "slow").unwrap().into_owned();
+    let counted = turns.clone();
+    let mut pause = move || -> Pin<Box<dyn Future<Output = ()>>> {
+        counted.set(counted.get() + 1);
+        Box::pin(std::future::ready(()))
+    };
+    let mut t = 0.0;
+    let clock = Box::new(move || {
+        t += 0.0001;
+        t
+    });
+    let mut skin = now(LuaSkin::new_sliced(
+        skin,
+        Env::default(),
+        Settings::default(),
+        LoadBudget::default(),
+        clock,
+        Some(&mut pause),
+    ))
+    .unwrap();
+    let mut textures = Textures::default();
+    let tap = now(skin.element_sliced(
+        Button::Down,
+        "Tap Note",
+        &mut textures,
+        &Sizes(vec![]),
+        Some(&mut pause),
+    ))
+    .unwrap();
+    assert!(matches!(tap.built, Built::Actor(_)), "{tap:?}");
+    // The loop costs well over a slice.
+    assert!(turns.get() >= 2, "{}", turns.get());
+}
+
+#[test]
+fn elements_reach_each_other_while_loading_but_not_once_held() {
+    let folders = vec![folder(
+        "dance",
+        "x",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Receptor.lua",
+                "return Def.ActorFrame { InitCommand = function(self) RECEPTOR = self end; Def.Sprite { Texture = 'r.png' } }\n",
+            ),
+            (
+                "Down Explosion.lua",
+                "return Def.ActorFrame {\n\
+                   InitCommand = function(self) RECEPTOR:x(42) end;\n\
+                   GoCommand = function(self) RECEPTOR:x(7) end;\n\
+                   Def.Sprite { Texture = 'r.png' };\n\
+                 }\n",
+            ),
+        ],
+    )];
+    let mut skin = lua_skin(&folders, "x").unwrap_or_else(|e| panic!("{e}"));
+    let images = Sizes(vec![("r.png", (64, 64))]);
+    let mut textures = Textures::default();
+    let mut receptor = Box::new(built(skin.element(
+        Button::Down,
+        "Receptor",
+        &mut textures,
+        &images,
+    )));
+    let mut ex = Box::new(built(skin.element(
+        Button::Down,
+        "Explosion",
+        &mut textures,
+        &images,
+    )));
+    assert!(skin.reclaim(&mut receptor) && skin.reclaim(&mut ex));
+    // The explosion's Init moved the receptor the play now holds.
+    assert_eq!(receptor.current().pos[0], 42.0);
+    // While the play holds the receptor, Lua cannot reach it: the command
+    // fails visibly instead of moving a copy.
+    skin.begin_frame(Position::default(), FrameBudget::default());
+    assert!(skin.lend(&mut ex));
+    skin.play(ex.id, "Go", &[]).unwrap();
+    assert!(skin.reclaim(&mut ex));
+    assert_eq!(receptor.current().pos[0], 42.0);
+    assert!(
+        skin.warnings()
+            .iter()
+            .any(|w| w.contains("the actor is gone")),
+        "{:?}",
+        skin.warnings()
+    );
+}
+
+#[test]
+fn methods_that_walk_trees_pay_for_them() {
+    let folders = vec![folder(
+        "dance",
+        "w",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Receptor.lua",
+                "local t = Def.ActorFrame {\n\
+                   InitCommand = function(self)\n\
+                     self:SetUpdateFunction(function(s) for i = 1, 50 do s:hurrytweening(1) end end)\n\
+                   end;\n\
+                 }\n\
+                 for i = 1, 4000 do\n\
+                   t[#t + 1] = Def.Actor { InitCommand = function(self) for j = 1, 50 do self:linear(1) end end }\n\
+                 end\n\
+                 return t\n",
+            ),
+        ],
+    )];
+    let mut skin = lua_skin(&folders, "w").unwrap_or_else(|e| panic!("{e}"));
+    let mut receptor = boxed(&mut skin, "Receptor");
+    skin.begin_frame(Position::default(), FrameBudget::default());
+    assert!(skin.lend(&mut receptor));
+    let start = std::time::Instant::now();
+    // About 200,000 actors and tweens a call: one call spends the frame.
+    assert!(matches!(
+        skin.update(receptor.id, 0.0, &Clocks::default()),
+        Err(Failure::Fuel)
+    ));
+    assert!(start.elapsed().as_secs_f64() < 0.1, "{:?}", start.elapsed());
+    assert!(skin.reclaim(&mut receptor));
+}
+
+#[test]
+fn a_host_limit_stays_a_failure() {
+    let text =
+        "local t = Def.ActorFrame {}\nfor i = 1, 5000 do t[#t + 1] = Def.Actor {} end\nreturn t\n";
+    let folders = vec![folder(
+        "dance",
+        "big",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            ("Down Receptor.lua", text),
+        ],
+    )];
+    let mut skin = lua_skin(&folders, "big").unwrap_or_else(|e| panic!("{e}"));
+    let mut textures = Textures::default();
+    assert!(
+        skin.element(Button::Down, "Receptor", &mut textures, &Sizes(vec![]))
+            .is_err()
+    );
+    // Later loads and plays fail the same way, never as soft errors.
+    assert!(
+        skin.element(Button::Down, "Tap Note", &mut textures, &Sizes(vec![]))
+            .is_err()
+    );
+    skin.begin_frame(Position::default(), FrameBudget::default());
+    assert!(skin.play(1, "On", &[]).is_err());
+}
