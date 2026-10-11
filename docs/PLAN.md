@@ -5,7 +5,7 @@ rhythm game) written entirely in Rust. Browser first (wasm, Trunk,
 GitHub Pages at `https://sugoijan.dev/ditoditoinfinito/`), desktop later, with
 the gameplay core shared unchanged between both.
 
-Status (2026-10-09): phases 0–3 done and deployed (scaffold, chart
+Status (2026-10-11): phases 0–3 done and deployed (scaffold, chart
 importers, engine, web platform, renderer, song select, options, credits,
 four bundled OutFox Serenity songs), phase 4 (format breadth), phase 5
 (import and storage), phase 6 (layouts as data: StepMania `dance-solo` and
@@ -280,7 +280,7 @@ Definition of done: a chart plays in Chrome, Firefox and Safari with judgements 
 
 ## 5. Roadmap
 
-Status as of 2026-10-09.
+Status as of 2026-10-11.
 
 | Phase | Status | Deliverable | Notes |
 |---|---|---|---|

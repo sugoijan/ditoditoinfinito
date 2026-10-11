@@ -251,13 +251,13 @@ the player removed and keeps one whose folder is gone.
 
 ## Later
 
-- **Step 7, Lua**: rilua (MIT OR Apache-2.0) in the app, StepMania's `cmd`
-  syntax rewritten to closures, a prelude for `Def`, `LoadActor` and the
-  actor methods, and a host API (`NOTESKIN`, `Var`, a `GAMESTATE` subset fed
-  from the audio clock, `PREFSMAN`), sandboxed (base, string, table, math;
-  count hook; memory cap). Runs each skin's `NoteSkin.lua` chain and element
-  files at load, commands and update functions during play, on the actors
-  of step 2.
+- **Step 7, Lua**: its own plan, `docs/plans/lua.md`: a hardened fork of
+  piccolo (`docs/plans/piccolo-fork.md`) enforcing time and memory limits
+  in-process, StepMania's `cmd` syntax rewritten to closures, a prelude for
+  `Def`, `LoadActor` and the actor methods, and a host API (`NOTESKIN`,
+  `Var`, a `GAMESTATE` subset fed from the audio clock, `PREFSMAN`). Runs
+  each skin's `NoteSkin.lua` chain and element files at load, commands and
+  update functions during play, on the actors of step 2.
 - **Step 8, 3D models**: MilkShape 3D ASCII meshes and `ani tex.ini` texture
   animation (65 % of skins, every classic ITG one).
 - **Bundling**: Delta (CC BY 3.0) once its Lua tap note and receptor can
