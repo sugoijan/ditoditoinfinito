@@ -34,7 +34,8 @@ the browser are implementation details, not advertised features.
 - `noteskin/` StepMania noteskins: fallback chains, file lookup and
   redirects, `metrics.ini`, file name hints, what each element is (stand-ins
   for StepMania's `default` and `common`), actors and their commands, and
-  (`noteskin/src/lua/`) a skin's Lua run at load over `lua/`. Pure,
+  (`noteskin/src/lua/`) a skin's Lua run at load over `lua/`; SVG images
+  in a checked subset (`noteskin/src/svg.rs`, our extension). Pure,
   natively tested; `docs/plans/noteskins.md`. `render/src/noteskin.rs`
   draws a skin in play and runs its Lua each frame.
 - `lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`): a
@@ -84,7 +85,8 @@ the browser are implementation details, not advertised features.
 - `cargo run -p xtask -- gen-songs` / `gen-noteskins` / `gen-credits`
   regenerate the song manifest, the bundled noteskins' index and the
   credits (Trunk runs them before every build; CI checks `CREDITS.md` is
-  fresh).
+  fresh). `gen-dito` regenerates the SVG art of Dito, the default skin
+  (committed; CI checks it with `--check`).
 
 Prefer the latest released versions of dependencies; check crates.io before
 adding one and refresh the lockfile with `cargo update`.
@@ -94,7 +96,8 @@ adding one and refresh the lockfile with `cargo update`.
 The maintainer uses Firefox and tests it by hand; automated checks run in
 headless Chrome. See `.claude/skills/verify/SKILL.md` for the full recipe. In
 short: build a static bundle (`trunk build --release --public-url / --dist
-<dir>`) and serve it with any static server, drive it with `playwright-core`
+<dir>`) and serve it with the skill's `serve.mjs` (Python's `http.server`
+drops connections under the page's parallel requests), drive it with `playwright-core`
 against the installed Chrome (`channel: 'chrome'`, flags
 `--enable-unsafe-webgpu --use-angle=metal --autoplay-policy=no-user-gesture-required`),
 and read `window.__DDI_DEBUG` for engine state. Headless Firefox runs too

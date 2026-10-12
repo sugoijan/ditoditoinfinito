@@ -373,6 +373,7 @@ fn collect(root: &Path) -> Result<CreditsJson> {
 
     let noteskins_out = noteskins::scan(root)?
         .into_iter()
+        .filter(|(_, prov, _)| !prov.ours)
         .map(|(_, prov, folder)| SkinCredit {
             name: folder.name,
             author: prov.author,

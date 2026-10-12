@@ -29,6 +29,13 @@ pub(crate) struct Provenance {
     pub(crate) author: String,
     /// One line for the Options list, e.g. "shakesoda · CC BY 3.0".
     pub(crate) credit: String,
+    /// This repository's own (MIT, like the code): not in the credits.
+    #[serde(default)]
+    pub(crate) ours: bool,
+    /// The skin this one is a variant of (a colour scheme of it): not
+    /// listed under Options on its own.
+    #[serde(default)]
+    pub(crate) variant_of: Option<String>,
     #[serde(default)]
     pub(crate) excluded: Vec<String>,
     #[serde(default)]
@@ -139,8 +146,15 @@ pub(crate) fn gen_noteskins(check: bool) -> Result<()> {
     let root = repo_root();
     let skins = scan(&root)?;
     let folders: Vec<Folder> = skins.iter().map(|(_, _, f)| f.clone()).collect();
-    for (path, _, f) in &skins {
+    for (path, prov, f) in &skins {
         Skin::load(&folders, &f.game, &f.name).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+        if let Some(of) = &prov.variant_of
+            && !skins
+                .iter()
+                .any(|(_, _, g)| g.game == f.game && &g.name == of)
+        {
+            bail!("{path}: a variant of {of}, which is not bundled");
+        }
     }
     let index = Index {
         skins: skins
@@ -149,6 +163,7 @@ pub(crate) fn gen_noteskins(check: bool) -> Result<()> {
                 path,
                 folder,
                 credit: prov.credit,
+                variant_of: prov.variant_of,
             })
             .collect(),
     };

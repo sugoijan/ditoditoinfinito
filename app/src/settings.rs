@@ -50,8 +50,9 @@ pub(crate) struct Settings {
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub(crate) note_colors: NoteColors,
     /// The noteskin dance layouts are drawn with: an imported one's key,
-    /// `dance/<name>`, or a bundled one's, `bundled:dance/<name>`; `None`:
-    /// the built-in arrows.
+    /// `dance/<name>`, a bundled one's, `bundled:dance/<name>`, or
+    /// `builtin` for the built-in arrows without a skin; `None`: Dito, the
+    /// built-in arrows as a skin (`crate::noteskins::play_skin`).
     pub(crate) noteskin: Option<String>,
     /// Draw notes in the colours a chart gives them (Dancing☆Onigiri
     /// works) instead of `note_colors` (decision 23: off by default).

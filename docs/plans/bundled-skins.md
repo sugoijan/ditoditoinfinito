@@ -40,11 +40,13 @@ not along the arrow). They draw no explosions.
   skin's missing elements fall back on, what is drawn when a skin's Lua
   stops, every non-dance layout's look, and a choice under Options
   ("built in, no Lua") for slow devices.
-- **Bundled skins are read-only and come first in no chain**: imported
-  skins are listed before bundled ones, so an import named like a bundled
-  skin shadows it in fallback chains (StepMania's own folder wins too);
-  the setting keys bundled skins as `bundled:<game>/<name>`, imported ones
-  as today.
+- **Bundled skins are read-only; each kind falls back on its own kind
+  first**: an imported skin's chain looks in imported skins before bundled
+  ones, so an import named like a bundled skin stands in for it there
+  (StepMania's own folder wins too); a bundled skin's looks in bundled
+  ones only (since step 2, so no import, not even an imported `default`
+  or `common`, changes the default skin). The setting keys bundled skins as `bundled:<game>/<name>`,
+  imported ones as before.
 
 ## Step 1. Bundled skins and Delta (commit 1)
 
@@ -89,37 +91,79 @@ is the imported one's with the strike kept in memory).
 
 ## Step 2. `Dito`: the built-in arrows as a skin (commit 2)
 
-- **Art from the shaders' shapes.** `xtask gen-dito` evaluates the same
-  SDFs as `shader.wgsl` on the CPU (a small Rust port, tested against
-  the shader's formulas) and writes PNGs: 256 px frames marked
-  `(res 64x64)`, so they stay sharp at the 160 px lane cap. Generated at
-  build time into `target/noteskins/`, like the index, so no binary is
-  committed; `metrics.ini` and the Lua are committed and MIT.
-  `cargo run -p xtask -- gen-dito --out <dir>` writes a complete folder
-  for StepMania, to compare the two.
+- **SVG in skins** (our extension; StepMania reads bitmaps): an `.svg`
+  is an image wherever a bitmap is (`noteskin/src/svg.rs`). Only a
+  static subset is read, the one browsers and `resvg` draw alike: shapes,
+  paths, groups, `use`, gradients, masks and clip paths; no text, images,
+  filters, styles, scripts, animation, entities or references outside the
+  file; the root's `width` and `height` are the size the skin sees. The
+  app checks it and has the browser draw it (an image element, which runs
+  no script and loads nothing) on a canvas at four times that size, so a
+  64-pixel lane stays sharp at the 160-pixel arrow cap.
+- **Art from the shaders' shapes.** `xtask gen-dito` writes the SVGs from
+  `sd_arrow`'s skeleton (two round-capped strokes: the darker rim, a
+  quarter of the colour, and the core), the receptor's ring (a mask), the
+  mine's spiked outline and core, the bodies and their rounded ends, and
+  takes every colour from `ddi_render::note_colors`. The files are
+  committed (text, MIT) and CI checks they are fresh (`gen-dito --check`).
 - **A skin per colour scheme, sharing a base** by `FallbackNoteSkin`, the
   way StepMania's own skins share one: `Dito` (receptor, holds, rolls,
-  mine, lift and fake; Quantized taps, `NoteColorType=Denominator` over
-  nine colours), `Dito Vivid` and `Dito Flat` (32 frames over four beats,
-  each with the tail-to-tip ramp baked in; vivid on and off), `Dito
-  Rainbow` (`ProgressAlternate` over the four bands, a texture per
-  direction so the gradient runs down the screen), `Dito Single`. The
-  "Note colours" option picks the variant while Dito is the skin; Vivid
-  stays the default.
+  mine, lift, fake, explosions; Quantized taps, `Denominator` over nine
+  rows), `Dito Vivid` (32 frames over four beats, each with its
+  tail-to-tip ramp, vivid), `Dito Flat` (Vivid's frames, not vivid),
+  `Dito Rainbow` (`ProgressAlternate` over the four bands, 16 frames of
+  the flow a beat), `Dito Single`. Each scheme has a tap, a lift (the
+  tap with its dot) and a fake sheet (the scheme's colour, flat, at
+  60 %): the engine sets a note's colour and animation frame on the
+  note's own sprite, as StepMania does, so a lift or a fake cannot be Lua
+  around a tap. One Lua file draws all three (and the heads), by the
+  element asked for; a metric (`DitoTapFrames`) gives the frames. Variants
+  are marked `variant_of` and not listed on their own; a Lua stop counts
+  against Dito whichever variant played.
 - **Behaviour in Lua**: the receptor's `Press`/`Lift` and its flash on
-  `W1`…`W5` (not `Miss`) with a linear 0.25 s fade; the mine's spikes
-  turned by an update function from the song's seconds; `Tap Fake` at
-  60 % alpha; a lift's dot. Hold bodies use Active and Inactive art and
-  `HoldLetGoGrayPercent`. No explosions, as now.
-- **The default**: `noteskin` in the settings becomes `Default` (Dito
-  with the chosen colours), `BuiltIn` (procedural, no Lua) or a skin key;
-  a stored `None` reads as `Default`. The Arrows section is always shown.
+  `W1`…`W5` (not `Miss`) fading in 0.25 s; the mine turned anticlockwise
+  by an update function from the song's seconds; the explosion turned
+  with its button (`NoteSkin.lua`).
+- **Explosions** (the built-in arrows have none): a hit's judgement
+  colour bursts from the receptor as a glow and the arrow's outline,
+  larger past 100 combo (`ColumnJudgment`'s `Bright`); a completed hold
+  bursts green; a held hold or roll glows green, pulsing on the beat (a
+  roll twice as fast); a mine flashes red.
+- **The default**: an unset `noteskin` setting is Dito, in the variant of
+  the note colours; `builtin` draws the procedural arrows without a skin
+  (Options: "built in, without a skin (lighter)"); a chart drawn in its
+  own colours keeps the procedural arrows instead of the default (a
+  chosen skin stays). A bundled skin falls back only on bundled skins.
   Decision 36 is revised.
-- Checked: frame fuel and time natively (the `local_skins` play at 60
-  and 144 Hz) and in the browser (`__DDI_DEBUG.noteskin.lua`); every
-  scheme by screenshot next to the procedural arrows, with reverse,
-  Hidden, Sudden and a jump; a full autoplay all top tier; Firefox by the
-  verify skill's helper and by hand; a phone by the maintainer.
+
+**Done 2026-10-12.** What differs from the procedural arrows: Vivid and
+Flat step through 32 frames (the hue is continuous there); Rainbow's
+flow follows the beat only (the shader's also runs down the screen), and
+`ProgressAlternate` puts notes between 16ths one band later (as
+StepMania does); a hold's end is a half-disc rather than the shader's
+stretched corners; a dropped hold dims to half (`HoldLetGoGrayPercent`)
+rather than turning grey; a lift judged on release does not flash the
+receptor (StepMania plays judgements on it for presses only);
+explosions are new. Reviewed independently (two reviewers): fixed an SVG
+checker that a processing instruction, whitespace before `=`, character
+references or a `filter` attribute got past, and that let nested `use`
+freeze the page (now a strict XML parser that bounds the elements drawn,
+references expanded); fakes drawn opaque and lifts off the beat (Lua
+around a sprite: now sheets of their own); the mine turning the wrong
+way; an imported `default` or `common` changing Dito; chart colours
+dropping a chosen skin; Dito's Lua stops counted per variant. Checked: `noteskin/tests/bundled.rs`
+(all 156 elements of every Dito variant its own, no warning), the SVG
+subset's tests and every generated file against it; `local_skins` on
+`assets/noteskins`: Dito loads in 8 ms and 277,000 fuel and plays at a
+mean of 2,600 fuel a frame, at most 26,500 (of 200,000; Delta 21,800);
+in headless Chrome every scheme next to the procedural arrows by
+screenshot, explosions frame by frame, a synthetic chart (mines, lifts,
+fakes, holds, rolls, jumps) under reverse, Hidden and Sudden, and the
+three Arrows choices through Options; a full autoplay all 329 Fantastic
+and 27 of 27 holds on WebGPU and WebGL2 and in the installed Firefox
+(WebGL2), which draws the SVGs alike. In the browser a frame's Lua
+measured at most 11,300 fuel on the synthetic chart. Not checked: a
+phone (the maintainer), WebGPU in Firefox (headless has none), Safari.
 
 ## Step 3. Alpha-Arrows (commit 3)
 
