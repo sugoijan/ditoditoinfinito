@@ -7,7 +7,8 @@
 //! Follows StepMania 5.1 (`5_1-new` @ 825467b); `docs/research/noteskins.md`
 //! has the sources, `docs/plans/noteskins.md` the steps. A skin's own Lua
 //! runs at load in a sandboxed VM ([`lua`], `docs/plans/lua.md`); without
-//! it, what needs Lua is reported and drawn built in.
+//! it, what needs Lua is reported and drawn built in. Skins may also use
+//! SVG images, our extension ([`svg`]).
 
 pub mod actor;
 pub mod build;
@@ -22,6 +23,7 @@ pub mod lua;
 pub mod metrics;
 pub mod notes;
 pub mod skin;
+pub mod svg;
 
 pub use load::{Button, Resolved, Source};
 pub use metrics::{NoteColorType, NoteDisplay, Part, PartMetrics};

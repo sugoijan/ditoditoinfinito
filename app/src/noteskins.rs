@@ -54,6 +54,9 @@ pub(crate) struct StoredSkin {
     /// A bundled skin's folder under `noteskins/` (never stored).
     #[serde(skip)]
     pub(crate) bundled: Option<String>,
+    /// The bundled skin this one is a colour scheme of (never stored).
+    #[serde(skip)]
+    pub(crate) variant_of: Option<String>,
 }
 
 impl StoredSkin {
@@ -65,6 +68,14 @@ impl StoredSkin {
             format!("{BUNDLED}{key}")
         } else {
             key
+        }
+    }
+
+    /// See [`strike_key`](fn@strike_key).
+    fn strike_key(&self) -> String {
+        match (&self.bundled, &self.variant_of) {
+            (Some(_), Some(base)) => format!("{BUNDLED}{}", skin_key(&self.game, base)),
+            _ => self.key(),
         }
     }
 
@@ -80,6 +91,40 @@ impl StoredSkin {
 
 /// The start of a bundled skin's key.
 pub(crate) const BUNDLED: &str = "bundled:";
+
+/// The `noteskin` setting for the built-in arrows, drawn without a skin.
+pub(crate) const BUILT_IN: &str = "builtin";
+
+/// Dito's key (its colour variants' are `bundled:dance/dito <scheme>`).
+const DITO: &str = "bundled:dance/dito";
+
+/// The skin a play draws the dance layouts with, by key: the chosen one,
+/// or Dito (the built-in arrows as a skin, when none is chosen) in its
+/// variant for the note colours; none for the built-in arrows, and none
+/// instead of Dito when the chart's own colours are drawn (a skin colours
+/// notes by their place in the beat, not one by one).
+pub(crate) fn play_skin(
+    choice: Option<&str>,
+    colors: crate::settings::NoteColors,
+    chart_colors: bool,
+) -> Option<String> {
+    use crate::settings::NoteColors;
+    match choice {
+        Some(BUILT_IN) => None,
+        Some(key) => Some(key.to_string()),
+        None if chart_colors => None,
+        None => Some(
+            match colors {
+                NoteColors::Quantized => DITO,
+                NoteColors::Vivid => "bundled:dance/dito vivid",
+                NoteColors::Flat => "bundled:dance/dito flat",
+                NoteColors::Rainbow => "bundled:dance/dito rainbow",
+                NoteColors::Single => "bundled:dance/dito single",
+            }
+            .to_string(),
+        ),
+    }
+}
 
 pub(crate) fn skin_key(game: &str, name: &str) -> String {
     format!(
@@ -109,7 +154,7 @@ pub(crate) use ddi_noteskin::import::kept_text;
 pub(crate) fn kept_file(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     [
-        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".lua", ".txt", ".ini", ".redir",
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".lua", ".txt", ".ini", ".redir",
     ]
     .iter()
     .any(|e| lower.ends_with(e))
@@ -118,9 +163,6 @@ pub(crate) fn kept_file(path: &str) -> bool {
 /// The bundled skins, from `noteskins/index.json` (fetched once; a
 /// failure is not kept, the next call tries again).
 pub(crate) async fn bundled() -> Result<Vec<StoredSkin>, String> {
-    thread_local! {
-        static BUNDLED_SKINS: RefCell<Option<Vec<StoredSkin>>> = const { RefCell::new(None) };
-    }
     if let Some(skins) = BUNDLED_SKINS.with(|b| b.borrow().clone()) {
         return Ok(with_session_stops(skins));
     }
@@ -141,6 +183,7 @@ pub(crate) async fn bundled() -> Result<Vec<StoredSkin>, String> {
             stored: Vec::new(),
             lua_broken: None,
             bundled: Some(b.path),
+            variant_of: b.variant_of,
         })
         .collect();
     BUNDLED_SKINS.with(|b| *b.borrow_mut() = Some(skins.clone()));
@@ -155,15 +198,34 @@ pub(crate) async fn bundled_or_none() -> Vec<StoredSkin> {
     })
 }
 
+thread_local! {
+    /// The bundled skins, once read.
+    static BUNDLED_SKINS: RefCell<Option<Vec<StoredSkin>>> = const { RefCell::new(None) };
+}
+
 /// Bundled skins whose Lua stopped twice in this session have it off.
 fn with_session_stops(mut skins: Vec<StoredSkin>) -> Vec<StoredSkin> {
     LUA_OFF.with(|off| {
         let off = off.borrow();
         for s in &mut skins {
-            s.lua_broken = off.get(&s.key()).cloned();
+            s.lua_broken = off.get(&s.strike_key()).cloned();
         }
     });
     skins
+}
+
+/// The key a Lua stop of skin `key` counts against: a colour variant's
+/// counts against the skin it is a variant of (they share their Lua).
+fn strike_key(key: &str) -> String {
+    BUNDLED_SKINS
+        .with(|b| {
+            b.borrow()
+                .as_ref()?
+                .iter()
+                .find(|s| s.key() == key)
+                .map(StoredSkin::strike_key)
+        })
+        .unwrap_or_else(|| key.to_string())
 }
 
 /// Every skin a chain may use: the imported ones (when storage opens),
@@ -239,6 +301,8 @@ pub(crate) struct Choices {
     /// Whether every skin could be read (else a chosen one missing from
     /// the list may still be there).
     pub(crate) complete: bool,
+    /// Why the default skin's (Dito's) Lua is off for the session, if it is.
+    pub(crate) default_lua_off: Option<String>,
 }
 
 /// The dance skins one can pick; an error when none could be read.
@@ -259,7 +323,13 @@ pub(crate) async fn choices() -> Result<Choices, String> {
     };
     let mut skins: Vec<(bool, String, String)> = skins
         .into_iter()
-        .filter(|s| s.game == "dance" && !s.name.eq_ignore_ascii_case("default"))
+        // Dito and its colours are the default, chosen as such.
+        .filter(|s| {
+            s.game == "dance"
+                && !s.name.eq_ignore_ascii_case("default")
+                && s.variant_of.is_none()
+                && !(s.bundled.is_some() && s.name == "Dito")
+        })
         .map(|s| {
             let mut name = s.name.clone();
             if s.bundled.is_some() {
@@ -275,6 +345,7 @@ pub(crate) async fn choices() -> Result<Choices, String> {
     Ok(Choices {
         skins: skins.into_iter().map(|(_, k, n)| (k, n)).collect(),
         complete,
+        default_lua_off: LUA_OFF.with(|off| off.borrow().get(DITO).cloned()),
     })
 }
 
@@ -591,6 +662,8 @@ thread_local! {
 /// the record says why (a bundled skin's for the session).
 pub(crate) async fn lua_stopped(key: &str, why: &str) {
     web_sys::console::warn_1(&format!("noteskin {key}: {why}").into());
+    let key = strike_key(key);
+    let key = key.as_str();
     let again = STOPPED_ONCE.with(|s| !s.borrow_mut().insert(key.to_string()));
     if !again {
         return;
@@ -665,7 +738,12 @@ async fn decode(
             );
             continue;
         };
-        match crate::web::image::decode_sized(&blob, MAX_IMAGE_SIDE).await {
+        let decoded = if path.to_ascii_lowercase().ends_with(".svg") {
+            svg_bitmap(&blob).await
+        } else {
+            crate::web::image::decode_sized(&blob, MAX_IMAGE_SIDE).await
+        };
+        match decoded {
             Ok((bitmap, size)) => {
                 *pixels += u64::from(bitmap.width()) * u64::from(bitmap.height());
                 sizes.sizes.insert((i, path.clone()), size);
@@ -677,6 +755,27 @@ async fn decode(
         }
     }
     sizes.probe = false;
+}
+
+/// How much finer than its own size an SVG is drawn: a skin's 64-pixel
+/// lane is drawn up to 160 device pixels wide (the arrow size's cap), so
+/// four times keeps it sharp there.
+const SVG_SCALE: f64 = 4.0;
+
+/// An SVG image, checked and rasterised, with the size the skin sees (its
+/// own, as for a bitmap).
+async fn svg_bitmap(blob: &Blob) -> Result<(ImageBitmap, (u32, u32)), String> {
+    if blob.size() > ddi_noteskin::svg::MAX_SVG as f64 {
+        return Err("the SVG is too large".into());
+    }
+    let text = wasm_bindgen_futures::JsFuture::from(blob.text())
+        .await
+        .map_err(|_| "the SVG could not be read")?
+        .as_string()
+        .ok_or("the SVG could not be read")?;
+    let size = ddi_noteskin::svg::check(&text)?;
+    let bitmap = crate::web::image::rasterise_svg(&text, size, SVG_SCALE, MAX_IMAGE_SIDE).await?;
+    Ok((bitmap, size))
 }
 
 /// A bundled skin's file `path`, from its folder `dir` under `noteskins/`.
@@ -699,6 +798,7 @@ async fn fetch_blob(dir: &str, path: &str) -> Option<Blob> {
         Some("jpg" | "jpeg") => "image/jpeg",
         Some("gif") => "image/gif",
         Some("bmp") => "image/bmp",
+        Some("svg") => "image/svg+xml",
         _ => "",
     };
     crate::web::files::bytes_blob(&bytes, mime).ok()
@@ -737,10 +837,16 @@ pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prep
     // A bundled skin plays without storage.
     let db = Db::open().await.ok();
     let mut stored = catalogue(db.as_ref()).await;
-    // The chosen skin first: skins are found by name, and an imported one
-    // may share a bundled one's.
+    // Skins are found by name, and an imported one may share a bundled
+    // one's: the chosen skin first; a bundled skin's fallbacks only among
+    // the bundled ones (no import, not an imported `default` or `common`,
+    // changes the default skin), an imported one's among the imported
+    // ones, then the bundled ones.
     let chosen = stored.iter().position(|s| s.key() == key)?;
     let first = stored.remove(chosen);
+    if first.bundled.is_some() {
+        stored.retain(|s| s.bundled.is_some());
+    }
     stored.insert(0, first);
     let chosen = 0;
     // The `.lua` texts of the folders the skin falls back on.

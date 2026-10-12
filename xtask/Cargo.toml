@@ -16,4 +16,5 @@ toml.workspace = true
 ddi-chart.workspace = true
 ddi-library.workspace = true
 ddi-noteskin.workspace = true
+ddi-render.workspace = true
 ddi-platform.workspace = true

@@ -575,6 +575,7 @@ async fn store_noteskins(
             stored,
             lua_broken: None,
             bundled: None,
+            variant_of: None,
         };
         match store(&skin, blobs) {
             Ok(writes) => match db.write(writes).await {

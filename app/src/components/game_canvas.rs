@@ -1366,6 +1366,8 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
     let link = ctx.link().clone();
     let settings = Settings::load();
     let noteskin = settings.noteskin.clone();
+    let note_colors = settings.note_colors;
+    let chart_colors = settings.chart_colors;
     let show_background = settings.bg_brightness > 0.0;
     // Off: no movie file is read and the decoder is never fetched.
     let play_videos = show_background && settings.video != VideoMode::Off;
@@ -1490,8 +1492,13 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
                 music_bytes: Some(loaded.music_bytes),
             })
         });
-        if let (Some(key), Ok(loaded)) = (noteskin, &r)
+        if let Ok(loaded) = &r
             && let Some(c) = loaded.song.charts.get(chart)
+            && let Some(key) = crate::noteskins::play_skin(
+                noteskin.as_deref(),
+                note_colors,
+                chart_colors && c.notes.iter().any(|n| n.color.is_some()),
+            )
             && let Some(layout) = loaded.song.layout_of(c)
         {
             let env = crate::noteskins::lua_env(&loaded.song, c, &layout);

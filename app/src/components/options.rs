@@ -127,6 +127,8 @@ pub(crate) struct Options {
     shared: usize,
     /// Imported noteskins `(key, name)`.
     noteskins: Vec<(String, String)>,
+    /// Whether the default skin's Lua is off for the session.
+    default_lua_off: bool,
     /// The skin whose "remove" was clicked once.
     confirm_noteskin: Option<String>,
     confirm: Option<Reset>,
@@ -198,6 +200,7 @@ impl Component for Options {
             imported: 0,
             shared: 0,
             noteskins: Vec::new(),
+            default_lua_off: false,
             confirm_noteskin: None,
             confirm: None,
             notice: None,
@@ -335,6 +338,7 @@ impl Component for Options {
                 let crate::noteskins::Choices {
                     skins: list,
                     complete,
+                    default_lua_off,
                 } = match list {
                     Ok(l) => l,
                     // Neither storage nor the bundled skins could be read
@@ -345,16 +349,18 @@ impl Component for Options {
                         return false;
                     }
                 };
-                // A chosen skin that is no longer there: the built-in
-                // arrows (not when some skins could not be read).
+                // A chosen skin that is no longer there: the default (not
+                // when some skins could not be read).
                 if let Some(k) = &self.settings.noteskin
                     && complete
+                    && k != crate::noteskins::BUILT_IN
                     && !list.iter().any(|(key, _)| key == k)
                 {
                     self.settings.noteskin = None;
                     self.settings.save();
                 }
                 self.noteskins = list;
+                self.default_lua_off = default_lua_off.is_some();
                 return true;
             }
             Msg::Noteskin(v) => self.settings.noteskin = v,
@@ -639,21 +645,23 @@ impl Options {
     /// "Arrows": the built-in ones, a bundled or an imported noteskin (for
     /// dance layouts; the colour scheme above is the built-in ones').
     fn noteskin_choice(&self, link: &html::Scope<Self>) -> Html {
-        if self.noteskins.is_empty() {
-            return html! {};
-        }
+        use crate::noteskins::BUILT_IN;
         let list = self.noteskins.clone();
         let onchange = link.callback(move |e: Event| {
             let v = e
                 .target_dyn_into::<HtmlSelectElement>()
                 .map(|s| s.value())
                 .unwrap_or_default();
-            Msg::Noteskin(list.iter().find(|(k, _)| *k == v).map(|(k, _)| k.clone()))
+            Msg::Noteskin(if v == BUILT_IN {
+                Some(v)
+            } else {
+                list.iter().find(|(k, _)| *k == v).map(|(k, _)| k.clone())
+            })
         });
         let current = self.settings.noteskin.clone();
         let delete = current
             .clone()
-            .filter(|k| !k.starts_with(crate::noteskins::BUNDLED))
+            .filter(|k| !k.starts_with(crate::noteskins::BUNDLED) && k != BUILT_IN)
             .map(|key| {
                 let label = if self.confirm_noteskin.as_deref() == Some(key.as_str()) {
                     "click again to remove it"
@@ -666,7 +674,8 @@ impl Options {
         html! {
             <label>{ "Arrows " }
                 <select {onchange}>
-                    <option value="" selected={current.is_none()}>{ "built in" }</option>
+                    <option value="" selected={current.is_none()}>{ if self.default_lua_off { "Dito (the built-in arrows, in the note colours) (its Lua is off)" } else { "Dito (the built-in arrows, in the note colours)" } }</option>
+                    <option value={BUILT_IN} selected={current.as_deref() == Some(BUILT_IN)}>{ "built in, without a skin (lighter)" }</option>
                     { for self.noteskins.iter().map(|(k, name)| html! {
                         <option value={k.clone()} selected={current.as_deref() == Some(k.as_str())}>{ format!("noteskin: {name}") }</option>
                     }) }

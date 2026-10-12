@@ -2811,6 +2811,7 @@ dependencies = [
  "ddi-library",
  "ddi-noteskin",
  "ddi-platform",
+ "ddi-render",
  "serde",
  "serde_json",
  "toml",
