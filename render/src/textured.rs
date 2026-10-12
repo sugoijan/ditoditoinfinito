@@ -327,7 +327,9 @@ impl TexturedPipeline {
                 origin: [m[4], m[5]],
                 uv: q.uv,
                 color: q.color,
-                mode: u32::from(q.glow),
+                // Bit 0: the glow pass; bit 1: a repeating texture, sampled
+                // past its rectangle.
+                mode: u32::from(q.glow) | (u32::from(q.wrap) << 1),
             });
         }
         if instances.len() > self.capacity {

@@ -1368,6 +1368,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
     let noteskin = settings.noteskin.clone();
     let note_colors = settings.note_colors;
     let chart_colors = settings.chart_colors;
+    let reverse = settings.reverse;
     let show_background = settings.bg_brightness > 0.0;
     // Off: no movie file is read and the decoder is never fetched.
     let play_videos = show_background && settings.video != VideoMode::Off;
@@ -1501,7 +1502,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
             )
             && let Some(layout) = loaded.song.layout_of(c)
         {
-            let env = crate::noteskins::lua_env(&loaded.song, c, &layout);
+            let env = crate::noteskins::lua_env(&loaded.song, c, &layout, reverse);
             link.send_future(async move {
                 Msg::NoteskinLoaded(
                     crate::noteskins::prepare(&key, &layout, env)

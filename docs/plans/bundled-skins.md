@@ -211,13 +211,67 @@ OutFox's `INPUTFILTER:GameButtonToKeyMapped`, `GAMESTATE:GetIsFieldReversed`,
 Dake's dance files byte-identical; the other games' files and the sounds
 listed as excluded.
 
-## Step 5. Documentation
+**Done 2026-10-12.** The host (`noteskin/src/lua/prelude.lua`, with a
+test) gives `Var "GameButton"` (the button: a style's buttons are the
+game's), `INPUTFILTER:GameButtonToKeyMapped` (`""`: the player's bindings
+are not shown to skins), `GAMESTATE:GetIsFieldReversed` (the play's
+reverse setting, a new `Env` field the app fills), a `THEME` whose
+`GetMetric` knows NoteField's `NoteFieldType` (`""`) and `ShowBoard`
+(false), and `JudgmentLineToColor` in the game's judgement colours (`Pro`
+judgements as the plain ones). With them Dake's `NoteSkin.lua` (2,910
+lines, for every game) loads unchanged. Bundled as `Dake`: its
+`NoteSkin.lua`, `metrics.ini`, `README.md`, `LICENSE` and the 74 images
+dance asks for (found by building every element of all six dance
+buttons), byte for byte, 476 KB of the repository's 5.6 MB; the other
+games' art, `_common buttons/`, the two sounds and `extras/` left out.
+Dake colours a note by `Var "Color"`, as ITGmania and OutFox load notes
+once per quantization colour; our host read it as "4th" for every note,
+so its taps were all red (the reviewer caught that we had blamed Dake).
+Now a note element whose Lua reads `Var "Color"` (taps, lifts, fakes,
+mines and every hold and roll part, as ITGmania loads per colour) is
+loaded once per note type, 4ths to 192nds (`LuaSkin::element_colored_sliced`
+says whether it read it), and each note draws its type's copy, a hold
+all its parts in its head's (`render/src/noteskin.rs`, tested). ITGmania
+loads every such element per colour whether or not it reads it; here
+only those that do, so other skins load their notes once, as before. A
+script's own `NOTESKIN:LoadActor` loads the 4ths' (as ITGmania's does),
+and a copy that does not load as its 4ths' did (an error, the built-in
+skin) is dropped for the 4ths'. A skin may make 16,384 actors (was
+4,096), for the copies. Reviewed independently (a second reviewer for
+this): fixed copies drawn by nobody when only they fell back to the
+built-in skin, hold parts left uncoloured, the actor cap, and nested
+loads inheriting the colour. Checked: `noteskin/tests/bundled.rs` (all 156 elements its own,
+no warning; no stand-in art); `local_skins`: loads in 16.7 ms, a frame's
+Lua at a mean of 600 fuel and at most 21,300; headless Chrome on the
+synthetic chart with and without reverse by screenshot; a full autoplay
+all 329 Fantastic and 27 of 27 holds in Chrome (WebGPU) and the
+installed Firefox (WebGL2).
+
+## Step 5. Skins blended as StepMania blends them
+
+A skin's quads blend in linear light (decision 17), so faint pixels and
+fades show far more than in StepMania, which blends in gamma space: a
+pixel at 3 % comes out five times brighter on black (Delta's receptor
+frames have such pixels at their edges, visible as specks that change
+with the beat). Draw the skin quads through a non-sRGB view of the
+target on WebGPU (the canvas's format is plain, its sRGB view is ours),
+and through an offscreen pass on WebGL2 (its surface is sRGB only), with
+the colours passed unconverted; decision 17 amended. Checked against
+screenshots of fades, explosions and Delta's receptor before and after.
+
+## Step 6. Documentation
 
 `docs/PLAN.md` (a decision for bundled skins and their licences, decision
 36 revised, the script-safety decision from `docs/plans/lua.md` step 5),
 `AGENTS.md`, the verify skill, the credits.
 
 ## Later
+
+- A file whose last statement is `return Def.Sprite { Texture = "x.png" }`
+  (a tail call) resolves `x.png` from the folder of the file that loaded
+  it, not its own (`Def` finds its caller by the Lua stack, which a tail
+  call leaves out). Find what StepMania does here before changing it;
+  the bundled skins use `NOTESKIN:GetPath`.
 
 - Peter Lawrence's CF skins once MilkShape models draw.
 - Explosions for Dito, if wanted (the procedural arrows have none).

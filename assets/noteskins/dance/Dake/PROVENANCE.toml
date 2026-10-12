@@ -1,0 +1,24 @@
+# Dake by hanubeki: its dance files, byte for byte (the skin covers every
+# game; only what dance plays loads is bundled). It is written for OutFox
+# 0.5; the few OutFox and theme names it reads are stood in for by our Lua
+# host (noteskin/src/lua/prelude.lua).
+author = "hanubeki"
+credit = "hanubeki · Apache 2.0"
+excluded = [
+    "the images of the other games and of buttons dance does not have (all but the 74 dance asks for)",
+    "_common buttons/ (key labels for kbx), Inner Sound.wav and Outer Sound.wav, extras/ (eight variant skins)",
+]
+modifications = [
+    "the folder named Dake (upstream, the repository's root)",
+]
+
+[source]
+url = "https://github.com/hanubeki/dake"
+commit = "e26aa8d03bf54722d2ad8eaf0c8597aac0dc9450"
+path = "."
+retrieved = "2026-10-12"
+
+[[licenses]]
+part = "the skin (images, Lua, metrics, README)"
+spdx = "Apache-2.0"
+holders = ["hanubeki"]

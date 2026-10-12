@@ -2,7 +2,9 @@
 -- skins use it: `Def` and `..` (Themes/_fallback/Scripts/02 ActorDef.lua),
 -- `LoadActor`, `color`, the alignment names (02 Actor.lua), `ivalues`
 -- (01 base.lua), `Var` (thread variables), NOTESKIN, GAMESTATE, PREFSMAN,
--- and the driver that plays actors' commands. Written for this game after
+-- OutFox's and `_fallback`'s few names skins read (INPUTFILTER, THEME,
+-- `JudgmentLineToColor`, `GAMESTATE:GetIsFieldReversed`), and the driver
+-- that plays actors' commands. Written for this game after
 -- StepMania 5.1's behaviour (5_1-new @ 825467b), not copied from it.
 --
 -- `...` is the host table (noteskin/src/lua/host.rs): Rust functions this
@@ -66,7 +68,16 @@ function ProductID() return "ITGmania" end
 
 -- Thread variables: what NOTESKIN:LoadActor sets while an element loads.
 local vars = {}
-function Var(name) return vars[name] end
+-- Whether the element the engine is loading read its colour (`Var
+-- "Color"`): then it is loaded once per colour, as ITGmania and OutFox load
+-- notes (they do it whether or not it is read). A load the skin's own
+-- script makes sees the 4ths' (below) and does not count.
+local color_read = false
+local depth = 0
+function Var(name)
+	if name == "Color" and depth == 1 then color_read = true end
+	return vars[name]
+end
 
 local function with_vars(set, f, ...)
 	local old = vars
@@ -235,29 +246,36 @@ end
 local loader -- the table the NoteSkin.lua chain returned
 
 -- `NoteSkinManager::PushActorTemplate`: the skin's `Load` with the element's
--- thread variables.
-local function template(button, element, sprite_only)
+-- thread variables. `color` is the note type's (`4th` … `192nd`) for an
+-- element the engine loads; a script's own `NOTESKIN:LoadActor` loads the
+-- 4ths', as ITGmania's does.
+local function template(button, element, sprite_only, color)
 	if not loader or type(loader.Load) ~= "function" then
 		error("No loader for noteskin!", 0)
 	end
-	local t = with_vars({
+	if depth == 0 then color_read = false end
+	depth = depth + 1
+	local ok, t = pcall(with_vars, {
 		Button = button,
+		-- The game's button (OutFox): a style's buttons are the game's.
+		GameButton = button,
 		Element = element,
 		SpriteOnly = sprite_only,
 		Player = "PlayerNumber_P1",
 		Controller = "GameController_1",
-		-- ITGmania loads notes once per quantization colour with this set;
-		-- here they load once, as its default, the quarter notes'.
-		Color = "4th",
+		Color = color or "4th",
 	}, loader.Load)
+	depth = depth - 1
+	if not ok then error(t, 0) end
 	if type(t) ~= "table" then
 		error("Load: must return a table", 0)
 	end
-	return t
+	return t, depth == 0 and color_read
 end
 
 function NOTESKIN:LoadActor(button, element)
-	return template(tostring(button), tostring(element), false)
+	-- One value: a call ending a table constructor would add the second.
+	return (template(tostring(button), tostring(element), false))
 end
 
 function NOTESKIN:GetNoteSkinNames() return { H.skin_name() } end
@@ -326,6 +344,50 @@ GAMESTATE = {
 PREFSMAN = {
 	GetPreference = function(_, name) return H.preference(tostring(name)) end,
 }
+
+-- What OutFox and StepMania's `_fallback` theme add that skins read (Dake):
+-- the field's direction, the key a game button is mapped to (none: the
+-- player's bindings are not shown to skins), a few theme metrics, and a
+-- judgement's colour. The colours are the game's own (the receptor
+-- flashes', `render/src/scene.rs`; a test keeps them equal), not
+-- `_fallback`'s, which shows Pro judgements in white and unknown names in
+-- black: here Pro judgements take the plain ones' colours and unknown
+-- names white.
+GAMESTATE.GetIsFieldReversed = function() return H.field_reversed() end
+
+INPUTFILTER = {
+	GameButtonToKeyMapped = function() return "" end,
+}
+
+local theme_metrics = {
+	NoteField = { NoteFieldType = "", ShowBoard = false },
+}
+THEME = {
+	GetMetric = function(_, group, name)
+		local g = theme_metrics[tostring(group)]
+		if g then return g[tostring(name)] end
+		return nil
+	end,
+	HasMetric = function(_, group, name)
+		local g = theme_metrics[tostring(group)]
+		return g ~= nil and g[tostring(name)] ~= nil
+	end,
+}
+
+local judgment_colors = {
+	W1 = "0.55,0.95,1,1",
+	W2 = "1,0.9,0.35,1",
+	W3 = "0.45,0.95,0.45,1",
+	W4 = "0.75,0.5,1,1",
+	W5 = "1,0.55,0.3,1",
+	Held = "0.55,0.95,0.65,1",
+	MaxCombo = "1,0.9,0.35,1",
+	Miss = "1,0.3,0.3,1",
+}
+function JudgmentLineToColor(line)
+	local name = tostring(line):gsub("^JudgmentLine_", ""):gsub("^Pro", "")
+	return color(judgment_colors[name] or "1,1,1,1")
+end
 
 PLAYER_1 = "PlayerNumber_P1"
 PLAYER_2 = "PlayerNumber_P2"

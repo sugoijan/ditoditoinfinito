@@ -21,7 +21,8 @@ struct Instance {
     // left, top, right, bottom of the texture, in texture fractions.
     @location(2) uv: vec4<f32>,
     @location(3) color: vec4<f32>,
-    // 0: diffuse (texture times colour), 1: glow (colour, texture alpha).
+    // Bit 0: glow (colour, texture alpha) rather than diffuse (texture
+    // times colour); bit 1: the texture repeats (hold bodies).
     @location(4) mode: u32,
 };
 
@@ -30,6 +31,7 @@ struct VsOut {
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) @interpolate(flat) mode: u32,
+    @location(3) @interpolate(flat) rect: vec4<f32>,
 };
 
 @vertex
@@ -46,13 +48,24 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     out.uv = vec2<f32>(mix(inst.uv.x, inst.uv.z, t.x), mix(inst.uv.y, inst.uv.w, t.y));
     out.color = inst.color;
     out.mode = inst.mode;
+    out.rect = inst.uv;
     return out;
 }
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    let texel = textureSample(image, image_sampler, in.uv);
-    if (in.mode == 1u) {
+    // A frame of a sheet is sampled within itself: drawn larger than its
+    // pixels, linear filtering at its edge would blend in the next frame's
+    // edge (stray pixels that change with the frame). The edge half texel
+    // repeats instead, as the texture's own edges do.
+    let half_texel = vec2<f32>(0.5) / vec2<f32>(textureDimensions(image));
+    let lo = min(in.rect.xy, in.rect.zw);
+    let hi = max(in.rect.xy, in.rect.zw);
+    let middle = (lo + hi) * 0.5;
+    let inside = clamp(in.uv, min(lo + half_texel, middle), max(hi - half_texel, middle));
+    let uv = select(inside, in.uv, (in.mode & 2u) != 0u);
+    let texel = textureSample(image, image_sampler, uv);
+    if ((in.mode & 1u) != 0u) {
         return vec4<f32>(in.color.rgb, texel.a * in.color.a);
     }
     return texel * in.color;

@@ -591,6 +591,15 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
 
     let shared = host.clone();
     set(
+        "field_reversed",
+        func(Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            stack.replace(ctx, shared.borrow().env.reversed);
+            Ok(CallbackReturn::Return)
+        })),
+    );
+
+    let shared = host.clone();
+    set(
         "trace_missing",
         func(Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             stack.replace(ctx, shared.borrow().env.trace_missing);

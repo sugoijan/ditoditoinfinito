@@ -481,8 +481,14 @@ async fn lua_skin(skin: Skin<'static>, env: Env, seed: u64) -> Result<LuaSkin, d
     .await
 }
 
-/// What a skin's Lua sees of the chart it is loaded for.
-pub(crate) fn lua_env(song: &ddi_chart::Song, chart: &ddi_chart::Chart, layout: &Layout) -> Env {
+/// What a skin's Lua sees of the chart it is loaded for, and of the
+/// play (whether the field is reversed).
+pub(crate) fn lua_env(
+    song: &ddi_chart::Song,
+    chart: &ddi_chart::Chart,
+    layout: &Layout,
+    reversed: bool,
+) -> Env {
     use ddi_chart::Difficulty;
     let style = match layout.id.as_str() {
         "dance-double" => "double",
@@ -510,6 +516,7 @@ pub(crate) fn lua_env(song: &ddi_chart::Song, chart: &ddi_chart::Chart, layout: 
         timing: chart.timing(song).clone(),
         first_beat: starts().reduce(f64::min).unwrap_or(0.0),
         last_beat: ends.reduce(f64::max).unwrap_or(0.0),
+        reversed,
         ..Env::default()
     }
 }
