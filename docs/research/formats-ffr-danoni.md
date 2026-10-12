@@ -913,3 +913,42 @@ using the existing ParaFla contract:
   and [メロスピ信者の百年祭](http://autumnleaves.yukishigure.com/merosupi/100.html)
   are 44.1 kHz mono. The stereo 44.1 kHz waveform comparison is an intermediate;
   it does not prescribe the canonical recording's sample rate or channels.
+
+
+### Early DAC sources keep speed on each arrow (2026-10-12)
+
+The [gen0 native batch](danoni-gen0-admission.md) proves six SWF6 works/seven
+five-key charts. Their raw split child banks use `le/do/up/ri/oni_dac`, root
+`f*_dac` stores hold pairs, and source difficulty suffixes precede `_data`.
+The root movie frame is their judgment clock; a later `frame_num`/`timeline`
+structure cannot be assumed. [sai](https://sound.jp/safaido/),
+[No Life Queen](http://varenntainn.oboroduki.com/DOVSF/Queen.html).
+
+For the five configurable-key works, source speed pair `(F,M)` updates the controller at `F−150`
+to **initial pixels/frame + 2 × (M−1)**. Each arrow keeps its birth speed;
+measured arrow-local `spd` and arrivals corroborate the source bytecode.
+Treating M as a multiplier is incorrect here. SSC global scroll can approximate
+these changes but cannot reproduce overlapping arrows carrying different
+speeds; preserve original values, application frames and the visual limitation.
+[HARASSIN' BOSS](http://varenntainn.oboroduki.com/harasin.html).
+
+Its second selector is spelled `Onigiriress` natively and `Onigiriless` in the
+[catalogue](https://cw7.sakura.ne.jp/lst/ds0065/). It has the same four directional
+banks as Death, an empty onigiri lane and a five-key key bank. Blank catalogue
+continuation columns and empty lanes do not establish another key mode. The
+explicit reviewed spelling mapping supplies published meter 5; it is not a
+portable free-text classification rule.
+
+[Her Selves](http://varenntainn.oboroduki.com/selves/selves.html)'s artwork is
+registered at y=80, while source travel and frame judgment use y=70. Keep that
+registration distinction separate from musical timing.
+[U.N.オーエン](https://sound.jp/safaido/ungassaku.html)'s stream includes empty
+early payload blocks; seven waveform windows prove a 50.11 ms native delay
+relative to concatenated decoded MP3. Block headers and an observed stream
+start alone do not establish a zero decoder-origin shift.
+
+The fixed-control Owen source instead multiplies baseline speed by M and
+keeps an independent onigiri speed. These variants require separate native
+contracts (`dac-5` and `dac-fixed-5`); an initial movement sample before the
+first speed event cannot prove which later law applies. Static controller
+review and original runtime fields remain part of the evidence.

@@ -123,6 +123,101 @@ def extract_movie_arrays(capture, family, source_prefix=""):
     return baseline,initialized[0][0]['frame']
 
 
+def dac_five_projection(capture, *, fixed=False):
+    """Project the early five-lane DAC controller before any cursor consumes data."""
+    audit_ok(capture)
+    if capture['swfHeaderFps'] != 60:
+        raise ValueError('DAC five requires a verified 60 Hz movie clock')
+    definitions = [('left','le'),('down','do'),('up','up'),('right','ri'),('space','oni')]
+    required = [clip+'_dac' for _,clip in definitions]
+    initialized = []
+    for item in capture['captures']:
+        graph = Graph(item['state']); root = graph.root()
+        try: bank_id, bank = stored_bank(graph, required)
+        except ValueError: continue
+        if fixed:
+            if 'keyLabel' in root or 'keyCtrl' in root or not all(type(root.get('key_'+k)) is bool for k in ('LE','DO','UP','RI','SH')):
+                raise ValueError('Need fixed five-key controls without a configurable key bank')
+        elif 'keyLabel' not in root or text(root['keyLabel']) != '5' or 'keyCtrl' not in root:
+            raise ValueError('Need a selected five-key mode and configurable key bank')
+        cursors = [clip+'s' for _,clip in definitions]
+        hold_cursors = ['f'+clip+'s' for _,clip in definitions if 'f'+clip+'_dac' in root]
+        if any(numeric(root[k]) != 0 for k in cursors+hold_cursors): continue
+        if any(numeric(bank[k]) != 0 for k in ('cunt','sp','stopcunt')): continue
+        suffix = source_suffix(root.get('diffin', {'type':'string','utf16':[], 'truncated':False}))
+        lanes = []
+        for name,clip in definitions:
+            taps = numbers(graph,bank[clip+'_dac'])
+            holds = numbers(graph,root.get('f'+clip+'_dac',UNDEFINED))
+            for stem,values in ((name,taps),('frz'+name.capitalize(),holds)):
+                field = source_field(root,stem,suffix)
+                source = split_numbers(root[field]) if field else []
+                if source != values: raise ValueError('DAC five native bank disagrees with selected source')
+            if len(holds)%2 or any(b<=a for a,b in zip(holds[::2],holds[1::2])):
+                raise ValueError('Invalid DAC five hold pairs')
+            if any(int(v)!=v or not 0<=v<=720000 for v in taps+holds):
+                raise ValueError('Invalid DAC five movie-frame note')
+            lanes.append({'name':name,'nativeFrames':taps,'nativeHoldFrames':list(zip(holds[::2],holds[1::2])),
+                          'sourceOrderIssues':[{'index':j,'frame':b,'previousFrame':a}for j,(a,b)in enumerate(zip(taps,taps[1:]),1)if b<=a]})
+        for name,clip in (('leftdia','led'),('rightdia','rid')):
+            if numbers(graph,bank.get(clip+'_dac',UNDEFINED)) or numbers(graph,root.get('f'+clip+'_dac',UNDEFINED)):
+                raise ValueError('DAC five has active diagonal lanes')
+        known = set(required)|{'led_dac','rid_dac','stop_dac'}
+        if any(k.endswith('_dac') and k not in known for k in bank):
+            raise ValueError('Unrecognized DAC five lane/effect bank')
+        known_root = {'f'+clip+'_dac'for _,clip in definitions}|{'fled_dac','frid_dac','speed_dac'}
+        if any(k.endswith('_dac') and k not in known_root for k in root):
+            raise ValueError('Unrecognized DAC five root effect bank')
+        flat = numbers(graph,root['speed_dac'])
+        field = source_field(root,'speed',suffix)
+        if flat != (split_numbers(root[field]) if field else []):
+            raise ValueError('DAC five speed bank disagrees with selected source')
+        if len(flat)%2 or any(int(v)!=v or not 150<=v<=720000 for v in flat[::2]) or any(a>b for a,b in zip(flat[::2],flat[2::2])) or any(v<=0 for v in flat[1::2]):
+            raise ValueError('Invalid DAC five speed pairs')
+        speed = [{'nativeFrame':f,'multiplier':m}for f,m in zip(flat[::2],flat[1::2])]
+        stops = numbers(graph,bank['stop_dac'])
+        field = source_field(root,'stop',suffix)
+        if stops != (split_numbers(root[field]) if field else []):
+            raise ValueError('DAC five stop bank disagrees with selected source')
+        if len(stops)%2 or any(int(v)!=v or v<0 for v in stops) or any(a>=b for a,b in zip(stops,stops[1:])):
+            raise ValueError('Invalid DAC five stop flags')
+        for stem in ('boost','color','acolor'):
+            field = source_field(root,stem,suffix)
+            if field and text(root[field]).strip(',\r\n '):
+                raise ValueError('DAC five has an unimplemented authored effect')
+        initial = numeric(root['set_spi'])
+        if initial<=0 or initial != 2*numeric(root['speed']) or numeric(root['olds']) != initial:
+            raise ValueError('Unproved DAC five initial pixel speed')
+        native_speed = [{**e,'applicationFrame':e['nativeFrame']-150,'pixelSpeed':initial*e['multiplier'] if fixed else initial+2*(e['multiplier']-1)}for e in speed]
+        if any(e['pixelSpeed']<=0 for e in native_speed):raise ValueError('Unsupported nonpositive DAC five arrow speed')
+        speed = [{'nativeFrame':e['nativeFrame'],'multiplier':e['pixelSpeed']/initial}for e in native_speed]
+        codes = None
+        if 'keyCtrl' in root:
+            all_codes = numbers(graph,root['keyCtrl'])
+            if len(all_codes)!=7: raise ValueError('Invalid DAC five key bank')
+            codes = [all_codes[i] for i in (0,2,4,6,3)]
+            if any(int(v)!=v or not 0<=v<=65535 for v in codes):raise ValueError('Invalid DAC five key code')
+        chart = {'mode':'5','lanes':lanes,'speed':speed,'boost':[],'colors':[],
+                 'stops':[{'nativeFrame':f,'paused':i%2==0}for i,f in enumerate(stops)],
+                 'initialPixelSpeed':initial,'bankObject':bank_id,'nativeKeyCodes':codes,
+                 'motionSpeedPolicy':'per-arrow-at-spawn','spawnLookaheadFrames':150,'nativeSpeedChanges':native_speed,
+                 'speedValuePolicy':'multiplicative' if fixed else 'additive-two-pixels',
+                 'metadata':{k:text(root[k])for k in ('diffi','gatit','musicTitle','tuning')if k in root and isinstance(root[k],dict)and root[k].get('type')=='string'}}
+        if fixed:
+            independent=numeric(root['oni_spi'])
+            if independent<=0 or independent!=initial:raise ValueError('Unproved fixed-five onigiri baseline speed')
+            if any(k in root and text(root[k]).strip(',\r\n ') for k in ('onisp_data','onisp_change')):
+                raise ValueError('Unimplemented independent onigiri speed changes')
+            chart['independentOnigiriPixelSpeed']=independent
+        initialized.append((item['frame'],chart))
+    if len(initialized)<2:raise ValueError('Need repeated unconsumed DAC five banks')
+    iteration,baseline = initialized[0]
+    for _,later in initialized[1:]:
+        if any(later[k]!=baseline[k] for k in ('mode','lanes','speed','stops','initialPixelSpeed','nativeKeyCodes','metadata','nativeSpeedChanges','speedValuePolicy')):
+            raise ValueError('Initialized DAC five data changed before consumption')
+    return baseline,iteration
+
+
 def display_map(item):
     result={}
     for display in item['state']['displayTree']:
@@ -167,7 +262,18 @@ def movie_observation(capture, chart, note_name, receptor_name, lane, target_y=N
             for event in chart['speed']:
                 if event['nativeFrame']<=frame:ratio=event['multiplier']
             return ratio
-        ratios=[active(f['movieFrame'])for f in frames]
+        if chart.get('motionSpeedPolicy') == 'per-arrow-at-spawn':
+            # This source stores speed on each arrow at birth. Later controller
+            # changes affect newly spawned arrows, while older arrows keep spd.
+            ratios=[chart['independentOnigiriPixelSpeed']/chart['initialPixelSpeed'] if lane==4 and 'independentOnigiriPixelSpeed' in chart else active(raw)]*len(frames)
+            for item in capture['captures']:
+                note=display_map(item).get(note_name)
+                if note and abs(numeric(Graph(item['state']).props(note['object'])['spd'])-chart['initialPixelSpeed']*ratios[0])>1e-9:
+                    raise ValueError('Stored per-arrow speed disagrees with selected source event')
+        elif chart.get('motionSpeedPolicy') is not None:
+            raise ValueError('Unknown native motion speed policy')
+        else:
+            ratios=[active(f['movieFrame'])for f in frames]
         if any(r!=ratios[0]for r in ratios)or ratios[0]<=0:raise ValueError('Need one positive author speed segment for base movement')
         author_ratio=ratios[0];base_velocity=chart['initialPixelSpeed']
         # Assigning _y can round each increment to one native twip. Corroborate

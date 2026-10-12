@@ -9,7 +9,7 @@ The [native handover](../../../docs/research/danoni-native.md) records its
 cross-checked arrays, music origin, export contract and remaining limits.
 The [single-song family adapters](../../../docs/research/danoni-native-adapters.md)
 add eight works/nine charts across early child timelines, seven-key DAC arrays
-and later independent-counter engines. Existing CW dump `/1` schemas are unchanged.
+and later independent-counter engines. The [gen0 extension](../../../docs/research/danoni-gen0-admission.md) adds six works/seven charts through `dac-5`/`dac-fixed-5`, with arrow-local speed evidence and explicit SSC approximation limits. Existing CW dump `/1` schemas are unchanged.
 
 ## Build separately from the game
 

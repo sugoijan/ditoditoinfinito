@@ -161,7 +161,7 @@ Marionette is gen3, FAKE800 uses `frameNum`). This static match suggests
 adapter candidates; it does not establish runtime compatibility or timing. Higan's own pinned adapter matches the nine Higan-build works
 most closely. Five of those nine return 404 for `iro.txt`. Only Higan's page
 announces the colour feature, so the file is probably optional; a native run
-must confirm. gen0 needs a separate family adapter.
+must confirm. At acquisition time, gen0 needed a separate family adapter.
 
 The [gen1 native admission](danoni-gen1-admission.md) subsequently proves all
 25 gen1 works and 31 selectors. These older builds fit the constant-travel
@@ -175,6 +175,15 @@ through `DOS_FILE_NAME`; they match the ParaFla counter contract established by
 Saigetsu/ESS. The prior claim that their chart data was embedded was incorrect.
 Moon contributes four five-key author charts, while its catalogue records only
 レク's chart. Original acquisition manifests retain the static hint unchanged.
+
+The [gen0 native admission](danoni-gen0-admission.md) now proves all six listed
+works and seven five-key selectors through `dac-5`/`dac-fixed-5`. Their child split banks,
+root holds and movie-frame clocks differ from the later schedules. Speed values
+are additive in five works and multiplicative in fixed-control Owen, with
+each arrow retaining its birth speed; SSC records an explicit
+global-scroll approximation. Native arrivals and independent audio matching pass
+for every selector. All 66 acquisitions in this author's subset have admitted
+charts, with the earlier SUN selector and ESS scope limits retained.
 
 Other authors built on the same source. Static nearest generation:
 `tseirproodni-nightmare` is closest to the Higan build (9/19 blocks, 0.92 of
@@ -202,20 +211,27 @@ only as this port. None is captured yet: they run MFV2's unreviewed v50.0.0
 build, the same build as the `mfv2-onigiri-hardcore-respect` probe. No HTML5
 port of Higan itself was found.
 
-## Next steps for extraction
+## Remaining extraction work (2026-10-12)
 
-1. Merge `~/Music/DanOni/.cache-v2` into the main cache with
-   `merge-cache.mjs` (one writer at a time), or keep using it as the cache for
-   these works.
-2. Review the probe engines and recapture each into a **new** directory; the
-   probe directories are non-empty. Every page and engine is already cached,
-   so only music and late assets are fetched.
-3. Run restricted native title captures for the 18 SWF works. Watch for the
-   runtime-built carrotcastle sidecar and for the two collection menus. For
-   the レク corpus, start with the nine Higan-build works and with the
-   Saigetsu/ESS pairs, then review and capture the MFV2 ports.
-4. Add accepted works to the export registry. The registry entries and the
-   v1 corpus lists are deliberately unchanged here.
+The original 113-source inventory now has **68 accepted, one partly accepted
+and 44 pending** entries. The pending acquisitions are 24 HTML5 engine probes,
+18 legacy works and two Wayback works. This counts source entries, not playable
+songs or selectors. The latest local inventory is
+`~/Music/DanOni/reviews/corpus-v2-gen0-20261012/admission-inventory.json`.
+
+1. Probe the separately acquired 闇夜の月 (`varenntainn-yamiyo`) against the
+   new `dac-5` contract; its static gen0 resemblance still needs native proof.
+   Then inspect the remaining single-song legacy sources and runtime-built
+   carrotcastle dependencies. The two collections require menu enumeration.
+2. Review each unique CW engine hash and recapture into a **new** directory,
+   since the existing probes are non-empty. Prefer the existing `.cache-v2`
+   with one writer; merge it only through `merge-cache.mjs`. The two older
+   declaration-based loaders need their own reviewed capture-point variant.
+3. Retain failed Wayback media and chart-only survivors as pending until the
+   actual music and dependencies can be recovered through permitted replay.
+4. Add only proven works to the registry, rebuild offline, verify with the
+   actual game parsers and fresh Chrome, and compare prior accepted files
+   before promoting. The unadmitted SUN selector is not silently dropped.
 
 ## Extraction handover review (2026-10-10)
 

@@ -7,7 +7,7 @@ import shutil
 from export_io import digest,write_json
 from paths import external_directory
 from rebuild_corpus import checked,copy_tree
-from native_families import constant_projection,review_optional_colors,extract_movie_arrays,scheduled_projection,movie_observation,movie_audio_origin,relative_chart,audit_ok
+from native_families import dac_five_projection,constant_projection,review_optional_colors,extract_movie_arrays,scheduled_projection,movie_observation,movie_audio_origin,relative_chart,audit_ok
 from native_audio import canonical_audio
 from swf_audio import demux,read_movie,iter_tags
 
@@ -71,7 +71,9 @@ def extract(recipe_path, output, ffmpeg):
             b=row['optionalColorReview'];optional_review=json.loads(checked(root,b['path'],b['sha256']).read_text())
             for missing in optional_review['missingResources']:checked(root,missing['path'],missing['sha256'])
             state,optional_errors=review_optional_colors(state,optional_review)
-        if family in ('child-timeline-5','dac-7'):
+        if family in ('dac-5','dac-fixed-5'):
+            projected,iteration=dac_five_projection(state,fixed=family=='dac-fixed-5');clock=None
+        elif family in ('child-timeline-5','dac-7'):
             projected,iteration=extract_movie_arrays(state,family,row.get('sourcePrefix',''));clock=None
         elif family in ('scheduled-counter','scheduled-constant','parafla-counter'):
             projected=constant_projection(state,row['mode'])if family=='scheduled-constant'else scheduled_projection(state,row['mode'],allow_missing_decorative_sprites=row.get('reviewMissingDecorativeSprites',False),parafla=family=='parafla-counter');clock=projected['clockField'];iteration=projected['preparedIteration']
@@ -114,7 +116,7 @@ def extract(recipe_path, output, ffmpeg):
             if label.startswith('Artist')and(artist:=label[len('Artist'):].strip())not in ('','undefined','null'):metadata['artist']=artist
         if source.get('artist') and not metadata.get('artist'):metadata['artist']=source['artist']
         chart=relative_chart(projected,origin['logicalFrame']);chart.update(id=ident,music=media[mp3_hash],audioOrigin=origin,
-            nativeReference=f'references/{ident}.json',effects=([{'type':'missing-optional-color','review':optional_review,'diagnostics':optional_errors}]if optional_review else[])+([{'type':'unmapped-native-presentation','data':projected['nativePresentation']}]if projected.get('nativePresentation',{}).get('iro_dac')else[])+([{'type':'inactive-native-lane-schedules','data':projected['inactiveSchedules']}]if any(projected.get('inactiveSchedules',{}).get(k)for k in ('taps','holds'))else[])+[{'type':'source-cursor-order','lane':index,**issue} for index,lane in enumerate(projected['lanes']) for issue in lane.get('sourceOrderIssues',[])],metadata={**metadata,'difficultyLabel':row.get('label',projected['metadata'].get('diffi',''))},difficultyStars=None)
+            nativeReference=f'references/{ident}.json',effects=([{'type':'per-arrow-speed-approximation','nativeSpeedChanges':projected['nativeSpeedChanges'],'scope':'SSC global scroll approximates source per-arrow spawn speeds; note timestamps are preserved'}]if projected.get('motionSpeedPolicy')=='per-arrow-at-spawn'else[])+([{'type':'missing-optional-color','review':optional_review,'diagnostics':optional_errors}]if optional_review else[])+([{'type':'unmapped-native-presentation','data':projected['nativePresentation']}]if projected.get('nativePresentation',{}).get('iro_dac')else[])+([{'type':'inactive-native-lane-schedules','data':projected['inactiveSchedules']}]if any(projected.get('inactiveSchedules',{}).get(k)for k in ('taps','holds'))else[])+[{'type':'source-cursor-order','lane':index,**issue} for index,lane in enumerate(projected['lanes']) for issue in lane.get('sourceOrderIssues',[])],metadata={**metadata,'difficultyLabel':row.get('label',projected['metadata'].get('diffi',''))},difficultyStars=None)
         reference={'schema':'ddi-native-family-reference/experimental-1','family':family,'sourceSwfSha256':swf_hash,
                    'preparedIteration':iteration,'clock':clock or 'root movie frame','audioOrigin':origin,'projection':projected,
                    'motion':motion,'metadata':chart['metadata'],'sourceSnapshotSha256':digest(saved.read_bytes()),

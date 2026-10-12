@@ -164,6 +164,9 @@ Reference schema `ddi-native-family-reference/experimental-1` contains:
 - `projection.speed` / `boost`: `{nativeFrame,multiplier}`. `stops`, when
   present: `{nativeFrame,paused}` for native visual toggles. `colors` is empty
   for these contracts; full original palettes/scripts remain in saved state.
+- Early DAC families additionally retain `motionSpeedPolicy`, `speedValuePolicy`,
+  `spawnLookaheadFrames`, `nativeSpeedChanges`, and optional
+  `independentOnigiriPixelSpeed`; see the [precise gen0 fields](danoni-gen0-admission.md#per-arrow-speed-is-different-from-global-scroll).
 - Native key codes when observed; scheduled families additionally retain
   `nativeLaneIndices`, `clockField`, `scheduleAgreement`, `preparedIteration`,
   `nativeSchedules` (tap/hold `{frame,lane,count}`) and presentation diagnostics.
@@ -287,3 +290,28 @@ run supplies enough audio while retaining identical banks, schedules, keys and
 speed units. An in-game failure is distinct from an AVM halt, and neither
 justifies inventing missing clock observations. Mono and 22.05 kHz sources pass
 the existing independent audio-origin comparisons without canonical resampling.
+
+
+## Early five-key DAC extension (2026-10-12)
+
+The [gen0 admission](danoni-gen0-admission.md) adds six works and seven
+charts through `dac-5` and the fixed-control `dac-fixed-5` variant, with repeated
+unconsumed child banks, selected loaded-field agreement, root hold pairs and independently observed movie-frame/audio clocks. Optional
+diagonal banks must remain empty. The fixed-five-key Owen variant preserves
+its source controls without inventing a key-code array.
+
+The configurable variant sets new-arrow speed to
+`initialPixelSpeed + 2 * (M - 1)` at source frame `F - 150`, then stores that speed on each arrow. Native `spd`, measured
+velocity and authored arrival must agree. References retain original speed
+values/application frames and portable ratios separately. SSC global scroll at
+the authored frames approximates these per-arrow changes; every chart records
+that limitation explicitly. All seven arrival measurements are exact; one
+source requires an independently reviewed judgment target rather than its art
+registration. Original decoder origins remain measured separately from grids.
+
+The fixed-control variant uses multiplication by M and retains a separate
+onigiri baseline. A late source review distinguished these laws before
+promotion; matching the first arrow is insufficient when the first speed event
+occurs later. Unknown independent onigiri event fields fail. The reference's
+`speedValuePolicy` distinguishes the two laws, and
+`independentOnigiriPixelSpeed` preserves the fixed lane's units.

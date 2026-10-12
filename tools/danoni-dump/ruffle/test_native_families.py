@@ -9,7 +9,7 @@ import unittest
 
 from higan import Graph
 from test_projection import OriginalGraph, string
-from native_families import constant_projection,review_optional_colors,movie_observation,source_field, extract_movie_arrays, scheduled_projection, movie_audio_origin
+from native_families import dac_five_projection,constant_projection,review_optional_colors,movie_observation,source_field, extract_movie_arrays, scheduled_projection, movie_audio_origin
 from native_audio import origin_match
 from extract_native import stream_path
 from fixture import rect,tag
@@ -76,7 +76,86 @@ def constant(*, delayed=False, suffix=''):
     return capture([raw,compiled])
 
 
+def dac_five(*, suffix='', fixed=False):
+    definitions=[('left','le'),('down','do'),('up','up'),('right','ri'),('space','oni')]
+    root={'diffin':suffix,'speed':'1.25','set_spi':2.5,'olds':2.5,'diffi':'Normal',
+          'speed_dac':['400','1.5'],'speed'+suffix+'_data':'400,1.5',
+          'keyCtrl':[37,300,40,32,38,301,39],
+          **{clip+'s':0 for _,clip in definitions},**{'f'+clip+'s':0 for _,clip in definitions}}
+    if fixed:
+        root.update({'key_'+k:False for k in ('LE','DO','UP','RI','SH')});root['oni_spi']=2.5;del root['keyCtrl']
+    else:root['keyLabel']='5'
+    bank={'cunt':0,'sp':0,'stopcunt':0,'stop_dac':['500','560']}
+    root['stop'+suffix+'_data']='500,560'
+    for lane,clip in definitions:
+        bank[clip+'_dac']=['200','260',''];root[lane+suffix+'_data']='200,260,'
+        root['f'+clip+'_dac']=[]
+    root['fle_dac']=['300','360'];root['frzLeft'+suffix+'_data']='300,360'
+    root['controller']=bank
+    return root
+
+
 class Families(unittest.TestCase):
+    def test_dac_five_selected_suffix_holds_stops_and_key_order(self):
+        root=dac_five(suffix='2');root['controller']['oni_dac']={'type':'undefined'};del root['space2_data']
+        chart,iteration=dac_five_projection(capture([root,copy.deepcopy(root)]))
+        self.assertEqual(iteration,10)
+        self.assertEqual(chart['lanes'][0]['nativeHoldFrames'],[(300,360)])
+        self.assertEqual(chart['lanes'][4]['nativeFrames'],[])
+        self.assertEqual(chart['nativeKeyCodes'],[37,40,38,39,32])
+        self.assertEqual(chart['initialPixelSpeed'],2.5)
+        self.assertEqual(chart['speed'],[{'nativeFrame':400,'multiplier':1.4}])
+        self.assertEqual(chart['nativeSpeedChanges'],[{'nativeFrame':400,'multiplier':1.5,'applicationFrame':250,'pixelSpeed':3.5}])
+        self.assertEqual(chart['stops'],[{'nativeFrame':500,'paused':True},{'nativeFrame':560,'paused':False}])
+
+    def test_dac_five_rejects_wrong_selector_consumption_and_inactive_lanes(self):
+        for corruption in ('source','hold','cursor','duplicate-bank','diagonal','mode','speed-units','speed-source','extra-effect','missing-control'):
+            with self.subTest(corruption=corruption):
+                root=dac_five()
+                if corruption=='source':root['left_data']='201,260'
+                elif corruption=='hold':root['fle_dac']=['300','361']
+                elif corruption=='cursor':root['fles']=1
+                elif corruption=='duplicate-bank':root['duplicate']=copy.deepcopy(root['controller'])
+                elif corruption=='diagonal':root['controller']['led_dac']=['220']
+                elif corruption=='mode':root['keyLabel']='7'
+                elif corruption=='speed-units':root['set_spi']=3
+                elif corruption=='speed-source':root['speed_data']='400,1.25'
+                elif corruption=='extra-effect':root['boost_data']='400,2'
+                else:del root['keyLabel']
+                with self.assertRaises(ValueError):dac_five_projection(capture([root,copy.deepcopy(root)]))
+
+    def test_dac_five_fixed_controls_and_bank_stability(self):
+        root=dac_five(fixed=True);chart,_=dac_five_projection(capture([root,copy.deepcopy(root)]),fixed=True)
+        self.assertIsNone(chart['nativeKeyCodes'])
+        self.assertEqual(chart['speed'],[{'nativeFrame':400,'multiplier':1.5}])
+        self.assertEqual(chart['nativeSpeedChanges'][0]['pixelSpeed'],3.75)
+        self.assertEqual(chart['independentOnigiriPixelSpeed'],2.5)
+        with self.assertRaises(ValueError):dac_five_projection(capture([root,copy.deepcopy(root)]))
+        bad=copy.deepcopy(root);bad['onisp_change']='400,2'
+        with self.assertRaises(ValueError):dac_five_projection(capture([bad,copy.deepcopy(bad)]),fixed=True)
+        bad=copy.deepcopy(root);bad['oni_spi']=3
+        with self.assertRaises(ValueError):dac_five_projection(capture([bad,copy.deepcopy(bad)]),fixed=True)
+        later=copy.deepcopy(root);later['left_data']='200,261';later['controller']['le_dac']=['200','261']
+        with self.assertRaises(ValueError):dac_five_projection(capture([root,later]),fixed=True)
+        with self.assertRaises(ValueError):dac_five_projection(capture([root]),fixed=True)
+
+
+    def test_dac_five_motion_uses_arrow_local_speed_at_birth(self):
+        data=capture([{}, {}, {}])
+        for item,clock in zip(data['captures'],(148,149,150)):
+            graph=OriginalGraph();root=graph.obj({'unused':True});arrow=graph.obj({'spd':3})
+            item['state'].update(objects=graph.objects,roots=[{'level':0,'value':root,'movieFrame':clock}])
+            item['state']['displayTree']=[{'kind':'movie-clip','name':string('le_s1'),'object':arrow,'visible':True,'stageRegistrationPixels':[10,50+(160-clock)*3]},
+                {'kind':'movie-clip','name':string('le_step'),'visible':True,'stageRegistrationPixels':[10,50],'stageBoundsPixels':[0,0,50,50]}]
+        chart={'initialPixelSpeed':4,'motionSpeedPolicy':'per-arrow-at-spawn',
+               'lanes':[{'nativeFrames':[160]}],'speed':[{'nativeFrame':160,'multiplier':.75},{'nativeFrame':170,'multiplier':.875}]}
+        result=movie_observation(data,chart,'le_s1','le_step',0)
+        self.assertEqual(result['observedAuthorMultiplier'],.75)
+        self.assertEqual(result['arrivalDifferenceFrames'],0)
+        self.assertEqual(result['baseArrowHeightsPerSecond'],4.8)
+        next(p for p in data['captures'][1]['state']['objects'][1]['properties']if p['name']['text']=='spd')['value']=3.5
+        with self.assertRaises(ValueError):movie_observation(data,chart,'le_s1','le_step',0)
+
     def test_selected_suffix_layout_is_unambiguous(self):
         self.assertEqual(source_field({'left_hard_data':1},'left','_hard'),'left_hard_data')
         self.assertEqual(source_field({'left_data_hard':1},'left','_hard'),'left_data_hard')

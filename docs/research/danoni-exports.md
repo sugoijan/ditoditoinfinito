@@ -10,22 +10,22 @@ All third-party inputs and generated packs stay outside Git.
 
 ## Current generation
 
-The [gen4 native admission](danoni-gen4-admission.md) adds the remaining 13
-listed works and 16 five-key charts: **82 songs / 119 charts, 78,734 taps and
-3,561 holds**. Every song has a banner. The registry has 78 required and 58
-pending source entries; one extra タイヨウノハナ selector remains explicitly
-pending within an admitted work. All 207 previously accepted playable files and
-the Kouhaku ZIP remain byte-identical. The Single Songs pack now contains
-77 songs / 113 charts; 86 charts have verified published integer meters and
-27 retain the unrated Edit/0 fallback.
+The [gen0 native admission](danoni-gen0-admission.md) adds six works and seven
+five-key charts: **88 songs / 126 charts, 83,630 taps and 3,854 holds**. Every
+song has a banner. The registry has 84 required and 52 pending source entries;
+one extra タイヨウノハナ selector remains explicitly pending within an admitted
+work. All 246 previously accepted playable files and the Kouhaku ZIP remain
+byte-identical. The Single Songs pack now contains **83 songs / 120 charts**;
+93 charts have verified published integer meters and 27 retain Edit/0.
 
-The prior [gen1 admission](danoni-gen1-admission.md) supplied 69 songs / 103
+The prior [gen4 admission](danoni-gen4-admission.md) supplied 82 songs / 119
 charts. The [shared-song timing refinement](danoni-shared-tempo.md) fits
-independently observed chart phases on shared recordings. The same generic
-policy applies to the new charts; exact source references, measured audio origin
-and native inverse scroll compensation remain authoritative. Native gen4
-extraction uses the already proved ParaFla adapter and newly acquired external
-chart files, with no browser required for extraction or pack building.
+independently observed chart phases on shared recordings. Those same generic
+BPM, preview and rating policies apply to this batch. Exact source references
+and measured audio origin remain authoritative. The new five-key DAC families
+preserves original per-arrow speed evidence; SSC's inverse-BPM global scroll
+approximates that presentation while keeping note timing and the player X-mod
+independent. Extraction and pack building require no browser.
 
 ## Previous paired-source admission
 
