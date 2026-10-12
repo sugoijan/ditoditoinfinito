@@ -881,3 +881,35 @@ must use that chart's BPM, even when the song-level header uses a shared median.
 This changes musical coordinates/coloring without changing the music or the
 player's speed setting. No fitted grid establishes the original editor's
 downbeat, a unique tempo octave, or a recovered variable-tempo map.
+
+
+### Gen4 filenames, title tuples and native gauge lifetime (2026-10-12)
+
+The [gen4 native batch](danoni-gen4-admission.md) adds 13 works / 16 charts
+using the existing ParaFla contract:
+
+- Missing literal `dos.txt` does not prove embedded data. `DOS_FILE_NAME =
+  "dos"` constructs the external request; all 13 files were observed natively
+  before acquisition. [Lunatic Blue](http://autumnleaves.yukishigure.com/Lunatic/blue.html).
+- `GAME_TITLE` is already resolved, while `musicTitle` can retain the original
+  title/artist/URL tuple. Readable cached page metadata remains separate from
+  an incorrectly decoded runtime string; preserve original bytes and both
+  forms. [君恋し](http://autumnleaves.yukishigure.com/kimikoishi/ls2.html),
+  [ぽっぴっぽー](http://autumnleaves.yukishigure.com/miku/pop.html).
+- [まんまるお月様](http://autumnleaves.yukishigure.com/DOWF_1/M/moon.html)
+  contains four native author selections where the work list names only レク.
+  The stars in `★ぞろり★` are part of that author's name, not a difficulty
+  rating. Its early speed changes invalidate an earlier constant-flight arrival
+  extrapolation; measure inside a stable interval instead.
+- An unplayed chart can reach its result screen, stopping `frameNum` while the
+  VM continues. Its later movie iterations cannot be treated as advancing
+  gameplay frames. A native Practice menu setting can provide longer audio
+  evidence only after proving that chart banks, compiled schedules, key codes
+  and speed units are unchanged. This batch keeps default-gauge movement and
+  Practice audio as separate, bound observations.
+- Embedded MP3 streams need not be 44.1 kHz stereo:
+  [Lapis](http://autumnleaves.yukishigure.com/DOWF_1/L/Lapis.html) is 22.05 kHz
+  stereo; [聖少女サクリファイス](http://autumnleaves.yukishigure.com/sacrifice/sac.html)
+  and [メロスピ信者の百年祭](http://autumnleaves.yukishigure.com/merosupi/100.html)
+  are 44.1 kHz mono. The stereo 44.1 kHz waveform comparison is an intermediate;
+  it does not prescribe the canonical recording's sample rate or channels.

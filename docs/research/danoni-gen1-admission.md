@@ -185,5 +185,6 @@ outside Git.
 The registry has 136 entries: **65 required / 71 pending sources**, plus the
 previously pending SUN selector. Of the original 113 v2 acquisitions, 49 are
 fully admitted, one partly admitted and 63 pending. All 25 gen1 works are
-admitted. Next are the remaining 13 gen4 works; gen0, other collections,
+admitted. The [gen4 admission](danoni-gen4-admission.md) subsequently adds those 13
+remaining listed works. Next is gen0; other collections,
 Wayback sources and unreviewed CW engines remain separate admission batches.

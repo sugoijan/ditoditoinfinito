@@ -10,21 +10,22 @@ All third-party inputs and generated packs stay outside Git.
 
 ## Current generation
 
-The [gen1 native admission](danoni-gen1-admission.md) adds 25 works and 31
-five-key charts: **69 songs / 103 charts, 70,736 taps and 3,196 holds**.
-Every song has a banner. The registry has 65 required and 71 pending source
-entries; one extra タイヨウノハナ selector remains explicitly pending within an
-admitted work. All 132 previously accepted playable files and the Kouhaku ZIP
-remain byte-identical. The Single Songs pack now contains 64 songs / 97 charts;
-73 charts have verified published integer meters and 24 retain the unrated
-Edit/0 fallback.
+The [gen4 native admission](danoni-gen4-admission.md) adds the remaining 13
+listed works and 16 five-key charts: **82 songs / 119 charts, 78,734 taps and
+3,561 holds**. Every song has a banner. The registry has 78 required and 58
+pending source entries; one extra タイヨウノハナ selector remains explicitly
+pending within an admitted work. All 207 previously accepted playable files and
+the Kouhaku ZIP remain byte-identical. The Single Songs pack now contains
+77 songs / 113 charts; 86 charts have verified published integer meters and
+27 retain the unrated Edit/0 fallback.
 
-The prior [gen3 admission](danoni-gen3-admission.md) supplied 44 songs / 72
-charts, including Cynthia's two seven-key selections. The
-[shared-song timing refinement](danoni-shared-tempo.md) fits independently
-observed chart phases on shared recordings. The same generic policy applies to
-the new charts; exact source references, measured audio origin and native inverse
-scroll compensation remain authoritative.
+The prior [gen1 admission](danoni-gen1-admission.md) supplied 69 songs / 103
+charts. The [shared-song timing refinement](danoni-shared-tempo.md) fits
+independently observed chart phases on shared recordings. The same generic
+policy applies to the new charts; exact source references, measured audio origin
+and native inverse scroll compensation remain authoritative. Native gen4
+extraction uses the already proved ParaFla adapter and newly acquired external
+chart files, with no browser required for extraction or pack building.
 
 ## Previous paired-source admission
 

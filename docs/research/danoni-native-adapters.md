@@ -268,3 +268,22 @@ Movement proofs now account for a single native twip (0.05 source-stage pixels)
 of positional/increment quantization, while retaining the 1.5-frame arrival
 bound. Stable samples near arrival avoid extrapolation across author changes.
 One source's fifth selector halts in native conversion and remains pending.
+
+
+## Remaining gen4 listed works (2026-10-12)
+
+The [gen4 admission](danoni-gen4-admission.md) reuses `parafla-counter` for
+13 further works / 16 five-key charts. Its sidecars use a computed `dos.txt`
+filename, so static string inspection cannot establish embedded data. Original
+acquisitions remain unchanged; supplemental resource/robots receipts bind the
+actual observed requests. The worker, projection schema and execution limits
+are unchanged.
+
+Moon's fast opening demonstrates why an early linear flight cannot be extended
+through a forthcoming speed change. Three stable first-arrival samples prove
+its original baseline and author multiplier. Its unplayed default gauge also
+freezes the counter at an ordinary game-over screen; a menu-selected Practice
+run supplies enough audio while retaining identical banks, schedules, keys and
+speed units. An in-game failure is distinct from an AVM halt, and neither
+justifies inventing missing clock observations. Mono and 22.05 kHz sources pass
+the existing independent audio-origin comparisons without canonical resampling.

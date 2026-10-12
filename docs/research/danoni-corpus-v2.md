@@ -153,7 +153,7 @@ generation in `manifest.json`. Higan, Destined Marionette, 闇夜の月 and
 | gen1 (2007-07..2008-04) | `timeline`/`ftimeline`/`mkArrow`/`frame_num`, `dos.txt`, no `judgeY`; 8/19 Higan blocks | 25, including all 13 DOXF03 entries and 終焉と始まり (#2, Higan's DOXF02 sibling) |
 | **Higan build** (2008-05..2008-08) | Identical identifier set; 18/19 blocks shared (END of AIR 17/19); `iro.txt` colour support | 9: 灼冬赫夜 (5×2), トルコ行進曲, 蠢蠢秋月, 弾・幕・決・壊 (all 7-key, 7Fes'08), 最期に君がいた, 60's wind, ENEMY WITHIN, 恋色マスタースパーク＜SlashSpeed＞, END of AIR (夏'08) |
 | gen3 (2008-09..2009-08) | Adds `boost_data`, `judgeY`, `option.txt`; 16/19 blocks shared with Destined Marionette | 11, including the DOXF04 entries; Destined Marionette is this build |
-| gen4 (2009-11..2010-12) | `frameNum`, data embedded (no `dos.txt` string); 15/20 blocks shared within the generation | 15, plus the Wayback 蒼夜の詩 |
+| gen4 (2009-11..2010-12) | `frameNum`, computed external dos filename (no literal `dos.txt`); 15/20 blocks shared within the generation | 15, plus the Wayback 蒼夜の詩 |
 
 The four generations from gen1 onward expose identifiers associated with
 the structures the existing `scheduled-counter` adapter reads (Destined
@@ -168,6 +168,13 @@ The [gen1 native admission](danoni-gen1-admission.md) subsequently proves all
 family, not `scheduled-counter`: raw arrays are deleted before `frame_num`
 initializes, so the adapter additionally needs an intact zero-counter witness.
 The shared identifiers above were only a probe hint.
+
+The [gen4 native admission](danoni-gen4-admission.md) subsequently covers the
+remaining 13 listed works and 16 selectors. All request external `dos.txt`
+through `DOS_FILE_NAME`; they match the ParaFla counter contract established by
+Saigetsu/ESS. The prior claim that their chart data was embedded was incorrect.
+Moon contributes four five-key author charts, while its catalogue records only
+レク's chart. Original acquisition manifests retain the static hint unchanged.
 
 Other authors built on the same source. Static nearest generation:
 `tseirproodni-nightmare` is closest to the Higan build (9/19 blocks, 0.92 of
