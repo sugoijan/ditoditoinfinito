@@ -44,7 +44,13 @@ initialized chart reference. Its already captured HTML5 port is a separate work.
 and requires all five native consumption indices to be zero. Repeated captures
 must agree. When loaded source fields are present, they must match every parsed
 frame. `sourcePrefix` selects either ordinary fields or the observed `n` prefix;
-ambiguous difficulty suffix placements are rejected. Data order is retained.
+ambiguous difficulty suffix placements are rejected. An optional recipe
+`sourceSuffix` selects a reviewed suffix when the runtime selector is outside
+the captured root. It requires all five selected loaded fields and exact
+agreement with every native lane; conflicting root selectors, missing lanes,
+selected unsupported holds/effects and source speed without a native bank fail.
+`projection.selectedSourceSuffix` preserves that string. This does not change
+the clock: child storage does not imply a child timing counter. Data order is retained.
 
 `dac-7` reads a unique child bank containing `le/led/do/oni/up/rid/ri_dac`,
 zero root consumption indices, root `f<clip>_dac` freeze endpoints,
@@ -138,7 +144,9 @@ Recipe schema `ddi-native-family-recipe/experimental-1`:
   projected metadata and the acquisition record. Explicit runtime `ARTIST_NAME`
   can supply the artist; otherwise it remains unknown rather than guessed.
 - `charts`: nonempty array with unique safe `id`, `family`, selected `mode`,
-  optional `label`, `sourcePrefix`, and `reviewMissingDecorativeSprites`.
+  optional `label`, `sourcePrefix`, `sourceSuffix`, and `reviewMissingDecorativeSprites`.
+  `sourceSuffix` is a string of up to 32 letters/digits/underscores, including
+  the empty string, and applies only to `child-timeline-5`.
 - `projection`, `motionCapture`, `audioCapture`: each binds a snapshot with
   `{path,sha256,runSha256}`; audio additionally has `pcmSha256`. Paths are
   root-relative. The successful parent run, movie identity and preserved config
@@ -330,6 +338,8 @@ pairs still fail. Normalized effects explicitly record the inactive native tail.
 A valid source run does not by itself prove a reusable projection. NIGHTMARE
 rewrites some heads before the first split snapshot, Luvin' You halts in its
 converter, and one Yamiyo selector has malformed note/hold fields. These stay
-pending. An observed mode 11 is an explicit scope exclusion. The two 2005
-child-timeline works additionally require a child-counter clock and nonzero-seek
-audio proof; a stopped root movie frame is insufficient.
+pending. An observed mode 11 is an explicit scope exclusion. The [2005 admission](danoni-2005-admission.md) subsequently establishes that
+Air and Cold Breath use the advancing root movie timeline. Their child `Cnt`
+is a wrapping arrow-instance counter. Five selectors now have exact native
+arrivals and independently matched nonzero-seek MP3 audio; the earlier
+child-clock suspicion was incorrect.

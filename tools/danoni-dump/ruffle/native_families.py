@@ -68,8 +68,12 @@ def audit_ok(capture, reviewed_diagnostics=()):
         raise ValueError('Unexpected native request/audit entry')
 
 
-def extract_movie_arrays(capture, family, source_prefix=""):
+def extract_movie_arrays(capture, family, source_prefix="", source_selection=None):
     if source_prefix not in ("", "n"): raise ValueError("Unknown source field prefix")
+    if source_selection is not None and (not isinstance(source_selection,str) or len(source_selection)>32 or any(not (c.isalnum() or c=='_') for c in source_selection)):
+        raise ValueError('Invalid selected source suffix')
+    if source_selection is not None and family!='child-timeline-5':
+        raise ValueError('Explicit source selection requires a child timeline bank')
     audit_ok(capture)
     if capture['swfHeaderFps']!=60: raise ValueError('These families require a verified 60 Hz movie clock')
     if family not in ('child-timeline-5','dac-7'): raise ValueError('Unknown family')
@@ -89,7 +93,17 @@ def extract_movie_arrays(capture, family, source_prefix=""):
             holds=numbers(graph,root.get('f'+clip+'_dac',UNDEFINED)) if mode=='7' else []
             if len(holds)%2 or any(b<a for a,b in zip(holds[::2],holds[1::2])):raise ValueError('Malformed holds')
             suffix=source_suffix(root['diffin']) if 'diffin'in root else ''
+            if source_selection is not None:
+                if 'diffin' in root and suffix!=source_selection:
+                    raise ValueError('Explicit selection disagrees with native root selector')
+                suffix=source_selection
             field=source_field(root,lane,suffix,source_prefix)
+            if source_selection is not None and field is None:
+                raise ValueError('Explicit selection requires every loaded lane field')
+            if mode=='5':
+                hold_field=source_field(root,'frz'+lane.capitalize(),suffix,source_prefix)
+                if hold_field and split_numbers(root[hold_field]):
+                    raise ValueError('Child timeline holds are not implemented')
             if field in root and split_numbers(root[field])!=taps:raise ValueError('Native taps disagree with loaded source')
             if mode=='7':
                 hold_field=source_field(root,{'leftdia':'frzLdia','rightdia':'frzRdia','space':'frzSpace'}.get(lane,'frz'+lane.capitalize()),suffix)
@@ -103,12 +117,21 @@ def extract_movie_arrays(capture, family, source_prefix=""):
             if split_numbers(root['speed_change'])!=flat:raise ValueError('Native speed conversion disagrees with source')
         elif 'speed_timeline' in bank:
             flat=numbers(graph,bank['speed_timeline'])
-            if 'speed_data'in root and split_numbers(root['speed_data'])!=flat:raise ValueError('Native speed conversion disagrees with source')
-        else:flat=[]
+            speed_field=source_field(root,'speed',suffix,source_prefix) if source_selection is not None else 'speed_data'
+            if speed_field in root and split_numbers(root[speed_field])!=flat:raise ValueError('Native speed conversion disagrees with source')
+        else:
+            flat=[]
+            speed_field=source_field(root,'speed',suffix,source_prefix) if mode=='5' else None
+            if speed_field and split_numbers(root[speed_field]):raise ValueError('Source speed events have no native bank')
         if len(flat)%2:raise ValueError('Unpaired speed events')
         speed=[{'nativeFrame':f,'multiplier':m} for f,m in zip(flat[::2],flat[1::2])]
         for field in ('boost_data','color_data','acolor_data'):
             if field in root and text(root[field]).strip(',\r\n '):raise ValueError('This family has an unimplemented authored effect')
+        if source_selection is not None:
+            for stem in ('boost','color','acolor','stop'):
+                field=source_field(root,stem,suffix,source_prefix)
+                if field and text(root[field]).strip(',\r\n '):
+                    raise ValueError('Selected child timeline source has an unimplemented effect')
         stops=numbers(graph,bank.get('stop_dac',UNDEFINED)) if mode=='7' else []
         if 'stop_data' in root and split_numbers(root['stop_data'])!=stops:raise ValueError('Native stop flags disagree with source')
         known={lane+'_timeline'for lane,_ in FIVE}|{'speed_timeline'} if mode=='5' else {clip+'_dac'for _,clip in SEVEN}|{'stop_dac','speed_dac'}
@@ -118,6 +141,7 @@ def extract_movie_arrays(capture, family, source_prefix=""):
                                  'bankObject':bank_id,'nativeKeyCodes':numbers(graph,root['keyCtrl']) if isinstance(root.get('keyCtrl'),dict) and 'ref' in root['keyCtrl'] else None}))
     if len(initialized)<2:raise ValueError('Need repeated unconsumed native arrays')
     baseline=initialized[0][1]
+    if source_selection is not None:baseline['selectedSourceSuffix']=source_selection
     for _,later in initialized[1:]:
         if any(later[k]!=baseline[k] for k in ['lanes','speed','stops','mode']):raise ValueError('Initialized data changed before note consumption')
     return baseline,initialized[0][0]['frame']

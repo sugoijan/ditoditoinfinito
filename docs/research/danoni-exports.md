@@ -467,3 +467,20 @@ RE:RAVE's 1–12 progression and カナリア's two author ratings. FAKE800 uses
 current exact-work author-catalogue level 22, retaining the old page's distinct
 three-star scale separately. The two festival charts without verified numeric
 ratings remain unrated. Chart/audio/presentation timing is unchanged.
+
+
+### Original 2005 single-song generation (2026-10-12)
+
+The [Air/Cold Breath admission](danoni-2005-admission.md) expands the current
+local exports to **93 songs / 144 charts**, including Kouhaku's unchanged five
+songs/six charts. Single Songs has **88 songs / 138 charts**; 103 charts have
+verified published numerical ratings and 35 remain explicitly unrated. Both
+new works have plain source-title banners, automatically fitted musical grids,
+pickup previews and measured native-base-scroll compensation.
+
+The registry has 89 required and 47 pending source entries; source-level pending
+status is separate from partly admitted works' pending selectors. All original
+acquisitions, native evidence and earlier generations stay local. See the
+admission handover for exact file paths, clock/source-selection contracts,
+MP3 seek evidence and validation receipts. The playable archive remains
+`~/Music/DanOni/exports/single-songs/DanOni Single Songs.zip`.

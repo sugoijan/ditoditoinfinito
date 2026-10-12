@@ -117,10 +117,10 @@ fitting parameters are introduced.
 - **2005 [Air](http://www7a.biglobe.ne.jp/~tyruster/rank/air/) and
   [Cold Breath](http://www7a.biglobe.ne.jp/~tyruster/rank/cold/):** ordinary play
   loads their cached dos, exposes child `*_timeline` arrays and a child `Cnt`
-  counter, and starts one observed 22.05 kHz **mono** stream with declared
-  `latencySeek = 1633`. These are stronger leads than the static survey's many
-  embedded stream heads, but child-clock and nonzero-seek audio proof are still
-  required. Ranking endpoints are not fetched. They are the next native batch.
+  instance counter, and starts one observed 22.05 kHz **mono** stream with declared
+  `latencySeek = 1633`. The [subsequent 2005 admission](danoni-2005-admission.md)
+  proves the advancing root movie clock and independently matches their audio.
+  `Cnt` counts cloned arrows rather than time. Ranking endpoints are not fetched.
 
 The two partly admitted works retain explicit `pendingSelections` in their
 recipes/registry entries. The unsupported 11-key selection is recorded separately

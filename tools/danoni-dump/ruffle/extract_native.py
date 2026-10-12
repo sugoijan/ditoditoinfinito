@@ -74,7 +74,7 @@ def extract(recipe_path, output, ffmpeg):
         if family in ('dac-5','dac-fixed-5'):
             projected,iteration=dac_five_projection(state,fixed=family=='dac-fixed-5');clock=None
         elif family in ('child-timeline-5','dac-7'):
-            projected,iteration=extract_movie_arrays(state,family,row.get('sourcePrefix',''));clock=None
+            projected,iteration=extract_movie_arrays(state,family,row.get('sourcePrefix',''),row.get('sourceSuffix'));clock=None
         elif family in ('scheduled-counter','scheduled-constant','parafla-counter'):
             projected=constant_projection(state,row['mode'])if family=='scheduled-constant'else scheduled_projection(state,row['mode'],allow_missing_decorative_sprites=row.get('reviewMissingDecorativeSprites',False),parafla=family=='parafla-counter');clock=projected['clockField'];iteration=projected['preparedIteration']
         else:raise ValueError('Unknown native family')

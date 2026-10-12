@@ -306,3 +306,22 @@ ESS has 55 menu choices; this admission covers only レク[Normal]. Saigetsu's C
 converter replays identically but its chart differs from the SWF. The ESS port
 comparison is still pending startup compatibility. Fourteen v2 works are now
 admitted and 99 remain pending; acquisition metadata above remains historical.
+
+## 2005 single-song admission (2026-10-12)
+
+The [Air/Cold Breath handover](danoni-2005-admission.md) adds both original
+2005 works and all five native five-key selectors. Their child `Cnt` counts
+arrow instances; the advancing root movie timeline is the clock. Every selected
+loaded lane, first-arrow arrival and MP3 decoder origin is independently checked.
+The source manifests and static acquisition counts above remain historical.
+
+The original 113-source v2 inventory now has **71 accepted, three partly accepted
+and 39 pending** sources. Pending sources comprise 24 CW engine probes, 13 legacy
+works and two Wayback recoveries. Some admitted works still have explicitly
+pending selectors, and unsupported modes remain exclusions. The local inventory
+is `reviews/corpus-v2-legacy9-20261012/admission-inventory.json`.
+
+The expanded exports contain **93 songs / 144 charts** across Kouhaku and Single
+Songs. Source suffixes and published rating-scale choices are recorded separately
+from musical-grid estimation. Third-party works and music remain local; public
+availability does not permit redistribution.

@@ -979,4 +979,34 @@ The [next native admission](danoni-legacy-single-admission.md) finds:
   [Cold Breath](http://www7a.biglobe.ne.jp/~tyruster/rank/cold/) expose child
   timeline banks/`Cnt` and one native 22.05 kHz mono stream with nonzero
   `latencySeek = 1633`. Stream-head counts alone do not identify songs or
-  establish their clock/audio origin. Their full extraction remains pending.
+  establish their clock/audio origin. The subsequent native proof is below.
+
+
+### A child data bank need not have a child clock (2026-10-12)
+
+Native [Air](http://www7a.biglobe.ne.jp/~tyruster/rank/air/) and
+[Cold Breath](http://www7a.biglobe.ne.jp/~tyruster/rank/cold/) runs correct the
+initial child-clock suspicion: `Cnt` increments on arrow duplication and wraps
+at 500. Their controller compares the **parent movie frame** against a native
+lane head minus 150. The root timeline advances at 60 Hz; first-arrow arrivals
+agree exactly with the unchanged loaded chart frames, and the observed song
+stream starts at movie frame 190. A child bank's location or a counter-like
+variable name is insufficient to establish its timing clock.
+[Native evidence and contract](danoni-2005-admission.md).
+
+Cold Breath's global selector chooses unsuffixed Easy data, suffix `2` for
+native **Standard**, `3` for Hard and `4` for Special. The
+[catalogue](https://cw7.sakura.ne.jp/lst/ds0002/) calls Standard **Normal**.
+A selector outside the captured root can be represented by an explicit reviewed
+source suffix, provided **every selected loaded lane agrees with the native
+prepared arrays**. Matching a title or a difficulty label alone is insufficient.
+The catalogue's numerical levels and the original pages' filled stars are
+separate published scales and are retained separately.
+
+Both works have one observed 22.05 kHz mono MP3 stream with nonzero declared
+`latencySeek = 1633`. Whole-payload demuxing and independent waveform comparisons
+for all five selectors find **zero measured decoder-origin shift** in the pinned
+Ruffle executor. The preserved stream header is not a prescription to trim 1633
+samples from the decoded song. Original Flash/device latency remains unmeasured;
+other streams need their own origin proof. Special's stair-shaped field is an
+original presentation customization, not a change to the extracted note times.

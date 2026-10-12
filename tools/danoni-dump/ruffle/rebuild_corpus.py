@@ -287,7 +287,7 @@ def build(registry, stage, ffmpeg, encoder, verifier):
     if config.get('schema') != SCHEMA: raise ValueError('Unsupported registry schema')
     root = external_directory(config['root']).resolve(strict=True)
     stage = external_directory(stage)
-    protected = [root / name for name in ('normalized', 'reviews', 'corpus', 'single-song-corpus-v1', 'single-song-corpus-v2', 'native-adapters-v1', 'native-adapters-v2', 'native-adapters-v3', 'native-adapters-v4', 'native-adapters-v5', 'native-adapters-v6', 'native-adapters-v7', 'native-adapters-v8', 'corpus-v2-pairs', '.cache', '.cache-v2', 'legacy-pilot', 'exports', 'exports-history', 'tempo-cache')]
+    protected = [root / name for name in ('normalized', 'reviews', 'corpus', 'single-song-corpus-v1', 'single-song-corpus-v2', 'native-adapters-v1', 'native-adapters-v2', 'native-adapters-v3', 'native-adapters-v4', 'native-adapters-v5', 'native-adapters-v6', 'native-adapters-v7', 'native-adapters-v8', 'native-adapters-v9', 'corpus-v2-pairs', '.cache', '.cache-v2', 'legacy-pilot', 'exports', 'exports-history', 'tempo-cache')]
     if stage == root or any(stage.is_relative_to(p) or p.is_relative_to(stage) for p in protected):
         raise ValueError('Staging directory must not overlap evidence/reviews')
     stage.mkdir(parents=True, exist_ok=False)

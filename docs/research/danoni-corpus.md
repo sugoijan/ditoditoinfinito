@@ -837,3 +837,13 @@ halt. Current exports contain 44 songs / 72 charts; 50 of 66 single-song charts
 have published integer ratings. Native movement quantization, exact audio start
 clocks and stable movement segments are source-bound rather than guessed.
 Original acquisition manifests, third-party works and media remain local.
+
+### Original 2005 single-song follow-up (2026-10-12)
+
+The [Air/Cold Breath native admission](danoni-2005-admission.md) adds five charts
+from the original 2005 Flash works. Current local exports have 93 songs / 144
+charts, including Kouhaku; the registry has 89 required and 47 pending sources.
+The [v2 inventory](danoni-corpus-v2.md#2005-single-song-admission-2026-10-12)
+tracks remaining source and selector coverage. Native extraction and cached
+corpus regeneration use no browser; Chrome validates the generated game imports
+separately. All original works, music, banners and generated packs stay local.

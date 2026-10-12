@@ -181,11 +181,39 @@ class Families(unittest.TestCase):
     def test_initialized_bank_and_selected_source_prefix(self):
         chart,_=extract_movie_arrays(five('n'),'child-timeline-5','n')
         self.assertEqual([l['nativeFrames']for l in chart['lanes']],[[200,260]]*5)
+        # The legacy n prefix applies to note fields; its global speed_data
+        # check must remain intact when no explicit suffix is supplied.
+        root={'n'+lane+'_data':'200,260'for lane in ['left','down','up','right','space']}
+        root['speed_data']='400,2'
+        root['controller']={**{lane+'_timeline':['200','260']for lane in ['left','down','up','right','space']},'speed_timeline':['400','1.5'],**{k:0 for k in ['v','w','x','y','z']}}
+        with self.assertRaises(ValueError):extract_movie_arrays(capture([root,copy.deepcopy(root)]),'child-timeline-5','n')
+        root['speed_data']='400,1.5'
+        chart,_=extract_movie_arrays(capture([root,copy.deepcopy(root)]),'child-timeline-5','n')
+        self.assertEqual(chart['speed'],[{'nativeFrame':400,'multiplier':1.5}])
         bad=five();bad['captures'][1]['state']['objects'][0]['properties'][0]['value']=string('201,260')
         with self.assertRaises(ValueError):extract_movie_arrays(bad,'child-timeline-5')
         with self.assertRaises(ValueError):extract_movie_arrays(five(),'unknown')
         bad=five();bad['audit']['entries']=[{'kind':'fetch-denied','detail':'https://example.invalid/'}]
         with self.assertRaises(ValueError):extract_movie_arrays(bad,'child-timeline-5')
+
+    def test_child_selection_checks_every_native_lane_without_a_root_selector(self):
+        root={lane+'_data':'100' for lane in ['left','down','up','right','space']}
+        root.update({lane+'2_data':'200,260' for lane in ['left','down','up','right','space']})
+        root['controller']={**{lane+'_timeline':['200','260']for lane in ['left','down','up','right','space']},**{k:0 for k in ['v','w','x','y','z']}}
+        data=capture([root,copy.deepcopy(root)])
+        chart,_=extract_movie_arrays(data,'child-timeline-5',source_selection='2')
+        self.assertEqual(chart['lanes'][0]['nativeFrames'],[200,260])
+        self.assertEqual(chart['selectedSourceSuffix'],'2')
+        for corruption in ('wrong-selection','missing-lane','root-conflict','holds','speed','color'):
+            bad=copy.deepcopy(root);selection='2'
+            if corruption=='wrong-selection':selection=''
+            elif corruption=='missing-lane':del bad['space2_data']
+            elif corruption=='root-conflict':bad['diffin']='3'
+            elif corruption=='holds':bad['frzLeft2_data']='220,240'
+            elif corruption=='speed':bad['speed2_data']='220,2'
+            else:bad['color2_data']='220,0,16711680'
+            with self.subTest(corruption=corruption),self.assertRaises(ValueError):
+                extract_movie_arrays(capture([bad,copy.deepcopy(bad)]),'child-timeline-5',source_selection=selection)
 
     def test_seven_holds_and_stop_flags_are_preserved_without_timing_stops(self):
         chart,_=extract_movie_arrays(seven(),'dac-7')
