@@ -2809,6 +2809,7 @@ dependencies = [
  "clap",
  "ddi-chart",
  "ddi-library",
+ "ddi-noteskin",
  "ddi-platform",
  "serde",
  "serde_json",

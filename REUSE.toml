@@ -28,6 +28,22 @@ path = ["noteskin/src/builtin/stepmania/**"]
 SPDX-FileCopyrightText = ["Chris Danford, the StepMania development team, et al.", "AJ Kelly, Midiman, shakesoda (the spinal shark collective), and other contributors"]
 SPDX-License-Identifier = "LicenseRef-StepMania"
 
+# Bundled noteskins live under assets/noteskins/<game>/<name>/ and are NOT
+# MIT; each has a PROVENANCE.toml (docs/plans/bundled-skins.md).
+
+# StepMania 5.1's Delta (stepmania/stepmania 825467b, NoteSkins/dance/Delta),
+# byte for byte: CC BY 3.0 by its readme.txt; its Lua and metrics were later
+# edited by StepMania's developers under StepMania's licence.
+[[annotations]]
+path = ["assets/noteskins/dance/Delta/*.png", "assets/noteskins/dance/Delta/readme.txt"]
+SPDX-FileCopyrightText = "shakesoda"
+SPDX-License-Identifier = "CC-BY-3.0"
+
+[[annotations]]
+path = ["assets/noteskins/dance/Delta/*.lua", "assets/noteskins/dance/Delta/*.redir", "assets/noteskins/dance/Delta/metrics.ini"]
+SPDX-FileCopyrightText = ["shakesoda", "AJ Kelly, the StepMania development team and other contributors"]
+SPDX-License-Identifier = "CC-BY-3.0 AND LicenseRef-StepMania"
+
 # Bundled songs live under assets/songs/<slug>/ and are NOT MIT. Each song gets
 # its own annotations below naming the musician, chart authors and graphic
 # authors with the exact licence of each file. See docs/PLAN.md §8.

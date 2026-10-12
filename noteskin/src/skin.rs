@@ -12,8 +12,8 @@ use crate::builtin::{BuiltIn, Virtual};
 use crate::hints::Hints;
 use crate::ini::Ini;
 
-/// One imported skin folder.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// One skin folder (imported or bundled).
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Folder {
     /// The game folder it was found in (`dance`), or `common`.
     pub game: String,

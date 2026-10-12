@@ -12,6 +12,7 @@
 pub mod actor;
 pub mod build;
 pub mod builtin;
+pub mod bundled;
 pub mod commands;
 pub mod hints;
 pub mod import;

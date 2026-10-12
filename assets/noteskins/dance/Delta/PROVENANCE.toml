@@ -1,0 +1,24 @@
+# StepMania 5.1's Delta noteskin, byte for byte. Its readme.txt licenses the
+# skin under CC BY 3.0; StepMania's developers later edited its Lua and
+# metrics, under StepMania's own licence (Docs/Licenses.txt there).
+author = "shakesoda"
+credit = "shakesoda · CC BY 3.0"
+excluded = []
+modifications = []
+
+[source]
+url = "https://github.com/stepmania/stepmania"
+commit = "825467bcd81c812b33ad684dc04dd151b2d5dec3"
+path = "NoteSkins/dance/Delta"
+retrieved = "2026-10-12"
+
+[[licenses]]
+part = "the skin (images, Lua, metrics, readme)"
+spdx = "CC-BY-3.0"
+holders = ["shakesoda"]
+
+[[licenses]]
+part = "later edits to its Lua and metrics"
+spdx = "LicenseRef-StepMania"
+url = "https://github.com/stepmania/stepmania/blob/825467bcd81c812b33ad684dc04dd151b2d5dec3/Docs/Licenses.txt"
+holders = ["AJ Kelly, the StepMania development team and other contributors"]

@@ -34,6 +34,7 @@ jobs:
       - name: Generated files are fresh
         run: |
           cargo run -p xtask -- gen-songs
+          cargo run -p xtask -- gen-noteskins
           cargo run -p xtask -- gen-credits --check
 
   # The software video decoder (video/): FFmpeg built with wasi-sdk, checked
