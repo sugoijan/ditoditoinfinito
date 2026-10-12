@@ -78,6 +78,14 @@ Source: [https://github.com/Tiny-Foxes/Aozora-Tori-Assets](https://github.com/Ti
 - Not included: NoteSkin.lua, Fallback Explosion.lua, Down/Center *.lua and metrics.ini (code without a clear licence; replaced); Center * and _center * (the center button of other games); Down Mine Body/TopCap/BottomCap and Down Hold LiftTail (OutFox's mine and lift holds)
 - Modifications: the folder renamed alpha-arrows → Alpha-Arrows; NoteSkin.lua, Down Tap Note.lua, Down Tap Lift.lua, Down Tap Mine.lua, Down Receptor.lua, Down Explosion.lua and metrics.ini written anew (MIT, Dito Dito Infinito); LICENSE copied from the repository's root
 
+### Dake — hanubeki
+
+Source: [https://github.com/hanubeki/dake](https://github.com/hanubeki/dake) at commit `e26aa8d03bf54722d2ad8eaf0c8597aac0dc9450`, folder `.` (retrieved 2026-10-12).
+
+- **the skin (images, Lua, metrics, README)**: hanubeki — [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
+- Not included: the images of the other games and of buttons dance does not have (all but the 74 dance asks for); _common buttons/ (key labels for kbx), Inner Sound.wav and Outer Sound.wav, extras/ (eight variant skins)
+- Modifications: the folder named Dake (upstream, the repository's root)
+
 ### Delta — shakesoda
 
 Source: [https://github.com/stepmania/stepmania](https://github.com/stepmania/stepmania) at commit `825467bcd81c812b33ad684dc04dd151b2d5dec3`, folder `NoteSkins/dance/Delta` (retrieved 2026-10-12).

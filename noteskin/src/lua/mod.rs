@@ -63,8 +63,9 @@ use self::stage::Stage;
 /// The prelude (ours, after StepMania's `_fallback` scripts).
 const PRELUDE: &str = include_str!("prelude.lua");
 
-/// Actors one skin may make, over all its elements.
-pub const MAX_ACTORS: usize = 4096;
+/// Actors one skin may make, over all its elements (and the copies of its
+/// note elements per colour, [`NOTE_COLORS`]).
+pub const MAX_ACTORS: usize = 16384;
 
 /// The play a skin loads for, as far as its Lua asks
 /// (`GAMESTATE`, `PREFSMAN`).
@@ -81,6 +82,9 @@ pub struct Env {
     pub timing: TimingMap,
     pub first_beat: f64,
     pub last_beat: f64,
+    /// Whether the field is upside down (`GAMESTATE:GetIsFieldReversed`,
+    /// OutFox's).
+    pub reversed: bool,
     /// Note every global and actor method a script reads that is not
     /// there (for finding what skins miss; scripts test for names too, so
     /// it is noise in a report).
@@ -97,6 +101,7 @@ impl Default for Env {
             timing: TimingMap::constant(120.0, 0.0),
             first_beat: 0.0,
             last_beat: 0.0,
+            reversed: false,
             trace_missing: false,
         }
     }
@@ -151,6 +156,12 @@ impl Default for FrameBudget {
         }
     }
 }
+
+/// `Var "Color"` for each note type, 4ths to 192nds (`NoteTypeToString`),
+/// in [`crate::notes::note_type`]'s order.
+pub const NOTE_COLORS: [&str; 9] = [
+    "4th", "8th", "12th", "16th", "24th", "32nd", "48th", "64th", "192nd",
+];
 
 /// Fuel for one frame of a play.
 pub const FRAME_FUEL: u64 = 200_000;
@@ -506,11 +517,34 @@ impl LuaSkin {
         element: &str,
         textures: &mut Textures,
         images: &dyn Images,
-        mut pause: Option<&mut Pause>,
+        pause: Option<&mut Pause>,
     ) -> Result<Element, Failure> {
+        Ok(self
+            .element_colored_sliced(button, element, NOTE_COLORS[0], textures, images, pause)
+            .await?
+            .0)
+    }
+
+    /// [`LuaSkin::element_sliced`] with `Var "Color"` set to `color` (one
+    /// of [`NOTE_COLORS`]), and whether its Lua read it: then the element
+    /// looks different per colour and is loaded once for each, as ITGmania
+    /// and OutFox load notes.
+    pub async fn element_colored_sliced(
+        &mut self,
+        button: Button,
+        element: &str,
+        color: &str,
+        textures: &mut Textures,
+        images: &dyn Images,
+        mut pause: Option<&mut Pause>,
+    ) -> Result<(Element, bool), Failure> {
         let only_sprite = sprite_only(element);
         let template = self.driver.template.clone();
-        let (b, e) = (button.name().to_string(), element.to_string());
+        let (b, e, c) = (
+            button.name().to_string(),
+            element.to_string(),
+            color.to_string(),
+        );
         let results = self
             .run(
                 &template,
@@ -519,6 +553,7 @@ impl LuaSkin {
                         Value::String(ctx.intern(b.as_bytes())),
                         Value::String(ctx.intern(e.as_bytes())),
                         Value::Boolean(only_sprite),
+                        Value::String(ctx.intern(c.as_bytes())),
                     ]
                 },
                 pause.as_deref_mut(),
@@ -527,9 +562,15 @@ impl LuaSkin {
         // A Lua error loads nothing for the element (StepMania shows a
         // blank sprite and reports it); the built-in skin stands in.
         let results = match results {
-            Err(Failure::Error(m)) if self.failed.is_none() => return Ok(built_in(m)),
+            Err(Failure::Error(m)) if self.failed.is_none() => return Ok((built_in(m), false)),
             r => r?,
         };
+        let colored = self.vm.lua().enter(|ctx| {
+            matches!(
+                results.get(1).map(|v| ctx.fetch(v)),
+                Some(Value::Boolean(true))
+            )
+        });
         let host = self.host.clone();
         let registries = &self.registries;
         let converted = self.vm.lua().enter(|ctx| {
@@ -548,14 +589,17 @@ impl LuaSkin {
             Ok(c) => c,
         };
         let Some(converted) = converted else {
-            return Ok(built_in(format!("{element}: Load did not return a table")));
+            return Ok((built_in(format!("{element}: Load did not return a table")), colored));
         };
         let mut notes = converted.notes;
         let Some((_, root_id)) = converted.root else {
-            return Ok(Element {
-                built: Built::Blank,
-                notes,
-            });
+            return Ok((
+                Element {
+                    built: Built::Blank,
+                    notes,
+                },
+                colored,
+            ));
         };
         let init = self.driver.init.clone();
         match self
@@ -566,14 +610,17 @@ impl LuaSkin {
             )
             .await
         {
-            Err(Failure::Error(m)) if self.failed.is_none() => return Ok(built_in(m)),
+            Err(Failure::Error(m)) if self.failed.is_none() => return Ok((built_in(m), colored)),
             r => r?,
         };
         if converted.unsupported {
-            return Ok(Element {
-                built: Built::BuiltIn,
-                notes,
-            });
+            return Ok((
+                Element {
+                    built: Built::BuiltIn,
+                    notes,
+                },
+                colored,
+            ));
         }
         // The stage keeps the tree until the play reclaims it.
         let tree = self
@@ -586,15 +633,21 @@ impl LuaSkin {
         if only_sprite && !matches!(tree.kind, crate::actor::Kind::Sprite(_)) {
             // `NoteSkinManager::LoadActor`: "must be a Sprite", a blank one.
             notes.push(format!("{element} must be a Sprite"));
-            return Ok(Element {
-                built: Built::Blank,
-                notes,
-            });
+            return Ok((
+                Element {
+                    built: Built::Blank,
+                    notes,
+                },
+                colored,
+            ));
         }
-        Ok(Element {
-            built: Built::Actor(tree),
-            notes,
-        })
+        Ok((
+            Element {
+                built: Built::Actor(tree),
+                notes,
+            },
+            colored,
+        ))
     }
 
     // The play.

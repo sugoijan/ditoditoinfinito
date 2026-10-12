@@ -53,6 +53,13 @@ path = ["assets/noteskins/dance/Alpha-Arrows/*.png", "assets/noteskins/dance/Alp
 SPDX-FileCopyrightText = "2022 Aozora \"Aqui\" Tori"
 SPDX-License-Identifier = "Apache-2.0"
 
+# Dake by hanubeki (hanubeki/dake e26aa8d0): its dance files byte for byte,
+# Apache-2.0.
+[[annotations]]
+path = ["assets/noteskins/dance/Dake/*.png", "assets/noteskins/dance/Dake/*.lua", "assets/noteskins/dance/Dake/metrics.ini", "assets/noteskins/dance/Dake/README.md", "assets/noteskins/dance/Dake/LICENSE"]
+SPDX-FileCopyrightText = "hanubeki"
+SPDX-License-Identifier = "Apache-2.0"
+
 # Bundled songs live under assets/songs/<slug>/ and are NOT MIT. Each song gets
 # its own annotations below naming the musician, chart authors and graphic
 # authors with the exact licence of each file. See docs/PLAN.md §8.

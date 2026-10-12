@@ -272,11 +272,11 @@ fn errors_fall_back_per_element_and_limits_fail_the_skin() {
     // Too many actors.
     let folders = broken(
         "Down Tap Note.lua",
-        "local t = {} for i = 1, 5000 do t[i] = Def.Actor {} end return Def.ActorFrame(t)",
+        "local t = {} for i = 1, 200 do local f = {} for j = 1, 100 do f[j] = Def.Actor {} end t[i] = Def.ActorFrame(f) end return Def.ActorFrame(t)",
     );
     let mut skin = lua_skin(&folders, "b").unwrap_or_else(|e| panic!("{e}"));
     match skin.element(Button::Down, "Tap Note", &mut textures, &images) {
-        Err(Failure::Error(m)) => assert!(m.contains("more than 4096 actors"), "{m}"),
+        Err(Failure::Error(m)) => assert!(m.contains("more than 16384 actors"), "{m}"),
         other => panic!("{other:?}"),
     }
 }
@@ -866,7 +866,7 @@ fn methods_that_walk_trees_pay_for_them() {
 #[test]
 fn a_host_limit_stays_a_failure() {
     let text =
-        "local t = Def.ActorFrame {}\nfor i = 1, 5000 do t[#t + 1] = Def.Actor {} end\nreturn t\n";
+        "local t = Def.ActorFrame {}\nfor i = 1, 20000 do t[#t + 1] = Def.Actor {} end\nreturn t\n";
     let folders = vec![folder(
         "dance",
         "big",
@@ -888,4 +888,107 @@ fn a_host_limit_stays_a_failure() {
     );
     skin.begin_frame(Position::default(), FrameBudget::default());
     assert!(skin.play(1, "On", &[]).is_err());
+}
+
+#[test]
+fn outfox_and_fallback_names_skins_read() {
+    // Dake's calls: the field's direction, the game button and its key, the
+    // theme's NoteField metrics and a judgement's colour.
+    let folders = vec![folder(
+        "dance",
+        "o",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Tap Note.lua",
+                "assert(Var 'GameButton' == Var 'Button')\n\
+                 assert(INPUTFILTER:GameButtonToKeyMapped(Var 'GameButton', Var 'Player') == '')\n\
+                 assert(THEME:GetMetric('NoteField', 'NoteFieldType') == '')\n\
+                 assert(THEME:GetMetric('NoteField', 'ShowBoard') == false)\n\
+                 assert(THEME:GetMetric('NoteField', 'Nothing') == nil)\n\
+                 assert(THEME:HasMetric('NoteField', 'ShowBoard'))\n\
+                 assert(not THEME:HasMetric('NoteField', 'Nothing'))\n\
+                 local unknown = JudgmentLineToColor('JudgmentLine_Nothing')\n\
+                 assert(unknown[1] == 1 and unknown[4] == 1)\n\
+                 local c = JudgmentLineToColor('JudgmentLine_ProW2')\n\
+                 local reversed = GAMESTATE:GetIsFieldReversed()\n\
+                 return Def.Sprite {\n\
+                   Texture = 'tap.png';\n\
+                   InitCommand = function(self) self:diffuse(c):zoom(reversed and 2 or 1) end;\n\
+                 }\n",
+            ),
+            ("tap.png", ""),
+        ],
+    )];
+    for reversed in [false, true] {
+        let skin = Skin::load(&folders, "dance", "o").unwrap().into_owned();
+        let mut skin = load(
+            skin,
+            Env {
+                reversed,
+                ..Env::default()
+            },
+            LoadBudget::default(),
+            Box::new(|| 0.0),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let images = Sizes(vec![("tap.png", (64, 64))]);
+        let tap = built(skin.element(Button::Left, "Tap Note", &mut Textures::default(), &images));
+        assert!(skin.warnings().is_empty(), "{:?}", skin.warnings());
+        assert_eq!(tap.current().diffuse, [1.0, 0.9, 0.35, 1.0]);
+        assert_eq!(tap.current().scale[0], if reversed { 2.0 } else { 1.0 });
+    }
+}
+
+#[test]
+fn notes_load_per_colour_when_their_lua_reads_it() {
+    // A lift loads the tap through NOTESKIN:LoadActor, which loads the
+    // 4ths' (as ITGmania's does): the lift is the same in every colour.
+    let folders = vec![folder(
+        "dance",
+        "c",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Tap Note.lua",
+                "local x = ({ ['4th'] = 1, ['16th'] = 4 })[Var 'Color'] or 9\n\
+                 return Def.Sprite { Texture = 'tap.png'; InitCommand = function(self) self:x(x) end }\n",
+            ),
+            (
+                "Down Tap Lift.lua",
+                "return Def.ActorFrame { NOTESKIN:LoadActor(Var 'Button', 'Tap Note') }\n",
+            ),
+            (
+                "Down Tap Mine.lua",
+                "return Def.Sprite { Texture = 'tap.png' }\n",
+            ),
+            ("tap.png", ""),
+        ],
+    )];
+    let mut skin = lua_skin(&folders, "c").unwrap_or_else(|e| panic!("{e}"));
+    let images = Sizes(vec![("tap.png", (64, 64))]);
+    let mut textures = Textures::default();
+    let mut load = |element: &str, color: &str| {
+        let (e, read) = now(skin.element_colored_sliced(
+            Button::Down,
+            element,
+            color,
+            &mut textures,
+            &images,
+            None,
+        ))
+        .unwrap();
+        (built(Ok(e)), read)
+    };
+    let (tap, read) = load("Tap Note", "16th");
+    assert!(read);
+    assert_eq!(tap.current().pos[0], 4.0);
+    let (lift, read) = load("Tap Lift", "16th");
+    assert!(!read);
+    assert_eq!(lift.children()[0].current().pos[0], 1.0);
+    let (_, read) = load("Tap Mine", "16th");
+    assert!(!read);
+    // The engine's own load is the 4ths'.
+    let (tap, _) = load("Tap Note", NOTE_COLORS[0]);
+    assert_eq!(tap.current().pos[0], 1.0);
 }

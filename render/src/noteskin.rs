@@ -17,9 +17,9 @@ use ddi_engine::rules::Judgement;
 use ddi_lua::Failure;
 use ddi_noteskin::actor::{Actor, Blend, Clocks, Kind, Problems, Quad};
 use ddi_noteskin::build::{Built, Images, TextureKey, Textures, build};
-use ddi_noteskin::lua::{FrameBudget, LuaSkin, Param, Pause, Position};
+use ddi_noteskin::lua::{FrameBudget, LuaSkin, NOTE_COLORS, Param, Pause, Position};
 use ddi_noteskin::metrics::{NoteDisplay, Part};
-use ddi_noteskin::notes::{animation_percent, color_offset};
+use ddi_noteskin::notes::{animation_percent, color_offset, note_type};
 use ddi_noteskin::{Button, Skin};
 
 use crate::color::to_target;
@@ -112,6 +112,82 @@ impl HoldParts {
     }
 }
 
+/// A lane's note elements in one note type's colour, for a skin whose
+/// Lua reads `Var "Color"` (`None`: as the 4ths'). ITGmania loads taps,
+/// lifts, fakes, mines and every hold and roll part per colour; a hold is
+/// drawn in its head's.
+#[derive(Clone, Debug, Default)]
+struct ColorSet {
+    tap: Option<Element>,
+    lift: Option<Element>,
+    fake: Option<Element>,
+    mine: Option<Element>,
+    /// Head, tail, top cap, body, bottom cap; inactive then active (as
+    /// [`HoldParts::all`]).
+    hold: [[Option<Element>; 2]; 5],
+    roll: [[Option<Element>; 2]; 5],
+}
+
+/// A tap-like note element of a lane.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Slot {
+    Tap,
+    Lift,
+    Fake,
+    Mine,
+}
+
+impl ColorSet {
+    /// Where an element of [`LANE_ELEMENTS`] goes, for those loaded per
+    /// colour.
+    fn place(&mut self, name: &str) -> Option<&mut Option<Element>> {
+        match name {
+            "Tap Note" => return Some(&mut self.tap),
+            "Tap Lift" => return Some(&mut self.lift),
+            "Tap Fake" => return Some(&mut self.fake),
+            "Tap Mine" => return Some(&mut self.mine),
+            _ => {}
+        }
+        let mut words = name.split(' ');
+        let parts = match words.next()? {
+            "Hold" => &mut self.hold,
+            "Roll" => &mut self.roll,
+            _ => return None,
+        };
+        let part = ["Head", "Tail", "Topcap", "Body", "Bottomcap"]
+            .iter()
+            .position(|p| Some(*p) == words.next())?;
+        let active = match words.next()? {
+            "Inactive" => 0,
+            "Active" => 1,
+            _ => return None,
+        };
+        Some(&mut parts[part][active])
+    }
+
+    fn get_mut(&mut self, slot: Slot) -> &mut Option<Element> {
+        match slot {
+            Slot::Tap => &mut self.tap,
+            Slot::Lift => &mut self.lift,
+            Slot::Fake => &mut self.fake,
+            Slot::Mine => &mut self.mine,
+        }
+    }
+
+    fn all_mut(&mut self) -> impl Iterator<Item = &mut Element> {
+        [
+            &mut self.tap,
+            &mut self.lift,
+            &mut self.fake,
+            &mut self.mine,
+        ]
+        .into_iter()
+        .chain(self.hold.iter_mut().flatten())
+        .chain(self.roll.iter_mut().flatten())
+        .filter_map(Option::as_mut)
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Lane {
     metrics: NoteDisplay,
@@ -126,6 +202,9 @@ struct Lane {
     holding: Option<HoldKind>,
     /// The layout's scroll sign for the lane (-1: a lower-row lane).
     scroll_sign: i8,
+    /// The note elements of 8ths to 192nds, when the skin's Lua colours
+    /// notes by `Var "Color"` (empty otherwise: every note is as the 4ths).
+    colors: Vec<ColorSet>,
 }
 
 /// A noteskin playing.
@@ -259,6 +338,92 @@ impl Lane {
             roll,
             holding: None,
             scroll_sign,
+            colors: Vec::new(),
+        }
+    }
+
+    fn base_slot(&mut self, slot: Slot) -> &mut Element {
+        match slot {
+            Slot::Tap => &mut self.tap,
+            Slot::Lift => &mut self.lift,
+            Slot::Fake => &mut self.fake,
+            Slot::Mine => &mut self.mine,
+        }
+    }
+
+    /// The element drawing a note of `note_type` (`note_type()`: 0 for
+    /// 4ths … 8 for 192nds) in `slot`.
+    fn note_slot(&mut self, slot: Slot, note_type: u32) -> &mut Element {
+        let colored = (note_type as usize).checked_sub(1).filter(|&i| {
+            self.colors
+                .get_mut(i)
+                .is_some_and(|c| c.get_mut(slot).is_some())
+        });
+        match colored {
+            Some(i) => self.colors[i]
+                .get_mut(slot)
+                .as_mut()
+                .expect("checked above"),
+            None => self.base_slot(slot),
+        }
+    }
+
+    /// Exchanges the hold's (or roll's) parts with note type `note_type`'s
+    /// copies: before drawing a hold in its head's colour, and after.
+    fn swap_hold_colors(&mut self, note_type: u32, roll: bool) {
+        let Lane {
+            hold,
+            roll: rolls,
+            colors,
+            ..
+        } = self;
+        let Some(set) = (note_type as usize)
+            .checked_sub(1)
+            .and_then(|i| colors.get_mut(i))
+        else {
+            return;
+        };
+        let (parts, copies) = if roll {
+            (rolls, &mut set.roll)
+        } else {
+            (hold, &mut set.hold)
+        };
+        for (base, copy) in parts.all_mut().zip(copies.iter_mut().flatten()) {
+            if let Some(copy) = copy {
+                std::mem::swap(base, copy);
+            }
+        }
+    }
+
+    /// Drops the copies that are not drawn as their 4ths' are (the skin's
+    /// or the built-in skin's): a copy that failed to load falls back to
+    /// the 4ths'.
+    fn settle_colors(&mut self) {
+        let Lane {
+            tap,
+            lift,
+            fake,
+            mine,
+            hold,
+            roll,
+            colors,
+            ..
+        } = self;
+        for set in colors.iter_mut() {
+            for (base, copy) in [
+                (&*tap, &mut set.tap),
+                (&*lift, &mut set.lift),
+                (&*fake, &mut set.fake),
+                (&*mine, &mut set.mine),
+            ]
+            .into_iter()
+            .chain(hold.all().zip(set.hold.iter_mut().flatten()))
+            .chain(roll.all().zip(set.roll.iter_mut().flatten()))
+            {
+                if copy.as_ref().is_some_and(|c| c.is_skin() != base.is_skin()) {
+                    *copy = None;
+                }
+            }
         }
     }
 }
@@ -360,14 +525,48 @@ impl NoteskinPlay {
         let mut lanes = Vec::new();
         for (lane, button) in layout.lanes.iter().zip(buttons) {
             let mut elements = Vec::new();
+            // The note elements whose Lua read their colour.
+            let mut colored = Vec::new();
             for name in LANE_ELEMENTS {
-                let built = lua
-                    .element_sliced(button, name, &mut textures, images, pause.as_deref_mut())
+                let (built, read) = lua
+                    .element_colored_sliced(
+                        button,
+                        name,
+                        NOTE_COLORS[0],
+                        &mut textures,
+                        images,
+                        pause.as_deref_mut(),
+                    )
                     .await?;
+                if read && ColorSet::default().place(name).is_some() {
+                    colored.push(name);
+                }
                 elements.push(to_element(built, button, name, &textures, &mut notes));
             }
             let metrics = NoteDisplay::read(&lua.skin(), button.name());
-            lanes.push(Lane::assemble(elements, metrics, lane.scroll_sign));
+            let mut assembled = Lane::assemble(elements, metrics, lane.scroll_sign);
+            if !colored.is_empty() {
+                for color in &NOTE_COLORS[1..] {
+                    let mut set = ColorSet::default();
+                    for &name in &colored {
+                        let (built, _) = lua
+                            .element_colored_sliced(
+                                button,
+                                name,
+                                color,
+                                &mut textures,
+                                images,
+                                pause.as_deref_mut(),
+                            )
+                            .await?;
+                        if let Some(place) = set.place(name) {
+                            *place = Some(to_element(built, button, name, &textures, &mut notes));
+                        }
+                    }
+                    assembled.colors.push(set);
+                }
+            }
+            lanes.push(assembled);
         }
         // Every element is loaded: the play takes the trees it draws.
         for lane in &mut lanes {
@@ -378,6 +577,7 @@ impl NoteskinPlay {
                     *e = Element::BuiltIn;
                 }
             }
+            lane.settle_colors();
         }
         let name = lua.skin().name.clone();
         let mut play = NoteskinPlay::from_lanes(name, lanes, textures, notes, srgb, Some(lua));
@@ -818,6 +1018,7 @@ impl Lane {
         .chain(self.roll.all())
     }
 
+    /// Every element, the colours' too.
     fn elements_mut(&mut self) -> impl Iterator<Item = &mut Element> {
         [
             &mut self.receptor,
@@ -830,6 +1031,7 @@ impl Lane {
         .into_iter()
         .chain(self.hold.all_mut())
         .chain(self.roll.all_mut())
+        .chain(self.colors.iter_mut().flat_map(ColorSet::all_mut))
     }
 }
 
@@ -936,6 +1138,9 @@ impl NoteLayer for NoteskinPlay {
             let (Some(l), Some(lane)) = (layout.lanes.get(i), lanes.get_mut(i)) else {
                 continue;
             };
+            // The hold in its head's colour (the copies swapped back below).
+            let note_type = note_type(note.beat);
+            lane.swap_hold_colors(note_type, roll);
             let m = lane.metrics.clone();
             // The Active sprites while the button is held (always inside a
             // roll; `Player.cpp:1381-1386`, `1414-1424`).
@@ -1026,6 +1231,7 @@ impl NoteLayer for NoteskinPlay {
                 let parts = if roll { &mut lane.roll } else { &mut lane.hold };
                 parts.head[a] = head;
             }
+            lane.swap_hold_colors(note_type, roll);
         }
         self.lanes = lanes;
     }
@@ -1053,14 +1259,15 @@ impl NoteLayer for NoteskinPlay {
                 continue;
             };
             let (slot, part) = match note.kind {
-                SpriteKind::Tap | SpriteKind::Dummy => (&mut lane.tap, Part::TapNote),
-                SpriteKind::Lift => (&mut lane.lift, Part::TapLift),
-                SpriteKind::Fake => (&mut lane.fake, Part::TapFake),
-                SpriteKind::Mine | SpriteKind::Shock => (&mut lane.mine, Part::TapMine),
+                SpriteKind::Tap | SpriteKind::Dummy => (Slot::Tap, Part::TapNote),
+                SpriteKind::Lift => (Slot::Lift, Part::TapLift),
+                SpriteKind::Fake => (Slot::Fake, Part::TapFake),
+                SpriteKind::Mine | SpriteKind::Shock => (Slot::Mine, Part::TapMine),
                 _ => continue,
             };
+            let note_type = note_type(note.beat);
             let at = [geo.lane_x(l.column), geo.lane_y(l.scroll_sign, note.y)];
-            let mut e = std::mem::replace(slot, Element::Blank);
+            let mut e = std::mem::replace(lane.note_slot(slot, note_type), Element::Blank);
             let m = lane.metrics.clone();
             self.note_actor(
                 &mut e,
@@ -1074,13 +1281,7 @@ impl NoteLayer for NoteskinPlay {
                 1.0,
                 out,
             );
-            let slot = match part {
-                Part::TapLift => &mut lane.lift,
-                Part::TapFake => &mut lane.fake,
-                Part::TapMine => &mut lane.mine,
-                _ => &mut lane.tap,
-            };
-            *slot = e;
+            *lane.note_slot(slot, note_type) = e;
         }
         self.lanes = lanes;
     }
@@ -1438,6 +1639,90 @@ mod tests {
             actor(&play.lanes[1].receptor).current().pos[..2],
             [0.0, 0.0]
         );
+    }
+
+    #[test]
+    fn skins_get_the_games_judgement_colours() {
+        // `JudgmentLineToColor` (noteskin/src/lua/prelude.lua) keeps its own
+        // table: it must match the receptor flashes'.
+        let play = lua_play(
+            "local t = Def.ActorFrame {}\n\
+             for _, j in ipairs({ 'W1', 'W2', 'W3', 'W4', 'W5', 'Miss' }) do\n\
+               t[#t + 1] = Def.Sprite {\n\
+                 Texture = 'x.png';\n\
+                 InitCommand = function(self) self:diffuse(JudgmentLineToColor('JudgmentLine_' .. j)) end;\n\
+               }\n\
+             end\n\
+             return t\n",
+        );
+        let Element::Actor(tap) = &play.lanes[0].tap else {
+            panic!("{:?}", play.notes)
+        };
+        let judgements = [
+            Judgement::W1,
+            Judgement::W2,
+            Judgement::W3,
+            Judgement::W4,
+            Judgement::W5,
+            Judgement::Miss,
+        ];
+        for (child, j) in tap.children().iter().zip(judgements) {
+            assert_eq!(
+                child.current().diffuse,
+                crate::scene::judgement_color(j),
+                "{j:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tap_whose_lua_reads_its_colour_is_drawn_per_note_type() {
+        let mut play = lua_play(
+            "local x = ({ ['4th'] = 1, ['8th'] = 2 })[Var 'Color'] or 9\n\
+             return Def.ActorFrame {\n\
+               InitCommand = function(self) self:x(x) end;\n\
+               Def.Sprite { Texture = 'x.png' };\n\
+             }\n",
+        );
+        assert!(play.notes.is_empty(), "{:?}", play.notes);
+        let lane = &mut play.lanes[0];
+        assert_eq!(lane.colors.len(), 8);
+        let x = |e: &mut Element| match e {
+            Element::Actor(a) => a.current().pos[0],
+            _ => panic!("{e:?}"),
+        };
+        assert_eq!(x(lane.note_slot(Slot::Tap, 0)), 1.0);
+        assert_eq!(x(lane.note_slot(Slot::Tap, 1)), 2.0);
+        assert_eq!(x(lane.note_slot(Slot::Tap, 8)), 9.0);
+        // Heads are taps in dance/default: coloured too, swapped in for a
+        // hold of their type.
+        lane.swap_hold_colors(1, false);
+        assert_eq!(x(&mut lane.hold.head[1]), 2.0);
+        lane.swap_hold_colors(1, false);
+        assert_eq!(x(&mut lane.hold.head[1]), 1.0);
+        // Every copy is lent to the Lua and updated.
+        assert!(lane.elements_mut().count() > 26);
+        // A skin that does not read it loads its notes once.
+        let plain = lua_play("return Def.ActorFrame { Def.Sprite { Texture = 'x.png' } }\n");
+        assert!(plain.lanes[0].colors.is_empty());
+    }
+
+    #[test]
+    fn a_colour_that_fails_to_load_is_drawn_as_the_4ths() {
+        let mut play = lua_play(
+            "if Var 'Color' == '12th' then error('no 12ths') end\n\
+             local x = ({ ['4th'] = 1, ['8th'] = 2 })[Var 'Color'] or 9\n\
+             return Def.ActorFrame {\n\
+               InitCommand = function(self) self:x(x) end;\n\
+               Def.Sprite { Texture = 'x.png' };\n\
+             }\n",
+        );
+        let lane = &mut play.lanes[0];
+        assert!(lane.colors[1].tap.is_none());
+        let Element::Actor(a) = lane.note_slot(Slot::Tap, 2) else {
+            panic!()
+        };
+        assert_eq!(a.current().pos[0], 1.0);
     }
 
     #[test]

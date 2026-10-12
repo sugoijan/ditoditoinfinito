@@ -160,10 +160,15 @@ is:
   globals, the Lua-defined actor helpers (`smooth`, `thump`, …).
 - `NOTESKIN:GetPath`/`GetMetric*`/`LoadActor` over the skin's files (the
   existing `ddi_noteskin::Skin`), `loadfile` over them, `Var` (Button,
-  Element, Player, SpriteOnly, Color, Controller), a `GAMESTATE` subset
-  (game, style, current steps' timing, song position, lead-in, player
-  options as far as skins read them), `PREFSMAN:GetPreference`,
-  `ProductFamily()` as "ITGmania". Anything else is nil and fails loudly.
+  GameButton, Element, Player, SpriteOnly, Color, Controller), a
+  `GAMESTATE` subset (game, style, current steps' timing, song position,
+  lead-in, player options as far as skins read them, and OutFox's
+  `GetIsFieldReversed`), `PREFSMAN:GetPreference`, `ProductFamily()` as
+  "ITGmania", and since 2026-10-12 (`docs/plans/bundled-skins.md`, step 4)
+  OutFox's `INPUTFILTER:GameButtonToKeyMapped` (`""`), a `THEME` knowing
+  NoteField's `NoteFieldType` and `ShowBoard`, and `_fallback`'s
+  `JudgmentLineToColor` in the game's colours. Anything else is nil and
+  fails loudly.
   Host functions charge the budget and count actors and textures.
 - The `NoteSkin.lua` chain and `Load()` per element produce actor trees fed
   to the existing builder; a skin's own redirects and blanks now apply;
@@ -219,7 +224,8 @@ what step 4 needs:
   test; every hostile case ends within 2 s and the VM's 32 MiB.
 - ITGmania's `Var "Color"` reads "4th": notes load once, not once per
   quantization colour as ITGmania loads them (STARLiGHT and ITGmania's
-  `couples` ask for it).
+  `couples` ask for it). Done since 2026-10-12 (`docs/plans/bundled-skins.md`,
+  step 4): a note element whose Lua reads it loads once per note type.
 - Checked: unit tests on synthetic skins (the stand-ins, a Delta-like skin,
   fields and added methods, `SetStateProperties`, sandboxing, errors and
   limits, hostile tables and loops, each ending within 2 s); the local
@@ -313,7 +319,8 @@ phone by hand). What it does, and what differs from the plan:
   Lua's deadline, blank elements left blank after a stop, records
   rewritten on every play.
 - Not done: per-colour notes (ITGmania's `Var "Color"` still reads
-  "4th"), `ShowNoteUpcoming`/`MinefieldOn`, the per-frame cost on a phone.
+  "4th"; done since in `docs/plans/bundled-skins.md`, step 4),
+  `ShowNoteUpcoming`/`MinefieldOn`, the per-frame cost on a phone.
   A skin readied for a song the player leaves keeps loading in the
   background (its slices yield) and its stop still counts.
 - Checked: unit tests on synthetic skins (events with parameters, a
