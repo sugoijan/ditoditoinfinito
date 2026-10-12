@@ -10,6 +10,8 @@ use crate::songs::fetch_text;
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 struct Credits {
     songs: Vec<SongCredit>,
+    #[serde(default)]
+    noteskins: Vec<SkinCredit>,
     fonts: Vec<FontCredit>,
     video: VideoCredit,
     #[serde(default)]
@@ -40,6 +42,22 @@ struct SongCredit {
     parts: Vec<PartCredit>,
     #[serde(default)]
     chart_authors: std::collections::BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    excluded: Vec<String>,
+    #[serde(default)]
+    modifications: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct SkinCredit {
+    name: String,
+    author: String,
+    source_url: String,
+    source_path: String,
+    source_commit: String,
+    #[serde(default)]
+    retrieved: String,
+    parts: Vec<PartCredit>,
     #[serde(default)]
     excluded: Vec<String>,
     #[serde(default)]
@@ -118,9 +136,15 @@ impl Component for CreditsScreen {
             Some(Err(e)) => html! { <p class="error">{ e }</p> },
             Some(Ok(c)) => html! {
                 <>
-                    <p>{ "Dito Dito Infinito's code is MIT-licensed. The bundled demo songs and fonts, the video decoder and the code from other projects are third-party works used under their own licences, credited here as those licences require." }</p>
+                    <p>{ "Dito Dito Infinito's code is MIT-licensed. The bundled demo songs, noteskins and fonts, the video decoder and the code from other projects are third-party works used under their own licences, credited here as those licences require." }</p>
                     <h2>{ "Songs" }</h2>
                     { for c.songs.iter().map(song) }
+                    { if c.noteskins.is_empty() { html!{} } else { html! {
+                        <section>
+                            <h2>{ "Noteskins" }</h2>
+                            { for c.noteskins.iter().map(noteskin) }
+                        </section>
+                    } } }
                     <h2>{ "Fonts" }</h2>
                     <ul>
                         { for c.fonts.iter().map(|f| html! {
@@ -170,6 +194,26 @@ fn song(s: &SongCredit) -> Html {
                 } } }
                 { if s.excluded.is_empty() { html!{} } else { html!{ <li class="muted">{ "not included: " }{ s.excluded.join("; ") }</li> } } }
                 <li class="muted">{ if s.modifications.is_empty() { "modifications: none".to_string() } else { format!("modifications: {}", s.modifications.join("; ")) } }</li>
+            </ul>
+        </section>
+    }
+}
+
+fn noteskin(k: &SkinCredit) -> Html {
+    html! {
+        <section class="credit-song">
+            <h3>{ format!("{} — {}", k.name, k.author) }</h3>
+            <p class="muted">
+                { "Source: " }<a href={k.source_url.clone()}>{ &k.source_url }</a>
+                { format!(" (commit {}, folder “{}”{})", &k.source_commit[..k.source_commit.len().min(10)], k.source_path,
+                    if k.retrieved.is_empty() { String::new() } else { format!(", retrieved {}", k.retrieved) }) }
+            </p>
+            <ul>
+                { for k.parts.iter().map(|p| html! {
+                    <li><strong>{ &p.part }</strong>{ ": " }{ p.holders.join(", ") }{ " — " }<a href={p.url.clone()}>{ &p.spdx }</a></li>
+                }) }
+                { if k.excluded.is_empty() { html!{} } else { html!{ <li class="muted">{ "not included: " }{ k.excluded.join("; ") }</li> } } }
+                <li class="muted">{ if k.modifications.is_empty() { "modifications: none".to_string() } else { format!("modifications: {}", k.modifications.join("; ")) } }</li>
             </ul>
         </section>
     }

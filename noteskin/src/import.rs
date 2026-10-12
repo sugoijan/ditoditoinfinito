@@ -109,6 +109,13 @@ pub fn kept_game(game: &str) -> bool {
     game == "dance" || game == "common"
 }
 
+/// Whether a skin's file is kept as text with the skin's record: its
+/// `metrics.ini`, redirects and Lua (what [`crate::Folder::texts`] holds).
+pub fn kept_text(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower == "metrics.ini" || lower.ends_with(".redir") || lower.ends_with(".lua")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

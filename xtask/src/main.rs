@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
 mod credits;
+mod noteskins;
 mod songs;
 
 #[derive(Parser)]
@@ -25,6 +26,14 @@ enum Commands {
     /// Generate target/songs/index.json from assets/songs/*/ (chart + PROVENANCE.toml).
     #[command(name = "gen-songs")]
     GenSongs {
+        /// Fail instead of writing when the output would change (CI check).
+        #[arg(long)]
+        check: bool,
+    },
+    /// Check the bundled noteskins (assets/noteskins/<game>/<name>/ with a
+    /// PROVENANCE.toml) and generate target/noteskins/index.json.
+    #[command(name = "gen-noteskins")]
+    GenNoteskins {
         /// Fail instead of writing when the output would change (CI check).
         #[arg(long)]
         check: bool,
@@ -417,6 +426,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::RegenSeo => regen_seo(&seo_paths()),
         Commands::GenSongs { check } => songs::gen_songs(check),
+        Commands::GenNoteskins { check } => noteskins::gen_noteskins(check),
         Commands::GenCredits { check } => credits::gen_credits(check),
         Commands::StageVideo { dest } => stage_video(dest),
     }

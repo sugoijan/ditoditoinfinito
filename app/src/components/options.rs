@@ -64,7 +64,7 @@ pub(crate) enum Msg {
     NoteColors(NoteColors),
     /// The imported noteskins one can pick, `(key, name)`, or why they
     /// could not be read.
-    Noteskins(Result<Vec<(String, String)>, String>),
+    Noteskins(Result<crate::noteskins::Choices, String>),
     Noteskin(Option<String>),
     DeleteNoteskin(String),
     ChartColors(bool),
@@ -332,17 +332,23 @@ impl Component for Options {
             Msg::BackgroundFrame(v) => self.settings.background_frame = v,
             Msg::NoteColors(v) => self.settings.note_colors = v,
             Msg::Noteskins(list) => {
-                let list = match list {
+                let crate::noteskins::Choices {
+                    skins: list,
+                    complete,
+                } = match list {
                     Ok(l) => l,
-                    // Storage could not be read (another tab upgrading it):
-                    // keep the choice.
+                    // Neither storage nor the bundled skins could be read
+                    // (another tab upgrading storage, the network): keep
+                    // the choice.
                     Err(e) => {
                         web_sys::console::warn_1(&e.into());
                         return false;
                     }
                 };
-                // A chosen skin that is no longer there: the built-in arrows.
+                // A chosen skin that is no longer there: the built-in
+                // arrows (not when some skins could not be read).
                 if let Some(k) = &self.settings.noteskin
+                    && complete
                     && !list.iter().any(|(key, _)| key == k)
                 {
                     self.settings.noteskin = None;
@@ -630,8 +636,8 @@ impl Component for Options {
 }
 
 impl Options {
-    /// "Arrows": the built-in ones or an imported noteskin (for dance
-    /// layouts; the colour scheme above is the built-in ones').
+    /// "Arrows": the built-in ones, a bundled or an imported noteskin (for
+    /// dance layouts; the colour scheme above is the built-in ones').
     fn noteskin_choice(&self, link: &html::Scope<Self>) -> Html {
         if self.noteskins.is_empty() {
             return html! {};
@@ -645,15 +651,18 @@ impl Options {
             Msg::Noteskin(list.iter().find(|(k, _)| *k == v).map(|(k, _)| k.clone()))
         });
         let current = self.settings.noteskin.clone();
-        let delete = current.clone().map(|key| {
-            let label = if self.confirm_noteskin.as_deref() == Some(key.as_str()) {
-                "click again to remove it"
-            } else {
-                "remove this noteskin"
-            };
-            let onclick = link.callback(move |_| Msg::DeleteNoteskin(key.clone()));
-            html! { <button type="button" class="link" {onclick}>{ label }</button> }
-        });
+        let delete = current
+            .clone()
+            .filter(|k| !k.starts_with(crate::noteskins::BUNDLED))
+            .map(|key| {
+                let label = if self.confirm_noteskin.as_deref() == Some(key.as_str()) {
+                    "click again to remove it"
+                } else {
+                    "remove this noteskin"
+                };
+                let onclick = link.callback(move |_| Msg::DeleteNoteskin(key.clone()));
+                html! { <button type="button" class="link" {onclick}>{ label }</button> }
+            });
         html! {
             <label>{ "Arrows " }
                 <select {onchange}>

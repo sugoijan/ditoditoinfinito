@@ -50,7 +50,8 @@ the browser are implementation details, not advertised features.
   `target/video/ddivideo.wasm` with wasi-sdk (LGPL module, never
   committed); `docs/plans/video-backgrounds.md`.
 - `assets/songs/<id>/` bundled songs with a `PROVENANCE.toml` each;
-  `assets/fonts/` the embedded HUD font.
+  `assets/noteskins/<game>/<name>/` bundled noteskins, the same way
+  (`docs/plans/bundled-skins.md`); `assets/fonts/` the embedded HUD font.
 
 ## Commands
 
@@ -80,8 +81,10 @@ the browser are implementation details, not advertised features.
 - `just video` builds the decoder module (downloads the pinned toolchain and
   FFmpeg into `target/video/`); `just video-check [file]` checks it on a file
   or on generated clips against the `ffmpeg` command's decode.
-- `cargo run -p xtask -- gen-songs` / `gen-credits` regenerate the manifest and
-  credits (Trunk runs both before every build; CI checks `CREDITS.md` is fresh).
+- `cargo run -p xtask -- gen-songs` / `gen-noteskins` / `gen-credits`
+  regenerate the song manifest, the bundled noteskins' index and the
+  credits (Trunk runs them before every build; CI checks `CREDITS.md` is
+  fresh).
 
 Prefer the latest released versions of dependencies; check crates.io before
 adding one and refresh the lockfile with `cargo update`.
@@ -94,7 +97,12 @@ short: build a static bundle (`trunk build --release --public-url / --dist
 <dir>`) and serve it with any static server, drive it with `playwright-core`
 against the installed Chrome (`channel: 'chrome'`, flags
 `--enable-unsafe-webgpu --use-angle=metal --autoplay-policy=no-user-gesture-required`),
-and read `window.__DDI_DEBUG` for engine state.
+and read `window.__DDI_DEBUG` for engine state. Headless Firefox runs too
+(Playwright's build or the installed one, WebGL2 only), but only through the
+skill's `firefox.mjs`: on macOS a bare launch cannot open Firefox's data folder,
+and the helper keeps Firefox away from the maintainer's profiles.
+Playwright's WebKit (not Safari) runs headless with WebGPU; it ignores the
+gesture rule below, so it does not replace the maintainer's Safari check.
 
 Useful URL parameters: `#/play?song=<id>&chart=<n>` (chart index as in the
 manifest), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
@@ -150,7 +158,11 @@ timeline; keep it that way or offset tests become meaningless.
 - Bundled songs: only works whose music, charts and graphics each carry an
   explicit free licence in the upstream files (CC BY, or CC BY-SA as a second
   tier). Never NC, ND, undeclared, or licensed only on a web page.
-- Each song directory keeps the upstream files byte-identical plus
+- Bundled noteskins: art under CC BY, CC BY-SA, Apache-2.0, the Unlicense
+  or CC0, declared in the upstream files; code we may not take (Lua derived
+  from unlicensed skins) is replaced by our own and listed as a
+  modification.
+- Each song or skin directory keeps the upstream files byte-identical plus
   `PROVENANCE.toml` (source URL, pinned commit, retrieval date, licences per
   part, exclusions, modifications). In that file, `excluded` and
   `modifications` must sit above the `[source]`/`[[licenses]]` tables: TOML

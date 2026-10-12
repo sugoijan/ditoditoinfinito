@@ -574,6 +574,7 @@ async fn store_noteskins(
             origin: found.dir.clone(),
             stored,
             lua_broken: None,
+            bundled: None,
         };
         match store(&skin, blobs) {
             Ok(writes) => match db.write(writes).await {
@@ -593,6 +594,7 @@ async fn store_noteskins(
     for s in &mut all {
         crate::noteskins::add_lua_texts(db, s).await;
     }
+    all.extend(crate::noteskins::bundled_or_none().await);
     let folders: Vec<ddi_noteskin::Folder> = all
         .iter()
         .map(|s| ddi_noteskin::Folder {

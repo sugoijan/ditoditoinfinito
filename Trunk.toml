@@ -23,6 +23,12 @@ stage = "pre_build"
 command = "cargo"
 command_arguments = ["run", "-p", "xtask", "--", "gen-songs"]
 
+# Bundled noteskins' index from assets/noteskins/*/*/ (files, texts).
+[[hooks]]
+stage = "pre_build"
+command = "cargo"
+command_arguments = ["run", "-p", "xtask", "--", "gen-noteskins"]
+
 # CREDITS.md (checked in) and target/credits/credits.json (bundled) from
 # REUSE.toml + PROVENANCE.toml files.
 [[hooks]]

@@ -1,7 +1,12 @@
-//! Imported noteskins: their records in IndexedDB, and readying the chosen
-//! one for a play (its Lua run, its images decoded, its actors built for
-//! the layout). The skin logic is `ddi_noteskin`'s; drawing is
-//! `ddi_render::noteskin`'s.
+//! Noteskins: the imported ones (records in IndexedDB) and the bundled
+//! ones (`noteskins/`, served with the game; `docs/plans/bundled-skins.md`),
+//! and readying the chosen one for a play (its Lua run, its images
+//! decoded, its actors built for the layout). The skin logic is
+//! `ddi_noteskin`'s; drawing is `ddi_render::noteskin`'s.
+//!
+//! Imported skins come before bundled ones, so an import named like a
+//! bundled skin stands in for it in fallback chains (as StepMania's own
+//! folder would). A bundled skin's key starts with [`BUNDLED`].
 //!
 //! A skin's Lua runs in slices with the page's turn between them. If it
 //! stops (its budget, memory, a host limit), at a load or in a play, that
@@ -26,7 +31,7 @@ use web_sys::{Blob, ImageBitmap};
 
 use crate::web::idb::{self, Db, Write};
 
-/// An imported skin folder, as stored.
+/// A skin folder: imported, as stored, or bundled.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct StoredSkin {
     pub(crate) game: String,
@@ -46,13 +51,21 @@ pub(crate) struct StoredSkin {
     /// skin again clears it.
     #[serde(default)]
     pub(crate) lua_broken: Option<String>,
+    /// A bundled skin's folder under `noteskins/` (never stored).
+    #[serde(skip)]
+    pub(crate) bundled: Option<String>,
 }
 
 impl StoredSkin {
-    /// The store key, `<game>/<name>` (names match ignoring case, as
-    /// StepMania's do).
+    /// The key, `<game>/<name>` (names match ignoring case, as
+    /// StepMania's do), after [`BUNDLED`] for a bundled skin.
     pub(crate) fn key(&self) -> String {
-        skin_key(&self.game, &self.name)
+        let key = skin_key(&self.game, &self.name);
+        if self.bundled.is_some() {
+            format!("{BUNDLED}{key}")
+        } else {
+            key
+        }
     }
 
     fn folder(&self) -> Folder {
@@ -64,6 +77,9 @@ impl StoredSkin {
         }
     }
 }
+
+/// The start of a bundled skin's key.
+pub(crate) const BUNDLED: &str = "bundled:";
 
 pub(crate) fn skin_key(game: &str, name: &str) -> String {
     format!(
@@ -86,11 +102,7 @@ pub(crate) const MAX_SKINS: usize = 200;
 /// The largest `metrics.ini`, `.redir` or `.lua` read, in bytes.
 pub(crate) const MAX_TEXT: u64 = 1 << 20;
 
-/// Whether a skin's file is kept as text with its record.
-pub(crate) fn kept_text(path: &str) -> bool {
-    let lower = path.to_ascii_lowercase();
-    lower == "metrics.ini" || lower.ends_with(".redir") || lower.ends_with(".lua")
-}
+pub(crate) use ddi_noteskin::import::kept_text;
 
 /// Whether a skin's file is worth storing: images, Lua and models (for the
 /// steps that read them), the texts.
@@ -101,6 +113,71 @@ pub(crate) fn kept_file(path: &str) -> bool {
     ]
     .iter()
     .any(|e| lower.ends_with(e))
+}
+
+/// The bundled skins, from `noteskins/index.json` (fetched once; a
+/// failure is not kept, the next call tries again).
+pub(crate) async fn bundled() -> Result<Vec<StoredSkin>, String> {
+    thread_local! {
+        static BUNDLED_SKINS: RefCell<Option<Vec<StoredSkin>>> = const { RefCell::new(None) };
+    }
+    if let Some(skins) = BUNDLED_SKINS.with(|b| b.borrow().clone()) {
+        return Ok(with_session_stops(skins));
+    }
+    let index = match crate::songs::fetch_text("noteskins/index.json").await {
+        Ok(text) => serde_json::from_str::<ddi_noteskin::bundled::Index>(&text)
+            .map_err(|e| format!("noteskins/index.json: {e}")),
+        Err(e) => Err(e),
+    };
+    let skins: Vec<StoredSkin> = index?
+        .skins
+        .into_iter()
+        .map(|b| StoredSkin {
+            game: b.folder.game,
+            name: b.folder.name,
+            files: b.folder.files,
+            texts: b.folder.texts,
+            origin: b.credit,
+            stored: Vec::new(),
+            lua_broken: None,
+            bundled: Some(b.path),
+        })
+        .collect();
+    BUNDLED_SKINS.with(|b| *b.borrow_mut() = Some(skins.clone()));
+    Ok(with_session_stops(skins))
+}
+
+/// [`bundled`], or none (said in the console) when they cannot be read.
+pub(crate) async fn bundled_or_none() -> Vec<StoredSkin> {
+    bundled().await.unwrap_or_else(|e| {
+        web_sys::console::warn_1(&e.into());
+        Vec::new()
+    })
+}
+
+/// Bundled skins whose Lua stopped twice in this session have it off.
+fn with_session_stops(mut skins: Vec<StoredSkin>) -> Vec<StoredSkin> {
+    LUA_OFF.with(|off| {
+        let off = off.borrow();
+        for s in &mut skins {
+            s.lua_broken = off.get(&s.key()).cloned();
+        }
+    });
+    skins
+}
+
+/// Every skin a chain may use: the imported ones (when storage opens),
+/// then the bundled ones.
+pub(crate) async fn catalogue(db: Option<&Db>) -> Vec<StoredSkin> {
+    let mut skins = match db {
+        Some(db) => all(db).await.unwrap_or_else(|e| {
+            web_sys::console::warn_1(&e.into());
+            Vec::new()
+        }),
+        None => Vec::new(),
+    };
+    skins.extend(bundled_or_none().await);
+    skins
 }
 
 /// Every imported skin.
@@ -138,6 +215,9 @@ pub(crate) fn store(skin: &StoredSkin, files: Vec<(String, Blob)>) -> Result<Vec
 
 /// Removes an imported skin and its files.
 pub(crate) async fn delete(key: &str) -> Result<(), String> {
+    if key.starts_with(BUNDLED) {
+        return Err(format!("{key} comes with the game"));
+    }
     let db = Db::open().await?;
     db.write(vec![
         Write::Delete {
@@ -152,23 +232,50 @@ pub(crate) async fn delete(key: &str) -> Result<(), String> {
     .await
 }
 
-/// The dance skins one can pick: `(key, name)`.
-pub(crate) async fn choices() -> Result<Vec<(String, String)>, String> {
-    let db = Db::open().await?;
-    let mut skins: Vec<(String, String)> = all(&db)
-        .await?
+/// The dance skins one can pick: the bundled ones, then the imported ones.
+pub(crate) struct Choices {
+    /// `(key, name)`.
+    pub(crate) skins: Vec<(String, String)>,
+    /// Whether every skin could be read (else a chosen one missing from
+    /// the list may still be there).
+    pub(crate) complete: bool,
+}
+
+/// The dance skins one can pick; an error when none could be read.
+pub(crate) async fn choices() -> Result<Choices, String> {
+    let imported = match Db::open().await {
+        Ok(db) => all(&db).await,
+        Err(e) => Err(e),
+    };
+    let bundled = bundled().await;
+    let complete = imported.is_ok() && bundled.is_ok();
+    let skins = match (imported, bundled) {
+        (Err(e), Err(_)) => return Err(e),
+        (i, b) => {
+            let mut skins = i.unwrap_or_default();
+            skins.extend(b.unwrap_or_default());
+            skins
+        }
+    };
+    let mut skins: Vec<(bool, String, String)> = skins
         .into_iter()
         .filter(|s| s.game == "dance" && !s.name.eq_ignore_ascii_case("default"))
         .map(|s| {
-            let name = match &s.lua_broken {
-                Some(_) => format!("{} (its Lua is off)", s.name),
-                None => s.name.clone(),
-            };
-            (s.key(), name)
+            let mut name = s.name.clone();
+            if s.bundled.is_some() {
+                name.push_str(" (with the game)");
+            }
+            if s.lua_broken.is_some() {
+                name.push_str(" (its Lua is off)");
+            }
+            (s.bundled.is_none(), s.key(), name)
         })
         .collect();
-    skins.sort_by_key(|(_, n)| n.to_lowercase());
-    Ok(skins)
+    skins.sort_by_key(|(imported, _, n)| (*imported, n.to_lowercase()));
+    Ok(Choices {
+        skins: skins.into_iter().map(|(_, k, n)| (k, n)).collect(),
+        complete,
+    })
 }
 
 /// What each element of a skin is, in a line for the import report: how
@@ -475,15 +582,21 @@ pub(crate) async fn add_lua_texts(db: &Db, skin: &mut StoredSkin) {
 thread_local! {
     /// Skins whose Lua stopped once in this session.
     static STOPPED_ONCE: RefCell<std::collections::HashSet<String>> = RefCell::default();
+    /// Bundled skins whose Lua is off for the session, and why.
+    static LUA_OFF: RefCell<HashMap<String, String>> = RefCell::default();
 }
 
 /// Skin `key`'s Lua stopped (at a load or in a play) because of `why`:
 /// the next play tries again; the second time its Lua is turned off and
-/// the record says why.
+/// the record says why (a bundled skin's for the session).
 pub(crate) async fn lua_stopped(key: &str, why: &str) {
     web_sys::console::warn_1(&format!("noteskin {key}: {why}").into());
     let again = STOPPED_ONCE.with(|s| !s.borrow_mut().insert(key.to_string()));
     if !again {
+        return;
+    }
+    if key.starts_with(BUNDLED) {
+        LUA_OFF.with(|off| off.borrow_mut().insert(key.to_string(), why.to_string()));
         return;
     }
     let Ok(db) = Db::open().await else {
@@ -510,7 +623,7 @@ pub(crate) async fn lua_stopped(key: &str, why: &str) {
 /// Decodes the images `sizes` noted in its probe that are not decoded
 /// yet, up to [`MAX_PIXELS`] in all; then `sizes` answers with theirs.
 async fn decode(
-    db: &Db,
+    db: Option<&Db>,
     stored: &[StoredSkin],
     sizes: &mut Sizes,
     bitmaps: &mut HashMap<(usize, String), ImageBitmap>,
@@ -536,12 +649,16 @@ async fn decode(
             );
             continue;
         }
-        let blob = db
-            .get(idb::FILES, &file_key(&skin.key(), &path))
-            .await
-            .ok()
-            .flatten()
-            .and_then(|v| v.dyn_into::<Blob>().ok());
+        let blob = match (&skin.bundled, db) {
+            (Some(dir), _) => fetch_blob(dir, &path).await,
+            (None, Some(db)) => db
+                .get(idb::FILES, &file_key(&skin.key(), &path))
+                .await
+                .ok()
+                .flatten()
+                .and_then(|v| v.dyn_into::<Blob>().ok()),
+            (None, None) => None,
+        };
         let Some(blob) = blob else {
             web_sys::console::warn_1(
                 &format!("noteskin {}: {path} is not stored", skin.name).into(),
@@ -562,8 +679,32 @@ async fn decode(
     sizes.probe = false;
 }
 
-/// Whether a skin or one of the imported skins it falls back on has Lua
-/// of its own.
+/// A bundled skin's file `path`, from its folder `dir` under `noteskins/`.
+async fn fetch_blob(dir: &str, path: &str) -> Option<Blob> {
+    let encoded: Vec<String> = format!("{dir}/{path}")
+        .split('/')
+        .map(|p| String::from(js_sys::encode_uri_component(p)))
+        .collect();
+    let bytes = crate::songs::fetch_bytes(&format!("noteskins/{}", encoded.join("/")))
+        .await
+        .map_err(|e| web_sys::console::warn_1(&e.into()))
+        .ok()?;
+    let mime = match path
+        .rsplit('.')
+        .next()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("bmp") => "image/bmp",
+        _ => "",
+    };
+    crate::web::files::bytes_blob(&bytes, mime).ok()
+}
+
+/// Whether a skin or one of the skins it falls back on has Lua of its own.
 fn has_lua(skin: &Skin<'_>) -> bool {
     skin.chain.iter().any(|&d| {
         skin.folder(d).is_some_and(|f| {
@@ -593,9 +734,15 @@ pub(crate) fn forget_stops(key: &str) {
 /// there is no such skin, it does not load, or the layout's lanes are not
 /// dance buttons.
 pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prepared> {
-    let db = Db::open().await.ok()?;
-    let mut stored = all(&db).await.ok()?;
+    // A bundled skin plays without storage.
+    let db = Db::open().await.ok();
+    let mut stored = catalogue(db.as_ref()).await;
+    // The chosen skin first: skins are found by name, and an imported one
+    // may share a bundled one's.
     let chosen = stored.iter().position(|s| s.key() == key)?;
+    let first = stored.remove(chosen);
+    stored.insert(0, first);
+    let chosen = 0;
     // The `.lua` texts of the folders the skin falls back on.
     let chain: Vec<usize> = {
         let folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
@@ -615,8 +762,10 @@ pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prep
             .collect()
     };
     for i in chain {
-        if let Some(s) = stored.get_mut(i) {
-            add_lua_texts(&db, s).await;
+        if let (Some(s), Some(db)) = (stored.get_mut(i), &db)
+            && s.bundled.is_none()
+        {
+            add_lua_texts(db, s).await;
         }
     }
     let stored = stored;
@@ -663,7 +812,7 @@ pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prep
     }
     let mut bitmaps: HashMap<(usize, String), ImageBitmap> = HashMap::new();
     let mut pixels: u64 = 0;
-    decode(&db, &stored, &mut sizes, &mut bitmaps, &mut pixels).await;
+    decode(db.as_ref(), &stored, &mut sizes, &mut bitmaps, &mut pixels).await;
     let mut play = None;
     if with_lua && lua_error.is_none() {
         match lua_play(
@@ -683,7 +832,7 @@ pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prep
                 // The native build may want images the Lua did not.
                 sizes.probe = true;
                 let _ = NoteskinPlay::new(&skin, layout, &sizes, true);
-                decode(&db, &stored, &mut sizes, &mut bitmaps, &mut pixels).await;
+                decode(db.as_ref(), &stored, &mut sizes, &mut bitmaps, &mut pixels).await;
             }
         }
     }
