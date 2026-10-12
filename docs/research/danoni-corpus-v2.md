@@ -4,8 +4,9 @@ Research date: 2026-10-10. This expands the
 [single-song source corpus](danoni-indexes.md) with more **live**
 publications, both legacy SWF works and HTML5 works spanning the CW engine
 generations encountered in this survey. The output is a local source/capture corpus under
-`~/Music/DanOni/single-song-corpus-v2/`. It is not a new export generation and
-nothing here is in the export registry yet. No third-party bytes are in Git.
+`~/Music/DanOni/single-song-corpus-v2/`. The acquisition sections describe the original survey snapshot; subsequent
+admissions and the current extraction queue are recorded below. No third-party
+bytes are in Git.
 
 ## Inputs and selection
 
@@ -69,7 +70,9 @@ because the earlier survey recorded discouraging terms and a 403.
 All 18 movies are AVM1 (`FileAttributes` AS3 flag clear, no DoABC), with
 60 FPS headers. Sidecar names below come from static movie strings and were
 fetched only when named explicitly. A restricted native run must confirm them;
-none has a title capture or projection yet.
+none had a title capture or projection at acquisition time. The
+[subsequent native batch](danoni-legacy-single-admission.md) records seven probes
+and three partly/fully admitted works.
 
 | Directory | Year / modes (catalogue) | Static family and sidecars |
 | --- | --- | --- |
@@ -213,16 +216,18 @@ port of Higan itself was found.
 
 ## Remaining extraction work (2026-10-12)
 
-The original 113-source inventory now has **68 accepted, one partly accepted
-and 44 pending** entries. The pending acquisitions are 24 HTML5 engine probes,
-18 legacy works and two Wayback works. This counts source entries, not playable
+The original 113-source inventory now has **69 accepted, three partly accepted
+and 41 pending** entries. The pending acquisitions are 24 HTML5 engine probes,
+15 legacy works and two Wayback works. This counts source entries, not playable
 songs or selectors. The latest local inventory is
-`~/Music/DanOni/reviews/corpus-v2-gen0-20261012/admission-inventory.json`.
+`~/Music/DanOni/reviews/corpus-v2-legacy8-20261012/admission-inventory.json`.
 
-1. Probe the separately acquired 闇夜の月 (`varenntainn-yamiyo`) against the
-   new `dac-5` contract; its static gen0 resemblance still needs native proof.
-   Then inspect the remaining single-song legacy sources and runtime-built
-   carrotcastle dependencies. The two collections require menu enumeration.
+1. Prove child `Cnt` timing and nonzero-seek audio for the already captured
+   2005 Air/Cold Breath works. Then inspect other single-song engines and the
+   runtime-built carrotcastle dependencies. The two collections require menu
+   enumeration. Yamiyo now supplies ten author charts; its malformed Fly-Sky
+   selector and 歪んだ神's CPU-limited Death remain pending. NIGHTMARE's
+   source rewrites and Luvin' You's converter halts require separate resolution.
 2. Review each unique CW engine hash and recapture into a **new** directory,
    since the existing probes are non-empty. Prefer the existing `.cache-v2`
    with one writer; merge it only through `merge-cache.mjs`. The two older

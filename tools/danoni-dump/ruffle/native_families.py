@@ -123,6 +123,26 @@ def extract_movie_arrays(capture, family, source_prefix=""):
     return baseline,initialized[0][0]['frame']
 
 
+def dac_speed_values(graph, root, suffix):
+    """Preserve unreachable terminal comment/empty tokens in a paired DAC queue."""
+    value = root['speed_dac']
+    raw = [] if value == UNDEFINED else graph.array(value)
+    field = source_field(root,'speed',suffix)
+    strings = [text(v) for v in raw]
+    if field:
+        if strings != text(root[field]).split(','):
+            raise ValueError('DAC speed split bank disagrees with selected source')
+    elif strings not in ([],['']):
+        raise ValueError('DAC speed bank has no selected source field')
+    cut = len(raw)
+    while cut and isinstance(raw[cut-1],dict) and all(not line.strip() or line.lstrip().startswith('//') for line in text(raw[cut-1]).splitlines()):
+        cut -= 1
+    if cut%2:
+        raise ValueError('Inactive DAC tail begins inside an event pair')
+    flat = [numeric(v) for v in raw[:cut]]
+    return flat,raw[cut:]
+
+
 def dac_five_projection(capture, *, fixed=False):
     """Project the early five-lane DAC controller before any cursor consumes data."""
     audit_ok(capture)
@@ -138,7 +158,7 @@ def dac_five_projection(capture, *, fixed=False):
         if fixed:
             if 'keyLabel' in root or 'keyCtrl' in root or not all(type(root.get('key_'+k)) is bool for k in ('LE','DO','UP','RI','SH')):
                 raise ValueError('Need fixed five-key controls without a configurable key bank')
-        elif 'keyLabel' not in root or text(root['keyLabel']) != '5' or 'keyCtrl' not in root:
+        elif 'keyLabel' not in root or source_suffix(root['keyLabel']) != '5' or 'keyCtrl' not in root:
             raise ValueError('Need a selected five-key mode and configurable key bank')
         cursors = [clip+'s' for _,clip in definitions]
         hold_cursors = ['f'+clip+'s' for _,clip in definitions if 'f'+clip+'_dac' in root]
@@ -168,10 +188,7 @@ def dac_five_projection(capture, *, fixed=False):
         known_root = {'f'+clip+'_dac'for _,clip in definitions}|{'fled_dac','frid_dac','speed_dac'}
         if any(k.endswith('_dac') and k not in known_root for k in root):
             raise ValueError('Unrecognized DAC five root effect bank')
-        flat = numbers(graph,root['speed_dac'])
-        field = source_field(root,'speed',suffix)
-        if flat != (split_numbers(root[field]) if field else []):
-            raise ValueError('DAC five speed bank disagrees with selected source')
+        flat,inactive_speed = dac_speed_values(graph,root,suffix)
         if len(flat)%2 or any(int(v)!=v or not 150<=v<=720000 for v in flat[::2]) or any(a>b for a,b in zip(flat[::2],flat[2::2])) or any(v<=0 for v in flat[1::2]):
             raise ValueError('Invalid DAC five speed pairs')
         speed = [{'nativeFrame':f,'multiplier':m}for f,m in zip(flat[::2],flat[1::2])]
@@ -201,7 +218,7 @@ def dac_five_projection(capture, *, fixed=False):
                  'stops':[{'nativeFrame':f,'paused':i%2==0}for i,f in enumerate(stops)],
                  'initialPixelSpeed':initial,'bankObject':bank_id,'nativeKeyCodes':codes,
                  'motionSpeedPolicy':'per-arrow-at-spawn','spawnLookaheadFrames':150,'nativeSpeedChanges':native_speed,
-                 'speedValuePolicy':'multiplicative' if fixed else 'additive-two-pixels',
+                 'speedValuePolicy':'multiplicative' if fixed else 'additive-two-pixels','inactiveSpeedTail':inactive_speed,
                  'metadata':{k:text(root[k])for k in ('diffi','gatit','musicTitle','tuning')if k in root and isinstance(root[k],dict)and root[k].get('type')=='string'}}
         if fixed:
             independent=numeric(root['oni_spi'])
@@ -213,7 +230,7 @@ def dac_five_projection(capture, *, fixed=False):
     if len(initialized)<2:raise ValueError('Need repeated unconsumed DAC five banks')
     iteration,baseline = initialized[0]
     for _,later in initialized[1:]:
-        if any(later[k]!=baseline[k] for k in ('mode','lanes','speed','stops','initialPixelSpeed','nativeKeyCodes','metadata','nativeSpeedChanges','speedValuePolicy')):
+        if any(later[k]!=baseline[k] for k in ('mode','lanes','speed','stops','initialPixelSpeed','nativeKeyCodes','metadata','nativeSpeedChanges','speedValuePolicy','inactiveSpeedTail')):
             raise ValueError('Initialized DAC five data changed before consumption')
     return baseline,iteration
 

@@ -108,6 +108,23 @@ class Families(unittest.TestCase):
         self.assertEqual(chart['nativeSpeedChanges'],[{'nativeFrame':400,'multiplier':1.5,'applicationFrame':250,'pixelSpeed':3.5}])
         self.assertEqual(chart['stops'],[{'nativeFrame':500,'paused':True},{'nativeFrame':560,'paused':False}])
 
+    def test_dac_speed_tail_retains_only_unreachable_terminal_tokens(self):
+        for tokens in (['400','1.5','\n// next author //\n'],['','\n// next author //\n'],['','']):
+            root=dac_five();root['speed_dac']=tokens;root['speed_data']=','.join(tokens)
+            chart,_=dac_five_projection(capture([root,copy.deepcopy(root)]))
+            self.assertEqual([v['text']for v in chart['inactiveSpeedTail']],tokens[2:]if tokens[0]=='400'else tokens)
+        for tokens in (['400',''],['400','// broken multiplier'],['400','1.5','// interior','500','2'],['400','1.5','unknown_data=']):
+            root=dac_five();root['speed_dac']=tokens;root['speed_data']=','.join(tokens)
+            with self.assertRaises(ValueError):dac_five_projection(capture([root,copy.deepcopy(root)]))
+
+    def test_dac_five_accepts_numeric_key_label_without_guessing_modes(self):
+        root=dac_five();root['keyLabel']=5
+        chart,_=dac_five_projection(capture([root,copy.deepcopy(root)]))
+        self.assertEqual(chart['mode'],'5')
+        for label in (5.5,7,-5,True):
+            bad=copy.deepcopy(root);bad['keyLabel']=label
+            with self.assertRaises(ValueError):dac_five_projection(capture([bad,copy.deepcopy(bad)]))
+
     def test_dac_five_rejects_wrong_selector_consumption_and_inactive_lanes(self):
         for corruption in ('source','hold','cursor','duplicate-bank','diagonal','mode','speed-units','speed-source','extra-effect','missing-control'):
             with self.subTest(corruption=corruption):

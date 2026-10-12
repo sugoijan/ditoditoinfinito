@@ -10,22 +10,22 @@ All third-party inputs and generated packs stay outside Git.
 
 ## Current generation
 
-The [gen0 native admission](danoni-gen0-admission.md) adds six works and seven
-five-key charts: **88 songs / 126 charts, 83,630 taps and 3,854 holds**. Every
-song has a banner. The registry has 84 required and 52 pending source entries;
-one extra タイヨウノハナ selector remains explicitly pending within an admitted
-work. All 246 previously accepted playable files and the Kouhaku ZIP remain
-byte-identical. The Single Songs pack now contains **83 songs / 120 charts**;
-93 charts have verified published integer meters and 27 retain Edit/0.
+The [legacy single-song admission](danoni-legacy-single-admission.md) adds
+three works and 13 five-key charts: **91 songs / 139 charts, 94,378 taps and
+4,520 holds**. Every song has a banner. The registry has 87 required and 49
+pending source entries, plus explicit pending selectors in three admitted
+works. All 264 previously accepted playable files and the Kouhaku ZIP remain
+byte-identical. Single Songs now contains **86 songs / 133 charts**;
+98 charts have verified published meters and 35 retain Edit/0.
 
-The prior [gen4 admission](danoni-gen4-admission.md) supplied 82 songs / 119
-charts. The [shared-song timing refinement](danoni-shared-tempo.md) fits
-independently observed chart phases on shared recordings. Those same generic
-BPM, preview and rating policies apply to this batch. Exact source references
-and measured audio origin remain authoritative. The new five-key DAC families
-preserves original per-arrow speed evidence; SSC's inverse-BPM global scroll
-approximates that presentation while keeping note timing and the player X-mod
-independent. Extraction and pack building require no browser.
+The prior [gen0 admission](danoni-gen0-admission.md) supplied 88 songs / 126
+charts. The existing shared-song grid, pickup preview, rating and Ogg policies
+apply unchanged. New `dac-5` captures accept explicit numeric key labels and
+retain unreachable terminal speed comments; scheduled-counter charts keep their
+compiled/raw checks. Native frames and measured audio origins remain exact,
+while SSC global scroll retains its declared per-arrow approximation. The
+unsupported 11-key selector and failed supported selectors stay explicit.
+Extraction and pack building require no browser.
 
 ## Previous paired-source admission
 

@@ -99,7 +99,7 @@ class Rebuild(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);registry=root/'registry.json'
             write_json(registry,{'schema':rebuild.SCHEMA,'root':str(root),'collections':[],'works':[]})
-            for stage in [root/name/part for name in ['native-adapters-v5','native-adapters-v6','native-adapters-v7'] for part in ['','new-stage']]:
+            for stage in [root/name/part for name in ['native-adapters-v5','native-adapters-v6','native-adapters-v7','native-adapters-v8'] for part in ['','new-stage']]:
                 with self.assertRaisesRegex(ValueError,'overlap evidence'):
                     rebuild.build(registry,stage,None,None,None)
                 self.assertFalse(stage.exists())

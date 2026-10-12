@@ -315,3 +315,21 @@ promotion; matching the first arrow is insufficient when the first speed event
 occurs later. Unknown independent onigiri event fields fail. The reference's
 `speedValuePolicy` distinguishes the two laws, and
 `independentOnigiriPixelSpeed` preserves the fixed lane's units.
+
+
+## Collaboration selectors and terminal DAC comments (2026-10-12)
+
+The [legacy single-song admission](danoni-legacy-single-admission.md) adds
+ten Yamiyo author charts, 歪んだ神's Hard and two What's Going On charts.
+`dac-5` now accepts explicit integer key label 5 as well as the string form.
+Its speed-bank reader checks the complete native split array against the
+selected loaded field, retaining only terminal empty/comment tokens after
+complete pairs as `inactiveSpeedTail`. Unknown/interior tokens and incomplete
+pairs still fail. Normalized effects explicitly record the inactive native tail.
+
+A valid source run does not by itself prove a reusable projection. NIGHTMARE
+rewrites some heads before the first split snapshot, Luvin' You halts in its
+converter, and one Yamiyo selector has malformed note/hold fields. These stay
+pending. An observed mode 11 is an explicit scope exclusion. The two 2005
+child-timeline works additionally require a child-counter clock and nonzero-seek
+audio proof; a stopped root movie frame is insufficient.

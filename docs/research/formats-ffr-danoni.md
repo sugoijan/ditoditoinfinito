@@ -952,3 +952,31 @@ keeps an independent onigiri speed. These variants require separate native
 contracts (`dac-5` and `dac-fixed-5`); an initial movement sample before the
 first speed event cannot prove which later law applies. Static controller
 review and original runtime fields remain part of the evidence.
+
+
+### Collaboration banks, source scales and early child clocks (2026-10-12)
+
+The [next native admission](danoni-legacy-single-admission.md) finds:
+
+- [闇夜の月](http://varenntainn.oboroduki.com/yamiyo.html) selects eleven
+  authors from one movie/dos. Its mode is the number 5 rather than a string.
+  Ten selectors pass exact native bank/movement/audio checks; the Fly-Sky
+  selector's malformed note and hold tokens remain pending.
+- DOS comments can remain inside a loaded value after its final comma. Native
+  `speed_dac` keeps them as split strings. Only an unreachable terminal tail
+  after complete pairs is separated; original values and source-field agreement
+  remain in the reference. General comment stripping would change engine input.
+- Original stars and catalogue integers can use different scales:
+  [歪んだ神](http://shomotsu.g2.xrea.com/danoni/sec1/kami2.html) has Hard/three
+  filled stars versus [catalogue level 12](https://cw7.sakura.ne.jp/lst/ds0080/).
+  [What's Going On](http://blossom130.g3.xrea.com/danoni/doxf04/wgo.html) prints
+  hundreds in star-number notation versus catalogue levels 5/6. Retain both
+  publications and explicitly choose the scale; do not infer note counts.
+- [NIGHTMARE](http://tseirproodni.sakura.ne.jp/danoni/1-100/2-6/5/nightmare.html)
+  modifies some heads 37 frames before constant compilation. A raw-looking
+  mixed string/number bank is not necessarily untouched author input.
+- 2005 [Air](http://www7a.biglobe.ne.jp/~tyruster/rank/air/) and
+  [Cold Breath](http://www7a.biglobe.ne.jp/~tyruster/rank/cold/) expose child
+  timeline banks/`Cnt` and one native 22.05 kHz mono stream with nonzero
+  `latencySeek = 1633`. Stream-head counts alone do not identify songs or
+  establish their clock/audio origin. Their full extraction remains pending.
