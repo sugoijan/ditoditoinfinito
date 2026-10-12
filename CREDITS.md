@@ -69,6 +69,15 @@ Source: [https://github.com/TeamRizu/OutFox-Serenity](https://github.com/TeamRiz
 
 ## Noteskins
 
+### Alpha-Arrows — Aozora Tori
+
+Source: [https://github.com/Tiny-Foxes/Aozora-Tori-Assets](https://github.com/Tiny-Foxes/Aozora-Tori-Assets) at commit `499ee273c1bb46225bd7bfa573248c484f6b8656`, folder `Noteskins/alpha-arrows` (retrieved 2026-10-12).
+
+- **the images and readme**: Aozora "Aqui" Tori — [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
+- **the Lua and metrics.ini**: すごいジャン — [MIT](https://opensource.org/license/mit)
+- Not included: NoteSkin.lua, Fallback Explosion.lua, Down/Center *.lua and metrics.ini (code without a clear licence; replaced); Center * and _center * (the center button of other games); Down Mine Body/TopCap/BottomCap and Down Hold LiftTail (OutFox's mine and lift holds)
+- Modifications: the folder renamed alpha-arrows → Alpha-Arrows; NoteSkin.lua, Down Tap Note.lua, Down Tap Lift.lua, Down Tap Mine.lua, Down Receptor.lua, Down Explosion.lua and metrics.ini written anew (MIT, Dito Dito Infinito); LICENSE copied from the repository's root
+
 ### Delta — shakesoda
 
 Source: [https://github.com/stepmania/stepmania](https://github.com/stepmania/stepmania) at commit `825467bcd81c812b33ad684dc04dd151b2d5dec3`, folder `NoteSkins/dance/Delta` (retrieved 2026-10-12).
