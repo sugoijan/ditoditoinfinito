@@ -1,0 +1,33 @@
+# Alpha-Arrows by Aozora Tori: its dance images, readme and licence, byte
+# for byte. Its Lua and metrics.ini are not bundled (its readme says the
+# code is "based from" skins that carry no licence, and its explosion is
+# another author's); this folder's NoteSkin.lua, Down *.lua and
+# metrics.ini are this repository's own, written for the images.
+author = "Aozora Tori"
+credit = "Aozora Tori · Apache 2.0"
+excluded = [
+    "NoteSkin.lua, Fallback Explosion.lua, Down/Center *.lua and metrics.ini (code without a clear licence; replaced)",
+    "Center * and _center * (the center button of other games)",
+    "Down Mine Body/TopCap/BottomCap and Down Hold LiftTail (OutFox's mine and lift holds)",
+]
+modifications = [
+    "the folder renamed alpha-arrows → Alpha-Arrows",
+    "NoteSkin.lua, Down Tap Note.lua, Down Tap Lift.lua, Down Tap Mine.lua, Down Receptor.lua, Down Explosion.lua and metrics.ini written anew (MIT, Dito Dito Infinito)",
+    "LICENSE copied from the repository's root",
+]
+
+[source]
+url = "https://github.com/Tiny-Foxes/Aozora-Tori-Assets"
+commit = "499ee273c1bb46225bd7bfa573248c484f6b8656"
+path = "Noteskins/alpha-arrows"
+retrieved = "2026-10-12"
+
+[[licenses]]
+part = "the images and readme"
+spdx = "Apache-2.0"
+holders = ['Aozora "Aqui" Tori']
+
+[[licenses]]
+part = "the Lua and metrics.ini"
+spdx = "MIT"
+holders = ["すごいジャン"]

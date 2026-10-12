@@ -167,12 +167,41 @@ phone (the maintainer), WebGPU in Firefox (headless has none), Safari.
 
 ## Step 3. Alpha-Arrows (commit 3)
 
-Its images and `metrics.ini` byte-identical; `NoteSkin.lua` and the
-explosion Lua written anew (what to load per button and element, the
+Its images byte-identical; `NoteSkin.lua`, the explosion Lua and
+`metrics.ini` written anew (what to load per button and element, the
 rotations, the explosion's commands), checked against the original's
 output in `local_skins` (same elements, same textures and frames)
 without copying it. The 512 px sheets are decoded at their size (the
 4096 px cap holds).
+
+**Done 2026-10-12.** Bundled as `Alpha-Arrows`: its dance images, readme
+and the repository's `LICENSE` (Apache-2.0) byte for byte; the `Center`
+art (other games), OutFox's mine-hold and lift-hold parts, and all its
+Lua and `metrics.ini` left out. The metrics carry the explosions'
+commands and are written in the same style as the Lua, so they went
+with it: `NoteSkin.lua`, the tap, lift, mine, receptor and explosion Lua
+and `metrics.ini` are ours (MIT), written for the images after reading
+what the original does (Down's art turned per button, heads and fakes as
+taps, top caps only for the diagonals, the receptor's beat pulse and
+press flash, the lift's beat thump, the mine's spin, a turned glow and
+upright rays for the best judgements, a pulsing hold glow); the receptor
+and the explosion follow Dito's (a judgement's colour flashing the
+receptor's flash art, no beat pulse; the explosion's swell and fade),
+with Dito's judgement colours. Reviewed independently: the first
+receptor followed StepMania default's receptor commands with the numbers
+changed, and the explosion's timing echoed the original's metrics; both
+were rewritten.
+A probe built both on our engine: every element draws the same images
+at the same rotations, except the cardinal arrows' hold top caps (the
+original's fall through to StepMania's `common`; ours are blank, the hold
+starting under its head) and the explosion. Checked:
+`noteskin/tests/bundled.rs` (all 156 elements its own, no warning);
+`local_skins`: loads in 7.6 ms, a frame's Lua at a mean of 700 fuel and
+at most 24,600; headless Chrome on the synthetic chart (mines, lifts,
+holds, rolls, explosions, reverse) by screenshot; a full autoplay all
+329 Fantastic and 27 of 27 holds in Chrome (WebGPU) and the installed
+Firefox (WebGL2); the Credits screen lists it with the licence, what is
+left out and what was rewritten.
 
 ## Step 4. Dake (commit 4)
 
