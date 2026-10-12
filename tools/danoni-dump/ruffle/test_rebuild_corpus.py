@@ -95,6 +95,15 @@ class Rebuild(unittest.TestCase):
             with self.assertRaises(ValueError): rebuild.copy_tree(source, root / 'copy')
             with self.assertRaises(ValueError): rebuild.disjoint(source, root)
 
+    def test_staging_cannot_overwrite_native_gen1_evidence(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);registry=root/'registry.json'
+            write_json(registry,{'schema':rebuild.SCHEMA,'root':str(root),'collections':[],'works':[]})
+            for stage in [root/'native-adapters-v5',root/'native-adapters-v5'/'new-stage']:
+                with self.assertRaisesRegex(ValueError,'overlap evidence'):
+                    rebuild.build(registry,stage,None,None,None)
+                self.assertFalse(stage.exists())
+
     def test_required_pending_and_optional_failed_work_are_explicit(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d); (root / 'source.json').write_text('{}')

@@ -38,6 +38,28 @@ fn notes(chart: &ddi_chart::Chart, song: &ddi_chart::Song) -> Vec<(u8, bool, f64
     out.sort_by(|a, b| a.0.cmp(&b.0).then(a.2.total_cmp(&b.2)));
     out
 }
+/// Sample within the first active scroll segment, after beat zero. An author
+/// change can coincide with the baseline at zero; the pre-roll before it still
+/// uses the engine's default ratio and cannot prove authored compensation.
+fn scroll_probe(timing: &ddi_chart::TimingMap) -> (f64, f64, f64) {
+    let start = timing.seconds_at(ddi_chart::Tick::ZERO);
+    let ratio = timing
+        .scrolls
+        .iter()
+        .take_while(|s| s.tick <= ddi_chart::Tick::ZERO)
+        .last()
+        .map_or(1.0, |s| s.ratio);
+    let dt = timing
+        .scrolls
+        .iter()
+        .find(|s| s.tick > ddi_chart::Tick::ZERO)
+        .map_or(0.01, |s| {
+            ((timing.seconds_at(s.tick) - start) / 4.0).min(0.01)
+        });
+    assert!(dt > 0.0, "need a nonempty native scroll interval");
+    (start + 2.0 * dt, dt, ratio)
+}
+
 fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value {
     let original = read(source);
     let m = read(&prepared.join("manifest.json"));
@@ -198,16 +220,10 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
             if native {
                 assert_eq!(timing.scrolls[0].tick, ddi_chart::Tick(0));
                 assert!((timing.scrolls[0].ratio - base).abs() < 1e-12);
-                // Probe before every author change, including one snapped ahead of the first note.
                 let first = &chart.notes[0];
-                let sec = timing
-                    .scrolls
-                    .iter()
-                    .skip(extra)
-                    .map(|s| timing.seconds_at(s.tick))
-                    .fold(timing.seconds_at(first.tick), f64::min)
-                    - 0.01;
-                let dt = 0.01;
+                let (sec, dt, active_ratio) = scroll_probe(timing);
+                let expected =
+                    num(&c["nativeScroll"]["baseArrowHeightsPerSecond"]) * active_ratio / base;
                 for x in [1.0, 2.0, 3.0] {
                     let opt = ddi_engine::scroll::ScrollOptions {
                         speed: ddi_engine::scroll::SpeedMod::XMod(x),
@@ -218,10 +234,9 @@ fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value 
                         as f64
                         / dt;
                     assert!(
-                        (velocity - num(&c["nativeScroll"]["baseArrowHeightsPerSecond"]) * x).abs()
-                            < 0.001,
-                        "base velocity {velocity} for x{x}, expected {}",
-                        num(&c["nativeScroll"]["baseArrowHeightsPerSecond"]) * x
+                        (velocity - expected * x).abs() < 0.001,
+                        "native velocity {velocity} for x{x}, expected {}",
+                        expected * x
                     );
                 }
             }
@@ -368,5 +383,49 @@ fn main() {
             cw(&root.join(strv(&w["dump"])))
         };
         println!("{}", json!({"work":w["id"],"validation":result}));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ddi_chart::{ScrollSegment, Tick, TimingMap};
+
+    #[test]
+    fn native_scroll_probe_handles_an_author_change_at_beat_zero() {
+        for author_at_zero in [false, true] {
+            let bpm = 158.046;
+            let base = 0.9914332319908649;
+            let mut timing = TimingMap::constant(bpm, 1.6128919742711);
+            timing.scrolls.push(ScrollSegment {
+                tick: Tick::ZERO,
+                ratio: base,
+            });
+            if author_at_zero {
+                timing.scrolls.push(ScrollSegment {
+                    tick: Tick::ZERO,
+                    ratio: base * 0.5,
+                });
+            }
+            timing.scrolls.push(ScrollSegment {
+                tick: Tick(48),
+                ratio: base * 1.3,
+            });
+            let (sec, dt, ratio) = scroll_probe(&timing);
+            assert!(sec - dt > timing.seconds_at(Tick::ZERO));
+            assert!(sec < timing.seconds_at(Tick(48)));
+            assert_eq!(ratio, base * if author_at_zero { 0.5 } else { 1.0 });
+            for x in [1.0, 2.0, 3.0] {
+                let options = ddi_engine::scroll::ScrollOptions {
+                    speed: ddi_engine::scroll::SpeedMod::XMod(x),
+                    ..Default::default()
+                };
+                let velocity = (ddi_engine::scroll::note_y(options, &timing, Tick(96), sec - dt)
+                    - ddi_engine::scroll::note_y(options, &timing, Tick(96), sec))
+                    as f64
+                    / dt;
+                assert!((velocity - bpm / 60.0 * ratio * x).abs() < 0.001);
+            }
+        }
     }
 }

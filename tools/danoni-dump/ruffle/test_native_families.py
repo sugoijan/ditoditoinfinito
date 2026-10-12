@@ -7,6 +7,7 @@ import struct
 import tempfile
 import unittest
 
+from higan import Graph
 from test_projection import OriginalGraph, string
 from native_families import constant_projection,review_optional_colors,movie_observation,source_field, extract_movie_arrays, scheduled_projection, movie_audio_origin
 from native_audio import origin_match
@@ -52,17 +53,26 @@ def scheduled():
     return capture([root])
 
 
-def constant():
+def constant(*, delayed=False, suffix=''):
     indices=[0,2,4,6,3]
     bank=[[]for _ in range(7)];holds=[[]for _ in range(7)]
     for i in indices:bank[i]=[str(200+i*10)]
     holds[0]=['300','360']
     raw={'frame_num':0,'set_cnt':100,'set_spi':3,'dif_spi':1.5,'keyLabel':'5','diffi':'Normal','timeline':bank,'ftimeline':holds,
          'mkArrow':{},'mkFArrow':{},'speed_dac':['400','1.5'],'keyCtrl':[37,65,40,32,38,68,39]}
+    raw['diffin']=suffix
+    raw.update({name+'_data'+suffix:str(200+i*10) for name,i in zip(['left','down','up','right','space'],indices)})
+    raw['frzLeft_data'+suffix]='300,360'
+    raw['tuning']='Original creator'
     compiled=copy.deepcopy(raw)
     for i in indices:compiled['timeline'][i]=[100+i*10]
     compiled['ftimeline'][0]=[200,360]
     compiled.update(mkArrow={str(100+i*10):[i]for i in indices},mkFArrow={'200':[0]},frzLength=[{'0':60}]+[{}for _ in range(6)])
+    if delayed:
+        del raw['frame_num'];del compiled['frame_num']
+        initialized=copy.deepcopy(compiled);initialized['frame_num']=0
+        del initialized['timeline'];del initialized['ftimeline'];del initialized['tuning']
+        return capture([raw,compiled,initialized])
     return capture([raw,compiled])
 
 
@@ -165,6 +175,51 @@ class Families(unittest.TestCase):
         with self.assertRaises(ValueError):review_optional_colors(changed,review)
         changed=copy.deepcopy(review);changed['missingResources'][0]['status']=200
         with self.assertRaises(ValueError):review_optional_colors(data,changed)
+
+    def test_constant_clock_can_initialize_after_array_cleanup(self):
+        data=constant(delayed=True,suffix='2')
+        chart=constant_projection(data,'5')
+        self.assertEqual(chart['splitIteration'],10)
+        self.assertEqual(chart['compiledIteration'],11)
+        self.assertEqual(chart['preparedIteration'],12)
+        self.assertEqual(chart['metadata']['tuning'],'Original creator')
+        self.assertEqual(chart['lanes'][0]['nativeHoldFrames'],[(300,360)])
+        with self.assertRaises(ValueError):constant_projection({**data,'captures':data['captures'][:2]},'5')
+        bad=copy.deepcopy(data)
+        root=Graph(bad['captures'][2]['state']).root()
+        obj=next(o for o in bad['captures'][2]['state']['objects'] if o['id']==root['mkArrow']['ref'])
+        next(p for p in obj['properties'] if p['name']['text']=='100')['name']=string('101')
+        with self.assertRaises(ValueError):constant_projection(bad,'5')
+        bad=copy.deepcopy(data)
+        obj=bad['captures'][2]['state']['objects'][0]
+        next(p for p in obj['properties'] if p['name']['text']=='frame_num')['value']=1
+        with self.assertRaises(ValueError):constant_projection(bad,'5')
+
+    def test_schedule_constructor_metadata_is_not_an_extra_event(self):
+        data=constant(delayed=True)
+        for item in data['captures']:
+            graph=Graph(item['state']);root=graph.root()
+            obj=next(o for o in item['state']['objects'] if o['id']==root['mkArrow']['ref'])
+            obj['properties'].append({'name':string('constructor'),'value':{'type':'uninspected','reason':'native constructor'}})
+        self.assertTrue(constant_projection(data,'5')['scheduleAgreement'])
+        bad=copy.deepcopy(data)
+        graph=Graph(bad['captures'][1]['state']);root=graph.root()
+        obj=next(o for o in bad['captures'][1]['state']['objects'] if o['id']==root['mkArrow']['ref'])
+        obj['properties'][-1]['name']=string('unknown_event')
+        with self.assertRaises(ValueError):constant_projection(bad,'5')
+
+    def test_constant_selected_source_and_duration_must_agree(self):
+        data=constant(delayed=True,suffix='2')
+        bad=copy.deepcopy(data)
+        obj=bad['captures'][0]['state']['objects'][0]
+        next(p for p in obj['properties'] if p['name']['text']=='left_data2')['value']=string('201')
+        with self.assertRaises(ValueError):constant_projection(bad,'5')
+        bad=copy.deepcopy(data)
+        graph=Graph(bad['captures'][2]['state']);root=graph.root()
+        ref=graph.array(root['frzLength'])[0]
+        obj=next(o for o in bad['captures'][2]['state']['objects'] if o['id']==ref['ref'])
+        next(p for p in obj['properties'] if p['name']['text']=='0')['value']=59
+        with self.assertRaises(ValueError):constant_projection(bad,'5')
 
     def test_audio_start_selects_first_instance_and_limits_restarts(self):
         c=five();c['audio']={'streamStarts':[{'iteration':10,'compression':'Mp3','outputSampleFrame':6615},

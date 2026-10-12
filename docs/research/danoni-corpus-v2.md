@@ -150,7 +150,7 @@ generation in `manifest.json`. Higan, Destined Marionette, 闇夜の月 and
 | Generation (catalogue dates) | Static signature | Works |
 | --- | --- | --- |
 | gen0 (2006-12..2007-08) | SWF6, numbered `dosN.txt`, no `timeline` (0.36–0.40 of Higan) | 6: sai, HARASSIN' BOSS, DOVSF ×2, Her Selves, U.N.オーエン (#9). 闇夜の月 also belongs here |
-| gen1 (2007-07..2008-04) | `timeline`/`ftimeline`/`mkArrow`/`frame_num`, `dos.txt`; 8/19 Higan blocks | 25, including all 13 DOXF03 entries and 終焉と始まり (#2, Higan's DOXF02 sibling) |
+| gen1 (2007-07..2008-04) | `timeline`/`ftimeline`/`mkArrow`/`frame_num`, `dos.txt`, no `judgeY`; 8/19 Higan blocks | 25, including all 13 DOXF03 entries and 終焉と始まり (#2, Higan's DOXF02 sibling) |
 | **Higan build** (2008-05..2008-08) | Identical identifier set; 18/19 blocks shared (END of AIR 17/19); `iro.txt` colour support | 9: 灼冬赫夜 (5×2), トルコ行進曲, 蠢蠢秋月, 弾・幕・決・壊 (all 7-key, 7Fes'08), 最期に君がいた, 60's wind, ENEMY WITHIN, 恋色マスタースパーク＜SlashSpeed＞, END of AIR (夏'08) |
 | gen3 (2008-09..2009-08) | Adds `boost_data`, `judgeY`, `option.txt`; 16/19 blocks shared with Destined Marionette | 11, including the DOXF04 entries; Destined Marionette is this build |
 | gen4 (2009-11..2010-12) | `frameNum`, data embedded (no `dos.txt` string); 15/20 blocks shared within the generation | 15, plus the Wayback 蒼夜の詩 |
@@ -162,6 +162,12 @@ adapter candidates; it does not establish runtime compatibility or timing. Higan
 most closely. Five of those nine return 404 for `iro.txt`. Only Higan's page
 announces the colour feature, so the file is probably optional; a native run
 must confirm. gen0 needs a separate family adapter.
+
+The [gen1 native admission](danoni-gen1-admission.md) subsequently proves all
+25 gen1 works and 31 selectors. These older builds fit the constant-travel
+family, not `scheduled-counter`: raw arrays are deleted before `frame_num`
+initializes, so the adapter additionally needs an intact zero-counter witness.
+The shared identifiers above were only a probe hint.
 
 Other authors built on the same source. Static nearest generation:
 `tseirproodni-nightmare` is closest to the Higan build (9/19 blocks, 0.92 of

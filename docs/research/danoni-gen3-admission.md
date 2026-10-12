@@ -173,7 +173,8 @@ The 79 Python tests, 50 Node tests (including real Chrome capture/policy tests),
 work, music, graphics, dump or export is committed. Receipts bind the browser
 import and unchanged-file comparison to the generated index and ZIP hashes.
 
-Next: improve joint tempo/phase fitting for charts sharing music, using this
-batch's preserved phases, published BPM evidence and fallback statistics. Then
-continue gen1 and the remaining gen4 sources. The halted SUN selector needs a
-separate bounded converter investigation, not an exception to admission checks.
+Subsequently, [shared-song timing refinement](danoni-shared-tempo.md) improved
+joint tempo/phase fitting, and [gen1 admission](danoni-gen1-admission.md) added
+all 25 older works / 31 charts. Next are the remaining 13 gen4 sources. The
+halted SUN selector needs a separate bounded converter investigation, not an
+exception to admission checks.

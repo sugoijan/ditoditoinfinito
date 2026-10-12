@@ -214,7 +214,7 @@ def schedule(graph, reference, lane_indices):
     result=Counter()
     for key,value in graph.props(reference).items():
         if not key.lstrip('-').isdecimal():
-            if key not in ('length','__proto__','__constructor__'):raise ValueError('Unknown schedule property')
+            if key not in ('length','__proto__','__constructor__','constructor'):raise ValueError('Unknown schedule property')
             continue
         for lane in graph.array(value):
             lane=numeric(lane)
@@ -327,58 +327,87 @@ def scheduled_projection(capture, mode, *, allow_missing_decorative_sprites=Fals
 
 
 def constant_projection(capture,mode):
-    """Cross-check split judgement arrays, constant travel and compiled schedules."""
+    """Prove split source, constant schedules and the unconsumed native clock.
+
+    Earlier engines initialize frame_num only after deleting timeline. Their
+    split and numeric snapshots therefore need a later zero-counter witness.
+    """
     audit_ok(capture)
     if mode not in ('5','7') or capture['swfHeaderFps']!=60:raise ValueError('Unsupported constant schedule mode/clock')
     definitions=FIVE if mode=='5'else SEVEN
     indices=[0,2,4,6,3]if mode=='5'else list(range(7))
-    before=None
-    for item in capture['captures']:
-        graph=Graph(item['state']);root=graph.root()
-        if any(k not in root for k in ['timeline','ftimeline','mkArrow','mkFArrow','frame_num','set_cnt']):continue
-        if numeric(root['frame_num'])!=0:continue
-        taps=graph.array(root['timeline']);holds=graph.array(root['ftimeline'])
-        lanes=[{'name':name,'nativeFrames':numbers(graph,taps[i]),'nativeHoldFrames':numbers(graph,holds[i])}for (name,_),i in zip(definitions,indices)]
-        if before is None:
-            # Split source strings precede numeric spawn-time mutation.
-            values=[v for i in indices for v in graph.array(taps[i])]
-            if not values or not all(isinstance(v,dict)and v.get('type')=='string'for v in values):continue
-            for lane in lanes:
-                values=lane['nativeHoldFrames']
-                if len(values)%2:raise ValueError('Unpaired constant-family holds')
-                lane['nativeHoldFrames']=list(zip(values[::2],values[1::2]))
-                if any(b<=a for a,b in lane['nativeHoldFrames']):raise ValueError('Invalid constant-family hold duration')
-            before=(item,lanes,numeric(root['set_cnt']))
-            continue
-        original,raw,travel=before
-        if not 0<travel<=12000 or numeric(root['set_cnt'])!=travel:raise ValueError('Unstable constant travel setting')
-        compiled=schedule(graph,root['mkArrow'],indices);freezes=schedule(graph,root['mkFArrow'],indices)
-        expected=Counter((f-travel,i)for i,lane in zip(indices,raw)for f in lane['nativeFrames'])
-        expected_h=Counter((a-travel,i)for i,lane in zip(indices,raw)for a,b in lane['nativeHoldFrames'])
-        if not compiled:continue
-        if compiled!=expected or freezes!=expected_h:raise ValueError('Constant travel disagrees with compiled schedule')
-        for source,prepared in zip(raw,lanes):
-            if prepared['nativeFrames']!=[f-travel for f in source['nativeFrames']]:raise ValueError('Constant tap mutation mismatch')
-            expected_holds=[v for a,b in source['nativeHoldFrames']for v in(a-travel,b)]
-            if prepared['nativeHoldFrames']!=expected_holds:raise ValueError('Constant hold mutation mismatch')
+    before=compiled=None
+
+    def settings(graph,root,raw,travel):
+        if numeric(root['set_cnt'])!=travel:raise ValueError('Unstable constant travel setting')
         lengths=graph.array(root['frzLength'])
         for index,source in zip(indices,raw):
             if source['nativeHoldFrames']:
                 duration=graph.props(lengths[index])
                 if any(numeric(duration[str(i*2)])!=b-a for i,(a,b)in enumerate(source['nativeHoldFrames'])):raise ValueError('Constant hold duration cache mismatch')
-        metadata={k:text(root[k])for k in ['diffi','keyLabel','musicTitle','tuning']if isinstance(root.get(k),dict)and root[k].get('type')=='string'}
+        metadata={k:text(root[k])for k in ['diffi','keyLabel','musicTitle','tuning']if isinstance(root.get(k),dict) and root[k].get('type')=='string'}
         if metadata.get('keyLabel')!=mode:raise ValueError('Constant schedule key mode changed')
         speed=numbers(graph,root['speed_dac'])
         if len(speed)%2:raise ValueError('Unpaired constant-family speeds')
         if any(a>b for a,b in zip(speed[::2],speed[2::2])):raise ValueError('Unordered constant-family speeds')
-        if numeric(root['set_spi'])!=numeric(root['dif_spi'])*2:raise ValueError('Unproved initial constant-family pixel speed')
-        return {'mode':mode,'lanes':raw,'speed':[{'nativeFrame':f,'multiplier':v}for f,v in zip(speed[::2],speed[1::2])],
-                'boost':[],'colors':[],'metadata':metadata,'nativeLaneIndices':indices,'nativeKeyCodes':numbers(graph,root['keyCtrl']),
-                'initialPixelSpeed':numeric(root['set_spi']),'clockField':'frame_num','scheduleAgreement':True,'preparedIteration':item['frame'],'splitIteration':original['frame'],'constantTravelFrames':travel,
-                'nativeSchedules':{'taps':[{'frame':f,'lane':l,'count':n}for(f,l),n in sorted(compiled.items())],
+        initial=numeric(root['set_spi'])
+        if initial<=0 or initial!=numeric(root['dif_spi'])*2:raise ValueError('Unproved initial constant-family pixel speed')
+        return {'metadata':metadata,'initialPixelSpeed':initial,'nativeKeyCodes':numbers(graph,root['keyCtrl']),
+                'speed':[{'nativeFrame':f,'multiplier':v}for f,v in zip(speed[::2],speed[1::2])]}
+
+    for item in capture['captures']:
+        graph=Graph(item['state']);root=graph.root()
+        if 'frame_num'in root and numeric(root['frame_num'])!=0:continue
+        if compiled and 'frame_num'in root:
+            original,raw,travel=before
+            _,result,expected,expected_h=compiled
+            if any(k not in root for k in ['mkArrow','mkFArrow','frzLength','set_cnt']):continue
+            if schedule(graph,root['mkArrow'],indices)!=expected or schedule(graph,root['mkFArrow'],indices)!=expected_h:
+                raise ValueError('Constant schedule changed before counter initialization')
+            initialized=settings(graph,root,raw,travel)
+            if (any(initialized[k]!=result[k] for k in ['initialPixelSpeed','nativeKeyCodes','speed'])
+                    or any(result['metadata'].get(k)!=v for k,v in initialized['metadata'].items())):
+                raise ValueError('Constant settings changed before counter initialization')
+            return {**result,'preparedIteration':item['frame'],'clockInitializationIteration':item['frame']}
+        if any(k not in root for k in ['timeline','ftimeline','mkArrow','mkFArrow','set_cnt']):continue
+        taps=graph.array(root['timeline']);holds=graph.array(root['ftimeline'])
+        lanes=[{'name':name,'nativeFrames':numbers(graph,taps[i]),'nativeHoldFrames':numbers(graph,holds[i])}for (name,_),i in zip(definitions,indices)]
+        if before is None:
+            values=[v for i in indices for v in graph.array(taps[i])]
+            if not values or not all(isinstance(v,dict)and v.get('type')=='string'for v in values):continue
+            suffix=source_suffix(root['diffin']) if 'diffin'in root else ''
+            for lane in lanes:
+                values=lane['nativeHoldFrames']
+                if len(values)%2:raise ValueError('Unpaired constant-family holds')
+                lane['nativeHoldFrames']=list(zip(values[::2],values[1::2]))
+                if any(b<=a for a,b in lane['nativeHoldFrames']):raise ValueError('Invalid constant-family hold duration')
+                field=source_field(root,lane['name'],suffix)
+                if field and split_numbers(root[field])!=lane['nativeFrames']:raise ValueError('Constant taps disagree with selected source')
+                stem={'leftdia':'frzLdia','rightdia':'frzRdia','space':'frzSpace'}.get(lane['name'],'frz'+lane['name'].capitalize())
+                field=source_field(root,stem,suffix)
+                if field and split_numbers(root[field])!=values:raise ValueError('Constant holds disagree with selected source')
+            before=(item,lanes,numeric(root['set_cnt']))
+            continue
+        original,raw,travel=before
+        if not 0<travel<=12000:raise ValueError('Invalid constant travel setting')
+        compiled_taps=schedule(graph,root['mkArrow'],indices);freezes=schedule(graph,root['mkFArrow'],indices)
+        expected=Counter((f-travel,i)for i,lane in zip(indices,raw)for f in lane['nativeFrames'])
+        expected_h=Counter((a-travel,i)for i,lane in zip(indices,raw)for a,b in lane['nativeHoldFrames'])
+        if not compiled_taps:continue
+        if compiled_taps!=expected or freezes!=expected_h:raise ValueError('Constant travel disagrees with compiled schedule')
+        for source,prepared in zip(raw,lanes):
+            if prepared['nativeFrames']!=[f-travel for f in source['nativeFrames']]:raise ValueError('Constant tap mutation mismatch')
+            expected_holds=[v for a,b in source['nativeHoldFrames']for v in(a-travel,b)]
+            if prepared['nativeHoldFrames']!=expected_holds:raise ValueError('Constant hold mutation mismatch')
+        result={'mode':mode,'lanes':raw,**settings(graph,root,raw,travel),'boost':[],'colors':[],
+                'nativeLaneIndices':indices,'clockField':'frame_num','scheduleAgreement':True,
+                'preparedIteration':item['frame'],'splitIteration':original['frame'],'compiledIteration':item['frame'],'constantTravelFrames':travel,
+                'nativeSchedules':{'taps':[{'frame':f,'lane':l,'count':n}for(f,l),n in sorted(compiled_taps.items())],
                                    'holds':[{'frame':f,'lane':l,'count':n}for(f,l),n in sorted(freezes.items())]},
                 'nativePresentation':{'iro_dac':graph.array(root['iro_dac'])if root.get('iro_dac',UNDEFINED)!=UNDEFINED else[]}}
-    raise ValueError('Need split and compiled constant-family snapshots before consumption')
+        if 'frame_num'in root:return result
+        compiled=(item,result,expected,expected_h)
+    raise ValueError('Need split, compiled and zero-counter constant-family snapshots before consumption')
 
 
 def review_optional_colors(capture,review):

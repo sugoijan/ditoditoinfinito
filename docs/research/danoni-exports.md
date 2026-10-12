@@ -1,6 +1,6 @@
 # Regenerating the local DanOni exports
 
-Updated: 2026-10-11. `ruffle/rebuild_corpus.py` now builds the
+Updated: 2026-10-12. `ruffle/rebuild_corpus.py` now builds the
 currently validated subset entirely from saved evidence, checks it with the
 game's actual parsers, and promotes it with archival and rollback journals.
 [Native family adapters](danoni-native-adapters.md) now cover eight further works.
@@ -10,17 +10,21 @@ All third-party inputs and generated packs stay outside Git.
 
 ## Current generation
 
-The [gen3 native admission](danoni-gen3-admission.md) adds eleven source works
-and 21 proved charts, including Cynthia's two seven-key charts: **44 songs /
-72 charts, 52,627 taps and 1,906 holds**. Every song has a banner. The registry
-has 40 required and 96 pending source entries; one extra タイヨウノハナ selector
-remains explicitly pending within an admitted work. The previous 33 songs retain
-their accepted playable files.
+The [gen1 native admission](danoni-gen1-admission.md) adds 25 works and 31
+five-key charts: **69 songs / 103 charts, 70,736 taps and 3,196 holds**.
+Every song has a banner. The registry has 65 required and 71 pending source
+entries; one extra タイヨウノハナ selector remains explicitly pending within an
+admitted work. All 132 previously accepted playable files and the Kouhaku ZIP
+remain byte-identical. The Single Songs pack now contains 64 songs / 97 charts;
+73 charts have verified published integer meters and 24 retain the unrated
+Edit/0 fallback.
 
-The [shared-song timing refinement](danoni-shared-tempo.md) regenerates the same
-44-song corpus with independently fitted chart phases and tempo refinements.
-Shared-song SSC timing can change; original source references and media remain
-unchanged. Chart-specific inverse scroll compensation retains native movement.
+The prior [gen3 admission](danoni-gen3-admission.md) supplied 44 songs / 72
+charts, including Cynthia's two seven-key selections. The
+[shared-song timing refinement](danoni-shared-tempo.md) fits independently
+observed chart phases on shared recordings. The same generic policy applies to
+the new charts; exact source references, measured audio origin and native inverse
+scroll compensation remain authoritative.
 
 ## Previous paired-source admission
 

@@ -63,6 +63,14 @@ is travel in frames, so `spawn + travel = raw head`. It does not use root movie
 frames once that timeline stops. Raw tails and the full native duration caches
 remain evidence; arbitrary custom freeze animation is outside the projection.
 
+The [gen1 batch](danoni-gen1-admission.md) extends `scheduled-constant` to
+engines that initialize `frame_num` after deleting `timeline`/`ftimeline`.
+Selected loaded fields must match the raw split arrays; compiled heads and
+cached durations must match those raw frames; a later zero-counter snapshot
+must retain the schedules, keys, parsed speeds and initial pixel speed.
+`compiledIteration` and optional `clockInitializationIteration` distinguish
+those observations. Original metadata survives cleanup in the reference.
+
 Each chart additionally needs a visibly moving native arrow, its receptor and
 stable source geometry, with at least three linear observations. Its arrival
 must agree with the raw first frame within 1.5 native ticks. Early art registration

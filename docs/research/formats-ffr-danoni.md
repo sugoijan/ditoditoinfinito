@@ -827,6 +827,44 @@ A selector is not accepted solely because its sibling charts work: the fifth
 and published rating remain evidence, without an exported chart. Author boosts,
 custom fades and other presentation retain the existing explicit limitations.
 
+### Gen1 conversion precedes clock initialization (2026-10-12)
+
+The [gen1 native batch](danoni-gen1-admission.md) verifies 25 works / 31 charts
+from [レク's catalogue](https://cw7.sakura.ne.jp/lst/ds0065/). Static identifier
+overlap alone does not identify the runtime adapter:
+
+- These builds have no `judgeY`. Their compiled heads equal the original heads
+  minus `set_cnt`; tails remain unshifted, and the independent `frzLength`
+  cache records original durations. They belong to the constant-travel family.
+  [MeltyBlood](http://autumnleaves.yukishigure.com/DOXF03/MeltyBlood/Melty.html).
+- The original arrays disappear before `frame_num` is initialized. Observe both
+  conversion stages and then verify intact schedules at `frame_num = 0`;
+  neither an undefined clock nor the stopped root movie frame represents
+  initialized gameplay. Native music origins in this set range from 145 to
+  185 frames and must be measured separately per selection.
+- Parsed `speed_dac` already subtracts `set_cnt` from source event frames.
+  [Road to you](http://autumnleaves.yukishigure.com/Road/Road.html)'s source
+  `200,0.5` becomes `50,0.5` with 150 frames of travel. Use the parsed clock
+  positions directly, without another travel subtraction.
+- `difficulty = 4` counts charts; `difStep = 5,5,5,5` supplies their key modes.
+  Both [ゆかりんファンタジア](http://autumnleaves.yukishigure.com/Team_9/yukarin_side/Phantasia.html)
+  and [ばか☆すた](http://autumnleaves.yukishigure.com/Team_9/9_side/bakasuta.html)
+  offer four selections where the catalogue lists only レク's chart. Their
+  original pages publish matching tap/hold counts for all four authors, but do
+  not publish individual numerical ratings for the other three.
+- Catalogue ratings cannot be applied merely by song title:
+  [千年幻想郷](http://autumnleaves.yukishigure.com/history/history.html) lists
+  Normal/0 while its SWF selects Hard; [東の国の眠らない夜](http://autumnleaves.yukishigure.com/DOXF03/higasinokuni/higasi.html)
+  lists Normal/11 while its SWF also selects Hard. Preserve that disagreement
+  and leave the playable meter unset without further source evidence.
+- Older AVM1 arrays can expose `constructor` instead of `__constructor__` as
+  metadata. This does not authorize unknown nonnumeric schedule entries.
+  [魔法少女達の百年祭](http://autumnleaves.yukishigure.com/mahou/mahou.html)
+  and [弾・幕・決・壊](http://varenntainn.oboroduki.com/danmaku/danmaku.html)
+  exercise this older variant. Windows-specific Japanese characters in the
+  surrounding Shift_JIS-labelled HTML require CP932 decoding; preserve the
+  original bytes alongside the readable metadata.
+
 ### Shared recordings do not imply identical chart grids (2026-10-11)
 
 The [shared-song fitting comparison](danoni-shared-tempo.md) finds distinct
