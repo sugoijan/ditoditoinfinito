@@ -8,10 +8,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-fn io(error: std::io::Error) -> Error {
+pub(crate) fn io(error: std::io::Error) -> Error {
     Error::new("filesystem", error.to_string())
 }
-fn external(path: &Path) -> Result<()> {
+pub(crate) fn external(path: &Path) -> Result<()> {
     for parent in path.ancestors() {
         if parent.join(".git").exists() {
             return Err(Error::new(
@@ -237,7 +237,7 @@ pub fn write_prepared(
     Ok(())
 }
 
-fn bounded_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
+pub(crate) fn bounded_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     fs::File::open(path)
         .map_err(io)?
@@ -511,4 +511,100 @@ pub fn rebuild_accepted(
     fs::rename(output.join(".manifest.tmp"), output.join("manifest.json")).map_err(io)?;
     guard.armed = false;
     Ok(report)
+}
+
+/// Native artwork job. Fonts are supplied as hashed local assets, never bundled.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ArtworkJob {
+    pub schema: String,
+    pub roots: BTreeMap<String, PathBuf>,
+    pub title: Option<crate::artwork::TitleRequest>,
+    pub panel: Option<crate::artwork::PanelRequest>,
+}
+pub fn generate_artwork(job: &Path, output: &Path) -> Result<serde_json::Value> {
+    let path = job.canonicalize().map_err(io)?;
+    external(&path)?;
+    let job: ArtworkJob = json(&bounded_file(&path, JSON_LIMIT)?)?;
+    if job.schema != "ddi-danoni-artwork-job/1" {
+        return Err(Error::new("unsupported-schema", job.schema));
+    }
+    let roots = job
+        .roots
+        .into_iter()
+        .map(|(k, p)| {
+            (
+                k,
+                if p.is_absolute() {
+                    p
+                } else {
+                    path.parent().unwrap().join(p)
+                },
+            )
+        })
+        .collect();
+    let source = DirectorySource::new(roots)?;
+    let art = match (job.title, job.panel) {
+        (Some(r), None) => crate::artwork::title_cards(&r, &source)?,
+        (None, Some(r)) => crate::artwork::title_panel(&r, &source)?,
+        _ => {
+            return Err(Error::new(
+                "invalid-artwork",
+                "Select exactly one artwork producer",
+            ));
+        }
+    };
+    write_artwork(&art, output)?;
+    Ok(art.manifest)
+}
+pub fn write_artwork(art: &crate::artwork::Artwork, output: &Path) -> Result<()> {
+    let parent = output
+        .parent()
+        .unwrap_or(Path::new("."))
+        .canonicalize()
+        .map_err(io)?;
+    external(&parent)?;
+    let name = output
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| Error::new("unsafe-output", "Missing artwork directory"))?;
+    relative_path(name)?;
+    let output = parent.join(name);
+    fs::create_dir(&output).map_err(io)?;
+    let mut guard = Incomplete {
+        path: output.clone(),
+        armed: true,
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    for file in &art.files {
+        if ![
+            "banner.png",
+            "cover.png",
+            "pack.png",
+            "panel.png",
+            "banner.svg",
+            "cover.svg",
+            "pack.svg",
+        ]
+        .contains(&file.path.as_str())
+            || !seen.insert(&file.path)
+        {
+            return Err(Error::new("unsafe-output", "Unexpected artwork filename"));
+        }
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output.join(&file.path))
+            .map_err(io)?;
+        f.write_all(&file.bytes).map_err(io)?;
+    }
+    fs::write(
+        output.join(".manifest.tmp"),
+        serde_json::to_vec_pretty(&art.manifest)
+            .map_err(|e| Error::new("output-json", e.to_string()))?,
+    )
+    .map_err(io)?;
+    fs::rename(output.join(".manifest.tmp"), output.join("manifest.json")).map_err(io)?;
+    guard.armed = false;
+    Ok(())
 }

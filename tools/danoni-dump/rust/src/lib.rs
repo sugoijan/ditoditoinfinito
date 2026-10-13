@@ -3,15 +3,19 @@
 //! Exact source data is borrowed, never rewritten. Musical fitting and source
 //! extraction remain separate producers of the inputs accepted here.
 
+pub mod artwork;
 pub mod assets;
 pub mod model;
 #[cfg(feature = "native")]
 pub mod native;
+pub mod package;
 pub mod policy;
 pub mod preview;
 pub mod reviews;
 pub mod ssc;
 pub mod timing;
+#[cfg(feature = "native")]
+pub mod transaction;
 pub mod work;
 
 pub use model::{Chart, CompileRequest, PreparationOptions, PreparedChart};

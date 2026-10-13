@@ -4,7 +4,7 @@ An embeddable [Rust migration](../../../docs/research/danoni-rust-plan.md) of th
 DanOni export pipeline. The pure API now prepares complete SSC songs from
 normalized works, source-bound reviews and supplied PCM/playback media. An
 optional `native` feature (enabled by default) supplies confined filesystem reads,
-fresh output directories and a CLI; `--no-default-features` leaves host-supplied
+fresh output directories, collection packaging and journaled publication; `--no-default-features` leaves host-supplied
 asset access and in-memory artifacts. The game's workspace/WASM build is unchanged.
 
 No fetching, work execution, audio decoding/encoding or automatic BPM fitting
@@ -126,6 +126,25 @@ whitespace/numeric spelling and archive bytes are not promised identical.
 
 The [complete-song API and offline jobs](../../../docs/research/danoni-rust-offline.md)
 add source loading, review binding, grouping, headers, supplied artwork/media,
-previews, provenance and fresh generation writes. Still pending: new artwork
-rendering/cropping, ZIP/collection assembly and archive/promotion recovery, audio
-codecs, BPM inference, fetching and work execution.
+previews, provenance, native title/panel artwork, collection ZIPs and validated
+archive/promotion/recovery. Audio codecs, BPM inference, fetching and work
+execution remain pending. The offline handover specifies all job/result schemas.
+
+
+Additional CLI commands (all paths external to Git):
+
+```sh
+# Hashed font/title or hashed native snapshot/run/pixels; fresh output only:
+target/danoni-rust/debug/ddi-danoni-export artwork /tmp/art-job.json /tmp/art-new
+# Ready offline generation + explicit collection names and font binding:
+target/danoni-rust/debug/ddi-danoni-export package-generation /tmp/package-job.json /tmp/pack-new
+target/danoni-rust/debug/ddi-danoni-export verify-generation /tmp/pack-new
+# Destination may be absent or a validated Rust generation; history must exist:
+target/danoni-rust/debug/ddi-danoni-export promote /tmp/pack-new /tmp/library-pack /tmp/history
+target/danoni-rust/debug/ddi-danoni-export recover /tmp/history/transaction-NONCE.json
+```
+
+Artwork is pure byte-in/byte-out with explicitly supplied fonts and captured
+pixels. `package::write_zip` accepts a host-owned sink. The native publisher
+archives old generations and recovers stale journals; it does not silently
+replace the legacy Python exports or implement the desktop library UI.

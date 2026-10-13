@@ -20,6 +20,10 @@ default = ["native"]
 native = []
 
 [dependencies]
+resvg = { version = "0.48.1", default-features = false, features = ["text"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+unicode-segmentation = "1.13.3"
 sha2 = "0.11.1"
 unicode-normalization = "0.1.25"
 html5ever = "0.40.1"
@@ -27,8 +31,9 @@ encoding_rs = "0.8.42"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 
-[dev-dependencies]
 ddi-chart = { path = "../../../chart" }
+
+[dev-dependencies]
 ddi-engine = { path = "../../../engine" }
 
 [profile.dev]

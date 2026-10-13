@@ -323,7 +323,7 @@ mod native_tests {
                 .as_nanos()
         ));
         fs::create_dir(&p).unwrap();
-        Temp(p)
+        Temp(p.canonicalize().unwrap())
     }
     #[test]
     fn fresh_output_has_atomic_readiness_and_cancelled_output_is_removed() {
@@ -369,6 +369,207 @@ mod native_tests {
         assert!(
             native::DirectorySource::new(BTreeMap::from([("test".into(), t.0.clone())])).is_err()
         );
+    }
+    fn packaged(t: &Temp, name: &str) -> PathBuf {
+        use ddi_danoni_export::package::{Collection, PackageJob, package_generation};
+        let (store, request) = fixture();
+        let prepared = prepare(&store, &request).unwrap();
+        let source = t.0.join(format!("source-{name}"));
+        fs::create_dir(&source).unwrap();
+        fs::create_dir(source.join("works")).unwrap();
+        native::write_prepared(&prepared, &source.join("works/test"), &mut |_| Ok(())).unwrap();
+        fs::write(source.join("manifest.json"),serde_json::to_vec(&json!({"schema":"ddi-danoni-rust-offline-generation/1","works":[{"id":"test","collection":"singles","manifest":"works/test/manifest.json","sourceManifestSha256":request.manifest.sha256}],"songs":1,"charts":2,"testGeneration":name})).unwrap()).unwrap();
+        let font = fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf"
+        ))
+        .unwrap();
+        fs::write(t.0.join("font.ttf"), &font).unwrap();
+        let job = PackageJob {
+            schema: "ddi-danoni-package-job/1".into(),
+            generation: source,
+            roots: BTreeMap::from([("font".into(), t.0.clone())]),
+            font: Binding {
+                namespace: "font".into(),
+                path: "font.ttf".into(),
+                sha256: sha256(&font),
+            },
+            collections: vec![Collection {
+                id: "singles".into(),
+                title: "DanOni Singles".into(),
+                artist: "Source authors".into(),
+            }],
+        };
+        let output = t.0.join(name);
+        package_generation(&job, &output, &mut |_| Ok(())).unwrap();
+        output
+    }
+    #[test]
+    fn collection_inventory_parser_and_zip_are_checked() {
+        let t = temp();
+        let p = packaged(&t, "pack");
+        let doc = ddi_danoni_export::package::verify_generation(&p, &mut |_| Ok(())).unwrap();
+        assert_eq!(doc["songs"], 1);
+        assert_eq!(doc["charts"], 2);
+        fs::write(p.join("extra.txt"), b"extra").unwrap();
+        assert!(ddi_danoni_export::package::verify_generation(&p, &mut |_| Ok(())).is_err());
+        fs::remove_file(p.join("extra.txt")).unwrap();
+        fs::write(
+            p.join("singles/files/DanOni Singles/test--a/song.ssc"),
+            b"#TITLE:changed;",
+        )
+        .unwrap();
+        assert!(ddi_danoni_export::package::verify_generation(&p, &mut |_| Ok(())).is_err());
+    }
+    #[test]
+    fn publication_archives_and_recovery_is_idempotent() {
+        let t = temp();
+        let old = packaged(&t, "published");
+        let old_bytes = fs::read(old.join("manifest.json")).unwrap();
+        let stage = packaged(&t, "staged");
+        let history = t.0.join("history");
+        fs::create_dir(&history).unwrap();
+        let receipt =
+            ddi_danoni_export::transaction::promote(&stage, &old, &history, &mut |_| Ok(()))
+                .unwrap();
+        assert_eq!(receipt["status"], "committed");
+        assert!(!stage.exists());
+        let archive = PathBuf::from(receipt["archive"].as_str().unwrap());
+        assert_eq!(fs::read(archive.join("manifest.json")).unwrap(), old_bytes);
+        let journal = PathBuf::from(receipt["journal"].as_str().unwrap());
+        assert_eq!(
+            receipt,
+            ddi_danoni_export::transaction::recover(&journal, &mut |_| Ok(())).unwrap()
+        );
+    }
+    #[test]
+    fn cancellation_after_archival_restores_old_tree() {
+        let t = temp();
+        let old = packaged(&t, "published");
+        let bytes = fs::read(old.join("manifest.json")).unwrap();
+        let stage = packaged(&t, "staged");
+        let history = t.0.join("history");
+        fs::create_dir(&history).unwrap();
+        let r = ddi_danoni_export::transaction::promote(&stage, &old, &history, &mut |p| {
+            if matches!(p.stage, Stage::Assemble) && p.completed == 1 && p.total == 2 {
+                Err(Error {
+                    code: "cancelled",
+                    message: "test".into(),
+                })
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(r.unwrap_err().code, "cancelled");
+        assert_eq!(fs::read(old.join("manifest.json")).unwrap(), bytes);
+        assert!(stage.exists());
+        let journal = fs::read_dir(&history)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.extension().is_some_and(|s| s == "json"))
+            .unwrap();
+        assert_eq!(
+            ddi_danoni_export::transaction::recover(&journal, &mut |_| Ok(())).unwrap()["status"],
+            "rolled-back"
+        );
+    }
+    #[test]
+    fn recovery_uses_directory_identity_when_phase_is_stale() {
+        let t = temp();
+        let old = packaged(&t, "published");
+        let stage = packaged(&t, "staged");
+        let history = t.0.join("history");
+        fs::create_dir(&history).unwrap();
+        let archive = history.join("archive-test");
+        let hash = |p: &PathBuf| sha256(&fs::read(p.join("manifest.json")).unwrap());
+        let j = json!({"schema":"ddi-danoni-publication/1","phase":"prepared","stage":stage,"destination":old,"archive":archive,"newManifestSha256":hash(&stage),"oldManifestSha256":hash(&old)});
+        let path = history.join("transaction-test.json");
+        fs::write(&path, serde_json::to_vec(&j).unwrap()).unwrap();
+        fs::rename(&old, &archive).unwrap();
+        assert_eq!(
+            ddi_danoni_export::transaction::recover(&path, &mut |_| Ok(())).unwrap()["status"],
+            "rolled-back"
+        );
+        assert!(old.exists());
+        assert!(!archive.exists());
+        fs::write(&path, serde_json::to_vec(&j).unwrap()).unwrap();
+        fs::rename(&old, &archive).unwrap();
+        fs::rename(&stage, &old).unwrap();
+        assert_eq!(
+            ddi_danoni_export::transaction::recover(&path, &mut |_| Ok(())).unwrap()["status"],
+            "committed"
+        );
+    }
+    #[test]
+    fn first_publication_and_partial_journal_recovery() {
+        let t = temp();
+        let stage = packaged(&t, "staged");
+        let dest = t.0.join("published");
+        let history = t.0.join("history");
+        fs::create_dir(&history).unwrap();
+        let r = ddi_danoni_export::transaction::promote(&stage, &dest, &history, &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(r["status"], "committed");
+        assert!(r["archive"].is_null());
+        let path = PathBuf::from(r["journal"].as_str().unwrap());
+        fs::write(path.with_extension("tmp"), b"{ interrupted").unwrap();
+        assert_eq!(
+            ddi_danoni_export::transaction::recover(&path, &mut |_| Ok(())).unwrap()["status"],
+            "committed"
+        );
+        assert!(!path.with_extension("tmp").exists());
+        assert!(
+            fs::read_dir(history)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .any(|p| p.to_string_lossy().contains(".interrupted-"))
+        );
+    }
+    #[test]
+    fn concurrent_publishers_cannot_replace_the_same_destination() {
+        let t = temp();
+        let stage = packaged(&t, "staged");
+        let dest = t.0.join("published");
+        let history = t.0.join("history");
+        fs::create_dir(&history).unwrap();
+        let lock = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(t.0.join(".published.publication.lock"))
+            .unwrap();
+        lock.try_lock().unwrap();
+        assert!(
+            ddi_danoni_export::transaction::promote(&stage, &dest, &history, &mut |_| Ok(()))
+                .is_err()
+        );
+        assert!(stage.exists());
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn unknown_tree_and_overlapping_locations_are_never_removed() {
+        let t = temp();
+        let stage = packaged(&t, "staged");
+        let dest = t.0.join("unknown");
+        fs::create_dir(&dest).unwrap();
+        fs::write(dest.join("keep"), b"keep").unwrap();
+        let history = t.0.join("history");
+        fs::create_dir(&history).unwrap();
+        assert!(
+            ddi_danoni_export::transaction::promote(&stage, &dest, &history, &mut |_| Ok(()))
+                .is_err()
+        );
+        assert_eq!(fs::read(dest.join("keep")).unwrap(), b"keep");
+        assert!(
+            ddi_danoni_export::transaction::promote(
+                &stage,
+                &stage.join("inner"),
+                &history,
+                &mut |_| Ok(())
+            )
+            .is_err()
+        );
+        assert!(stage.exists());
     }
 }
 

@@ -88,7 +88,7 @@ can retain exact source timing; failed extraction cannot become a guessed chart.
 
 ## Milestones and acceptance gates
 
-### 1. Contracts and a shared Rust entry point — started
+### 1. Contracts and a shared Rust entry point — complete
 
 Define typed supported modes, normalized lanes in audio-relative seconds,
 policy inputs, immutable source/evidence fields, prepared artifacts and errors.
@@ -112,7 +112,7 @@ validation differences. Rust's round-to-even behavior must match Python.
 Numerical text spelling and JSON key order may differ; semantic equality and
 original media byte identity matter more than ZIP byte identity.
 
-### 2. Complete offline preparation — in progress
+### 2. Complete offline preparation — complete
 
 Port normalized-work loading, metadata merge and shared-audio grouping; bind
 asset/review hashes and constrain paths. Port source-bound published rating
@@ -272,6 +272,25 @@ at runtime. Existing accepted exports are unchanged.
 The source-bound full-song differential gate matches preview/rating diagnostics,
 metadata, banners, audio bytes and game-parser/scroll behavior. This still supplies
 accepted musical grids and prepared media: it does not prove new Rust decoding,
-encoding, audio-origin correlation or BPM estimation. Milestone 2 remains open
+encoding, audio-origin correlation or BPM estimation. At that checkpoint
+milestone 2 remained open
 for new artwork generation, ZIP/collection assembly and generation promotion/
-recovery; fresh-output readiness/cancellation is implemented separately.
+recovery; the subsequent slice below completes those pieces.
+
+
+### Artwork/collection/publication slice, 2026-10-13
+
+Milestone 2 now includes browser-free title typography and captured panel crops,
+deterministic collection ZIPs, self-contained source reconstruction/game-parser
+validation, exact inventories and journaled archival/publication/recovery.
+The [offline handover](danoni-rust-offline.md#native-artwork) specifies the APIs,
+new schemas, output trees and tested interruption scope. The isolated local trial
+covers all 93 songs / 144 charts; accepted exports are unchanged. Five Kouhaku
+lossless crops match their previous pixels exactly. Song media/artwork remain
+byte-identical supplied assets; new pack art/rasterization has its own version.
+
+Next is milestone 3: first native decoding/PCM units and audio-origin checks,
+then Ogg encoding and reproducible robust musical analysis. Keep the offline
+prepared-media receipt as the boundary, and retain the current preview/9 ms note
+and authored-scroll gates. Neither the completed offline stages nor a standalone
+Rust CLI imply URL-to-library support before later milestones pass.

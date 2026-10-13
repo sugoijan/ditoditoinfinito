@@ -302,7 +302,10 @@ fn written_generation_matches_the_accepted_songs() {
         .expect("DDI_DANONI_EXPORTS is required with a written generation");
     let (stage, exports) = (Path::new(&stage), Path::new(&exports));
     let generation = read(&stage.join("manifest.json"));
-    assert_eq!(generation["schema"], "ddi-danoni-rust-offline-generation/1");
+    assert!(matches!(
+        generation["schema"].as_str(),
+        Some("ddi-danoni-rust-offline-generation/1" | "ddi-danoni-rust-packaged-generation/1")
+    ));
     assert_eq!(
         generation["acceptedGenerationSha256"],
         sha256(&fs::read(exports.join("index.json")).unwrap())

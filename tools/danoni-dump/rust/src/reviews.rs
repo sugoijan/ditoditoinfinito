@@ -413,8 +413,10 @@ pub(crate) fn load<S: AssetSource>(
             let image_hash = sha256(&image);
             match text(&row, "origin")? {
                 "native-title-panel" => {
-                    if evidence["schema"] != "ddi-native-title-panel/1"
-                        || swf.is_none_or(|s| evidence["sourceSwfSha256"] != s)
+                    if !matches!(
+                        evidence["schema"].as_str(),
+                        Some("ddi-native-title-panel/1" | "ddi-native-title-panel/2")
+                    ) || swf.is_none_or(|s| evidence["sourceSwfSha256"] != s)
                         || evidence["files"]["banner.png"] != image_hash
                         || evidence["titleReplaced"] != false
                     {
@@ -425,7 +427,10 @@ pub(crate) fn load<S: AssetSource>(
                 }
                 "plain-title" => {
                     if evidence["schema"] != "ddi-artwork-study/experimental-1"
-                        || evidence["template"] != "plain-title/1"
+                        || !matches!(
+                            evidence["template"].as_str(),
+                            Some("plain-title/1" | "plain-title-rust/1")
+                        )
                         || !evidence["records"].as_array().is_some_and(|rs| {
                             rs.iter()
                                 .any(|r| r["role"] == "banner" && r["pngSha256"] == image_hash)

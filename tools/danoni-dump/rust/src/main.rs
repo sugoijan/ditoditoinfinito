@@ -22,9 +22,43 @@ fn main() {
                 &mut |_| Ok(()),
             )
         }
+        #[cfg(feature = "native")]
+        [command, job, output] if command == "artwork" => {
+            ddi_danoni_export::native::generate_artwork(
+                std::path::Path::new(job),
+                std::path::Path::new(output),
+            )
+        }
+        #[cfg(feature = "native")]
+        [command, job, output] if command == "package-generation" => {
+            ddi_danoni_export::package::package_job(
+                std::path::Path::new(job),
+                std::path::Path::new(output),
+                &mut |_| Ok(()),
+            )
+        }
+        #[cfg(feature = "native")]
+        [command, input] if command == "verify-generation" => {
+            ddi_danoni_export::package::verify_generation(std::path::Path::new(input), &mut |_| {
+                Ok(())
+            })
+        }
+        #[cfg(feature = "native")]
+        [command, stage, dest, history] if command == "promote" => {
+            ddi_danoni_export::transaction::promote(
+                std::path::Path::new(stage),
+                std::path::Path::new(dest),
+                std::path::Path::new(history),
+                &mut |_| Ok(()),
+            )
+        }
+        #[cfg(feature = "native")]
+        [command, journal] if command == "recover" => {
+            ddi_danoni_export::transaction::recover(std::path::Path::new(journal), &mut |_| Ok(()))
+        }
         _ => {
             eprintln!(
-                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT"
+                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json"
             );
             std::process::exit(2);
         }
