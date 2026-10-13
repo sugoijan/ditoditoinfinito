@@ -18,9 +18,13 @@ path = "src/main.rs"
 [features]
 default = ["native", "vorbis"]
 vorbis = ["dep:vorbis_rs"]
-native = []
+native = ["dep:libc", "dep:url"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = { version = "0.2.190", optional = true }
 
 [dependencies]
+url = { version = "2.5.8", optional = true }
 flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 vorbis_rs = { version = "0.5.6", default-features = false, optional = true }
 symphonia = { version = "0.6.1", default-features = false, features = ["mp3", "pcm", "wav", "ogg", "vorbis", "id3v1", "id3v2"] }

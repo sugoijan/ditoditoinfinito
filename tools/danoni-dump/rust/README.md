@@ -130,7 +130,8 @@ The [complete-song API and offline jobs](../../../docs/research/danoni-rust-offl
 add source loading, review binding, grouping, headers, supplied artwork/media,
 previews, provenance, native title/panel artwork, collection ZIPs and validated
 archive/promotion/recovery. Native musical analysis now has its own versioned
-API and provisional evidence; fetching and work execution remain pending. The offline handover specifies all job/result schemas.
+API and provisional evidence; public fetching remains pending. Restricted native
+capture is available as described below. The offline handover specifies all job/result schemas.
 
 
 Additional CLI commands (all paths external to Git):
@@ -193,8 +194,8 @@ target/danoni-rust/debug/ddi-danoni-export project-native /tmp/projection-job.js
 The [extraction handover](../../../docs/research/danoni-rust-extraction.md) specifies
 movie/run/config bindings, seven structural families, movement and clock APIs,
 units and two historical proof gaps. This stage does not execute work code
-or prepare a newly normalized song. Runtime supervision and
-acquisition remain pending; the [pinned Higan/Kouhaku paths](../../../docs/research/danoni-rust-pinned.md)
+or prepare a newly normalized song. The Rust supervisor now creates fresh captures as described below;
+acquisition remains pending; the [pinned Higan/Kouhaku paths](../../../docs/research/danoni-rust-pinned.md)
 now use the same projection/normalization APIs.
 
 
@@ -226,5 +227,21 @@ endpoint and x1/x2/x3 authored scroll segments. Three selectors remain explicitl
 unproved; accepted exports are unchanged. This removes Python from proved saved
 structural normalization. The pinned Higan/Kouhaku path adds seven charts / six
 songs with original reference parity, numeric stars, explicit child clocks and
-measured width-based scroll. Fresh Rust worker execution, URL acquisition and
-installation remain pending.
+measured width-based scroll. Fresh Rust worker execution is now described below; worker build/selector
+orchestration, URL acquisition and installation remain pending.
+
+
+Fresh native captures now use the Rust-owned macOS supervisor:
+
+```sh
+target/danoni-rust/debug/ddi-danoni-export capture-native /tmp/capture-job.json /tmp/capture-new
+```
+
+The [supervisor contract](../../../docs/research/danoni-rust-supervisor.md)
+keeps installed worker identity separate from work data, stages only bound
+inputs, enforces the fixed sandbox and resource budgets, and returns capture
+bindings for normalization. No Python launcher, browser, shell, ps or FFmpeg is
+needed at runtime. Ready captures and diagnostic failures have separate markers;
+unsupported platforms never fall back to unrestricted execution. Seven fresh
+pinned charts pass the downstream references, PCM, SSC and scroll gate. Worker
+build preparation, selector orchestration and URL fetching remain separate work.

@@ -11,7 +11,8 @@ The production Rust APIs read bound saved state and media; they do not launch
 Ruffle or need Python, FFmpeg, Node or a browser. This trial used the existing
 MIT Python supervisor to take fresh **restricted development captures**, then
 Rust performed the entire passive normalization and downstream preparation.
-Porting and packaging worker supervision remains open.
+The subsequent [Rust supervisor](danoni-rust-supervisor.md) now replaces that
+runtime launcher; worker build/package preparation remains open.
 
 ## Selection and source identities
 
@@ -214,8 +215,9 @@ cover stage/order/settings/selection failures, source/native disagreement,
 schedule loss, child clocks/ancestry, accessors, source hashes, cancellation,
 changed motion shapes/increments/references and wrong audio sprite routes.
 
-Next: package and port the restricted worker supervisor and versioned capture
-protocol. Three structural selector proof gaps remain as listed in the
+The subsequent [Rust capture supervisor](danoni-rust-supervisor.md) now feeds
+these APIs from fresh restricted runs. Next: port worker build/package preparation
+and reproducible selector orchestration. Three structural selector proof gaps remain as listed in the
 [normalization handover](danoni-rust-normalization.md#local-acceptance-and-remaining-proof-gaps).
 Acquisition, resource-request iteration, recipe-free URL inputs, HTML5 control
 and desktop library installation remain later milestones.

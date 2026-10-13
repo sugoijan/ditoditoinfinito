@@ -123,7 +123,10 @@ pipeline; three selector proof gaps remain explicit. The [pinned Rust adapters](
 now add Higan and Kouhaku: seven charts / six songs, full reference parity, zero
 measured decoder corrections, 3,073 real-parser endpoints and 57 authored scroll
 checks. Fresh development captures used the existing restricted Python launcher;
-production Rust worker supervision and URL acquisition remain ahead.
+the [Rust supervisor](danoni-rust-supervisor.md) now captures those seven charts
+under the fixed macOS sandbox and feeds the same normalized pipeline. Worker
+build/package preparation, selector orchestration, three proof gaps and URL
+acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

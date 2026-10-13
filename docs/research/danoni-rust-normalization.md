@@ -298,7 +298,7 @@ run during these gates.
 
 The pinned contracts are now [implemented and checked](danoni-rust-pinned.md)
 for two additional works / seven charts. Next: resolve or recapture these three
-proof gaps and package/port the restricted worker supervisor and resource-request
-loop. Source discovery/URL fetching and desktop installation
+proof gaps using the new [Rust supervisor](danoni-rust-supervisor.md), then port
+worker build/package preparation and the bounded resource-request loop. Source discovery/URL fetching and desktop installation
 remain the subsequent host stages. The current saved-run API removes the Python
 normalization/demux/audio dependency for the proved structural corpus.

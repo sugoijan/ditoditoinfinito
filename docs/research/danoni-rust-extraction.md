@@ -10,7 +10,8 @@ The subsequent SWF slice below inventories and demuxes saved movie bytes.
 The [combined saved-run producer](danoni-rust-normalization.md) now emits complete
 normalized structural works and bound native-scroll evidence. It **does not execute
 a movie**. The [pinned chart contracts](danoni-rust-pinned.md) now use the same
-APIs; fresh supervision remains pending. All third-party data and parity results remain local; accepted exports are unchanged.
+APIs; the [Rust supervisor](danoni-rust-supervisor.md) now creates source-bound
+fresh captures under the fixed macOS sandbox. All third-party data and parity results remain local; accepted exports are unchanged.
 
 ## API and provenance boundary
 

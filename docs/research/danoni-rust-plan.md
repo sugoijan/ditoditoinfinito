@@ -423,3 +423,26 @@ Milestone 4 now includes all existing pinned and structural passive adapters.
 Next package and port the restricted worker supervisor/versioned capture protocol,
 then the bounded resource-request loop. The three structural selector proof gaps
 remain explicit. Recipe-free URL discovery/acquisition remains milestone 5.
+
+
+### Rust restricted native supervision, 2026-10-13
+
+The [supervisor handover](danoni-rust-supervisor.md) specifies the host-installed
+worker boundary, strict source-bound capture requests, staged immutable inputs,
+fixed macOS policy, native memory monitoring, kernel budgets, cancellation,
+child reaping and ready/failure receipts. `capture-native` replaces the Python
+runtime launcher; the separately pinned worker/build hooks remain unchanged.
+Unsupported platforms never execute a worker.
+
+All seven pinned charts now capture under Rust supervision and feed Rust
+normalization/media/SSC preparation: 3,073 real-parser endpoints and 57 authored
+x1/x2/x3 checks pass with unchanged source references and zero decoder shifts.
+Original renderer/PCM/key fixtures pass; truncated graphs/audits and halted
+workers fail without readiness. Independent original OS probes cover outside
+file, input-write, symlink, live-network and child-spawn denial, plus resource
+limits, cancellation/crash handling and reaping. Accepted exports are unchanged.
+
+Milestone 4 remains open for Rust worker build/package preparation, reproducible
+selector/request orchestration and the three structural proof gaps. Runtime
+supervision itself no longer depends on Python. Dependency iteration/public URL
+acquisition and other-platform confinement remain subsequent work.

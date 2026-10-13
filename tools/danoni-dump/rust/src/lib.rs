@@ -16,6 +16,8 @@ pub mod policy;
 pub mod preview;
 pub mod reviews;
 pub mod ssc;
+#[cfg(feature = "native")]
+pub mod supervisor;
 pub mod swf;
 pub mod tempo;
 pub mod timing;

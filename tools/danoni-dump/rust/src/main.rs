@@ -73,6 +73,26 @@ fn main() {
             )
         }
         #[cfg(feature = "native")]
+        [command, job, output] if command == "capture-native" => {
+            ddi_danoni_export::supervisor::capture_job(
+                std::path::Path::new(job),
+                std::path::Path::new(output),
+                &mut || Ok(()),
+            )
+            .and_then(|outcome| {
+                if let Some(error) = outcome.failure {
+                    Err(error)
+                } else {
+                    Ok(serde_json::json!({
+                        "schema":"ddi-danoni-native-capture-written/1",
+                        "ready":outcome.ready,
+                        "output":outcome.output,
+                        "run":outcome.run
+                    }))
+                }
+            })
+        }
+        #[cfg(feature = "native")]
         [command, job, output] if command == "project-native" => {
             ddi_danoni_export::native::project_native(
                 std::path::Path::new(job),
@@ -98,7 +118,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json\n       ddi-danoni-export prepare-audio JOB.json NEW_OUTPUT\n       ddi-danoni-export estimate-tempo JOB.json NEW_OUTPUT\n       ddi-danoni-export project-native JOB.json NEW_OUTPUT\n       ddi-danoni-export demux-native JOB.json NEW_OUTPUT\n       ddi-danoni-export normalize-native JOB.json NEW_OUTPUT"
+                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json\n       ddi-danoni-export prepare-audio JOB.json NEW_OUTPUT\n       ddi-danoni-export estimate-tempo JOB.json NEW_OUTPUT\n       ddi-danoni-export capture-native JOB.json NEW_OUTPUT\n       ddi-danoni-export project-native JOB.json NEW_OUTPUT\n       ddi-danoni-export demux-native JOB.json NEW_OUTPUT\n       ddi-danoni-export normalize-native JOB.json NEW_OUTPUT"
             );
             std::process::exit(2);
         }
