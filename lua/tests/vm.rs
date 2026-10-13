@@ -25,7 +25,7 @@ fn vm() -> Vm {
         )
         .unwrap_or_else(|e| panic!("{e}"));
     vm.lua().enter(|ctx| {
-        ctx.set_global("LOG", ctx.intern(b""));
+        ctx.set_global("LOG", ctx.intern(b"")).unwrap();
         ctx.set_global(
             "LOG_LINE",
             Callback::from_fn(&ctx, |ctx, _, mut stack| {
@@ -36,10 +36,12 @@ fn vm() -> Vm {
                 };
                 all.extend_from_slice(line.as_bytes());
                 all.push(b'\n');
-                ctx.set_global("LOG", ctx.intern(&all));
+                // Refused, the limit stops the script after this step.
+                let _ = ctx.set_global("LOG", ctx.intern(&all));
                 Ok(CallbackReturn::Return)
             }),
-        );
+        )
+        .unwrap();
     });
     let mut task = vm.start(&print, |_| Vec::new());
     assert_eq!(vm.run(&mut task, UNLIMITED, &mut || 0.0), Outcome::Done);

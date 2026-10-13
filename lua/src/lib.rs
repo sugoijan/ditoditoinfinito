@@ -163,13 +163,12 @@ pub struct Vm {
 
 impl Vm {
     pub fn new(settings: Settings) -> Vm {
-        let mut lua = Lua::empty();
-        // Before anything makes a string (it would be hashed with the
-        // default keys); on a new instance it always takes.
-        let _ = lua.set_hash_seed(settings.hash_seed);
+        // Hashed with the seed's keys before anything makes a string.
+        let mut lua = Lua::with_hash_seed(settings.hash_seed);
         lua.set_compat(Compat::Lua51);
         lua.set_random_seed(settings.random_seed);
-        lua.enter(sandbox::load);
+        // Before the limits: nothing is refused.
+        let _ = lua.enter(sandbox::load);
         lua.set_limits(Limits {
             memory: Some(settings.memory),
             string_len: Some(settings.string_len),

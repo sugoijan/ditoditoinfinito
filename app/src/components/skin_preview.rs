@@ -9,8 +9,8 @@
 //! `000000`), `bpm` (default 60), `beat` (held still at that beat;
 //! otherwise the beat runs from 0), `notes=4` (every lane's tap note rather
 //! than Down's), `receptors=1`, `gfx=gl`, `demo=1` (a looping autoplayed
-//! chart scrolling into the receptors: taps, a hold, a roll and a mine,
-//! with their explosions; `rows` arrows tall, default 5, `speed` its x-mod,
+//! chart scrolling into the receptors: taps hit in every judgement's
+//! window and a miss, holds and rolls kept and dropped, a mine; `rows` arrows tall, default 5, `speed` its x-mod,
 //! default 1.5), `layout` (a built-in layout's id, default
 //! `dance-single`; a skin draws dance layouts only, the built-in arrows the
 //! rest). A test may set `window.__DDI_PREVIEW_BEAT`; after drawing it the

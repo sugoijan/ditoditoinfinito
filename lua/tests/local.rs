@@ -108,6 +108,22 @@ const LUA51_OUTCOMES: &[(&str, &str, &str)] = &[
     ("I1h", "ok", "as I1f, folded"),
     ("I2b", "ok", "5.1's format truncates %d arguments"),
     ("I2g", "ok", "5.1's table.insert sets past the end"),
+    (
+        "C6",
+        "ok",
+        "5.1's pcall catches the stack overflow the recursion ends in",
+    ),
+    (
+        "I2h",
+        "error",
+        "5.1 counts in floats: maxinteger - 1 is 2^63, too many to unpack",
+    ),
+    (
+        "I3a",
+        "host_stop",
+        "5.1 counts in floats: 2^63 + 1 is 2^63, the loop never ends",
+    ),
+    ("I3b", "ok", "5.1's loop with a zero step runs no iteration"),
 ];
 
 struct Case {
@@ -171,7 +187,8 @@ fn limit_cases() {
             ctx.set_global(
                 "print",
                 Callback::from_fn(&ctx, |_, _, _| Ok(CallbackReturn::Return)),
-            );
+            )
+            .unwrap();
         });
         let load_start = Instant::now();
         let loaded = vm.load("=case", &case.source);

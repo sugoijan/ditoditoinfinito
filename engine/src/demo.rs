@@ -1,6 +1,8 @@
 //! A short chart that shows what a noteskin draws, played by the
-//! autoplayer and looped: taps of several note types in every lane, a
-//! hold, a roll, and a mine it steps on (for the mine's explosion), on a
+//! autoplayer and looped: taps of several note types in every lane, hit
+//! in every judgement's window (and one missed now and then), holds and
+//! rolls kept and let go, and a mine it steps on (for the mine's
+//! explosion), on a
 //! built-in layout (four-lane dance by default, Dancing☆Onigiri's key
 //! modes too). The skin previews draw its frames (`#/skin-preview?demo=1`,
 //! Options).
@@ -168,6 +170,25 @@ pub struct Demo {
     last_now: f64,
 }
 
+/// Each tap's timing in turn, seconds late (`None`: missed; hold and roll
+/// heads are hit on time): on time between the others, each of ITG's windows early or
+/// late (W2 to W5: 43, 102, 135 and 180 ms, `rules::presets::itg`), and a
+/// miss.
+const TIMINGS: [Option<f64>; 12] = [
+    Some(0.0),
+    Some(0.0),
+    Some(0.033),
+    Some(0.0),
+    Some(-0.075),
+    Some(0.0),
+    Some(0.12),
+    Some(0.0),
+    Some(-0.16),
+    Some(0.0),
+    None,
+    Some(0.0),
+];
+
 /// A step further on than this (a page that was hidden) catches the play
 /// up without its events: a backlog of them at once would cost a skin's
 /// Lua a frame's worth of fuel many times over.
@@ -209,12 +230,77 @@ impl Demo {
         })
     }
 
-    /// A fresh play and its presses: the autoplayer's, and a step on each
-    /// mine.
+    /// A fresh play and its presses: the autoplayer's, moved through
+    /// [`TIMINGS`], every other hold let go and every other roll left a
+    /// third of the way, and a step on each mine.
     fn start(song: &Song, options: PlayOptions) -> (Player, Vec<(f64, u8, bool)>) {
-        let mut player = Player::new(song, 0, presets::itg(), options);
-        let mut script: Vec<(f64, u8, bool)> = autoplay::script(player.judge().notes(), 0.0)
+        // Its misses and drops must not end it.
+        let mut rules = presets::itg();
+        rules.fail = crate::rules::FailPolicy::Off;
+        let mut player = Player::new(song, 0, rules, options);
+        let mut presses: Vec<Option<autoplay::Press>> =
+            autoplay::script(player.judge().notes(), 0.0)
+                .into_iter()
+                .map(Some)
+                .collect();
+        // The autoplayer presses each note at its judged second exactly.
+        let first_press = |presses: &[Option<autoplay::Press>], lane: u8, at: f64| {
+            presses
+                .iter()
+                .position(|p| p.is_some_and(|p| p.lane == lane && p.press == at))
+        };
+        // Taps so far, and holds and rolls so far.
+        let (mut heads, mut long) = (0, [0usize; 2]);
+        let mut notes: Vec<_> = player.judge().notes().iter().collect();
+        notes.sort_by(|a, b| a.seconds.total_cmp(&b.seconds));
+        for n in notes {
+            let lane = n.note.lane;
+            match n.note.kind {
+                NoteKind::Tap => {
+                    let Some(i) = first_press(&presses, lane, n.seconds) else {
+                        continue;
+                    };
+                    match TIMINGS[heads % TIMINGS.len()] {
+                        Some(late) => {
+                            if let Some(p) = presses[i].as_mut() {
+                                p.press += late;
+                                p.release += late;
+                            }
+                        }
+                        None => presses[i] = None,
+                    }
+                    heads += 1;
+                }
+                NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } => {
+                    let count =
+                        &mut long[usize::from(matches!(n.note.kind, NoteKind::RollHead { .. }))];
+                    *count += 1;
+                    if *count % 2 == 1 {
+                        continue;
+                    }
+                    let early = n.seconds + (n.end_seconds - n.seconds) / 3.0;
+                    if matches!(n.note.kind, NoteKind::HoldHead { .. }) {
+                        if let Some(p) =
+                            first_press(&presses, lane, n.seconds).and_then(|i| presses[i].as_mut())
+                        {
+                            p.release = early;
+                        }
+                    } else {
+                        for p in presses.iter_mut() {
+                            if p.is_some_and(|p| {
+                                p.lane == lane && p.press > early && p.press <= n.end_seconds
+                            }) {
+                                *p = None;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut script: Vec<(f64, u8, bool)> = presses
             .into_iter()
+            .flatten()
             .flat_map(|p| [(p.press, p.lane, true), (p.release, p.lane, false)])
             .collect();
         for n in player.judge().notes() {
@@ -299,7 +385,8 @@ mod tests {
     #[test]
     fn the_demo_shows_every_kind_of_note_and_loops() {
         let mut demo = Demo::new("dance-single", 120.0, 1.5).unwrap();
-        let (mut taps, mut held, mut mines, mut kinds) = (0, 0, 0, Vec::new());
+        let (mut held, mut mines, mut kinds) = (0, 0, Vec::new());
+        let (mut judged, mut dropped, mut passed) = (Vec::new(), false, false);
         let mut last_seq = None;
         // Two loops at 60 frames a second.
         let frames = (demo.length() * 2.0 * 60.0) as u32;
@@ -309,9 +396,8 @@ mod tests {
                 assert!(last_seq.is_none_or(|s| e.seq > s), "{e:?}");
                 last_seq = Some(e.seq);
                 match e.kind {
-                    SkinEventKind::Tap { judgement, .. } => {
-                        assert_eq!(judgement, Judgement::W1);
-                        taps += 1;
+                    SkinEventKind::Tap { judgement, .. } if !judged.contains(&judgement) => {
+                        judged.push(judgement)
                     }
                     SkinEventKind::Held { .. } => held += 1,
                     SkinEventKind::HitMine => mines += 1,
@@ -319,6 +405,13 @@ mod tests {
                 }
             }
             for n in &step.frame.notes {
+                // A missed tap goes on past its receptor.
+                passed |= matches!(n.kind, SpriteKind::Tap) && n.y < -0.5;
+                dropped |= matches!(
+                    n.kind,
+                    SpriteKind::HoldHead { dropped: true, .. }
+                        | SpriteKind::RollHead { dropped: true, .. }
+                );
                 let k = std::mem::discriminant(&n.kind);
                 if !kinds.contains(&k) {
                     kinds.push(k);
@@ -326,13 +419,20 @@ mod tests {
             }
         }
         let per_loop = REPEATS as usize;
-        // Hold and roll heads flash as taps too.
-        let taps_per_phrase = PHRASE_NOTES
-            .iter()
-            .filter(|n| !matches!(n.2, Kind::Mine))
-            .count();
-        assert_eq!(taps, 2 * per_loop * taps_per_phrase);
-        assert_eq!(held, 2 * per_loop * 2);
+        // Every judgement's explosion shows (a miss has none: its tap goes
+        // by); every other hold and roll is let go.
+        for j in [
+            Judgement::W1,
+            Judgement::W2,
+            Judgement::W3,
+            Judgement::W4,
+            Judgement::W5,
+        ] {
+            assert!(judged.contains(&j), "{j:?}: {judged:?}");
+        }
+        assert!(dropped);
+        assert!(passed, "no tap missed");
+        assert_eq!(held, 2 * per_loop);
         assert_eq!(mines, 2 * per_loop);
         for k in [
             SpriteKind::Tap,
@@ -353,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn every_built_in_layout_has_a_demo_played_perfectly() {
+    fn every_built_in_layout_has_a_demo() {
         for id in Layout::builtin_ids() {
             let mut demo = Demo::new(&id, 150.0, 1.5).unwrap();
             let lanes = Layout::builtin(&id).unwrap().lane_count();
@@ -364,9 +464,6 @@ mod tests {
                 for e in &step.events {
                     seen[usize::from(e.lane)] = true;
                     match e.kind {
-                        SkinEventKind::Tap { judgement, .. } => {
-                            assert_eq!(judgement, Judgement::W1, "{id}")
-                        }
                         SkinEventKind::Held { .. } => held += 1,
                         SkinEventKind::HitMine => mines += 1,
                         _ => {}
@@ -374,9 +471,9 @@ mod tests {
                 }
             }
             assert!(seen.iter().all(|s| *s), "{id}: {seen:?}");
-            // A hold and a roll each phrase; a mine where there are three
-            // lanes or more.
-            assert_eq!(held, 2 * REPEATS, "{id}");
+            // A hold and a roll each phrase, every other one let go; a
+            // mine where there are three lanes or more.
+            assert_eq!(held, REPEATS, "{id}");
             assert_eq!(mines, if lanes > 2 { REPEATS } else { 0 }, "{id}");
         }
         assert!(Demo::new("pump-single", 120.0, 1.0).is_none());

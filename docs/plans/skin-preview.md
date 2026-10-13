@@ -46,10 +46,14 @@ of 255, much of it the GIFs' 256-colour dithering.
 ## Step 3. Holds, mines and explosions: the demo
 
 `demo=1`: a short chart scrolling into the receptors (`engine/src/demo.rs`):
-taps of several note types in every lane, a hold, a roll and a mine,
-played by the engine's own `Player` with the autoplayer's presses and a
-step on each mine, so the frames and the skin's events (presses, steps,
-explosions, a mine going off, holds kept) are a play's; it loops,
+taps of several note types in every lane, holds, rolls and a mine,
+played by the engine's own `Player` (ITG's rules, failing off) with the
+autoplayer's presses moved to land in each of the judgement windows in
+turn (on time between them) and now and then left out, every other hold
+let go and every other roll left a third of the way, and a step on each
+mine, so the frames and the skin's events (presses, steps, each
+judgement's explosion, a missed tap going by, holds kept and dropped, a
+mine going off) are a play's; it loops,
 numbering events on so a skin's actors carry over. It runs on any
 built-in layout (`layout`): the four-lane phrase on dance-single, a
 generated one on the others (dance-double, solo, Dancing☆Onigiri's key
@@ -59,8 +63,8 @@ before the HUD), so what a skin leaves to the built-in arrows shows, and
 `skin=builtin` previews the built-in arrows themselves, in the
 `ColorScheme` given.
 
-**Done 2026-10-13**: the demo plays all top tier with holds kept and mines
-hit on every built-in layout (native tests); checked in headless Chrome
+**Done 2026-10-13**: every judgement's explosion, a miss, kept and dropped
+holds and rolls, and mines hit, on every built-in layout (native tests); checked in headless Chrome
 (WebGPU, WebGL2) with CF_CHROME, Delta, Dito and Peter Lawrence's old-
 format skins.
 

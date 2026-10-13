@@ -97,8 +97,9 @@ the limit cases' outcomes and CPU-time gates natively and in wasm, and
 every case again through `ddi-lua`. Open: R8 (`%s` with a width or
 precision scans its argument uncharged, older than both rounds), and the
 wall-time gates, to rerun on an idle machine. Since 2026-10-12 the
-workspace depends on the consolidated branch `hardening2` at `75ab65a`
-(`docs/plans/piccolo-fork.md`, "Consolidated").
+workspace depends on the consolidated branch `hardening2` at `75ab65a`,
+since 2026-10-13 on the fork's `master` at `40c4115`
+(`docs/plans/piccolo-fork.md`, "Consolidated" and "Master").
 
 ## Step 2. `ddi-lua` (commit 2, in parallel with step 1)
 
