@@ -10,6 +10,7 @@ use crate::components::credits::CreditsScreen;
 use crate::components::device_watcher::DeviceWatcher;
 use crate::components::game_canvas::{GameCanvas, SongSource};
 use crate::components::options::Options;
+use crate::components::skin_preview::SkinPreview;
 use crate::components::song_select::SongSelect;
 use crate::components::video_check::VideoCheck;
 use crate::router::Route;
@@ -136,6 +137,7 @@ impl App {
                 html! { <VideoCheck sources={sources.clone()} decoder={decoder.clone()} /> }
             }
             Route::Calibrate => html! { <Calibrate /> },
+            Route::SkinPreview { params } => html! { <SkinPreview params={params.clone()} /> },
             Route::NotFound(p) => html! {
                 <main class="shell">
                     <p>{ format!("no route `{p}`") }</p>

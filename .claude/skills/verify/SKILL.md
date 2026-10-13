@@ -102,3 +102,8 @@ Noteskins (`docs/plans/noteskins.md`): `python3 -I noteskin/tests/make_test_skin
 - Receptor order L, D, U, R; arrows coloured by quantization; judgement text and combo centred in the field; life bar at the top; score top-right.
 - Autoplay must produce only top-tier judgements (`taps[0]` grows, `taps[5]` stays 0) and `let_go` 0.
 - No console errors (`page.on('console')`, `page.on('pageerror')`).
+
+## Noteskin previews and reference renders
+
+`#/skin-preview?skin=<key>` (`bundled:dance/cf_chrome`, or an import's `dance/<name>`) draws one skin's Down tap note alone, through the play's own drawing path, at `size` pixels an arrow over `bg` (hex), held at `beat` or running at `bpm`; `notes=4` draws the four arrows, `receptors=1` the receptors too, `gfx=gl` forces WebGL2. A test sets `window.__DDI_PREVIEW_BEAT` and waits until `window.__DDI_PREVIEW_DRAWN` equals it, then screenshots the canvas. Peter Lawrence's skins have published renders (the GIFs in his repository's README: 128 px, 60 frames a beat, a 4-beat loop or 2 for the ALLOY ones, the background their transparent colour), to compare against frame by frame, masked by the GIF's alpha; download them into a scratch folder, never into the repository (`docs/plans/skin-preview.md`).
+

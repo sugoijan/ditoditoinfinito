@@ -23,6 +23,6 @@ pub mod textured;
 
 pub use background::{Backdrop, BackgroundPipeline};
 pub use renderer::{Renderer, SkinBlending};
-pub use scene::{ColorScheme, FieldGeometry, RenderOptions, Skin};
+pub use scene::{ColorScheme, FieldGeometry, Preview, RenderOptions, Skin};
 pub use sprite::{Instance, Shape, SpritePipeline, Symbol, SymbolMode};
 pub use text::{Align, TextItem, TextPipeline};
