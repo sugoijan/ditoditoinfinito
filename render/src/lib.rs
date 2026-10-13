@@ -10,6 +10,7 @@
 pub mod art;
 pub mod background;
 pub mod color;
+mod mipmaps;
 pub mod model;
 pub mod note_colors;
 pub mod noteskin;

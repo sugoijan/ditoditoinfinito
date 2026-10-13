@@ -201,6 +201,8 @@ pub struct BackgroundPipeline {
     blur_pipeline: wgpu::RenderPipeline,
     composite_pipeline: wgpu::RenderPipeline,
     blur_layout: wgpu::BindGroupLayout,
+    shader: wgpu::ShaderModule,
+    blur_shader: wgpu::ShaderModule,
     sampler: wgpu::Sampler,
     images: Vec<Image>,
     wide: Option<Wide>,
@@ -275,6 +277,67 @@ impl BackgroundPipeline {
             label: Some("ddi-background-blur-bgl"),
             entries: &[uniform(false), common[1], common[2]],
         });
+        let [pipeline, yuv_pipeline, blur_pipeline, composite_pipeline] = Self::pipelines(
+            device,
+            format,
+            [&layout, &yuv_layout, &blur_layout],
+            [&shader, &blur_shader],
+        );
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("ddi-background-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let stride = u64::from(device.limits().min_uniform_buffer_offset_alignment)
+            .max(std::mem::size_of::<Params>() as u64);
+        BackgroundPipeline {
+            pipeline,
+            layout,
+            yuv_pipeline,
+            yuv_layout,
+            blur_pipeline,
+            composite_pipeline,
+            blur_layout,
+            shader,
+            blur_shader,
+            sampler,
+            images: Vec::new(),
+            wide: None,
+            format,
+            stride,
+            srgb: linear,
+        }
+    }
+
+    /// Draws to `format` from now on (its values linear light as before);
+    /// the images stay.
+    pub fn retarget(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+        [
+            self.pipeline,
+            self.yuv_pipeline,
+            self.blur_pipeline,
+            self.composite_pipeline,
+        ] = Self::pipelines(
+            device,
+            format,
+            [&self.layout, &self.yuv_layout, &self.blur_layout],
+            [&self.shader, &self.blur_shader],
+        );
+        self.format = format;
+        // The blur's textures are of the target's format.
+        self.wide = None;
+    }
+
+    /// The image, movie frame, blur and composite pipelines.
+    fn pipelines(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        [layout, yuv_layout, blur_layout]: [&wgpu::BindGroupLayout; 3],
+        [shader, blur_shader]: [&wgpu::ShaderModule; 2],
+    ) -> [wgpu::RenderPipeline; 4] {
         let pipeline_for = |layout: &wgpu::BindGroupLayout,
                             shader: &wgpu::ShaderModule,
                             fragment: &str,
@@ -315,40 +378,17 @@ impl BackgroundPipeline {
             })
         };
         let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
-        let pipeline = pipeline_for(&layout, &shader, "fs_main", alpha);
-        let yuv_pipeline = pipeline_for(&yuv_layout, &shader, "fs_yuv", alpha);
-        let blur_pipeline = pipeline_for(&blur_layout, &blur_shader, "fs_blur", None);
-        let composite_pipeline = pipeline_for(
-            &blur_layout,
-            &blur_shader,
-            "fs_composite",
-            Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-        );
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("ddi-background-sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        let stride = u64::from(device.limits().min_uniform_buffer_offset_alignment)
-            .max(std::mem::size_of::<Params>() as u64);
-        BackgroundPipeline {
-            pipeline,
-            layout,
-            yuv_pipeline,
-            yuv_layout,
-            blur_pipeline,
-            composite_pipeline,
-            blur_layout,
-            sampler,
-            images: Vec::new(),
-            wide: None,
-            format,
-            stride,
-            srgb: linear,
-        }
+        [
+            pipeline_for(layout, shader, "fs_main", alpha),
+            pipeline_for(yuv_layout, shader, "fs_yuv", alpha),
+            pipeline_for(blur_layout, blur_shader, "fs_blur", None),
+            pipeline_for(
+                blur_layout,
+                blur_shader,
+                "fs_composite",
+                Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            ),
+        ]
     }
 
     /// An empty texture of the right format and usage for

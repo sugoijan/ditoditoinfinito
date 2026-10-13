@@ -117,6 +117,7 @@ pub struct TexturedPipeline {
     clamp: wgpu::Sampler,
     repeat: wgpu::Sampler,
     textures: Vec<Texture>,
+    mipmaps: crate::mipmaps::Mipmaps,
     /// Bound for [`UNTEXTURED`] shapes (its texels unread).
     blank: Option<Texture>,
     instances: wgpu::Buffer,
@@ -282,6 +283,8 @@ impl TexturedPipeline {
                 address_mode_v: mode,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
+                // Between a model texture's mipmaps (the others have none).
+                mipmap_filter: wgpu::MipmapFilterMode::Linear,
                 ..Default::default()
             })
         };
@@ -296,12 +299,13 @@ impl TexturedPipeline {
             clamp: sampler(wgpu::AddressMode::ClampToEdge),
             repeat: sampler(wgpu::AddressMode::Repeat),
             textures: Vec::new(),
+            mipmaps: crate::mipmaps::Mipmaps::new(device),
             blank: None,
             instances: Self::make_buffer(device, capacity),
             capacity,
             batches: Vec::new(),
         };
-        let blank = p.create_texture(device, 1, 1, false);
+        let blank = p.create_texture(device, 1, 1, false, false);
         p.blank = Some(p.bind(device, &blank));
         p
     }
@@ -317,13 +321,16 @@ impl TexturedPipeline {
 
     /// A texture for [`TexturedPipeline::add_texture`], `width × height`,
     /// sRGB on an sRGB target, with a plain view too when quads are also
-    /// drawn to the target's plain view; plain with `plain_textures`.
+    /// drawn to the target's plain view; plain with `plain_textures`. With
+    /// `mipmaps`, every level down to one texel, for
+    /// [`TexturedPipeline::generate_mipmaps`] once the first is filled.
     pub fn create_texture(
         &self,
         device: &wgpu::Device,
         width: u32,
         height: u32,
         srgb: bool,
+        mipmaps: bool,
     ) -> wgpu::Texture {
         let plain = [wgpu::TextureFormat::Rgba8Unorm];
         let srgb = srgb && !self.plain_textures;
@@ -334,7 +341,11 @@ impl TexturedPipeline {
                 height: height.max(1),
                 depth_or_array_layers: 1,
             },
-            mip_level_count: 1,
+            mip_level_count: if mipmaps {
+                crate::mipmaps::levels(width, height)
+            } else {
+                1
+            },
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: if srgb {
@@ -351,6 +362,24 @@ impl TexturedPipeline {
                 &[]
             },
         })
+    }
+
+    /// Fills the mipmaps of a texture from [`TexturedPipeline::create_texture`]
+    /// whose first level is filled: averaged as the skin's quads blend
+    /// (through the plain view, encoded values, as StepMania's 8-bit
+    /// mipmaps are, when quads are drawn there).
+    pub fn generate_mipmaps(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture: &wgpu::Texture,
+    ) {
+        let format = if self.gamma.is_some() {
+            texture.format().remove_srgb_suffix()
+        } else {
+            texture.format()
+        };
+        self.mipmaps.generate(device, queue, texture, format);
     }
 
     /// Registers a filled texture (from [`TexturedPipeline::create_texture`]);

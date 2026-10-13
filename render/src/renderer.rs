@@ -32,8 +32,12 @@ pub struct Renderer {
     sprites: SpritePipeline,
     textured: TexturedPipeline,
     text: TextPipeline,
-    /// [`SkinBlending::Offscreen`]: every frame is drawn offscreen.
+    /// [`SkinBlending::Offscreen`]: every frame is drawn offscreen, while
+    /// skins are drawn ([`Renderer::set_skins_drawn`]).
     offscreen: Option<Offscreen>,
+    /// The target's format, and the float one of [`SkinBlending::Offscreen`].
+    format: wgpu::TextureFormat,
+    offscreen_format: Option<wgpu::TextureFormat>,
     pub skin: Skin,
     instance_count: usize,
     /// The target format is sRGB (blending and sampling in linear light).
@@ -74,11 +78,30 @@ impl Renderer {
             sprites: SpritePipeline::new(device, scene_format, srgb),
             textured,
             text: TextPipeline::new(device, queue, scene_format, fonts),
+            offscreen_format: offscreen.as_ref().map(|_| scene_format),
             offscreen,
+            format,
             skin: Skin::default(),
             instance_count: 0,
             srgb,
         }
+    }
+
+    /// Whether a skin's quads will be drawn (a session with a skin). With
+    /// [`SkinBlending::Offscreen`], frames are drawn offscreen only then:
+    /// without a skin the scene's pipelines draw to the target again.
+    pub fn set_skins_drawn(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, drawn: bool) {
+        let Some(float) = self.offscreen_format else {
+            return;
+        };
+        if drawn == self.offscreen.is_some() {
+            return;
+        }
+        let scene_format = if drawn { float } else { self.format };
+        self.sprites.retarget(device, scene_format);
+        self.background.retarget(device, scene_format);
+        self.text.retarget(device, queue, scene_format);
+        self.offscreen = drawn.then(|| Offscreen::new(device, self.format, float));
     }
 
     /// A texture for [`Renderer::set_background`], to be filled by the shell
@@ -124,14 +147,27 @@ impl Renderer {
 
     /// A texture for a noteskin image ([`Renderer::add_noteskin_texture`]),
     /// filled by the shell with sRGB-encoded pixels.
+    /// With `mipmaps` (a model's texture), every level, filled by
+    /// [`Renderer::generate_noteskin_mipmaps`] once the first is.
     pub fn create_noteskin_texture(
         &self,
         device: &wgpu::Device,
         width: u32,
         height: u32,
+        mipmaps: bool,
     ) -> wgpu::Texture {
         self.textured
-            .create_texture(device, width, height, self.srgb)
+            .create_texture(device, width, height, self.srgb, mipmaps)
+    }
+
+    /// Fills the mipmaps of a noteskin texture whose first level is filled.
+    pub fn generate_noteskin_mipmaps(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture: &wgpu::Texture,
+    ) {
+        self.textured.generate_mipmaps(device, queue, texture);
     }
 
     /// Registers a filled noteskin texture; returns the id its quads use.
@@ -148,7 +184,7 @@ impl Renderer {
         name: &str,
     ) -> u32 {
         let art = crate::art::builtin(name);
-        let texture = self.create_noteskin_texture(device, art.width, art.height);
+        let texture = self.create_noteskin_texture(device, art.width, art.height, false);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -186,6 +222,11 @@ impl Renderer {
     /// as on a plain target).
     pub fn skins_blend_encoded(&self) -> bool {
         self.textured.gamma()
+    }
+
+    /// Frames are drawn offscreen (WebGL2 with a skin drawn).
+    pub fn offscreen(&self) -> bool {
+        self.offscreen.is_some()
     }
 
     /// The skin's background colour as the target expects it.
@@ -267,7 +308,10 @@ impl Renderer {
         // decoded, and the frame is drawn to the target at the end.
         // The skin's colours were made encoded for it (`skins_blend_encoded`).
         debug_assert!(
-            plain_view.is_some() || self.offscreen.is_some() || !self.textured.gamma(),
+            scene.quads.is_empty()
+                || plain_view.is_some()
+                || self.offscreen.is_some()
+                || !self.textured.gamma(),
             "skins blend encoded: the plain view is needed"
         );
         let plain_view = plain_view.filter(|_| self.textured.gamma());

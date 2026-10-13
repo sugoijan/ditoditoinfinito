@@ -145,8 +145,15 @@ models animating while paused, `SetSecondsIntoAnimation` releasing a
 `setstate`, each material wrapping time by its own length, the blend set
 back to normal after the first mesh (`DrawPrimitives`), triangles with a
 corner that is not a number dropped, and an import keeping at most 32 MB
-of a skin's texts. Not done: mipmaps for model textures (StepMania makes
-them).
+of a skin's texts. Since 2026-10-13 model textures have mipmaps, as
+StepMania makes for them and not for sprites (`AnimatedTexture::Load`,
+`bMipMaps`): the skin's texture registry marks a model's images, the app
+makes their textures with every level, and `render/src/mipmaps.rs` fills
+the levels from the first, averaged as the skin blends (the plain view's
+encoded values where skins blend as StepMania's), sampled trilinearly.
+Checked by screenshot on WebGPU, WebGL2 and in Firefox (ITGmania's metal
+and cel, the CF skins), and a full autoplay with CF_ALLOY on WebGPU and
+WebGL2.
 
 ## Step 4. Bones and animated textures (commit 4)
 

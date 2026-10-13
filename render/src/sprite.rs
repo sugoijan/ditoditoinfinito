@@ -113,6 +113,8 @@ struct Globals {
 
 pub struct SpritePipeline {
     pipeline: wgpu::RenderPipeline,
+    shader: wgpu::ShaderModule,
+    layout: wgpu::PipelineLayout,
     globals: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     instances: wgpu::Buffer,
@@ -160,17 +162,43 @@ impl SpritePipeline {
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = Self::pipeline(device, &shader, &layout, format);
+        let capacity = 1024;
+        let instances = Self::make_buffer(device, capacity);
+        SpritePipeline {
+            pipeline,
+            shader,
+            layout,
+            globals,
+            bind_group,
+            instances,
+            capacity,
+            srgb: linear,
+        }
+    }
+
+    /// Draws to `format` from now on (its values linear light as before).
+    pub fn retarget(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
+        self.pipeline = Self::pipeline(device, &self.shader, &self.layout, format);
+    }
+
+    fn pipeline(
+        device: &wgpu::Device,
+        shader: &wgpu::ShaderModule,
+        layout: &wgpu::PipelineLayout,
+        format: wgpu::TextureFormat,
+    ) -> wgpu::RenderPipeline {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ddi-sprite-pipeline"),
-            layout: Some(&layout),
+            layout: Some(layout),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: shader,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
                 buffers: &[Some(Instance::layout())],
             },
             fragment: Some(wgpu::FragmentState {
-                module: &shader,
+                module: shader,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
@@ -188,17 +216,7 @@ impl SpritePipeline {
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
-        });
-        let capacity = 1024;
-        let instances = Self::make_buffer(device, capacity);
-        SpritePipeline {
-            pipeline,
-            globals,
-            bind_group,
-            instances,
-            capacity,
-            srgb: linear,
-        }
+        })
     }
 
     fn make_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {

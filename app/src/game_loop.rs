@@ -269,6 +269,10 @@ impl GameLoop {
         if let Some((play, images, key)) = self.next_noteskin.take() {
             self.install_noteskin(Some(play), images, key);
         }
+        // Without a skin (another layout, the chart's own colours), frames
+        // need not be drawn offscreen for one (WebGL2).
+        self.renderer
+            .set_skins_drawn(&self.gfx.device, &self.gfx.queue, self.noteskin.is_some());
         // A retry plays the noteskin's commands from the start again.
         if let Some(n) = self.noteskin.as_mut() {
             n.restart();
@@ -499,9 +503,11 @@ impl GameLoop {
                         .add_builtin_art(&self.gfx.device, &self.gfx.queue, name),
                     (_, Some(image)) => {
                         let (w, h) = (image.width().max(1), image.height().max(1));
-                        let texture = self
-                            .renderer
-                            .create_noteskin_texture(&self.gfx.device, w, h);
+                        // A model's texture is mipmapped, as StepMania's are.
+                        let mipmaps = play.texture_mipmaps(i);
+                        let texture =
+                            self.renderer
+                                .create_noteskin_texture(&self.gfx.device, w, h, mipmaps);
                         self.gfx.queue.copy_external_image_to_texture(
                             &wgpu::CopyExternalImageSourceInfo {
                                 source: wgpu::ExternalImageSource::ImageBitmap(image.clone()),
@@ -522,6 +528,13 @@ impl GameLoop {
                                 depth_or_array_layers: 1,
                             },
                         );
+                        if mipmaps {
+                            self.renderer.generate_noteskin_mipmaps(
+                                &self.gfx.device,
+                                &self.gfx.queue,
+                                &texture,
+                            );
+                        }
                         self.uploaded_images.push(image);
                         self.renderer
                             .add_noteskin_texture(&self.gfx.device, &texture)
@@ -811,6 +824,7 @@ impl GameLoop {
         set("backend", self.backend_name().into());
         set("srgb_view", self.gfx.view_format().is_srgb().into());
         set("skins_encoded", self.renderer.skins_blend_encoded().into());
+        set("offscreen", self.renderer.offscreen().into());
         set("fps", self.fps.fps.into());
         let mut text = format!(
             "{} · {:.0} fps · worst {:.1} ms · {}×{}",

@@ -309,9 +309,11 @@ no console warnings. Cost on WebGL2: two textures the size of the canvas
 (12 bytes a pixel), a full-screen draw at the end of every frame, and
 two draws over the field's quads for each run of them (two or three runs
 a frame: receptors, holds, notes, explosions between the built-in
-sprites). Not done: a skin chosen but not drawn (a layout other than
-dance, a chart's own colours) still costs the offscreen frame, as the
-renderer is made before the song is known.
+sprites). A skin chosen but not drawn (a layout other than dance, a
+chart's own colours) is known only when its session starts: then
+`Renderer::set_skins_drawn` makes the scene's pipelines draw to the
+canvas again (2026-10-13; checked with a Dancing☆Onigiri work, local only,
+and `__DDI_DEBUG.offscreen`).
 
 ## Step 6. Documentation
 
