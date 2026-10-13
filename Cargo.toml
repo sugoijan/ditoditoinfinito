@@ -21,9 +21,9 @@ ddi-library = { path = "library" }
 ddi-noteskin = { path = "noteskin" }
 ddi-lua = { path = "lua" }
 
-# The hardened fork of piccolo (docs/plans/piccolo-fork.md), branch
-# `hardening2`; gc-arena stays at the revision it pins.
-piccolo = { git = "https://github.com/sugoijan/piccolo.git", rev = "75ab65a017a7d4a033f151f9b5bbeef240a3ae6e" }
+# The hardened fork of piccolo (docs/plans/piccolo-fork.md), its `master`;
+# gc-arena stays at the revision it pins.
+piccolo = { git = "https://github.com/sugoijan/piccolo.git", rev = "40c41159c4845313e0b0103ec801bd1de0a74afd" }
 
 # app / web
 yew = { version = "0.23", features = ["csr"] }

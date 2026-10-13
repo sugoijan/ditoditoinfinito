@@ -390,3 +390,30 @@ R8 is still open on it: `('%5.2s'):format(s)` and `('%.2s'):format(s)`
 on a 1 MiB string charge about 92 fuel per millisecond (other code about
 70,000), steps up to 12 ms; the deadlines bound what it costs (a frame
 stops at 50 ms, a load after its Lua's 5 s, in slices).
+
+## Master (2026-10-13)
+
+The maintainer revised the consolidated commit on the fork's `master`
+(`40c4115`, again one commit, not descended from `75ab65a`): Lua 5.1
+mode counts in floats as PUC 5.1 does, metamethod chains and `__index`
+tables follow PUC's rules, more 5.1 library behaviour is tested byte for
+byte, and the library loaders and `Context::set_global` return a
+`LimitError` (refused only under a memory limit; `ddi-lua` loads its
+globals before setting its limits and passes the error on). R8 is kept
+as a known cost (`DELIBERATE(cost)` in the fork: the deadlines bound it).
+Checked on it:
+
+- every native test of the workspace (`just test`);
+- the local corpus with each skin's Lua (`DDI_NOTESKINS_LUA=1`: StepMania
+  5.1's, ITGmania's and the community mirror, 349 skins): the same
+  outcome on `75ab65a` and `40c4115` for every skin (all load, the same
+  actors and built-in elements), load fuel 0.3 % higher on average;
+  played at 60 and 144 Hz, at most 49,953 fuel in a frame (49,882
+  before);
+- the fork's exported limit cases (126) through `ddi-lua`, natively in
+  release and in wasm under Node: every outcome as expected once four
+  more differ for Lua 5.1 (C6: `pcall` catches the overflow, where the
+  memory limit stopped it at 16.5 MiB; I2h, I3a: 5.1 counts in floats, so
+  `math.maxinteger - 1` is 2^63; I3b: a zero step runs no iteration;
+  listed in `lua/tests/local.rs`), the longest step 7.2 ms natively, no
+  trap in wasm and memory growth at most 32.4 MiB (38.4 before).

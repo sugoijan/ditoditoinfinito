@@ -5,24 +5,26 @@
 //! `collectgarbage` (the host adds its own `loadfile` over the skin's
 //! files, and `print`).
 
+use piccolo::limits::LimitError;
 use piccolo::stdlib::{load_base, load_coroutine, load_math, load_string, load_table};
 use piccolo::{Callback, CallbackReturn, Context, Table, Value};
 
 /// Globals the fork's libraries define that a script must not have.
 const REMOVED: &[&str] = &["load", "collectgarbage"];
 
-pub fn load(ctx: Context<'_>) {
-    load_base(ctx);
-    load_coroutine(ctx);
-    load_math(ctx);
-    load_string(ctx);
-    load_table(ctx);
+/// Loads the globals; refused only under a memory limit too small for them.
+pub fn load(ctx: Context<'_>) -> Result<(), LimitError> {
+    load_base(ctx)?;
+    load_coroutine(ctx)?;
+    load_math(ctx)?;
+    load_string(ctx)?;
+    load_table(ctx)?;
     let g = ctx.globals();
     for name in REMOVED {
-        ctx.set_global(name, Value::Nil);
+        ctx.set_global(name, Value::Nil)?;
     }
-    ctx.set_global("_VERSION", "Lua 5.1");
-    ctx.set_global("_G", g);
+    ctx.set_global("_VERSION", "Lua 5.1")?;
+    ctx.set_global("_G", g)?;
 
     // Lua 5.1's names for what the fork has under other ones
     // (lbaselib.c, ltablib.c, lmathlib.c, lstrlib.c with the 5.1
@@ -31,7 +33,7 @@ pub fn load(ctx: Context<'_>) {
     let math: Option<Table> = ctx.get_global("math").ok();
     let string: Option<Table> = ctx.get_global("string").ok();
     if let Some(table) = table {
-        ctx.set_global("unpack", table.get_value(ctx, "unpack"));
+        ctx.set_global("unpack", table.get_value(ctx, "unpack"))?;
         // `luaL_getn`: the raw length.
         let _ = table.set(
             ctx,
@@ -58,4 +60,5 @@ pub fn load(ctx: Context<'_>) {
     if let Some(string) = string {
         let _ = string.set(ctx, "gfind", string.get_value(ctx, "gmatch"));
     }
+    Ok(())
 }
