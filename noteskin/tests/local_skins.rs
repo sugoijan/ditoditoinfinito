@@ -117,6 +117,7 @@ fn kind(r: &Resolved) -> &'static str {
             Source::BuiltInArt(_) | Source::Native(..) => "builtin",
             Source::Lua(_) => "lua",
             Source::Model(_) => "model",
+            Source::Legacy(_) => "legacy",
             Source::Movie(_) | Source::Other(_) => "other",
         },
     }
@@ -146,9 +147,45 @@ const GAMES: &[&str] = &[
     "kbx",
 ];
 
-const KINDS: [&str; 7] = [
-    "image", "builtin", "lua", "model", "other", "blank", "missing",
+const KINDS: [&str; 8] = [
+    "image", "builtin", "lua", "model", "legacy", "other", "blank", "missing",
 ];
+
+/// A skin in StepMania 3.9's format: every element of the four dance
+/// buttons built (each note part in each note type), counted as the skin's
+/// actors, built in or blank, with the builder's notes.
+fn legacy_report(skin: &Skin<'_>) -> String {
+    use ddi_noteskin::build::build_colored;
+    use ddi_noteskin::builtin::LEGACY_NOTE_TYPES;
+    let mut textures = Textures::default();
+    let (mut actors, mut builtin, mut blank) = (0, 0, 0);
+    let mut notes: Vec<String> = Vec::new();
+    for b in &Button::ALL[..4] {
+        for e in ENGINE_ELEMENTS {
+            for color in LEGACY_NOTE_TYPES {
+                let el = build_colored(skin, *b, e, color, &mut textures, &AnySize);
+                match el.built {
+                    Built::Actor(_) => actors += 1,
+                    Built::BuiltIn => builtin += 1,
+                    Built::Blank => blank += 1,
+                }
+                for n in el.notes {
+                    let n = format!("{} {n}", b.name());
+                    if !notes.contains(&n) {
+                        notes.push(n);
+                    }
+                }
+            }
+        }
+    }
+    let shown: Vec<&str> = notes.iter().take(12).map(String::as_str).collect();
+    format!(
+        "legacy: actors {actors}, built in {builtin}, blank {blank}; {} notes{}{}",
+        notes.len(),
+        if shown.is_empty() { "" } else { ": " },
+        shown.join(" | ")
+    )
+}
 
 #[test]
 fn local_skins() {
@@ -226,6 +263,9 @@ fn local_skins() {
                     None => format!("{d:?}"),
                 })
                 .collect();
+            if skin.legacy {
+                println!("{}\t{}", path.display(), legacy_report(&skin));
+            }
             println!(
                 "{}\t{}\tchain {}\t{}{}",
                 path.display(),

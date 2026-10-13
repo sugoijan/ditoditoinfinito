@@ -34,6 +34,20 @@ license_url = "https://github.com/stepmania/stepmania/blob/825467bcd81c812b33ad6
 notice = "LICENSES/LicenseRef-StepMania.txt"
 
 [[code]]
+name = "StepMania 3.9"
+what = "The metrics.ini of its dance/default and dance/flat noteskins, byte for byte: the stand-ins StepMania 3.9 and OpenITG noteskins fall back to."
+files = [
+  "noteskin/src/builtin/stepmania39/dance/default/metrics.ini",
+  "noteskin/src/builtin/stepmania39/dance/flat/metrics.ini",
+]
+spdx = "LicenseRef-StepMania"
+holders = ["Chris Danford, the StepMania development team, et al."]
+source = "https://github.com/stepmania/stepmania"
+commit = "5d417c1f1ab6a1bf090b4ba21a3ca37e8d4af892"
+license_url = "https://github.com/stepmania/stepmania/blob/5d417c1f1ab6a1bf090b4ba21a3ca37e8d4af892/stepmania/Docs/Copying.txt"
+notice = "LICENSES/LicenseRef-StepMania.txt"
+
+[[code]]
 name = "danoniplus (Dancing☆Onigiri CW Edition) v51.2.2"
 what = "Its built-in key mode tables and key codes (js/lib/danoni_constants.js), converted to Rust."
 files = ["chart/src/layout/danoni_table.rs", "chart/src/formats/danoni/keycodes.rs"]

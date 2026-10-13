@@ -380,7 +380,7 @@ impl<'gc> Convert<'_, 'gc> {
             self.images,
             &files[0],
             &files[1],
-            &files[2],
+            Some(&files[2]),
         ) {
             Ok(actor) => Ok(actor),
             Err(e) => {

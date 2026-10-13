@@ -12,7 +12,7 @@
 //! `window.__DDI_PREVIEW_BEAT`; after drawing it the page sets
 //! `window.__DDI_PREVIEW_DRAWN` to that beat.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use ddi_chart::{Layout, Quantization};
@@ -110,6 +110,11 @@ pub(crate) struct SkinPreview {
     running: Rc<RefCell<Option<Running>>>,
     /// The animation frame callback, kept alive.
     tick: Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>,
+    /// The pending animation frame request, cancelled before the callback
+    /// is dropped.
+    frame: Rc<Cell<i32>>,
+    /// The page was closed: a setup still running stops there.
+    closed: Rc<Cell<bool>>,
 }
 
 pub(crate) enum Msg {
@@ -126,6 +131,8 @@ impl Component for SkinPreview {
             status: Rc::new(RefCell::new("loading…".into())),
             running: Rc::new(RefCell::new(None)),
             tick: Rc::new(RefCell::new(None)),
+            frame: Rc::new(Cell::new(0)),
+            closed: Rc::new(Cell::new(false)),
         }
     }
 
@@ -147,6 +154,8 @@ impl Component for SkinPreview {
         let status = self.status.clone();
         let running = self.running.clone();
         let tick = self.tick.clone();
+        let frame = self.frame.clone();
+        let closed = self.closed.clone();
         let link = ctx.link().clone();
         wasm_bindgen_futures::spawn_local(async move {
             let set = |s: String| {
@@ -187,6 +196,12 @@ impl Component for SkinPreview {
                 &mut play,
                 &prepared.images,
             );
+            if closed.get() {
+                for image in images {
+                    image.close();
+                }
+                return;
+            }
             set(format!("{} on {}", play.name, gfx.backend_name()));
             *running.borrow_mut() = Some(Running {
                 gfx,
@@ -196,11 +211,15 @@ impl Component for SkinPreview {
                 options,
                 start_ms: None,
             });
-            start(running, tick);
+            start(running, tick, frame);
         });
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
+        self.closed.set(true);
+        if let Some(w) = web_sys::window() {
+            let _ = w.cancel_animation_frame(self.frame.get());
+        }
         self.tick.borrow_mut().take();
         if let Some(r) = self.running.borrow_mut().take() {
             for image in r.images {
@@ -223,20 +242,26 @@ impl Component for SkinPreview {
 fn start(
     running: Rc<RefCell<Option<Running>>>,
     tick: Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>,
+    frame: Rc<Cell<i32>>,
 ) {
     let again = tick.clone();
+    let next = frame.clone();
     *tick.borrow_mut() = Some(Closure::new(move |time_ms: f64| {
         if let Some(r) = running.borrow_mut().as_mut() {
             draw(r, time_ms);
         } else {
             return;
         }
-        if let (Some(w), Some(cb)) = (web_sys::window(), again.borrow().as_ref()) {
-            let _ = w.request_animation_frame(cb.as_ref().unchecked_ref());
+        if let (Some(w), Some(cb)) = (web_sys::window(), again.borrow().as_ref())
+            && let Ok(id) = w.request_animation_frame(cb.as_ref().unchecked_ref())
+        {
+            next.set(id);
         }
     }));
-    if let (Some(w), Some(cb)) = (web_sys::window(), tick.borrow().as_ref()) {
-        let _ = w.request_animation_frame(cb.as_ref().unchecked_ref());
+    if let (Some(w), Some(cb)) = (web_sys::window(), tick.borrow().as_ref())
+        && let Ok(id) = w.request_animation_frame(cb.as_ref().unchecked_ref())
+    {
+        frame.set(id);
     }
 }
 

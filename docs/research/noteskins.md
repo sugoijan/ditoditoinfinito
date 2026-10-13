@@ -332,3 +332,114 @@ test oracle.
   `js/danoni_main.js:1835`); works can name their own sets with `imgType`
   (https://github.com/cwtickle/danoniplus/wiki/dos-h0082-imgType). Out of
   scope here; the procedural symbols already play that role.
+
+## 11. StepMania 3.9 and OpenITG skins (2026-10-13)
+
+The older format, read by StepMania 3.9 and 3.95, OpenITG and NotITG, still
+in use for ITG-era skins (Peter Lawrence's `Open-ITG` and `Not-ITG`
+folders, 16 skins). Sources: OpenITG @ `f2c129fe` (StepMania's MIT-style
+licence, `Licenses.txt`): `src/NoteSkinManager.cpp`, `NoteDisplay.cpp`,
+`GhostArrow.cpp`, `GhostArrowRow.cpp`, `HoldGhostArrow.cpp`,
+`ReceptorArrow.cpp`, `ActorUtil.cpp`, `Actor.cpp`, `ActorFrame.cpp`,
+`Sprite.cpp`, `Model.cpp`; StepMania 3.9 @ `v390release` (`5d417c1f`,
+`Docs/Copying.txt`, MIT-style): `NoteSkins/dance/default` and `flat`.
+OpenITG's own skins (`assets/d4`) are ITG's game data, not free: read for
+behaviour only.
+
+- **Lookup** is StepMania 5's (`NoteSkinManager::GetPath`): the button and
+  element name (`Down tap note`, case-insensitive) in the skin and its
+  `FallbackNoteSkin` chain, then the game's `default`, then
+  `common/default` as `Fallback <element>`; a file matches by prefix
+  (`<name>*`); `.redir` files point elsewhere. Metrics merge in the same
+  order (`common/default` first, the skin last); a button's section wins
+  over `[NoteDisplay]`.
+- **Elements**: `tap note`, `tap addition` (notes added by mods), `tap
+  mine`, and per hold and roll `head`, `topcap`, `body`, `bottomcap`,
+  `tail`, each `active` and `inactive` (`NoteDisplay.cpp:300-318`). No
+  lifts or fakes. With `<Part>AnimationIsNoteColor=1` a part loads one
+  actor per note type, `<element> 4th` … `64th` (8 colours; a 192nd uses
+  the 64th's, `NoteDisplay.h:15`); colour by texture translation does not
+  exist. A hold's top cap, body and bottom cap are sprites only; its head
+  and tail are any actor.
+- **Metrics** (`[NoteDisplay]`; a hold part's are read under the next
+  part's name, since OpenITG's `Part` enum puts the tail after the head
+  and its `PartNames` put it last: the tail's are `HoldTopCap…`, the top
+  cap's `HoldBody…`, the body's `HoldBottomCap…`, the bottom cap's
+  `HoldTail…`, `NoteDisplay.cpp:12-37`): `<Part>AnimationLengthInBeats`,
+  `<Part>AnimationIsVivid`, `<Part>AnimationIsNoteColor`,
+  `<Part>UseLighting` (a directional light on the actor; 0 in every local
+  skin), `DrawHoldHeadForTapsOnSameRow`, `StartDrawingHoldBodyOffsetFromHead`,
+  `StopDrawingHoldBodyOffsetFromTail`, `HoldNGGrayPercent`,
+  `ReverseDrawOrder`, `HoldHeadIsAboveWavyParts`, `HoldTailIsAboveWavyParts`,
+  `FlipHeadAndTailWhenReverse`. Animation is always on the beat. Vivid is
+  OpenITG's own: the note's beat fraction less a quarter of the animation's
+  interval, rounded (`Quantize`, half up) to it, not floored as in
+  StepMania 5 (`NoteDisplay.cpp:340-360`).
+- **Explosions** (`GhostArrowRow`): per column `tap explosion dim` and
+  `tap explosion bright`, each a frame of one actor per judgement
+  (`<element> <score>`: `None`, `HitMine`, `AvoidMine`, `Miss`, `Boo`,
+  `Good`, `Great`, `Perfect`, `Marvelous`, and for holds `NG`, `OK`), hidden
+  until its judgement shows it and runs `[GhostArrowDim]` or
+  `[GhostArrowBright]` `<Score>Command`; showing one hides the others but a
+  mine's. `hold explosion` is a sprite drawn while a hold is held, with
+  `[HoldGhostArrow] OnCommand` (no roll explosion in OpenITG).
+- **Receptors** (`ReceptorArrow`): `KeypressBlock` (shown while pressed),
+  `receptor waiting` until gameplay's "Here we go" and `receptor go` after
+  (`ScreenGameplay.cpp:2159`, when the Ready/Go intro ends), both on the
+  beat's clock; a step runs `[ReceptorArrow] <Score>Command` on both, then
+  their `Press` command, and a release their `Lift` command.
+- **Files** (`ActorUtil::MakeActor`): `.actor` is an INI whose `[Actor]`
+  section is an actor node (usually `File=` another element and a
+  `BaseRotationZDegrees`); `.xml` an actor tree (`ActorFrame`, `Sprite`,
+  children under `<children>`); `.sprite` an INI `[Sprite]` node
+  (`Texture`, `FrameNNNN`/`DelayNNNN`, base rotation and zoom); `.model` an
+  INI `[Model]` naming `Meshes`, `Materials` and `Bones` MilkShape files
+  (relative to it); `.txt` a MilkShape model; images as in StepMania 5. A
+  node takes `Name`, `BaseRotation{X,Y,Z}Degrees`, `BaseZoom{X,Y,Z}` and
+  every `…Command` attribute as a metrics-style command (`Command=` alone
+  is `OnCommand`), and plays `Init` when loaded (`Actor.cpp:176`). A node
+  of a class it knows (`ActorFrame`, `Sprite`, `Model`) is built as that;
+  any other (an `.actor`'s `[Actor]`) is the actor its `File` makes,
+  relative to the file's folder, then given the node's attributes.
+  `File=@…` is Lua: the format's skins only write
+  `@NOTESKIN:GetPath('Down','Tap Note 4th')`, an absolute path (listings
+  carry the mount point's `/`). XML attributes are a multimap whose lookup
+  finds the first of a name (Peter Lawrence's receptors repeat
+  `Frame0000`, so they show one frame); an INI's later key wins. A
+  `.model` whose bones file has no `Bones:` block loads without
+  animation; one whose bones file is not there stops OpenITG ("Could not
+  open", `ModelTypes.cpp:217`), which matters because the format's skins
+  point at OpenITG's own `../default/_down tap bones.txt` (`Bones: 0`). A
+  sprite whose texture is missing is left without one (the error
+  ignored).
+- **Commands** (`ActorCommands.cpp`): split at `;` and `,`, the name
+  lowercased, and the first argument of `blend`, `effectclock`,
+  `horizalign`, `vertalign`, `playcommand` and a few others written as a
+  string (`blend,add`, `EffectClock,beat`); the rest is Lua as in
+  StepMania 5. `effectdelay` holds an effect at 100 % after each period
+  (`Actor.cpp:265-280`), StepMania 5's "hold at full".
+- **Survey** of the 16 local skins and OpenITG's 7 for comparison: 915
+  `.sprite`, 310 `.actor`, 229 `.model`, 187 MilkShape `.txt`, 12 `.xml`
+  (only `ActorFrame` and `Sprite`); their commands are ones StepMania 5
+  has but `effectdelay` (`zoom`, `diffuse`, `diffusealpha`, `linear`, `accelerate`,
+  `rotationz`, `blend`, `glowshift`, `effectclock`, `effectperiod`,
+  `effectcolor1/2`, `diffuseramp`, `effectdelay`, `effectoffset`,
+  `stoptweening`). Most skins set only `[NoteDisplay]`: the explosions'
+  and receptors' commands come from the defaults.
+- **OpenITG's `dance/default`** (309 files besides its metrics and
+  models; compared with our stand-in file by file locally, never shipped) is what makes a skin of Down's
+  elements whole: Left, Right and Up's tap notes and hold heads are
+  `.actor` files on `@NOTESKIN:GetPath('Down', …)` turned 90, -90 and
+  180 degrees; the 24th, 48th and 192nd go to the 12th's (Down's by a
+  redirect to `Down Tap Note 12th.model`, so a skin whose 12th is not a
+  model fails there); inactive heads and roll heads are the active hold
+  head; other buttons' hold bodies and caps redirect to Down's; Down's
+  bright explosions are its dim ones, OK and NG the Perfect's, Miss
+  `_blank`; the mine is `_mine.model`, from the skin. Its explosion
+  sprites, receptors and hold explosion are its own art.
+- **Defaults**: StepMania 3.9's `dance/default` metrics (free) have the
+  same explosion commands as OpenITG's `common/default`; ITG's
+  `dance/default` has others (accelerate-based, a glow shift for
+  Marvelous, a glowing hold explosion). Stand-ins can carry 3.9's,
+  as ours carry 5.1's for StepMania 5 skins. 3.9's `dance/flat` holds only
+  metrics (vivid off), and some skins fall back on `flat`.

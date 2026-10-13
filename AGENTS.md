@@ -34,8 +34,9 @@ the browser are implementation details, not advertised features.
 - `noteskin/` StepMania noteskins: fallback chains, file lookup and
   redirects, `metrics.ini`, file name hints, what each element is (stand-ins
   for StepMania's `default` and `common`), actors and their commands, and
-  (`noteskin/src/lua/`) a skin's Lua run at load over `lua/`; SVG images
-  in a checked subset (`noteskin/src/svg.rs`, our extension). Pure,
+  (`noteskin/src/lua/`) a skin's Lua run at load over `lua/`; StepMania
+  3.9's and OpenITG's format built natively (`noteskin/src/legacy.rs`);
+  SVG images in a checked subset (`noteskin/src/svg.rs`, our extension). Pure,
   natively tested; `docs/plans/noteskins.md`. `render/src/noteskin.rs`
   draws a skin in play and runs its Lua each frame.
 - `lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`): a

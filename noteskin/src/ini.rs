@@ -116,6 +116,29 @@ impl Ini {
         }
     }
 
+    /// The keys of `section` in file order, with their values.
+    pub fn section(&self, section: &str) -> impl Iterator<Item = (&str, &str)> {
+        self.by_name
+            .get(section)
+            .map(|&i| self.sections[i].keys.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+    }
+
+    /// Drops `section`, if it is there.
+    pub fn remove_section(&mut self, section: &str) {
+        let Some(i) = self.by_name.remove(section) else {
+            return;
+        };
+        self.sections.remove(i);
+        for at in self.by_name.values_mut() {
+            if *at > i {
+                *at -= 1;
+            }
+        }
+    }
+
     /// Section names in file order.
     pub fn section_names(&self) -> impl Iterator<Item = &str> {
         self.sections.iter().map(|s| s.name.as_str())
