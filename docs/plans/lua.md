@@ -343,6 +343,11 @@ skill. Delta (CC BY 3.0, StepMania 5.1) bundled with its `PROVENANCE.toml`
 once it draws as in StepMania; Apache-2.0 skins (Alpha-Arrows, Dake) if
 the maintainer accepts that licence for art.
 
+**Done 2026-10-12**, with `docs/plans/bundled-skins.md`: decision 39 (the
+sandbox and its bounds), the docs and the verify skill kept current at
+each step, Delta, Alpha-Arrows (its images; our own Lua) and Dake
+bundled, and Dito, the built-in arrows as a Lua skin, the default.
+
 ## Later
 
 - Recording commands that need no live Lua into native ops (69 % of skins,

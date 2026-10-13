@@ -24,16 +24,22 @@ pub struct Renderer {
 }
 
 impl Renderer {
+    /// A renderer drawing to `format`; with `plain`, the target's plain
+    /// (non-sRGB) format when `format` is an sRGB view of it, skins' quads
+    /// are drawn through that view, blending as StepMania blends
+    /// ([`Renderer::render`]'s `plain_view`).
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
+        plain: Option<wgpu::TextureFormat>,
         fonts: &[&'static [u8]],
     ) -> Renderer {
+        let plain = plain.filter(|p| format.is_srgb() && !p.is_srgb());
         Renderer {
             background: BackgroundPipeline::new(device, format),
             sprites: SpritePipeline::new(device, format),
-            textured: TexturedPipeline::new(device, format),
+            textured: TexturedPipeline::new(device, format, plain),
             text: TextPipeline::new(device, queue, format, fonts),
             skin: Skin::default(),
             instance_count: 0,
@@ -90,7 +96,8 @@ impl Renderer {
         width: u32,
         height: u32,
     ) -> wgpu::Texture {
-        self.background.create_texture(device, width, height)
+        self.textured
+            .create_texture(device, width, height, self.srgb)
     }
 
     /// Registers a filled noteskin texture; returns the id its quads use.
@@ -107,9 +114,7 @@ impl Renderer {
         name: &str,
     ) -> u32 {
         let art = crate::art::builtin(name);
-        let texture = self
-            .background
-            .create_texture(device, art.width, art.height);
+        let texture = self.create_noteskin_texture(device, art.width, art.height);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -142,6 +147,12 @@ impl Renderer {
         self.srgb
     }
 
+    /// Skins' quads blend as StepMania blends (in the target's plain view,
+    /// so their colours are given encoded, as on a plain target).
+    pub fn skins_blend_encoded(&self) -> bool {
+        self.textured.gamma()
+    }
+
     /// The skin's background colour as the target expects it.
     pub fn clear_color(&self) -> wgpu::Color {
         let c = self.skin.background;
@@ -154,7 +165,9 @@ impl Renderer {
         }
     }
 
-    /// Encode a full frame into `view` (`width × height` pixels).
+    /// Encode a full frame into `view` (`width × height` pixels); skins'
+    /// quads into `plain_view`, the same texture's plain view, when the
+    /// renderer was made for it.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -162,6 +175,7 @@ impl Renderer {
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
+        plain_view: Option<&wgpu::TextureView>,
         width: u32,
         height: u32,
         frame: &Frame,
@@ -211,32 +225,160 @@ impl Renderer {
         self.textured
             .prepare(device, queue, width as f32, height as f32, &scene.quads);
         let _ = self.text.prepare(device, queue, width, height, &scene.text);
+        // Skins' quads go to the plain view, in passes of their own between
+        // the scene's (`skins_blend_encoded`).
+        // The skin's colours were made encoded for it (`skins_blend_encoded`).
+        debug_assert!(
+            plain_view.is_some() || !self.textured.gamma(),
+            "skins blend encoded: the plain view is needed"
+        );
+        let plain_view = plain_view.filter(|_| self.textured.gamma());
+        for (n, pass_plan) in passes(&scene.order, plain_view.is_some())
+            .iter()
+            .enumerate()
         {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ddi-scene"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.clear_color()),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            self.background.draw(&mut pass, &background);
-            for segment in &scene.order {
+            let target = match (pass_plan.plain, plain_view) {
+                (true, Some(plain)) => plain,
+                _ => view,
+            };
+            let load = if n == 0 {
+                wgpu::LoadOp::Clear(self.clear_color())
+            } else {
+                wgpu::LoadOp::Load
+            };
+            let mut pass = begin_pass(encoder, target, load);
+            if n == 0 {
+                self.background.draw(&mut pass, &background);
+            }
+            for segment in &scene.order[pass_plan.segments.clone()] {
                 match segment {
                     Segment::Sprites(r) => self.sprites.draw_range(&mut pass, r.clone()),
-                    Segment::Quads(r) => self.textured.draw(&mut pass, r.clone()),
+                    Segment::Quads(r) => self.textured.draw(&mut pass, r.clone(), pass_plan.plain),
                 }
             }
-            self.text.draw(&mut pass);
+            if pass_plan.last {
+                self.text.draw(&mut pass);
+            }
         }
         self.text.trim();
+    }
+}
+
+/// One render pass of a frame.
+#[derive(Clone, Debug, PartialEq)]
+struct PassPlan {
+    /// Through the plain view (a skin's quads, blending as StepMania's).
+    plain: bool,
+    /// The scene's segments it draws.
+    segments: std::ops::Range<usize>,
+    /// The frame's last pass (the text goes on top).
+    last: bool,
+}
+
+/// The passes a frame's `order` is drawn in: one, or with `plain` the
+/// skins' quads in passes of their own on the plain view between the
+/// scene's. The first pass clears and draws the background; the last
+/// draws the text, on the scene's view.
+fn passes(order: &[Segment], plain: bool) -> Vec<PassPlan> {
+    let mut out = vec![PassPlan {
+        plain: false,
+        segments: 0..0,
+        last: false,
+    }];
+    for (i, segment) in order.iter().enumerate() {
+        let wants_plain = plain && matches!(segment, Segment::Quads(_));
+        let current = out.last_mut().expect("one pass at least");
+        if current.plain == wants_plain {
+            current.segments.end = i + 1;
+        } else {
+            out.push(PassPlan {
+                plain: wants_plain,
+                segments: i..i + 1,
+                last: false,
+            });
+        }
+    }
+    if out.last().is_some_and(|p| p.plain) {
+        out.push(PassPlan {
+            plain: false,
+            segments: order.len()..order.len(),
+            last: false,
+        });
+    }
+    if let Some(p) = out.last_mut() {
+        p.last = true;
+    }
+    out
+}
+
+/// A pass drawing to `target`.
+fn begin_pass<'e>(
+    encoder: &'e mut wgpu::CommandEncoder,
+    target: &wgpu::TextureView,
+    load: wgpu::LoadOp<wgpu::Color>,
+) -> wgpu::RenderPass<'e> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("ddi-scene"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: target,
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load,
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan(plain: bool, segments: std::ops::Range<usize>, last: bool) -> PassPlan {
+        PassPlan {
+            plain,
+            segments,
+            last,
+        }
+    }
+
+    #[test]
+    fn skins_quads_get_passes_of_their_own() {
+        use Segment::{Quads, Sprites};
+        let order = [
+            Sprites(0..2),
+            Quads(0..3),
+            Quads(3..4),
+            Sprites(2..5),
+            Quads(4..6),
+        ];
+        // One pass without a plain view.
+        assert_eq!(passes(&order, false), [plan(false, 0..5, true)]);
+        // With one: the quads in plain passes, the text in a last scene pass.
+        assert_eq!(
+            passes(&order, true),
+            [
+                plan(false, 0..1, false),
+                plan(true, 1..3, false),
+                plan(false, 3..4, false),
+                plan(true, 4..5, false),
+                plan(false, 5..5, true),
+            ]
+        );
+        // A frame starting with quads still clears first, on the scene's view.
+        assert_eq!(
+            passes(&[Quads(0..1)], true),
+            [
+                plan(false, 0..0, false),
+                plan(true, 0..1, false),
+                plan(false, 1..1, true),
+            ]
+        );
+        assert_eq!(passes(&[], true), [plan(false, 0..0, true)]);
     }
 }

@@ -183,7 +183,13 @@ impl GameLoop {
         canvas: HtmlCanvasElement,
         on_event: Callback<SessionEvent>,
     ) -> GameLoop {
-        let renderer = Renderer::new(&gfx.device, &gfx.queue, gfx.view_format(), &[FONT]);
+        let renderer = Renderer::new(
+            &gfx.device,
+            &gfx.queue,
+            gfx.view_format(),
+            gfx.plain_format(),
+            &[FONT],
+        );
         let rect = canvas.get_bounding_client_rect();
         let css_size = Rc::new(Cell::new((rect.width(), rect.height())));
         let resize = {
@@ -477,7 +483,9 @@ impl GameLoop {
         self.noteskin_key = key;
         self.lua_stop_reported = false;
         self.renderer.clear_noteskin_textures();
-        let srgb = self.renderer.srgb();
+        // Colours as the target blends them: encoded when skins blend as
+        // StepMania's do.
+        let srgb = self.renderer.srgb() && !self.renderer.skins_blend_encoded();
         self.noteskin = play.map(|mut play| {
             play.set_srgb(srgb);
             let keys = play.texture_keys().to_vec();
@@ -595,6 +603,13 @@ impl GameLoop {
             format: Some(self.gfx.view_format()),
             ..Default::default()
         });
+        // Skins' quads blend as StepMania's do, through the plain view.
+        let plain_view = self.gfx.plain_format().map(|format| {
+            surface.texture.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(format),
+                ..Default::default()
+            })
+        });
         let mut encoder = self
             .gfx
             .device
@@ -695,6 +710,7 @@ impl GameLoop {
                     &self.gfx.queue,
                     &mut encoder,
                     &view,
+                    plain_view.as_ref(),
                     self.gfx.config.width,
                     self.gfx.config.height,
                     &frame,
@@ -791,6 +807,7 @@ impl GameLoop {
         );
         set("backend", self.backend_name().into());
         set("srgb_view", self.gfx.view_format().is_srgb().into());
+        set("skins_encoded", self.renderer.skins_blend_encoded().into());
         set("fps", self.fps.fps.into());
         let mut text = format!(
             "{} · {:.0} fps · worst {:.1} ms · {}×{}",
