@@ -180,6 +180,20 @@ CF_CHROME, CF_VIBRANT and CF_ALLOY (Unlicense; CF_CHROME's mine explosion
 CC0, JangaFX), their dance files byte-identical with a `PROVENANCE.toml`
 (`docs/plans/bundled-skins.md`).
 
+**Done 2026-10-12.** Bundled from Pete-Lawrence/Peters-Noteskins @
+`6faea8e1`: each skin's files that dance uses, found by building every
+element of the six dance buttons through the skin's Lua and leaving a file
+out only when every element (its actor, images and notes) stayed the same
+without it; what is left out is other games' buttons, the alternative
+center, the 50 % and 75 % mines and the artist's design file, plus copies
+identical to CF_CHROME's, which CF_VIBRANT and CF_ALLOY fall back on. 3 MB
+in all (CF_CHROME's mine explosion sheet is 1.9 MB). The repository's
+`LICENSE` and `README.md` sit in each; `LICENSES/` gains the Unlicense and
+CC0 1.0; the credits list them. `noteskin/tests/bundled.rs`: all 156
+elements of each their own, no warning. Full autoplays all 329 Fantastic
+and 27 of 27 holds with CF_CHROME in Chrome (WebGPU) and CF_VIBRANT in
+Firefox, CF_ALLOY and CF_VIBRANT by screenshot on WebGL2 and WebGPU.
+
 ## Later
 
 - A depth buffer, should a skin need models to intersect other notes.

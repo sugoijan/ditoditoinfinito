@@ -60,6 +60,26 @@ path = ["assets/noteskins/dance/Dake/*.png", "assets/noteskins/dance/Dake/*.lua"
 SPDX-FileCopyrightText = "hanubeki"
 SPDX-License-Identifier = "Apache-2.0"
 
+# Peter Lawrence's CF_CHROME, CF_VIBRANT and CF_ALLOY
+# (Pete-Lawrence/Peters-Noteskins 6faea8e1, SM5/Completed/): their dance
+# files byte for byte, the Unlicense; CF_CHROME's mine explosion is rendered
+# from JangaFX's Aerial Explosion VDB, CC0.
+[[annotations]]
+path = ["assets/noteskins/dance/CF_CHROME/**", "assets/noteskins/dance/CF_VIBRANT/**", "assets/noteskins/dance/CF_ALLOY/**"]
+SPDX-FileCopyrightText = "Peter Lawrence"
+SPDX-License-Identifier = "Unlicense"
+
+[[annotations]]
+path = ["assets/noteskins/dance/CF_CHROME/Fallback HitMine Explosion 8x8 (res 1536x1536).png"]
+SPDX-FileCopyrightText = ["JangaFX LLC", "Peter Lawrence"]
+SPDX-License-Identifier = "CC0-1.0"
+
+# The bundled skins' PROVENANCE.toml files are this repository's (MIT).
+[[annotations]]
+path = ["assets/noteskins/dance/CF_CHROME/PROVENANCE.toml", "assets/noteskins/dance/CF_VIBRANT/PROVENANCE.toml", "assets/noteskins/dance/CF_ALLOY/PROVENANCE.toml"]
+SPDX-FileCopyrightText = "すごいジャン <me@sugoijan.dev>"
+SPDX-License-Identifier = "MIT"
+
 # Bundled songs live under assets/songs/<slug>/ and are NOT MIT. Each song gets
 # its own annotations below naming the musician, chart authors and graphic
 # authors with the exact licence of each file. See docs/PLAN.md §8.
