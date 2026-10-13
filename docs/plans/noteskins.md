@@ -240,7 +240,9 @@ then all taps) rather than column by column; a short bottom cap's texture
 shift is relative to its frame (StepMania's is in whole-texture units, which
 differs only for sheets stacked vertically); on an sRGB target blending is
 in linear light (decision 17), so fades and additive explosions look
-brighter than in StepMania; re-reading a kept folder imports again a skin
+brighter than in StepMania (since 2026-10-12 skins blend as StepMania's on
+WebGPU, `docs/plans/bundled-skins.md` step 5; WebGL2 still in linear
+light); re-reading a kept folder imports again a skin
 the player removed and keeps one whose folder is gone.
 
 ## Step 6. Documentation

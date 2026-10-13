@@ -307,6 +307,15 @@ impl Gfx {
             .unwrap_or(self.config.format)
     }
 
+    /// The surface's own format when the scene is drawn through an sRGB
+    /// view of it (WebGPU): skins' quads are drawn through a view in this
+    /// one, blending as StepMania does. WebGL2's surface is sRGB itself and
+    /// has no other view.
+    pub(crate) fn plain_format(&self) -> Option<wgpu::TextureFormat> {
+        (!self.config.view_formats.is_empty() && !self.config.format.is_srgb())
+            .then_some(self.config.format)
+    }
+
     /// Reconfigures the surface when the canvas backing store changes size.
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         let (w, h) = (width.max(1), height.max(1));

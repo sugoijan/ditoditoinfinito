@@ -589,7 +589,10 @@ impl LuaSkin {
             Ok(c) => c,
         };
         let Some(converted) = converted else {
-            return Ok((built_in(format!("{element}: Load did not return a table")), colored));
+            return Ok((
+                built_in(format!("{element}: Load did not return a table")),
+                colored,
+            ));
         };
         let mut notes = converted.notes;
         let Some((_, root_id)) = converted.root else {

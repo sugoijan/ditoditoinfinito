@@ -289,7 +289,9 @@ fn check_attribute(element: &str, name: &str, value: &str) -> Result<(), String>
         return Err(format!("<{element}>: the attribute {name} is not allowed"));
     }
     if (lower == "href" || lower.ends_with(":href")) && !value.starts_with('#') {
-        return Err(format!("<{element}>: {name}=\"{value}\" points outside the file"));
+        return Err(format!(
+            "<{element}>: {name}=\"{value}\" points outside the file"
+        ));
     }
     let value = value.to_ascii_lowercase();
     let mut rest = value.as_str();

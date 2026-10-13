@@ -259,11 +259,36 @@ and through an offscreen pass on WebGL2 (its surface is sRGB only), with
 the colours passed unconverted; decision 17 amended. Checked against
 screenshots of fades, explosions and Delta's receptor before and after.
 
+**Done on WebGPU 2026-10-12.** The renderer is given the canvas's plain
+format when it draws through an sRGB view of it (WebGPU), builds the
+textured pipelines a second time for it, makes skin textures with a plain
+view too and samples that one there (so texels are filtered and blended
+as encoded, as StepMania does, with no conversion in the shader), and
+draws each run of a skin's quads in a pass of its own on the plain view
+between the scene's passes (`passes`, `render/src/renderer.rs`, tested);
+the skin's colours are then given encoded (`NoteskinPlay::set_srgb(false)`). Everything else still blends
+in linear light. `__DDI_DEBUG.skins_encoded` says which way a play draws.
+Checked in headless Chrome: on WebGPU skins blend encoded, on WebGL2 as
+before; Delta's receptor specks fainter (the brightest from about 46 to
+27 of 255 on the dark field; re-encoding sampled texels instead, as a
+first version did, gave 34: filtering in linear light lightens fringes),
+Dito's colours unchanged and its additive
+glow softer, as in StepMania; full autoplays all top tier on WebGPU and
+in Firefox, no validation warnings. Reviewed independently: the
+filtering (above) and an assertion that the plain view is given whenever
+skins' colours are made for it. Open: WebGL2, whose surface is sRGB only (no other view of
+it): skins still blend in linear light there.
+
 ## Step 6. Documentation
 
 `docs/PLAN.md` (a decision for bundled skins and their licences, decision
 36 revised, the script-safety decision from `docs/plans/lua.md` step 5),
 `AGENTS.md`, the verify skill, the credits.
+
+**Done 2026-10-12.** Decisions 36 (revised), 37 (bundled skins), 38 (SVG)
+and 39 (scripts' sandbox), `AGENTS.md`, the verify skill and the credits
+were kept current at each step; this one added decision 39 and closed
+`docs/plans/lua.md`.
 
 ## Later
 

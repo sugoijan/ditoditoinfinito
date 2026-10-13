@@ -60,6 +60,9 @@ struct Globals {
 struct Texture {
     clamp: wgpu::BindGroup,
     repeat: wgpu::BindGroup,
+    /// Through the texture's plain view (its texels as encoded), for the
+    /// passes on the target's plain view: clamped, repeating.
+    plain: Option<[wgpu::BindGroup; 2]>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -72,10 +75,10 @@ struct Batch {
 }
 
 pub struct TexturedPipeline {
-    normal: wgpu::RenderPipeline,
-    add: wgpu::RenderPipeline,
-    subtract: wgpu::RenderPipeline,
-    modulate: wgpu::RenderPipeline,
+    /// Normal, add, subtract, modulate blending.
+    pipelines: [wgpu::RenderPipeline; 4],
+    /// The same to the target's plain view (StepMania's blending).
+    gamma: Option<[wgpu::RenderPipeline; 4]>,
     globals: wgpu::Buffer,
     globals_group: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
@@ -88,7 +91,14 @@ pub struct TexturedPipeline {
 }
 
 impl TexturedPipeline {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> TexturedPipeline {
+    /// Pipelines drawing to `format`, and, with `gamma`, to that plain
+    /// (non-sRGB) view of the same target, blending as StepMania does
+    /// ([`TexturedPipeline::draw`]).
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        gamma: Option<wgpu::TextureFormat>,
+    ) -> TexturedPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ddi-textured"),
             source: wgpu::ShaderSource::Wgsl(include_str!("textured.wgsl").into()),
@@ -146,7 +156,7 @@ impl TexturedPipeline {
             bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
-        let pipeline = |blend: wgpu::BlendState| {
+        let pipeline = |blend: wgpu::BlendState, format: wgpu::TextureFormat, entry: &str| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("ddi-textured-pipeline"),
                 layout: Some(&layout),
@@ -162,7 +172,7 @@ impl TexturedPipeline {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs_main"),
+                    entry_point: Some(entry),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
@@ -181,44 +191,51 @@ impl TexturedPipeline {
                 cache: None,
             })
         };
-        let normal = pipeline(wgpu::BlendState::ALPHA_BLENDING);
-        // `BLEND_ADD`: source times its alpha, added.
-        let add = pipeline(wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
+        // `BLEND_NORMAL`, `BLEND_ADD` (source times its alpha, added),
+        // `BLEND_SUBTRACT`, `BLEND_MODULATE`.
+        let blends = [
+            wgpu::BlendState::ALPHA_BLENDING,
+            wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::Zero,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
             },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
+            wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::ReverseSubtract,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::Zero,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
             },
-        });
-        let subtract = pipeline(wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::ReverseSubtract,
+            wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::Zero,
+                    dst_factor: wgpu::BlendFactor::Src,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::Zero,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
             },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-        });
-        let modulate = pipeline(wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::Src,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-        });
+        ];
+        let pipelines = blends.map(|b| pipeline(b, format, "fs_main"));
+        // Drawn to the plain view from the textures' plain views, so texels
+        // are filtered and blended as encoded, as StepMania does.
+        let gamma = gamma.map(|plain| blends.map(|b| pipeline(b, plain, "fs_main")));
         let sampler = |mode| {
             device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("ddi-textured-sampler"),
@@ -231,10 +248,8 @@ impl TexturedPipeline {
         };
         let capacity = 256;
         TexturedPipeline {
-            normal,
-            add,
-            subtract,
-            modulate,
+            pipelines,
+            gamma,
             globals,
             globals_group,
             texture_layout,
@@ -256,17 +271,67 @@ impl TexturedPipeline {
         })
     }
 
-    /// Registers a filled texture; returns the id quads draw it by.
+    /// A texture for [`TexturedPipeline::add_texture`], `width × height`,
+    /// sRGB on an sRGB target, with a plain view too when quads are also
+    /// drawn to the target's plain view.
+    pub fn create_texture(
+        &self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        srgb: bool,
+    ) -> wgpu::Texture {
+        let plain = [wgpu::TextureFormat::Rgba8Unorm];
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("ddi-textured-image"),
+            size: wgpu::Extent3d {
+                width: width.max(1),
+                height: height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: if srgb {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            } else {
+                wgpu::TextureFormat::Rgba8Unorm
+            },
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: if srgb && self.gamma.is_some() {
+                &plain
+            } else {
+                &[]
+            },
+        })
+    }
+
+    /// Registers a filled texture (from [`TexturedPipeline::create_texture`]);
+    /// returns the id quads draw it by.
     pub fn add_texture(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) -> u32 {
+        let t = self.bind(device, texture);
+        self.textures.push(t);
+        self.textures.len() as u32 - 1
+    }
+
+    fn bind(&self, device: &wgpu::Device, texture: &wgpu::Texture) -> Texture {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let group = |sampler: &wgpu::Sampler| {
+        let plain = (self.gamma.is_some()).then(|| {
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(wgpu::TextureFormat::Rgba8Unorm),
+                ..Default::default()
+            })
+        });
+        let group = |view: &wgpu::TextureView, sampler: &wgpu::Sampler| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("ddi-textured-texture-bg"),
                 layout: &self.texture_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
+                        resource: wgpu::BindingResource::TextureView(view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -275,11 +340,11 @@ impl TexturedPipeline {
                 ],
             })
         };
-        self.textures.push(Texture {
-            clamp: group(&self.clamp),
-            repeat: group(&self.repeat),
-        });
-        self.textures.len() as u32 - 1
+        Texture {
+            clamp: group(&view, &self.clamp),
+            repeat: group(&view, &self.repeat),
+            plain: plain.map(|p| [group(&p, &self.clamp), group(&p, &self.repeat)]),
+        }
     }
 
     /// Forgets every texture (a skin was unloaded).
@@ -341,10 +406,24 @@ impl TexturedPipeline {
         }
     }
 
+    /// Whether it can draw to a plain view of the target ([`TexturedPipeline::new`]).
+    pub fn gamma(&self) -> bool {
+        self.gamma.is_some()
+    }
+
     /// Draws the prepared quads `range` (indices into the slice given to
     /// [`TexturedPipeline::prepare`]); quads of an unknown texture are
-    /// skipped.
-    pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, range: std::ops::Range<u32>) {
+    /// skipped. `gamma`: in a pass on the plain view.
+    pub fn draw<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        range: std::ops::Range<u32>,
+        gamma: bool,
+    ) {
+        let pipelines = match (&self.gamma, gamma) {
+            (Some(g), true) => g,
+            _ => &self.pipelines,
+        };
         if range.is_empty() {
             return;
         }
@@ -361,14 +440,18 @@ impl TexturedPipeline {
             }
             if current != Some(b.blend) {
                 pass.set_pipeline(match b.blend {
-                    QuadBlend::Normal => &self.normal,
-                    QuadBlend::Add => &self.add,
-                    QuadBlend::Subtract => &self.subtract,
-                    QuadBlend::Modulate => &self.modulate,
+                    QuadBlend::Normal => &pipelines[0],
+                    QuadBlend::Add => &pipelines[1],
+                    QuadBlend::Subtract => &pipelines[2],
+                    QuadBlend::Modulate => &pipelines[3],
                 });
                 current = Some(b.blend);
             }
-            pass.set_bind_group(1, if b.wrap { &t.repeat } else { &t.clamp }, &[]);
+            let groups = match (&t.plain, gamma) {
+                (Some([clamp, repeat]), true) => [clamp, repeat],
+                _ => [&t.clamp, &t.repeat],
+            };
+            pass.set_bind_group(1, groups[usize::from(b.wrap)], &[]);
             pass.draw(0..6, start..end);
         }
     }
