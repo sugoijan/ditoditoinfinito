@@ -207,12 +207,18 @@ pub struct BackgroundPipeline {
     format: wgpu::TextureFormat,
     /// Bytes between an image's parameter slots.
     stride: u64,
-    /// The target format is sRGB.
+    /// The target holds linear light (sRGB, or a float stand-in).
     srgb: bool,
 }
 
 impl BackgroundPipeline {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> BackgroundPipeline {
+    /// Backgrounds drawn to `format`, whose values are linear light when
+    /// `linear` (an sRGB target, or a float one standing in for it).
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        linear: bool,
+    ) -> BackgroundPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ddi-background"),
             source: wgpu::ShaderSource::Wgsl(include_str!("background.wgsl").into()),
@@ -341,7 +347,7 @@ impl BackgroundPipeline {
             wide: None,
             format,
             stride,
-            srgb: format.is_srgb(),
+            srgb: linear,
         }
     }
 

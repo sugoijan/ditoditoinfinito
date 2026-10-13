@@ -7,16 +7,33 @@ use ddi_engine::rules::JudgeNames;
 use crate::background::BackgroundPipeline;
 use crate::color::to_target;
 use crate::noteskin::NoteLayer;
+use crate::offscreen::{self, Offscreen};
 use crate::scene::{self, FieldGeometry, RenderOptions, Segment, Skin};
 use crate::sprite::SpritePipeline;
 use crate::text::TextPipeline;
 use crate::textured::TexturedPipeline;
+
+/// How a noteskin's quads blend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SkinBlending {
+    /// As everything else (in linear light on an sRGB target).
+    Scene,
+    /// As StepMania's, in encoded values, through this plain view of the
+    /// sRGB target ([`Renderer::render`]'s `plain_view`; WebGPU).
+    PlainView(wgpu::TextureFormat),
+    /// As StepMania's, every frame drawn offscreen with the scene in this
+    /// float format (the device must render and blend it) and copied to
+    /// the sRGB target (WebGL2, whose surface has no other view).
+    Offscreen(wgpu::TextureFormat),
+}
 
 pub struct Renderer {
     background: BackgroundPipeline,
     sprites: SpritePipeline,
     textured: TexturedPipeline,
     text: TextPipeline,
+    /// [`SkinBlending::Offscreen`]: every frame is drawn offscreen.
+    offscreen: Option<Offscreen>,
     pub skin: Skin,
     instance_count: usize,
     /// The target format is sRGB (blending and sampling in linear light).
@@ -24,26 +41,43 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// A renderer drawing to `format`; with `plain`, the target's plain
-    /// (non-sRGB) format when `format` is an sRGB view of it, skins' quads
-    /// are drawn through that view, blending as StepMania blends
-    /// ([`Renderer::render`]'s `plain_view`).
+    /// A renderer drawing to `format`, skins' quads blending as `skins`
+    /// says (StepMania's ways only on an sRGB target).
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
-        plain: Option<wgpu::TextureFormat>,
+        skins: SkinBlending,
         fonts: &[&'static [u8]],
     ) -> Renderer {
-        let plain = plain.filter(|p| format.is_srgb() && !p.is_srgb());
+        let srgb = format.is_srgb();
+        let skins = match skins {
+            SkinBlending::PlainView(p) if srgb && !p.is_srgb() => skins,
+            SkinBlending::Offscreen(_) if srgb => skins,
+            _ => SkinBlending::Scene,
+        };
+        // Offscreen, the scene's pipelines draw linear light into the
+        // float texture.
+        let (scene_format, offscreen) = match skins {
+            SkinBlending::Offscreen(f) => (f, Some(Offscreen::new(device, format, f))),
+            _ => (format, None),
+        };
+        let textured = match skins {
+            SkinBlending::PlainView(p) => TexturedPipeline::new(device, format, Some(p), false),
+            SkinBlending::Offscreen(f) => {
+                TexturedPipeline::new(device, f, Some(offscreen::PLAIN), true)
+            }
+            SkinBlending::Scene => TexturedPipeline::new(device, format, None, false),
+        };
         Renderer {
-            background: BackgroundPipeline::new(device, format),
-            sprites: SpritePipeline::new(device, format),
-            textured: TexturedPipeline::new(device, format, plain),
-            text: TextPipeline::new(device, queue, format, fonts),
+            background: BackgroundPipeline::new(device, scene_format, srgb),
+            sprites: SpritePipeline::new(device, scene_format, srgb),
+            textured,
+            text: TextPipeline::new(device, queue, scene_format, fonts),
+            offscreen,
             skin: Skin::default(),
             instance_count: 0,
-            srgb: format.is_srgb(),
+            srgb,
         }
     }
 
@@ -148,7 +182,8 @@ impl Renderer {
     }
 
     /// Skins' quads blend as StepMania blends (in the target's plain view,
-    /// so their colours are given encoded, as on a plain target).
+    /// or offscreen in a plain texture, so their colours are given encoded,
+    /// as on a plain target).
     pub fn skins_blend_encoded(&self) -> bool {
         self.textured.gamma()
     }
@@ -167,7 +202,8 @@ impl Renderer {
 
     /// Encode a full frame into `view` (`width × height` pixels); skins'
     /// quads into `plain_view`, the same texture's plain view, when the
-    /// renderer was made for it.
+    /// renderer was made for it, or, without one, the frame offscreen and
+    /// copied to `view`.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -226,29 +262,66 @@ impl Renderer {
             .prepare(device, queue, width as f32, height as f32, &scene.quads);
         let _ = self.text.prepare(device, queue, width, height, &scene.text);
         // Skins' quads go to the plain view, in passes of their own between
-        // the scene's (`skins_blend_encoded`).
+        // the scene's (`skins_blend_encoded`); offscreen, to a plain texture
+        // the scene so far is drawn into encoded, then back into the scene
+        // decoded, and the frame is drawn to the target at the end.
         // The skin's colours were made encoded for it (`skins_blend_encoded`).
         debug_assert!(
-            plain_view.is_some() || !self.textured.gamma(),
+            plain_view.is_some() || self.offscreen.is_some() || !self.textured.gamma(),
             "skins blend encoded: the plain view is needed"
         );
         let plain_view = plain_view.filter(|_| self.textured.gamma());
-        for (n, pass_plan) in passes(&scene.order, plain_view.is_some())
-            .iter()
-            .enumerate()
-        {
-            let target = match (pass_plan.plain, plain_view) {
-                (true, Some(plain)) => plain,
+        let plans = passes(
+            &scene.order,
+            plain_view.is_some() || self.offscreen.is_some(),
+        );
+        let clear = self.clear_color();
+        let offscreen = self.offscreen.as_mut().map(|o| {
+            o.prepare(device, width, height);
+            &*o
+        });
+        // Offscreen, the conversions cover the run's quads only: the plain
+        // texture is read there alone.
+        let mut run: Option<Rect> = None;
+        for (n, pass_plan) in plans.iter().enumerate() {
+            if pass_plan.plain {
+                run = scene.order[pass_plan.segments.clone()]
+                    .iter()
+                    .filter_map(|s| match s {
+                        Segment::Quads(r) => scene.quads.get(r.start as usize..r.end as usize),
+                        Segment::Sprites(_) => None,
+                    })
+                    .flat_map(|q| q.iter())
+                    .filter_map(|q| quad_rect(q, width, height))
+                    .reduce(Rect::union);
+            }
+            let target = match (pass_plan.plain, offscreen, plain_view) {
+                (true, Some(o), _) => o.plain(),
+                (true, None, Some(plain)) => plain,
+                (false, Some(o), _) => o.scene(),
                 _ => view,
             };
-            let load = if n == 0 {
-                wgpu::LoadOp::Clear(self.clear_color())
-            } else {
-                wgpu::LoadOp::Load
+            let load = match (n, pass_plan.plain, offscreen) {
+                (0, _, _) => wgpu::LoadOp::Clear(clear),
+                // What the encoding leaves out is never read.
+                (_, true, Some(_)) => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                _ => wgpu::LoadOp::Load,
             };
             let mut pass = begin_pass(encoder, target, load);
             if n == 0 {
                 self.background.draw(&mut pass, &background);
+            }
+            // Every pass after the first follows one of the other kind.
+            if let (Some(o), Some(r)) = (offscreen, run)
+                && n > 0
+            {
+                pass.set_scissor_rect(r.x, r.y, r.width, r.height);
+                if pass_plan.plain {
+                    o.scene_to_plain(&mut pass);
+                } else {
+                    o.plain_to_scene(&mut pass);
+                }
+                pass.set_scissor_rect(0, 0, width.max(1), height.max(1));
             }
             for segment in &scene.order[pass_plan.segments.clone()] {
                 match segment {
@@ -260,8 +333,68 @@ impl Renderer {
                 self.text.draw(&mut pass);
             }
         }
+        if let Some(o) = offscreen {
+            let mut pass = begin_pass(encoder, view, wgpu::LoadOp::Clear(wgpu::Color::BLACK));
+            o.scene_to_target(&mut pass);
+        }
         self.text.trim();
     }
+}
+
+/// A rectangle of the target, in pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Rect {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+impl Rect {
+    fn union(self, o: Rect) -> Rect {
+        let (x, y) = (self.x.min(o.x), self.y.min(o.y));
+        let right = (self.x + self.width).max(o.x + o.width);
+        let bottom = (self.y + self.height).max(o.y + o.height);
+        Rect {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+        }
+    }
+}
+
+/// The pixels a quad or triangle may touch on a `width × height` target
+/// (its corners' box, two pixels wider for filtering); `None` off it.
+fn quad_rect(q: &crate::textured::TexQuad, width: u32, height: u32) -> Option<Rect> {
+    use crate::textured::Shape;
+    let corners: Vec<[f32; 2]> = match q.shape {
+        Shape::Quad { transform: m, .. } => [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)]
+            .iter()
+            .map(|&(u, v)| [m[4] + m[0] * u + m[2] * v, m[5] + m[1] * u + m[3] * v])
+            .collect(),
+        Shape::Triangle { points, .. } => points.to_vec(),
+    };
+    let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+    for c in &corners {
+        if !(c[0].is_finite() && c[1].is_finite()) {
+            return None;
+        }
+        for k in 0..2 {
+            lo[k] = lo[k].min(c[k]);
+            hi[k] = hi[k].max(c[k]);
+        }
+    }
+    let x0 = (lo[0] - 2.0).floor().clamp(0.0, width as f32) as u32;
+    let y0 = (lo[1] - 2.0).floor().clamp(0.0, height as f32) as u32;
+    let x1 = (hi[0] + 2.0).ceil().clamp(0.0, width as f32) as u32;
+    let y1 = (hi[1] + 2.0).ceil().clamp(0.0, height as f32) as u32;
+    (x1 > x0 && y1 > y0).then_some(Rect {
+        x: x0,
+        y: y0,
+        width: x1 - x0,
+        height: y1 - y0,
+    })
 }
 
 /// One render pass of a frame.
@@ -345,6 +478,68 @@ mod tests {
             segments,
             last,
         }
+    }
+
+    #[test]
+    fn a_runs_rectangle_covers_its_quads_on_the_target() {
+        use crate::textured::{QuadBlend, Shape, TexQuad};
+        let quad = |shape| TexQuad {
+            shape,
+            color: [1.0; 4],
+            glow: false,
+            texture: 0,
+            blend: QuadBlend::Normal,
+            wrap: false,
+        };
+        // 20 × 10 at (100, 50), turned a quarter: 10 wide, 20 high.
+        let turned = quad(Shape::Quad {
+            transform: [0.0, 20.0, -10.0, 0.0, 100.0, 50.0],
+            uv: [0.0; 4],
+        });
+        let r = quad_rect(&turned, 640, 480).unwrap();
+        assert_eq!(
+            r,
+            Rect {
+                x: 93,
+                y: 38,
+                width: 14,
+                height: 24
+            }
+        );
+        // Clipped to the target; off it, nothing.
+        let tri = quad(Shape::Triangle {
+            points: [[-50.0, -5.0], [10.0, 0.0], [0.0, 10.0]],
+            w: [1.0; 3],
+            uv: [[0.0; 2]; 3],
+        });
+        assert_eq!(
+            quad_rect(&tri, 640, 480),
+            Some(Rect {
+                x: 0,
+                y: 0,
+                width: 12,
+                height: 12
+            })
+        );
+        let off = quad(Shape::Quad {
+            transform: [10.0, 0.0, 0.0, 10.0, -100.0, 50.0],
+            uv: [0.0; 4],
+        });
+        assert_eq!(quad_rect(&off, 640, 480), None);
+        assert_eq!(
+            r.union(Rect {
+                x: 0,
+                y: 0,
+                width: 12,
+                height: 12
+            }),
+            Rect {
+                x: 0,
+                y: 0,
+                width: 107,
+                height: 62
+            }
+        );
     }
 
     #[test]

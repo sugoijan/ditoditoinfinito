@@ -13,6 +13,7 @@ pub mod color;
 pub mod model;
 pub mod note_colors;
 pub mod noteskin;
+mod offscreen;
 pub mod renderer;
 pub mod scene;
 pub mod sprite;
@@ -20,7 +21,7 @@ pub mod text;
 pub mod textured;
 
 pub use background::{Backdrop, BackgroundPipeline};
-pub use renderer::Renderer;
+pub use renderer::{Renderer, SkinBlending};
 pub use scene::{ColorScheme, FieldGeometry, RenderOptions, Skin};
 pub use sprite::{Instance, Shape, SpritePipeline, Symbol, SymbolMode};
 pub use text::{Align, TextItem, TextPipeline};

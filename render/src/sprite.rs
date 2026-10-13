@@ -121,7 +121,9 @@ pub struct SpritePipeline {
 }
 
 impl SpritePipeline {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> SpritePipeline {
+    /// Sprites drawn to `format`, whose values are linear light when
+    /// `linear` (an sRGB target, or a float one standing in for it).
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, linear: bool) -> SpritePipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ddi-sprite"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -195,7 +197,7 @@ impl SpritePipeline {
             bind_group,
             instances,
             capacity,
-            srgb: format.is_srgb(),
+            srgb: linear,
         }
     }
 
