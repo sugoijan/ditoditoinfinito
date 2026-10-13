@@ -10,6 +10,11 @@ The survey and importer-facing contract are in
 are in [schemas/](schemas/). The [current progress review](../../docs/research/danoni-progress.md)
 consolidates accepted corpus coverage, tool limitations and next milestones.
 
+The [Rust migration plan](../../docs/research/danoni-rust-plan.md) targets an
+embeddable desktop URL-to-library pipeline. Its [first Rust slice](rust/README.md)
+provides offline chart preparation; the Python/Node workflow remains the complete
+reference implementation during migration.
+
 For Flash research, the separate [native AVM1 prototype](ruffle/README.md)
 provides restricted Ruffle inspection and synthetic dos export validation.
 Real legacy conversion is experimental; it does not change this tool's CW

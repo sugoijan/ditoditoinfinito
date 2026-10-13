@@ -1,0 +1,24 @@
+[workspace]
+
+[package]
+name = "ddi-danoni-export"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[lib]
+name = "ddi_danoni_export"
+
+[[bin]]
+name = "ddi-danoni-export"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+
+[dev-dependencies]
+ddi-chart = { path = "../../../chart" }
+ddi-engine = { path = "../../../engine" }

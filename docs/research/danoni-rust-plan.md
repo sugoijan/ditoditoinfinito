@@ -1,0 +1,259 @@
+# Rust migration of the DanOni export pipeline
+
+Agreed 2026-10-13. The target is an embeddable native Rust pipeline that accepts
+one public URL and prepares playable songs for Dito Dito Infinito's local library.
+A CLI calls the same library API. Desktop integration comes later; the web app
+will not include the native pipeline initially. This supersedes the next-corpus
+batch as the immediate tooling priority, not the remaining acquisition research.
+
+## Baseline and boundaries
+
+The accepted local generation is 93 songs / 144 charts from 89 required entries:
+96,419 taps, 4,520 holds and all 93 banners. Its source evidence, normalized
+references, reviews and exports remain outside Git under `~/Music/DanOni/`.
+The [progress review](danoni-progress.md) and [runtime verification](danoni-runtime.md)
+record the coverage and limits. Existing Python/Node commands remain usable and
+serve as migration oracles until each replacement passes its acceptance gate.
+
+New code initially lives in `tools/danoni-dump/rust/`, package
+`ddi-danoni-export`, MIT under the existing REUSE annotation. It is a standalone
+Cargo workspace, like `pack-verify`, and does not change the game's workspace or
+WASM dependency tree. Only research documents and tooling change on this branch.
+Adding desktop dependencies, storage adapters or changing `docs/PLAN.md` is a
+handover to the implementation session. The eventual crate location can change
+without changing the API's responsibilities.
+
+The goal is Rust-owned application code and an installable desktop pipeline.
+It does not require rewriting Ruffle, codecs or a browser engine in Rust.
+Users should need no Python/Node installation, compiler, system FFmpeg command
+or manually prepared per-song recipe. Ship reviewed workers/codec dependencies
+with the desktop distribution and their licence notices. During migration,
+external tools may still be used by the reference/verification commands; do not
+claim the new pipeline is standalone before all runtime dependencies are addressed.
+
+Supported built-in modes are 5, 7, 7i, 9A and 9B, with 5-key first. Preserve
+unsupported charts and custom keys as evidence and report exclusions. Do not
+infer a built-in mode from lane count alone. Preserve original note frames,
+credits, difficulty notation and original files separately from derived SSC
+metadata. Perfect reproduction of author engine customizations is not a goal.
+
+## Responsibilities and eventual API
+
+```text
+URL
+  → bounded discovery
+  → policy-aware acquisition and content cache
+  → native family extraction or HTML5 capture
+  → normalized work and exact references
+  → song preparation and validation
+  → prepared import
+  → host's local-library transaction
+```
+
+The pure core owns typed normalized charts, validated policy decisions,
+quantization, preview/tempo decisions from supplied audio and prepared artifacts.
+It performs no network access, work-code execution or library writes. Native
+orchestration owns HTTP, disk cache, staged artifacts, platform process launch,
+resource limits and cancellation. A small CLI translates arguments/events and
+calls those APIs; it must not hold extraction logic unavailable to the app.
+
+The eventual native API is conceptually `prepare_url(url, services, options)`:
+`services` supplies a persistent cache, staging store, allowed fetcher, restricted
+worker/browser providers, progress sink and cancellation token. The app supplies
+these services and reasonable defaults, so the only user input normally needed
+is a URL. This is a proposed interface, not an implemented function or a promise
+that every URL succeeds. Use a resumable job with typed per-work outcomes rather
+than a process-global configuration or a UI-blocking synchronous call.
+
+A prepared import contains song identities, chart/media/banner artifacts,
+exact reference and provenance records, selected/excluded selectors, policy and
+implementation versions, content hashes and validation results. Internal artifact
+paths are relative and validated. A cache blob's hash identifies bytes; a work's
+identity also includes logical URL, semantic query/FlashVars and selector. The
+same engine SWF can represent different songs.
+
+The host consumes prepared files directly through the existing song-library
+import path; ZIP generation is optional. Only the host commits the local-library
+update after validation. Cancellation/failure leaves existing songs intact.
+Collection results retain individual successes and unavailable/unsupported works;
+partial success must not be presented as complete. A product-level choice of
+which completed songs to include is separate from preparation.
+
+Progress events should name discovery, acquisition, extraction, audio,
+preparation, validation and completion, with per-work identity and bounded counts.
+Warnings and errors need stable codes, source URLs and actionable scope. Unknown
+engine, unavailable resource, unsupported mode, prohibited acquisition, worker
+halt and insufficient tempo evidence are distinct outcomes. Sparse tempo evidence
+can retain exact source timing; failed extraction cannot become a guessed chart.
+
+## Milestones and acceptance gates
+
+### 1. Contracts and a shared Rust entry point — started
+
+Define typed supported modes, normalized lanes in audio-relative seconds,
+policy inputs, immutable source/evidence fields, prepared artifacts and errors.
+Keep the source schemas in [the preparation contract](danoni-postprocess.md)
+compatible; new request/result formats have their own version identifiers.
+Introduce an I/O-free library and a thin CLI. Do not create a dummy URL command
+that merely invokes Python or claims URL support before it exists.
+
+The first implementation includes ratings/tier classification, bounded musical
+quantization, exact 60 Hz timing, negative pre-roll, holds, authored scroll
+compensation, SSC chart blocks and per-endpoint diagnostics. A reviewed numeric
+rating can override source metadata explicitly without parsing difficulty names.
+The core accepts already validated review decisions; source hash/provenance
+validation belongs to the forthcoming offline orchestration boundary.
+
+Acceptance: original synthetic tests plus a local-only differential comparison
+against every accepted chart through the game's real SSC parser. Compare layout,
+lanes, holds, ticks/colour subdivisions, times, meter/tier/label, scroll segments
+and x1/x2/x3 behavior. Preserve exact references and report any intentional
+validation differences. Rust's round-to-even behavior must match Python.
+Numerical text spelling and JSON key order may differ; semantic equality and
+original media byte identity matter more than ZIP byte identity.
+
+### 2. Complete offline preparation
+
+Port normalized-work loading, metadata merge and shared-audio grouping; bind
+asset/review hashes and constrain paths. Port source-bound published rating
+reviews, authored/display BPM metadata, preview selection from supplied PCM,
+artwork crop/title-card generation, song headers and asset placement. Carry
+unsupported effects and source credits unchanged into reference artifacts.
+Port staged rebuild inventories, optional ZIP assembly, validation, atomic
+promotion, archival and interrupted-swap recovery. Add a host-consumable prepared
+song/artifact contract rather than exposing a CLI output directory as the API.
+
+Acceptance: reconstruct the 93-song generation with supplied reviewed grids and
+PCM/audio assets. Compare all 144 charts, preview starts, titles/credits,
+ratings, banners, deduplication and omissions. Preserve source audio; test fresh
+staging, cancellation, interrupted publication and path containment. This is
+still offline preparation, not fresh URL acquisition or automatic audio fitting.
+
+### 3. Audio processing and musical analysis
+
+Replace Python scientific imports and subprocess-only FFmpeg/audio helpers with
+packaged codec/DSP implementations accessible from Rust. Select latest stable
+libraries when adding them; audit licences and distribution needs before fixing
+the desktop dependency set. Do not assume a Rust wrapper makes a native codec
+library or external executable disappear.
+
+Port decoding/resampling with explicit sample-frame units, MP3 stream selection,
+decoder-origin correlation, PCM preservation and Ogg encoding. Port onset/pulse
+analysis, chart lattice fitting, aliases, robust phase fitting, shared-audio
+consensus and cache decisions. Version algorithm/config/dependency identities
+explicitly rather than hashing Python source filenames. Preserve old cache
+provenance; reuse it only through an explicit compatible format.
+
+Acceptance: known synthetic tempo/phase/audio-origin cases and all local tracks.
+Codec changes require independently measured sample alignment, rate/channel/frame
+counts and declared tolerances. BPM/phase results need comparison with the existing
+analysis, including ambiguous/sparse/variable-tempo songs. Keep the existing 9 ms
+note/hold budget; matching a guessed BPM never permits moving notes further.
+Preserve native base scroll independently of musical colouring and user speed.
+A numerical port may need an explicitly reviewed algorithm version rather than
+pretending a new beat tracker produces identical librosa results.
+
+### 4. Native extraction and supervision
+
+Move family projections, stored-property graph decoding, SWF/audio inventory,
+recipes, source/prepared bank checks, timebase and audio-origin proofs into Rust.
+Make capture/selection/recipe generation reproducible using tracked commands and
+supported-family recognition, not local study scripts. Keep selectors and all
+ordinary runtime-built resource requests visible; no invented missing responses.
+Package a reproducibly built pinned Ruffle worker and the stored-state hooks.
+
+The supervisor is embeddable; Ruffle executes acquired movies in a restricted
+child process with bounded input, CPU, wall time, memory and outputs, not inside
+the application's trusted process. Retain the tested macOS restrictions first.
+Linux and Windows require separate tested confinement/process termination
+implementations before acquired movies run there. No unrestricted fallback.
+Use versioned worker request/result messages and preserve successful-run receipts.
+
+Acceptance: reproduce accepted native charts/audio/motion/artwork from original
+cached sources using only tracked Rust tooling and packaged components. Exercise
+halts, truncated captures, missing dependencies, wrong selectors, clock mismatch,
+worker crashes, resource limits and cancellation. Existing recipes remain importable
+for research but must not be required user input in supported URL flows.
+
+### 5. Acquisition and URL discovery
+
+Port allowed public fetching, robots/terms handling, per-host pacing, redirect/DNS
+checks, request-context-sensitive cache identity, byte/decompression limits,
+provenance and single-writer cache behavior. Reuse existing cache records through a
+versioned reader, never quietly drop protections or redownload the whole corpus.
+Acquisition runs in the supervisor; the SWF worker has no live network access.
+Iterate bounded dependency requests through the fetcher and exact cached bindings.
+
+Support individual work URLs and explicit SWF URLs, then reviewed index/event/list
+routes. Parse anchors, frames, preserved embeds/noscript, FlashVars and known
+router data first. Keep genuine navigation/referrer context where necessary.
+Support explicit Wayback inputs with original logical URL, requested/final replay
+URL and capture time per resource, including mixed snapshots and live fallback.
+No login/paywall/protection bypass or unbounded site/archive crawl.
+
+Acceptance: cached/offline replay plus controlled original synthetic HTTP cases,
+then bounded real URL runs selected from the existing survey. A supported URL
+must reach validated prepared songs without local study scripts or operator
+per-song recipes. An index exposes partial outcomes and does not recursively
+follow arbitrary links.
+
+### 6. HTML5 controller and desktop integration
+
+Replace Node/Playwright runtime orchestration with Rust-owned browser control;
+choose a supported browser/WebView/CDP approach based on a measured prototype.
+Work JavaScript still executes only within a sandboxed compatible browser runtime.
+A general JavaScript interpreter does not supply DOM, media or engine semantics.
+Keep exact engine-hash review gates and browser-observed reference capture.
+Browser-generated capture expressions are allowed; they are not a requirement
+for Node at runtime. Static/simple works can use verified native import paths,
+with their confidence/scope reported separately from an engine reference.
+
+Port screenshot/title rendering needed in the production pipeline; browser game
+verification can remain a development-only oracle until its own Rust replacement.
+Offline native SWF preparation must not depend on Chrome. Prove HTML5 runtime
+packaging and browser availability before claiming a no-install desktop experience.
+
+Handover a conditional native dependency and host storage/progress/cancellation
+adapter to the desktop session. Initially exclude these dependencies from WASM.
+Acceptance: URL → prepared import → local library, play through the existing game
+path, rollback/cancellation and partial collection outcomes, on each declared
+supported desktop platform. The absence of a desktop shell today is not a reason
+to couple the pipeline to the current web app.
+
+## Current first slice
+
+`tools/danoni-dump/rust/` implements milestone 1's chart preparation and starts
+milestone 2. It has no HTTP client, audio codec, Ruffle or browser dependency and
+no library storage writes. Its CLI accepts one `ddi-danoni-compile-request/1`
+JSON document and returns `ddi-danoni-prepared-chart/1`, including an SSC chart
+block and endpoint/scroll diagnostics. These are internal migration APIs, not
+the complete prepared-import schema.
+
+See [the Rust tool README](../../tools/danoni-dump/rust/README.md) for exact request
+fields, commands, validation differences and the local differential gate. Complete
+offline song rebuilding is the next implementation step, before fresh acquisitions.
+
+
+### First-slice acceptance, 2026-10-13
+
+The Rust chart projection passes the read-only game-parser differential gate on
+all **89 accepted work entries / 93 songs / 144 charts**: **96,419 taps / 4,520
+holds / 105,459 endpoints**. Lane/kind/tick/hold pairs, musical tick colours,
+meters/tiers/labels, timing maps and scroll maps agree with the Python-produced
+accepted SSCs. Every recorded quantization endpoint/method matches; maximum
+source-to-export note shift remains **8.9983948666 ms**. x1/x2/x3 positions use
+the game's real scroll code. Source arguments stay unchanged.
+
+The gate supplies the accepted grids, native motion and reviewed ratings; it
+therefore proves chart preparation parity, **not** Rust tempo estimation, review
+validation, audio preparation or URL extraction. Media/preview/banner generation
+and complete song rebuilding still use the existing pipeline. No new corpus or
+export generation was produced.
+
+Twelve synthetic library/CLI tests plus the all-chart local test pass, as do
+Clippy with warnings denied, formatting and `just check` including REUSE. Local
+receipts are under `~/Music/DanOni/reviews/rust-migration-20261013/`, binding the
+Rust source/lockfile, accepted generation and reference reports to the comparison.
+Dependencies added here are serde 1.0.229 and serde_json 1.0.154, latest stable
+when checked on 2026-10-13 using [serde's registry metadata](https://crates.io/api/v1/crates/serde)
+and [serde_json's registry metadata](https://crates.io/api/v1/crates/serde_json).

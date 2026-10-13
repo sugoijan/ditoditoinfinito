@@ -94,7 +94,19 @@ not perfectly reproduced by global SSC scroll/receptors. CPU-limited converters,
 malformed source queues and unavailable resources remain failures/pending cases,
 rather than guessed repairs.
 
-## Recommended sequence
+## Immediate tooling priority
+
+The maintainer approved the [Rust migration plan](danoni-rust-plan.md) on
+2026-10-13: shared library/API and offline preparation first, then audio/DSP,
+native extraction/supervision, URL acquisition and HTML5/desktop integration.
+The first I/O-free Rust chart-preparation slice is under `tools/danoni-dump/rust/`
+and matches all 144 accepted charts through the real game parser, including
+quantization diagnostics and authored scroll. Full song/audio preparation and
+URL acquisition remain migration milestones.
+The corpus expansion sequence below remains the research backlog; it is deferred
+while the accepted 93-song/144-chart generation supplies the migration baseline.
+
+## Corpus expansion backlog
 
 1. **Revalidate the current pack in the updated game — completed 2026-10-13.**
    See the [runtime handover](danoni-runtime.md) and reusable runner. Build a fresh static
