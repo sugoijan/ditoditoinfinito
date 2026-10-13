@@ -105,8 +105,9 @@ quantization diagnostics and authored scroll. Complete offline songs now use the
 [preparation API](danoni-rust-offline.md), matching all 93 accepted songs with
 recomputed previews and byte-identical supplied media/banners. Native artwork,
 collection ZIPs and validated journaled archival/promotion/recovery now complete
-the offline milestone, with an isolated 93-song trial. Codecs/audio origins and
-fresh BPM fitting are next, followed by native extraction and URL acquisition.
+the offline milestone, with an isolated 93-song trial. The [Rust audio stage](danoni-rust-audio.md) now decodes supplied sources, encodes
+Ogg and checks 79 raw native origins. Fresh BPM fitting is next, followed by native
+extraction and URL acquisition.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

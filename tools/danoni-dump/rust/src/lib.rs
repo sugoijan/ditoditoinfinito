@@ -5,6 +5,7 @@
 
 pub mod artwork;
 pub mod assets;
+pub mod audio;
 pub mod model;
 #[cfg(feature = "native")]
 pub mod native;

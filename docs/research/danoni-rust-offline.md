@@ -421,3 +421,13 @@ Dependencies added for this slice, checked against crates.io on 2026-10-13:
 [unicode-segmentation 1.13.3](https://docs.rs/unicode-segmentation/1.13.3/unicode_segmentation/).
 The game parser is a local dependency of the standalone tool; its workspace and
 WASM dependency tree remain untouched.
+
+
+## Native codec producer
+
+The [subsequent Rust audio stage](danoni-rust-audio.md) now produces the neutral
+`ddi-danoni-prepared-media/1` inputs directly from normalized source audio, through
+`prepare-audio` or the embeddable byte-in/byte-out API. Bind its playback, PCM and
+receipt into `SuppliedMedia`; the source audio identity stays the original hash.
+The offline jobs above still accept previously prepared media and do not force
+re-encoding. Automatic BPM fitting and URL/runtime extraction remain separate.

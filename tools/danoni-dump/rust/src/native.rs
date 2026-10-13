@@ -608,3 +608,118 @@ pub fn write_artwork(art: &crate::artwork::Artwork, output: &Path) -> Result<()>
     guard.armed = false;
     Ok(())
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AudioJob {
+    pub schema: String,
+    pub roots: BTreeMap<String, PathBuf>,
+    pub request: crate::audio::MediaRequest,
+}
+pub fn prepare_audio(
+    job: &Path,
+    output: &Path,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<serde_json::Value> {
+    let path = job.canonicalize().map_err(io)?;
+    external(&path)?;
+    let job: AudioJob = json(&bounded_file(&path, JSON_LIMIT)?)?;
+    if job.schema != "ddi-danoni-audio-job/1" {
+        return Err(Error::new("unsupported-schema", job.schema));
+    }
+    let roots = job
+        .roots
+        .into_iter()
+        .map(|(k, p)| {
+            (
+                k,
+                if p.is_absolute() {
+                    p
+                } else {
+                    path.parent().unwrap().join(p)
+                },
+            )
+        })
+        .collect();
+    let source = DirectorySource::new(roots)?;
+    let media = crate::audio::prepare_media(&job.request, &source, checkpoint)?;
+    write_media(&media, output, checkpoint)?;
+    Ok(media.manifest)
+}
+pub fn write_media(
+    media: &crate::audio::PreparedMedia,
+    output: &Path,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<()> {
+    let parent = output
+        .parent()
+        .unwrap_or(Path::new("."))
+        .canonicalize()
+        .map_err(io)?;
+    external(&parent)?;
+    let name = output
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| Error::new("unsafe-output", "Missing media directory"))?;
+    relative_path(name)?;
+    if media.manifest["schema"] != "ddi-danoni-prepared-media/1" {
+        return Err(Error::new("unsupported-schema", "Unexpected media result"));
+    }
+    let inventory = media.manifest["artifacts"]
+        .as_array()
+        .ok_or_else(|| Error::new("invalid-inventory", "Missing media inventory"))?;
+    if inventory.len() != media.files.len() {
+        return Err(Error::new("invalid-inventory", "Wrong media coverage"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for f in &media.files {
+        if ![
+            "source.bin",
+            "source-manifest.json",
+            "pcm.wav",
+            "music.wav",
+            "music.ogg",
+        ]
+        .contains(&f.path.as_str())
+            || !seen.insert(&f.path)
+            || !inventory.iter().any(|v| {
+                v["path"] == f.path
+                    && v["sha256"] == sha256(&f.bytes)
+                    && v["bytes"] == f.bytes.len()
+            })
+        {
+            return Err(Error::new("changed-artifact", "Media inventory differs"));
+        }
+    }
+    checkpoint()?;
+    let output = parent.join(name);
+    fs::create_dir(&output).map_err(io)?;
+    let mut guard = Incomplete {
+        path: output.clone(),
+        armed: true,
+    };
+    for f in &media.files {
+        let mut target = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output.join(&f.path))
+            .map_err(io)?;
+        for chunk in f.bytes.chunks(1024 * 1024) {
+            checkpoint()?;
+            target.write_all(chunk).map_err(io)?;
+        }
+    }
+    checkpoint()?;
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output.join(".manifest.tmp"))
+        .map_err(io)?;
+    serde_json::to_writer_pretty(&mut f, &media.manifest)
+        .map_err(|e| Error::new("output-json", e.to_string()))?;
+    f.sync_all().map_err(io)?;
+    drop(f);
+    fs::rename(output.join(".manifest.tmp"), output.join("manifest.json")).map_err(io)?;
+    guard.armed = false;
+    Ok(())
+}

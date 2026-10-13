@@ -294,3 +294,20 @@ then Ogg encoding and reproducible robust musical analysis. Keep the offline
 prepared-media receipt as the boundary, and retain the current preview/9 ms note
 and authored-scroll gates. Neither the completed offline stages nor a standalone
 Rust CLI imply URL-to-library support before later milestones pass.
+
+
+### Native codecs and origin math, 2026-10-13
+
+The [audio handover](danoni-rust-audio.md) documents Rust decoding, canonical PCM,
+latency-compensated resampling, multi-window decoder-origin correlation, optional
+in-process bundled Vorbis encoding and neutral media jobs/receipts. All 93
+normalized tracks pass the PCM timeline gate; 79 raw MP3 streams independently
+match captured Ruffle origins with exactly the prior correction. Fresh Rust codec
+receipts feed complete-song preparation for all 93 tracks without changing chart
+diagnostics, artwork or preview starts. Accepted exports remain unchanged.
+
+Milestone 3 remains in progress for onset/pulse and robust musical/shared-audio
+fitting/cache policies. The raw-origin routines are available to the upcoming
+extraction supervisor; SWF demux/runtime/provenance orchestration is still
+milestone 4. Codec-side native C libraries are bundled build dependencies of the
+optional encoder, not external runtime executables and not part of the game WASM.

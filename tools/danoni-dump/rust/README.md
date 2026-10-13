@@ -7,8 +7,10 @@ optional `native` feature (enabled by default) supplies confined filesystem read
 fresh output directories, collection packaging and journaled publication; `--no-default-features` leaves host-supplied
 asset access and in-memory artifacts. The game's workspace/WASM build is unchanged.
 
-No fetching, work execution, audio decoding/encoding or automatic BPM fitting
-occurs here yet. Accepted media and reviewed banners can be reused byte-identically;
+No fetching, work execution or automatic BPM fitting occurs here yet. The
+[native audio stage](../../../docs/research/danoni-rust-audio.md) decodes supplied
+normalized sources and produces WAV/Ogg neutral receipts in process. Accepted
+media and reviewed banners can still be reused byte-identically;
 the existing Python/Node workflow remains the extraction/codec/analysis reference.
 Code is MIT under REUSE; all third-party inputs/results stay outside Git.
 
@@ -127,7 +129,7 @@ whitespace/numeric spelling and archive bytes are not promised identical.
 The [complete-song API and offline jobs](../../../docs/research/danoni-rust-offline.md)
 add source loading, review binding, grouping, headers, supplied artwork/media,
 previews, provenance, native title/panel artwork, collection ZIPs and validated
-archive/promotion/recovery. Audio codecs, BPM inference, fetching and work
+archive/promotion/recovery. BPM inference, fetching and work
 execution remain pending. The offline handover specifies all job/result schemas.
 
 
@@ -148,3 +150,18 @@ Artwork is pure byte-in/byte-out with explicitly supplied fonts and captured
 pixels. `package::write_zip` accepts a host-owned sink. The native publisher
 archives old generations and recovers stale journals; it does not silently
 replace the legacy Python exports or implement the desktop library UI.
+
+
+Audio preparation uses the same source-bound neutral receipt already consumed
+by complete-song preparation:
+
+```sh
+target/danoni-rust/debug/ddi-danoni-export prepare-audio /tmp/audio-job.json /tmp/audio-new
+```
+
+The default `vorbis` feature builds bundled C codec libraries through `vorbis_rs`;
+no FFmpeg/oggenc executable is needed at runtime. Disable it with
+`--no-default-features --features native` for WAV-only native output, or disable
+all defaults for pure host-supplied decoding, resampling/origin and WAV APIs.
+The game/WASM workspace is unchanged. See the audio handover for exact bounds,
+MP3 metadata/physical-frame distinctions, origin proof scope and corpus gates.

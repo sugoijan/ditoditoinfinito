@@ -56,9 +56,17 @@ fn main() {
         [command, journal] if command == "recover" => {
             ddi_danoni_export::transaction::recover(std::path::Path::new(journal), &mut |_| Ok(()))
         }
+        #[cfg(feature = "native")]
+        [command, job, output] if command == "prepare-audio" => {
+            ddi_danoni_export::native::prepare_audio(
+                std::path::Path::new(job),
+                std::path::Path::new(output),
+                &mut || Ok(()),
+            )
+        }
         _ => {
             eprintln!(
-                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json"
+                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json\n       ddi-danoni-export prepare-audio JOB.json NEW_OUTPUT"
             );
             std::process::exit(2);
         }
