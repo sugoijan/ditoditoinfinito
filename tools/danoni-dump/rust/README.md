@@ -182,3 +182,16 @@ resolution and reports measured, ambiguous or insufficient quarter-phase support
 Mechanical 9 ms validation does not prove musical
 correctness. Accepted exports are unchanged. Neither stage needs Python/Node or
 an external audio command; neither implements URL discovery/runtime extraction.
+
+
+Passive native extraction now reads saved, hash-bound AVM1 captures:
+
+```sh
+target/danoni-rust/debug/ddi-danoni-export project-native /tmp/projection-job.json /tmp/projection-new
+```
+
+The [extraction handover](../../../docs/research/danoni-rust-extraction.md) specifies
+movie/run/config bindings, seven structural families, movement and clock APIs,
+units and two historical proof gaps. This stage does not execute work code,
+demux SWF music or prepare a newly normalized song. Runtime supervision and
+acquisition remain pending; the pinned Higan/Kouhaku paths are separate.

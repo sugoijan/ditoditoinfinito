@@ -112,8 +112,10 @@ The legacy-analysis bridge matches accepted decisions; fresh native estimates
 pass timing gates but retain musical alias/phase differences under review.
 A generic pulse-resolution/quarter-support refinement improves accepted-family
 matches to 117 and explicitly preserves unresolved phases or exact-source fallback.
-Accepted exports remain unchanged. Native extraction and URL acquisition follow
-that musical-quality checkpoint.
+Accepted exports remain unchanged. The [passive Rust extraction slice](danoni-rust-extraction.md) now projects seven
+native families and saved movement/clock evidence. It records two historical
+proof gaps shared by current Python instead of weakening checks. SWF demux,
+combined artifacts, worker supervision and URL acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

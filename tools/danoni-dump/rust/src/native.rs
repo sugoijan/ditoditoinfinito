@@ -794,3 +794,67 @@ pub fn estimate_tempo(
     guard.armed = false;
     Ok(result)
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectionJob {
+    pub schema: String,
+    pub roots: BTreeMap<String, PathBuf>,
+    pub request: crate::extraction::ProjectionRequest,
+}
+/// Passive saved-state job; this command never launches the native worker.
+pub fn project_native(
+    job: &Path,
+    output: &Path,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<serde_json::Value> {
+    let path = job.canonicalize().map_err(io)?;
+    external(&path)?;
+    let job: ProjectionJob = json(&bounded_file(&path, JSON_LIMIT)?)?;
+    if job.schema != "ddi-danoni-native-projection-job/1" {
+        return Err(Error::new("unsupported-schema", job.schema));
+    }
+    let roots = job
+        .roots
+        .into_iter()
+        .map(|(k, p)| {
+            (
+                k,
+                if p.is_absolute() {
+                    p
+                } else {
+                    path.parent().unwrap().join(p)
+                },
+            )
+        })
+        .collect();
+    let source = DirectorySource::new(roots)?;
+    let result = crate::extraction::prepare_projection(&job.request, &source, checkpoint)?;
+    let parent = output
+        .parent()
+        .unwrap_or(Path::new("."))
+        .canonicalize()
+        .map_err(io)?;
+    external(&parent)?;
+    let name = output
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| Error::new("unsafe-output", "Missing projection output name"))?;
+    relative_path(name)?;
+    checkpoint()?;
+    let output = parent.join(name);
+    fs::create_dir(&output).map_err(io)?;
+    let mut guard = Incomplete {
+        path: output.clone(),
+        armed: true,
+    };
+    fs::write(
+        output.join(".manifest.tmp"),
+        serde_json::to_vec_pretty(&result).map_err(|e| Error::new("output-json", e.to_string()))?,
+    )
+    .map_err(io)?;
+    checkpoint()?;
+    fs::rename(output.join(".manifest.tmp"), output.join("manifest.json")).map_err(io)?;
+    guard.armed = false;
+    Ok(result)
+}

@@ -343,3 +343,16 @@ Air and Cold Breath use the advancing root movie timeline. Their child `Cnt`
 is a wrapping arrow-instance counter. Five selectors now have exact native
 arrivals and independently matched nonzero-seek MP3 audio; the earlier
 child-clock suspicion was incorrect.
+
+
+## Rust migration checkpoint, 2026-10-13
+
+The [passive Rust port](danoni-rust-extraction.md) reproduces current structural
+projections and movement/counter evidence from preserved data. Its comparison
+exposes two frozen-reference gaps that the current Python contracts reject too:
+RE:RAVE Hard has loaded speed data without a native speed bank, and Destined
+Marionette's original motion spans author segments under the later initial-unit
+check. These dated admissions remain historical results; they are not evidence
+that the newest strict extraction regenerates those two charts. Accepted exports
+remain unchanged while those policies/source paths are reviewed. The Rust stage
+does not replace native execution, SWF audio demux or decoded-origin proofs yet.

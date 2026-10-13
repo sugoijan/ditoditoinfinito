@@ -345,3 +345,18 @@ support; 126 retain unresolved/provisional phase. Accepted exports are unchanged
 Milestone 3's mathematical/codec implementation is present; its native musical
 quality remains provisional. Do not use accepted-grid agreement as sole truth
 or let this review imply the missing extraction/URL stages are implemented.
+
+
+### Passive native graph/family slice, 2026-10-13
+
+The [extraction handover](danoni-rust-extraction.md) documents stored UTF-16/object
+reading, all seven structural projections, motion/audio-start/cross-run clocks,
+source-bound saved-state jobs and the thin `project-native` CLI. 115 charts project;
+114 also match movement/origin and normalized fields, with exact agreement to
+current Python outputs. Two strengthened-contract failures also occur in current
+Python: RE:RAVE Hard's missing speed bank and Destined Marionette's motion segment.
+Accepted packs are unchanged; neither is silently repaired or omitted.
+
+Milestone 4 is in progress for SWF inventory/demux, combined normalized artifacts,
+pinned Higan/Kouhaku contracts and restricted worker supervision. The passive
+slice proves no fresh work execution, decoded SWF audio or URL acquisition.
