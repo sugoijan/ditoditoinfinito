@@ -96,7 +96,9 @@ workspace depends on that revision. Checked here on it: piccolo's suite,
 the limit cases' outcomes and CPU-time gates natively and in wasm, and
 every case again through `ddi-lua`. Open: R8 (`%s` with a width or
 precision scans its argument uncharged, older than both rounds), and the
-wall-time gates, to rerun on an idle machine.
+wall-time gates, to rerun on an idle machine. Since 2026-10-12 the
+workspace depends on the consolidated branch `hardening2` at `75ab65a`
+(`docs/plans/piccolo-fork.md`, "Consolidated").
 
 ## Step 2. `ddi-lua` (commit 2, in parallel with step 1)
 

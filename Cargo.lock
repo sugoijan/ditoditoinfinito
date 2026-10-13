@@ -1494,7 +1494,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 [[package]]
 name = "piccolo"
 version = "0.3.3"
-source = "git+https://github.com/sugoijan/piccolo.git?rev=c8a4b77ef8bd3e148d3d994192c07de95693e931#c8a4b77ef8bd3e148d3d994192c07de95693e931"
+source = "git+https://github.com/sugoijan/piccolo.git?rev=75ab65a017a7d4a033f151f9b5bbeef240a3ae6e#75ab65a017a7d4a033f151f9b5bbeef240a3ae6e"
 dependencies = [
  "ahash",
  "allocator-api2",

@@ -362,3 +362,31 @@ older than both rounds:
 | Id | Source (sketch) | Now | Required |
 |---|---|---|---|
 | R8 | `local s = ('x'):rep(2^20) while true do local r = ('%5.2s'):format(s) end` (also `%.2s`, and `%5s` in the default mode) | with a width or precision, `%s` scans the whole argument for zero bytes (`split` to the first zero, and `contains(&0)` in the default mode) uncharged: about 25 fuel a call for about 0.75 ms on a loaded machine, 25–35 µs per fuel, steps of 60–100 ms; the same on `5db689c` | the scan charged (`cost::BYTES_PROCESSED`) or, in Lua51 mode, stopped at the precision; a limit case meeting the gates |
+
+## Consolidated (2026-10-12)
+
+The fork's maintainer reviewed and consolidated both rounds into one
+commit, `75ab65a` on branch `hardening2` (not descended from `c8a4b77`;
+among its changes, `table.concat` takes strings and numbers only, as in
+Lua 5.1, rather than any value with metamethods). The workspace builds
+on it unchanged, and checked on it:
+
+- every native test of the workspace (`just test`), and a test that
+  `print` and `table.concat` behave as Lua 5.1's;
+- the 57 local skins on disk (StepMania 5.0.12's, OutFox's, Delta,
+  Alpha-Arrows, Dake, Peter Lawrence's, the bundled ones) loaded and
+  played at 60 and 144 Hz on `c8a4b77` and on `75ab65a`: the same elements
+  and no warnings on both, load and frame fuel within 1 % (none of these
+  skins calls `table.concat`);
+- the fork's exported limit cases (125) through `ddi-lua`: every outcome
+  as expected, the longest step 7.5 ms (the gate is 10);
+- in headless Chrome and Firefox: full autoplays with Dito, plays with
+  Delta, Alpha-Arrows and Dake, and the hostile test skins (one whose
+  `NoteSkin.lua` never returns is stopped at import in 1.2 s; one whose
+  update function loops stops in play and the built-in skin takes over);
+  the wasm is 6 KB smaller.
+
+R8 is still open on it: `('%5.2s'):format(s)` and `('%.2s'):format(s)`
+on a 1 MiB string charge about 92 fuel per millisecond (other code about
+70,000), steps up to 12 ms; the deadlines bound what it costs (a frame
+stops at 50 ms, a load after its Lua's 5 s, in slices).

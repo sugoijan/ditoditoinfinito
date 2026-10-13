@@ -992,3 +992,28 @@ fn notes_load_per_colour_when_their_lua_reads_it() {
     let (tap, _) = load("Tap Note", NOTE_COLORS[0]);
     assert_eq!(tap.current().pos[0], 1.0);
 }
+
+#[test]
+fn print_and_table_concat_take_any_values() {
+    // `print` warns its arguments joined by tabs (through `table.concat`,
+    // which takes strings and numbers only, as in Lua 5.1).
+    let folders = vec![folder(
+        "dance",
+        "p",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Tap Note.lua",
+                "print(1, nil, true, 'a')\n\
+                 assert(table.concat({ 1, 'b', 2.5 }, '-') == '1-b-2.5')\n\
+                 assert(not pcall(table.concat, { {} }))\n\
+                 return Def.Sprite { Texture = 'tap.png' }\n",
+            ),
+            ("tap.png", ""),
+        ],
+    )];
+    let mut skin = lua_skin(&folders, "p").unwrap_or_else(|e| panic!("{e}"));
+    let images = Sizes(vec![("tap.png", (64, 64))]);
+    built(skin.element(Button::Down, "Tap Note", &mut Textures::default(), &images));
+    assert_eq!(skin.warnings(), ["1\tnil\ttrue\ta"]);
+}

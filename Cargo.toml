@@ -22,8 +22,8 @@ ddi-noteskin = { path = "noteskin" }
 ddi-lua = { path = "lua" }
 
 # The hardened fork of piccolo (docs/plans/piccolo-fork.md), branch
-# `hardening`; gc-arena stays at the revision it pins.
-piccolo = { git = "https://github.com/sugoijan/piccolo.git", rev = "c8a4b77ef8bd3e148d3d994192c07de95693e931" }
+# `hardening2`; gc-arena stays at the revision it pins.
+piccolo = { git = "https://github.com/sugoijan/piccolo.git", rev = "75ab65a017a7d4a033f151f9b5bbeef240a3ae6e" }
 
 # app / web
 yew = { version = "0.23", features = ["csr"] }
