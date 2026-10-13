@@ -292,3 +292,61 @@ fn missing_pulses_cache_an_explicit_whole_work_fallback() {
     source.0.insert("cache.json".into(), b);
     assert_eq!(prepare_tempo(&r, &source, &mut || Ok(())).unwrap(), result);
 }
+
+#[test]
+fn native_media_receipt_and_algorithm_versions_bind_cache_reuse() {
+    use ddi_danoni_export::assets::*;
+    let (mut source, mut request) = bridge_fixture();
+    request.legacy_analysis = None;
+    let pcm = Binding {
+        namespace: "test".into(),
+        path: "music.wav".into(),
+        sha256: sha256(&source.0["music.wav"]),
+    };
+    let proof = serde_json::to_vec(&json!({"schema":"ddi-danoni-prepared-media/1",
+        "sourceManifestSha256":request.manifest.sha256,"sourceAudioSha256":pcm.sha256,
+        "pcmSha256":pcm.sha256,"sampleRate":8000,"channels":1,"sampleFrames":80000}))
+    .unwrap();
+    let receipt = Binding {
+        namespace: "test".into(),
+        path: "receipt.json".into(),
+        sha256: sha256(&proof),
+    };
+    source.0.insert("receipt.json".into(), proof);
+    request.media = vec![AnalysisPcm {
+        source_audio_sha256: pcm.sha256.clone(),
+        pcm,
+        receipt,
+    }];
+    let result = prepare_tempo(&request, &source, &mut || Ok(())).unwrap();
+    assert_eq!(result["status"], "exact-source-fallback");
+    assert_eq!(result["cacheIdentity"]["policy"], "ddi-tempo-selection/2");
+    assert_eq!(
+        result["cacheIdentity"]["quarterPhase"],
+        "ddi-quarter-onset-support/1"
+    );
+    let bytes = serde_json::to_vec(&result).unwrap();
+    request.cached = Some(Binding {
+        namespace: "test".into(),
+        path: "cache.json".into(),
+        sha256: sha256(&bytes),
+    });
+    source.0.insert("cache.json".into(), bytes);
+    assert_eq!(
+        prepare_tempo(&request, &source, &mut || Ok(())).unwrap(),
+        result
+    );
+    let mut old = result;
+    old["cacheIdentity"]["onsets"] = json!("ddi-spectral-flux-dp/2");
+    let bytes = serde_json::to_vec(&old).unwrap();
+    request.cached.as_mut().unwrap().sha256 = sha256(&bytes);
+    source.0.insert("cache.json".into(), bytes);
+    assert!(prepare_tempo(&request, &source, &mut || Ok(())).is_err());
+    request.cached = None;
+    let mut proof: serde_json::Value = serde_json::from_slice(&source.0["receipt.json"]).unwrap();
+    proof["sampleFrames"] = json!(79999);
+    let bytes = serde_json::to_vec(&proof).unwrap();
+    request.media[0].receipt.sha256 = sha256(&bytes);
+    source.0.insert("receipt.json".into(), bytes);
+    assert!(prepare_tempo(&request, &source, &mut || Ok(())).is_err());
+}

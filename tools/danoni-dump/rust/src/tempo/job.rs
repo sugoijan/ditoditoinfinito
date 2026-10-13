@@ -148,7 +148,15 @@ pub fn prepare_tempo(
     if legacy.is_none() && pcms.len() != groups.len() {
         return Err(invalid("Need one proved PCM per source audio hash"));
     }
-    let identity = json!({"schema":"ddi-danoni-tempo-cache-key/1","sourceManifestSha256":request.manifest.sha256,"policy":"ddi-tempo-selection/1","lattice":"ddi-chart-lattice/1","onsets":if legacy.is_some(){"legacy-analysis-bridge/1"}else{"ddi-spectral-flux-dp/2"},"dependencies":{"rustfft":"6.4.1","rubato":"5.0.1","symphonia":"0.6.1"},"legacyAnalysis":request.legacy_analysis,"media":request.media,"verifiedSourceInputs":inputs.used});
+    let policy = if legacy.is_some() {
+        "ddi-tempo-selection/1"
+    } else {
+        "ddi-tempo-selection/2"
+    };
+    let mut identity = json!({"schema":"ddi-danoni-tempo-cache-key/1","sourceManifestSha256":request.manifest.sha256,"policy":policy,"lattice":"ddi-chart-lattice/1","onsets":if legacy.is_some(){"legacy-analysis-bridge/1"}else{"ddi-spectral-flux-dp/3"},"dependencies":{"rustfft":"6.4.1","rubato":"5.0.1","symphonia":"0.6.1"},"legacyAnalysis":request.legacy_analysis,"media":request.media,"verifiedSourceInputs":inputs.used});
+    if legacy.is_none() {
+        identity["quarterPhase"] = json!("ddi-quarter-onset-support/1");
+    }
     let key = sha256(&serde_json::to_vec(&identity).map_err(|e| invalid(e.to_string()))?);
     if let Some(binding) = &request.cached {
         let cached: Value = assets::json(&inputs.checked(binding, JSON_LIMIT)?)?;
@@ -193,6 +201,7 @@ pub fn prepare_tempo(
         times.dedup();
         let range = authored(&group);
         let mut onset = None;
+        let mut phase_report = None;
         let mut windows = Vec::new();
         let mut analysis = if let Some(legacy) = &legacy {
             let selected = legacy["tracks"]
@@ -266,6 +275,7 @@ pub fn prepare_tempo(
                         &serde_json::to_vec(&env).map_err(|e| invalid(e.to_string()))?
                     ));
                     onset = Some(body);
+                    phase_report = Some(report.clone());
                     TrackAnalysis {
                         chart_candidates: candidates,
                         audio_estimates: report.estimates,
@@ -286,17 +296,29 @@ pub fn prepare_tempo(
             }
         };
         analysis.authored_bpm_range = range;
-        match select_grid(&times, &analysis) {
+        let selection = if legacy.is_some() {
+            select_grid(&times, &analysis)
+        } else {
+            select_native_grid(&times, &analysis)
+        };
+        match selection {
             Ok((grid, pulses)) => {
                 let (grids, shared) = if charts.len() > 1 {
-                    select_shared(&charts, &analysis, &pulses, &grid, checkpoint)?
+                    if legacy.is_some() {
+                        select_shared(&charts, &analysis, &pulses, &grid, checkpoint)?
+                    } else {
+                        select_native_shared(&charts, &analysis, &pulses, &grid, checkpoint)?
+                    }
                 } else {
                     (
                         charts.keys().map(|id| (id.clone(), grid.clone())).collect(),
                         Value::Null,
                     )
                 };
-                for (id, g) in grids {
+                for (id, mut g) in grids {
+                    if let Some(report) = &phase_report {
+                        resolve_quarter_phase(&mut g, report, &charts[&id], checkpoint)?;
+                    }
                     review_charts.insert(id, json!(g));
                 }
                 tracks.push(json!({"sourceAudioSha256":hash,"chartIds":charts.keys().collect::<Vec<_>>(),"distinctHeads":times.len(),"analysis":analysis,"nativeOnsets":onset,"chartWindows":windows,"shared":shared}));
@@ -308,7 +330,7 @@ pub fn prepare_tempo(
             Err(e) => return Err(e),
         }
     }
-    let mut review = json!({"schema":"ddi-reviewed-musical-grid/experimental-1","sourceManifestSha256":request.manifest.sha256,"charts":review_charts,"origin":"Rust estimated grid; every source endpoint and speed event checked","algorithm":"ddi-tempo-selection/1","cacheKey":key});
+    let mut review = json!({"schema":"ddi-reviewed-musical-grid/experimental-1","sourceManifestSha256":request.manifest.sha256,"charts":review_charts,"origin":"Rust estimated grid; every source endpoint and speed event checked","algorithm":policy,"cacheKey":key});
     let mut validation = Value::Null;
     if failure.is_none() {
         match verify_grids(&entries, &review) {

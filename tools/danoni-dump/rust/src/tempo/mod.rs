@@ -1,6 +1,7 @@
 //! Musical estimates are evidence. Original note times and quantizer bounds
 //! remain authoritative, including hold tails and unsupported effects.
 mod job;
+mod phase;
 mod pulse;
 use crate::{
     Error, Result,
@@ -8,6 +9,7 @@ use crate::{
     timing,
 };
 pub use job::{AnalysisPcm, TempoRequest, prepare_tempo};
+pub use phase::resolve_quarter_phase;
 pub use pulse::{OnsetReport, onset_estimates};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -411,10 +413,26 @@ pub fn local_windows(
     }
     Ok(out)
 }
-fn score(bpm: f64, sub: u8, coherence: f64, pulses: &[AudioPulse]) -> f64 {
+#[derive(Clone, Copy)]
+enum PulsePolicy {
+    Compatibility,
+    NativeResolution,
+}
+fn score(bpm: f64, sub: u8, coherence: f64, pulses: &[AudioPulse], policy: PulsePolicy) -> f64 {
     let votes = pulses
         .iter()
-        .map(|p| (1.0 - (bpm / p.bpm).ln().abs() / 0.04).max(0.0))
+        .map(|p| {
+            // A coarse integer-lag proposal has half-hop resolution. Do not
+            // let its rounding choose between equally supported beat aliases.
+            let resolution = match policy {
+                PulsePolicy::NativeResolution if p.refinement.is_some() => {
+                    p.bpm / 60.0 * 64.0 / 22050.0 / 2.0
+                }
+                _ => 0.0,
+            };
+            let distance = ((bpm / p.bpm).ln().abs() - resolution).max(0.0);
+            (1.0 - distance / 0.04).max(0.0)
+        })
         .sum::<f64>()
         / pulses.len() as f64;
     let prior = 0.02 * (1.0 - (bpm / 150.0).ln().abs() / 0.8).max(0.0)
@@ -540,6 +558,20 @@ fn grid(
     Ok(g)
 }
 pub fn select_grid(times: &[f64], track: &TrackAnalysis) -> Result<(MusicalGrid, Vec<AudioPulse>)> {
+    select_with_policy(times, track, PulsePolicy::Compatibility)
+}
+/// Native integer-lag pulse resolution must not break otherwise tied aliases.
+pub fn select_native_grid(
+    times: &[f64],
+    track: &TrackAnalysis,
+) -> Result<(MusicalGrid, Vec<AudioPulse>)> {
+    select_with_policy(times, track, PulsePolicy::NativeResolution)
+}
+fn select_with_policy(
+    times: &[f64],
+    track: &TrackAnalysis,
+    policy: PulsePolicy,
+) -> Result<(MusicalGrid, Vec<AudioPulse>)> {
     validate_times(times)?;
     validate_track(track)?;
     let mut pulses = Vec::new();
@@ -584,17 +616,15 @@ pub fn select_grid(times: &[f64], track: &TrackAnalysis) -> Result<(MusicalGrid,
     if !filtered.is_empty() {
         candidates = filtered;
     }
-    let chosen = candidates
-        .into_iter()
-        .max_by(|a, b| {
-            score(a.bpm, a.subdivisions_per_beat, a.coherence, &pulses).total_cmp(&score(
-                b.bpm,
-                b.subdivisions_per_beat,
-                b.coherence,
-                &pulses,
-            ))
-        })
-        .ok_or_else(|| insufficient("No viable tempo candidate"))?;
+    let chosen =
+        candidates
+            .into_iter()
+            .max_by(|a, b| {
+                score(a.bpm, a.subdivisions_per_beat, a.coherence, &pulses, policy).total_cmp(
+                    &score(b.bpm, b.subdivisions_per_beat, b.coherence, &pulses, policy),
+                )
+            })
+            .ok_or_else(|| insufficient("No viable tempo candidate"))?;
     let p = closest(chosen.bpm, &pulses);
     let joint = strong(&chosen) && (chosen.bpm / p.bpm).ln().abs() <= 0.02;
     let (bpm, phase, method) = if joint {
@@ -625,6 +655,39 @@ pub fn select_shared(
     pulses: &[AudioPulse],
     legacy: &MusicalGrid,
     checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<(BTreeMap<String, MusicalGrid>, Value)> {
+    select_shared_with_policy(
+        charts,
+        track,
+        pulses,
+        legacy,
+        checkpoint,
+        PulsePolicy::Compatibility,
+    )
+}
+pub fn select_native_shared(
+    charts: &BTreeMap<String, Vec<f64>>,
+    track: &TrackAnalysis,
+    pulses: &[AudioPulse],
+    fallback: &MusicalGrid,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<(BTreeMap<String, MusicalGrid>, Value)> {
+    select_shared_with_policy(
+        charts,
+        track,
+        pulses,
+        fallback,
+        checkpoint,
+        PulsePolicy::NativeResolution,
+    )
+}
+fn select_shared_with_policy(
+    charts: &BTreeMap<String, Vec<f64>>,
+    track: &TrackAnalysis,
+    pulses: &[AudioPulse],
+    legacy: &MusicalGrid,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+    policy: PulsePolicy,
 ) -> Result<(BTreeMap<String, MusicalGrid>, Value)> {
     validate_track(track)?;
     if pulses.iter().any(|p| {
@@ -737,7 +800,7 @@ pub fn select_shared(
             })
             .collect::<BTreeMap<_, _>>();
         let c = fits.values().map(|f| f.coherence).sum::<f64>() / fits.len() as f64;
-        let s = score(bpm, sub, c, pulses);
+        let s = score(bpm, sub, c, pulses, policy);
         ranked.push(
             json!({"bpm":bpm,"subdivisionsPerBeat":sub,"coherence":c,"score":s,"chartFits":fits}),
         );
@@ -818,4 +881,34 @@ pub fn select_shared(
         );
     }
     Ok((grids, evidence))
+}
+
+#[cfg(test)]
+mod alias_tests {
+    use super::*;
+    #[test]
+    fn integer_audio_lag_rounding_cannot_break_a_chart_alias_tie() {
+        let pulse = |bpm, refinement| AudioPulse {
+            bpm,
+            beat_zero_seconds: 0.137,
+            total_beats: 200,
+            retained_beats: 200,
+            p95_beat_residual_ms: 100.0,
+            refinement,
+        };
+        let pulses = vec![
+            pulse(102.65, None),
+            pulse(22050.0 / 64.0 * 60.0 / 101.0, Some("coarse period".into())),
+        ];
+        let scores = |policy| {
+            (
+                score(205.3, 2, 1.0, &pulses, policy),
+                score(102.65, 4, 1.0, &pulses, policy),
+            )
+        };
+        let old = scores(PulsePolicy::Compatibility);
+        let new = scores(PulsePolicy::NativeResolution);
+        assert!(old.1 > old.0);
+        assert!(new.0 > new.1);
+    }
 }

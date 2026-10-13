@@ -89,18 +89,42 @@ The versioned Rust policy ports the existing MIT
   BPM metadata; the existing native-motion compensation preserves base scroll
   beneath the user's multiplier.
 
-Fresh onsets use **`ddi-spectral-flux-dp/2`**, an independent implementation,
+Fresh onsets use **`ddi-spectral-flux-dp/3`**, an independent implementation,
 not a numerical reimplementation of librosa's beat tracker. It resamples to
 22,050 Hz, computes channel spectra independently with a 1,024-sample Hann FFT
 and 64-sample hop, groups power into 64 mel-spaced buckets, and forms positive
 log-power spectral flux. Local energy normalization limits domination by a loud
 section. Global normalized autocorrelation proposes pulse periods at generic
-60/120/180 BPM priors; a dynamic path rewards observed onsets and penalizes
-implausible beat gaps. Robust fitting then refines the observed timestamps.
+60/120/180 BPM priors. A cumulative dynamic path uses Gaussian local support
+(width one thirty-second of the candidate beat period) and a log-interval
+penalty with tightness 100. It ends at an observed local maximum and preserves
+later quiet sections rather than discounting history. Robust fitting then
+refines the observed timestamps. The onset/correlation/path approach follows
+the established [dynamic-programming beat-tracking stages](https://librosa.org/doc/0.11.0/generated/librosa.beat.beat_track.html);
+this is independently implemented Rust, with no imported librosa source or runtime.
 Nearby refined estimates within a log-BPM distance of 0.005 share one vote;
 the lower residual representative survives. Priors are multiple views of the
 same recording, not independent measurements. No song names or pack-specific
 constants enter these algorithms.
+
+Native selection **`ddi-tempo-selection/2`** accounts for the half-hop resolution
+of a coarse integer-lag pulse proposal when comparing nearby BPMs. This avoids
+breaking an otherwise equally supported chart alias through audio period rounding.
+Precisely regressed pulses keep the old distance rule. The existing generic
+150 BPM prior resolves ties; it does not prove which beat unit the author used.
+The explicit legacy bridge retains **`ddi-tempo-selection/1`** unchanged.
+
+After selecting a native grid, **`ddi-quarter-onset-support/1`** evaluates every
+quarter-phase alias at that chart's precise BPM, not the rounded audio proposal.
+It samples the measured onset envelope across the chart span with a 7 ms Gaussian
+window truncated at ±20 ms. An alias needs at least eight observed quarter
+positions, mean support above 1.25 times the span's mean onset level, and at
+least 10% contrast over the next alias. Only then does it change phase by a whole
+subdivision. That relabels beat colouring without moving source note times.
+Equal eighth pulses remain ambiguous. A single subdivision alias has no runner-up
+contrast and also stays unverified. Weak support retains the provisional phase;
+this phase evidence never identifies a bar downbeat or proves musical correctness.
+The bounded native envelope has the declared 22,050 Hz / 64-sample-hop dimensions.
 
 The native search uses exact integer frequency indices. Twelve old peak choices
 changed through floating-point ties or the inclusive three-source-frame boundary
@@ -136,7 +160,22 @@ result. Fit confidence is evidence, not a musical correctness probability.
 An estimated `review` contains `sourceManifestSha256`, algorithm/cache identity
 and `charts: {chartId: MusicalGrid}` for **every source chart**. Each grid has
 `bpm,beatZeroSeconds,subdivisionsPerBeat,maximumErrorMs` plus method, fit,
-phase and consensus evidence. Phase can differ between charts sharing music.
+phase and consensus evidence. Native grids also retain `nativeQuarterPhase`:
+
+```text
+algorithm: "ddi-quarter-onset-support/1"
+status: "audio-supported-quarter-alias" |
+        "ambiguous-quarter-alias" | "insufficient-quarter-onset-support"
+relativeContrast: number
+baselineMeanOnset: number
+alternatives: [{beatZeroSeconds,meanOnsetSupport,observedQuarters}, ...]
+sourceStartSeconds,sourceEndSeconds: number
+scope: string
+```
+
+These are support measurements, not probabilities. `phaseStatus` explicitly
+reports an unresolved provisional alias when no phase change is supported.
+Phase can differ between charts sharing music.
 The existing `WorkRequest.reviews.grid` accepts a binding to this review unchanged.
 
 `validation` records `sourceEndpoints,maximumNoteErrorMs,rhythmicEndpoints,
@@ -149,13 +188,14 @@ resource limits and cancellation are errors, not guessed successful estimates.
 
 `estimated` means the grid passes these mechanical checks. Musical alias and
 quarter/downbeat phase remain provisional, especially with sparse, variable or
-triplet patterns. The current result does not automatically adjudicate those
-ambiguities. Saved native results can be inspected or explicitly reviewed before
+triplet patterns. Native quarter-phase support can resolve an observed alias,
+but retained ambiguity and unresolved beat units still require review. Saved native results can be inspected or explicitly reviewed before
 replacing accepted musical grids.
 
 `cacheIdentity` (`ddi-danoni-tempo-cache-key/1`) binds the exact manifest,
 all verified source input hashes (including legacy reference bytes), PCM/receipt
-bindings or legacy-analysis binding, policy `ddi-tempo-selection/1`, lattice
+bindings or legacy-analysis binding, policy `ddi-tempo-selection/2` for native
+analysis (`/1` for the legacy bridge), native quarter-phase algorithm identity, lattice
 `ddi-chart-lattice/1`, onset producer/version, and dependency identities
 (RustFFT 6.4.1, Rubato 5.0.1, Symphonia 0.6.1). `cacheKey` hashes its serialized
 JSON. Changing any algorithm parameter requires a new producer/policy version;
@@ -189,7 +229,7 @@ or a library publication transaction. For cache replay, supply a binding to this
 `manifest.json` in `request.cached`, with all original inputs still available.
 Library callers receive the same result in memory without this filesystem writer.
 
-## Local acceptance and remaining musical work
+## First native checkpoint (v2 onsets), 2026-10-13
 
 Receipts, source comparisons and CLI runs are local under
 `~/Music/DanOni/reviews/rust-tempo-20261013/`:
@@ -244,3 +284,50 @@ For complete-song consumption of saved results, set `DDI_DANONI_TEMPO_RESULTS`
 to that result directory. These are development gates; the app uses library
 requests and supplies its own cache/storage. Milestone 3 remains open for native
 musical-quality review; the Rust algorithms and mechanical gates are implemented.
+
+
+## Alias and phase refinement, 2026-10-13
+
+The subsequent trial combines v3 cumulative onsets, native selection policy v2,
+and quarter-onset support v1. All results and intermediate tracker-only results
+remain outside Git under `~/Music/DanOni/reviews/rust-tempo-v3-20261013/`.
+Accepted packs are unchanged. Six additional synthetic cases cover a quiet late
+section, strong offbeat subdivisions, integer-lag alias ties, strong measured
+quarters, equally strong eighth ambiguity/timing invariance, and native media/
+cache-version bindings. The last case rejects prior algorithm identities and
+incorrect sample-frame receipts. Existing compatibility decisions retain their
+original producer and cache identity.
+
+
+The full refined run reports **88 estimated works / one exact-source fallback**,
+covering the same **93 songs / 144 charts** with no errors. Of the 143 estimated
+charts, **117** match the accepted BPM family within 0.5% (previously 115),
+**8** choose half tempo, **2** double tempo, **12** two-thirds tempo, and **4**
+other values. EMY and Regret Of The Enemy return to their accepted ~200 BPM
+family; no previously matching BPM family moves away. The changing/weak fit in
+Zankokuka returns an explicit `timing-budget-exceeded` fallback rather than
+promoting an unsafe grid. That fallback accounts for the remaining chart.
+These are comparisons with the accepted choices, not new musical ground truth.
+The tracker-only v3 trial has 114 matching charts: the period-resolution policy
+is evaluated separately rather than attributing the improvement to the tracker.
+
+Quarter evidence reports **17 audio-supported aliases / 16 ambiguous / 110
+insufficient** among the estimated charts. Support alone is not a claim that a
+phase changed or that the selected beat unit is correct; HISTORY, for example,
+still has a different BPM despite quarter support at that selected period.
+The large insufficient set makes the remaining uncertainty visible instead of
+calling every closest pulse an observed quarter phase.
+
+Complete preparation with these reviews and the explicit fallback passes the
+real game parser for **all 105,459 endpoints** and **3,057 x1/x2/x3 velocity
+checks**. Maximum endpoint error is **8.998218203 ms**. The legacy bridge still
+reproduces all 126 accepted decisions. Fresh CLI/cache replay equality and older
+native cache rejection are separately checked. Native/pure tests, Clippy,
+formatting and `just check` (including REUSE) pass.
+
+The remaining review cases include NEEDS's binary/triplet beat unit, Cold's
+half-tempo choice, the unstable audio/phase fits in Felys and HISTORY, and sparse
+quarter support. The next quality work should compare local stable audio periods
+and report alternative beat units, rather than force equality to legacy guesses
+or insert work-specific preferences. Source extraction/supervision still needs
+its Rust port; these musical limits do not alter the exact source contracts.

@@ -177,6 +177,8 @@ The [tempo handover](../../../docs/research/danoni-rust-tempo.md) specifies the
 source-bound API, whole-work fallback, cached-result validation and output.
 `grid.json` feeds `WorkRequest.reviews.grid`. The explicit legacy-analysis bridge
 reproduces accepted decisions; fresh Rust spectral analysis is experimental and
-has recorded BPM/phase aliases. Mechanical 9 ms validation does not prove musical
+has recorded BPM/phase aliases. Native policy now accounts for coarse pulse
+resolution and reports measured, ambiguous or insufficient quarter-phase support.
+Mechanical 9 ms validation does not prove musical
 correctness. Accepted exports are unchanged. Neither stage needs Python/Node or
 an external audio command; neither implements URL discovery/runtime extraction.

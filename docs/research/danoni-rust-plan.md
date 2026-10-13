@@ -328,3 +328,20 @@ quarter phase is provisional. New local estimates have not replaced the accepted
 exports. The next analysis step is a generic alias/phase assessment using these
 recorded differences, before claiming native musical equivalence. Source/worker
 extraction and URL acquisition remain milestones 4–5.
+
+
+### Generic native alias/phase refinement, 2026-10-13
+
+Native onset v3 retains the complete beat path, policy v2 accounts for coarse
+pulse resolution, and quarter-onset support v1 explicitly marks observed,
+ambiguous and insufficient phase evidence. Six new synthetic cases accompany
+the corpus trial. All 126 compatibility decisions remain unchanged. Complete
+song preparation still passes every endpoint and original x1/x2/x3 scroll check.
+
+The [tempo handover](danoni-rust-tempo.md#alias-and-phase-refinement-2026-10-13)
+records 117 accepted-family matches (up from 115), 26 remaining family differences
+and one exact-source fallback. Seventeen estimated charts have observed quarter
+support; 126 retain unresolved/provisional phase. Accepted exports are unchanged.
+Milestone 3's mathematical/codec implementation is present; its native musical
+quality remains provisional. Do not use accepted-grid agreement as sole truth
+or let this review imply the missing extraction/URL stages are implemented.

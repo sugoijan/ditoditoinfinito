@@ -110,6 +110,8 @@ Ogg and checks 79 raw native origins. The [Rust tempo stage](danoni-rust-tempo.m
 now fits lattices/pulses and shared-chart phases with source-bound cache reuse.
 The legacy-analysis bridge matches accepted decisions; fresh native estimates
 pass timing gates but retain musical alias/phase differences under review.
+A generic pulse-resolution/quarter-support refinement improves accepted-family
+matches to 117 and explicitly preserves unresolved phases or exact-source fallback.
 Accepted exports remain unchanged. Native extraction and URL acquisition follow
 that musical-quality checkpoint.
 The corpus expansion sequence below remains the research backlog; it is deferred

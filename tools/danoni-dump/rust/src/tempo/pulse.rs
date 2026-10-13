@@ -121,48 +121,7 @@ pub fn onset_estimates(
             }
             let lag = ac[i].0;
             let bpm = 22050.0 / hop as f64 * 60.0 / lag as f64;
-            // Dynamic beat path rewards measured onsets and plausible intervals.
-            let mut scores = vec![0f64; frames];
-            let mut links = vec![None; frames];
-            let low = (lag as f64 * 0.5).floor() as usize;
-            let high = (lag as f64 * 2.0).ceil() as usize;
-            let penalties = (0..=high)
-                .map(|d| {
-                    if d == 0 {
-                        f64::INFINITY
-                    } else {
-                        4.0 * (d as f64 / lag as f64).ln().powi(2)
-                    }
-                })
-                .collect::<Vec<_>>();
-            for t in 0..frames {
-                if t.is_multiple_of(256) {
-                    checkpoint()?;
-                }
-                let onset = envelope[t];
-                let mut best = (0.0, None);
-                for d in low.max(1)..=high.min(t) {
-                    let value = scores[t - d] - penalties[d];
-                    if value > best.0 {
-                        best = (value, Some(t - d));
-                    }
-                }
-                scores[t] = onset + 0.95 * best.0;
-                links[t] = best.1;
-            }
-            let mut beats = Vec::new();
-            if let Some(mut t) = (0..frames).max_by(|a, b| scores[*a].total_cmp(&scores[*b])) {
-                loop {
-                    if envelope[t] >= 0.3 {
-                        beats.push(t as f64 * hop as f64 / 22050.0);
-                    }
-                    let Some(previous) = links[t] else {
-                        break;
-                    };
-                    t = previous;
-                }
-            }
-            beats.reverse();
+            let beats = beat_path(&envelope, lag, 22050.0 / hop as f64, checkpoint)?;
             if beats.len() >= 8 {
                 estimates.push(AudioEstimate {
                     bpm,
@@ -190,5 +149,120 @@ pub fn onset_estimates(
         }
     }
     let estimates = unique.into_iter().map(|(e, _)| e).collect();
-    Ok(OnsetReport{algorithm:"ddi-spectral-flux-dp/2".into(),sample_rate:22050,hop_samples:hop,fft_samples:n,envelope,estimates,scope:"Native log-spectral-flux/autocorrelation/beat-path evidence; not librosa parity or author BPM".into()})
+    Ok(OnsetReport{algorithm:"ddi-spectral-flux-dp/3".into(),sample_rate:22050,hop_samples:hop,fft_samples:n,envelope,estimates,scope:"Native log-spectral-flux/autocorrelation/beat-path evidence; not librosa parity or author BPM".into()})
+}
+
+// A cumulative, rather than discounted, path retains the whole recording.
+// Gaussian local support tolerates an onset's finite width; interval tightness
+// prevents strong subdivisions from pulling a quarter-beat path off tempo.
+fn beat_path(
+    envelope: &[f64],
+    lag: usize,
+    frames_per_second: f64,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<Vec<f64>> {
+    let frames = envelope.len();
+    let mean = envelope.iter().sum::<f64>() / frames as f64;
+    let deviation =
+        (envelope.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / frames as f64).sqrt();
+    if deviation < 1e-9 {
+        return Ok(vec![]);
+    }
+    let sigma = (lag as f64 / 32.0).max(1.0);
+    let radius = (sigma * 3.0).ceil() as usize;
+    let kernel = (0..=radius)
+        .map(|d| (-0.5 * (d as f64 / sigma).powi(2)).exp())
+        .collect::<Vec<_>>();
+    let mut local = vec![0.0; frames];
+    for (t, v) in local.iter_mut().enumerate() {
+        if t.is_multiple_of(256) {
+            checkpoint()?;
+        }
+        for at in t.saturating_sub(radius)..=(t + radius).min(frames - 1) {
+            *v += kernel[t.abs_diff(at)] * envelope[at] / deviation;
+        }
+    }
+    let low = (lag as f64 * 0.5).floor().max(1.0) as usize;
+    let high = (lag as f64 * 2.0).ceil() as usize;
+    let penalties = (0..=high)
+        .map(|d| {
+            if d == 0 {
+                f64::INFINITY
+            } else {
+                100.0 * (d as f64 / lag as f64).ln().powi(2)
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut scores = vec![0.0; frames];
+    let mut links = vec![None; frames];
+    for t in 0..frames {
+        if t.is_multiple_of(256) {
+            checkpoint()?;
+        }
+        let mut best = (0.0, None);
+        for d in low..=high.min(t) {
+            let value = scores[t - d] - penalties[d];
+            if value > best.0 {
+                best = (value, Some(t - d));
+            }
+        }
+        scores[t] = local[t] + best.0;
+        links[t] = best.1;
+    }
+    let mut beats = Vec::new();
+    // End at an observed local maximum, avoiding a predicted silent tail.
+    let endpoint = (0..frames)
+        .filter(|t| {
+            envelope[*t] >= 0.3
+                && local[*t] >= if *t == 0 { 0.0 } else { local[t - 1] }
+                && local[*t] >= local.get(t + 1).copied().unwrap_or(0.0)
+        })
+        .max_by(|a, b| scores[*a].total_cmp(&scores[*b]));
+    if let Some(mut t) = endpoint {
+        loop {
+            if envelope[t] >= 0.3 {
+                beats.push(t as f64 / frames_per_second);
+            }
+            let Some(previous) = links[t] else {
+                break;
+            };
+            t = previous;
+        }
+    }
+    beats.reverse();
+    Ok(beats)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn cumulative_path_retains_quiet_later_beats_and_measured_phase() {
+        let mut onset = vec![0.0; 6100];
+        for i in 0..120 {
+            onset[17 + i * 50] = if i < 20 { 2.0 } else { 0.4 };
+        }
+        let beats = beat_path(&onset, 50, 100.0, &mut || Ok(())).unwrap();
+        assert_eq!(beats.len(), 120);
+        assert!((beats[0] - 0.17).abs() < 0.001);
+        assert!(beats.last().unwrap() > &59.0);
+    }
+    #[test]
+    fn strong_offbeat_subdivisions_do_not_pull_the_quarter_path() {
+        let mut onset = vec![0.0; 6100];
+        for i in 0..120 {
+            onset[17 + i * 50] = 2.0;
+            onset[42 + i * 50] = 1.8;
+        }
+        let beats = beat_path(&onset, 50, 100.0, &mut || Ok(())).unwrap();
+        let pulse = audio_pulse(&AudioEstimate {
+            bpm: 120.0,
+            beat_times_seconds: beats,
+            tempo_prior_bpm: None,
+        })
+        .unwrap()
+        .unwrap();
+        assert!((pulse.bpm - 120.0).abs() < 0.01);
+        assert!((pulse.beat_zero_seconds - 0.17).abs() < 0.005);
+    }
 }
