@@ -80,10 +80,7 @@ fn folder(path: &Path) -> Folder {
     list.sort();
     let texts = list
         .iter()
-        .filter(|p| {
-            let l = p.to_ascii_lowercase();
-            l == "metrics.ini" || l.ends_with(".redir") || l.ends_with(".lua")
-        })
+        .filter(|p| ddi_noteskin::import::kept_text(p))
         .filter_map(|p| {
             let bytes = std::fs::read(path.join(p)).ok()?;
             Some((p.clone(), String::from_utf8_lossy(&bytes).into_owned()))

@@ -179,6 +179,38 @@ fn long_inputs_stay_linear() {
 }
 
 #[test]
+fn hostile_models_stay_linear_and_bounded() {
+    use ddi_noteskin::model::{MAX_BONES, MAX_TRIANGLES, bones, materials, meshes};
+    let start = std::time::Instant::now();
+    // A vertex whose number runs on for a megabyte: read in one pass.
+    let field = format!("{}x{}", "9".repeat(500_000), "9".repeat(500_000));
+    let text = format!("Meshes: 1\n\"m\" 0 0\n1\n0 {field} 0 0 0 0 -1\n0\n0\n");
+    assert!(meshes(&text).is_ok());
+    // Bones chained by name, as many as allowed, and one more.
+    let chain = |n: usize| {
+        let mut t = format!("Bones: {n}\n");
+        for i in 0..n {
+            t += &format!("\"b{i}\"\n\"b{}\"\n0 0 0 0 0 0 0\n0\n0\n", i + 1);
+        }
+        t
+    };
+    assert_eq!(bones(&chain(MAX_BONES)).unwrap().bones.len(), MAX_BONES);
+    assert!(bones(&chain(MAX_BONES + 1)).is_err());
+    // Counts with nothing behind them: errors, without reserving for them.
+    let blank = "\n".repeat(1_000_000);
+    assert!(materials(&format!("Materials: 999999\n{blank}")).is_err());
+    assert!(meshes(&format!("Meshes: 999999\n{blank}")).is_err());
+    // More triangles than a model may have.
+    let tris = "0 0 0 0 0 0 0 1\n".repeat(MAX_TRIANGLES + 1);
+    let text = format!(
+        "Meshes: 1\n\"m\" 0 0\n1\n0 0 0 0 0 0 -1\n0\n{}\n{tris}",
+        MAX_TRIANGLES + 1
+    );
+    assert!(meshes(&text).is_err());
+    assert!(start.elapsed().as_secs_f64() < 5.0, "{:?}", start.elapsed());
+}
+
+#[test]
 fn big_skins_stay_fast() {
     // 80k files matching one prefix.
     let files: Vec<String> = (0..80_000)

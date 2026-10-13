@@ -74,8 +74,14 @@ const GETTERS: &[&str] = &[
     "GetNumChildren",
 ];
 
-/// What Models do that is not drawn here (3D models are a later step).
-const MODEL_ONLY: &[&str] = &["rate", "playanimation", "loop", "SetDefaultAnimation"];
+/// Methods only Models have (`Model.cpp:783-803`), run natively.
+const MODEL_ONLY: &[&str] = &[
+    "rate",
+    "playanimation",
+    "loop",
+    "SetDefaultAnimation",
+    "position",
+];
 
 /// `PREFSMAN:GetPreference` for what skins read; anything else is nil.
 fn preference<'gc>(ctx: Context<'gc>, name: &str) -> Value<'gc> {
@@ -635,38 +641,7 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
 
     let methods = Table::new(&ctx);
     for &m in METHODS {
-        let shared = host.clone();
-        let _ = methods.set(
-            ctx,
-            m,
-            Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
-                let this = stack.get(0);
-                let id = actor_id(ctx, this)?;
-                let mut args = Vec::new();
-                for i in 1..stack.len().min(17) {
-                    args.push(arg(ctx, stack.get(i), m, i)?);
-                }
-                let call = Call {
-                    method: m.to_string(),
-                    args,
-                };
-                let mut host = shared.borrow_mut();
-                let Some(actor) = host.stage.get_mut(id) else {
-                    return Err(error(ctx, format!("{m}: the actor is gone")));
-                };
-                // Methods that walk a tree or a sprite's states pay for
-                // what they visit.
-                charge(&mut exec, actor.work(m) * 64);
-                let mut problems = Problems::default();
-                let r = actor.call(&call, &mut problems, 0);
-                for p in problems.messages {
-                    host.warn(p);
-                }
-                r.map_err(|e| error(ctx, e))?;
-                stack.replace(ctx, this);
-                Ok(CallbackReturn::Return)
-            }),
-        );
+        let _ = methods.set(ctx, m, native_method(ctx, host, m));
     }
     for &g in GETTERS {
         let shared = host.clone();
@@ -782,15 +757,7 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
         }),
     );
     for &m in MODEL_ONLY {
-        let _ = model.set(
-            ctx,
-            m,
-            Callback::from_fn(&ctx, |ctx, _, mut stack| {
-                let this = stack.get(0);
-                stack.replace(ctx, this);
-                Ok(CallbackReturn::Return)
-            }),
-        );
+        let _ = model.set(ctx, m, native_method(ctx, host, m));
     }
     // `SetStateProperties`: new states, written as `Frames`.
     let shared = host.clone();
@@ -917,4 +884,41 @@ pub(crate) fn actor_userdata<'gc>(
     let ud = UserData::new_static(&ctx, ActorRef(id));
     let _ = ud.set_metatable(&ctx, Some(metatable));
     ud
+}
+
+/// An actor method run natively (`Actor::call`): the call's arguments
+/// converted, the actor looked up by its handle, the work it does paid for.
+fn native_method<'gc>(
+    ctx: Context<'gc>,
+    host: &Rc<RefCell<Host>>,
+    m: &'static str,
+) -> Callback<'gc> {
+    let shared = host.clone();
+    Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
+        let this = stack.get(0);
+        let id = actor_id(ctx, this)?;
+        let mut args = Vec::new();
+        for i in 1..stack.len().min(17) {
+            args.push(arg(ctx, stack.get(i), m, i)?);
+        }
+        let call = Call {
+            method: m.to_string(),
+            args,
+        };
+        let mut host = shared.borrow_mut();
+        let Some(actor) = host.stage.get_mut(id) else {
+            return Err(error(ctx, format!("{m}: the actor is gone")));
+        };
+        // Methods that walk a tree or a sprite's states pay for what they
+        // visit.
+        charge(&mut exec, actor.work(m) * 64);
+        let mut problems = Problems::default();
+        let r = actor.call(&call, &mut problems, 0);
+        for p in problems.messages {
+            host.warn(p);
+        }
+        r.map_err(|e| error(ctx, e))?;
+        stack.replace(ctx, this);
+        Ok(CallbackReturn::Return)
+    })
 }

@@ -35,8 +35,8 @@ pub(crate) struct Converted {
     /// The tree's index in the stage and its root's id; `None` when its
     /// `Condition` is false.
     pub root: Option<(usize, u32)>,
-    /// Something in it is not drawn here (a model, text, a movie): the
-    /// element is the built-in skin's.
+    /// Something in it is not drawn here (text, a movie, a model that did
+    /// not load): the element is the built-in skin's.
     pub unsupported: bool,
     pub notes: Vec<String>,
 }
@@ -228,11 +228,7 @@ impl<'gc> Convert<'_, 'gc> {
                 (a, 1)
             }
             "ActorFrame" => (Actor::new(Kind::Frame(Vec::new())), 2),
-            "Model" => {
-                self.unsupported = true;
-                self.note(format!("{where_}: a 3D model"));
-                (Actor::new(Kind::Actor), 3)
-            }
+            "Model" => (self.model(t, &where_)?, 3),
             "BitmapText" | "ActorMultiVertex" | "ActorFrameTexture" | "ActorProxy"
             | "BGAnimation" | "ActorScroller" | "RollingNumbers" => {
                 self.unsupported = true;
@@ -325,6 +321,74 @@ impl<'gc> Convert<'_, 'gc> {
             *kids = built;
         }
         Ok(Some(actor))
+    }
+
+    /// `Def.Model { Meshes =, Materials =, Bones = }`: each relative to the
+    /// file that wrote it; StepMania needs all three (`Model::Load`). One
+    /// that cannot be loaded leaves the element to the built-in skin.
+    fn model(&mut self, t: Table<'gc>, where_: &str) -> Result<Actor, Failure> {
+        let mut files = Vec::with_capacity(3);
+        for key in ["Meshes", "Materials", "Bones"] {
+            let value = self.get(t, key);
+            if too_long(value) {
+                self.note(format!("{where_}: the {key} path is too long"));
+                self.unsupported = true;
+                return Ok(Actor::new(Kind::Actor));
+            }
+            let Some(name) = text(value).filter(|s| !s.is_empty()) else {
+                self.note(format!("{where_}: a Model without {key}"));
+                self.unsupported = true;
+                return Ok(Actor::new(Kind::Actor));
+            };
+            self.visit(name.len() / 64)?;
+            let path = if name.starts_with('/') {
+                name.clone()
+            } else {
+                match text(self.get(t, "_Dir")) {
+                    Some(dir) => format!("{dir}{name}"),
+                    None => {
+                        self.note(format!(
+                            "{where_}: relative path \"{name}\", but path is unknown"
+                        ));
+                        self.unsupported = true;
+                        return Ok(Actor::new(Kind::Actor));
+                    }
+                }
+            };
+            match self.host.skin.resolve_path(&path) {
+                Ok(f) => files.push(f),
+                Err(e) => {
+                    self.note(format!("{where_}: {e}"));
+                    self.unsupported = true;
+                    return Ok(Actor::new(Kind::Actor));
+                }
+            }
+        }
+        // Models are as costly as their lines.
+        for f in &files {
+            let len = self
+                .host
+                .skin
+                .folder(f.dir)
+                .and_then(|folder| folder.text(&f.path))
+                .map_or(0, str::len);
+            self.visit(len / 64)?;
+        }
+        match crate::build::model_actor(
+            &self.host.skin,
+            self.textures,
+            self.images,
+            &files[0],
+            &files[1],
+            &files[2],
+        ) {
+            Ok(actor) => Ok(actor),
+            Err(e) => {
+                self.note(format!("{where_}: {e}"));
+                self.unsupported = true;
+                Ok(Actor::new(Kind::Actor))
+            }
+        }
     }
 
     /// A `Sprite`'s texture and states.

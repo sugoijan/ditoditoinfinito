@@ -1,5 +1,5 @@
-//! Instanced textured quads, for noteskins: one draw per run of quads with
-//! the same texture, blend and wrapping.
+//! Instanced textured quads and triangles, for noteskins: one draw per run
+//! with the same texture, blend and wrapping.
 
 use bytemuck::{Pod, Zeroable};
 
@@ -15,19 +15,40 @@ pub enum QuadBlend {
     Modulate,
 }
 
-/// One quad to draw.
+/// [`TexQuad::texture`] of a shape drawn in its colour alone (a model's
+/// mesh without a texture).
+pub const UNTEXTURED: u32 = u32::MAX;
+
+/// What a [`TexQuad`] covers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Shape {
+    Quad {
+        /// The unit square (-0.5..0.5) to screen pixels: `x' = m0 x + m2 y
+        /// + m4`, `y' = m1 x + m3 y + m5`.
+        transform: [f32; 6],
+        /// `[left, top, right, bottom]` in texture fractions (may run past
+        /// 1 with `wrap`).
+        uv: [f32; 4],
+    },
+    /// A triangle of a model, seen in perspective: its corners in screen
+    /// pixels, each corner's `w` (its distance from the camera over the
+    /// screen's), textured in perspective.
+    Triangle {
+        points: [[f32; 2]; 3],
+        w: [f32; 3],
+        uv: [[f32; 2]; 3],
+    },
+}
+
+/// One quad or triangle to draw.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TexQuad {
-    /// The unit square (-0.5..0.5) to screen pixels: `x' = m0 x + m2 y + m4`,
-    /// `y' = m1 x + m3 y + m5`.
-    pub transform: [f32; 6],
-    /// `[left, top, right, bottom]` in texture fractions (may run past 1
-    /// with `wrap`).
-    pub uv: [f32; 4],
+    pub shape: Shape,
     /// As the target expects it (see [`crate::color::to_target`]).
     pub color: [f32; 4],
     /// The glow pass rather than the diffuse one.
     pub glow: bool,
+    /// A registered texture, or [`UNTEXTURED`].
     pub texture: u32,
     pub blend: QuadBlend,
     /// Repeat the texture (hold bodies) instead of clamping it.
@@ -37,16 +58,23 @@ pub struct TexQuad {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct Instance {
+    /// A quad's linear part and origin; a triangle's corners.
     axes: [f32; 4],
     origin: [f32; 2],
+    /// A quad's rectangle; a triangle's first two corners'.
     uv: [f32; 4],
     color: [f32; 4],
     mode: u32,
+    /// A triangle's third corner's texture coordinates.
+    uv2: [f32; 2],
+    /// A triangle's corners' `w` (a quad's are 1).
+    w: [f32; 3],
 }
 
 impl Instance {
-    const ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
-        0 => Float32x4, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Uint32
+    const ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+        0 => Float32x4, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Uint32,
+        5 => Float32x2, 6 => Float32x3
     ];
 }
 
@@ -85,6 +113,8 @@ pub struct TexturedPipeline {
     clamp: wgpu::Sampler,
     repeat: wgpu::Sampler,
     textures: Vec<Texture>,
+    /// Bound for [`UNTEXTURED`] shapes (its texels unread).
+    blank: Option<Texture>,
     instances: wgpu::Buffer,
     capacity: usize,
     batches: Vec<Batch>,
@@ -247,7 +277,7 @@ impl TexturedPipeline {
             })
         };
         let capacity = 256;
-        TexturedPipeline {
+        let mut p = TexturedPipeline {
             pipelines,
             gamma,
             globals,
@@ -256,10 +286,14 @@ impl TexturedPipeline {
             clamp: sampler(wgpu::AddressMode::ClampToEdge),
             repeat: sampler(wgpu::AddressMode::Repeat),
             textures: Vec::new(),
+            blank: None,
             instances: Self::make_buffer(device, capacity),
             capacity,
             batches: Vec::new(),
-        }
+        };
+        let blank = p.create_texture(device, 1, 1, false);
+        p.blank = Some(p.bind(device, &blank));
+        p
     }
 
     fn make_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
@@ -356,7 +390,8 @@ impl TexturedPipeline {
         self.textures.len()
     }
 
-    /// Uploads this frame's quads, in drawing order.
+    /// Uploads this frame's quads, in drawing order (as many as one buffer
+    /// of the device holds; the rest are not drawn).
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -370,6 +405,9 @@ impl TexturedPipeline {
             translate: [-1.0, 1.0],
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
+        let most = (device.limits().max_buffer_size / std::mem::size_of::<Instance>() as u64)
+            .min(usize::MAX as u64) as usize;
+        let quads = &quads[..quads.len().min(most)];
         self.batches.clear();
         let mut instances = Vec::with_capacity(quads.len());
         for q in quads {
@@ -386,19 +424,34 @@ impl TexturedPipeline {
                     end: at + 1,
                 }),
             }
-            let m = q.transform;
-            instances.push(Instance {
-                axes: [m[0], m[1], m[2], m[3]],
-                origin: [m[4], m[5]],
-                uv: q.uv,
-                color: q.color,
-                // Bit 0: the glow pass; bit 1: a repeating texture, sampled
-                // past its rectangle.
-                mode: u32::from(q.glow) | (u32::from(q.wrap) << 1),
+            // Bit 0: the glow pass; bit 1: a repeating texture, sampled
+            // past its rectangle; bit 2: a triangle; bit 3: no texture.
+            let mode = u32::from(q.glow)
+                | (u32::from(q.wrap) << 1)
+                | (u32::from(q.texture == UNTEXTURED) << 3);
+            instances.push(match q.shape {
+                Shape::Quad { transform: m, uv } => Instance {
+                    axes: [m[0], m[1], m[2], m[3]],
+                    origin: [m[4], m[5]],
+                    uv,
+                    color: q.color,
+                    mode,
+                    uv2: [0.0; 2],
+                    w: [1.0; 3],
+                },
+                Shape::Triangle { points: p, w, uv } => Instance {
+                    axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
+                    origin: p[2],
+                    uv: [uv[0][0], uv[0][1], uv[1][0], uv[1][1]],
+                    color: q.color,
+                    mode: mode | 4,
+                    uv2: uv[2],
+                    w,
+                },
             });
         }
         if instances.len() > self.capacity {
-            self.capacity = instances.len().next_power_of_two();
+            self.capacity = instances.len().next_power_of_two().min(most);
             self.instances = Self::make_buffer(device, self.capacity);
         }
         if !instances.is_empty() {
@@ -432,7 +485,12 @@ impl TexturedPipeline {
         let mut current: Option<QuadBlend> = None;
         for b in &self.batches {
             let (start, end) = (b.start.max(range.start), b.end.min(range.end));
-            let Some(t) = self.textures.get(b.texture as usize) else {
+            let t = if b.texture == UNTEXTURED {
+                self.blank.as_ref()
+            } else {
+                self.textures.get(b.texture as usize)
+            };
+            let Some(t) = t else {
                 continue;
             };
             if start >= end {
@@ -456,6 +514,8 @@ impl TexturedPipeline {
         }
     }
 }
+
+const _: () = assert!(std::mem::size_of::<Instance>() == 80);
 
 #[cfg(test)]
 mod tests {

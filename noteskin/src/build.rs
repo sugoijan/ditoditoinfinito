@@ -1,10 +1,10 @@
 //! Actors for a column's elements, without running a skin's Lua: images
-//! become sprites, and common's `Fallback Explosion.lua` and
-//! `Fallback Tap Mine.lua` are rebuilt natively with the commands their
+//! become sprites, 3D models models, and common's `Fallback Explosion.lua`
+//! and `Fallback Tap Mine.lua` are rebuilt natively with the commands their
 //! metrics give (`NoteSkins/common/common/`, 5_1-new). Whatever needs the
-//! skin's Lua or a 3D model is drawn by the built-in skin, with a note why.
+//! skin's Lua is drawn by the built-in skin, with a note why.
 
-use crate::actor::{Actor, Kind, Problems, Sprite, State};
+use crate::actor::{Actor, Kind, Model, ModelMaterial, Problems, Sprite, State};
 use crate::builtin::NativeLua;
 use crate::commands::{Arg, Call, parse};
 use crate::load::{Button, Resolved, Source};
@@ -162,10 +162,13 @@ impl Builder<'_, '_> {
                 self.note(format!("{element}: {} is Lua", f.path));
                 Built::BuiltIn
             }
-            Source::Model(f) => {
-                self.note(format!("{element}: {} is a 3D model", f.path));
-                Built::BuiltIn
-            }
+            Source::Model(f) => match model_actor(self.skin, self.textures, self.images, f, f, f) {
+                Ok(a) => Built::Actor(a),
+                Err(e) => {
+                    self.note(format!("{element}: {e}"));
+                    Built::BuiltIn
+                }
+            },
             Source::Movie(f) => {
                 self.note(format!("{element}: {} is a movie", f.path));
                 Built::BuiltIn
@@ -326,6 +329,81 @@ pub(crate) fn image_sprite(
     let mut sprite = Sprite::new(id, states, [fw, fh]);
     sprite.padded_to_image = sheet.from_padded([1.0, 1.0]);
     Some(Actor::new(Kind::Sprite(sprite)))
+}
+
+/// A 3D model from its meshes, materials and bones (one file for all three
+/// when an element is a `.txt`; `Model::Load`, `src/Model.cpp:81-124`),
+/// its textures found relative to the materials file and decoded like a
+/// sprite's; why it could not be loaded (StepMania fails the element too).
+pub(crate) fn model_actor(
+    skin: &Skin<'_>,
+    textures: &mut Textures,
+    images: &dyn Images,
+    meshes: &FileRef,
+    materials: &FileRef,
+    bones: &FileRef,
+) -> Result<Actor, String> {
+    use crate::model::{self, AnimatedTexture};
+    let text = |f: &FileRef| {
+        skin.folder(f.dir)
+            .and_then(|folder| folder.text(&f.path))
+            .ok_or_else(|| format!("{} could not be read", f.path))
+    };
+    let geometry = model::meshes(text(meshes)?).map_err(|e| format!("{}: {e}", meshes.path))?;
+    let mats =
+        model::materials(text(materials)?).map_err(|e| format!("{}: {e}", materials.path))?;
+    let animation = model::bones(text(bones)?).map_err(|e| format!("{}: {e}", bones.path))?;
+    if let Some(i) = geometry
+        .meshes
+        .iter()
+        .find_map(|m| m.material.filter(|&i| i >= mats.len()))
+    {
+        return Err(format!(
+            "{}: a mesh's material {i} is not there",
+            meshes.path
+        ));
+    }
+    let dir_of = |f: &FileRef| {
+        let p = skin.file_path(f);
+        p.rfind('/').map_or(String::new(), |i| p[..=i].to_string())
+    };
+    let image = |f: &FileRef, textures: &mut Textures| -> Result<u32, String> {
+        images
+            .size(f.dir, &f.path)
+            .ok_or_else(|| format!("{} could not be read", f.path))?;
+        Ok(textures.id(TextureKey::Skin {
+            dir: f.dir,
+            path: f.path.clone(),
+        }))
+    };
+    let mut out = Vec::with_capacity(mats.len());
+    for m in &mats {
+        let (frames, texture) = if m.texture.is_empty() {
+            (Vec::new(), AnimatedTexture::image(""))
+        } else {
+            let f = skin.resolve_path(&format!("{}{}", dir_of(materials), m.texture))?;
+            if f.path.to_ascii_lowercase().ends_with(".ini") {
+                let animated = AnimatedTexture::parse(text(&f)?);
+                let dir = dir_of(&f);
+                let mut ids = Vec::with_capacity(animated.frames.len());
+                for (frame, _) in &animated.frames {
+                    let img = skin.resolve_path(&format!("{dir}{frame}"))?;
+                    ids.push(image(&img, textures)?);
+                }
+                (ids, animated)
+            } else {
+                (vec![image(&f, textures)?], AnimatedTexture::image(&f.path))
+            }
+        };
+        out.push(ModelMaterial {
+            color: m.unlit_color(),
+            frames,
+            texture,
+        });
+    }
+    Ok(Actor::new(Kind::Model(Box::new(Model::new(
+        geometry, animation, out,
+    )))))
 }
 
 /// A stand-in's image: its frames from its name, each shown at 64 px.
