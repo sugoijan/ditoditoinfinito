@@ -1,12 +1,18 @@
-//! Offline DanOni chart preparation. No filesystem, networking or work execution.
+//! Offline DanOni chart/song preparation with an optional filesystem adapter.
 //!
 //! Exact source data is borrowed, never rewritten. Musical fitting and source
 //! extraction remain separate producers of the inputs accepted here.
 
+pub mod assets;
 pub mod model;
+#[cfg(feature = "native")]
+pub mod native;
 pub mod policy;
+pub mod preview;
+pub mod reviews;
 pub mod ssc;
 pub mod timing;
+pub mod work;
 
 pub use model::{Chart, CompileRequest, PreparationOptions, PreparedChart};
 pub use ssc::compile_chart;

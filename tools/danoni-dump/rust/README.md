@@ -1,12 +1,16 @@
 # Rust DanOni export core
 
-The first slice of the [Rust migration plan](../../../docs/research/danoni-rust-plan.md).
-`ddi-danoni-export` is an I/O-free library with a JSON CLI over the same
-`compile_chart` function. It prepares an SSC **chart block**, not yet a complete
-song/pack, and does not fetch URLs, decode audio, estimate BPM, run Ruffle or write
-to the game library. Existing Python/Node commands remain the complete workflow.
-Code is MIT under the repository REUSE annotation; all third-party inputs/results
-stay outside Git. The standalone workspace keeps native tooling out of the web build.
+An embeddable [Rust migration](../../../docs/research/danoni-rust-plan.md) of the
+DanOni export pipeline. The pure API now prepares complete SSC songs from
+normalized works, source-bound reviews and supplied PCM/playback media. An
+optional `native` feature (enabled by default) supplies confined filesystem reads,
+fresh output directories and a CLI; `--no-default-features` leaves host-supplied
+asset access and in-memory artifacts. The game's workspace/WASM build is unchanged.
+
+No fetching, work execution, audio decoding/encoding or automatic BPM fitting
+occurs here yet. Accepted media and reviewed banners can be reused byte-identically;
+the existing Python/Node workflow remains the extraction/codec/analysis reference.
+Code is MIT under REUSE; all third-party inputs/results stay outside Git.
 
 ## Commands
 
@@ -17,6 +21,10 @@ cargo test --locked --manifest-path tools/danoni-dump/rust/Cargo.toml --target-d
 cargo clippy --locked --manifest-path tools/danoni-dump/rust/Cargo.toml --target-dir target/danoni-rust --all-targets -- -D warnings
 cargo run --locked --manifest-path tools/danoni-dump/rust/Cargo.toml --target-dir target/danoni-rust -- compile-chart < /tmp/request.json > /tmp/result.json
 DDI_DANONI_EXPORTS="$HOME/Music/DanOni/exports" cargo test --locked --manifest-path tools/danoni-dump/rust/Cargo.toml --target-dir target/danoni-rust --test local_corpus -- --nocapture
+# Full offline rebuild with explicit accepted codec-stage inputs, into a fresh tree:
+cargo run --locked --manifest-path tools/danoni-dump/rust/Cargo.toml --target-dir target/danoni-rust -- rebuild-accepted "$HOME/Music/DanOni/export-registry.json" "$HOME/Music/DanOni/exports" /tmp/danoni-rust-new
+# One portable job, with all paths interpreted through its explicit roots:
+cargo run --locked --manifest-path tools/danoni-dump/rust/Cargo.toml --target-dir target/danoni-rust -- prepare-work /tmp/job.json /tmp/danoni-song-new
 ```
 
 The local differential test reads accepted `reports/*/manifest.json`, original
@@ -24,13 +32,13 @@ source charts/merged metadata preserved in derived references, reviewed policy
 inputs and accepted SSC files. It never downloads or runs work scripts, writes
 corpus files or changes exports. No corpus means the test reports a skip explicitly.
 
-## API and request
+## Chart API and request
 
 Call `compile_chart(&Chart, &Metadata, &PreparationOptions)` directly. All source
 arguments are borrowed. The caller supplies already merged work/reference/chart
 metadata and validated, hash-bound review decisions. The core does not certify
-unverified caller-supplied motion/grid/rating evidence. Future native orchestration
-will perform those checks before calling it. Unknown source chart/lane fields are
+unverified caller-supplied motion/grid/rating evidence. The complete-song `prepare_work` API
+performs those checks before calling it. Unknown source chart/lane fields are
 preserved in flattened maps and not evaluated.
 
 CLI stdin is at most 16 MiB and contains exactly one request:
@@ -81,7 +89,7 @@ names. Unknown uses Edit/0. Bounds are inclusive and strictly increasing.
 Chart `metadata.difficultyLabel` becomes CHARTNAME for unrated charts or when
 `preserveLabel` is true. Unknown modes (including 9i/9t) reject deserialization.
 
-## Result and units
+## Chart result and units
 
 Success stdout is `ddi-danoni-prepared-chart/1`:
 
@@ -116,5 +124,8 @@ that overflows. These do not change the accepted corpus. Python's ties-to-even
 rounding is preserved. SSC uses shortest round-trip Rust decimal formatting;
 whitespace/numeric spelling and archive bytes are not promised identical.
 
-Not yet ported: song grouping/headers, review-file binding, previews, artwork,
-media processing, BPM inference, rebuild transactions, fetching and execution.
+The [complete-song API and offline jobs](../../../docs/research/danoni-rust-offline.md)
+add source loading, review binding, grouping, headers, supplied artwork/media,
+previews, provenance and fresh generation writes. Still pending: new artwork
+rendering/cropping, ZIP/collection assembly and archive/promotion recovery, audio
+codecs, BPM inference, fetching and work execution.

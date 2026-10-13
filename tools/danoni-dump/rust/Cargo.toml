@@ -15,10 +15,21 @@ name = "ddi_danoni_export"
 name = "ddi-danoni-export"
 path = "src/main.rs"
 
+[features]
+default = ["native"]
+native = []
+
 [dependencies]
+sha2 = "0.11.1"
+unicode-normalization = "0.1.25"
+html5ever = "0.40.1"
+encoding_rs = "0.8.42"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 
 [dev-dependencies]
 ddi-chart = { path = "../../../chart" }
 ddi-engine = { path = "../../../engine" }
+
+[profile.dev]
+opt-level = 1

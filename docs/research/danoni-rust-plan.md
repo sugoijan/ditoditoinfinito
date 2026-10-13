@@ -112,7 +112,7 @@ validation differences. Rust's round-to-even behavior must match Python.
 Numerical text spelling and JSON key order may differ; semantic equality and
 original media byte identity matter more than ZIP byte identity.
 
-### 2. Complete offline preparation
+### 2. Complete offline preparation — in progress
 
 Port normalized-work loading, metadata merge and shared-audio grouping; bind
 asset/review hashes and constrain paths. Port source-bound published rating
@@ -220,7 +220,7 @@ path, rollback/cancellation and partial collection outcomes, on each declared
 supported desktop platform. The absence of a desktop shell today is not a reason
 to couple the pipeline to the current web app.
 
-## Current first slice
+## Initial chart slice
 
 `tools/danoni-dump/rust/` implements milestone 1's chart preparation and starts
 milestone 2. It has no HTTP client, audio codec, Ruffle or browser dependency and
@@ -230,8 +230,8 @@ block and endpoint/scroll diagnostics. These are internal migration APIs, not
 the complete prepared-import schema.
 
 See [the Rust tool README](../../tools/danoni-dump/rust/README.md) for exact request
-fields, commands, validation differences and the local differential gate. Complete
-offline song rebuilding is the next implementation step, before fresh acquisitions.
+fields, commands, validation differences and the local differential gate. The subsequent complete-song slice below extends this API before fresh
+acquisitions.
 
 
 ### First-slice acceptance, 2026-10-13
@@ -257,3 +257,21 @@ Rust source/lockfile, accepted generation and reference reports to the compariso
 Dependencies added here are serde 1.0.229 and serde_json 1.0.154, latest stable
 when checked on 2026-10-13 using [serde's registry metadata](https://crates.io/api/v1/crates/serde)
 and [serde_json's registry metadata](https://crates.io/api/v1/crates/serde_json).
+
+
+### Complete-song slice, 2026-10-13
+
+The [offline handover](danoni-rust-offline.md) documents `prepare_work`, its
+host-supplied asset/progress boundary, optional filesystem feature and explicit
+job/media contracts. Source/review validation, grouping, song headers, source
+ratings, pickup previews from PCM, byte-identical supplied media/artwork and
+provenance now run in Rust. The accepted-codec bridge reconstructs all 93 songs /
+144 charts into a new local generation without Python/Node/FFmpeg/browser/Ruffle
+at runtime. Existing accepted exports are unchanged.
+
+The source-bound full-song differential gate matches preview/rating diagnostics,
+metadata, banners, audio bytes and game-parser/scroll behavior. This still supplies
+accepted musical grids and prepared media: it does not prove new Rust decoding,
+encoding, audio-origin correlation or BPM estimation. Milestone 2 remains open
+for new artwork generation, ZIP/collection assembly and generation promotion/
+recovery; fresh-output readiness/cancellation is implemented separately.

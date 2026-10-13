@@ -101,8 +101,11 @@ The maintainer approved the [Rust migration plan](danoni-rust-plan.md) on
 native extraction/supervision, URL acquisition and HTML5/desktop integration.
 The first I/O-free Rust chart-preparation slice is under `tools/danoni-dump/rust/`
 and matches all 144 accepted charts through the real game parser, including
-quantization diagnostics and authored scroll. Full song/audio preparation and
-URL acquisition remain migration milestones.
+quantization diagnostics and authored scroll. Complete offline songs now use the Rust
+[preparation API](danoni-rust-offline.md), matching all 93 accepted songs with
+recomputed previews and byte-identical supplied media/banners. New artwork,
+collection/promotion workflows, codecs, BPM fitting and URL acquisition remain
+migration milestones.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

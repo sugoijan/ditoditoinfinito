@@ -4,11 +4,31 @@ use std::io::{self, Read, Write};
 
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.as_slice() != ["compile-chart"] {
-        eprintln!("Usage: ddi-danoni-export compile-chart < request.json > result.json");
-        std::process::exit(2);
-    }
-    let result = run();
+    let result = match args.as_slice() {
+        [command] if command == "compile-chart" => run().and_then(|result| {
+            serde_json::to_value(result).map_err(|e| Error {
+                code: "output-json",
+                message: e.to_string(),
+            })
+        }),
+        #[cfg(feature = "native")]
+        [command, job, output] if command == "prepare-work" => prepare(job, output),
+        #[cfg(feature = "native")]
+        [command, registry, exports, output] if command == "rebuild-accepted" => {
+            ddi_danoni_export::native::rebuild_accepted(
+                std::path::Path::new(registry),
+                std::path::Path::new(exports),
+                std::path::Path::new(output),
+                &mut |_| Ok(()),
+            )
+        }
+        _ => {
+            eprintln!(
+                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT"
+            );
+            std::process::exit(2);
+        }
+    };
     match result {
         Ok(result) => {
             let stdout = io::stdout();
@@ -51,4 +71,15 @@ fn run() -> Result<ddi_danoni_export::PreparedChart, Error> {
         });
     }
     compile_chart(&request.chart, &request.metadata, &request.options)
+}
+
+#[cfg(feature = "native")]
+fn prepare(job: &str, output: &str) -> Result<serde_json::Value, Error> {
+    use ddi_danoni_export::{native, work};
+    let (job, source) = native::load_job(std::path::Path::new(job))?;
+    let prepared = work::prepare_work(&job.work, &source, &mut |_| Ok(()))?;
+    native::write_prepared(&prepared, std::path::Path::new(output), &mut |_| Ok(()))?;
+    Ok(
+        serde_json::json!({"schema":prepared.manifest["schema"],"songs":prepared.manifest["songs"].as_array().unwrap().len(),"output":output}),
+    )
 }
