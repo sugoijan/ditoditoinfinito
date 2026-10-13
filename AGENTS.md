@@ -119,8 +119,10 @@ calibration (same `auto`/`bias` parameters); `#/video-check` runs the
 video decoder on picked movies (`?decoder=both` compares the browser's
 WebCodecs decoder with it frame by frame);
 `#/skin-preview?skin=<key>` draws a noteskin's Down tap note alone
-(`size`, `bg`, `beat`, `bpm`, `notes=4`, `receptors=1`, `gfx=gl`; a test
-sets `window.__DDI_PREVIEW_BEAT`). Imported songs have ids
+(`size`, `bg`, `beat`, `bpm`, `notes=4`, `receptors=1`, `gfx=gl`;
+`demo=1` plays a looping autoplayed chart with holds, rolls, a mine and
+explosions, `rows`, `speed`, `layout=<id>`; `skin=builtin` for the
+built-in arrows; a test sets `window.__DDI_PREVIEW_BEAT`). Imported songs have ids
 `u-<hash>` and play through the same route.
 
 Import is tested by setting files on the import panel's inputs (folder or zip)

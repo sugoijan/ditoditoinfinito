@@ -1007,3 +1007,22 @@ button.danger {
   color: var(--muted, #aaa);
   font-size: 0.85rem;
 }
+
+/* The arrows chosen, playing, under the choice in Options. */
+.arrows-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 16px;
+  margin: 4px 0 12px;
+}
+
+.arrows-preview canvas {
+  display: block;
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.arrows-preview .skin-preview-status {
+  margin: 4px 0 0;
+}

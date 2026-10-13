@@ -67,6 +67,8 @@ pub(crate) enum Msg {
     Noteskins(Result<crate::noteskins::Choices, String>),
     Noteskin(Option<String>),
     DeleteNoteskin(String),
+    /// The layout the arrows' preview shows.
+    PreviewLayout(String),
     ChartColors(bool),
     Lyrics(bool),
     /// Edit a profile's offset (kind "audio"/"display", id, ms).
@@ -131,6 +133,8 @@ pub(crate) struct Options {
     default_lua_off: bool,
     /// The skin whose "remove" was clicked once.
     confirm_noteskin: Option<String>,
+    /// The layout the arrows' preview shows (not saved).
+    preview_layout: String,
     confirm: Option<Reset>,
     /// Result of the last reset.
     notice: Option<String>,
@@ -202,6 +206,7 @@ impl Component for Options {
             noteskins: Vec::new(),
             default_lua_off: false,
             confirm_noteskin: None,
+            preview_layout: "dance-single".into(),
             confirm: None,
             notice: None,
             gamepads,
@@ -364,6 +369,10 @@ impl Component for Options {
                 return true;
             }
             Msg::Noteskin(v) => self.settings.noteskin = v,
+            Msg::PreviewLayout(id) => {
+                self.preview_layout = id;
+                return true;
+            }
             Msg::DeleteNoteskin(key) => {
                 // The first click asks for a second one.
                 if self.confirm_noteskin.as_deref() != Some(key.as_str()) {
@@ -672,6 +681,7 @@ impl Options {
                 html! { <button type="button" class="link" {onclick}>{ label }</button> }
             });
         html! {
+            <>
             <label>{ "Arrows " }
                 <select {onchange}>
                     <option value="" selected={current.is_none()}>{ if self.default_lua_off { "Dito (the built-in arrows, in the note colours) (its Lua is off)" } else { "Dito (the built-in arrows, in the note colours)" } }</option>
@@ -683,6 +693,65 @@ impl Options {
                 { " (dance layouts) " }
                 { for delete }
             </label>
+            { self.arrows_preview(link) }
+            </>
+        }
+    }
+
+    /// The arrows chosen, playing a short chart: a skin on dance layouts,
+    /// the built-in arrows (in the note colours) on the others.
+    fn arrows_preview(&self, link: &html::Scope<Self>) -> Html {
+        use crate::components::skin_preview::{PreviewCanvas, PreviewOptions};
+        let s = &self.settings;
+        let skin = crate::noteskins::play_skin(s.noteskin.as_deref(), s.note_colors, false)
+            .unwrap_or_else(|| crate::noteskins::BUILT_IN.into());
+        let window = web_sys::window();
+        // Sharp on a high-density screen; still when motion is unwanted.
+        let ratio = window
+            .as_ref()
+            .map_or(1.0, |w| w.device_pixel_ratio())
+            .clamp(1.0, 3.0);
+        let still = window
+            .and_then(|w| {
+                w.match_media("(prefers-reduced-motion: reduce)")
+                    .ok()
+                    .flatten()
+            })
+            .is_some_and(|m| m.matches());
+        let options = PreviewOptions {
+            skin,
+            layout: self.preview_layout.clone(),
+            size: (40.0 * ratio).round() as u32,
+            pixel_ratio: (40.0 * ratio).round() / 40.0,
+            background: [0.04, 0.04, 0.06],
+            bpm: 130.0,
+            all_lanes: true,
+            receptors: true,
+            demo: !still,
+            rows: 6,
+            speed: 1.5,
+            colors: s.note_colors.scheme(),
+            ..PreviewOptions::default()
+        };
+        let onchange = link.callback(|e: Event| {
+            Msg::PreviewLayout(
+                e.target_dyn_into::<HtmlSelectElement>()
+                    .map(|s| s.value())
+                    .unwrap_or_default(),
+            )
+        });
+        let current = self.preview_layout.clone();
+        html! {
+            <div class="arrows-preview">
+                <PreviewCanvas {options} />
+                <label>{ "Preview on " }
+                    <select {onchange}>
+                        { for Layout::builtin_ids().into_iter().filter_map(|id| Layout::builtin(&id)).map(|l| html! {
+                            <option value={l.id.clone()} selected={l.id == current}>{ l.name.clone() }</option>
+                        }) }
+                    </select>
+                </label>
+            </div>
         }
     }
 
