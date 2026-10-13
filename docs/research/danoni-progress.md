@@ -79,10 +79,12 @@ Post-rebase receipts are kept separately under
 `~/Music/DanOni/reviews/rebase-20261013/`; they do not rewrite the accepted
 export generation or its original capture provenance.
 
-The latest full Chrome import/banner/autoplay receipts are from 2026-10-12,
-before this rebase. Main has since added substantial noteskin/Lua/rendering work.
-A successful parser check does not establish playback/appearance in that newer
-browser build; fresh runtime checks belong in the next integration milestone.
+The [post-rebase runtime checks](danoni-runtime.md) now cover the accepted ZIPs
+in a fresh release build: all five supported modes on WebGPU/WebGL2, Dito dance
+initialization controls, submitted-arrow velocity at x1/x2/x3 and strict-policy
+preview checks with the Ogg fallback. DanOni's non-dance symbols correctly use
+the procedural renderer. These are selected playback smoke checks; the parser
+verification remains the all-chart check. Safari remains manual after publication.
 
 Reconstructed musical BPM/phase is an estimate rather than original metadata.
 Numerical catalogue levels and original filled stars can use different scales;
@@ -94,7 +96,8 @@ rather than guessed repairs.
 
 ## Recommended sequence
 
-1. **Revalidate the current pack in the updated game.** Build a fresh static
+1. **Revalidate the current pack in the updated game — completed 2026-10-13.**
+   See the [runtime handover](danoni-runtime.md) and reusable runner. Build a fresh static
    bundle, import both accepted ZIPs into a fresh browser profile, cover all five
    supported modes with the new default skin, and probe x1/x2/x3 native-scroll
    compensation. Verify previews under the user-gesture policy. This checks the

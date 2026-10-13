@@ -19,6 +19,11 @@ Saved verified CW dumps can also use the [offline normalization and SSC
 preparer](../../docs/research/danoni-default-tempo.md) for banners, pickup previews
 and default musical BPM fitting. Original captures remain unchanged.
 
+A separate [game verification runner](../../docs/research/danoni-runtime.md)
+checks reviewed local ZIPs in a freshly built game: supported layouts, both Chrome
+rendering backends, native scroll/player multipliers and gesture-gated previews.
+Corpus specs, screenshots and receipts remain outside Git.
+
 ## Requirements
 
 - Node.js 22 or later.
