@@ -419,7 +419,7 @@ CREDITS.md                generated; checked in; CI fails if stale
 
 **Generated credits.** `xtask gen-credits` reads `REUSE.toml` and every `PROVENANCE.toml` and writes `CREDITS.md` plus a JSON fragment compiled into the app. The app shows a Credits screen (title, creator, source URL, licence with link, chart authors, modifications) and links it from the song-select footer, satisfying CC-BY §3(a) in the published game, not only in the repo. `xtask gen-credits --check` runs in CI like the landing page's build check.
 
-**CI.** A `reuse lint` job (installed with `pipx`/`uv tool run reuse`) and the credits check gate every push. Rust sources carry SPDX headers only if `reuse lint` requires them for the chosen layout; the `**` annotation covers them otherwise.
+**CI.** A `reuse lint` job (`fsfe/reuse-action` in CI; locally `just reuse-lint`, which runs it through `uvx` with its encoding extra) and the credits check gate every push. Rust sources carry SPDX headers only if `reuse lint` requires them for the chosen layout; the `**` annotation covers them otherwise.
 
 **Modifications.** Ship upstream bytes unmodified when the browser can decode them. Serenity audio is Opus-in-Ogg; Chrome, Firefox and Edge decode it, Safari only from 18.4 and unreliably. If Safari testing fails, add a transcoded copy (CC-BY permits it) and record the exact command in `PROVENANCE.toml` and the credits line, rather than replacing the original. Dropping large `.mp4` BGAs is an exclusion, not a modification, and is noted the same way.
 

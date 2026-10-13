@@ -23,6 +23,8 @@ pub enum TextureKey {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Textures {
     keys: Vec<TextureKey>,
+    /// Per key: a model draws it, so it gets mipmaps.
+    mipmaps: Vec<bool>,
 }
 
 impl Textures {
@@ -31,13 +33,27 @@ impl Textures {
             Some(i) => i as u32,
             None => {
                 self.keys.push(key);
+                self.mipmaps.push(false);
                 self.keys.len() as u32 - 1
             }
         }
     }
 
+    /// [`Textures::id`] for a model's texture: StepMania makes mipmaps for
+    /// those (`AnimatedTexture::Load`, `bMipMaps`), not for sprites'.
+    pub fn model_id(&mut self, key: TextureKey) -> u32 {
+        let id = self.id(key);
+        self.mipmaps[id as usize] = true;
+        id
+    }
+
     pub fn keys(&self) -> &[TextureKey] {
         &self.keys
+    }
+
+    /// Whether texture `id` gets mipmaps.
+    pub fn mipmaps(&self, id: usize) -> bool {
+        self.mipmaps.get(id).copied().unwrap_or(false)
     }
 }
 
@@ -371,7 +387,7 @@ pub(crate) fn model_actor(
         images
             .size(f.dir, &f.path)
             .ok_or_else(|| format!("{} could not be read", f.path))?;
-        Ok(textures.id(TextureKey::Skin {
+        Ok(textures.model_id(TextureKey::Skin {
             dir: f.dir,
             path: f.path.clone(),
         }))

@@ -65,6 +65,8 @@ pub struct TextPipeline {
     atlas: TextAtlas,
     viewport: Viewport,
     renderer: TextRenderer,
+    /// Glyphon's pipelines, for another target format.
+    glyphon_cache: Cache,
     cache: HashMap<TextKey, CachedBuffer>,
     frame: u64,
 }
@@ -96,9 +98,27 @@ impl TextPipeline {
             atlas,
             viewport,
             renderer,
+            glyphon_cache: cache,
             cache: HashMap::new(),
             frame: 0,
         }
+    }
+
+    /// Draws to `format` from now on: a new glyph atlas (glyphon's is made
+    /// for one format), filled again as text is drawn.
+    pub fn retarget(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+    ) {
+        self.atlas = TextAtlas::new(device, queue, &self.glyphon_cache, format);
+        self.renderer = TextRenderer::new(
+            &mut self.atlas,
+            device,
+            wgpu::MultisampleState::default(),
+            None,
+        );
     }
 
     /// Shape and upload `items` for a target of `width × height` pixels.

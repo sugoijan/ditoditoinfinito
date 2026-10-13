@@ -672,6 +672,11 @@ impl NoteskinPlay {
         self.textures.keys()
     }
 
+    /// Whether texture `index` gets mipmaps (a model's).
+    pub fn texture_mipmaps(&self, index: usize) -> bool {
+        self.textures.mipmaps(index)
+    }
+
     /// Tells which renderer texture stands for texture `index`.
     pub fn set_texture(&mut self, index: usize, id: u32) {
         if let Some(slot) = self.texture_ids.get_mut(index) {
@@ -1819,6 +1824,8 @@ mod tests {
         // A skin that does not read it loads its notes once.
         let plain = lua_play("return Def.ActorFrame { Def.Sprite { Texture = 'x.png' } }\n");
         assert!(plain.lanes[0].colors.is_empty());
+        // Sprites' textures have no mipmaps.
+        assert!((0..plain.texture_keys().len()).all(|i| !plain.texture_mipmaps(i)));
     }
 
     /// A 64-pixel square facing the viewer (MilkShape's y up, counter-
@@ -1866,6 +1873,9 @@ mod tests {
         let draw = |turn: &str| {
             let mut play = lua_play_with(&tap(turn), &[("square.txt", SQUARE_MODEL)]);
             assert!(play.notes.is_empty(), "{:?}", play.notes);
+            // x.png is the model's (mipmapped, as StepMania's model textures
+            // are) and the receptor's and explosion's sprites'.
+            assert!(play.texture_mipmaps(0) || play.texture_mipmaps(1));
             for i in 0..play.texture_keys().len() {
                 play.set_texture(i, 7);
             }
