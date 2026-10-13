@@ -2,7 +2,7 @@
 //! `docs/plans/bundled-skins.md`) load through their Lua with every
 //! element the engine asks for, for all six dance buttons, without a
 //! warning, and their taps and receptors are their own (all of Dito's,
-//! Alpha-Arrows' and Dake's elements are).
+//! Alpha-Arrows', Dake's and Peter Lawrence's CF skins' elements are).
 
 use std::path::Path;
 
@@ -90,8 +90,11 @@ fn bundled_skins_build_every_element_through_their_lua() {
                 let el = lua
                     .element(b, e, &mut textures, &AnySize)
                     .unwrap_or_else(|err| panic!("{} {b:?} {e}: {err}", f.name));
-                // Dito, Alpha-Arrows and Dake draw everything themselves.
-                if f.name.starts_with("Dito") || ["Alpha-Arrows", "Dake"].contains(&f.name.as_str())
+                // Dito, Alpha-Arrows, Dake and the CF skins draw everything
+                // themselves.
+                if f.name.starts_with("Dito")
+                    || f.name.starts_with("CF_")
+                    || ["Alpha-Arrows", "Dake"].contains(&f.name.as_str())
                 {
                     assert!(
                         !matches!(el.built, Built::BuiltIn) && el.notes.is_empty(),
