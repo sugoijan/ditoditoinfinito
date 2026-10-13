@@ -43,10 +43,52 @@ framing, or StepMania's perspective on a model near the top of its
 screen); shifted to match, the mean difference over the arrow is 13 to 22
 of 255, much of it the GIFs' 256-colour dithering.
 
+## Step 3. Holds, mines and explosions: the demo
+
+`demo=1`: a short chart scrolling into the receptors (`engine/src/demo.rs`):
+taps of several note types in every lane, a hold, a roll and a mine,
+played by the engine's own `Player` with the autoplayer's presses and a
+step on each mine, so the frames and the skin's events (presses, steps,
+explosions, a mine going off, holds kept) are a play's; it loops,
+numbering events on so a skin's actors carry over. It runs on any
+built-in layout (`layout`): the four-lane phrase on dance-single, a
+generated one on the others (dance-double, solo, Dancing☆Onigiri's key
+modes). `rows` and `speed` size it. The preview now draws the field
+through the play's own scene path (`render/src/scene.rs`, stopping
+before the HUD), so what a skin leaves to the built-in arrows shows, and
+`skin=builtin` previews the built-in arrows themselves, in the
+`ColorScheme` given.
+
+**Done 2026-10-13**: the demo plays all top tier with holds kept and mines
+hit on every built-in layout (native tests); checked in headless Chrome
+(WebGPU, WebGL2) with CF_CHROME, Delta, Dito and Peter Lawrence's old-
+format skins.
+
+## Step 4. Previews in Options
+
+`PreviewCanvas` (`app/src/components/skin_preview.rs`) is the page's canvas
+as a component: it keeps its device and renderer and loads another skin
+when its options change (an older load gives way to a newer one). Under
+the Arrows choice, Options shows the arrows a play would draw (the chosen
+skin, or Dito in the note colours, or the built-in arrows) playing the
+demo, with a layout to preview it on: a skin draws the dance layouts, the
+built-in arrows the rest (the onigiri, giko and iyo lanes of
+Dancing☆Onigiri's key modes; no skin draws those yet).
+
+A hidden page counts as paused, and a jump in time (more than a quarter
+second) catches the demo up without its events, which a skin's Lua would
+otherwise take in one frame and stop on. The canvas is sized for the
+screen's pixel density, labelled for screen readers, and still (the
+arrows on their receptors) when the system asks for reduced motion.
+
+**Done 2026-10-13**: checked in headless Chrome (WebGPU) and Firefox
+(WebGL2), with leaving and re-entering Options while it loads.
+
 ## Later
 
-- Previews in the skin chooser (Options): a row of arrows per skin,
-  animated, drawn by this page's path into a small canvas.
-- Holds, mines, lifts and explosions in the preview.
+- A preview per skin in the list rather than of the one chosen (one
+  canvas each costs a GPU device; a shared offscreen renderer could draw
+  them all).
+- Lifts and fakes in the demo.
 - A native renderer for the same frames (wgpu off screen), so reference
   checks can run in `cargo test` on local renders.

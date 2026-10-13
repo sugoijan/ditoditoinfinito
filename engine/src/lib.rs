@@ -15,6 +15,7 @@
 //! - [`appearance`]: Hidden / Sudden / Stealth visibility.
 //! - [`transform`]: Turn and Cut chart transforms.
 //! - [`autoplay`]: the autoplayer's press script.
+//! - [`demo`]: a looping autoplayed chart for skin previews.
 //! - [`frame`]: the render snapshot.
 //! - [`player`]: the orchestrator.
 //!
@@ -25,6 +26,7 @@ pub mod autoplay;
 pub mod bindings;
 pub mod calibration;
 pub mod clock;
+pub mod demo;
 pub mod frame;
 pub mod input;
 pub mod judge;

@@ -222,8 +222,9 @@ pub struct RenderOptions {
     /// Darkening behind the lanes, `0..=1` of perceived brightness removed
     /// (0 = none).
     pub field_filter: f32,
-    /// Draw only a noteskin's elements, as placed by this geometry, over
-    /// the clear colour (a skin's preview).
+    /// Draw only the field (receptors, holds, notes, explosions: a
+    /// noteskin's, or the built-in arrows where it has none), as placed by
+    /// this geometry, over the clear colour (a skin's preview).
     pub preview: Option<Preview>,
 }
 
@@ -233,36 +234,6 @@ pub struct Preview {
     pub geometry: FieldGeometry,
     /// The receptors too, not only the notes.
     pub receptors: bool,
-}
-
-/// A skin's elements alone: its receptors (with `receptors`), holds, notes
-/// and explosions, in a play's order.
-fn skin_only(
-    frame: &Frame,
-    layout: &Layout,
-    geo: &FieldGeometry,
-    layer: Option<&mut dyn NoteLayer>,
-    receptors: bool,
-) -> SceneOutput {
-    let mut quads = Vec::new();
-    if let Some(l) = layer {
-        // The receptors' call starts the layer's frame.
-        l.receptors(frame, layout, geo, &mut quads);
-        if !receptors {
-            quads.clear();
-        }
-        l.holds(frame, layout, geo, &mut quads);
-        l.notes(frame, layout, geo, &mut quads);
-        l.explosions(frame, layout, geo, &mut quads);
-    }
-    let mut order = Order::default();
-    order.quads(quads.len());
-    SceneOutput {
-        instances: Vec::new(),
-        text: Vec::new(),
-        quads,
-        order: order.segments,
-    }
 }
 
 /// A note's colour under Hidden/Sudden: hidden notes show only their white
@@ -367,9 +338,8 @@ pub fn build(
     srgb_target: bool,
     mut layer: Option<&mut dyn NoteLayer>,
 ) -> SceneOutput {
-    if let Some(p) = opts.preview {
-        return skin_only(frame, layout, geo, layer, p.receptors);
-    }
+    // A preview without receptors.
+    let no_receptors = opts.preview.is_some_and(|p| !p.receptors);
     let mut instances = Vec::with_capacity(frame.notes.len() * 2 + 32);
     let mut text = Vec::with_capacity(8);
     let mut quads = Vec::new();
@@ -398,11 +368,15 @@ pub fn build(
     // Receptors: the noteskin's, then the built-in ones.
     order.sprites(instances.len());
     if let Some(l) = layer.as_mut() {
+        // The call starts the layer's frame, drawn or not.
         l.receptors(frame, layout, geo, &mut quads);
+        if no_receptors {
+            quads.clear();
+        }
     }
     order.quads(quads.len());
     for (i, lane) in layout.lanes.iter().enumerate() {
-        if drawn(&layer, i, LayerPart::Receptor) {
+        if drawn(&layer, i, LayerPart::Receptor) || no_receptors {
             continue;
         }
         let state = frame.receptors.get(i);
@@ -500,6 +474,15 @@ pub fn build(
         l.explosions(frame, layout, geo, &mut quads);
     }
     order.quads(quads.len());
+    if opts.preview.is_some() {
+        order.sprites(instances.len());
+        return SceneOutput {
+            instances,
+            text,
+            quads,
+            order: order.segments,
+        };
+    }
 
     // HUD: life bar.
     let bar_w = (geo.width * 0.3).min(a * 6.0);
@@ -834,6 +817,45 @@ mod tests {
             None,
         )
         .instances
+    }
+
+    #[test]
+    fn a_preview_draws_the_field_and_no_hud() {
+        let a = Appearance::Visible;
+        let f = frame(vec![note(1.0, SpriteKind::Tap, a)], a);
+        let layout = Layout::dance_single();
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
+        let out = |preview: Option<Preview>| {
+            let opts = RenderOptions {
+                preview,
+                ..RenderOptions::default()
+            };
+            build(
+                &f,
+                &layout,
+                &presets::itg().names,
+                &Skin::default(),
+                &geo,
+                opts,
+                false,
+                None,
+            )
+        };
+        let play = out(None);
+        let with = out(Some(Preview {
+            geometry: geo,
+            receptors: true,
+        }));
+        let without = out(Some(Preview {
+            geometry: geo,
+            receptors: false,
+        }));
+        // The play adds the HUD (here the life bar).
+        assert!(with.text.is_empty() && without.text.is_empty());
+        assert_eq!(play.instances.len(), with.instances.len() + 2);
+        // Four receptors, then the note alone.
+        assert_eq!(with.instances.len(), 5);
+        assert_eq!(without.instances.len(), 1);
     }
 
     fn count(instances: &[Instance], shape: Shape) -> usize {
