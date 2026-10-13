@@ -360,3 +360,20 @@ Accepted packs are unchanged; neither is silently repaired or omitted.
 Milestone 4 is in progress for SWF inventory/demux, combined normalized artifacts,
 pinned Higan/Kouhaku contracts and restricted worker supervision. The passive
 slice proves no fresh work execution, decoded SWF audio or URL acquisition.
+
+
+### Passive SWF audio slice, 2026-10-13
+
+The [SWF handover](danoni-rust-extraction.md#swf-audio-inventory-and-demux-2026-10-13)
+documents bounded FWS/CWS traversal, stream inventory, runtime slice selection,
+whole-frame MP3 output and source-bound `demux-native` jobs. All 85 existing
+selected streams match bytes and every timing field, including five Kouhaku
+songs and Higan. Sixty-three structural audio jobs pass the complete audit;
+16 audio captures need their separately proven decoration contracts joined.
+No diagnostics are erased and accepted packs remain unchanged.
+
+Milestone 4 now has passive graph/family and SWF demux implementations. Next
+combine those bound inputs with decoder-origin/media production into normalized
+artifacts, including cross-run decoration proof, then port pinned Higan/Kouhaku
+chart contracts and restricted worker supervision. The two recorded chart/motion
+proof gaps remain open. URL acquisition is still milestone 5.

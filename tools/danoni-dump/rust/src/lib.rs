@@ -8,6 +8,7 @@ pub mod assets;
 pub mod audio;
 pub mod extraction;
 pub mod model;
+mod mpeg;
 #[cfg(feature = "native")]
 pub mod native;
 pub mod package;
@@ -15,6 +16,7 @@ pub mod policy;
 pub mod preview;
 pub mod reviews;
 pub mod ssc;
+pub mod swf;
 pub mod tempo;
 pub mod timing;
 #[cfg(feature = "native")]

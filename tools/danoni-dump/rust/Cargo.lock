@@ -199,6 +199,7 @@ dependencies = [
  "ddi-chart",
  "ddi-engine",
  "encoding_rs",
+ "flate2",
  "html5ever",
  "image",
  "resvg",

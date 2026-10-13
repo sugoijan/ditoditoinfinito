@@ -192,6 +192,20 @@ target/danoni-rust/debug/ddi-danoni-export project-native /tmp/projection-job.js
 
 The [extraction handover](../../../docs/research/danoni-rust-extraction.md) specifies
 movie/run/config bindings, seven structural families, movement and clock APIs,
-units and two historical proof gaps. This stage does not execute work code,
-demux SWF music or prepare a newly normalized song. Runtime supervision and
+units and two historical proof gaps. This stage does not execute work code
+or prepare a newly normalized song. Runtime supervision and
 acquisition remain pending; the pinned Higan/Kouhaku paths are separate.
+
+
+Saved SWF music is now inventoried/demuxed in Rust as unchanged MP3 frames:
+
+```sh
+target/danoni-rust/debug/ddi-danoni-export demux-native /tmp/demux-job.json /tmp/demux-new
+```
+
+The [SWF contract](../../../docs/research/danoni-rust-extraction.md#swf-audio-inventory-and-demux-2026-10-13)
+explains FWS/CWS bounds, runtime slice offsets, stream timing metadata and
+source-bound saved-run jobs. All 85 selected corpus streams match existing bytes
+and metadata. Sixteen audio runs still require their separate proven decoration
+review joined by the forthcoming combined job. The command writes `stream.mp3`
+and a final manifest, with no decoding, work execution or network access.

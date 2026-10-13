@@ -25,46 +25,12 @@ pub fn prepare_projection(
 ) -> Result<Value> {
     checkpoint()?;
     let mut inputs = Inputs::new(source);
-    let snapshot = inputs.checked(&request.capture.snapshot, CAPTURE_LIMIT)?;
-    let capture: Value = assets::json(&snapshot)?;
-    let run: Value = assets::json(&inputs.checked(&request.capture.run, JSON_LIMIT)?)?;
-    let config: Value = assets::json(&inputs.checked(&request.capture.config, JSON_LIMIT)?)?;
-    inputs.checked(&request.movie, crate::assets::MEDIA_LIMIT)?;
-    if capture["schema"] != "ddi-ruffle-probe/experimental-1"
-        || run["schema"] != "ddi-ruffle-run/experimental-1"
-        || run["exitCode"] != 0
-        || run.get("termination") != Some(&Value::Null)
-        || run["inputsUnchanged"] != true
-        || run["configSha256"] != request.capture.config.sha256
-        || config != capture["source"]["config"]
-        || capture["source"]["movieSha256"] != request.movie.sha256
-        || capture["ruffleRevision"] != "89a7049965f3090e706265670df309a5128233ac"
-    {
-        return Err(invalid(
-            "Saved capture/run/config provenance differs or execution failed",
-        ));
-    }
-    let (capture, retained) = if let Some(evidence) = &request.optional_color {
-        let review: Value = assets::json(&inputs.checked(&evidence.review, JSON_LIMIT)?)?;
-        let rows = array(&review["missingResources"])?;
-        if rows.len() != evidence.missing_responses.len() {
-            return Err(invalid("Optional color response coverage differs"));
-        }
-        for row in rows {
-            let matching = evidence
-                .missing_responses
-                .iter()
-                .filter(|b| row["path"] == b.path && row["sha256"] == b.sha256)
-                .collect::<Vec<_>>();
-            if matching.len() != 1 {
-                return Err(invalid("Optional color response is not bound"));
-            }
-            inputs.checked(matching[0], crate::assets::EVIDENCE_LIMIT)?;
-        }
-        review_optional_colors(&capture, &review)?
-    } else {
-        (capture, vec![])
-    };
+    let (capture, retained) = checked_capture(
+        &request.capture,
+        &request.movie,
+        request.optional_color.as_ref(),
+        &mut inputs,
+    )?;
     let projection = project_capture(&capture, &request.options, checkpoint)?;
     Ok(
         json!({"schema":"ddi-danoni-native-projection/1","producer":"native-family-projections/1","request":request,"preparedIteration":projection.prepared_iteration,"projection":projection.chart,"sourceInputs":inputs.used,"reviewedOptionalColorDiagnostics":retained,"scope":"Passive saved-state projection with successful run/config bindings; motion, audio demux/origin and worker supervision remain separate proofs"}),
@@ -141,4 +107,54 @@ pub fn review_optional_colors(capture: &Value, review: &Value) -> Result<(Value,
     );
     clean["audit"]["runtimeErrors"] = json!(0);
     Ok((clean, retained))
+}
+
+/// Common successful run/config/movie verification for passive consumers.
+pub(crate) fn checked_capture(
+    bindings: &CaptureBindings,
+    movie: &Binding,
+    optional_color: Option<&OptionalColorEvidence>,
+    inputs: &mut Inputs<'_, impl AssetSource>,
+) -> Result<(Value, Vec<Value>)> {
+    let snapshot = inputs.checked(&bindings.snapshot, CAPTURE_LIMIT)?;
+    let capture: Value = assets::json(&snapshot)?;
+    let run: Value = assets::json(&inputs.checked(&bindings.run, JSON_LIMIT)?)?;
+    let config: Value = assets::json(&inputs.checked(&bindings.config, JSON_LIMIT)?)?;
+    inputs.checked(movie, crate::assets::MEDIA_LIMIT)?;
+    if capture["schema"] != "ddi-ruffle-probe/experimental-1"
+        || run["schema"] != "ddi-ruffle-run/experimental-1"
+        || run["exitCode"] != 0
+        || run.get("termination") != Some(&Value::Null)
+        || run["inputsUnchanged"] != true
+        || run["configSha256"] != bindings.config.sha256
+        || config != capture["source"]["config"]
+        || capture["source"]["movieSha256"] != movie.sha256
+        || capture["ruffleRevision"] != "89a7049965f3090e706265670df309a5128233ac"
+    {
+        return Err(invalid(
+            "Saved capture/run/config provenance differs or execution failed",
+        ));
+    }
+    let result = if let Some(evidence) = optional_color {
+        let review: Value = assets::json(&inputs.checked(&evidence.review, JSON_LIMIT)?)?;
+        let rows = array(&review["missingResources"])?;
+        if rows.len() != evidence.missing_responses.len() {
+            return Err(invalid("Optional color response coverage differs"));
+        }
+        for row in rows {
+            let matching = evidence
+                .missing_responses
+                .iter()
+                .filter(|b| row["path"] == b.path && row["sha256"] == b.sha256)
+                .collect::<Vec<_>>();
+            if matching.len() != 1 {
+                return Err(invalid("Optional color response is not bound"));
+            }
+            inputs.checked(matching[0], crate::assets::EVIDENCE_LIMIT)?;
+        }
+        review_optional_colors(&capture, &review)?
+    } else {
+        (capture, vec![])
+    };
+    Ok(result)
 }

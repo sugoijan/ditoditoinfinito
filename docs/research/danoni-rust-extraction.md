@@ -6,8 +6,9 @@ The standalone `ddi-danoni-export` library now decodes stored AVM1 graphs,
 projects all seven existing structural families, measures saved arrow motion,
 reads captured stream-start counters and checks cross-run clock agreement.
 The production API/CLI has no Python, Node, browser or Ruffle dependency.
-It **does not execute a movie**, demux SWF audio or produce a complete newly
-normalized work. Those are the next extraction stages. All third-party data
+The subsequent SWF slice below inventories and demuxes saved movie bytes.
+It **does not execute a movie** or produce a complete newly normalized work.
+Those remain the next extraction stages. All third-party data
 and parity results remain local; accepted exports are unchanged.
 
 ## API and provenance boundary
@@ -258,11 +259,171 @@ for a read-only run. Absent registry reports a skip.
 
 ## Next extraction slices
 
-Port SWF stream inventory/demux and slice selection, then combine the hash-bound
-projection/motion/audio captures with the Rust decoder-origin and media stages
+Combine the hash-bound projection/motion/audio captures and the SWF demux below with the Rust decoder-origin and media stages
 into normalized artifacts. Keep exact source frames, provenance, event losses and
 independent shared-music origins. Port the separately pinned Higan/Kouhaku
 contracts and resolve the two recorded proof gaps before claiming reproduction
 of every accepted native chart. Then port/package the restricted worker supervisor,
 resource-request loop, limits and cancellation. URL discovery/acquisition remains
 milestone 5; desktop library installation remains a host transaction.
+
+
+## SWF audio inventory and demux, 2026-10-13
+
+`swf::Movie::read(bytes,checkpoint)` accepts FWS or zlib-compressed CWS, verifies
+original/decompressed lengths, reads RECT/FPS/frame count and walks nested
+DefineSprite timelines. It does not interpret ActionScript. Input is at most
+16 MiB, declared output at most 64 MiB, sprite depth at most 32, tags at most
+200,000 and stream heads at most 4,096. ZWS, malformed/trailing compression,
+truncated tags and missing End reject. The pure Rust `flate2` 1.1.10 zlib-rs
+backend is already present through ZIP support; it is now a direct dependency.
+Cancellation runs between decompression buffers, tags, MP3 frames and blocks.
+
+`movie.inventory(checkpoint)` returns all stream heads and their MP3 block
+inventories. Non-MP3 heads remain visible but their payloads are not extracted.
+`movie.demux(route,optionalWholeFileInterval,checkpoint)` selects exactly one
+head on an explicit timeline route, such as `root/sprite229`. Lower-level
+selection does not certify a runtime capture or identify a song automatically.
+`movie.observed_stream(&ObservedStart,checkpoint)` accepts:
+
+```text
+ObservedStart (unknown fields reject):
+  sliceStart: unsigned byte offset in Ruffle tag data
+  sliceEnd: unsigned exclusive byte offset in Ruffle tag data
+  sampleRate: unsigned samples per second
+  stereo: boolean
+  latencySeek: signed 16-bit sample-frame count
+```
+
+Both offsets exclude the SWF header/RECT/FPS/frame-count bytes. The reader adds
+`movie.header.tagStart` to obtain whole decompressed-file offsets, requires the
+selected timeline's exact End, a unique head matching rate/channel/latency, and
+continuous payload under the pinned Ruffle buffering model. Other sprites and
+menu blocks are excluded. Empty blocks remain part of timing evidence. No
+heuristic longest-stream selection or header correction is applied.
+
+MP3 payloads must consist of whole MPEG Layer III frames inside each block;
+ID3, a frame crossing a block boundary, inconsistent sample count or rate/channels
+reject. Headers share the Rust audio decoder's frame parser, while SWF counting
+retains *physical* frames, including metadata frames. The decoder inventory
+separately accounts for Xing/Info/VBRI duration metadata. Demux concatenates
+unchanged encoded bytes; it does not decode, trim, normalize or transcode them.
+The [Adobe SWF19 specification](https://open-flash.github.io/mirrors/swf-spec-19.pdf),
+printed pp. 182–186, defines MP3 latency/seek fields and continuous streaming;
+the implementation ports this repository's MIT
+[static demux reference](../../tools/danoni-dump/ruffle/swf_audio.py) and
+[observed-slice selector](../../tools/danoni-dump/ruffle/extract_native.py).
+The version was checked against [flate2's release documentation](https://docs.rs/flate2/1.1.10/flate2/).
+
+The output stream object keeps `ddi-swf-audio/experimental-1` semantics:
+
+```text
+schema, path, headTagOffset, headMovieFrame, compression
+sampleRate, channels, samplesPerMovieFrame, latencySeek
+movie: {fps,frames,tagStart,swfVersion,sha256}
+blocks: [{movieFrame,tagOffset,sampleCount,seekSamples,mp3Frames,
+          mp3Offset,mp3Bytes,sha256,sourceSampleOffset,seekResidualSamples,
+          sourceMp3Offset?}]
+mp3Sha256, mp3Bytes, declaredSampleFrames, firstBlockMovieFrame
+continuousZeroLatencyEligible, ruffleContinuousPayloadEligible
+firstRufflePayloadGapMovieFrame: integer | null
+selection?: {sliceStart,sliceEnd,excludedBlocks,scope}
+nativeSlice?: {tagDataOffsetBase,sliceStart,sliceEnd}
+transformation: description of unchanged MP3 frame concatenation
+```
+
+Movie frames are one-based timeline frames; sample counts and seeks are **sample
+frames**, independent of channel count. Byte offsets refer to the decompressed
+whole file except `nativeSlice.sliceStart/End`. `mp3Offset` addresses the selected
+output; `sourceMp3Offset` retains the unsliced stream offset. `sourceSampleOffset`
+is the cumulative count before that block. `seekResidualSamples` equals cumulative
+samples plus signed seek, minus `(movieFrame-firstBlockMovieFrame)*rate/fps`, minus
+latency. Zero-latency eligibility additionally requires contiguous block frames,
+zero latency and first seek, and zero residual on nonempty payloads. Ruffle
+payload continuity is a separate buffered-samples calculation, ignoring absent
+frames after the last payload. Neither flag measures decoded musical alignment.
+
+The Rust reader additionally rejects missing MP3 latency headers, duplicate
+sprite routes, multiple blocks on one timeline frame, and nonempty End/ShowFrame
+tags. It uses the actual End-tag end offset instead of assuming a short header.
+All current corpus inputs satisfy these stricter checks. Unknown tags are skipped
+as bounded opaque payloads; event sounds (DefineSound/StartSound), external audio,
+non-MP3 compression and ZWS need later explicit adapters.
+
+### Source-bound job and artifact
+
+`swf::prepare_demux(&DemuxRequest,&AssetSource,checkpoint)` verifies saved
+movie/snapshot/parent/config bindings with the same pinned revision and successful
+run checks as projection. `DemuxRequest` has `movie: Binding`, `capture:
+CaptureBindings`, `streamStartIndex: usize` and `optionalColor: OptionalColorEvidence
+| null`. Unknown fields reject. It reads the selected MP3 start from the original
+capture, matches actual movie FPS and the head's samples-per-movie-frame budget,
+and requires a complete nonhalted audit with
+no unreviewed errors. The existing exact missing-color HTTP-404 exception remains
+explicitly bound and its original diagnostics are retained. No decoration error
+is automatically waived by this audio-only job.
+
+`PreparedDemux {bytes,manifest}` is available without filesystem features.
+The manifest schema is `ddi-danoni-native-demux/1`, producer
+`native-swf-mp3-demux/1`, with original `request`, `sourceInputs`, `streamStart`,
+`stream` above, `reviewedOptionalColorDiagnostics`, and
+`audio:{path:"stream.mp3",sha256}`. Its `scope` explicitly excludes decoded origin,
+complete chart contracts and fresh execution. Resource cache/build identities
+still belong to the forthcoming combined job/supervisor.
+
+The native CLI reads an external fresh-output job:
+
+```text
+{schema:"ddi-danoni-native-demux-job/1",roots:{namespace:directory,...},
+ request:DemuxRequest}
+```
+
+```sh
+target/danoni-rust/debug/ddi-danoni-export demux-native /tmp/demux-job.json /tmp/demux-new
+```
+
+It writes `stream.mp3` and finally `manifest.json`; existing outputs are never
+overwritten. Canceled/failed owned outputs are removed. The artifact can supply
+the existing Rust decoder/resampler/origin stage once the combined producer binds
+native PCM and logical chart origin. This CLI is not a URL-to-song importer.
+
+### Local acceptance and audit follow-up
+
+`~/Music/DanOni/reviews/rust-swf-20261013/corpus-verified/` contains the final
+local gate. All **85 streams** match every MP3 byte, block/hash/count, source and
+selected offset, latency/seek residual, movie header and eligibility flag against
+the MIT Python reference: 79 structural streams, Higan and all five Kouhaku songs.
+Kouhaku/Higan use explicitly selected static routes here; their pinned chart
+contracts and fresh execution are still unported.
+
+Of the 79 structural streams, **63** pass the complete source-bound saved-audio
+job. **16** return `native-audio-audit-unproved` with the precise message
+`Unreviewed native runtime errors`: FAKE800 and 15 gen4 ParaFla works record
+`Tried to instantiate a non-registered character undefined`. Their existing
+scheduled-family chart projections prove the decoration exception using earlier
+converter/receptor snapshots; the audio captures alone do not contain those
+snapshots. The differential gate records these rejections and checks their static
+observed-slice demux separately. This is not a new chart/audio mismatch or a
+reason to change accepted exports. The combined job must bind both runs, verify
+selected settings/clock and the exact diagnostic relationship, and retain the
+original audio audit before applying the established decoration review.
+
+Four original synthetic tests cover compressed/uncompressed lengths, empty long
+blocks, signed timing/seek differences, nested and partial slices, gaps, MPEG
+truncation/counts, ambiguous heads, provenance/failed runs, FPS/channel mismatches,
+audit failures and cancellation. The 79-stream decoder-origin gate also reruns
+against preserved PCM after sharing the MPEG header parser.
+
+```sh
+DDI_DANONI_SWF_CASES="$HOME/Music/DanOni/reviews/rust-swf-20261013/cases.json" \
+DDI_DANONI_SWF_OUTPUT=/tmp/danoni-swf-new \
+cargo test --locked --manifest-path tools/danoni-dump/rust/Cargo.toml \
+  --target-dir target/danoni-rust --test swf_corpus -- --nocapture
+```
+
+`cases.json` is local-only `ddi-danoni-swf-parity-cases/1` with a corpus root,
+`expectedCases` and hash-bound movie/MP3/report bindings. Each row supplies either
+a complete `request`, or an explicit static `route`. A known rejected request
+additionally supplies the exact expected code/message and `ObservedStart` for the
+separate static comparison. Output is optional and must be fresh. No acquired
+movie, music, per-work job, oracle or result is committed.

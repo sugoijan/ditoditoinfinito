@@ -314,9 +314,12 @@ mod native_tests {
         }
     }
     fn temp() -> Temp {
+        // Wall-clock resolution alone can collide between parallel tests.
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let p = std::env::temp_dir().join(format!(
-            "ddi-danoni-rust-{}-{}",
+            "ddi-danoni-rust-{}-{}-{}",
             std::process::id(),
+            SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

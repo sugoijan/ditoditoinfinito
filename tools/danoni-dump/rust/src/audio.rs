@@ -131,43 +131,14 @@ fn mp3_inventory(bytes: &[u8], checkpoint: &mut impl FnMut() -> Result<()>) -> R
         if frames.is_multiple_of(256) {
             checkpoint()?;
         }
-        if end - at < 4 {
-            return Err(invalid("Truncated MP3 header"));
-        }
-        let h = u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap());
-        let version = (h >> 19) & 3;
-        let layer = (h >> 17) & 3;
-        let bitrate = (h >> 12) & 15;
-        let index = (h >> 10) & 3;
-        let pad = (h >> 9) & 1;
-        if h & 0xffe00000 != 0xffe00000
-            || version == 1
-            || layer != 1
-            || bitrate == 0
-            || bitrate == 15
-            || index == 3
-        {
-            return Err(invalid("Unsupported/malformed MPEG Layer III frame"));
-        }
-        let rate = [44100u32, 48000, 32000][index as usize]
-            / match version {
-                3 => 1,
-                2 => 2,
-                _ => 4,
-            };
-        let channels = if h >> 6 & 3 == 3 { 1 } else { 2 };
-        let rates = if version == 3 {
-            [
-                0u32, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320,
-            ]
-        } else {
-            [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
-        };
-        let size = ((if version == 3 { 144000 } else { 72000 }) * rates[bitrate as usize] / rate
-            + pad) as usize;
-        if size < 4 || size > end - at {
-            return Err(invalid("MP3 frame crosses input boundary"));
-        }
+        let frame = crate::mpeg::frame(&bytes[at..end])?;
+        let (h, version, rate, channels, size) = (
+            frame.header,
+            frame.version,
+            frame.rate,
+            frame.channels,
+            frame.bytes,
+        );
         if format.is_some_and(|v| v != (rate, channels)) {
             return Err(invalid("MP3 rate/channels change within stream"));
         }
@@ -193,7 +164,7 @@ fn mp3_inventory(bytes: &[u8], checkpoint: &mut impl FnMut() -> Result<()>) -> R
             }
             tagged = true;
         } else {
-            samples += if version == 3 { 1152 } else { 576 };
+            samples += frame.samples as u64;
         }
         frames += 1;
         if frames > 1_000_000 {

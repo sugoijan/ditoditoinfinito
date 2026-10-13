@@ -114,8 +114,11 @@ A generic pulse-resolution/quarter-support refinement improves accepted-family
 matches to 117 and explicitly preserves unresolved phases or exact-source fallback.
 Accepted exports remain unchanged. The [passive Rust extraction slice](danoni-rust-extraction.md) now projects seven
 native families and saved movement/clock evidence. It records two historical
-proof gaps shared by current Python instead of weakening checks. SWF demux,
-combined artifacts, worker supervision and URL acquisition remain ahead.
+proof gaps shared by current Python instead of weakening checks. The subsequent
+Rust SWF demux slice matches all 85 selected MP3 streams and timing reports.
+Sixty-three saved structural audio jobs pass; 16 need their existing separate
+decoration proof joined. Combined artifacts, worker supervision and URL
+acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

@@ -1,6 +1,7 @@
 //! Passive native capture projections. Work code executes only in the worker.
 mod graph;
 mod job;
+pub(crate) use job::checked_capture;
 mod movie;
 mod observed;
 mod scheduled;
@@ -98,7 +99,7 @@ fn iteration(item: &Value) -> Result<u64> {
         .filter(|v| *v <= 1000000)
         .ok_or_else(|| invalid("Invalid worker iteration"))
 }
-fn audit_ok(capture: &Value, reviewed: &[Value]) -> Result<()> {
+pub(crate) fn audit_ok(capture: &Value, reviewed: &[Value]) -> Result<()> {
     let audit = &capture["audit"];
     if capture["avm1Halted"] != false
         || audit["truncated"] != false
