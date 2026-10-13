@@ -14,10 +14,12 @@ and later independent-counter engines. The [gen0 extension](../../../docs/resear
 ## Build separately from the game
 
 Tested on macOS with Metal, Rust 1.99.0 and Java 26 (`java` must be on PATH for
-Ruffle's playerglobal build). Python 3.10+ runs the preparation and restricted
-launcher. Worker preparation, launching and normalized-corpus rebuild need no Python
-packages. First-time family audio matching uses the existing pinned NumPy/SciPy
-analysis requirements and FFmpeg. Browser comparison additionally uses
+Ruffle's playerglobal build). The current
+[Rust preparer/bundle API](../../../docs/research/danoni-rust-worker.md) and
+[Rust supervisor](../../../docs/research/danoni-rust-supervisor.md) replace the
+Python preparation/launcher. Python 3.10+ remains for historical oracle commands.
+The Rust pipeline needs no Python packages. Historical first-time family audio
+matching uses the pinned NumPy/SciPy analysis requirements and FFmpeg. Browser comparison additionally uses
 the parent tool's `npm ci` dependencies and installed Chrome.
 
 Ruffle is pinned to release **v0.7.1**, revision
@@ -30,16 +32,19 @@ mkdir -p /private/tmp/ddi-ruffle
 git clone --depth 1 --branch v0.7.1 --filter=blob:none --sparse \
   https://github.com/ruffle-rs/ruffle.git /private/tmp/ddi-ruffle/upstream
 git -C /private/tmp/ddi-ruffle/upstream sparse-checkout set core render swf flv wstr video tools/asc
-python3 tools/danoni-dump/ruffle/prepare.py \
-  /private/tmp/ddi-ruffle/upstream /private/tmp/ddi-ruffle/build
-cargo build --manifest-path /private/tmp/ddi-ruffle/build/Cargo.toml --locked
-cargo clippy --manifest-path /private/tmp/ddi-ruffle/build/Cargo.toml --locked --no-deps -- -D warnings
+cargo build --locked --manifest-path tools/danoni-dump/rust/Cargo.toml --target-dir target/danoni-rust
+target/danoni-rust/debug/ddi-danoni-export prepare-worker \
+  /private/tmp/ddi-ruffle/upstream /private/tmp/ddi-ruffle/rust-prepared
+cargo build --manifest-path /private/tmp/ddi-ruffle/rust-prepared/worker/Cargo.toml --locked
+cargo clippy --manifest-path /private/tmp/ddi-ruffle/rust-prepared/worker/Cargo.toml --locked --no-deps -- -D warnings
 ```
 
-`prepare.py` verifies the revision and tracked changes, adds three small hooks
-(inspection module export, stored-property access, halted-VM access), and copies
-our inspection modules and host into the scratch build. It never executes a
-movie. `Cargo.lock` pins host dependencies independently of the game's lockfile.
+The Rust preparer reads pinned Git objects into a new owned source copy and adds
+three small hooks (inspection module export, stored-property access, halted-VM access), and copies
+our inspection modules and host into the scratch build. It leaves the upstream
+checkout untouched and never executes a movie. `prepare.py` remains a historical
+oracle; its fingerprint is retained in the existing capture identity. `Cargo.lock`
+pins host dependencies independently of the game's lockfile.
 The capture embeds `build-identity.json`: upstream revision plus SHA-256 of the
 preparer, manifest template, lockfile and our Rust sources. The parent runner
 records the actual worker binary hash. Upstream source is not vendored here;
@@ -48,16 +53,18 @@ fixture generator are MIT, covered by the repository's `REUSE.toml` annotation.
 
 ## Run and validate the original fixtures
 
-Always use `run.py`, never execute an acquired SWF with the worker directly.
+Use the Rust supervisor for new captures. The commands below are historical
+Python oracle checks; use `run.py` for those. Never execute an acquired SWF with
+the worker directly.
 Outputs and synthetic/generated media must remain outside Git too.
 
 ```sh
 python3 tools/danoni-dump/ruffle/test_native.py \
-  /private/tmp/ddi-ruffle/build/target/debug/ddi-ruffle-probe \
+  /private/tmp/ddi-ruffle/rust-prepared/worker/target/debug/ddi-ruffle-probe \
   --directory /private/tmp/ddi-ruffle/check-1
 python3 tools/danoni-dump/ruffle/fixture.py /private/tmp/ddi-ruffle/integer-input-1 --integer
 python3 tools/danoni-dump/ruffle/run.py \
-  /private/tmp/ddi-ruffle/build/target/debug/ddi-ruffle-probe \
+  /private/tmp/ddi-ruffle/rust-prepared/worker/target/debug/ddi-ruffle-probe \
   /private/tmp/ddi-ruffle/integer-input-1/run.json /private/tmp/ddi-ruffle/integer-run-1
 python3 tools/danoni-dump/ruffle/export_fixture.py \
   /private/tmp/ddi-ruffle/integer-run-1/snapshot.json /private/tmp/ddi-ruffle/integer-export-1
@@ -258,7 +265,7 @@ known; it cannot independently recover an unknown timebase or original project.
 ```sh
 python3 tools/danoni-dump/ruffle/kouhaku.py \
   "$HOME/Music/DanOni/2004kouhaku.swf" /private/tmp/kouhaku-export-new \
-  --worker /private/tmp/ddi-ruffle/build/target/debug/ddi-ruffle-probe
+  --worker /private/tmp/ddi-ruffle/rust-prepared/worker/target/debug/ddi-ruffle-probe
 node tools/danoni-dump/ruffle/cw-roundtrip.mjs \
   "$HOME/Music/DanOni/corpus/jam-with-pancake" \
   /private/tmp/kouhaku-export-new /private/tmp/kouhaku-cw-new tougenkyo

@@ -124,9 +124,11 @@ now add Higan and Kouhaku: seven charts / six songs, full reference parity, zero
 measured decoder corrections, 3,073 real-parser endpoints and 57 authored scroll
 checks. Fresh development captures used the existing restricted Python launcher;
 the [Rust supervisor](danoni-rust-supervisor.md) now captures those seven charts
-under the fixed macOS sandbox and feeds the same normalized pipeline. Worker
-build/package preparation, selector orchestration, three proof gaps and URL
-acquisition remain ahead.
+under the fixed macOS sandbox and feeds the same normalized pipeline. The
+[Rust worker preparer/package API](danoni-rust-worker.md) now assembles pinned
+source copies and verified host bundles without Python, with fresh seven-chart
+state/PCM and downstream parity. Selector orchestration, three proof gaps and
+URL acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

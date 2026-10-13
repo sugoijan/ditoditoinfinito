@@ -21,7 +21,7 @@ use std::{
 const CONFIG_LIMIT: usize = 65536;
 const WORKER_LIMIT: usize = 256 * 1024 * 1024;
 const PROFILE: &[u8] = include_bytes!("../../../ruffle/worker.sb");
-const REVISION: &str = "89a7049965f3090e706265670df309a5128233ac";
+pub(crate) const REVISION: &str = "89a7049965f3090e706265670df309a5128233ac";
 fn invalid(message: impl Into<String>) -> Error {
     Error::new("invalid-native-capture", message)
 }
@@ -98,7 +98,14 @@ pub struct CaptureJob {
 /// Identities of the tracked, reviewed hooks and worker template. The expected
 /// binary hash is supplied by the host's installed package, not by this manifest.
 pub fn expected_build_identity() -> Value {
-    let files = BTreeMap::from([
+    let files = reviewed_sources()
+        .into_iter()
+        .map(|(n, b)| (n, sha256(b)))
+        .collect::<BTreeMap<_, _>>();
+    json!({"release":"v0.7.1","revision":REVISION,"files":files})
+}
+pub(crate) fn reviewed_sources() -> BTreeMap<&'static str, &'static [u8]> {
+    BTreeMap::from([
         (
             "prepare.py",
             include_bytes!("../../../ruffle/prepare.py").as_slice(),
@@ -132,10 +139,6 @@ pub fn expected_build_identity() -> Value {
             include_bytes!("../../../ruffle/src/navigator.rs").as_slice(),
         ),
     ])
-    .into_iter()
-    .map(|(n, b)| (n, sha256(b)))
-    .collect::<BTreeMap<_, _>>();
-    json!({"release":"v0.7.1","revision":REVISION,"files":files})
 }
 fn bounded(path: &Path, max: usize) -> Result<Vec<u8>> {
     let m = fs::symlink_metadata(path).map_err(native::io)?;

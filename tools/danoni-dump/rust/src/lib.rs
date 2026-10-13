@@ -24,6 +24,8 @@ pub mod timing;
 #[cfg(feature = "native")]
 pub mod transaction;
 pub mod work;
+#[cfg(feature = "native")]
+pub mod worker_build;
 
 pub use model::{Chart, CompileRequest, PreparationOptions, PreparedChart};
 pub use ssc::compile_chart;

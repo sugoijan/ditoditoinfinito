@@ -446,3 +446,26 @@ Milestone 4 remains open for Rust worker build/package preparation, reproducible
 selector/request orchestration and the three structural proof gaps. Runtime
 supervision itself no longer depends on Python. Dependency iteration/public URL
 acquisition and other-platform confinement remain subsequent work.
+
+
+### Rust worker preparation and bundles, 2026-10-13
+
+The [worker handover](danoni-rust-worker.md) replaces `prepare.py` with pinned
+Git-object source preparation in a fresh owned tree. It retains the exact existing
+hooks/lockfile/protocol identity, adds complete source/bundle inventories and
+returns trusted `WorkerSpec` values for the Rust supervisor. Git/Cargo/Java are
+explicit build-time tools; an installed desktop host needs none for native capture.
+
+A fresh rebuild preserves parsed state, PCM and synthetic pixels/key behavior.
+Seven pinned charts pass the downstream reference/origin/SSC/scroll gate again:
+3,073 endpoints, 57 x1/x2/x3 checks and unchanged decoder shifts. Tests cover
+source isolation, changed/incomplete inventories, policy/source substitutions,
+symlinks, cancellation and no overwrite. Accepted exports remain unchanged.
+These local bundles preserve upstream/DDI notices; shipping requires an actual
+worker dependency/embedded-asset notice audit and installation authority.
+
+Milestone 4 now includes Rust worker source preparation, local packaging and
+installed-bundle verification. Next implement reproducible selector/capture
+orchestration and recapture the three explicit structural proof gaps. Bounded
+resource iteration, URL acquisition and other-platform confinement remain ahead;
+provisional native musical-quality review still keeps milestone 3 open.

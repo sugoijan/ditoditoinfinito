@@ -292,3 +292,10 @@ structural selector gaps through this supervisor. Then implement bounded native
 request/dependency iteration alongside milestone 5's public URL acquisition.
 Recipe-free URL input, Linux/Windows confinement, HTML5 control, native musical
 alias/phase review and desktop library integration remain open.
+
+
+Worker preparation and installation now have a [Rust bundle API](danoni-rust-worker.md).
+It keeps the existing capture identity unchanged, prepares an isolated pinned
+source tree and verifies an installed bundle into the `WorkerSpec` above.
+`prepare.py` is retained only as a historical build oracle; no Python is required
+for fresh source preparation, packaging or runtime supervision.

@@ -227,8 +227,7 @@ endpoint and x1/x2/x3 authored scroll segments. Three selectors remain explicitl
 unproved; accepted exports are unchanged. This removes Python from proved saved
 structural normalization. The pinned Higan/Kouhaku path adds seven charts / six
 songs with original reference parity, numeric stars, explicit child clocks and
-measured width-based scroll. Fresh Rust worker execution is now described below; worker build/selector
-orchestration, URL acquisition and installation remain pending.
+measured width-based scroll. Fresh Rust worker execution is now described below; selector orchestration, URL acquisition and installation remain pending.
 
 
 Fresh native captures now use the Rust-owned macOS supervisor:
@@ -244,4 +243,17 @@ bindings for normalization. No Python launcher, browser, shell, ps or FFmpeg is
 needed at runtime. Ready captures and diagnostic failures have separate markers;
 unsupported platforms never fall back to unrestricted execution. Seven fresh
 pinned charts pass the downstream references, PCM, SSC and scroll gate. Worker
-build preparation, selector orchestration and URL fetching remain separate work.
+build preparation and local packaging are described below; selector orchestration
+and URL fetching remain separate work.
+
+
+The [worker preparation/bundle contract](../../../docs/research/danoni-rust-worker.md)
+adds `worker_build::{prepare_sources, package_worker, load_bundle}` and three CLI
+commands: `prepare-worker UPSTREAM_GIT NEW_SOURCES`, `package-worker JOB.json
+NEW_BUNDLE`, and `verify-worker BUNDLE`. Preparation reads cached pinned Git
+objects into a separate tree, leaving the upstream checkout untouched. Building
+uses Cargo explicitly; packaging binds its selected executable hash and keeps
+licences/provenance. The app loads its trusted installed bundle and passes the
+returned `WorkerSpec` directly to the supervisor. No Python is needed to prepare,
+package or run this worker. Other-platform confinement and distribution notice
+review remain pending.

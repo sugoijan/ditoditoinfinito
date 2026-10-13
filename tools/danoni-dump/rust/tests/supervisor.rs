@@ -68,16 +68,17 @@ fn main(){
     if data.contains("/cpu"){let mut x=1u64;loop{x=x.wrapping_mul(17).wrapping_add(3);std::hint::black_box(x);}}
     if data.contains("/crash"){std::process::abort();}
     if data.contains("/file"){let mut f=fs::File::create("large.bin").unwrap();loop{f.write_all(&[0;1024]).unwrap();}}
+    if data.contains("/output-symlink"){std::os::unix::fs::symlink(root.parent().unwrap().join("outside-secret"),"escape").unwrap();std::thread::sleep(Duration::from_secs(30));}
     if data.contains("/aggregate"){for i in 0..8{fs::write(format!("extra-{i}"),vec![0;1024*1024]).unwrap();}std::thread::sleep(Duration::from_secs(30));}
     if data.contains("/probe"){
         let outside=root.parent().unwrap().join("outside-secret");
         let read=fs::read(&outside).is_ok();let input_read=fs::read(input.join("fixture.swf")).is_ok();let input_write=fs::write(input.join("fixture.swf"),b"changed").is_ok();
-        let outside_write=fs::write(&outside,b"changed").is_ok();let link=std::os::unix::fs::symlink(&outside,"escape").is_ok();let link_read=fs::read("escape").is_ok();
+        let outside_write=fs::write(&outside,b"changed").is_ok();let link_read=fs::read(input.join("escape")).is_ok();
         let at=data.find("probe?port=").unwrap()+"probe?port=".len();
         let port=data[at..].split('"').next().unwrap();
         let network=std::net::TcpStream::connect_timeout(&format!("127.0.0.1:{port}").parse().unwrap(),Duration::from_millis(100)).is_ok();
         let spawn=Command::new("/usr/bin/true").stdout(Stdio::null()).status().is_ok();let output=fs::write("allowed.txt",b"allowed").is_ok();
-        println!("{{\"outsideRead\":{read},\"inputRead\":{input_read},\"inputWrite\":{input_write},\"outsideWrite\":{outside_write},\"linkCreated\":{link},\"linkRead\":{link_read},\"network\":{network},\"spawn\":{spawn},\"outputWrite\":{output}}}");
+        println!("{{\"outsideRead\":{read},\"inputRead\":{input_read},\"inputWrite\":{input_write},\"outsideWrite\":{outside_write},\"linkRead\":{link_read},\"network\":{network},\"spawn\":{spawn},\"outputWrite\":{output}}}");
     }else{io::stdout().write_all(b"malformed snapshot").unwrap();}
 }
 "#).unwrap();
@@ -96,6 +97,13 @@ fn original_probe_checks_os_confinement_independently_of_ruffle() {
     );
     fs::write(root.join("outside-secret"), b"original test data").unwrap();
     let result = capture(&request, &worker(), &source, &root.join("out"), &mut || {
+        // Deliberately inject this host-owned link before launch to test the OS
+        // policy independently of the staging API (which rejects symlinks).
+        // An output link would instead race the output monitor's early kill.
+        let escape = root.join("out/inputs/escape");
+        if escape.parent().unwrap().is_dir() && fs::symlink_metadata(&escape).is_err() {
+            std::os::unix::fs::symlink(root.join("outside-secret"), &escape).unwrap();
+        }
         Ok(())
     })
     .unwrap();
@@ -125,6 +133,7 @@ fn wall_memory_file_aggregate_and_cancel_fail_without_readiness() {
         ("memory", "resident-memory-limit"),
         ("file", "file-size-limit"),
         ("aggregate", "output-byte-limit"),
+        ("output-symlink", "output-byte-limit"),
         ("sleep", "cancelled"),
         ("cpu", "cpu-kill"),
         ("crash", "exit"),
