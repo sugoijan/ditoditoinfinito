@@ -261,12 +261,15 @@ impl Renderer {
         opts: RenderOptions,
         layer: Option<&mut dyn NoteLayer>,
     ) {
-        let geo = FieldGeometry::new(
-            width as f32,
-            height as f32,
-            scene::field_span(layout),
-            opts.reverse,
-        );
+        let geo = match opts.preview {
+            Some(p) => p.geometry,
+            None => FieldGeometry::new(
+                width as f32,
+                height as f32,
+                scene::field_span(layout),
+                opts.reverse,
+            ),
+        };
         let mut scene = scene::build(
             frame, layout, names, &self.skin, &geo, opts, self.srgb, layer,
         );

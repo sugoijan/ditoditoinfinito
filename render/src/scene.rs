@@ -55,7 +55,7 @@ pub fn judgement_color(j: Judgement) -> [f32; 4] {
 }
 
 /// Pixel geometry of the note field for a given target size.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FieldGeometry {
     pub arrow: f32,
     pub left: f32,
@@ -114,10 +114,11 @@ impl FieldGeometry {
     /// Receptor y of a lane with this scroll sign: at the top when its
     /// notes travel up, at the bottom when they travel down.
     pub fn lane_receptor_y(&self, scroll_sign: i8) -> f32 {
-        if self.lane_direction(scroll_sign) > 0.0 {
-            self.arrow * 1.5
+        // A lane scrolling the other way has its receptors at the other end.
+        if self.lane_direction(scroll_sign) == self.direction {
+            self.receptor_y
         } else {
-            self.height - self.arrow * 1.5
+            self.height - self.receptor_y
         }
     }
 
@@ -221,6 +222,47 @@ pub struct RenderOptions {
     /// Darkening behind the lanes, `0..=1` of perceived brightness removed
     /// (0 = none).
     pub field_filter: f32,
+    /// Draw only a noteskin's elements, as placed by this geometry, over
+    /// the clear colour (a skin's preview).
+    pub preview: Option<Preview>,
+}
+
+/// [`RenderOptions::preview`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Preview {
+    pub geometry: FieldGeometry,
+    /// The receptors too, not only the notes.
+    pub receptors: bool,
+}
+
+/// A skin's elements alone: its receptors (with `receptors`), holds, notes
+/// and explosions, in a play's order.
+fn skin_only(
+    frame: &Frame,
+    layout: &Layout,
+    geo: &FieldGeometry,
+    layer: Option<&mut dyn NoteLayer>,
+    receptors: bool,
+) -> SceneOutput {
+    let mut quads = Vec::new();
+    if let Some(l) = layer {
+        // The receptors' call starts the layer's frame.
+        l.receptors(frame, layout, geo, &mut quads);
+        if !receptors {
+            quads.clear();
+        }
+        l.holds(frame, layout, geo, &mut quads);
+        l.notes(frame, layout, geo, &mut quads);
+        l.explosions(frame, layout, geo, &mut quads);
+    }
+    let mut order = Order::default();
+    order.quads(quads.len());
+    SceneOutput {
+        instances: Vec::new(),
+        text: Vec::new(),
+        quads,
+        order: order.segments,
+    }
 }
 
 /// A note's colour under Hidden/Sudden: hidden notes show only their white
@@ -325,6 +367,9 @@ pub fn build(
     srgb_target: bool,
     mut layer: Option<&mut dyn NoteLayer>,
 ) -> SceneOutput {
+    if let Some(p) = opts.preview {
+        return skin_only(frame, layout, geo, layer, p.receptors);
+    }
     let mut instances = Vec::with_capacity(frame.notes.len() * 2 + 32);
     let mut text = Vec::with_capacity(8);
     let mut quads = Vec::new();

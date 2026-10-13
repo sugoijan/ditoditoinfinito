@@ -993,3 +993,17 @@ button.danger {
   flex: 1 1 18rem;
   margin: 0;
 }
+
+/* A noteskin's elements alone (`#/skin-preview`), at their pixels. */
+.skin-preview {
+  padding: 16px;
+}
+
+.skin-preview canvas {
+  display: block;
+}
+
+.skin-preview-status {
+  color: var(--muted, #aaa);
+  font-size: 0.85rem;
+}

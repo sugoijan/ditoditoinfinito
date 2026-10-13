@@ -99,6 +99,7 @@ impl SessionConfig {
                 backdrop: Default::default(),
                 frame_aspect: None,
                 field_filter: settings.field_filter,
+                preview: None,
             },
             calibration: None,
             auto_bias: 0.0,

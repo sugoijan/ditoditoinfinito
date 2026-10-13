@@ -22,7 +22,8 @@ use crate::web::gfx::Gfx;
 /// disconnected before the closure is dropped (see `Drop`).
 type ResizeHook = (ResizeObserver, Closure<dyn FnMut(js_sys::Array)>);
 
-const FONT: &[u8] = include_bytes!("../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
+pub(crate) const FONT: &[u8] =
+    include_bytes!("../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
 
 pub(crate) struct GameLoop {
     gfx: Gfx,
@@ -495,54 +496,13 @@ impl GameLoop {
         let srgb = self.renderer.srgb() && !self.renderer.skins_blend_encoded();
         self.noteskin = play.map(|mut play| {
             play.set_srgb(srgb);
-            let keys = play.texture_keys().to_vec();
-            for (i, key) in keys.iter().enumerate() {
-                let id = match (key, images.get(i).cloned().flatten()) {
-                    (ddi_noteskin::build::TextureKey::BuiltIn(name), _) => self
-                        .renderer
-                        .add_builtin_art(&self.gfx.device, &self.gfx.queue, name),
-                    (_, Some(image)) => {
-                        let (w, h) = (image.width().max(1), image.height().max(1));
-                        // A model's texture is mipmapped, as StepMania's are.
-                        let mipmaps = play.texture_mipmaps(i);
-                        let texture =
-                            self.renderer
-                                .create_noteskin_texture(&self.gfx.device, w, h, mipmaps);
-                        self.gfx.queue.copy_external_image_to_texture(
-                            &wgpu::CopyExternalImageSourceInfo {
-                                source: wgpu::ExternalImageSource::ImageBitmap(image.clone()),
-                                origin: wgpu::Origin2d::ZERO,
-                                flip_y: false,
-                            },
-                            wgpu::CopyExternalImageDestInfo {
-                                texture: &texture,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d::ZERO,
-                                aspect: wgpu::TextureAspect::All,
-                                color_space: wgpu::PredefinedColorSpace::Srgb,
-                                premultiplied_alpha: false,
-                            },
-                            wgpu::Extent3d {
-                                width: w,
-                                height: h,
-                                depth_or_array_layers: 1,
-                            },
-                        );
-                        if mipmaps {
-                            self.renderer.generate_noteskin_mipmaps(
-                                &self.gfx.device,
-                                &self.gfx.queue,
-                                &texture,
-                            );
-                        }
-                        self.uploaded_images.push(image);
-                        self.renderer
-                            .add_noteskin_texture(&self.gfx.device, &texture)
-                    }
-                    (_, None) => continue,
-                };
-                play.set_texture(i, id);
-            }
+            self.uploaded_images.extend(upload_noteskin(
+                &mut self.renderer,
+                &self.gfx.device,
+                &self.gfx.queue,
+                &mut play,
+                &images,
+            ));
             play
         });
     }
@@ -961,4 +921,59 @@ impl Drop for GameLoop {
             image.close();
         }
     }
+}
+
+/// Gives the renderer `play`'s textures: the built-in art, and the decoded
+/// `images` (by texture index) copied to the GPU, a model's with mipmaps.
+/// Returns the images copied, to be closed when the play ends.
+pub(crate) fn upload_noteskin(
+    renderer: &mut Renderer,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    play: &mut ddi_render::noteskin::NoteskinPlay,
+    images: &[Option<web_sys::ImageBitmap>],
+) -> Vec<web_sys::ImageBitmap> {
+    let mut uploaded = Vec::new();
+    let keys = play.texture_keys().to_vec();
+    for (i, key) in keys.iter().enumerate() {
+        let id = match (key, images.get(i).cloned().flatten()) {
+            (ddi_noteskin::build::TextureKey::BuiltIn(name), _) => {
+                renderer.add_builtin_art(device, queue, name)
+            }
+            (_, Some(image)) => {
+                let (w, h) = (image.width().max(1), image.height().max(1));
+                // A model's texture is mipmapped, as StepMania's are.
+                let mipmaps = play.texture_mipmaps(i);
+                let texture = renderer.create_noteskin_texture(device, w, h, mipmaps);
+                queue.copy_external_image_to_texture(
+                    &wgpu::CopyExternalImageSourceInfo {
+                        source: wgpu::ExternalImageSource::ImageBitmap(image.clone()),
+                        origin: wgpu::Origin2d::ZERO,
+                        flip_y: false,
+                    },
+                    wgpu::CopyExternalImageDestInfo {
+                        texture: &texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                        color_space: wgpu::PredefinedColorSpace::Srgb,
+                        premultiplied_alpha: false,
+                    },
+                    wgpu::Extent3d {
+                        width: w,
+                        height: h,
+                        depth_or_array_layers: 1,
+                    },
+                );
+                if mipmaps {
+                    renderer.generate_noteskin_mipmaps(device, queue, &texture);
+                }
+                uploaded.push(image);
+                renderer.add_noteskin_texture(device, &texture)
+            }
+            (_, None) => continue,
+        };
+        play.set_texture(i, id);
+    }
+    uploaded
 }

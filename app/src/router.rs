@@ -40,6 +40,12 @@ pub(crate) enum Route {
         sources: Vec<String>,
         decoder: String,
     },
+    /// A noteskin's elements alone (`components::skin_preview`):
+    /// `skin=<key>`, `size`, `bg`, `beat`, `bpm`, `notes`, `receptors`,
+    /// `gfx=gl`.
+    SkinPreview {
+        params: Vec<(String, String)>,
+    },
     NotFound(String),
 }
 
@@ -84,6 +90,12 @@ impl Route {
                 bias_ms: parse_bias(&params),
             },
             "credits" => Route::Credits,
+            "skin-preview" => Route::SkinPreview {
+                params: params
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            },
             "video-check" => Route::VideoCheck {
                 sources: params
                     .get("src")
@@ -150,6 +162,13 @@ impl Route {
                 } else {
                     format!("#/video-check?{}", query.join("&"))
                 }
+            }
+            Route::SkinPreview { params } => {
+                let query: Vec<String> = params
+                    .iter()
+                    .map(|(k, v)| format!("{k}={}", percent_encode(v)))
+                    .collect();
+                format!("#/skin-preview?{}", query.join("&"))
             }
             Route::NotFound(p) => format!("#/{p}"),
         }
