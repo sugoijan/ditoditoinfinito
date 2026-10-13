@@ -214,17 +214,17 @@ only as this port. None is captured yet: they run MFV2's unreviewed v50.0.0
 build, the same build as the `mfv2-onigiri-hardcore-respect` probe. No HTML5
 port of Higan itself was found.
 
-## Remaining extraction work (2026-10-12)
+## Remaining extraction work (updated 2026-10-13)
 
-The original 113-source inventory now has **69 accepted, three partly accepted
-and 41 pending** entries. The pending acquisitions are 24 HTML5 engine probes,
-15 legacy works and two Wayback works. This counts source entries, not playable
+The original 113-source inventory now has **71 accepted, three partly accepted
+and 39 pending** entries. The pending acquisitions are 24 HTML5 engine probes,
+13 legacy works and two Wayback works. This counts source entries, not playable
 songs or selectors. The latest local inventory is
-`~/Music/DanOni/reviews/corpus-v2-legacy8-20261012/admission-inventory.json`.
+`~/Music/DanOni/reviews/corpus-v2-legacy9-20261012/admission-inventory.json`.
 
-1. Prove child `Cnt` timing and nonzero-seek audio for the already captured
-   2005 Air/Cold Breath works. Then inspect other single-song engines and the
-   runtime-built carrotcastle dependencies. The two collections require menu
+1. Air/Cold Breath now have verified root-movie timing and nonzero-seek audio
+   ([admission](danoni-2005-admission.md)); `Cnt` counts arrow instances. Inspect
+   the remaining single-song engines and runtime-built carrotcastle dependencies. The two collections require menu
    enumeration. Yamiyo now supplies ten author charts; its malformed Fly-Sky
    selector and 歪んだ神's CPU-limited Death remain pending. NIGHTMARE's
    source rewrites and Luvin' You's converter halts require separate resolution.
@@ -325,3 +325,11 @@ The expanded exports contain **93 songs / 144 charts** across Kouhaku and Single
 Songs. Source suffixes and published rating-scale choices are recorded separately
 from musical-grid estimation. Third-party works and music remain local; public
 availability does not permit redistribution.
+
+
+## Rebase and current priorities (2026-10-13)
+
+The [progress review](danoni-progress.md) consolidates accepted coverage, remaining
+source/selector gaps and the recommended next milestones after rebasing onto the
+updated game. Native batch orchestration and bounded index-input acquisition
+remain tooling work; verified family adapters do not imply universal conversion.

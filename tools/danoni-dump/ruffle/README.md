@@ -9,7 +9,7 @@ The [native handover](../../../docs/research/danoni-native.md) records its
 cross-checked arrays, music origin, export contract and remaining limits.
 The [single-song family adapters](../../../docs/research/danoni-native-adapters.md)
 add eight works/nine charts across early child timelines, seven-key DAC arrays
-and later independent-counter engines. The [gen0 extension](../../../docs/research/danoni-gen0-admission.md) adds six works/seven charts through `dac-5`/`dac-fixed-5`, with arrow-local speed evidence and explicit SSC approximation limits. The [next single-song batch](../../../docs/research/danoni-legacy-single-admission.md) adds collaboration selectors and retains terminal DAC comments as inactive source evidence. Existing CW dump `/1` schemas are unchanged.
+and later independent-counter engines. The [gen0 extension](../../../docs/research/danoni-gen0-admission.md) adds six works/seven charts through `dac-5`/`dac-fixed-5`, with arrow-local speed evidence and explicit SSC approximation limits. The [next single-song batch](../../../docs/research/danoni-legacy-single-admission.md) adds collaboration selectors and retains terminal DAC comments as inactive source evidence. The [2005 admission](../../../docs/research/danoni-2005-admission.md) adds Air and all four Cold Breath selectors with explicit source-suffix checks. The [progress review](../../../docs/research/danoni-progress.md) consolidates current coverage and remaining orchestration/index work. Existing CW dump `/1` schemas are unchanged.
 
 ## Build separately from the game
 

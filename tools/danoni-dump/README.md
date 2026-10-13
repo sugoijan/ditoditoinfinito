@@ -7,7 +7,8 @@ parses reviewed engine source as syntax to locate debugger capture points.
 
 The survey and importer-facing contract are in
 [danoni-corpus.md](../../docs/research/danoni-corpus.md). Machine-readable schemas
-are in [schemas/](schemas/).
+are in [schemas/](schemas/). The [current progress review](../../docs/research/danoni-progress.md)
+consolidates accepted corpus coverage, tool limitations and next milestones.
 
 For Flash research, the separate [native AVM1 prototype](ruffle/README.md)
 provides restricted Ruffle inspection and synthetic dos export validation.
