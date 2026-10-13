@@ -178,16 +178,19 @@ impl FpsMeter {
 }
 
 impl GameLoop {
+    /// `skins`: the player draws dance layouts with a skin (not the
+    /// built-in arrows, chosen to be lighter).
     pub(crate) fn new(
         gfx: Gfx,
         canvas: HtmlCanvasElement,
         on_event: Callback<SessionEvent>,
+        skins: bool,
     ) -> GameLoop {
         let renderer = Renderer::new(
             &gfx.device,
             &gfx.queue,
             gfx.view_format(),
-            gfx.plain_format(),
+            gfx.skin_blending(skins),
             &[FONT],
         );
         let rect = canvas.get_bounding_client_rect();

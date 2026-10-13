@@ -279,6 +279,40 @@ filtering (above) and an assertion that the plain view is given whenever
 skins' colours are made for it. Open: WebGL2, whose surface is sRGB only (no other view of
 it): skins still blend in linear light there.
 
+**Done on WebGL2 2026-10-13.** The renderer takes how skins blend
+(`SkinBlending`: the scene's way, through a plain view, or offscreen),
+and on WebGL2 draws every frame offscreen (`render/src/offscreen.rs`):
+the scene's pipelines draw linear light into a half-float texture
+(blending there is in linear light, as through an sRGB view), each run of
+a skin's quads goes to a plain 8-bit texture the scene so far is encoded
+into first and decoded back from after, and the frame is drawn to the
+surface at the end, which encodes it. Skin textures are plain there (no
+second view of a texture in WebGL2). Two ways that did not work, both
+for Firefox: reading an sRGB texture while drawing to a plain one (Firefox
+returns other values than Chrome), and copying between the sRGB and plain
+textures (Chrome refuses it, Firefox converts the values); so no sRGB
+texture is read on the way. Every 8-bit value survives the round trip
+through half floats (tested natively). The app chooses offscreen only
+when the adapter renders and blends half floats, and not when the player
+chose the built-in arrows (the lighter choice draws no skin); else skins
+blend in linear light as before. The conversions cover only the box of a
+run's quads (the plain texture is read nowhere else; scissored, tested).
+Reviewed independently: no fault found; the box and the built-in choice
+came from its notes on the cost. Checked in headless Chrome (WebGL2 and WebGPU)
+and the installed Firefox with a synthetic skin whose receptor is white
+at 10 %: 30, 28, 37 over the field on WebGL2 and in Firefox, 30, 27, 37
+on WebGPU, StepMania's 0.1 × 255 + 0.9 × the field (the old WebGL2 drew
+90); song backgrounds within one level of before on every backend;
+screenshots of CF_CHROME and Dito alike on both backends; full autoplays
+all 329 Fantastic and 27 of 27 holds on WebGL2, in Firefox and on WebGPU,
+no console warnings. Cost on WebGL2: two textures the size of the canvas
+(12 bytes a pixel), a full-screen draw at the end of every frame, and
+two draws over the field's quads for each run of them (two or three runs
+a frame: receptors, holds, notes, explosions between the built-in
+sprites). Not done: a skin chosen but not drawn (a layout other than
+dance, a chart's own colours) still costs the offscreen frame, as the
+renderer is made before the song is known.
+
 ## Step 6. Documentation
 
 `docs/PLAN.md` (a decision for bundled skins and their licences, decision

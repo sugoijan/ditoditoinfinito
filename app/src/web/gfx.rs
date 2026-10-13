@@ -309,11 +309,38 @@ impl Gfx {
 
     /// The surface's own format when the scene is drawn through an sRGB
     /// view of it (WebGPU): skins' quads are drawn through a view in this
-    /// one, blending as StepMania does. WebGL2's surface is sRGB itself and
-    /// has no other view.
+    /// one, blending as StepMania does.
     pub(crate) fn plain_format(&self) -> Option<wgpu::TextureFormat> {
         (!self.config.view_formats.is_empty() && !self.config.format.is_srgb())
             .then_some(self.config.format)
+    }
+
+    /// How skins' quads blend as StepMania's: through the plain view
+    /// (WebGPU), or, on a surface that is sRGB itself and has no other view
+    /// (WebGL2), every frame drawn offscreen in half floats, when the
+    /// device renders and blends them and `skins` are drawn (the built-in
+    /// arrows are the lighter choice); else as the rest of the scene.
+    pub(crate) fn skin_blending(&self, skins: bool) -> ddi_render::SkinBlending {
+        use ddi_render::SkinBlending;
+        if let Some(plain) = self.plain_format() {
+            return SkinBlending::PlainView(plain);
+        }
+        if !skins {
+            return SkinBlending::Scene;
+        }
+        let half = wgpu::TextureFormat::Rgba16Float;
+        let features = self.adapter.get_texture_format_features(half);
+        let usages = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
+        if self.config.format.is_srgb()
+            && features.allowed_usages.contains(usages)
+            && features
+                .flags
+                .contains(wgpu::TextureFormatFeatureFlags::BLENDABLE)
+        {
+            SkinBlending::Offscreen(half)
+        } else {
+            SkinBlending::Scene
+        }
     }
 
     /// Reconfigures the surface when the canvas backing store changes size.

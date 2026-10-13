@@ -107,6 +107,10 @@ pub struct TexturedPipeline {
     pipelines: [wgpu::RenderPipeline; 4],
     /// The same to the target's plain view (StepMania's blending).
     gamma: Option<[wgpu::RenderPipeline; 4]>,
+    /// Textures are made plain (their texels as encoded, sampled so),
+    /// not sRGB with a plain view: a target with no other view of its
+    /// textures (WebGL2) draws quads only to a plain texture.
+    plain_textures: bool,
     globals: wgpu::Buffer,
     globals_group: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
@@ -123,11 +127,13 @@ pub struct TexturedPipeline {
 impl TexturedPipeline {
     /// Pipelines drawing to `format`, and, with `gamma`, to that plain
     /// (non-sRGB) view of the same target, blending as StepMania does
-    /// ([`TexturedPipeline::draw`]).
+    /// ([`TexturedPipeline::draw`]); with `plain_textures`, quads are only
+    /// drawn there and their textures are plain.
     pub fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         gamma: Option<wgpu::TextureFormat>,
+        plain_textures: bool,
     ) -> TexturedPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ddi-textured"),
@@ -262,10 +268,13 @@ impl TexturedPipeline {
                 },
             },
         ];
+        // With `plain_textures` every quad goes to the plain target: these
+        // are built but not drawn with.
         let pipelines = blends.map(|b| pipeline(b, format, "fs_main"));
         // Drawn to the plain view from the textures' plain views, so texels
         // are filtered and blended as encoded, as StepMania does.
         let gamma = gamma.map(|plain| blends.map(|b| pipeline(b, plain, "fs_main")));
+        let plain_textures = plain_textures && gamma.is_some();
         let sampler = |mode| {
             device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("ddi-textured-sampler"),
@@ -280,6 +289,7 @@ impl TexturedPipeline {
         let mut p = TexturedPipeline {
             pipelines,
             gamma,
+            plain_textures,
             globals,
             globals_group,
             texture_layout,
@@ -307,7 +317,7 @@ impl TexturedPipeline {
 
     /// A texture for [`TexturedPipeline::add_texture`], `width × height`,
     /// sRGB on an sRGB target, with a plain view too when quads are also
-    /// drawn to the target's plain view.
+    /// drawn to the target's plain view; plain with `plain_textures`.
     pub fn create_texture(
         &self,
         device: &wgpu::Device,
@@ -316,6 +326,7 @@ impl TexturedPipeline {
         srgb: bool,
     ) -> wgpu::Texture {
         let plain = [wgpu::TextureFormat::Rgba8Unorm];
+        let srgb = srgb && !self.plain_textures;
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ddi-textured-image"),
             size: wgpu::Extent3d {
@@ -354,7 +365,7 @@ impl TexturedPipeline {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let plain = (self.gamma.is_some()).then(|| {
             texture.create_view(&wgpu::TextureViewDescriptor {
-                format: Some(wgpu::TextureFormat::Rgba8Unorm),
+                format: Some(texture.format().remove_srgb_suffix()),
                 ..Default::default()
             })
         });

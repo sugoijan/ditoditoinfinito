@@ -337,10 +337,13 @@ impl Component for GameCanvas {
         let link = ctx.link().clone();
         let on_event = ctx.link().callback(Msg::Session);
         let preference = ctx.props().backend;
+        // The built-in arrows draw no skin: on WebGL2 frames then go
+        // straight to the canvas (`Gfx::skin_blending`).
+        let skins = self.settings.noteskin.as_deref() != Some(crate::noteskins::BUILT_IN);
         spawn_local(async move {
             let result = Gfx::new(canvas, preference)
                 .await
-                .map(|(gfx, canvas)| Box::new(GameLoop::new(gfx, canvas, on_event)));
+                .map(|(gfx, canvas)| Box::new(GameLoop::new(gfx, canvas, on_event, skins)));
             link.send_message(Msg::GfxReady(result));
         });
     }
