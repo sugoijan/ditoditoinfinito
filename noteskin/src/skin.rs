@@ -4,7 +4,7 @@
 //! listings, `src/RageFileManager.cpp`, `src/RageUtil_FileDB.cpp`; 5_1-new).
 
 use std::borrow::Cow;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -280,13 +280,26 @@ pub struct Skin<'a> {
     /// Search order: the skin, then each fallback.
     pub chain: Vec<Dir>,
     pub metrics: Ini,
+    /// In StepMania 3.9's and OpenITG's format (`crate::legacy`): its
+    /// fallbacks end in their stand-ins, and its elements are looked up
+    /// by button, without dance/default's redirects.
+    pub legacy: bool,
     listings: HashMap<Dir, Listing>,
     cache: RefCell<HashMap<(String, String), Result<FileRef, PathError>>>,
     /// Each imported folder's kept texts by lowercased path, built when
     /// first needed.
     text_index: RefCell<HashMap<usize, HashMap<String, usize>>>,
     warnings: RefCell<Vec<String>>,
+    /// The actor files of StepMania 3.9's format read so far, by folder
+    /// and path, and the work building them may still do
+    /// (`crate::legacy`).
+    pub(crate) legacy_nodes: RefCell<LegacyNodes>,
+    pub(crate) legacy_budget: Cell<crate::legacy::Budget>,
 }
+
+/// [`Skin::legacy_nodes`].
+pub(crate) type LegacyNodes =
+    HashMap<(Dir, String), Result<std::sync::Arc<crate::legacy::Node>, String>>;
 
 /// `GAME_BASE_NOTESKIN_NAME`, `GAME_COMMON_NOTESKIN_NAME`.
 pub const BASE: &str = "default";
@@ -301,16 +314,20 @@ impl<'a> Skin<'a> {
     /// game's `default` and `common`'s `common` stand in when they are not
     /// imported (StepMania always has them).
     pub fn load(folders: &'a [Folder], game: &str, name: &str) -> Result<Skin<'a>, LoadError> {
+        let legacy = crate::legacy::is_legacy_chain(folders, game, name);
         let mut skin = Skin {
             name: name.to_string(),
             game: game.to_string(),
             folders: Cow::Borrowed(folders),
             chain: Vec::new(),
             metrics: Ini::default(),
+            legacy,
             listings: HashMap::new(),
             cache: RefCell::new(HashMap::new()),
             text_index: RefCell::new(HashMap::new()),
             warnings: RefCell::new(Vec::new()),
+            legacy_nodes: RefCell::new(HashMap::new()),
+            legacy_budget: Cell::new(crate::legacy::SKIN_BUDGET),
         };
         let (mut loaded_base, mut loaded_common) = (false, false);
         let mut current = name.to_string();
@@ -320,13 +337,13 @@ impl<'a> Skin<'a> {
             if depth >= 20 {
                 return Err(LoadError::Circular(name.to_string()));
             }
-            let dir = find(folders, game, &current).ok_or_else(|| LoadError::Missing {
+            let dir = find(folders, game, &current, legacy).ok_or_else(|| LoadError::Missing {
                 skin: name.to_string(),
                 missing: current.clone(),
             })?;
             let ini = match dir {
                 Dir::Folder(i) => Ini::parse(folders[i].text("metrics.ini").unwrap_or("")),
-                Dir::BuiltIn(b) => Ini::parse(b.metrics()),
+                Dir::BuiltIn(b) => b.ini(),
             };
             loaded_base |= current.eq_ignore_ascii_case(BASE);
             loaded_common |= current.eq_ignore_ascii_case(COMMON);
@@ -358,10 +375,13 @@ impl<'a> Skin<'a> {
             folders: Cow::Owned(self.folders.into_owned()),
             chain: self.chain,
             metrics: self.metrics,
+            legacy: self.legacy,
             listings: self.listings,
             cache: self.cache,
             text_index: self.text_index,
             warnings: self.warnings,
+            legacy_nodes: self.legacy_nodes,
+            legacy_budget: self.legacy_budget,
         }
     }
 
@@ -385,7 +405,8 @@ impl<'a> Skin<'a> {
     pub fn has_script(&self, dir: Dir) -> bool {
         match dir {
             Dir::Folder(i) => self.folders[i].has_file("NoteSkin.lua"),
-            Dir::BuiltIn(_) => true,
+            // StepMania 3.9's and OpenITG's skins have none.
+            Dir::BuiltIn(b) => matches!(b, BuiltIn::DanceDefault | BuiltIn::Common),
         }
     }
 
@@ -424,8 +445,7 @@ impl<'a> Skin<'a> {
     /// does (`/NoteSkins/<game>/<skin>/<file>`).
     pub fn hints(&self, file: &FileRef) -> Hints {
         let game = match file.dir {
-            Dir::BuiltIn(BuiltIn::Common) => COMMON,
-            Dir::BuiltIn(BuiltIn::DanceDefault) => "dance",
+            Dir::BuiltIn(b) => b.game(),
             Dir::Folder(i) => &self.folders[i].game,
         };
         Hints::parse(&format!(
@@ -528,8 +548,7 @@ impl<'a> Skin<'a> {
     /// `/NoteSkins/<game>/<skin>/`.
     pub fn dir_path(&self, dir: Dir) -> String {
         let game = match dir {
-            Dir::BuiltIn(BuiltIn::Common) => COMMON,
-            Dir::BuiltIn(BuiltIn::DanceDefault) => "dance",
+            Dir::BuiltIn(b) => b.game(),
             Dir::Folder(i) => &self.folders[i].game,
         };
         format!("/NoteSkins/{game}/{}/", self.dir_name(dir))
@@ -638,6 +657,12 @@ impl<'a> Skin<'a> {
         }
     }
 
+    /// The kept text of `file` of an imported folder (actor files, models,
+    /// redirects).
+    pub fn file_text(&self, file: &FileRef) -> Option<&str> {
+        self.folder_text(file.dir, &file.path)
+    }
+
     /// A kept text of an imported folder (ignoring case), through an index.
     fn folder_text(&self, dir: Dir, path: &str) -> Option<&str> {
         let Dir::Folder(i) = dir else { return None };
@@ -673,14 +698,36 @@ impl<'a> Skin<'a> {
 /// `NoteSkins/<game>/<name>/`, else `NoteSkins/common/<name>/`. StepMania
 /// always has `<game>/default` and `common/common`; the stand-ins take
 /// their place when they are not imported.
-fn find(folders: &[Folder], game: &str, name: &str) -> Option<Dir> {
-    let by = |g: &str| {
-        folders
+fn find(folders: &[Folder], game: &str, name: &str, legacy: bool) -> Option<Dir> {
+    // StepMania 3.9's and OpenITG's fallbacks are never StepMania 5's: an
+    // imported `default`, `flat` or `common` with a `NoteSkin.lua` is not
+    // one of theirs.
+    let standin = legacy
+        && [BASE, "flat", COMMON]
             .iter()
-            .position(|f| f.game.eq_ignore_ascii_case(g) && f.name.eq_ignore_ascii_case(name))
+            .any(|n| n.eq_ignore_ascii_case(name));
+    let by = |g: &str| {
+        folders.iter().position(|f| {
+            f.game.eq_ignore_ascii_case(g)
+                && f.name.eq_ignore_ascii_case(name)
+                && !(standin && f.has_file("NoteSkin.lua"))
+        })
     };
     if let Some(i) = by(game) {
         return Some(Dir::Folder(i));
+    }
+    // StepMania 3.9's and OpenITG's own (`LoadNoteSkinData`: the game's
+    // `default` and `common/default` under every skin).
+    if legacy && game.eq_ignore_ascii_case("dance") {
+        if name.eq_ignore_ascii_case(BASE) {
+            return Some(Dir::BuiltIn(BuiltIn::LegacyDefault));
+        }
+        if name.eq_ignore_ascii_case("flat") {
+            return Some(Dir::BuiltIn(BuiltIn::LegacyFlat));
+        }
+        if name.eq_ignore_ascii_case(COMMON) {
+            return Some(Dir::BuiltIn(BuiltIn::LegacyCommon));
+        }
     }
     if name.eq_ignore_ascii_case(BASE) && game.eq_ignore_ascii_case("dance") {
         return Some(Dir::BuiltIn(BuiltIn::DanceDefault));
@@ -697,8 +744,8 @@ pub(crate) mod tests {
     use super::*;
     use crate::builtin::NativeLua;
 
-    /// A folder from `(path, text)` pairs; text is kept for `metrics.ini`
-    /// and `.redir` files.
+    /// A folder from `(path, text)` pairs; text is kept for the files an
+    /// import keeps it for (`crate::import::kept_text`).
     pub(crate) fn folder(game: &str, name: &str, files: &[(&str, &str)]) -> Folder {
         Folder {
             game: game.into(),
@@ -706,10 +753,7 @@ pub(crate) mod tests {
             files: files.iter().map(|(p, _)| p.to_string()).collect(),
             texts: files
                 .iter()
-                .filter(|(p, _)| {
-                    let l = p.to_ascii_lowercase();
-                    l == "metrics.ini" || l.ends_with(".redir") || l.ends_with(".lua")
-                })
+                .filter(|(p, _)| crate::import::kept_text(p))
                 .map(|(p, t)| (p.to_string(), t.to_string()))
                 .collect(),
         }

@@ -88,6 +88,12 @@ pub struct PartMetrics {
     pub color_count: i32,
     /// `None` for a name StepMania does not know.
     pub color_type: Option<NoteColorType>,
+    /// StepMania 3.9's format: the part has a file per note type
+    /// (`<Part>AnimationIsNoteColor`), and vivid animation is OpenITG's,
+    /// rounded a quarter of the animation's step early
+    /// (`NoteDisplay::SetActiveFrame`).
+    pub note_color: bool,
+    pub vivid_rounded: bool,
 }
 
 /// The `[NoteDisplay]` metrics of one button.
@@ -118,6 +124,9 @@ impl NoteDisplay {
     /// Reads `button`'s metrics from `skin` (`[<Button>]` first). A metric
     /// no folder has reads as an empty string, so 0, as in StepMania.
     pub fn read(skin: &Skin<'_>, button: &str) -> NoteDisplay {
+        if skin.legacy {
+            return Self::read_legacy(skin, button);
+        }
         let s = |name: &str| skin.metric(button, name).unwrap_or("");
         let f = |name: &str| string_to_float(s(name));
         let i = |name: &str| string_to_int(s(name));
@@ -125,6 +134,8 @@ impl NoteDisplay {
         let part = |p: Part| {
             let n = p.name();
             PartMetrics {
+                note_color: false,
+                vivid_rounded: false,
                 animation_length: f(&format!("{n}AnimationLength")),
                 animation_is_vivid: b(&format!("{n}AnimationIsVivid")),
                 addition_offset: [
@@ -154,6 +165,58 @@ impl NoteDisplay {
             flip_hold_body_when_reverse: b("FlipHoldBodyWhenReverse"),
             top_hold_anchor_when_reverse: b("TopHoldAnchorWhenReverse"),
             hold_active_is_add_layer: b("HoldActiveIsAddLayer"),
+        }
+    }
+
+    /// StepMania 3.9's and OpenITG's metrics (`NoteMetricCache_t::Load`,
+    /// OpenITG `src/NoteDisplay.cpp:61-83`): animations always on the beat,
+    /// no colour by texture translation, lifts and fakes as tap notes. Its
+    /// `Part` enum lists the hold's tail after the head where its names
+    /// (`PartNames`) list it last, so each hold part but the head reads the
+    /// metrics of the name after its own: the tail `HoldTopCap…`, the top
+    /// cap `HoldBody…`, the body `HoldBottomCap…`, the bottom cap
+    /// `HoldTail…` (`src/NoteDisplay.cpp:12-37`).
+    fn read_legacy(skin: &Skin<'_>, button: &str) -> NoteDisplay {
+        let s = |name: &str| skin.metric(button, name).unwrap_or("");
+        let f = |name: &str| string_to_float(s(name));
+        let i = |name: &str| string_to_int(s(name));
+        let b = |name: &str| i(name) != 0;
+        let part = |p: Part| {
+            let n = match p {
+                Part::TapLift | Part::TapFake => Part::TapNote.name(),
+                Part::HoldTail => Part::HoldTopCap.name(),
+                Part::HoldTopCap => Part::HoldBody.name(),
+                Part::HoldBody => Part::HoldBottomCap.name(),
+                Part::HoldBottomCap => Part::HoldTail.name(),
+                p => p.name(),
+            };
+            PartMetrics {
+                animation_length: f(&format!("{n}AnimationLengthInBeats")),
+                animation_is_vivid: b(&format!("{n}AnimationIsVivid")),
+                addition_offset: [0.0; 2],
+                color_spacing: [0.0; 2],
+                color_count: 0,
+                color_type: Some(NoteColorType::Denominator),
+                note_color: b(&format!("{n}AnimationIsNoteColor")),
+                vivid_rounded: true,
+            }
+        };
+        let hold_head = b("DrawHoldHeadForTapsOnSameRow");
+        NoteDisplay {
+            parts: Part::ALL.map(part),
+            animation_is_beat_based: true,
+            draw_hold_head_for_taps_on_same_row: hold_head,
+            draw_roll_head_for_taps_on_same_row: hold_head,
+            tap_hold_roll_on_row_means_hold: false,
+            start_drawing_hold_body_offset_from_head: i("StartDrawingHoldBodyOffsetFromHead"),
+            stop_drawing_hold_body_offset_from_tail: i("StopDrawingHoldBodyOffsetFromTail"),
+            hold_let_go_gray_percent: f("HoldNGGrayPercent"),
+            hold_head_is_above_wavy_parts: b("HoldHeadIsAboveWavyParts"),
+            hold_tail_is_above_wavy_parts: b("HoldTailIsAboveWavyParts"),
+            flip_head_and_tail_when_reverse: b("FlipHeadAndTailWhenReverse"),
+            flip_hold_body_when_reverse: false,
+            top_hold_anchor_when_reverse: false,
+            hold_active_is_add_layer: false,
         }
     }
 }
@@ -207,5 +270,42 @@ mod tests {
         assert_eq!(c.stop_drawing_hold_body_offset_from_tail, -32);
         assert_eq!(c.part(Part::HoldBody).animation_length, 4.0);
         assert!(!c.flip_head_and_tail_when_reverse);
+    }
+
+    #[test]
+    fn stepmania_39_skins_have_their_own_names() {
+        let folders = [folder(
+            "dance",
+            "old",
+            &[
+                (
+                    "metrics.ini",
+                    "[NoteDisplay]\nTapNoteAnimationLengthInBeats=2\nTapNoteAnimationIsNoteColor=1\n\
+                     HoldNGGrayPercent=0.3\n[Up]\nHoldBottomCapAnimationIsNoteColor=1\n",
+                ),
+                ("Down Tap Note 4th.sprite", ""),
+            ],
+        )];
+        let skin = Skin::load(&folders, "dance", "old").unwrap();
+        let down = NoteDisplay::read(&skin, "Down");
+        let tap = down.part(Part::TapNote);
+        assert_eq!(tap.animation_length, 2.0);
+        assert!(tap.note_color && tap.vivid_rounded);
+        assert_eq!(tap.color_spacing, [0.0; 2]);
+        // Fakes are tap notes.
+        assert_eq!(down.part(Part::TapFake), tap);
+        assert!(down.animation_is_beat_based);
+        assert_eq!(down.hold_let_go_gray_percent, 0.3);
+        // StepMania 3.9's dance/default under it: vivid tap notes, holds
+        // 4 beats long.
+        assert!(tap.animation_is_vivid);
+        assert_eq!(down.part(Part::HoldBody).animation_length, 4.0);
+        assert_eq!(down.stop_drawing_hold_body_offset_from_tail, -32);
+        assert!(!down.part(Part::HoldBody).note_color);
+        assert!(
+            NoteDisplay::read(&skin, "Up")
+                .part(Part::HoldBody)
+                .note_color
+        );
     }
 }

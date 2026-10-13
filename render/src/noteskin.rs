@@ -16,7 +16,7 @@ use ddi_engine::frame::{Frame, HoldKind, NoteSprite, SkinEvent, SkinEventKind, S
 use ddi_engine::rules::Judgement;
 use ddi_lua::Failure;
 use ddi_noteskin::actor::{Actor, Blend, Clocks, Drawn, Kind, ModelDraw, Problems, Quad};
-use ddi_noteskin::build::{Built, Images, TextureKey, Textures, build};
+use ddi_noteskin::build::{Built, Images, TextureKey, Textures, build, build_colored};
 use ddi_noteskin::lua::{FrameBudget, LuaSkin, NOTE_COLORS, Param, Pause, Position};
 use ddi_noteskin::metrics::{NoteDisplay, Part};
 use ddi_noteskin::notes::{animation_percent, color_offset, note_type};
@@ -241,6 +241,9 @@ pub struct NoteskinPlay {
     lua_failure: Option<(String, bool)>,
     /// Fuel the skin's Lua spent in the last frame, and at most in one.
     lua_fuel: (u64, u64),
+    /// A skin in StepMania 3.9's format: its explosion rows take the
+    /// score with the row's name (`ddi_noteskin::legacy`).
+    legacy: bool,
 }
 
 /// The most triangles a frame's models draw (a model has at most
@@ -276,6 +279,23 @@ const LANE_ELEMENTS: [&str; 26] = [
     "Tap Fake",
     "Tap Mine",
 ];
+
+/// The part whose metrics a lane element of a StepMania 3.9 skin takes,
+/// for its per-note-type files (fakes as tap notes; lifts are drawn built
+/// in).
+fn legacy_part(name: &str) -> Option<Part> {
+    let mut words = name.split(' ');
+    Some(match (words.next()?, words.next()?) {
+        ("Tap", "Note" | "Fake") => Part::TapNote,
+        ("Tap", "Mine") => Part::TapMine,
+        ("Hold" | "Roll", "Head") => Part::HoldHead,
+        ("Hold" | "Roll", "Tail") => Part::HoldTail,
+        ("Hold" | "Roll", "Topcap") => Part::HoldTopCap,
+        ("Hold" | "Roll", "Body") => Part::HoldBody,
+        ("Hold" | "Roll", "Bottomcap") => Part::HoldBottomCap,
+        _ => return None,
+    })
+}
 
 /// The engine's tier as StepMania names it (`TapNoteScoreNames`).
 fn score_name(j: Judgement) -> &'static str {
@@ -510,16 +530,35 @@ impl NoteskinPlay {
                 })
                 .collect();
             let metrics = NoteDisplay::read(skin, button.name());
-            lanes.push(Lane::assemble(elements, metrics, lane.scroll_sign));
+            // A StepMania 3.9 skin's note parts with a file per note type.
+            let colored: Vec<&str> = LANE_ELEMENTS
+                .iter()
+                .copied()
+                .filter(|name| {
+                    ColorSet::default().place(name).is_some()
+                        && legacy_part(name).is_some_and(|p| metrics.part(p).note_color)
+                })
+                .collect();
+            let mut assembled = Lane::assemble(elements, metrics, lane.scroll_sign);
+            if !colored.is_empty() {
+                for color in &NOTE_COLORS[1..] {
+                    let mut set = ColorSet::default();
+                    for &name in &colored {
+                        let built = build_colored(skin, button, name, color, &mut textures, images);
+                        if let Some(place) = set.place(name) {
+                            *place = Some(to_element(built, button, name, &textures, &mut notes));
+                        }
+                    }
+                    assembled.colors.push(set);
+                }
+                assembled.settle_colors();
+            }
+            lanes.push(assembled);
         }
-        Some(NoteskinPlay::from_lanes(
-            skin.name.clone(),
-            lanes,
-            textures,
-            notes,
-            srgb,
-            None,
-        ))
+        let mut play =
+            NoteskinPlay::from_lanes(skin.name.clone(), lanes, textures, notes, srgb, None);
+        play.legacy = skin.legacy;
+        Some(play)
     }
 
     /// Builds every lane's elements through the skin's Lua, giving the host
@@ -645,6 +684,7 @@ impl NoteskinPlay {
             lua_seen: 0,
             lua_failure: None,
             lua_fuel: (0, 0),
+            legacy: false,
         };
         play.notes.append(&mut play.problems.messages);
         play
@@ -803,15 +843,18 @@ impl NoteskinPlay {
             problems: p,
             started,
             next_seq,
+            legacy,
             ..
         } = self;
+        let legacy = *legacy;
         let mut cmd = Commands {
             lua: lua.as_mut(),
             failed: None,
         };
         if !*started {
             *started = true;
-            for lane in lanes.iter_mut() {
+            // OpenITG plays no command on a receptor as a play starts.
+            for lane in lanes.iter_mut().filter(|_| !legacy) {
                 // Each column's own reverse (`ReceptorArrow::Update`); a
                 // play's scroll does not change once started.
                 let reversed = reverse != (lane.scroll_sign < 0);
@@ -851,6 +894,10 @@ impl NoteskinPlay {
                 cmd.play(&mut lane.explosion, "ColumnJudgmentMessage", &params, p);
                 for n in names {
                     cmd.play(&mut lane.explosion, n, &[], p);
+                }
+                // `GhostArrowRow::DidTapNote`: the score to one row.
+                if legacy && let [_, row, score] = names {
+                    cmd.play(&mut lane.explosion, &format!("{row}{score}"), &[], p);
                 }
             };
             let tap = |s: &str| ("TapNoteScore", format!("TapNoteScore_{s}"));

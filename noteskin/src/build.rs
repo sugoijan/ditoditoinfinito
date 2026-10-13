@@ -89,7 +89,7 @@ pub struct Element {
 }
 
 /// The stand-in art an explosion part shows when the skin's cannot load.
-fn fallback_art(element: &str) -> &'static str {
+pub(crate) fn fallback_art(element: &str) -> &'static str {
     match element {
         "Hold Explosion" | "Roll Explosion" => "Fallback Hold Explosion 2x1.png",
         "HitMine Explosion" => "Fallback HitMine Explosion.png",
@@ -98,11 +98,14 @@ fn fallback_art(element: &str) -> &'static str {
     }
 }
 
-struct Builder<'s, 'a> {
-    skin: &'s Skin<'a>,
-    textures: &'s mut Textures,
-    images: &'s dyn Images,
+pub(crate) struct Builder<'s, 'a> {
+    pub(crate) skin: &'s Skin<'a>,
+    pub(crate) textures: &'s mut Textures,
+    pub(crate) images: &'s dyn Images,
     notes: Vec<String>,
+    /// Actors made from a StepMania 3.9 skin's files so far
+    /// (`crate::legacy`).
+    pub(crate) actors: usize,
 }
 
 /// Builds `element` of `button`'s column, its `Init` commands played.
@@ -113,13 +116,33 @@ pub fn build(
     textures: &mut Textures,
     images: &dyn Images,
 ) -> Element {
+    build_colored(skin, button, element, "4th", textures, images)
+}
+
+/// [`build`] for notes of note type `color` (`4th` … `192nd`): a skin in
+/// StepMania 3.9's format has files per note type for the parts its
+/// metrics colour (`<Part>AnimationIsNoteColor`); other skins' elements
+/// are the same for every note type.
+pub fn build_colored(
+    skin: &Skin<'_>,
+    button: Button,
+    element: &str,
+    color: &str,
+    textures: &mut Textures,
+    images: &dyn Images,
+) -> Element {
     let mut b = Builder {
         skin,
         textures,
         images,
         notes: Vec::new(),
+        actors: 0,
     };
-    let built = b.element(button, element, 0);
+    let built = if skin.legacy {
+        b.legacy_element(button, element, color)
+    } else {
+        b.element(button, element, 0)
+    };
     Element {
         built,
         notes: b.notes,
@@ -127,13 +150,13 @@ pub fn build(
 }
 
 impl Builder<'_, '_> {
-    fn note(&mut self, n: String) {
+    pub(crate) fn note(&mut self, n: String) {
         if !self.notes.contains(&n) {
             self.notes.push(n);
         }
     }
 
-    fn element(&mut self, button: Button, element: &str, depth: u32) -> Built {
+    pub(crate) fn element(&mut self, button: Button, element: &str, depth: u32) -> Built {
         if depth > 4 {
             self.note(format!("{element}: elements load each other without end"));
             return Built::BuiltIn;
@@ -151,7 +174,8 @@ impl Builder<'_, '_> {
             Resolved::File { source, rotation } => {
                 let built = self.source(button, element, &source, depth);
                 match built {
-                    Built::Actor(mut a) => {
+                    // A StepMania 3.9 skin's files turn themselves.
+                    Built::Actor(mut a) if !self.skin.legacy => {
                         a.base_rotation[2] = rotation;
                         Built::Actor(a)
                     }
@@ -178,7 +202,16 @@ impl Builder<'_, '_> {
                 self.note(format!("{element}: {} is Lua", f.path));
                 Built::BuiltIn
             }
-            Source::Model(f) => match model_actor(self.skin, self.textures, self.images, f, f, f) {
+            Source::Model(f) => {
+                match model_actor(self.skin, self.textures, self.images, f, f, Some(f)) {
+                    Ok(a) => Built::Actor(a),
+                    Err(e) => {
+                        self.note(format!("{element}: {e}"));
+                        Built::BuiltIn
+                    }
+                }
+            }
+            Source::Legacy(f) => match self.legacy_file(f, 0) {
                 Ok(a) => Built::Actor(a),
                 Err(e) => {
                     self.note(format!("{element}: {e}"));
@@ -200,17 +233,22 @@ impl Builder<'_, '_> {
         image_sprite(self.skin, self.textures, self.images, f)
     }
 
-    fn builtin_sprite(&mut self, name: &str) -> Actor {
+    pub(crate) fn builtin_sprite(&mut self, name: &str) -> Actor {
         builtin_sprite(self.textures, name)
     }
 
     /// `NOTESKIN:GetMetricA(section, name)`; a metric that is not there
     /// reads as an empty command (StepMania reports it).
-    fn metric_command(&mut self, section: &str, name: &str) -> Vec<Call> {
+    pub(crate) fn metric_command(&mut self, section: &str, name: &str) -> Vec<Call> {
         let Some(text) = self.skin.metric(section, name) else {
             return Vec::new();
         };
-        match parse(text) {
+        let parsed = if self.skin.legacy {
+            crate::commands::parse_legacy(text)
+        } else {
+            parse(text)
+        };
+        match parsed {
             Ok(calls) => calls,
             Err(e) => {
                 self.note(format!("[{section}] {name}: {e}"));
@@ -219,7 +257,7 @@ impl Builder<'_, '_> {
         }
     }
 
-    fn calls(text: &str) -> Vec<Call> {
+    pub(crate) fn calls(text: &str) -> Vec<Call> {
         parse(text).expect("built-in commands parse")
     }
 
@@ -306,7 +344,7 @@ impl Builder<'_, '_> {
 
     /// A frame of `children`, each one's `Init` played (StepMania plays it
     /// once per actor as it is loaded, children first).
-    fn frame(&mut self, mut children: Vec<Actor>) -> Actor {
+    pub(crate) fn frame(&mut self, mut children: Vec<Actor>) -> Actor {
         let mut problems = Problems::default();
         for c in &mut children {
             c.play_own("Init", &mut problems);
@@ -351,13 +389,15 @@ pub(crate) fn image_sprite(
 /// when an element is a `.txt`; `Model::Load`, `src/Model.cpp:81-124`),
 /// its textures found relative to the materials file and decoded like a
 /// sprite's; why it could not be loaded (StepMania fails the element too).
+/// Without a bones file it does not move (`crate::legacy`: a StepMania
+/// 3.9 skin's that is not there, where OpenITG would stop).
 pub(crate) fn model_actor(
     skin: &Skin<'_>,
     textures: &mut Textures,
     images: &dyn Images,
     meshes: &FileRef,
     materials: &FileRef,
-    bones: &FileRef,
+    bones: Option<&FileRef>,
 ) -> Result<Actor, String> {
     use crate::model::{self, AnimatedTexture};
     let text = |f: &FileRef| {
@@ -368,7 +408,10 @@ pub(crate) fn model_actor(
     let geometry = model::meshes(text(meshes)?).map_err(|e| format!("{}: {e}", meshes.path))?;
     let mats =
         model::materials(text(materials)?).map_err(|e| format!("{}: {e}", materials.path))?;
-    let animation = model::bones(text(bones)?).map_err(|e| format!("{}: {e}", bones.path))?;
+    let animation = match bones {
+        Some(bones) => model::bones(text(bones)?).map_err(|e| format!("{}: {e}", bones.path))?,
+        None => model::Animation::default(),
+    };
     if let Some(i) = geometry
         .meshes
         .iter()

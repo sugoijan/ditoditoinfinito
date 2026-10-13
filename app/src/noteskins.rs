@@ -362,6 +362,9 @@ pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> Strin
         Ok(s) => s,
         Err(e) => return e.to_string(),
     };
+    if skin.legacy {
+        return legacy_summary(&skin);
+    }
     if !has_lua(&skin) {
         return native_summary(&skin);
     }
@@ -407,6 +410,42 @@ pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> Strin
 }
 
 /// [`summary`]'s line for a skin drawn without its Lua.
+/// A skin in StepMania 3.9's format, built natively: how many of the
+/// elements the engine asks for are its own, and why the first few are
+/// not.
+fn legacy_summary(skin: &Skin<'_>) -> String {
+    use ddi_noteskin::build::{Built, Textures, build};
+    use ddi_noteskin::load::ENGINE_ELEMENTS;
+    let probe = Sizes::probe();
+    let mut textures = Textures::default();
+    // The format has no lifts: they are drawn built in.
+    let elements: Vec<&str> = ENGINE_ELEMENTS
+        .iter()
+        .copied()
+        .filter(|e| *e != "Tap Lift")
+        .collect();
+    let (mut own, mut why) = (0, Vec::new());
+    for e in &elements {
+        let el = build(skin, ddi_noteskin::Button::Down, e, &mut textures, &probe);
+        match el.built {
+            Built::Actor(_) | Built::Blank => own += 1,
+            Built::BuiltIn => why.extend(el.notes.into_iter().take(1)),
+        }
+    }
+    let mut line = format!(
+        "made for StepMania 3.9 or OpenITG: {own} of {} elements are its own",
+        elements.len()
+    );
+    if own < elements.len() {
+        line.push_str(&format!("; {} drawn built in", elements.len() - own));
+        if !why.is_empty() {
+            why.truncate(3);
+            line.push_str(&format!(" ({})", why.join("; ")));
+        }
+    }
+    line
+}
+
 fn native_summary(skin: &Skin<'_>) -> String {
     use ddi_noteskin::load::ENGINE_ELEMENTS;
     use ddi_noteskin::{Resolved, Source};
@@ -811,13 +850,15 @@ async fn fetch_blob(dir: &str, path: &str) -> Option<Blob> {
 
 /// Whether a skin or one of the skins it falls back on has Lua of its own.
 fn has_lua(skin: &Skin<'_>) -> bool {
-    skin.chain.iter().any(|&d| {
-        skin.folder(d).is_some_and(|f| {
-            f.files
-                .iter()
-                .any(|p| p.to_ascii_lowercase().ends_with(".lua"))
+    // StepMania 3.9's format has none: it is built natively.
+    !skin.legacy
+        && skin.chain.iter().any(|&d| {
+            skin.folder(d).is_some_and(|f| {
+                f.files
+                    .iter()
+                    .any(|p| p.to_ascii_lowercase().ends_with(".lua"))
+            })
         })
-    })
 }
 
 /// A hash seed for a skin's VMs, from the platform's randomness.

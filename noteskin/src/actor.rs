@@ -496,6 +496,9 @@ pub struct Actor {
     /// Ramp to half, hold at half, ramp to full, hold at full, hold at zero.
     timing: [f32; 5],
     effect_offset: f32,
+    /// OpenITG's `effectdelay`: seconds held at full after each period
+    /// (StepMania 3.9 skins' commands; StepMania 5 has `effecttiming`).
+    effect_delay: f32,
     clock: Clock,
     magnitude: [f32; 3],
     effect_color1: Rgba,
@@ -714,6 +717,7 @@ impl Actor {
             effect_delta: 0.0,
             timing: [0.0; 5],
             effect_offset: 0.0,
+            effect_delay: 0.0,
             clock: Clock::Timer,
             magnitude: [0.0, 0.0, 10.0],
             effect_color1: [1.0; 4],
@@ -874,7 +878,7 @@ impl Actor {
     // Effects.
 
     fn effect_period(&self) -> f32 {
-        self.timing.iter().sum()
+        self.timing.iter().sum::<f32>() + self.effect_delay
     }
 
     /// `SetEffectPeriod`: half up, half down.
@@ -906,6 +910,7 @@ impl Actor {
         }
         let t = (self.secs_into_effect + self.effect_offset).rem_euclid(period);
         let [rth, hah, rtf, haf, _] = self.timing;
+        let haf = haf + self.effect_delay;
         let (a, b, c) = (rth + hah, rth + hah + rtf, rth + hah + rtf + haf);
         if t < rth {
             t / rth * 0.5
@@ -1526,6 +1531,9 @@ impl Actor {
                 self.timing[3] = haf;
             }
             "effectoffset" => self.effect_offset = num(0)?,
+            // Not a StepMania 5 method: only StepMania 3.9 skins' commands
+            // call it (`crate::commands::parse_legacy`).
+            "effectdelay" => self.effect_delay = num(0)?,
             "effectclock" => {
                 let s = text(0)?.to_ascii_lowercase();
                 self.clock = match s.as_str() {

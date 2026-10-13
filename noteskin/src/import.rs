@@ -128,9 +128,11 @@ pub fn kept_game(game: &str) -> bool {
 /// `.txt` files (3D models; what [`crate::Folder::texts`] holds).
 pub fn kept_text(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
-    [".ini", ".redir", ".lua", ".txt"]
-        .iter()
-        .any(|e| lower.ends_with(e))
+    [
+        ".ini", ".redir", ".lua", ".txt", ".sprite", ".actor", ".model", ".xml",
+    ]
+    .iter()
+    .any(|e| lower.ends_with(e))
 }
 
 #[cfg(test)]

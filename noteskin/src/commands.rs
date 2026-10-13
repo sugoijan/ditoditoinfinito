@@ -69,6 +69,82 @@ pub fn parse(commands: &str) -> Result<Vec<Call>, CommandError> {
     Ok(calls)
 }
 
+/// A command string of StepMania 3.9's format (OpenITG `ParseCommands`
+/// and `ActorCommands::ActorCommands`, `src/ActorCommands.cpp:7-80`): split
+/// at every `;` and `,`, method names lowercased, and the first argument of
+/// the methods that take a name a string as written (`blend,add`,
+/// `effectclock,beat`), given here as StepMania 5 names it.
+pub fn parse_legacy(commands: &str) -> Result<Vec<Call>, CommandError> {
+    if commands.starts_with('%') {
+        return Err(CommandError::NeedsLua(commands.to_string()));
+    }
+    const NAMED: &[&str] = &[
+        "luaeffect",
+        "horizalign",
+        "vertalign",
+        "effectclock",
+        "blend",
+        "ztestmode",
+        "cullmode",
+        "playcommand",
+        "queuecommand",
+        "queuemessage",
+        "settext",
+    ];
+    let mut calls = Vec::new();
+    for command in commands.split(';').filter(|c| !c.is_empty()) {
+        let mut parts = command.split(',');
+        let method = parts
+            .next()
+            .unwrap_or("")
+            .to_lowercase()
+            .trim_matches([' ', '\t', '\r', '\n'])
+            .to_string();
+        if !is_name(&method) {
+            return Err(CommandError::Invalid(command.to_string()));
+        }
+        let mut rest: Vec<&str> = parts.collect();
+        let mut args = Vec::new();
+        if NAMED.contains(&method.as_str()) && !rest.is_empty() {
+            let first = rest.remove(0);
+            let first = first.strip_prefix('+').unwrap_or(first);
+            args.push(Arg::Str(legacy_name(&method, first)));
+        }
+        let rest: Vec<String> = rest.into_iter().map(argument).collect();
+        args.extend(evaluate(&rest.join(","))?);
+        calls.push(Call { method, args });
+    }
+    Ok(calls)
+}
+
+/// OpenITG's names for blend modes and alignments
+/// (`Actor::SetBlendModeString`, `SetHorizAlignString`, compared ignoring
+/// case) as StepMania 5's enums name them.
+fn legacy_name(method: &str, value: &str) -> String {
+    let names: &[(&str, &str)] = match method {
+        "blend" => &[
+            ("normal", "BlendMode_Normal"),
+            ("add", "BlendMode_Add"),
+            ("noeffect", "BlendMode_NoEffect"),
+        ],
+        "horizalign" => &[
+            ("left", "HorizAlign_Left"),
+            ("center", "HorizAlign_Center"),
+            ("right", "HorizAlign_Right"),
+        ],
+        "vertalign" => &[
+            ("top", "VertAlign_Top"),
+            ("middle", "VertAlign_Middle"),
+            ("bottom", "VertAlign_Bottom"),
+        ],
+        _ => &[],
+    };
+    names
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(value))
+        .map_or_else(|| value.to_string(), |(_, e)| e.to_string())
+}
+
 /// The Lua source StepMania compiles a command string to
 /// (`LuaHelpers::ParseCommandList`, non-legacy): `%` and the rest as an
 /// expression, else `return function(self)` with a `self:<name>(<args>)`
@@ -530,6 +606,35 @@ mod tests {
             method: method.into(),
             args,
         }
+    }
+
+    #[test]
+    fn stepmania_39_commands_name_their_strings() {
+        use Arg::*;
+        assert_eq!(
+            parse_legacy("EffectClock,beat;Blend,add;DiffuseRamp;horizalign,LEFT;zoom,+1.5;")
+                .unwrap(),
+            [
+                call("effectclock", vec![Str("beat".into())]),
+                call("blend", vec![Str("BlendMode_Add".into())]),
+                call("diffuseramp", vec![]),
+                call("horizalign", vec![Str("HorizAlign_Left".into())]),
+                call("zoom", vec![Num(1.5)]),
+            ]
+        );
+        // Only a known name is translated; other arguments are Lua.
+        assert_eq!(
+            parse_legacy("blend, add;playcommand,Lift,1").unwrap(),
+            [
+                call("blend", vec![Str(" add".into())]),
+                call("playcommand", vec![Str("Lift".into()), Num(1.0)]),
+            ]
+        );
+        assert!(matches!(
+            parse_legacy("diffuse,beat"),
+            Err(CommandError::NeedsLua(_))
+        ));
+        assert!(matches!(parse_legacy("%f"), Err(CommandError::NeedsLua(_))));
     }
 
     #[test]

@@ -118,6 +118,10 @@ pub enum Source {
     Lua(FileRef),
     /// A MilkShape 3D model (`.txt`).
     Model(FileRef),
+    /// An actor file of StepMania 3.9's format (`.sprite`, `.actor`,
+    /// `.model`, `.xml`; `ActorUtil::MakeActor`), built natively
+    /// (`crate::legacy`).
+    Legacy(FileRef),
     /// A movie: a sprite with a movie texture.
     Movie(FileRef),
     /// Anything else: a folder (`BGAnimation`), a sound, `.xml`, an unknown
@@ -133,18 +137,20 @@ impl Source {
             | Source::Native(_, f)
             | Source::Lua(f)
             | Source::Model(f)
+            | Source::Legacy(f)
             | Source::Movie(f)
             | Source::Other(f) => f,
         }
     }
 
-    /// Makes a sprite (`SpriteOnly` asks for one): images and movies do,
-    /// Lua may.
+    /// Makes a sprite (`SpriteOnly` asks for one): images, movies and
+    /// `.sprite` files do, Lua may.
     fn can_be_sprite(&self) -> bool {
-        matches!(
-            self,
-            Source::Image(_) | Source::BuiltInArt(_) | Source::Movie(_) | Source::Lua(_)
-        )
+        match self {
+            Source::Image(_) | Source::BuiltInArt(_) | Source::Movie(_) | Source::Lua(_) => true,
+            Source::Legacy(f) => f.virt.is_none() && f.extension().eq_ignore_ascii_case("sprite"),
+            _ => false,
+        }
     }
 }
 
@@ -242,6 +248,10 @@ impl Skin<'_> {
     /// own scripts would wrap that; they cannot run yet
     /// ([`Skin::ignored_scripts`]).
     pub fn conventions(&self) -> Conventions {
+        // StepMania 3.9 and OpenITG look elements up by button.
+        if self.legacy {
+            return Conventions::Common;
+        }
         for &d in &self.chain {
             let name = self.dir_name(d);
             if !self.has_script(d) {
@@ -275,6 +285,7 @@ impl Skin<'_> {
         match file.virt {
             Some(Virtual::Art) => return Source::BuiltInArt(file),
             Some(Virtual::Lua(n)) => return Source::Native(n, file),
+            Some(Virtual::Actor { .. }) => return Source::Legacy(file),
             Some(Virtual::Redir(_)) | Some(Virtual::Other) | None => {}
         }
         if file.is_dir {
@@ -293,6 +304,7 @@ impl Skin<'_> {
             "png" | "jpg" | "jpeg" | "gif" | "bmp" | "svg" => Source::Image(file),
             "lua" => Source::Lua(file),
             "txt" => Source::Model(file),
+            "sprite" | "actor" | "model" | "xml" => Source::Legacy(file),
             "avi" | "f4v" | "flv" | "mkv" | "mp4" | "mpeg" | "mpg" | "mov" | "ogv" | "webm"
             | "wmv" => Source::Movie(file),
             _ => Source::Other(file),

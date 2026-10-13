@@ -38,8 +38,15 @@ pub fn animation_percent(
     if part.animation_is_vivid {
         let fraction = note_beat % 1.0;
         let interval = 1.0 / length;
-        // `QuantizeDown`.
-        percent += (fraction / interval).floor() * interval;
+        percent += if part.vivid_rounded {
+            // OpenITG: `Quantize` (half up, truncated toward 0) of the
+            // fraction a quarter of the length's step early.
+            let early = fraction - 0.25 / length;
+            ((early + interval / 2.0) / interval).trunc() * interval
+        } else {
+            // `QuantizeDown`.
+            (fraction / interval).floor() * interval
+        };
         percent = percent.rem_euclid(1.0);
     } else if percent < 0.0 {
         percent += 1.0;
@@ -97,6 +104,8 @@ mod tests {
             color_spacing: [0.0, 0.125],
             color_count: 8,
             color_type: Some(NoteColorType::Denominator),
+            note_color: false,
+            vivid_rounded: false,
         }
     }
 
@@ -124,6 +133,13 @@ mod tests {
         let v = part(4.0, true);
         assert_eq!(animation_percent(&v, true, 1.0, 0.0, 3.5), 0.75);
         assert_eq!(animation_percent(&v, true, 1.0, 0.0, 3.25), 0.5);
+        // OpenITG's rounds a quarter step early: a note just before the
+        // beat takes the beat's frame.
+        let mut rounded = v;
+        rounded.vivid_rounded = true;
+        assert_eq!(animation_percent(&rounded, true, 1.0, 0.0, 3.5), 0.75);
+        assert_eq!(animation_percent(&rounded, true, 1.0, 0.0, 3.99), 0.25);
+        assert_eq!(animation_percent(&v, true, 1.0, 0.0, 3.99), 0.0);
         // With a length of 1, vivid does nothing.
         let one = part(1.0, true);
         assert_eq!(animation_percent(&one, true, 0.5, 0.0, 3.5), 0.5);

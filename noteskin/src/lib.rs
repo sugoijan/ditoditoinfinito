@@ -18,6 +18,7 @@ pub mod commands;
 pub mod hints;
 pub mod import;
 pub mod ini;
+pub mod legacy;
 pub mod load;
 pub mod lua;
 pub mod metrics;
