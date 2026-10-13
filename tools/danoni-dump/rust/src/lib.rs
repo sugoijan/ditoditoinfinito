@@ -11,6 +11,8 @@ pub mod model;
 mod mpeg;
 #[cfg(feature = "native")]
 pub mod native;
+#[cfg(feature = "native")]
+pub mod orchestration;
 pub mod package;
 pub mod policy;
 pub mod preview;

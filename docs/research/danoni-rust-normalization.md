@@ -302,3 +302,16 @@ proof gaps using the new [Rust supervisor](danoni-rust-supervisor.md), then port
 worker build/package preparation and the bounded resource-request loop. Source discovery/URL fetching and desktop installation
 remain the subsequent host stages. The current saved-run API removes the Python
 normalization/demux/audio dependency for the proved structural corpus.
+
+
+### Selector-plan follow-up, 2026-10-14
+
+The [Rust orchestrator](danoni-rust-orchestration.md) now captures fresh roles
+from one bound control config per chart. M. MOON `chart-1` passes with its
+frame-330 click present in motion too. Destined Marionette Original passes using
+only iterations 506–511 and 527, before the frame-460 speed change. Full frozen
+chart/PCM/downstream parity passes for both; neither proof gate changed. The
+historical mismatched/boundary-crossing requests remain strict rejection tests.
+RE:RAVE Hard's missing native speed bank remains unresolved. The new four-work /
+nine-chart gate covers 4,127 endpoints and 141 scroll checks; accepted exports
+remain unchanged.

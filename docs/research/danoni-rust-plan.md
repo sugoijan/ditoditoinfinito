@@ -469,3 +469,32 @@ installed-bundle verification. Next implement reproducible selector/capture
 orchestration and recapture the three explicit structural proof gaps. Bounded
 resource iteration, URL acquisition and other-platform confinement remain ahead;
 provisional native musical-quality review still keeps milestone 3 open.
+
+
+### Rebased Rust selector/capture orchestration, 2026-10-14
+
+Rebased cleanly onto local `main` `18791f5`, retaining the dated backup branch.
+The [orchestration contract](danoni-rust-orchestration.md) adds one bound selector
+config per chart, derived role observations, exact capture deduplication, staged
+input/provenance inventories, portable replay and capture-to-normalization APIs.
+`extract-native BUNDLE JOB NEW_OUTPUT` uses only the installed restricted worker
+and Rust code. Parent readiness follows all chart proofs and a final cancellation
+checkpoint; child transport success never authorizes an install.
+
+M. MOON's omitted-click gap is closed by recapturing every role with the same
+frame-330 control plan. Destined Marionette's motion proof is closed using its
+existing stable samples strictly before the frame-460 author speed change.
+The old requests still fail unchanged gates. RE:RAVE Hard remains an explicit
+source/native speed-bank proof gap.
+
+Fresh execution and frozen reference/PCM/downstream comparison cover four works,
+nine charts and eight songs: 4,127 endpoints and 141 x1/x2/x3 checks, zero decoder
+origin corrections and at most one PCM unit of difference. M. MOON replays from
+only its staged dump with equal state/PCM and unchanged normalized chart/data
+apart from the new capture timestamp. Accepted exports remain unchanged.
+
+Milestone 4 now includes explicit offline selector/capture orchestration. It is
+not yet automatic selector discovery or recipe-free URL import. Next prove the
+remaining speed-bank behavior and implement bounded request/dependency iteration,
+then public URL discovery/acquisition. Native musical-quality review, HTML5,
+desktop library installation and distribution notices remain open.

@@ -227,7 +227,7 @@ endpoint and x1/x2/x3 authored scroll segments. Three selectors remain explicitl
 unproved; accepted exports are unchanged. This removes Python from proved saved
 structural normalization. The pinned Higan/Kouhaku path adds seven charts / six
 songs with original reference parity, numeric stars, explicit child clocks and
-measured width-based scroll. Fresh Rust worker execution is now described below; selector orchestration, URL acquisition and installation remain pending.
+measured width-based scroll. Fresh Rust worker execution is now described below; automatic selector discovery, URL acquisition and installation remain pending.
 
 
 Fresh native captures now use the Rust-owned macOS supervisor:
@@ -243,8 +243,8 @@ bindings for normalization. No Python launcher, browser, shell, ps or FFmpeg is
 needed at runtime. Ready captures and diagnostic failures have separate markers;
 unsupported platforms never fall back to unrestricted execution. Seven fresh
 pinned charts pass the downstream references, PCM, SSC and scroll gate. Worker
-build preparation and local packaging are described below; selector orchestration
-and URL fetching remain separate work.
+build preparation and local packaging are described below. Explicit selector
+orchestration now follows; automatic discovery and URL fetching remain separate work.
 
 
 The [worker preparation/bundle contract](../../../docs/research/danoni-rust-worker.md)
@@ -257,3 +257,15 @@ licences/provenance. The app loads its trusted installed bundle and passes the
 returned `WorkerSpec` directly to the supervisor. No Python is needed to prepare,
 package or run this worker. Other-platform confinement and distribution notice
 review remain pending.
+
+
+The [selector/capture orchestrator](../../../docs/research/danoni-rust-orchestration.md)
+adds `orchestration::{prepare_plan, execute, execute_job}` and
+`extract-native BUNDLE JOB.json NEW_OUTPUT`. One bound control config per chart
+creates every role, deduplicates identical captures, preserves inputs/provenance
+and normalizes the selected work. `replay-job.json` permits recapture using only
+the staged archive. Only parent readiness authorizes downstream work; a failed
+or cancelled plan can retain successful child captures/normalization as diagnostics.
+Fresh M. MOON and stable-segment Destined Marionette close two proof gaps, with
+nine-chart / 4,127-endpoint / 141-scroll-check parity. RE:RAVE's speed-bank proof,
+bounded dependency fetching and automatic URL/selector discovery remain open.

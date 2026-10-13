@@ -55,7 +55,7 @@ impl Default for Limits {
     }
 }
 impl Limits {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if !(1..=60000).contains(&self.wall_ms)
             || !(1..=2048).contains(&self.resident_mib)
             || !(1..=20).contains(&self.cpu_seconds)
@@ -643,4 +643,12 @@ pub fn capture_job(
     }
     let source = native::DirectorySource::new(job.roots)?;
     capture(&job.request, &job.worker, &source, output, checkpoint)
+}
+
+/// Internal shared validator; orchestration does not loosen worker inputs.
+pub(crate) fn validate_config(bytes: &[u8]) -> Result<()> {
+    if bytes.len() > CONFIG_LIMIT {
+        return Err(invalid("Configuration exceeds 64 KiB"));
+    }
+    Config::parse(bytes).map(|_| ())
 }

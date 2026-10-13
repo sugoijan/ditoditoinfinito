@@ -229,3 +229,9 @@ Next: reproducible selector/capture orchestration and the three structural
 selector proof gaps; then the bounded resource-request loop and public URL
 acquisition. Native tempo-quality review, HTML5 capture and desktop library
 integration remain separate milestones.
+
+
+The subsequent [2026-10-14 orchestration slice](danoni-rust-orchestration.md)
+now executes explicit selector plans through this installed bundle API, with
+portable replay and two of the three structural proof gaps closed. This does
+not add automatic URL acquisition or change the worker/notice contract above.
