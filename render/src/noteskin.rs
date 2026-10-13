@@ -303,17 +303,29 @@ fn to_element(
             notes.push(n);
         }
     }
+    // The stand-ins' art an actor draws, when it draws only that.
+    let standins = |a: &Actor| -> Option<Vec<String>> {
+        let ts = a.textures();
+        (!ts.is_empty())
+            .then(|| {
+                ts.iter()
+                    .map(|&t| match &textures.keys()[t as usize] {
+                        TextureKey::BuiltIn(n) => Some(n.to_ascii_lowercase()),
+                        TextureKey::Skin { .. } => None,
+                    })
+                    .collect()
+            })
+            .flatten()
+    };
     match built.built {
-        // A note made of the stand-ins' art only: the built-in skin's own
-        // shape, as for the rest.
-        Built::Actor(a)
-            if name != "Explosion"
-                && a.textures()
-                    .iter()
-                    .all(|&t| matches!(textures.keys()[t as usize], TextureKey::BuiltIn(_))) =>
-        {
-            Element::BuiltIn
-        }
+        Built::Actor(a) if name != "Explosion" => match standins(&a) {
+            // StepMania's `_blank` (a tail or cap a skin leaves out): nothing.
+            Some(n) if n.iter().all(|n| n == "_blank.png") => Element::Blank,
+            // A note made of the stand-ins' art only: the built-in skin's
+            // own shape, as for the rest.
+            Some(_) => Element::BuiltIn,
+            None => Element::Actor(Box::new(a)),
+        },
         Built::Actor(a) => Element::Actor(Box::new(a)),
         Built::BuiltIn => Element::BuiltIn,
         Built::Blank => Element::Blank,
