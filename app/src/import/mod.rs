@@ -510,6 +510,11 @@ async fn store_noteskins(
             format!("only the first {MAX_SKINS} were imported"),
         ));
     }
+    let legacy: Vec<String> = dance
+        .iter()
+        .filter(|f| f.legacy)
+        .map(|f| f.dir.clone())
+        .collect();
     for found in dance.into_iter().take(MAX_SKINS) {
         let key = crate::noteskins::skin_key(&found.game, &found.name);
         if imported.iter().any(|s| s.key() == key) {
@@ -627,6 +632,15 @@ async fn store_noteskins(
             crate::noteskins::summary(&folders, &skin.game, &skin.name).await
         } else {
             "shared files for other skins".to_string()
+        };
+        // A StepMania 3.9 or OpenITG skin draws only what it shares with
+        // StepMania 5's format.
+        let line = if legacy.contains(&skin.origin) {
+            format!(
+                "made for StepMania 3.9 or OpenITG, whose .sprite, .model and .actor files are not read; {line}"
+            )
+        } else {
+            line
         };
         report.noteskins.push((skin.name, line));
     }

@@ -9,6 +9,10 @@ pub struct Found {
     /// `dance`, `common`, or another game (not kept).
     pub game: String,
     pub name: String,
+    /// Written for StepMania 3.9 or OpenITG (`.sprite`, `.model`, `.actor`
+    /// elements, which StepMania 5 skins never use): those files are not
+    /// read.
+    pub legacy: bool,
 }
 
 /// StepMania's and OutFox's game folders under `NoteSkins/`.
@@ -49,25 +53,33 @@ const ELEMENT_PREFIXES: &[&str] = &[
 ];
 
 /// The skin folders among `paths` (files, `/`-separated): a folder holding
-/// a `NoteSkin.lua`, or a `metrics.ini` with element files beside it or
-/// under a `NoteSkins` folder (a theme also has a `metrics.ini`). A skin's
+/// a `NoteSkin.lua`, or a `metrics.ini` with element files or parts
+/// (`_down tap note model.txt`: a variant may hold only those, falling back
+/// on its parent for the rest) beside it or under a `NoteSkins` folder (a
+/// theme also has a `metrics.ini`). A skin's
 /// game is its parent folder's name when that is a game or `common`, else
 /// `dance`. Folders inside a skin (OutFox and ITGmania variants) and
-/// anything under `Themes` are not skins of their own.
+/// anything under `Themes` are not skins of their own. StepMania 5 skins
+/// come first, so one wins over an older skin of the same name.
 pub fn find_skins(paths: &[String]) -> Vec<Found> {
     use std::collections::BTreeMap;
-    // Folder → (has NoteSkin.lua, has metrics.ini, has element files).
-    let mut dirs: BTreeMap<String, (bool, bool, bool)> = BTreeMap::new();
+    // Folder → (has NoteSkin.lua, has metrics.ini, has element files, has
+    // StepMania 3.9 elements).
+    let mut dirs: BTreeMap<String, (bool, bool, bool, bool)> = BTreeMap::new();
     for p in paths {
         let (dir, file) = p.rsplit_once('/').unwrap_or(("", p));
         let lower = file.to_ascii_lowercase();
         let e = dirs.entry(dir.to_string()).or_default();
         e.0 |= lower == "noteskin.lua";
         e.1 |= lower == "metrics.ini";
-        e.2 |= ELEMENT_PREFIXES.iter().any(|w| lower.starts_with(w));
+        let element = lower.strip_prefix('_').unwrap_or(&lower);
+        e.2 |= ELEMENT_PREFIXES.iter().any(|w| element.starts_with(w));
+        e.3 |= [".sprite", ".model", ".actor"]
+            .iter()
+            .any(|x| lower.ends_with(x));
     }
     let mut found: Vec<Found> = Vec::new();
-    for (dir, (script, metrics, elements)) in &dirs {
+    for (dir, (script, metrics, elements, legacy)) in &dirs {
         let parts: Vec<&str> = dir.split('/').collect();
         let lower: Vec<String> = parts.iter().map(|p| p.to_ascii_lowercase()).collect();
         if dir.is_empty() || lower.iter().any(|p| p == "themes") {
@@ -98,8 +110,10 @@ pub fn find_skins(paths: &[String]) -> Vec<Found> {
             dir: dir.clone(),
             game: game.to_string(),
             name,
+            legacy: *legacy && !*script,
         });
     }
+    found.sort_by_key(|f| f.legacy);
     found
 }
 
@@ -139,6 +153,12 @@ mod tests {
             "Mine/metrics.ini",
             "Mine/Down Tap Note 4x2.png",
             "Mine/variants/red/metrics.ini",
+            "Vivid/metrics.ini",
+            "Vivid/_down tap note model.txt",
+            "Vivid/textures/Fill.png",
+            "Old/vivid/metrics.ini",
+            "Old/vivid/Down Tap Note 4th.model",
+            "Old/vivid/Down Hold Body Active.png",
             "Themes/Simply Love/metrics.ini",
             "Songs/Pack/Song/song.sm",
             "Loose/metrics.ini",
@@ -146,8 +166,12 @@ mod tests {
         ]));
         let got: Vec<(&str, &str, &str)> = found
             .iter()
+            .filter(|f| !f.legacy)
             .map(|f| (f.dir.as_str(), f.game.as_str(), f.name.as_str()))
             .collect();
+        // A StepMania 3.9 skin comes last, after a skin of its name.
+        let last = found.last().unwrap();
+        assert!(last.legacy && last.dir == "Old/vivid", "{found:?}");
         assert_eq!(
             got,
             [
@@ -156,6 +180,7 @@ mod tests {
                 ("NoteSkins/dance/Delta", "dance", "Delta"),
                 ("NoteSkins/global/broadhead", "dance", "broadhead"),
                 ("NoteSkins/pump/default", "pump", "default"),
+                ("Vivid", "dance", "Vivid"),
                 ("common", "common", "common"),
             ]
         );

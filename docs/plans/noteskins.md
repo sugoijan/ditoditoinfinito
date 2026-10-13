@@ -267,5 +267,11 @@ the player removed and keeps one whose folder is gone.
 - **Bundling**: Delta (CC BY 3.0) once its Lua tap note and receptor can
   load; Apache-2.0 or Unlicense art (Alpha-Arrows, Dake, Peter Lawrence's CF
   skins) only if the maintainer accepts those licences for art.
-- StepMania 3.9 skins (a separate format), OutFox's `global/` skins and
+- StepMania 3.9 and OpenITG skins (a separate format: `.sprite`, `.actor`
+  and `.model` INI files, XML actors, a file per note colour, an explosion
+  per judgement). Since 2026-10-13 an import recognises them, says so, and
+  lets a StepMania 5 skin of the same name win (Peter Lawrence's
+  repository ships both kinds under the same names); a variant holding
+  only parts (`_down tap note model.txt`) is recognised as a skin too.
+- OutFox's `global/` skins and
   per-game extras.
