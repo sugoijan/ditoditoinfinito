@@ -481,7 +481,9 @@ async fn store_noteskins(
     report: &mut ImportReport,
     progress: &Callback<String>,
 ) {
-    use crate::noteskins::{MAX_FILES, MAX_SKINS, MAX_TEXT, StoredSkin, kept_file, store};
+    use crate::noteskins::{
+        MAX_FILES, MAX_SKINS, MAX_TEXT, MAX_TEXTS, StoredSkin, kept_file, store,
+    };
     let mut imported: Vec<StoredSkin> = Vec::new();
     // Other games' skins (a whole StepMania install has dozens): one line.
     let other: Vec<&str> = skins
@@ -534,16 +536,30 @@ async fn store_noteskins(
         let mut texts = Vec::new();
         let mut blobs = Vec::new();
         let mut stored = Vec::new();
+        let mut text_bytes = 0;
         for f in &files {
             let Some(source) = sources.get(&format!("{prefix}{f}")) else {
                 continue;
             };
-            let is_text = crate::noteskins::kept_text(f);
+            let mut is_text = crate::noteskins::kept_text(f);
             if is_text && source_size(source) > MAX_TEXT {
                 report
                     .warnings
                     .push((found.dir.clone(), format!("{f} is too large; left out")));
+            } else if is_text && text_bytes + source_size(source) > MAX_TEXTS {
+                if text_bytes <= MAX_TEXTS {
+                    report.warnings.push((
+                        found.dir.clone(),
+                        format!(
+                            "its texts pass {} MB; the rest were left out",
+                            MAX_TEXTS >> 20
+                        ),
+                    ));
+                }
+                text_bytes = MAX_TEXTS + 1;
+                is_text = false;
             } else if is_text {
+                text_bytes += source_size(source);
                 match read_bytes(source).await {
                     Ok(bytes) => {
                         texts.push((f.clone(), String::from_utf8_lossy(&bytes).into_owned()))
@@ -593,7 +609,7 @@ async fn store_noteskins(
     // records given their `.lua` texts).
     let mut all = crate::noteskins::all(db).await.unwrap_or_default();
     for s in &mut all {
-        crate::noteskins::add_lua_texts(db, s).await;
+        crate::noteskins::add_missing_texts(db, s).await;
     }
     all.extend(crate::noteskins::bundled_or_none().await);
     let folders: Vec<ddi_noteskin::Folder> = all

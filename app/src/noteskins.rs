@@ -38,8 +38,9 @@ pub(crate) struct StoredSkin {
     pub(crate) name: String,
     /// Every file, relative to the skin folder.
     pub(crate) files: Vec<String>,
-    /// `metrics.ini`, `.redir` and `.lua` texts (`.lua` since skins' Lua
-    /// runs; older records get theirs from the stored files).
+    /// The texts `ddi_noteskin::import::kept_text` keeps (`.ini`, `.redir`,
+    /// `.lua`, `.txt`; older records get the ones added since from the
+    /// stored files, `add_missing_texts`).
     pub(crate) texts: Vec<(String, String)>,
     /// Where it was imported from (the folder or zip path).
     #[serde(default)]
@@ -144,8 +145,11 @@ pub(crate) fn file_key(skin: &str, path: &str) -> String {
 pub(crate) const MAX_FILES: usize = 2000;
 /// Skins one import keeps, at most.
 pub(crate) const MAX_SKINS: usize = 200;
-/// The largest `metrics.ini`, `.redir` or `.lua` read, in bytes.
+/// The largest text read (`metrics.ini`, `.redir`, `.lua`, a model's
+/// `.txt` or `.ini`), in bytes.
 pub(crate) const MAX_TEXT: u64 = 1 << 20;
+/// The texts of one skin, in bytes, at most; the rest are left out.
+pub(crate) const MAX_TEXTS: u64 = 32 << 20;
 
 pub(crate) use ddi_noteskin::import::kept_text;
 
@@ -379,7 +383,7 @@ pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> Strin
             let own = play.own_elements(1);
             let mut line = format!("its Lua ran: {own} of {total} elements are its own");
             if own < total {
-                // Why the first few are not (a model, an unsupported actor).
+                // Why the first few are not (text, an unsupported actor).
                 let why: Vec<&str> = play
                     .notes
                     .iter()
@@ -406,11 +410,11 @@ pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> Strin
 fn native_summary(skin: &Skin<'_>) -> String {
     use ddi_noteskin::load::ENGINE_ELEMENTS;
     use ddi_noteskin::{Resolved, Source};
-    let (mut own, mut lua, mut model, mut other, mut builtin) = (0, 0, 0, 0, 0);
+    let (mut own, mut lua, mut other, mut builtin) = (0, 0, 0, 0);
     for e in ENGINE_ELEMENTS {
         match skin.resolve(ddi_noteskin::Button::Down, e) {
             Resolved::File {
-                source: Source::Image(_),
+                source: Source::Image(_) | Source::Model(_),
                 ..
             }
             | Resolved::Blank => own += 1,
@@ -418,10 +422,6 @@ fn native_summary(skin: &Skin<'_>) -> String {
                 source: Source::Lua(_),
                 ..
             } => lua += 1,
-            Resolved::File {
-                source: Source::Model(_),
-                ..
-            } => model += 1,
             Resolved::File {
                 source: Source::BuiltInArt(_) | Source::Native(..),
                 ..
@@ -431,14 +431,11 @@ fn native_summary(skin: &Skin<'_>) -> String {
         }
     }
     let mut parts = vec![format!(
-        "{own} of {} elements are its own images",
+        "{own} of {} elements are its own images and models",
         ENGINE_ELEMENTS.len()
     )];
     if lua > 0 {
         parts.push(format!("{lua} are Lua (drawn built in)"));
-    }
-    if model > 0 {
-        parts.push(format!("{model} are 3D models (drawn built in)"));
     }
     if builtin > 0 {
         parts.push(format!(
@@ -612,13 +609,14 @@ async fn lua_play(
         .map_err(|e| e.to_string())
 }
 
-/// Fills in the `.lua` texts of a skin stored before they were kept with
-/// its record, from its stored files, and saves the record.
-pub(crate) async fn add_lua_texts(db: &Db, skin: &mut StoredSkin) {
+/// Fills in the texts of a skin stored before they were kept with its
+/// record (`.lua` since skins' Lua runs, models and `.ini` textures since
+/// models draw), from its stored files, and saves the record.
+pub(crate) async fn add_missing_texts(db: &Db, skin: &mut StoredSkin) {
     let missing: Vec<String> = skin
         .stored
         .iter()
-        .filter(|p| p.to_ascii_lowercase().ends_with(".lua"))
+        .filter(|p| kept_text(p))
         .filter(|p| !skin.texts.iter().any(|(t, _)| t == *p))
         .cloned()
         .collect();
@@ -878,7 +876,7 @@ pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prep
         if let (Some(s), Some(db)) = (stored.get_mut(i), &db)
             && s.bundled.is_none()
         {
-            add_lua_texts(db, s).await;
+            add_missing_texts(db, s).await;
         }
     }
     let stored = stored;

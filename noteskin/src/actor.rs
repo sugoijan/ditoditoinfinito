@@ -6,8 +6,10 @@
 //! clockwise on screen (y grows downwards).
 
 use std::f32::consts::PI;
+use std::sync::Arc;
 
 use crate::commands::{Arg, Call};
+use crate::model::{AnimatedTexture, Animation, Geometry, Rest};
 
 pub type Rgba = [f32; 4];
 
@@ -298,6 +300,177 @@ pub enum Kind {
     Actor,
     Sprite(Sprite),
     Frame(Vec<Actor>),
+    Model(Box<Model>),
+}
+
+/// A 3D model (`Model`, `src/Model.cpp`): its meshes and bones (shared), its
+/// materials' textures, and where its animations are.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Model {
+    pub geometry: Arc<Geometry>,
+    pub animation: Arc<Animation>,
+    pub materials: Vec<ModelMaterial>,
+    /// The bones at rest (from [`Model::animation`]).
+    pub rest: Arc<Vec<Rest>>,
+    /// Each bone's matrix now (`m_Final`).
+    pub bones: Vec<Mat4>,
+    /// The bones' frame (30 a second), its rate, and whether it loops
+    /// (`Model::AdvanceFrame`).
+    pub frame: f32,
+    pub rate: f32,
+    pub looping: bool,
+    /// `SetDefaultAnimation`: whether it names the one animation there is
+    /// ("default"), and its rate; played again when the frame runs out.
+    pub default_animation: Option<(bool, f32)>,
+    /// Seconds into the textures' animation (`SetSecondsIntoAnimation`).
+    pub seconds: f32,
+    /// `setstate`: every material's frame; `None`: by time.
+    pub state: Option<usize>,
+}
+
+/// A model's material, ready to draw.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelMaterial {
+    /// Unlit ([`crate::model::Material::unlit_color`]).
+    pub color: Rgba,
+    /// The renderer's texture of each frame of [`ModelMaterial::texture`];
+    /// empty: untextured.
+    pub frames: Vec<u32>,
+    pub texture: AnimatedTexture,
+}
+
+impl Model {
+    /// A model as `Model::LoadPieces` leaves it: its "default" animation
+    /// playing from its first frame, looping, its vertices that follow a
+    /// bone of their own made relative to it.
+    pub fn new(
+        mut geometry: Geometry,
+        animation: Animation,
+        materials: Vec<ModelMaterial>,
+    ) -> Model {
+        let rest = animation.rest();
+        crate::model::to_rest(&mut geometry, &rest);
+        let mut bones = rest.iter().map(|r| r.absolute).collect();
+        animation.pose(&rest, 0.0, &mut bones);
+        Model {
+            geometry: Arc::new(geometry),
+            animation: Arc::new(animation),
+            materials,
+            rest: Arc::new(rest),
+            bones,
+            frame: 0.0,
+            rate: 1.0,
+            looping: true,
+            default_animation: None,
+            seconds: 0.0,
+            state: None,
+        }
+    }
+
+    /// Seconds of the textures' animation, the longest material's
+    /// (`Model::GetAnimationLengthSeconds`).
+    pub fn animation_length(&self) -> f32 {
+        self.materials
+            .iter()
+            .map(|m| m.texture.length())
+            .fold(0.0, f32::max)
+    }
+
+    /// `GetNumStates`: the most frames a material has.
+    pub fn num_states(&self) -> usize {
+        self.materials
+            .iter()
+            .map(|m| m.frames.len())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// One update (`Model::Update`): the bones' frame and pose, the
+    /// textures' time.
+    fn advance(&mut self, dt: f32) {
+        if dt.is_finite() {
+            self.seconds += dt;
+        }
+        if self.geometry.meshes.is_empty() || !dt.is_finite() {
+            return;
+        }
+        // `AdvanceFrame`.
+        let total = self.animation.total_frames as f32;
+        self.frame += 30.0 * dt * self.rate;
+        if !(self.frame >= 0.0 && self.frame < total) {
+            match self.default_animation {
+                // `PlayAnimation` again: from its start, at its rate.
+                Some((true, rate)) => {
+                    self.frame = 0.0;
+                    self.rate = rate;
+                }
+                // An animation that is not there: nothing changes.
+                Some((false, _)) => {}
+                // `wrap`; of no frames, past every key.
+                None if self.looping => {
+                    self.frame = if total > 0.0 {
+                        self.frame.rem_euclid(total)
+                    } else {
+                        f32::NAN
+                    };
+                }
+                None => self.frame = self.frame.clamp(0.0, total),
+            }
+        }
+        self.animation.pose(&self.rest, self.frame, &mut self.bones);
+    }
+
+    /// What the materials show now: texture, colour (times `diffuse`, as
+    /// `DrawPrimitives` multiplies ambient, diffuse and emissive by the
+    /// actor's), translation.
+    fn materials_now(&self, diffuse: Rgba) -> Vec<(Option<u32>, Rgba, [f32; 2])> {
+        // Each material wraps it by its own length.
+        let seconds = self.seconds;
+        self.materials
+            .iter()
+            .map(|m| {
+                let frame = match self.state {
+                    Some(st) => st.min(m.frames.len().saturating_sub(1)),
+                    None => m.texture.frame_at(seconds),
+                };
+                let color = [
+                    (m.color[0] * diffuse[0]).clamp(0.0, 1.0),
+                    (m.color[1] * diffuse[1]).clamp(0.0, 1.0),
+                    (m.color[2] * diffuse[2]).clamp(0.0, 1.0),
+                    (m.color[3] * diffuse[3]).clamp(0.0, 1.0),
+                ];
+                (
+                    m.frames.get(frame).copied(),
+                    color,
+                    m.texture.translation(seconds),
+                )
+            })
+            .collect()
+    }
+}
+
+/// A model to draw.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelDraw {
+    /// Model space (MilkShape's: y up) to screen pixels, z toward the
+    /// viewer; a column-major 4×4.
+    pub transform: [f32; 16],
+    pub geometry: Arc<Geometry>,
+    /// Per material: its texture now (`None`: none), colour, translation.
+    pub materials: Vec<(Option<u32>, Rgba, [f32; 2])>,
+    /// Each bone's matrix (MilkShape's space), for the meshes and vertices
+    /// that follow one.
+    pub bones: Vec<Mat4>,
+    pub diffuse: Rgba,
+    pub glow: Rgba,
+    pub blend: Blend,
+}
+
+/// What an actor draws: quads and models, in drawing order.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Drawn {
+    Quad(Quad),
+    Model(ModelDraw),
 }
 
 /// An actor.
@@ -625,6 +798,7 @@ impl Actor {
         match &self.kind {
             Kind::Sprite(s) => vec![s.texture],
             Kind::Frame(c) => c.iter().flat_map(Actor::textures).collect(),
+            Kind::Model(m) => m.materials.iter().flat_map(|m| m.frames.clone()).collect(),
             Kind::Actor => Vec::new(),
         }
     }
@@ -954,9 +1128,14 @@ impl Actor {
         None
     }
 
-    /// The end of this actor's own `Update`: a sprite's animation.
+    /// The end of this actor's own `Update`: a sprite's or a model's
+    /// animation.
     pub fn update_end(&mut self, dt: f32) {
         let effect_delta = self.effect_delta;
+        // `Model::Update`: the update's own time, paused or not.
+        if let Kind::Model(model) = &mut self.kind {
+            model.advance(dt);
+        }
         if let Kind::Sprite(sprite) = &mut self.kind
             && self.animating
         {
@@ -1150,7 +1329,12 @@ impl Actor {
             "addx" => self.dest().pos[0] += num(0)?,
             "addy" => self.dest().pos[1] += num(0)?,
             "addz" => self.dest().pos[2] += num(0)?,
-            "zoom" => self.dest().scale = [num(0)?; 3],
+            // `SetZoom`: all three.
+            "zoom" => {
+                let z = num(0)?;
+                let d = self.dest();
+                d.scale = [z; 3];
+            }
             "zoomx" => self.dest().scale[0] = num(0)?,
             "zoomy" => self.dest().scale[1] = num(0)?,
             "zoomz" => self.dest().scale[2] = num(0)?,
@@ -1372,8 +1556,47 @@ impl Actor {
             "pause" => self.animating = false,
             "setstate" => {
                 let i = num(0)? as i64;
-                if let Kind::Sprite(s) = &mut self.kind {
-                    s.set_state(i);
+                match &mut self.kind {
+                    Kind::Sprite(s) => s.set_state(i),
+                    Kind::Model(m) => m.state = Some(i.max(0) as usize),
+                    _ => {}
+                }
+            }
+            // `PlayAnimation`: "default" is the one animation a model has;
+            // playing it again starts it over.
+            "playanimation" => {
+                let name = text(0)?;
+                let rate = num(1)?;
+                if let Kind::Model(m) = &mut self.kind
+                    && name == "default"
+                {
+                    m.frame = 0.0;
+                    m.rate = rate;
+                }
+            }
+            "SetDefaultAnimation" => {
+                let name = text(0)?;
+                let rate = a.get(1).map_or(Ok(1.0), |_| num(1))?;
+                if let Kind::Model(m) = &mut self.kind {
+                    m.default_animation = (!name.is_empty()).then_some((name == "default", rate));
+                }
+            }
+            "rate" => {
+                let r = num(0)?;
+                if let Kind::Model(m) = &mut self.kind {
+                    m.rate = r;
+                }
+            }
+            "loop" => {
+                let l = flag(0)?;
+                if let Kind::Model(m) = &mut self.kind {
+                    m.looping = l;
+                }
+            }
+            "position" => {
+                let seconds = num(0)?;
+                if let Kind::Model(m) = &mut self.kind {
+                    m.frame = (30.0 * seconds).clamp(0.0, m.animation.total_frames as f32);
                 }
             }
             "SetAllStateDelays" => {
@@ -1386,8 +1609,13 @@ impl Actor {
             }
             "SetSecondsIntoAnimation" => {
                 let t = num(0)?;
-                if let Kind::Sprite(s) = &mut self.kind {
-                    s.set_seconds_into_animation(t);
+                match &mut self.kind {
+                    Kind::Sprite(s) => s.set_seconds_into_animation(t),
+                    Kind::Model(m) => {
+                        m.seconds = t;
+                        m.state = None;
+                    }
+                    _ => {}
                 }
             }
             "texcoordvelocity" => {
@@ -1500,6 +1728,7 @@ impl Actor {
             "GetVAlign" => Value::Num(self.valign),
             "GetNumStates" => Value::Num(match &self.kind {
                 Kind::Sprite(s) => s.states.len() as f32,
+                Kind::Model(m) => m.num_states() as f32,
                 _ => 0.0,
             }),
             "GetState" => Value::Num(match &self.kind {
@@ -1508,6 +1737,7 @@ impl Actor {
             }),
             "GetAnimationLengthSeconds" => Value::Num(match &self.kind {
                 Kind::Sprite(s) => s.animation_length(),
+                Kind::Model(m) => m.animation_length(),
                 _ => 0.0,
             }),
             "GetNumChildren" => Value::Num(self.children().len() as f32),
@@ -1528,16 +1758,23 @@ impl Actor {
     /// Appends what the actor draws at `transform` (its parent's), under the
     /// parent's diffuse and glow (`ActorFrame::DrawPrimitives` hands them
     /// down; `Actor::PreDraw` multiplies and screens them in).
-    pub fn draw(&mut self, transform: [f32; 6], diffuse: Rgba, glow: Rgba, out: &mut Vec<Quad>) {
-        self.draw_depth(&transform, diffuse, glow, out, 0);
+    pub fn draw(&mut self, transform: [f32; 6], diffuse: Rgba, glow: Rgba, out: &mut Vec<Drawn>) {
+        // The same placement in 3D: the 2D part, depth scaled alike.
+        let t = transform;
+        let k = (t[0] * t[3] - t[1] * t[2]).abs().sqrt();
+        let parent3: Mat4 = [
+            t[0], t[1], 0.0, 0.0, t[2], t[3], 0.0, 0.0, 0.0, 0.0, k, 0.0, t[4], t[5], 0.0, 1.0,
+        ];
+        self.draw_depth(&transform, &parent3, diffuse, glow, out, 0);
     }
 
     fn draw_depth(
         &mut self,
         parent: &Mat,
+        parent3: &Mat4,
         diffuse: Rgba,
         glow: Rgba,
-        out: &mut Vec<Quad>,
+        out: &mut Vec<Drawn>,
         depth: u32,
     ) {
         if !self.visible || self.hibernate > 0.0 || depth > MAX_DEPTH {
@@ -1591,11 +1828,27 @@ impl Actor {
             s.pos[1] + ax[1] * align[0] + ay[1] * align[1],
         ];
         let m = mul(parent, &local);
+        // In 3D (models, and what they are drawn under): the same order,
+        // the rotation `Rx(-x)·Ry(-y)·Rz(z)` (`RageMatrixRotationXYZ`).
+        let local3 = mul4(
+            &mul4(
+                &translation4([s.pos[0], s.pos[1], s.pos[2]]),
+                &mul4(
+                    &mul4(&rotation_x4(-rot[0]), &rotation_y4(-rot[1])),
+                    &rotation_z4(rot[2]),
+                ),
+            ),
+            &mul4(
+                &scale4([scale[0], scale[1], s.scale[2] * self.base_scale[2]]),
+                &translation4([align[0], align[1], 0.0]),
+            ),
+        );
+        let m3 = mul4(parent3, &local3);
         match &mut self.kind {
             Kind::Actor => {}
             Kind::Sprite(sprite) => {
                 let sized = mul(&m, &[size[0], 0.0, 0.0, size[1], 0.0, 0.0]);
-                out.push(Quad {
+                out.push(Drawn::Quad(Quad {
                     transform: sized,
                     texture: sprite.texture,
                     uv: sprite.custom.unwrap_or(sprite.states[sprite.current].rect),
@@ -1603,15 +1856,85 @@ impl Actor {
                     diffuse: s.diffuse,
                     glow: s.glow,
                     blend: self.blend,
-                });
+                }));
+            }
+            Kind::Model(model) => {
+                // MilkShape's y is up (`Model::DrawPrimitives` scales y by
+                // -1).
+                out.push(Drawn::Model(ModelDraw {
+                    transform: mul4(&m3, &scale4([1.0, -1.0, 1.0])),
+                    geometry: model.geometry.clone(),
+                    materials: model.materials_now(s.diffuse),
+                    bones: model.bones.clone(),
+                    diffuse: s.diffuse,
+                    glow: s.glow,
+                    blend: self.blend,
+                }));
             }
             Kind::Frame(children) => {
                 for c in children {
-                    c.draw_depth(&m, s.diffuse, s.glow, out, depth + 1);
+                    c.draw_depth(&m, &m3, s.diffuse, s.glow, out, depth + 1);
                 }
             }
         }
     }
+}
+
+/// A column-major 4×4 matrix.
+pub type Mat4 = [f32; 16];
+
+/// `a · b`: `b` first.
+pub fn mul4(a: &Mat4, b: &Mat4) -> Mat4 {
+    let mut out = [0.0; 16];
+    for c in 0..4 {
+        for r in 0..4 {
+            out[c * 4 + r] = (0..4).map(|k| a[k * 4 + r] * b[c * 4 + k]).sum();
+        }
+    }
+    out
+}
+
+fn translation4(t: [f32; 3]) -> Mat4 {
+    [
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, t[0], t[1], t[2], 1.0,
+    ]
+}
+
+fn scale4(k: [f32; 3]) -> Mat4 {
+    [
+        k[0], 0.0, 0.0, 0.0, 0.0, k[1], 0.0, 0.0, 0.0, 0.0, k[2], 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
+fn rotation_x4(a: f32) -> Mat4 {
+    let (s, c) = a.sin_cos();
+    [
+        1.0, 0.0, 0.0, 0.0, 0.0, c, s, 0.0, 0.0, -s, c, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
+fn rotation_y4(a: f32) -> Mat4 {
+    let (s, c) = a.sin_cos();
+    [
+        c, 0.0, -s, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
+fn rotation_z4(a: f32) -> Mat4 {
+    let (s, c) = a.sin_cos();
+    [
+        c, s, 0.0, 0.0, -s, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
+/// Where `transform` puts the point `p`.
+pub fn transform_point(transform: &Mat4, p: [f32; 3]) -> [f32; 3] {
+    let m = transform;
+    [
+        m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+        m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+        m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+    ]
 }
 
 /// The identity transform.
@@ -1863,6 +2186,117 @@ mod tests {
         assert!(s.state() < 4);
     }
 
+    fn quads(out: &[Drawn]) -> Vec<Quad> {
+        out.iter()
+            .filter_map(|d| match d {
+                Drawn::Quad(q) => Some(*q),
+                Drawn::Model(_) => None,
+            })
+            .collect()
+    }
+
+    fn model() -> Actor {
+        use crate::model::{AnimatedTexture, Geometry, Mesh};
+        Actor::new(Kind::Model(Box::new(Model {
+            // A model without meshes does not animate (`AdvanceFrame`).
+            geometry: Arc::new(Geometry {
+                meshes: vec![Mesh {
+                    name: "empty".into(),
+                    material: Some(0),
+                    vertices: Vec::new(),
+                    triangles: Vec::new(),
+                    bone: None,
+                }],
+            }),
+            animation: Arc::new(crate::model::Animation {
+                bones: Vec::new(),
+                total_frames: 60,
+            }),
+            materials: vec![ModelMaterial {
+                color: [0.5, 1.0, 1.0, 1.0],
+                frames: vec![3, 4],
+                texture: AnimatedTexture::parse(
+                    "[AnimatedTexture]\nTexVelocityX=1\nFrame0000=a.png\nDelay0000=1\nFrame0001=b.png\nDelay0001=1\n",
+                ),
+            }],
+            rest: Arc::new(Vec::new()),
+            bones: Vec::new(),
+            frame: 0.0,
+            rate: 1.0,
+            looping: true,
+            default_animation: None,
+            seconds: 0.0,
+            state: None,
+        })))
+    }
+
+    #[test]
+    fn models_are_placed_in_3d_and_animate() {
+        let mut m = model();
+        let mut f = Actor::new(Kind::Frame(vec![]));
+        run(&mut m, "x,10;rotationx,90;diffuse,0.5,1,1,1");
+        if let Kind::Frame(c) = &mut f.kind {
+            c.push(m);
+        }
+        run(&mut f, "zoom,2");
+        let mut out = Vec::new();
+        f.draw(
+            [1.0, 0.0, 0.0, 1.0, 100.0, 0.0],
+            [1.0; 4],
+            [1.0, 1.0, 1.0, 0.0],
+            &mut out,
+        );
+        let [Drawn::Model(d)] = out.as_slice() else {
+            panic!("{out:?}")
+        };
+        // MilkShape's y is up: (0, 1, 0) goes up the screen, which the
+        // x rotation of 90° turns into depth, which the frame's zoom
+        // (`SetZoom`: x, y and z) scales too; x is the frame's zoomed place.
+        let p = transform_point(&d.transform, [0.0, 1.0, 0.0]);
+        assert!(close(p[0], 120.0), "{p:?}");
+        assert!(close(p[1], 0.0), "{p:?}");
+        assert!(close(p[2], 2.0), "{p:?}");
+        // The material's colour times the diffuse, its frame and scroll by
+        // time.
+        assert_eq!(d.materials[0].0, Some(3));
+        assert_eq!(d.materials[0].1, [0.25, 1.0, 1.0, 1.0]);
+        let Kind::Frame(c) = &mut f.kind else {
+            panic!()
+        };
+        run(&mut c[0], "SetSecondsIntoAnimation,1.5");
+        out.clear();
+        f.draw(TRANSFORM_IDENTITY, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
+        let Drawn::Model(d) = &out[0] else { panic!() };
+        assert_eq!(d.materials[0].0, Some(4));
+        assert!(close(d.materials[0].2[0], 0.75));
+        // `setstate` holds a frame; the bones' frame advances 30 a second
+        // and loops.
+        let Kind::Frame(c) = &mut f.kind else {
+            panic!()
+        };
+        run(&mut c[0], "setstate,0;rate,2");
+        c[0].update_end(1.5);
+        let Kind::Model(model) = &c[0].kind else {
+            panic!()
+        };
+        assert_eq!(model.state, Some(0));
+        assert!(close(model.frame, 30.0), "{}", model.frame);
+        // With a default animation, running out plays it again from its
+        // start, at its rate; one that is not there holds the frame.
+        run(&mut c[0], "SetDefaultAnimation,'default',0.5");
+        c[0].update_end(1.0);
+        let Kind::Model(model) = &c[0].kind else {
+            panic!()
+        };
+        assert_eq!((model.frame, model.rate), (0.0, 0.5));
+        run(&mut c[0], "SetDefaultAnimation,'walk';rate,1");
+        c[0].update_end(3.0);
+        let Kind::Model(model) = &c[0].kind else {
+            panic!()
+        };
+        assert!(close(model.frame, 90.0), "{}", model.frame);
+    }
+
     #[test]
     fn frames_hand_down_diffuse_and_place_children() {
         let child = Actor::new(Kind::Sprite(Sprite::new(1, vec![], [64.0, 32.0])));
@@ -1872,7 +2306,7 @@ mod tests {
         let mut out = Vec::new();
         f.draw(TRANSFORM_IDENTITY, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
         assert_eq!(out.len(), 1);
-        let q = out[0];
+        let q = quads(&out)[0];
         assert_eq!(q.diffuse, [1.0, 0.5, 1.0, 0.25]);
         // The child's y,10 turned by the frame's 90°: x moves by -10.
         assert!(close(q.transform[4], 90.0) && close(q.transform[5], 0.0));
@@ -1888,7 +2322,7 @@ mod tests {
         run(&mut s, "vertalign,top");
         out.clear();
         s.draw(TRANSFORM_IDENTITY, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
-        assert!(close(out[0].transform[5], 16.0));
+        assert!(close(quads(&out)[0].transform[5], 16.0));
     }
 
     #[test]
@@ -1915,7 +2349,7 @@ mod tests {
         run(&mut a, "baserotationy,180;baserotationz,90");
         let mut out = Vec::new();
         a.draw(TRANSFORM_IDENTITY, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
-        let m = out[0].transform;
+        let m = quads(&out)[0].transform;
         // x: (cZ·cY, sZ·cX) = (0, 1); y: (−sZ·cY, cZ·cX) = (1, 0).
         assert!(close(m[0], 0.0) && close(m[1], 1.0));
         assert!(close(m[2], 1.0) && close(m[3], 0.0));

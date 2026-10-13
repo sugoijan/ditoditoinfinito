@@ -21,6 +21,7 @@ pub mod ini;
 pub mod load;
 pub mod lua;
 pub mod metrics;
+pub mod model;
 pub mod notes;
 pub mod skin;
 pub mod svg;

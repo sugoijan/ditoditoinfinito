@@ -14,7 +14,7 @@ were fetched and run through `local_skins` on 2026-10-12 (below).
 | Delta (shakesoda) | CC BY 3.0 (`readme.txt`) | stepmania/stepmania `5_1-new` @ `825467bc`, `NoteSkins/dance/Delta` | 156 of 156 elements through its Lua, no warnings, at most 21.8k fuel a frame; 64 px art |
 | Alpha-Arrows (Aozora Tori) | Apache-2.0 (`[Readme].txt`, `LICENSE`) | Tiny-Foxes/Aozora-Tori-Assets @ `499ee273` | 156 of 156, no warnings, at most 27.8k fuel; 512 px art. Its readme says its Lua is "based from" Lirodon's OutFox skins (no licence) and its explosion Lua is Jose Valera's: the images and metrics are the author's, the Lua is not cleanly licensed |
 | Dake (hanubeki) | Apache-2.0 (`README.md`, `LICENSE`) | hanubeki/dake @ `e26aa8d0` | every element fails: it calls OutFox's `INPUTFILTER`, `GAMESTATE:GetIsFieldReversed`, `THEME:GetMetric("NoteField", …)` and `_fallback`'s `JudgmentLineToColor`; with those four stubbed, 156 of 156 and at most 20.5k fuel |
-| CF_CHROME, CF_VIBRANT, CF_ALLOY (Peter Lawrence) | Unlicense (CF_CHROME's mine explosion CC0, JangaFX) | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | taps, heads and mines are MilkShape models, drawn built in until models are |
+| CF_CHROME, CF_VIBRANT, CF_ALLOY (Peter Lawrence) | Unlicense (CF_CHROME's mine explosion CC0, JangaFX) | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | taps, heads and mines are MilkShape models (`docs/plans/models.md`, step 5) |
 
 The built-in arrows (`render/src/scene.rs`, `shader.wgsl`,
 `note_colors.rs`) are procedural: an SDF arrow with a darker rim, an
@@ -292,11 +292,12 @@ were kept current at each step; this one added decision 39 and closed
 
 ## Later
 
-- A file whose last statement is `return Def.Sprite { Texture = "x.png" }`
-  (a tail call) resolves `x.png` from the folder of the file that loaded
-  it, not its own (`Def` finds its caller by the Lua stack, which a tail
-  call leaves out). Find what StepMania does here before changing it;
-  the bundled skins use `NOTESKIN:GetPath`.
+- Settled 2026-10-12: a file whose last statement is
+  `return Def.Sprite { Texture = "x.png" }` (a tail call) resolves `x.png`
+  from the folder of the Lua that loaded it, not its own. StepMania does
+  the same: its `Def` climbs the stack past the `=(tail call)` frame to
+  the next file (`Themes/_fallback/Scripts/02 ActorDef.lua`), so skins
+  write such paths through `NOTESKIN:GetPath`, as the bundled ones do.
 
 - Peter Lawrence's CF skins once MilkShape models draw.
 - Explosions for Dito, if wanted (the procedural arrows have none).

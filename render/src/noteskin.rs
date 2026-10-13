@@ -15,7 +15,7 @@ use ddi_chart::Layout;
 use ddi_engine::frame::{Frame, HoldKind, NoteSprite, SkinEvent, SkinEventKind, SpriteKind};
 use ddi_engine::rules::Judgement;
 use ddi_lua::Failure;
-use ddi_noteskin::actor::{Actor, Blend, Clocks, Kind, Problems, Quad};
+use ddi_noteskin::actor::{Actor, Blend, Clocks, Drawn, Kind, ModelDraw, Problems, Quad};
 use ddi_noteskin::build::{Built, Images, TextureKey, Textures, build};
 use ddi_noteskin::lua::{FrameBudget, LuaSkin, NOTE_COLORS, Param, Pause, Position};
 use ddi_noteskin::metrics::{NoteDisplay, Part};
@@ -23,8 +23,9 @@ use ddi_noteskin::notes::{animation_percent, color_offset, note_type};
 use ddi_noteskin::{Button, Skin};
 
 use crate::color::to_target;
+use crate::model::{Camera, triangles};
 use crate::scene::FieldGeometry;
-use crate::textured::{QuadBlend, TexQuad};
+use crate::textured::{QuadBlend, Shape, TexQuad, UNTEXTURED};
 
 /// What the built-in skin draws when the noteskin does not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,6 +216,10 @@ pub struct NoteskinPlay {
     initial: Vec<Lane>,
     /// Quads drawn in the last frame (debug).
     quads: std::cell::Cell<usize>,
+    /// Models' triangles drawn this frame (at most [`MAX_FRAME_TRIANGLES`]).
+    triangles: std::cell::Cell<usize>,
+    /// The field's perspective this frame, for models.
+    camera: Camera,
     textures: Textures,
     /// The renderer's id for each of [`NoteskinPlay::textures`].
     texture_ids: Vec<Option<u32>>,
@@ -237,6 +242,10 @@ pub struct NoteskinPlay {
     /// Fuel the skin's Lua spent in the last frame, and at most in one.
     lua_fuel: (u64, u64),
 }
+
+/// The most triangles a frame's models draw (a model has at most
+/// [`ddi_noteskin::model::MAX_TRIANGLES`]; the corpus's, under 2,000).
+const MAX_FRAME_TRIANGLES: usize = 1 << 18;
 
 /// The elements of a lane, in the order they are built.
 const LANE_ELEMENTS: [&str; 26] = [
@@ -604,6 +613,11 @@ impl NoteskinPlay {
         let mut play = NoteskinPlay {
             name,
             quads: std::cell::Cell::new(0),
+            triangles: std::cell::Cell::new(0),
+            camera: Camera {
+                vanish: [0.0; 2],
+                distance: 1.0,
+            },
             initial: lanes.clone(),
             lanes,
             textures,
@@ -902,10 +916,84 @@ impl NoteskinPlay {
         offset: [f32; 2],
         out: &mut Vec<TexQuad>,
     ) {
-        let mut quads = Vec::new();
-        actor.draw(transform, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut quads);
-        for q in quads {
-            self.push(q, offset, out);
+        let mut drawn = Vec::new();
+        actor.draw(transform, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut drawn);
+        for d in drawn {
+            match d {
+                Drawn::Quad(q) => self.push(q, offset, out),
+                Drawn::Model(m) => self.push_model(&m, offset, out),
+            }
+        }
+    }
+
+    /// A model's triangles (`Model::DrawPrimitives`): every mesh's diffuse
+    /// pass, then every mesh's glow pass.
+    fn push_model(&self, m: &ModelDraw, offset: [f32; 2], out: &mut Vec<TexQuad>) {
+        self.quads.set(self.quads.get() + 1);
+        if m.diffuse[3] < 0.001 && m.glow[3] < 0.001 {
+            return;
+        }
+        let mut seen = Vec::new();
+        triangles(m, &self.camera, offset, &mut seen);
+        // A frame's budget: models past it are not drawn.
+        let passes = 1 + usize::from(m.glow[3] > 0.0001);
+        let total = self.triangles.get() + seen.len() * passes;
+        if total > MAX_FRAME_TRIANGLES {
+            return;
+        }
+        self.triangles.set(total);
+        // `DrawPrimitives` sets the blend back to normal after each mesh:
+        // the actor's blends the first mesh, and the glow pass only when
+        // no diffuse pass came before it.
+        let blend = quad_blend(m.blend);
+        let diffuse = m.diffuse[3] > 0.0;
+        let mesh_blend = |mesh: usize| {
+            if mesh == 0 { blend } else { QuadBlend::Normal }
+        };
+        let glow_blend = if diffuse { QuadBlend::Normal } else { blend };
+        // A mesh's texture id (`UNTEXTURED`: its colour alone; `None`: not
+        // loaded) and colour; a mesh without a material is grey
+        // (`DrawPrimitives`' fallback material, unlit).
+        let meshes: Vec<(Option<u32>, [f32; 4])> = m
+            .geometry
+            .meshes
+            .iter()
+            .map(
+                |mesh| match mesh.material.and_then(|i| m.materials.get(i)) {
+                    Some(&(Some(t), color, _)) => {
+                        (self.texture_ids.get(t as usize).copied().flatten(), color)
+                    }
+                    Some(&(None, color, _)) => (Some(UNTEXTURED), color),
+                    None => (Some(UNTEXTURED), [0.9, 0.9, 0.9, 1.0]),
+                },
+            )
+            .collect();
+        let triangle =
+            |s: &crate::model::Seen, texture: u32, color: [f32; 4], glow: bool, blend| TexQuad {
+                shape: Shape::Triangle {
+                    points: s.points,
+                    w: s.w,
+                    uv: s.uv,
+                },
+                color: to_target(color, self.srgb),
+                glow,
+                texture,
+                blend,
+                wrap: true,
+            };
+        if diffuse {
+            for s in &seen {
+                if let (Some(texture), color) = meshes[s.mesh] {
+                    out.push(triangle(s, texture, color, false, mesh_blend(s.mesh)));
+                }
+            }
+        }
+        if m.glow[3] > 0.0001 {
+            for s in &seen {
+                if let (Some(texture), _) = meshes[s.mesh] {
+                    out.push(triangle(s, texture, m.glow, true, glow_blend));
+                }
+            }
         }
     }
 
@@ -924,19 +1012,15 @@ impl NoteskinPlay {
             q.uv[2] + o[0],
             q.uv[3] + o[1],
         ];
-        let blend = match q.blend {
-            Blend::Add => QuadBlend::Add,
-            Blend::Subtract => QuadBlend::Subtract,
-            Blend::Modulate => QuadBlend::Modulate,
-            Blend::Normal | Blend::Other => QuadBlend::Normal,
-        };
         let base = TexQuad {
-            transform: q.transform,
-            uv,
+            shape: Shape::Quad {
+                transform: q.transform,
+                uv,
+            },
             color: to_target(q.diffuse, self.srgb),
             glow: false,
             texture: *texture,
-            blend,
+            blend: quad_blend(q.blend),
             wrap: false,
         };
         if q.diffuse[3] > 0.0 {
@@ -974,17 +1058,25 @@ impl NoteskinPlay {
         let m = metrics.part(part);
         let mut offset = [0.0; 2];
         let mut padded = [1.0; 2];
-        if let Kind::Sprite(s) = &mut actor.kind {
-            let percent = animation_percent(
+        let percent = || {
+            animation_percent(
                 m,
                 metrics.animation_is_beat_based,
                 frame.beat as f32,
                 frame.song_time as f32,
                 beat,
-            );
-            let length: f32 = s.states.iter().map(|st| st.delay).sum();
-            s.set_seconds_into_animation(percent * length);
-            padded = s.padded_to_image;
+            )
+        };
+        match &mut actor.kind {
+            Kind::Sprite(s) => {
+                let length: f32 = s.states.iter().map(|st| st.delay).sum();
+                s.set_seconds_into_animation(percent() * length);
+                padded = s.padded_to_image;
+            }
+            // Its textures' scroll and frames; a model's texture is
+            // stretched to its image (no padding to take out).
+            Kind::Model(model) => model.seconds = percent() * model.animation_length(),
+            _ => {}
         }
         if let Some(o) = color_offset(m, beat, false) {
             offset = [o[0] * padded[0], o[1] * padded[1]];
@@ -1093,6 +1185,8 @@ impl NoteLayer for NoteskinPlay {
         out: &mut Vec<TexQuad>,
     ) {
         self.quads.set(0);
+        self.triangles.set(0);
+        self.camera = Camera::of(geo);
         self.column_actors(layout, geo, out, |l| &mut l.receptor);
     }
 
@@ -1103,6 +1197,7 @@ impl NoteLayer for NoteskinPlay {
         geo: &FieldGeometry,
         out: &mut Vec<TexQuad>,
     ) {
+        self.camera = Camera::of(geo);
         self.column_actors(layout, geo, out, |l| &mut l.explosion);
     }
 
@@ -1115,6 +1210,7 @@ impl NoteLayer for NoteskinPlay {
         geo: &FieldGeometry,
         out: &mut Vec<TexQuad>,
     ) {
+        self.camera = Camera::of(geo);
         let k = geo.arrow / 64.0;
         let mut lanes = std::mem::take(&mut self.lanes);
         let mut order: Vec<&NoteSprite> = frame
@@ -1245,6 +1341,7 @@ impl NoteLayer for NoteskinPlay {
         geo: &FieldGeometry,
         out: &mut Vec<TexQuad>,
     ) {
+        self.camera = Camera::of(geo);
         let k = geo.arrow / 64.0;
         let mut lanes = std::mem::take(&mut self.lanes);
         let mut order: Vec<&NoteSprite> = frame
@@ -1400,8 +1497,10 @@ impl NoteskinPlay {
         let c = d.color_scale;
         let color = to_target([c, c, c, 1.0], self.srgb);
         let quad = |texture: u32, y0: f32, y1: f32, width: f32, uv: [f32; 4], wrap: bool| TexQuad {
-            transform: [width, 0.0, 0.0, y1 - y0, d.x, (y0 + y1) / 2.0],
-            uv,
+            shape: Shape::Quad {
+                transform: [width, 0.0, 0.0, y1 - y0, d.x, (y0 + y1) / 2.0],
+                uv,
+            },
             color,
             glow: false,
             texture,
@@ -1472,6 +1571,15 @@ impl NoteskinPlay {
     }
 }
 
+fn quad_blend(b: Blend) -> QuadBlend {
+    match b {
+        Blend::Add => QuadBlend::Add,
+        Blend::Subtract => QuadBlend::Subtract,
+        Blend::Modulate => QuadBlend::Modulate,
+        Blend::Normal | Blend::Other => QuadBlend::Normal,
+    }
+}
+
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
@@ -1533,8 +1641,13 @@ mod tests {
 
     /// A skin's Lua through a play: `tap` is its `Down Tap Note.lua`.
     fn lua_play(tap: &str) -> NoteskinPlay {
+        lua_play_with(tap, &[])
+    }
+
+    /// [`lua_play`] with more text files.
+    fn lua_play_with(tap: &str, more: &[(&str, &str)]) -> NoteskinPlay {
         let file = |name: &str, text: &str| (name.to_string(), text.to_string());
-        let texts = vec![
+        let mut texts = vec![
             file("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
             file(
                 "Down Explosion.lua",
@@ -1560,6 +1673,7 @@ mod tests {
             ),
             file("Down Tap Note.lua", tap),
         ];
+        texts.extend(more.iter().map(|(n, t)| file(n, t)));
         let mut files: Vec<String> = texts.iter().map(|(n, _)| n.clone()).collect();
         files.push("x.png".into());
         let folders = vec![Folder {
@@ -1705,6 +1819,115 @@ mod tests {
         // A skin that does not read it loads its notes once.
         let plain = lua_play("return Def.ActorFrame { Def.Sprite { Texture = 'x.png' } }\n");
         assert!(plain.lanes[0].colors.is_empty());
+    }
+
+    /// A 64-pixel square facing the viewer (MilkShape's y up, counter-
+    /// clockwise), textured with `x.png`.
+    const SQUARE_MODEL: &str = "// MilkShape 3D ASCII\n\
+        Frames: 30\nFrame: 1\n\
+        Meshes: 1\n\"Square\" 0 0\n\
+        4\n\
+        0 -32 -32 0 0 1 -1\n\
+        0 32 -32 0 1 1 -1\n\
+        0 32 32 0 1 0 -1\n\
+        0 -32 32 0 0 0 -1\n\
+        1\n0 0 1\n\
+        2\n0 0 1 2 0 0 0 1\n0 0 2 3 0 0 0 1\n\
+        Materials: 1\n\"Mat\"\n\
+        0 0 0 1\n1 1 1 1\n0 0 0 1\n0 0 0 1\n0\n1\n\
+        \"x.png\"\n\"\"\n\
+        Bones: 0\n";
+
+    #[test]
+    fn a_tap_note_model_is_drawn_as_textured_triangles_facing_the_viewer() {
+        let tap = |turn: &str| {
+            format!(
+                // Not a tail call: its paths are relative to this file.
+                "local m = Def.Model {{ Meshes = 'square.txt', Materials = 'square.txt', \
+                 Bones = 'square.txt', InitCommand = function(self) self:{turn} end }}\n\
+                 return m\n"
+            )
+        };
+        let geo = FieldGeometry::new(1280.0, 720.0, 4.0, false);
+        let layout = Layout::dance_single();
+        let mut f = frame(0.0, None);
+        f.notes.push(NoteSprite {
+            lane: 1,
+            y: 2.0,
+            kind: SpriteKind::Tap,
+            quantization: ddi_chart::Quantization::N4,
+            beat_frac: 0.0,
+            color: None,
+            alpha: 1.0,
+            glow: 0.0,
+            beat: 0.0,
+            hold_life: 1.0,
+        });
+        let draw = |turn: &str| {
+            let mut play = lua_play_with(&tap(turn), &[("square.txt", SQUARE_MODEL)]);
+            assert!(play.notes.is_empty(), "{:?}", play.notes);
+            for i in 0..play.texture_keys().len() {
+                play.set_texture(i, 7);
+            }
+            let mut out = Vec::new();
+            play.notes(&f, &layout, &geo, &mut out);
+            out
+        };
+
+        // Down's lane at x 604, the note two arrows (72 pixels) under its
+        // receptor at y 108; 64 of the skin's pixels are 72.
+        let out = draw("zoom(1)");
+        assert_eq!(out.len(), 2);
+        let mut seen = Vec::new();
+        for q in &out {
+            assert_eq!((q.texture, q.glow, q.wrap), (7, false, true));
+            let Shape::Triangle { points, w, .. } = q.shape else {
+                panic!("{q:?}");
+            };
+            assert_eq!(w, [1.0; 3]);
+            seen.extend(points);
+        }
+        let range = |i: usize| {
+            let v = seen.iter().map(|p| p[i]);
+            (
+                v.clone().fold(f32::MAX, f32::min),
+                v.fold(f32::MIN, f32::max),
+            )
+        };
+        assert_eq!(range(0), (568.0, 640.0));
+        assert_eq!(range(1), (216.0, 288.0));
+
+        // Turned away (the field resets a note's own rotation, not its
+        // base one), its back is culled.
+        assert!(draw("baserotationy(180)").is_empty());
+        // Tilted, its far edge is narrower than its near one.
+        let tilted = draw("baserotationx(60)");
+        assert_eq!(tilted.len(), 2);
+        let corners: Vec<[f32; 2]> = tilted
+            .iter()
+            .flat_map(|q| match q.shape {
+                Shape::Triangle { points, .. } => points,
+                _ => panic!(),
+            })
+            .collect();
+        let width_at = |top: bool| {
+            let y = corners.iter().map(|p| p[1]);
+            let edge = if top {
+                y.fold(f32::MAX, f32::min)
+            } else {
+                y.fold(f32::MIN, f32::max)
+            };
+            let xs: Vec<f32> = corners
+                .iter()
+                .filter(|p| (p[1] - edge).abs() < 0.01)
+                .map(|p| p[0])
+                .collect();
+            xs.iter().fold(f32::MIN, |a, &b| a.max(b)) - xs.iter().fold(f32::MAX, |a, &b| a.min(b))
+        };
+        assert!(
+            (width_at(true) - width_at(false)).abs() > 1.0,
+            "{corners:?}"
+        );
     }
 
     #[test]

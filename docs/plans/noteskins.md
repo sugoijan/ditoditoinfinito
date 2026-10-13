@@ -261,7 +261,9 @@ the player removed and keeps one whose folder is gone.
   each skin's `NoteSkin.lua` chain and element files at load, commands and
   update functions during play, on the actors of step 2.
 - **Step 8, 3D models**: MilkShape 3D ASCII meshes and `ani tex.ini` texture
-  animation (65 % of skins, every classic ITG one).
+  animation (65 % of skins, every classic ITG one); its own plan,
+  `docs/plans/models.md`. Since 2026-10-12 models are drawn, bones
+  included.
 - **Bundling**: Delta (CC BY 3.0) once its Lua tap note and receptor can
   load; Apache-2.0 or Unlicense art (Alpha-Arrows, Dake, Peter Lawrence's CF
   skins) only if the maintainer accepts those licences for art.
