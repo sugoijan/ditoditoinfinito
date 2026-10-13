@@ -498,3 +498,41 @@ not yet automatic selector discovery or recipe-free URL import. Next prove the
 remaining speed-bank behavior and implement bounded request/dependency iteration,
 then public URL discovery/acquisition. Native musical-quality review, HTML5,
 desktop library installation and distribution notices remain open.
+
+
+### RE:RAVE source-bank closure, 2026-10-14
+
+The [exact reviewed selector contract](danoni-rust-extraction.md#rerave-selector-controlled-speed-proof-2026-10-14)
+proves Hard's shared speed data is inactive; the ordinary missing-bank gate
+remains strict for unreviewed movies. The native reference preserves the
+nonexecuted values, and fresh installed-worker execution passes complete frozen
+chart/audio/game-parser comparison. The fresh combined gate now covers five
+works / ten charts / nine songs, 5,049 endpoints and 144 scroll checks, with
+zero decoder-origin corrections and at most one PCM unit difference. All 116
+structural-family charts project; 115 pass the preserved historical motion,
+and Destined Marionette's recaptured stable segment closes the older motion
+failure. The three known proof gaps are closed without changing accepted packs.
+
+Milestone 4's next slice is a bounded dependency/request loop above immutable
+captures. Discover exact missing GET requests from preserved audit data,
+return typed requests to the host, append individually policy-approved cached
+responses and recapture in fresh owned directories. Limit retries, new URLs,
+bytes and total work across the whole operation; detect repeated requests and
+no progress. Preserve logical URL/query/FlashVars/charset identity and original
+failed captures, check cancellation between stages, and never mark the parent
+ready until the unchanged projection/motion/PCM proofs pass. This should expose
+an embeddable sans-network coordinator first, with host HTTP/cache acquisition
+in milestone 5. Automatic selector/profile discovery remains separate from
+resource closure; a successful dependency loop must not guess chart selection.
+
+
+The current worker records only the raw URL in `fetch-denied`. Its fetch path
+uses that record for both absent cached GETs and denied methods/bodies, so it
+cannot safely authorize dependency acquisition. The next slice must first add
+trusted structured request evidence (method, body presence, original and
+resolved logical URL, iteration and rejection reason), review/package the new
+hook identity, then expose only exact body-free GET cache misses to the host.
+Navigation/socket/POST denials and unparseable URLs remain extraction failures;
+trace text and arbitrary runtime-error messages are never fetch requests. The
+coordinator still needs host robots/terms/rate-limit approval and cached response
+provenance; an audit record is evidence of a request, not fetching authorization.

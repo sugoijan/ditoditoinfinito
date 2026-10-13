@@ -227,7 +227,8 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
                         "initialPixelSpeed",
                         "compiledIteration",
                         "clockInitializationIteration",
-                        "inactiveSpeedTail"
+                        "inactiveSpeedTail",
+                        "inactiveSourceSpeed"
                     ]
                     .contains(&k.as_str())),
                     "{id} {name}: {added:?}"
@@ -464,14 +465,6 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
         checks.push(json!({"work":id,"charts":parsed_charts,"files":work.files.len(),"sourceInputs":work.receipt["sourceInputs"].as_object().unwrap().len(),"differences":differences,"decorationJoined":work.receipt["charts"].as_array().unwrap().iter().filter(|r|r["presentationDiagnostics"]["audio"].as_array().is_some_and(|v|!v.is_empty())).count(),"downstreamSongs":prepared.manifest["songs"].as_array().unwrap().len(),"scrollChecks":work_scroll_checks}));
         eprintln!("normalized-work {id}: {parsed_charts} charts");
     }
-    let report = json!({"schema":"ddi-danoni-rust-normalization-parity/1","passed":true,"casesSha256":sha256(&fs::read(path).unwrap()),"checks":checks,"strictRejections":failures,"charts":charts,"taps":taps,"holds":holds,"endpoints":endpoints,"maximumErrorMs":max_error,"maximumCanonicalPcmDifference":max_pcm_difference,"scope":"Passive bound runs to normalized artifacts, independently aligned PCM and downstream WAV/SSC preparation; fallback source grid, no worker launched by Rust or BPM acceptance"});
-    if let Some(out) = out {
-        fs::write(
-            out.join("manifest.json"),
-            serde_json::to_vec_pretty(&report).unwrap(),
-        )
-        .unwrap();
-    }
     assert_eq!(
         checks.len(),
         table["expectedWorks"].as_u64().unwrap() as usize
@@ -483,5 +476,13 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
     );
     assert!(max_error <= 9.0);
     assert_eq!(endpoints, taps + 2 * holds);
+    let report = json!({"schema":"ddi-danoni-rust-normalization-parity/1","passed":true,"casesSha256":sha256(&fs::read(path).unwrap()),"checks":checks,"strictRejections":failures,"charts":charts,"taps":taps,"holds":holds,"endpoints":endpoints,"maximumErrorMs":max_error,"maximumCanonicalPcmDifference":max_pcm_difference,"scope":"Passive bound runs to normalized artifacts, independently aligned PCM and downstream WAV/SSC preparation; fallback source grid, no worker launched by Rust or BPM acceptance"});
+    if let Some(out) = out {
+        fs::write(
+            out.join("manifest.json"),
+            serde_json::to_vec_pretty(&report).unwrap(),
+        )
+        .unwrap();
+    }
     eprintln!("normalized corpus: {} works, {charts} charts", checks.len());
 }

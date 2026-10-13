@@ -208,7 +208,8 @@ fn equal_fields(a: &Value, b: &Value, fields: &[&str]) -> Result<()> {
     }
     Ok(())
 }
-/// Structural selection, never a SWF hash guess. Projection alone does not prove
+/// Structural families plus explicit reviewed movie contracts; no hash guesses.
+/// Projection alone does not prove
 /// run provenance, movement or decoded audio alignment; prepare_projection binds
 /// saved run/config bytes and the later extraction stage must add those proofs.
 pub fn project_capture(

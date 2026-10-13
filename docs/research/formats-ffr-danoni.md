@@ -756,6 +756,16 @@ have only title captures are superseded by initialized native evidence.
   the defect instead of treating sorted conversion as original runtime behavior.
   [Archived RE:RAVE](https://web.archive.org/web/20190314171455/http://www.geocities.jp/naotopage2/game/re_rave/re_rave.htm),
   [felys](http://eucaly.net/~iso50/10/onigiri10.html).
+- **Shared loaded effects can be inactive for one selector.** In the archived
+  RE:RAVE SWF (`a6fec2d1ac860d35d5481274fbed04b35c608049e30d8d2d30e01e3a5bcbbbae`),
+  root-frame-4 code creates `speed_timeline` only for global `humen=2` (LVUP).
+  Hard (`humen=1`) retains `speed_data=9117,1.5` but creates no bank for the
+  handler to execute. The event is within Hard's note range, so this is not an
+  inactive trailing event. Preserve unused data separately from active effects;
+  missing banks alone cannot prove inactivity in other engines. Exact source
+  review and fresh runtime evidence are recorded in the
+  [Rust adapter contract](danoni-rust-extraction.md#rerave-selector-controlled-speed-proof-2026-10-14).
+  [Archived RE:RAVE](https://web.archive.org/web/20190314171455/http://www.geocities.jp/naotopage2/game/re_rave/re_rave.htm).
 - **A legacy stop array need not be an audio/timing stop.** Decipher's native
   `stop_dac` toggles a visual flag; it does not stop the movie/audio clock. The
   current SSC export preserves that evidence and declares its presentation

@@ -258,8 +258,38 @@ suite 78; both feature configurations pass Clippy, and formatting passes.
 `just check` passes on the rebased branch, including REUSE for all 796 files.
 Local `validation-summary.json` records source/receipt hashes and the parity gates.
 
-Next: prove RE:RAVE's source/native speed behavior, then build the bounded
+Next: build the bounded
 request/dependency loop above these immutable plans. Automatic selector/profile
 selection, public-URL acquisition, HTML5 capture and desktop installation remain
 pending. Worker redistribution notices and other-platform confinement remain
 separate requirements.
+
+
+### RE:RAVE closure, 2026-10-14
+
+The [source/control review](danoni-rust-extraction.md#rerave-selector-controlled-speed-proof-2026-10-14)
+proves that Hard intentionally leaves shared speed data inactive; LVUP owns the
+native speed bank. A fresh execution of the existing Hard plan now produces a
+parent ready marker with two confined captures, complete frozen chart/reference
+parity, independently matched PCM and zero audio-origin correction. The
+normalized reference retains `inactiveSourceSpeed` without creating an event.
+The installed worker, capture controls, sandbox policy and 1,200-frame limit
+are unchanged; no late-chart execution or host ActionScript interpretation is
+needed for this exact reviewed control path.
+
+The combined fresh gate now covers five works / ten charts / nine songs:
+4,963 taps, 43 holds, **5,049 endpoints** and **144 x1/x2/x3 scroll checks**.
+Maximum time error remains `2.8421709430404007e-11` ms and independent canonical
+PCM differs by at most one signed-16 unit. The old Destined boundary-crossing
+and mismatched M. MOON requests remain rejected. The RE:RAVE historical
+missing-bank request now succeeds only under its exact movie/selector contract.
+All evidence stays in `~/Music/DanOni/reviews/rust-rerave-20261014/`; accepted
+exports and registry remain unchanged. Next is the bounded dependency/request
+loop above explicit immutable plans, followed by automatic selector profiles
+and URL acquisition.
+
+The current worker's URL-only `fetch-denied` record is insufficient to distinguish
+an absent GET from a denied POST/body. Dependency orchestration first requires
+structured, source-bound request evidence and a reviewed worker identity update;
+see the [next-slice constraints](danoni-rust-plan.md). Do not derive host fetches
+from trace/error text or assume that any denial is a body-free GET.

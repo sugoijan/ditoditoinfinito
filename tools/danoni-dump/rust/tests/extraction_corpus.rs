@@ -204,6 +204,7 @@ fn saved_native_families_match_all_accepted_projection_clock_and_motion_fields()
                 "compiledIteration",
                 "clockInitializationIteration",
                 "inactiveSpeedTail",
+                "inactiveSourceSpeed",
             ] {
                 if reference["projection"].get(key).is_none()
                     && comparable_projection.get(key).is_some()
@@ -299,6 +300,9 @@ fn saved_native_families_match_all_accepted_projection_clock_and_motion_fields()
         }
         eprintln!("projection-work: {}", work["id"]);
     }
+    assert_eq!(checks.len(), 115);
+    assert_eq!(projection_checks.len(), 116);
+    assert_eq!(strict_rejections.len(), 1);
     let report = json!({"schema":"ddi-danoni-rust-native-projection-parity/1","checks":checks,"projectionChecks":projection_checks,"strictRejections":strict_rejections,"families":families,"taps":taps,"holds":holds,"passed":true,"scope":"Saved structural-family states/run/config bindings, every projection field, movement and logical stream origin; no SWF demux, fresh execution or decoded audio alignment claimed"});
     if let Some(out) = out {
         fs::write(
@@ -308,7 +312,4 @@ fn saved_native_families_match_all_accepted_projection_clock_and_motion_fields()
         .unwrap();
     }
     println!("{report}");
-    assert_eq!(checks.len(), 114);
-    assert_eq!(projection_checks.len(), 115);
-    assert_eq!(strict_rejections.len(), 2);
 }

@@ -5,6 +5,44 @@ pub(super) const HIGAN_HASH: &str =
     "6ce53b126e90b25a9f307595bf226ed4e6ce8f70c74d816a1d372c7f20de6e85";
 pub(super) const KOUHAKU_HASH: &str =
     "e14e472911b6603ddcc58bd40049d0b05cfa986a2240209dd848a516cf40fed2";
+// Reviewed selector-controlled speed initialization; no source ActionScript is
+// copied here. The exact movie identity binds the static control-flow review.
+pub(super) const RERAVE_HASH: &str =
+    "a6fec2d1ac860d35d5481274fbed04b35c608049e30d8d2d30e01e3a5bcbbbae";
+pub(super) fn inactive_child_speed(
+    capture: &Value,
+    options: &ProjectionOptions,
+    bank: &Props<'_>,
+    field: &str,
+    values: &[f64],
+) -> Result<Option<Value>> {
+    if capture["source"]["movieSha256"] != RERAVE_HASH
+        || capture["swfHeaderFps"].as_f64() != Some(60.0)
+        || !options.source_prefix.is_empty()
+        || options.source_suffix.is_some()
+        || options.pinned_selection.is_some()
+        || field != "speed_data"
+    {
+        return Ok(None);
+    }
+    // Hard selects 1. This movie creates speed_timeline only for selector 2
+    // (LVUP), while retaining the shared speed_data on the root for both.
+    // Absence alone never proves inactivity for an unreviewed movie.
+    for item in items(capture)? {
+        if number(&globals(&item["state"])?, "humen")? != 1.0 {
+            return Err(invalid("Reviewed inactive speed selector differs"));
+        }
+    }
+    if bank.contains_key("speed_timeline") || number(bank, "s")? != 0.0 {
+        return Err(invalid("Reviewed inactive speed bank/cursor differs"));
+    }
+    events(values)?;
+    Ok(Some(json!({
+        "contract":"rerave-selector-speed/1", "movieSha256":RERAVE_HASH,
+        "field":field, "values":values, "selector":{"scope":"swf6-global","field":"humen","value":1},
+        "reason":"Reviewed movie initializes the speed bank only for selector 2; selector 1 retains shared source data without executing it"
+    })))
+}
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum PinnedSelection {

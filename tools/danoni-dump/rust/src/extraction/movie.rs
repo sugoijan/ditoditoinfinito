@@ -105,6 +105,7 @@ pub(super) fn movie_arrays(
             }
             lanes.push(lane(name, taps, pairs, true));
         }
+        let mut inactive_speed = None;
         let flat = if !five {
             let flat = numbers(&graph, get(&root, "speed_dac")?)?;
             if split_numbers(get(&root, "speed_change")?)? != flat {
@@ -126,13 +127,18 @@ pub(super) fn movie_arrays(
             }
             flat
         } else {
-            if let Some(field) = source_field(&root, "speed", &selected, &options.source_prefix)?
-                && !split_numbers(get(&root, &field)?)?.is_empty()
-            {
-                return Err(Error::new(
-                    "native-source-bank-missing",
-                    "Source speeds have no native bank",
-                ));
+            if let Some(field) = source_field(&root, "speed", &selected, &options.source_prefix)? {
+                let source = split_numbers(get(&root, &field)?)?;
+                if !source.is_empty() {
+                    inactive_speed =
+                        pinned::inactive_child_speed(capture, options, &bank, &field, &source)?;
+                    if inactive_speed.is_none() {
+                        return Err(Error::new(
+                            "native-source-bank-missing",
+                            "Source speeds have no native bank",
+                        ));
+                    }
+                }
             }
             vec![]
         };
@@ -182,6 +188,9 @@ pub(super) fn movie_arrays(
             Value::Null
         };
         let mut chart = json!({"mode":options.mode,"lanes":lanes,"speed":events(&flat)?,"boost":[],"colors":[],"stops":stop.iter().enumerate().map(|(i,f)|json!({"nativeFrame":f,"paused":i%2==0})).collect::<Vec<_>>(),"metadata":metadata(&root,&["diffi","musicTitle","tuning","gatit"])?,"bankObject":bank_id,"nativeKeyCodes":codes});
+        if let Some(inactive) = inactive_speed {
+            chart["inactiveSourceSpeed"] = inactive;
+        }
         if let Some(s) = &options.source_suffix {
             chart["selectedSourceSuffix"] = json!(s);
         }
@@ -192,7 +201,11 @@ pub(super) fn movie_arrays(
     }
     let (iteration, chart) = initialized.remove(0);
     for (_, later) in initialized {
-        equal_fields(&chart, &later, &["lanes", "speed", "stops", "mode"])?;
+        equal_fields(
+            &chart,
+            &later,
+            &["lanes", "speed", "stops", "mode", "inactiveSourceSpeed"],
+        )?;
     }
     Ok(Projection {
         prepared_iteration: iteration,

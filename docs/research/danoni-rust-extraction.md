@@ -435,3 +435,79 @@ a complete `request`, or an explicit static `route`. A known rejected request
 additionally supplies the exact expected code/message and `ObservedStart` for the
 separate static comparison. Output is optional and must be fresh. No acquired
 movie, music, per-work job, oracle or result is committed.
+
+
+## RE:RAVE selector-controlled speed proof, 2026-10-14
+
+The remaining source-bank failure is resolved by a narrowly reviewed movie
+contract, `rerave-selector-speed/1`. The source is the [archived RE:RAVE
+work](https://web.archive.org/web/20190314171455/http://www.geocities.jp/naotopage2/game/re_rave/re_rave.htm).
+Its SWF SHA-256 is
+`a6fec2d1ac860d35d5481274fbed04b35c608049e30d8d2d30e01e3a5bcbbbae`;
+SWF version 6, 60 frames/s, 10,267 root frames. Local review receipts and fresh
+confined captures are under `~/Music/DanOni/reviews/rust-rerave-20261014/`.
+No source ActionScript or third-party media is committed.
+
+Static review of the root-frame-4 controller establishes that global `humen=1`
+splits ordinary lane fields (Hard), while `humen=2` splits the `n`-prefixed
+fields (LVUP). Only selector 2 initializes `speed_timeline`. The frame-triggered
+speed handler therefore cannot fire for selector 1's absent bank. The full tag
+inventory finds no later initialization of that bank. The controller's tag
+payload SHA-256 is
+`174ee7a6db4efd6fe41c88cba0fe8d848c8dbd84c3a85bf7136d4de32ff24730`;
+the selector branch starts at action offset `0xa4f`. Later menu/result speed
+resets begin after the chart, at root frame 10,111.
+
+The shared root `speed_data=9117,1.5` is active for LVUP and retained but unused
+for Hard. Frame 9,117 is **inside** Hard's note range (last note 9,895), so this
+is a selector decision, not a post-chart-tail exception. Every fresh Hard
+snapshot records the stored global selector as 1. Its unconsumed lane banks,
+zero speed cursor and absent speed bank agree across snapshots. Original
+motion proves constant 2.5 stage pixels/frame, `150/43` arrow heights/s, with
+zero arrival residual; independent PCM origins and full decoded audio agree.
+
+The Rust structural child adapter accepts this absence only for that exact
+movie hash and 60 Hz timebase, ordinary unsuffixed fields, the stored SWF6
+global selector 1 in every capture, no global accessors or duplicate properties,
+and a zero speed cursor. Other missing nonempty source speed banks still fail
+`native-source-bank-missing`. A present native speed bank follows the existing
+complete source/bank agreement rule. No user option enables this exception.
+
+The additive reference/normalized chart field has this shape:
+
+```json
+{
+  "inactiveSourceSpeed": {
+    "contract": "rerave-selector-speed/1",
+    "movieSha256": "a6fec2d1ac860d35d5481274fbed04b35c608049e30d8d2d30e01e3a5bcbbbae",
+    "field": "speed_data",
+    "values": [9117.0, 1.5],
+    "selector": {"scope": "swf6-global", "field": "humen", "value": 1},
+    "reason": "Reviewed movie initializes the speed bank only for selector 2; selector 1 retains shared source data without executing it"
+  }
+}
+```
+
+`values` preserves parsed interleaved absolute native frames (60 Hz) and speed
+multipliers. It creates no active `speed` event, retiming or SSC scroll change.
+The field is compared across all unconsumed banks and retained alongside the
+original capture/config/resource provenance. Earlier references lack this
+field; the parity gates explicitly report this addition and still compare every
+original field. The current Python structural adapter retains its conservative
+missing-bank rejection; this Rust extension is proved against the exact source,
+original accepted reference and fresh runtime capture rather than a Python
+fallback.
+
+All 116 accepted structural-family charts now project. Preserved historical
+motion passes for 115 charts / 79 works (69,251 taps / 3,664 holds); the remaining
+old Destined Marionette boundary-crossing motion still fails and its
+[replacement segment](danoni-rust-orchestration.md) already passes. This closes
+the three known extraction/selector proof gaps; automatic selector discovery,
+dependency acquisition and musical-tempo quality remain separate work.
+
+
+Validation for this slice passes 121 native tests and 79 pure tests, Clippy in
+both feature configurations, formatting and `just check` (REUSE: 796/796 files).
+The fresh five-work / ten-chart gate checks 5,049 endpoints and 144 scroll
+samples with effectively zero time residual. The accepted export index and
+registry hashes are unchanged; no export is regenerated or promoted.

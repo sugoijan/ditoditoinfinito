@@ -356,3 +356,16 @@ check. These dated admissions remain historical results; they are not evidence
 that the newest strict extraction regenerates those two charts. Accepted exports
 remain unchanged while those policies/source paths are reviewed. The Rust stage
 does not replace native execution, SWF audio demux or decoded-origin proofs yet.
+
+
+### RE:RAVE source/control review, 2026-10-14
+
+The [Rust review](danoni-rust-extraction.md#rerave-selector-controlled-speed-proof-2026-10-14)
+now establishes that the archived SWF creates `speed_timeline` only for global
+selector `humen=2` (LVUP). Hard selects 1 and retains the same root `speed_data`
+without executing it. A narrowly hash-bound Rust contract accepts that case
+and records `inactiveSourceSpeed`; ordinary structural missing-bank checks
+still reject. No third-party code is transcribed. Fresh Hard extraction passes
+frozen references, movement, independent audio-origin/PCM and game-parser SSC
+checks. This closes the remaining known source-bank gap; the older Python
+adapter remains conservative until retired. Existing exports are unchanged.

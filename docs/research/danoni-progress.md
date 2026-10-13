@@ -129,9 +129,11 @@ under the fixed macOS sandbox and feeds the same normalized pipeline. The
 source copies and verified host bundles without Python, with fresh seven-chart
 state/PCM and downstream parity. The [Rust selector orchestrator](danoni-rust-orchestration.md)
 now drives shared role controls, normalized artifacts and archive-only replay.
-Fresh M. MOON and stable-segment Destined Marionette captures close two gaps;
-RE:RAVE's source/native speed-bank proof remains. Four works / nine charts pass
-4,127 endpoints and 141 scroll checks. Bounded dependency requests, automatic
+Fresh M. MOON and stable-segment Destined Marionette captures close two gaps.
+The [reviewed RE:RAVE selector contract](danoni-rust-extraction.md#rerave-selector-controlled-speed-proof-2026-10-14)
+closes the remaining missing-bank gap: Hard retains shared speed data but its
+selector does not initialize or execute that bank. Five works / ten charts pass
+5,049 endpoints and 144 scroll checks. Bounded dependency requests, automatic
 selectors and URL acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.

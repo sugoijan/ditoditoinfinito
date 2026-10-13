@@ -115,6 +115,71 @@ fn repeated_child_banks_require_source_agreement_and_unconsumed_cursors() {
     );
 }
 #[test]
+fn reviewed_child_selector_retains_inactive_speed_without_relaxing_other_movies() {
+    const HASH: &str = "a6fec2d1ac860d35d5481274fbed04b35c608049e30d8d2d30e01e3a5bcbbbae";
+    let mut root = five();
+    root["speed_data"] = json!("400,1.5");
+    root["controller"]["s"] = json!(0);
+    let mut c = capture(vec![root.clone(), root.clone()]);
+    c["source"]["movieSha256"] = json!(HASH);
+    for item in c["captures"].as_array_mut().unwrap() {
+        item["state"]["globalScopes"] = json!([{"caseSensitive":false,"properties":[{"name":string("humen"),"value":1,"accessor":false}]}]);
+    }
+    let o = options(Family::ChildTimeline5);
+    let p = project(&c, &o).unwrap();
+    assert_eq!(p.chart["speed"], json!([]));
+    assert_eq!(
+        p.chart["inactiveSourceSpeed"]["values"],
+        json!([400.0, 1.5])
+    );
+    for bad in [
+        "selector",
+        "accessor",
+        "duplicate",
+        "scope",
+        "timebase",
+        "movie",
+    ] {
+        let mut changed = c.clone();
+        let state = &mut changed["captures"][1]["state"];
+        match bad {
+            "selector" => state["globalScopes"][0]["properties"][0]["value"] = json!(2),
+            "accessor" => state["globalScopes"][0]["properties"][0]["accessor"] = json!(true),
+            "duplicate" => {
+                let prop = state["globalScopes"][0]["properties"][0].clone();
+                state["globalScopes"][0]["properties"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(prop);
+            }
+            "scope" => state["globalScopes"][0]["caseSensitive"] = json!(true),
+            "timebase" => changed["swfHeaderFps"] = json!(30),
+            "movie" => changed["source"]["movieSha256"] = json!("0".repeat(64)),
+            _ => unreachable!(),
+        }
+        assert!(project(&changed, &o).is_err(), "{bad}");
+    }
+    let mut selected = o.clone();
+    selected.source_suffix = Some(String::new());
+    assert!(project(&c, &selected).is_err());
+    let mut consumed = root.clone();
+    consumed["controller"]["s"] = json!(2);
+    let mut changed = c.clone();
+    changed["captures"][0]["state"]["objects"] =
+        capture(vec![consumed])["captures"][0]["state"]["objects"].clone();
+    assert!(project(&changed, &o).is_err());
+    // An active native bank is still projected, even in the reviewed movie.
+    root["controller"]["speed_timeline"] = json!(["400", "1.5"]);
+    let mut active = capture(vec![root.clone(), root]);
+    active["source"]["movieSha256"] = json!(HASH);
+    let p = project(&active, &o).unwrap();
+    assert_eq!(
+        p.chart["speed"],
+        json!([{"nativeFrame":400.0,"multiplier":1.5}])
+    );
+    assert!(p.chart.get("inactiveSourceSpeed").is_none());
+}
+#[test]
 fn explicit_source_suffix_rejects_missing_and_ambiguous_fields() {
     let mut root = five();
     for name in ["left", "down", "up", "right", "space"] {
