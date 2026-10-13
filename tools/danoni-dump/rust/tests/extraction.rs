@@ -37,6 +37,7 @@ fn options(family: Family) -> ProjectionOptions {
         mode: Mode::Five,
         source_prefix: String::new(),
         source_suffix: None,
+        pinned_selection: None,
         review_missing_decorative_sprites: false,
     }
 }

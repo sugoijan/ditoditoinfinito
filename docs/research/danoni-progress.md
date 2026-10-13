@@ -119,8 +119,11 @@ Rust SWF demux slice matches all 85 selected MP3 streams and timing reports.
 The [combined saved-run producer](danoni-rust-normalization.md) now joins all 16
 separate decoration proofs and emits portable normalized artifacts entirely in
 Rust. The trial covers 78 works / 113 charts through the downstream media/SSC
-pipeline; three selector proof gaps remain explicit. Pinned chart adapters, fresh
-worker supervision and URL acquisition remain ahead.
+pipeline; three selector proof gaps remain explicit. The [pinned Rust adapters](danoni-rust-pinned.md)
+now add Higan and Kouhaku: seven charts / six songs, full reference parity, zero
+measured decoder corrections, 3,073 real-parser endpoints and 57 authored scroll
+checks. Fresh development captures used the existing restricted Python launcher;
+production Rust worker supervision and URL acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

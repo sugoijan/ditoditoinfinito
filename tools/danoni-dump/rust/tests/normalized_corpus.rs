@@ -93,13 +93,18 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
         let request: NativeWorkRequest = serde_json::from_value(row["request"].clone()).unwrap();
         let work = prepare_native_work(&request, &source, &mut || Ok(()))
             .unwrap_or_else(|e| panic!("{id}: {e}"));
-        let baseline_binding: Binding = serde_json::from_value(row["baseline"].clone()).unwrap();
-        let baseline_bytes = source
-            .read("corpus", &baseline_binding.path, JSON_LIMIT)
-            .unwrap();
-        assert_eq!(sha256(&baseline_bytes), baseline_binding.sha256);
-        let baseline: Value = serde_json::from_slice(&baseline_bytes).unwrap();
-        let prefix = Path::new(&baseline_binding.path).parent().unwrap();
+        let pinned = row.get("pinnedReferences").is_some();
+        let baseline_binding: Option<Binding> = row
+            .get("baseline")
+            .map(|v| serde_json::from_value(v.clone()).unwrap());
+        let baseline = baseline_binding.as_ref().map(|b| {
+            let bytes = source.read("corpus", &b.path, JSON_LIMIT).unwrap();
+            assert_eq!(sha256(&bytes), b.sha256);
+            serde_json::from_slice::<Value>(&bytes).unwrap()
+        });
+        let prefix = baseline_binding
+            .as_ref()
+            .map(|b| Path::new(&b.path).parent().unwrap());
         let mut generated = Memory(
             work.files
                 .iter()
@@ -110,55 +115,63 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
         let mut compared_pcm = BTreeMap::new();
         for c in work.manifest["charts"].as_array().unwrap() {
             let name = c["id"].as_str().unwrap();
-            let old = baseline["charts"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|v| v["id"] == name)
-                .unwrap();
-            for (k, v) in old.as_object().unwrap() {
-                if k != "music" {
-                    compare(&c[k], v, &format!("{id}.{name}.{k}"));
+            if pinned {
+                let witness = row["pinnedReferences"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|r| r["id"] == name)
+                    .unwrap();
+                let read_bound = |key: &str| {
+                    let b: Binding = serde_json::from_value(witness[key].clone()).unwrap();
+                    let bytes = source.read(&b.namespace, &b.path, MEDIA_LIMIT).unwrap();
+                    assert_eq!(sha256(&bytes), b.sha256);
+                    bytes
+                };
+                let expected: Value = serde_json::from_slice(&read_bound("binding")).unwrap();
+                compare(
+                    &c["pinnedReference"],
+                    &expected,
+                    &format!("{id}.{name}.pinnedReference"),
+                );
+                let frozen: Value = serde_json::from_slice(&read_bound("frozenReference")).unwrap();
+                for key in ["lanes", "speed", "colors", "boost"] {
+                    compare(
+                        &expected[key],
+                        &frozen[key],
+                        &format!("{id}.{name}.frozen.{key}"),
+                    );
                 }
-            }
-            let added = c
-                .as_object()
-                .unwrap()
-                .keys()
-                .filter(|k| old.get(*k).is_none())
-                .cloned()
-                .collect::<Vec<_>>();
-            assert!(
-                added.iter().all(|k| [
-                    "initialPixelSpeed",
-                    "compiledIteration",
-                    "clockInitializationIteration",
-                    "inactiveSpeedTail"
-                ]
-                .contains(&k.as_str())),
-                "{id} {name}: {added:?}"
-            );
-            let music = c["music"]["path"].as_str().unwrap();
-            let pcm_diff = if let Some(d) = compared_pcm.get(music) {
-                *d
-            } else {
+                for (lane, old) in c["lanes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .zip(expected["lanes"].as_array().unwrap())
+                {
+                    for key in ["tapsSeconds", "holdsSeconds"] {
+                        compare(&lane[key], &old[key], &format!("{id}.{name}.{key}"));
+                    }
+                }
+                compare(
+                    &c["difficultyStars"],
+                    &expected["metadata"]["difficultyStars"],
+                    "numeric difficulty",
+                );
+                let music = c["music"]["path"].as_str().unwrap();
                 let actual =
                     audio::decode(&generated.0[music], &DecodeOptions::default(), &mut || {
                         Ok(())
                     })
                     .unwrap();
-                let old_bytes = fs::read(
-                    root.join(prefix)
-                        .join(old["music"]["path"].as_str().unwrap()),
+                let wanted = audio::decode(
+                    &read_bound("decodedMusic"),
+                    &DecodeOptions::default(),
+                    &mut || Ok(()),
                 )
                 .unwrap();
-                assert_eq!(sha256(&old_bytes), old["music"]["sha256"]);
-                let wanted =
-                    audio::decode(&old_bytes, &DecodeOptions::default(), &mut || Ok(())).unwrap();
                 assert_eq!(
                     (actual.pcm.rate, actual.pcm.channels, actual.pcm.frames()),
-                    (wanted.pcm.rate, wanted.pcm.channels, wanted.pcm.frames()),
-                    "{id} {name}"
+                    (wanted.pcm.rate, wanted.pcm.channels, wanted.pcm.frames())
                 );
                 let difference = actual
                     .pcm
@@ -169,26 +182,109 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
                     .max()
                     .unwrap();
                 assert!(difference <= 1, "{id} {name}: PCM difference {difference}");
-                compared_pcm.insert(music.to_string(), difference);
-                difference
-            };
-            max_pcm_difference = max_pcm_difference.max(pcm_diff);
-            let origin: Value = serde_json::from_slice(
-                &generated.0[&format!("references/{name}-audio-origin.json")],
-            )
-            .unwrap();
-            let mp3 = c["music"]["path"]
-                .as_str()
-                .unwrap()
-                .rsplit_once('/')
-                .unwrap()
-                .0;
-            let old_origin = read(&root.join(prefix).join(mp3).join("audio-origin.json"));
-            assert_eq!(
-                origin["appliedShiftSamples"], old_origin["appliedShiftSamples"],
-                "{id} {name}"
-            );
-            differences.push(json!({"chart":name,"newFields":added,"canonicalPcmMaxDifference":pcm_diff,"appliedShiftSamples":origin["appliedShiftSamples"]}));
+                max_pcm_difference = max_pcm_difference.max(difference);
+                let origin: Value = serde_json::from_slice(
+                    &generated.0[&format!("references/{name}-audio-origin.json")],
+                )
+                .unwrap();
+                assert_eq!(
+                    origin["appliedShiftSamples"],
+                    witness["expectedShiftSamples"]
+                );
+                let motion: Value =
+                    serde_json::from_slice(&generated.0[&format!("references/{name}-motion.json")])
+                        .unwrap();
+                compare(
+                    &motion["baseArrowHeightsPerSecond"],
+                    &witness["expectedBaseArrowHeightsPerSecond"],
+                    "pinned reference width",
+                );
+                assert_eq!(motion["arrivalProved"], false);
+                differences.push(json!({"chart":name,"pinnedReferenceParity":true,"frozenNoteEffectParity":true,"canonicalPcmMaxDifference":difference,"appliedShiftSamples":origin["appliedShiftSamples"]}));
+            } else {
+                let baseline = baseline.as_ref().unwrap();
+                let prefix = prefix.unwrap();
+                let old = baseline["charts"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|v| v["id"] == name)
+                    .unwrap();
+                for (k, v) in old.as_object().unwrap() {
+                    if k != "music" {
+                        compare(&c[k], v, &format!("{id}.{name}.{k}"));
+                    }
+                }
+                let added = c
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .filter(|k| old.get(*k).is_none())
+                    .cloned()
+                    .collect::<Vec<_>>();
+                assert!(
+                    added.iter().all(|k| [
+                        "initialPixelSpeed",
+                        "compiledIteration",
+                        "clockInitializationIteration",
+                        "inactiveSpeedTail"
+                    ]
+                    .contains(&k.as_str())),
+                    "{id} {name}: {added:?}"
+                );
+                let music = c["music"]["path"].as_str().unwrap();
+                let pcm_diff = if let Some(d) = compared_pcm.get(music) {
+                    *d
+                } else {
+                    let actual =
+                        audio::decode(&generated.0[music], &DecodeOptions::default(), &mut || {
+                            Ok(())
+                        })
+                        .unwrap();
+                    let old_bytes = fs::read(
+                        root.join(prefix)
+                            .join(old["music"]["path"].as_str().unwrap()),
+                    )
+                    .unwrap();
+                    assert_eq!(sha256(&old_bytes), old["music"]["sha256"]);
+                    let wanted =
+                        audio::decode(&old_bytes, &DecodeOptions::default(), &mut || Ok(()))
+                            .unwrap();
+                    assert_eq!(
+                        (actual.pcm.rate, actual.pcm.channels, actual.pcm.frames()),
+                        (wanted.pcm.rate, wanted.pcm.channels, wanted.pcm.frames()),
+                        "{id} {name}"
+                    );
+                    let difference = actual
+                        .pcm
+                        .samples
+                        .iter()
+                        .zip(&wanted.pcm.samples)
+                        .map(|(a, b)| (*a as i32 - *b as i32).abs())
+                        .max()
+                        .unwrap();
+                    assert!(difference <= 1, "{id} {name}: PCM difference {difference}");
+                    compared_pcm.insert(music.to_string(), difference);
+                    difference
+                };
+                max_pcm_difference = max_pcm_difference.max(pcm_diff);
+                let origin: Value = serde_json::from_slice(
+                    &generated.0[&format!("references/{name}-audio-origin.json")],
+                )
+                .unwrap();
+                let mp3 = c["music"]["path"]
+                    .as_str()
+                    .unwrap()
+                    .rsplit_once('/')
+                    .unwrap()
+                    .0;
+                let old_origin = read(&root.join(prefix).join(mp3).join("audio-origin.json"));
+                assert_eq!(
+                    origin["appliedShiftSamples"], old_origin["appliedShiftSamples"],
+                    "{id} {name}"
+                );
+                differences.push(json!({"chart":name,"newFields":added,"canonicalPcmMaxDifference":pcm_diff,"appliedShiftSamples":origin["appliedShiftSamples"]}));
+            }
             charts += 1;
             for lane in c["lanes"].as_array().unwrap() {
                 taps += lane["tapsSeconds"].as_array().unwrap().len();
@@ -209,6 +305,7 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
                 )
             })
             .collect::<BTreeMap<_, _>>();
+        let expected_songs = music.len();
         for (hash, path) in music {
             let request = MediaRequest {
                 manifest: manifest_binding.clone(),
@@ -249,6 +346,10 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
             &mut |_| Ok(()),
         )
         .unwrap_or_else(|e| panic!("{id}: downstream {e}"));
+        assert_eq!(
+            prepared.manifest["songs"].as_array().unwrap().len(),
+            expected_songs
+        );
         let mut parsed_charts = 0;
         let mut work_scroll_checks = 0;
         for record in prepared.manifest["songs"].as_array().unwrap() {
@@ -262,6 +363,20 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
             let reports = record["charts"].as_array().unwrap();
             assert_eq!(reports.len(), song.charts.len());
             for (report, chart) in reports.iter().zip(&song.charts) {
+                if pinned {
+                    let source_chart = work.manifest["charts"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|c| c["id"] == report["id"])
+                        .unwrap();
+                    let stars = source_chart["difficultyStars"].as_u64().map(|n| n as u16);
+                    assert_eq!(report["difficultyStars"], source_chart["difficultyStars"]);
+                    assert_eq!(chart.meter, stars.unwrap_or(0) as u32);
+                    let tier =
+                        ddi_danoni_export::policy::tier_for_stars(stars, [1, 3, 5, 7]).unwrap();
+                    assert_eq!(format!("{:?}", chart.difficulty), tier.label());
+                }
                 let timing = chart.timing(&song);
                 let padding = report["paddingTicks"].as_i64().unwrap();
                 let mut actual = BTreeSet::new();
@@ -349,7 +464,7 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
         checks.push(json!({"work":id,"charts":parsed_charts,"files":work.files.len(),"sourceInputs":work.receipt["sourceInputs"].as_object().unwrap().len(),"differences":differences,"decorationJoined":work.receipt["charts"].as_array().unwrap().iter().filter(|r|r["presentationDiagnostics"]["audio"].as_array().is_some_and(|v|!v.is_empty())).count(),"downstreamSongs":prepared.manifest["songs"].as_array().unwrap().len(),"scrollChecks":work_scroll_checks}));
         eprintln!("normalized-work {id}: {parsed_charts} charts");
     }
-    let report = json!({"schema":"ddi-danoni-rust-normalization-parity/1","passed":true,"casesSha256":sha256(&fs::read(path).unwrap()),"checks":checks,"strictRejections":failures,"charts":charts,"taps":taps,"holds":holds,"endpoints":endpoints,"maximumErrorMs":max_error,"maximumCanonicalPcmDifference":max_pcm_difference,"scope":"Saved native runs to normalized artifacts, independently aligned PCM and in-memory downstream WAV/SSC preparation; fallback source grid, no fresh execution or BPM acceptance"});
+    let report = json!({"schema":"ddi-danoni-rust-normalization-parity/1","passed":true,"casesSha256":sha256(&fs::read(path).unwrap()),"checks":checks,"strictRejections":failures,"charts":charts,"taps":taps,"holds":holds,"endpoints":endpoints,"maximumErrorMs":max_error,"maximumCanonicalPcmDifference":max_pcm_difference,"scope":"Passive bound runs to normalized artifacts, independently aligned PCM and downstream WAV/SSC preparation; fallback source grid, no worker launched by Rust or BPM acceptance"});
     if let Some(out) = out {
         fs::write(
             out.join("manifest.json"),

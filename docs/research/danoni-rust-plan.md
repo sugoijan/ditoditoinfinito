@@ -401,3 +401,25 @@ port the separately pinned Higan/Kouhaku contracts and recapture/prove those thr
 selectors, then implement restricted worker supervision/resource acquisition.
 URL discovery/fetching remains milestone 5; desktop library installation remains
 a verified host transaction.
+
+
+### Pinned Higan and Kouhaku normalization, 2026-10-13
+
+The [pinned contract handover](danoni-rust-pinned.md) adds exact-movie Higan and
+Kouhaku selections to the existing Rust projection/normalization APIs. It retains
+complete original references, actual filled-star counts, child-timeline clocks,
+nominal judgment frames and measured source-width scroll. It does not relax the
+structural arrival proof or add work-specific DSP parameters.
+
+Fresh restricted development captures supply enough PCM for seven independent
+origin proofs; the current Python launcher remains the development supervisor.
+Rust then produces two normalized works / six songs / seven charts, with full
+current reference and frozen note/effect parity. All 3,073 game-parser endpoints
+and 57 x1/x2/x3 scroll checks pass; independent PCM differs by at most one unit,
+with zero measured shifts. The 78-work/113-chart structural gate still passes.
+Accepted exports and provisional native musical-quality status are unchanged.
+
+Milestone 4 now includes all existing pinned and structural passive adapters.
+Next package and port the restricted worker supervisor/versioned capture protocol,
+then the bounded resource-request loop. The three structural selector proof gaps
+remain explicit. Recipe-free URL discovery/acquisition remains milestone 5.

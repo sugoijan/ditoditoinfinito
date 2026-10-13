@@ -10,8 +10,9 @@ FFmpeg, a browser, network access or execution of a work's scripts.
 
 This is **saved-run normalization**. It does not launch Ruffle, discover selectors,
 fetch a URL, fit musical BPM, produce a banner/rating review or install songs.
-The separately pinned Higan/Kouhaku chart contracts are still pending; their
-static audio demux is already checked. Accepted exports remain unchanged.
+The [pinned Higan/Kouhaku contracts](danoni-rust-pinned.md) now use the same
+producer, with explicit child-clock and bounds-width movement policies. Accepted
+exports remain unchanged.
 
 ## Host API and request
 
@@ -84,7 +85,10 @@ like a presentation option. A mismatch returns `native-run-controls-mismatch`;
 worker/sandbox mismatch returns `native-run-identity-mismatch`.
 
 Projection proves complete source/native banks or schedules under its family
-contract. Motion proves source arrival, geometry and stored author speed units.
+contract. Structural motion proves source arrival, geometry and stored author
+speed units.
+Pinned motion proves translation/reference width while retaining nominal timing
+and its original unverified receptor-centre scope.
 Audio-start state must have the same logical counter offset as every motion
 sample. The actual SWF slice must match the observed head, FPS and sample budget.
 Native PCM must be exactly 44,100 Hz stereo signed PCM16, with captured frame
@@ -169,10 +173,11 @@ source-order issues and diagnostics. Audio-relative seconds are
 `(nativeFrame-logicalAudioOrigin)/60` for taps, hold heads/tails, speed, boost and
 visual stops. Each chart additionally names `id`, canonical
 `music:{path,sha256,mimeType:"audio/wav"}`, `audioOrigin`, `nativeReference`, merged
-`metadata`, `difficultyStars:null` and `effects`. Caller metadata/labels and the
-existing native/source artist fallback retain Python behavior; source difficulty
-text does not become a numeric rating. Original publisher headers/credits remain
-in the projection and raw snapshots. Existing source-bound rating/artwork stages
+`metadata`, `difficultyStars:number|null` and `effects`. Caller metadata/labels
+and the existing native/source artist fallback retain Python behavior; arbitrary
+source difficulty labels do not become numeric ratings. The pinned Kouhaku contract preserves
+actual filled-star counts; Higan's selector index remains unrated. Original
+publisher headers/credits remain in the projection and raw snapshots. Existing source-bound rating/artwork stages
 can supply their independent reviews later.
 
 Effects retain inactive speed tails, the global SSC approximation of native
@@ -291,8 +296,9 @@ control-plan identity, configured resource/movie bindings, PCM dimensions,
 rejected/canceled requests, readiness, partial-write cleanup and changed inventory. Acquisition and fresh execution never
 run during these gates.
 
-Next: port the separately pinned Higan/Kouhaku chart contracts, resolve or recapture
-these three proof gaps, then package/port the restricted worker supervisor and
-resource-request loop. Source discovery/URL fetching and desktop installation
+The pinned contracts are now [implemented and checked](danoni-rust-pinned.md)
+for two additional works / seven charts. Next: resolve or recapture these three
+proof gaps and package/port the restricted worker supervisor and resource-request
+loop. Source discovery/URL fetching and desktop installation
 remain the subsequent host stages. The current saved-run API removes the Python
 normalization/demux/audio dependency for the proved structural corpus.

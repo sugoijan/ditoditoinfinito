@@ -6,6 +6,8 @@ mod movie;
 mod normalized;
 pub use normalized::{NativeChartRequest, NativeWorkRequest, NormalizedWork, prepare_native_work};
 mod observed;
+mod pinned;
+pub use pinned::PinnedSelection;
 mod scheduled;
 use crate::{Error, Result, model::Mode};
 use graph::*;
@@ -38,6 +40,9 @@ pub enum Family {
     ScheduledCounter,
     ScheduledConstant,
     ParaflaCounter,
+    HiganPilot,
+    #[serde(rename = "kouhaku-2004")]
+    Kouhaku2004,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -47,6 +52,7 @@ pub struct ProjectionOptions {
     #[serde(default)]
     pub source_prefix: String,
     pub source_suffix: Option<String>,
+    pub pinned_selection: Option<PinnedSelection>,
     #[serde(default)]
     pub review_missing_decorative_sprites: bool,
 }
@@ -238,7 +244,11 @@ pub fn project_capture(
             "Decorative exception does not apply to this family",
         ));
     }
+    if options.pinned_selection.is_some() && options.family != Family::Kouhaku2004 {
+        return Err(invalid("Pinned selection only applies to Kouhaku"));
+    }
     match options.family {
+        Family::HiganPilot | Family::Kouhaku2004 => pinned::project(capture, options, checkpoint),
         Family::ChildTimeline5 | Family::Dac7 => movie::movie_arrays(capture, options, checkpoint),
         Family::Dac5 | Family::DacFixed5 => movie::dac_five(capture, options, checkpoint),
         Family::ScheduledConstant => scheduled::constant(capture, options.mode, checkpoint),

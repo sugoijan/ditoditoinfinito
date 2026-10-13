@@ -333,14 +333,34 @@ pub fn prepare_native_work(
         let motion_diagnostics = joined_diagnostics(&projection.chart, &motion_capture)?;
         let audio_diagnostics = joined_diagnostics(&projection.chart, &audio_capture)?;
         let clock = projection.chart["clockField"].as_str();
-        let motion = movie_observation(
-            &motion_capture,
-            &projection.chart,
-            &row.motion_selection,
-            clock,
-            checkpoint,
-        )?;
-        let origin = movie_audio_origin(&audio_capture, clock, row.stream_start_index)?;
+        let pinned = matches!(row.options.family, Family::HiganPilot | Family::Kouhaku2004);
+        let motion = if pinned {
+            super::pinned::motion(
+                &motion_capture,
+                &projection.chart,
+                &row.options,
+                &row.motion_selection,
+                checkpoint,
+            )?
+        } else {
+            movie_observation(
+                &motion_capture,
+                &projection.chart,
+                &row.motion_selection,
+                clock,
+                checkpoint,
+            )?
+        };
+        let origin = if pinned {
+            super::pinned::audio_origin(
+                &audio_capture,
+                &projection.chart,
+                &row.options,
+                row.stream_start_index,
+            )?
+        } else {
+            movie_audio_origin(&audio_capture, clock, row.stream_start_index)?
+        };
         validate_clock_agreement(&origin, &motion)?;
         let demux = swf::select_capture(
             &movie,
@@ -349,6 +369,9 @@ pub fn prepare_native_work(
             &audio_diagnostics,
             checkpoint,
         )?;
+        if pinned {
+            super::pinned::validate_demux(&demux.report, &row.options)?;
+        }
         let mp3_hash = sha256(&demux.bytes);
         if !decoded.contains_key(&mp3_hash) {
             decoded.insert(
@@ -417,6 +440,27 @@ pub fn prepare_native_work(
             &audio_report,
         )?;
         let mut metadata = request.metadata.clone();
+        if pinned {
+            for key in [
+                "title",
+                "artist",
+                "musicTitle",
+                "tuning",
+                "rawDifficulty",
+                "keyMode",
+            ] {
+                if let Some(value) = projection.chart["metadata"][key].as_str() {
+                    // Multi-song collection metadata is per selection, not work-wide.
+                    metadata.insert(key.into(), json!(value));
+                }
+            }
+        }
+        if pinned
+            && !metadata.contains_key("creator")
+            && let Some(author) = original_source["chartAuthor"].as_str()
+        {
+            metadata.insert("creator".into(), json!(author));
+        }
         if !metadata
             .get("artist")
             .and_then(Value::as_str)
@@ -435,13 +479,12 @@ pub fn prepare_native_work(
         }
         metadata.insert(
             "difficultyLabel".into(),
-            json!(
-                row.label
-                    .as_deref()
-                    .unwrap_or_else(|| projection.chart["metadata"]["diffi"]
-                        .as_str()
-                        .unwrap_or(""))
-            ),
+            json!(row.label.as_deref().unwrap_or_else(|| {
+                ["diffi", "label", "rawDifficulty"]
+                    .iter()
+                    .find_map(|k| projection.chart["metadata"][*k].as_str())
+                    .unwrap_or("")
+            })),
         );
         let optional_review = optional
             .map(|o| {
@@ -456,14 +499,23 @@ pub fn prepare_native_work(
         chart["audioOrigin"] = origin.clone();
         chart["nativeReference"] = json!(format!("references/{}.json", row.id));
         chart["metadata"] = json!(metadata);
-        chart["difficultyStars"] = Value::Null;
+        chart["difficultyStars"] = projection.chart["difficultyStars"].clone();
         chart["effects"] = effects(
             &projection.chart,
             optional_review
                 .as_ref()
                 .map(|v| (v, optional_diagnostics.as_slice())),
         )?;
-        let reference = json!({"schema":"ddi-native-family-reference/experimental-1","family":row.options.family,"sourceSwfSha256":request.movie.sha256,"preparedIteration":projection.prepared_iteration,"clock":clock.unwrap_or("root movie frame"),"audioOrigin":origin,"projection":projection.chart,"motion":motion,"metadata":metadata,"sourceSnapshotSha256":row.projection.snapshot.sha256,"normalizationPolicy":"native-normalization/1","limits":["Source frame data preserved; original Flash/device latency not measured","Frame-phase differences up to one native tick remain observable in original rendering","Unsorted source arrays and native presentation diagnostics are retained; arbitrary engine customization is not reproduced"]});
+        let limits = if pinned {
+            projection.chart["pinnedReference"]["limits"].clone()
+        } else {
+            json!([
+                "Source frame data preserved; original Flash/device latency not measured",
+                "Frame-phase differences up to one native tick remain observable in original rendering",
+                "Unsorted source arrays and native presentation diagnostics are retained; arbitrary engine customization is not reproduced"
+            ])
+        };
+        let reference = json!({"schema":"ddi-native-family-reference/experimental-1","family":row.options.family,"sourceSwfSha256":request.movie.sha256,"preparedIteration":projection.prepared_iteration,"clock":clock.unwrap_or("root movie frame"),"audioOrigin":origin,"projection":projection.chart,"motion":motion,"metadata":metadata,"sourceSnapshotSha256":row.projection.snapshot.sha256,"normalizationPolicy":"native-normalization/1","limits":limits});
         add_json(
             &mut files,
             format!("references/{}.json", row.id),
@@ -531,6 +583,7 @@ mod tests {
                 mode: crate::model::Mode::Five,
                 source_prefix: String::new(),
                 source_suffix: None,
+                pinned_selection: None,
                 review_missing_decorative_sprites: false,
             },
             projection: c.clone(),

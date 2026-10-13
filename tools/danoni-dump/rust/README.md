@@ -194,7 +194,8 @@ The [extraction handover](../../../docs/research/danoni-rust-extraction.md) spec
 movie/run/config bindings, seven structural families, movement and clock APIs,
 units and two historical proof gaps. This stage does not execute work code
 or prepare a newly normalized song. Runtime supervision and
-acquisition remain pending; the pinned Higan/Kouhaku paths are separate.
+acquisition remain pending; the [pinned Higan/Kouhaku paths](../../../docs/research/danoni-rust-pinned.md)
+now use the same projection/normalization APIs.
 
 
 Saved SWF music is now inventoried/demuxed in Rust as unchanged MP3 frames:
@@ -206,8 +207,8 @@ target/danoni-rust/debug/ddi-danoni-export demux-native /tmp/demux-job.json /tmp
 The [SWF contract](../../../docs/research/danoni-rust-extraction.md#swf-audio-inventory-and-demux-2026-10-13)
 explains FWS/CWS bounds, runtime slice offsets, stream timing metadata and
 source-bound saved-run jobs. All 85 selected corpus streams match existing bytes
-and metadata. Sixteen audio runs still require their separate proven decoration
-review joined by the forthcoming combined job. The command writes `stream.mp3`
+and metadata. Sixteen audio runs require their separate proven decoration review, now joined
+by the combined normalization job. The command writes `stream.mp3`
 and a final manifest, with no decoding, work execution or network access.
 
 
@@ -223,5 +224,7 @@ portable evidence and canonical WAV output. The local gate covers 78 works /
 113 charts, independently measured shared-song origins, every downstream SSC
 endpoint and x1/x2/x3 authored scroll segments. Three selectors remain explicitly
 unproved; accepted exports are unchanged. This removes Python from proved saved
-structural normalization, while fresh worker execution, pinned chart adapters,
-URL acquisition and installation remain pending.
+structural normalization. The pinned Higan/Kouhaku path adds seven charts / six
+songs with original reference parity, numeric stars, explicit child clocks and
+measured width-based scroll. Fresh Rust worker execution, URL acquisition and
+installation remain pending.

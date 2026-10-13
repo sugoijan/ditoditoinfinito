@@ -9,8 +9,8 @@ The production API/CLI has no Python, Node, browser or Ruffle dependency.
 The subsequent SWF slice below inventories and demuxes saved movie bytes.
 The [combined saved-run producer](danoni-rust-normalization.md) now emits complete
 normalized structural works and bound native-scroll evidence. It **does not execute
-a movie**; fresh supervision and pinned chart contracts remain pending. All
-third-party data and parity results remain local; accepted exports are unchanged.
+a movie**. The [pinned chart contracts](danoni-rust-pinned.md) now use the same
+APIs; fresh supervision remains pending. All third-party data and parity results remain local; accepted exports are unchanged.
 
 ## API and provenance boundary
 
@@ -28,7 +28,9 @@ ProjectionRequest:
     config: Binding
   options:
     family: "child-timeline-5" | "dac-7" | "dac-5" | "dac-fixed-5" |
-            "scheduled-counter" | "scheduled-constant" | "parafla-counter"
+            "scheduled-counter" | "scheduled-constant" | "parafla-counter" |
+            "higan-pilot" | "kouhaku-2004"
+    pinnedSelection: string | null      default null; Kouhaku only
     mode: "5" | "7"
     sourcePrefix: "" | "n"             default ""; child timelines only
     sourceSuffix: string | null         default null; child timelines only
@@ -40,8 +42,9 @@ ProjectionRequest:
 length. Other modes remain unsupported by these native contracts; the separate
 HTML5 path still covers 7i/9A/9B. Child timelines require mode 5 and seven-lane
 DAC mode 7. A suffix has at most 32 letters/digits/underscores; it cannot select
-another family's data. Undefined optional fields are distinct from explicit
-native `null`, which is not an array. Unknown request/options fields reject.
+another family's data. The pinned five-key contracts require exact reviewed
+movie hashes and use separately documented movement/clock scope. Undefined
+optional fields are distinct from explicit native `null`, which is not an array. Unknown request/options fields reject.
 
 The job hashes **actual preserved movie bytes**, snapshot, parent report and
 configuration. Snapshot schema is `ddi-ruffle-probe/experimental-1`, parent

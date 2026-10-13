@@ -291,7 +291,7 @@ pub fn relative_chart(chart: &Value, origin: f64) -> Result<Value> {
 pub fn validate_clock_agreement(origin: &Value, motion: &Value) -> Result<()> {
     let offset = numeric(&origin["logicalFrame"])? - numeric(&origin["iteration"])?;
     let clock = motion["clockField"].as_str().unwrap_or("root movie frame");
-    if origin["clock"] != clock {
+    if origin["clock"] != clock || origin["clockPath"] != motion["clockPath"] {
         return Err(Error::new(
             "native-clock-mismatch",
             "Audio and movement use different clock fields",
