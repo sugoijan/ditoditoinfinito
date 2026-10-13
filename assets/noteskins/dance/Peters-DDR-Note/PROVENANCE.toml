@@ -1,0 +1,19 @@
+# Peters-DDR-Note by Peter Lawrence: its dance files, byte for byte, with
+# the repository's LICENSE and README.md. Its taps and lifts are MilkShape
+# models (docs/plans/models.md); Peters-DDR-Vivid falls back on it.
+author = "Peter Lawrence"
+credit = "Peter Lawrence · The Unlicense"
+modifications = [
+    "LICENSE and README.md copied from the repository's root",
+]
+
+[source]
+url = "https://github.com/Pete-Lawrence/Peters-Noteskins"
+commit = "6faea8e1a17a76beeb2a3dd1000f3f703c4e52f6"
+path = "SM5/Completed/Peters-DDR-Note"
+retrieved = "2026-10-13"
+
+[[licenses]]
+part = "the skin (models, images, Lua, metrics, notes, README)"
+spdx = "Unlicense"
+holders = ["Peter Lawrence"]
