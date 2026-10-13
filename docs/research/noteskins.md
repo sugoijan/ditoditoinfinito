@@ -310,7 +310,8 @@ test oracle.
     derives from unlicensed OutFox skins, the images do not.
   - **Dake** by hanubeki, **Apache-2.0** (`README.md`, `LICENSE` in
     hanubeki/dake `e26aa8d0`): 2D sheets for every game; needs OutFox 0.5.
-  - **Peter Lawrence's CF_CHROME/CF_VIBRANT/CF_ALLOY**, **Unlicense**
+  - **Peter Lawrence's CF_CHROME/CF_VIBRANT/CF_ALLOY** (and since
+    2026-10-13 Peters-DDR-Vivid with Peters-DDR-Note), **Unlicense**
     (Pete-Lawrence/Peters-Noteskins `6faea8e1`): 3D models.
   - **Aozora-Note shapes**, **CC BY 4.0** (aozora-tori/Aozora-ProjectOutfox-Noteskin-Graphics
     `145e94eb`): SVG outlines only.

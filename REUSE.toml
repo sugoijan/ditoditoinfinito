@@ -76,9 +76,17 @@ path = ["assets/noteskins/dance/CF_CHROME/Fallback HitMine Explosion 8x8 (res 15
 SPDX-FileCopyrightText = ["JangaFX LLC", "Peter Lawrence"]
 SPDX-License-Identifier = "CC0-1.0"
 
+# Peter Lawrence's Peters-DDR-Note and Peters-DDR-Vivid (the same
+# repository and commit, SM5/Completed/): their dance files byte for byte,
+# the Unlicense.
+[[annotations]]
+path = ["assets/noteskins/dance/Peters-DDR-Note/**", "assets/noteskins/dance/Peters-DDR-Vivid/**"]
+SPDX-FileCopyrightText = "Peter Lawrence"
+SPDX-License-Identifier = "Unlicense"
+
 # The bundled skins' PROVENANCE.toml files are this repository's (MIT).
 [[annotations]]
-path = ["assets/noteskins/dance/CF_CHROME/PROVENANCE.toml", "assets/noteskins/dance/CF_VIBRANT/PROVENANCE.toml", "assets/noteskins/dance/CF_ALLOY/PROVENANCE.toml"]
+path = ["assets/noteskins/dance/CF_CHROME/PROVENANCE.toml", "assets/noteskins/dance/CF_VIBRANT/PROVENANCE.toml", "assets/noteskins/dance/CF_ALLOY/PROVENANCE.toml", "assets/noteskins/dance/Peters-DDR-Note/PROVENANCE.toml", "assets/noteskins/dance/Peters-DDR-Vivid/PROVENANCE.toml"]
 SPDX-FileCopyrightText = "すごいジャン <me@sugoijan.dev>"
 SPDX-License-Identifier = "MIT"
 
