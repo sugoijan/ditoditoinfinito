@@ -7,7 +7,7 @@ optional `native` feature (enabled by default) supplies confined filesystem read
 fresh output directories, collection packaging and journaled publication; `--no-default-features` leaves host-supplied
 asset access and in-memory artifacts. The game's workspace/WASM build is unchanged.
 
-No fetching, work execution or automatic BPM fitting occurs here yet. The
+No fetching or work execution occurs here yet. The
 [native audio stage](../../../docs/research/danoni-rust-audio.md) decodes supplied
 normalized sources and produces WAV/Ogg neutral receipts in process. Accepted
 media and reviewed banners can still be reused byte-identically;
@@ -129,8 +129,8 @@ whitespace/numeric spelling and archive bytes are not promised identical.
 The [complete-song API and offline jobs](../../../docs/research/danoni-rust-offline.md)
 add source loading, review binding, grouping, headers, supplied artwork/media,
 previews, provenance, native title/panel artwork, collection ZIPs and validated
-archive/promotion/recovery. BPM inference, fetching and work
-execution remain pending. The offline handover specifies all job/result schemas.
+archive/promotion/recovery. Native musical analysis now has its own versioned
+API and provisional evidence; fetching and work execution remain pending. The offline handover specifies all job/result schemas.
 
 
 Additional CLI commands (all paths external to Git):
@@ -165,3 +165,18 @@ no FFmpeg/oggenc executable is needed at runtime. Disable it with
 all defaults for pure host-supplied decoding, resampling/origin and WAV APIs.
 The game/WASM workspace is unchanged. See the audio handover for exact bounds,
 MP3 metadata/physical-frame distinctions, origin proof scope and corpus gates.
+
+
+Musical analysis uses the same normalized sources and proved PCM:
+
+```sh
+target/danoni-rust/debug/ddi-danoni-export estimate-tempo /tmp/tempo-job.json /tmp/tempo-new
+```
+
+The [tempo handover](../../../docs/research/danoni-rust-tempo.md) specifies the
+source-bound API, whole-work fallback, cached-result validation and output.
+`grid.json` feeds `WorkRequest.reviews.grid`. The explicit legacy-analysis bridge
+reproduces accepted decisions; fresh Rust spectral analysis is experimental and
+has recorded BPM/phase aliases. Mechanical 9 ms validation does not prove musical
+correctness. Accepted exports are unchanged. Neither stage needs Python/Node or
+an external audio command; neither implements URL discovery/runtime extraction.

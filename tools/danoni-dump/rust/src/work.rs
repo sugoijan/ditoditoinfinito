@@ -182,7 +182,7 @@ fn authored_bpm(raw: Option<&Value>) -> Option<Value> {
     display_bpm(&raw.replace('-', ":"), "authored CW header").ok()
 }
 
-fn entries<S: AssetSource>(
+pub(crate) fn entries<S: AssetSource>(
     raw: &Value,
     binding: &Binding,
     inputs: &mut Inputs<'_, S>,

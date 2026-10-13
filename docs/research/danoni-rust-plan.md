@@ -306,8 +306,25 @@ match captured Ruffle origins with exactly the prior correction. Fresh Rust code
 receipts feed complete-song preparation for all 93 tracks without changing chart
 diagnostics, artwork or preview starts. Accepted exports remain unchanged.
 
-Milestone 3 remains in progress for onset/pulse and robust musical/shared-audio
-fitting/cache policies. The raw-origin routines are available to the upcoming
+The next slice below implements onset/pulse and robust musical/shared-audio
+fitting/cache policies; musical-quality acceptance remains open. The raw-origin routines are available to the upcoming
 extraction supervisor; SWF demux/runtime/provenance orchestration is still
 milestone 4. Codec-side native C libraries are bundled build dependencies of the
 optional encoder, not external runtime executables and not part of the game WASM.
+
+
+### Native tempo and explicit analysis bridge, 2026-10-13
+
+The [tempo handover](danoni-rust-tempo.md) specifies the Rust lattice/pulse,
+independent-chart consensus, source-bound cache and CLI contracts. The explicit
+legacy bridge matches 126 accepted chart decisions; 1,044 fixed fit statistics
+agree. Fresh versioned spectral analysis processes all 89 works / 93 tracks /
+144 charts and checks every applied endpoint/event, with maximum error below
+9 ms. No pack-specific constants or work-name branches are used.
+
+Milestone 3 remains open for native musical-quality review: 29 charts choose a
+different BPM family from accepted grids, including octave/triplet aliases, and
+quarter phase is provisional. New local estimates have not replaced the accepted
+exports. The next analysis step is a generic alias/phase assessment using these
+recorded differences, before claiming native musical equivalence. Source/worker
+extraction and URL acquisition remain milestones 4–5.

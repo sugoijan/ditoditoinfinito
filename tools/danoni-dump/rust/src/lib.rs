@@ -14,6 +14,7 @@ pub mod policy;
 pub mod preview;
 pub mod reviews;
 pub mod ssc;
+pub mod tempo;
 pub mod timing;
 #[cfg(feature = "native")]
 pub mod transaction;

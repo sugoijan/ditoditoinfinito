@@ -152,6 +152,29 @@ fn map_lane(
         positions,
     ))
 }
+pub(crate) fn validate_source_chart(chart: &Chart) -> Result<()> {
+    if chart.id.is_empty() || chart.id.len() > 4096 || chart.lanes.len() != chart.mode.lanes() {
+        return Err(Error::new(
+            "invalid-chart",
+            "Need id and supported lane count",
+        ));
+    }
+    let count = chart
+        .lanes
+        .iter()
+        .map(|l| l.taps_seconds.len() + l.holds_seconds.len() * 2)
+        .sum::<usize>();
+    if count == 0 || count > MAX_ENDPOINTS {
+        return Err(Error::new(
+            "endpoint-limit",
+            "Need bounded nonempty source chart",
+        ));
+    }
+    for lane in &chart.lanes {
+        source_relationships(lane)?;
+    }
+    Ok(())
+}
 pub fn quantize(
     chart: &Chart,
     grid: Option<&MusicalGrid>,

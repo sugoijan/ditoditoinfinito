@@ -106,8 +106,12 @@ quantization diagnostics and authored scroll. Complete offline songs now use the
 recomputed previews and byte-identical supplied media/banners. Native artwork,
 collection ZIPs and validated journaled archival/promotion/recovery now complete
 the offline milestone, with an isolated 93-song trial. The [Rust audio stage](danoni-rust-audio.md) now decodes supplied sources, encodes
-Ogg and checks 79 raw native origins. Fresh BPM fitting is next, followed by native
-extraction and URL acquisition.
+Ogg and checks 79 raw native origins. The [Rust tempo stage](danoni-rust-tempo.md)
+now fits lattices/pulses and shared-chart phases with source-bound cache reuse.
+The legacy-analysis bridge matches accepted decisions; fresh native estimates
+pass timing gates but retain musical alias/phase differences under review.
+Accepted exports remain unchanged. Native extraction and URL acquisition follow
+that musical-quality checkpoint.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 
