@@ -7,9 +7,10 @@ projects all seven existing structural families, measures saved arrow motion,
 reads captured stream-start counters and checks cross-run clock agreement.
 The production API/CLI has no Python, Node, browser or Ruffle dependency.
 The subsequent SWF slice below inventories and demuxes saved movie bytes.
-It **does not execute a movie** or produce a complete newly normalized work.
-Those remain the next extraction stages. All third-party data
-and parity results remain local; accepted exports are unchanged.
+The [combined saved-run producer](danoni-rust-normalization.md) now emits complete
+normalized structural works and bound native-scroll evidence. It **does not execute
+a movie**; fresh supervision and pinned chart contracts remain pending. All
+third-party data and parity results remain local; accepted exports are unchanged.
 
 ## API and provenance boundary
 
@@ -50,8 +51,8 @@ exit 0, null termination and unchanged inputs. Its config hash must equal the
 supplied config binding, parsed config must equal the snapshot's entire config,
 and snapshot movie hash must equal the supplied movie bytes. This verifies
 saved receipts; it does not independently relaunch the worker or prove original
-Flash behavior. Worker build/sandbox identities and all input-resource receipts
-must be handled by the forthcoming supervisor/combined extraction job.
+Flash behavior. The combined producer now binds cached resource bytes and
+matching saved worker/sandbox identities. Actual worker/profile verification belongs to the fresh supervisor.
 
 Source bytes are immutable. No ActionScript, getters, coercions or source
 JavaScript run in the host. `Graph`, `text` and `numeric` are lower-level data
@@ -259,11 +260,12 @@ for a read-only run. Absent registry reports a skip.
 
 ## Next extraction slices
 
-Combine the hash-bound projection/motion/audio captures and the SWF demux below with the Rust decoder-origin and media stages
-into normalized artifacts. Keep exact source frames, provenance, event losses and
-independent shared-music origins. Port the separately pinned Higan/Kouhaku
-contracts and resolve the two recorded proof gaps before claiming reproduction
-of every accepted native chart. Then port/package the restricted worker supervisor,
+The [combined producer](danoni-rust-normalization.md) now joins these captures
+and SWF demux into normalized artifacts, retaining source frames, provenance,
+event losses and independent shared-music origins. Port the separately pinned
+Higan/Kouhaku contracts and resolve the two earlier proof gaps plus the combined
+producer's M. MOON selector-plan gap before claiming reproduction of every
+accepted native chart. Then port/package the restricted worker supervisor,
 resource-request loop, limits and cancellation. URL discovery/acquisition remains
 milestone 5; desktop library installation remains a host transaction.
 
@@ -368,8 +370,9 @@ The manifest schema is `ddi-danoni-native-demux/1`, producer
 `native-swf-mp3-demux/1`, with original `request`, `sourceInputs`, `streamStart`,
 `stream` above, `reviewedOptionalColorDiagnostics`, and
 `audio:{path:"stream.mp3",sha256}`. Its `scope` explicitly excludes decoded origin,
-complete chart contracts and fresh execution. Resource cache/build identities
-still belong to the forthcoming combined job/supervisor.
+complete chart contracts and fresh execution. The combined producer now binds
+cached resource bytes and matching saved build identities; the fresh supervisor
+must still verify/package the actual worker and sandbox implementations.
 
 The native CLI reads an external fresh-output job:
 
@@ -384,8 +387,8 @@ target/danoni-rust/debug/ddi-danoni-export demux-native /tmp/demux-job.json /tmp
 
 It writes `stream.mp3` and finally `manifest.json`; existing outputs are never
 overwritten. Canceled/failed owned outputs are removed. The artifact can supply
-the existing Rust decoder/resampler/origin stage once the combined producer binds
-native PCM and logical chart origin. This CLI is not a URL-to-song importer.
+the existing Rust decoder/resampler/origin stage through the combined producer,
+which binds native PCM and logical chart origin. This CLI is not a URL-to-song importer.
 
 ### Local acceptance and audit follow-up
 
@@ -404,9 +407,10 @@ scheduled-family chart projections prove the decoration exception using earlier
 converter/receptor snapshots; the audio captures alone do not contain those
 snapshots. The differential gate records these rejections and checks their static
 observed-slice demux separately. This is not a new chart/audio mismatch or a
-reason to change accepted exports. The combined job must bind both runs, verify
-selected settings/clock and the exact diagnostic relationship, and retain the
-original audio audit before applying the established decoration review.
+reason to change accepted exports. The [combined producer](danoni-rust-normalization.md) now binds these runs, checks
+control-plan/clock identity and exact diagnostic multiplicity, and retains the
+original audit before applying the established decoration review. All 16 affected
+works pass that join; the standalone audio-only job stays strict.
 
 Four original synthetic tests cover compressed/uncompressed lengths, empty long
 blocks, signed timing/seek differences, nested and partial slices, gaps, MPEG

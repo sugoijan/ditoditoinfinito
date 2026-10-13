@@ -116,9 +116,11 @@ Accepted exports remain unchanged. The [passive Rust extraction slice](danoni-ru
 native families and saved movement/clock evidence. It records two historical
 proof gaps shared by current Python instead of weakening checks. The subsequent
 Rust SWF demux slice matches all 85 selected MP3 streams and timing reports.
-Sixty-three saved structural audio jobs pass; 16 need their existing separate
-decoration proof joined. Combined artifacts, worker supervision and URL
-acquisition remain ahead.
+The [combined saved-run producer](danoni-rust-normalization.md) now joins all 16
+separate decoration proofs and emits portable normalized artifacts entirely in
+Rust. The trial covers 78 works / 113 charts through the downstream media/SSC
+pipeline; three selector proof gaps remain explicit. Pinned chart adapters, fresh
+worker supervision and URL acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

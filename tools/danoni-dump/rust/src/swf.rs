@@ -538,14 +538,41 @@ pub fn prepare_demux(
         request.optional_color.as_ref(),
         &mut inputs,
     )?;
-    extraction::audit_ok(&capture, &[])
+    let movie = Movie::read(&original, checkpoint)?;
+    let demux = select_capture(
+        &movie,
+        &capture,
+        request.stream_start_index,
+        &[],
+        checkpoint,
+    )?;
+    let start = &capture["audio"]["streamStarts"][request.stream_start_index];
+    let manifest = json!({"schema":"ddi-danoni-native-demux/1","producer":"native-swf-mp3-demux/1",
+        "request":request,"sourceInputs":inputs.used,"reviewedOptionalColorDiagnostics":retained,
+        "streamStart":start,"stream":demux.report,"audio":{"path":"stream.mp3","sha256":sha256(&demux.bytes)},
+        "scope":"Unchanged whole MP3 frames selected by a successful source-bound saved run; decoded origin, chart contracts and fresh worker supervision remain separate proofs"});
+    Ok(PreparedDemux {
+        bytes: demux.bytes,
+        manifest,
+    })
+}
+
+pub(crate) fn select_capture(
+    movie: &Movie,
+    capture: &Value,
+    stream_start_index: usize,
+    reviewed: &[Value],
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<Demuxed> {
+    use crate::extraction;
+    extraction::audit_ok(capture, reviewed)
         .map_err(|e| Error::new("native-audio-audit-unproved", e.message))?;
     let starts = capture["audio"]["streamStarts"]
         .as_array()
         .filter(|v| v.len() <= 4096)
         .ok_or_else(|| invalid("Missing/bounded native stream starts"))?;
     let start = starts
-        .get(request.stream_start_index)
+        .get(stream_start_index)
         .ok_or_else(|| invalid("Missing selected stream start"))?;
     if start["compression"] != "Mp3" {
         return Err(invalid("Selected start is not MP3"));
@@ -554,7 +581,6 @@ pub fn prepare_demux(
         "sliceEnd":start["sliceEnd"],"sampleRate":start["sampleRate"],"stereo":start["stereo"],
         "latencySeek":start["latencySeek"]}))
     .map_err(|e| invalid(e.to_string()))?;
-    let movie = Movie::read(&original, checkpoint)?;
     if capture["swfHeaderFps"].as_f64() != Some(movie.header.fps) {
         return Err(invalid("Capture and movie FPS differ"));
     }
@@ -564,12 +590,5 @@ pub fn prepare_demux(
             "Observed stream sample budget differs from its SWF head",
         ));
     }
-    let manifest = json!({"schema":"ddi-danoni-native-demux/1","producer":"native-swf-mp3-demux/1",
-        "request":request,"sourceInputs":inputs.used,"reviewedOptionalColorDiagnostics":retained,
-        "streamStart":start,"stream":demux.report,"audio":{"path":"stream.mp3","sha256":sha256(&demux.bytes)},
-        "scope":"Unchanged whole MP3 frames selected by a successful source-bound saved run; decoded origin, chart contracts and fresh worker supervision remain separate proofs"});
-    Ok(PreparedDemux {
-        bytes: demux.bytes,
-        manifest,
-    })
+    Ok(demux)
 }

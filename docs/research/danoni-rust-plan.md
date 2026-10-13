@@ -377,3 +377,27 @@ combine those bound inputs with decoder-origin/media production into normalized
 artifacts, including cross-run decoration proof, then port pinned Higan/Kouhaku
 chart contracts and restricted worker supervision. The two recorded chart/motion
 proof gaps remain open. URL acquisition is still milestone 5.
+
+
+### Combined saved-run normalization, 2026-10-13
+
+The [normalization handover](danoni-rust-normalization.md) specifies the embeddable
+`prepare_native_work` API, `normalize-native` jobs, portable input/evidence layout,
+canonical WAV and native-scroll review. All 16 previously audio-only decoration
+rejections now join their separate converter/receptor proofs with exact error
+multiplicity and matching selector/resource/worker identities. Every requested
+chart independently matches its bound native PCM, even with shared MP3 data.
+
+The local trial covers 78 works / 113 charts, 75,262 real-parser endpoints and
+2,679 x1/x2/x3 source-speed checks through an in-memory downstream pipeline.
+Canonical PCM differs by at most one unit, with unchanged origin corrections.
+The two existing chart/motion gaps remain; M. MOON's second chart adds an explicit
+control-plan gap because its motion run omits a selector click. Selected subsets
+are recorded; accepted exports remain unchanged. The source-grid smoke test does
+not claim musical 75 BPM or close milestone 3's native quality review.
+
+Milestone 4 now produces normalized structural artifacts from saved runs. Next
+port the separately pinned Higan/Kouhaku contracts and recapture/prove those three
+selectors, then implement restricted worker supervision/resource acquisition.
+URL discovery/fetching remains milestone 5; desktop library installation remains
+a verified host transaction.

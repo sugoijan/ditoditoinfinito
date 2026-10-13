@@ -209,3 +209,19 @@ source-bound saved-run jobs. All 85 selected corpus streams match existing bytes
 and metadata. Sixteen audio runs still require their separate proven decoration
 review joined by the forthcoming combined job. The command writes `stream.mp3`
 and a final manifest, with no decoding, work execution or network access.
+
+
+Complete saved structural runs now normalize directly through the same host API:
+
+```sh
+target/danoni-rust/debug/ddi-danoni-export normalize-native /tmp/native-work-job.json /tmp/work-new
+```
+
+The [normalization contract](../../../docs/research/danoni-rust-normalization.md)
+defines typed movie/source/run/PCM bindings, exact cross-run decoration proofs,
+portable evidence and canonical WAV output. The local gate covers 78 works /
+113 charts, independently measured shared-song origins, every downstream SSC
+endpoint and x1/x2/x3 authored scroll segments. Three selectors remain explicitly
+unproved; accepted exports are unchanged. This removes Python from proved saved
+structural normalization, while fresh worker execution, pinned chart adapters,
+URL acquisition and installation remain pending.

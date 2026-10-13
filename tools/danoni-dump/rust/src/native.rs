@@ -924,3 +924,173 @@ pub fn demux_native(
     guard.armed = false;
     Ok(result.manifest)
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NativeWorkJob {
+    pub schema: String,
+    pub roots: BTreeMap<String, PathBuf>,
+    pub request: crate::extraction::NativeWorkRequest,
+}
+pub fn normalize_native(
+    job: &Path,
+    output: &Path,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<serde_json::Value> {
+    let path = job.canonicalize().map_err(io)?;
+    external(&path)?;
+    let job: NativeWorkJob = json(&bounded_file(&path, JSON_LIMIT)?)?;
+    if job.schema != "ddi-danoni-native-work-job/1" {
+        return Err(Error::new("unsupported-schema", job.schema));
+    }
+    let roots = job
+        .roots
+        .into_iter()
+        .map(|(k, p)| {
+            (
+                k,
+                if p.is_absolute() {
+                    p
+                } else {
+                    path.parent().unwrap().join(p)
+                },
+            )
+        })
+        .collect();
+    let source = DirectorySource::new(roots)?;
+    let result = crate::extraction::prepare_native_work(&job.request, &source, checkpoint)?;
+    write_normalized(&result, output, checkpoint)?;
+    Ok(
+        serde_json::json!({"schema":"ddi-danoni-normalization-written/1","charts":result.manifest["charts"].as_array().unwrap().len(),"files":result.files.len(),"manifestSha256":result.receipt["normalizedManifestSha256"],"normalizationSha256":sha256(&fs::read(output.join("normalization.json")).map_err(io)?),"scope":result.receipt["scope"]}),
+    )
+}
+/// Final manifest is the readiness marker; no existing output is overwritten.
+pub fn write_normalized(
+    work: &crate::extraction::NormalizedWork,
+    output: &Path,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<()> {
+    checkpoint()?;
+    if work.manifest["schema"] != "ddi-normalized-work/experimental-1"
+        || work.receipt["schema"] != "ddi-danoni-native-normalization/1"
+    {
+        return Err(Error::new(
+            "unsupported-schema",
+            "Unexpected normalized-work result",
+        ));
+    }
+    let inventory = work.receipt["artifacts"]
+        .as_array()
+        .ok_or_else(|| Error::new("invalid-inventory", "Missing normalized artifact inventory"))?;
+    if inventory.len() + 1 != work.files.len() {
+        return Err(Error::new(
+            "invalid-inventory",
+            "Normalized artifact inventory coverage differs",
+        ));
+    }
+    let mut paths = std::collections::BTreeSet::new();
+    for file in &work.files {
+        checkpoint()?;
+        relative_path(&file.path)?;
+        if !paths.insert(&file.path) {
+            return Err(Error::new(
+                "changed-artifact",
+                "Duplicate normalized artifact",
+            ));
+        }
+        if !["media/", "references/", "evidence/inputs/"]
+            .iter()
+            .any(|p| file.path.starts_with(p))
+            && ![
+                "manifest.json",
+                "normalization.json",
+                "request.json",
+                "source-manifest.json",
+                "native-scroll-review.json",
+            ]
+            .contains(&file.path.as_str())
+        {
+            return Err(Error::new(
+                "unsafe-output",
+                "Unexpected normalized artifact namespace",
+            ));
+        }
+        if file.path == "normalization.json" {
+            let value: serde_json::Value = json(&file.bytes)?;
+            if value != work.receipt {
+                return Err(Error::new(
+                    "changed-artifact",
+                    "Normalization receipt differs",
+                ));
+            }
+        } else if !inventory.iter().any(|r| {
+            r["path"] == file.path
+                && r["sha256"] == sha256(&file.bytes)
+                && r["bytes"] == file.bytes.len()
+        }) {
+            return Err(Error::new(
+                "changed-artifact",
+                "Normalized artifact differs from inventory",
+            ));
+        }
+        if file.path == "manifest.json" {
+            let value: serde_json::Value = json(&file.bytes)?;
+            if value != work.manifest
+                || work.receipt["normalizedManifestSha256"] != sha256(&file.bytes)
+            {
+                return Err(Error::new(
+                    "changed-artifact",
+                    "Normalized manifest differs",
+                ));
+            }
+        }
+    }
+    if !paths.contains(&String::from("manifest.json"))
+        || !paths.contains(&String::from("normalization.json"))
+    {
+        return Err(Error::new(
+            "invalid-inventory",
+            "Missing normalized readiness/evidence files",
+        ));
+    }
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+        .canonicalize()
+        .map_err(io)?;
+    external(&parent)?;
+    let name = output
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| Error::new("unsafe-output", "Missing normalized output name"))?;
+    relative_path(name)?;
+    let output = parent.join(name);
+    fs::create_dir(&output).map_err(io)?;
+    let mut guard = Incomplete {
+        path: output.clone(),
+        armed: true,
+    };
+    for file in work.files.iter().filter(|f| f.path != "manifest.json") {
+        checkpoint()?;
+        let target = output.join(&file.path);
+        fs::create_dir_all(target.parent().unwrap()).map_err(io)?;
+        let mut writer = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(target)
+            .map_err(io)?;
+        writer.write_all(&file.bytes).map_err(io)?;
+    }
+    checkpoint()?;
+    let manifest = work
+        .files
+        .iter()
+        .find(|f| f.path == "manifest.json")
+        .unwrap();
+    fs::write(output.join(".manifest.tmp"), &*manifest.bytes).map_err(io)?;
+    checkpoint()?;
+    fs::rename(output.join(".manifest.tmp"), output.join("manifest.json")).map_err(io)?;
+    guard.armed = false;
+    Ok(())
+}

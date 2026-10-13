@@ -3,6 +3,8 @@ mod graph;
 mod job;
 pub(crate) use job::checked_capture;
 mod movie;
+mod normalized;
+pub use normalized::{NativeChartRequest, NativeWorkRequest, NormalizedWork, prepare_native_work};
 mod observed;
 mod scheduled;
 use crate::{Error, Result, model::Mode};
