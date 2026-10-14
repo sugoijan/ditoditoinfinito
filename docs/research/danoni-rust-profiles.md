@@ -190,9 +190,10 @@ structured exact request evidence. If required GETs accompany the optional-colou
 failure, the exact colour review is deferred and no audit entry is suppressed;
 `pendingDependencies[].optionalColorReviewDeferred` records this. Pending requests
 are evidence, not authorization to refetch an already reviewed 404. [Dependency recovery](danoni-rust-dependencies.md)
-currently wraps complete explicit plans; bridging that resolver into pre-menu
-probes is the next slice. Thus this command still needs a populated immutable
-source context and is not URL-only importing. Host robots/terms/rate-limit/cache
+also supports [automatic pre-menu profile recovery](danoni-rust-profile-recovery.md)
+through `execute_with_dependencies` and `profile-native-dependencies`. The lower
+level command described here still requires a populated source context and does
+not fetch missing inputs. Neither entry point is URL-only importing. Host robots/terms/rate-limit/cache
 approval, index discovery and library installation remain later milestones.
 
 Original tests cover fingerprints, UTF-16 menus, unsupported key labels, invalid

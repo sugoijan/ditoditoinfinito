@@ -17,6 +17,8 @@ use std::{
     time::{Duration, Instant},
 };
 use url::Url;
+mod workflow;
+use workflow::{Attempt, Workflow};
 fn invalid(message: impl Into<String>) -> Error {
     Error::new("invalid-native-dependency", message)
 }
@@ -271,7 +273,7 @@ struct Memory(BTreeMap<String, Arc<Vec<u8>>>);
 impl AssetSource for Memory {
     fn read(&self, ns: &str, path: &str, max: usize) -> Result<Vec<u8>> {
         relative_path(path)?;
-        if ns != "plan" {
+        if !["plan", "profile"].contains(&ns) {
             return Err(invalid("Unknown dependency-stage namespace"));
         }
         let b = self
@@ -295,7 +297,7 @@ fn file(source: &DirectorySource, path: &str, max: usize) -> Result<Vec<u8>> {
     source.read("attempt", path, max)
 }
 fn requests_from_attempt(
-    outcome: &orchestration::PlanOutcome,
+    outcome: &Attempt,
     worker: &WorkerSpec,
     attempt: &str,
     checkpoint: &mut impl FnMut() -> Result<()>,
@@ -480,6 +482,52 @@ pub fn execute(
     ) -> Result<DependencyResponse>,
     progress: &mut impl FnMut(&Progress) -> Result<()>,
 ) -> Result<DependencyOutcome> {
+    execute_workflow(
+        &Workflow::Plan(plan.clone()),
+        worker,
+        source,
+        output,
+        limits,
+        resolve,
+        progress,
+    )
+}
+/// Automatic menu discovery and dependency closure share the explicit-plan
+/// coordinator's host resolver, response validation and whole-operation budgets.
+pub fn execute_profile(
+    request: &crate::profiles::ProfileRequest,
+    worker: &WorkerSpec,
+    source: &impl AssetSource,
+    output: &Path,
+    limits: &DependencyLimits,
+    resolve: &mut impl FnMut(
+        &MissingDependency,
+        &mut dyn FnMut() -> Result<()>,
+    ) -> Result<DependencyResponse>,
+    progress: &mut impl FnMut(&Progress) -> Result<()>,
+) -> Result<DependencyOutcome> {
+    execute_workflow(
+        &Workflow::Profile(request.clone()),
+        worker,
+        source,
+        output,
+        limits,
+        resolve,
+        progress,
+    )
+}
+fn execute_workflow(
+    original: &Workflow,
+    worker: &WorkerSpec,
+    source: &impl AssetSource,
+    output: &Path,
+    limits: &DependencyLimits,
+    resolve: &mut impl FnMut(
+        &MissingDependency,
+        &mut dyn FnMut() -> Result<()>,
+    ) -> Result<DependencyResponse>,
+    progress: &mut impl FnMut(&Progress) -> Result<()>,
+) -> Result<DependencyOutcome> {
     limits.validate()?;
     let started = Instant::now();
     let mut state = Progress {
@@ -513,28 +561,13 @@ pub fn execute(
         Ok(())
     };
     check(&state, None)?;
-    let prepared = orchestration::prepare_plan(plan, source, &mut || check(&state, None))?;
-    let mut current: PlanJob = json(
-        &prepared
-            .files
-            .iter()
-            .find(|f| f.path == "replay-job.json")
-            .unwrap()
-            .bytes,
-    )?;
-    let mut memory = Memory(
-        prepared
-            .files
-            .iter()
-            .map(|f| (f.path.clone(), f.bytes.clone()))
-            .collect(),
-    );
+    let (mut current, mut memory) = original.seed(source, &mut || check(&state, None))?;
     let runtime_bytes = orchestration::worker_bytes(worker)?;
     let mut owned = orchestration::new_root(output)?;
-    for f in &prepared.files {
+    for (path, b) in &memory.0 {
         check(&state, Some(&owned.root))?;
-        reserve(&owned.root, f.bytes.len() as u64, limits)?;
-        orchestration::write(&owned.root, &format!("seed/{}", f.path), &f.bytes)?;
+        reserve(&owned.root, b.len() as u64, limits)?;
+        orchestration::write(&owned.root, &format!("seed/{path}"), b)?;
     }
     fs::create_dir(owned.root.join("attempts")).map_err(native::io)?;
     fs::create_dir(owned.root.join("requests")).map_err(native::io)?;
@@ -548,40 +581,54 @@ pub fn execute(
             state.attempt = attempt;
             state.stage = "planning";
             check(&state, Some(&owned.root))?;
-            let planned = orchestration::prepare_plan(&current.plan, &memory, &mut || {
-                check(&state, Some(&owned.root))
-            })?;
-            state.captures = state
-                .captures
-                .checked_add(planned.captures.len())
-                .ok_or_else(|| limited("Capture count overflow"))?;
-            if state.captures > limits.captures {
+            let (input_bytes, known_captures) =
+                current.budget(&memory, &mut || check(&state, Some(&owned.root)))?;
+            let capture_base = state.captures;
+            if let Some(count) = known_captures {
+                state.captures = state
+                    .captures
+                    .checked_add(count)
+                    .ok_or_else(|| limited("Capture count overflow"))?;
+                if state.captures > limits.captures {
+                    return Err(limited("Total dependency capture budget exhausted"));
+                }
+            } else if capture_base >= limits.captures {
                 return Err(limited("Total dependency capture budget exhausted"));
             }
-            let input_bytes = planned
-                .files
-                .iter()
-                .map(|f| f.bytes.len() as u64)
-                .sum::<u64>();
             reserve(&owned.root, input_bytes + 2 * 1024 * 1024, limits)?;
             let mut reserved_captures = BTreeSet::new();
             let mut normalization_reserved = false;
             let path = format!("attempts/{attempt:03}");
-            let outcome = orchestration::execute(
-                &current.plan,
+            let outcome = current.run(
                 worker,
                 &memory,
                 &owned.root.join(&path),
+                limits.captures.saturating_sub(capture_base),
+                limits
+                    .wall_ms
+                    .saturating_sub(started.elapsed().as_millis() as u64),
                 &mut |p| {
-                    if p.stage == "capture"
-                        && let Some(id) = &p.capture_id
-                        && reserved_captures.insert(id.clone())
-                    {
+                    let new_capture = if known_captures.is_some() {
+                        p.stage == "capture"
+                            && p.capture_id
+                                .is_some_and(|id| reserved_captures.insert(id.to_string()))
+                    } else {
+                        let count = capture_base
+                            .checked_add(p.captures)
+                            .ok_or_else(|| limited("Capture count overflow"))?;
+                        if count > limits.captures {
+                            return Err(limited("Total dependency capture budget exhausted"));
+                        }
+                        let changed = count > state.captures;
+                        state.captures = count;
+                        changed
+                    };
+                    if new_capture {
                         reserve(
                             &owned.root,
                             input_bytes
                                 + runtime_bytes
-                                + current.plan.limits.output_bytes
+                                + current.capture_bytes()
                                 + 578 * 1024 * 1024,
                             limits,
                         )?;
@@ -609,6 +656,18 @@ pub fn execute(
             let receipt = fs::read(owned.root.join(&receipt_path)).map_err(native::io)?;
             attempts.push(json!({"attempt":attempt,"ready":outcome.ready,"receipt":{"path":receipt_path,"sha256":sha256(&receipt)},"failure":outcome.failure}));
             check(&state, Some(&owned.root))?;
+            if !outcome.ready
+                && known_captures.is_none()
+                && state.captures >= limits.captures
+                && outcome
+                    .failure
+                    .as_ref()
+                    .is_some_and(|e| e.code == "native-profile-limit")
+            {
+                return Err(limited(
+                    "Total dependency capture budget exhausted inside profile",
+                ));
+            }
             if outcome.ready {
                 let mut normalized = outcome.manifest["normalized"].clone();
                 for name in ["manifest", "normalization"] {
@@ -619,7 +678,7 @@ pub fn execute(
                     json!({"attempt":attempt,"receipt":{"path":receipt_path,"sha256":sha256(&receipt)},"normalized":normalized}),
                 );
             }
-            let mut requests = requests_from_attempt(&outcome, worker, &path, &mut || {
+            let mut requests = current.requests(&outcome, worker, &path, &memory, &mut || {
                 check(&state, Some(&owned.root))
             })?;
             for request in &mut requests {
@@ -674,31 +733,7 @@ pub fn execute(
                     check(&state, Some(&owned.root))?;
                 }
                 let value = &accepted[&request.url];
-                let ids = request
-                    .witnesses
-                    .iter()
-                    .flat_map(|w| &w.chart_ids)
-                    .collect::<BTreeSet<_>>();
-                for chart in &mut current.plan.charts {
-                    if !ids.contains(&chart.id) {
-                        continue;
-                    }
-                    let raw = memory.read("plan", &chart.config.path, 65536)?;
-                    let mut config: Value = json(&raw)?;
-                    let rows = config["resources"].as_array_mut().unwrap();
-                    if rows.iter().any(|r| r["url"] == request.url) {
-                        return Err(Error::new(
-                            "native-dependency-no-progress",
-                            "Repeated dependency for the same chart",
-                        ));
-                    }
-                    rows.push(value.resource.clone());
-                    let b = bytes(&config)?;
-                    supervisor::validate_config(&b)?;
-                    let path = format!("inputs/dependency-{attempt:03}-{}.json", chart.id);
-                    chart.config = bind(path.clone(), &b);
-                    memory.0.insert(path, Arc::new(b));
-                }
+                current.append(&request, value, &mut memory, attempt)?;
             }
         }
         Err(limited("Dependency attempt budget exhausted"))
@@ -707,7 +742,7 @@ pub fn execute(
         Ok(v) => (Some(v), None),
         Err(e) => (None, Some(e)),
     };
-    let mut manifest = json!({"schema":"ddi-danoni-native-dependency-run/1","producer":"native-dependency-closure/1","ready":failure.is_none(),"request":plan,"limits":limits,"worker":worker,"attempts":attempts,"responses":responses,"responseAttempts":response_attempts,"responseInputs":response_inputs.used,"counts":{"captures":state.captures,"newUrls":state.new_urls,"newBytes":state.new_bytes},"completed":completed,"failure":failure,"scope":"Host-approved GET dependency closure for explicit selectors; no built-in HTTP client, tempo acceptance or installation"});
+    let mut manifest = json!({"schema":original.schema(),"producer":original.producer(),"ready":failure.is_none(),"request":original.request()?,"limits":limits,"worker":worker,"attempts":attempts,"responses":responses,"responseAttempts":response_attempts,"responseInputs":response_inputs.used,"counts":{"captures":state.captures,"newUrls":state.new_urls,"newBytes":state.new_bytes},"completed":completed,"failure":failure,"scope":"Host-approved GET dependency closure; no built-in HTTP client, tempo acceptance or installation"});
     if failure.is_none() {
         orchestration::write(&owned.root, ".manifest.json.tmp", &bytes(&manifest)?)?;
         state.stage = "ready";
@@ -787,6 +822,74 @@ pub fn execute_job(
     )?;
     execute(
         &job.plan,
+        &worker,
+        &source,
+        output,
+        &job.limits,
+        &mut |request, checkpoint| {
+            checkpoint()?;
+            job.responses.get(&request.url).cloned().ok_or_else(|| {
+                Error::new(
+                    "native-dependency-unavailable",
+                    format!("No host-approved cached response for {}", request.url),
+                )
+            })
+        },
+        progress,
+    )
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileDependencyJob {
+    pub schema: String,
+    pub roots: BTreeMap<String, PathBuf>,
+    pub request: crate::profiles::ProfileRequest,
+    #[serde(default)]
+    pub limits: DependencyLimits,
+    #[serde(default)]
+    pub responses: BTreeMap<String, DependencyResponse>,
+}
+pub fn execute_profile_job(
+    bundle: &Path,
+    job: &Path,
+    output: &Path,
+    progress: &mut impl FnMut(&Progress) -> Result<()>,
+) -> Result<DependencyOutcome> {
+    let worker = crate::worker_build::load_bundle(bundle, &mut || {
+        progress(&Progress {
+            stage: "worker",
+            attempt: 0,
+            captures: 0,
+            new_urls: 0,
+            new_bytes: 0,
+        })
+    })?;
+    let path = job.canonicalize().map_err(native::io)?;
+    native::external(&path)?;
+    let parent = path.parent().unwrap();
+    let jobs = DirectorySource::new(BTreeMap::from([("job".into(), parent.to_path_buf())]))?;
+    let job: ProfileDependencyJob = json(
+        &jobs.read(
+            "job",
+            path.file_name()
+                .unwrap()
+                .to_str()
+                .ok_or_else(|| invalid("Job filename"))?,
+            JSON_LIMIT,
+        )?,
+    )?;
+    if job.schema != "ddi-danoni-native-profile-dependency-job/1" {
+        return Err(Error::new("unsupported-schema", job.schema));
+    }
+    let source = DirectorySource::new(
+        job.roots
+            .into_iter()
+            .map(|(k, p)| (k, if p.is_absolute() { p } else { parent.join(p) }))
+            .collect(),
+    )?;
+    execute_profile(
+        &job.request,
         &worker,
         &source,
         output,

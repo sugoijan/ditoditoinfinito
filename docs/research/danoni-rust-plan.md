@@ -590,3 +590,21 @@ frozen corpus and real game parser. One matched work reaches game over on early
 holds before a tap witness; its three menu rows remain unadmitted. Generic
 hold-motion or derived play-input planning is a separate proof gap, recorded in
 the profile handover. Accepted exports remain unchanged.
+
+
+### Automatic profile dependency recovery, 2026-10-14
+
+The [profile recovery API](danoni-rust-profile-recovery.md) now accepts source-only
+inputs, resolves observed required GETs through the host callback and restarts
+menu discovery in fresh owned attempts. Explicit plans and automatic profiles
+share response verification, retry/body/URL/time/output budgets and final parent
+readiness. Profiles count captures at runtime boundaries across retries. Exact
+already-reviewed optional-colour 404s are classified without being refetched or
+weakening the unchanged full normalization audit.
+
+Cached March and No Name trials cover missing DOS, DOS plus colour resources,
+7-key holds and two 5-key menu charts. All source acquisition provenance and failed
+probes remain local. This closes the pre-menu resource bridge for the first
+profile; no built-in HTTP service or library installation is claimed. Next prove
+generic hold-motion or derived play-input witnesses for the existing early-hold
+game-over gap, then expand reviewed native profiles and milestone 5 acquisition.

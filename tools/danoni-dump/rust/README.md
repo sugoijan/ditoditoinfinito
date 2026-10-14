@@ -11,7 +11,10 @@ Fetching remains host-owned. Native work execution uses the installed confined
 Ruffle worker, with source-bound normalization, explicit selector orchestration
 and bounded dependency recovery. The [automatic menu profile](../../../docs/research/danoni-rust-profiles.md)
 now plans reviewed 5/7-key engine controls and motion observations from runtime
-state, without a per-song capture recipe. The
+state, without a per-song capture recipe. Its
+[dependency-recovery entry point](../../../docs/research/danoni-rust-profile-recovery.md)
+asks a host resolver for missing inputs before menu discovery and retries under
+the same operation-wide bounds. The
 [native audio stage](../../../docs/research/danoni-rust-audio.md) decodes supplied
 normalized sources and produces WAV/Ogg neutral receipts in process. Accepted
 media and reviewed banners can still be reused byte-identically;

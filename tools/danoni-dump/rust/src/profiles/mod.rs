@@ -1,6 +1,10 @@
 //! Reviewed native engine candidates plus observed menu/selector/motion plans.
 //! A fingerprint proposes controls; source-bound runtime proofs authorize data.
 mod driver;
+pub use crate::dependencies::{
+    ProfileDependencyJob, execute_profile as execute_with_dependencies,
+    execute_profile_job as execute_dependencies_job,
+};
 use crate::{
     Error, Result,
     extraction::{self, Family, Graph, MotionSelection, ProjectionOptions},

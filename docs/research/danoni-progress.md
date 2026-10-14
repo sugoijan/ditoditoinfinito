@@ -138,8 +138,10 @@ omitted cached DOS/colour inputs through host callbacks and source-bound request
 evidence, retaining all attempts and whole-operation budgets. The first
 [automatic selector profile](danoni-rust-profiles.md) now reads a shared レク
 engine's menu, derives 5/7-key selections and proposes runtime-proved motion
-windows. Resource closure before menu observation, broader engine profiles and
-URL acquisition remain ahead.
+windows. [Resource recovery before menu observation](danoni-rust-profile-recovery.md)
+now shares the bounded dependency coordinator and exact optional-404 handling.
+The early-hold motion gap, broader engine profiles and URL acquisition remain
+ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

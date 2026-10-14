@@ -5,9 +5,10 @@ Implemented 2026-10-14 in `tools/danoni-dump/rust/src/dependencies.rs`, behind
 orchestrator](danoni-rust-orchestration.md). It discovers missing cached GETs,
 asks a **host-supplied resolver** for policy-approved bytes, appends immutable
 resource declarations and recaptures in fresh directories. The worker remains
-network-disabled. This does not discover selectors, fetch a public URL or install
-songs; the final result is a proved normalized work for the existing preparation
-pipeline.
+network-disabled. A second [automatic-profile adapter](danoni-rust-profile-recovery.md)
+now uses the same coordinator to recover inputs before menu/selector discovery.
+Neither API fetches a public URL or installs songs; the final result is a proved
+normalized work for the existing preparation pipeline.
 
 ## Trusted request evidence
 

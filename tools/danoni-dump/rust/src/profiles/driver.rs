@@ -235,6 +235,44 @@ fn prepare(
         optional,
     })
 }
+/// Immutable source-only replay seed used by dependency orchestration.
+pub(crate) struct ProfileSeed {
+    pub request: ProfileRequest,
+    pub files: BTreeMap<String, Arc<Vec<u8>>>,
+}
+pub(crate) fn prepare_seed(
+    request: &ProfileRequest,
+    source: &impl AssetSource,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<ProfileSeed> {
+    let prepared = prepare(request, source, checkpoint)?;
+    let mut files = prepared.files;
+    let context = add(
+        &mut files,
+        "inputs/context.json".into(),
+        Arc::new(bytes(&prepared.context)?),
+    )?;
+    let request = ProfileRequest {
+        movie: prepared.movie,
+        source_manifest: prepared.source,
+        context,
+        optional_color: prepared.optional,
+        metadata: request.metadata.clone(),
+        limits: request.limits.clone(),
+        capture_limits: request.capture_limits.clone(),
+    };
+    let job = ProfileJob {
+        schema: "ddi-danoni-native-profile-job/1".into(),
+        roots: BTreeMap::from([("profile".into(), PathBuf::from("."))]),
+        request: request.clone(),
+    };
+    add(
+        &mut files,
+        "profile-job.json".into(),
+        Arc::new(bytes(&job)?),
+    )?;
+    Ok(ProfileSeed { request, files })
+}
 struct Run<'a, F: FnMut(&ProfileProgress) -> Result<()>> {
     root: &'a Path,
     worker: &'a WorkerSpec,
@@ -383,7 +421,7 @@ impl<F: FnMut(&ProfileProgress) -> Result<()>> Run<'_, F> {
         }
         if !missing.is_empty() {
             self.pending
-                .push(json!({"capture":bindings,"requests":missing,"optionalColorReviewDeferred":review_deferred}));
+                .push(json!({"capture":bindings,"requests":missing,"optionalColorReviewDeferred":review_deferred,"selector":self.state.selector}));
             return Err(Error::new(
                 "native-profile-needs-dependencies",
                 "Observed missing GETs must be resolved in the source context before menu planning",
