@@ -292,3 +292,11 @@ archive snapshots and original response records. It performs no fetch or script
 execution. The local replay covers 86 pages with 81 default matches and five
 explicitly recorded encoding overrides. Live HTTP policy/cache services and
 bounded index traversal remain the next migration work.
+
+
+The [historical cache and request-policy core](../../../docs/research/danoni-rust-network.md)
+adds `network::CacheReplay`, bound robots-chain evaluation, DNS answer validation
+and per-origin pacing. `replay-cache JOB.json` inspects one response/refusal/miss
+without a request or output-body copy. The existing Node oracle agrees on 1,629
+cache requests and 1,629 robots outcomes; all 941 bound files are read once.
+Live transport and persistent cache coordination remain separate next work.

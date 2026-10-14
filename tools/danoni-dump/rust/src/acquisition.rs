@@ -22,7 +22,7 @@ fn limited() -> Error {
         "Page, URL, element or FlashVars limit exceeded",
     )
 }
-fn http(raw: &str) -> Result<Url> {
+pub(crate) fn http(raw: &str) -> Result<Url> {
     if raw.is_empty() || raw.len() > 4096 || raw.chars().any(char::is_control) {
         return Err(invalid("Expected a bounded HTTP(S) URL"));
     }

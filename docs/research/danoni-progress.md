@@ -211,3 +211,21 @@ matches. Both recovered Wayback pages are included. All third-party bytes and
 replay receipts stay under the local corpus, with zero requests. Accepted exports
 remain 93 songs / 144 charts and are not regenerated. Next implement the Rust
 host's policy-aware fetch/cache service, then bounded reviewed index traversal.
+
+
+### Rust historical cache and request policy, 2026-10-14
+
+The [cache replay/request-policy API](danoni-rust-network.md) now preserves bound
+old cache records and returns individual response hops, with strict context/Vary,
+query/alias, integrity and refusal behavior. It evaluates cached robots chains,
+validates all DNS answers for later pinned dialing and computes per-origin pacing
+without consuming an unstarted cancellation. It performs no HTTP request yet.
+
+An independent Node fetcher/parser oracle agrees on 1,629 cache requests and
+1,629 robots outcomes from both existing caches. All 941 bound files are read once,
+including alias reuse. The seven response redirects and FC2's robots redirect
+retain their real chain evidence. Third-party inputs and oracle receipts remain
+local; accepted exports stay at 93 songs / 144 charts. Next add the actual Rust
+HTTP transport and bounded persistent cache coordinator, then reviewed index
+routes; the shell currently cannot resolve crates.io to fetch a latest transport
+dependency.

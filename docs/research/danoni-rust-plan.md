@@ -674,3 +674,27 @@ cancellation), connect observed dependencies and introduce bounded reviewed inde
 routes with partial outcomes. Native context construction must account for embed
 parameters before execution; arbitrary page scripts still need the optional
 browser fallback. No dependency is added in this slice.
+
+
+### Historical cache replay and request-policy core, 2026-10-14
+
+The [Rust network core](danoni-rust-network.md) now reads the old immutable cache
+index, preserves recorded refusals and exact reviewed aliases, verifies each body
+once and returns individual redirect responses. Context fingerprints and Vary
+rules prevent incompatible reuse without making it a fresh fetch. Bound robots
+responses, including complete redirect chains, use the latest cached robotstxt
+release; source receipts retain original policy URLs, actual retrieval URLs and
+each response. DNS answer pin validation and per-origin monotonic pacing are pure
+host contracts; cancellation before a request starts consumes no pacing slot.
+
+The independent existing-fetcher gate covers 1,629 requests and all 1,629 robots
+outcomes from both caches: responses, refusals, unsupported variants, redirects,
+allow/deny and unavailable policies agree. It reads 941 bound files exactly once
+and performs no request. Synthetic negative checks cover policy and integrity
+failures; no third-party data is committed and accepted exports remain unchanged.
+
+This is a reusable offline cache/policy component, not a live URL importer.
+Next implement the actual anonymous transport, terms/freshness/deadlines,
+bounded decoding and single-writer cache persistence, join observed native
+requests, and add reviewed index routes. Shell crates.io DNS is currently
+unavailable, so no older HTTP client dependency was added in place of the latest.
