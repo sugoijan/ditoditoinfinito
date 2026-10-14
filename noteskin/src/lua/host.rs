@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ddi_lua::piccolo::{
+use ddi_lua::lunita::{
     Callback, CallbackReturn, Context, Error, Execution, Table, UserData, Value,
 };
 
@@ -110,7 +110,7 @@ fn string(v: Value<'_>) -> Option<String> {
 
 fn str_arg<'gc>(
     ctx: Context<'gc>,
-    stack: &ddi_lua::piccolo::Stack<'gc, '_>,
+    stack: &ddi_lua::lunita::Stack<'gc, '_>,
     i: usize,
     what: &str,
 ) -> Result<String, Error<'gc>> {
@@ -348,7 +348,7 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
                     match ddi_lua::compile(ctx, &settings, &format!("@{name}"), text.as_bytes()) {
                         Ok(f) => stack.push_back(Value::Function(f)),
                         Err(ddi_lua::Failure::Limit(l)) => {
-                            return Err(ddi_lua::piccolo::RuntimeError::new(l).into());
+                            return Err(ddi_lua::lunita::RuntimeError::new(l).into());
                         }
                         Err(e) => {
                             stack.push_back(Value::Nil);
@@ -461,7 +461,7 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
                     Ok(CallbackReturn::Return)
                 }
                 Err(ddi_lua::Failure::Limit(l)) => {
-                    Err(ddi_lua::piccolo::RuntimeError::new(l).into())
+                    Err(ddi_lua::lunita::RuntimeError::new(l).into())
                 }
                 // StepMania warns and the command is nil.
                 Err(e) => {

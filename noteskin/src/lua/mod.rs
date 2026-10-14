@@ -50,7 +50,7 @@ use std::rc::Rc;
 use std::task::{Context as TaskContext, Poll, Waker};
 
 use ddi_chart::timing::TimingMap;
-use ddi_lua::piccolo::{StashedFunction, StashedTable, Table, Value};
+use ddi_lua::lunita::{StashedFunction, StashedTable, Table, Value};
 use ddi_lua::{Budget, Failure, Outcome, Settings, Vm};
 
 use crate::actor::{Actor, Clocks, Problems, TweenSteps};
@@ -464,9 +464,9 @@ impl LuaSkin {
         f: &StashedFunction,
         args: A,
         mut pause: Option<&mut Pause>,
-    ) -> Result<Vec<ddi_lua::piccolo::StashedValue>, Failure>
+    ) -> Result<Vec<ddi_lua::lunita::StashedValue>, Failure>
     where
-        A: for<'gc> FnOnce(ddi_lua::piccolo::Context<'gc>) -> Vec<Value<'gc>>,
+        A: for<'gc> FnOnce(ddi_lua::lunita::Context<'gc>) -> Vec<Value<'gc>>,
     {
         if let Some(f) = &self.failed {
             return Err(f.clone());

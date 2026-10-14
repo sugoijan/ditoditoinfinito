@@ -63,8 +63,10 @@ skin; source 1 MB per file; at most 4,096 actors a skin.
 ## Step 0. Conventions
 
 - The fork: piccolo at trunk (`ce709eb`), forked by the maintainer on
-  GitHub; the workspace depends on it by git revision (gc-arena stays at
-  the revision piccolo pins). Its work follows
+  GitHub; the workspace depended on it by git revision (gc-arena at the
+  revision piccolo pins) until 2026-10-13, when the maintainer published
+  it on crates.io as `lunita` (0.1.0, on gc-arena 0.7 from crates.io),
+  which the workspace now depends on. Its work follows
   [`piccolo-fork.md`](piccolo-fork.md), a self-contained brief with a
   definition of done, and runs in parallel with steps 2 and 3. Upstream
   reports or pull requests only with the maintainer's go-ahead.
