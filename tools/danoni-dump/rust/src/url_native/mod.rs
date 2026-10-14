@@ -276,6 +276,7 @@ pub fn execute(
         dependency: None,
     };
     let mut completed = Value::Null;
+    let mut metadata = request.metadata.clone();
     let mut last_output_check = Instant::now();
     let result = (|| -> Result<()> {
         let mut checkpoint = || {
@@ -344,7 +345,14 @@ pub fn execute(
                     .as_deref()
                     .or_else(|| first.response().selected_response["charset"].as_str()),
             )?;
-            evidence.json(&root, "discovery.json".into(), &page)?;
+            let discovery = evidence.json(&root, "discovery.json".into(), &page)?;
+            if !metadata.contains_key("title")
+                && !metadata.contains_key("musicTitle")
+                && let Some(title) = &page.title
+            {
+                metadata.insert("title".into(), json!(title));
+                metadata.insert("titleEvidence".into(), json!(format!("passive-html-title/1; url:discovery.json sha256:{}; page body sha256:{}; may include site/work-list wording",discovery.sha256,page.body_sha256)));
+            }
             let selected = choose(&page, request.movie_url.as_deref())?;
             let second = acquire(
                 &runtime,
@@ -380,7 +388,7 @@ pub fn execute(
             "source-manifest.json".into(),
             &json!({
                 "schema":"ddi-danoni-url-source/1", "sourceSwfSha256":movie_binding.sha256,
-                "source": initial, "movie":movie, "dependencyRetrievalBase":dependency_base, "acquisitions":acquisitions,
+                "source": initial, "pageUrl":context.page_url, "movie":movie, "dependencyRetrievalBase":dependency_base, "acquisitions":acquisitions,
             "selectionPolicy":"Explicit URL, unique context, or unique largest declared viewport with narrow equal-height siblings; native profile and runtime proofs mandatory",
                 "roots":{"url":".","cache":"cache"}
             }),
@@ -391,7 +399,7 @@ pub fn execute(
             context: context_binding,
             optional_color: None,
             selectors: request.selectors.clone(),
-            metadata: request.metadata.clone(),
+            metadata,
             limits: request.profile.clone(),
             capture_limits: request.capture.clone(),
         };

@@ -27,6 +27,13 @@ media and reviewed banners can still be reused byte-identically;
 the existing Python/Node workflow remains the extraction/codec/analysis reference.
 Code is MIT under REUSE; all third-party inputs/results stay outside Git.
 
+The [URL-to-prepared-song bridge](../../../docs/research/danoni-rust-url-preparation.md)
+now joins URL extraction, fresh audio/tempo analysis, pickup previews, source-star
+classification and optional host-font title banners. `url_prepare::execute` and
+`prepare-url-native BUNDLE JOB.json NEW_OUTPUT` write new local candidate song
+folders; the reusable `preparation::prepare` API accepts normalized inputs.
+BPM fits remain provisional, and installation in the desktop library is separate.
+
 ## Commands
 
 Run from the research checkout with Rust 1.99 or later:

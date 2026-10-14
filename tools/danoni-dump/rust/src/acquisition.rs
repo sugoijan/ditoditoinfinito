@@ -145,6 +145,8 @@ pub struct PageDiscovery {
     pub source: SourceAddress,
     pub body_sha256: String,
     pub encoding: String,
+    /// First completed, unique HTML title, bounded to 512 characters.
+    pub title: Option<String>,
     pub base: SourceAddress,
     pub links: Vec<Link>,
     pub movies: Vec<Movie>,
@@ -166,6 +168,10 @@ type EmbeddedMovie = (String, String, String, bool, Option<[u32; 2]>);
 struct Tokens {
     base: Option<String>,
     charset: Option<String>,
+    title: String,
+    in_title: bool,
+    title_count: usize,
+    title_complete: bool,
     links: Vec<(String, String)>,
     movies: Vec<EmbeddedMovie>,
     scripts: Vec<String>,
@@ -179,10 +185,16 @@ struct Sink(RefCell<Tokens>);
 impl TokenSink for Sink {
     type Handle = ();
     fn process_token(&self, token: Token, _line: u64) -> TokenSinkResult<()> {
+        let mut t = self.0.borrow_mut();
+        if let Token::CharacterTokens(chars) = &token
+            && t.in_title
+            && t.title.len() <= 4096
+        {
+            t.title.push_str(chars);
+        }
         let Token::TagToken(tag) = token else {
             return TokenSinkResult::Continue;
         };
-        let mut t = self.0.borrow_mut();
         t.count += 1;
         if t.count > 32768 {
             t.overflow = true;
@@ -190,6 +202,10 @@ impl TokenSink for Sink {
         }
         let name = tag.name.as_ref();
         if tag.kind == TagKind::EndTag {
+            if name == "title" {
+                t.in_title = false;
+                t.title_complete = true;
+            }
             if name == "object"
                 && let Some(o) = t.objects.pop()
                 && let Some(url) = o.data.or(o.movie)
@@ -287,7 +303,12 @@ impl TokenSink for Sink {
             "style" | "xmp" | "noembed" | "noframes" => {
                 return TokenSinkResult::RawData(RawKind::Rawtext);
             }
-            "textarea" | "title" => return TokenSinkResult::RawData(RawKind::Rcdata),
+            "title" => {
+                t.title_count += 1;
+                t.in_title = true;
+                return TokenSinkResult::RawData(RawKind::Rcdata);
+            }
+            "textarea" => return TokenSinkResult::RawData(RawKind::Rcdata),
             _ => {}
         }
         if t.links.len() + t.movies.len() + t.scripts.len() > ITEM_LIMIT {
@@ -405,11 +426,18 @@ pub fn inspect_page(
     } else {
         source.clone()
     };
+    let title = t.title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let title = (t.title_count == 1
+        && t.title_complete
+        && !title.is_empty()
+        && title.chars().count() <= 512)
+        .then_some(title);
     let mut result = PageDiscovery {
         schema: "ddi-danoni-page-discovery/1",
         source,
         body_sha256: sha256(body),
         encoding,
+        title,
         base,
         links: vec![],
         movies: vec![],

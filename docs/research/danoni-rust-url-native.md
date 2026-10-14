@@ -7,6 +7,10 @@ page or direct SWF URL and produces a normalized native work when the existing
 profile, chart, motion and audio proofs all pass. It does not install songs,
 approve musical estimates, generate final exports, crawl indexes or execute HTML5.
 
+The subsequent [prepared-song bridge](danoni-rust-url-preparation.md) consumes
+this output through the existing Rust audio/tempo/artwork/song APIs. This entry
+point remains useful when only source normalization and proofs are wanted.
+
 ## Host API
 
 `url_native::UrlRequest::new(url)` supplies defaults. Call
@@ -33,7 +37,10 @@ cancellation; it cannot turn a failed parent job into a ready work.
 - `encodingOverride`: optional recognized page encoding; no song-specific default.
 - `selectors`: optional increasing unique menu row indices; otherwise every
   supported observed row is extracted.
-- `metadata`: optional host presentation metadata, default empty.
+- `metadata`: optional host presentation metadata, default empty. When host
+  title/musicTitle is absent, a unique completed bounded passive HTML title is
+  retained as fallback, with discovery/body-hash provenance; see the prepared-song
+  handover. The source capsule also records `pageUrl` for normalization.
 - `fetch`: existing `FetchOptions`, including offline mode, resolver/trust choices,
   body/request limits and whole-operation `wallMs` (default 180,000, max 300,000).
 - `dependencies`, `profile`, `capture`: existing strictly bounded limits, with

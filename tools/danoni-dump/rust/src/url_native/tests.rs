@@ -362,3 +362,27 @@ async fn entered_runtime_returns_a_host_error_without_nested_runtime_panic() {
     assert_eq!(e.code, "invalid-url-native");
     assert!(!scratch.0.join("cache").exists());
 }
+
+#[test]
+fn passive_title_is_unique_complete_decoded_and_bounded() {
+    let page = acquisition::inspect_page(
+        "https://example.org/song.html",
+        "<title>  譜面 &amp; Music\n Test </title><script>document.title='other'</script>"
+            .as_bytes(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(page.title.as_deref(), Some("譜面 & Music Test"));
+    for html in [
+        "<title>one</title><title>two</title>".to_owned(),
+        "<title>unfinished".into(),
+        format!("<title>{}</title>", "a".repeat(513)),
+    ] {
+        assert!(
+            acquisition::inspect_page("https://example.org/", html.as_bytes(), None)
+                .unwrap()
+                .title
+                .is_none()
+        );
+    }
+}

@@ -61,9 +61,12 @@ The eventual native API is conceptually `prepare_url(url, services, options)`:
 `services` supplies a persistent cache, staging store, allowed fetcher, restricted
 worker/browser providers, progress sink and cancellation token. The app supplies
 these services and reasonable defaults, so the only user input normally needed
-is a URL. This is a proposed interface, not an implemented function or a promise
-that every URL succeeds. Use a resumable job with typed per-work outcomes rather
-than a process-global configuration or a UI-blocking synchronous call.
+is a URL. The supported native single-work subset now implements this boundary
+as [`url_prepare::execute`](danoni-rust-url-preparation.md), with an I/O-free
+`preparation::prepare` coordinator beneath it. Broader index/browser routes remain
+planned; success is never promised for arbitrary URLs. The eventual desktop
+adapter should use resumable jobs with typed per-work outcomes rather than
+process-global configuration or a UI-blocking synchronous call.
 
 A prepared import contains song identities, chart/media/banner artifacts,
 exact reference and provenance records, selected/excluded selectors, policy and
@@ -188,7 +191,8 @@ Support individual work URLs and explicit SWF URLs, then reviewed index/event/li
 routes. Parse anchors, frames, preserved embeds/noscript, FlashVars and known
 router data first. Keep genuine navigation/referrer context where necessary.
 Support explicit Wayback inputs with original logical URL, requested/final replay
-URL and capture time per resource, including mixed snapshots and live fallback.
+URL and capture time per resource, including explicitly recorded mixed snapshots.
+Never silently fall back from an archive snapshot to the live site.
 No login/paywall/protection bypass or unbounded site/archive crawl.
 
 Acceptance: cached/offline replay plus controlled original synthetic HTTP cases,
@@ -761,3 +765,43 @@ chart exactly. The complete parent manifest is staged before its final readiness
 checkpoint and only renamed on success; cancellation removes the pending marker.
 All real-work trials use zero GETs, original caches/exports are unchanged, and
 validation receipts remain local.
+
+
+### URL-to-prepared-song slice, 2026-10-15
+
+The [prepared-song handover](danoni-rust-url-preparation.md) documents the new
+`preparation::prepare` pure coordinator and `url_prepare::execute` job-thread
+adapter/`prepare-url-native` CLI. The supported native URL path now reaches fresh
+Ogg/WAV media, full native BPM fitting, pickup previews, source-star classification,
+measured native scroll correction, optional explicit-font title banners and
+self-contained SSC song folders. No Python/Node/FFmpeg/browser or per-song grid is
+required at runtime for these supported native profiles.
+
+Full source-bound motion coverage is mandatory. BPM fits remain provisional;
+insufficient evidence preserves exact source-clock timing and marks otherwise
+unknown display BPM as `*`. Missing ratings stay unknown. Passive unique completed
+HTML titles supply bounded, source-cited fallback names without inventing artist
+credits, and normalized provenance retains the page URL.
+
+The outer prepared-URL receipt binds both source and prepared child receipts. Its
+complete body is staged before the final Ready callback; cancellation after child
+success removes the pending marker and leaves null completion/failure evidence.
+Existing exports, registry and library are never replaced. This completes the
+single-work native preparation seam in milestone 5, not reviewed index traversal,
+broader engines, musical-quality acceptance or desktop installation.
+
+Local Higan and No Name/灼冬赫夜 URL jobs produce two songs / three charts,
+covering all 2,092 real-parser endpoints within 8.51 ms and native x1/x2/x3
+velocities. Both final-cancellation trials and artifact-only rebuilds pass; the
+CLI independently completes Higan. All requests are cached/offline, original
+indexes/exports are unchanged, and the new outputs remain local. Validation
+passes 217 native and 88 pure SDK tests, strict Clippy for both configurations,
+formatting, the existing cache/page oracles and `just check` (838/838 REUSE).
+
+Next define the prepared-import handover to the host library: stable source and
+song identities, file inventory, validation outcome, duplicate policy and a single
+cancellable installation transaction. The main-owned shell/library adapters must
+queue work off the UI thread, consume the outer Ready marker, keep native worker
+and cache dependencies out of WASM, and supply platform-specific rollback/recovery.
+Broader index traversal and HTML5 execution can then share the same preparation
+boundary without changing source timing, rating or provenance policy.
