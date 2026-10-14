@@ -97,6 +97,9 @@ pub(crate) enum Msg {
     Folders(Vec<(String, JsValue)>),
     /// The search field changed.
     Search(String),
+    /// Enter in the search field: search now however short the text, or
+    /// go to the first chart found when that is done.
+    SearchEnter,
     /// A kept folder was picked or read again; import it.
     FromFolder(import::Origin, Result<Vec<PickedFile>, String>),
 }
@@ -146,9 +149,13 @@ pub(crate) struct SongSelect {
     folders: HashMap<String, JsValue>,
     /// The held direction and the timer repeating it.
     repeat: Option<(HeldKey, Nav, RepeatTimer)>,
-    /// What the search field holds, and its words folded.
+    /// What the search field holds, and the search run (on `applied`, the
+    /// text it was run on).
     search: String,
     query: Query,
+    applied: String,
+    /// Enter asked for the first chart found, once drawn.
+    focus_first: bool,
     /// Each song's searchable text, folded, by song id.
     haystacks: HashMap<String, SongText>,
     /// Packs closed by hand during this search (a search opens them all).
@@ -221,7 +228,10 @@ impl Component for SongSelect {
             folders: HashMap::new(),
             place: Some(place.clone()),
             repeat: None,
-            query: Query::new(&place.search, &nfkd),
+            // A search kept across a play runs at once, however short.
+            query: Query::new(&place.searched, &nfkd),
+            applied: place.searched.clone(),
+            focus_first: false,
             search: place.search.clone(),
             haystacks: HashMap::new(),
             search_closed: HashSet::new(),
@@ -284,12 +294,25 @@ impl Component for SongSelect {
             }
             Msg::Loaded(Err(e)) => self.state = State::Failed(e),
             Msg::Search(text) => {
-                self.query = Query::new(&text, &nfkd);
                 self.search = text;
-                self.search_closed.clear();
+                // Short text shows the whole list until it is long enough
+                // or Enter or a space asks for it.
+                let run = if search_ready(&self.search) {
+                    self.search.clone()
+                } else {
+                    String::new()
+                };
+                self.run_search(run);
                 let mut place = MenuPlace::load();
                 place.search = self.search.clone();
                 place.save();
+            }
+            Msg::SearchEnter => {
+                if self.applied == self.search {
+                    self.focus_first = true;
+                } else {
+                    self.run_search(self.search.clone());
+                }
             }
             Msg::ImportCopy(on) => {
                 let mut settings = Settings::load();
@@ -809,6 +832,11 @@ impl Component for SongSelect {
         if !matches!(self.state, State::Ready(_)) {
             return;
         }
+        if std::mem::take(&mut self.focus_first)
+            && let Some(first) = menu::first_chart()
+        {
+            menu::focus(&first, ScrollLogicalPosition::Nearest);
+        }
         // Back from a play: the chart that was started, or the scroll.
         if let Some(place) = self.place.take() {
             match place
@@ -1036,8 +1064,24 @@ impl SongSelect {
         }
     }
 
-    /// The search field: typing narrows the list; Escape empties it (or
-    /// leaves it when empty); Enter or Down goes to the first chart found.
+    /// Runs the search on `text` (unless that is the one shown).
+    fn run_search(&mut self, text: String) {
+        // The same words (a space added, say) keep the packs closed by hand.
+        let query = Query::new(&text, &nfkd);
+        if query != self.query {
+            self.query = query;
+            self.search_closed.clear();
+        }
+        let mut place = MenuPlace::load();
+        place.searched = text.clone();
+        place.save();
+        self.applied = text;
+    }
+
+    /// The search field: typing narrows the list (from three characters,
+    /// two with any not ASCII, or a space; Enter searches
+    /// however short); Escape empties it (or leaves it when empty); Enter
+    /// on a search done, or Down, goes to the first chart found.
     fn search_field(&self, link: &html::Scope<Self>) -> Html {
         let oninput = link.callback(|e: InputEvent| {
             let value = e
@@ -1071,7 +1115,11 @@ impl SongSelect {
                     "Escape" => {
                         let _ = input.blur();
                     }
-                    "Enter" | "ArrowDown" => {
+                    "Enter" => {
+                        e.prevent_default();
+                        link.send_message(Msg::SearchEnter);
+                    }
+                    "ArrowDown" => {
                         if let Some(first) = menu::first_chart() {
                             e.prevent_default();
                             menu::focus(&first, ScrollLogicalPosition::Nearest);
@@ -1495,17 +1543,29 @@ impl SongText {
     }
 }
 
+/// Whether typing `text` searches already: three characters, two when any
+/// is not ASCII (two kana or kanji say a lot), or a space typed (an
+/// ideographic one too).
+fn search_ready(text: &str) -> bool {
+    let n = text.trim().chars().count();
+    n >= 3 || (n >= 2 && !text.is_ascii()) || (n >= 1 && text.contains([' ', '\u{3000}']))
+}
+
 /// Every song's searchable text, folded once per library load. A bundled
 /// song has no pack name to find it by (its group's label is the list's),
 /// and only the artist part of its credit (the rest is its licence).
 fn search_texts(library: &Library) -> HashMap<String, SongText> {
     let text = |e: &ManifestEntry, pack: &str, credit: &str| {
-        let own = search::haystack([e.title.as_str(), e.artist.as_str(), pack, credit], &nfkd);
+        let own = search::haystack(
+            [e.title.as_str(), e.artist.as_str(), pack, credit],
+            [e.title_translit.as_str(), e.artist_translit.as_str()],
+            &nfkd,
+        );
         let charts = e
             .charts
             .iter()
             .map(|c| {
-                let t = search::haystack([c.name.as_str(), c.credit.as_str()], &nfkd);
+                let t = search::haystack([c.name.as_str(), c.credit.as_str()], [], &nfkd);
                 (c.layout.clone(), t)
             })
             .collect();
