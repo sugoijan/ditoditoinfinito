@@ -339,4 +339,6 @@ were kept current at each step; this one added decision 39 and closed
   the next file (`Themes/_fallback/Scripts/02 ActorDef.lua`), so skins
   write such paths through `NOTESKIN:GetPath`, as the bundled ones do.
 
-- Explosions for Dito, if wanted (the procedural arrows have none).
+- Done 2026-10-13: Dito's explosions (`Down Explosion.lua`: a glow and
+  the note's outline in its judgement's colour, the onigiri's star and
+  the centre's square for theirs).

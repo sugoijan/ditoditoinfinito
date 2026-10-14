@@ -253,26 +253,14 @@ the player removed and keeps one whose folder is gone.
 
 ## Later
 
-- **Step 7, Lua**: its own plan, `docs/plans/lua.md`: a hardened fork of
-  piccolo (`docs/plans/piccolo-fork.md`) enforcing time and memory limits
-  in-process, StepMania's `cmd` syntax rewritten to closures, a prelude for
-  `Def`, `LoadActor` and the actor methods, and a host API (`NOTESKIN`,
-  `Var`, a `GAMESTATE` subset fed from the audio clock, `PREFSMAN`). Runs
-  each skin's `NoteSkin.lua` chain and element files at load, commands and
-  update functions during play, on the actors of step 2.
-- **Step 8, 3D models**: MilkShape 3D ASCII meshes and `ani tex.ini` texture
-  animation (65 % of skins, every classic ITG one); its own plan,
-  `docs/plans/models.md`. Since 2026-10-12 models are drawn, bones
-  included.
-- **Bundling**: Delta (CC BY 3.0) once its Lua tap note and receptor can
-  load; Apache-2.0 or Unlicense art (Alpha-Arrows, Dake, Peter Lawrence's CF
-  skins) only if the maintainer accepts those licences for art.
-- StepMania 3.9 and OpenITG skins (a separate format: `.sprite`, `.actor`
-  and `.model` INI files, XML actors, a file per note colour, an explosion
-  per judgement). An import recognises them and lets a StepMania 5 skin of
-  the same name win (Peter Lawrence's repository ships both kinds under
-  the same names); a variant holding only parts (`_down tap note
-  model.txt`) is recognised as a skin too. Since 2026-10-13 they are drawn
-  (`docs/plans/legacy-skins.md`).
-- OutFox's `global/` skins and
-  per-game extras.
+Done since this plan (2026-10-12 to 2026-10-14), each in a plan of its
+own: a skin's Lua (step 7, `docs/plans/lua.md`, on `lunita`,
+`docs/plans/piccolo-fork.md`), 3D models with bones (step 8,
+`docs/plans/models.md`), bundled skins (Dito, Delta, Alpha-Arrows, Dake,
+Peter Lawrence's CF and DDR skins, `docs/plans/bundled-skins.md`),
+StepMania 3.9 and OpenITG skins (`docs/plans/legacy-skins.md`), a preview
+(`docs/plans/skin-preview.md`), and skins on Dancing☆Onigiri and pump
+layouts (`docs/plans/danoni-skins.md`, `docs/plans/pump.md`). Left:
+
+- OutFox's `global/` skins and per-game extras.
+- Pump skins (`NoteSkins/pump/*`, `docs/plans/pump.md`).
