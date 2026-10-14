@@ -115,11 +115,12 @@ struct FpsMeter {
     worst_ms: f64,
     worst_last: f64,
     /// Recent per-second rates; frames can be dropped but never exceed the
-    /// refresh rate, so the maximum is the robust estimate.
+    /// refresh rate, so the maximum is the robust estimate. Single
+    /// intervals are no clue: Firefox's frame timestamps jitter by several
+    /// ms (1.2–9 ms apart at a steady 125 fps), which made the shortest
+    /// one read as a faster screen and the automatic video setting turn
+    /// every movie off.
     history: Vec<f64>,
-    /// Shortest frame interval seen in the current window, ms.
-    best_ms: f64,
-    best_last: f64,
 }
 
 impl FpsMeter {
@@ -132,8 +133,6 @@ impl FpsMeter {
             worst_ms: 0.0,
             worst_last: 0.0,
             history: Vec::new(),
-            best_ms: f64::INFINITY,
-            best_last: 0.0,
         }
     }
 
@@ -143,15 +142,7 @@ impl FpsMeter {
         if self.history.len() < 2 {
             return None;
         }
-        let from_rate = self.history.iter().copied().fold(f64::MIN, f64::max);
-        // The shortest interval is the firmest clue (drops only lengthen
-        // intervals); rates above it are impossible.
-        let from_interval = if self.best_last > 0.0 {
-            1000.0 / self.best_last
-        } else {
-            from_rate
-        };
-        Some(from_rate.max(from_interval.min(from_rate * 1.5)))
+        Some(self.history.iter().copied().fold(f64::MIN, f64::max))
     }
 
     /// Counts a frame; the rate of a second that ended with it, if one did.
@@ -159,9 +150,6 @@ impl FpsMeter {
         if let Some(last) = self.last {
             let dt = time_ms - last;
             self.worst_ms = self.worst_ms.max(dt);
-            if dt > 1.0 {
-                self.best_ms = self.best_ms.min(dt);
-            }
         }
         self.last = Some(time_ms);
         self.count += 1;
@@ -171,8 +159,6 @@ impl FpsMeter {
             self.window_start = time_ms;
             self.worst_last = self.worst_ms;
             self.worst_ms = 0.0;
-            self.best_last = self.best_ms;
-            self.best_ms = f64::INFINITY;
             self.history.push(self.fps);
             if self.history.len() > 4 {
                 self.history.remove(0);
