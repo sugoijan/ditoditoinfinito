@@ -282,3 +282,13 @@ or cancelled plan can retain successful child captures/normalization as diagnost
 Fresh M. MOON and stable-segment Destined Marionette close two proof gaps, with
 nine-chart / 4,127-endpoint / 141-scroll-check parity. RE:RAVE's speed-bank proof,
 bounded dependency fetching and automatic URL/selector discovery remain open.
+
+
+Passive [source discovery and cache evidence](../../../docs/research/danoni-rust-acquisition.md)
+now expose `acquisition::{inspect_page, inspect_cached_page}` and
+`inspect-cached-page JOB.json`. The CLI verifies an existing manifest/body and
+prints static SWF/FlashVars/navigation evidence while preserving logical URLs,
+archive snapshots and original response records. It performs no fetch or script
+execution. The local replay covers 86 pages with 81 default matches and five
+explicitly recorded encoding overrides. Live HTTP policy/cache services and
+bounded index traversal remain the next migration work.

@@ -3,6 +3,8 @@
 //! Exact source data is borrowed, never rewritten. Musical fitting and source
 //! extraction remain separate producers of the inputs accepted here.
 
+#[cfg(feature = "native")]
+pub mod acquisition;
 pub mod artwork;
 pub mod assets;
 pub mod audio;

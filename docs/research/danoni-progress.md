@@ -194,3 +194,20 @@ Wayback recoveries; the registry also retains eight earlier pending CW entries.
 NIGHTMARE's pre-compilation transformation, Luvin' You's converter halt, the
 partly admitted selectors and archive failures should stay separate diagnostic
 tracks. They need explicit evidence/contracts, not progressively weaker gates.
+
+
+### Rust passive acquisition groundwork, 2026-10-14
+
+The [source discovery/cache-evidence API](danoni-rust-acquisition.md) now reads
+existing versioned local manifests and statically discovers SWF candidates,
+FlashVars and navigation. Explicit archive snapshots retain original logical
+URLs and mixed capture candidates; older archive bodies remain visibly distinct
+from full HTTP response evidence. It adds no fetcher, script execution or implicit
+live fallback.
+
+The repeatable local gate covers 86 pages / 91 trials: 81 default SWF matches,
+five explicit encoding failures, and five separately evidenced Shift_JIS override
+matches. Both recovered Wayback pages are included. All third-party bytes and
+replay receipts stay under the local corpus, with zero requests. Accepted exports
+remain 93 songs / 144 charts and are not regenerated. Next implement the Rust
+host's policy-aware fetch/cache service, then bounded reviewed index traversal.

@@ -650,3 +650,27 @@ collaborations are discovered at runtime; operation-budget retries retain their
 original failures. No note timing or fit parameter is selected by song identity.
 Next implement milestone 5's host URL/policy/cache and bounded discovery services
 for this proven profile subset; add other engine variants incrementally.
+
+
+### Passive URL discovery and cache evidence, 2026-10-14
+
+The first [milestone 5 slice](danoni-rust-acquisition.md) adds Rust URL/archive
+identities, bounded passive HTML discovery and a versioned cached-page reader.
+Object/embed/noscript, FlashVars, anchors, frames and document base URLs are data;
+no work script runs. Original queries, final redirects, request context and
+retrieval/policy records remain source-bound. Older archived bodies are explicitly
+weaker evidence, with no invented HTTP status, completeness or robots permission.
+
+The local gate covers 86 pages: 81 match their independently recorded work SWF
+by default, and five require explicit evidenced Shift_JIS overrides. Its 91 cases
+retain the original encoding failures as well as successful overrides. Both
+Wayback bodies preserve their own page capture and separate logical URL. The
+replay performs no fetch and accepted exports remain unchanged.
+
+This is discovery evidence, not Ready extraction or live cache reuse. Next port
+the actual host fetch/cache policy service (robots/terms, request-context/Vary,
+redirect/DNS checks, pacing, bounded bodies/decompression, persistence and
+cancellation), connect observed dependencies and introduce bounded reviewed index
+routes with partial outcomes. Native context construction must account for embed
+parameters before execution; arbitrary page scripts still need the optional
+browser fallback. No dependency is added in this slice.
