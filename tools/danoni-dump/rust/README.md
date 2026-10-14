@@ -34,6 +34,13 @@ classification and optional host-font title banners. `url_prepare::execute` and
 folders; the reusable `preparation::prepare` API accepts normalized inputs.
 BPM fits remain provisional, and installation in the desktop library is separate.
 
+The [prepared-import handover](../../../docs/research/danoni-rust-import.md)
+validates outer Ready outputs against the real library APIs, assigns stable
+source/audio song identities and provides duplicate planning and host transaction
+traits. `inspect-import READY_DIRECTORY` is read-only. `import_host::install`
+coordinates the host's atomic commit, rollback and uncertain-commit recovery;
+a concrete desktop storage adapter remains host-owned.
+
 ## Commands
 
 Run from the research checkout with Rust 1.99 or later:

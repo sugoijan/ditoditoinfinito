@@ -238,3 +238,9 @@ index/frame traversal and richer source metadata are separate work. No claim of
 new 9A/9B extraction or perfect engine-customization reproduction is made here.
 Desktop library installation and cancellation/crash recovery across that library
 boundary are the next integration contract; this slice changes no app/library code.
+
+
+The subsequent [prepared-import boundary](danoni-rust-import.md) validates these
+outputs, builds the main library's existing `ManifestEntry`, supplies stable
+source/audio identities and coordinates a host-provided library transaction.
+The original outer receipt remains the required preparation Ready marker.

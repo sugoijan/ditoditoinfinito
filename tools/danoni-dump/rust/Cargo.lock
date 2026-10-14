@@ -411,6 +411,7 @@ dependencies = [
  "audioadapter-buffers",
  "ddi-chart",
  "ddi-engine",
+ "ddi-library",
  "encoding_rs",
  "flate2",
  "hickory-resolver",
@@ -442,6 +443,18 @@ dependencies = [
  "ddi-chart",
  "ddi-platform",
  "serde",
+]
+
+[[package]]
+name = "ddi-library"
+version = "0.1.0"
+dependencies = [
+ "ddi-chart",
+ "ddi-platform",
+ "miniz_oxide 0.9.1",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

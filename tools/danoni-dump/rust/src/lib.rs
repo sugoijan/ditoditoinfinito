@@ -11,6 +11,7 @@ pub mod audio;
 #[cfg(feature = "native")]
 pub mod dependencies;
 pub mod extraction;
+pub mod import_host;
 pub mod model;
 mod mpeg;
 #[cfg(feature = "native")]
@@ -22,6 +23,7 @@ pub mod orchestration;
 pub mod package;
 pub mod policy;
 pub mod preparation;
+pub mod prepared_import;
 pub mod preview;
 #[cfg(feature = "native")]
 pub mod profiles;

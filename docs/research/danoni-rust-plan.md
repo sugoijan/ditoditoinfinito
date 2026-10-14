@@ -805,3 +805,43 @@ queue work off the UI thread, consume the outer Ready marker, keep native worker
 and cache dependencies out of WASM, and supply platform-specific rollback/recovery.
 Broader index traversal and HTML5 execution can then share the same preparation
 boundary without changing source timing, rating or provenance policy.
+
+
+### Prepared-import and host transaction slice, 2026-10-15
+
+The [host handover](danoni-rust-import.md) implements pure `prepared_import`
+admission and `import_host` duplicate planning/installation coordination, with a
+read-only `inspect-import` CLI. Bound outer/source/runtime/profile success,
+normalized origin, exact artifact inventories, archived work replay and the real
+library scanner/resolver/parser/summary now yield an opaque import. Per-chart
+endpoint, motion and omission diagnostics remain visible; musical estimates stay
+provisional.
+
+Stable IDs use canonical logical SWF URL/FlashVars and original encoded audio,
+independent of transient paths, titles, codecs, fitted BPMs and retrieval dates.
+Payload revisions distinguish changed metadata/artifacts/selector coverage.
+Partial selections keep identity but cannot silently remove installed charts.
+Object-order feature unification in an embedding host cannot change identity
+hashing; generated reference JSON replays semantically while playback/source/input
+bytes remain exact and all saved inventory hashes are verified.
+
+The host transaction trait has a single atomic publication point, compare-and-swap
+catalog preconditions, explicit duplicate policies and distinct committed,
+rejected and needs-recovery outcomes. Known uncommitted failures roll back;
+uncertain commits cannot trigger automatic rollback/retry. Cancellation has no
+fallible callback after successful publication. No concrete main library storage
+adapter, app import UI, accepted generation or acquisition cache is changed.
+
+Next implement the host's durable managed-store adapter and its crash/recovery
+acceptance tests, then wire the desktop job to the preparation/admission/plan/
+install APIs. The interface is usable with a host-defined filesystem or database
+layout; choosing that layout and integrating the main-owned shell remain a
+separate implementation boundary. Broader URL routes and HTML5 can reuse it.
+
+Validation passes 224 native / 94 pure tests, strict Clippy and `just check`
+(843/843 REUSE). A local-only in-memory host admits Higan and No Name as two
+songs / three charts, recognizes a separately captured Higan as unchanged, and
+refuses both cancelled parents. Default and host insertion-order JSON features
+produce identical identities/revisions/catalog summaries. CLI/API summaries
+agree, and all original export/cache indexes and the registry remain unchanged.
+No durable desktop store or real library write is claimed by this test host.
