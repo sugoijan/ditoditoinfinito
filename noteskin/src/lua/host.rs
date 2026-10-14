@@ -493,6 +493,7 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
         let _ = t.set(ctx, "style_type", ctx.intern(style_type.as_bytes()));
         let _ = t.set(ctx, "steps_type", ctx.intern(steps_type.as_bytes()));
         let _ = t.set(ctx, "name", ctx.intern(host.env.style.as_bytes()));
+        let _ = t.set(ctx, "game", ctx.intern(host.env.game.as_bytes()));
         t
     };
     set(

@@ -1,6 +1,6 @@
 -- Dito's explosions (the built-in arrows have none). A hit bursts from the
 -- receptor in its judgement's colour, as a glow and the arrow's outline
--- (the onigiri's star's) growing and fading, larger and brighter past 100
+-- (the onigiri's star's, the centre's square's) growing and fading, larger and brighter past 100
 -- combo; a completed hold bursts green; a held hold or roll glows green,
 -- pulsing on the beat (a roll faster); a mine flashes red.
 local colors =
@@ -15,7 +15,8 @@ local colors =
 local held = color("0.55,0.95,0.65,1")
 local mine = color("1,0.35,0.3,1")
 local glow = NOTESKIN:GetPath("_down", "glow")
-local outline = NOTESKIN:GetPath(Var "Button" == "Onigiri" and "_onigiri" or "_down", "receptor")
+local symbols = { Onigiri = "_onigiri", Center = "_center" }
+local outline = NOTESKIN:GetPath(symbols[Var "Button"] or "_down", "receptor")
 
 local function burst(self, c, bright)
 	self:GetChild("Glow"):finishtweening()

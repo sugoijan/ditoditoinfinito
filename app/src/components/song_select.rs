@@ -511,14 +511,20 @@ impl Component for SongSelect {
                         standard: p.standard,
                     })
                     .collect();
+                let pads = layout.as_ref().map_or(1, |l| l.pads());
                 let plan = layout
                     .map(|l| self.settings.controls.plan(&l, &connected))
                     .unwrap_or_default();
+                let pads_played = plan
+                    .iter()
+                    .filter(|(_, u)| matches!(u, PadUse::OnePad { .. }))
+                    .count();
                 for (p, pad_use) in plan {
                     // Controllers beyond a two-pad layout's pads have no use
-                    // but are not unbound.
-                    let spare = pad_use == PadUse::Unused
-                        && self.settings.pad_bindings(&p.id, p.standard).is_some();
+                    // but are not unbound; a controller bound for other
+                    // layouts only is (a dance pad on a pump layout).
+                    let spare =
+                        pad_use == PadUse::Unused && pads > 1 && pads_played >= usize::from(pads);
                     if !pad_use.plays() && !spare && !unbound.contains(&p.id) {
                         unbound.push(p.id.clone());
                     }

@@ -236,7 +236,7 @@ mod tests {
 
     const SM: &str = "#TITLE:  Song  ;\n#SUBTITLE:(Remix);\n#ARTIST:;\n#BPMS:0=120,16=180;\n#SAMPLESTART:12.5;\n#SAMPLELENGTH:15;\n\
 #NOTES:\n     dance-single:\n     :\n     Hard:\n     9:\n     0,0,0,0,0:\n1000\n0100\n0010\n0001\n;\n\
-#NOTES:\n     pump-single:\n     :\n     Easy:\n     2:\n     0,0,0,0,0:\n10000\n01000\n00100\n00010\n;\n\
+#NOTES:\n     pump-couple:\n     :\n     Easy:\n     2:\n     0,0,0,0,0:\n10000\n01000\n00100\n00010\n;\n\
 #NOTES:\n     dance-single:\n     :\n     Easy:\n     3:\n     0,0,0,0,0:\n1000\n0000\n0010\n0000\n;\n";
 
     #[test]
@@ -261,7 +261,8 @@ mod tests {
             .iter()
             .map(|c| (c.index, c.difficulty.as_str(), c.notes))
             .collect();
-        // pump-single has no built-in layout; Easy sorts before Hard.
+        // pump-couple (two players) has no built-in layout; Easy sorts
+        // before Hard.
         assert_eq!(order, [(2, "Easy", 2), (0, "Hard", 4)]);
     }
 

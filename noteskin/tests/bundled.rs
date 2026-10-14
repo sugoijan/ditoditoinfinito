@@ -94,6 +94,16 @@ fn bundled_skins_build_every_element_through_their_lua() {
             Button::Down
         };
         assert_eq!(onigiri, expected, "{}", f.name);
+        // A pump pad's centre: Dito's and the CF skins' own, the others'
+        // Down.
+        let centre = ddi_chart::Layout::pump_single().lanes[2].clone();
+        let centre = skin.lane_button(&centre).unwrap().button;
+        let expected = if f.name.starts_with("Dito") || f.name.starts_with("CF_") {
+            Button::Center
+        } else {
+            Button::Down
+        };
+        assert_eq!(centre, expected, "{}", f.name);
         let start = std::time::Instant::now();
         let mut lua = LuaSkin::new(
             skin.into_owned(),
@@ -104,7 +114,7 @@ fn bundled_skins_build_every_element_through_their_lua() {
         )
         .unwrap_or_else(|e| panic!("{}: {e}", f.name));
         let mut textures = Textures::default();
-        for b in Button::ALL.into_iter().chain([onigiri]) {
+        for b in Button::ALL.into_iter().chain([onigiri, centre]) {
             for e in ENGINE_ELEMENTS {
                 let el = lua
                     .element(b, e, &mut textures, &AnySize)
@@ -133,20 +143,36 @@ fn bundled_skins_build_every_element_through_their_lua() {
             }
         }
         assert_eq!(lua.warnings(), Vec::<String>::new(), "{}", f.name);
-        // Dito's onigiri bursts in its star's outline.
+        // Dito's onigiri bursts in its star's outline, its centre in its
+        // square's.
         if f.name.starts_with("Dito") {
-            let mut star = Textures::default();
-            let el = lua
-                .element(Button::Onigiri, "Explosion", &mut star, &AnySize)
-                .unwrap();
-            assert!(matches!(el.built, Built::Actor(_)));
-            assert!(
-                star.keys().iter().any(|k| matches!(k,
-                    ddi_noteskin::build::TextureKey::Skin { path, .. } if path == "_onigiri receptor.svg")),
-                "{}: {:?}",
-                f.name,
-                star.keys()
-            );
+            for (button, ring) in [
+                (Button::Onigiri, "_onigiri receptor.svg"),
+                (Button::Center, "_center receptor.svg"),
+            ] {
+                let mut symbol = Textures::default();
+                let el = lua
+                    .element(button, "Explosion", &mut symbol, &AnySize)
+                    .unwrap();
+                assert!(matches!(el.built, Built::Actor(_)));
+                assert!(
+                    symbol.keys().iter().any(|k| matches!(k,
+                        ddi_noteskin::build::TextureKey::Skin { path, .. } if path == ring)),
+                    "{}: {:?}",
+                    f.name,
+                    symbol.keys()
+                );
+                let mut tap = Textures::default();
+                lua.element(button, "Tap Note", &mut tap, &AnySize).unwrap();
+                let prefix = &ring[..ring.find(' ').unwrap()];
+                assert!(
+                    tap.keys().iter().any(|k| matches!(k,
+                        ddi_noteskin::build::TextureKey::Skin { path, .. } if path.starts_with(prefix))),
+                    "{}: {:?}",
+                    f.name,
+                    tap.keys()
+                );
+            }
         }
         // Dito's lifts and fakes are drawn from sheets of their own.
         if f.name.starts_with("Dito") {
@@ -165,6 +191,53 @@ fn bundled_skins_build_every_element_through_their_lua() {
                     f.name
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn bundled_skins_draw_every_layout_through_their_lua() {
+    // Every built-in layout's lanes as the play builds them (the first of
+    // a lane's choices whose tap note and receptor build), with the style
+    // the skin is told (Dake reads the game and the style: a dance skin is
+    // told `dance` on pump layouts too).
+    let folders = bundled();
+    for f in folders.iter().filter(|f| f.game == "dance") {
+        for id in ddi_chart::Layout::builtin_ids() {
+            let layout = ddi_chart::Layout::builtin(&id).unwrap();
+            let skin = Skin::load(&folders, &f.game, &f.name).unwrap();
+            let choices: Vec<_> = layout.lanes.iter().map(|l| skin.lane_buttons(l)).collect();
+            let start = std::time::Instant::now();
+            let mut lua = LuaSkin::new(
+                skin.into_owned(),
+                Env {
+                    style: ddi_noteskin::lua::dance_style(&layout).into(),
+                    columns: layout.lane_count() as u32,
+                    ..Env::default()
+                },
+                ddi_lua::Settings::default(),
+                LoadBudget::default(),
+                Box::new(move || start.elapsed().as_secs_f64()),
+            )
+            .unwrap_or_else(|e| panic!("{} {id}: {e}", f.name));
+            let mut textures = Textures::default();
+            for (lane, choices) in layout.lanes.iter().zip(choices) {
+                let built = choices.iter().find(|c| {
+                    ["Tap Note", "Receptor"].iter().all(|e| {
+                        lua.element(c.button, e, &mut textures, &AnySize)
+                            .is_ok_and(|el| {
+                                matches!(el.built, Built::Actor(_)) && el.notes.is_empty()
+                            })
+                    })
+                });
+                assert!(
+                    built.is_some(),
+                    "{} {id} {}: {choices:?}",
+                    f.name,
+                    lane.name
+                );
+            }
+            assert_eq!(lua.warnings(), Vec::<String>::new(), "{} {id}", f.name);
         }
     }
 }

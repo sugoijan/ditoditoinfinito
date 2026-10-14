@@ -1,16 +1,4 @@
--- The onigiri's tap, lift or fake (and a hold's or roll's head), a star:
--- the frames of the colour scheme's sheet for it (one for Quantized and
--- Single, coloured by the row the engine picks; the four-beat cycle for
--- Vivid and Flat; the beat's flow for Rainbow). Lifts and fakes have
--- sheets of their own (a dot, 60 %): the engine sets a note's colour and
--- frame on its sprite.
-local sheets = { ["Tap Lift"] = "tap lift", ["Tap Fake"] = "tap fake" }
-local count = NOTESKIN:GetMetricI("NoteDisplay", "DitoTapFrames")
-local frames = {}
-for i = 0, count - 1 do
-	frames[#frames + 1] = { Frame = i, Delay = 1 / count }
-end
-return Def.Sprite {
-	Texture = NOTESKIN:GetPath("_onigiri", sheets[Var "Element"] or "tap note"),
-	Frames = frames,
-}
+-- Onigiri's tap note: the symbols' (`_symbol tap note.lua`). Not a tail call:
+-- the path resolves from this file's folder.
+local t = LoadActor("_symbol tap note.lua")
+return t

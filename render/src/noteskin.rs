@@ -1981,6 +1981,64 @@ mod tests {
     }
 
     #[test]
+    fn a_pump_layout_takes_the_skins_own_panels_and_turns_its_down() {
+        let files = [
+            "metrics.ini",
+            "Down Tap Note.png",
+            "Down Receptor.png",
+            "DownLeft Tap Note.png",
+            "DownLeft Receptor.png",
+        ];
+        let folders = vec![Folder {
+            game: "dance".into(),
+            name: "s".into(),
+            files: files.iter().map(|f| f.to_string()).collect(),
+            texts: vec![(
+                "metrics.ini".into(),
+                "[Global]\nFallbackNoteSkin=common\n".into(),
+            )],
+        }];
+        let skin = Skin::load(&folders, "dance", "s").unwrap();
+        for id in ["pump-single", "pump-halfdouble", "pump-double"] {
+            let layout = Layout::builtin(id).unwrap();
+            let play = NoteskinPlay::new(&skin, &layout, &NoImages, false).unwrap();
+            let texture = |e: &Element| match &actor(e).kind {
+                ddi_noteskin::actor::Kind::Sprite(s) => {
+                    match &play.textures.keys()[s.texture as usize] {
+                        TextureKey::Skin { path, .. } => path.clone(),
+                        other => panic!("{other:?}"),
+                    }
+                }
+                other => panic!("{other:?}"),
+            };
+            for (lane, info) in play.lanes.iter().zip(&layout.lanes) {
+                let (tap, turn) = match info.name.as_str() {
+                    // The skin's own down-left, as it is.
+                    "downleft" => ("DownLeft Tap Note.png", 0.0),
+                    // Down turned for the down-right, the stand-in's
+                    // diagonals for the upper ones, Down for the centre.
+                    "downright" => ("Down Tap Note.png", 315.0),
+                    "center" => ("Down Tap Note.png", 0.0),
+                    _ => continue,
+                };
+                assert_eq!(texture(&lane.tap), tap, "{id} {}", info.name);
+                assert_eq!(
+                    actor(&lane.tap).base_rotation[2],
+                    turn,
+                    "{id} {}",
+                    info.name
+                );
+                assert_eq!(
+                    actor(&lane.receptor).base_rotation[2],
+                    turn,
+                    "{id} {}",
+                    info.name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn a_skins_lua_plays_the_engines_events() {
         let mut play = lua_play("return Def.ActorFrame { Def.Sprite { Texture = 'x.png' } }\n");
         assert!(play.runs_lua());

@@ -290,9 +290,9 @@ pub fn field_span(layout: &Layout) -> f32 {
 }
 
 /// The shape id of a lane's glyph drawn in `mode`: arrows, or the symbols
-/// standing for Dancing☆Onigiri's other lanes (decision 27): a star for the
-/// onigiri, a square for giko, a circle for iyo and anything else. A
-/// triangle would read as an up arrow.
+/// standing for the other lanes (decision 27): a square for a pump pad's
+/// centre, a star for the onigiri, a square for giko, a circle for iyo and
+/// anything else. A triangle would read as an up arrow.
 fn glyph_shape(glyph: &Glyph, mode: SymbolMode) -> u32 {
     let symbol = match glyph {
         Glyph::Arrow { .. } => {
@@ -304,7 +304,8 @@ fn glyph_shape(glyph: &Glyph, mode: SymbolMode) -> u32 {
             } as u32;
         }
         Glyph::Onigiri => Symbol::Star,
-        Glyph::Giko => Symbol::Square,
+        // Pump's centre panel is square too; giko is no longer played.
+        Glyph::Center | Glyph::Giko => Symbol::Square,
         Glyph::Iyo | Glyph::Custom(_) => Symbol::Dot,
     };
     symbol.shape(mode)

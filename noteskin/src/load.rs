@@ -7,9 +7,10 @@
 use crate::builtin::{NativeLua, Virtual};
 use crate::skin::{BASE, COMMON, FileRef, PathError, Skin};
 
-/// A dance button (`src/GameManager.cpp:513-518`), or one a
-/// Dancing☆Onigiri onigiri lane is drawn with ([`LaneButton`]): pump's and
-/// techno's `Center`, or `Onigiri`, a name of ours for skins that draw one.
+/// A dance button (`src/GameManager.cpp:513-518`), or one another
+/// layout's lane is drawn with ([`LaneButton`]): pump's `DownLeft`,
+/// `DownRight` and `Center` (techno's too), or `Onigiri`, a name of ours
+/// for skins that draw one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Button {
     Left,
@@ -18,6 +19,8 @@ pub enum Button {
     Right,
     UpLeft,
     UpRight,
+    DownLeft,
+    DownRight,
     Center,
     Onigiri,
 }
@@ -40,6 +43,8 @@ impl Button {
             Button::Right => "Right",
             Button::UpLeft => "UpLeft",
             Button::UpRight => "UpRight",
+            Button::DownLeft => "DownLeft",
+            Button::DownRight => "DownRight",
             Button::Center => "Center",
             Button::Onigiri => "Onigiri",
         }
@@ -62,7 +67,7 @@ impl Button {
             Button::UpLeft => 135.0,
             Button::UpRight => 225.0,
             // Not in the table: not turned.
-            Button::Center | Button::Onigiri => 0.0,
+            Button::DownLeft | Button::DownRight | Button::Center | Button::Onigiri => 0.0,
         }
     }
 
@@ -103,11 +108,13 @@ pub struct LaneButton {
 
 impl Skin<'_> {
     /// How `lane` is drawn with this skin: an arrow by its angle
-    /// ([`Button::for_arrow`]); the onigiri by the skin's own `Onigiri`
-    /// elements, else StepMania's `Center` ones, else Down's as they are,
-    /// each only from the skin's own folders and the ones it falls back on
-    /// (never another skin's); `None` for the lanes no skin draws (giko,
-    /// iyo, a work's own).
+    /// ([`Button::for_arrow`]), a down-left or down-right one by the
+    /// skin's own `DownLeft` or `DownRight` elements first (pump's); the
+    /// centre panel by the skin's `Center` elements, else Down's as they
+    /// are; the onigiri by the skin's own `Onigiri` elements, else
+    /// `Center`, else Down's as they are. Each only from the skin's own
+    /// folders and the ones it falls back on (never another skin's);
+    /// `None` for the lanes no skin draws (giko, iyo, a work's own).
     pub fn lane_button(&self, lane: &ddi_chart::Lane) -> Option<LaneButton> {
         self.lane_buttons(lane).first().copied()
     }
@@ -121,16 +128,32 @@ impl Skin<'_> {
         match &lane.glyph {
             Glyph::Arrow { rotation_deg } => {
                 let (button, turn) = Button::for_arrow(*rotation_deg);
-                vec![LaneButton { button, turn }]
+                let own = [(45.0, Button::DownLeft), (315.0, Button::DownRight)]
+                    .into_iter()
+                    .find(|(t, _)| (turn - t).abs() < 0.01)
+                    .map(|(_, b)| b);
+                own.filter(|b| self.has_button_elements(b.name()))
+                    .map(|button| LaneButton { button, turn: 0.0 })
+                    .into_iter()
+                    .chain([LaneButton { button, turn }])
+                    .collect()
             }
-            Glyph::Onigiri => [Button::Onigiri, Button::Center]
-                .into_iter()
-                .filter(|b| self.has_button_elements(b.name()))
-                .chain([Button::Down])
-                .map(|button| LaneButton { button, turn: 0.0 })
-                .collect(),
+            Glyph::Center => self.own_or_down(&[Button::Center]),
+            Glyph::Onigiri => self.own_or_down(&[Button::Onigiri, Button::Center]),
             Glyph::Giko | Glyph::Iyo | Glyph::Custom(_) => Vec::new(),
         }
+    }
+
+    /// The `buttons` the chain has elements of, in order, then Down's
+    /// elements unturned.
+    fn own_or_down(&self, buttons: &[Button]) -> Vec<LaneButton> {
+        buttons
+            .iter()
+            .copied()
+            .filter(|b| self.has_button_elements(b.name()))
+            .chain([Button::Down])
+            .map(|button| LaneButton { button, turn: 0.0 })
+            .collect()
     }
 
     /// Whether a folder of the chain has elements of button `name` at its
@@ -691,6 +714,53 @@ mod tests {
             ..onigiri.clone()
         };
         assert_eq!(skin.lane_button(&giko), None);
+    }
+
+    #[test]
+    fn pump_lanes_take_the_skins_own_panels_else_down() {
+        use ddi_chart::Layout;
+        let pump = Layout::pump_single();
+        let buttons = |files: &[(&str, &str)]| -> Vec<Vec<(Button, f32)>> {
+            let folders = [folder("dance", "s", files)];
+            let skin = Skin::load(&folders, "dance", "s").unwrap();
+            pump.lanes
+                .iter()
+                .map(|l| {
+                    skin.lane_buttons(l)
+                        .into_iter()
+                        .map(|b| (b.button, b.turn))
+                        .collect()
+                })
+                .collect()
+        };
+        // A dance skin: Down turned for the lower diagonals, Down as it is
+        // for the centre.
+        assert_eq!(
+            buttons(&[]),
+            [
+                vec![(Button::Down, 45.0)],
+                vec![(Button::UpLeft, 0.0)],
+                vec![(Button::Down, 0.0)],
+                vec![(Button::UpRight, 0.0)],
+                vec![(Button::Down, 315.0)],
+            ]
+        );
+        // Its own panels first, unturned, the rest after them.
+        let own = buttons(&[
+            ("DownLeft Tap Note.png", ""),
+            ("DownRight Receptor.lua", ""),
+            ("Center Tap Note.png", ""),
+        ]);
+        assert_eq!(own[0], [(Button::DownLeft, 0.0), (Button::Down, 45.0)]);
+        assert_eq!(own[2], [(Button::Center, 0.0), (Button::Down, 0.0)]);
+        assert_eq!(own[4], [(Button::DownRight, 0.0), (Button::Down, 315.0)]);
+        // The centre never takes the onigiri's elements.
+        let folders = [folder("dance", "s", &[("Onigiri Tap Note.png", "")])];
+        let skin = Skin::load(&folders, "dance", "s").unwrap();
+        assert_eq!(
+            skin.lane_button(&pump.lanes[2]).unwrap().button,
+            Button::Down
+        );
     }
 
     #[test]

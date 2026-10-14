@@ -262,13 +262,13 @@ fn dwi_aliases_layouts_and_routine() {
     let routine = song.chart_by("dance-routine", Difficulty::Medium).unwrap();
     assert_eq!(routine.notes.len(), 1);
     assert_eq!(routine.notes[0].lane, 0);
-    // Pump chart kept with its id but not playable.
+    // Pump chart kept with its id, played on its own layout.
     let pump = song.chart_by("pump-single", Difficulty::Medium).unwrap();
     assert_eq!(pump.notes.len(), 2);
     assert_eq!(pump.notes[1].lane, 4);
     let playable: Vec<_> = song.playable_charts().map(|c| c.layout.as_str()).collect();
-    assert_eq!(playable.len(), 8);
-    assert!(!playable.contains(&"pump-single"));
+    assert_eq!(playable.len(), 9);
+    assert!(playable.contains(&"pump-single"));
     assert!(!playable.contains(&"dance-routine"));
     assert!(song.chart_by("dance-single", Difficulty::Medium).is_some());
     assert!(song.chart_by("dance-double", Difficulty::Medium).is_none());

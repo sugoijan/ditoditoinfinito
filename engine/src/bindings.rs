@@ -6,7 +6,8 @@
 //! tables; controllers with the standard mapping get defaults for the
 //! built-in layouts, every other controller is bound with the guided flow.
 //! A layout spanning two pads (`dance-double`) is also played with two
-//! controllers: each one's `dance-single` bindings drive one pad's lanes,
+//! controllers: each one's bindings of the one-pad layout
+//! ([`Layout::one_pad_layout`], `dance-single`) drive one pad's lanes,
 //! the lower `Gamepad.index` on the left, as StepMania gives each player
 //! side its own controller.
 //!
@@ -99,7 +100,8 @@ impl PadBindings {
     /// Standard-mapping defaults for a built-in layout: `dance-single` on
     /// the d-pad and the face buttons, `dance-solo` the same with the
     /// shoulder buttons as diagonals, `dance-double` the left pad on the
-    /// d-pad and the right pad on the face buttons.
+    /// d-pad and the right pad on the face buttons; the pump layouts alike,
+    /// their centres on the shoulders.
     pub fn standard_table(layout: &Layout) -> Option<LaneTable> {
         use ddi_platform::gamepad::standard::*;
         let t = |rows: &[&[u16]]| -> LaneTable {
@@ -132,6 +134,31 @@ impl PadBindings {
                 &[Y],
                 &[B],
             ]),
+            "pump-single" | "pump-halfdouble" | "pump-double" => {
+                // Each panel keeps its control on every pump layout: the
+                // pad turned an eighth onto the d-pad (left pad) and the
+                // face buttons (right pad), the centre on a shoulder;
+                // `pump-single` has both.
+                let panel = |pad: u8, name: &str| -> Vec<u16> {
+                    let sides = match name {
+                        "downleft" => [DPAD_LEFT, X],
+                        "upleft" => [DPAD_UP, Y],
+                        "center" => [LB, RB],
+                        "upright" => [DPAD_RIGHT, B],
+                        _ => [DPAD_DOWN, A],
+                    };
+                    if layout.pads() < 2 {
+                        sides.to_vec()
+                    } else {
+                        vec![sides[usize::from(pad)]]
+                    }
+                };
+                layout
+                    .lanes
+                    .iter()
+                    .map(|l| panel(l.pad, &l.name).into_iter().map(button).collect())
+                    .collect()
+            }
             _ => return None,
         })
     }
@@ -297,7 +324,7 @@ impl ControlBindings {
 
     /// Drops a controller's table of one layout, so it plays that layout
     /// on the defaults again (the standard ones, or one pad of a two-pad
-    /// layout with its single bindings). The single table of a standard
+    /// layout with its one-pad layout's bindings). The single table of a standard
     /// controller goes back to the standard defaults; of any other
     /// controller it is cleared.
     pub fn reset_pad_table(&mut self, id: &str, layout_id: &str, standard: bool) {
@@ -445,15 +472,23 @@ impl ControlBindings {
                 let u = if own || lone_standard {
                     table_use(c)
                 } else {
-                    match self.pad(&c.id, c.standard).map(|p| p.single) {
-                        Some(single)
-                            if single.iter().any(|c| !c.is_empty()) && next_pad < layout.pads() =>
+                    let one_pad = layout.one_pad_layout();
+                    let table = one_pad
+                        .as_ref()
+                        .and_then(|one| self.pad_table(&c.id, c.standard, one));
+                    match (one_pad, table) {
+                        (Some(one), Some(table))
+                            if table.iter().any(|c| !c.is_empty()) && next_pad < layout.pads() =>
                         {
+                            let pad = next_pad;
                             next_pad += 1;
-                            PadUse::OnePad {
-                                pad: next_pad - 1,
-                                single,
-                            }
+                            // The one-pad table's rows of this pad's lanes.
+                            let single = layout
+                                .pad_lanes_in(pad, &one)
+                                .into_iter()
+                                .map(|l| l.and_then(|l| table.get(l).cloned()).unwrap_or_default())
+                                .collect();
+                            PadUse::OnePad { pad, single }
                         }
                         _ => PadUse::Unused,
                     }
@@ -525,7 +560,9 @@ impl ControlBindings {
 pub enum PadUse {
     /// The whole field with this table: saved, or the standard defaults.
     Table { table: LaneTable, defaults: bool },
-    /// One pad of a two-pad layout, with the controller's single bindings.
+    /// One pad of a two-pad layout, with the controller's bindings of the
+    /// layout's one-pad layout ([`Layout::one_pad_layout`]): `single` has
+    /// the rows of the pad's lanes, in order.
     OnePad { pad: u8, single: LaneTable },
     /// Nothing.
     Unused,
@@ -862,6 +899,38 @@ mod tests {
         let b = c.resolve(&double, &[pad(id, 3, false), pad(id, 1, false)], None);
         assert_eq!(press(&b, dev.clone(), 3, "button:17"), Some(7));
         assert_eq!(press(&b, dev, 1, "button:2"), None);
+    }
+
+    #[test]
+    fn pump_pads_split_by_panel_names() {
+        use ddi_platform::gamepad::standard::*;
+        let single = PadBindings::standard_table(&Layout::pump_single()).unwrap();
+        assert_eq!(single[2], [button(LB), button(RB)]);
+        let half = Layout::pump_halfdouble();
+        let table = PadBindings::standard_table(&half).unwrap();
+        // The left pad's centre and the right pad's: one shoulder each.
+        assert_eq!(table[0], [button(LB)]);
+        assert_eq!(table[5], [button(RB)]);
+        assert_eq!(table[3], [button(X)]);
+        // Two standard controllers: each plays one pad with its
+        // `pump-single` rows of that pad's panels.
+        let c = ControlBindings::default();
+        let pads = [pad("a", 0, true), pad("b", 1, true)];
+        let plan = c.plan(&half, &pads);
+        assert_eq!(
+            plan[0].1,
+            PadUse::OnePad {
+                pad: 0,
+                single: vec![single[2].clone(), single[3].clone(), single[4].clone()],
+            }
+        );
+        assert_eq!(
+            plan[1].1,
+            PadUse::OnePad {
+                pad: 1,
+                single: vec![single[0].clone(), single[1].clone(), single[2].clone()],
+            }
+        );
     }
 
     #[test]

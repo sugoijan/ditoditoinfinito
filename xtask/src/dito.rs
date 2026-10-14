@@ -139,11 +139,30 @@ fn sd_star(x: f64, y: f64) -> f64 {
     (dx * dx + dy * dy).sqrt() * (py * ba.0 - px * ba.1).signum() - 0.04
 }
 
+/// The shader's square (`sd_symbol`'s `SYMBOL_SQUARE`, a rounded box).
+fn sd_square(x: f64, y: f64) -> f64 {
+    let (b, r) = (0.74 - 0.16, 0.16);
+    let (dx, dy) = (x.abs() - b, y.abs() - b);
+    let outside = (dx.max(0.0).powi(2) + dy.max(0.0).powi(2)).sqrt();
+    outside + dx.max(dy).min(0.0) - r
+}
+
 /// The star's contour where its distance is `level` (inside it below 0),
 /// in a frame's pixels: a ray from its centre per half degree, the star's
 /// points and notches among them.
 fn star_path(level: f64) -> String {
-    let (cx, cy) = (0.0, 0.08);
+    contour(sd_star, (0.0, 0.08), level)
+}
+
+/// The square's contour where its distance is `level`; its corners lie on
+/// the rays at 45°.
+fn square_path(level: f64) -> String {
+    contour(sd_square, (0.0, 0.0), level)
+}
+
+/// The contour of `sdf` where it is `level`, from `(cx, cy)` (inside), in
+/// a frame's pixels: a ray per half degree.
+fn contour(sdf: fn(f64, f64) -> f64, (cx, cy): (f64, f64), level: f64) -> String {
     let mut d = String::new();
     for i in 0..720 {
         let a = TAU * f64::from(i) / 720.0;
@@ -151,7 +170,7 @@ fn star_path(level: f64) -> String {
         let (mut lo, mut hi) = (0.0, 1.5);
         for _ in 0..48 {
             let mid = (lo + hi) / 2.0;
-            if sd_star(cx + mid * dx, cy + mid * dy) < level {
+            if sdf(cx + mid * dx, cy + mid * dy) < level {
                 lo = mid;
             } else {
                 hi = mid;
@@ -170,12 +189,14 @@ fn star_path(level: f64) -> String {
     d
 }
 
-/// The shape a sheet's frames stroke: the arrow's skeleton, or the star's
-/// band's middle (the band is the arrow's stroke, inside the outline).
+/// The shape a sheet's frames stroke: the arrow's skeleton, or a symbol's
+/// band's middle (the band is the arrow's stroke, inside the outline): the
+/// onigiri's star, the centre's square.
 #[derive(Clone, Copy, PartialEq)]
 enum Shape {
     Arrow,
     Star,
+    Square,
 }
 
 impl Shape {
@@ -189,6 +210,12 @@ impl Shape {
                 "<path id=\"a\" d=\"{}\" fill=\"none\" stroke-linejoin=\"miter\" stroke-miterlimit=\"8\"/>",
                 star_path(-HALF_STROKE)
             ),
+            // The band's middle has sharp corners; its outer edge is
+            // rounded (by 0.16 in the shader, the stroke's half here).
+            Shape::Square => format!(
+                "<path id=\"a\" d=\"{}\" fill=\"none\" stroke-linejoin=\"round\"/>",
+                square_path(-HALF_STROKE)
+            ),
         }
     }
 
@@ -197,6 +224,7 @@ impl Shape {
         match self {
             Shape::Arrow => "_down",
             Shape::Star => "_onigiri",
+            Shape::Square => "_center",
         }
     }
 }
@@ -287,10 +315,10 @@ fn arrow_of(look: Look, id: usize, defs: &mut String) -> String {
     }
 }
 
-/// The star's ramp, made radial as the shader makes it for symbols
+/// A symbol's ramp, made radial as the shader makes it for symbols
 /// (`MODE_RAMP`, from the quad's centre): `tip` at the centre, `base` at
 /// the rim.
-fn ramp_star(id: usize, base: [f32; 3], tip: [f32; 3], defs: &mut String) -> String {
+fn ramp_symbol(id: usize, base: [f32; 3], tip: [f32; 3], defs: &mut String) -> String {
     for (prefix, (a, b)) in [("b", (tip, base)), ("r", (darker(tip), darker(base)))] {
         let _ = write!(
             defs,
@@ -307,7 +335,7 @@ fn ramp_star(id: usize, base: [f32; 3], tip: [f32; 3], defs: &mut String) -> Str
 /// A tap of `shape` for `look`.
 fn note_of(shape: Shape, look: Look, id: usize, defs: &mut String) -> String {
     match (shape, look.tip) {
-        (Shape::Star, Some(tip)) => ramp_star(id, look.base, tip, defs),
+        (Shape::Star | Shape::Square, Some(tip)) => ramp_symbol(id, look.base, tip, defs),
         _ => arrow_of(look, id, defs),
     }
 }
@@ -318,9 +346,10 @@ fn note_of(shape: Shape, look: Look, id: usize, defs: &mut String) -> String {
 /// than Lua around a tap, because the engine sets a note's colour and its
 /// frame on the note's own sprite, as StepMania does.
 fn sheets(cols: usize, rows: usize, looks: &[Option<Look>]) -> Files {
-    let mut out = sheets_of(Shape::Arrow, cols, rows, looks);
-    out.extend(sheets_of(Shape::Star, cols, rows, looks));
-    out
+    [Shape::Arrow, Shape::Star, Shape::Square]
+        .into_iter()
+        .flat_map(|shape| sheets_of(shape, cols, rows, looks))
+        .collect()
 }
 
 /// [`sheets`] of one shape.
@@ -451,14 +480,17 @@ fn receptor() -> String {
     sheet(1, 1, &defs, &[frame])
 }
 
-/// The onigiri's receptor: the star's ring (`MODE_OUTLINE`), white.
-fn star_receptor() -> String {
+/// A symbol's receptor: its ring (`MODE_OUTLINE`), white.
+fn symbol_receptor(shape: Shape) -> String {
+    let (path, join) = match shape {
+        Shape::Square => (square_path(-0.09), "round"),
+        _ => (star_path(-0.09), "miter\" stroke-miterlimit=\"8"),
+    };
     let frame = format!(
-        "<path d=\"{}\" fill=\"none\" stroke=\"#fff\" stroke-width=\"{}\" stroke-linejoin=\"miter\" stroke-miterlimit=\"8\"/>",
-        star_path(-0.09),
+        "<path d=\"{path}\" fill=\"none\" stroke=\"#fff\" stroke-width=\"{}\" stroke-linejoin=\"{join}\"/>",
         n(0.18 * UNIT)
     );
-    sheet_of(Shape::Star, 1, 1, "", &[frame])
+    sheet_of(shape, 1, 1, "", &[frame])
 }
 
 /// A mine (`SHAPE_MINE` at 0.8 of the lane): a disc with eight spikes and
@@ -554,7 +586,11 @@ pub(crate) fn files() -> Vec<(&'static str, Files)> {
     let mut base: Files = quantized();
     base.extend([
         ("_down receptor.svg".into(), receptor()),
-        ("_onigiri receptor.svg".into(), star_receptor()),
+        ("_onigiri receptor.svg".into(), symbol_receptor(Shape::Star)),
+        (
+            "_center receptor.svg".into(),
+            symbol_receptor(Shape::Square),
+        ),
         ("_down mine.svg".into(), mine()),
         ("_down glow.svg".into(), glow()),
     ]);
@@ -639,6 +675,21 @@ mod tests {
         // The band's middle, inside the outline, up first.
         let d = star_path(-HALF_STROKE);
         assert!(d.starts_with("M32 "), "{}", &d[..20]);
+    }
+
+    #[test]
+    fn the_square_is_the_shaders() {
+        // Its edge's middle, its rounded corner, its centre.
+        assert!(sd_square(0.74, 0.0).abs() < 1e-9);
+        assert!((sd_square(0.74, 0.74) - (0.16 * 2f64.sqrt() - 0.16)).abs() < 1e-9);
+        assert!((sd_square(0.0, 0.0) + 0.74).abs() < 1e-9);
+        // The band's middle: a square 0.52 across from the centre, its
+        // corners sharp; up first.
+        let d = square_path(-HALF_STROKE);
+        let top = 32.0 - 0.52 * UNIT;
+        assert!(d.starts_with(&format!("M32 {}", n(top))), "{}", &d[..20]);
+        let corner = format!("L{} {}", n(32.0 + 0.52 * UNIT), n(top));
+        assert!(d.contains(&corner), "{corner}");
     }
 
     #[test]
