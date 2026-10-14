@@ -2,19 +2,23 @@
 //! panel (folder or zip pickers and drag and drop anywhere on the page).
 //!
 //! Songs are grouped into packs, the bundled songs first, as an accordion:
-//! one pack open at a time, each headed by its banner. The list keeps its
-//! place across a play (open pack, last chart started) and moves with the
-//! arrow keys, a controller or a dance pad ([`crate::menu`]).
+//! one pack open at a time, each headed by its banner. A search field
+//! narrows the list to the songs whose title, artist, pack, credits or
+//! chart names hold every word typed ([`ddi_library::search`]), with
+//! their packs open. The list keeps its place across a play (open pack,
+//! last chart started, search) and moves with the arrow keys, a controller
+//! or a dance pad ([`crate::menu`]); `/` goes to the search field.
 //!
 //! It also watches the connected controllers and points to the options
 //! when one has no bindings: a controller without the standard mapping has
 //! no defaults (its buttons are numbered arbitrarily), so it would do
 //! nothing in a song.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ddi_chart::Layout;
 use ddi_engine::{ConnectedPad, PadUse};
+use ddi_library::search::{self, Query};
 use ddi_platform::{DeviceId, RawInput};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::timers::callback::Interval;
@@ -91,6 +95,8 @@ pub(crate) enum Msg {
     RepeatSteps(HeldKey),
     /// Kept folder handles, by storage key.
     Folders(Vec<(String, JsValue)>),
+    /// The search field changed.
+    Search(String),
     /// A kept folder was picked or read again; import it.
     FromFolder(import::Origin, Result<Vec<PickedFile>, String>),
 }
@@ -140,6 +146,13 @@ pub(crate) struct SongSelect {
     folders: HashMap<String, JsValue>,
     /// The held direction and the timer repeating it.
     repeat: Option<(HeldKey, Nav, RepeatTimer)>,
+    /// What the search field holds, and its words folded.
+    search: String,
+    query: Query,
+    /// Each song's searchable text, folded, by song id.
+    haystacks: HashMap<String, SongText>,
+    /// Packs closed by hand during this search (a search opens them all).
+    search_closed: HashSet<String>,
     _drag: Vec<EventListener>,
     _keys: Option<EventListener>,
     _pointer: Option<EventListener>,
@@ -203,11 +216,15 @@ impl Component for SongSelect {
             unbound_pads: Vec::new(),
             open: place.open.clone(),
             open_known: place.known,
-            place: Some(place),
             scroll_to: None,
             pack_art: HashMap::new(),
             folders: HashMap::new(),
+            place: Some(place.clone()),
             repeat: None,
+            query: Query::new(&place.search, &nfkd),
+            search: place.search.clone(),
+            haystacks: HashMap::new(),
+            search_closed: HashSet::new(),
             _drag: drag_listeners(ctx),
             _keys: key_listener(ctx),
             _pointer: pointer_listener(),
@@ -262,9 +279,18 @@ impl Component for SongSelect {
                     ctx.link()
                         .send_future(async { Msg::Persisted(storage::persisted().await) });
                 }
+                self.haystacks = search_texts(&library);
                 self.state = State::Ready(library);
             }
             Msg::Loaded(Err(e)) => self.state = State::Failed(e),
+            Msg::Search(text) => {
+                self.query = Query::new(&text, &nfkd);
+                self.search = text;
+                self.search_closed.clear();
+                let mut place = MenuPlace::load();
+                place.search = self.search.clone();
+                place.save();
+            }
             Msg::ImportCopy(on) => {
                 let mut settings = Settings::load();
                 settings.import_copy = on;
@@ -387,6 +413,11 @@ impl Component for SongSelect {
                 ctx.link()
                     .send_future(async { Msg::Loaded(Library::load().await) });
                 return false;
+            }
+            Msg::Toggle(key) if !self.query.is_empty() => {
+                if !self.search_closed.remove(&key) {
+                    self.search_closed.insert(key);
+                }
             }
             Msg::Toggle(key) => {
                 if self.open.as_ref() == Some(&key) {
@@ -560,6 +591,15 @@ impl Component for SongSelect {
         let styles = library_styles(library);
         let style = self.shown_style();
         let has_style = |e: &ManifestEntry| e.charts.iter().any(|c| c.layout == style);
+        let searching = !self.query.is_empty();
+        let found_in = |e: &ManifestEntry, layout: &str| {
+            !searching
+                || self
+                    .haystacks
+                    .get(&e.id)
+                    .is_some_and(|t| t.matches(&self.query, layout))
+        };
+        let found = |e: &ManifestEntry| found_in(e, &style);
         let card = |entry: &ManifestEntry,
                     removal: Option<Removal>,
                     key: &str,
@@ -588,18 +628,32 @@ impl Component for SongSelect {
         };
         // The bundled songs, then each imported pack (in library order,
         // packs told apart ignoring case).
-        let mut packs: Vec<(&str, Vec<&crate::songs::ImportedSong>)> = Vec::new();
+        // With each pack, how many of its songs there are in this style
+        // (for "3 of 120 songs" while searching).
+        let mut packs: Vec<(&str, Vec<&crate::songs::ImportedSong>, usize)> = Vec::new();
         for s in library.imported.iter().filter(|s| has_style(&s.entry)) {
-            match packs
-                .iter_mut()
-                .find(|(p, _)| p.to_lowercase() == s.pack.to_lowercase())
+            let at = match packs
+                .iter()
+                .position(|(p, ..)| p.to_lowercase() == s.pack.to_lowercase())
             {
-                Some((_, songs)) => songs.push(s),
-                None => packs.push((&s.pack, vec![s])),
+                Some(i) => i,
+                None => {
+                    packs.push((&s.pack, Vec::new(), 0));
+                    packs.len() - 1
+                }
+            };
+            packs[at].2 += 1;
+            if found(&s.entry) {
+                packs[at].1.push(s);
             }
         }
-        let bundled: Vec<&ManifestEntry> =
-            library.bundled.iter().filter(|e| has_style(e)).collect();
+        packs.retain(|(_, songs, _)| !songs.is_empty());
+        let in_style = library.bundled.iter().filter(|e| has_style(e)).count();
+        let bundled: Vec<&ManifestEntry> = library
+            .bundled
+            .iter()
+            .filter(|e| has_style(e) && found(e))
+            .collect();
         let mut groups: Vec<Html> = Vec::new();
         if !bundled.is_empty() {
             let key = menu::pack_key(None);
@@ -617,10 +671,11 @@ impl Component for SongSelect {
                     remove: None,
                     folder: None,
                     linked: false,
+                    total: searching.then_some(in_style),
                 },
             ));
         }
-        for (pack, songs) in &packs {
+        for (pack, songs, total) in &packs {
             let key = menu::pack_key(Some(pack));
             let art = self.pack_art.get(&pack.to_lowercase()).cloned();
             let cards = songs
@@ -647,9 +702,61 @@ impl Component for SongSelect {
                     remove: Some(remove),
                     folder,
                     linked,
+                    total: searching.then_some(*total),
                 },
             ));
         }
+        // While searching: the songs found in the other styles.
+        let elsewhere: Vec<(Layout, usize)> = if searching {
+            styles
+                .iter()
+                .filter(|l| l.id != style)
+                .map(|l| {
+                    let n = library
+                        .bundled
+                        .iter()
+                        .chain(library.imported.iter().map(|s| &s.entry))
+                        .filter(|e| e.charts.iter().any(|c| c.layout == l.id) && found_in(e, &l.id))
+                        .count();
+                    (l.clone(), n)
+                })
+                .filter(|(_, n)| *n > 0)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let search_note = if !searching {
+            html! {}
+        } else {
+            let none = groups.is_empty();
+            let others = elsewhere.iter().enumerate().map(|(i, (l, n))| {
+                let id = l.id.clone();
+                html! { <>
+                    { if i > 0 { ", " } else { "" } }
+                    <button class="link-button" onclick={link.callback(move |_| Msg::Style(id.clone()))}>
+                        { format!("{} ({n})", l.name) }
+                    </button>
+                </> }
+            });
+            let found_here: usize =
+                bundled.len() + packs.iter().map(|(_, s, _)| s.len()).sum::<usize>();
+            let here = match found_here {
+                0 => "No song matches".to_string(),
+                1 => "1 song".to_string(),
+                n => format!("{n} songs"),
+            };
+            // A live region, so a screen reader hears what the list now holds.
+            html! {
+                <p class="muted search-note" role="status" aria-live="polite">
+                    { here }
+                    { match (none, elsewhere.is_empty()) {
+                        (_, true) => html! { "." },
+                        (true, false) => html! { <>{ " in this style; found in " }{ for others }</> },
+                        (false, false) => html! { <>{ "; also found in " }{ for others }</> },
+                    } }
+                </p>
+            }
+        };
         let mods = mods_summary(
             &self.settings.transform,
             self.settings.appearance,
@@ -676,6 +783,8 @@ impl Component for SongSelect {
                     </p>
                 } } }
                 { style_select(link, &styles, &style) }
+                { self.search_field(link) }
+                { search_note }
                 <div class="packs">{ for groups }</div>
                 { if let Some(u) = self.usage {
                     html!{
@@ -815,6 +924,9 @@ impl SongSelect {
 
     /// Closes the pack `key` if it is the open one.
     fn close(&mut self, key: &str) -> bool {
+        if !self.query.is_empty() {
+            return self.search_closed.insert(key.to_string());
+        }
         if self.open.as_deref() != Some(key) {
             return false;
         }
@@ -837,10 +949,17 @@ impl SongSelect {
             remove,
             folder,
             linked,
+            total,
         } = group;
         let key = key.as_str();
         let name = name.as_str();
-        let open = self.open.as_deref() == Some(key);
+        // A search shows every pack it found songs in open, unless closed
+        // by hand.
+        let open = if self.query.is_empty() {
+            self.open.as_deref() == Some(key)
+        } else {
+            !self.search_closed.contains(key)
+        };
         let copy = !linked;
         let reread = folder.and_then(|f| {
             let handle = self.folders.get(&f)?.clone();
@@ -874,11 +993,18 @@ impl SongSelect {
             })
         });
         let actions = remove.is_some() || reread.is_some();
-        let count = format!(
-            "{} song{}",
-            songs.len(),
-            if songs.len() == 1 { "" } else { "s" }
-        );
+        let count = match total {
+            Some(total) => format!(
+                "{} of {total} song{}",
+                songs.len(),
+                if total == 1 { "" } else { "s" }
+            ),
+            None => format!(
+                "{} song{}",
+                songs.len(),
+                if songs.len() == 1 { "" } else { "s" }
+            ),
+        };
         let toggle = {
             let key = key.to_string();
             link.callback(move |_| Msg::Toggle(key.clone()))
@@ -907,6 +1033,60 @@ impl SongSelect {
                     </div>
                 } } else { html! {} } }
             </section>
+        }
+    }
+
+    /// The search field: typing narrows the list; Escape empties it (or
+    /// leaves it when empty); Enter or Down goes to the first chart found.
+    fn search_field(&self, link: &html::Scope<Self>) -> Html {
+        let oninput = link.callback(|e: InputEvent| {
+            let value = e
+                .target_dyn_into::<HtmlInputElement>()
+                .map(|i| i.value())
+                .unwrap_or_default();
+            Msg::Search(value)
+        });
+        let onkeydown = {
+            let link = link.clone();
+            Callback::from(move |e: KeyboardEvent| {
+                // Keys an input method uses while composing (confirming a
+                // conversion with Enter, choosing with the arrows) are its
+                // own; Safari reports them as key code 229 once composing
+                // has ended.
+                if e.is_composing() || e.key_code() == 229 {
+                    return;
+                }
+                if e.shift_key() || e.ctrl_key() || e.alt_key() || e.meta_key() {
+                    return;
+                }
+                let Some(input) = e.target_dyn_into::<HtmlInputElement>() else {
+                    return;
+                };
+                match e.key().as_str() {
+                    "Escape" if !input.value().is_empty() => {
+                        e.prevent_default();
+                        input.set_value("");
+                        link.send_message(Msg::Search(String::new()));
+                    }
+                    "Escape" => {
+                        let _ = input.blur();
+                    }
+                    "Enter" | "ArrowDown" => {
+                        if let Some(first) = menu::first_chart() {
+                            e.prevent_default();
+                            menu::focus(&first, ScrollLogicalPosition::Nearest);
+                        }
+                    }
+                    _ => {}
+                }
+            })
+        };
+        html! {
+            <div class="song-search">
+                <input type="search" value={self.search.clone()} oninput={oninput} onkeydown={onkeydown}
+                    placeholder="Search titles, artists, packs, step artists ( / )"
+                    aria-label="Search songs" aria-keyshortcuts="/" autocomplete="off" spellcheck="false" />
+            </div>
         }
     }
 
@@ -1226,8 +1406,9 @@ fn pick_folder(link: &html::Scope<SongSelect>, copy: bool) -> Callback<MouseEven
     })
 }
 
-/// Arrow keys move through the list and Escape goes back, unless typing
-/// in a field; Enter on a focused item works as it always does.
+/// Arrow keys move through the list, Escape goes back and `/` goes to the
+/// search field, unless typing in a field; Enter on a focused item works
+/// as it always does.
 fn key_listener(ctx: &Context<SongSelect>) -> Option<EventListener> {
     let window = web_sys::window()?;
     let link = ctx.link().clone();
@@ -1250,6 +1431,18 @@ fn key_listener(ctx: &Context<SongSelect>) -> Option<EventListener> {
             if typing {
                 return;
             }
+            // `/` goes to the search field, as on many sites.
+            if e.key() == "/"
+                && let Some(field) = web_sys::window()
+                    .and_then(|w| w.document())
+                    .and_then(|d| d.query_selector(".song-search input").ok().flatten())
+                    .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+            {
+                e.prevent_default();
+                menu::clear_current();
+                let _ = field.focus();
+                return;
+            }
             let nav = match e.key().as_str() {
                 "ArrowUp" => Nav::Up,
                 "ArrowDown" => Nav::Down,
@@ -1269,6 +1462,66 @@ fn key_listener(ctx: &Context<SongSelect>) -> Option<EventListener> {
             }
         },
     ))
+}
+
+/// Unicode NFKD by the browser (`String.prototype.normalize`), for
+/// [`ddi_library::search`].
+fn nfkd(text: &str) -> String {
+    js_sys::JsString::from(text)
+        .normalize("NFKD")
+        .as_string()
+        .unwrap_or_else(|| text.to_string())
+}
+
+/// A song's searchable text, folded: its own (title, artist, pack, credit
+/// line) and each chart's (name and step artist) with the chart's layout,
+/// so a song is found by the charts the list shows.
+struct SongText {
+    own: String,
+    charts: Vec<(String, String)>,
+}
+
+impl SongText {
+    fn matches(&self, query: &Query, layout: &str) -> bool {
+        let haystacks: Vec<&str> = std::iter::once(self.own.as_str())
+            .chain(
+                self.charts
+                    .iter()
+                    .filter(|(l, _)| l == layout)
+                    .map(|(_, t)| t.as_str()),
+            )
+            .collect();
+        query.matches_in(&haystacks)
+    }
+}
+
+/// Every song's searchable text, folded once per library load. A bundled
+/// song has no pack name to find it by (its group's label is the list's),
+/// and only the artist part of its credit (the rest is its licence).
+fn search_texts(library: &Library) -> HashMap<String, SongText> {
+    let text = |e: &ManifestEntry, pack: &str, credit: &str| {
+        let own = search::haystack([e.title.as_str(), e.artist.as_str(), pack, credit], &nfkd);
+        let charts = e
+            .charts
+            .iter()
+            .map(|c| {
+                let t = search::haystack([c.name.as_str(), c.credit.as_str()], &nfkd);
+                (c.layout.clone(), t)
+            })
+            .collect();
+        (e.id.clone(), SongText { own, charts })
+    };
+    library
+        .bundled
+        .iter()
+        .map(|e| text(e, "", e.credit.split(" · ").next().unwrap_or_default()))
+        .chain(
+            library
+                .imported
+                .iter()
+                .map(|s| text(&s.entry, &s.pack, &s.entry.credit)),
+        )
+        .collect()
 }
 
 /// The mouse takes over from the keys: drop the moved-to mark.
@@ -1367,6 +1620,9 @@ struct PackGroup {
     /// Whether its songs read their files from that folder (re-reading
     /// keeps how the pack was imported).
     linked: bool,
+    /// While searching, how many songs the pack has in the style (`songs`
+    /// are those found).
+    total: Option<usize>,
 }
 
 /// What a song card shows besides the entry.
@@ -1406,7 +1662,7 @@ fn song_card(entry: &ManifestEntry, style: &str, info: CardInfo) -> Html {
         sub.push(format!("offset {:+.0} ms", song_offset * 1000.0));
     }
     html! {
-        <li class="song-card" data-nav-row="">
+        <li class="song-card" data-nav-row="" key={entry.id.clone()}>
             { for banner }
             <div class="song-meta">
                 <div class="song-title">
@@ -1431,12 +1687,8 @@ fn song_card(entry: &ManifestEntry, style: &str, info: CardInfo) -> Html {
                         let show_meter = !named || c.meter > 0;
                         // Remember the place, for coming back from the play.
                         let remember = {
-                            let place = MenuPlace {
-                                known: true,
-                                open: Some(pack_key.clone()),
-                                chart: Some((entry.id.clone(), c.index)),
-                                scroll: 0.0,
-                            };
+                            let open = pack_key.clone();
+                            let chart = (entry.id.clone(), c.index);
                             let access = access.clone();
                             Callback::from(move |_: MouseEvent| {
                                 // Ask now for a linked song's folder: the
@@ -1444,7 +1696,11 @@ fn song_card(entry: &ManifestEntry, style: &str, info: CardInfo) -> Html {
                                 if let Some(h) = &access {
                                     folders::ask(h);
                                 }
-                                let mut place = place.clone();
+                                // The search stays as it is.
+                                let mut place = MenuPlace::load();
+                                place.known = true;
+                                place.open = Some(open.clone());
+                                place.chart = Some(chart.clone());
                                 place.scroll = web_sys::window().and_then(|w| w.scroll_y().ok()).unwrap_or(0.0);
                                 place.save();
                             })

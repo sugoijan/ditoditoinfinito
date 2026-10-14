@@ -1,7 +1,7 @@
 //! The song list's place, kept across a play, and moving through the list
 //! with the arrows, a controller or a dance pad.
 //!
-//! The place (open pack, last chart started, scroll) lives in
+//! The place (open pack, last chart started, scroll, search) lives in
 //! `sessionStorage`: it is per tab, survives the play page and a reload,
 //! and is forgotten with the tab. Storage can be unavailable (private
 //! windows, blocked site data); the list then simply starts fresh.
@@ -36,6 +36,8 @@ pub(crate) struct MenuPlace {
     pub(crate) chart: Option<(String, usize)>,
     /// `window.scrollY` when it was left.
     pub(crate) scroll: f64,
+    /// What the search field held.
+    pub(crate) search: String,
 }
 
 impl MenuPlace {
@@ -217,6 +219,11 @@ pub(crate) fn chart_button(song: &str, chart: usize) -> Option<Element> {
         el.get_attribute("data-song").as_deref() == Some(song)
             && el.get_attribute("data-chart").as_deref() == Some(chart.as_str())
     })
+}
+
+/// The first chart button drawn.
+pub(crate) fn first_chart() -> Option<Element> {
+    document()?.query_selector("[data-song]").ok().flatten()
 }
 
 /// The header of the pack with key `key`, if drawn.
