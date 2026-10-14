@@ -18,6 +18,8 @@ pub mod orchestration;
 pub mod package;
 pub mod policy;
 pub mod preview;
+#[cfg(feature = "native")]
+pub mod profiles;
 pub mod reviews;
 pub mod ssc;
 #[cfg(feature = "native")]

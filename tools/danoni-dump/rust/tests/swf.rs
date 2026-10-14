@@ -339,3 +339,35 @@ fn source_bound_demux_requires_successful_run_format_and_complete_audit() {
         "cancelled"
     );
 }
+
+#[test]
+fn fingerprints_cover_nested_actions_without_executing_or_exporting_bytecode() {
+    let action = [0x96, 0x01, 0x00, 0x00]; // opaque original fixture bytes
+    let mut nested = 17u16.to_le_bytes().to_vec();
+    nested.extend(2u16.to_le_bytes());
+    nested.extend(tag(1, &[]));
+    nested.extend(tag(12, &action));
+    nested.extend(tag(0, &[]));
+    let mut tags = tag(12, &action);
+    tags.extend(tag(39, &nested));
+    tags.extend(tag(26, &[1, 2, 3]));
+    tags.extend(tag(0, &[]));
+    for compressed in [false, true] {
+        let m = Movie::read(&movie(&tags, compressed), &mut || Ok(())).unwrap();
+        let rows = m.action_fingerprints(&mut || Ok(())).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].path, "root");
+        assert_eq!(rows[1].path, "root/sprite17");
+        assert_eq!(rows[1].frame, 2);
+        assert_eq!(rows[0].sha256, rows[1].sha256);
+        assert_eq!(rows[0].sha256, ddi_danoni_export::assets::sha256(&action));
+        assert_eq!(rows[2].code, 26);
+        assert!(
+            m.action_fingerprints(&mut || Err(Error {
+                code: "cancelled",
+                message: "test".into()
+            }))
+            .is_err()
+        );
+    }
+}

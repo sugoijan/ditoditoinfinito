@@ -137,7 +137,7 @@ fn json_file(
     }
     add(files, path, Arc::new(b))
 }
-fn optional(
+pub(crate) fn optional(
     e: &OptionalColorEvidence,
     id: &str,
     inputs: &mut Inputs<'_, impl AssetSource>,

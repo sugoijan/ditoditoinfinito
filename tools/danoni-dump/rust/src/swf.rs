@@ -30,6 +30,17 @@ struct Tag {
     begin: usize,
     end: usize,
 }
+/// Non-executing script/container fingerprints; no third-party bytecode is
+/// exported or evaluated by the host.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionFingerprint {
+    pub path: String,
+    pub frame: u32,
+    pub code: u16,
+    pub bytes: usize,
+    pub sha256: String,
+}
 pub struct Movie {
     pub header: Header,
     data: Vec<u8>,
@@ -188,6 +199,31 @@ impl Movie {
             }
         }
         Err(invalid("Missing End tag"))
+    }
+    pub fn action_fingerprints(
+        &self,
+        checkpoint: &mut impl FnMut() -> Result<()>,
+    ) -> Result<Vec<ActionFingerprint>> {
+        let mut result = Vec::new();
+        for (index, tag) in self.tags.iter().enumerate() {
+            if index.is_multiple_of(256) {
+                checkpoint()?;
+            }
+            if [12, 26, 34, 59, 70, 72, 82].contains(&tag.code) {
+                if result.len() >= 16384 {
+                    return Err(invalid("Action fingerprint count exceeds 16384"));
+                }
+                checkpoint()?;
+                result.push(ActionFingerprint {
+                    path: tag.path.clone(),
+                    frame: tag.frame,
+                    code: tag.code,
+                    bytes: tag.end - tag.begin,
+                    sha256: sha256(&self.data[tag.begin..tag.end]),
+                });
+            }
+        }
+        Ok(result)
     }
     pub fn inventory(&self, checkpoint: &mut impl FnMut() -> Result<()>) -> Result<Vec<Stream>> {
         let mut streams: Vec<Stream> = vec![];

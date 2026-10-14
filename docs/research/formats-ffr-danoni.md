@@ -1020,3 +1020,27 @@ Ruffle executor. The preserved stream header is not a prescription to trim 1633
 samples from the decoded song. Original Flash/device latency remains unmeasured;
 other streams need their own origin proof. Special's stair-shaped field is an
 original presentation customization, not a change to the extracted note times.
+
+
+### A legacy menu table is not a difficulty rating (2026-10-14)
+
+The shared レク engine observed in [No Name](http://autumnleaves.yukishigure.com/noname08/noname.html)
+and [March](http://autumnleaves.yukishigure.com/7keyfestival/march.html) keeps
+`difficulty` as the **number of selector rows**, `diff_label[]` / `key_label[]`
+as the difficulty/key labels, and `dif_shift` as the zero-based selection.
+`diffi` / `keyLabel` are the current row's labels. `diffin` is empty for the first
+row and numeric `index + 1` for later rows; it participates in selecting DOS banks.
+The same engine can publish multiple 5-key charts or a single 7-key chart.
+Neither a variable named `difficulty` nor an arbitrary menu label establishes
+stars or a numerical rating. These names are an observed engine-family contract,
+not universal properties of DanOni SWFs.
+
+The title/start actions do not establish audio zero. In these captures the MP3
+starts well after the start click while `frame_num` has already advanced; source
+frame numbers, worker iterations and audio sample frames remain distinct. Discover
+the stream start and read the native clock on that exact iteration, then prove
+movement and decoded PCM independently. Dense charts also create large transient
+object graphs during compilation: a truncated graph is not an empty chart or an
+acceptable partial reference. The [Rust automatic-profile contract](danoni-rust-profiles.md)
+documents controls, repeated menu/selector checks, graph limits and source-bound
+proofs; per-work evidence remains in the local corpus.

@@ -9,7 +9,10 @@ capture and normalized-work production. One selector configuration per chart
 supplies **all** projection, motion and audio runs. A caller cannot omit a click
 or change FlashVars in just one role. This is the native app's shared orchestration
 API and CLI, not an automatic URL importer: discovery, fetching and automatic
-selector/geometry selection remain separate work.
+selector/geometry selection are separate layers. The first
+[automatic menu profile](danoni-rust-profiles.md) now generates these explicit
+plans for a reviewed shared 5/7-key engine; other engines still need explicit
+plans or another reviewed profile.
 
 ## API and job schema
 

@@ -562,3 +562,31 @@ planning, then milestone 5's host acquisition/cache/discovery services. Do not
 claim URL-only importing or replace accepted musical estimates before their
 separate quality review. HTML5 capture, desktop library installation, other-OS
 confinement and audited worker redistribution remain pending.
+
+
+### Automatic shared-engine menu planning, 2026-10-14
+
+The first [native menu profile](danoni-rust-profiles.md) recognizes shared control
+bytecode, observes the work's runtime menu, drives every supported 5/7-key row,
+discovers exact audio starts and derives motion candidates from source timing.
+The unchanged schedule/movement/PCM normalizer remains the acceptance gate.
+Unknown engines and incomplete captures reject; other observed key labels remain
+explicit exclusions. It writes a portable explicit replay plan as well as the
+normalized work, with whole-operation bounds and no network or installation.
+
+The profile takes source-only immutable context rather than per-song click/frame
+recipes. Existing exact optional-colour 404 reviews can travel with that context.
+A required missing GET retains structured evidence and stops. Next bridge the
+existing dependency resolver into these pre-menu/initialization probes, preserving
+fresh retries, source identities and parent readiness. Then extend reviewed
+control profiles to other native families and implement milestone 5's host URL,
+policy/cache and bounded index-discovery services. Musical estimate acceptance,
+HTML5 browser-reference capture and desktop library installation remain separate.
+
+
+The first profile's local gate admits seven works / eight charts, comparing
+5,435 endpoints and 102 authored-scroll/player-multiplier checks against the
+frozen corpus and real game parser. One matched work reaches game over on early
+holds before a tap witness; its three menu rows remain unadmitted. Generic
+hold-motion or derived play-input planning is a separate proof gap, recorded in
+the profile handover. Accepted exports remain unchanged.

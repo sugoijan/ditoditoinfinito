@@ -135,8 +135,11 @@ closes the remaining missing-bank gap: Hard retains shared speed data but its
 selector does not initialize or execute that bank. Five works / ten charts pass
 5,049 endpoints and 144 scroll checks. The [bounded Rust dependency loop](danoni-rust-dependencies.md) now recovers
 omitted cached DOS/colour inputs through host callbacks and source-bound request
-evidence, retaining all attempts and whole-operation budgets. Automatic selector
-profiles and URL acquisition remain ahead.
+evidence, retaining all attempts and whole-operation budgets. The first
+[automatic selector profile](danoni-rust-profiles.md) now reads a shared レク
+engine's menu, derives 5/7-key selections and proposes runtime-proved motion
+windows. Resource closure before menu observation, broader engine profiles and
+URL acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 
