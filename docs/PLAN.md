@@ -310,10 +310,16 @@ with the chosen noteskin (2026-10-14; not the audio test, which hides the
 notes and where a skin's receptors pulsing on the beat would be a visual
 cue), a search over the
 song list (2026-10-14: every word typed found in a song's title, artist,
-pack, credits, chart names or step artists, ignoring case, accents, width
-and katakana/hiragana; the packs it finds songs in open, other styles with
-matches offered; kept across a play; `/` to search, Enter or Down into the
-list).
+their transliterations, pack, credits, chart names or step artists,
+ignoring case, accents, width and katakana/hiragana, and in romaji both
+ways: fields with kana and the transliterations romanised (kana in
+Hepburn) and reduced to one romaji spelling, so `sakura` finds さくら and
+かくめい finds 革命 transliterated `KAKUMEI`, while Latin fields are
+matched only as written (no `Lemon` for `moon`); from three characters,
+two with any beyond ASCII (Japanese), or on a space or Enter;
+the packs it finds songs in open, other styles with matches offered; kept
+across a play; `/` to search, Enter or Down into the list; songs imported
+before it are found by their transliterations once imported again).
 
 ## 6. Decisions (1–7 confirmed 2026-10-06; 8–10 made with phase 5, 2026-10-07; 11–12 with phase 7, 2026-10-07; 13–19 with phase 8, 2026-10-08; 20–29 with phase 6, 2026-10-08/09; 30–33 with the loose ends, 2026-10-09; 34–35 with the background videos, 2026-10-10; 36 with noteskins, 2026-10-10; 37–39 with bundled noteskins and skins' scripts, 2026-10-12; 40 with pump layouts, 2026-10-13; 41 with the overlays, 2026-10-14; 42–44 with the local corpus sweep, 2026-10-14)
 

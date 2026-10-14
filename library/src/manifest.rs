@@ -65,6 +65,13 @@ pub struct ManifestEntry {
     /// its charts use, so the song list and the bindings can show them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layouts: Vec<Layout>,
+    /// The title (with its subtitle) and artist as the simfile spells them
+    /// in Latin letters (`#TITLETRANSLIT`, `#SUBTITLETRANSLIT`,
+    /// `#ARTISTTRANSLIT`), for the search; empty when it gives none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title_translit: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub artist_translit: String,
 }
 
 /// A movie of a song's background changes.
@@ -208,6 +215,12 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         preview_start: song.preview_start,
         preview_length: song.preview_length,
         charts,
+        title_translit: [song.title_translit.trim(), song.subtitle_translit.trim()]
+            .into_iter()
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" "),
+        artist_translit: song.artist_translit.trim().to_string(),
     }
 }
 
@@ -308,6 +321,8 @@ mod tests {
             preview_length: 2.0,
             charts: vec![],
             layouts: Vec::new(),
+            title_translit: String::new(),
+            artist_translit: String::new(),
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert_eq!(

@@ -36,8 +36,10 @@ pub(crate) struct MenuPlace {
     pub(crate) chart: Option<(String, usize)>,
     /// `window.scrollY` when it was left.
     pub(crate) scroll: f64,
-    /// What the search field held.
+    /// What the search field held, and the text the search shown was run
+    /// on (short text is not searched until asked).
     pub(crate) search: String,
+    pub(crate) searched: String,
 }
 
 impl MenuPlace {
