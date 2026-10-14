@@ -514,7 +514,12 @@ autoplay stays all top tier throughout (video never touches judging).
   collection pause, makes one burst, not two), turn the movies off for
   the rest of the play. Retry plays them again. The results card says
   "video was turned off for this song: frames were being dropped" (or
-  "the decoder could not keep up") with a link to the options.
+  "the decoder could not keep up") with a link to the options. The
+  refresh rate is the most frames counted in one of the last four
+  seconds, snapped to a common panel rate. Until 2026-10-14 the shortest
+  frame interval also counted, but Firefox's frame timestamps jitter by
+  several milliseconds, so at a steady 125 fps it read a 165 Hz screen
+  and turned every movie off after a few seconds.
 - The worker starts, and fetches the module (`load` message), as soon as
   the first movie file of the song is read, during the start prompt;
   the prompt shows "loading the video decoder… N %" and the song can
