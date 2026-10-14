@@ -20,6 +20,7 @@ use std::rc::Rc;
 use ddi_chart::Song;
 use ddi_engine::lyrics::LyricTrack;
 use ddi_engine::player::Results;
+use ddi_engine::sprites::{SpriteSource, SpriteTrack};
 use ddi_platform::DeviceProfile;
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::render::{AnimationFrame, request_animation_frame};
@@ -35,7 +36,7 @@ use crate::mods::mods_summary;
 use crate::play::{PlaySession, SessionConfig, SessionEvent};
 use crate::router::Route;
 use crate::settings::{Settings, VideoMode};
-use crate::songs::{LoadError, load_background, load_song};
+use crate::songs::{LoadError, load_background, load_layer_image, load_song};
 use crate::web::audio::WebAudio;
 use crate::web::gamepad::Gamepads;
 use crate::web::gfx::{BackendPreference, Gfx};
@@ -107,6 +108,9 @@ pub(crate) enum Msg {
     /// A background image decoded: the song's background or a background
     /// change's (`None`: no such image, or it failed to load).
     BackgroundLoaded(BgImage, Option<web_sys::ImageBitmap>),
+    /// An image or text of a work's back and mask layers, decoded, with
+    /// its size in the stage's px.
+    StageContentLoaded(SpriteSource, Option<(web_sys::ImageBitmap, (f32, f32))>),
     /// A background movie's file, for the game loop to play; whether it
     /// is the song's first movie (probed for the background frame).
     MovieLoaded(
@@ -172,6 +176,10 @@ pub(crate) struct GameCanvas {
     /// Decoded background images until they are copied to the GPU (which
     /// waits for the renderer, and never happens mid-play).
     backgrounds: Vec<(BgImage, web_sys::ImageBitmap)>,
+    /// Back and mask contents decoded before the game was there.
+    stage_contents: Vec<(SpriteSource, web_sys::ImageBitmap, (f32, f32))>,
+    /// Pixels of the back and mask contents decoded so far.
+    stage_pixels: u64,
     /// Movie files loaded before the game loop was there.
     movies: Vec<(
         String,
@@ -297,6 +305,8 @@ impl Component for GameCanvas {
             pad_start_ctx: None,
             touch: coarse_pointer(),
             backgrounds: Vec::new(),
+            stage_contents: Vec::new(),
+            stage_pixels: 0,
             movies: Vec::new(),
             noteskin: None,
             video_line: None,
@@ -369,6 +379,22 @@ impl Component for GameCanvas {
             Msg::BackgroundLoaded(what, image) => {
                 if let Some(image) = image {
                     self.backgrounds.push((what, image));
+                    self.apply_background();
+                }
+                false
+            }
+            Msg::StageContentLoaded(source, content) => {
+                if let Some((bitmap, size)) = content {
+                    let pixels = u64::from(bitmap.width()) * u64::from(bitmap.height());
+                    if self.stage_pixels + pixels > MAX_LAYER_PIXELS {
+                        bitmap.close();
+                        web_sys::console::warn_1(
+                            &"back and mask images past the memory budget are not shown".into(),
+                        );
+                        return false;
+                    }
+                    self.stage_pixels += pixels;
+                    self.stage_contents.push((source, bitmap, size));
                     self.apply_background();
                 }
                 false
@@ -906,6 +932,9 @@ impl GameCanvas {
             for (what, image) in self.backgrounds.drain(..) {
                 game.add_background(what, image);
             }
+            for (source, bitmap, size) in self.stage_contents.drain(..) {
+                game.add_stage_content(source, bitmap, size);
+            }
             for (name, blob, format, probe) in self.movies.drain(..) {
                 game.add_movie(name, blob, format, probe);
             }
@@ -1002,6 +1031,11 @@ impl GameCanvas {
                         ctx.props().slow,
                     );
                     game.set_lyrics(lyrics);
+                    // A work's back and mask layers, with the backgrounds.
+                    game.set_stage_track(
+                        (self.settings.bg_brightness > 0.0)
+                            .then(|| SpriteTrack::new(play_song, chart, self.settings.reverse)),
+                    );
                     game.set_background_schedule(schedule);
                     game.set_session(session);
                 }
@@ -1364,6 +1398,21 @@ fn schedule(raf: Rc<RefCell<Option<AnimationFrame>>>, game: Rc<RefCell<Option<Ga
     *raf.borrow_mut() = Some(handle);
 }
 
+/// Longest side of a back or mask image kept (they show at the stage's
+/// size, about the screen's height at most).
+const MAX_LAYER_SIDE: u32 = 2048;
+
+/// Texts of a work's layers drawn, at most.
+const MAX_LAYER_TEXTS: usize = 64;
+
+/// Pixels of a work's layers kept decoded, in all (each is kept twice: the
+/// bitmap, for a skin's reinstall, and its texture).
+const MAX_LAYER_PIXELS: u64 = 48 << 20;
+
+/// How much larger than its stage size layer text is drawn, to stay
+/// sharp on large screens.
+const TEXT_SCALE: f64 = 3.0;
+
 /// Loads the song and its background images, and readies the chosen
 /// noteskin for the chart's layout; the song arrives as [`Msg::SongLoaded`].
 fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
@@ -1391,6 +1440,50 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
                         .cloned()
                         .map(BgImage::File),
                 );
+                // A work's back and mask layers: their images (those the
+                // import kept) and text, under both scroll directions'
+                // data, within the budgets.
+                let kept: std::collections::HashSet<&str> = loaded
+                    .entry
+                    .layer_images
+                    .iter()
+                    .map(String::as_str)
+                    .collect();
+                let mut sources = SpriteTrack::new(&loaded.song, chart, false).sources();
+                for s in SpriteTrack::new(&loaded.song, chart, true).sources() {
+                    if !sources.contains(&s) {
+                        sources.push(s);
+                    }
+                }
+                let mut texts = 0;
+                sources.retain(|s| match s {
+                    SpriteSource::Image(name) => kept.contains(&**name),
+                    SpriteSource::Text { .. } => {
+                        texts += 1;
+                        texts <= MAX_LAYER_TEXTS
+                    }
+                });
+                for source in sources {
+                    let entry = loaded.entry.clone();
+                    link.send_future(async move {
+                        let content = match &source {
+                            SpriteSource::Image(name) => match load_layer_image(&entry, name).await
+                            {
+                                Ok(blob) => crate::web::image::decode_sized(&blob, MAX_LAYER_SIDE)
+                                    .await
+                                    .map(|(b, (w, h))| (b, (w as f32, h as f32))),
+                                Err(e) => Err(e),
+                            },
+                            SpriteSource::Text { text, size, color } => {
+                                crate::web::image::text_bitmap(text, *size, color, TEXT_SCALE).await
+                            }
+                        };
+                        let content = content
+                            .map_err(|e| web_sys::console::warn_1(&e.into()))
+                            .ok();
+                        Msg::StageContentLoaded(source, content)
+                    });
+                }
                 for what in images {
                     let entry = loaded.entry.clone();
                     let shared = shared.clone();

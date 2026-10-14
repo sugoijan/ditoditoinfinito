@@ -42,6 +42,9 @@ pub struct Renderer {
     instance_count: usize,
     /// The target format is sRGB (blending and sampling in linear light).
     srgb: bool,
+    /// A work's back and mask layers' quads ([`Renderer::set_stage_quads`]).
+    stage_back: Vec<crate::textured::TexQuad>,
+    stage_mask: Vec<crate::textured::TexQuad>,
 }
 
 impl Renderer {
@@ -84,6 +87,8 @@ impl Renderer {
             skin: Skin::default(),
             instance_count: 0,
             srgb,
+            stage_back: Vec::new(),
+            stage_mask: Vec::new(),
         }
     }
 
@@ -207,9 +212,24 @@ impl Renderer {
         self.textured.add_texture(device, &texture)
     }
 
-    /// Forgets the noteskin textures (another skin, or none).
+    /// Forgets the noteskin textures (another skin, or none), and the
+    /// stage layers' textures registered with them.
     pub fn clear_noteskin_textures(&mut self) {
         self.textured.clear_textures();
+        self.stage_back.clear();
+        self.stage_mask.clear();
+    }
+
+    /// The back and mask layers' quads of the next frames (a Dancing☆Onigiri
+    /// work's, [`crate::stage::quads`]); their textures are registered as
+    /// noteskin textures are.
+    pub fn set_stage_quads(
+        &mut self,
+        back: Vec<crate::textured::TexQuad>,
+        mask: Vec<crate::textured::TexQuad>,
+    ) {
+        self.stage_back = back;
+        self.stage_mask = mask;
     }
 
     /// The target format is sRGB.
@@ -271,7 +291,15 @@ impl Renderer {
             ),
         };
         let mut scene = scene::build(
-            frame, layout, names, &self.skin, &geo, opts, self.srgb, layer,
+            frame,
+            layout,
+            names,
+            &self.skin,
+            &geo,
+            opts,
+            self.srgb,
+            layer,
+            (&self.stage_back, &self.stage_mask),
         );
         for i in &mut scene.instances {
             i.color = to_target(i.color, self.srgb);

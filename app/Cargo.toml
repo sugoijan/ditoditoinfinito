@@ -58,6 +58,7 @@ web-sys = { workspace = true, features = [
     "DomTokenList",
     "TextDecoder",
     "TextDecoderOptions",
+    "TextMetrics",
     "Url",
     "AudioBufferSourceNode",
     "AudioContext",

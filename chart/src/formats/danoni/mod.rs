@@ -174,8 +174,10 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
         warnings.push("gauge and rule headers beyond the first 64 KB were left out".into());
     }
 
+    let stage = stage_size(dos, &difs);
     let mut songs: Vec<(usize, Song)> = Vec::new();
     let mut word_budget = MAX_WORK_WORD_BYTES;
+    let mut sprite_budget = MAX_WORK_SPRITE_BYTES;
     let mut index: Vec<Option<(usize, usize)>> = Vec::new();
     for (i, dif) in difs.iter().enumerate() {
         let fields: Vec<&str> = dif.split(',').collect();
@@ -401,6 +403,7 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
                 music_start: span.music_start,
                 end: span.end,
                 fade: span.fade,
+                stage: Some(stage),
             }),
         };
 
@@ -439,6 +442,43 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
                     layer,
                     fields,
                 });
+            }
+        }
+        // Back and mask layers, and their versions for Reverse.
+        if let Some(layer) = layer.filter(|_| sprite_budget > 0) {
+            'layers: for (kind, header) in [(SPRITE_BACK, "back"), (SPRITE_MASK, "mask")] {
+                for variant in ["", "Rev"] {
+                    let Some(cues) = sprites(dos, header, variant, &suffix) else {
+                        continue;
+                    };
+                    // Reverse's data replaces the other even with nothing
+                    // shown: a cue of its variant alone says it is there.
+                    if variant == "Rev" {
+                        song.effects.push(EffectEvent {
+                            at: EffectTime::Seconds(0.0),
+                            kind: kind.into(),
+                            layer,
+                            fields: vec![variant.to_string()],
+                        });
+                    }
+                    for (frame, fields) in cues {
+                        let cost = fields.iter().map(String::len).sum::<usize>() + 32;
+                        if cost > sprite_budget {
+                            sprite_budget = 0;
+                            warnings.push(
+                                "back and mask layers beyond the first 4 MB were left out".into(),
+                            );
+                            break 'layers;
+                        }
+                        sprite_budget -= cost;
+                        song.effects.push(EffectEvent {
+                            at: EffectTime::Seconds(chart_timing.seconds_at(Tick(frame))),
+                            kind: kind.into(),
+                            layer,
+                            fields,
+                        });
+                    }
+                }
             }
         }
         song.charts.push(chart);
@@ -868,23 +908,198 @@ fn words(dos: &Dos, suffix: &str) -> Vec<(i64, Vec<String>)> {
     out
 }
 
-/// A lyric as plain text: danoniplus's `*name*` escapes, `<br>` as a line
-/// break, other tags dropped, character references decoded.
-fn lyric_text(s: &str) -> String {
-    const ESCAPES: [(&str, &str); 12] = [
-        ("*amp*", "&"),
+/// The stage's width and height in danoniplus's px (`dosConverter.js`,
+/// "自動横幅拡張設定" and "横幅設定"): the page's frame (500 px in its
+/// templates; a page import does not read it), widened to `windowWidth`
+/// and, unless `autoSpread=false`, to the widest minimum of the work's key
+/// modes (`g_keyObj.minWidth*`, `danoni_constants.js`: 500 at least, 600
+/// for a key mode without its own); 500 high, or `windowHeight`.
+fn stage_size(dos: &Dos, difs: &[String]) -> (f64, f64) {
+    const FRAME: f64 = 500.0;
+    const MIN_WIDTH: f64 = 500.0;
+    const MIN_WIDTH_DEFAULT: f64 = 600.0;
+    const MIN_WIDTHS: [(&str, f64); 10] = [
+        ("5", 500.0),
+        ("7i", 550.0),
+        ("11", 650.0),
+        ("11i", 650.0),
+        ("11j", 650.0),
+        ("12i", 675.0),
+        ("13", 750.0),
+        ("16i", 650.0),
+        ("17", 825.0),
+        ("23", 900.0),
+    ];
+    let header = |k: &str| dos.val(k).and_then(parse_float).filter(|v| v.is_finite());
+    let mut width = header("windowWidth").map_or(FRAME, |w| w.max(FRAME));
+    if dos
+        .val("autoSpread")
+        .is_none_or(|v| !v.trim().eq_ignore_ascii_case("false"))
+    {
+        width = width.max(MIN_WIDTH);
+        for dif in difs {
+            let label = dif.split(',').next().unwrap_or("7");
+            let key = keys::canonical_label(if label.is_empty() { "7" } else { label });
+            let min = MIN_WIDTHS
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map_or(MIN_WIDTH_DEFAULT, |(_, w)| *w);
+            width = width.max(min);
+        }
+    }
+    let height = header("windowHeight").map_or(FRAME, |h| h.max(FRAME));
+    (width.min(4096.0), height.min(4096.0))
+}
+
+/// [`EffectEvent::kind`]s of the back and mask layers' cues
+/// (`docs/plans/overlays.md`).
+pub const SPRITE_BACK: &str = "danoni:back";
+pub const SPRITE_MASK: &str = "danoni:mask";
+
+/// Whether a back or mask source names an image (by extension, as
+/// danoniplus's `checkImage` with `g_imgExtensions`); anything else is
+/// text.
+pub fn is_sprite_image(source: &str) -> bool {
+    let name = source.rsplit('/').next().unwrap_or(source);
+    name.rsplit_once('.').is_some_and(|(_, e)| {
+        ["png", "gif", "bmp", "jpg", "jpeg", "svg"]
+            .iter()
+            .any(|x| x.eq_ignore_ascii_case(e))
+    })
+}
+
+/// Back and mask cues per chart and layer, at most, and their bytes per
+/// work, all charts together.
+const MAX_SPRITES: usize = 20_000;
+const MAX_WORK_SPRITE_BYTES: usize = 4 << 20;
+
+/// A back or mask layer's data as the play reads it (`makeBackgroundData`
+/// and `makeSpriteData`, `dataLoader.js`, `dosConverter.js`): for chart
+/// `suffix`, `<header><variant><suffix>_data`, else the work's
+/// `<header><variant>_data` (`variant` is `""`, or `"Rev"` for Reverse,
+/// which danoniplus tries first). Each line is
+/// `frame,depth,source,class,x,y,w,h,opacity,animation,frames,fillMode`;
+/// a line without a depth, or with `-`, is skipped, and so are the title
+/// and results screens' `[loop]` and `[jump]`. Each cue is
+/// `(frame, [variant, depth, source, class, x, y, w, h, opacity,
+/// animation, seconds, fill])`: `depth` a number (0 when it does not
+/// evaluate) or `ALL`; `source` empty for a clear, else as danoniplus
+/// writes it into the page (`escapeHtml` with `escapeCode`: `<script>`
+/// removed, the `*name*` escapes as HTML references, tags kept); `x`, `y`
+/// and `h` as written, `w` an integer, `opacity` a number (1 by default),
+/// `animation` `none` by default and `seconds` its length (`frames /
+/// 60`). Fields are trimmed as `trimStr` trims them (spaces at the ends,
+/// every tab). `None` when the work has no such data; `Some` of nothing
+/// for data whose lines all are skipped (it still takes the place of the
+/// data after it in danoniplus's order).
+fn sprites(
+    dos: &Dos,
+    header: &str,
+    variant: &str,
+    suffix: &str,
+) -> Option<Vec<(i64, Vec<String>)>> {
+    let data = [format!("{variant}{suffix}_data"), format!("{variant}_data")]
+        .iter()
+        .find_map(|name| ref_data(dos, header, name))?;
+    let mut out = Vec::new();
+    for line in split_lf(&data).filter(|l| !l.trim().is_empty()) {
+        if out.len() >= MAX_SPRITES {
+            break;
+        }
+        let f: Vec<String> = line
+            .split(',')
+            .map(|v| v.replace('\t', "").trim_matches(' ').to_string())
+            .collect();
+        let field = |k: usize| f.get(k).map_or("", String::as_str);
+        let depth = field(1);
+        if depth.is_empty() || depth == "-" || matches!(field(2), "[loop]" | "[jump]") {
+            continue;
+        }
+        let frame = if parse_int(field(0)) == Some(0) {
+            0.0
+        } else {
+            expr::eval(field(0)).unwrap_or(200.0)
+        };
+        if frame.abs() > MAX_FRAME {
+            continue;
+        }
+        let depth = if depth == "ALL" {
+            depth.to_string()
+        } else {
+            match expr::eval(depth).unwrap_or(0.0) {
+                d if (0.0..=255.0).contains(&d) => (d as u8).to_string(),
+                _ => continue,
+            }
+        };
+        let source = sprite_text(&field(2).replace("<script>", "").replace("</script>", ""));
+        let opacity = parse_float(field(8)).unwrap_or(1.0);
+        let animation = Some(field(9)).filter(|a| !a.is_empty()).unwrap_or("none");
+        let seconds = parse_int(field(10)).unwrap_or(0) as f64 / 60.0;
+        let text = |k: usize| field(k).chars().take(MAX_WORD_BYTES).collect::<String>();
+        out.push((
+            js_round(frame) as i64,
+            vec![
+                variant.to_string(),
+                depth,
+                source,
+                text(3),
+                text(4),
+                text(5),
+                parse_int(field(6)).unwrap_or(0).to_string(),
+                text(7),
+                opacity.to_string(),
+                animation.chars().take(MAX_WORD_BYTES).collect(),
+                seconds.to_string(),
+                text(11),
+            ],
+        ));
+    }
+    Some(out)
+}
+
+/// danoniplus's `*name*` escapes in a back or mask source as it writes
+/// them into the page (`escapeHtmlForEnabledTag`, `g_escapeStr.escapeTag`):
+/// HTML references the page decodes after its tags.
+fn sprite_text(s: &str) -> String {
+    const ESCAPE_TAG: [(&str, &str); 12] = [
+        ("*amp*", "&amp;"),
         ("*pipe*", "|"),
         ("*dollar*", "$"),
-        ("*rsquo*", "\u{2019}"),
-        ("*quot*", "\""),
-        ("*comma*", ","),
-        ("*squo*", "'"),
-        ("*bkquo*", "`"),
-        ("*lt*", "<"),
-        ("*gt*", ">"),
+        ("*rsquo*", "&rsquo;"),
+        ("*quot*", "&quot;"),
+        ("*comma*", "&sbquo;"),
+        ("*squo*", "&#39;"),
+        ("*bkquo*", "&#96;"),
+        ("*lt*", "&lt;"),
+        ("*gt*", "&gt;"),
         ("*lbrace*", "{"),
         ("*rbrace*", "}"),
     ];
+    let s: String = s.chars().take(MAX_WORD_BYTES).collect();
+    ESCAPE_TAG
+        .iter()
+        .fold(s, |acc, (from, to)| acc.replace(from, to))
+}
+
+/// danoniplus's `*name*` escapes (`g_escapeStr.escapeTag`).
+const ESCAPES: [(&str, &str); 12] = [
+    ("*amp*", "&"),
+    ("*pipe*", "|"),
+    ("*dollar*", "$"),
+    ("*rsquo*", "\u{2019}"),
+    ("*quot*", "\""),
+    ("*comma*", ","),
+    ("*squo*", "'"),
+    ("*bkquo*", "`"),
+    ("*lt*", "<"),
+    ("*gt*", ">"),
+    ("*lbrace*", "{"),
+    ("*rbrace*", "}"),
+];
+
+/// A lyric as plain text: danoniplus's `*name*` escapes, `<br>` as a line
+/// break, other tags dropped, character references decoded.
+fn lyric_text(s: &str) -> String {
     let mut plain = String::with_capacity(s.len());
     let mut rest = s;
     while let Some(p) = rest.find('<') {
@@ -997,6 +1212,71 @@ mod tests {
         // The second chart has its own blankFrame.
         let t = seven.timing.as_ref().unwrap();
         assert!((t.seconds_at(Tick(100))).abs() < 1e-9);
+    }
+
+    #[test]
+    fn back_and_mask_layers_are_read_as_the_play_reads_them() {
+        // danoniplus's sample work 1, with a mask, a second chart, a
+        // Reverse version and lines the play skips.
+        let i = import_text(
+            "|difData=5,N$5,H|left_data=300|left2_data=300|\
+             |back_data=200,0,../img/classic/c.png,,20,20,200,200,0.5,leftToRightFade,120\n\
+             400,2,文字*comma*テスト,,100,140,36,0,0,fromBig,100\n\
+             300,0\n0,ALL\n500,-,x.png\n600,,[loop],0\n|\
+             |backRev_data=10,0,rev.png|mask2_data=700,1,m.png,cls,{g_sWidth/2},5|",
+        );
+        let song = &i.songs[0];
+        let cues = |kind: &str, chart: u8| -> Vec<Vec<String>> {
+            song.effects
+                .iter()
+                .filter(|e| e.kind == kind && e.layer == chart)
+                .map(|e| e.fields.clone())
+                .collect()
+        };
+        let back = cues(SPRITE_BACK, 0);
+        // Four cues, Reverse's marker and its cue.
+        assert_eq!(back.len(), 6);
+        assert_eq!(
+            back[0],
+            [
+                "",
+                "0",
+                "../img/classic/c.png",
+                "",
+                "20",
+                "20",
+                "200",
+                "200",
+                "0.5",
+                "leftToRightFade",
+                "2",
+                ""
+            ]
+        );
+        // Escapes as the page gets them.
+        assert_eq!(back[1][2], "文字&sbquo;テスト");
+        assert_eq!((back[2][1].as_str(), back[2][2].as_str()), ("0", ""));
+        assert_eq!(back[3][1], "ALL");
+        assert_eq!(
+            (back[5][0].as_str(), back[5][2].as_str()),
+            ("Rev", "rev.png")
+        );
+        assert_eq!(back[4], ["Rev"]);
+        // The second chart: the shared back data, and its own mask.
+        assert_eq!(cues(SPRITE_BACK, 1).len(), 6);
+        let mask = cues(SPRITE_MASK, 1);
+        assert_eq!(mask.len(), 1);
+        assert_eq!(mask[0][4], "{g_sWidth/2}");
+        assert_eq!(mask[0][9], "none");
+        assert!(cues(SPRITE_MASK, 0).is_empty());
+        // The stage: 5 keys keep the 500 px frame; a 7-key chart widens
+        // it to 600, `windowWidth` further.
+        let stage = |i: &Import| i.songs[0].charts[0].danoni.as_ref().unwrap().stage;
+        assert_eq!(stage(&i), Some((500.0, 500.0)));
+        let seven = import_text("|difData=5,N$7,H|left_data=300|left2_data=300|");
+        assert_eq!(stage(&seven), Some((600.0, 500.0)));
+        let wide = import_text("|difData=5,N|windowWidth=800|windowHeight=600|left_data=300|");
+        assert_eq!(stage(&wide), Some((800.0, 600.0)));
     }
 
     #[test]

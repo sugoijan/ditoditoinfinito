@@ -52,6 +52,11 @@ pub(crate) struct GameLoop {
     background_schedule: Vec<BgSegment>,
     /// The chart's lyrics, if it has any and they are shown.
     lyrics: Option<LyricsView>,
+    /// A work's back and mask layers: the song's decoded contents, the
+    /// play's timeline.
+    stage: crate::stage::StageView,
+    /// Back and mask quads of the last frame (for the debug state).
+    stage_drawn: (usize, usize),
     /// The song's background movies.
     movies: crate::movies::MovieDeck,
     /// Image and movie textures for the backdrop, rebuilt when either
@@ -231,6 +236,8 @@ impl GameLoop {
             playing_at: None,
             background_schedule: Vec::new(),
             lyrics: None,
+            stage: crate::stage::StageView::default(),
+            stage_drawn: (0, 0),
             movies: crate::movies::MovieDeck::default(),
             shown_cache: (Vec::new(), (0, u64::MAX)),
             movies_stopped: false,
@@ -270,10 +277,17 @@ impl GameLoop {
         if let Some((play, images, key)) = self.next_noteskin.take() {
             self.install_noteskin(Some(play), images, key);
         }
-        // Without a skin (another layout, the chart's own colours), frames
-        // need not be drawn offscreen for one (WebGL2).
-        self.renderer
-            .set_skins_drawn(&self.gfx.device, &self.gfx.queue, self.noteskin.is_some());
+        // The layers' textures go up with the skin's, after them.
+        self.stage
+            .upload(&mut self.renderer, &self.gfx.device, &self.gfx.queue);
+        // Without a skin (another layout, the chart's own colours) or
+        // layers drawn as skins are, frames need not be drawn offscreen
+        // for them (WebGL2).
+        self.renderer.set_skins_drawn(
+            &self.gfx.device,
+            &self.gfx.queue,
+            self.noteskin.is_some() || self.stage.shown(),
+        );
         // A retry plays the noteskin's commands from the start again.
         if let Some(n) = self.noteskin.as_mut() {
             n.restart();
@@ -456,6 +470,23 @@ impl GameLoop {
         }
     }
 
+    /// The back and mask layers of the play about to start (`None`: none
+    /// shown).
+    pub(crate) fn set_stage_track(&mut self, track: Option<ddi_engine::sprites::SpriteTrack>) {
+        self.stage.set_track(track);
+        self.renderer.set_stage_quads(Vec::new(), Vec::new());
+    }
+
+    /// A content of the song's layers decoded.
+    pub(crate) fn add_stage_content(
+        &mut self,
+        source: ddi_engine::sprites::SpriteSource,
+        bitmap: web_sys::ImageBitmap,
+        size: (f32, f32),
+    ) {
+        self.stage.add(source, bitmap, size);
+    }
+
     /// The lyrics of the song about to play (`None`: none shown).
     pub(crate) fn set_lyrics(&mut self, lyrics: Option<LyricsView>) {
         self.lyrics = lyrics;
@@ -491,6 +522,7 @@ impl GameLoop {
         self.noteskin_key = key;
         self.lua_stop_reported = false;
         self.renderer.clear_noteskin_textures();
+        self.stage.forget_textures();
         // Colours as the target blends them: encoded when skins blend as
         // StepMania's do.
         let srgb = self.renderer.srgb() && !self.renderer.skins_blend_encoded();
@@ -510,6 +542,8 @@ impl GameLoop {
     pub(crate) fn clear_session(&mut self) {
         self.session = None;
         self.lyrics = None;
+        self.stage.set_track(None);
+        self.renderer.set_stage_quads(Vec::new(), Vec::new());
         self.movies.reset();
     }
 
@@ -681,6 +715,21 @@ impl GameLoop {
                     }
                     None => None,
                 };
+                if self.stage.shown() {
+                    let stage = &mut self.stage;
+                    // Images decoded late go up as they come.
+                    if stage.pending() {
+                        stage.upload(&mut self.renderer, &self.gfx.device, &self.gfx.queue);
+                    }
+                    let (w, h) = (self.gfx.config.width as f32, self.gfx.config.height as f32);
+                    let span = ddi_render::scene::field_span(&session.layout);
+                    let geo = ddi_render::FieldGeometry::new(w, h, span, render.reverse);
+                    let srgb = self.renderer.srgb() && !self.renderer.skins_blend_encoded();
+                    let (back, mask) =
+                        stage.quads(frame.song_time, geo.left + geo.arrow * span / 2.0, h, srgb);
+                    self.stage_drawn = (back.len(), mask.len());
+                    self.renderer.set_stage_quads(back, mask);
+                }
                 self.renderer.render(
                     &self.gfx.device,
                     &self.gfx.queue,
@@ -808,6 +857,8 @@ impl GameLoop {
             set("taps", taps.into());
             set("held", (r.tally.held as f64).into());
             set("let_go", (r.tally.let_go as f64).into());
+            set("stage_back", (self.stage_drawn.0 as f64).into());
+            set("stage_mask", (self.stage_drawn.1 as f64).into());
             set("ticks_hit", (r.tally.checkpoint_hit as f64).into());
             set("ticks_missed", (r.tally.checkpoint_miss as f64).into());
             set("holds_ticked", p.ruleset().judge.hold.is_ticked().into());

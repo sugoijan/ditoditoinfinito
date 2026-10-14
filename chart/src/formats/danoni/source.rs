@@ -303,6 +303,8 @@ pub fn decode_entities(s: &str) -> String {
                 "quot" => Some('"'),
                 "apos" => Some('\''),
                 "nbsp" => Some('\u{a0}'),
+                "rsquo" => Some('\u{2019}'),
+                "sbquo" => Some('\u{201a}'),
                 _ => ent.strip_prefix('#').and_then(|n| {
                     let code = match n.strip_prefix(['x', 'X']) {
                         Some(h) => u32::from_str_radix(h, 16).ok(),

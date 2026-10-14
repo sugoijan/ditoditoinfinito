@@ -230,6 +230,10 @@ pub struct DanoniChart {
     /// in seconds (`fadeFrame`).
     #[serde(default)]
     pub fade: Option<(f64, f64)>,
+    /// The stage danoniplus lays its play screen out on, width and height
+    /// in its px: back and mask layers are placed on it.
+    #[serde(default)]
+    pub stage: Option<(f64, f64)>,
 }
 
 impl Chart {

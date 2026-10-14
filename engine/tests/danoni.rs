@@ -267,3 +267,73 @@ fn a_chart_can_bring_its_own_speed() {
         SpeedMod::XMod(2.0)
     );
 }
+
+/// `DDI_DANONI_CORPUS=<dir>`: every captured work's back and mask layers,
+/// played through (a cue each second), and what the import would note.
+/// Third-party works stay local.
+#[test]
+fn local_corpus_layers() {
+    use ddi_engine::sprites::{SpriteTrack, import_notes};
+    let Ok(root) = std::env::var("DDI_DANONI_CORPUS") else {
+        return;
+    };
+    let mut works: Vec<std::path::PathBuf> = std::fs::read_dir(&root)
+        .expect("corpus directory")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.join("manifest.json").is_file())
+        .collect();
+    works.sort();
+    let json = |p: &std::path::Path| -> Option<serde_json::Value> {
+        serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()
+    };
+    for work in works {
+        let Some(manifest) = json(&work.join("manifest.json")) else {
+            continue;
+        };
+        let name = work
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        // One effective dos per work is enough: the layers are per work.
+        let Some(eff) = manifest["charts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|c| json(&work.join(c["paths"]["effectiveDos"].as_str()?)))
+        else {
+            continue;
+        };
+        let mut dos = Dos::default();
+        for (k, v) in eff["fields"].as_object().into_iter().flatten() {
+            if let Some(v) = v.as_str() {
+                dos.set(k, v.to_string());
+            }
+        }
+        let Ok(import) = danoni::import(&dos) else {
+            continue;
+        };
+        for song in &import.songs {
+            let cues = song
+                .effects
+                .iter()
+                .filter(|e| e.kind == danoni::SPRITE_BACK || e.kind == danoni::SPRITE_MASK)
+                .count();
+            if cues == 0 {
+                continue;
+            }
+            let mut most = 0;
+            for chart in 0..song.charts.len() {
+                let track = SpriteTrack::new(song, chart, false);
+                for s in 0..600 {
+                    most = most.max(track.at(f64::from(s) * 0.5).len());
+                }
+            }
+            eprintln!(
+                "{name} / {}: {cues} cues, at most {most} shown at once; {:?}",
+                song.title,
+                import_notes(song)
+            );
+        }
+    }
+}

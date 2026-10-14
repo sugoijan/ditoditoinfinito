@@ -41,6 +41,11 @@ pub struct ManifestEntry {
     /// shared folders when the song is played.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bg_shared: Vec<String>,
+    /// Images a Dancing☆Onigiri work's back and mask layers show, by the
+    /// names its data uses, stored as `layer/<name>`
+    /// (`docs/plans/overlays.md`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layer_images: Vec<String>,
     /// Short credit line shown in the song list (full credits live in the
     /// Credits screen).
     #[serde(default)]
@@ -196,6 +201,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         bg_images: meta.bg_images,
         bg_videos: meta.bg_videos,
         bg_shared: meta.bg_shared,
+        layer_images: Vec::new(),
         credit: meta.credit,
         layouts,
         bpm,
@@ -295,6 +301,7 @@ mod tests {
             bg_images: Vec::new(),
             bg_videos: Vec::new(),
             bg_shared: Vec::new(),
+            layer_images: Vec::new(),
             credit: String::new(),
             bpm: "120".into(),
             preview_start: 1.0,

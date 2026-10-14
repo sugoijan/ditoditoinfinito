@@ -18,6 +18,7 @@ mod offscreen;
 pub mod renderer;
 pub mod scene;
 pub mod sprite;
+pub mod stage;
 pub mod text;
 pub mod textured;
 

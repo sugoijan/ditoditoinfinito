@@ -34,6 +34,7 @@ pub mod lyrics;
 pub mod player;
 pub mod rules;
 pub mod scroll;
+pub mod sprites;
 pub mod transform;
 
 pub use ddi_chart;
