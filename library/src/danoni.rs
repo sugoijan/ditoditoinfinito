@@ -372,18 +372,18 @@ pub fn dump_plan<S: AsRef<str>>(
     let charts = m["charts"].as_array().cloned().unwrap_or_default();
     let effective = charts
         .iter()
-        .find_map(|c| c["paths"]["effectiveDos"].as_str().and_then(&at))
+        .find_map(|c| c["paths"]["effectiveDos"].as_str().and_then(at))
         .ok_or("the dump has no effective dos")?;
     let mut music = Vec::new();
     for a in m["assets"].as_array().into_iter().flatten() {
         if a["role"].as_str() != Some("music") {
             continue;
         }
-        let decoded = a["decodedPath"].as_str().and_then(&at);
+        let decoded = a["decodedPath"].as_str().and_then(at);
         let (path, encoded) = match decoded {
             Some(p) => (p, false),
             None => {
-                let Some(p) = a["path"].as_str().and_then(&at) else {
+                let Some(p) = a["path"].as_str().and_then(at) else {
                     continue;
                 };
                 let script = a["mimeType"]

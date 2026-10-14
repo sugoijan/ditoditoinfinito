@@ -188,7 +188,7 @@ impl GaugeRules for Battery {
         let cost = match ev.kind {
             JudgeEventKind::Tap(j, _) if j > self.min_keep => 1,
             JudgeEventKind::HitMine => self.mine_costs,
-            JudgeEventKind::LetGo => self.let_go_costs,
+            JudgeEventKind::LetGo | JudgeEventKind::HitShock => self.let_go_costs,
             _ => 0,
         };
         self.remaining = self.remaining.saturating_sub(cost);

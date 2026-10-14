@@ -456,18 +456,33 @@ impl TimingMap {
     }
 
     /// Hold checkpoints a beat in force at `tick` (`#TICKCOUNTS`): the
-    /// last segment at or before it, else StepMania's default of 4
-    /// (`TickcountSegment::DEFAULT_TICK_COUNT`). 0 means none.
+    /// last segment at or before it, the first before any (StepMania's
+    /// `GetSegmentIndexAtRow` answers 0 there), else StepMania's default of
+    /// 4 (`TickcountSegment::DEFAULT_TICK_COUNT`). 0 means none.
     pub fn ticks_per_beat_at(&self, tick: Tick) -> u32 {
         self.tick_counts
             .iter()
             .take_while(|s| s.tick <= tick)
             .last()
+            .or(self.tick_counts.first())
             .map_or(Self::DEFAULT_TICKS_PER_BEAT, |s| s.ticks_per_beat)
     }
 
     /// StepMania's tick count where a chart sets none.
     pub const DEFAULT_TICKS_PER_BEAT: u32 = 4;
+
+    /// The combo and miss combo a judged row at `tick` counts for
+    /// (`#COMBOS`, `TimingData::GetComboSegmentAtRow`): the last segment at
+    /// or before it, the first before any (`GetSegmentIndexAtRow` answers 0
+    /// there), else 1 each.
+    pub fn combo_at(&self, tick: Tick) -> (u32, u32) {
+        self.combos
+            .iter()
+            .take_while(|s| s.tick <= tick)
+            .last()
+            .or(self.combos.first())
+            .map_or((1, 1), |s| (s.combo, s.miss_combo))
+    }
 
     /// Lowest and highest BPM actually used.
     pub fn bpm_range(&self) -> (f64, f64) {
@@ -757,9 +772,31 @@ mod tests {
                 ticks_per_beat: 2,
             },
         ];
-        assert_eq!(t.ticks_per_beat_at(Tick::from_beats(1)), 4);
+        // Before the first segment, the first (StepMania).
+        assert_eq!(t.ticks_per_beat_at(Tick::from_beats(1)), 0);
         assert_eq!(t.ticks_per_beat_at(Tick::from_beats(2)), 0);
         assert_eq!(t.ticks_per_beat_at(Tick::from_beats(5)), 2);
+    }
+
+    #[test]
+    fn combo_segments_hold_from_their_tick_and_before_the_first() {
+        let mut t = TimingMap::constant(120.0, 0.0);
+        assert_eq!(t.combo_at(Tick::from_beats(3)), (1, 1));
+        t.combos = vec![
+            ComboSegment {
+                tick: Tick::from_beats(2),
+                combo: 4,
+                miss_combo: 2,
+            },
+            ComboSegment {
+                tick: Tick::from_beats(5),
+                combo: 1,
+                miss_combo: 1,
+            },
+        ];
+        assert_eq!(t.combo_at(Tick::from_beats(0)), (4, 2));
+        assert_eq!(t.combo_at(Tick::from_beats(4)), (4, 2));
+        assert_eq!(t.combo_at(Tick::from_beats(5)), (1, 1));
     }
 
     #[test]

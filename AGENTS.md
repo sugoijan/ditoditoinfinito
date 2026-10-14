@@ -71,6 +71,10 @@ the browser are implementation details, not advertised features.
   compares every `.sm` under a local folder against the two oracle parsers
   (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`).
   Third-party songs used this way stay local.
+- `DDI_AUTOPLAY_CORPUS=<dir>[:<dir>…] cargo test --release -p ddi-engine --test local_autoplay -- --nocapture`
+  autoplays every chart under local folders on ITG, SM5 and DDR A and
+  expects a perfect play (`DDI_AUTOPLAY_FILTER=<text>`,
+  `DDI_AUTOPLAY_VERBOSE=1` to see what fell short).
 - `DDI_NOTESKINS=<dir>[:<dir>…] cargo test -p ddi-noteskin --test local_skins -- --nocapture`
   resolves every element of every skin under local `NoteSkins` folders
   (`DDI_NOTESKINS_STANDINS=1`: without their `default` and `common`;

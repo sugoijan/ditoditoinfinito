@@ -356,7 +356,9 @@ impl TimingAcc {
                     });
                 }
             }
-            "COMBOS" => {
+            // StepMania 5.1 reads combo segments from `.ssc` files only
+            // (`NotesLoaderSSC`; `NotesLoaderSM` has no handler).
+            "COMBOS" if flavor == Flavor::Ssc => {
                 for f in split_entries(value) {
                     if f.len() < 2 {
                         continue;

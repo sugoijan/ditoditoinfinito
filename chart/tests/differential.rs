@@ -10,6 +10,13 @@
 //!   (StepMania pauses after it: that is a delay). It is the timing oracle;
 //!   notes on a stop row are expected to differ by exactly the stop.
 //!
+//! Known oracle quirks, handled here: danceparser keeps every BPM change and
+//! stop on one beat, where StepMania keeps the last
+//! (`TimingData::AddSegment`); it misreads a row that straddles its 4 KiB
+//! read buffer, so a disagreement is checked again on the text shifted by
+//! a few bytes; rgchart times nothing without an `#OFFSET`, which StepMania
+//! takes as 0.
+//!
 //! Neither reads `.ssc`, delays, warps or negative BPMs, so the generated
 //! files stay inside what all three understand; those features have their
 //! own fixture tests (`simfiles.rs`).
@@ -284,7 +291,7 @@ fn compare_structure(ours: &Song, oracle: &SMChart, exact_names: bool) -> Vec<St
         }
     }
     let our_bpms: Vec<_> = ours.timing.bpms.iter().map(|b| (b.tick.0, b.bpm)).collect();
-    let their_bpms: Vec<_> = oracle.bpms.iter().map(|b| (ticks(b.beat), b.bpm)).collect();
+    let their_bpms = last_per_tick(oracle.bpms.iter().map(|b| (ticks(b.beat), b.bpm)));
     if !same_segments(&our_bpms, &their_bpms) {
         diffs.push(format!("bpms: ours {our_bpms:?} vs {their_bpms:?}"));
     }
@@ -294,15 +301,35 @@ fn compare_structure(ours: &Song, oracle: &SMChart, exact_names: bool) -> Vec<St
         .iter()
         .map(|s| (s.tick.0, s.seconds))
         .collect();
-    let their_stops: Vec<_> = oracle
-        .stops
-        .iter()
-        .map(|s| (ticks(s.beat), s.length.as_secs_f64()))
-        .collect();
+    let their_stops = last_per_tick(
+        oracle
+            .stops
+            .iter()
+            .map(|s| (ticks(s.beat), s.length.as_secs_f64())),
+    );
     if !same_segments(&our_stops, &their_stops) {
         diffs.push(format!("stops: ours {our_stops:?} vs {their_stops:?}"));
     }
     diffs
+}
+
+/// `text` with `n` blank lines before its first chart (not at its start,
+/// which may be a byte order mark).
+fn shifted(text: &str, n: usize) -> String {
+    let at = text.to_ascii_uppercase().find("#NOTES").unwrap_or(0);
+    format!("{}{}{}", &text[..at], "\n".repeat(n), &text[at..])
+}
+
+/// Segments as StepMania keeps them: of several on one tick, the last.
+fn last_per_tick(segments: impl Iterator<Item = (i64, f64)>) -> Vec<(i64, f64)> {
+    let mut out: Vec<(i64, f64)> = Vec::new();
+    for (t, v) in segments {
+        match out.last_mut() {
+            Some(last) if last.0 == t => last.1 = v,
+            _ => out.push((t, v)),
+        }
+    }
+    out
 }
 
 fn same_segments(a: &[(i64, f64)], b: &[(i64, f64)]) -> bool {
@@ -489,7 +516,7 @@ fn local_corpus() {
     let mut files = Vec::new();
     collect(Path::new(&dir), "sm", &mut files);
     files.sort();
-    let (mut compared, mut timed, mut oracle_failed) = (0, 0, 0);
+    let (mut compared, mut timed, mut oracle_failed, mut buffer_quirks) = (0, 0, 0, 0);
     let mut covered = Timed::default();
     let mut failures = Vec::new();
     for path in &files {
@@ -505,7 +532,21 @@ fn local_corpus() {
         match parse_oracle(&text) {
             Ok(oracle) => {
                 compared += 1;
-                let diffs = compare_structure(&ours, &oracle, false);
+                let mut diffs = compare_structure(&ours, &oracle, false);
+                // danceparser's 4 KiB buffer: the same text a few bytes later.
+                if !diffs.is_empty()
+                    && (1..=32).any(|n| {
+                        parse_oracle(&shifted(&text, n))
+                            .is_ok_and(|o| compare_structure(&ours, &o, false).is_empty())
+                    })
+                {
+                    buffer_quirks += 1;
+                    eprintln!(
+                        "{}: danceparser's read buffer (agrees a few bytes later)",
+                        path.display()
+                    );
+                    diffs.clear();
+                }
                 if !diffs.is_empty() {
                     failures.push(format!("{}:\n  {}", path.display(), diffs.join("\n  ")));
                 }
@@ -528,7 +569,7 @@ fn local_corpus() {
         }
     }
     eprintln!(
-        "{} files: {compared} structure-compared, {timed} timing-compared ({} notes, {} on stop rows), {oracle_failed} rejected by danceparser",
+        "{} files: {compared} structure-compared ({buffer_quirks} through danceparser's buffer quirk), {timed} timing-compared ({} notes, {} on stop rows), {oracle_failed} rejected by danceparser",
         files.len(),
         covered.notes,
         covered.on_stop_rows
@@ -564,7 +605,23 @@ fn first_single_chart<'a>(song: &'a Song, text: &str) -> Option<(&'a ddi_chart::
         let style = block["#NOTES:".len()..].split(':').next()?.trim();
         (style == "dance-single").then_some(block)
     })?;
-    Some((chart, format!("{}{block}\n", &text[..*starts.first()?])))
+    // rgchart times nothing without an `#OFFSET` in what it reads;
+    // StepMania takes it as 0.
+    let offset = if upper[..*starts.first()?].contains("#OFFSET:") {
+        ""
+    } else {
+        "#OFFSET:0;\n"
+    };
+    // rgchart reads the offset before it reads the BPMs.
+    let head = &text[..*starts.first()?];
+    let at = head
+        .to_ascii_uppercase()
+        .find("#BPMS:")
+        .unwrap_or(head.len());
+    Some((
+        chart,
+        format!("{}{offset}{}{block}\n", &head[..at], &head[at..]),
+    ))
 }
 
 /// Files with extension `ext` under `dir`, recursively.
@@ -586,8 +643,10 @@ fn collect(dir: &Path, ext: &str, out: &mut Vec<PathBuf>) {
 /// folder also holds a `.sm` (usually a conversion of the same song),
 /// compares the two imports chart by chart: the same notes on the same
 /// ticks, and BPMs, stops and offset in the same places with the same
-/// values up to the converter's rounding. No third-party parser reads DWI, so the `.sm`
-/// importer serves as the oracle here.
+/// values up to the converter's rounding. No third-party parser reads DWI,
+/// so the `.sm` importer serves as the oracle here. A `.sm` that only adds
+/// mines or turns holds into rolls was edited after its conversion, which
+/// is reported, not failed.
 #[test]
 fn local_dwi_against_sm() {
     let Some(dir) = std::env::var_os("DDI_DIFF_CORPUS") else {
@@ -612,9 +671,14 @@ fn local_dwi_against_sm() {
             }
         };
         parsed += 1;
+        // Its conversion: the `.sm` of the same name, else the folder's
+        // only `.sm` (a folder may mix songs of two packs).
         let mut sms = Vec::new();
         collect(path.parent().unwrap(), "sm", &mut sms);
-        let Some(sm_path) = sms.first() else {
+        let same_name = sms
+            .iter()
+            .find(|s| s.file_stem().is_some_and(|n| Some(n) == path.file_stem()));
+        let Some(sm_path) = same_name.or(if sms.len() == 1 { sms.first() } else { None }) else {
             continue;
         };
         let Ok(sm) = parse_sm(&read(sm_path)) else {
@@ -637,7 +701,23 @@ fn local_dwi_against_sm() {
             };
             charts += 1;
             let (a, b) = (our_grid(&d.notes), our_grid(&s.notes));
-            if a != b {
+            // A DWI has neither mines nor rolls: an `.sm` that adds them
+            // was edited after its conversion.
+            let as_dwi = |g: &Grid| -> Grid {
+                g.iter()
+                    .filter(|(_, c)| **c != 'M')
+                    .map(|(k, c)| (*k, if *c == '4' { '2' } else { *c }))
+                    .collect()
+            };
+            // Its timing is still compared below.
+            if a != b && as_dwi(&a) == as_dwi(&b) {
+                edited.push(format!(
+                    "{}: {} {:?}: the .sm adds mines or rolls",
+                    path.display(),
+                    d.layout,
+                    d.difficulty
+                ));
+            } else if a != b {
                 let only_dwi: Vec<_> = a
                     .iter()
                     .filter(|(k, v)| b.get(k) != Some(v))

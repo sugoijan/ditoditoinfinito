@@ -130,6 +130,11 @@ pub struct JudgeTable {
     /// [`ClockOptions::audio_offset`](crate::clock::ClockOptions::audio_offset).
     /// Raise it when you keep getting "Fast".
     pub judge_offset: f64,
+    /// DDR's shock arrows: a row with a mine in every lane is one shock,
+    /// avoided as a whole (O.K.) or stepped on in any lane (N.G.); else
+    /// such a row is mines, as StepMania plays it.
+    #[serde(default)]
+    pub shock_rows: bool,
 }
 
 impl JudgeTable {
@@ -354,15 +359,23 @@ pub struct Tally {
 
 impl Tally {
     pub fn record(&mut self, kind: &JudgeEventKind) {
-        match kind {
-            JudgeEventKind::Tap(j, _) => self.taps[j.index()] += 1,
-            JudgeEventKind::Held => self.held += 1,
-            JudgeEventKind::LetGo => self.let_go += 1,
-            JudgeEventKind::HitMine => self.mine_hit += 1,
-            JudgeEventKind::Boo => self.boo += 1,
-            JudgeEventKind::Checkpoint { missed: 0, .. } => self.checkpoint_hit += 1,
-            JudgeEventKind::Checkpoint { .. } => self.checkpoint_miss += 1,
-        }
+        self.record_times(kind, 1);
+    }
+
+    /// Records `kind` as `n` events (a `#COMBOS` segment's count).
+    /// A shock avoided counts as an O.K. and one stepped on as an N.G.,
+    /// with the holds', as DDR counts them.
+    pub fn record_times(&mut self, kind: &JudgeEventKind, n: u32) {
+        let count = match kind {
+            JudgeEventKind::Tap(j, _) => &mut self.taps[j.index()],
+            JudgeEventKind::Held | JudgeEventKind::AvoidShock => &mut self.held,
+            JudgeEventKind::LetGo | JudgeEventKind::HitShock => &mut self.let_go,
+            JudgeEventKind::HitMine => &mut self.mine_hit,
+            JudgeEventKind::Boo => &mut self.boo,
+            JudgeEventKind::Checkpoint { missed: 0, .. } => &mut self.checkpoint_hit,
+            JudgeEventKind::Checkpoint { .. } => &mut self.checkpoint_miss,
+        };
+        *count += n;
     }
 
     pub fn count(&self, j: Judgement) -> u32 {
@@ -517,8 +530,11 @@ pub struct ScoreCtx {
     pub steps: u32,
     /// Judged holds and rolls.
     pub holds: u32,
-    /// Judged mines and shocks.
+    /// Judged mines.
     pub mines: u32,
+    /// Judged shocks (rows, [`JudgeTable::shock_rows`]), weighed as holds.
+    #[serde(default)]
+    pub shocks: u32,
     /// Combo after the current event.
     pub combo: u32,
     /// Holds are ticked ([`HoldRules::Ticked`]): their outcomes weigh
@@ -643,6 +659,7 @@ mod tests {
             hold_start: HoldStart::JUDGED,
             supersede: None,
             just: None,
+            shock_rows: false,
         }
     }
 
