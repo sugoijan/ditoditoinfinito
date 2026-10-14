@@ -155,11 +155,17 @@ pub(crate) struct PlaySession {
     pub(crate) devices: Option<DeviceProfile>,
 }
 
-/// Which cue a simulated player follows. A human reacts to what they hear
-/// or see, not to the judged timeline, so corrections to the offsets must
-/// change when the autoplayer presses the way they change a human's timing.
+/// Which cue a simulated player follows. In calibration it plays as a
+/// human would: a human reacts to what they hear or see, not to the judged
+/// timeline, so corrections to the offsets must change when the autoplayer
+/// presses the way they change a human's timing. In play it watches the
+/// chart for the player, so it presses on the judged timeline: following
+/// the heard audio, a calibrated offset moved every press by its whole
+/// amount (at 100 ms, a hard chart fails on Greats and misses).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Cue {
+    /// The judged timeline.
+    Judged,
     /// The physical audio: judged time plus the audio offset.
     Audio,
     /// The drawn arrows: judged time plus the visual offset.
@@ -350,10 +356,10 @@ impl PlaySession {
                 .collect(),
             next: 0,
             pending_release: Vec::new(),
-            cue: if config.calibration.is_some_and(|m| m.muted()) {
-                Cue::Visual
-            } else {
-                Cue::Audio
+            cue: match config.calibration {
+                None => Cue::Judged,
+                Some(m) if m.muted() => Cue::Visual,
+                Some(_) => Cue::Audio,
             },
             via_pad,
         });
@@ -586,6 +592,7 @@ impl PlaySession {
             // Song time of the cue the simulated player follows, right now.
             let heard = self.player.clock().heard_now(host_now)
                 + match auto.cue {
+                    Cue::Judged => 0.0,
                     Cue::Audio => opts.audio_offset,
                     Cue::Visual => opts.visual_offset,
                 };

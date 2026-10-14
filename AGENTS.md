@@ -147,9 +147,11 @@ runs (launched with an autoplay override) cannot catch it; for previews, test
 with `--autoplay-policy=document-user-activation-required` and ask the
 maintainer to confirm in Safari.
 
-The autoplayer follows the
-physical cue (heard audio, or drawn arrows in the muted test), not the judged
-timeline; keep it that way or offset tests become meaningless.
+In calibration the autoplayer
+follows the physical cue (heard audio, or drawn arrows in the muted test), not
+the judged timeline; keep it that way or offset tests become meaningless. In
+play (`&auto=1`) it presses on the judged timeline, so it stays exact under any
+calibrated offset.
 
 ## Timing model (do not break)
 
