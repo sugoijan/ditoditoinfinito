@@ -134,6 +134,9 @@ pub struct Movie {
     pub kind: String,
     pub address: SourceAddress,
     pub flash_vars: BTreeMap<String, String>,
+    /// Declared HTML pixel viewport only; CSS/layout is not evaluated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viewport: Option<[u32; 2]>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -156,13 +159,15 @@ struct Object {
     movie: Option<String>,
     vars: String,
     conflict: bool,
+    viewport: Option<[u32; 2]>,
 }
+type EmbeddedMovie = (String, String, String, bool, Option<[u32; 2]>);
 #[derive(Default)]
 struct Tokens {
     base: Option<String>,
     charset: Option<String>,
     links: Vec<(String, String)>,
-    movies: Vec<(String, String, String, bool)>,
+    movies: Vec<EmbeddedMovie>,
     scripts: Vec<String>,
     objects: Vec<Object>,
     count: usize,
@@ -189,7 +194,8 @@ impl TokenSink for Sink {
                 && let Some(o) = t.objects.pop()
                 && let Some(url) = o.data.or(o.movie)
             {
-                t.movies.push(("object".into(), url, o.vars, o.conflict));
+                t.movies
+                    .push(("object".into(), url, o.vars, o.conflict, o.viewport));
             }
             return TokenSinkResult::Continue;
         }
@@ -232,6 +238,7 @@ impl TokenSink for Sink {
                 } else {
                     t.objects.push(Object {
                         data: attr("data"),
+                        viewport: viewport(attr("width"), attr("height")),
                         ..Default::default()
                     });
                 }
@@ -264,6 +271,7 @@ impl TokenSink for Sink {
                         url,
                         attr("flashvars").unwrap_or_default(),
                         false,
+                        viewport(attr("width"), attr("height")),
                     ));
                 }
             }
@@ -288,6 +296,15 @@ impl TokenSink for Sink {
         TokenSinkResult::Continue
     }
 }
+fn viewport(width: Option<String>, height: Option<String>) -> Option<[u32; 2]> {
+    let number = |s: String| {
+        s.trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|n| (1..=4096).contains(n))
+    };
+    Some([number(width?)?, number(height?)?])
+}
 fn tokenize(text: &str) -> Tokens {
     let queue = BufferQueue::default();
     queue.push_back(StrTendril::from_slice(text));
@@ -297,7 +314,8 @@ fn tokenize(text: &str) -> Tokens {
     let mut t = tokenizer.sink.0.into_inner();
     for o in t.objects.drain(..) {
         if let Some(url) = o.data.or(o.movie) {
-            t.movies.push(("object".into(), url, o.vars, o.conflict));
+            t.movies
+                .push(("object".into(), url, o.vars, o.conflict, o.viewport));
         }
     }
     if t.links.len() + t.movies.len() + t.scripts.len() > ITEM_LIMIT {
@@ -409,6 +427,7 @@ pub fn inspect_page(
                     kind,
                     address,
                     flash_vars: BTreeMap::new(),
+                    viewport: None,
                 };
                 if !result.movies.contains(&movie) {
                     result.movies.push(movie);
@@ -423,7 +442,7 @@ pub fn inspect_page(
             Err(e) => result.diagnostics.push(format!("{kind}: {}", e.message)),
         }
     }
-    for (kind, raw, vars, conflict) in t.movies {
+    for (kind, raw, vars, conflict, viewport) in t.movies {
         let candidate = (|| {
             if conflict {
                 return Err(invalid("Conflicting object parameters"));
@@ -436,6 +455,7 @@ pub fn inspect_page(
                 kind: kind.clone(),
                 address,
                 flash_vars: flash_vars(&vars)?,
+                viewport,
             })
         })();
         match candidate {

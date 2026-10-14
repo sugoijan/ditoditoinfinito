@@ -154,3 +154,6 @@ pub(crate) fn variant(
     }
     Ok(())
 }
+
+#[cfg(test)]
+pub(crate) use fetch::tests::{Reply as TestReply, Server as TestServer, test_fetcher};

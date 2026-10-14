@@ -724,3 +724,40 @@ real HTTPS acquisition, identical zero-request offline replay, and historical
 anonymous/browser-context replay. The host-selected explicit CA bundle keeps
 TLS verification enabled where this agent's platform-verifier IPC fails. Original
 cache indexes, registry and accepted exports retain their previous hashes.
+
+
+### URL-native discovery and dependency bridge, 2026-10-14
+
+The [URL-native bridge](danoni-rust-url-native.md) connects host HTTP/cache services
+to static work-page discovery and automatic native dependency recovery. Its public
+job-thread API starts with `UrlRequest::new(url)`; the CLI is `extract-url-native`.
+It stages self-contained immutable acquisition evidence, preserves logical versus
+archive retrieval identities and FlashVars, and checks archive-to-live redirects
+before cached or live hops. Host cancellation is polled while awaiting HTTP and
+drained into durable attempt records. The worker remains offline and confined.
+
+A generic declared-viewport hint handles a broad game beside equal-height narrow
+Flash panels. Unknown sizes, ties, multiple broad games and conflicting FlashVars
+still refuse automatic selection; known engine/runtime proofs remain mandatory.
+No per-song filenames, selector clicks or interpreter patches are introduced.
+
+Higan and No Name now run from page URLs and local cache evidence without recipes
+or new downloads, yielding three observed 5-key charts. No Name passes its frozen
+parser/PCM/scroll gate; Higan's notes/holds/scroll fields and WAV match its earlier
+extraction. Higan's colour triples remain explicitly unmapped raw presentation in
+the automatic family, a gap retained in the handover. A real cancellation after
+child success proves the outer URL job cannot publish readiness.
+
+Next join normalized output to the existing audio/tempo/artwork/song APIs for
+URL → prepared songs. Reviewed optional-colour handling, generic colour mapping,
+index/frame routes, broader native families, HTML5 control and desktop installation
+remain separate work. Accepted exports and registry remain unchanged.
+
+Validation passes 211 native and 85 pure SDK tests, both strict Clippy variants,
+format checks and `just check` (833/833 REUSE), including existing cache/page gates.
+Final targeted bridge tests and real-worker cancellation pass after wrapper
+publication changes. A direct SWF trial reproduces the corresponding page-route
+chart exactly. The complete parent manifest is staged before its final readiness
+checkpoint and only renamed on success; cancellation removes the pending marker.
+All real-work trials use zero GETs, original caches/exports are unchanged, and
+validation receipts remain local.

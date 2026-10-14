@@ -217,8 +217,9 @@ For the underlying trust choices see the
 [rustls verifier deployment guidance](https://github.com/rustls/rustls-platform-verifier#deployment-considerations)
 and [reqwest's explicit certificate API](https://docs.rs/reqwest/0.13.5/reqwest/struct.ClientBuilder.html#method.tls_certs_only).
 
-Next connect this async fetcher to the native dependency loop and static source
-discovery, then prove bounded real work URL → prepared songs against frozen corpus
+The [URL-native bridge](danoni-rust-url-native.md) now connects this fetcher to
+static source discovery and the native dependency loop. Next connect normalized
+output to prepared-song APIs and prove URL → prepared songs against frozen corpus
 oracles. Add reviewed index routes and archive logical/retrieval mapping after
 single-work paths. HTML5 browser control, desktop library installation and
 non-macOS worker confinement remain separate work. Accepted exports are unchanged.

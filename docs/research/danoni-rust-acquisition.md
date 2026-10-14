@@ -75,7 +75,7 @@ The discovery object contains:
   document base. The source manifest/resource retain the original requested URL.
 - `bodySha256`, `encoding`: exact body hash and decoder's canonical label.
 - `links`: `{kind, address}` for `anchor`, `frame` and `iframe` candidates.
-- `movies`: `{kind, address, flashVars}` for explicit `.swf` object/embed or anchor
+- `movies`: `{kind, address, flashVars, viewport?}` for explicit `.swf` object/embed or anchor
   targets. Query strings remain part of the address; `flashVars` is an ordered
   string map. Identical records are deduplicated. Object and embed evidence can
   describe the same movie separately; different FlashVars must remain distinct.
@@ -164,3 +164,12 @@ not recursive following of every discovered anchor. Known passive router formats
 can follow; browser execution remains optional for genuinely script-built
 navigation and HTML5 reference capture. Desktop installation and other-platform
 worker confinement remain separate milestones. Accepted exports are unchanged.
+
+
+The subsequent [URL-native bridge](danoni-rust-url-native.md) consumes this
+discovery without executing scripts. Static object/embed candidates now optionally
+include `viewport: [width, height]` from bounded declared pixel attributes. Missing,
+percentage, zero or above-4096 dimensions remain unknown; no CSS/layout is executed.
+The bridge can use a unique broad viewport beside equal-height narrow panels as
+a candidate hint, followed by the unchanged native fingerprint/runtime proofs.
+The discovery itself remains passive and does not authorize a request.

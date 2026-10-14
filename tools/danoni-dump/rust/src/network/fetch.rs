@@ -84,6 +84,14 @@ pub struct Fetcher {
     pacer: Pacer,
     policies: BTreeMap<String, Result<Vec<ReplayResponse>>>,
 }
+impl crate::assets::AssetSource for Fetcher {
+    fn read(&self, ns: &str, path: &str, max: usize) -> Result<Vec<u8>> {
+        self.read_shared(ns, path, max).map(|b| b.as_ref().clone())
+    }
+    fn read_shared(&self, ns: &str, path: &str, max: usize) -> Result<std::sync::Arc<Vec<u8>>> {
+        self.cache.read_shared(ns, path, max)
+    }
+}
 impl Fetcher {
     pub fn open(cache: &Path, options: FetchOptions) -> Result<Self> {
         options.validate()?;
@@ -114,6 +122,18 @@ impl Fetcher {
         cancel: &NetworkCancel,
         site: &mut impl FnMut(&str) -> Result<String>,
     ) -> Result<AcquiredResource> {
+        self.fetch_checked(request, cancel, site, &mut |_| Ok(()))
+            .await
+    }
+    /// Apply a host identity constraint before every resource hop, including
+    /// cached redirects. It cannot grant access or bypass the site/robots policy.
+    pub async fn fetch_checked(
+        &mut self,
+        request: &ReplayRequest,
+        cancel: &NetworkCancel,
+        site: &mut impl FnMut(&str) -> Result<String>,
+        hop: &mut impl FnMut(&str) -> Result<()>,
+    ) -> Result<AcquiredResource> {
         request.context.validate()?;
         if request.maximum_bytes == 0 || request.maximum_bytes > MEDIA_LIMIT {
             return Err(Error::new("network-limit", "Invalid response byte limit"));
@@ -127,6 +147,7 @@ impl Fetcher {
             if !seen.insert(next.clone()) {
                 return Err(Error::new("redirect-loop", "Acquisition redirect loop"));
             }
+            hop(&next)?;
             let req = ReplayRequest {
                 url: next,
                 ..request.clone()

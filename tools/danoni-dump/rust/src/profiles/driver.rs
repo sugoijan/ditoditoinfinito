@@ -56,7 +56,7 @@ impl Default for ProfileLimits {
     }
 }
 impl ProfileLimits {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if !(1..=64).contains(&self.captures)
             || !(1..=12).contains(&self.motion_trials)
             || !(1..=300000).contains(&self.wall_ms)

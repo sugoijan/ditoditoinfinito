@@ -33,6 +33,8 @@ pub mod tempo;
 pub mod timing;
 #[cfg(feature = "native")]
 pub mod transaction;
+#[cfg(feature = "native")]
+pub mod url_native;
 pub mod work;
 #[cfg(feature = "native")]
 pub mod worker_build;

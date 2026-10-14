@@ -187,7 +187,7 @@ fn request(url: &str) -> ReplayRequest {
         maximum_bytes: 1024 * 1024,
     }
 }
-fn test_fetcher(path: &Path, mut options: FetchOptions, origins: &[&str]) -> Fetcher {
+pub(crate) fn test_fetcher(path: &Path, mut options: FetchOptions, origins: &[&str]) -> Fetcher {
     options.transport.dns_server = Some("100.100.100.100".parse().unwrap());
     let mut f = Fetcher::open(path, options).unwrap();
     let mut t = HttpTransport::new(f.options.transport.clone()).unwrap();

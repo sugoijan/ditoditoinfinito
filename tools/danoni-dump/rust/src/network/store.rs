@@ -297,6 +297,10 @@ impl CacheStore {
         }
         Ok(())
     }
+    pub(crate) fn read_shared(&self, ns: &str, path: &str, max: usize) -> Result<Arc<Vec<u8>>> {
+        self.healthy()?;
+        self.files.read_shared(ns, path, max)
+    }
     pub fn lookup(&self, request: &ReplayRequest, fresh: bool) -> Result<ReplayLookup> {
         self.healthy()?;
         let requested = address(&request.url)?.to_string();

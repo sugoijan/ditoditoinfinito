@@ -302,5 +302,14 @@ The [native HTTP coordinator](../../../docs/research/danoni-rust-http.md) now ad
 `network::Fetcher`, cancellation, bounded async transport and durable single-writer
 cache publication. `fetch-url JOB.json` acquires one reviewed anonymous URL and
 its explicit redirects, or replays it offline. DNS can be scoped to
-`100.100.100.100` without system changes. Connecting those responses to automatic
-work preparation and the native dependency loop remains the next step.
+`100.100.100.100` without system changes. The URL-native bridge below connects
+those responses to native dependency recovery; prepared-song integration follows.
+
+
+The [URL-native bridge](../../../docs/research/danoni-rust-url-native.md) adds
+`url_native::UrlRequest::new(url)` and blocking-job `execute`, plus
+`extract-url-native BUNDLE JOB.json NEW_OUTPUT`. It acquires a direct SWF or
+statically selected page embed, preserves HTTP/source context, then runs automatic
+profiles with policy-aware dependency recovery. Archive redirects cannot silently
+fall back live. A successful result contains normalized source proofs; prepared
+song export and library installation still need later integration.

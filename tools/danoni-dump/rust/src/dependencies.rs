@@ -68,7 +68,7 @@ impl Default for DependencyLimits {
     }
 }
 impl DependencyLimits {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if !(1..=8).contains(&self.attempts)
             || !(1..=64).contains(&self.captures)
             || !(1..=64).contains(&self.new_urls)
