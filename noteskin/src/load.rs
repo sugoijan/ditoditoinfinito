@@ -7,7 +7,9 @@
 use crate::builtin::{NativeLua, Virtual};
 use crate::skin::{BASE, COMMON, FileRef, PathError, Skin};
 
-/// A dance button (`src/GameManager.cpp:513-518`).
+/// A dance button (`src/GameManager.cpp:513-518`), or one a
+/// Dancing☆Onigiri onigiri lane is drawn with ([`LaneButton`]): pump's and
+/// techno's `Center`, or `Onigiri`, a name of ours for skins that draw one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Button {
     Left,
@@ -16,6 +18,8 @@ pub enum Button {
     Right,
     UpLeft,
     UpRight,
+    Center,
+    Onigiri,
 }
 
 impl Button {
@@ -36,6 +40,8 @@ impl Button {
             Button::Right => "Right",
             Button::UpLeft => "UpLeft",
             Button::UpRight => "UpRight",
+            Button::Center => "Center",
+            Button::Onigiri => "Onigiri",
         }
     }
 
@@ -55,7 +61,93 @@ impl Button {
             Button::Right => -90.0,
             Button::UpLeft => 135.0,
             Button::UpRight => 225.0,
+            // Not in the table: not turned.
+            Button::Center | Button::Onigiri => 0.0,
         }
+    }
+
+    /// The dance button an arrow pointing at `degrees` stands for (0 is
+    /// left, 90 up, as `ddi_chart::Glyph::Arrow` counts), and how far from
+    /// it the arrow turns more, clockwise as skins turn theirs: a dance
+    /// button exactly, else Down's elements turned to the angle (a
+    /// down-left or down-right arrow).
+    pub fn for_arrow(degrees: f32) -> (Button, f32) {
+        let a = degrees.rem_euclid(360.0);
+        let exact = [
+            (0.0, Button::Left),
+            (90.0, Button::Up),
+            (180.0, Button::Right),
+            (270.0, Button::Down),
+            (45.0, Button::UpLeft),
+            (135.0, Button::UpRight),
+        ]
+        .into_iter()
+        .find(|(d, _)| (a - d).abs() < 0.01);
+        match exact {
+            Some((_, b)) => (b, 0.0),
+            // A down arrow turned clockwise by `a + 90` points at `a`.
+            None => (Button::Down, (a + 90.0).rem_euclid(360.0)),
+        }
+    }
+}
+
+/// What draws a layout's lane with a skin (`docs/plans/danoni-skins.md`):
+/// a button's elements, the receptor, notes, heads and explosion (those
+/// StepMania's `dance/default` turns with their button) turned `turn`
+/// degrees more than the skin turns them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LaneButton {
+    pub button: Button,
+    pub turn: f32,
+}
+
+impl Skin<'_> {
+    /// How `lane` is drawn with this skin: an arrow by its angle
+    /// ([`Button::for_arrow`]); the onigiri by the skin's own `Onigiri`
+    /// elements, else StepMania's `Center` ones, else Down's as they are,
+    /// each only from the skin's own folders and the ones it falls back on
+    /// (never another skin's); `None` for the lanes no skin draws (giko,
+    /// iyo, a work's own).
+    pub fn lane_button(&self, lane: &ddi_chart::Lane) -> Option<LaneButton> {
+        self.lane_buttons(lane).first().copied()
+    }
+
+    /// [`Skin::lane_button`]'s choice and the ones after it, in order: the
+    /// play takes the next when a lane's tap note or receptor cannot be
+    /// built with one (a skin's Lua that has no redirect for `Center`);
+    /// the last, Down, always stays.
+    pub fn lane_buttons(&self, lane: &ddi_chart::Lane) -> Vec<LaneButton> {
+        use ddi_chart::Glyph;
+        match &lane.glyph {
+            Glyph::Arrow { rotation_deg } => {
+                let (button, turn) = Button::for_arrow(*rotation_deg);
+                vec![LaneButton { button, turn }]
+            }
+            Glyph::Onigiri => [Button::Onigiri, Button::Center]
+                .into_iter()
+                .filter(|b| self.has_button_elements(b.name()))
+                .chain([Button::Down])
+                .map(|button| LaneButton { button, turn: 0.0 })
+                .collect(),
+            Glyph::Giko | Glyph::Iyo | Glyph::Custom(_) => Vec::new(),
+        }
+    }
+
+    /// Whether a folder of the chain has elements of button `name` at its
+    /// top, where `GetPath(name, element)` finds them (`Center Tap
+    /// Note.png`, a `Center Receptor/` folder); not art its Lua reaches by
+    /// another name (`_center tap note model.txt`).
+    fn has_button_elements(&self, name: &str) -> bool {
+        let prefix = format!("{name} ");
+        self.chain.iter().any(|&d| {
+            self.folder(d).is_some_and(|f| {
+                f.files.iter().any(|path| {
+                    let top = path.split('/').next().unwrap_or(path);
+                    top.get(..prefix.len())
+                        .is_some_and(|head| head.eq_ignore_ascii_case(&prefix))
+                })
+            })
+        })
     }
 }
 
@@ -544,6 +636,61 @@ mod tests {
             skin.resolve(Button::Down, "Nope"),
             Resolved::Missing(_)
         ));
+    }
+
+    #[test]
+    fn lanes_are_drawn_with_the_skins_own_buttons() {
+        use ddi_chart::{Glyph, Layout};
+        assert_eq!(Button::for_arrow(0.0), (Button::Left, 0.0));
+        assert_eq!(Button::for_arrow(-90.0), (Button::Down, 0.0));
+        assert_eq!(Button::for_arrow(135.0), (Button::UpRight, 0.0));
+        // Down-left and down-right: Down turned.
+        assert_eq!(Button::for_arrow(-45.0), (Button::Down, 45.0));
+        assert_eq!(Button::for_arrow(225.0), (Button::Down, 315.0));
+        let seven = Layout::builtin("danoni-7").unwrap();
+        let onigiri = seven
+            .lanes
+            .iter()
+            .find(|l| l.glyph == Glyph::Onigiri)
+            .unwrap();
+        let lane = |files: &[(&str, &str)]| {
+            let folders = [folder("dance", "s", files)];
+            let skin = Skin::load(&folders, "dance", "s").unwrap();
+            skin.lane_button(onigiri).unwrap().button
+        };
+        // The skin's own onigiri, else its centre, else its Down.
+        assert_eq!(
+            lane(&[("Onigiri Tap Note.png", ""), ("Center Tap Note.png", "")]),
+            Button::Onigiri
+        );
+        assert_eq!(lane(&[("Center Tap Note.png", "")]), Button::Center);
+        assert_eq!(lane(&[("Center Receptor/default.lua", "")]), Button::Center);
+        assert_eq!(lane(&[("Down Tap Note.png", "")]), Button::Down);
+        // Not from art reached by another name (Dake's `_center …`: its Lua
+        // draws a placeholder for a button it lacks), nor from a subfolder
+        // lookups do not search.
+        assert_eq!(lane(&[("_center tap note model.txt", "")]), Button::Down);
+        assert_eq!(
+            lane(&[("alt Center/Center Tap Note.png", "")]),
+            Button::Down
+        );
+        // From the skin it falls back on.
+        let folders = [
+            folder(
+                "dance",
+                "s",
+                &[("metrics.ini", "[Global]\nFallbackNoteSkin=base\n")],
+            ),
+            folder("dance", "base", &[("Center Receptor.lua", "")]),
+            folder("dance", "other", &[("Onigiri Tap Note.png", "")]),
+        ];
+        let skin = Skin::load(&folders, "dance", "s").unwrap();
+        assert_eq!(skin.lane_button(onigiri).unwrap().button, Button::Center);
+        let giko = ddi_chart::Lane {
+            glyph: Glyph::Giko,
+            ..onigiri.clone()
+        };
+        assert_eq!(skin.lane_button(&giko), None);
     }
 
     #[test]

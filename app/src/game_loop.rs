@@ -179,7 +179,7 @@ impl FpsMeter {
 }
 
 impl GameLoop {
-    /// `skins`: the player draws dance layouts with a skin (not the
+    /// `skins`: the player draws layouts with a skin (not the
     /// built-in arrows, chosen to be lighter).
     pub(crate) fn new(
         gfx: Gfx,

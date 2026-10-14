@@ -4,8 +4,8 @@
 author = "Peter Lawrence"
 credit = "Peter Lawrence · The Unlicense"
 excluded = [
-    "Center Tap Lift.lua, _Center * and _center * (a button of other games) and alt Center/ (an alternative center)",
-    "Down Tap Lift.lua (identical to CF_CHROME's, which it falls back on) and textures/FrameVibrant.ini (no model uses it, and its image is not there)",
+    "alt Center/ (an alternative center)",
+    "Down Tap Lift.lua and Center Tap Lift.lua (identical to CF_CHROME's, which it falls back on) and textures/FrameVibrant.ini (no model uses it, and its image is not there)",
 ]
 modifications = [
     "LICENSE and README.md copied from the repository's root",

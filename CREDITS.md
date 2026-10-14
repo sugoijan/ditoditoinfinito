@@ -83,7 +83,7 @@ Source: [https://github.com/Tiny-Foxes/Aozora-Tori-Assets](https://github.com/Ti
 Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/Pete-Lawrence/Peters-Noteskins) at commit `6faea8e1a17a76beeb2a3dd1000f3f703c4e52f6`, folder `SM5/Completed/CF_ALLOY` (retrieved 2026-10-12).
 
 - **the skin (models, images, metrics, README)**: Peter Lawrence — [The Unlicense](https://unlicense.org/)
-- Not included: Center Tap Lift.lua, _Center * and _center * (a button of other games) and alt Center/ (an alternative center); Down Tap Lift.lua (identical to CF_CHROME's, which it falls back on) and textures/FrameVibrant.ini (no model uses it, and its image is not there)
+- Not included: alt Center/ (an alternative center); Down Tap Lift.lua and Center Tap Lift.lua (identical to CF_CHROME's, which it falls back on) and textures/FrameVibrant.ini (no model uses it, and its image is not there)
 - Modifications: LICENSE and README.md copied from the repository's root
 
 ### CF_CHROME — Peter Lawrence
@@ -92,7 +92,7 @@ Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/P
 
 - **the skin (models, images, Lua, metrics, README)**: Peter Lawrence — [The Unlicense](https://unlicense.org/)
 - **Fallback HitMine Explosion 8x8 (res 1536x1536).png, rendered from JangaFX's free Aerial Explosion VDB (Embergen)**: JangaFX LLC, Peter Lawrence — [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
-- Not included: Center *, DownLeft *, DownRight *, _Center * and _center * (buttons of other games) and alt Center/ (an alternative center); Left, Right, Up, UpLeft and UpRight Flash, Glow and Spark .lua (copies of Down's, which dance's buttons fall back on); _mine model 50.txt and _mine model 75.txt (smaller mines, to swap in by hand); __ArrowExplosionTemplate.afdesign (the artist's design file) and textures/Fill_DevCel (Rename Me To Activate).png (an alternative fill, to swap in by hand)
+- Not included: DownLeft * and DownRight * (buttons of other games) and alt Center/ (an alternative center); Left, Right, Up, UpLeft and UpRight Flash, Glow and Spark .lua (copies of Down's, which dance's buttons fall back on); _mine model 50.txt and _mine model 75.txt (smaller mines, to swap in by hand); __ArrowExplosionTemplate.afdesign (the artist's design file) and textures/Fill_DevCel (Rename Me To Activate).png (an alternative fill, to swap in by hand)
 - Modifications: LICENSE and README.md copied from the repository's root
 
 ### CF_VIBRANT — Peter Lawrence
@@ -100,7 +100,7 @@ Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/P
 Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/Pete-Lawrence/Peters-Noteskins) at commit `6faea8e1a17a76beeb2a3dd1000f3f703c4e52f6`, folder `SM5/Completed/CF_VIBRANT` (retrieved 2026-10-12).
 
 - **the skin (models, images, metrics, README)**: Peter Lawrence — [The Unlicense](https://unlicense.org/)
-- Not included: _center tap note model.txt (a button of other games) and alt Center/ (an alternative center); textures/FrameLift.ini and textures/FrameLift.png (identical to CF_CHROME's, which it falls back on)
+- Not included: alt Center/ (an alternative center); textures/FrameLift.ini and textures/FrameLift.png (identical to CF_CHROME's, which it falls back on)
 - Modifications: LICENSE and README.md copied from the repository's root
 
 ### Dake — hanubeki

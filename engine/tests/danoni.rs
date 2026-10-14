@@ -79,7 +79,7 @@ const NINE_B: &str = "|difData=9B,N|\
 #[test]
 fn works_autoplay_perfectly_under_every_turn() {
     let judged_starts = format!("{SEVEN}|frzStartjdgUse=true|excessiveJdgUse=true|");
-    for text in [SEVEN, SEVEN_I, NINE_B, &judged_starts] {
+    for text in [SEVEN, NINE_B, &judged_starts] {
         let song = work(text);
         let layout = song.layout_of(&song.charts[0]).unwrap();
         let chart = song.charts[0].clone();
@@ -134,6 +134,8 @@ fn works_in_other_key_modes_are_left_out() {
     for text in [
         "|difData=11,N|left_data=300|",
         "|difData=6x,N|keyCtrl6x=4A,S,D|left_data=300|",
+        // Its giko and iyo lanes have nothing in a noteskin to draw them.
+        SEVEN_I,
     ] {
         let r = danoni::import(&Dos::parse(text, DosFlags::default()));
         assert!(r.is_err(), "{text}");

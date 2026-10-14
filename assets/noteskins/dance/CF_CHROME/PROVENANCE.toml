@@ -5,7 +5,7 @@
 author = "Peter Lawrence"
 credit = "Peter Lawrence · The Unlicense (mine explosion: JangaFX, CC0)"
 excluded = [
-    "Center *, DownLeft *, DownRight *, _Center * and _center * (buttons of other games) and alt Center/ (an alternative center)",
+    "DownLeft * and DownRight * (buttons of other games) and alt Center/ (an alternative center)",
     "Left, Right, Up, UpLeft and UpRight Flash, Glow and Spark .lua (copies of Down's, which dance's buttons fall back on)",
     "_mine model 50.txt and _mine model 75.txt (smaller mines, to swap in by hand)",
     "__ArrowExplosionTemplate.afdesign (the artist's design file) and textures/Fill_DevCel (Rename Me To Activate).png (an alternative fill, to swap in by hand)",

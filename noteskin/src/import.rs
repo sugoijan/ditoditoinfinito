@@ -117,7 +117,8 @@ pub fn find_skins(paths: &[String]) -> Vec<Found> {
     found
 }
 
-/// Whether the import keeps a skin of `game`: the dance layouts' skins and
+/// Whether the import keeps a skin of `game`: dance skins (which draw
+/// Dancing☆Onigiri's layouts too) and
 /// the shared `common` ones.
 pub fn kept_game(game: &str) -> bool {
     game == "dance" || game == "common"

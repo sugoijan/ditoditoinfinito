@@ -6,9 +6,14 @@ local ret = ... or {}
 
 -- Every button is drawn from Down's art, turned; hold and roll heads,
 -- lifts and fakes are taps (Down Tap Note.lua picks each one's sheet).
+-- Dancing☆Onigiri's onigiri (the Onigiri button) has its own taps and
+-- receptor, a star, and Down's holds and explosion.
 ret.Redir = function(sButton, sElement)
 	if string.find(sElement, "Head") or sElement == "Tap Lift" or sElement == "Tap Fake" then
 		sElement = "Tap Note"
+	end
+	if sButton == "Onigiri" and (sElement == "Tap Note" or sElement == "Receptor") then
+		return "Onigiri", sElement
 	end
 	return "Down", sElement
 end
@@ -33,6 +38,7 @@ ret.Rotate =
 	Right = -90,
 	UpLeft = 135,
 	UpRight = 225,
+	Onigiri = 0,
 }
 
 -- The explosion is one actor of its own (Down Explosion.lua).

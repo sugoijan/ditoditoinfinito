@@ -99,7 +99,7 @@ pub(crate) const BUILT_IN: &str = "builtin";
 /// Dito's key (its colour variants' are `bundled:dance/dito <scheme>`).
 const DITO: &str = "bundled:dance/dito";
 
-/// The skin a play draws the dance layouts with, by key: the chosen one,
+/// The skin a play draws its layout with, by key: the chosen one,
 /// or Dito (the built-in arrows as a skin, when none is chosen) in its
 /// variant for the note colours; none for the built-in arrows, and none
 /// instead of Dito when the chart's own colours are drawn (a skin colours
@@ -401,7 +401,7 @@ pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> Strin
             }
             line
         }
-        Ok(None) => "its lanes are not dance buttons".to_string(),
+        Ok(None) => "a layout's lanes it cannot draw".to_string(),
         Err(e) => format!(
             "its Lua stopped ({e}); it is drawn without it: {}",
             native_summary(&skin)
@@ -632,14 +632,11 @@ async fn lua_play(
     layout: &Layout,
     images: &dyn Images,
 ) -> Result<Option<NoteskinPlay>, String> {
-    if layout
-        .lanes
-        .iter()
-        .any(|l| ddi_noteskin::Button::from_lane(&l.name).is_none())
-    {
+    let loaded = Skin::load(folders, game, name).map_err(|e| e.to_string())?;
+    // Lanes no skin draws (`Skin::lane_button`).
+    if layout.lanes.iter().any(|l| loaded.lane_button(l).is_none()) {
         return Ok(None);
     }
-    let loaded = Skin::load(folders, game, name).map_err(|e| e.to_string())?;
     let lua = lua_skin(loaded.into_owned(), env, seed)
         .await
         .map_err(|e| e.to_string())?;

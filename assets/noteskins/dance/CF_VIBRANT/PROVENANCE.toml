@@ -4,7 +4,7 @@
 author = "Peter Lawrence"
 credit = "Peter Lawrence · The Unlicense"
 excluded = [
-    "_center tap note model.txt (a button of other games) and alt Center/ (an alternative center)",
+    "alt Center/ (an alternative center)",
     "textures/FrameLift.ini and textures/FrameLift.png (identical to CF_CHROME's, which it falls back on)",
 ]
 modifications = [

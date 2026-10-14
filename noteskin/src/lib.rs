@@ -1,4 +1,5 @@
-//! StepMania noteskins for the dance layouts: where a skin's files are
+//! StepMania noteskins for the dance layouts (and Dancing☆Onigiri's,
+//! `load::LaneButton`): where a skin's files are
 //! (its fallback chain, `GetPath`, redirects), what its `metrics.ini` and
 //! file names say, and what each element is. Pure: a skin is given as file
 //! names plus the text of its `metrics.ini` and `.redir` files; images are
@@ -27,6 +28,6 @@ pub mod notes;
 pub mod skin;
 pub mod svg;
 
-pub use load::{Button, Resolved, Source};
+pub use load::{Button, LaneButton, Resolved, Source};
 pub use metrics::{NoteColorType, NoteDisplay, Part, PartMetrics};
 pub use skin::{Dir, FileRef, Folder, LoadError, PathError, Skin};
