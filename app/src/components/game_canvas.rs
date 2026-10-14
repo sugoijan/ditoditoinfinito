@@ -240,14 +240,10 @@ impl Component for GameCanvas {
             SongSource::Calibration(mode) => {
                 let song = calibration::song(mode);
                 // Drawn with the chosen arrows, as a song is, readied
-                // before the start prompt shows (the test starts at
-                // once). Not in the audio test: it hides the notes, and a
-                // skin's receptors may pulse on the beat, a visual cue.
-                let skin = if mode.hide_notes() {
-                    None
-                } else {
-                    noteskin_ready(&Settings::load(), &song, 0)
-                };
+                // before the start prompt shows (the test starts at once).
+                // The audio test holds the skin's beat still
+                // (`GameLoop::frame`).
+                let skin = noteskin_ready(&Settings::load(), &song, 0);
                 let loaded = Loaded {
                     song,
                     title: mode.title().into(),

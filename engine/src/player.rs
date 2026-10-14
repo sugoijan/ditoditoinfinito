@@ -141,6 +141,11 @@ pub struct Player {
     /// The last shock stepped on: from when to when the notes to come are
     /// hidden.
     shock_blind: Option<(f64, f64)>,
+    /// Every lane's presses judged in this one ([`Player::judge_all_in`]).
+    judged_lane: Option<u8>,
+    /// While a press is applied with `judged_lane`: the lane pressed,
+    /// where its flashes show.
+    pressing: Option<u8>,
     /// Per lane `(judgement, song_time)`.
     lane_flash: Vec<Option<(Judgement, f64)>>,
     failed: bool,
@@ -214,6 +219,8 @@ impl Player {
             delta_count: 0,
             last_flash: None,
             shock_blind: None,
+            judged_lane: None,
+            pressing: None,
             lane_flash: vec![None; usize::from(lanes)],
             failed: false,
             finished: false,
@@ -368,6 +375,13 @@ impl Player {
         self.clock.song_time_at_host(host) - self.ruleset.judge.judge_offset
     }
 
+    /// Judges a press in any lane as one in `lane` (calibration by ear:
+    /// any key for the one lane), while the receptors show the lane really
+    /// pressed. `None`: each lane its own.
+    pub fn judge_all_in(&mut self, lane: Option<u8>) {
+        self.judged_lane = lane.filter(|&l| usize::from(l) < self.held.len());
+    }
+
     /// Feeds a lane edge. Returns the per-note judge events it caused.
     pub fn input(&mut self, ev: InputEvent) -> Vec<JudgeEvent> {
         if !self.started || self.finished || usize::from(ev.lane) >= self.held.len() {
@@ -375,10 +389,14 @@ impl Player {
         }
         let t = self.judge_time(ev.host_time);
         self.held[usize::from(ev.lane)] = ev.pressed;
+        let lane = self.judged_lane.unwrap_or(ev.lane);
         let events = if ev.pressed {
-            self.judge.press(ev.lane, t)
+            self.judge.press(lane, t)
+        } else if self.judged_lane.is_some() && self.held.iter().any(|&h| h) {
+            // Another lane still holds the judged one down.
+            Vec::new()
         } else {
-            self.judge.release(ev.lane, t)
+            self.judge.release(lane, t)
         };
         if ev.pressed {
             // `ReceptorArrow::Step` plays the press's score at once; `Press`
@@ -387,7 +405,7 @@ impl Player {
             // is not the press's.
             let step = events
                 .iter()
-                .filter(|e| e.lane == ev.lane)
+                .filter(|e| e.lane == lane)
                 .find_map(|e| match e.kind {
                     JudgeEventKind::Tap(j, _) if !j.is_miss() => Some(SkinEventKind::Step(Some(j))),
                     JudgeEventKind::HitMine | JudgeEventKind::HitShock => {
@@ -401,7 +419,9 @@ impl Player {
         } else {
             self.skin_event(ev.lane, SkinEventKind::Lift, t);
         }
+        self.pressing = self.judged_lane.map(|_| ev.lane);
         self.apply(&events);
+        self.pressing = None;
         events
     }
 
@@ -435,7 +455,15 @@ impl Player {
         }
         let t = self.judge_time(host_now);
         self.last_judge_time = Some(t);
-        let events = self.judge.update(t, &self.held);
+        let events = match self.judged_lane {
+            None => self.judge.update(t, &self.held),
+            // With `judge_all_in`, its lane is down while any is.
+            Some(lane) => {
+                let mut held = vec![false; self.held.len()];
+                held[usize::from(lane)] = self.held.iter().any(|&h| h);
+                self.judge.update(t, &held)
+            }
+        };
         self.apply(&events);
         if !self.finished && t >= self.song_end_time() && self.judge.all_resolved() {
             self.finish();
@@ -470,7 +498,8 @@ impl Player {
                 self.delta_sum += delta;
                 self.delta_sq_sum += delta * delta;
                 self.delta_count += 1;
-                self.lane_flash[usize::from(ev.lane)] = Some((j, ev.song_time));
+                let shown = self.pressing.unwrap_or(ev.lane);
+                self.lane_flash[usize::from(shown)] = Some((j, ev.song_time));
             }
             // `FlashGhostRow` runs before the row's score raises the combo.
             let bright = self.bright();
@@ -523,7 +552,12 @@ impl Player {
                 // row is completely judged by a press: a row that ends on a
                 // miss (judged by time) does not flash.
                 if self.row_judged[r] >= self.judge.rows()[r].size && !j.is_miss() {
-                    for lane in self.row_lanes[r].clone() {
+                    // With `judged_lane`, where the press was.
+                    let lanes = match self.pressing {
+                        Some(lane) => vec![lane],
+                        None => self.row_lanes[r].clone(),
+                    };
+                    for lane in lanes {
                         self.skin_event(
                             lane,
                             SkinEventKind::Tap {

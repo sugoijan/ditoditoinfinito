@@ -198,7 +198,8 @@ fn head_part(kind: &SpriteKind) -> LayerPart {
 pub struct RenderOptions {
     /// Receptors at the bottom, notes travel down.
     pub reverse: bool,
-    /// Draw receptors and HUD but no notes (audio-only calibration).
+    /// Draw receptors and HUD but no notes (audio-only calibration; the
+    /// app also holds the frame's beat at 0 then).
     pub hide_notes: bool,
     /// Show the signed timing error of the last hit under the judgement.
     pub show_deltas: bool,

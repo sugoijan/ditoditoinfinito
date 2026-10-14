@@ -129,8 +129,6 @@ pub(crate) struct PlaySession {
     /// A pad first seen during play (browsers reveal a pad only once a
     /// button is pressed) makes the session resolve them again.
     known_pads: Vec<(String, u32)>,
-    /// Lane that every control maps to (any-key calibration), if any.
-    any_lane: Option<u8>,
     /// The saved bindings the play started with.
     controls: ControlBindings,
     held: Vec<bool>,
@@ -253,12 +251,14 @@ impl PlaySession {
             None => settings.ruleset_for(chart),
         };
         let names = ruleset.names.clone();
+        // Any key for the one lane (calibration by ear): judged there, shown
+        // where pressed.
         let any_key = config.calibration.is_some_and(|m| m.any_key());
         let any_lane = any_key.then_some(calibration::AUDIO_LANE);
         let gamepads = config.gamepads.clone();
         let connected = connected_pads(gamepads.as_ref());
         let controls = settings.controls.clone();
-        let bindings = play_bindings(&controls, &layout, &connected, any_lane);
+        let bindings = play_bindings(&controls, &layout, &connected);
         let known_pads: Vec<(String, u32)> =
             connected.iter().map(|c| (c.id.clone(), c.index)).collect();
         let mut pad_cancel: Vec<(String, String)> = settings
@@ -341,6 +341,7 @@ impl PlaySession {
             settings.speed_source,
         );
         let mut player = Player::new(song, chart_index, ruleset, options);
+        player.judge_all_in(any_lane);
         // The autoplayer presses the transformed chart's lanes.
         let auto = config.auto.then(|| AutoPlay {
             events: ddi_engine::autoplay::script(player.judge().notes(), config.auto_bias)
@@ -448,7 +449,6 @@ impl PlaySession {
             input: LaneInput::new(bindings),
             pad_cancel,
             known_pads,
-            any_lane,
             controls,
             held: vec![false; lanes],
             raw: Vec::new(),
@@ -716,8 +716,7 @@ impl PlaySession {
     /// start; this adds standard defaults and two-pad sides).
     fn adopt_pads(&mut self) {
         let connected = connected_pads(self.gamepads.as_ref());
-        self.input.bindings =
-            play_bindings(&self.controls, &self.layout, &connected, self.any_lane);
+        self.input.bindings = play_bindings(&self.controls, &self.layout, &connected);
         for c in &connected {
             if let Some(back) = self.controls.pad(&c.id, c.standard).and_then(|p| p.back)
                 && !self.pad_cancel.iter().any(|(id, _)| *id == c.id)
@@ -801,15 +800,10 @@ fn play_bindings(
     controls: &ControlBindings,
     layout: &Layout,
     connected: &[ConnectedPad],
-    any_lane: Option<u8>,
 ) -> Bindings {
-    let mut b = controls.resolve(layout, connected, any_lane);
+    let mut b = controls.resolve(layout, connected);
     for lane in 0..layout.lanes.len() as u8 {
-        b.bind(
-            BindingDevice::Touch,
-            &format!("lane:{lane}"),
-            any_lane.unwrap_or(lane),
-        );
+        b.bind(BindingDevice::Touch, &format!("lane:{lane}"), lane);
     }
     b
 }
