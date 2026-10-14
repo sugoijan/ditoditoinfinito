@@ -10,7 +10,7 @@
 use ddi_lua::Failure;
 use std::collections::HashMap;
 
-use ddi_lua::piccolo::{Context, Table, Value};
+use ddi_lua::lunita::{Context, Table, Value};
 
 use super::host::actor_userdata;
 use super::{Host, MAX_ACTORS, Registries};

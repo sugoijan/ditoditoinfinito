@@ -417,3 +417,24 @@ Checked on it:
   `math.maxinteger - 1` is 2^63; I3b: a zero step runs no iteration;
   listed in `lua/tests/local.rs`), the longest step 7.2 ms natively, no
   trap in wasm and memory growth at most 32.4 MiB (38.4 before).
+
+## Published as lunita (2026-10-13)
+
+The maintainer published the fork on crates.io as `lunita` (0.1.0, its
+version reset; repository `sugoijan/lunita`, from `536a842`), on the
+released gc-arena 0.7 instead of the revision piccolo pinned. The
+workspace depends on `lunita = "0.1"`; `ddi-lua` re-exports it as
+`ddi_lua::lunita` (was `ddi_lua::piccolo`). One host change:
+`CompileLimits::for_context` gives a compilation the memory left before
+the limit refuses (gc-arena 0.7's `Metrics` count pointers, not bytes;
+`ddi-lua` had computed the room from `total_allocation` with its own
+margin). Checked on it:
+
+- every native test of the workspace (`just test`) and `just check`;
+- StepMania 5.1's and ITGmania's own skins with their Lua and 20 s of
+  play at 60 and 144 Hz (`DDI_NOTESKINS_LUA=1`, `DDI_NOTESKINS_LUA_PLAY=1`):
+  all 27 load, every element an actor;
+- lunita's exported limit cases (126) through `ddi-lua`: natively in
+  release every outcome as expected (with the four Lua 5.1 differences
+  above), the longest step 4.5 ms, at most 29.5 MiB; in wasm under Node
+  the same outcomes, no trap, memory growth at most 32.4 MiB.

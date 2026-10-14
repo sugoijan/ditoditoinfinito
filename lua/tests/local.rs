@@ -3,7 +3,7 @@
 //!
 //! - `DDI_LUA_CORPUS=<dir>[:<dir>…]` compiles every `.lua` under the
 //!   folders, `cmd` rewritten, and reports failures and compile times.
-//! - `DDI_LUA_CASES=<cases.txt>` runs the piccolo fork's limit cases
+//! - `DDI_LUA_CASES=<cases.txt>` runs lunita's limit cases
 //!   (`cargo test --test limits -- --ignored export_cases` there) through
 //!   a [`Vm`] with the default settings, one step per [`Vm::run`], a host
 //!   stop after 2 s, and checks each outcome and, in release builds, that
@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use ddi_lua::piccolo::{Callback, CallbackReturn};
+use ddi_lua::lunita::{Callback, CallbackReturn};
 use ddi_lua::{Budget, Failure, Outcome, Settings, Vm};
 
 fn lua_files(dir: &Path, out: &mut Vec<PathBuf>) {

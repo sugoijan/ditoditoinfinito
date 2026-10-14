@@ -1,7 +1,7 @@
 //! `ddi-lua` end to end: the `cmd` rewrite as StepMania runs it, the
 //! sandbox's globals, budgets, the deadline and the limits.
 
-use ddi_lua::piccolo::{Callback, CallbackReturn, Value};
+use ddi_lua::lunita::{Callback, CallbackReturn, Value};
 use ddi_lua::{Budget, Failure, LimitError, Outcome, Settings, Task, Vm};
 
 const UNLIMITED: Budget = Budget {
@@ -29,7 +29,7 @@ fn vm() -> Vm {
         ctx.set_global(
             "LOG_LINE",
             Callback::from_fn(&ctx, |ctx, _, mut stack| {
-                let line: ddi_lua::piccolo::String = stack.consume(ctx)?;
+                let line: ddi_lua::lunita::String = stack.consume(ctx)?;
                 let mut all = match ctx.get_global_value("LOG") {
                     Value::String(s) => s.as_bytes().to_vec(),
                     _ => Vec::new(),

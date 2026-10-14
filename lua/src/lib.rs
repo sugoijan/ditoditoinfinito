@@ -1,8 +1,8 @@
 //! StepMania's Lua, run so that a player never has to trust a script
-//! (`docs/plans/lua.md`): a hardened fork of piccolo (memory and string
-//! limits checked before allocating, fuel charged in proportion to work,
-//! no panics, Lua 5.1's behaviour), with what StepMania adds on top: the
-//! `cmd` keyword ([`cmd`]) and Lua 5.1's globals ([`sandbox`]).
+//! (`docs/plans/lua.md`): lunita, our hardened fork of piccolo (memory
+//! and string limits checked before allocating, fuel charged in proportion
+//! to work, no panics, Lua 5.1's behaviour), with what StepMania adds on
+//! top: the `cmd` keyword ([`cmd`]) and Lua 5.1's globals ([`sandbox`]).
 //!
 //! A [`Vm`] is one script's world: its own heap, globals and limits, shared
 //! with nothing; dropping it frees everything it made. Code runs as a
@@ -11,8 +11,8 @@
 //! [`Settings::step_fuel`]. Fuel decides in normal runs, so a script
 //! behaves the same on every platform; the deadline is the backstop.
 //!
-//! Platform-free: no clock, no files. Host functions are piccolo callbacks
-//! (re-exported as [`piccolo`]) and charge fuel for the work they do with
+//! Platform-free: no clock, no files. Host functions are lunita callbacks
+//! (re-exported as [`lunita`]) and charge fuel for the work they do with
 //! `Execution::fuel` or `Context::charge_fuel`.
 
 #![deny(
@@ -30,14 +30,14 @@ pub mod sandbox;
 
 use std::fmt;
 
-pub use piccolo;
-use piccolo::compiler::{CompileBudget, CompileLimits};
-use piccolo::fuel::cost;
-use piccolo::{
+pub use lunita;
+use lunita::compiler::{CompileBudget, CompileLimits};
+use lunita::fuel::cost;
+use lunita::{
     Closure, Compat, Context, Error, Executor, Fuel, FunctionPrototype, Lua, StashedExecutor,
     StashedFunction, StashedValue, Value, Variadic,
 };
-pub use piccolo::{LimitError, Limits};
+pub use lunita::{LimitError, Limits};
 
 /// What a [`Vm`] may use. The defaults are the plan's proposed bounds for
 /// a noteskin.
@@ -180,7 +180,7 @@ impl Vm {
         &self.settings
     }
 
-    /// The piccolo state, for host functions and reading results.
+    /// The lunita state, for host functions and reading results.
     pub fn lua(&mut self) -> &mut Lua {
         &mut self.lua
     }
@@ -296,7 +296,7 @@ pub fn compile<'gc>(
     settings: &Settings,
     name: &str,
     source: &[u8],
-) -> Result<piccolo::Function<'gc>, Failure> {
+) -> Result<lunita::Function<'gc>, Failure> {
     if source.len() > settings.source_len {
         return Err(Failure::Compile(format!(
             "{}: source is longer than {} bytes",
@@ -309,25 +309,20 @@ pub fn compile<'gc>(
     let source = rewritten.as_deref().unwrap_or(source);
     // Positions in errors show the chunk name as it is stored.
     let id = chunk_id(name);
-    let limits = ctx.limits();
-    let budget = CompileBudget::new(CompileLimits {
-        memory: limits
-            .memory
-            .map(|m| (m - m / 16).saturating_sub(ctx.metrics().total_allocation())),
-        string_len: limits.string_len,
-        work: Some(settings.compile_work),
-    });
+    // The memory left before the limit refuses, and the string length
+    // limit, with the work cap.
+    let budget = CompileBudget::new(CompileLimits::for_context(ctx, Some(settings.compile_work)));
     let result = FunctionPrototype::compile_with_budget(ctx, &id, source, &budget);
     let fuel =
         budget.work() / cost::COMPILE_WORK as u64 + source.len() as u64 / cost::SOURCE_BYTES as u64;
     ctx.charge_fuel(i32::try_from(fuel).unwrap_or(i32::MAX));
     let proto = result.map_err(|e| match e {
-        piccolo::CompilerError::Limit(l) => Failure::Limit(l),
+        lunita::CompilerError::Limit(l) => Failure::Limit(l),
         e => Failure::Compile(compile_message(name, &e)),
     })?;
     let closure = Closure::new(&ctx, proto, Some(ctx.globals()))
         .map_err(|e| Failure::Compile(format!("{}: {e}", chunk_id(name))))?;
-    Ok(piccolo::Function::from(closure))
+    Ok(lunita::Function::from(closure))
 }
 
 /// `luaO_chunkid`'s display of a chunk name: `@path` and `=name` without
@@ -346,12 +341,12 @@ pub fn chunk_id(name: &str) -> String {
     }
 }
 
-fn compile_message(name: &str, e: &piccolo::CompilerError) -> String {
+fn compile_message(name: &str, e: &lunita::CompilerError) -> String {
     match e {
-        piccolo::CompilerError::Parsing(p) => {
+        lunita::CompilerError::Parsing(p) => {
             format!("{}:{}: {}", chunk_id(name), p.line_number, p.kind)
         }
-        piccolo::CompilerError::Compilation(c) => {
+        lunita::CompilerError::Compilation(c) => {
             format!("{}:{}: {}", chunk_id(name), c.line_number, c.kind)
         }
         e => format!("{}: {e}", chunk_id(name)),

@@ -5,9 +5,9 @@
 //! `collectgarbage` (the host adds its own `loadfile` over the skin's
 //! files, and `print`).
 
-use piccolo::limits::LimitError;
-use piccolo::stdlib::{load_base, load_coroutine, load_math, load_string, load_table};
-use piccolo::{Callback, CallbackReturn, Context, Table, Value};
+use lunita::limits::LimitError;
+use lunita::stdlib::{load_base, load_coroutine, load_math, load_string, load_table};
+use lunita::{Callback, CallbackReturn, Context, Table, Value};
 
 /// Globals the fork's libraries define that a script must not have.
 const REMOVED: &[&str] = &["load", "collectgarbage"];

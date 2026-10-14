@@ -39,10 +39,11 @@ the browser are implementation details, not advertised features.
   SVG images in a checked subset (`noteskin/src/svg.rs`, our extension). Pure,
   natively tested; `docs/plans/noteskins.md`. `render/src/noteskin.rs`
   draws a skin in play and runs its Lua each frame.
-- `lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`): a
-  hardened fork of piccolo with per-VM memory and string limits, fuel and
-  a deadline per call, StepMania's `cmd` keyword, Lua 5.1's globals and
-  nothing that reaches outside. Platform-free, natively tested.
+- `lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`):
+  `lunita` (crates.io), our hardened fork of piccolo, with per-VM memory
+  and string limits, fuel and a deadline per call, StepMania's `cmd`
+  keyword, Lua 5.1's globals and nothing that reaches outside.
+  Platform-free, natively tested.
 - `app/` the web shell: Yew for menus, wgpu canvas for play, Web Audio clock,
   settings in `localStorage`, imported songs in IndexedDB. Compiles for
   `wasm32-unknown-unknown` only.
@@ -78,7 +79,7 @@ the browser are implementation details, not advertised features.
   reports the Lua's fuel per frame).
 - `DDI_LUA_CORPUS=<dir>[:<dir>…]` / `DDI_LUA_CASES=<cases.txt>` with
   `cargo test --release -p ddi-lua --test local -- --nocapture` compile
-  local skins' Lua, or run the piccolo fork's exported limit cases with
+  local skins' Lua, or run lunita's exported limit cases with
   their time gates (under the memory watchdog).
 - `just video` builds the decoder module (downloads the pinned toolchain and
   FFmpeg into `target/video/`); `just video-check [file]` checks it on a file
