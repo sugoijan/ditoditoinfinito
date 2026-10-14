@@ -652,7 +652,8 @@ impl Component for Options {
 
 impl Options {
     /// "Arrows": the built-in ones, a bundled or an imported noteskin (for
-    /// dance layouts; the colour scheme above is the built-in ones').
+    /// StepMania's and Dancing☆Onigiri's layouts; the colour scheme above
+    /// is the built-in ones').
     fn noteskin_choice(&self, link: &html::Scope<Self>) -> Html {
         use crate::noteskins::BUILT_IN;
         let list = self.noteskins.clone();
@@ -690,7 +691,7 @@ impl Options {
                         <option value={k.clone()} selected={current.as_deref() == Some(k.as_str())}>{ format!("noteskin: {name}") }</option>
                     }) }
                 </select>
-                { " (dance layouts) " }
+                { " " }
                 { for delete }
             </label>
             { self.arrows_preview(link) }
@@ -698,8 +699,8 @@ impl Options {
         }
     }
 
-    /// The arrows chosen, playing a short chart: a skin on dance layouts,
-    /// the built-in arrows (in the note colours) on the others.
+    /// The arrows chosen, playing a short chart on a layout of one's
+    /// choosing.
     fn arrows_preview(&self, link: &html::Scope<Self>) -> Html {
         use crate::components::skin_preview::{PreviewCanvas, PreviewOptions};
         let s = &self.settings;

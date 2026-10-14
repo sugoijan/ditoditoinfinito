@@ -75,9 +75,9 @@ as a component: it keeps its device and renderer and loads another skin
 when its options change (an older load gives way to a newer one). Under
 the Arrows choice, Options shows the arrows a play would draw (the chosen
 skin, or Dito in the note colours, or the built-in arrows) playing the
-demo, with a layout to preview it on: a skin draws the dance layouts, the
-built-in arrows the rest (the onigiri, giko and iyo lanes of
-Dancing☆Onigiri's key modes; no skin draws those yet).
+demo, with a layout to preview it on: since 2026-10-13 a skin draws
+Dancing☆Onigiri's key modes too (`docs/plans/danoni-skins.md`); the
+built-in arrows draw them when chosen.
 
 A hidden page counts as paused, and a jump in time (more than a quarter
 second) catches the demo up without its events, which a skin's Lua would

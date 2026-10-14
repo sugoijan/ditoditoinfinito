@@ -86,8 +86,15 @@ pub struct Layout {
 }
 
 /// Dancing☆Onigiri key modes the game plays: the ones close to four lanes
-/// (decision 27). The rest of danoniplus's modes are kept as data only.
-pub const PLAYED_DANONI_MODES: [&str; 5] = ["5", "7", "7i", "9A", "9B"];
+/// whose lanes are arrows and the onigiri (decision 27; 7i's giko and iyo
+/// lanes left it on 2026-10-13). The rest of danoniplus's modes are kept
+/// as data only.
+pub const PLAYED_DANONI_MODES: [&str; 4] = ["5", "7", "9A", "9B"];
+
+/// Key modes the game played once: their charts keep their places in a
+/// work's songs, unplayable, since works stored before refer to charts by
+/// position (`docs/plans/danoni-skins.md`).
+pub const FORMER_DANONI_MODES: [&str; 1] = ["7i"];
 
 /// Ids of the built-in StepMania layouts, in the order the game lists them
 /// (the Dancing☆Onigiri key modes follow, see [`Layout::builtin_ids`]).

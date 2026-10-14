@@ -1,8 +1,8 @@
--- Dito's explosions (the built-in arrows have none). A hit bursts from
--- the receptor in its judgement's colour, as a glow and the arrow's
--- outline growing and fading, larger and brighter past 100 combo; a
--- completed hold bursts green; a held hold or roll glows green, pulsing
--- on the beat (a roll faster); a mine flashes red.
+-- Dito's explosions (the built-in arrows have none). A hit bursts from the
+-- receptor in its judgement's colour, as a glow and the arrow's outline
+-- (the onigiri's star's) growing and fading, larger and brighter past 100
+-- combo; a completed hold bursts green; a held hold or roll glows green,
+-- pulsing on the beat (a roll faster); a mine flashes red.
 local colors =
 {
 	TapNoteScore_W1 = color("0.55,0.95,1,1"),
@@ -15,7 +15,7 @@ local colors =
 local held = color("0.55,0.95,0.65,1")
 local mine = color("1,0.35,0.3,1")
 local glow = NOTESKIN:GetPath("_down", "glow")
-local outline = NOTESKIN:GetPath("_down", "receptor")
+local outline = NOTESKIN:GetPath(Var "Button" == "Onigiri" and "_onigiri" or "_down", "receptor")
 
 local function burst(self, c, bright)
 	self:GetChild("Glow"):finishtweening()

@@ -195,8 +195,31 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
         let chart_label = format!("chart {} ({label} keys, {name})", i + 1);
         if !crate::layout::PLAYED_DANONI_MODES.contains(&label.as_str()) {
             warnings.push(format!(
-                "{chart_label}: {label} keys is not a key mode this game plays (it plays 5, 7, 7i, 9A and 9B keys)"
+                "{chart_label}: {label} keys is not a key mode this game plays (it plays 5, 7, 9A and 9B keys)"
             ));
+            if crate::layout::FORMER_DANONI_MODES.contains(&label.as_str()) {
+                // Kept in its place, unplayable: no layout resolves its id.
+                let music = music_nos.get(i).copied().unwrap_or(0);
+                let k = match songs.iter().position(|(m, _)| *m == music) {
+                    Some(k) => k,
+                    None => {
+                        songs.push((music, new_song(music, &titles, &urls, &tuning)));
+                        songs.len() - 1
+                    }
+                };
+                songs[k].1.charts.push(Chart {
+                    layout: layout_id(&label),
+                    difficulty: Difficulty::Edit,
+                    meter: level.clamp(0, 999) as u32,
+                    name: name.clone(),
+                    description: name,
+                    credit: maker.unwrap_or_else(|| tuning.clone()),
+                    notes: Vec::new(),
+                    timing: None,
+                    display_bpm: None,
+                    danoni: None,
+                });
+            }
             continue;
         }
         let (def, from_header) = match keys::key_def(dos, &label) {
@@ -392,7 +415,8 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
         index.resize(i, None);
         index.push(Some((song_index, songs[song_index].1.charts.len())));
         let song = &mut songs[song_index].1;
-        if song.charts.is_empty() {
+        // The first playable chart's (a former key mode's has none).
+        if song.charts.iter().all(|c| c.timing.is_none()) {
             song.timing = chart.timing.clone().expect("set above");
         }
         // Lyrics and the other effects stay as raw events for later layers,
@@ -418,6 +442,28 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
             }
         }
         song.charts.push(chart);
+    }
+    // Songs left with former key modes' charts only: not songs.
+    let keep: Vec<bool> = songs
+        .iter()
+        .map(|(_, s)| s.charts.iter().any(|c| c.timing.is_some()))
+        .collect();
+    if keep.contains(&false) {
+        let mut at = 0;
+        let renumber: Vec<Option<usize>> = keep
+            .iter()
+            .map(|&k| {
+                k.then(|| {
+                    at += 1;
+                    at - 1
+                })
+            })
+            .collect();
+        for e in &mut index {
+            *e = e.and_then(|(s, c)| renumber[s].map(|s| (s, c)));
+        }
+        let mut k = keep.iter();
+        songs.retain(|_| *k.next().unwrap_or(&false));
     }
     if songs.is_empty() {
         // Every reason, so the one that matters (a key mode the game does
@@ -864,6 +910,35 @@ fn lyric_text(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn charts_of_a_former_key_mode_keep_their_places() {
+        // 7i, played until 2026-10-13: works stored before refer to the
+        // charts after it by position.
+        let text = "|difData=7,A$7i,B$7,C|left_data=300|left3_data=320|";
+        let i = import(&Dos::parse(text, DosFlags::default())).unwrap();
+        let song = &i.songs[0];
+        assert_eq!(song.charts.len(), 3);
+        assert_eq!(song.charts[2].name, "C");
+        assert_eq!(song.layout_of(&song.charts[1]), None);
+        assert_eq!(song.playable_charts().count(), 2);
+        assert_eq!(i.charts, vec![Some((0, 0)), None, Some((0, 2))]);
+        assert!(i.warnings.iter().any(|w| w.contains("7i keys")));
+        // A work of 7i charts only is not playable.
+        assert!(
+            import(&Dos::parse(
+                "|difData=7i,A|left_data=300|",
+                DosFlags::default()
+            ))
+            .is_err()
+        );
+        // Nor is a song (music) of them alone.
+        let text =
+            "|musicUrl=a.ogg$b.ogg|musicNo=0$1|difData=7,A$7i,B|left_data=300|left2_data=300|";
+        let i = import(&Dos::parse(text, DosFlags::default())).unwrap();
+        assert_eq!(i.songs.len(), 1);
+        assert_eq!(i.charts, vec![Some((0, 0)), None]);
+    }
 
     fn import_text(text: &str) -> Import {
         import(&Dos::parse(text, DosFlags::default())).unwrap()

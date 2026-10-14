@@ -1,8 +1,10 @@
 //! The skins bundled with the game (`assets/noteskins/<game>/<name>/`, see
 //! `docs/plans/bundled-skins.md`) load through their Lua with every
-//! element the engine asks for, for all six dance buttons, without a
-//! warning, and their taps and receptors are their own (all of Dito's,
-//! Alpha-Arrows', Dake's and Peter Lawrence's CF skins' elements are).
+//! element the engine asks for, for all six dance buttons and the button
+//! a Dancing☆Onigiri onigiri lane takes (`docs/plans/danoni-skins.md`),
+//! without a warning, and their taps and receptors are their own (all of
+//! Dito's, Alpha-Arrows', Dake's and Peter Lawrence's CF skins' elements
+//! are).
 
 use std::path::Path;
 
@@ -75,6 +77,23 @@ fn bundled_skins_build_every_element_through_their_lua() {
     assert!(!folders.is_empty());
     for f in folders.iter().filter(|f| f.game == "dance") {
         let skin = Skin::load(&folders, &f.game, &f.name).unwrap();
+        // The onigiri: Dito's own, the CF skins' centre, the others' Down.
+        let seven = ddi_chart::Layout::builtin("danoni-7").unwrap();
+        let onigiri = seven
+            .lanes
+            .iter()
+            .find(|l| l.glyph == ddi_chart::Glyph::Onigiri)
+            .and_then(|l| skin.lane_button(l))
+            .unwrap()
+            .button;
+        let expected = if f.name.starts_with("Dito") {
+            Button::Onigiri
+        } else if f.name.starts_with("CF_") {
+            Button::Center
+        } else {
+            Button::Down
+        };
+        assert_eq!(onigiri, expected, "{}", f.name);
         let start = std::time::Instant::now();
         let mut lua = LuaSkin::new(
             skin.into_owned(),
@@ -85,7 +104,7 @@ fn bundled_skins_build_every_element_through_their_lua() {
         )
         .unwrap_or_else(|e| panic!("{}: {e}", f.name));
         let mut textures = Textures::default();
-        for b in Button::ALL {
+        for b in Button::ALL.into_iter().chain([onigiri]) {
             for e in ENGINE_ELEMENTS {
                 let el = lua
                     .element(b, e, &mut textures, &AnySize)
@@ -114,6 +133,21 @@ fn bundled_skins_build_every_element_through_their_lua() {
             }
         }
         assert_eq!(lua.warnings(), Vec::<String>::new(), "{}", f.name);
+        // Dito's onigiri bursts in its star's outline.
+        if f.name.starts_with("Dito") {
+            let mut star = Textures::default();
+            let el = lua
+                .element(Button::Onigiri, "Explosion", &mut star, &AnySize)
+                .unwrap();
+            assert!(matches!(el.built, Built::Actor(_)));
+            assert!(
+                star.keys().iter().any(|k| matches!(k,
+                    ddi_noteskin::build::TextureKey::Skin { path, .. } if path == "_onigiri receptor.svg")),
+                "{}: {:?}",
+                f.name,
+                star.keys()
+            );
+        }
         // Dito's lifts and fakes are drawn from sheets of their own.
         if f.name.starts_with("Dito") {
             let paths: Vec<String> = textures

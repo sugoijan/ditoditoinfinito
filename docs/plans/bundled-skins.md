@@ -15,6 +15,7 @@ were fetched and run through `local_skins` on 2026-10-12 (below).
 | Alpha-Arrows (Aozora Tori) | Apache-2.0 (`[Readme].txt`, `LICENSE`) | Tiny-Foxes/Aozora-Tori-Assets @ `499ee273` | 156 of 156, no warnings, at most 27.8k fuel; 512 px art. Its readme says its Lua is "based from" Lirodon's OutFox skins (no licence) and its explosion Lua is Jose Valera's: the images and metrics are the author's, the Lua is not cleanly licensed |
 | Dake (hanubeki) | Apache-2.0 (`README.md`, `LICENSE`) | hanubeki/dake @ `e26aa8d0` | every element fails: it calls OutFox's `INPUTFILTER`, `GAMESTATE:GetIsFieldReversed`, `THEME:GetMetric("NoteField", …)` and `_fallback`'s `JudgmentLineToColor`; with those four stubbed, 156 of 156 and at most 20.5k fuel |
 | CF_CHROME, CF_VIBRANT, CF_ALLOY (Peter Lawrence) | Unlicense (CF_CHROME's mine explosion CC0, JangaFX) | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-12: taps, lifts and mines are MilkShape models (`docs/plans/models.md`, step 5) |
+| (2026-10-13) CF_CHROME, CF_VIBRANT, CF_ALLOY's `Center` files | Unlicense | the same | restored byte for byte so the family draws Dancing☆Onigiri's onigiri as its own (`docs/plans/danoni-skins.md`); CF_ALLOY's `Center Tap Lift.lua` left out, CF_CHROME's |
 | Peters-DDR-Vivid, Peters-DDR-Note (Peter Lawrence) | Unlicense | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-13: Vivid's taps a model whose colours cycle in vivid; it falls back on Note (models for taps and lifts, Lua for the rest, 6.2 MB, most of it four mine sheets). Both load all 156 elements as their own; full autoplays all Fantastic on WebGPU, WebGL2 and in Firefox |
 
 The built-in arrows (`render/src/scene.rs`, `shader.wgsl`,
@@ -37,10 +38,12 @@ not along the arrow). They draw no explosions.
   Lua written from what the skin needs, MIT, in the bundled folder next to
   the upstream art and listed as a modification.
 - **The built-in arrows in Lua** are a bundled skin, `Dito`, and the
-  default for dance layouts. The procedural arrows stay: they are what a
-  skin's missing elements fall back on, what is drawn when a skin's Lua
-  stops, every non-dance layout's look, and a choice under Options
-  ("built in, no Lua") for slow devices.
+  default for dance layouts (and, since 2026-10-13, Dancing☆Onigiri's,
+  with a star for the onigiri: `docs/plans/danoni-skins.md`). The
+  procedural arrows stay: they are what a skin's missing elements fall
+  back on, what is drawn when a skin's Lua stops, the look when a chart's
+  own colours are drawn, and a choice under Options ("built in, no Lua")
+  for slow devices.
 - **Bundled skins are read-only; each kind falls back on its own kind
   first**: an imported skin's chain looks in imported skins before bundled
   ones, so an import named like a bundled skin stands in for it there

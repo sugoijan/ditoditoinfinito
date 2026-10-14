@@ -20,7 +20,7 @@ use ddi_noteskin::build::{Built, Images, TextureKey, Textures, build, build_colo
 use ddi_noteskin::lua::{FrameBudget, LuaSkin, NOTE_COLORS, Param, Pause, Position};
 use ddi_noteskin::metrics::{NoteDisplay, Part};
 use ddi_noteskin::notes::{animation_percent, color_offset, note_type};
-use ddi_noteskin::{Button, Skin};
+use ddi_noteskin::{Button, LaneButton, Skin};
 
 use crate::color::to_target;
 use crate::model::{Camera, triangles};
@@ -436,6 +436,51 @@ impl Lane {
         }
     }
 
+    /// Whether its tap note and receptor are drawn by the skin (or are
+    /// blank), not by the built-in skin: a lane built with a button the
+    /// skin cannot draw is not.
+    fn can_stand(&self) -> bool {
+        self.tap.is_skin() && self.receptor.is_skin()
+    }
+
+    /// Turns the elements StepMania turns with their button `degrees` more
+    /// (a lane drawn with another button's elements, `LaneButton::turn`).
+    fn turn(&mut self, degrees: f32) {
+        if degrees == 0.0 {
+            return;
+        }
+        let Lane {
+            receptor,
+            explosion,
+            tap,
+            lift,
+            fake,
+            hold,
+            roll,
+            colors,
+            ..
+        } = self;
+        let heads = hold.head.iter_mut().chain(roll.head.iter_mut());
+        let copies = colors.iter_mut().flat_map(|set| {
+            let [hold_head, ..] = &mut set.hold;
+            let [roll_head, ..] = &mut set.roll;
+            [&mut set.tap, &mut set.lift, &mut set.fake]
+                .into_iter()
+                .chain(hold_head.iter_mut())
+                .chain(roll_head.iter_mut())
+                .filter_map(Option::as_mut)
+        });
+        for e in [receptor, explosion, tap, lift, fake]
+            .into_iter()
+            .chain(heads)
+            .chain(copies)
+        {
+            if let Element::Actor(a) = e {
+                a.base_rotation[2] += degrees;
+            }
+        }
+    }
+
     /// Drops the copies that are not drawn as their 4ths' are (the skin's
     /// or the built-in skin's): a copy that failed to load falls back to
     /// the 4ths'.
@@ -521,12 +566,52 @@ impl NoteskinPlay {
         let mut notes = Vec::new();
         let mut lanes = Vec::new();
         for lane in &layout.lanes {
-            let button = Button::from_lane(&lane.name)?;
+            let candidates = skin.lane_buttons(lane);
+            if candidates.is_empty() {
+                return None;
+            }
+            let mut chosen = None;
+            for (k, lane_button) in candidates.iter().enumerate() {
+                let mut lane_notes = Vec::new();
+                let assembled = Self::native_lane(
+                    skin,
+                    lane,
+                    *lane_button,
+                    images,
+                    &mut textures,
+                    &mut lane_notes,
+                );
+                // The next candidate when this one has no tap or receptor.
+                if k + 1 == candidates.len() || assembled.can_stand() {
+                    notes.append(&mut lane_notes);
+                    chosen = Some(assembled);
+                    break;
+                }
+            }
+            lanes.extend(chosen);
+        }
+        let mut play =
+            NoteskinPlay::from_lanes(skin.name.clone(), lanes, textures, notes, srgb, None);
+        play.legacy = skin.legacy;
+        Some(play)
+    }
+
+    /// One lane of [`NoteskinPlay::new`], with `lane_button`'s elements.
+    fn native_lane(
+        skin: &Skin<'_>,
+        lane: &ddi_chart::Lane,
+        lane_button: LaneButton,
+        images: &dyn Images,
+        textures: &mut Textures,
+        notes: &mut Vec<String>,
+    ) -> Lane {
+        {
+            let button = lane_button.button;
             let elements = LANE_ELEMENTS
                 .iter()
                 .map(|name| {
-                    let built = build(skin, button, name, &mut textures, images);
-                    to_element(built, button, name, &textures, &mut notes)
+                    let built = build(skin, button, name, textures, images);
+                    to_element(built, button, name, textures, notes)
                 })
                 .collect();
             let metrics = NoteDisplay::read(skin, button.name());
@@ -544,21 +629,18 @@ impl NoteskinPlay {
                 for color in &NOTE_COLORS[1..] {
                     let mut set = ColorSet::default();
                     for &name in &colored {
-                        let built = build_colored(skin, button, name, color, &mut textures, images);
+                        let built = build_colored(skin, button, name, color, textures, images);
                         if let Some(place) = set.place(name) {
-                            *place = Some(to_element(built, button, name, &textures, &mut notes));
+                            *place = Some(to_element(built, button, name, textures, notes));
                         }
                     }
                     assembled.colors.push(set);
                 }
                 assembled.settle_colors();
             }
-            lanes.push(assembled);
+            assembled.turn(lane_button.turn);
+            assembled
         }
-        let mut play =
-            NoteskinPlay::from_lanes(skin.name.clone(), lanes, textures, notes, srgb, None);
-        play.legacy = skin.legacy;
-        Some(play)
     }
 
     /// Builds every lane's elements through the skin's Lua, giving the host
@@ -572,64 +654,43 @@ impl NoteskinPlay {
         srgb: bool,
         mut pause: Option<&mut Pause>,
     ) -> Result<Option<NoteskinPlay>, Failure> {
-        let Some(buttons) = layout
+        let candidates: Vec<Vec<LaneButton>> = layout
             .lanes
             .iter()
-            .map(|l| Button::from_lane(&l.name))
-            .collect::<Option<Vec<_>>>()
-        else {
+            .map(|l| lua.skin().lane_buttons(l))
+            .collect();
+        if candidates.iter().any(Vec::is_empty) {
             return Ok(None);
-        };
+        }
         let mut textures = Textures::default();
         let mut notes = Vec::new();
         let mut lanes = Vec::new();
-        for (lane, button) in layout.lanes.iter().zip(buttons) {
-            let mut elements = Vec::new();
-            // The note elements whose Lua read their colour.
-            let mut colored = Vec::new();
-            for name in LANE_ELEMENTS {
-                let (built, read) = lua
-                    .element_colored_sliced(
-                        button,
-                        name,
-                        NOTE_COLORS[0],
-                        &mut textures,
-                        images,
-                        pause.as_deref_mut(),
-                    )
-                    .await?;
-                if read && ColorSet::default().place(name).is_some() {
-                    colored.push(name);
-                }
-                elements.push(to_element(built, button, name, &textures, &mut notes));
-            }
-            let metrics = NoteDisplay::read(&lua.skin(), button.name());
-            let mut assembled = Lane::assemble(elements, metrics, lane.scroll_sign);
-            if !colored.is_empty() {
-                for color in &NOTE_COLORS[1..] {
-                    let mut set = ColorSet::default();
-                    for &name in &colored {
-                        let (built, _) = lua
-                            .element_colored_sliced(
-                                button,
-                                name,
-                                color,
-                                &mut textures,
-                                images,
-                                pause.as_deref_mut(),
-                            )
-                            .await?;
-                        if let Some(place) = set.place(name) {
-                            *place = Some(to_element(built, button, name, &textures, &mut notes));
-                        }
-                    }
-                    assembled.colors.push(set);
+        let mut lane_buttons = Vec::new();
+        for (lane, candidates) in layout.lanes.iter().zip(&candidates) {
+            for (k, lane_button) in candidates.iter().enumerate() {
+                let mut lane_notes = Vec::new();
+                let assembled = Self::lua_lane(
+                    &mut lua,
+                    lane,
+                    *lane_button,
+                    images,
+                    &mut textures,
+                    &mut lane_notes,
+                    pause.as_deref_mut(),
+                )
+                .await?;
+                // The next candidate when the skin's Lua cannot build this
+                // one's tap or receptor (no redirect for `Center`).
+                if k + 1 == candidates.len() || assembled.can_stand() {
+                    notes.append(&mut lane_notes);
+                    lanes.push(assembled);
+                    lane_buttons.push(*lane_button);
+                    break;
                 }
             }
-            lanes.push(assembled);
         }
         // Every element is loaded: the play takes the trees it draws.
-        for lane in &mut lanes {
+        for (lane, lane_button) in lanes.iter_mut().zip(&lane_buttons) {
             for e in lane.elements_mut() {
                 if let Element::Actor(a) = e
                     && !lua.reclaim(a)
@@ -638,6 +699,8 @@ impl NoteskinPlay {
                 }
             }
             lane.settle_colors();
+            // On the trees taken (the ones lent to Lua again later).
+            lane.turn(lane_button.turn);
         }
         let name = lua.skin().name.clone();
         let mut play = NoteskinPlay::from_lanes(name, lanes, textures, notes, srgb, Some(lua));
@@ -650,6 +713,66 @@ impl NoteskinPlay {
             play.lua_seen = lua.warnings_since(0).len();
         }
         Ok(Some(play))
+    }
+
+    /// One lane of [`NoteskinPlay::with_lua`], with `lane_button`'s
+    /// elements built through the skin's Lua (their trees still the
+    /// skin's).
+    async fn lua_lane(
+        lua: &mut LuaSkin,
+        lane: &ddi_chart::Lane,
+        lane_button: LaneButton,
+        images: &dyn Images,
+        textures: &mut Textures,
+        notes: &mut Vec<String>,
+        mut pause: Option<&mut Pause>,
+    ) -> Result<Lane, Failure> {
+        {
+            let button = lane_button.button;
+            let mut elements = Vec::new();
+            // The note elements whose Lua read their colour.
+            let mut colored = Vec::new();
+            for name in LANE_ELEMENTS {
+                let (built, read) = lua
+                    .element_colored_sliced(
+                        button,
+                        name,
+                        NOTE_COLORS[0],
+                        textures,
+                        images,
+                        pause.as_deref_mut(),
+                    )
+                    .await?;
+                if read && ColorSet::default().place(name).is_some() {
+                    colored.push(name);
+                }
+                elements.push(to_element(built, button, name, textures, notes));
+            }
+            let metrics = NoteDisplay::read(&lua.skin(), button.name());
+            let mut assembled = Lane::assemble(elements, metrics, lane.scroll_sign);
+            if !colored.is_empty() {
+                for color in &NOTE_COLORS[1..] {
+                    let mut set = ColorSet::default();
+                    for &name in &colored {
+                        let (built, _) = lua
+                            .element_colored_sliced(
+                                button,
+                                name,
+                                color,
+                                textures,
+                                images,
+                                pause.as_deref_mut(),
+                            )
+                            .await?;
+                        if let Some(place) = set.place(name) {
+                            *place = Some(to_element(built, button, name, textures, notes));
+                        }
+                    }
+                    assembled.colors.push(set);
+                }
+            }
+            Ok(assembled)
+        }
     }
 
     fn from_lanes(
@@ -1710,6 +1833,10 @@ mod tests {
 
     /// [`lua_play`] with more text files.
     fn lua_play_with(tap: &str, more: &[(&str, &str)]) -> NoteskinPlay {
+        lua_play_on(&Layout::dance_single(), tap, more)
+    }
+
+    fn lua_play_on(layout: &Layout, tap: &str, more: &[(&str, &str)]) -> NoteskinPlay {
         let file = |name: &str, text: &str| (name.to_string(), text.to_string());
         let mut texts = vec![
             file("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
@@ -1759,8 +1886,7 @@ mod tests {
             }),
         )
         .unwrap();
-        let layout = Layout::dance_single();
-        let mut f = std::pin::pin!(NoteskinPlay::with_lua(lua, &layout, &NoImages, false, None));
+        let mut f = std::pin::pin!(NoteskinPlay::with_lua(lua, layout, &NoImages, false, None));
         match f
             .as_mut()
             .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
@@ -1778,6 +1904,81 @@ mod tests {
     }
 
     use std::future::Future;
+
+    #[test]
+    fn an_onigiri_the_skins_lua_cannot_draw_as_its_centre_is_its_down() {
+        // Centre art, but a redirect table without `Center`: `GetPath`
+        // gets no button and the element fails.
+        let skin_lua = "local ret = ... or {}\n\
+            ret.RedirTable = { Left = 'Down', Down = 'Down', Up = 'Down', Right = 'Down' }\n\
+            local OldRedir = ret.Redir\n\
+            ret.Redir = function(b, e) b, e = OldRedir(b, e) return ret.RedirTable[b], e end\n\
+            return ret\n";
+        let layout = Layout::builtin("danoni-5").unwrap();
+        let play = lua_play_on(
+            &layout,
+            "return Def.ActorFrame { Def.Sprite { Texture = 'x.png' } }\n",
+            &[
+                ("NoteSkin.lua", skin_lua),
+                (
+                    "Center Tap Note.lua",
+                    "return Def.Sprite { Texture = 'x.png' }\n",
+                ),
+            ],
+        );
+        // The onigiri (lane 4) is drawn with Down's tap note, the skin's.
+        let onigiri = &play.lanes[4];
+        assert!(matches!(onigiri.tap, Element::Actor(_)), "{:?}", play.notes);
+        assert!(matches!(onigiri.receptor, Element::Actor(_)));
+    }
+
+    #[test]
+    fn a_dancing_onigiri_layout_takes_the_skins_centre_and_turns_its_down() {
+        let files = [
+            "metrics.ini",
+            "Down Tap Note.png",
+            "Down Receptor.png",
+            "Center Tap Note.png",
+            "Center Receptor.png",
+        ];
+        let folders = vec![Folder {
+            game: "dance".into(),
+            name: "s".into(),
+            files: files.iter().map(|f| f.to_string()).collect(),
+            texts: vec![(
+                "metrics.ini".into(),
+                "[Global]\nFallbackNoteSkin=common\n".into(),
+            )],
+        }];
+        let skin = Skin::load(&folders, "dance", "s").unwrap();
+        let layout = Layout::builtin("danoni-7").unwrap();
+        let play = NoteskinPlay::new(&skin, &layout, &NoImages, false).unwrap();
+        let texture = |e: &Element| match &actor(e).kind {
+            ddi_noteskin::actor::Kind::Sprite(s) => {
+                play.textures.keys()[s.texture as usize].clone()
+            }
+            other => panic!("{other:?}"),
+        };
+        // Lane 1, down-left: Down's tap note and receptor turned 45°.
+        let lane = &play.lanes[1];
+        assert_eq!(actor(&lane.tap).base_rotation[2], 45.0);
+        assert_eq!(actor(&lane.receptor).base_rotation[2], 45.0);
+        // Lane 3, the onigiri: the skin's centre, unturned.
+        let onigiri = &play.lanes[3];
+        assert_eq!(
+            texture(&onigiri.tap),
+            TextureKey::Skin {
+                dir: ddi_noteskin::Dir::Folder(0),
+                path: "Center Tap Note.png".into()
+            }
+        );
+        assert_eq!(actor(&onigiri.tap).base_rotation[2], 0.0);
+        // A layout with a lane no skin draws: none.
+        let seven_i = ddi_chart::layout::danoni::builtin("7i")
+            .unwrap()
+            .layout("danoni-7i".into());
+        assert!(NoteskinPlay::new(&skin, &seven_i, &NoImages, false).is_none());
+    }
 
     #[test]
     fn a_skins_lua_plays_the_engines_events() {

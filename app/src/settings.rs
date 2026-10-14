@@ -49,7 +49,7 @@ pub(crate) struct Settings {
     /// How notes are coloured.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub(crate) note_colors: NoteColors,
-    /// The noteskin dance layouts are drawn with: an imported one's key,
+    /// The noteskin layouts are drawn with: an imported one's key,
     /// `dance/<name>`, a bundled one's, `bundled:dance/<name>`, or
     /// `builtin` for the built-in arrows without a skin; `None`: Dito, the
     /// built-in arrows as a skin (`crate::noteskins::play_skin`).

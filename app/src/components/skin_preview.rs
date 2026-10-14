@@ -12,8 +12,8 @@
 //! chart scrolling into the receptors: taps hit in every judgement's
 //! window and a miss, holds and rolls kept and dropped, a mine; `rows` arrows tall, default 5, `speed` its x-mod,
 //! default 1.5), `layout` (a built-in layout's id, default
-//! `dance-single`; a skin draws dance layouts only, the built-in arrows the
-//! rest). A test may set `window.__DDI_PREVIEW_BEAT`; after drawing it the
+//! `dance-single`; a skin draws Dancing☆Onigiri's onigiri with its own
+//! onigiri or centre elements, else its Down's: `docs/plans/danoni-skins.md`). A test may set `window.__DDI_PREVIEW_BEAT`; after drawing it the
 //! page sets `window.__DDI_PREVIEW_DRAWN` to that beat.
 
 use std::cell::{Cell, RefCell};
@@ -393,12 +393,7 @@ fn size_canvas(canvas: &HtmlCanvasElement, options: &PreviewOptions) {
 /// for meanwhile.
 async fn load(state: &Rc<RefCell<State>>, options: PreviewOptions, generation: u64) {
     let layout = options.layout();
-    // A skin draws the dance layouts; the built-in arrows the rest.
-    let dance = layout
-        .lanes
-        .iter()
-        .all(|l| ddi_noteskin::Button::from_lane(&l.name).is_some());
-    let prepared = if options.skin == crate::noteskins::BUILT_IN || !dance {
+    let prepared = if options.skin == crate::noteskins::BUILT_IN {
         None
     } else {
         crate::noteskins::prepare(&options.skin, &layout, Default::default()).await
@@ -445,7 +440,7 @@ async fn load(state: &Rc<RefCell<State>>, options: PreviewOptions, generation: u
     };
     st.status = match &play {
         Some(p) => format!("{} on {}", p.name, gfx.backend_name()),
-        None if options.skin != crate::noteskins::BUILT_IN && dance => {
+        None if options.skin != crate::noteskins::BUILT_IN => {
             format!("no noteskin {:?}: the built-in arrows", options.skin)
         }
         None => format!("built-in arrows on {}", gfx.backend_name()),
