@@ -628,3 +628,25 @@ unchanged. Next extend reviewed engine profiles and implement milestone 5's host
 URL/policy/cache and bounded index discovery. Source transformations need their
 own evidenced contracts; musical estimate acceptance, HTML5 capture, other-OS
 confinement and desktop library installation remain separate work.
+
+
+### Early shared-engine menu profile, 2026-10-14
+
+The [early-menu profile](danoni-rust-early-profiles.md) recognizes six exact
+shared gen1 control/placement roles, observes its distinct options-menu frame,
+derives five-key collaborator selectors and supplies the offscreen renderer.
+Initialization/audio discovery is bounded to 600 iterations to fit the unchanged
+rendered-worker CPU budget; later/insufficient starts fail explicitly. All
+source/schedule, motion, clock, role-control and PCM checks remain mandatory.
+
+Targeted identity inventory scans every bounded SWF tag for AVM2 and retains
+required role duplicates, without spending its emitted-record allowance on
+unrelated artwork placements. The original full-inventory API/limits remain
+unchanged; receipts declare the narrower fingerprint scope. No acquired code or
+third-party assets enter the repository, and accepted exports remain unchanged.
+Fresh automatic runs cover all 17 matching works / 23 charts, compared with
+frozen source/audio references and 14,818 real-parser endpoints. Both four-row
+collaborations are discovered at runtime; operation-budget retries retain their
+original failures. No note timing or fit parameter is selected by song identity.
+Next implement milestone 5's host URL/policy/cache and bounded discovery services
+for this proven profile subset; add other engine variants incrementally.

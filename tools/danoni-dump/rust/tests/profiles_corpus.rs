@@ -46,6 +46,59 @@ fn compare(a: &Value, b: &Value, path: &str) {
         _ => assert_eq!(a, b, "{path}"),
     }
 }
+// Worker iterations/output sample cursors are replay provenance. Native
+// logical origin, stream slice and all other music metadata remain exact.
+fn compare_origin(actual: &Value, old: &Value, path: &str) -> Value {
+    let step = actual["iteration"].as_i64().unwrap() - old["iteration"].as_i64().unwrap();
+    // The reviewed worker mixes 44.1 kHz PCM at the profiles' verified 60 Hz.
+    // samplesPerMovieFrame belongs to the source stream head, not this mixer.
+    let samples = 44100. / 60.;
+    let output =
+        actual["outputSampleFrame"].as_f64().unwrap() - old["outputSampleFrame"].as_f64().unwrap();
+    assert!(
+        (output - step as f64 * samples).abs() < 1e-8,
+        "{path}: replay step/sample displacement disagrees"
+    );
+    let mut expected = old.clone();
+    expected["iteration"] = actual["iteration"].clone();
+    expected["outputSampleFrame"] = actual["outputSampleFrame"].clone();
+    compare(actual, &expected, path);
+    json!({"workerIterationDifference":step,"outputSampleFrameDifference":output,"nativeLogicalFrameUnchanged":true,"otherStreamFieldsUnchanged":true})
+}
+#[test]
+fn replay_epoch_changes_must_explain_sample_cursor_without_moving_native_time() {
+    let old = json!({"iteration":201,"outputSampleFrame":147000,"samplesPerMovieFrame":735,"logicalFrame":145,"sliceStart":100,"sliceEnd":200,"clock":"frame_num"});
+    let mut replay = old.clone();
+    replay["iteration"] = json!(203);
+    replay["outputSampleFrame"] = json!(148470);
+    assert_eq!(
+        compare_origin(&replay, &old, "origin")["workerIterationDifference"],
+        2
+    );
+    for field in [
+        "outputSampleFrame",
+        "logicalFrame",
+        "sliceStart",
+        "samplesPerMovieFrame",
+    ] {
+        let mut bad = replay.clone();
+        bad[field] = json!(bad[field].as_i64().unwrap() + 1);
+        assert!(
+            std::panic::catch_unwind(|| compare_origin(&bad, &old, "bad")).is_err(),
+            "{field}"
+        );
+    }
+    replay["iteration"] = json!(199);
+    replay["outputSampleFrame"] = json!(145530);
+    compare_origin(&replay, &old, "earlier replay");
+    let mut half_rate = old.clone();
+    half_rate["samplesPerMovieFrame"] = json!(367);
+    half_rate["sampleRate"] = json!(22050);
+    let mut replay = half_rate.clone();
+    replay["iteration"] = json!(203);
+    replay["outputSampleFrame"] = json!(148470);
+    compare_origin(&replay, &half_rate, "source head is not output stride");
+}
 struct Memory(BTreeMap<String, Arc<Vec<u8>>>);
 impl AssetSource for Memory {
     fn read(&self, namespace: &str, path: &str, max: usize) -> ddi_danoni_export::Result<Vec<u8>> {
@@ -158,6 +211,8 @@ fn automatic_profiles_match_frozen_charts_and_feed_the_game_parser() {
                 "preparedIteration",
                 "splitIteration",
                 "compiledIteration",
+                "clockInitializationIteration",
+                "audioOrigin",
             ];
             for (key, value) in old.as_object().unwrap() {
                 if !provenance.contains(&key.as_str()) {
@@ -169,6 +224,19 @@ fn automatic_profiles_match_frozen_charts_and_feed_the_game_parser() {
                     old.get(key).is_some() || key == "compiledIteration",
                     "unexpected new chart field {key}"
                 );
+            }
+            let origin_difference = compare_origin(
+                &c["audioOrigin"],
+                &old["audioOrigin"],
+                &format!("{id}.{name}.audioOrigin"),
+            );
+            for reference in [c, old] {
+                if let Some(clock) = reference.get("clockInitializationIteration") {
+                    assert_eq!(
+                        clock, &reference["preparedIteration"],
+                        "Clock-init provenance must be the independently proved zero-counter witness"
+                    );
+                }
             }
             let mut actual_effects = c["effects"].clone();
             let mut expected_effects = old["effects"].clone();
@@ -216,7 +284,7 @@ fn automatic_profiles_match_frozen_charts_and_feed_the_game_parser() {
                 .unwrap();
             assert!(delta <= 1, "{id}.{name}: PCM difference {delta}");
             max_pcm_difference = max_pcm_difference.max(delta);
-            differences.push(json!({"chart":name,"frozenChart":old_id,"canonicalPcmMaxDifference":delta,"previousPreparedIteration":old["preparedIteration"],"currentPreparedIteration":c["preparedIteration"],"previousSplitIteration":old["splitIteration"],"currentSplitIteration":c["splitIteration"],"compiledIteration":c["compiledIteration"],"reviewedProvenanceChanges":["selector IDs/reference paths","capture iterations","WAV encoder bytes within one PCM unit","relocated optional-colour evidence paths","structured GET evidence on reviewed optional-colour denial"]}));
+            differences.push(json!({"chart":name,"frozenChart":old_id,"canonicalPcmMaxDifference":delta,"previousPreparedIteration":old["preparedIteration"],"currentPreparedIteration":c["preparedIteration"],"previousSplitIteration":old["splitIteration"],"currentSplitIteration":c["splitIteration"],"compiledIteration":c["compiledIteration"],"audioOriginReplay":origin_difference,"reviewedProvenanceChanges":["selector IDs/reference paths","capture iterations and source-proved zero-counter witnesses","worker-origin iterations/output cursors displaced together by exact native sample stride","WAV encoder bytes within one PCM unit","relocated optional-colour evidence paths","structured GET evidence on reviewed optional-colour denial"]}));
             charts += 1;
             for lane in c["lanes"].as_array().unwrap() {
                 taps += lane["tapsSeconds"].as_array().unwrap().len();

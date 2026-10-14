@@ -150,11 +150,17 @@ fn add(
 fn blob(files: &mut BTreeMap<String, Arc<Vec<u8>>>, b: Arc<Vec<u8>>) -> Result<Binding> {
     add(files, format!("inputs/blobs/{}", sha256(&b)), b)
 }
-fn config(context: &Value, events: &[Value], frames: &[u64], mix: bool) -> Result<Vec<u8>> {
+fn config(
+    context: &Value,
+    events: &[Value],
+    frames: &[u64],
+    mix: bool,
+    render: bool,
+) -> Result<Vec<u8>> {
     let mut value = context.clone();
     value["events"] = json!(events);
     value["captureFrames"] = json!(frames);
-    value["render"] = json!(false);
+    value["render"] = json!(render);
     value["mixAudio"] = json!(mix);
     value["inspectionScale"] = json!(4);
     value["avmExecutionMs"] = json!(2000);
@@ -181,9 +187,8 @@ fn prepare(
     }
     let mut inputs = Inputs::new(source);
     let movie_bytes = inputs.checked(&request.movie, swf::MOVIE_LIMIT)?;
-    let movie = Movie::read(&movie_bytes, checkpoint)?;
-    let profile = identify(&movie, checkpoint)?;
-    let fingerprints = movie.action_fingerprints(checkpoint)?;
+    let movie = swf::Movie::read(&movie_bytes, checkpoint)?;
+    let (profile, fingerprints) = identity::inspect(&movie, checkpoint)?;
     let raw_context = inputs.checked(&request.context, 65536)?;
     let context: NativeContext = json(&raw_context)?;
     let configured = request.context.sibling(&RelativeBinding {
@@ -201,7 +206,7 @@ fn prepare(
         return Err(invalid("Source manifest names another movie"));
     }
     let mut value = serde_json::to_value(&context).map_err(|e| invalid(e.to_string()))?;
-    config(&value, &[], &[1], false)?;
+    config(&value, &[], &[1], false, profile.render())?;
     let mut files = BTreeMap::new();
     let movie = blob(&mut files, movie_bytes)?;
     let source = add(&mut files, "inputs/source-manifest.json".into(), provenance)?;
@@ -371,7 +376,13 @@ impl<F: FnMut(&ProfileProgress) -> Result<()>> Run<'_, F> {
                 + self.request.capture_limits.output_bytes
                 + 578 * 1024 * 1024,
         )?;
-        let b = config(&self.prepared.context, events, frames, mix)?;
+        let b = config(
+            &self.prepared.context,
+            events,
+            frames,
+            mix,
+            self.prepared.profile.render(),
+        )?;
         let binding = bind(format!("inputs/{id}.json"), &b);
         orchestration::write(self.root, &binding.path, &b)?;
         let request = CaptureRequest {
@@ -515,11 +526,11 @@ pub fn execute(
         run.state.stage = "menu";
         let (capture, menu_binding) = run.capture(
             "menu",
-            &[json!({"frame":40,"type":"click","x":160,"y":200})],
+            &[json!({"frame":40,"type":"click","x":160,"y":prepared.profile.title_y()})],
             &[45, 46],
             false,
         )?;
-        let menu = read_menu(&capture)?;
+        let menu = prepared.profile.read_menu(&capture)?;
         observed_menu = Some(json!({"menu":menu,"capture":menu_binding}));
         if let Some(indices) = &request.selectors
             && indices.iter().any(|i| *i >= menu.rows.len())
@@ -542,11 +553,11 @@ pub fn execute(
             };
             run.state.selector = Some(row.index);
             run.state.stage = "initialization";
-            let controls = selector_controls(&menu, row.index)?;
+            let controls = prepared.profile.selector_controls(&menu, row.index)?;
             let mut events = controls.events.clone();
             let opts = options(mode)?;
             let mut frames = controls.initialization_frames.clone();
-            frames.push(1200);
+            frames.push(prepared.profile.discovery_end());
             frames.sort_unstable();
             frames.dedup();
             let (mut capture, mut projection_binding) = run.capture(
@@ -568,7 +579,7 @@ pub fn execute(
                         .cloned()
                         .collect::<Vec<_>>()
                 );
-                let selected = read_menu(&selected)?;
+                let selected = prepared.profile.read_menu(&selected)?;
                 if selected.rows != menu.rows || selected.selected != row.index {
                     return Err(invalid("Observed selected menu differs from planned row"));
                 }
@@ -585,15 +596,15 @@ pub fn execute(
                 .enumerate()
                 .filter(|(_, s)| {
                     s["compression"] == "Mp3"
-                        && s["iteration"]
-                            .as_u64()
-                            .is_some_and(|f| f >= controls.start && f <= 1200)
+                        && s["iteration"].as_u64().is_some_and(|f| {
+                            f >= controls.start && f <= prepared.profile.discovery_end()
+                        })
                 })
                 .map(|(i, _)| i)
                 .collect::<Vec<_>>();
             if streams.len() != 1 {
                 return Err(invalid(
-                    "Need exactly one observed chart MP3 start after the selected start action",
+                    "Need exactly one observed chart MP3 start within the profile discovery interval",
                 ));
             }
             let stream = streams[0];
@@ -757,20 +768,20 @@ pub fn execute(
                 config: projection_binding.config,
                 projection: Observation {
                     capture_frames: frames.clone(),
-                    render: false,
+                    render: prepared.profile.render(),
                     mix_audio: true,
                     avm_execution_ms: None,
                 },
                 motion: Observation {
                     capture_frames: selection.iterations.clone(),
-                    render: false,
+                    render: prepared.profile.render(),
                     mix_audio: true,
                     avm_execution_ms: None,
                 },
                 motion_selection: selection,
                 audio: Observation {
                     capture_frames: frames,
-                    render: false,
+                    render: prepared.profile.render(),
                     mix_audio: true,
                     avm_execution_ms: None,
                 },
@@ -825,7 +836,7 @@ pub fn execute(
         Ok(v) => (Some(v), None),
         Err(e) => (None, Some(e)),
     };
-    let mut manifest = json!({"schema":"ddi-danoni-native-profile-run/1","producer":"native-menu-profiles/1","ready":failure.is_none(),"profile":prepared.profile,"request":request,"worker":worker,"fingerprints":prepared.fingerprints,"sourceInputs":prepared.source_inputs,"menu":observed_menu,"excludedSelectors":excluded_selectors,"failedSelector":if failure.is_some(){run.state.selector}else{None},"captures":run.captures,"motionTrials":run.trials,"playInputs":play_inputs,"pendingDependencies":run.pending,"plannedCharts":planned,"normalized":normalized,"failure":failure,"scope":"Requested observed supported menu selectors and proved source/motion/PCM normalization; no HTTP, hidden-chart completeness, tempo acceptance or installation"});
+    let mut manifest = json!({"schema":"ddi-danoni-native-profile-run/1","producer":"native-menu-profiles/1","ready":failure.is_none(),"profile":prepared.profile,"request":request,"worker":worker,"fingerprints":prepared.fingerprints,"fingerprintScope":"Reviewed control/placement roles plus every AVM2 tag; complete bounded tag scan, not a full script audit","sourceInputs":prepared.source_inputs,"menu":observed_menu,"excludedSelectors":excluded_selectors,"failedSelector":if failure.is_some(){run.state.selector}else{None},"captures":run.captures,"motionTrials":run.trials,"playInputs":play_inputs,"pendingDependencies":run.pending,"plannedCharts":planned,"normalized":normalized,"failure":failure,"scope":"Requested observed supported menu selectors and proved source/motion/PCM normalization; no HTTP, hidden-chart completeness, tempo acceptance or installation"});
     if failure.is_none() {
         orchestration::write(run.root, ".manifest.json.tmp", &bytes(&manifest)?)?;
         run.state.stage = "ready";

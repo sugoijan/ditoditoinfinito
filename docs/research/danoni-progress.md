@@ -142,8 +142,11 @@ windows. [Resource recovery before menu observation](danoni-rust-profile-recover
 now shares the bounded dependency coordinator and exact optional-404 handling.
 The [hold-head/derived-input extension](danoni-rust-hold-motion.md) now proves
 two requested early-hold work selectors with unchanged source/audio gates. Its
-third selector rewrites source frames and remains excluded. Broader engine
-profiles and URL acquisition remain ahead.
+third selector rewrites source frames and remains excluded. The
+[early-menu extension](danoni-rust-early-profiles.md) adds another shared gen1
+control contract, runtime collaborator selection and offscreen rendering: all
+17 matching works / 23 charts pass frozen-reference, PCM and real-parser checks.
+Broader engine variants and URL acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

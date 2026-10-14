@@ -18,6 +18,9 @@ the same operation-wide bounds. The [hold-head/intro-input extension](../../../d
 adds generic hold witnesses and bounded source-derived physical inputs, recapturing
 all roles and preserving full source/audio proofs. Optional zero-based
 `ProfileRequest.selectors` records unselected rows explicitly. The
+[early menu profile](../../../docs/research/danoni-rust-early-profiles.md) extends
+automatic selection to a shared gen1 five-key engine, including its renderer and
+bounded control-role identity inventory. The
 [native audio stage](../../../docs/research/danoni-rust-audio.md) decodes supplied
 normalized sources and produces WAV/Ogg neutral receipts in process. Accepted
 media and reviewed banners can still be reused byte-identically;

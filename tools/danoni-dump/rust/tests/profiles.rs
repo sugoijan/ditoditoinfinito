@@ -598,3 +598,132 @@ fn installed_hold_profile_reproves_shared_inputs_and_keeps_unselected_rows_expli
     assert_eq!(invalid.manifest["captures"].as_object().unwrap().len(), 1);
     assert!(!invalid.output.join("manifest.json").exists());
 }
+
+#[test]
+fn early_menu_contract_has_its_own_frame_and_admits_only_proved_five_key_rows() {
+    let early = EngineProfile::RekuConstantMenuEarly;
+    let later = EngineProfile::RekuConstantMenu;
+    let mut c = menu(0);
+    assert!(early.read_menu(&c).is_err());
+    for capture in c["captures"].as_array_mut().unwrap() {
+        capture["state"]["roots"][0]["movieFrame"] = json!(4);
+    }
+    assert!(later.read_menu(&c).is_err());
+    let observed = early.read_menu(&c).unwrap();
+    assert_eq!(observed.rows[0].mode, Some(Mode::Five));
+    assert_eq!(observed.rows[1].key_label, "7");
+    assert_eq!(observed.rows[1].mode, None);
+    assert_eq!(observed.rows[2].mode, None);
+    // Sharing a menu decoder must not bypass its other integrity checks.
+    set_property(&mut c, 1, "diffin", string("2"));
+    assert!(early.read_menu(&c).is_err());
+}
+
+#[test]
+fn early_controls_use_reviewed_positions_with_observed_selector_wraparound() {
+    let mut m = read_menu(&menu(0)).unwrap();
+    m.selected = 2;
+    let early = EngineProfile::RekuConstantMenuEarly
+        .selector_controls(&m, 1)
+        .unwrap();
+    let later = selector_controls(&m, 1).unwrap();
+    assert_eq!(early.events.len(), 4);
+    assert_eq!(
+        early.events[0],
+        json!({"frame":40,"type":"click","x":160,"y":165})
+    );
+    assert_eq!(
+        early.events[1],
+        json!({"frame":43,"type":"click","x":40,"y":45})
+    );
+    assert_eq!(
+        early.events[2],
+        json!({"frame":45,"type":"click","x":40,"y":45})
+    );
+    assert_eq!(early.events[3], later.events[3]);
+    assert_eq!(early.start, later.start);
+    assert_eq!(early.initialization_frames, later.initialization_frames);
+    assert_eq!(later.events[0]["y"], 200);
+    assert_eq!(later.events[1]["y"], 35);
+}
+
+#[test]
+fn installed_early_profile_discovers_collaborator_rows_and_replays_rendered_roles() {
+    use std::{fs, path::PathBuf};
+    let (Some(job), Some(bundle)) = (
+        std::env::var_os("DDI_DANONI_EARLY_PROFILE_JOB"),
+        std::env::var_os("DDI_DANONI_WORKER_BUNDLE"),
+    ) else {
+        eprintln!("SKIP: set DDI_DANONI_EARLY_PROFILE_JOB and DDI_DANONI_WORKER_BUNDLE");
+        return;
+    };
+    let scratch = std::env::temp_dir().join(format!("ddi-early-profile-{}", std::process::id()));
+    fs::create_dir(&scratch).unwrap();
+    struct Guard(PathBuf);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _guard = Guard(scratch.clone());
+    let out = execute_job(
+        &PathBuf::from(bundle),
+        &PathBuf::from(job),
+        &scratch.join("run"),
+        &mut |_| Ok(()),
+    )
+    .unwrap();
+    assert!(out.ready, "{:?}", out.failure);
+    assert_eq!(out.manifest["profile"], "reku-constant-menu-early/1");
+    let menu = &out.manifest["menu"]["menu"];
+    assert_eq!(menu["rows"].as_array().unwrap().len(), 4);
+    assert_eq!(out.manifest["normalized"]["charts"], 4);
+    assert!(
+        out.manifest["excludedSelectors"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let request: ddi_danoni_export::extraction::NativeWorkRequest =
+        serde_json::from_slice(&fs::read(out.output.join("normalization-request.json")).unwrap())
+            .unwrap();
+    for (i, chart) in request.charts.iter().enumerate() {
+        assert_eq!(chart.id, format!("chart-{i}"));
+        assert_eq!(
+            chart.label.as_ref().unwrap(),
+            menu["rows"][i]["label"].as_str().unwrap()
+        );
+        assert_eq!(chart.options.mode, Mode::Five);
+        let mut events = None;
+        for role in [&chart.projection, &chart.motion, &chart.audio] {
+            let config: Value =
+                serde_json::from_slice(&fs::read(out.output.join(&role.config.path)).unwrap())
+                    .unwrap();
+            assert_eq!(config["render"], true);
+            assert_eq!(config["inspectionScale"], 4);
+            assert_eq!(config["avmExecutionMs"], 2000);
+            if let Some(events) = &events {
+                assert_eq!(&config["events"], events);
+            }
+            events = Some(config["events"].clone());
+        }
+    }
+    let normalized: Value =
+        serde_json::from_slice(&fs::read(out.output.join("normalized/manifest.json")).unwrap())
+            .unwrap();
+    for chart in normalized["charts"].as_array().unwrap() {
+        assert!(
+            chart["compiledIteration"].as_u64().unwrap()
+                < chart["preparedIteration"].as_u64().unwrap()
+        );
+        assert_eq!(
+            chart["clockInitializationIteration"],
+            chart["preparedIteration"]
+        );
+    }
+    let replay: ddi_danoni_export::orchestration::PlanJob =
+        serde_json::from_slice(&fs::read(out.output.join("replay-job.json")).unwrap()).unwrap();
+    for c in replay.plan.charts {
+        assert!(c.projection.render && c.motion.render && c.audio.render);
+    }
+}

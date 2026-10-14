@@ -1,6 +1,7 @@
 //! Reviewed native engine candidates plus observed menu/selector/motion plans.
 //! A fingerprint proposes controls; source-bound runtime proofs authorize data.
 mod driver;
+mod identity;
 mod play;
 pub use crate::dependencies::{
     ProfileDependencyJob, execute_profile as execute_with_dependencies,
@@ -10,80 +11,14 @@ use crate::{
     Error, Result,
     extraction::{self, Family, Graph, MotionSelection, MotionSource, ProjectionOptions},
     model::Mode,
-    swf::{ActionFingerprint, Movie},
 };
 pub use driver::*;
+pub use identity::{EngineProfile, identify};
 pub use play::{early_hold_inputs, has_early_holds};
 use serde::Serialize;
 use serde_json::{Value, json};
 fn invalid(message: impl Into<String>) -> Error {
     Error::new("invalid-native-profile", message)
-}
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
-pub enum EngineProfile {
-    #[serde(rename = "reku-constant-menu/1")]
-    RekuConstantMenu,
-}
-const SIGNATURES: [(&str, u32, u16, &str); 5] = [
-    (
-        "root",
-        2,
-        12,
-        "e31b884f5db263c4a86c19e7a5eb8f71572966a77d858189a5a1cb3d031d07aa",
-    ),
-    (
-        "root",
-        5,
-        12,
-        "00472fc658b9fc0f457f9f0425cdb92faabf10bfd91662a61c6ee8749fa02a02",
-    ),
-    (
-        "root/sprite200",
-        1,
-        12,
-        "55979055488391f3d56a9480b6b4d0134b536d2c5a678133dea6f402c330f383",
-    ),
-    (
-        "root/sprite1802",
-        1,
-        12,
-        "1ccb61af5c7df86bb1d30911e5675585be7241fb4212a4b85d2b7eb107cff994",
-    ),
-    (
-        "root",
-        4,
-        26,
-        "81adf7cc1a2f09499ee2566b02e09019b4fd82b7950937b4241ab15d512ac5a1",
-    ),
-];
-pub fn identify(
-    movie: &Movie,
-    checkpoint: &mut impl FnMut() -> Result<()>,
-) -> Result<EngineProfile> {
-    let fingerprints = movie.action_fingerprints(checkpoint)?;
-    identify_fingerprints(movie.header.fps, movie.header.swf_version, &fingerprints)
-}
-fn identify_fingerprints(
-    fps: f64,
-    version: u8,
-    rows: &[ActionFingerprint],
-) -> Result<EngineProfile> {
-    if fps == 60.
-        && version <= 8
-        && !rows.iter().any(|r| [72, 82].contains(&r.code))
-        && SIGNATURES.iter().all(|(path, frame, code, hash)| {
-            let mut matching = rows
-                .iter()
-                .filter(|r| r.path == *path && r.frame == *frame && r.code == *code);
-            matching.next().is_some_and(|r| r.sha256 == *hash) && matching.next().is_none()
-        })
-    {
-        return Ok(EngineProfile::RekuConstantMenu);
-    }
-    Err(Error::new(
-        "unsupported-native-profile",
-        "No reviewed static native menu profile matches this movie",
-    ))
 }
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -115,10 +50,12 @@ fn integer(v: &Value, max: usize) -> Result<usize> {
     }
     Ok(n as usize)
 }
-fn menu_at(item: &Value) -> Result<Menu> {
+fn menu_at(profile: EngineProfile, item: &Value) -> Result<Menu> {
     let graph = Graph::new(&item["state"])?;
-    if graph.root_frame()? != 3. {
-        return Err(invalid("Expected reviewed options-menu root frame 3"));
+    if graph.root_frame()? != profile.menu_frame() {
+        return Err(invalid(
+            "Expected the identified profile's options-menu frame",
+        ));
     }
     let root = graph.root()?;
     let count = integer(prop(&root, "difficulty")?, 16)?;
@@ -134,11 +71,7 @@ fn menu_at(item: &Value) -> Result<Menu> {
         if label.len() > 4096 || key_label.len() > 128 {
             return Err(invalid("Unbounded menu text"));
         }
-        let mode = match key_label.as_str() {
-            "5" => Some(Mode::Five),
-            "7" => Some(Mode::Seven),
-            _ => None,
-        };
+        let mode = profile.mode(&key_label);
         rows.push(MenuRow {
             index: i,
             label,
@@ -160,30 +93,36 @@ fn menu_at(item: &Value) -> Result<Menu> {
     }
     Ok(Menu { rows, selected })
 }
+/// Compatibility entry point for the original Higan-build menu contract.
 pub fn read_menu(capture: &Value) -> Result<Menu> {
-    extraction::audit_ok(capture, &[])?;
-    if capture["swfHeaderFps"].as_f64() != Some(60.) || capture["avm1Halted"] != false {
-        return Err(invalid("Menu requires nonhalted 60 Hz capture"));
-    }
-    let captures = capture["captures"]
-        .as_array()
-        .filter(|a| a.len() >= 2 && a.len() <= 16)
-        .ok_or_else(|| invalid("Need repeated bounded menu observations"))?;
-    let first = menu_at(&captures[0])?;
-    let mut last = None;
-    for c in captures {
-        let f = c["frame"]
-            .as_u64()
-            .ok_or_else(|| invalid("Missing menu iteration"))?;
-        if !(1..=1200).contains(&f) || last.is_some_and(|n| n >= f) {
-            return Err(invalid("Menu iterations must increase"));
+    EngineProfile::RekuConstantMenu.read_menu(capture)
+}
+impl EngineProfile {
+    pub fn read_menu(self, capture: &Value) -> Result<Menu> {
+        extraction::audit_ok(capture, &[])?;
+        if capture["swfHeaderFps"].as_f64() != Some(60.) || capture["avm1Halted"] != false {
+            return Err(invalid("Menu requires nonhalted 60 Hz capture"));
         }
-        last = Some(f);
-        if menu_at(c)? != first {
-            return Err(invalid("Menu changed across observations"));
+        let captures = capture["captures"]
+            .as_array()
+            .filter(|a| a.len() >= 2 && a.len() <= 16)
+            .ok_or_else(|| invalid("Need repeated bounded menu observations"))?;
+        let first = menu_at(self, &captures[0])?;
+        let mut last = None;
+        for c in captures {
+            let f = c["frame"]
+                .as_u64()
+                .ok_or_else(|| invalid("Missing menu iteration"))?;
+            if !(1..=1200).contains(&f) || last.is_some_and(|n| n >= f) {
+                return Err(invalid("Menu iterations must increase"));
+            }
+            last = Some(f);
+            if menu_at(self, c)? != first {
+                return Err(invalid("Menu changed across observations"));
+            }
         }
+        Ok(first)
     }
-    Ok(first)
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -192,26 +131,32 @@ pub struct SelectorControls {
     pub start: u64,
     pub initialization_frames: Vec<u64>,
 }
+/// Compatibility entry point for the original Higan-build controls.
 pub fn selector_controls(menu: &Menu, index: usize) -> Result<SelectorControls> {
-    if menu.rows.is_empty()
-        || menu.rows.len() > 16
-        || menu.selected >= menu.rows.len()
-        || index >= menu.rows.len()
-    {
-        return Err(invalid("Selector outside observed table"));
+    EngineProfile::RekuConstantMenu.selector_controls(menu, index)
+}
+impl EngineProfile {
+    pub fn selector_controls(self, menu: &Menu, index: usize) -> Result<SelectorControls> {
+        if menu.rows.is_empty()
+            || menu.rows.len() > 16
+            || menu.selected >= menu.rows.len()
+            || index >= menu.rows.len()
+        {
+            return Err(invalid("Selector outside observed table"));
+        }
+        let clicks = (index + menu.rows.len() - menu.selected) % menu.rows.len();
+        let mut events = vec![json!({"frame":40,"type":"click","x":160,"y":self.title_y()})];
+        for step in 0..clicks {
+            events.push(json!({"frame":43+2*step,"type":"click","x":40,"y":self.next_y()}));
+        }
+        let start = 50u64.max(46 + 2 * clicks as u64);
+        events.push(json!({"frame":start,"type":"click","x":50,"y":230}));
+        Ok(SelectorControls {
+            events,
+            start,
+            initialization_frames: (start - 2..=start + 8).collect(),
+        })
     }
-    let clicks = (index + menu.rows.len() - menu.selected) % menu.rows.len();
-    let mut events = vec![json!({"frame":40,"type":"click","x":160,"y":200})];
-    for step in 0..clicks {
-        events.push(json!({"frame":43+2*step,"type":"click","x":40,"y":35}));
-    }
-    let start = 50u64.max(46 + 2 * clicks as u64);
-    events.push(json!({"frame":start,"type":"click","x":50,"y":230}));
-    Ok(SelectorControls {
-        events,
-        start,
-        initialization_frames: (start - 2..=start + 8).collect(),
-    })
 }
 pub fn options(mode: Mode) -> Result<ProjectionOptions> {
     if !matches!(mode, Mode::Five | Mode::Seven) {
@@ -343,42 +288,4 @@ pub fn motion_candidates(
     early.extend(candidates);
     early.extend(late);
     Ok(early)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn fingerprint_profile_requires_all_control_roles_and_rejects_avm2() {
-        let rows = SIGNATURES
-            .iter()
-            .map(|(path, frame, code, sha)| ActionFingerprint {
-                path: path.to_string(),
-                frame: *frame,
-                code: *code,
-                bytes: 1,
-                sha256: sha.to_string(),
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            identify_fingerprints(60., 8, &rows).unwrap(),
-            EngineProfile::RekuConstantMenu
-        );
-        assert!(identify_fingerprints(30., 8, &rows).is_err());
-        assert!(identify_fingerprints(60., 9, &rows).is_err());
-        for i in 0..rows.len() {
-            let mut changed = rows.clone();
-            changed.remove(i);
-            assert!(identify_fingerprints(60., 8, &changed).is_err());
-            let mut changed = rows.clone();
-            changed[i].sha256 = "0".repeat(64);
-            assert!(identify_fingerprints(60., 8, &changed).is_err());
-            let mut changed = rows.clone();
-            changed.push(changed[i].clone());
-            assert!(identify_fingerprints(60., 8, &changed).is_err());
-        }
-        let mut changed = rows.clone();
-        changed[0].code = 82;
-        assert!(identify_fingerprints(60., 8, &changed).is_err());
-    }
 }

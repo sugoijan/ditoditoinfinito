@@ -119,8 +119,9 @@ provides the source discoveries and detailed historical examples.
   not turned into extra playable lanes or silently erased.
 
 Passive family selection is supplied explicitly and then structurally verified.
-The [automatic menu profile](danoni-rust-profiles.md) now recognizes one shared
-constant-travel engine and derives observed 5/7-key selections; other families
+The [automatic menu profiles](danoni-rust-profiles.md), including the
+[early variant](danoni-rust-early-profiles.md), recognize reviewed shared
+constant-travel controls and derive observed 5/7-key selections; other families
 still require explicit plans. The separately pinned Higan and Kouhaku adapters
 have not been replaced by these seven families.
 

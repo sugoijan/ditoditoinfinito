@@ -7,6 +7,10 @@ makes no change to the game workspace or WASM build. Acquired scripts execute
 only in the installed confined Ruffle worker. The API is blocking; call it on a
 job thread in a desktop shell.
 
+The [early-menu extension](danoni-rust-early-profiles.md) adds a separately
+identified gen1 profile with its own menu frame, controls and required offscreen
+renderer. The original later-profile API/defaults below remain available.
+
 ## Scope and identification
 
 The first profile, `reku-constant-menu/1`, recognizes a shared レク engine by five
@@ -16,7 +20,9 @@ placement; the profile source lists every exact role/hash. These are engine cont
 not whole-song hashes. The inventory includes nested AVM1 actions/buttons and
 AVM2 tags without evaluating or exporting bytecode. All five roles must match
 exactly once, the movie must be 60 Hz / SWF version at most 8, and AVM2 action
-tags reject identification. Inventory is bounded to 16,384 fingerprints.
+tags reject identification. The bounded identity inventory now emits requested
+control roles plus every AVM2 tag; `fingerprintScope` explicitly distinguishes it
+from a full script inventory. Emitted records remain bounded to 16,384.
 
 Identification only proposes controls. Every chart still needs complete runtime
 menu observations, loaded-source/compiled-schedule agreement, measured movement,
@@ -38,8 +44,10 @@ for exact bounds, hold-head witnesses and source-derived intro inputs.
 
 ```rust,ignore
 profiles::identify(&Movie, checkpoint) -> Result<EngineProfile>
-profiles::read_menu(&Value) -> Result<Menu>
-profiles::selector_controls(&Menu, index) -> Result<SelectorControls>
+profiles::read_menu(&Value) -> Result<Menu> // original later-profile wrapper
+profile.read_menu(&Value) -> Result<Menu>
+profiles::selector_controls(&Menu, index) -> Result<SelectorControls> // original wrapper
+profile.selector_controls(&Menu, index) -> Result<SelectorControls>
 profiles::motion_candidates(&chart, &origin, checkpoint)
     -> Result<Vec<MotionSelection>>
 profiles::execute(&ProfileRequest, &WorkerSpec, &AssetSource, new_output, progress)
@@ -112,7 +120,7 @@ iteration 43 with two iterations between clicks. The number of clicks is derived
 from the observed initial selection and row count, including wraparound. Start
 clicks `(50,230)` at `max(50, 46 + 2*clicks)`.
 
-Initialization observes iterations `start-2` through `start+8`, plus 1200 for
+The original later profile observes iterations `start-2` through `start+8`, plus 1200 for
 stream discovery and a useful PCM overlap. The two pre-start observations must
 prove the intended selected row. Exactly one MP3 stream must start after the
 start action and by iteration 1200. Its start is discovered, not a fixed 201-frame
@@ -167,7 +175,7 @@ profile-run/
 
 The parent receipt schema is `ddi-danoni-native-profile-run/1`, producer
 `native-menu-profiles/1`. It records `ready`, `profile`, original `request`, trusted
-`worker`, `fingerprints`, original `sourceInputs`, observed `menu` and its bound
+`worker`, `fingerprints`, `fingerprintScope`, original `sourceInputs`, observed `menu` and its bound
 capture, `excludedSelectors`, all child capture receipt hashes, every
 `motionTrials` candidate/result, `playInputs`, `failedSelector`,
 `pendingDependencies`, generated `plannedCharts`,

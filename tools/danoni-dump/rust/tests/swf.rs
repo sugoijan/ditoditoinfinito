@@ -371,3 +371,52 @@ fn fingerprints_cover_nested_actions_without_executing_or_exporting_bytecode() {
         );
     }
 }
+
+#[test]
+fn control_inventory_scans_past_unrelated_art_and_never_filters_avm2_or_duplicates() {
+    let mut tags = Vec::new();
+    for _ in 0..16400 {
+        tags.extend(tag(26, &[]));
+    }
+    tags.extend(tag(1, &[]));
+    tags.extend(tag(12, &[0]));
+    tags.extend(tag(12, &[0]));
+    tags.extend(tag(82, &[0]));
+    tags.extend(tag(0, &[]));
+    let m = Movie::read(&movie(&tags, false), &mut || Ok(())).unwrap();
+    assert!(m.action_fingerprints(&mut || Ok(())).is_err());
+    let selected = m
+        .control_fingerprints(&[("root", 2, 12)], &mut || Ok(()))
+        .unwrap();
+    assert_eq!(selected.len(), 3);
+    assert_eq!(selected[0], selected[1]); // A duplicate identity role is retained.
+    assert_eq!(selected[2].code, 82);
+    assert_eq!(selected[2].frame, 2);
+    assert_eq!(
+        m.control_fingerprints(&[], &mut || Ok(())).unwrap().len(),
+        1
+    );
+    assert!(
+        m.control_fingerprints(&[("root", 1, 0)], &mut || Ok(()))
+            .is_err()
+    );
+    assert!(
+        m.control_fingerprints(&[("root", 1, 12); 65], &mut || Ok(()))
+            .is_err()
+    );
+    let mut checkpoints = 0;
+    let failure = m
+        .control_fingerprints(&[], &mut || {
+            checkpoints += 1;
+            if checkpoints == 3 {
+                Err(Error {
+                    code: "cancelled",
+                    message: "during skipped tag scan".into(),
+                })
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+    assert_eq!(failure.code, "cancelled");
+}

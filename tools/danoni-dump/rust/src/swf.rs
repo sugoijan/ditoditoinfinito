@@ -204,12 +204,44 @@ impl Movie {
         &self,
         checkpoint: &mut impl FnMut() -> Result<()>,
     ) -> Result<Vec<ActionFingerprint>> {
+        self.fingerprints(|_| true, checkpoint)
+    }
+    /// Inventory only specified identity roles plus every AVM2 tag. The complete
+    /// already-bounded tag tree is scanned; unrelated artwork placements do not
+    /// consume the emitted-fingerprint budget. This is not a full script audit.
+    pub fn control_fingerprints(
+        &self,
+        roles: &[(&str, u32, u16)],
+        checkpoint: &mut impl FnMut() -> Result<()>,
+    ) -> Result<Vec<ActionFingerprint>> {
+        if roles.len() > 64
+            || roles.iter().any(|(path, _, code)| {
+                path.len() > 4096 || ![12, 26, 34, 59, 70, 72, 82].contains(code)
+            })
+        {
+            return Err(invalid("Control fingerprint role limit/type"));
+        }
+        self.fingerprints(
+            |tag| {
+                [72, 82].contains(&tag.code)
+                    || roles.iter().any(|(path, frame, code)| {
+                        tag.path == *path && tag.frame == *frame && tag.code == *code
+                    })
+            },
+            checkpoint,
+        )
+    }
+    fn fingerprints(
+        &self,
+        mut include: impl FnMut(&Tag) -> bool,
+        checkpoint: &mut impl FnMut() -> Result<()>,
+    ) -> Result<Vec<ActionFingerprint>> {
         let mut result = Vec::new();
         for (index, tag) in self.tags.iter().enumerate() {
             if index.is_multiple_of(256) {
                 checkpoint()?;
             }
-            if [12, 26, 34, 59, 70, 72, 82].contains(&tag.code) {
+            if [12, 26, 34, 59, 70, 72, 82].contains(&tag.code) && include(tag) {
                 if result.len() >= 16384 {
                     return Err(invalid("Action fingerprint count exceeds 16384"));
                 }
