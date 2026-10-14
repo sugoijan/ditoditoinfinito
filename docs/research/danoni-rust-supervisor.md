@@ -193,6 +193,19 @@ wall/RSS/output/file/CPU limits), UTC start, elapsed seconds, observed peak RSS,
 actual worker/config/sandbox hashes and `inputsUnchanged`. Nonzero exits and
 incomplete captures cannot pass normalization's successful-run checks.
 
+A resident-memory sample can become unavailable while a completed macOS process
+tears down, before its wait status is exposed. The existing bounded 10 ms exit
+recheck still applies. If it expires, the supervisor **still stops the owned
+process group and child, then reaps**. Only confirmed stop/absence plus a normal
+zero exit can resolve this teardown race: `monitorExitRace` retains the original
+monitor error/resolution, while `termination` and `monitorError` become null.
+A live unmonitorable child is killed and keeps its failure; signals/nonzero
+status, failed stop confirmation, cancellation and every resource-limit reason
+remain failures. No worker is resumed and no additional unmonitored grace is
+introduced. Full output/source/protocol validation and final cancellation checks
+still follow. The original predicate/status regression and installed worker
+limit/cancellation tests cover this distinction.
+
 After successful exit, snapshot schema/release/revision/build/config/movie hash
 must agree; FPS must equal the actual parsed movie header and render settings
 must agree. Captured iterations must exactly match the requested ordered list.

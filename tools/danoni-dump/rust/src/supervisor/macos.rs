@@ -35,13 +35,17 @@ struct Running {
     armed: bool,
 }
 impl Running {
-    fn kill_group(&mut self) {
+    fn kill_group(&mut self) -> bool {
         // SAFETY: The child starts a new session, hence PGID == child PID;
         // only that owned group is signaled. No PID supplied by a work is used.
-        unsafe {
-            libc::kill(-(self.child.id() as libc::pid_t), libc::SIGKILL);
-        }
-        let _ = self.child.kill();
+        let sent = unsafe { libc::kill(-(self.child.id() as libc::pid_t), libc::SIGKILL) };
+        let group_stopped =
+            sent == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        let child_stopped = match self.child.kill() {
+            Ok(()) => true,
+            Err(e) => e.raw_os_error() == Some(libc::ESRCH),
+        };
+        group_stopped && child_stopped
     }
 }
 impl Drop for Running {
@@ -95,6 +99,20 @@ fn output_size(root: &Path, limits: &Limits) -> Result<()> {
         ));
     }
     Ok(())
+}
+fn settle_monitor_exit(
+    reason: &mut Option<&'static str>,
+    error: &mut Option<String>,
+    status: std::process::ExitStatus,
+    stop_confirmed: bool,
+) -> Option<Value> {
+    if *reason == Some("memory-monitor-unavailable") && stop_confirmed && status.success() {
+        let race = json!({"error":error.take(),"resolution":"Owned group stop confirmed; reaped child had already completed normally"});
+        *reason = None;
+        Some(race)
+    } else {
+        None
+    }
 }
 pub(super) fn run(
     root: &Path,
@@ -167,6 +185,7 @@ pub(super) fn run(
     let mut peak = 0;
     let mut reason = None;
     let mut monitor_error = None;
+    let mut monitor_exit_race = None;
     let child = command.spawn();
     let status = match child {
         Err(e) => {
@@ -242,9 +261,7 @@ pub(super) fn run(
                 }
                 std::thread::sleep(Duration::from_millis(10));
             };
-            if status.is_none() {
-                running.kill_group();
-            }
+            let stop_confirmed = status.is_none() && running.kill_group();
             // Reap before the guard can be dropped; do not leave workers alive
             // when callbacks, IO or validation fail.
             let status = match status {
@@ -252,6 +269,8 @@ pub(super) fn run(
                 None => running.child.wait().map_err(native::io)?,
             };
             running.armed = false;
+            monitor_exit_race =
+                settle_monitor_exit(&mut reason, &mut monitor_error, status, stop_confirmed);
             Some(status)
         }
     };
@@ -266,6 +285,42 @@ pub(super) fn run(
         reason = Some("cpu-time-limit");
     }
     Ok(
-        json!({"schema":"ddi-ruffle-run/experimental-1","producer":"macos-sandbox-supervisor/1","exitCode":exit,"signal":signal,"termination":reason,"startedAt":started_at,"elapsedSeconds":started.elapsed().as_secs_f64(),"peakRssKiB":peak.div_ceil(1024),"monitorError":monitor_error,"limits":{"wallSeconds":limits.wall_ms as f64/1000.0,"residentMiB":limits.resident_mib,"cpuSeconds":limits.cpu_seconds,"fileBytes":limits.file_bytes,"outputBytes":limits.output_bytes,"openFiles":128,"coreBytes":0,"pollIntervalMs":10}}),
+        json!({"schema":"ddi-ruffle-run/experimental-1","producer":"macos-sandbox-supervisor/1","exitCode":exit,"signal":signal,"termination":reason,"startedAt":started_at,"elapsedSeconds":started.elapsed().as_secs_f64(),"peakRssKiB":peak.div_ceil(1024),"monitorError":monitor_error,"monitorExitRace":monitor_exit_race,"limits":{"wallSeconds":limits.wall_ms as f64/1000.0,"residentMiB":limits.resident_mib,"cpuSeconds":limits.cpu_seconds,"fileBytes":limits.file_bytes,"outputBytes":limits.output_bytes,"openFiles":128,"coreBytes":0,"pollIntervalMs":10}}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn terminal_monitor_race_never_clears_live_failure_signals_or_other_limits() {
+        for (initial, raw, stopped, allowed) in [
+            ("memory-monitor-unavailable", 0, true, true),
+            ("memory-monitor-unavailable", libc::SIGKILL, true, false),
+            ("memory-monitor-unavailable", libc::SIGXCPU, true, false),
+            ("memory-monitor-unavailable", 1 << 8, true, false),
+            ("memory-monitor-unavailable", 0, false, false),
+            ("wall-time-limit", 0, true, false),
+            ("cancelled", 0, true, false),
+            ("resident-memory-limit", 0, true, false),
+            ("output-byte-limit", 0, true, false),
+        ] {
+            let mut reason = Some(initial);
+            let mut error = Some("missing task during teardown".to_string());
+            let race = settle_monitor_exit(
+                &mut reason,
+                &mut error,
+                std::process::ExitStatus::from_raw(raw),
+                stopped,
+            );
+            assert_eq!(race.is_some(), allowed, "{initial}/{raw}/{stopped}");
+            if allowed {
+                assert!(reason.is_none() && error.is_none());
+                assert_eq!(race.unwrap()["error"], "missing task during teardown");
+            } else {
+                assert_eq!(reason, Some(initial));
+                assert!(error.is_some());
+            }
+        }
+    }
 }
