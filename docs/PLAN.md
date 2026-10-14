@@ -306,9 +306,10 @@ Status as of 2026-10-14.
 Done beyond the original plan: calibration that converges on the real
 gameplay path, per-device audio/display offset profiles with app-wide banners,
 receptor snap, fail fade, cancel gesture, debug overlay, calibration drawn
-with the chosen noteskin (2026-10-14; not the audio test, which hides the
-notes and where a skin's receptors pulsing on the beat would be a visual
-cue), a search over the
+with the chosen noteskin (2026-10-14; in the audio test, which hides the
+notes, with the beat held still so that a skin pulsing on it gives no
+cue, and any key judged for the one lane but shown on its own receptor),
+a search over the
 song list (2026-10-14: every word typed found in a song's title, artist,
 their transliterations, pack, credits, chart names or step artists,
 ignoring case, accents, width and katakana/hiragana, and in romaji both

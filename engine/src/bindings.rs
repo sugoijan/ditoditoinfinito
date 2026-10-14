@@ -501,16 +501,10 @@ impl ControlBindings {
     /// Bindings for a play of `layout`: the keyboard, every saved
     /// controller with a table for the layout (any slot, so a controller
     /// plugged in during play is ready) and the connected controllers as
-    /// [`ControlBindings::plan`] uses them. With `any_lane`, every control
-    /// maps to that lane instead (calibration by ear).
-    pub fn resolve(
-        &self,
-        layout: &Layout,
-        connected: &[ConnectedPad],
-        any_lane: Option<u8>,
-    ) -> Bindings {
+    /// [`ControlBindings::plan`] uses them.
+    pub fn resolve(&self, layout: &Layout, connected: &[ConnectedPad]) -> Bindings {
         let mut b = Bindings::default();
-        let lane_of = |lane: usize| any_lane.unwrap_or(lane as u8);
+        let lane_of = |lane: usize| lane as u8;
         for (lane, codes) in self.keyboard(layout).iter().enumerate() {
             for code in codes {
                 b.bind(&DeviceId::Keyboard, code, lane_of(lane));
@@ -721,7 +715,7 @@ mod tests {
         );
         // A pad saved with `single` only plays single as before.
         let id = "Dance pad (Vendor: 0b43 Product: 0003)";
-        let b = o.controls.resolve(&single, &[pad(id, 0, false)], None);
+        let b = o.controls.resolve(&single, &[pad(id, 0, false)]);
         assert_eq!(
             press(&b, DeviceId::Gamepad(id.into()), 0, "button:2"),
             Some(0)
@@ -765,7 +759,7 @@ mod tests {
         let alone = [pad("x", 0, true)];
         let plan = c.plan(&double, &alone);
         assert!(matches!(&plan[0].1, PadUse::Table { defaults: true, .. }));
-        let b = c.resolve(&double, &[pad("x", 0, true)], None);
+        let b = c.resolve(&double, &[pad("x", 0, true)]);
         assert_eq!(
             press(&b, DeviceId::Gamepad("x".into()), 0, "button:2"),
             Some(4)
@@ -804,13 +798,13 @@ mod tests {
     fn keyboard_tables_per_layout() {
         let mut c = ControlBindings::default();
         let solo = Layout::dance_solo();
-        let b = c.resolve(&solo, &[], None);
+        let b = c.resolve(&solo, &[]);
         assert_eq!(kb(&b, "KeyD"), Some(1));
         assert_eq!(kb(&b, "ArrowRight"), Some(5));
         let mut t = c.keyboard(&solo);
         t[1] = vec!["KeyE".into()];
         c.set_keyboard(&solo, t);
-        let b = c.resolve(&solo, &[], None);
+        let b = c.resolve(&solo, &[]);
         assert_eq!(kb(&b, "KeyE"), Some(1));
         assert_eq!(kb(&b, "KeyD"), None);
         // Single is untouched; resetting to the defaults drops the table.
@@ -821,28 +815,25 @@ mod tests {
         c.keys.insert("danoni-x".into(), vec![vec!["KeyQ".into()]]);
         c.sanitize();
         assert!(c.keys.contains_key("danoni-x"));
-        // `any_lane` sends everything to one lane.
-        let b = c.resolve(&solo, &[], Some(2));
-        assert_eq!(kb(&b, "KeyS"), Some(2));
     }
 
     #[test]
     fn standard_controllers_get_defaults_per_layout() {
         let c = ControlBindings::default();
         let x = DeviceId::Gamepad("x".into());
-        let b = c.resolve(&Layout::dance_solo(), &[pad("x", 0, true)], None);
+        let b = c.resolve(&Layout::dance_solo(), &[pad("x", 0, true)]);
         assert_eq!(press(&b, x.clone(), 0, "button:4"), Some(1));
         assert_eq!(press(&b, x.clone(), 0, "button:5"), Some(4));
         assert_eq!(press(&b, x.clone(), 0, "button:14"), Some(0));
         // Non-standard controllers have no defaults.
-        let b = c.resolve(&Layout::dance_solo(), &[pad("y", 1, false)], None);
+        let b = c.resolve(&Layout::dance_solo(), &[pad("y", 1, false)]);
         assert!(
             b.bindings
                 .iter()
                 .all(|b| b.device == crate::BindingDevice::Keyboard)
         );
         // A lone standard controller on double: d-pad left pad, face right.
-        let b = c.resolve(&Layout::dance_double(), &[pad("x", 0, true)], None);
+        let b = c.resolve(&Layout::dance_double(), &[pad("x", 0, true)]);
         assert_eq!(press(&b, x.clone(), 0, "button:14"), Some(0));
         assert_eq!(press(&b, x.clone(), 0, "button:2"), Some(4));
         assert_eq!(press(&b, x.clone(), 0, "button:0"), Some(5));
@@ -868,7 +859,7 @@ mod tests {
             0.0,
         );
         let double = Layout::dance_double();
-        let b = c.resolve(&double, &[pad(id, 3, false), pad(id, 1, false)], None);
+        let b = c.resolve(&double, &[pad(id, 3, false), pad(id, 1, false)]);
         // Lower index on the left.
         assert_eq!(press(&b, dev.clone(), 1, "button:2"), Some(0));
         assert_eq!(press(&b, dev.clone(), 3, "button:2"), Some(4));
@@ -887,7 +878,7 @@ mod tests {
         assert_eq!(li.feed(&edge(1, false)).map(|e| e.lane), Some(2));
         assert!(li.lane_held(6));
         // One pad alone plays the left pad.
-        let b = c.resolve(&double, &[pad(id, 0, false)], None);
+        let b = c.resolve(&double, &[pad(id, 0, false)]);
         assert_eq!(press(&b, dev.clone(), 0, "button:3"), Some(3));
         // A table saved for double itself wins over the split.
         let mut whole = c.pad(id, false).unwrap();
@@ -896,7 +887,7 @@ mod tests {
             (0..8).map(|i| vec![format!("button:{}", 10 + i)]).collect(),
         );
         c.set_pad(whole, 1.0);
-        let b = c.resolve(&double, &[pad(id, 3, false), pad(id, 1, false)], None);
+        let b = c.resolve(&double, &[pad(id, 3, false), pad(id, 1, false)]);
         assert_eq!(press(&b, dev.clone(), 3, "button:17"), Some(7));
         assert_eq!(press(&b, dev, 1, "button:2"), None);
     }
@@ -968,10 +959,10 @@ mod tests {
         let mut p = c.pad("x", true).unwrap();
         p.set_table(&solo.id, vec![Vec::new(); 6]);
         c.set_pad(p, 0.0);
-        let b = c.resolve(&solo, &[pad("x", 0, true)], None);
+        let b = c.resolve(&solo, &[pad("x", 0, true)]);
         assert_eq!(press(&b, x.clone(), 0, "button:4"), None);
         // Other layouts keep their defaults; single keeps the saved table.
-        let b = c.resolve(&Layout::dance_single(), &[pad("x", 0, true)], None);
+        let b = c.resolve(&Layout::dance_single(), &[pad("x", 0, true)]);
         assert_eq!(press(&b, x, 0, "button:14"), Some(0));
     }
 }

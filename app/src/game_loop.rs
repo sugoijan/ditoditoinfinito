@@ -628,7 +628,12 @@ impl GameLoop {
             });
         match self.session.as_ref() {
             Some(session) => {
-                let frame = session.player.frame(session.predicted_present(host_now));
+                let mut frame = session.player.frame(session.predicted_present(host_now));
+                // The audio test hides the notes; its beat is held too, so
+                // that a skin pulsing on the beat gives no cue to follow.
+                if session.render.hide_notes {
+                    frame.beat = 0.0;
+                }
                 // The song time of each drawn frame, for tests that read
                 // the screen (the debug state is refreshed every 10 frames).
                 if let Some(window) = web_sys::window() {
