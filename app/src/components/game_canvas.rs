@@ -1159,6 +1159,7 @@ fn results_view(
                 <table class="results-table">
                     { for (0..6).filter(|i| !tier_name(*i).is_empty()).map(|i| html!{ <tr><td class="muted">{ tier_name(i) }</td><td>{ r.tally.taps[i] }</td></tr> }) }
                     <tr><td class="muted">{ held_name }</td><td>{ format!("{} / {}", r.tally.held, r.tally.let_go) }</td></tr>
+                    { if r.tally.checkpoint_hit + r.tally.checkpoint_miss > 0 { html!{ <tr><td class="muted">{ "hold ticks hit / missed" }</td><td>{ format!("{} / {}", r.tally.checkpoint_hit, r.tally.checkpoint_miss) }</td></tr> } } else { html!{} } }
                     <tr><td class="muted">{ "mines hit" }</td><td>{ r.tally.mine_hit }</td></tr>
                     { if r.tally.boo > 0 { html!{ <tr><td class="muted">{ "stray presses" }</td><td>{ r.tally.boo }</td></tr> } } else { html!{} } }
                     <tr><td class="muted">{ "max combo" }</td><td>{ r.max_combo }</td></tr>

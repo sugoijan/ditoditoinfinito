@@ -28,9 +28,8 @@ Pump charts play under the chosen ruleset like any StepMania chart
 judges them. Holds differ: StepMania 5.1's pump game ticks them
 (`m_bTickHolds` is set for `pump` alone, `src/GameManager.cpp`; `Player.cpp`
 judges a held hold at checkpoints, `#TICKCOUNTS` a beat, each one a
-judgement and a step of combo, instead of OK or N.G. at its end). For now
-a pump hold is a dance hold, held to its end; ticked holds for pump charts
-are the next step (below). Two-player styles (`pump-couple`,
+judgement and a step of combo, instead of OK or N.G. at its end): see
+"Ticked holds" below. Two-player styles (`pump-couple`,
 `pump-routine`) stay unplayable, as dance's do.
 
 ## Status (2026-10-13)
@@ -92,13 +91,89 @@ without warnings (`noteskin/tests/bundled.rs`). After an independent
 review: dance skins told the dance game (above), the controller warning,
 the docs on holds.
 
+## Ticked holds (2026-10-14)
+
+The maintainer's decision: a rule option, **Holds**, with three values:
+"by the chart's game" (the default: pump charts ticked, every other
+chart dance-style), "dance-style" and "ticked". It applies to the
+StepMania presets (ITG, StepMania 5, DDR A); Dancing☆Onigiri rules keep
+their own holds. A chart without `#TICKCOUNTS` ticks at 4 a beat, as in
+StepMania (`TickcountSegment::DEFAULT_TICK_COUNT`); a section set to 0
+has no checkpoints. Editors write `#TICKCOUNTS:0=4` into every `.ssc`
+(every bundled song has it, dance-only ones too), so neither the tag nor
+its absence tells what an author meant, and there is no fallback to
+dance-style holds by the tag.
+
+StepMania 5.1's pump game, which ticked holds reproduce (`Player.cpp`'s
+`UpdateHoldNotes`, its checkpoint loop and `HandleHoldCheckpoint`;
+`ScoreKeeperNormal.cpp`; the `_fallback`
+metrics its theme sets for `pump`):
+
+- **Checkpoints** lie on the tick grid of the tick count in force at
+  each row (`row % (48 / ticks) == 0`, 48 rows a beat as our ticks),
+  strictly after a hold's head and up to and including its tail; rolls
+  have them too.
+- **A hold is judged at each checkpoint row**: it is hit if the hold's
+  life is above zero there. Released, a hold's life runs out over the
+  checkpoint window (0.1664 s, scaled like the others) instead of the
+  hold window; pressed again, it is full again. A hold is never dropped
+  before its end (`ImmediateHoldLetGo` is false for pump), and it starts
+  at its head whether or not the head was stepped on
+  (`RequireStepOnHoldHeads` is false). Its life then starts full if its
+  panel is down as the head passes, else at `InitialHoldLife` (0.05 for
+  pump, so it runs out 8 ms later unless the panel is pressed).
+- **The head**: any press that takes it (late, or early within the
+  windows) is a W1, and a panel down as the head passes steps on it, a
+  W1 too (`Player::Step` without `RequireStepOnHoldHeads`;
+  `CrossedRows`). Its real offset still goes to the fast/slow counts. A
+  head never pressed is a Miss; its hold still runs.
+- **One judgement per checkpoint row**, whatever the number of holds
+  crossing it: a hit when none of them is released, else a miss. A row
+  that also has a step (a tap or a hold head) is not judged separately
+  (`CheckpointsTapsSeparateJudgment` is false for pump), but its
+  checkpoints still count for the holds' outcomes. The row of a hold's
+  tail is judged but does not count for that hold: StepMania settles
+  the hold (`UpdateHoldNotes`) before it crosses the row.
+- **Combo**: a hit adds the number of holds held (one under per-row
+  combo, DDR), a miss breaks it. A missed checkpoint loses the full
+  combo.
+- **Score and life**: a checkpoint hit weighs as a W1, a miss as a Miss
+  (StepMania's pump weights are exactly its W1 and Miss weights: percent
+  3 and 0, grade 2 and −8, life +0.008 and −0.080), and the hold's own
+  O.K. and N.G. weigh nothing (pump sets `Held` and `LetGo` to 0). The
+  same rule carries to ITG's weights and to DDR A's money score, where
+  checkpoints count as steps and holds do not.
+- **The hold's outcome** at its tail: O.K. when no checkpoint was missed
+  and at least one was hit (a hold without checkpoints: when its head
+  was stepped on); a roll is O.K. when its life is above zero at its
+  tail. StepMania's battery gauge (no preset uses one yet) loses no life
+  on a missed checkpoint and one on a dropped hold, ticked or not.
+- **Display**: a checkpoint shows no judgement word (the `_fallback`
+  theme draws none for it), only the combo; held lanes flash as a
+  completed hold does (`CheckpointsFlashOnHold`). StepMania's results
+  count checkpoint hits with the W1 row and misses with Miss
+  (`CheckpointsWithJudgments`); ours give them a row of their own, "hold
+  ticks hit / missed", so the steps' counts stay the steps'.
+
+Deviations: StepMania's best possible score counts every checkpoint row
+(`NoteDataUtil::GetTotalHoldTicks`), including the rows with steps it
+does not judge, so a perfect pump play scores below 100 % when holds
+cross steps; ours counts the rows it judges. A checkpoint row inside a
+warp or a fake segment counts for no hold here, where StepMania still
+counts it for the holds' outcomes without judging it.
+
+Status (2026-10-14): done in the engine (`HoldRules::Ticked`,
+`JudgeEventKind::Checkpoint`, `presets::HoldStyle`, `TimingMap::ticks_per_beat_at`)
+and the app (the option under Rules, the results row). Natively tested:
+the judge's rules one by one (`engine/src/judge.rs`) and whole plays
+under StepMania 5, ITG and DDR A (`engine/tests/ticked.rs`: 100 % and
+1,000,000 for a perfect play, combo by holds kept, a missed checkpoint's
+cost). After an independent review: heads always W1 (pressed late or
+held through), `InitialHoldLife`, the tail row left out of the outcome,
+the events of a press in time order, the battery.
+
 ## Later
 
-- **Ticked holds on pump charts**, as StepMania 5.1's pump game has them:
-  checkpoints at the chart's `#TICKCOUNTS` (4 a beat by default) judged
-  while the hold is down, each counted in combo and score, the hold not
-  dropped on release. It touches the engine's judge, the rulesets'
-  scoring and the results, so it comes as a step of its own.
 - Import `NoteSkins/pump/*` and draw pump layouts with them by default
   when the player picks one; their panel colours.
 - Centre notes for the other bundled skins (the maintainer's wish).

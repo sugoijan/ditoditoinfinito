@@ -41,13 +41,16 @@ impl LifeDeltas {
         }
     }
 
-    pub fn of(&self, kind: &JudgeEventKind) -> f32 {
-        match kind {
-            JudgeEventKind::Tap(j, _) => self.tiers[j.index()],
-            JudgeEventKind::Held => self.held,
-            JudgeEventKind::LetGo => self.let_go,
-            JudgeEventKind::HitMine => self.mine,
-            JudgeEventKind::Boo => self.boo,
+    /// Life change of an event (a checkpoint and a ticked hold's outcome
+    /// as [`JudgeEventKind::scored_as`] says).
+    pub fn of(&self, kind: &JudgeEventKind, ticked: bool) -> f32 {
+        match kind.scored_as(ticked) {
+            Some(JudgeEventKind::Tap(j, _)) => self.tiers[j.index()],
+            Some(JudgeEventKind::Held) => self.held,
+            Some(JudgeEventKind::LetGo) => self.let_go,
+            Some(JudgeEventKind::HitMine) => self.mine,
+            Some(JudgeEventKind::Boo) => self.boo,
+            _ => 0.0,
         }
     }
 }
@@ -124,8 +127,8 @@ impl GaugeRules for LifeBar {
         self.lockout = 0;
     }
 
-    fn on_event(&mut self, ev: &JudgeEvent, _ctx: &ScoreCtx) {
-        self.change(self.deltas.of(&ev.kind));
+    fn on_event(&mut self, ev: &JudgeEvent, ctx: &ScoreCtx) {
+        self.change(self.deltas.of(&ev.kind, ctx.ticked));
     }
 
     fn life(&self) -> f32 {
@@ -179,6 +182,9 @@ impl GaugeRules for Battery {
     }
 
     fn on_event(&mut self, ev: &JudgeEvent, _ctx: &ScoreCtx) {
+        // StepMania's `LifeMeterBattery`: a missed checkpoint costs no
+        // life (`score > TNS_CheckpointMiss`), a dropped hold does even
+        // when ticked.
         let cost = match ev.kind {
             JudgeEventKind::Tap(j, _) if j > self.min_keep => 1,
             JudgeEventKind::HitMine => self.mine_costs,
@@ -284,14 +290,16 @@ impl GaugeRules for FixedPercent {
         self.miss_streak = 0;
     }
 
-    fn on_event(&mut self, ev: &JudgeEvent, _ctx: &ScoreCtx) {
-        match ev.kind {
-            JudgeEventKind::Tap(Judgement::Miss, _)
-            | JudgeEventKind::LetGo
-            | JudgeEventKind::HitMine => self.miss(),
-            JudgeEventKind::Tap(j, _) => self.gain(self.gains[j.index()]),
-            JudgeEventKind::Held => self.gain(self.held),
-            JudgeEventKind::Boo => {}
+    fn on_event(&mut self, ev: &JudgeEvent, ctx: &ScoreCtx) {
+        match ev.kind.scored_as(ctx.ticked) {
+            Some(
+                JudgeEventKind::Tap(Judgement::Miss, _)
+                | JudgeEventKind::LetGo
+                | JudgeEventKind::HitMine,
+            ) => self.miss(),
+            Some(JudgeEventKind::Tap(j, _)) => self.gain(self.gains[j.index()]),
+            Some(JudgeEventKind::Held) => self.gain(self.held),
+            _ => {}
         }
     }
 
@@ -333,6 +341,56 @@ mod tests {
 
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-6
+    }
+
+    fn kind_event(kind: JudgeEventKind) -> JudgeEvent {
+        JudgeEvent {
+            kind,
+            ..tap(Judgement::W1)
+        }
+    }
+
+    #[test]
+    fn checkpoints_weigh_as_w1_and_miss_and_ticked_outcomes_as_nothing() {
+        let d = LifeDeltas::new(
+            [0.008, 0.008, 0.004, 0.0, -0.04, -0.08],
+            0.008,
+            -0.08,
+            -0.16,
+        );
+        let hit = JudgeEventKind::Checkpoint {
+            held: 2,
+            missed: 0,
+            lanes: 0b11,
+        };
+        let miss = JudgeEventKind::Checkpoint {
+            held: 1,
+            missed: 1,
+            lanes: 0b11,
+        };
+        assert!(close(d.of(&hit, true), 0.008));
+        assert!(close(d.of(&miss, true), -0.08));
+        assert!(close(d.of(&JudgeEventKind::Held, true), 0.0));
+        assert!(close(d.of(&JudgeEventKind::LetGo, true), 0.0));
+        assert!(close(d.of(&JudgeEventKind::LetGo, false), -0.08));
+        // StepMania's battery: a missed checkpoint costs nothing, a dropped
+        // hold a life, ticked or not.
+        let ticked = ScoreCtx {
+            ticked: true,
+            ..ScoreCtx::default()
+        };
+        let mut b = Battery::new(4, Judgement::W3, 1, 1);
+        b.begin(&ticked);
+        b.on_event(&kind_event(miss), &ticked);
+        assert!(close(b.life(), 1.0));
+        b.on_event(&kind_event(JudgeEventKind::LetGo), &ticked);
+        assert!(close(b.life(), 0.75));
+        // DDR's fixed-percent bar: a checkpoint missed is a miss.
+        let mut f = FixedPercent::ddr_a20();
+        f.begin(&ticked);
+        let before = f.life();
+        f.on_event(&kind_event(miss), &ticked);
+        assert!(f.life() < before);
     }
 
     #[test]

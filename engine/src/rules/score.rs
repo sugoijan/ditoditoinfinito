@@ -25,21 +25,27 @@ impl Weights {
         }
     }
 
-    /// Weight of an event (`Boo` is worth nothing).
-    pub fn of(&self, kind: &JudgeEventKind) -> i32 {
-        match kind {
-            JudgeEventKind::Tap(j, _) => self.tiers[j.index()],
-            JudgeEventKind::Held => self.held,
-            JudgeEventKind::LetGo => self.let_go,
-            JudgeEventKind::HitMine => self.mine,
-            JudgeEventKind::Boo => 0,
+    /// Weight of an event (`Boo` is worth nothing; a checkpoint and a
+    /// ticked hold's outcome as [`JudgeEventKind::scored_as`] says).
+    pub fn of(&self, kind: &JudgeEventKind, ctx: &ScoreCtx) -> i32 {
+        match kind.scored_as(ctx.ticked) {
+            Some(JudgeEventKind::Tap(j, _)) => self.tiers[j.index()],
+            Some(JudgeEventKind::Held) => self.held,
+            Some(JudgeEventKind::LetGo) => self.let_go,
+            Some(JudgeEventKind::HitMine) => self.mine,
+            _ => 0,
         }
     }
 
-    /// Maximum total for a chart: `steps × W1 + holds × Held`.
+    /// Maximum total for a chart: `steps × W1 + holds × Held`, or with
+    /// ticked holds `(steps + checkpoints) × W1`.
     pub fn possible(&self, ctx: &ScoreCtx) -> i64 {
-        i64::from(ctx.steps) * i64::from(self.tiers[0])
-            + i64::from(ctx.holds) * i64::from(self.held)
+        let w1 = i64::from(self.tiers[0]);
+        if ctx.ticked {
+            (i64::from(ctx.steps) + i64::from(ctx.checkpoints)) * w1
+        } else {
+            i64::from(ctx.steps) * w1 + i64::from(ctx.holds) * i64::from(self.held)
+        }
     }
 }
 
@@ -95,12 +101,12 @@ impl ScoreRules for DancePoints {
 
     fn on_event(&mut self, ev: &JudgeEvent, ctx: &ScoreCtx) {
         self.ctx = *ctx;
-        self.points += i64::from(self.weights.of(&ev.kind));
+        self.points += i64::from(self.weights.of(&ev.kind, ctx));
         if let Some(g) = &self.grade_weights {
-            self.grade_points += i64::from(g.of(&ev.kind));
+            self.grade_points += i64::from(g.of(&ev.kind, ctx));
         }
         if let Some(x) = &self.ex_weights {
-            self.ex += i64::from(x.of(&ev.kind));
+            self.ex += i64::from(x.of(&ev.kind, ctx));
         }
     }
 
@@ -183,8 +189,15 @@ impl DdrMoney {
 
     const EX: Weights = Weights::new([3, 2, 1, 0, 0, 0], 3, 0, 0);
 
+    /// Scored units: steps and holds, or with ticked holds steps and
+    /// checkpoint rows.
     fn count(&self) -> i64 {
-        i64::from(self.ctx.steps) + i64::from(self.ctx.holds)
+        let holds = if self.ctx.ticked {
+            self.ctx.checkpoints
+        } else {
+            self.ctx.holds
+        };
+        i64::from(self.ctx.steps) + i64::from(holds)
     }
 }
 
@@ -196,13 +209,13 @@ impl ScoreRules for DdrMoney {
     fn on_event(&mut self, ev: &JudgeEvent, ctx: &ScoreCtx) {
         self.ctx = *ctx;
         let (w, penalised) = self.weights();
-        self.sum += i64::from(w.of(&ev.kind));
+        self.sum += i64::from(w.of(&ev.kind, ctx));
         if let JudgeEventKind::Tap(j, _) = ev.kind
             && penalised[j.index()]
         {
             self.penalties += 1;
         }
-        self.ex += i64::from(Self::EX.of(&ev.kind));
+        self.ex += i64::from(Self::EX.of(&ev.kind, ctx));
     }
 
     fn view(&self) -> ScoreView {
@@ -259,6 +272,7 @@ mod tests {
             holds: 0,
             mines: 0,
             combo: 0,
+            ..ScoreCtx::default()
         };
         let mut s = DdrMoney::new(DdrVariant::A);
         s.begin(&ctx);
@@ -282,6 +296,7 @@ mod tests {
             holds: 3,
             mines: 0,
             combo: 0,
+            ..ScoreCtx::default()
         };
         let mut s = DdrMoney::new(DdrVariant::Sn2);
         s.begin(&ctx);
@@ -308,6 +323,7 @@ mod tests {
             holds: 1,
             mines: 1,
             combo: 0,
+            ..ScoreCtx::default()
         };
         let mut s = DancePoints::new(w, None, Some(ex));
         s.begin(&ctx);

@@ -808,6 +808,9 @@ impl GameLoop {
             set("taps", taps.into());
             set("held", (r.tally.held as f64).into());
             set("let_go", (r.tally.let_go as f64).into());
+            set("ticks_hit", (r.tally.checkpoint_hit as f64).into());
+            set("ticks_missed", (r.tally.checkpoint_miss as f64).into());
+            set("holds_ticked", p.ruleset().judge.hold.is_ticked().into());
             let pressed = js_sys::Array::new();
             for &h in s.held() {
                 pressed.push(&h.into());

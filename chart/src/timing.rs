@@ -455,6 +455,20 @@ impl TimingMap {
         !self.in_warp(tick) && !self.in_fake(tick)
     }
 
+    /// Hold checkpoints a beat in force at `tick` (`#TICKCOUNTS`): the
+    /// last segment at or before it, else StepMania's default of 4
+    /// (`TickcountSegment::DEFAULT_TICK_COUNT`). 0 means none.
+    pub fn ticks_per_beat_at(&self, tick: Tick) -> u32 {
+        self.tick_counts
+            .iter()
+            .take_while(|s| s.tick <= tick)
+            .last()
+            .map_or(Self::DEFAULT_TICKS_PER_BEAT, |s| s.ticks_per_beat)
+    }
+
+    /// StepMania's tick count where a chart sets none.
+    pub const DEFAULT_TICKS_PER_BEAT: u32 = 4;
+
     /// Lowest and highest BPM actually used.
     pub fn bpm_range(&self) -> (f64, f64) {
         let mut lo = f64::INFINITY;
@@ -727,6 +741,25 @@ mod tests {
         assert!(p.in_stop);
         assert!(approx(t.speed_ratio_at(4.0, p.beat), 1.5));
         assert!(approx(t.speed_ratio_at(6.0, 4.0), 2.0));
+    }
+
+    #[test]
+    fn tick_counts_default_to_four_a_beat() {
+        let mut t = TimingMap::constant(120.0, 0.0);
+        assert_eq!(t.ticks_per_beat_at(Tick::from_beats(3)), 4);
+        t.tick_counts = vec![
+            TickCount {
+                tick: Tick::from_beats(2),
+                ticks_per_beat: 0,
+            },
+            TickCount {
+                tick: Tick::from_beats(4),
+                ticks_per_beat: 2,
+            },
+        ];
+        assert_eq!(t.ticks_per_beat_at(Tick::from_beats(1)), 4);
+        assert_eq!(t.ticks_per_beat_at(Tick::from_beats(2)), 0);
+        assert_eq!(t.ticks_per_beat_at(Tick::from_beats(5)), 2);
     }
 
     #[test]

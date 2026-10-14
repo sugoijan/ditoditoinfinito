@@ -6,7 +6,7 @@ pub(crate) use ddi_engine::PadBindings;
 use ddi_engine::clock::ClockOptions;
 use ddi_engine::player::PlayOptions;
 use ddi_engine::rules::danoni::DanoniOptions;
-use ddi_engine::rules::presets::RulesetMode;
+use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
 use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod, SpeedSource};
 use ddi_engine::{Appearance, ControlBindings, TransformOptions};
 use gloo::storage::{LocalStorage, Storage};
@@ -80,6 +80,10 @@ pub(crate) struct Settings {
     /// Gauge, judge range and Excessive under the Dancing☆Onigiri rules.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub(crate) danoni: DanoniOptions,
+    /// How the StepMania presets keep holds: ticked on pump charts by
+    /// default (`docs/plans/pump.md`).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) holds: HoldStyle,
     /// Seconds; positive = you hear the music later than the audio clock says.
     pub(crate) audio_offset: f64,
     /// Seconds added to the rendered time only.
@@ -230,6 +234,7 @@ impl Default for Settings {
             ruleset: "itg".into(),
             ruleset_mode: RulesetMode::AllStepMania,
             danoni: DanoniOptions::default(),
+            holds: HoldStyle::ByGame,
             audio_offset: 0.0,
             visual_offset: 0.0,
             volume: 0.8,
@@ -460,7 +465,13 @@ impl Settings {
 
     /// The ruleset `chart` is played with.
     pub(crate) fn ruleset_for(&self, chart: &ddi_chart::Chart) -> ddi_engine::rules::Ruleset {
-        ddi_engine::rules::presets::for_chart(self.ruleset_mode, &self.ruleset, &self.danoni, chart)
+        ddi_engine::rules::presets::for_chart(
+            self.ruleset_mode,
+            &self.ruleset,
+            &self.danoni,
+            self.holds,
+            chart,
+        )
     }
 }
 

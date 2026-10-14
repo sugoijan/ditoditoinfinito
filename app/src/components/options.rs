@@ -11,7 +11,7 @@
 
 use ddi_chart::Layout;
 use ddi_engine::rules::danoni::JudgeRange;
-use ddi_engine::rules::presets::RulesetMode;
+use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
 use ddi_engine::scroll::SpeedSource;
 use ddi_engine::{Appearance, ConnectedPad, PadUse, ScrollAction, TimingCut, Turn};
 use ddi_platform::DeviceId;
@@ -47,6 +47,7 @@ pub(crate) enum Msg {
     NoHolds(bool),
     Ruleset(String),
     RulesetMode(RulesetMode),
+    Holds(HoldStyle),
     DanoniGauge(Option<&'static str>),
     DanoniRange(JudgeRange),
     DanoniExcessive(Option<bool>),
@@ -320,6 +321,7 @@ impl Component for Options {
             Msg::NoHolds(v) => self.settings.transform.no_holds = v,
             Msg::Ruleset(id) => self.settings.ruleset = id,
             Msg::RulesetMode(v) => self.settings.ruleset_mode = v,
+            Msg::Holds(v) => self.settings.holds = v,
             Msg::DanoniGauge(v) => self.settings.danoni.gauge = v.map(str::to_string),
             Msg::DanoniRange(v) => self.settings.danoni.range = v,
             Msg::DanoniExcessive(v) => self.settings.danoni.excessive = v,
@@ -573,6 +575,8 @@ impl Component for Options {
                             }) }
                         </select>
                     </label>
+                    <label>{ "Holds " }{ choice(s.holds, &HOLD_STYLES, link.callback(Msg::Holds)) }</label>
+                    <p class="muted">{ "Ticked holds count at steady ticks while held, each tick adding to the combo and the score; a hold released and pressed again keeps going. Dance-style holds give one result at their end. Charts played by Dancing☆Onigiri rules keep their own holds." }</p>
                     <h3>{ "Dancing☆Onigiri rules" }</h3>
                     <p class="muted">{ "Used for the charts the setting above plays by Dancing☆Onigiri rules. A chart may offer its own gauges; a gauge it does not offer plays its first one." }</p>
                     <label>{ "Gauge " }{ choice(s.danoni.gauge.as_deref().and_then(|g| DANONI_GAUGES.iter().find_map(|(n, _)| n.filter(|n| *n == g))), &DANONI_GAUGES, link.callback(Msg::DanoniGauge)) }</label>
@@ -1146,6 +1150,15 @@ const SPEED_SOURCES: [(SpeedSource, &str); 2] = [
         SpeedSource::Chart,
         "play at the chart's speed (Dancing☆Onigiri works)",
     ),
+];
+
+const HOLD_STYLES: [(HoldStyle, &str); 3] = [
+    (
+        HoldStyle::ByGame,
+        "ticked on pump charts, dance-style on the rest",
+    ),
+    (HoldStyle::Dance, "dance-style, for every chart"),
+    (HoldStyle::Ticked, "ticked, for every chart"),
 ];
 
 const RULESET_MODES: [(RulesetMode, &str); 3] = [
