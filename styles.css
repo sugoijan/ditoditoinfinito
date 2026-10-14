@@ -193,6 +193,34 @@ a {
   color: #fff;
 }
 
+.song-search {
+  margin: 1rem 0;
+}
+
+.song-search input {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent);
+  background: transparent;
+  color: var(--fg);
+}
+
+.song-search input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.search-note {
+  margin: -0.4rem 0 1rem;
+  font-size: 0.9rem;
+}
+
 .diff-beginner { background: #3a8ddb; }
 .diff-easy { background: #3aa65a; }
 .diff-medium { background: #c99a1e; }
