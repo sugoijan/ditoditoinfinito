@@ -172,4 +172,7 @@ negative frames to 0).
    Chrome (WebGPU, WebGL2) and Firefox, compared with danoniplus's own
    page at the same frames.
 6. Then StepMania's second layer and the script-free effects (decision 5),
-   with a synthetic pack.
+   with a synthetic pack. **Deferred** (2026-10-14): wanted, but none of
+   the 1,489 local chart files (StepMania, DWI and pump packs) uses
+   `#BGCHANGES2`, `#FGCHANGES`, Lua or BGAnimation folders, so other work
+   comes first.

@@ -38,13 +38,14 @@ impl Weights {
     }
 
     /// Maximum total for a chart: `steps × W1 + holds × Held`, or with
-    /// ticked holds `(steps + checkpoints) × W1`.
+    /// ticked holds `(steps + checkpoints) × W1`; shocks weigh as holds.
     pub fn possible(&self, ctx: &ScoreCtx) -> i64 {
         let w1 = i64::from(self.tiers[0]);
+        let shocks = i64::from(ctx.shocks) * i64::from(self.held);
         if ctx.ticked {
-            (i64::from(ctx.steps) + i64::from(ctx.checkpoints)) * w1
+            (i64::from(ctx.steps) + i64::from(ctx.checkpoints)) * w1 + shocks
         } else {
-            i64::from(ctx.steps) * w1 + i64::from(ctx.holds) * i64::from(self.held)
+            i64::from(ctx.steps) * w1 + i64::from(ctx.holds) * i64::from(self.held) + shocks
         }
     }
 }
@@ -189,15 +190,16 @@ impl DdrMoney {
 
     const EX: Weights = Weights::new([3, 2, 1, 0, 0, 0], 3, 0, 0);
 
-    /// Scored units: steps and holds, or with ticked holds steps and
-    /// checkpoint rows.
+    /// Scored units: steps, holds and shocks (`SC = 1,000,000 / (steps +
+    /// freezes + shock arrows)`), or with ticked holds checkpoint rows for
+    /// the holds.
     fn count(&self) -> i64 {
         let holds = if self.ctx.ticked {
             self.ctx.checkpoints
         } else {
             self.ctx.holds
         };
-        i64::from(self.ctx.steps) + i64::from(holds)
+        i64::from(self.ctx.steps) + i64::from(holds) + i64::from(self.ctx.shocks)
     }
 }
 

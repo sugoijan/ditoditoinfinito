@@ -44,6 +44,7 @@ pub fn itg() -> Ruleset {
             hold_start: HoldStart::JUDGED,
             supersede: None,
             just: None,
+            shock_rows: false,
         },
         combo: ComboRules {
             continue_min: Judgement::W3,
@@ -142,6 +143,7 @@ pub fn calibration() -> Ruleset {
             hold_start: HoldStart::JUDGED,
             supersede: None,
             just: None,
+            shock_rows: false,
         },
         combo: ComboRules {
             continue_min: Judgement::W1,
@@ -190,6 +192,7 @@ pub fn sm5() -> Ruleset {
             hold_start: HoldStart::JUDGED,
             supersede: None,
             just: None,
+            shock_rows: false,
         },
         combo: ComboRules {
             continue_min: Judgement::W3,
@@ -245,7 +248,8 @@ pub fn sm5() -> Ruleset {
 ///
 /// `W5` is disabled (X2 merged Boo into Miss). DDR has no release
 /// judgement but tolerates brief releases, modelled with a 0.25 s hold
-/// window. Mines use a 0.07 s window for shock arrows later.
+/// window. A full row of mines is a shock arrow (`shock_rows`), judged
+/// in a 0.07 s window.
 pub fn ddr_a() -> Ruleset {
     Ruleset {
         id: "ddr-a".into(),
@@ -271,6 +275,7 @@ pub fn ddr_a() -> Ruleset {
             hold_start: HoldStart::JUDGED,
             supersede: None,
             just: None,
+            shock_rows: true,
         },
         combo: ComboRules {
             continue_min: Judgement::W4,

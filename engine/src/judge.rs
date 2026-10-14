@@ -121,6 +121,12 @@ pub enum JudgeEventKind {
     /// Hold/roll dropped (N.G.).
     LetGo,
     HitMine,
+    /// A shock ([`JudgeTable::shock_rows`]) passed with no lane stepped on
+    /// (O.K.): one event a row, on its first lane.
+    AvoidShock,
+    /// A shock stepped on in some lane (N.G.): one event a row, on the
+    /// lane that stepped.
+    HitShock,
     /// Empty press, per [`EmptyPress`].
     Boo,
     /// A checkpoint row of ticked holds ([`HoldRules::Ticked`]): `held` of
@@ -137,9 +143,13 @@ impl JudgeEventKind {
     /// What the event weighs as in a score or a gauge: a checkpoint as a
     /// `W1` when hit and a `Miss` when not, and with ticked holds a hold's
     /// own outcome as nothing (StepMania's pump weights,
-    /// `docs/plans/pump.md`). `None`: it weighs nothing.
+    /// `docs/plans/pump.md`); a shock as a hold kept when avoided and
+    /// dropped when stepped on (DDR's O.K. and N.G.). `None`: it weighs
+    /// nothing.
     pub fn scored_as(self, ticked: bool) -> Option<JudgeEventKind> {
         match self {
+            JudgeEventKind::AvoidShock => Some(JudgeEventKind::Held),
+            JudgeEventKind::HitShock => Some(JudgeEventKind::LetGo),
             JudgeEventKind::Checkpoint { missed, .. } => Some(if missed == 0 {
                 JudgeEventKind::Tap(Judgement::W1, 0.0)
             } else {
@@ -200,6 +210,16 @@ pub struct Judge {
     next_head: usize,
     /// Each lane's button, as presses and releases left it.
     down: Vec<bool>,
+    /// Each lane's last press, in song seconds: a mine that passed before
+    /// it was not stepped on, however late the frame that sees it.
+    pressed_at: Vec<f64>,
+    /// Each lane's last time down, from its press to its release: a mine
+    /// that passed then was stepped on, though the lane is up again (or
+    /// down again from a later press) by the frame that sees it.
+    last_down: Vec<(f64, f64)>,
+    /// Shock rows ([`JudgeTable::shock_rows`]): each row's notes, one a
+    /// lane.
+    shocks: Vec<Vec<usize>>,
 }
 
 impl Judge {
@@ -257,6 +277,20 @@ impl Judge {
                     .then(notes[a].note.tick.cmp(&notes[b].note.tick))
             });
         }
+        // Shocks: the notes of each row together.
+        let mut shocks: Vec<Vec<usize>> = Vec::new();
+        let mut shock_ticks: Vec<Tick> = Vec::new();
+        for (i, n) in notes.iter().enumerate() {
+            if n.judgeable && n.note.kind == NoteKind::Shock {
+                match shock_ticks.iter().position(|&t| t == n.note.tick) {
+                    Some(r) => shocks[r].push(i),
+                    None => {
+                        shock_ticks.push(n.note.tick);
+                        shocks.push(vec![i]);
+                    }
+                }
+            }
+        }
         let (checkpoints, heads) = if table.hold.is_ticked() {
             let mut heads: Vec<usize> = (0..notes.len())
                 .filter(|&i| {
@@ -284,6 +318,9 @@ impl Judge {
             heads,
             next_head: 0,
             down: vec![false; lane_count],
+            pressed_at: vec![f64::NEG_INFINITY; lane_count],
+            last_down: vec![(f64::INFINITY, f64::INFINITY); lane_count],
+            shocks,
         };
         judge.rebuild_rows();
         judge
@@ -377,12 +414,47 @@ impl Judge {
             .count() as u32
     }
 
-    /// Judgeable mines and shocks.
+    /// Judgeable mines.
     pub fn mine_count(&self) -> u32 {
         self.notes
             .iter()
-            .filter(|n| n.judgeable && n.is_mine())
+            .filter(|n| n.judgeable && n.note.kind == NoteKind::Mine)
             .count() as u32
+    }
+
+    /// Shock rows ([`JudgeTable::shock_rows`]).
+    pub fn shock_count(&self) -> u32 {
+        self.shocks.len() as u32
+    }
+
+    /// The shock row stepped on in note `idx`'s lane at `song_time`: every
+    /// lane's shock gone, one N.G.
+    fn hit_shock(&mut self, idx: usize, song_time: f64, out: &mut Vec<JudgeEvent>) {
+        if let Some(row) = self.shocks.iter().find(|r| r.contains(&idx)) {
+            for &i in row {
+                self.notes[i].state = NoteState::MineHit;
+            }
+        }
+        out.push(self.event(idx, JudgeEventKind::HitShock, song_time));
+    }
+
+    /// Note `idx`, a shock, passed unstepped: once every lane's has, one
+    /// O.K. on the row's first lane.
+    fn avoid_shock(&mut self, idx: usize, out: &mut Vec<JudgeEvent>) {
+        let Some(row) = self.shocks.iter().find(|r| r.contains(&idx)) else {
+            return;
+        };
+        if row
+            .iter()
+            .all(|&i| self.notes[i].state == NoteState::MineAvoided)
+        {
+            let first = *row
+                .iter()
+                .min_by_key(|&&i| self.notes[i].note.lane)
+                .expect("a shock row has notes");
+            let at = self.notes[first].seconds + self.table.mine_window_seconds();
+            out.push(self.event(first, JudgeEventKind::AvoidShock, at));
+        }
     }
 
     pub fn row_count(&self) -> u32 {
@@ -710,6 +782,11 @@ impl Judge {
         }
         self.cross_heads(song_time, &mut out);
         self.checkpoints_until(song_time, &mut out);
+        // Only a lane going down: a second key on a lane already down
+        // keeps it down since the first.
+        if !self.down[lane_idx] {
+            self.pressed_at[lane_idx] = song_time;
+        }
         self.down[lane_idx] = true;
         self.expire(lane_idx, song_time, &mut out);
         let queue: Vec<usize> = self.lanes[lane_idx][self.cursor[lane_idx]..].to_vec();
@@ -766,8 +843,12 @@ impl Judge {
         };
         if hit_mine {
             let (idx, _) = mine.expect("mine candidate");
-            self.notes[idx].state = NoteState::MineHit;
-            out.push(self.event(idx, JudgeEventKind::HitMine, song_time));
+            if self.notes[idx].note.kind == NoteKind::Shock {
+                self.hit_shock(idx, song_time, &mut out);
+            } else {
+                self.notes[idx].state = NoteState::MineHit;
+                out.push(self.event(idx, JudgeEventKind::HitMine, song_time));
+            }
         } else if let Some((idx, delta, _)) = tap.filter(|&(idx, ..)| {
             self.ticked()
                 && matches!(
@@ -848,6 +929,9 @@ impl Judge {
         }
         self.cross_heads(song_time, &mut out);
         self.checkpoints_until(song_time, &mut out);
+        if self.down[lane_idx] {
+            self.last_down[lane_idx] = (self.pressed_at[lane_idx], song_time);
+        }
         self.down[lane_idx] = false;
         let queue: Vec<usize> = self.lanes[lane_idx][self.cursor[lane_idx]..].to_vec();
         let max_early = self.table.max_early();
@@ -908,11 +992,21 @@ impl Judge {
                 }
                 match n.state {
                     NoteState::Pending if n.is_mine() => {
-                        if is_held && prev < seconds && seconds <= song_time {
-                            self.notes[idx].state = NoteState::MineHit;
-                            out.push(self.event(idx, JudgeEventKind::HitMine, seconds));
+                        let (down, up) = self.last_down[lane];
+                        let down_then = (is_held && self.pressed_at[lane] <= seconds)
+                            || (down <= seconds && seconds < up);
+                        if down_then && prev < seconds && seconds <= song_time {
+                            if n.note.kind == NoteKind::Shock {
+                                self.hit_shock(idx, seconds, &mut out);
+                            } else {
+                                self.notes[idx].state = NoteState::MineHit;
+                                out.push(self.event(idx, JudgeEventKind::HitMine, seconds));
+                            }
                         } else if song_time > seconds + self.table.mine_window_seconds() {
                             self.notes[idx].state = NoteState::MineAvoided;
+                            if self.notes[idx].note.kind == NoteKind::Shock {
+                                self.avoid_shock(idx, &mut out);
+                            }
                         }
                     }
                     NoteState::HoldActive { .. } => {
@@ -1381,6 +1475,48 @@ mod tests {
         let ev = j.update(3.2, &[false; 4]);
         assert!(ev.iter().all(|e| e.kind != JudgeEventKind::HitMine));
         assert_eq!(j.notes()[3].state, NoteState::MineAvoided);
+    }
+
+    #[test]
+    fn a_press_after_a_mine_passed_does_not_step_on_it() {
+        // A mine just before a tap (a tick, 21 ms at 60 BPM), as charts
+        // put them: pressed for the tap, the frame that sees the mine
+        // finds the lane down, but it went down after the mine had passed.
+        let notes = [
+            Note::new(Tick::from_beats(1), 0, NoteKind::Mine),
+            Note::new(Tick(TICKS_PER_BEAT + 1), 0, NoteKind::Tap),
+        ];
+        let tap = notes[1].tick.beat();
+        let table = presets::itg().judge;
+        let mut j = Judge::new(&notes, &TimingMap::constant(60.0, 0.0), table.clone());
+        let mut ev = j.update(0.99, &[false]);
+        ev.extend(j.press(0, tap));
+        ev.extend(j.update(1.03, &[true]));
+        assert!(ev.iter().all(|e| e.kind != JudgeEventKind::HitMine));
+        assert!(matches!(ev[0].kind, JudgeEventKind::Tap(Judgement::W1, _)));
+        // Down before it: stepped on.
+        let mut j = Judge::new(&notes, &TimingMap::constant(60.0, 0.0), table.clone());
+        let mut ev = j.update(0.9, &[false]);
+        ev.extend(j.press(0, 0.95));
+        ev.extend(j.update(1.03, &[true]));
+        assert!(ev.iter().any(|e| e.kind == JudgeEventKind::HitMine));
+        // Down since 0.5 and a second key on the lane for the tap: still
+        // down when the mine passed.
+        let mut j = Judge::new(&notes, &TimingMap::constant(60.0, 0.0), table.clone());
+        let mut ev = j.press(0, 0.5);
+        ev.extend(j.update(0.99, &[true]));
+        ev.extend(j.press(0, tap));
+        ev.extend(j.update(1.03, &[true]));
+        assert!(ev.iter().any(|e| e.kind == JudgeEventKind::HitMine));
+        // Down over the mine, up and down again in the same frame: the
+        // lane was down when it passed.
+        let mut j = Judge::new(&notes, &TimingMap::constant(60.0, 0.0), table);
+        let mut ev = j.press(0, 0.5);
+        ev.extend(j.update(0.99, &[true]));
+        ev.extend(j.release(0, 1.005));
+        ev.extend(j.press(0, 1.019));
+        ev.extend(j.update(1.03, &[true]));
+        assert!(ev.iter().any(|e| e.kind == JudgeEventKind::HitMine));
     }
 
     #[test]

@@ -17,13 +17,14 @@
 //! 2.25, 2.75, 3.0 with two.
 
 use ddi_chart::{
-    Chart, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, SourceInfo, Tick, TimingMap,
+    Chart, ComboSegment, Difficulty, DisplayBpm, Note, NoteKind, Song, SourceFormat, SourceInfo,
+    Tick, TimingMap,
 };
 use ddi_engine::InputEvent;
 use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::danoni::DanoniOptions;
 use ddi_engine::rules::presets::{self, HoldStyle, RulesetMode};
-use ddi_engine::rules::{FullCombo, Ruleset};
+use ddi_engine::rules::{FullCombo, Judgement, Ruleset};
 use ddi_platform::{ClockSample, HostTime};
 
 fn song(layout: &str) -> Song {
@@ -96,6 +97,11 @@ fn perfect() -> Vec<(f64, u8, bool)> {
 /// Plays `script` (`(song seconds, lane, pressed)`, sorted), updating
 /// every 10 ms.
 fn play(ruleset: Ruleset, song: &Song, script: &[(f64, u8, bool)]) -> Results {
+    played(ruleset, song, script).results()
+}
+
+/// [`play`], the player at the end.
+fn played(ruleset: Ruleset, song: &Song, script: &[(f64, u8, bool)]) -> Player {
     let mut player = Player::new(song, 0, ruleset, PlayOptions::default());
     player.clock_sample(ClockSample {
         context_time: 0.0,
@@ -118,7 +124,7 @@ fn play(ruleset: Ruleset, song: &Song, script: &[(f64, u8, bool)]) -> Results {
         }
     }
     assert!(player.finished());
-    player.results()
+    player
 }
 
 fn ruleset(preset: &str, holds: HoldStyle, song: &Song) -> Ruleset {
@@ -219,4 +225,47 @@ fn a_missed_checkpoint_breaks_combo_and_costs_a_miss() {
     let r = play(ruleset("sm5", HoldStyle::Dance, &song), &song, &script);
     assert_eq!((r.tally.checkpoint_hit, r.tally.checkpoint_miss), (0, 0));
     assert_eq!((r.tally.held, r.tally.let_go), (1, 1));
+}
+
+#[test]
+fn combo_segments_multiply_combo_and_counts() {
+    // As BAD's `#COMBOS:0=1,80=4=1,87=1`: from beat 2 each row counts 4
+    // (a miss 2 here), from beat 3.5 one again.
+    let mut song = song("pump-single");
+    let t = Tick::from_beat_f64;
+    song.timing.combos = vec![
+        ComboSegment {
+            tick: t(0.0),
+            combo: 1,
+            miss_combo: 1,
+        },
+        ComboSegment {
+            tick: t(2.0),
+            combo: 4,
+            miss_combo: 2,
+        },
+        ComboSegment {
+            tick: t(3.5),
+            combo: 1,
+            miss_combo: 1,
+        },
+    ];
+    let r = play(ruleset("sm5", HoldStyle::ByGame, &song), &song, &perfect());
+    // Steps at 0, 1 and 4 count once, at 2 and 2.5 four times; the
+    // checkpoints at 1.25 … 1.75 once, at 2.25 … 3.0 four times (two
+    // holds each).
+    assert_eq!(r.tally.count(Judgement::W1), 3 + 2 * 4);
+    assert_eq!(r.tally.checkpoint_hit, 3 + 3 * 4);
+    assert_eq!(r.max_combo, 3 + 3 + 2 * 4 + 3 * 2 * 4);
+    // Dance points are not multiplied.
+    assert_eq!(r.score.percent, Some(1.0));
+    assert_eq!(r.full_combo, FullCombo::MarvelousFC);
+    // The tap at 2.5 missed: a miss counted twice, the combo broken.
+    let script: Vec<_> = perfect().into_iter().filter(|e| e.1 != 4).collect();
+    let p = played(ruleset("sm5", HoldStyle::ByGame, &song), &song, &script);
+    assert_eq!(p.results().tally.count(Judgement::Miss), 2);
+    // Before it: 0, 1, 1.25 … 1.75, the head at 2 (4) and 2.25 (8);
+    // after it: 2.75 and 3.0 (8 each) and the tap at 4.
+    assert_eq!(p.max_combo(), 2 + 3 + 4 + 8);
+    assert_eq!(p.combo(), 8 + 8 + 1);
 }

@@ -1,6 +1,6 @@
 //! The orchestrator: clock + judge + rules → frames and results.
 
-use ddi_chart::{Layout, NoteKind, Song, TimingMap};
+use ddi_chart::{Layout, Note, NoteKind, Song, TimingMap};
 use ddi_platform::{ClockSample, HostTime};
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +31,11 @@ const SKIN_EVENTS: usize = 256;
 /// `[Player] BrightGhostComboThreshold` (`Themes/_fallback/metrics.ini`):
 /// above this combo explosions are bright.
 const BRIGHT_COMBO: u32 = 100;
+/// Seconds the arrows still to come are hidden after a shock is stepped
+/// on. DDR hides them "for a short time" (RemyWiki's DDR glossary), "a
+/// few frames" (Rhythmic Keystrokes); no measured figure is published,
+/// so this is an estimate (`docs/research/rules-ddr-itg-dwi.md`).
+pub const SHOCK_BLIND_SECONDS: f64 = 0.2;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -133,6 +138,9 @@ pub struct Player {
     delta_count: u32,
     /// `(judgement, delta, song_time, combo_at)`.
     last_flash: Option<(Judgement, f64, f64, u32)>,
+    /// The last shock stepped on: from when to when the notes to come are
+    /// hidden.
+    shock_blind: Option<(f64, f64)>,
     /// Per lane `(judgement, song_time)`.
     lane_flash: Vec<Option<(Judgement, f64)>>,
     failed: bool,
@@ -173,7 +181,11 @@ impl Player {
         let layout = song
             .layout_of(chart)
             .unwrap_or_else(|| Layout::generic(chart_lanes));
-        let transformed = transform::apply(&chart.notes, &layout, &options.transform, options.seed);
+        let mut transformed =
+            transform::apply(&chart.notes, &layout, &options.transform, options.seed);
+        if ruleset.judge.shock_rows {
+            shock_rows(&mut transformed.notes, layout.lane_count().max(chart_lanes));
+        }
         let judge = Judge::new(&transformed.notes, &timing, ruleset.judge.clone());
         let lanes = layout
             .lane_count()
@@ -201,6 +213,7 @@ impl Player {
             delta_sq_sum: 0.0,
             delta_count: 0,
             last_flash: None,
+            shock_blind: None,
             lane_flash: vec![None; usize::from(lanes)],
             failed: false,
             finished: false,
@@ -245,6 +258,7 @@ impl Player {
             },
             holds: self.judge.hold_count(),
             mines: self.judge.mine_count(),
+            shocks: self.judge.shock_count(),
             combo: 0,
             ticked: self.ruleset.judge.hold.is_ticked(),
             checkpoints: self.judge.checkpoint_count(),
@@ -376,7 +390,9 @@ impl Player {
                 .filter(|e| e.lane == ev.lane)
                 .find_map(|e| match e.kind {
                     JudgeEventKind::Tap(j, _) if !j.is_miss() => Some(SkinEventKind::Step(Some(j))),
-                    JudgeEventKind::HitMine => Some(SkinEventKind::StepMine),
+                    JudgeEventKind::HitMine | JudgeEventKind::HitShock => {
+                        Some(SkinEventKind::StepMine)
+                    }
                     _ => None,
                 })
                 .unwrap_or(SkinEventKind::Step(None));
@@ -525,6 +541,21 @@ impl Player {
             JudgeEventKind::HitMine => {
                 self.skin_event(ev.lane, SkinEventKind::HitMine, ev.song_time)
             }
+            // A shock goes off in every lane, and hides what comes next.
+            JudgeEventKind::HitShock => {
+                let tick = ev.tick;
+                let lanes: Vec<u8> = self
+                    .judge
+                    .notes()
+                    .iter()
+                    .filter(|n| n.note.kind == NoteKind::Shock && n.note.tick == tick)
+                    .map(|n| n.note.lane)
+                    .collect();
+                for lane in lanes {
+                    self.skin_event(lane, SkinEventKind::HitMine, ev.song_time);
+                }
+                self.shock_blind = Some((ev.song_time, ev.song_time + SHOCK_BLIND_SECONDS));
+            }
             // `CheckpointsFlashOnHold` (pump): every hold of a row kept
             // flashes as a completed hold, by the combo after the row.
             JudgeEventKind::Checkpoint {
@@ -535,21 +566,38 @@ impl Player {
                     self.skin_event(lane, SkinEventKind::Held { bright }, ev.song_time);
                 }
             }
-            JudgeEventKind::LetGo | JudgeEventKind::Boo | JudgeEventKind::Checkpoint { .. } => {}
+            JudgeEventKind::LetGo
+            | JudgeEventKind::Boo
+            | JudgeEventKind::AvoidShock
+            | JudgeEventKind::Checkpoint { .. } => {}
         }
     }
 
     /// One scored event (a note, or a whole row when per-row).
     fn score_event(&mut self, ev: &JudgeEvent) {
         let combo = &self.ruleset.combo;
+        // `#COMBOS` (StepMania 5.1's `ScoreKeeperNormal`): a row or
+        // checkpoint row that continues the combo adds the segment's combo
+        // to it and counts its judgement that many times, one that breaks
+        // it counts as the segment's miss combo; dance points and the
+        // holds', mines' and shocks' own outcomes are unchanged. A
+        // StepMania rule, so not under Dancing☆Onigiri's.
+        let (hit_times, miss_times) = if self.ruleset.id == "danoni" {
+            (1, 1)
+        } else {
+            self.timing.combo_at(ev.tick)
+        };
+        let mut times = 1;
         match ev.kind {
             JudgeEventKind::Tap(j, _) => {
                 if combo.neutral == Some(j) {
                     // Neither adds to nor breaks the combo.
                 } else if j <= combo.continue_min {
-                    self.combo += 1;
+                    self.combo += hit_times;
+                    times = hit_times;
                 } else {
                     self.combo = 0;
+                    times = miss_times;
                 }
             }
             JudgeEventKind::Held => {
@@ -567,21 +615,28 @@ impl Player {
                     self.combo = 0;
                 }
             }
+            // DDR: "avoided shock arrows ... increment the combo by one";
+            // stepping on one breaks it (X onwards).
+            JudgeEventKind::AvoidShock => self.combo += 1,
+            JudgeEventKind::HitShock => self.combo = 0,
             JudgeEventKind::Boo => {}
             // `HandleComboInternal`: the holds kept add to the combo (one
             // under per-row combo), a missed one breaks it.
             JudgeEventKind::Checkpoint { held, missed, .. } => {
                 if missed > 0 {
                     self.combo = 0;
+                    times = miss_times;
                 } else if combo.per_row {
-                    self.combo += 1;
+                    self.combo += hit_times;
+                    times = hit_times;
                 } else {
-                    self.combo += u32::from(held);
+                    self.combo += u32::from(held) * hit_times;
+                    times = hit_times;
                 }
             }
         }
         self.max_combo = self.max_combo.max(self.combo);
-        self.tally.record(&ev.kind);
+        self.tally.record_times(&ev.kind, times);
         self.ctx.combo = self.combo;
         self.ruleset.score.on_event(ev, &self.ctx);
         self.ruleset.gauge.on_event(ev, &self.ctx);
@@ -615,9 +670,16 @@ impl Player {
         // After an immediate fail nothing is judged any more, so draw nothing:
         // the field goes blank while the shell fades the music out.
         let field_cleared = self.failed && matches!(self.ruleset.fail, FailPolicy::Immediate);
+        let blind = self
+            .shock_blind
+            .filter(|&(from, until)| song_time >= from && song_time < until);
         for (n, &(head_beat, tail_beat)) in self.judge.notes().iter().zip(&self.displayed) {
             if field_cleared {
                 break;
+            }
+            // A shock stepped on: the notes still to come vanish a moment.
+            if blind.is_some() && n.state == NoteState::Pending {
+                continue;
             }
             let kind = match n.note.kind {
                 NoteKind::Tap => match n.state {
@@ -789,5 +851,35 @@ impl Player {
             scroll_action: self.options.scroll.scroll_action,
             assist: self.options.transform.is_assist(),
         }
+    }
+}
+
+/// DDR's shock arrows as StepMania-format charts write them, a mine in
+/// every lane of a row ("only full lines of four or eight Shock Arrows
+/// appear", RemyWiki's DDR glossary): those rows become shocks.
+fn shock_rows(notes: &mut [Note], lanes: usize) {
+    if lanes == 0 {
+        return;
+    }
+    let mut start = 0;
+    while start < notes.len() {
+        let tick = notes[start].tick;
+        let end = start + notes[start..].iter().take_while(|n| n.tick == tick).count();
+        let mut mined = vec![false; lanes];
+        for n in &notes[start..end] {
+            if n.kind == NoteKind::Mine
+                && let Some(m) = mined.get_mut(usize::from(n.lane))
+            {
+                *m = true;
+            }
+        }
+        if mined.iter().all(|&m| m) {
+            for n in &mut notes[start..end] {
+                if n.kind == NoteKind::Mine {
+                    n.kind = NoteKind::Shock;
+                }
+            }
+        }
+        start = end;
     }
 }

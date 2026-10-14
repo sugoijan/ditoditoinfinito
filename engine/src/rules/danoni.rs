@@ -550,13 +550,14 @@ impl GaugeRules for DanoniGauge {
 
     fn on_event(&mut self, ev: &JudgeEvent, _ctx: &ScoreCtx) {
         match ev.kind {
-            JudgeEventKind::Tap(Judgement::W1 | Judgement::W2, _) | JudgeEventKind::Held => {
-                self.change(self.recovery)
-            }
+            JudgeEventKind::Tap(Judgement::W1 | Judgement::W2, _)
+            | JudgeEventKind::Held
+            | JudgeEventKind::AvoidShock => self.change(self.recovery),
             JudgeEventKind::Tap(Judgement::W3, _) => {}
-            JudgeEventKind::Tap(_, _) | JudgeEventKind::LetGo | JudgeEventKind::HitMine => {
-                self.change(-self.damage)
-            }
+            JudgeEventKind::Tap(_, _)
+            | JudgeEventKind::LetGo
+            | JudgeEventKind::HitMine
+            | JudgeEventKind::HitShock => self.change(-self.damage),
             JudgeEventKind::Boo => self.change(-self.damage * EXCESSIVE_FACTOR),
             // danoniplus has no ticked holds; its rules keep their own.
             JudgeEventKind::Checkpoint { .. } => {}
@@ -773,6 +774,7 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
             // `justFrames` (default 1): fast or slow beyond one frame
             // (`displayDiff`, mainWindow.js).
             just: Some(frames(1)),
+            shock_rows: false,
         },
         combo: ComboRules {
             continue_min: Judgement::W2,

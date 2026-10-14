@@ -335,6 +335,7 @@ name = "ddi-engine"
 version = "0.1.0"
 dependencies = [
  "ddi-chart",
+ "ddi-library",
  "ddi-platform",
  "serde",
  "serde_json",

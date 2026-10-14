@@ -219,6 +219,8 @@ fn describe(ev: &JudgeEvent) -> String {
         JudgeEventKind::Held => format!("Held@{idx}"),
         JudgeEventKind::LetGo => format!("LetGo@{idx}"),
         JudgeEventKind::HitMine => format!("Mine@{idx}"),
+        JudgeEventKind::AvoidShock => format!("ShockOK@{idx}"),
+        JudgeEventKind::HitShock => format!("ShockNG@{idx}"),
         JudgeEventKind::Boo => "Boo".to_string(),
         JudgeEventKind::Checkpoint { held, missed, .. } => format!("Tick{held}/{missed}"),
     }
