@@ -238,8 +238,18 @@ impl Component for GameCanvas {
         match ctx.props().source.clone() {
             SongSource::Song { id, chart } => load(ctx, id, chart),
             SongSource::Calibration(mode) => {
+                let song = calibration::song(mode);
+                // Drawn with the chosen arrows, as a song is, readied
+                // before the start prompt shows (the test starts at
+                // once). Not in the audio test: it hides the notes, and a
+                // skin's receptors may pulse on the beat, a visual cue.
+                let skin = if mode.hide_notes() {
+                    None
+                } else {
+                    noteskin_ready(&Settings::load(), &song, 0)
+                };
                 let loaded = Loaded {
-                    song: calibration::song(mode),
+                    song,
                     title: mode.title().into(),
                     subtitle: mode.hint().into(),
                     music_bytes: None,
@@ -247,8 +257,13 @@ impl Component for GameCanvas {
                     bg_videos: Vec::new(),
                     has_background: false,
                 };
-                ctx.link()
-                    .send_message(Msg::SongLoaded(Ok(Rc::new(loaded))));
+                let link = ctx.link().clone();
+                ctx.link().send_future(async move {
+                    if let Some(skin) = skin {
+                        link.send_message(Msg::NoteskinLoaded(skin.await));
+                    }
+                    Msg::SongLoaded(Ok(Rc::new(loaded)))
+                });
             }
         }
         let keys = web_sys::window().map(|w| {
@@ -1418,10 +1433,6 @@ const TEXT_SCALE: f64 = 3.0;
 fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
     let link = ctx.link().clone();
     let settings = Settings::load();
-    let noteskin = settings.noteskin.clone();
-    let note_colors = settings.note_colors;
-    let chart_colors = settings.chart_colors;
-    let reverse = settings.reverse;
     let show_background = settings.bg_brightness > 0.0;
     // Off: no movie file is read and the decoder is never fetched.
     let play_videos = show_background && settings.video != VideoMode::Off;
@@ -1591,23 +1602,33 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
             })
         });
         if let Ok(loaded) = &r
-            && let Some(c) = loaded.song.charts.get(chart)
-            && let Some(key) = crate::noteskins::play_skin(
-                noteskin.as_deref(),
-                note_colors,
-                chart_colors && c.notes.iter().any(|n| n.color.is_some()),
-            )
-            && let Some(layout) = loaded.song.layout_of(c)
+            && let Some(skin) = noteskin_ready(&settings, &loaded.song, chart)
         {
-            let env = crate::noteskins::lua_env(&loaded.song, c, &layout, reverse);
-            link.send_future(async move {
-                Msg::NoteskinLoaded(
-                    crate::noteskins::prepare(&key, &layout, env)
-                        .await
-                        .map(Box::new),
-                )
-            });
+            link.send_future(async move { Msg::NoteskinLoaded(skin.await) });
         }
         Msg::SongLoaded(r)
     });
+}
+
+/// Readies the chosen noteskin for `song`'s chart `chart` (its layout,
+/// colours and scroll direction), for [`Msg::NoteskinLoaded`]. `None` for
+/// the built-in arrows.
+fn noteskin_ready(
+    settings: &Settings,
+    song: &Song,
+    chart: usize,
+) -> Option<impl std::future::Future<Output = Option<Box<crate::noteskins::Prepared>>> + use<>> {
+    let c = song.charts.get(chart)?;
+    let key = crate::noteskins::play_skin(
+        settings.noteskin.as_deref(),
+        settings.note_colors,
+        settings.chart_colors && c.notes.iter().any(|n| n.color.is_some()),
+    )?;
+    let layout = song.layout_of(c)?;
+    let env = crate::noteskins::lua_env(song, c, &layout, settings.reverse);
+    Some(async move {
+        crate::noteskins::prepare(&key, &layout, env)
+            .await
+            .map(Box::new)
+    })
 }
