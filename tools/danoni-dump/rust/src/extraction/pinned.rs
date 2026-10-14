@@ -678,6 +678,11 @@ pub(super) fn motion(
     selection: &MotionSelection,
     checkpoint: &mut impl FnMut() -> Result<()>,
 ) -> Result<Value> {
+    if selection.source != MotionSource::Tap {
+        return Err(invalid(
+            "Pinned movement contracts support tap witnesses only",
+        ));
+    }
     check(
         capture,
         if options.family == Family::HiganPilot {
@@ -921,6 +926,7 @@ mod tests {
                 review_missing_decorative_sprites: false,
             },
             MotionSelection {
+                source: MotionSource::Tap,
                 note: "le_s0".into(),
                 receptor: "le_step".into(),
                 geometry_reference: None,
@@ -936,6 +942,9 @@ mod tests {
         let report = motion(&capture, &chart, &options, &selection, &mut || Ok(())).unwrap();
         assert_eq!(report["referencePixels"], 46.0);
         assert_eq!(report["arrivalProved"], false);
+        let mut hold = selection.clone();
+        hold.source = MotionSource::HoldHead;
+        assert!(motion(&capture, &chart, &options, &hold, &mut || Ok(())).is_err());
         let mut bad = capture.clone();
         bad["captures"][1]["state"]["displayTree"][1]["stageBoundsPixels"][1] = json!(190);
         assert!(motion(&bad, &chart, &options, &selection, &mut || Ok(())).is_err());

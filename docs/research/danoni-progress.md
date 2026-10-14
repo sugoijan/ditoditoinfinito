@@ -140,8 +140,10 @@ evidence, retaining all attempts and whole-operation budgets. The first
 engine's menu, derives 5/7-key selections and proposes runtime-proved motion
 windows. [Resource recovery before menu observation](danoni-rust-profile-recovery.md)
 now shares the bounded dependency coordinator and exact optional-404 handling.
-The early-hold motion gap, broader engine profiles and URL acquisition remain
-ahead.
+The [hold-head/derived-input extension](danoni-rust-hold-motion.md) now proves
+two requested early-hold work selectors with unchanged source/audio gates. Its
+third selector rewrites source frames and remains excluded. Broader engine
+profiles and URL acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

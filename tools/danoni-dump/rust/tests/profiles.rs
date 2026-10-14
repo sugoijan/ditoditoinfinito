@@ -359,3 +359,242 @@ fn installed_profile_executes_all_selectors_and_blocks_late_cancellation_and_lim
     );
     assert!(!out.output.join("manifest.json").exists());
 }
+
+#[test]
+fn earlier_hold_witnesses_precede_taps_and_work_on_hold_only_charts() {
+    use ddi_danoni_export::extraction::MotionSource;
+    let mut c = chart("7");
+    c["lanes"][2]["nativeHoldFrames"] = json!([[250, 300]]);
+    let origin = json!({"logicalFrame":1,"iteration":201});
+    let proposals = motion_candidates(&c, &origin, &mut || Ok(())).unwrap();
+    assert_eq!(proposals[0].source, MotionSource::HoldHead);
+    assert_eq!(proposals[0].note, "fdo_s0");
+    assert_eq!(proposals[0].lane, 2);
+    assert_eq!(proposals[0].iterations, (400..=405).collect::<Vec<_>>());
+    c["lanes"][6]["nativeFrames"] = json!([]);
+    assert!(
+        motion_candidates(&c, &origin, &mut || Ok(()))
+            .unwrap()
+            .iter()
+            .all(|s| s.source == MotionSource::HoldHead)
+    );
+    c["lanes"][6]["nativeFrames"] = json!([200]);
+    assert_eq!(
+        motion_candidates(&c, &origin, &mut || Ok(())).unwrap()[0].source,
+        MotionSource::Tap
+    );
+}
+
+#[test]
+fn selector_filters_reject_invalid_indices_before_asset_reads() {
+    use ddi_danoni_export::{assets::*, supervisor::WorkerSpec};
+    struct NoReads;
+    impl AssetSource for NoReads {
+        fn read(&self, _: &str, _: &str, _: usize) -> ddi_danoni_export::Result<Vec<u8>> {
+            panic!("Invalid selectors must not read assets")
+        }
+    }
+    let b = json!({"namespace":"source","path":"movie.swf","sha256":"0".repeat(64)});
+    let base = json!({"movie":b,"sourceManifest":b,"context":b});
+    let old: ProfileRequest = serde_json::from_value(base.clone()).unwrap();
+    assert!(old.selectors.is_none());
+    assert!(
+        serde_json::to_value(old)
+            .unwrap()
+            .get("selectors")
+            .is_none()
+    );
+    let worker:WorkerSpec=serde_json::from_value(json!({"executable":"/not/a/worker","sha256":"0".repeat(64),"buildIdentity":"/not/a/build","buildIdentitySha256":"0".repeat(64)})).unwrap();
+    let output = std::env::temp_dir().join(format!("ddi-invalid-selectors-{}", std::process::id()));
+    for indices in [vec![], vec![0, 0], vec![1, 0], vec![16]] {
+        let mut v = base.clone();
+        v["selectors"] = json!(indices);
+        let r: ProfileRequest = serde_json::from_value(v).unwrap();
+        assert_eq!(
+            execute(&r, &worker, &NoReads, &output, &mut |_| Ok(()))
+                .unwrap_err()
+                .code,
+            "invalid-native-profile"
+        );
+        assert!(!output.exists());
+    }
+}
+
+fn input_chart() -> Value {
+    let mut c = chart("5");
+    c["nativeLaneIndices"] = json!([0, 2, 4, 6, 3]);
+    c["nativeKeyCodes"] = json!([37, 300, 40, 32, 38, 301, 39]);
+    c["lanes"][0]["nativeHoldFrames"] = json!([[200, 240], [238, 260]]);
+    c
+}
+#[test]
+fn hold_intro_inputs_use_native_key_indices_and_merge_overlapping_intervals() {
+    let c = input_chart();
+    let origin = json!({"logicalFrame":1,"iteration":201});
+    assert!(has_early_holds(&c).unwrap());
+    let keys = early_hold_inputs(&c, &origin, 58, 62, &mut || Ok(())).unwrap();
+    assert_eq!(
+        keys,
+        json!([{"type":"key","frame":400,"code":"ArrowLeft","holdFrames":62}])
+            .as_array()
+            .unwrap()
+            .clone()
+    );
+    let mut c = c;
+    c["lanes"][0]["nativeHoldFrames"] = json!([[500, 520]]);
+    assert!(!has_early_holds(&c).unwrap());
+    assert!(
+        early_hold_inputs(&c, &origin, 58, 62, &mut || Ok(()))
+            .unwrap()
+            .is_empty()
+    );
+}
+#[test]
+fn derived_play_inputs_never_guess_keys_clocks_or_raise_worker_bounds() {
+    let origin = json!({"logicalFrame":1,"iteration":201});
+    for bad in [
+        "key",
+        "index",
+        "fractional",
+        "initialization",
+        "long",
+        "slots",
+        "past-end",
+    ] {
+        let mut c = input_chart();
+        let mut after = 58;
+        let mut slots = 62;
+        match bad {
+            "key" => c["nativeKeyCodes"][0] = json!(65),
+            "index" => c["nativeLaneIndices"][0] = json!(-1),
+            "fractional" => c["lanes"][0]["nativeHoldFrames"] = json!([[200.5, 240]]),
+            "initialization" => after = 400,
+            "long" => c["lanes"][0]["nativeHoldFrames"] = json!([[200, 400]]),
+            "slots" => slots = 0,
+            "past-end" => {
+                c["lanes"][0]["nativeHoldFrames"] = json!([[900, 1002]]);
+                c["lanes"][4]["nativeFrames"] = json!([1100]);
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            early_hold_inputs(&c, &origin, after, slots, &mut || Ok(())).is_err(),
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        early_hold_inputs(&input_chart(), &origin, 58, 62, &mut || Err(Error {
+            code: "cancelled",
+            message: "test".into()
+        }))
+        .unwrap_err()
+        .code,
+        "cancelled"
+    );
+}
+
+#[test]
+fn installed_hold_profile_reproves_shared_inputs_and_keeps_unselected_rows_explicit() {
+    use std::{fs, path::PathBuf};
+    let (Some(job), Some(bundle)) = (
+        std::env::var_os("DDI_DANONI_HOLD_PROFILE_JOB"),
+        std::env::var_os("DDI_DANONI_WORKER_BUNDLE"),
+    ) else {
+        eprintln!("SKIP: set DDI_DANONI_HOLD_PROFILE_JOB and DDI_DANONI_WORKER_BUNDLE");
+        return;
+    };
+    let job = PathBuf::from(job);
+    let bundle = PathBuf::from(bundle);
+    let scratch = std::env::temp_dir().join(format!("ddi-hold-profile-{}", std::process::id()));
+    fs::create_dir(&scratch).unwrap();
+    struct Guard(PathBuf);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _guard = Guard(scratch.clone());
+    let out = execute_job(&bundle, &job, &scratch.join("ready"), &mut |_| Ok(())).unwrap();
+    assert!(out.ready, "{:?}", out.failure);
+    let rows = out.manifest["menu"]["menu"]["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(out.manifest["normalized"]["charts"], 2);
+    let excluded = out.manifest["excludedSelectors"].as_array().unwrap();
+    assert_eq!(excluded.len(), 1);
+    assert_eq!(excluded[0]["row"]["index"], 1);
+    assert_eq!(excluded[0]["reason"], "unselected-selector");
+    let trial = &out.manifest["playInputs"][0];
+    assert_eq!(trial["selector"], 0);
+    assert_eq!(
+        trial["seedNormalizationFailure"]["code"],
+        "insufficient-audio-origin"
+    );
+    assert_eq!(trial["projectionUnchanged"], true);
+    assert_eq!(trial["audioOriginUnchanged"], true);
+    assert_eq!(trial["motionProved"], true);
+    let request: ddi_danoni_export::extraction::NativeWorkRequest =
+        serde_json::from_slice(&fs::read(out.output.join("normalization-request.json")).unwrap())
+            .unwrap();
+    let chart = request.charts.iter().find(|c| c.id == "chart-0").unwrap();
+    assert_eq!(
+        chart.motion_selection.source,
+        ddi_danoni_export::extraction::MotionSource::HoldHead
+    );
+    let events = [&chart.projection, &chart.motion, &chart.audio].map(|c| {
+        let config: Value =
+            serde_json::from_slice(&fs::read(out.output.join(&c.config.path)).unwrap()).unwrap();
+        config["events"].clone()
+    });
+    assert_eq!(events[0], events[1]);
+    assert_eq!(events[1], events[2]);
+    assert!(
+        events[0]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["type"] == "key")
+    );
+    let cancelled = execute_job(&bundle, &job, &scratch.join("cancelled"), &mut |p| {
+        if p.stage == "play-inputs" {
+            Err(Error {
+                code: "cancelled",
+                message: "before derived-input recapture".into(),
+            })
+        } else {
+            Ok(())
+        }
+    })
+    .unwrap();
+    assert!(!cancelled.ready);
+    assert_eq!(cancelled.failure.unwrap().code, "cancelled");
+    assert!(!cancelled.output.join("manifest.json").exists());
+    assert_eq!(cancelled.manifest["playInputs"][0]["motionProved"], false);
+
+    // A syntactically valid index is still bounded by the observed menu.
+    let mut invalid: Value = serde_json::from_slice(&fs::read(&job).unwrap()).unwrap();
+    let job_parent = job.parent().unwrap();
+    for root in invalid["roots"].as_object_mut().unwrap().values_mut() {
+        let path = PathBuf::from(root.as_str().unwrap());
+        if path.is_relative() {
+            *root = json!(job_parent.join(path));
+        }
+    }
+    invalid["request"]["selectors"] = json!([15]);
+    let invalid_job = scratch.join("invalid-job.json");
+    fs::write(&invalid_job, serde_json::to_vec(&invalid).unwrap()).unwrap();
+    let invalid = execute_job(&bundle, &invalid_job, &scratch.join("invalid"), &mut |_| {
+        Ok(())
+    })
+    .unwrap();
+    assert!(!invalid.ready);
+    assert_eq!(invalid.failure.unwrap().code, "invalid-native-profile");
+    assert_eq!(
+        invalid.manifest["menu"]["menu"]["rows"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(invalid.manifest["captures"].as_object().unwrap().len(), 1);
+    assert!(!invalid.output.join("manifest.json").exists());
+}

@@ -73,6 +73,9 @@ impl ProfileLimits {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProfileRequest {
+    /// Optional user-selected menu rows; omission means every supported row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selectors: Option<Vec<usize>>,
     pub movie: Binding,
     pub source_manifest: Binding,
     pub context: Binding,
@@ -166,6 +169,16 @@ fn prepare(
 ) -> Result<Prepared> {
     request.limits.validate()?;
     request.capture_limits.validate()?;
+    if let Some(indices) = &request.selectors
+        && (indices.is_empty()
+            || indices.len() > 16
+            || indices.iter().any(|i| *i >= 16)
+            || indices.windows(2).any(|p| p[0] >= p[1]))
+    {
+        return Err(invalid(
+            "Need 1..16 unique increasing selector indices in 0..16",
+        ));
+    }
     let mut inputs = Inputs::new(source);
     let movie_bytes = inputs.checked(&request.movie, swf::MOVIE_LIMIT)?;
     let movie = Movie::read(&movie_bytes, checkpoint)?;
@@ -253,6 +266,7 @@ pub(crate) fn prepare_seed(
         Arc::new(bytes(&prepared.context)?),
     )?;
     let request = ProfileRequest {
+        selectors: request.selectors.clone(),
         movie: prepared.movie,
         source_manifest: prepared.source,
         context,
@@ -324,6 +338,14 @@ impl<F: FnMut(&ProfileProgress) -> Result<()>> Run<'_, F> {
             "profile".into(),
             self.root.to_path_buf(),
         )]))
+    }
+    fn pcm_binding(&self, binding: &CaptureBindings) -> Result<Binding> {
+        let path = binding.snapshot.path.replace("snapshot.json", "audio.pcm");
+        Ok(Binding {
+            namespace: "profile".into(),
+            sha256: sha256(&self.source()?.read("profile", &path, MEDIA_LIMIT)?),
+            path,
+        })
     }
     fn capture(
         &mut self,
@@ -488,6 +510,7 @@ pub fn execute(
     let mut observed_menu = None;
     let mut excluded_selectors = Vec::new();
     let mut planned = Vec::new();
+    let mut play_inputs = Vec::new();
     let result = (|| -> Result<Value> {
         run.state.stage = "menu";
         let (capture, menu_binding) = run.capture(
@@ -498,8 +521,21 @@ pub fn execute(
         )?;
         let menu = read_menu(&capture)?;
         observed_menu = Some(json!({"menu":menu,"capture":menu_binding}));
+        if let Some(indices) = &request.selectors
+            && indices.iter().any(|i| *i >= menu.rows.len())
+        {
+            return Err(invalid("Requested selector is outside the observed menu"));
+        }
         let mut charts = Vec::new();
         for row in &menu.rows {
+            if request
+                .selectors
+                .as_ref()
+                .is_some_and(|indices| !indices.contains(&row.index))
+            {
+                excluded_selectors.push(json!({"row":row,"reason":"unselected-selector"}));
+                continue;
+            }
             let Some(mode) = row.mode else {
                 excluded_selectors.push(json!({"row":row,"reason":"unsupported-key-label"}));
                 continue;
@@ -507,6 +543,7 @@ pub fn execute(
             run.state.selector = Some(row.index);
             run.state.stage = "initialization";
             let controls = selector_controls(&menu, row.index)?;
+            let mut events = controls.events.clone();
             let opts = options(mode)?;
             let mut frames = controls.initialization_frames.clone();
             frames.push(1200);
@@ -609,30 +646,98 @@ pub fn execute(
                     break;
                 }
             }
-            let (selection, motion_binding, measured) = proved.ok_or_else(|| {
+            let (selection, mut motion_binding, mut measured) = proved.ok_or_else(|| {
                 Error::new(
                     "native-profile-motion-unproved",
                     "No bounded automatic motion proposal passed the unchanged observation proof",
                 )
             })?;
             let id = format!("chart-{}", row.index);
-            let native_pcm = Binding {
-                namespace: "profile".into(),
-                path: projection_binding
-                    .snapshot
-                    .path
-                    .replace("snapshot.json", "audio.pcm"),
-                sha256: sha256(
-                    &run.source()?.read(
-                        "profile",
-                        &projection_binding
-                            .snapshot
-                            .path
-                            .replace("snapshot.json", "audio.pcm"),
-                        MEDIA_LIMIT,
-                    )?,
-                ),
-            };
+            let mut native_pcm = run.pcm_binding(&projection_binding)?;
+            if has_early_holds(&projection.chart)? {
+                // Reuse the complete normalizer as the probe. Only its exact
+                // insufficient-audio result can trigger physical support inputs.
+                run.state.stage = "audio-check";
+                run.reserve(576 * 1024 * 1024)?;
+                let probe_request = NativeWorkRequest {
+                    source_manifest: prepared.source.clone(),
+                    movie: prepared.movie.clone(),
+                    metadata: request.metadata.clone(),
+                    charts: vec![NativeChartRequest {
+                        id: id.clone(),
+                        label: Some(row.label.clone()),
+                        options: opts.clone(),
+                        projection: projection_binding.clone(),
+                        motion: motion_binding.clone(),
+                        motion_selection: selection.clone(),
+                        audio: projection_binding.clone(),
+                        native_pcm: native_pcm.clone(),
+                        stream_start_index: stream,
+                        optional_color: prepared.optional.clone(),
+                    }],
+                };
+                match prepare_native_work(&probe_request, &run.source()?, &mut || run.check()) {
+                    Ok(_) => {}
+                    Err(e) if e.code == "insufficient-audio-origin" => {
+                        let seed_projection = projection_binding.clone();
+                        let seed_motion = motion_binding.clone();
+                        let derived = early_hold_inputs(
+                            &projection.chart,
+                            &origin,
+                            *controls.initialization_frames.last().unwrap(),
+                            64 - events.len(),
+                            &mut || run.check(),
+                        )?;
+                        if derived.is_empty() {
+                            return Err(e);
+                        }
+                        events.extend(derived.clone());
+                        let trial = play_inputs.len();
+                        play_inputs.push(json!({"selector":row.index,"events":derived,"seedProjection":seed_projection,"seedMotion":seed_motion,"seedNormalizationFailure":e,"projectionUnchanged":null,"audioOriginUnchanged":null,"motionProved":false,"scope":"Physical hold-intro inputs shared by every accepted role; no source, clock or gauge patch. Final full normalization is separate."}));
+                        run.state.stage = "play-inputs";
+                        let (replayed, binding) = run.capture(
+                            &format!("chart-{}-held-audio", row.index),
+                            &events,
+                            &frames,
+                            true,
+                        )?;
+                        confirm_selector(&replayed)?;
+                        let replayed_projection =
+                            project_capture(&replayed, &opts, &mut || run.check())?;
+                        if replayed_projection.chart != projection.chart
+                            || movie_audio_origin(&replayed, clock, stream)? != origin
+                        {
+                            return Err(Error::new(
+                                "native-profile-play-inputs-changed-source",
+                                "Derived play inputs changed chart data or the native audio origin",
+                            ));
+                        }
+                        projection_binding = binding;
+                        native_pcm = run.pcm_binding(&projection_binding)?;
+                        let (motion_capture, binding) = run.capture(
+                            &format!("chart-{}-held-motion", row.index),
+                            &events,
+                            &selection.iterations,
+                            true,
+                        )?;
+                        measured = movie_observation(
+                            &motion_capture,
+                            &projection.chart,
+                            &selection,
+                            clock,
+                            &mut || run.check(),
+                        )?;
+                        validate_clock_agreement(&origin, &measured)?;
+                        motion_binding = binding;
+                        play_inputs[trial]["projection"] = json!(projection_binding);
+                        play_inputs[trial]["motion"] = json!(motion_binding);
+                        play_inputs[trial]["projectionUnchanged"] = json!(true);
+                        play_inputs[trial]["audioOriginUnchanged"] = json!(true);
+                        play_inputs[trial]["motionProved"] = json!(true);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
             charts.push(NativeChartRequest {
                 id: id.clone(),
                 label: Some(row.label.clone()),
@@ -720,7 +825,7 @@ pub fn execute(
         Ok(v) => (Some(v), None),
         Err(e) => (None, Some(e)),
     };
-    let mut manifest = json!({"schema":"ddi-danoni-native-profile-run/1","producer":"native-menu-profiles/1","ready":failure.is_none(),"profile":prepared.profile,"request":request,"worker":worker,"fingerprints":prepared.fingerprints,"sourceInputs":prepared.source_inputs,"menu":observed_menu,"excludedSelectors":excluded_selectors,"captures":run.captures,"motionTrials":run.trials,"pendingDependencies":run.pending,"plannedCharts":planned,"normalized":normalized,"failure":failure,"scope":"Observed supported menu selectors and proved source/motion/PCM normalization; no HTTP, hidden-chart completeness, tempo acceptance or installation"});
+    let mut manifest = json!({"schema":"ddi-danoni-native-profile-run/1","producer":"native-menu-profiles/1","ready":failure.is_none(),"profile":prepared.profile,"request":request,"worker":worker,"fingerprints":prepared.fingerprints,"sourceInputs":prepared.source_inputs,"menu":observed_menu,"excludedSelectors":excluded_selectors,"failedSelector":if failure.is_some(){run.state.selector}else{None},"captures":run.captures,"motionTrials":run.trials,"playInputs":play_inputs,"pendingDependencies":run.pending,"plannedCharts":planned,"normalized":normalized,"failure":failure,"scope":"Requested observed supported menu selectors and proved source/motion/PCM normalization; no HTTP, hidden-chart completeness, tempo acceptance or installation"});
     if failure.is_none() {
         orchestration::write(run.root, ".manifest.json.tmp", &bytes(&manifest)?)?;
         run.state.stage = "ready";

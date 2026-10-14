@@ -118,9 +118,11 @@ provides the source discoveries and detailed historical examples.
   zero schedules outside the selected mode are retained as inactive evidence,
   not turned into extra playable lanes or silently erased.
 
-Family selection is currently supplied explicitly and then structurally verified.
-Automatic family/selector discovery is not implemented. The separately pinned
-Higan and Kouhaku adapters have not been replaced by these seven families.
+Passive family selection is supplied explicitly and then structurally verified.
+The [automatic menu profile](danoni-rust-profiles.md) now recognizes one shared
+constant-travel engine and derives observed 5/7-key selections; other families
+still require explicit plans. The separately pinned Higan and Kouhaku adapters
+have not been replaced by these seven families.
 
 Optional decoration exceptions retain their original diagnostics. The
 missing-attachment review accepts only the exact known message, after compilation,
@@ -171,6 +173,7 @@ uses native MovieClip names and selected iterations:
 
 ```text
 MotionSelection:
+  source: "tap" (default, omitted) | "hold-head"
   note,receptor: strings
   lane: canonical zero-based lane index
   iterations: worker iteration integers[]
@@ -185,6 +188,11 @@ source multiplier must explain movement; DAC arrows additionally prove stored
 per-arrow speed. The result is the existing
 `ddi-native-motion-measurement/experimental-1`, including stage-pixel samples,
 pixels/sec, reference width, arrow heights/sec, arrival residual and author ratio.
+
+The [hold-head extension](danoni-rust-hold-motion.md) explicitly selects a first
+complete hold pair, requires observations before its head and retains these same
+geometry/speed/arrival bounds. It also adds strictly proved hold-only constant
+charts and bounded physical intro inputs for otherwise insufficient audio.
 
 `validate_clock_agreement(origin,motion)` requires every motion sample's
 `movieFrame - iteration` (the sample’s selected logical counter) to match the captured audio start, using the

@@ -14,7 +14,10 @@ now plans reviewed 5/7-key engine controls and motion observations from runtime
 state, without a per-song capture recipe. Its
 [dependency-recovery entry point](../../../docs/research/danoni-rust-profile-recovery.md)
 asks a host resolver for missing inputs before menu discovery and retries under
-the same operation-wide bounds. The
+the same operation-wide bounds. The [hold-head/intro-input extension](../../../docs/research/danoni-rust-hold-motion.md)
+adds generic hold witnesses and bounded source-derived physical inputs, recapturing
+all roles and preserving full source/audio proofs. Optional zero-based
+`ProfileRequest.selectors` records unselected rows explicitly. The
 [native audio stage](../../../docs/research/danoni-rust-audio.md) decodes supplied
 normalized sources and produces WAV/Ogg neutral receipts in process. Accepted
 media and reviewed banners can still be reused byte-identically;

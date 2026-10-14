@@ -17,7 +17,7 @@ pub use job::{
     review_optional_colors,
 };
 pub use observed::{
-    MotionSelection, movie_audio_origin, movie_observation, relative_chart,
+    MotionSelection, MotionSource, movie_audio_origin, movie_observation, relative_chart,
     validate_clock_agreement,
 };
 use serde::{Deserialize, Serialize};

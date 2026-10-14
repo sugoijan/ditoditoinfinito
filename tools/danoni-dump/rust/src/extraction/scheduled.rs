@@ -441,6 +441,11 @@ pub(super) fn constant(
             for index in &indices {
                 values.extend(graph.array(taps[*index])?);
             }
+            if values.is_empty() {
+                for index in &indices {
+                    values.extend(graph.array(holds_flat[*index])?);
+                }
+            }
             if values.is_empty() || values.iter().any(|v| v["type"] != "string") {
                 continue;
             }
@@ -477,7 +482,7 @@ pub(super) fn constant(
         }
         let compiled_taps = schedule(&graph, get(&root, "mkArrow")?, &indices)?;
         let freezes = schedule(&graph, get(&root, "mkFArrow")?, &indices)?;
-        if compiled_taps.is_empty() {
+        if compiled_taps.is_empty() && freezes.is_empty() {
             continue;
         }
         let (expected_taps, expected_h) = expected(raw, &indices, *travel)?;

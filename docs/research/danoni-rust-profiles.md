@@ -28,8 +28,11 @@ The profile currently admits exact runtime key labels `5` and `7`. It retains
 other observed rows and records them in `excludedSelectors` with
 `unsupported-key-label`; it never interprets a nine-lane chart as 9A/9B or admits
 9i/9t. 7i, 9A and 9B remain supported elsewhere in the exporter but need their own
-reviewed native menu/control contracts. Readiness covers observed supported
-selectors, not hidden charts or unsupported rows.
+reviewed native menu/control contracts. Readiness covers requested observed supported
+selectors, not hidden charts or unsupported rows. Optional `selectors: [0, 2]`
+filters zero-based menu indices; omitted means every supported row. Unselected
+rows remain explicit exclusions. See the [hold/selector extension](danoni-rust-hold-motion.md)
+for exact bounds, hold-head witnesses and source-derived intro inputs.
 
 ## Input API
 
@@ -119,15 +122,16 @@ the stored `frame_num` at the exact stream-start observation. Worker iterations,
 root movie frames, native logical frames and audio sample frames are separate
 units; no hard-coded preroll or musical BPM follows from them.
 
-Movement proposals use the first tap of each nonempty lane, observed constant
-travel time and the observed native-clock/worker-iteration difference. Three
+Movement proposals use the first tap or explicitly paired hold head of each
+nonempty lane, observed constant travel time and the observed
+native-clock/worker-iteration difference. Early hold heads take priority. Three
 window positions (half, quarter and three-quarter travel) propose six consecutive
 iterations, bounded to 1–1200. The entire window must precede arrival and avoid
 speed changes and nonpositive speed. The source lane order supplies clip names
 (`le/do/up/ri/oni` or `le/led/do/oni/up/rid/ri`), `_s0` and `_step`; `le_step`
 supplies receptor geometry. No per-song note timestamp or target Y is supplied.
-Each proposal must pass the unchanged `movie_observation` and clock-agreement
-proof. Failed trials remain in the receipt; exhausting proposals fails closed.
+Hold clips add the `f` prefix and must be observed before judgment. Each
+proposal must pass the unchanged geometry/arrival and clock-agreement proof. Failed trials remain in the receipt; exhausting proposals fails closed.
 
 All profile captures use fixed `inspectionScale:4` and `avmExecutionMs:2000`,
 within the existing supervisor maxima; dense chart compilation needs larger
@@ -165,12 +169,13 @@ The parent receipt schema is `ddi-danoni-native-profile-run/1`, producer
 `native-menu-profiles/1`. It records `ready`, `profile`, original `request`, trusted
 `worker`, `fingerprints`, original `sourceInputs`, observed `menu` and its bound
 capture, `excludedSelectors`, all child capture receipt hashes, every
-`motionTrials` candidate/result, `pendingDependencies`, generated `plannedCharts`,
+`motionTrials` candidate/result, `playInputs`, `failedSelector`,
+`pendingDependencies`, generated `plannedCharts`,
 `normalized` paths/hashes/chart count and `failure`. Generated chart IDs are
 `chart-<zero-based-menu-index>`; original runtime difficulty text stays in chart
 metadata. This does not classify free-text difficulty as a numeric rating.
 
-The parent becomes ready only after every observed supported row normalizes and
+The parent becomes ready only after every requested observed supported row normalizes and
 a final cancellation/output check passes. Late cancellation removes the pending
 marker and clears the parent's normalized result even if child files exist.
 Failures retain captures; child readiness alone is not installation authority.
@@ -205,7 +210,7 @@ of complete selection, portable replay preparation, late cancellation and limits
 gate; `DDI_DANONI_PROFILE_RECEIPT` writes its result to a fresh external file.
 Third-party jobs/captures/results remain under `~/Music/DanOni/`.
 
-### Local result, 2026-10-14
+### Initial local result, 2026-10-14
 
 The same profile matches eight acquired works. Seven normalize successfully,
 covering eight charts. No per-work selector/motion recipe is supplied.
@@ -231,8 +236,8 @@ Maximum measured parser error is `2.8422e-11` ms; canonical PCM differs by at mo
 one signed 16-bit unit. These results do not approve new musical tempo fits.
 The seven successful operations used 32 captures and nine motion trials.
 
-`reku-053-dosmf08-dariscradle-slashspeed-maspa` exposes three 5-key menu rows but
-returns `native-profile-motion-unproved`. Its no-input run reaches root label
+The initial `reku-053-dosmf08-dariscradle-slashspeed-maspa` trial exposes three
+5-key menu rows but returns `native-profile-motion-unproved`. Its no-input run reaches root label
 `goResult` with `life = 0` / stopped logical counter 195 before the first tap
 witness. The original explicit corpus recipe supplies play keys across early
 holds. All eight automatic motion trials fail; no parent success or normalized
@@ -240,6 +245,11 @@ work is published. Retain this as a separate failed source, not three admitted
 charts. A generic follow-up needs hold-motion observation or bounded derived
 play inputs shared by **every** projection/motion/audio run and full source
 reproof. Do not copy that song's manual key schedule into this profile.
+
+The subsequent [hold-head/derived-input slice](danoni-rust-hold-motion.md) closes
+that motion/audio gap for requested rows 0 and 2. Row 1 still rejects its
+pre-compilation source rewrite; it has not been admitted. Those fresh trials and
+reference comparisons live in a separate dated directory.
 
 All jobs, original failed probes, successful captures and comparison results live
 in `~/Music/DanOni/reviews/rust-profiles-20261014/`. `cases.json` binds the local

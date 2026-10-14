@@ -608,3 +608,23 @@ probes remain local. This closes the pre-menu resource bridge for the first
 profile; no built-in HTTP service or library installation is claimed. Next prove
 generic hold-motion or derived play-input witnesses for the existing early-hold
 game-over gap, then expand reviewed native profiles and milestone 5 acquisition.
+
+
+### Hold-head motion and derived intro inputs, 2026-10-14
+
+The [hold-head extension](danoni-rust-hold-motion.md) uses explicitly paired native
+hold clips with the unchanged geometry, speed, arrival and clock proofs.
+Hold-only constant charts retain full source/spawn/duration agreement. For early
+holds whose otherwise complete normalizer reports insufficient audio, bounded
+physical key inputs come from source frames and captured key bindings. Fresh
+projection/motion/audio roles share those inputs; the complete chart and audio
+origin must remain identical and final PCM correlation still gates readiness.
+
+Two requested Maspa selectors now normalize without the old manual input recipe.
+The third rewrites four source heads and remains excluded through the new optional
+selector filter; a Ready subset never implies full-work coverage. All failed
+probes and source-bound comparisons remain local, and accepted exports are
+unchanged. Next extend reviewed engine profiles and implement milestone 5's host
+URL/policy/cache and bounded index discovery. Source transformations need their
+own evidenced contracts; musical estimate acceptance, HTML5 capture, other-OS
+confinement and desktop library installation remain separate work.

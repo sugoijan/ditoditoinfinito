@@ -1,17 +1,19 @@
 //! Reviewed native engine candidates plus observed menu/selector/motion plans.
 //! A fingerprint proposes controls; source-bound runtime proofs authorize data.
 mod driver;
+mod play;
 pub use crate::dependencies::{
     ProfileDependencyJob, execute_profile as execute_with_dependencies,
     execute_profile_job as execute_dependencies_job,
 };
 use crate::{
     Error, Result,
-    extraction::{self, Family, Graph, MotionSelection, ProjectionOptions},
+    extraction::{self, Family, Graph, MotionSelection, MotionSource, ProjectionOptions},
     model::Mode,
     swf::{ActionFingerprint, Movie},
 };
 pub use driver::*;
+pub use play::{early_hold_inputs, has_early_holds};
 use serde::Serialize;
 use serde_json::{Value, json};
 fn invalid(message: impl Into<String>) -> Error {
@@ -224,7 +226,7 @@ pub fn options(mode: Mode) -> Result<ProjectionOptions> {
         review_missing_decorative_sprites: false,
     })
 }
-/// Propose first-tap witnesses using the observed travel and audio-clock origin.
+/// Propose tap/hold-head witnesses using observed travel and audio-clock origin.
 /// Every proposal must subsequently pass movie_observation; these are no proof.
 pub fn motion_candidates(
     chart: &Value,
@@ -252,52 +254,95 @@ pub fn motion_candidates(
         .as_array()
         .ok_or_else(|| invalid("Missing speed events"))?;
     let mut candidates = Vec::new();
+    let mut holds = Vec::new();
+    let mut first_tap = f64::INFINITY;
+    for lane in lanes {
+        if let Some(raw) = lane["nativeFrames"].as_array().and_then(|a| a.first()) {
+            first_tap = first_tap.min(extraction::numeric(raw)?);
+        }
+    }
     for fraction in [0.5, 0.25, 0.75] {
         for (index, (lane, clip)) in lanes.iter().zip(clips).enumerate() {
             checkpoint()?;
-            let Some(raw) = lane["nativeFrames"].as_array().and_then(|a| a.first()) else {
-                continue;
-            };
-            let raw = extraction::numeric(raw)?;
-            let first = (raw - travel * fraction - offset).ceil();
-            if !(1.0..=1195.0).contains(&first) {
-                continue;
-            }
-            let logical = first + offset;
-            if logical <= raw - travel || logical + 5. >= raw {
-                continue;
-            }
-            let ratio = |at: f64| -> Result<f64> {
-                let mut ratio = 1.;
-                for e in speeds {
-                    if extraction::numeric(&e["nativeFrame"])? <= at {
-                        ratio = extraction::numeric(&e["multiplier"])?;
-                    }
+            for source in [MotionSource::Tap, MotionSource::HoldHead] {
+                let raw = match source {
+                    MotionSource::Tap => lane["nativeFrames"].as_array().and_then(|a| a.first()),
+                    MotionSource::HoldHead => lane["nativeHoldFrames"]
+                        .as_array()
+                        .and_then(|a| a.first())
+                        .and_then(|p| p.as_array())
+                        .and_then(|p| p.first()),
+                };
+                let Some(raw) = raw else { continue };
+                let raw = extraction::numeric(raw)?;
+                let first = (raw - travel * fraction - offset).ceil();
+                if !(1.0..=1195.0).contains(&first) {
+                    continue;
                 }
-                Ok(ratio)
-            };
-            let a = ratio(logical)?;
-            if a <= 0.
-                || ratio(logical + 5.)? != a
-                || speeds.iter().any(|e| {
-                    e["nativeFrame"]
-                        .as_f64()
-                        .is_some_and(|f| f > logical && f <= logical + 5.)
-                })
-            {
-                continue;
+                let logical = first + offset;
+                if logical <= raw - travel || logical + 5. >= raw {
+                    continue;
+                }
+                let ratio = |at: f64| -> Result<f64> {
+                    let mut ratio = 1.;
+                    for e in speeds {
+                        if extraction::numeric(&e["nativeFrame"])? <= at {
+                            ratio = extraction::numeric(&e["multiplier"])?;
+                        }
+                    }
+                    Ok(ratio)
+                };
+                let a = ratio(logical)?;
+                if a <= 0.
+                    || ratio(logical + 5.)? != a
+                    || speeds.iter().any(|e| {
+                        e["nativeFrame"]
+                            .as_f64()
+                            .is_some_and(|f| f > logical && f <= logical + 5.)
+                    })
+                {
+                    continue;
+                }
+                let proposal = MotionSelection {
+                    source,
+                    note: format!(
+                        "{}{}_s0",
+                        if source == MotionSource::HoldHead {
+                            "f"
+                        } else {
+                            ""
+                        },
+                        clip
+                    ),
+                    receptor: format!("{}_step", clip),
+                    lane: index,
+                    iterations: (first as u64..=first as u64 + 5).collect(),
+                    target_y: None,
+                    geometry_reference: Some("le_step".into()),
+                };
+                if source == MotionSource::Tap {
+                    candidates.push(proposal);
+                } else {
+                    holds.push((raw, proposal));
+                }
             }
-            candidates.push(MotionSelection {
-                note: format!("{}_s0", clip),
-                receptor: format!("{}_step", clip),
-                lane: index,
-                iterations: (first as u64..=first as u64 + 5).collect(),
-                target_y: None,
-                geometry_reference: Some("le_step".into()),
-            });
         }
     }
-    Ok(candidates)
+    // Early holds can end a no-input run before the first tap appears. Prefer
+    // those witnesses; otherwise preserve the established tap proposal order.
+    holds.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut early = Vec::new();
+    let mut late = Vec::new();
+    for (raw, proposal) in holds {
+        if raw < first_tap {
+            early.push(proposal)
+        } else {
+            late.push(proposal)
+        }
+    }
+    early.extend(candidates);
+    early.extend(late);
+    Ok(early)
 }
 
 #[cfg(test)]

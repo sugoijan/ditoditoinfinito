@@ -435,3 +435,136 @@ fn movement_and_audio_runs_must_share_the_same_counter_origin() {
         "native-clock-mismatch"
     );
 }
+
+fn hold_motion_fixture() -> (Value, Value, MotionSelection) {
+    let mut c = capture((100..106).map(|n| json!({"frame_num":n})).collect());
+    for (i, item) in c["captures"].as_array_mut().unwrap().iter_mut().enumerate() {
+        item["state"]["displayTree"] = json!([
+            {"kind":"movie-clip","visible":true,"name":string("hold0"),"stageRegistrationPixels":[100,350-3*i as i64],"stageBoundsPixels":[0,0,400,900]},
+            {"kind":"movie-clip","visible":true,"name":string("step"),"stageRegistrationPixels":[100,50],"stageBoundsPixels":[0,0,46,48]}
+        ]);
+    }
+    let chart = json!({"lanes":[{"nativeFrames":[900],"nativeHoldFrames":[[200,240]]}],"clockField":"frame_num","initialPixelSpeed":3,"speed":[]});
+    let selection:MotionSelection=serde_json::from_value(json!({"source":"hold-head","note":"hold0","receptor":"step","lane":0,"iterations":[10,11,12,13,14,15],"targetY":null,"geometryReference":null})).unwrap();
+    (c, chart, selection)
+}
+#[test]
+fn explicit_hold_head_uses_head_arrival_and_receptor_geometry_without_a_tap() {
+    let (c, mut chart, s) = hold_motion_fixture();
+    let m = movie_observation(&c, &chart, &s, Some("frame_num"), &mut || Ok(())).unwrap();
+    assert_eq!(m["sourceNoteKind"], "hold-head");
+    assert_eq!(m["sourceHoldFrames"], json!([200., 240.]));
+    assert_eq!(m["rawFirstFrame"], 200.);
+    assert_eq!(m["arrivalDifferenceFrames"], 0.);
+    assert_eq!(m["referencePixels"], 46.);
+    chart["lanes"][0]["nativeFrames"] = json!([]);
+    movie_observation(&c, &chart, &s, Some("frame_num"), &mut || Ok(())).unwrap();
+    let mut tap = s.clone();
+    tap.source = MotionSource::Tap;
+    assert!(movie_observation(&c, &chart, &tap, Some("frame_num"), &mut || Ok(())).is_err());
+}
+#[test]
+fn hold_head_requires_complete_pairs_prejudgment_motion_and_unchanged_speed_proofs() {
+    let (c, chart, s) = hold_motion_fixture();
+    for bad in [
+        "missing",
+        "short",
+        "long",
+        "reversed",
+        "wrong-head",
+        "post-judgment",
+        "speed-boundary",
+        "missing-clip",
+        "nonlinear",
+    ] {
+        let mut c = c.clone();
+        let mut chart = chart.clone();
+        match bad {
+            "missing" => chart["lanes"][0]["nativeHoldFrames"] = json!([]),
+            "short" => chart["lanes"][0]["nativeHoldFrames"] = json!([[200]]),
+            "long" => chart["lanes"][0]["nativeHoldFrames"] = json!([[200, 240, 280]]),
+            "reversed" => chart["lanes"][0]["nativeHoldFrames"] = json!([[200, 190]]),
+            "wrong-head" => chart["lanes"][0]["nativeHoldFrames"] = json!([[210, 240]]),
+            "post-judgment" => {
+                chart["lanes"][0]["nativeHoldFrames"] = json!([[102, 240]]);
+            }
+            "speed-boundary" => chart["speed"] = json!([{"nativeFrame":102,"multiplier":2}]),
+            "missing-clip" => {
+                for item in c["captures"].as_array_mut().unwrap() {
+                    item["state"]["displayTree"][0]["visible"] = json!(false);
+                }
+            }
+            "nonlinear" => {
+                c["captures"][2]["state"]["displayTree"][0]["stageRegistrationPixels"][1] =
+                    json!(200)
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            movie_observation(&c, &chart, &s, Some("frame_num"), &mut || Ok(())).is_err(),
+            "{bad}"
+        );
+    }
+    assert!(
+        movie_observation(&c, &chart, &s, Some("frame_num"), &mut || Err(
+            ddi_danoni_export::Error {
+                code: "cancelled",
+                message: "test".into()
+            }
+        ))
+        .is_err()
+    );
+}
+#[test]
+fn old_motion_selection_json_keeps_tap_semantics_and_hold_tail_is_not_a_witness() {
+    let (_, _, hold) = hold_motion_fixture();
+    let mut v = serde_json::to_value(&hold).unwrap();
+    v.as_object_mut().unwrap().remove("source");
+    let old: MotionSelection = serde_json::from_value(v.clone()).unwrap();
+    assert_eq!(old.source, MotionSource::Tap);
+    assert_eq!(serde_json::to_value(&old).unwrap(), v);
+    v["source"] = json!("hold-tail");
+    assert!(serde_json::from_value::<MotionSelection>(v).is_err());
+}
+
+#[test]
+fn hold_only_constant_charts_still_require_full_spawn_and_duration_agreement() {
+    let mut roots = constant_roots(false);
+    for r in &mut roots {
+        r["timeline"] = json!([[], [], [], [], [], [], []]);
+        r["mkArrow"] = json!({});
+        for stem in ["left", "down", "up", "right", "space"] {
+            r[format!("{stem}_data")] = json!("");
+        }
+        r["frzLeft_data"] = json!("300,360");
+    }
+    let o = options(Family::ScheduledConstant);
+    let projection = project(&capture(roots.clone()), &o).unwrap();
+    assert!(
+        projection.chart["lanes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|l| l["nativeFrames"] == json!([]))
+    );
+    assert_eq!(
+        projection.chart["lanes"][0]["nativeHoldFrames"],
+        json!([[300., 360.]])
+    );
+    for bad in ["spawn", "duration", "tail", "empty"] {
+        let mut r = roots.clone();
+        match bad {
+            "spawn" => r[1]["mkFArrow"] = json!({"201":[0]}),
+            "duration" => r[1]["frzLength"][0]["0"] = json!(61),
+            "tail" => r[1]["ftimeline"][0] = json!([200, 361]),
+            "empty" => {
+                for state in &mut r {
+                    state["ftimeline"] = json!([[], [], [], [], [], [], []]);
+                    state["mkFArrow"] = json!({});
+                }
+            }
+            _ => unreachable!(),
+        }
+        assert!(project(&capture(r), &o).is_err(), "{bad}");
+    }
+}

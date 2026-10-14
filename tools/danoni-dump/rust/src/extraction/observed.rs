@@ -1,7 +1,23 @@
 use super::*;
+/// Which source endpoint the observed clip must reach. Omitted selections keep
+/// the historical first-tap contract; hold heads are explicit, never inferred.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MotionSource {
+    #[default]
+    Tap,
+    HoldHead,
+}
+impl MotionSource {
+    fn is_tap(&self) -> bool {
+        *self == Self::Tap
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MotionSelection {
+    #[serde(default, skip_serializing_if = "MotionSource::is_tap")]
+    pub source: MotionSource,
     pub note: String,
     pub receptor: String,
     pub lane: usize,
@@ -68,11 +84,31 @@ pub fn movie_observation(
     let lane = lanes
         .get(selection.lane)
         .ok_or_else(|| invalid("Motion lane outside selected mode"))?;
-    let raw = numeric(
-        array(&lane["nativeFrames"])?
+    let hold = if selection.source == MotionSource::HoldHead {
+        let first = array(&lane["nativeHoldFrames"])?
             .first()
-            .ok_or_else(|| invalid("Motion lane has no tap"))?,
-    )?;
+            .ok_or_else(|| invalid("Motion lane has no hold"))?;
+        let pair = array(first)?;
+        if pair.len() != 2 {
+            return Err(invalid("Need a complete source hold pair"));
+        }
+        let (head, tail) = (numeric(&pair[0])?, numeric(&pair[1])?);
+        if tail <= head {
+            return Err(invalid("Source hold must have a later tail"));
+        }
+        Some([head, tail])
+    } else {
+        None
+    };
+    let raw = if let Some(pair) = hold {
+        pair[0]
+    } else {
+        numeric(
+            array(&lane["nativeFrames"])?
+                .first()
+                .ok_or_else(|| invalid("Motion lane has no tap"))?,
+        )?
+    };
     let (mut frames, mut widths) = (Vec::new(), Vec::new());
     for item in items(capture)?.iter().filter(|i| {
         i["frame"]
@@ -81,6 +117,9 @@ pub fn movie_observation(
     }) {
         checkpoint()?;
         let graph = Graph::new(&item["state"])?;
+        if hold.is_some() && clock(&graph, clock_field)? >= raw {
+            return Err(invalid("Hold-head witnesses must precede judgment"));
+        }
         let display = display_map(item)?;
         let Some(note) = display.get(&selection.note).copied().flatten() else {
             continue;
@@ -207,9 +246,12 @@ pub fn movie_observation(
     if !(base_velocity * 60.0 / widths[0]).is_finite() {
         return Err(invalid("Native base scroll overflows"));
     }
-    Ok(
-        json!({"schema":"ddi-native-motion-measurement/experimental-1","sourceSwfSha256":capture["source"]["movieSha256"],"fps":60,"pixelsPerSecond":velocity.abs()*60.0,"referencePixels":widths[0],"baseArrowHeightsPerSecond":base_velocity*60.0/widths[0],"observedAuthorMultiplier":author_ratio,"noteName":selection.note,"receptorName":selection.receptor,"geometryReferenceName":selection.geometry_reference.as_ref().unwrap_or(&selection.receptor),"clockField":clock_field,"stagePositionTolerancePixels":0.05,"arrivalDifferenceFrames":arrival-raw,"rawFirstFrame":raw,"observedArrivalMovieFrame":arrival,"samples":frames,"scope":"Observed native default movement, measured source geometry and verified raw movie-frame arrival"}),
-    )
+    let mut report = json!({"schema":"ddi-native-motion-measurement/experimental-1","sourceSwfSha256":capture["source"]["movieSha256"],"fps":60,"pixelsPerSecond":velocity.abs()*60.0,"referencePixels":widths[0],"baseArrowHeightsPerSecond":base_velocity*60.0/widths[0],"observedAuthorMultiplier":author_ratio,"noteName":selection.note,"receptorName":selection.receptor,"geometryReferenceName":selection.geometry_reference.as_ref().unwrap_or(&selection.receptor),"clockField":clock_field,"stagePositionTolerancePixels":0.05,"arrivalDifferenceFrames":arrival-raw,"rawFirstFrame":raw,"observedArrivalMovieFrame":arrival,"samples":frames,"scope":"Observed native default movement, measured source geometry and verified raw movie-frame arrival"});
+    if let Some(pair) = hold {
+        report["sourceNoteKind"] = json!("hold-head");
+        report["sourceHoldFrames"] = json!(pair);
+    }
+    Ok(report)
 }
 pub fn movie_audio_origin(
     capture: &Value,

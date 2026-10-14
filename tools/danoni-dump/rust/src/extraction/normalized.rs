@@ -593,6 +593,7 @@ mod tests {
             stream_start_index: 0,
             optional_color: None,
             motion_selection: MotionSelection {
+                source: MotionSource::Tap,
                 note: "arrow".into(),
                 receptor: "target".into(),
                 lane: 0,

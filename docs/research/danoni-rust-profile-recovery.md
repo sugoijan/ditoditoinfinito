@@ -192,8 +192,9 @@ optional-request classification and rejection of altered evidence. The existing
 explicit-plan dependency tests also run against the shared implementation.
 
 This closes required-resource recovery before automatic menu discovery for the
-reviewed profile. It does not broaden engine recognition or solve the early-hold
-`life = 0` motion gap. Next prove generic hold-motion/derived play inputs, extend
-engine-family contracts, then add milestone 5's host URL/policy/cache and bounded
+reviewed profile. The subsequent [hold-head/derived-input extension](danoni-rust-hold-motion.md)
+closes the early-hold motion/audio gap for two explicitly selected charts, keeping
+the rewritten third selector excluded. Next extend engine-family contracts and
+add milestone 5's host URL/policy/cache and bounded
 index-discovery services. Musical fitting acceptance, HTML5 browser references,
 other-OS worker confinement and desktop library installation remain separate.
