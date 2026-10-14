@@ -526,11 +526,7 @@ pub(crate) fn lua_env(
     reversed: bool,
 ) -> Env {
     use ddi_chart::Difficulty;
-    let style = match layout.id.as_str() {
-        "dance-double" => "double",
-        "dance-solo" => "solo",
-        _ => "single",
-    };
+    let style = ddi_noteskin::lua::dance_style(layout);
     let difficulty = match chart.difficulty {
         Difficulty::Beginner => "Beginner",
         Difficulty::Easy => "Easy",

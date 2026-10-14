@@ -19,6 +19,8 @@ pub enum Glyph {
     Arrow {
         rotation_deg: f32,
     },
+    /// The middle panel of a five-panel pad (StepMania's pump `Center`).
+    Center,
     Onigiri,
     Giko,
     Iyo,
@@ -98,7 +100,56 @@ pub const FORMER_DANONI_MODES: [&str; 1] = ["7i"];
 
 /// Ids of the built-in StepMania layouts, in the order the game lists them
 /// (the Dancing☆Onigiri key modes follow, see [`Layout::builtin_ids`]).
-pub const BUILTIN_LAYOUTS: [&str; 3] = ["dance-single", "dance-solo", "dance-double"];
+pub const BUILTIN_LAYOUTS: [&str; 6] = [
+    "dance-single",
+    "dance-solo",
+    "dance-double",
+    "pump-single",
+    "pump-halfdouble",
+    "pump-double",
+];
+
+/// A five-panel pad's lanes in StepMania's track order (`pump`'s buttons,
+/// `src/GameManager.cpp`): name, label, glyph.
+const PUMP_PANELS: [(&str, &str, Glyph); 5] = [
+    (
+        "downleft",
+        "Down-left",
+        Glyph::Arrow {
+            rotation_deg: -45.0,
+        },
+    ),
+    ("upleft", "Up-left", Glyph::Arrow { rotation_deg: 45.0 }),
+    ("center", "Centre", Glyph::Center),
+    (
+        "upright",
+        "Up-right",
+        Glyph::Arrow {
+            rotation_deg: 135.0,
+        },
+    ),
+    (
+        "downright",
+        "Down-right",
+        Glyph::Arrow {
+            rotation_deg: 225.0,
+        },
+    ),
+];
+
+/// Default keys of each pad's panels, in [`PUMP_PANELS`] order: a 3×3
+/// block per hand (Q E / S / Z C, the corners and the middle), and the
+/// number pad's as StepMania's second player has them.
+const PUMP_KEYS: [[&[&str]; 5]; 2] = [
+    [&["KeyZ"], &["KeyQ"], &["KeyS"], &["KeyE"], &["KeyC"]],
+    [
+        &["KeyM", "Numpad1"],
+        &["KeyU", "Numpad7"],
+        &["KeyK", "Numpad5"],
+        &["KeyO", "Numpad9"],
+        &["Period", "Numpad3"],
+    ],
+];
 
 impl Layout {
     pub fn lane_count(&self) -> usize {
@@ -108,6 +159,32 @@ impl Layout {
     /// Number of physical pads the layout spans (at least 1).
     pub fn pads(&self) -> u8 {
         self.lanes.iter().map(|l| l.pad).max().map_or(1, |p| p + 1)
+    }
+
+    /// The one-pad layout whose bindings play each pad of this two-pad
+    /// layout, as each player side has its own controller in StepMania:
+    /// `dance-single` for `dance-double`, `pump-single` for the pump
+    /// layouts on two pads. A pad's lanes are that layout's lanes of the
+    /// same names ([`Layout::pad_lanes_in`]).
+    pub fn one_pad_layout(&self) -> Option<Layout> {
+        match self.id.as_str() {
+            "dance-double" => Some(Self::dance_single()),
+            "pump-halfdouble" | "pump-double" => Some(Self::pump_single()),
+            _ => None,
+        }
+    }
+
+    /// For each lane of `pad`, in order, the lane of `one_pad` with its
+    /// name (`None` where it has none).
+    pub fn pad_lanes_in(&self, pad: u8, one_pad: &Layout) -> Vec<Option<usize>> {
+        self.lanes_of_pad(pad)
+            .map(|i| {
+                one_pad
+                    .lanes
+                    .iter()
+                    .position(|l| l.name == self.lanes[i].name)
+            })
+            .collect()
     }
 
     /// Lanes of one pad, in order.
@@ -231,6 +308,95 @@ impl Layout {
         }
     }
 
+    /// The lanes of five-panel pads: `panels` of pad 0, then of pad 1, as
+    /// `(pad, panel)` with panels in [`PUMP_PANELS`] order, side by side.
+    fn pump_lanes(panels: &[(u8, usize)], keys: impl Fn(u8, usize) -> Vec<String>) -> Vec<Lane> {
+        let two_pads = panels.iter().any(|&(pad, _)| pad > 0);
+        panels
+            .iter()
+            .enumerate()
+            .map(|(i, &(pad, panel))| {
+                let (name, label, glyph) = &PUMP_PANELS[panel];
+                let label = if two_pads {
+                    format!("{label} (pad {})", pad + 1)
+                } else {
+                    label.to_string()
+                };
+                Lane {
+                    name: name.to_string(),
+                    label,
+                    glyph: glyph.clone(),
+                    color_group: 0,
+                    shuffle_group: 0,
+                    scroll_sign: 1,
+                    column: i as f32,
+                    row: 0,
+                    pad,
+                    default_keys: keys(pad, panel),
+                }
+            })
+            .collect()
+    }
+
+    fn pump_keys(pad: u8, panel: usize) -> Vec<String> {
+        PUMP_KEYS[usize::from(pad)][panel]
+            .iter()
+            .map(|k| k.to_string())
+            .collect()
+    }
+
+    /// StepMania `pump-single`: DL, UL, C, UR, DR on one five-panel pad.
+    pub fn pump_single() -> Layout {
+        let panels: Vec<(u8, usize)> = (0..5).map(|p| (0, p)).collect();
+        Layout {
+            id: "pump-single".into(),
+            name: "Pump single".into(),
+            players: 1,
+            family: LayoutFamily::StepMania,
+            // The left hand's block and the number pad.
+            lanes: Self::pump_lanes(&panels, |_, panel| {
+                let mut keys = Self::pump_keys(0, panel);
+                keys.push(PUMP_KEYS[1][panel][1].to_string());
+                keys
+            }),
+            // StepMania `NoteDataUtil::Turn` (`src/NoteDataUtil.cpp`),
+            // `pump_single`, as for every layout here.
+            turn_left: Some(vec![1, 3, 2, 4, 0]),
+        }
+    }
+
+    /// StepMania `pump-halfdouble`: the middle six panels of two pads, the
+    /// left pad's C, UR, DR and the right pad's DL, UL, C.
+    pub fn pump_halfdouble() -> Layout {
+        Layout {
+            id: "pump-halfdouble".into(),
+            name: "Pump half-double".into(),
+            players: 1,
+            family: LayoutFamily::StepMania,
+            lanes: Self::pump_lanes(
+                &[(0, 2), (0, 3), (0, 4), (1, 0), (1, 1), (1, 2)],
+                Self::pump_keys,
+            ),
+            turn_left: Some(vec![2, 0, 1, 3, 4, 5]),
+        }
+    }
+
+    /// StepMania `pump-double`: the left pad's five panels, then the right
+    /// pad's (one player on two pads).
+    pub fn pump_double() -> Layout {
+        let panels: Vec<(u8, usize)> = (0..2)
+            .flat_map(|pad| (0..5).map(move |p| (pad, p)))
+            .collect();
+        Layout {
+            id: "pump-double".into(),
+            name: "Pump double".into(),
+            players: 1,
+            family: LayoutFamily::StepMania,
+            lanes: Self::pump_lanes(&panels, Self::pump_keys),
+            turn_left: Some(vec![8, 9, 7, 5, 6, 3, 4, 2, 0, 1]),
+        }
+    }
+
     /// Built-in layout by id: the StepMania ones and the
     /// Dancing☆Onigiri key modes the game plays ([`PLAYED_DANONI_MODES`]),
     /// as `danoni-<mode>`. Other key modes stay data
@@ -240,6 +406,9 @@ impl Layout {
             "dance-single" => Some(Self::dance_single()),
             "dance-solo" => Some(Self::dance_solo()),
             "dance-double" => Some(Self::dance_double()),
+            "pump-single" => Some(Self::pump_single()),
+            "pump-halfdouble" => Some(Self::pump_halfdouble()),
+            "pump-double" => Some(Self::pump_double()),
             _ => {
                 let mode = id.strip_prefix("danoni-")?;
                 PLAYED_DANONI_MODES.contains(&mode).then_some(())?;
@@ -293,6 +462,47 @@ mod tests {
         assert_eq!(double.pads(), 2);
         assert_eq!(double.lanes_of_pad(1).collect::<Vec<_>>(), [4, 5, 6, 7]);
         assert_eq!(Layout::dance_solo().pads(), 1);
+        assert_eq!(Layout::builtins().len(), BUILTIN_LAYOUTS.len());
+    }
+
+    #[test]
+    fn pump_layouts_follow_stepmania_track_order() {
+        let names = |l: Layout| -> Vec<String> {
+            l.lanes
+                .iter()
+                .map(|lane| format!("{}{}", lane.name, lane.pad))
+                .collect()
+        };
+        assert_eq!(
+            names(Layout::pump_single()),
+            ["downleft0", "upleft0", "center0", "upright0", "downright0"]
+        );
+        // The middle six panels: StepMania's `m_iInputColumn` for
+        // `halfdouble`.
+        assert_eq!(
+            names(Layout::pump_halfdouble()),
+            [
+                "center0",
+                "upright0",
+                "downright0",
+                "downleft1",
+                "upleft1",
+                "center1"
+            ]
+        );
+        let double = Layout::pump_double();
+        assert_eq!(double.lane_count(), 10);
+        assert_eq!(double.lanes_of_pad(1).collect::<Vec<_>>(), [5, 6, 7, 8, 9]);
+        assert_eq!(double.lanes[7].glyph, Glyph::Center);
+        assert_eq!(double.lanes[7].label(), "Centre (pad 2)");
+        // Each panel keeps its keys across the three.
+        let half = Layout::pump_halfdouble();
+        assert_eq!(half.lanes[0].default_keys, double.lanes[2].default_keys);
+        assert_eq!(half.lanes[5].default_keys, double.lanes[7].default_keys);
+        assert_eq!(
+            Layout::pump_single().lanes[0].default_keys,
+            ["KeyZ", "Numpad1"]
+        );
     }
 
     #[test]

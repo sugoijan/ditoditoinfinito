@@ -15,6 +15,7 @@ Source: [https://github.com/TeamRizu/OutFox-Serenity](https://github.com/TeamRiz
 - **graphics**: Jose Varela — [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 - **chart authors** (from the simfile's `#CREDIT` tags):
   - Chriszo: dance-single Hard 11
+  - DJGRS: pump-single Beginner 2, pump-single Medium 10, pump-halfdouble Hard 12, pump-double Easy 6
   - Daniel Rotwind: dance-single Beginner 1
   - Marukomuru: dance-double Beginner 2
   - Timo Kitsune: dance-single Challenge 11, dance-single Easy 3, dance-single Medium 7
@@ -32,6 +33,7 @@ Source: [https://github.com/TeamRizu/OutFox-Serenity](https://github.com/TeamRiz
   - -YOSEFU-: dance-single Hard 12
   - -YOSEFU- in a Dream: dance-single Challenge 15
   - 48productions: dance-single Beginner 1, dance-single Easy 3, dance-single Medium 8
+  - Chriszo: pump-single Beginner 3, pump-single Easy 5, pump-single Medium 8
   - Daniel Rotwind: dance-single Beginner 2
   - Marukomuru: dance-double Beginner 1
 - Not included: Into My Dream-jk.png, Into My Dream-bn.mp4, Into My Dream-bga.mp4, Into My Dream-bga-p.mp4 (too large, not used); lyrics.lrc (not used)
@@ -46,7 +48,9 @@ Source: [https://github.com/TeamRizu/OutFox-Serenity](https://github.com/TeamRiz
 - **graphics**: Jack5 — [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)
 - **chart authors** (from the simfile's `#CREDIT` tags):
   - -YOSEFU-: dance-single Medium 10, dance-single Hard 13
+  - Ario: pump-double Hard 17
   - Daniel Rotwind: dance-single Beginner 2
+  - Kaede: pump-single Beginner 1, pump-single Easy 4, pump-single Medium 8, pump-single Medium 10, pump-single Hard 16, pump-single Challenge 19, pump-double Medium 11
   - Marukomuru: dance-double Beginner 2
   - Sevish: dance-single Easy 9
   - Sudospective: dance-single Challenge 16

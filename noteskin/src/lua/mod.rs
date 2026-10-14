@@ -71,7 +71,14 @@ pub const MAX_ACTORS: usize = 16384;
 /// (`GAMESTATE`, `PREFSMAN`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Env {
-    /// `single`, `solo` or `double`.
+    /// The skin's game: `dance`, or `pump` for a pump skin (not imported
+    /// yet). A dance skin is told `dance` on every layout: StepMania never
+    /// loads one for another game, and skins that read the name switch to
+    /// tables for that game's buttons (Dake), while the play passes dance
+    /// buttons ([`dance_style`]).
+    pub game: String,
+    /// The style's name: `single`, `solo` or `double` (dance); `single`,
+    /// `halfdouble` or `double` (pump).
     pub style: String,
     pub columns: u32,
     /// `GetPlayerOptionsString`.
@@ -94,6 +101,7 @@ pub struct Env {
 impl Default for Env {
     fn default() -> Env {
         Env {
+            game: "dance".into(),
             style: "single".into(),
             columns: 4,
             player_options: String::new(),
@@ -107,12 +115,26 @@ impl Default for Env {
     }
 }
 
+/// The dance style a dance skin is told a layout is: `solo`, `double` for
+/// the layouts on two pads (dance double, pump half-double and double),
+/// else `single`.
+pub fn dance_style(layout: &ddi_chart::Layout) -> &'static str {
+    match layout.id.as_str() {
+        "dance-solo" => "solo",
+        _ if layout.pads() > 1 => "double",
+        _ => "single",
+    }
+}
+
 impl Env {
     /// `StyleType_*`, `StepsType_*` for the style.
     fn style_types(&self) -> (&'static str, &'static str) {
-        match self.style.as_str() {
-            "double" => ("StyleType_OnePlayerTwoSides", "StepsType_Dance_Double"),
-            "solo" => ("StyleType_OnePlayerOneSide", "StepsType_Dance_Solo"),
+        match (self.game.as_str(), self.style.as_str()) {
+            ("pump", "double") => ("StyleType_OnePlayerTwoSides", "StepsType_Pump_Double"),
+            ("pump", "halfdouble") => ("StyleType_OnePlayerTwoSides", "StepsType_Pump_Halfdouble"),
+            ("pump", _) => ("StyleType_OnePlayerOneSide", "StepsType_Pump_Single"),
+            (_, "double") => ("StyleType_OnePlayerTwoSides", "StepsType_Dance_Double"),
+            (_, "solo") => ("StyleType_OnePlayerOneSide", "StepsType_Dance_Solo"),
             _ => ("StyleType_OnePlayerOneSide", "StepsType_Dance_Single"),
         }
     }

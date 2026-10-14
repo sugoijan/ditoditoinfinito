@@ -203,4 +203,6 @@ assets and copied code are tracked in `REUSE.toml`.
 
 - Commit messages: imperative summary line, body explaining why.
 - Keep `docs/PLAN.md` status and decisions current when scope changes.
-- UI text avoids jargon from specific games except where naming a ruleset.
+- UI text avoids jargon from specific games except where naming a ruleset
+  or a layout by StepMania's own name for its game ("Pump single", from
+  StepMania's `pump` game, `docs/plans/pump.md`).

@@ -283,8 +283,8 @@ function NOTESKIN:DoesNoteSkinExist(name) return name == H.skin_name() end
 
 -- The engine's state, as far as skins read it while loading and playing.
 
-local game = { GetName = function() return "dance" end }
 local style_info = H.style()
+local game = { GetName = function() return style_info.game end }
 local style = {
 	ColumnsPerPlayer = function() return style_info.columns end,
 	GetStyleType = function() return style_info.style_type end,

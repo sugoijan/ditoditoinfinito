@@ -941,6 +941,59 @@ fn outfox_and_fallback_names_skins_read() {
 }
 
 #[test]
+fn a_dance_skin_is_told_a_dance_style_on_every_layout() {
+    use ddi_chart::Layout;
+    let style = |id: &str| dance_style(&Layout::builtin(id).unwrap());
+    assert_eq!(style("dance-single"), "single");
+    assert_eq!(style("dance-solo"), "solo");
+    assert_eq!(style("dance-double"), "double");
+    assert_eq!(style("pump-single"), "single");
+    assert_eq!(style("pump-halfdouble"), "double");
+    assert_eq!(style("pump-double"), "double");
+    assert_eq!(style("danoni-7"), "single");
+    assert_eq!(Env::default().game, "dance");
+}
+
+#[test]
+fn a_pump_skin_sees_its_game() {
+    // For pump skins (not imported yet): the game and style reach the Lua.
+    let folders = vec![folder(
+        "dance",
+        "p",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Tap Note.lua",
+                "assert(GAMESTATE:GetCurrentGame():GetName() == 'pump')\n\
+                 local style = GAMESTATE:GetCurrentStyle()\n\
+                 assert(style:GetStepsType() == 'StepsType_Pump_Halfdouble')\n\
+                 assert(style:GetStyleType() == 'StyleType_OnePlayerTwoSides')\n\
+                 assert(style:GetName() == 'halfdouble')\n\
+                 assert(style:ColumnsPerPlayer() == 6)\n\
+                 return Def.Sprite { Texture = 'tap.png' }\n",
+            ),
+            ("tap.png", ""),
+        ],
+    )];
+    let skin = Skin::load(&folders, "dance", "p").unwrap().into_owned();
+    let mut skin = load(
+        skin,
+        Env {
+            game: "pump".into(),
+            style: "halfdouble".into(),
+            columns: 6,
+            ..Env::default()
+        },
+        LoadBudget::default(),
+        Box::new(|| 0.0),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    let images = Sizes(vec![("tap.png", (64, 64))]);
+    built(skin.element(Button::Down, "Tap Note", &mut Textures::default(), &images));
+    assert!(skin.warnings().is_empty(), "{:?}", skin.warnings());
+}
+
+#[test]
 fn notes_load_per_colour_when_their_lua_reads_it() {
     // A lift loads the tap through NOTESKIN:LoadActor, which loads the
     // 4ths' (as ITGmania's does): the lift is the same in every colour.

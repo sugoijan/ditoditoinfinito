@@ -41,9 +41,10 @@ lane is built again with the next choice, down to Down; 7i's charts stay
 in their works' songs as unplayable placeholders (no notes, a layout no
 one resolves), since works stored before refer to the charts after them
 by position (`ChartInfo::index`), and a song of them alone is dropped;
-Dito's explosion rings the onigiri with its star's outline. A skin's own `DownLeft` and
-`DownRight` files (pump's diagonals, a few skins) are not used: the Down
-arrow turned stands for them, as for every skin.
+Dito's explosion rings the onigiri with its star's outline. Since pump layouts came
+(`docs/plans/pump.md`), a skin's own `DownLeft` and `DownRight` elements
+(pump's diagonals, a few skins) draw the down-left and down-right lanes
+here too, as they are; without them, the Down arrow turned.
 
 ## Steps
 

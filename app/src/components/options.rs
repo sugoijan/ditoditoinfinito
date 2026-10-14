@@ -875,10 +875,10 @@ impl Options {
                         }
                     }) }
                 </div>
-                { if layout.pads() > 1 { html! {
+                { if let Some(one) = layout.one_pad_layout() { html! {
                     <p class="muted">{ format!(
-                        "With two controllers, each plays one pad of {} with its Single bindings (the one connected first on the left), unless it has {} bindings of its own.",
-                        layout.name, layout.name
+                        "With two controllers, each plays one pad of {} with its {} bindings (the one connected first on the left), unless it has {} bindings of its own.",
+                        layout.name, one.name, layout.name
                     ) }</p>
                 } } else { html! {} } }
                 <p>
@@ -950,9 +950,12 @@ impl Options {
             .into_iter()
             .find(|(c, _)| c.id == id)
             .map_or(PadUse::Unused, |(_, u)| u);
+        let one_pad_name = layout.one_pad_layout().map(|l| l.name).unwrap_or_default();
+        let one_pad_each = format!("one pad each, {one_pad_name} bindings");
+        let one_pad_alone = format!("one pad, {one_pad_name} bindings");
         let (status, class) = match &pad_use {
-            PadUse::OnePad { .. } if count > 1 => ("one pad each, Single bindings", ""),
-            PadUse::OnePad { .. } => ("one pad, Single bindings", ""),
+            PadUse::OnePad { .. } if count > 1 => (one_pad_each.as_str(), ""),
+            PadUse::OnePad { .. } => (one_pad_alone.as_str(), ""),
             u if !u.plays() && has_table => ("nothing bound", "missing"),
             PadUse::Table { defaults: true, .. } if pad_use.plays() => {
                 ("defaults (standard layout)", "")
@@ -973,19 +976,22 @@ impl Options {
             }
         };
         let b = bindings.unwrap_or_default();
-        let one_pad = matches!(pad_use, PadUse::OnePad { .. });
+        // On one pad: its lanes as the one-pad layout names them.
+        let lanes: Vec<String> = match (&pad_use, layout.one_pad_layout()) {
+            (PadUse::OnePad { pad, .. }, Some(one)) => layout
+                .pad_lanes_in(*pad, &one)
+                .into_iter()
+                .zip(layout.lanes_of_pad(*pad))
+                .map(|(l, own)| match l {
+                    Some(l) => one.lanes[l].label().to_string(),
+                    None => layout.lanes[own].label().to_string(),
+                })
+                .collect(),
+            _ => layout.lanes.iter().map(|l| l.label().to_string()).collect(),
+        };
         let table = match pad_use {
             PadUse::Table { table, .. } | PadUse::OnePad { single: table, .. } => table,
             PadUse::Unused => Vec::new(),
-        };
-        let lanes: Vec<String> = if one_pad {
-            Layout::dance_single()
-                .lanes
-                .iter()
-                .map(|l| l.label().to_string())
-                .collect()
-        } else {
-            layout.lanes.iter().map(|l| l.label().to_string()).collect()
         };
         let rows = lanes
             .into_iter()
@@ -1014,8 +1020,12 @@ impl Options {
         let (bind_id, clear_id, forget_id) = (id.to_string(), id.to_string(), id.to_string());
         let default_id = id.to_string();
         // Back to the defaults: the standard ones, or one pad of a two-pad
-        // layout with the single bindings.
-        let can_default = has_table && (layout.id != "dance-single" || standard);
+        // layout with the one-pad layout's bindings (which themselves have
+        // no defaults but the standard ones).
+        let is_one_pad = Layout::builtins()
+            .iter()
+            .any(|l| l.one_pad_layout().is_some_and(|one| one.id == layout.id));
+        let can_default = has_table && (!is_one_pad || standard);
         html! {
             <div class={classes!("device-block", (count == 0).then_some("absent"))}>
                 <div class="device-head">

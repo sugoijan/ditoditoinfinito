@@ -77,6 +77,7 @@ fn symbol(glyph: &Glyph) -> &'static str {
             let step = (rotation_deg / 45.0).round() as i64;
             ARROWS[step.rem_euclid(8) as usize]
         }
+        Glyph::Center => "■",
         Glyph::Onigiri => "◉",
         _ => "●",
     }

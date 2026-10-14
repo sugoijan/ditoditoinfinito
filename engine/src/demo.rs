@@ -476,7 +476,7 @@ mod tests {
             assert_eq!(held, REPEATS, "{id}");
             assert_eq!(mines, if lanes > 2 { REPEATS } else { 0 }, "{id}");
         }
-        assert!(Demo::new("pump-single", 120.0, 1.0).is_none());
+        assert!(Demo::new("pump-couple", 120.0, 1.0).is_none());
     }
 
     #[test]
