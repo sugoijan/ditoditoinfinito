@@ -361,9 +361,9 @@ pub fn prepare_plan(
         provenance,
     })
 }
-struct Owned {
-    root: PathBuf,
-    retain: bool,
+pub(crate) struct Owned {
+    pub(crate) root: PathBuf,
+    pub(crate) retain: bool,
 }
 impl Drop for Owned {
     fn drop(&mut self) {
@@ -372,7 +372,7 @@ impl Drop for Owned {
         }
     }
 }
-fn new_root(path: &Path) -> Result<Owned> {
+pub(crate) fn new_root(path: &Path) -> Result<Owned> {
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -401,7 +401,7 @@ fn new_root(path: &Path) -> Result<Owned> {
         retain: false,
     })
 }
-fn write(root: &Path, path: &str, b: &[u8]) -> Result<()> {
+pub(crate) fn write(root: &Path, path: &str, b: &[u8]) -> Result<()> {
     relative_path(path)?;
     let p = root.join(path);
     fs::create_dir_all(p.parent().unwrap()).map_err(native::io)?;
@@ -413,8 +413,11 @@ fn write(root: &Path, path: &str, b: &[u8]) -> Result<()> {
         .write_all(b)
         .map_err(native::io)
 }
-fn atomic(root: &Path, name: &str, value: &Value) -> Result<()> {
-    let tmp = format!(".{name}.tmp");
+pub(crate) fn atomic(root: &Path, name: &str, value: &Value) -> Result<()> {
+    let tmp = match name.rsplit_once('/') {
+        Some((parent, name)) => format!("{parent}/.{name}.tmp"),
+        None => format!(".{name}.tmp"),
+    };
     write(root, &tmp, &bytes(value)?)?;
     fs::rename(root.join(tmp), root.join(name)).map_err(native::io)
 }
@@ -439,7 +442,7 @@ pub struct PlanOutcome {
     pub manifest: Value,
     pub failure: Option<Error>,
 }
-fn tree_size(root: &Path) -> Result<u64> {
+pub(crate) fn tree_size(root: &Path) -> Result<u64> {
     let mut n = 0u64;
     for e in fs::read_dir(root).map_err(native::io)? {
         let p = e.map_err(native::io)?.path();
@@ -471,7 +474,7 @@ fn reserve(root: &Path, extra: u64) -> Result<()> {
     }
     Ok(())
 }
-fn worker_bytes(worker: &WorkerSpec) -> Result<u64> {
+pub(crate) fn worker_bytes(worker: &WorkerSpec) -> Result<u64> {
     let mut total = 0;
     for (path, max) in [
         (&worker.executable, 256 * 1024 * 1024),

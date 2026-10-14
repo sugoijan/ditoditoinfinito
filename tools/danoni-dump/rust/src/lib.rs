@@ -6,6 +6,8 @@
 pub mod artwork;
 pub mod assets;
 pub mod audio;
+#[cfg(feature = "native")]
+pub mod dependencies;
 pub mod extraction;
 pub mod model;
 mod mpeg;

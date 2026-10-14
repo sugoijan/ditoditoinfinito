@@ -129,6 +129,9 @@ impl Audit {
         self.0.lock().unwrap().iteration = iteration;
     }
     fn record(&self, kind: &str, detail: &str) {
+        self.record_request(kind, detail, None);
+    }
+    fn record_request(&self, kind: &str, detail: &str, mut request: Option<Value>) {
         let mut data = self.0.lock().unwrap();
         if kind == "runtime-error" {
             data.runtime_errors += 1;
@@ -137,10 +140,22 @@ impl Audit {
             data.dropped += 1;
             return;
         }
-        let truncated = detail.chars().count() > 1024;
+        let mut truncated = detail.chars().count() > 1024;
+        if let Some(request) = &mut request {
+            for name in ["originalUrl", "resolvedUrl"] {
+                if let Some(url) = request[name].as_str() {
+                    truncated |= url.chars().count() > 1024;
+                    request[name] = json!(url.chars().take(1024).collect::<String>());
+                }
+            }
+        }
         data.truncated_details += usize::from(truncated);
         let iteration = data.iteration;
-        data.entries.push(json!({"iteration":iteration,"kind":kind,"detail":detail.chars().take(1024).collect::<String>(),"truncated":truncated}));
+        let mut entry = json!({"iteration":iteration,"kind":kind,"detail":detail.chars().take(1024).collect::<String>(),"truncated":truncated});
+        if let Some(request) = request {
+            entry["request"] = request;
+        }
+        data.entries.push(entry);
     }
     pub fn report(&self) -> Value {
         let data = self.0.lock().unwrap();
@@ -220,15 +235,35 @@ impl NavigatorBackend for CachedNavigator {
         self.audit.record("navigation-denied", url);
     }
     fn fetch(&self, request: Request) -> OwnedFuture<Box<dyn SuccessResponse>, ErrorResponse> {
-        if request.method() == NavigationMethod::Get
-            && request.body().is_none()
-            && let Ok(url) = self.resolve_url(request.url())
-            && let Some(resource) = self.resources.get(url.as_str())
-        {
-            self.audit.record("cache-hit", url.as_str());
-            return async_return(Ok(Box::new(resource.clone()) as Box<dyn SuccessResponse>));
-        }
-        self.audit.record("fetch-denied", request.url());
+        let resolved = self.resolve_url(request.url()).ok();
+        let reason = if request.method() != NavigationMethod::Get {
+            "method-denied"
+        } else if request.body().is_some() {
+            "body-denied"
+        } else if !request.headers().is_empty() {
+            "headers-denied"
+        } else if let Some(url) = &resolved {
+            if !matches!(url.scheme(), "http" | "https")
+                || !url.has_host()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.fragment().is_some()
+            {
+                "unsupported-url"
+            } else if let Some(resource) = self.resources.get(url.as_str()) {
+                self.audit.record("cache-hit", url.as_str());
+                return async_return(Ok(Box::new(resource.clone()) as Box<dyn SuccessResponse>));
+            } else {
+                "cache-miss"
+            }
+        } else {
+            "invalid-url"
+        };
+        self.audit.record_request("fetch-denied", request.url(), Some(json!({
+            "schema":"ddi-native-request/1", "method":request.method().to_string(),
+            "hasBody":request.body().is_some(), "hasHeaders":!request.headers().is_empty(),
+            "originalUrl":request.url(), "resolvedUrl":resolved.as_ref().map(Url::as_str), "reason":reason
+        })));
         async_return(Err(create_fetch_error(
             request.url(),
             "no exact GET match in immutable resource cache",
@@ -254,5 +289,89 @@ impl NavigatorBackend for CachedNavigator {
     ) {
         self.audit.record("socket-denied", &host);
         let _ = sender.try_send(SocketAction::Connect(handle, ConnectionState::Failed));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn requests_distinguish_exact_get_misses_from_other_denials() {
+        let executor = NullExecutor::new();
+        let audit = Audit::default();
+        audit.set_iteration(7);
+        let navigator = CachedNavigator::new(
+            Url::parse("https://example.test/game/source.swf?name=a").unwrap(),
+            &executor,
+            audit.clone(),
+            HashMap::new(),
+        );
+        let requests = [
+            Request::get("dos.txt?name=a".into()),
+            Request::post("dos.txt".into(), None),
+            Request::request(
+                NavigationMethod::Get,
+                "dos.txt".into(),
+                Some((vec![], "text/plain".into())),
+            ),
+            Request::get("file:///tmp/secret".into()),
+            Request::get("https://user:password@example.test/x".into()),
+            Request::get("http://[".into()),
+        ];
+        for request in requests {
+            drop(navigator.fetch(request));
+        }
+        let report = audit.report();
+        let rows = report["entries"].as_array().unwrap();
+        assert_eq!(rows[0]["iteration"], 7);
+        assert_eq!(rows[0]["detail"], "dos.txt?name=a");
+        assert_eq!(
+            rows[0]["request"]["resolvedUrl"],
+            "https://example.test/game/dos.txt?name=a"
+        );
+        for (row, reason) in rows.iter().zip([
+            "cache-miss",
+            "method-denied",
+            "body-denied",
+            "unsupported-url",
+            "unsupported-url",
+            "invalid-url",
+        ]) {
+            assert_eq!(row["request"]["reason"], reason);
+        }
+        assert_eq!(report["truncated"], false);
+    }
+    #[test]
+    fn structured_urls_are_bounded_and_hits_remain_cached() {
+        let executor = NullExecutor::new();
+        let audit = Audit::default();
+        let url = "https://example.test/a";
+        let navigator = CachedNavigator::new(
+            Url::parse(url).unwrap(),
+            &executor,
+            audit.clone(),
+            HashMap::from([(
+                url.into(),
+                CachedResource {
+                    url: url.into(),
+                    body: vec![1],
+                    encoding: None,
+                },
+            )]),
+        );
+        drop(navigator.fetch(Request::get(url.into())));
+        drop(navigator.fetch(Request::get(format!("{}{}", url, "x".repeat(2000)))));
+        let report = audit.report();
+        assert_eq!(report["entries"][0]["kind"], "cache-hit");
+        assert_eq!(report["truncated"], true);
+        assert_eq!(report["truncatedDetails"], 1);
+        assert_eq!(
+            report["entries"][1]["request"]["originalUrl"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count(),
+            1024
+        );
     }
 }

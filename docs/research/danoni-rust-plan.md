@@ -536,3 +536,29 @@ Navigation/socket/POST denials and unparseable URLs remain extraction failures;
 trace text and arbitrary runtime-error messages are never fetch requests. The
 coordinator still needs host robots/terms/rate-limit approval and cached response
 provenance; an audit record is evidence of a request, not fetching authorization.
+
+
+### Bounded dependency coordination, 2026-10-14
+
+The [Rust dependency coordinator](danoni-rust-dependencies.md) now consumes
+structured method/body/header/URL evidence from the revised installed worker,
+groups exact missing GETs, asks a host policy/cache resolver for immutable
+responses and retries explicit selector plans in fresh owned directories.
+Original and resolved logical URLs remain separate from archive retrieval URLs.
+All earlier source/motion/audio proofs still gate readiness. Retry, capture,
+URL/body, elapsed-time and whole-operation output limits apply across attempts;
+late cancellation blocks the outer marker even after a child normalizes.
+
+Higan recovers omitted DOS/colour inputs; archived RE:RAVE recovers DOS. All
+responses come from the existing local corpus, retaining original retrieval
+provenance, with no network fetch. Original synthetic tests exercise grouping,
+read-once caching, strict denials, response provenance, budgets and cancellation.
+The CLI's response map is an offline host adapter; the embeddable callback can
+later use the app's policy-aware fetch/cache service. No dependency is added.
+
+Milestone 4 now includes explicit selector execution and bounded dependency
+closure. Next implement reviewed selector/profile discovery and request/motion
+planning, then milestone 5's host acquisition/cache/discovery services. Do not
+claim URL-only importing or replace accepted musical estimates before their
+separate quality review. HTML5 capture, desktop library installation, other-OS
+confinement and audited worker redistribution remain pending.

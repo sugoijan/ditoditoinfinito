@@ -133,8 +133,10 @@ Fresh M. MOON and stable-segment Destined Marionette captures close two gaps.
 The [reviewed RE:RAVE selector contract](danoni-rust-extraction.md#rerave-selector-controlled-speed-proof-2026-10-14)
 closes the remaining missing-bank gap: Hard retains shared speed data but its
 selector does not initialize or execute that bank. Five works / ten charts pass
-5,049 endpoints and 144 scroll checks. Bounded dependency requests, automatic
-selectors and URL acquisition remain ahead.
+5,049 endpoints and 144 scroll checks. The [bounded Rust dependency loop](danoni-rust-dependencies.md) now recovers
+omitted cached DOS/colour inputs through host callbacks and source-bound request
+evidence, retaining all attempts and whole-operation budgets. Automatic selector
+profiles and URL acquisition remain ahead.
 The corpus expansion sequence below remains the research backlog; it is deferred
 while the accepted 93-song/144-chart generation supplies the migration baseline.
 

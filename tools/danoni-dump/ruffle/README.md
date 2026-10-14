@@ -477,3 +477,15 @@ all 113 v2 sources, including those still pending runtime/engine review.
 `parafla-counter`, split sidecar selection, parsed pixel-speed normalization and
 explicit inactive schedules. `compare_ports.py` compares saved source frames
 without assuming a later port has the same chart or music; outputs stay external.
+
+
+### Rust dependency closure
+
+`extract-native-dependencies BUNDLE JOB.json NEW_OUTPUT` wraps explicit selector
+plans with a bounded host cache/resolver loop. The revised worker records typed
+GET/method/body/header/URL evidence; it still has no network. See
+[the API, job/output schemas and local verification](../../../docs/research/danoni-rust-dependencies.md).
+The offline CLI requires already acquired response bindings; URL discovery and
+host fetching remain subsequent work. Rebuild/package the worker with the
+updated navigator identity before using this command. Older bundles remain
+usable only with their corresponding historical tooling.

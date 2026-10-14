@@ -129,8 +129,40 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
                     bytes
                 };
                 let expected: Value = serde_json::from_slice(&read_bound("binding")).unwrap();
+                let mut comparable_pinned = c["pinnedReference"].clone();
+                let mut reviewed_worker_change = Value::Null;
+                if witness.get("currentWorkerBuild").is_some() {
+                    let previous: Value =
+                        serde_json::from_slice(&read_bound("previousWorkerBuild")).unwrap();
+                    let current: Value =
+                        serde_json::from_slice(&read_bound("currentWorkerBuild")).unwrap();
+                    assert_eq!(expected["ruffle"], previous);
+                    assert_eq!(comparable_pinned["ruffle"], current);
+                    assert_eq!(
+                        current,
+                        ddi_danoni_export::supervisor::expected_build_identity()
+                    );
+                    // This slice changes only navigator request evidence. Bind
+                    // both complete identities, then compare every other field.
+                    let mut before = previous.clone();
+                    let mut after = current.clone();
+                    let old_hash = before["files"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("src/navigator.rs")
+                        .unwrap();
+                    let new_hash = after["files"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("src/navigator.rs")
+                        .unwrap();
+                    assert_ne!(old_hash, new_hash);
+                    compare(&before, &after, "unchanged worker sources/revision");
+                    reviewed_worker_change = json!({"field":"src/navigator.rs","previous":old_hash,"current":new_hash,"previousBuild":witness["previousWorkerBuild"],"currentBuild":witness["currentWorkerBuild"]});
+                    comparable_pinned["ruffle"] = previous;
+                }
                 compare(
-                    &c["pinnedReference"],
+                    &comparable_pinned,
                     &expected,
                     &format!("{id}.{name}.pinnedReference"),
                 );
@@ -200,7 +232,7 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
                     "pinned reference width",
                 );
                 assert_eq!(motion["arrivalProved"], false);
-                differences.push(json!({"chart":name,"pinnedReferenceParity":true,"frozenNoteEffectParity":true,"canonicalPcmMaxDifference":difference,"appliedShiftSamples":origin["appliedShiftSamples"]}));
+                differences.push(json!({"chart":name,"pinnedReferenceParity":true,"reviewedWorkerIdentityChange":reviewed_worker_change,"frozenNoteEffectParity":true,"canonicalPcmMaxDifference":difference,"appliedShiftSamples":origin["appliedShiftSamples"]}));
             } else {
                 let baseline = baseline.as_ref().unwrap();
                 let prefix = prefix.unwrap();

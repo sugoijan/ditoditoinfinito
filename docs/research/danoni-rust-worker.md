@@ -235,3 +235,16 @@ The subsequent [2026-10-14 orchestration slice](danoni-rust-orchestration.md)
 now executes explicit selector plans through this installed bundle API, with
 portable replay and two of the three structural proof gaps closed. This does
 not add automatic URL acquisition or change the worker/notice contract above.
+
+
+## Structured request worker, 2026-10-14
+
+The [dependency slice](danoni-rust-dependencies.md) adds method/body/header and
+resolved logical URL evidence to denied fetches, without networking or a new
+sandbox permission. Its navigator fingerprint and resulting build identity
+change. Source preparation/packaging APIs and the pinned Ruffle revision,
+lockfile and sandbox policy remain unchanged. The new local bundle is under
+`~/Music/DanOni/reviews/rust-dependencies-20261014/bundle/`; old bundles are retained
+but current supervision requires the updated identity. Historical bound saved
+captures remain usable by passive adapters; only the new structured evidence
+can drive dependency resolution. No compiler/toolchain is added to import time.

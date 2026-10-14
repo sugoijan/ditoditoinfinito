@@ -293,3 +293,14 @@ an absent GET from a denied POST/body. Dependency orchestration first requires
 structured, source-bound request evidence and a reviewed worker identity update;
 see the [next-slice constraints](danoni-rust-plan.md). Do not derive host fetches
 from trace/error text or assume that any denial is a body-free GET.
+
+
+## Dependency follow-up, 2026-10-14
+
+The [bounded coordinator](danoni-rust-dependencies.md) now wraps these immutable
+plans with structured request discovery, a host cache/resolver callback and
+fresh retries. Each attempt still uses the original selector/context and full
+normalization checks; the outer dependency marker is the completion authority.
+Higan and archived RE:RAVE recover omitted cached resources, and Kouhaku's six
+charts run on the revised worker. Public URL acquisition and automatic selector
+profiles remain subsequent stages.
