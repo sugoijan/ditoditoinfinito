@@ -338,6 +338,7 @@ pub fn build(
     opts: RenderOptions,
     srgb_target: bool,
     mut layer: Option<&mut dyn NoteLayer>,
+    stage: (&[TexQuad], &[TexQuad]),
 ) -> SceneOutput {
     // A preview without receptors.
     let no_receptors = opts.preview.is_some_and(|p| !p.receptors);
@@ -345,6 +346,10 @@ pub fn build(
     let mut text = Vec::with_capacity(8);
     let mut quads = Vec::new();
     let mut order = Order::default();
+    // A work's back layers, over the background and under the field
+    // (`docs/plans/overlays.md`).
+    quads.extend_from_slice(stage.0);
+    order.quads(quads.len());
     let drawn = |layer: &Option<&mut dyn NoteLayer>, lane: usize, part: LayerPart| {
         layer.as_ref().is_some_and(|l| l.draws(lane, part))
     };
@@ -474,6 +479,8 @@ pub fn build(
         }
         l.explosions(frame, layout, geo, &mut quads);
     }
+    // Its mask layers, over the field and under the HUD.
+    quads.extend_from_slice(stage.1);
     order.quads(quads.len());
     if opts.preview.is_some() {
         order.sprites(instances.len());
@@ -816,6 +823,7 @@ mod tests {
             opts,
             false,
             None,
+            (&[], &[]),
         )
         .instances
     }
@@ -840,6 +848,7 @@ mod tests {
                 opts,
                 false,
                 None,
+                (&[], &[]),
             )
         };
         let play = out(None);

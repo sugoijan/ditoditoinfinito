@@ -15,6 +15,7 @@ mod preview;
 mod router;
 mod settings;
 mod songs;
+mod stage;
 mod web;
 
 fn main() {

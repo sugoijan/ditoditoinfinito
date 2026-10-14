@@ -370,6 +370,10 @@ async fn imported_blob(db: &Db, id: &str, file: &str) -> Result<Blob, String> {
         .ok_or_else(|| format!("{file} is missing from the stored song; import it again"))
 }
 
+/// Back and mask images kept per Dancing☆Onigiri song
+/// (`docs/plans/overlays.md`; the largest work at hand shows 99).
+pub(crate) const MAX_LAYER_IMAGES: usize = 128;
+
 /// Background-change images a song shows at most, its own and shared ones
 /// together (each is decoded and kept on the GPU during play).
 pub(crate) const MAX_BG_IMAGES: usize = 32;
@@ -452,6 +456,16 @@ pub(crate) async fn load_background(
         let bytes = fetch_bytes(&format!("songs/{}/{}", entry.id, bundled)).await?;
         crate::web::files::bytes_blob(&bytes, "").map(Some)
     }
+}
+
+/// An image a Dancing☆Onigiri work's back or mask layers show (stored or
+/// linked as `layer/<name>` when imported; `docs/plans/overlays.md`).
+pub(crate) async fn load_layer_image(entry: &ManifestEntry, name: &str) -> Result<Blob, String> {
+    let db = Db::open().await?;
+    let song = imported_record(&db, &entry.id).await?;
+    song_file(&db, &song, &format!("layer/{name}"))
+        .await
+        .map_err(|e| e.message())
 }
 
 /// A song with its chart parsed and audio bytes still encoded.

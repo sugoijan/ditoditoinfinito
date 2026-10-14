@@ -112,3 +112,78 @@ pub(crate) async fn rasterise_svg(
         .dyn_into()
         .map_err(|e| js_err("rasterise SVG", e))
 }
+
+/// Draws text as a back or mask layer shows it (danoniplus's `<span>`:
+/// its base font, `"Meiryo UI", sans-serif`, at `size` px, 16 when 0, in
+/// `color`, else the colour danoniplus's page templates give text,
+/// `#cccccc`, as CSS keeps it for a colour it does not read; lines at the
+/// font's height) at `scale` times that size. Returns the bitmap and its
+/// size in the stage's px.
+pub(crate) async fn text_bitmap(
+    text: &str,
+    size: u32,
+    color: &str,
+    scale: f64,
+) -> Result<(ImageBitmap, (f32, f32)), String> {
+    let window = web_sys::window().ok_or("no window")?;
+    let document = window.document().ok_or("no document")?;
+    let size = if size == 0 {
+        16.0
+    } else {
+        f64::from(size.min(400))
+    };
+    let px = size * scale;
+    let font = format!("{px:.1}px \"Meiryo UI\", sans-serif");
+    let canvas: web_sys::HtmlCanvasElement = document
+        .create_element("canvas")
+        .map_err(|e| js_err("canvas", e))?
+        .dyn_into()
+        .map_err(|_| "not a canvas")?;
+    let context =
+        |canvas: &web_sys::HtmlCanvasElement| -> Result<web_sys::CanvasRenderingContext2d, String> {
+            canvas
+                .get_context("2d")
+                .map_err(|e| js_err("canvas", e))?
+                .ok_or("no 2D canvas")?
+                .dyn_into()
+                .map_err(|_| "no 2D canvas".to_string())
+        };
+    let lines: Vec<&str> = text.split('\n').take(64).collect();
+    let ctx = context(&canvas)?;
+    ctx.set_font(&font);
+    let width = lines
+        .iter()
+        .map(|l| ctx.measure_text(l).map(|m| m.width()).unwrap_or(0.0))
+        .fold(0.0f64, f64::max);
+    let line = px * 1.2;
+    let (w, h) = (
+        (width.ceil() as u32).clamp(1, 2048),
+        ((line * lines.len() as f64).ceil() as u32).clamp(1, 2048),
+    );
+    canvas.set_width(w);
+    canvas.set_height(h);
+    // Resizing resets the context's state.
+    let ctx = context(&canvas)?;
+    ctx.set_font(&font);
+    ctx.set_text_baseline("top");
+    // A colour the canvas does not read leaves the one before.
+    ctx.set_fill_style_str("#cccccc");
+    if !color.is_empty() {
+        ctx.set_fill_style_str(color);
+    }
+    for (i, l) in lines.iter().enumerate() {
+        let _ = ctx.fill_text(l, 0.0, line * i as f64 + (line - px) / 2.0);
+    }
+    let promise = window
+        .create_image_bitmap_with_html_canvas_element(&canvas)
+        .map_err(|e| js_err("createImageBitmap", e))?;
+    let bitmap: ImageBitmap = JsFuture::from(promise)
+        .await
+        .map_err(|e| js_err("draw text", e))?
+        .dyn_into()
+        .map_err(|e| js_err("draw text", e))?;
+    Ok((
+        bitmap,
+        ((f64::from(w) / scale) as f32, (f64::from(h) / scale) as f32),
+    ))
+}

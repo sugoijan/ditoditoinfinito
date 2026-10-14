@@ -14,7 +14,7 @@ use wasm_bindgen::JsCast;
 use web_sys::Blob;
 
 use super::{ImportReport, Source, mime_type, read_blob, read_bytes, source};
-use crate::songs::{ImportedSong, file_key};
+use crate::songs::{ImportedSong, MAX_LAYER_IMAGES, file_key};
 use crate::web::files::bytes_blob;
 use crate::web::idb::{self, Db, Write};
 
@@ -131,6 +131,57 @@ pub(super) async fn import_works(
                 }
             };
             out.music.insert(music.clone());
+            // Back and mask images: a page's, where danoniplus loads them;
+            // a capture holds none.
+            let layers = match &ws {
+                WorkSource::Page(page) => {
+                    let (mut found, mut missing) = work::layer_images(song, page, &work.dos, paths);
+                    if !missing.is_empty() {
+                        let more = missing.len().saturating_sub(12);
+                        missing.truncate(12);
+                        let more = if more > 0 {
+                            format!(" and {more} more")
+                        } else {
+                            String::new()
+                        };
+                        report.warnings.push((
+                            song_label.clone(),
+                            format!(
+                                "back and mask images not found (or not drawn, like SVG): {}{more}",
+                                missing.join(", ")
+                            ),
+                        ));
+                    }
+                    if found.len() > MAX_LAYER_IMAGES {
+                        report.warnings.push((
+                            song_label.clone(),
+                            format!(
+                                "{} back and mask images; only the first {MAX_LAYER_IMAGES} are kept",
+                                found.len()
+                            ),
+                        ));
+                        found.truncate(MAX_LAYER_IMAGES);
+                    }
+                    found
+                }
+                WorkSource::Dump(_) => {
+                    if song.effects.iter().any(|e| {
+                        (e.kind == danoni::SPRITE_BACK || e.kind == danoni::SPRITE_MASK)
+                            && e.fields.get(2).is_some_and(|s| work::is_layer_image(s))
+                    }) {
+                        report.warnings.push((
+                            song_label.clone(),
+                            "a capture holds no back and mask images".into(),
+                        ));
+                    }
+                    Vec::new()
+                }
+            };
+            report.warnings.extend(
+                ddi_engine::sprites::import_notes(song)
+                    .into_iter()
+                    .map(|n| (song_label.clone(), n)),
+            );
             let id = pack::song_id(&pack, &format!("{ident}#{music_no}"));
             if let Some(first) = seen.get(&id) {
                 report
@@ -142,8 +193,8 @@ pub(super) async fn import_works(
             let stored = StoredWork::referencing(&shared.0, music_no);
             let with_work = (!shared_stored).then_some(&shared);
             match store_song(
-                db, sources, &id, &pack, &label, song, &stored, with_work, &music, encoded, folder,
-                link,
+                db, sources, &id, &pack, &label, song, &stored, with_work, &music, encoded,
+                &layers, folder, link,
             )
             .await
             {
@@ -300,6 +351,7 @@ async fn store_song(
     shared: Option<&(String, String)>,
     music: &str,
     encoded: bool,
+    layers: &[(String, String)],
     folder: Option<&str>,
     link: bool,
 ) -> Result<String, String> {
@@ -357,6 +409,7 @@ async fn store_song(
     );
     entry.preview_start = 0.0;
     entry.preview_length = 0.0;
+    entry.layer_images = layers.iter().map(|(name, _)| name.clone()).collect();
     let json = serde_json::to_string(stored).map_err(|e| e.to_string())?;
     let mut files: Vec<(String, Blob)> = vec![(
         chart_name,
@@ -364,6 +417,21 @@ async fn store_song(
     )];
     if let Some(blob) = music_blob {
         files.push((music_name, blob));
+    }
+    for (name, path) in layers {
+        let src = source(sources, path)?;
+        let key = format!("layer/{name}");
+        match src.link(path).filter(|_| link) {
+            Some(l) => {
+                links.insert(key, l);
+            }
+            // A broken image is not worth losing the song over.
+            None => {
+                if let Ok(blob) = read_blob(src, mime_type(path)).await {
+                    files.push((key, blob));
+                }
+            }
+        }
     }
     let record = ImportedSong {
         entry,

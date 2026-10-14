@@ -207,6 +207,80 @@ pub fn music_path<S: AsRef<str>>(page: &str, dos: &Dos, url: &str, paths: &[S]) 
         .or_else(|| by_name(paths, url, Some(folder)))
 }
 
+/// Whether a back or mask source names an image (see
+/// [`danoni::is_sprite_image`]).
+pub fn is_layer_image(source: &str) -> bool {
+    danoni::is_sprite_image(source)
+}
+
+/// A back or mask image of a page's work: where danoniplus loads it
+/// (`preloadImgFile`: relative to the page, or with `syncBackPath` to the
+/// engine's folder, `js/`, unless it starts with `(..)`, the page's
+/// folder), else a file of the same name anywhere in the import. Remote
+/// images are not available.
+pub fn image_path<S: AsRef<str>>(
+    page: &str,
+    dos: &Dos,
+    source: &str,
+    paths: &[S],
+) -> Option<String> {
+    const CURRENT: &str = "(..)";
+    // As the page reads the `src` it writes (`*comma*` and the like are
+    // references there).
+    let source = &danoni::source::decode_entities(source);
+    if source.contains("://") || source.starts_with("//") || source.starts_with("data:") {
+        return None;
+    }
+    let page_dir = parent(page);
+    let sync = dos
+        .get("syncBackPath")
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("true"));
+    let mut tries: Vec<Option<String>> = Vec::new();
+    if let Some(rest) = source.strip_prefix(CURRENT) {
+        tries.push(join_relative(page_dir, rest));
+    } else if sync {
+        tries.push(join_relative(page_dir, &format!("../js/{source}")));
+        tries.push(join_relative(page_dir, &format!("js/{source}")));
+    }
+    tries.push(join_relative(page_dir, source));
+    tries
+        .into_iter()
+        .flatten()
+        .find_map(|p| find(paths, &p))
+        .or_else(|| by_name(paths, source, None))
+}
+
+/// The images `song`'s back and mask layers show, in order of first use:
+/// `(name as the data writes it, path in the import)`; the names no file
+/// was found for, separately.
+pub fn layer_images<S: AsRef<str>>(
+    song: &Song,
+    page: &str,
+    dos: &Dos,
+    paths: &[S],
+) -> (Vec<(String, String)>, Vec<String>) {
+    let mut found: Vec<(String, String)> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<&String> = std::collections::HashSet::new();
+    for e in &song.effects {
+        if e.kind != danoni::SPRITE_BACK && e.kind != danoni::SPRITE_MASK {
+            continue;
+        }
+        let Some(source) = e.fields.get(2).filter(|s| is_layer_image(s)) else {
+            continue;
+        };
+        if !seen.insert(source) {
+            continue;
+        }
+        let svg = extension(source).is_some_and(|x| x.eq_ignore_ascii_case("svg"));
+        match image_path(page, dos, source, paths).filter(|_| !svg) {
+            Some(path) => found.push((source.clone(), path)),
+            None => missing.push(source.clone()),
+        }
+    }
+    (found, missing)
+}
+
 fn by_name<S: AsRef<str>>(paths: &[S], url: &str, folder: Option<&str>) -> Option<String> {
     let name = file_name(url.trim_start_matches("(..)"));
     if name.is_empty() {
@@ -420,6 +494,60 @@ mod tests {
             .as_deref(),
             Some("site/music/Song.MP3")
         );
+    }
+
+    #[test]
+    fn layer_images_resolve_as_danoniplus_loads_them() {
+        let paths = [
+            "site/danoni/work.html",
+            "site/img/classic/c.png",
+            "site/js/img/sync.png",
+            "site/danoni/own.png",
+            "elsewhere/stray.JPG",
+        ];
+        let page = "site/danoni/work.html";
+        let plain = Dos::default();
+        // Relative to the page; `(..)` the page's folder; by name anywhere.
+        assert_eq!(
+            image_path(page, &plain, "../img/classic/c.png", &paths).as_deref(),
+            Some("site/img/classic/c.png")
+        );
+        assert_eq!(
+            image_path(page, &plain, "(..)own.png", &paths).as_deref(),
+            Some("site/danoni/own.png")
+        );
+        assert_eq!(
+            image_path(page, &plain, "img/stray.jpg", &paths).as_deref(),
+            Some("elsewhere/stray.JPG")
+        );
+        assert_eq!(
+            image_path(page, &plain, "https://x.org/a.png", &paths),
+            None
+        );
+        // `syncBackPath`: relative to the engine's `js/` folder.
+        let sync = Dos::parse("|syncBackPath=true|", DosFlags::default());
+        assert_eq!(
+            image_path(page, &sync, "img/sync.png", &paths).as_deref(),
+            Some("site/js/img/sync.png")
+        );
+        // A work's song: its images in order of first use, once each,
+        // text and svg left out.
+        let dos = Dos::parse(
+            "|difData=5,N|left_data=300|back_data=200,0,../img/classic/c.png\n\
+             300,1,text\n400,0,../img/classic/c.png\n500,1,missing.png\n600,2,v.svg|",
+            DosFlags::default(),
+        );
+        let song = &danoni::import(&dos).unwrap().songs[0];
+        let (found, missing) = layer_images(song, page, &dos, &paths);
+        assert_eq!(
+            found,
+            [(
+                "../img/classic/c.png".to_string(),
+                "site/img/classic/c.png".to_string()
+            )]
+        );
+        assert_eq!(missing, ["missing.png", "v.svg"]);
+        assert!(is_layer_image("a.PNG") && !is_layer_image("text"));
     }
 
     #[test]
