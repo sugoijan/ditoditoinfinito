@@ -88,6 +88,7 @@ fn works_autoplay_perfectly_under_every_turn() {
                 RulesetMode::Original,
                 "itg",
                 &DanoniOptions::default(),
+                presets::HoldStyle::default(),
                 &chart,
             )
         };

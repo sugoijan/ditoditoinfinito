@@ -558,6 +558,8 @@ impl GaugeRules for DanoniGauge {
                 self.change(-self.damage)
             }
             JudgeEventKind::Boo => self.change(-self.damage * EXCESSIVE_FACTOR),
+            // danoniplus has no ticked holds; its rules keep their own.
+            JudgeEventKind::Checkpoint { .. } => {}
         }
     }
 
@@ -964,6 +966,7 @@ mod tests {
             holds: 10,
             mines: 0,
             combo: 0,
+            ..ScoreCtx::default()
         };
         let mut g = DanoniGauge::new(def, 1000.0, false);
         g.begin(&ctx);
@@ -1009,6 +1012,7 @@ mod tests {
             holds: 2,
             mines: 0,
             combo: 0,
+            ..ScoreCtx::default()
         };
         s.begin(&ctx);
         for _ in 0..8 {

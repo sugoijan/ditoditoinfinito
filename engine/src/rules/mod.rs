@@ -228,6 +228,21 @@ pub enum HoldRules {
     /// released for more than `budget` seconds in all; pressing again stops
     /// the count but never resets it.
     ReleaseBudget { budget: f64 },
+    /// StepMania's pump game (`docs/plans/pump.md`): holds and rolls are
+    /// judged at checkpoints (the chart's `#TICKCOUNTS`); released, a
+    /// hold's life runs out over `checkpoint_window` seconds (scaled) and
+    /// comes back full when pressed again; nothing is dropped before its
+    /// end, and a hold starts at its head whether or not the head was hit.
+    Ticked { checkpoint_window: f64 },
+}
+
+impl HoldRules {
+    /// StepMania's `TimingWindowSecondsCheckpoint`.
+    pub const CHECKPOINT_WINDOW: f64 = 0.1664;
+
+    pub fn is_ticked(self) -> bool {
+        matches!(self, HoldRules::Ticked { .. })
+    }
 }
 
 /// How the head of a hold is judged.
@@ -330,6 +345,11 @@ pub struct Tally {
     pub let_go: u32,
     pub mine_hit: u32,
     pub boo: u32,
+    /// Checkpoint rows of ticked holds hit and missed.
+    #[serde(default)]
+    pub checkpoint_hit: u32,
+    #[serde(default)]
+    pub checkpoint_miss: u32,
 }
 
 impl Tally {
@@ -340,6 +360,8 @@ impl Tally {
             JudgeEventKind::LetGo => self.let_go += 1,
             JudgeEventKind::HitMine => self.mine_hit += 1,
             JudgeEventKind::Boo => self.boo += 1,
+            JudgeEventKind::Checkpoint { missed: 0, .. } => self.checkpoint_hit += 1,
+            JudgeEventKind::Checkpoint { .. } => self.checkpoint_miss += 1,
         }
     }
 
@@ -370,6 +392,7 @@ impl FullCombo {
     /// Lamp for a finished play.
     pub fn evaluate(tally: &Tally, combo: &ComboRules) -> FullCombo {
         if tally.count(Judgement::Miss) > 0
+            || tally.checkpoint_miss > 0
             || ((combo.let_go_breaks || combo.let_go_loses_full_combo) && tally.let_go > 0)
             || (combo.mine_breaks && tally.mine_hit > 0)
         {
@@ -432,7 +455,10 @@ impl GradeTable {
         if failed && let Some(f) = &self.failed {
             return f.clone();
         }
-        let clean = tally.let_go == 0 && tally.mine_hit == 0 && tally.total_taps() > 0;
+        let clean = tally.let_go == 0
+            && tally.mine_hit == 0
+            && tally.checkpoint_miss == 0
+            && tally.total_taps() > 0;
         if clean
             && let Some(g) = &self.all_w1
             && tally.all_within(Judgement::W1)
@@ -495,6 +521,11 @@ pub struct ScoreCtx {
     pub mines: u32,
     /// Combo after the current event.
     pub combo: u32,
+    /// Holds are ticked ([`HoldRules::Ticked`]): their outcomes weigh
+    /// nothing, their judged checkpoint rows weigh as steps.
+    pub ticked: bool,
+    /// Judged checkpoint rows of ticked holds.
+    pub checkpoints: u32,
 }
 
 /// Score as the HUD shows it. Fields a scoring system does not produce are `None`.

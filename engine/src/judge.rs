@@ -10,7 +10,9 @@
 //! taken (not the closest one). When both a tap and a mine are candidates,
 //! the one closer in time wins, as SM's `GetClosestNote` would.
 
-use ddi_chart::{Note, NoteKind, Tick, TimingMap};
+use std::collections::{BTreeMap, HashSet};
+
+use ddi_chart::{Note, NoteKind, TICKS_PER_BEAT, Tick, TimingMap};
 use serde::{Deserialize, Serialize};
 
 use crate::rules::{EmptyPress, HoldRules, JudgeTable, Judgement};
@@ -68,6 +70,11 @@ pub struct JudgedNote {
     /// Seconds a hold has been released in all before `decay_from`
     /// ([`HoldRules::ReleaseBudget`]).
     released: f64,
+    /// Ticked holds ([`HoldRules::Ticked`]): checkpoints kept and missed,
+    /// and whether the head was stepped on.
+    checkpoints_hit: u32,
+    checkpoints_missed: u32,
+    head_hit: bool,
 }
 
 impl JudgedNote {
@@ -116,6 +123,32 @@ pub enum JudgeEventKind {
     HitMine,
     /// Empty press, per [`EmptyPress`].
     Boo,
+    /// A checkpoint row of ticked holds ([`HoldRules::Ticked`]): `held` of
+    /// the holds crossing it were kept and `missed` were not; a hit when
+    /// none was missed. `lanes` has a bit per hold's lane (lanes 0–63).
+    Checkpoint {
+        held: u16,
+        missed: u16,
+        lanes: u64,
+    },
+}
+
+impl JudgeEventKind {
+    /// What the event weighs as in a score or a gauge: a checkpoint as a
+    /// `W1` when hit and a `Miss` when not, and with ticked holds a hold's
+    /// own outcome as nothing (StepMania's pump weights,
+    /// `docs/plans/pump.md`). `None`: it weighs nothing.
+    pub fn scored_as(self, ticked: bool) -> Option<JudgeEventKind> {
+        match self {
+            JudgeEventKind::Checkpoint { missed, .. } => Some(if missed == 0 {
+                JudgeEventKind::Tap(Judgement::W1, 0.0)
+            } else {
+                JudgeEventKind::Tap(Judgement::Miss, 0.0)
+            }),
+            JudgeEventKind::Held | JudgeEventKind::LetGo if ticked => None,
+            other => Some(other),
+        }
+    }
 }
 
 /// One judging outcome.
@@ -131,6 +164,21 @@ pub struct JudgeEvent {
     pub song_time: f64,
 }
 
+/// StepMania's `InitialHoldLife` for pump: a ticked hold or roll whose
+/// panel is up as its head passes starts with this much life.
+const INITIAL_HOLD_LIFE: f64 = 0.05;
+
+/// A row of hold checkpoints ([`HoldRules::Ticked`]).
+#[derive(Clone, Debug, PartialEq)]
+struct CheckpointRow {
+    tick: Tick,
+    seconds: f64,
+    /// Holds and rolls crossing the row.
+    holds: Vec<usize>,
+    /// Judged on its own: no step (tap or hold head) on the row.
+    scored: bool,
+}
+
 /// The per-note state machine for one chart.
 #[derive(Clone, Debug)]
 pub struct Judge {
@@ -142,6 +190,16 @@ pub struct Judge {
     cursor: Vec<usize>,
     table: JudgeTable,
     last_time: Option<f64>,
+    /// Checkpoint rows in time order, with ticked holds.
+    checkpoints: Vec<CheckpointRow>,
+    /// The first checkpoint row not judged yet.
+    next_checkpoint: usize,
+    /// Ticked holds' and rolls' heads in time order, and the first whose
+    /// time has not passed yet.
+    heads: Vec<usize>,
+    next_head: usize,
+    /// Each lane's button, as presses and releases left it.
+    down: Vec<bool>,
 }
 
 impl Judge {
@@ -174,6 +232,9 @@ impl Judge {
                     row: None,
                     decay_from: None,
                     released: 0.0,
+                    checkpoints_hit: 0,
+                    checkpoints_missed: 0,
+                    head_hit: false,
                 }
             })
             .collect();
@@ -196,6 +257,21 @@ impl Judge {
                     .then(notes[a].note.tick.cmp(&notes[b].note.tick))
             });
         }
+        let (checkpoints, heads) = if table.hold.is_ticked() {
+            let mut heads: Vec<usize> = (0..notes.len())
+                .filter(|&i| {
+                    notes[i].judgeable
+                        && matches!(
+                            notes[i].note.kind,
+                            NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
+                        )
+                })
+                .collect();
+            heads.sort_by(|&a, &b| notes[a].seconds.total_cmp(&notes[b].seconds));
+            (checkpoint_rows(&notes, timing), heads)
+        } else {
+            (Vec::new(), Vec::new())
+        };
         let mut judge = Judge {
             notes,
             rows: Vec::new(),
@@ -203,6 +279,11 @@ impl Judge {
             lanes,
             table,
             last_time: None,
+            checkpoints,
+            next_checkpoint: 0,
+            heads,
+            next_head: 0,
+            down: vec![false; lane_count],
         };
         judge.rebuild_rows();
         judge
@@ -246,6 +327,12 @@ impl Judge {
             self.lanes[lane].retain(|&i| self.notes[i].judgeable);
         }
         self.rebuild_rows();
+        let notes = &self.notes;
+        self.heads.retain(|&i| notes[i].judgeable);
+        self.checkpoints.retain_mut(|row| {
+            row.holds.retain(|&i| notes[i].judgeable);
+            row.seconds >= song_time && !row.holds.is_empty()
+        });
     }
 
     pub fn table(&self) -> &JudgeTable {
@@ -302,6 +389,12 @@ impl Judge {
         self.rows.len() as u32
     }
 
+    /// Checkpoint rows judged on their own (ticked holds), the ones a
+    /// score counts.
+    pub fn checkpoint_count(&self) -> u32 {
+        self.checkpoints.iter().filter(|r| r.scored).count() as u32
+    }
+
     /// Whether every note has reached a terminal state.
     pub fn all_resolved(&self) -> bool {
         self.notes.iter().all(|n| n.state.is_terminal())
@@ -329,11 +422,17 @@ impl Judge {
     }
 
     fn hold_window(&self, idx: usize) -> f64 {
-        if self.notes[idx].is_roll() {
-            self.table.roll_window_seconds()
-        } else {
-            self.table.hold_window_seconds()
+        match (self.table.hold, self.notes[idx].is_roll()) {
+            (_, true) => self.table.roll_window_seconds(),
+            (HoldRules::Ticked { checkpoint_window }, false) => {
+                self.table.scaled(checkpoint_window)
+            }
+            _ => self.table.hold_window_seconds(),
         }
+    }
+
+    fn ticked(&self) -> bool {
+        self.table.hold.is_ticked()
     }
 
     /// Hold life at `song_time` given the decay start (`None` = full, or
@@ -353,8 +452,97 @@ impl Judge {
             }
             _ => match n.decay_from {
                 None => 1.0,
-                Some(_) => (1.0 - open / self.hold_window(idx)) as f32,
+                Some(_) => (1.0 - open / self.hold_window(idx)).max(0.0) as f32,
             },
+        }
+    }
+
+    /// The ticked heads whose time passed by `song_time` (StepMania's
+    /// `CrossedRows`): a head whose panel is down is stepped on, a `W1`;
+    /// otherwise its hold starts anyway, with [`INITIAL_HOLD_LIFE`].
+    fn cross_heads(&mut self, song_time: f64, out: &mut Vec<JudgeEvent>) {
+        while let Some(&idx) = self.heads.get(self.next_head) {
+            let n = &self.notes[idx];
+            if n.seconds > song_time {
+                break;
+            }
+            self.next_head += 1;
+            if n.state != NoteState::Pending {
+                continue;
+            }
+            let at = n.seconds;
+            if self
+                .down
+                .get(usize::from(n.note.lane))
+                .copied()
+                .unwrap_or(false)
+            {
+                self.step_on_ticked_head(idx, 0.0, at, out);
+            } else {
+                let window = self.hold_window(idx);
+                self.notes[idx].decay_from = Some(at - (1.0 - INITIAL_HOLD_LIFE) * window);
+            }
+        }
+    }
+
+    /// A ticked hold's head stepped on at `at`: always a `W1` (StepMania's
+    /// `Player::Step` without `RequireStepOnHoldHeads`), the hold full.
+    fn step_on_ticked_head(&mut self, idx: usize, delta: f64, at: f64, out: &mut Vec<JudgeEvent>) {
+        out.push(self.event(idx, JudgeEventKind::Tap(Judgement::W1, delta), at));
+        let n = &mut self.notes[idx];
+        n.head_hit = true;
+        n.state = NoteState::HoldActive { life: 1.0 };
+        n.decay_from = n.is_roll().then_some(at);
+    }
+
+    /// Judges the checkpoint rows up to `song_time` (ticked holds): a hold
+    /// is kept at a row when its life is above zero there (a hold whose
+    /// head is still unjudged too: StepMania starts it at its head either
+    /// way). A row is one event, when it has no step of its own. The row
+    /// of a hold's tail does not count for the hold's outcome: StepMania
+    /// settles the hold (`UpdateHoldNotes`) before it crosses that row.
+    fn checkpoints_until(&mut self, song_time: f64, out: &mut Vec<JudgeEvent>) {
+        while let Some(row) = self.checkpoints.get(self.next_checkpoint) {
+            if row.seconds > song_time {
+                break;
+            }
+            let row = row.clone();
+            self.next_checkpoint += 1;
+            let (mut held, mut missed, mut lanes) = (0u16, 0u16, 0u64);
+            for &idx in &row.holds {
+                let alive = match self.notes[idx].state {
+                    NoteState::Pending | NoteState::HoldActive { .. } => {
+                        self.hold_life(idx, row.seconds) > 0.0
+                    }
+                    _ => continue,
+                };
+                let n = &mut self.notes[idx];
+                let tail = n.note.end_tick() == row.tick;
+                if alive {
+                    n.checkpoints_hit += u32::from(!tail);
+                    held = held.saturating_add(1);
+                } else {
+                    n.checkpoints_missed += u32::from(!tail);
+                    missed = missed.saturating_add(1);
+                }
+                if n.note.lane < 64 {
+                    lanes |= 1 << n.note.lane;
+                }
+            }
+            if row.scored && held + missed > 0 {
+                let first = row.holds[0];
+                out.push(JudgeEvent {
+                    note_index: Some(first),
+                    lane: self.notes[first].note.lane,
+                    tick: row.tick,
+                    kind: JudgeEventKind::Checkpoint {
+                        held,
+                        missed,
+                        lanes,
+                    },
+                    song_time: row.seconds,
+                });
+            }
         }
     }
 
@@ -381,11 +569,25 @@ impl Judge {
     }
 
     /// A tap-like note passed unjudged, at `at`: a miss, and for a hold
-    /// whose start is only accepted (danoniplus) a dropped hold too.
+    /// whose start is only accepted (danoniplus) a dropped hold too. A
+    /// ticked hold goes on (its head missed): held while its lane is down.
     fn miss_note(&mut self, idx: usize, at: f64, out: &mut Vec<JudgeEvent>) {
         let is_hold = matches!(self.notes[idx].note.kind, NoteKind::HoldHead { .. });
         let start = self.table.hold_start;
-        if is_hold && start.accept.is_some() {
+        let body = matches!(
+            self.notes[idx].note.kind,
+            NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
+        );
+        if body && self.ticked() {
+            out.push(self.event(
+                idx,
+                JudgeEventKind::Tap(Judgement::Miss, at - self.notes[idx].seconds),
+                at,
+            ));
+            // Its life runs from its head ([`Judge::cross_heads`]).
+            let life = self.hold_life(idx, at);
+            self.notes[idx].state = NoteState::HoldActive { life };
+        } else if is_hold && start.accept.is_some() {
             if start.judged {
                 out.push(self.event(
                     idx,
@@ -407,8 +609,34 @@ impl Judge {
 
     /// Resolves an active hold at `song_time`: `LetGo` when its life ran
     /// out, `Held` once the tail passed, otherwise just refreshes `life`.
+    /// A ticked hold is only resolved at its tail: kept when it missed no
+    /// checkpoint and hit one (without checkpoints: when its head was
+    /// stepped on), a ticked roll when its life lasted.
     fn settle_hold(&mut self, idx: usize, song_time: f64, out: &mut Vec<JudgeEvent>) {
         let life = self.hold_life(idx, song_time);
+        if self.ticked() {
+            let n = &self.notes[idx];
+            if song_time < n.end_seconds {
+                self.notes[idx].state = NoteState::HoldActive { life };
+                return;
+            }
+            let kept = if n.is_roll() {
+                life > 0.0
+            } else if n.checkpoints_hit + n.checkpoints_missed == 0 {
+                n.head_hit
+            } else {
+                n.checkpoints_missed == 0
+            };
+            let end = n.end_seconds;
+            let (state, kind) = if kept {
+                (NoteState::Held, JudgeEventKind::Held)
+            } else {
+                (NoteState::LetGo, JudgeEventKind::LetGo)
+            };
+            self.notes[idx].state = state;
+            out.push(self.event(idx, kind, end));
+            return;
+        }
         if life <= 0.0 {
             let at = self.drop_time(idx, song_time);
             self.notes[idx].state = NoteState::LetGo;
@@ -480,6 +708,9 @@ impl Judge {
         if lane_idx >= self.lanes.len() {
             return out;
         }
+        self.cross_heads(song_time, &mut out);
+        self.checkpoints_until(song_time, &mut out);
+        self.down[lane_idx] = true;
         self.expire(lane_idx, song_time, &mut out);
         let queue: Vec<usize> = self.lanes[lane_idx][self.cursor[lane_idx]..].to_vec();
 
@@ -487,7 +718,12 @@ impl Judge {
         for &idx in &queue {
             if let NoteState::HoldActive { .. } = self.notes[idx].state {
                 let life = self.hold_life(idx, song_time);
-                if life <= 0.0 {
+                if self.ticked() {
+                    // Never dropped before its end: full again.
+                    let n = &mut self.notes[idx];
+                    n.decay_from = n.is_roll().then_some(song_time);
+                    n.state = NoteState::HoldActive { life: 1.0 };
+                } else if life <= 0.0 {
                     self.settle_hold(idx, song_time, &mut out);
                 } else if self.notes[idx].is_roll() {
                     self.notes[idx].decay_from = Some(song_time);
@@ -532,6 +768,14 @@ impl Judge {
             let (idx, _) = mine.expect("mine candidate");
             self.notes[idx].state = NoteState::MineHit;
             out.push(self.event(idx, JudgeEventKind::HitMine, song_time));
+        } else if let Some((idx, delta, _)) = tap.filter(|&(idx, ..)| {
+            self.ticked()
+                && matches!(
+                    self.notes[idx].note.kind,
+                    NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
+                )
+        }) {
+            self.step_on_ticked_head(idx, delta, song_time, &mut out);
         } else if let Some((idx, delta, judgement)) = tap {
             let is_hold = matches!(
                 self.notes[idx].note.kind,
@@ -550,6 +794,7 @@ impl Judge {
             if !freeze || start.judged {
                 out.push(self.event(idx, JudgeEventKind::Tap(judgement, delta), song_time));
             }
+            self.notes[idx].head_hit = true;
             self.notes[idx].state = if !is_hold {
                 NoteState::Hit { judgement, delta }
             } else if accepted {
@@ -587,6 +832,9 @@ impl Judge {
             }
         }
         self.advance_cursor(lane_idx);
+        // Checkpoints and misses found on the way are earlier than the
+        // press: combo and gauge see events in the order they happened.
+        out.sort_by(|a, b| a.song_time.total_cmp(&b.song_time));
         out
     }
 
@@ -595,10 +843,13 @@ impl Judge {
     pub fn release(&mut self, lane: u8, song_time: f64) -> Vec<JudgeEvent> {
         let mut out = Vec::new();
         let lane_idx = usize::from(lane);
-        let Some(queue) = self.lanes.get(lane_idx) else {
+        if lane_idx >= self.lanes.len() {
             return out;
-        };
-        let queue: Vec<usize> = queue[self.cursor[lane_idx]..].to_vec();
+        }
+        self.cross_heads(song_time, &mut out);
+        self.checkpoints_until(song_time, &mut out);
+        self.down[lane_idx] = false;
+        let queue: Vec<usize> = self.lanes[lane_idx][self.cursor[lane_idx]..].to_vec();
         let max_early = self.table.max_early();
         let mut lift: Option<(usize, f64, Judgement)> = None;
         for &idx in &queue {
@@ -629,6 +880,7 @@ impl Judge {
             out.push(self.event(idx, JudgeEventKind::Tap(judgement, delta), song_time));
         }
         self.advance_cursor(lane_idx);
+        out.sort_by(|a, b| a.song_time.total_cmp(&b.song_time));
         out
     }
 
@@ -639,6 +891,11 @@ impl Judge {
         let prev = self.last_time.unwrap_or(song_time);
         self.last_time = Some(song_time);
         let max_ahead = self.table.max_early().max(self.table.mine_window_seconds());
+        for (lane, down) in self.down.iter_mut().enumerate() {
+            *down = held.get(lane).copied().unwrap_or(false);
+        }
+        self.cross_heads(song_time, &mut out);
+        self.checkpoints_until(song_time, &mut out);
         for lane in 0..self.lanes.len() {
             self.expire(lane, song_time, &mut out);
             let is_held = held.get(lane).copied().unwrap_or(false);
@@ -678,6 +935,50 @@ impl Judge {
         out.sort_by(|a, b| a.song_time.total_cmp(&b.song_time));
         out
     }
+}
+
+/// The checkpoint rows of a chart's holds and rolls: rows on the tick
+/// grid of the tick count in force there (`row % (48 / ticks) == 0`, as
+/// StepMania's `Player::UpdateHoldNotes` checks; no grid where it is 0),
+/// after a hold's head and up to its tail, where notes are judged.
+fn checkpoint_rows(notes: &[JudgedNote], timing: &TimingMap) -> Vec<CheckpointRow> {
+    let mut by_tick: BTreeMap<i64, Vec<usize>> = BTreeMap::new();
+    for (i, n) in notes.iter().enumerate() {
+        let end = match n.note.kind {
+            NoteKind::HoldHead { end } | NoteKind::RollHead { end } if n.judgeable => end,
+            _ => continue,
+        };
+        for t in n.note.tick.0 + 1..=end.0 {
+            let tick = Tick(t);
+            let per_beat = i64::from(timing.ticks_per_beat_at(tick)).min(TICKS_PER_BEAT);
+            if per_beat > 0
+                && t.rem_euclid(TICKS_PER_BEAT / per_beat) == 0
+                && timing.judgeable(tick)
+            {
+                by_tick.entry(t).or_default().push(i);
+            }
+        }
+    }
+    let steps: HashSet<i64> = notes
+        .iter()
+        .filter(|n| {
+            n.judgeable
+                && matches!(
+                    n.note.kind,
+                    NoteKind::Tap | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
+                )
+        })
+        .map(|n| n.note.tick.0)
+        .collect();
+    by_tick
+        .into_iter()
+        .map(|(t, holds)| CheckpointRow {
+            tick: Tick(t),
+            seconds: timing.seconds_at(Tick(t)),
+            holds,
+            scored: !steps.contains(&t),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -779,6 +1080,288 @@ mod tests {
         let ev = j.update(4.0, &[false, false, true, false]);
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].kind, JudgeEventKind::Held);
+    }
+
+    /// 60 BPM (beat n at n seconds) under StepMania 5's windows with
+    /// ticked holds: 4 checkpoints a beat, 0.1664 s to come back.
+    fn ticked(notes: &[Note], timing: TimingMap) -> Judge {
+        let mut table = presets::sm5().judge;
+        table.hold = HoldRules::Ticked {
+            checkpoint_window: HoldRules::CHECKPOINT_WINDOW,
+        };
+        Judge::new(notes, &timing, table)
+    }
+
+    fn hold(beat: f64, lane: u8, end: f64) -> Note {
+        Note::new(
+            Tick::from_beat_f64(beat),
+            lane,
+            NoteKind::HoldHead {
+                end: Tick::from_beat_f64(end),
+            },
+        )
+    }
+
+    /// `(seconds, held, missed)` of each checkpoint event, and the holds'
+    /// outcomes.
+    fn ticks(ev: &[JudgeEvent]) -> Vec<(f64, u16, u16)> {
+        ev.iter()
+            .filter_map(|e| match e.kind {
+                JudgeEventKind::Checkpoint { held, missed, .. } => {
+                    Some(((e.song_time * 100.0).round() / 100.0, held, missed))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn outcomes(ev: &[JudgeEvent]) -> Vec<JudgeEventKind> {
+        ev.iter()
+            .filter(|e| matches!(e.kind, JudgeEventKind::Held | JudgeEventKind::LetGo))
+            .map(|e| e.kind)
+            .collect()
+    }
+
+    #[test]
+    fn a_held_ticked_hold_hits_every_checkpoint_after_its_head() {
+        let mut j = ticked(&[hold(0.0, 0, 1.0)], TimingMap::constant(60.0, 0.0));
+        assert_eq!(j.checkpoint_count(), 4);
+        let mut ev = j.press(0, 0.0);
+        ev.extend(j.update(1.5, &[true]));
+        // Not the head's row; up to and including the tail's.
+        assert_eq!(
+            ticks(&ev),
+            [(0.25, 1, 0), (0.5, 1, 0), (0.75, 1, 0), (1.0, 1, 0)]
+        );
+        assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
+        // The tail's checkpoint before the hold's outcome.
+        assert!(matches!(ev.last().unwrap().kind, JudgeEventKind::Held));
+    }
+
+    #[test]
+    fn a_released_ticked_hold_misses_checkpoints_and_comes_back() {
+        let mut j = ticked(&[hold(0.0, 0, 1.0)], TimingMap::constant(60.0, 0.0));
+        let mut ev = j.press(0, 0.0);
+        ev.extend(j.release(0, 0.3));
+        // 0.2 s released at 0.5: over the 0.1664 s window.
+        ev.extend(j.update(0.55, &[false]));
+        // Never dropped on the way: pressed again, it goes on.
+        assert!(matches!(j.notes()[0].state, NoteState::HoldActive { .. }));
+        ev.extend(j.press(0, 0.6));
+        ev.extend(j.update(1.2, &[true]));
+        assert_eq!(
+            ticks(&ev),
+            [(0.25, 1, 0), (0.5, 0, 1), (0.75, 1, 0), (1.0, 1, 0)]
+        );
+        assert_eq!(outcomes(&ev), [JudgeEventKind::LetGo]);
+        // A short release (0.1 s) is forgiven.
+        let mut j = ticked(&[hold(0.0, 0, 1.0)], TimingMap::constant(60.0, 0.0));
+        let mut ev = j.press(0, 0.0);
+        ev.extend(j.release(0, 0.4));
+        ev.extend(j.update(0.5, &[false]));
+        ev.extend(j.press(0, 0.52));
+        ev.extend(j.update(1.2, &[true]));
+        assert!(ticks(&ev).iter().all(|t| t.2 == 0));
+        assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
+    }
+
+    #[test]
+    fn a_ticked_hold_starts_without_its_head() {
+        // Pressed half a second early (no window) and held through: the
+        // head is stepped on as it passes, a W1 (StepMania's
+        // `CrossedRows`).
+        let mut j = ticked(&[hold(1.0, 0, 2.0)], TimingMap::constant(60.0, 0.0));
+        let mut ev = j.press(0, 0.5);
+        assert!(ev.is_empty());
+        for t in [1.0, 1.1, 1.2, 1.3, 1.6, 2.1] {
+            ev.extend(j.update(t, &[true]));
+        }
+        let heads: Vec<_> = ev
+            .iter()
+            .filter_map(|e| match e.kind {
+                JudgeEventKind::Tap(j, _) => Some((j, e.song_time)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(heads, [(Judgement::W1, 1.0)]);
+        assert_eq!(ticks(&ev).len(), 4);
+        assert!(ticks(&ev).iter().all(|t| t.2 == 0));
+        assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
+        // Never pressed at all: a miss, its checkpoints missed.
+        let mut j = ticked(&[hold(1.0, 0, 2.0)], TimingMap::constant(60.0, 0.0));
+        let ev = j.update(2.5, &[false]);
+        assert!(
+            ev.iter()
+                .any(|e| matches!(e.kind, JudgeEventKind::Tap(Judgement::Miss, _)))
+        );
+        assert_eq!(
+            ticks(&ev),
+            [(1.25, 0, 1), (1.5, 0, 1), (1.75, 0, 1), (2.0, 0, 1)]
+        );
+        assert_eq!(outcomes(&ev), [JudgeEventKind::LetGo]);
+    }
+
+    #[test]
+    fn a_ticked_head_stepped_on_late_is_a_w1_with_little_life_before() {
+        // 180 BPM: a beat is 1/3 s, a checkpoint every 1/12 s after the
+        // head at 1/3 s.
+        let mut j = ticked(&[hold(1.0, 0, 2.0)], TimingMap::constant(180.0, 0.0));
+        let head = 1.0 / 3.0;
+        let mut ev = j.update(head + 0.1, &[false]);
+        // Stepped on 120 ms late: still a W1, with its real offset.
+        ev.extend(j.press(0, head + 0.12));
+        let tap = ev
+            .iter()
+            .find_map(|e| match e.kind {
+                JudgeEventKind::Tap(j, d) => Some((j, d)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(tap.0, Judgement::W1);
+        assert!((tap.1 - 0.12).abs() < 1e-9);
+        // Up as the head passed, the hold had `InitialHoldLife` (0.05 of
+        // the window, 8 ms): the checkpoint 83 ms in was missed.
+        ev.extend(j.update(1.0, &[true]));
+        let t = ticks(&ev);
+        assert_eq!((t[0].1, t[0].2), (0, 1));
+        assert!(t[1..].iter().all(|t| t.2 == 0));
+        // Early within the windows: a W1 as well.
+        let mut j = ticked(&[hold(1.0, 0, 2.0)], TimingMap::constant(60.0, 0.0));
+        let ev = j.press(0, 0.9);
+        assert!(matches!(ev[0].kind, JudgeEventKind::Tap(Judgement::W1, _)));
+    }
+
+    #[test]
+    fn a_ticked_holds_tail_row_does_not_count_for_its_outcome() {
+        // Let go 0.2 s before its tail: the tail's checkpoint is missed
+        // (and scored), the hold is still kept (StepMania settles it before
+        // crossing that row).
+        let mut j = ticked(&[hold(0.0, 0, 1.0)], TimingMap::constant(60.0, 0.0));
+        let mut ev = j.press(0, 0.0);
+        ev.extend(j.update(0.79, &[true]));
+        ev.extend(j.release(0, 0.8));
+        ev.extend(j.update(1.5, &[false]));
+        assert_eq!(ticks(&ev).last(), Some(&(1.0, 0, 1)));
+        assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
+    }
+
+    #[test]
+    fn events_a_press_finds_on_the_way_come_in_time_order() {
+        // A hold kept in lane 0; a tap in lane 2 left unjudged. A late press
+        // in lane 2 finds the hold's checkpoints and the tap's miss (at
+        // 0.48), which falls between them.
+        let notes = [
+            hold(0.0, 0, 1.0),
+            Note::new(Tick::from_beat_f64(0.3), 2, NoteKind::Tap),
+        ];
+        let mut j = ticked(&notes, TimingMap::constant(60.0, 0.0));
+        j.press(0, 0.0);
+        let ev = j.press(2, 1.0);
+        assert_eq!(ev.len(), 5);
+        assert!(ev.is_sorted_by(|a, b| a.song_time <= b.song_time));
+        assert!(matches!(
+            ev[1].kind,
+            JudgeEventKind::Tap(Judgement::Miss, _)
+        ));
+    }
+
+    #[test]
+    fn starting_part_way_keeps_the_rows_still_to_come() {
+        let notes = [hold(0.0, 0, 1.0), hold(2.0, 1, 3.0)];
+        let mut j = ticked(&notes, TimingMap::constant(60.0, 0.0));
+        assert_eq!(j.checkpoint_count(), 8);
+        j.skip_before(1.5);
+        assert_eq!(j.checkpoint_count(), 4);
+        let mut ev = j.press(1, 2.0);
+        ev.extend(j.update(3.5, &[false, true]));
+        assert_eq!(ticks(&ev).len(), 4);
+        assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
+    }
+
+    #[test]
+    fn checkpoint_rows_are_judged_once_and_not_where_a_step_is() {
+        let notes = [
+            hold(0.0, 0, 1.0),
+            hold(0.0, 1, 1.0),
+            Note::new(Tick::from_beat_f64(0.5), 2, NoteKind::Tap),
+        ];
+        let mut j = ticked(&notes, TimingMap::constant(60.0, 0.0));
+        // The row at 0.5 has a tap: three rows judged.
+        assert_eq!(j.checkpoint_count(), 3);
+        let mut ev = j.press(0, 0.0);
+        ev.extend(j.press(1, 0.0));
+        ev.extend(j.press(2, 0.5));
+        ev.extend(j.release(1, 0.55));
+        ev.extend(j.update(1.5, &[true, false, false]));
+        // Two holds a row; lane 1 let go at 0.55 misses 0.75 and 1.0.
+        assert_eq!(ticks(&ev), [(0.25, 2, 0), (0.75, 1, 1), (1.0, 1, 1)]);
+        let lanes: Vec<u64> = ev
+            .iter()
+            .filter_map(|e| match e.kind {
+                JudgeEventKind::Checkpoint { lanes, .. } => Some(lanes),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lanes, [0b11, 0b11, 0b11]);
+        // Lane 0 kept the unjudged row at 0.5 too.
+        assert_eq!(outcomes(&ev), [JudgeEventKind::Held, JudgeEventKind::LetGo]);
+    }
+
+    #[test]
+    fn tick_counts_set_the_grid_and_zero_has_none() {
+        let mut timing = TimingMap::constant(60.0, 0.0);
+        timing.tick_counts = vec![
+            ddi_chart::TickCount {
+                tick: Tick::ZERO,
+                ticks_per_beat: 2,
+            },
+            ddi_chart::TickCount {
+                tick: Tick::from_beats(2),
+                ticks_per_beat: 0,
+            },
+        ];
+        let notes = [hold(0.0, 0, 1.0), hold(2.0, 1, 3.0), hold(4.5, 0, 4.6)];
+        let mut j = ticked(&notes, timing);
+        assert_eq!(j.checkpoint_count(), 2);
+        let mut ev = j.press(0, 0.0);
+        ev.extend(j.update(1.5, &[true, false]));
+        assert_eq!(ticks(&ev), [(0.5, 1, 0), (1.0, 1, 0)]);
+        // Without checkpoints: kept when its head was stepped on.
+        ev.extend(j.press(1, 2.0));
+        ev.extend(j.release(1, 2.1));
+        ev.extend(j.update(4.0, &[false, false]));
+        assert_eq!(outcomes(&ev), [JudgeEventKind::Held, JudgeEventKind::Held]);
+        let ev = j.update(5.0, &[false, false]);
+        assert_eq!(outcomes(&ev), [JudgeEventKind::LetGo]);
+    }
+
+    #[test]
+    fn a_ticked_roll_lasts_while_tapped() {
+        let roll = Note::new(
+            Tick::ZERO,
+            0,
+            NoteKind::RollHead {
+                end: Tick::from_beats(2),
+            },
+        );
+        let mut j = ticked(std::slice::from_ref(&roll), TimingMap::constant(60.0, 0.0));
+        let mut ev = j.press(0, 0.0);
+        for t in [0.4, 0.8, 1.2, 1.6] {
+            ev.extend(j.update(t, &[false]));
+            ev.extend(j.press(0, t));
+        }
+        ev.extend(j.update(2.5, &[false]));
+        assert_eq!(ticks(&ev).len(), 8);
+        assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
+        // Not tapped past the roll window (0.5 s): its life ran out, but
+        // it is only judged at its tail.
+        let mut j = ticked(&[roll], TimingMap::constant(60.0, 0.0));
+        let mut ev = j.press(0, 0.0);
+        ev.extend(j.update(1.0, &[false]));
+        assert!(outcomes(&ev).is_empty());
+        ev.extend(j.press(0, 1.0));
+        ev.extend(j.update(2.5, &[false]));
+        assert_eq!(outcomes(&ev), [JudgeEventKind::LetGo]);
     }
 
     #[test]

@@ -347,12 +347,40 @@ impl RulesetMode {
     ];
 }
 
+/// How the StepMania presets keep holds (`docs/plans/pump.md`).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HoldStyle {
+    /// Ticked on pump charts (StepMania's pump game), dance-style on the
+    /// rest.
+    #[default]
+    ByGame,
+    /// Held to the end, one O.K. or N.G. (StepMania's dance game).
+    Dance,
+    /// Judged at checkpoints ([`HoldRules::Ticked`]).
+    Ticked,
+}
+
+impl HoldStyle {
+    pub const ALL: [HoldStyle; 3] = [HoldStyle::ByGame, HoldStyle::Dance, HoldStyle::Ticked];
+
+    /// Whether `chart`'s holds are ticked.
+    pub fn ticks(self, chart: &Chart) -> bool {
+        match self {
+            HoldStyle::ByGame => chart.layout.starts_with("pump-"),
+            HoldStyle::Dance => false,
+            HoldStyle::Ticked => true,
+        }
+    }
+}
+
 /// The ruleset to play `chart` with: the StepMania preset `preset` (ITG
-/// when unknown) or the Dancing☆Onigiri rules, as `mode` says.
+/// when unknown), its holds as `holds` says, or the Dancing☆Onigiri rules
+/// (which keep their own holds), as `mode` says.
 pub fn for_chart(
     mode: RulesetMode,
     preset: &str,
     danoni: &DanoniOptions,
+    holds: HoldStyle,
     chart: &Chart,
 ) -> Ruleset {
     let use_danoni = match mode {
@@ -363,7 +391,13 @@ pub fn for_chart(
     if use_danoni {
         super::danoni::ruleset(Some(chart), danoni)
     } else {
-        by_id(preset).unwrap_or_else(itg)
+        let mut ruleset = by_id(preset).unwrap_or_else(itg);
+        if holds.ticks(chart) {
+            ruleset.judge.hold = HoldRules::Ticked {
+                checkpoint_window: HoldRules::CHECKPOINT_WINDOW,
+            };
+        }
+        ruleset
     }
 }
 

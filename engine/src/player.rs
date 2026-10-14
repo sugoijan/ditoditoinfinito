@@ -246,6 +246,8 @@ impl Player {
             holds: self.judge.hold_count(),
             mines: self.judge.mine_count(),
             combo: 0,
+            ticked: self.ruleset.judge.hold.is_ticked(),
+            checkpoints: self.judge.checkpoint_count(),
         };
         self.ruleset.score.begin(&self.ctx);
         self.ruleset.gauge.begin(&self.ctx);
@@ -523,7 +525,17 @@ impl Player {
             JudgeEventKind::HitMine => {
                 self.skin_event(ev.lane, SkinEventKind::HitMine, ev.song_time)
             }
-            JudgeEventKind::LetGo | JudgeEventKind::Boo => {}
+            // `CheckpointsFlashOnHold` (pump): every hold of a row kept
+            // flashes as a completed hold, by the combo after the row.
+            JudgeEventKind::Checkpoint {
+                missed: 0, lanes, ..
+            } => {
+                let bright = self.bright();
+                for lane in (0..64u8).filter(|l| lanes & (1 << l) != 0) {
+                    self.skin_event(lane, SkinEventKind::Held { bright }, ev.song_time);
+                }
+            }
+            JudgeEventKind::LetGo | JudgeEventKind::Boo | JudgeEventKind::Checkpoint { .. } => {}
         }
     }
 
@@ -556,6 +568,17 @@ impl Player {
                 }
             }
             JudgeEventKind::Boo => {}
+            // `HandleComboInternal`: the holds kept add to the combo (one
+            // under per-row combo), a missed one breaks it.
+            JudgeEventKind::Checkpoint { held, missed, .. } => {
+                if missed > 0 {
+                    self.combo = 0;
+                } else if combo.per_row {
+                    self.combo += 1;
+                } else {
+                    self.combo += u32::from(held);
+                }
+            }
         }
         self.max_combo = self.max_combo.max(self.combo);
         self.tally.record(&ev.kind);
