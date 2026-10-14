@@ -1,4 +1,4 @@
-//! Offline DanOni chart/song preparation with an optional filesystem adapter.
+//! DanOni song preparation with optional native acquisition and filesystem adapters.
 //!
 //! Exact source data is borrowed, never rewritten. Musical fitting and source
 //! extraction remain separate producers of the inputs accepted here.

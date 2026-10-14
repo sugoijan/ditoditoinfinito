@@ -69,6 +69,15 @@ pub(crate) fn valid_hash(hash: &str) -> bool {
 /// Implementations must bound reads and confine each namespace to its own root.
 pub trait AssetSource {
     fn read(&self, namespace: &str, path: &str, maximum_bytes: usize) -> Result<Vec<u8>>;
+    /// Hosts with an immutable content-addressed cache can share verified bytes.
+    fn read_shared(
+        &self,
+        namespace: &str,
+        path: &str,
+        maximum_bytes: usize,
+    ) -> Result<Arc<Vec<u8>>> {
+        self.read(namespace, path, maximum_bytes).map(Arc::new)
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Artifact {
@@ -105,7 +114,7 @@ impl<'a, S: AssetSource> Inputs<'a, S> {
         } else {
             let bytes = self
                 .source
-                .read(&binding.namespace, &binding.path, maximum)?;
+                .read_shared(&binding.namespace, &binding.path, maximum)?;
             if bytes.len() > maximum
                 || self
                     .total
@@ -118,7 +127,6 @@ impl<'a, S: AssetSource> Inputs<'a, S> {
                 ));
             }
             self.total += bytes.len();
-            let bytes = Arc::new(bytes);
             self.cache.insert(key, bytes.clone());
             bytes
         };

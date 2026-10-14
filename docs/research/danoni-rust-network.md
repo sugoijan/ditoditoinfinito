@@ -2,7 +2,8 @@
 
 This milestone 5 slice ports historical cache replay, request-context/Vary
 checks, robots decisions, DNS answer validation and pacing into the embeddable
-Rust SDK. It has no live HTTP client, cache writer or index crawler yet. It builds
+Rust SDK. This first slice had no live HTTP client, cache writer or index crawler;
+[the subsequent HTTP coordinator](danoni-rust-http.md) now supplies transport and persistence. It builds
 on [passive page discovery](danoni-rust-acquisition.md); the source-only native
 profiles and exact-GET dependency callback remain the extraction boundary.
 
@@ -196,11 +197,12 @@ DDI_DANONI_CACHE_CASES="$HOME/Music/DanOni/reviews/rust-network-20261014/cases.j
   --target-dir target/danoni-rust --test network_corpus -- --nocapture
 ```
 
-No accepted export is regenerated or promoted. Next implement the actual
-anonymous HTTP transport and bounded persistent cache coordinator, using this
-policy core and the existing exact-GET dependency callback, then reviewed index
-routes. The shell's crates.io lookup currently fails at DNS, so the latest HTTP
-client dependency could not be fetched; an older cached client was not substituted.
+No accepted export is regenerated or promoted. The subsequent
+[HTTP coordinator](danoni-rust-http.md) implements anonymous transport and bounded
+persistent cache publication using this policy core. Joining the exact-GET
+dependency callback and adding reviewed index routes remain next work. The initial
+shell DNS failure was subsequently resolved with operation-scoped
+`100.100.100.100`; the HTTP slice uses the latest released client.
 The robots dependency was resolved offline and `cargo update --offline` changed
 only its addition. Browser/HTML5 control, desktop installation and other-platform
 worker confinement remain separate milestones.

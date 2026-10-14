@@ -290,8 +290,7 @@ now expose `acquisition::{inspect_page, inspect_cached_page}` and
 prints static SWF/FlashVars/navigation evidence while preserving logical URLs,
 archive snapshots and original response records. It performs no fetch or script
 execution. The local replay covers 86 pages with 81 default matches and five
-explicitly recorded encoding overrides. Live HTTP policy/cache services and
-bounded index traversal remain the next migration work.
+explicitly recorded encoding overrides. Live HTTP/cache support is described below; bounded index traversal remains future work.
 
 
 The [historical cache and request-policy core](../../../docs/research/danoni-rust-network.md)
@@ -299,4 +298,9 @@ adds `network::CacheReplay`, bound robots-chain evaluation, DNS answer validatio
 and per-origin pacing. `replay-cache JOB.json` inspects one response/refusal/miss
 without a request or output-body copy. The existing Node oracle agrees on 1,629
 cache requests and 1,629 robots outcomes; all 941 bound files are read once.
-Live transport and persistent cache coordination remain separate next work.
+The [native HTTP coordinator](../../../docs/research/danoni-rust-http.md) now adds
+`network::Fetcher`, cancellation, bounded async transport and durable single-writer
+cache publication. `fetch-url JOB.json` acquires one reviewed anonymous URL and
+its explicit redirects, or replays it offline. DNS can be scoped to
+`100.100.100.100` without system changes. Connecting those responses to automatic
+work preparation and the native dependency loop remains the next step.

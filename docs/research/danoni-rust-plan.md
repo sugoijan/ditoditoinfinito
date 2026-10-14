@@ -696,5 +696,31 @@ failures; no third-party data is committed and accepted exports remain unchanged
 This is a reusable offline cache/policy component, not a live URL importer.
 Next implement the actual anonymous transport, terms/freshness/deadlines,
 bounded decoding and single-writer cache persistence, join observed native
-requests, and add reviewed index routes. Shell crates.io DNS is currently
-unavailable, so no older HTTP client dependency was added in place of the latest.
+requests, and add reviewed index routes. Shell crates.io DNS was unavailable in this slice; the subsequent transport
+slice resolved dependencies through operation-scoped `100.100.100.100`.
+
+
+### Live HTTP and durable cache coordination, 2026-10-14
+
+The [HTTP slice](danoni-rust-http.md) adds an embeddable async `network::Fetcher`
+and `fetch-url` CLI, explicit resolver selection, pinned public DNS answers,
+verified TLS, bounded decoding, cancellation, deadlines and per-origin pacing.
+New requests need host-reviewed site access and fresh bound robots evidence.
+A durable attempt record prevents duplicate GETs after cancellation/crash; immutable
+response capsules keep provenance stable as the mutable cache index advances.
+Historical variants, refusals and corrupt records never trigger automatic refetch.
+Persistent writing is Unix-only pending equivalent platform durability tests.
+
+Next join acquired responses to static work discovery and the native dependency
+loop, then prove single-work URL preparation against frozen corpus references.
+Index traversal, browser control and desktop installation remain later. This
+change does not regenerate or promote accepted exports or close native musical
+quality review.
+
+Validation: 202 native and 85 pure SDK tests, both strict Clippy configurations,
+format checks and `UV_OFFLINE=1 just check` pass (828/828 REUSE). The existing
+1,629 cache/robots and 91 discovery-case gates pass. Four CLI success trials prove
+real HTTPS acquisition, identical zero-request offline replay, and historical
+anonymous/browser-context replay. The host-selected explicit CA bundle keeps
+TLS verification enabled where this agent's platform-verifier IPC fails. Original
+cache indexes, registry and accepted exports retain their previous hashes.

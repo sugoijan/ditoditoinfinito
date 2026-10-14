@@ -12,6 +12,10 @@ fn main() {
             })
         }),
         #[cfg(feature = "native")]
+        [command, job] if command == "fetch-url" => {
+            ddi_danoni_export::network::fetch_job(std::path::Path::new(job))
+        }
+        #[cfg(feature = "native")]
         [command, job] if command == "replay-cache" => {
             ddi_danoni_export::network::replay_job(std::path::Path::new(job))
         }
@@ -224,7 +228,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export inspect-cached-page JOB.json\n       ddi-danoni-export replay-cache JOB.json\n       ddi-danoni-export profile-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export profile-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json\n       ddi-danoni-export prepare-audio JOB.json NEW_OUTPUT\n       ddi-danoni-export estimate-tempo JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-worker UPSTREAM_GIT NEW_SOURCES\n       ddi-danoni-export package-worker JOB.json NEW_BUNDLE\n       ddi-danoni-export verify-worker BUNDLE\n       ddi-danoni-export capture-native JOB.json NEW_OUTPUT\n       ddi-danoni-export project-native JOB.json NEW_OUTPUT\n       ddi-danoni-export demux-native JOB.json NEW_OUTPUT\n       ddi-danoni-export normalize-native JOB.json NEW_OUTPUT"
+                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export inspect-cached-page JOB.json\n       ddi-danoni-export replay-cache JOB.json\n       ddi-danoni-export fetch-url JOB.json\n       ddi-danoni-export profile-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export profile-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json\n       ddi-danoni-export prepare-audio JOB.json NEW_OUTPUT\n       ddi-danoni-export estimate-tempo JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-worker UPSTREAM_GIT NEW_SOURCES\n       ddi-danoni-export package-worker JOB.json NEW_BUNDLE\n       ddi-danoni-export verify-worker BUNDLE\n       ddi-danoni-export capture-native JOB.json NEW_OUTPUT\n       ddi-danoni-export project-native JOB.json NEW_OUTPUT\n       ddi-danoni-export demux-native JOB.json NEW_OUTPUT\n       ddi-danoni-export normalize-native JOB.json NEW_OUTPUT"
             );
             std::process::exit(2);
         }

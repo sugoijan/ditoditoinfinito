@@ -38,6 +38,7 @@ pub struct CacheReplay<'a, S: AssetSource> {
     failures: BTreeMap<String, Value>,
     inputs: Inputs<'a, S>,
 }
+#[derive(Clone)]
 pub struct ReplayResponse {
     pub request: ReplayRequest,
     pub canonical_url: String,
@@ -215,6 +216,12 @@ impl<'a, S: AssetSource> CacheReplay<'a, S> {
     /// Replay one actual response hop. A collapsed redirect record never hides
     /// the original redirect or permits skipping the target's Vary/policy checks.
     pub fn lookup(&mut self, request: &ReplayRequest) -> Result<ReplayLookup> {
+        self.lookup_inner(request, false)
+    }
+    pub(crate) fn lookup_fresh(&mut self, request: &ReplayRequest) -> Result<ReplayLookup> {
+        self.lookup_inner(request, true)
+    }
+    fn lookup_inner(&mut self, request: &ReplayRequest, fresh: bool) -> Result<ReplayLookup> {
         request.context.validate()?;
         if request.maximum_bytes == 0 || request.maximum_bytes > MEDIA_LIMIT {
             return Err(Error::new("cache-limit", "Invalid replay body limit"));
@@ -310,7 +317,13 @@ impl<'a, S: AssetSource> CacheReplay<'a, S> {
         {
             return Err(rejected("Invalid cached headers"));
         }
-        variant(selected, &request.context, &address(&canonical)?)?;
+        if fresh {
+            if context(selected)? != request.context {
+                return Err(rejected("Fresh response context differs"));
+            }
+        } else {
+            variant(selected, &request.context, &address(&canonical)?)?;
+        }
         let redirect_to = if redirect(status) {
             let target = headers
                 .get("location")

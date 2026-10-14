@@ -1,5 +1,12 @@
-//! Sans-I/O request policy and historical cache replay. No live transport yet.
+//! Public HTTP acquisition, durable cache coordination and historical replay.
 mod cache;
+mod control;
+mod fetch;
+mod store;
+mod transport;
+pub use control::NetworkCancel;
+pub use fetch::{AcquiredResource, FetchOptions, Fetcher, fetch_job};
+pub use transport::{RootBundle, TransferCounts, TransportOptions};
 mod robots;
 mod scheduling;
 use crate::{Error, Result, assets::sha256};
@@ -11,7 +18,7 @@ use std::collections::BTreeMap;
 use url::Url;
 
 pub const USER_AGENT: &str = "DdiDanoniDump";
-/// A future transport must send these exact negotiation headers before reusing
+/// Live transport sends these exact negotiation headers before reusing
 /// old cache variants that declare Vary: Accept-Encoding or User-Agent.
 pub const ACCEPT_ENCODING: &str = "gzip, deflate, br";
 pub(crate) fn address(raw: &str) -> Result<Url> {
