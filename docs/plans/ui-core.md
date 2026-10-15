@@ -443,6 +443,53 @@ sound) from a click, a key and a touch release under
 `--autoplay-policy=document-user-activation-required`; Safari by the
 maintainer after the push.
 
+Done, the core (2026-10-15; the shells, shared state and the desktop
+window follow):
+
+- **`ui/` (`ddi-ui`)**, platform-free, on `ddi-actor`. `Ui::handle(event)`
+  returns `Outcome { consumed, requests }` synchronously (`consumed` tells
+  the web shell when to `preventDefault`); `update(dt)`, `draw(measure)`
+  into `Drawn`, `needs_redraw()` for rendering on demand.
+- **Gestures (P2).** Activation as the HTML standard has it: a key press
+  but Escape, a mouse press, a touch or pen release (a mouse release
+  within 1 s of its press). `Ui::new` says whether gestures are required
+  (web) or not (desktop). A gesture-bound request made outside one is
+  refused, never queued, and the screen hears `Input::NeedsGesture` so it
+  can prompt; queuing let a stale preview or link fire on a later,
+  unrelated tap. A long press never yields one, lift included.
+- **Pointers.** Hit-testing through actors' transforms (clips, draw
+  order, hidden and fully transparent subtrees skipped), capture, and a
+  tracker: tap, long press (touch and pen, 0.5 s), drag (slop 10 px touch,
+  4 px mouse), flick (300 px/s over 100 ms); at most 0.1 s counted a
+  frame, so an idle shell's first frame fires nothing. Wheel lines are 40
+  px, three a notch on desktop.
+- **Navigation (P3).** Physical codes for navigation (arrows, Enter or
+  Space for Start, Escape for Back, Tab for Select); repeats by us,
+  StepMania's 0.375 s then 8 a second (`InputFilter.cpp`), per key and per
+  pad button, only the last-pressed direction; explicit neighbours, then
+  the nearest by edge distance plus twice the cross-axis gap; a plain focus
+  ring after key or pad input, hidden on pointer use.
+- **Layers.** Screens with StepMania's `On`/`Off`/`Cancel` and `In`/`Out`
+  children (a transition lasts the tweens queued at its start), and
+  overlays owned by a screen or dialog, drawn right above it and closed
+  with it; dialogs trap focus, take Back and report presses outside; a
+  layer leaving the input chain has its pointers cancelled.
+- **Messages (P7)** play `<Name>MessageCommand` through the actors'
+  commands, as noteskins' Lua does, and reach screens with parameters.
+- **Text field (P5).** Mirror mode re-reads the textarea (UTF-16 offsets,
+  the composition range diffed against the value at `compositionstart`)
+  and enforces its character limit by `SetText`; own mode edits by
+  grapheme with winit's preedit and commit (control characters dropped).
+  The web shell sets `composing` from `isComposing` or key code 229
+  (Safari's committing Enter); a blurred textarea or a press outside ends
+  typing, keeping the text.
+- **Checked:** 25 unit and 23 harness tests (scripted keys, pads, mouse,
+  touch, wheel and typing against a menu, a transitioning screen and a
+  dialog). An independent review found eleven defects, four reproduced
+  (among them the queued requests above, popups outliving their screen, a
+  held press reaching a layer under a new dialog); all fixed, with its
+  cases kept as tests.
+
 ### Step 4. Widgets
 
 - **Lists:** rows built only for what is visible plus a margin and reused

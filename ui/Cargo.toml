@@ -1,0 +1,14 @@
+[package]
+name = "ddi-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: screens, input routing, focus, text fields over ddi-actor (UiEvent in, UiRequest out)"
+
+[dependencies]
+ddi-actor.workspace = true
+ddi-engine.workspace = true
+unicode-segmentation.workspace = true
