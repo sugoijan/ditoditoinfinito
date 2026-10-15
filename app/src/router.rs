@@ -1,6 +1,7 @@
 //! Hash routes. The site lives under a sub-path on GitHub Pages, so routing
 //! uses the fragment: `#/`, `#/play?song=<id>&chart=<n>`, `#/options`,
-//! `#/calibrate`, `#/credits`, `#/results`, `#/video-check`.
+//! `#/calibrate`, `#/credits`, `#/results`, `#/video-check`,
+//! `#/skin-preview`, `#/ui-test`.
 
 use std::collections::BTreeMap;
 
@@ -44,6 +45,13 @@ pub(crate) enum Route {
     /// `skin=<key>`, `size`, `bg`, `beat`, `bpm`, `notes`, `receptors`,
     /// `gfx=gl`.
     SkinPreview {
+        params: Vec<(String, String)>,
+    },
+    /// The 2D pass's test scene (`components::ui_test`): `t` (seconds,
+    /// held still), `scroll` (the list's rows, held still), `speed`,
+    /// `delay` (ms before the late texture shows), `budget` (text pages
+    /// kept), `all`.
+    UiTest {
         params: Vec<(String, String)>,
     },
     NotFound(String),
@@ -91,6 +99,12 @@ impl Route {
             },
             "credits" => Route::Credits,
             "skin-preview" => Route::SkinPreview {
+                params: params
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+            },
+            "ui-test" => Route::UiTest {
                 params: params
                     .iter()
                     .map(|(k, v)| (k.to_string(), v.clone()))
@@ -169,6 +183,17 @@ impl Route {
                     .map(|(k, v)| format!("{k}={}", percent_encode(v)))
                     .collect();
                 format!("#/skin-preview?{}", query.join("&"))
+            }
+            Route::UiTest { params } => {
+                let query: Vec<String> = params
+                    .iter()
+                    .map(|(k, v)| format!("{k}={}", percent_encode(v)))
+                    .collect();
+                if query.is_empty() {
+                    "#/ui-test".into()
+                } else {
+                    format!("#/ui-test?{}", query.join("&"))
+                }
             }
             Route::NotFound(p) => format!("#/{p}"),
         }

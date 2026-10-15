@@ -102,6 +102,51 @@ struct Batch {
     end: u32,
 }
 
+/// `BLEND_NORMAL`, `BLEND_ADD` (source times its alpha, added),
+/// `BLEND_SUBTRACT`, `BLEND_MODULATE`, for straight alpha: indexed as
+/// [`QuadBlend`].
+pub(crate) fn blend_states() -> [wgpu::BlendState; 4] {
+    [
+        wgpu::BlendState::ALPHA_BLENDING,
+        wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        },
+        wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::ReverseSubtract,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        },
+        wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::Src,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        },
+    ]
+}
+
 pub struct TexturedPipeline {
     /// Normal, add, subtract, modulate blending.
     pipelines: [wgpu::RenderPipeline; 4],
@@ -120,8 +165,7 @@ pub struct TexturedPipeline {
     mipmaps: crate::mipmaps::Mipmaps,
     /// Bound for [`UNTEXTURED`] shapes (its texels unread).
     blank: Option<Texture>,
-    instances: wgpu::Buffer,
-    capacity: usize,
+    instances: crate::instances::InstanceBuffers,
     batches: Vec<Batch>,
 }
 
@@ -228,47 +272,7 @@ impl TexturedPipeline {
                 cache: None,
             })
         };
-        // `BLEND_NORMAL`, `BLEND_ADD` (source times its alpha, added),
-        // `BLEND_SUBTRACT`, `BLEND_MODULATE`.
-        let blends = [
-            wgpu::BlendState::ALPHA_BLENDING,
-            wgpu::BlendState {
-                color: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::SrcAlpha,
-                    dst_factor: wgpu::BlendFactor::One,
-                    operation: wgpu::BlendOperation::Add,
-                },
-                alpha: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::Zero,
-                    dst_factor: wgpu::BlendFactor::One,
-                    operation: wgpu::BlendOperation::Add,
-                },
-            },
-            wgpu::BlendState {
-                color: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::SrcAlpha,
-                    dst_factor: wgpu::BlendFactor::One,
-                    operation: wgpu::BlendOperation::ReverseSubtract,
-                },
-                alpha: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::Zero,
-                    dst_factor: wgpu::BlendFactor::One,
-                    operation: wgpu::BlendOperation::Add,
-                },
-            },
-            wgpu::BlendState {
-                color: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::Zero,
-                    dst_factor: wgpu::BlendFactor::Src,
-                    operation: wgpu::BlendOperation::Add,
-                },
-                alpha: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::Zero,
-                    dst_factor: wgpu::BlendFactor::One,
-                    operation: wgpu::BlendOperation::Add,
-                },
-            },
-        ];
+        let blends = blend_states();
         // With `plain_textures` every quad goes to the plain target: these
         // are built but not drawn with.
         let pipelines = blends.map(|b| pipeline(b, format, "fs_main"));
@@ -288,7 +292,6 @@ impl TexturedPipeline {
                 ..Default::default()
             })
         };
-        let capacity = 256;
         let mut p = TexturedPipeline {
             pipelines,
             gamma,
@@ -301,22 +304,16 @@ impl TexturedPipeline {
             textures: Vec::new(),
             mipmaps: crate::mipmaps::Mipmaps::new(device),
             blank: None,
-            instances: Self::make_buffer(device, capacity),
-            capacity,
+            instances: crate::instances::InstanceBuffers::new(
+                device,
+                "ddi-textured-instances",
+                std::mem::size_of::<Instance>(),
+            ),
             batches: Vec::new(),
         };
         let blank = p.create_texture(device, 1, 1, false, false);
         p.blank = Some(p.bind(device, &blank));
         p
-    }
-
-    fn make_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ddi-textured-instances"),
-            size: (capacity * std::mem::size_of::<Instance>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
     }
 
     /// A texture for [`TexturedPipeline::add_texture`], `width × height`,
@@ -430,8 +427,7 @@ impl TexturedPipeline {
         self.textures.len()
     }
 
-    /// Uploads this frame's quads, in drawing order (as many as one buffer
-    /// of the device holds; the rest are not drawn).
+    /// Uploads this frame's quads, in drawing order.
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -445,9 +441,6 @@ impl TexturedPipeline {
             translate: [-1.0, 1.0],
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
-        let most = (device.limits().max_buffer_size / std::mem::size_of::<Instance>() as u64)
-            .min(usize::MAX as u64) as usize;
-        let quads = &quads[..quads.len().min(most)];
         self.batches.clear();
         let mut instances = Vec::with_capacity(quads.len());
         for q in quads {
@@ -490,13 +483,8 @@ impl TexturedPipeline {
                 },
             });
         }
-        if instances.len() > self.capacity {
-            self.capacity = instances.len().next_power_of_two().min(most);
-            self.instances = Self::make_buffer(device, self.capacity);
-        }
-        if !instances.is_empty() {
-            queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&instances));
-        }
+        self.instances
+            .upload(device, queue, bytemuck::cast_slice(&instances));
     }
 
     /// Whether it can draw to a plain view of the target ([`TexturedPipeline::new`]).
@@ -521,7 +509,6 @@ impl TexturedPipeline {
             return;
         }
         pass.set_bind_group(0, &self.globals_group, &[]);
-        pass.set_vertex_buffer(0, self.instances.slice(..));
         let mut current: Option<QuadBlend> = None;
         for b in &self.batches {
             let (start, end) = (b.start.max(range.start), b.end.min(range.end));
@@ -550,7 +537,11 @@ impl TexturedPipeline {
                 _ => [&t.clamp, &t.repeat],
             };
             pass.set_bind_group(1, groups[usize::from(b.wrap)], &[]);
-            pass.draw(0..6, start..end);
+            // Past one buffer's worth, a run is drawn from each buffer.
+            for (buffer, range) in self.instances.pieces(start..end) {
+                pass.set_vertex_buffer(0, buffer.slice(..));
+                pass.draw(0..6, range);
+            }
         }
     }
 }

@@ -53,6 +53,8 @@ struct Shared {
     reverse: bool,
     /// Pointers currently down, by `pointerId`.
     pointers: Vec<(i32, Hold)>,
+    /// What the listeners and pointer captures are on.
+    host: Element,
     /// Pointers holding each lane, then the quit button.
     lane_count: Vec<u32>,
     cancel_count: u32,
@@ -64,8 +66,9 @@ pub(crate) struct TouchLanes {
 }
 
 impl TouchLanes {
-    /// Listens on the canvas' parent (the play screen host, which also holds
-    /// the quit button), falling back to the canvas itself. `lanes` are the
+    /// Listens on the play screen's host (`.game-canvas-host`, which also
+    /// holds the quit button; the app's canvas sits in a slot within it),
+    /// falling back to the canvas' parent, then the canvas itself. `lanes` are the
     /// layout lanes' `(column, scroll sign)`.
     pub(crate) fn new(
         canvas: HtmlCanvasElement,
@@ -75,7 +78,10 @@ impl TouchLanes {
         let window = web_sys::window()?;
         let document = window.document()?;
         let host: Element = canvas
-            .parent_element()
+            .closest(".game-canvas-host")
+            .ok()
+            .flatten()
+            .or_else(|| canvas.parent_element())
             .unwrap_or_else(|| canvas.clone().into());
         let count = lanes.len();
         let shared = Rc::new(RefCell::new(Shared {
@@ -84,6 +90,7 @@ impl TouchLanes {
             lanes,
             reverse,
             pointers: Vec::new(),
+            host: host.clone(),
             lane_count: vec![0; count],
             cancel_count: 0,
         }));
@@ -329,7 +336,7 @@ impl Drop for TouchLanes {
         let (host, ids): (_, Vec<i32>) = {
             let s = self.shared.borrow();
             (
-                s.canvas.parent_element(),
+                Some(s.host.clone()),
                 s.pointers.iter().map(|(id, _)| *id).collect(),
             )
         };

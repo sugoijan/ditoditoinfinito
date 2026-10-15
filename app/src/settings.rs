@@ -100,6 +100,9 @@ pub(crate) struct Settings {
     pub(crate) fast_pad_poll: bool,
     /// Debug overlay: backend, FPS, clock drift, timing error stats.
     pub(crate) debug: bool,
+    /// Which graphics backend the app starts on (read once, at boot).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub(crate) graphics: Graphics,
     /// Show the signed timing error of each hit under the judgement.
     pub(crate) show_deltas: bool,
     /// Draw a note exactly on the receptor in the closest frame.
@@ -126,6 +129,17 @@ pub(crate) fn volume_to_slider(gain: f32) -> f32 {
 /// Gain for a volume slider position; inverse of [`volume_to_slider`].
 pub(crate) fn slider_to_volume(position: f32) -> f32 {
     position.clamp(0.0, 1.0).powi(3)
+}
+
+/// Which graphics backend draws (`web::screen`).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Graphics {
+    /// WebGPU where the browser gives an adapter, else WebGL2.
+    #[default]
+    Auto,
+    /// WebGL2 always (a driver's trouble with WebGPU; testing the
+    /// fallback).
+    WebGl2,
 }
 
 /// Whether background-change movies play.
@@ -239,6 +253,7 @@ impl Default for Settings {
             visual_offset: 0.0,
             volume: 0.8,
             debug: false,
+            graphics: Graphics::Auto,
             show_deltas: false,
             receptor_snap: true,
             audio_profiles: Vec::new(),

@@ -61,6 +61,7 @@ pub(crate) enum Msg {
     BgBrightness(f32),
     FieldFilter(f32),
     Video(crate::settings::VideoMode),
+    Graphics(crate::settings::Graphics),
     BackgroundFrame(crate::settings::BackgroundFrame),
     NoteColors(NoteColors),
     /// The imported noteskins one can pick, `(key, name)`, or why they
@@ -334,6 +335,7 @@ impl Component for Options {
                 }
             }
             Msg::Debug(v) => self.settings.debug = v,
+            Msg::Graphics(v) => self.settings.graphics = v,
             Msg::ShowDeltas(v) => self.settings.show_deltas = v,
             Msg::ReceptorSnap(v) => self.settings.receptor_snap = v,
             Msg::BgBrightness(v) => self.settings.bg_brightness = v.clamp(0.0, 1.0),
@@ -611,6 +613,8 @@ impl Component for Options {
                         <input type="checkbox" checked={s.debug} onchange={link.callback(|e: Event| Msg::Debug(e.target_dyn_into::<HtmlInputElement>().is_some_and(|i| i.checked())))} />
                         { " Debug overlay (backend, FPS, clock drift, error stats)" }
                     </label>
+                    <label>{ "Graphics " }{ choice(s.graphics, &GRAPHICS_CHOICES, link.callback(Msg::Graphics)) }</label>
+                    <p class="muted">{ "Takes effect when the page is loaded again." }</p>
                     <label>{ "Note colours " }{ choice(s.note_colors, &NOTE_COLOR_CHOICES, link.callback(Msg::NoteColors)) }</label>
                     { self.noteskin_choice(link) }
                     <label>
@@ -1239,6 +1243,14 @@ const NOTE_COLOR_CHOICES: [(NoteColors, &str); 5] = [
     (NoteColors::Quantized, "by subdivision"),
     (NoteColors::Flat, "flat: cycling rainbow, all notes alike"),
     (NoteColors::Single, "single colour"),
+];
+
+const GRAPHICS_CHOICES: [(crate::settings::Graphics, &str); 2] = [
+    (
+        crate::settings::Graphics::Auto,
+        "automatic (WebGPU where it works, else WebGL2)",
+    ),
+    (crate::settings::Graphics::WebGl2, "WebGL2"),
 ];
 
 const VIDEO_CHOICES: [(crate::settings::VideoMode, &str); 3] = [

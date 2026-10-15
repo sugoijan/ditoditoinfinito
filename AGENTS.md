@@ -24,7 +24,11 @@ the browser are implementation details, not advertised features.
   StepMania timing semantics. Pure, natively tested.
 - `engine/` deterministic gameplay: clock, judge, rulesets, scoring, gauges,
   scroll, calibration maths. No I/O. Replay fixtures in `engine/tests/`.
-- `render/` wgpu scene (procedural SDF arrows, glyphon text). No platform code.
+- `render/` wgpu scene (procedural SDF arrows, glyphon text) and the 2D pass
+  the menus move onto (`docs/plans/ui-core.md`): a draw list, its painter,
+  the texture cache and the text atlas (runs measured and drawn by the
+  platform: the browser on the web, cosmic-text natively). No platform
+  code.
 - `platform/` traits and plain data the shells implement (audio clock, input,
   device fingerprints), plus the Ogg Vorbis fallback decoder behind the
   `decode` feature (Symphonia, MPL-2.0).
@@ -51,8 +55,10 @@ the browser are implementation details, not advertised features.
   and string limits, fuel and a deadline per call, StepMania's `cmd`
   keyword, Lua 5.1's globals and nothing that reaches outside.
   Platform-free, natively tested.
-- `app/` the web shell: Yew for menus, wgpu canvas for play, Web Audio clock,
-  settings in `localStorage`, imported songs in IndexedDB. Compiles for
+- `app/` the web shell: Yew for menus, one wgpu canvas and device for the
+  whole app (`app/src/web/screen.rs`: made at boot, moved into the page
+  that draws, made again after a lost device), Web Audio clock, settings
+  in `localStorage`, imported songs in IndexedDB. Compiles for
   `wasm32-unknown-unknown` only.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md`.
 - `video/` the software video decoder: a C shim over FFmpeg's video
@@ -122,7 +128,8 @@ gesture rule below, so it does not replace the maintainer's Safari check.
 
 Useful URL parameters: `#/play?song=<id>&chart=<n>` (chart index as in the
 manifest), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
-`&gfx=gl` force WebGL2, `&auto=pad` autoplay through a fake gamepad the test
+`&gfx=gl` force WebGL2 (read at boot, or switching the device once for
+the session; the Graphics setting chooses it too), `&auto=pad` autoplay through a fake gamepad the test
 installs as `window.__DDI_FAKE_PAD` (see the verify skill), `&slow=1`
 frames 40 ms longer while a movie is drawn (forces the automatic video
 rule);
@@ -134,7 +141,12 @@ WebCodecs decoder with it frame by frame);
 (`size`, `bg`, `beat`, `bpm`, `notes=4`, `receptors=1`, `gfx=gl`;
 `demo=1` plays a looping autoplayed chart (every judgement, a miss,
 holds and rolls kept and dropped, a mine), `rows`, `speed`, `layout=<id>`; `skin=builtin` for the
-built-in arrows; a test sets `window.__DDI_PREVIEW_BEAT`). Imported songs have ids
+built-in arrows; a test sets `window.__DDI_PREVIEW_BEAT`);
+`#/ui-test` draws the 2D pass's test scene (`t`, `scroll`, `delay`,
+`budget`, `speed`, `all=1`; module doc of `app/src/components/ui_test.rs`).
+`window.__DDI_LOSE_DEVICE()` loses the device, to test recovery;
+`__DDI_DEBUG` carries the canvas's `screen`, `textures`, `text` and
+`pass2d` counters. Imported songs have ids
 `u-<hash>` and play through the same route.
 
 Import is tested by setting files on the import panel's inputs (folder or zip)

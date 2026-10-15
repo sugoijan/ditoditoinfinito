@@ -38,6 +38,41 @@ a {
   color: var(--muted);
 }
 
+/* The app's one canvas (`web::screen`), parked here between the screens
+   that hold it; shown behind the page for the 2D pass, which then lets
+   it through the page's own background. */
+#ddi-screen {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+#ddi-screen.shown {
+  display: block;
+}
+
+.screen-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+html.screen-backdrop,
+html.screen-backdrop body {
+  background: transparent;
+}
+
+.ui-test-dom {
+  position: fixed;
+  left: 24px;
+  bottom: 8px;
+  margin: 0;
+  color: #f2eee9;
+  font-size: 0.85rem;
+}
+
 .game-canvas-host {
   position: fixed;
   inset: 0;
@@ -55,6 +90,12 @@ a {
    keep normal touch behaviour. */
 .game-canvas-host.playing {
   touch-action: none;
+}
+
+/* Where the play screen puts the app's canvas. */
+.game-canvas-slot {
+  position: absolute;
+  inset: 0;
 }
 
 .game-canvas {

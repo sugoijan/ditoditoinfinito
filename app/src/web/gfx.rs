@@ -4,6 +4,12 @@
 //! created while `navigator.gpu` exists is WebGPU-only. WebGPU availability is
 //! probed at the JS level first because wgpu 30 mistakes a `null`
 //! `requestAdapter()` result for a real adapter (see heddobureika).
+//!
+//! One [`Gfx`] serves the whole app (`web::screen`, P10 of
+//! `docs/plans/ui-core.md`): it is shared, so its surface configuration
+//! changes through `&self`.
+
+use std::cell::{Cell, RefCell};
 
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::HtmlCanvasElement;
@@ -18,12 +24,34 @@ pub(crate) enum BackendPreference {
     WebGl2,
 }
 
+/// What the surface is configured for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SurfaceMode {
+    /// The play field and the skin previews: drawn through an sRGB view
+    /// (decision 17).
+    Scene,
+    /// The 2D pass of menus: drawn in encoded values through a plain view
+    /// (P11). On WebGPU the same configuration offers both views; on
+    /// WebGL2 the surface is configured in its plain format instead.
+    Plain,
+}
+
 pub(crate) struct Gfx {
     pub(crate) surface: wgpu::Surface<'static>,
     pub(crate) adapter: wgpu::Adapter,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
-    pub(crate) config: wgpu::SurfaceConfiguration,
+    config: RefCell<wgpu::SurfaceConfiguration>,
+    /// The surface's format for [`SurfaceMode::Scene`].
+    scene_format: wgpu::TextureFormat,
+    /// A plain format the surface offers (WebGL2's alternative to its sRGB
+    /// one), for [`SurfaceMode::Plain`].
+    plain_surface: Option<wgpu::TextureFormat>,
+    mode: Cell<SurfaceMode>,
+    /// The device or context is gone (`web::screen` makes another).
+    lost: Cell<bool>,
+    /// Which of the screen's devices this is.
+    pub(crate) generation: u64,
 }
 
 async fn js_webgpu_adapter_available(power: wgpu::PowerPreference) -> bool {
@@ -121,7 +149,7 @@ fn gl_surface(
 }
 
 /// Swap a tainted canvas for a fresh one with the same class and size.
-fn replace_canvas(old: &HtmlCanvasElement) -> Result<HtmlCanvasElement, String> {
+pub(crate) fn replace_canvas(old: &HtmlCanvasElement) -> Result<HtmlCanvasElement, String> {
     let document = web_sys::window()
         .and_then(|w| w.document())
         .ok_or("no document")?;
@@ -131,6 +159,9 @@ fn replace_canvas(old: &HtmlCanvasElement) -> Result<HtmlCanvasElement, String> 
         .dyn_into::<HtmlCanvasElement>()
         .map_err(|_| "not a canvas".to_string())?;
     fresh.set_class_name(&old.class_name());
+    if let Some(style) = old.get_attribute("style") {
+        let _ = fresh.set_attribute("style", &style);
+    }
     fresh.set_width(old.width());
     fresh.set_height(old.height());
     old.replace_with_with_node_1(&fresh)
@@ -218,6 +249,11 @@ impl Gfx {
         if let Some(format) = caps.formats.iter().copied().find(|f| f.is_srgb()) {
             config.format = format;
         }
+        let plain_surface = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| *f == config.format.remove_srgb_suffix() && !f.is_srgb());
         if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
             config.alpha_mode = wgpu::CompositeAlphaMode::Opaque;
         }
@@ -284,10 +320,92 @@ impl Gfx {
                 adapter,
                 device,
                 queue,
-                config,
+                scene_format: config.format,
+                config: RefCell::new(config),
+                plain_surface,
+                mode: Cell::new(SurfaceMode::Scene),
+                lost: Cell::new(false),
+                generation: 0,
             },
             canvas,
         ))
+    }
+
+    /// The surface's size in pixels.
+    pub(crate) fn size(&self) -> (u32, u32) {
+        let c = self.config.borrow();
+        (c.width, c.height)
+    }
+
+    /// Configures the surface again (after an outdated frame).
+    pub(crate) fn reconfigure(&self) {
+        // A lost WebGL2 context cannot make the surface's texture.
+        if self.is_lost() {
+            return;
+        }
+        self.surface.configure(&self.device, &self.config.borrow());
+    }
+
+    pub(crate) fn is_gl(&self) -> bool {
+        self.adapter.get_info().backend == wgpu::Backend::Gl
+    }
+
+    pub(crate) fn mode(&self) -> SurfaceMode {
+        self.mode.get()
+    }
+
+    /// Configures the surface for `mode` (only WebGL2 changes formats).
+    pub(crate) fn set_mode(&self, mode: SurfaceMode) {
+        if self.is_lost() || self.mode.replace(mode) == mode {
+            return;
+        }
+        let format = match (mode, self.plain_surface) {
+            (SurfaceMode::Plain, Some(plain)) if self.scene_format.is_srgb() => plain,
+            _ => self.scene_format,
+        };
+        let mut config = self.config.borrow_mut();
+        if config.format != format {
+            config.format = format;
+            self.surface.configure(&self.device, &config);
+        }
+    }
+
+    /// The format the 2D pass draws in: a plain view of the surface
+    /// (WebGPU's own format; WebGL2's plain one, in [`SurfaceMode::Plain`]).
+    pub(crate) fn menu_format(&self) -> Option<wgpu::TextureFormat> {
+        let c = self.config.borrow();
+        if !c.format.is_srgb() {
+            Some(c.format)
+        } else {
+            None
+        }
+    }
+
+    /// The frame to draw, or `None` (the surface was configured again; try
+    /// the next frame).
+    pub(crate) fn frame(&self) -> Option<wgpu::SurfaceTexture> {
+        if self.is_lost() {
+            return None;
+        }
+        match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(s) => Some(s),
+            wgpu::CurrentSurfaceTexture::Suboptimal(s) => {
+                self.reconfigure();
+                Some(s)
+            }
+            _ => {
+                self.reconfigure();
+                None
+            }
+        }
+    }
+
+    pub(crate) fn is_lost(&self) -> bool {
+        self.lost.get()
+    }
+
+    pub(crate) fn mark_lost(&self) {
+        self.lost.set(true);
     }
 
     pub(crate) fn backend_name(&self) -> &'static str {
@@ -300,19 +418,16 @@ impl Gfx {
 
     /// Format the scene is drawn in: the surface format, or its sRGB view.
     pub(crate) fn view_format(&self) -> wgpu::TextureFormat {
-        self.config
-            .view_formats
-            .first()
-            .copied()
-            .unwrap_or(self.config.format)
+        let c = self.config.borrow();
+        c.view_formats.first().copied().unwrap_or(c.format)
     }
 
     /// The surface's own format when the scene is drawn through an sRGB
     /// view of it (WebGPU): skins' quads are drawn through a view in this
     /// one, blending as StepMania does.
     pub(crate) fn plain_format(&self) -> Option<wgpu::TextureFormat> {
-        (!self.config.view_formats.is_empty() && !self.config.format.is_srgb())
-            .then_some(self.config.format)
+        let c = self.config.borrow();
+        (!c.view_formats.is_empty() && !c.format.is_srgb()).then_some(c.format)
     }
 
     /// How skins' quads blend as StepMania's: through the plain view
@@ -331,7 +446,7 @@ impl Gfx {
         let half = wgpu::TextureFormat::Rgba16Float;
         let features = self.adapter.get_texture_format_features(half);
         let usages = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
-        if self.config.format.is_srgb()
+        if self.config.borrow().format.is_srgb()
             && features.allowed_usages.contains(usages)
             && features
                 .flags
@@ -344,13 +459,17 @@ impl Gfx {
     }
 
     /// Reconfigures the surface when the canvas backing store changes size.
-    pub(crate) fn resize(&mut self, width: u32, height: u32) {
-        let (w, h) = (width.max(1), height.max(1));
-        if w == self.config.width && h == self.config.height {
+    pub(crate) fn resize(&self, width: u32, height: u32) {
+        if self.is_lost() {
             return;
         }
-        self.config.width = w;
-        self.config.height = h;
-        self.surface.configure(&self.device, &self.config);
+        let (w, h) = (width.max(1), height.max(1));
+        let mut config = self.config.borrow_mut();
+        if w == config.width && h == config.height {
+            return;
+        }
+        config.width = w;
+        config.height = h;
+        self.surface.configure(&self.device, &config);
     }
 }
