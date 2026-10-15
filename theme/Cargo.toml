@@ -1,0 +1,22 @@
+[package]
+name = "ddi-theme"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: our theme (Infinito), a look for the UI core with its tunables"
+
+[dependencies]
+ddi-actor.workspace = true
+ddi-ui.workspace = true
+
+[build-dependencies]
+serde.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+ddi-library = { workspace = true, features = ["nfkd"] }
+serde.workspace = true
+toml.workspace = true

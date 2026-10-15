@@ -98,6 +98,61 @@ pub struct Quad {
     /// Seen in perspective: `rect` and `transform` then give way to these
     /// corners.
     pub projected: Option<Projected>,
+    /// Rounded corners, a soft edge, an outline, saturation (our
+    /// extension; not drawn in perspective).
+    pub shape: Shape,
+}
+
+/// How a quad is cut and coloured beyond StepMania's (actors'
+/// `ddi_actor::Shape`), in its rectangle's units, per axis. [`Shape::NONE`]
+/// draws exactly as before.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shape {
+    pub radius: [f32; 2],
+    /// A soft edge each way of the shape, which is the rectangle inset by
+    /// as much.
+    pub soft: [f32; 2],
+    /// Only an outline this thick (0: filled).
+    pub outline: [f32; 2],
+    /// 1 as it is, 0 grey.
+    pub saturation: f32,
+}
+
+impl Shape {
+    pub const NONE: Shape = Shape {
+        radius: [0.0; 2],
+        soft: [0.0; 2],
+        outline: [0.0; 2],
+        saturation: 1.0,
+    };
+
+    /// Cut (corners, edge or outline).
+    pub fn is_cut(&self) -> bool {
+        self.radius != [0.0; 2] || self.soft != [0.0; 2] || self.outline != [0.0; 2]
+    }
+
+    /// From an actor's, for a quad of `size` units drawn as the unit
+    /// square.
+    pub fn of(s: &ddi_actor::Shape, size: [f32; 2]) -> Shape {
+        let per = |v: f32| {
+            [
+                if size[0] > 0.0 { v / size[0] } else { 0.0 },
+                if size[1] > 0.0 { v / size[1] } else { 0.0 },
+            ]
+        };
+        Shape {
+            radius: per(s.radius),
+            soft: per(s.soft),
+            outline: per(s.outline),
+            saturation: s.saturation,
+        }
+    }
+}
+
+impl Default for Shape {
+    fn default() -> Shape {
+        Shape::NONE
+    }
 }
 
 /// A quad seen in perspective (an actor under an `fov` frame).
@@ -122,6 +177,7 @@ impl Quad {
             glow: false,
             mask: Mask::None,
             projected: None,
+            shape: Shape::NONE,
         }
     }
 }

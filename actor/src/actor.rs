@@ -252,6 +252,9 @@ pub struct State {
 pub struct Sprite {
     /// The renderer's texture (an index it hands out).
     pub texture: u32,
+    /// Rounded corners, a soft edge, an outline, saturation: our
+    /// extension, not StepMania's ([`Shape`]).
+    pub shape: Shape,
     pub states: Vec<State>,
     /// The texture's frames (what `Frames` and `SetStateProperties` index)
     /// and the size one is shown at.
@@ -297,6 +300,7 @@ impl Sprite {
             padded_to_image: [1.0; 2],
             custom: None,
             use_effect_clock_for_texcoords: false,
+            shape: Shape::PLAIN,
         }
     }
 
@@ -376,7 +380,16 @@ pub struct Text {
     pub max_width: f32,
     /// `None` until measured again ([`Actor::measure`]).
     metrics: Option<RunMetrics>,
+    /// A run much wider than `max_width` is cut and ends with "…"
+    /// rather than squeezed past [`ELLIPSIS_SQUEEZE`] (our extension,
+    /// command `ellipsis`; StepMania only squeezes).
+    pub ellipsis: bool,
+    /// What is drawn when it was cut.
+    cut: Option<Arc<str>>,
 }
+
+/// How far a run with [`Text::ellipsis`] is squeezed before it is cut.
+pub const ELLIPSIS_SQUEEZE: f32 = 0.85;
 
 impl Text {
     pub fn new(text: impl Into<Arc<str>>, style: TextStyle) -> Text {
@@ -385,11 +398,18 @@ impl Text {
             style,
             max_width: 0.0,
             metrics: None,
+            ellipsis: false,
+            cut: None,
         }
     }
 
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// What is drawn: the text, or its cut with "…".
+    pub fn shown(&self) -> &Arc<str> {
+        self.cut.as_ref().unwrap_or(&self.text)
     }
 
     pub fn style(&self) -> &TextStyle {
@@ -401,6 +421,8 @@ impl Text {
         if *self.text != *text {
             self.text = text.into();
             self.metrics = None;
+            // Its cut was of the old text: until measured, the text.
+            self.cut = None;
         }
     }
 
@@ -408,14 +430,46 @@ impl Text {
         if self.style != style {
             self.style = style;
             self.metrics = None;
+            self.cut = None;
         }
     }
 
-    /// The run's metrics, measured if they are not known.
+    /// The run's metrics, measured if they are not known (and the run
+    /// cut, with [`Text::ellipsis`], when squeezing would take it below
+    /// [`ELLIPSIS_SQUEEZE`]).
     pub fn measure(&mut self, measure: &mut dyn TextMeasure) -> RunMetrics {
-        *self
-            .metrics
-            .get_or_insert_with(|| measure.measure(&self.text, &self.style))
+        if let Some(m) = self.metrics {
+            return m;
+        }
+        let mut m = measure.measure(&self.text, &self.style);
+        self.cut = None;
+        let room = self.max_width / ELLIPSIS_SQUEEZE;
+        if self.ellipsis && self.max_width > 0.0 && m.advance > room {
+            // The longest start that fits with "…", by halves.
+            let ends: Vec<usize> = self.text.char_indices().map(|(i, _)| i).skip(1).collect();
+            let (mut lo, mut hi) = (0usize, ends.len());
+            let mut best: Option<(String, RunMetrics)> = None;
+            while lo < hi {
+                let mid = (lo + hi) / 2;
+                let s = format!("{}…", self.text[..ends[mid]].trim_end());
+                let mm = measure.measure(&s, &self.style);
+                if mm.advance <= room {
+                    best = Some((s, mm));
+                    lo = mid + 1;
+                } else {
+                    hi = mid;
+                }
+            }
+            let (s, mm) = best.unwrap_or_else(|| {
+                let s = "…".to_string();
+                let mm = measure.measure(&s, &self.style);
+                (s, mm)
+            });
+            self.cut = Some(s.into());
+            m = mm;
+        }
+        self.metrics = Some(m);
+        m
     }
 
     /// The last measurement; `None` after a change, until measured.
@@ -887,6 +941,7 @@ pub const METHODS: &[&str] = &[
     "bouncebegin",
     "bounceend",
     "clearzbuffer",
+    "cornerradius",
     "cullmode",
     "customtexturerect",
     "decelerate",
@@ -915,6 +970,7 @@ pub const METHODS: &[&str] = &[
     "effectperiod",
     "effecttiming",
     "finishtweening",
+    "ellipsis",
     "fov",
     "glow",
     "glowblink",
@@ -926,6 +982,7 @@ pub const METHODS: &[&str] = &[
     "horizalign",
     "hurrytweening",
     "linear",
+    "outline",
     "pause",
     "play",
     "pulse",
@@ -934,6 +991,7 @@ pub const METHODS: &[&str] = &[
     "rotationx",
     "rotationy",
     "rotationz",
+    "saturation",
     "set_use_effect_clock_for_texcoords",
     "setsize",
     "setstate",
@@ -943,6 +1001,7 @@ pub const METHODS: &[&str] = &[
     "shadowlengthy",
     "sleep",
     "smooth",
+    "softedge",
     "spin",
     "spring",
     "stopeffect",
@@ -969,6 +1028,44 @@ pub const METHODS: &[&str] = &[
     "ztestmode",
     "zwrite",
 ];
+
+/// How a sprite's quad is cut and coloured beyond StepMania's (our
+/// extension for the game's own theme, not StepMania's; commands
+/// `cornerradius`, `softedge`, `outline`, `saturation`): sizes are the
+/// sprite's own units (before zoom). The plain values draw StepMania's
+/// quad, exactly.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shape {
+    /// The corners' radius (capped at half the shorter side).
+    pub radius: f32,
+    /// A soft edge this wide each way of the shape, which is the quad
+    /// inset by as much (a shadow: a quad as large as the shape and twice
+    /// this).
+    pub soft: f32,
+    /// Only an outline this thick, inside the edge (0: filled).
+    pub outline: f32,
+    /// 1 as it is, 0 grey.
+    pub saturation: f32,
+}
+
+impl Shape {
+    pub const PLAIN: Shape = Shape {
+        radius: 0.0,
+        soft: 0.0,
+        outline: 0.0,
+        saturation: 1.0,
+    };
+
+    pub fn is_plain(&self) -> bool {
+        *self == Shape::PLAIN
+    }
+}
+
+impl Default for Shape {
+    fn default() -> Shape {
+        Shape::PLAIN
+    }
+}
 
 /// What a getter returns to Lua.
 #[derive(Clone, Debug, PartialEq)]
@@ -1036,6 +1133,9 @@ pub struct Quad {
     /// Under an `fov` frame: the corners as its camera sees them;
     /// `transform` is then their orthographic view.
     pub projected: Option<Projected>,
+    /// Its sprite's [`Shape`], and the size it is in (units before zoom).
+    pub shape: Shape,
+    pub size: [f32; 2],
 }
 
 type Mat = [f32; 6];
@@ -2058,6 +2158,29 @@ impl Actor {
                     _ => {}
                 }
             }
+            // Our extension, not StepMania's.
+            "ellipsis" => {
+                let on = flag(0)?;
+                if let Kind::Text(t) = &mut self.kind
+                    && t.ellipsis != on
+                {
+                    t.ellipsis = on;
+                    t.metrics = None;
+                }
+            }
+            // Our extension (`Shape`), not StepMania's.
+            "cornerradius" | "softedge" | "outline" | "saturation" => {
+                let v = num(0)?;
+                if let Kind::Sprite(sp) = &mut self.kind {
+                    let shape = &mut sp.shape;
+                    match call.method.as_str() {
+                        "cornerradius" => shape.radius = v.max(0.0),
+                        "softedge" => shape.soft = v.max(0.0),
+                        "outline" => shape.outline = v.max(0.0),
+                        _ => shape.saturation = v.clamp(0.0, 1.0),
+                    }
+                }
+            }
             "texcoordvelocity" => {
                 let v = [num(0)?, num(1)?];
                 if let Kind::Sprite(s) = &mut self.kind {
@@ -2164,6 +2287,9 @@ impl Actor {
             "maxwidth" => {
                 let w = num(0)?;
                 if let Kind::Text(t) = &mut self.kind {
+                    if t.ellipsis && t.max_width != w {
+                        t.metrics = None;
+                    }
                     t.max_width = w;
                 }
             }
@@ -2360,6 +2486,8 @@ impl Actor {
                         blend,
                         depth: depth_state,
                         projected,
+                        shape: sprite.shape,
+                        size,
                     }))
                 };
                 // Any corner seen draws the diffuse pass and the shadow
@@ -2397,7 +2525,7 @@ impl Actor {
                 let run3 = mul4(&m3, &translation4([pen[0], pen[1], 0.0]));
                 let draw = |transform, transform3, diffuse, glow| {
                     Drawn::Text(TextDraw {
-                        text: text.text.clone(),
+                        text: text.shown().clone(),
                         style: text.style.clone(),
                         metrics,
                         transform,

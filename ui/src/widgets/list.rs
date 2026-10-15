@@ -99,6 +99,9 @@ pub struct ListConfig {
     /// Built beyond the visible part, above and below.
     pub margin: f32,
     pub bar: f32,
+    /// Glides to its targets (wheel, keys, snaps); off (reduced motion),
+    /// it jumps there.
+    pub glide: bool,
 }
 
 impl ListConfig {
@@ -112,6 +115,7 @@ impl ListConfig {
             style: ListStyle::Plain,
             margin: 96.0,
             bar: 8.0,
+            glide: true,
         }
     }
 }
@@ -174,7 +178,7 @@ impl List {
             fills: 0,
         };
         list.reload(model);
-        list.selected_key = model.key(0).filter(|_| !model.is_empty());
+        list.selected_key = (!model.is_empty()).then(|| model.key(0)).flatten();
         list
     }
 
@@ -203,7 +207,7 @@ impl List {
             .selected_key
             .and_then(|k| (0..n).find(|&i| model.key(i) == Some(k)));
         self.selected = by_key.unwrap_or(self.selected).min(n.saturating_sub(1));
-        self.selected_key = model.key(self.selected).filter(|_| n > 0);
+        self.selected_key = (n > 0).then(|| model.key(self.selected)).flatten();
         self.pos = self.clamp(self.pos);
         self.target = self.target.map(|t| self.clamp(t));
         if let Some(f) = self.focus_line()
@@ -366,6 +370,27 @@ impl List {
         self.target = Some(self.clamp(to));
     }
 
+    /// The name of the actor showing item `i`, if one does.
+    pub fn item_actor(&self, i: usize) -> Option<String> {
+        let k = self.slots.iter().position(|s| s.item == Some(i))?;
+        Some(format!("{}#{k}", self.config.name))
+    }
+
+    /// The list's actors were built again ([`List::build`] into a new
+    /// tree): rows are made afresh at the next update.
+    pub fn reset_actors(&mut self) {
+        self.slots.clear();
+    }
+
+    /// Ends any glide at once, where it was going (a list laid out
+    /// again, a restored place).
+    pub fn finish(&mut self) {
+        if let Some(t) = self.target.take() {
+            self.pos = t;
+        }
+        self.velocity = 0.0;
+    }
+
     /// Scrolls to `pos` at once (tests, a restored place).
     pub fn jump(&mut self, pos: f64) {
         self.pos = self.clamp(pos);
@@ -415,6 +440,10 @@ impl List {
                     self.velocity = 0.0;
                     event = self.settle(model);
                 }
+            } else if let Some(t) = self.target.filter(|_| !self.config.glide) {
+                self.pos = t;
+                self.target = None;
+                event = self.at_rest(model);
             } else if let Some(t) = self.target {
                 let next = self.pos + (t - self.pos) * (1.0 - (-GLIDE * dt).exp());
                 // Close enough, or no closer in the numbers' precision.
@@ -572,9 +601,22 @@ impl List {
                 Some(f) => {
                     let mid = (self.offsets[i] + self.offsets[i + 1]) / 2.0 - self.pos;
                     let place = look::wheel(look, &name, ((mid - f) / row) as f32);
-                    call(a, "xy", &[place.x, y as f32]);
+                    call(a, "xy", &[place.x, y as f32 + place.y]);
                     call(a, "zoom", &[place.zoom]);
                     call(a, "diffusealpha", &[place.alpha]);
+                    // Moved right, the row keeps its right edge: its
+                    // `Right` part moves back, its plate and what is drawn
+                    // around it (`Plate`, `Line`, `Ring`, `Pulse`,
+                    // `Shadow`) narrow.
+                    if let Some(r) = hit::find_mut(a, "Right") {
+                        call(r, "x", &[-place.x]);
+                    }
+                    let narrow = ((w - place.x) / w.max(1.0)).clamp(0.0, 1.0);
+                    for part in ["Plate", "Line", "Ring", "Pulse", "Shadow"] {
+                        if let Some(p) = hit::find_mut(a, part) {
+                            call(p, "zoomx", &[narrow]);
+                        }
+                    }
                 }
             }
             let selected = i == self.selected;

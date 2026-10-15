@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["chart", "engine", "render", "platform", "library", "actor", "ui", "noteskin", "lua", "app", "desktop", "xtask"]
+members = ["chart", "engine", "render", "platform", "library", "actor", "ui", "theme", "noteskin", "lua", "app", "desktop", "xtask"]
 default-members = ["app"]
 
 [workspace.package]
@@ -20,6 +20,7 @@ ddi-platform = { path = "platform" }
 ddi-library = { path = "library" }
 ddi-actor = { path = "actor" }
 ddi-ui = { path = "ui" }
+ddi-theme = { path = "theme" }
 ddi-noteskin = { path = "noteskin" }
 ddi-lua = { path = "lua" }
 

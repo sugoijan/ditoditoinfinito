@@ -23,3 +23,7 @@ taffy = { workspace = true, optional = true }
 default = []
 # Flexbox and grid frames through taffy (`layout`).
 layout = ["dep:taffy"]
+
+[dev-dependencies]
+# Unicode's NFKD for the search in tests (the shells bring their own).
+ddi-library = { workspace = true, features = ["nfkd"] }

@@ -95,7 +95,7 @@ SPDX-License-Identifier = "MIT"
 # authors with the exact licence of each file. See docs/PLAN.md §8.
 
 [[annotations]]
-path = ["assets/fonts/IosevkaCustom-*.ttf"]
+path = ["assets/fonts/IosevkaCustom-*.ttf", "assets/fonts/IosevkaTerm-*.ttf"]
 SPDX-FileCopyrightText = "2015-2026 Renzhi Li (aka. Belleve Invis) <belleve@typeof.net>"
 SPDX-License-Identifier = "OFL-1.1"
 

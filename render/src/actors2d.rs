@@ -10,7 +10,7 @@
 
 use ddi_actor::{Blend as ActorBlend, Depth, Drawn, UNTEXTURED, ZTest};
 
-use crate::draw2d::{Affine, Blend, Command, DrawList, Mask, Projected, Quad, TextRun};
+use crate::draw2d::{Affine, Blend, Command, DrawList, Mask, Projected, Quad, Shape, TextRun};
 use crate::texture_cache::TextureId;
 
 /// The unit square an actor's quad transform places.
@@ -109,6 +109,11 @@ pub fn append(
                         corners: corners(p.corners),
                         w: corners(p.w),
                     }),
+                    shape: if q.shape.is_plain() {
+                        Shape::NONE
+                    } else {
+                        Shape::of(&q.shape, q.size)
+                    },
                 };
                 if q.diffuse.iter().any(|c| c[3] > 0.0) {
                     list.quad(quad.clone());

@@ -64,6 +64,10 @@ use crate::textures::TextureTable;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// The message screens hear when the design size changed
+/// ([`Ui::set_design`]).
+pub const DESIGN_MESSAGE: &str = "DesignChanged";
+
 /// How long after a mouse press its release still counts as a gesture,
 /// host milliseconds (Safari's transient activation, the shortest).
 pub const ACTIVATION_WINDOW: f64 = 1000.0;
@@ -204,6 +208,26 @@ impl Ui {
 
     pub fn viewport(&self) -> &Viewport {
         &self.viewport
+    }
+
+    /// The design size (the virtual screen's, before the window's aspect).
+    pub fn design(&self) -> [f32; 2] {
+        self.design
+    }
+
+    /// A new design size (a compact layout's, for a small window): the
+    /// virtual screen follows it, and every screen hears
+    /// [`DESIGN_MESSAGE`] to lay itself out again.
+    pub fn set_design(&mut self, design: [f32; 2]) {
+        if design == self.design {
+            return;
+        }
+        self.design = design;
+        let v = self.viewport;
+        let css = [v.physical[0] / v.ratio, v.physical[1] / v.ratio];
+        self.viewport = Viewport::new(design, css, v.ratio);
+        self.ime_rect = None;
+        self.broadcast(Message::new(DESIGN_MESSAGE));
     }
 
     /// Pushes a screen (the first one, at boot).
@@ -1436,6 +1460,8 @@ fn quad(m: &Affine, r: [f32; 4], color: [f32; 4]) -> Drawn {
         blend: Blend::Normal,
         depth: Depth::default(),
         projected: None,
+        shape: ddi_actor::Shape::PLAIN,
+        size: [1.0; 2],
     })
 }
 

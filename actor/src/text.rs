@@ -21,6 +21,9 @@ pub struct TextStyle {
     /// CSS weight, 100–900.
     pub weight: u16,
     pub italic: bool,
+    /// Extra space between letters, thousandths of an em (CSS's
+    /// `letter-spacing`): our extension for the theme's small capitals.
+    pub tracking: i16,
 }
 
 impl TextStyle {
@@ -30,6 +33,7 @@ impl TextStyle {
             size_64: (size * 64.0).round().max(0.0) as u32,
             weight: 400,
             italic: false,
+            tracking: 0,
         }
     }
 

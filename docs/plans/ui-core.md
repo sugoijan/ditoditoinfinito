@@ -628,10 +628,118 @@ A design brief and mockups with the maintainer first: the look is theirs
 to choose. Their starting point (2026-10-15): close to today's pages,
 clean on a black or dark background, but laid out more as rhythm games
 lay out their screens. The brief, with three song select layouts and
-the other screens mocked up, is `docs/plans/theme.md` (2026-10-15),
-awaiting the maintainer's choices. Then the theme:
-its tunables file, art with `PROVENANCE.toml` where it is not ours,
-components for the screens of step 6, its fonts (P4, P6).
+the other screens mocked up, is `docs/plans/theme.md` (2026-10-15); the
+maintainer chose layout A, Iosevka Term, the pink accent, the blurred
+backdrop, the beat pulse and the style tabs beside the ladder. Then the
+theme: its tunables file, art with `PROVENANCE.toml` where it is not
+ours, components for the screens of step 6, its fonts (P4, P6).
+
+Done (2026-10-15):
+
+- **The theme** (`theme/`, `ddi-theme`): `Infinito`, a `Look` restyling
+  every plain component (button, toggle, option row, slider, list rows,
+  headers and bar, text field, popup item, panel) and adding the
+  screens' own (`Screen.Header`, `Screen.Footer`, `KeyHint`, `Pill`,
+  `Link`, `SongList.Row` and `.Header`, `SongInfo`, `StyleTab`,
+  `ChartLadder.Row` and `.Empty`, `ChartButton`, `PlayButton`,
+  `IconButton`, `StyleButton`, `Results.Judgement`, `Results.Score`,
+  `Options.Section`, `.Row`, `.Description`, `.Preview`), its wheel
+  curve (the selected row taller on its line, `WheelPlace::y` making
+  room), and named colours (difficulties lifted for the dark ground,
+  judgements as the HUD draws them). Every colour, face, size, region,
+  timing, the backdrop's strength and the pulse are in
+  `theme/src/infinito.toml`, which `build.rs` turns into tables (no TOML
+  parser in the wasm); a test runs every screen and checks that each key
+  is read and each name asked for is there.
+- **The screens** (`ui/src/screens/`), theme-agnostic (metrics with the
+  mockups' numbers as defaults, components falling back to the plain
+  look's), fed by plain data (`screens/data.rs`) that step 6 fills:
+  song select (the wheel with pack headers that open and close, every
+  song in every style, greyed where it has no chart; style tabs lit with
+  their counts, Tab to the next lit one; the ladder or its message;
+  Left and Right keep a preferred difficulty, the closest chart picked,
+  the easier on a tie as StepMania does; search in the header, the wheel
+  showing the matches, suggestions never while composing; hints that
+  change with the state), results (Overview and Timing panel sets, the
+  judgement table, the offset editor, Song list and Retry) and options
+  (sections, rows with choices or a stepper, the description bar, a
+  placeholder for the field's preview). Song select has a compact layout
+  below 480 CSS pixels of height (`Compact.Below`; phones held sideways
+  are 360–430, tablets and laptops 600 and up): the design becomes
+  844×390 (`Ui::set_design`), with chart buttons, a Play button, icon
+  buttons and no hints; results and options are scaled down there until
+  they get their own.
+- **Backdrop:** the selected song's background (else its banner) asked
+  for at 64 px, so the texture cache decodes it tiny, and drawn
+  stretched over the screen five times a little apart at alphas adding
+  up to `Backdrop.Alpha` (0.2; results 0.14): the linear filter and the
+  copies blur it with no extra pass, the same on WebGPU, WebGL2 and
+  desktop; a new one cross-fades in.
+- **Beat pulse:** the selected row's and chart's ring brighten on each
+  beat from a beat function the screen is given (the developer routes
+  count from the display BPM; step 6 reads the preview's time).
+  `Settings::reduced_motion` (Auto, On, Off; old settings load as Auto)
+  with the web's `prefers-reduced-motion` stops the pulse and the slides
+  (the wheel jumps); frames then stop while idle.
+- **Fonts:** the web registers Iosevka Term's three weights as
+  `FontFace`s from `fonts/` (copied by `index.html`, not in the wasm) when
+  a theme screen starts, and pages drawing on demand are woken to draw
+  their runs again (`on_fonts_loaded`); desktop loads them, and the HUD's
+  face, into cosmic-text under the families styles name
+  (`CosmicRasterizer::with_families`: the SemiBold's own family name is
+  "Iosevka Term Semibold").
+- **Developer routes:** `#/ui-dev?screen=select|results|options`
+  (desktop `--screen select|results|options`; the binary opens song
+  select when given no screen, `--dev` the developer screen) run the
+  three screens over the four bundled songs with their real charts and
+  art and five made-up packs (pump-only songs, Japanese titles; no art,
+  since a bundled banner on a made-up title reads as a mislabelled
+  song), Start showing results and the
+  Options link options; `__DDI_DEBUG.ui.theme` publishes what they did.
+  Desktop now decodes banners and backgrounds (`desktop/src/images.rs`,
+  the `image` crate, PNG and JPEG).
+- **Checked:** harness tests per screen (greying, style changes keeping
+  the difficulty, packs, the popup never while composing, the pulse and
+  idle frames under reduced motion, the compact layout) with the plain
+  look and again with the theme; Playwright in Chrome (WebGPU, WebGL2)
+  and Firefox at 1280×720 and 844×390; a play still all top tier on
+  both backends; desktop's select drawn offscreen
+  (`desktop/tests/theme_offscreen.rs`). Work a frame with the backdrop
+  and the pulse running: 0.6 ms on Chrome's WebGPU, 1.0 ms on WebGL2,
+  5.1 ms in headless Firefox (means); none while idle with reduced
+  motion. Wasm 2,460 KB gzip (+69 KB over step 4: the screens, the
+  theme, the sample data and the look additions).
+- **Review fixes** (an independent review; its probes kept as tests in
+  `ui/src/screens/tests.rs` and `theme/src/tests.rs`): the ladder's
+  window is computed once and used for drawing, picking and the pulse
+  (rows shrink to fit six charts at 720); Start, Left, Right and Tab act
+  on the song the selection is on even in the poll that moved it; Enter
+  in the search goes to the selected match instead of filtering again;
+  the chosen chart survives a new layout; clearing a search opens the
+  shown song's pack; a header's Start does nothing while searching; Esc
+  says "Clear search" while a search is on; the phone's field hides
+  whenever typing stops; only the selected row pulses; the compact
+  decision is one function over `Compact.*`; the theme's name tracking
+  and the screen's debug state cost nothing in production (tests only;
+  published when something changed); font wakers are dropped with their
+  page; desktop decodes images under limits (8192 px, 256 MiB) and
+  takes only plain relative paths.
+- **Look additions** (our extensions to actors, not StepMania's, drawn
+  by the 2D pass on WebGPU, WebGL2 and desktop; the plain values take
+  exactly the old path, and the 84 noteskin preview screenshots are
+  byte-identical): sprites' `cornerradius`, `softedge` (a shadow is a
+  soft rounded quad), `outline` (rings that follow the radius) and
+  `saturation` (greyed banners are grey), as a signed-distance cut in
+  the fragment shader; text's `ellipsis` (squeezed to 0.85 at most, then
+  cut with "…") and `TextStyle::tracking` (letter spacing, through the
+  canvas's `letterSpacing` on the web, where a browser without it shows
+  none, and cosmic-text's on desktop). The theme uses the mockups'
+  radii (rows 6, panels 8–10, chips 4, pills round), the selected row's
+  shadow, and spaced small capitals.
+- **Left:** the field preview in options, results and options laid out
+  for phones, square dashes on unlit tabs and the empty ladder, and
+  decoding desktop images off the draw path (they are decoded when a
+  frame first asks, on the main thread).
 
 ### Step 6. Screens, one at a time
 
@@ -657,7 +765,15 @@ Firefox.
    the list's place.
 3. **Options:** option rows, bindings and the bind flow, the volume
    sample, resets behind a confirmation dialog, the noteskin choice with
-   its preview drawn in the scene.
+   its preview drawn in the scene. The preview (the panel beside the
+   rows, a placeholder since step 5) plays the demo chart
+   (`engine/src/demo.rs`) as play would draw it with the options being
+   chosen, changing as they change (the maintainer, 2026-10-15): the
+   direction (Reverse), the speed and whether charts keep their own, the
+   scroll action, Turn, the appearance (Hidden, Sudden, Stealth), the
+   simplified notes, the note colours, the arrows (noteskin) and the
+   style chosen, receptor snap, the field filter and the timing error,
+   and anything later added that changes how the field looks.
 4. **The rest:** calibration's menu, credits (links open through a
    request), the app-wide notices (device changes, storage), and the play
    screen's DOM parts: the start prompt, the touch quit button, and

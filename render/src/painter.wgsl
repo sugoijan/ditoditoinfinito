@@ -38,6 +38,11 @@ struct Instance {
     @location(8) c3: vec4<f32>,
     // The corners' w (top left, top right, bottom right, bottom left).
     @location(9) w: vec4<f32>,
+    // Bit 4 (cut): the corners' radius and a soft edge, in the rect's
+    // units per axis; an outline's thickness (shape2.xy). Bit 5: the
+    // saturation (shape2.z). Our extension for the game's theme.
+    @location(10) shape: vec4<f32>,
+    @location(11) shape2: vec4<f32>,
 };
 
 struct VsOut {
@@ -45,6 +50,13 @@ struct VsOut {
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) @interpolate(flat) mode: u32,
+    // Where in the rect's space (cut quads).
+    @location(3) local: vec2<f32>,
+    @location(4) @interpolate(flat) rect: vec4<f32>,
+    @location(5) @interpolate(flat) shape: vec4<f32>,
+    @location(6) @interpolate(flat) shape2: vec4<f32>,
+    // Pixels per unit along x and y.
+    @location(7) @interpolate(flat) ppu: vec2<f32>,
 };
 
 @vertex
@@ -73,7 +85,46 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     out.uv = mix(inst.uv.xy, inst.uv.zw, t);
     out.color = colors[vi];
     out.mode = inst.mode;
+    out.local = mix(inst.rect.xy, inst.rect.zw, t);
+    out.rect = inst.rect;
+    out.shape = inst.shape;
+    out.shape2 = inst.shape2;
+    out.ppu = vec2<f32>(length(inst.axes.xy), length(inst.axes.zw));
     return out;
+}
+
+// The signed distance to a rectangle of half size `half` with corners of
+// radius `r`, from its centre (negative inside), in pixels.
+fn rounded(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
+    let q = abs(p) - half + vec2<f32>(r);
+    return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
+}
+
+// How much of a pixel at `d` (pixels from the edge) is inside, the edge
+// anti-aliased, or spread over `soft` pixels each way.
+fn inside(d: f32, soft: f32) -> f32 {
+    if (soft > 0.0) {
+        return 1.0 - smoothstep(-soft, soft, d);
+    }
+    return clamp(0.5 - d, 0.0, 1.0);
+}
+
+// The share of a cut quad's pixel that is drawn.
+fn cut(in: VsOut) -> f32 {
+    let ppu = in.ppu;
+    let centre = (in.rect.xy + in.rect.zw) * 0.5;
+    let p = (in.local - centre) * ppu;
+    let soft = max(in.shape.z * ppu.x, in.shape.w * ppu.y);
+    let half = abs(in.rect.zw - in.rect.xy) * 0.5 * ppu - vec2<f32>(soft);
+    let r = clamp(min(in.shape.x * ppu.x, in.shape.y * ppu.y), 0.0, max(min(half.x, half.y), 0.0));
+    let d = rounded(p, max(half, vec2<f32>(0.0)), r);
+    var a = inside(d, soft);
+    let stroke = min(in.shape2.x * ppu.x, in.shape2.y * ppu.y);
+    if (stroke > 0.0) {
+        // Outside the shape inset by the stroke too.
+        a = a * (1.0 - inside(d + stroke, soft));
+    }
+    return a;
 }
 
 @fragment
@@ -90,6 +141,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var out = t * in.color;
     if ((in.mode & 4u) != 0u) {
         out = vec4<f32>(in.color.rgb, t.a * in.color.a);
+    }
+    if ((in.mode & 16u) != 0u) {
+        out.a = out.a * cut(in);
+    }
+    if ((in.mode & 32u) != 0u) {
+        let grey = dot(out.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+        out = vec4<f32>(mix(vec3<f32>(grey), out.rgb, in.shape2.z), out.a);
     }
     // StepMania's alpha test, on for every draw: what is no more than
     // 1/256 opaque is not drawn (nor masks), `RageDisplay_OGL.cpp:2731`.

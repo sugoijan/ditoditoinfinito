@@ -692,4 +692,144 @@ mod tests {
         assert_eq!(f.drawn.len(), 2);
         assert_eq!(f.measured, 2);
     }
+
+    /// Pages simulated texel by texel: which run's ink each holds. After
+    /// any mix of shown runs, new ones, compaction and trimming, every
+    /// run placed in a frame finds its own ink in its cell, and nothing
+    /// else's.
+    #[derive(Default)]
+    struct Texels {
+        side: usize,
+        staging: Vec<u32>,
+        pages: HashMap<usize, Vec<u32>>,
+        ids: HashMap<String, u32>,
+    }
+
+    impl Texels {
+        fn new(side: usize) -> Texels {
+            Texels {
+                side,
+                staging: vec![0; side * side],
+                ..Texels::default()
+            }
+        }
+        fn id(&mut self, text: &str) -> u32 {
+            let n = self.ids.len() as u32 + 1;
+            *self.ids.entry(text.to_string()).or_insert(n)
+        }
+        fn rect(&self, r: PageRect) -> impl Iterator<Item = usize> + '_ {
+            let side = self.side;
+            (r.y as usize..r.bottom() as usize)
+                .flat_map(move |y| (r.x as usize..r.right() as usize).map(move |x| y * side + x))
+        }
+    }
+
+    impl PageSink for Texels {
+        fn measure(&mut self, text: &str, style: &TextStyle, scale: f32) -> RunMetrics {
+            let size = style.size() * scale;
+            let advance = text.chars().count() as f32 * size * 0.5;
+            RunMetrics {
+                advance,
+                ink: [0.0, -size, advance, size * 0.25],
+                baseline: size,
+            }
+        }
+        fn draw(&mut self, text: &str, _: &TextStyle, _: f32, _: [f32; 2], cell: PageRect) {
+            // Ink fills the cell inside its padding.
+            let id = self.id(text);
+            let inner = PageRect {
+                x: cell.x + PAD,
+                y: cell.y + PAD,
+                width: cell.width - 2 * PAD,
+                height: cell.height - 2 * PAD,
+            };
+            let idx: Vec<usize> = self.rect(inner).collect();
+            for i in idx {
+                assert_eq!(self.staging[i], 0, "drawn over ink not yet copied");
+                self.staging[i] = id;
+            }
+        }
+        fn flush(&mut self, page: usize, rect: PageRect) {
+            let idx: Vec<usize> = self.rect(rect).collect();
+            let texture = self.pages.get_mut(&page).expect("a page made before use");
+            for i in idx {
+                texture[i] = self.staging[i];
+                self.staging[i] = 0;
+            }
+        }
+        fn add_page(&mut self, page: usize) {
+            // A new texture holds anything.
+            self.pages
+                .insert(page, vec![u32::MAX; self.side * self.side]);
+        }
+        fn drop_page(&mut self, page: usize) {
+            self.pages.remove(&page);
+        }
+    }
+
+    #[test]
+    fn every_run_finds_its_own_ink_however_the_pages_turn_over() {
+        let side = 256;
+        // Two pages of budget, so pages are cleared, reused, dropped.
+        let mut c = RunCache::new(side as u32, 2 * (side * side) as u64);
+        let mut t = Texels::new(side);
+        let styles = [
+            TextStyle::new("mono", 12.0),
+            TextStyle::new("mono", 20.0),
+            TextStyle::new("mono", 31.0),
+        ];
+        let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        for frame in 0..3000 {
+            c.begin_frame();
+            if frame % 3 == 0 {
+                c.compact(&mut t);
+            }
+            // A list scrolled through a large library: a window of titles
+            // that moves, jumps (a search) or stays.
+            let base = match next(10) {
+                0 => next(5000),
+                _ => (frame as u64 / 4) % 5000,
+            };
+            let mut placed = Vec::new();
+            for k in 0..(5 + next(25)) {
+                let text = s(&format!(
+                    "Song {} {}",
+                    base + k,
+                    "x".repeat(next(12) as usize)
+                ));
+                let style = &styles[next(3) as usize];
+                let scale = [1.0, 1.0, 2.0][next(3) as usize];
+                if let Some(p) = c.place(&text, style, scale, &mut t) {
+                    placed.push((text, p));
+                }
+            }
+            c.flush(&mut t);
+            c.trim(4, &mut t);
+            // What the frame samples: each run's own ink inside its cell.
+            for (text, p) in &placed {
+                let id = t.ids[&**text];
+                let texture = t.pages.get(&p.page).expect("a sampled page exists");
+                let inner = PageRect {
+                    x: p.cell.x + PAD,
+                    y: p.cell.y + PAD,
+                    width: p.cell.width - 2 * PAD,
+                    height: p.cell.height - 2 * PAD,
+                };
+                for i in t.rect(inner) {
+                    assert_eq!(
+                        texture[i], id,
+                        "frame {frame}: {text:?} on page {} shows run {} at texel {i}",
+                        p.page, texture[i]
+                    );
+                }
+            }
+        }
+        assert!(c.stats().evictions > 0, "pages were reused");
+    }
 }

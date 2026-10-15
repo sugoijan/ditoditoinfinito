@@ -36,6 +36,31 @@ struct Glyph {
 }
 
 impl CosmicRasterizer {
+    /// With the `bundled` faces, each under the family name given (as the
+    /// web registers a `FontFace` under its name: a face's own name may
+    /// carry its weight, "Iosevka Term Semibold"), and the system's with
+    /// `system`.
+    pub fn with_families(bundled: &[(&str, &[u8])], system: bool) -> CosmicRasterizer {
+        let mut r = CosmicRasterizer::new(&[], system);
+        let db = r.fonts.db_mut();
+        for (family, bytes) in bundled {
+            let source =
+                glyphon::cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(bytes.to_vec()));
+            for id in db.load_font_source(source) {
+                let Some(mut info) = db.face(id).cloned() else {
+                    continue;
+                };
+                db.remove_face(id);
+                info.families = vec![(
+                    family.to_string(),
+                    glyphon::cosmic_text::fontdb::Language::English_UnitedStates,
+                )];
+                db.push_face_info(info);
+            }
+        }
+        r
+    }
+
     /// With the `bundled` fonts (TTF or OTF bytes), and the system's with
     /// `system`.
     pub fn new(bundled: &[&[u8]], system: bool) -> CosmicRasterizer {
@@ -84,6 +109,11 @@ impl CosmicRasterizer {
             } else {
                 Style::Normal
             });
+        let attrs = if style.tracking != 0 {
+            attrs.letter_spacing(f32::from(style.tracking) / 1000.0)
+        } else {
+            attrs
+        };
         buffer.set_size(None, None);
         buffer.set_text(text, &attrs, Shaping::Advanced, None);
         buffer.shape_until_scroll(&mut self.fonts, false);
