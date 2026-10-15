@@ -1,0 +1,261 @@
+//! Screens: what the player sees and drives, one at a time on a stack,
+//! with popups and dialogs over them.
+//!
+//! A screen builds its actor tree once ([`Screen::build`]); the [`crate::Ui`]
+//! owns the tree, updates and draws it, and hands it back with every
+//! input, frame and message, so the screen's code and its actors' commands
+//! work on the same retained scene (as a StepMania screen is an
+//! `ActorFrame` its code holds). Screens own their navigation (P3): input
+//! goes to the screen first; what it leaves ([`Handled::No`]) gets the
+//! default behaviour (focus moves, Start activates, Back leaves).
+//!
+//! Everything a screen wants done goes through its [`Cx`]: requests to
+//! the shell, screens pushed or left, messages, focus, typing. It is
+//! applied when the call returns, still inside the platform's event
+//! handler when the call came from one.
+//!
+//! Widgets (step 4) are named actors plus code that reads [`Input`]s for
+//! their names ([`crate::hit::Target::within`]); a theme (step 5) builds
+//! the actors.
+
+use ddi_actor::Actor;
+use ddi_actor::screen::Viewport;
+
+use crate::event::{KeyEvent, PointerKind};
+use crate::gesture::Gesture;
+use crate::hit::Target;
+use crate::message::Message;
+use crate::nav::{Focusable, MenuAction};
+use crate::request::{InputHints, UiRequest};
+use crate::text_field::TextField;
+
+/// Whether a screen took an input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Handled {
+    Yes,
+    No,
+}
+
+/// What changed in the field being typed into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextChange {
+    /// The text (or the composition) changed.
+    Edited,
+    /// Only the caret or the selection.
+    Moved,
+    /// Enter, while not composing.
+    Submit,
+    /// Escape, while not composing.
+    Cancel,
+    /// The platform's field lost focus, or a press landed outside the
+    /// field: typing has ended, the text is kept.
+    Blurred,
+}
+
+/// An input for a screen. Positions, deltas and velocities are virtual
+/// pixels (the screen's).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Input {
+    /// A menu button, from a key, a controller or a pad; `repeat` when it
+    /// is our repeat of a held direction.
+    Menu { action: MenuAction, repeat: bool },
+    /// A key no menu action claimed (shortcuts: read
+    /// [`KeyEvent::key`]); while typing, the keys the field leaves (Up,
+    /// Down, Tab, Page Up and Down).
+    Key(KeyEvent),
+    /// A pointer's gesture on `target` (captured at the press: the rest of
+    /// the gesture goes to it wherever the pointer goes); `None` where
+    /// nothing named is.
+    Pointer {
+        target: Option<Target>,
+        gesture: Gesture,
+        pos: [f32; 2],
+        kind: PointerKind,
+    },
+    /// A mouse moved onto another target (or off every one).
+    Hover { target: Option<Target> },
+    /// A wheel over `target`; positive y scrolls down.
+    Wheel {
+        target: Option<Target>,
+        delta: [f32; 2],
+        pos: [f32; 2],
+    },
+    /// Start on the focused actor, or a tap on a focusable one.
+    Activate { name: String },
+    /// Focus moved (it plays `LoseFocus` and `GainFocus` on the actors).
+    Focus {
+        from: Option<String>,
+        to: Option<String>,
+    },
+    /// The field being typed into ([`Cx::begin_text`]).
+    Text {
+        name: String,
+        change: TextChange,
+        field: TextField,
+    },
+    /// A press outside a modal overlay (it may close itself).
+    Outside,
+    /// A request that needs a user gesture was made outside one (from a
+    /// frame, a message, a long press, a pad press the browser does not
+    /// count) and was refused: show a prompt, and ask again from the next
+    /// activation (a tap, a key). Never sent where gestures are not
+    /// required (desktop).
+    NeedsGesture(UiRequest),
+}
+
+/// A screen.
+pub trait Screen {
+    /// For debugging and tests.
+    fn name(&self) -> &str {
+        ""
+    }
+
+    /// The actor tree, built once when the screen is pushed: its root and
+    /// what is inside. Children named `In`, `Out` and `Cancel` are its
+    /// transition layers: `StartTransitioning` is played on them as the
+    /// screen comes in, leaves, or is backed out of (StepMania's
+    /// `ScreenWithMenuElements`); the root plays `On`, `Off` or `Cancel`.
+    fn build(&mut self, cx: &mut Cx) -> Actor;
+
+    fn input(&mut self, _input: &Input, _root: &mut Actor, _cx: &mut Cx) -> Handled {
+        Handled::No
+    }
+
+    /// A frame of `dt` seconds, after the actors' own update.
+    fn update(&mut self, _dt: f32, _root: &mut Actor, _cx: &mut Cx) {}
+
+    /// A message broadcast, after the actors played its command.
+    fn message(&mut self, _message: &Message, _root: &mut Actor, _cx: &mut Cx) {}
+
+    /// The named actors focus moves between, in order (the first is
+    /// focused when the screen comes in), with any explicit neighbours.
+    fn focusables(&self) -> Vec<Focusable> {
+        Vec::new()
+    }
+}
+
+/// What a screen asks for while handling a call.
+pub(crate) enum Op {
+    Request(UiRequest),
+    Push(Box<dyn Screen>),
+    Replace(Box<dyn Screen>),
+    Overlay {
+        screen: Box<dyn Screen>,
+        modal: bool,
+    },
+    Close {
+        cancel: bool,
+    },
+    Broadcast(Message),
+    Focus(String),
+    BeginText {
+        name: String,
+        text: String,
+        hints: InputHints,
+    },
+    SetText(String),
+    EndText,
+}
+
+/// A screen's way to the [`crate::Ui`] during a call.
+pub struct Cx {
+    pub(crate) ops: Vec<Op>,
+    gesture: bool,
+    viewport: Viewport,
+    time: f64,
+    focused: Option<String>,
+}
+
+impl Cx {
+    pub(crate) fn new(gesture: bool, viewport: Viewport, time: f64, focused: Option<String>) -> Cx {
+        Cx {
+            ops: Vec::new(),
+            gesture,
+            viewport,
+            time,
+            focused,
+        }
+    }
+
+    /// Whether this call comes from a user gesture: requests that need one
+    /// ([`UiRequest::needs_gesture`]) are carried out now; outside one they
+    /// are refused ([`Input::NeedsGesture`]).
+    pub fn in_gesture(&self) -> bool {
+        self.gesture
+    }
+
+    pub fn viewport(&self) -> &Viewport {
+        &self.viewport
+    }
+
+    /// Seconds of updates since the UI started.
+    pub fn time(&self) -> f64 {
+        self.time
+    }
+
+    /// The name of this screen's focused actor.
+    pub fn focused(&self) -> Option<&str> {
+        self.focused.as_deref()
+    }
+
+    pub fn request(&mut self, r: UiRequest) {
+        self.ops.push(Op::Request(r));
+    }
+
+    /// Pushes a screen over this one (this one stays, under it).
+    pub fn push(&mut self, screen: impl Screen + 'static) {
+        self.ops.push(Op::Push(Box::new(screen)));
+    }
+
+    /// This screen leaves (its `Off` and `Out`), then `screen` comes in.
+    pub fn replace(&mut self, screen: impl Screen + 'static) {
+        self.ops.push(Op::Replace(Box::new(screen)));
+    }
+
+    /// Opens a popup (not modal: input it leaves goes on to the screen
+    /// under it) or a dialog (modal: input stays inside, focus too).
+    pub fn overlay(&mut self, screen: impl Screen + 'static, modal: bool) {
+        self.ops.push(Op::Overlay {
+            screen: Box::new(screen),
+            modal,
+        });
+    }
+
+    /// This screen or overlay leaves, with its `Off` and `Out` (going on)
+    /// or, with `cancel`, its `Cancel` (backing out).
+    pub fn close(&mut self, cancel: bool) {
+        self.ops.push(Op::Close { cancel });
+    }
+
+    /// Broadcasts a message to every screen shown, once this call returns.
+    pub fn broadcast(&mut self, message: Message) {
+        self.ops.push(Op::Broadcast(message));
+    }
+
+    /// Focuses this screen's actor `name`.
+    pub fn focus(&mut self, name: impl Into<String>) {
+        self.ops.push(Op::Focus(name.into()));
+    }
+
+    /// Starts typing into the text actor `name` of this screen, holding
+    /// `text`: the shell is asked to start its text input (inside the
+    /// gesture: a phone's keyboard opens only then), and the UI shows the
+    /// field's text, caret, selection and composition on that actor.
+    pub fn begin_text(&mut self, name: impl Into<String>, text: &str, hints: InputHints) {
+        self.ops.push(Op::BeginText {
+            name: name.into(),
+            text: text.into(),
+            hints,
+        });
+    }
+
+    /// Replaces the text being typed (an autocomplete picked, cleared).
+    pub fn set_text(&mut self, text: &str) {
+        self.ops.push(Op::SetText(text.into()));
+    }
+
+    /// Stops typing.
+    pub fn end_text(&mut self) {
+        self.ops.push(Op::EndText);
+    }
+}

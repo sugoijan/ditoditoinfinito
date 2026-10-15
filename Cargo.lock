@@ -401,10 +401,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddi-ui"
+version = "0.1.0"
+dependencies = [
+ "ddi-actor",
+ "ddi-engine",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "ditoditoinfinito"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "ddi-actor",
  "ddi-chart",
  "ddi-engine",
  "ddi-library",

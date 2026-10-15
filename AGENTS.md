@@ -41,6 +41,13 @@ the browser are implementation details, not advertised features.
   bones and animated textures, and what is drawn. Pure, natively tested;
   the files actors are built from (`metrics.ini`, MilkShape, legacy actor
   files, Lua) are read in `noteskin/`.
+- `ui/` the UI core our screens are built on (`docs/plans/ui-core.md`,
+  step 3): input events in, requests to the shell out (handled
+  synchronously, gesture-bound ones flagged), hit-testing through actors,
+  touch and mouse gestures, menu navigation with key repeat and focus,
+  screens with transitions, dialogs, messages to actors, the one-line text
+  field (mirroring the web's hidden textarea, or editing itself on
+  desktop), and a headless harness. Pure, natively tested.
 - `noteskin/` StepMania noteskins: fallback chains, file lookup and
   redirects, `metrics.ini`, file name hints, what each element is (stand-ins
   for StepMania's `default` and `common`), its actors built (`actor/`) from

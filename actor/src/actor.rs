@@ -2284,40 +2284,13 @@ impl Actor {
         if !(opaque || s.glow[3] > 0.0) {
             return;
         }
-        // Translate, rotate, scale, then the alignment (`BeginDraw`). The
-        // rotation is `RageMatrixRotationXYZ` seen from the front: x goes to
-        // (cZ·cY, sZ·cX) and y to (−sZ·cY, cZ·cX) (`RageMath.cpp:319-327`).
-        let rot = [
-            (s.rotation[0] + self.base_rotation[0]).to_radians(),
-            (s.rotation[1] + self.base_rotation[1]).to_radians(),
-            (s.rotation[2] + self.base_rotation[2]).to_radians(),
-        ];
-        let (sz, cz) = rot[2].sin_cos();
-        let (cx, cy) = (rot[0].cos(), rot[1].cos());
-        // `maxwidth` squeezes a run (a base zoom in `BitmapText`).
-        let squeeze = match &self.kind {
-            Kind::Text(t) => t.squeeze(),
-            _ => 1.0,
-        };
-        let scale = [
-            s.scale[0] * self.base_scale[0] * squeeze,
-            s.scale[1] * self.base_scale[1],
-        ];
-        let size = self.size();
-        let align = [
-            lerp(self.halign, size[0] / 2.0, -size[0] / 2.0),
-            lerp(self.valign, size[1] / 2.0, -size[1] / 2.0),
-        ];
-        let ax = [scale[0] * cy * cz, scale[0] * cx * sz];
-        let ay = [-scale[1] * cy * sz, scale[1] * cx * cz];
-        let local: Mat = [
-            ax[0],
-            ax[1],
-            ay[0],
-            ay[1],
-            s.pos[0] + ax[0] * align[0] + ay[0] * align[1],
-            s.pos[1] + ax[1] * align[0] + ay[1] * align[1],
-        ];
+        let Placement {
+            rot,
+            scale,
+            size,
+            align,
+            local,
+        } = self.placement(&s);
         let m = mul(&under.m, &local);
         // In 3D (models, perspective, and what they are drawn under): the
         // same order, the rotation `Rx(-x)·Ry(-y)·Rz(z)`
@@ -2489,6 +2462,111 @@ impl Actor {
             }
         }
     }
+}
+
+impl Actor {
+    /// Translate, rotate, scale, then the alignment (`BeginDraw`), for
+    /// state `s`. The rotation is `RageMatrixRotationXYZ` seen from the
+    /// front: x goes to (cZ·cY, sZ·cX) and y to (−sZ·cY, cZ·cX)
+    /// (`RageMath.cpp:319-327`).
+    fn placement(&self, s: &TweenState) -> Placement {
+        let rot = [
+            (s.rotation[0] + self.base_rotation[0]).to_radians(),
+            (s.rotation[1] + self.base_rotation[1]).to_radians(),
+            (s.rotation[2] + self.base_rotation[2]).to_radians(),
+        ];
+        let (sz, cz) = rot[2].sin_cos();
+        let (cx, cy) = (rot[0].cos(), rot[1].cos());
+        // `maxwidth` squeezes a run (a base zoom in `BitmapText`).
+        let squeeze = match &self.kind {
+            Kind::Text(t) => t.squeeze(),
+            _ => 1.0,
+        };
+        let scale = [
+            s.scale[0] * self.base_scale[0] * squeeze,
+            s.scale[1] * self.base_scale[1],
+        ];
+        let size = self.size();
+        let align = [
+            lerp(self.halign, size[0] / 2.0, -size[0] / 2.0),
+            lerp(self.valign, size[1] / 2.0, -size[1] / 2.0),
+        ];
+        let ax = [scale[0] * cy * cz, scale[0] * cx * sz];
+        let ay = [-scale[1] * cy * sz, scale[1] * cx * cz];
+        let local: Mat = [
+            ax[0],
+            ax[1],
+            ay[0],
+            ay[1],
+            s.pos[0] + ax[0] * align[0] + ay[0] * align[1],
+            s.pos[1] + ax[1] * align[0] + ay[1] * align[1],
+        ];
+        Placement {
+            rot,
+            scale,
+            size,
+            align,
+            local,
+        }
+    }
+
+    /// Where the actor is in its parent now, as [`Actor::draw`] places it
+    /// but from the current tween state without effects (a `bob` or a
+    /// `vibrate` does not move it here): from its own space, where its box
+    /// ([`Actor::size`]) is `[-w/2, w/2] × [-h/2, h/2]` and a frame's
+    /// children are placed, to its parent's (`x' = m[0]x + m[2]y + m[4]`,
+    /// `y' = m[1]x + m[3]y + m[5]`). Rotations about x and y foreshorten
+    /// as drawn; an `fov` frame's camera is not applied. For hit-testing.
+    pub fn local_transform(&self) -> [f32; 6] {
+        self.placement(&self.current).local
+    }
+
+    /// `hibernate`: drawn and updated again once its time is up.
+    pub fn hibernating(&self) -> bool {
+        self.hibernate > 0.0
+    }
+
+    /// Whether an update may change what the actor or anything inside it
+    /// draws: tweens queued, an effect, a hibernation to wake from, a
+    /// playing sprite's frames or texture scrolling, a model that animates.
+    /// A hidden actor counts only its tweens (a queued command may show
+    /// it). A screen with nothing in motion need not be drawn again until
+    /// something changes it (`docs/plans/ui-core.md`, P13).
+    pub fn in_motion(&self) -> bool {
+        if !self.tweens.is_empty() {
+            return true;
+        }
+        if !self.visible {
+            return false;
+        }
+        let own = self.effect != Effect::None
+            || self.hibernate > 0.0
+            || match &self.kind {
+                Kind::Sprite(s) => {
+                    self.animating
+                        && ((s.states.len() > 1 && s.custom.is_none())
+                            || s.texcoord_velocity != [0.0; 2])
+                }
+                Kind::Model(m) => {
+                    (m.state.is_none() && m.animation_length() > 0.0)
+                        || (!m.geometry.meshes.is_empty()
+                            && m.animation.total_frames > 1
+                            && m.rate != 0.0
+                            && !matches!(m.default_animation, Some((false, _))))
+                }
+                Kind::Actor | Kind::Frame(_) | Kind::Text(_) => false,
+            };
+        own || self.children().iter().any(Actor::in_motion)
+    }
+}
+
+/// An actor's placement in its parent ([`Actor::placement`]).
+struct Placement {
+    rot: [f32; 3],
+    scale: [f32; 2],
+    size: [f32; 2],
+    align: [f32; 2],
+    local: Mat,
 }
 
 /// What a frame hands its children to draw under.
@@ -3416,5 +3494,56 @@ mod tests {
         assert_eq!(dest.blend, Blend::NoEffect);
         run(&mut dest, "zbuffer,false");
         assert_eq!(dest.depth, Depth::default());
+    }
+
+    #[test]
+    fn local_transforms_place_as_drawn() {
+        let mut a = Actor::new(Kind::Sprite(Sprite::quad([40.0, 20.0])));
+        run(
+            &mut a,
+            "xy,100,50;zoomx,2;rotationz,30;halign,0;basezoomy,0.5",
+        );
+        let mut out = Vec::new();
+        a.draw(IDENTITY, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
+        let Some(Drawn::Quad(q)) = out.first() else {
+            panic!("{out:?}");
+        };
+        // The drawn quad is the unit square sized to the box, placed.
+        assert_eq!(
+            q.transform,
+            mul(&a.local_transform(), &[40.0, 0.0, 0.0, 20.0, 0.0, 0.0])
+        );
+        // Effects do not move it.
+        run(&mut a, "bob");
+        let before = a.local_transform();
+        a.update(0.3, &Clocks::default(), &mut Problems::default());
+        assert_eq!(a.local_transform(), before);
+    }
+
+    #[test]
+    fn in_motion_while_anything_may_change() {
+        let mut a = Actor::new(Kind::Frame(vec![Actor::new(Kind::Sprite(Sprite::quad(
+            [1.0; 2],
+        )))]));
+        assert!(!a.in_motion());
+        run(&mut a.children_mut()[0], "linear,0.5;x,10");
+        assert!(a.in_motion());
+        a.update(0.6, &Clocks::default(), &mut Problems::default());
+        assert!(!a.in_motion());
+        run(&mut a.children_mut()[0], "diffuseshift");
+        assert!(a.in_motion());
+        run(&mut a.children_mut()[0], "stopeffect;hibernate,1");
+        assert!(a.in_motion() && a.children()[0].hibernating());
+        a.update(1.5, &Clocks::default(), &mut Problems::default());
+        assert!(!a.in_motion());
+        // Hidden: only tweens count; scrolling counts while playing.
+        run(&mut a.children_mut()[0], "texcoordvelocity,1,0;pause");
+        assert!(!a.in_motion());
+        run(&mut a.children_mut()[0], "play");
+        assert!(a.in_motion());
+        run(&mut a.children_mut()[0], "visible,0");
+        assert!(!a.in_motion());
+        run(&mut a.children_mut()[0], "sleep,1;visible,1");
+        assert!(a.in_motion());
     }
 }
