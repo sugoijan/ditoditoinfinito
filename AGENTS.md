@@ -76,14 +76,19 @@ the browser are implementation details, not advertised features.
   and string limits, fuel and a deadline per call, StepMania's `cmd`
   keyword, Lua 5.1's globals and nothing that reaches outside.
   Platform-free, natively tested.
-- `app/` the web shell: Yew for menus, one wgpu canvas and device for the
-  whole app (`app/src/web/screen.rs`: made at boot, moved into the page
-  that draws, made again after a lost device), Web Audio clock, settings
-  in `localStorage` (`app/src/web/kv.rs`), imported songs in IndexedDB.
-  Compiles for `wasm32-unknown-unknown` only.
-- `desktop/` the desktop shell (`ddi-desktop`, binary
-  `ditoditoinfinito-desktop [--screen select|results|options | --dev |
-  --widgets] [--seconds N]`): a winit window drawing the UI
+- `app/` the game (`ditoditoinfinito`, the workspace's default member):
+  a `main` that starts the web shell on wasm and the desktop shell
+  everywhere else; Trunk builds it for the browser (`index.html`),
+  `cargo run` for desktop.
+- `web/` the web shell (`ddi-web`): Yew for menus, one wgpu canvas and
+  device for the whole app (`web/src/web/screen.rs`: made at boot, moved
+  into the page that draws, made again after a lost device), Web Audio
+  clock, settings in `localStorage` (`web/src/web/kv.rs`), imported songs
+  in IndexedDB. Compiles for `wasm32-unknown-unknown` only (empty when
+  built natively).
+- `desktop/` the desktop shell (`ddi-desktop`, run by `app` natively:
+  `cargo run -- [--screen select|results|options | --dev | --widgets]
+  [--seconds N]`): a winit window drawing the UI
   core through `render`'s painter with cosmic-text and system fonts,
   settings in `storage.json` in the user's config folder, file dialogs
   (rfd), clipboard (arboard), banners and backgrounds decoded from
@@ -109,6 +114,10 @@ the browser are implementation details, not advertised features.
 
 ## Commands
 
+- `cargo run` opens the desktop window on our theme's song select
+  (sample data; `--release` for smooth frames; flags on
+  `ddi_desktop::run`). The same crate built for wasm is the web app,
+  which Trunk builds (`just dev`, `just build`).
 - `just dev` dev server (auto-reloads on every rebuild; unsuitable for long
   runtime tests). `just dev 0.0.0.0` serves the local network, but a LAN
   address over HTTP is not a secure context (no gamepads, no WebGPU); from
@@ -182,7 +191,7 @@ WebCodecs decoder with it frame by frame);
 holds and rolls kept and dropped, a mine), `rows`, `speed`, `layout=<id>`; `skin=builtin` for the
 built-in arrows; a test sets `window.__DDI_PREVIEW_BEAT`);
 `#/ui-test` draws the 2D pass's test scene (`t`, `scroll`, `delay`,
-`budget`, `speed`, `all=1`; module doc of `app/src/components/ui_test.rs`);
+`budget`, `speed`, `all=1`; module doc of `web/src/components/ui_test.rs`);
 `#/ui-dev` runs the UI core's developer screen (every primitive: focus,
 dialog, popup, the text field over a hidden textarea, a flickable strip,
 long press, a sound, a link and a file picker behind gestures) and

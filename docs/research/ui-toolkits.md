@@ -1,7 +1,7 @@
 # Drawing the menus ourselves: GUI toolkits, game UI, what to reuse (2026-10-15)
 
 Scope: the menus are Yew components over the DOM (about 7,700 lines in
-`app/src/components/` and `app/src/app.rs`: song select 1,780, the play
+`web/src/components/` and `web/src/app.rs`: song select 1,780, the play
 screen's component 1,630, options 1,320, the rest for the bind flow, the
 skin preview, the device notices, credits and developer pages; plus a
 1,050-line stylesheet). The aims are to draw every player-facing screen

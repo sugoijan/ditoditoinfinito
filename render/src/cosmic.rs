@@ -1,6 +1,6 @@
 //! Text runs drawn by cosmic-text (`docs/plans/ui-core.md`, P4): the
 //! [`RunRasterizer`] of desktop, embedded targets and native tests. The
-//! web draws runs with the browser instead (`app/src/web/text.rs`); this
+//! web draws runs with the browser instead (`web/src/web/text.rs`); this
 //! one stays buildable there, as the way back should the browser's text
 //! ever be dropped.
 //!

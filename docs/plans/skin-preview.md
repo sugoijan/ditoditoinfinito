@@ -6,7 +6,7 @@ they are chosen.
 
 ## Step 1. The preview page
 
-`#/skin-preview?skin=<key>` (`app/src/components/skin_preview.rs`): the
+`#/skin-preview?skin=<key>` (`web/src/components/skin_preview.rs`): the
 skin's Down tap note (`notes=4`: the four arrows; `receptors=1`: their
 receptors too) on a canvas, `size` pixels an arrow, over `bg`, held at
 `beat` or running at `bpm`, on WebGPU or (`gfx=gl`) WebGL2. It goes through
@@ -70,7 +70,7 @@ format skins.
 
 ## Step 4. Previews in Options
 
-`PreviewCanvas` (`app/src/components/skin_preview.rs`) is the page's canvas
+`PreviewCanvas` (`web/src/components/skin_preview.rs`) is the page's canvas
 as a component: it keeps its device and renderer and loads another skin
 when its options change (an older load gives way to a newer one). Under
 the Arrows choice, Options shows the arrows a play would draw (the chosen

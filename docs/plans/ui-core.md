@@ -57,7 +57,7 @@ ui/       ddi-ui       screens, input routing, focus, widgets, layout frames, th
                        our theme's components; UiEvent in, UiRequest out
 render/   ddi-render   draws a draw list (2D pass) besides the play field; texture cache
 noteskin/ ddi-noteskin skins built on ddi-actor (MilkShape and legacy parsing stay here)
-app/      web shell    one canvas for the app, DOM events → UiEvent, hidden textarea, file
+web/      ddi-web      one canvas for the app, DOM events → UiEvent, hidden textarea, file
                        inputs, storage; Yew shrinks screen by screen, then goes
 desktop/  ddi-desktop  winit window, wgpu surface, input → UiEvent, rfd, arboard, settings
                        file, system fonts; audio and play come with the rest of phase 9
@@ -133,7 +133,7 @@ they were drawn at.
   fallback and so the choice can be changed later (with a CJK font fetched
   on demand: identical layout everywhere, megabytes on the first Japanese
   title). The Dancing☆Onigiri layers draw text through the browser
-  already (`app/src/web/image.rs:122`), but with one `createImageBitmap`
+  already (`web/src/web/image.rs:122`), but with one `createImageBitmap`
   promise per run, too slow for a long list. The play HUD keeps glyphon
   and its embedded font.
 - **P5. Text input through the platform's own editor where there is one.**
@@ -173,7 +173,7 @@ they were drawn at.
   across a device loss.
 - **P10. One canvas and device for the whole web app**, created at boot
   and kept across routes. Today the play screen and the skin preview each
-  call `Gfx::new` (`app/src/web/gfx.rs:151`), which may replace the canvas
+  call `Gfx::new` (`web/src/web/gfx.rs:151`), which may replace the canvas
   when WebGPU fails (`gfx.rs:124`), and `&gfx=gl` is read per route; both
   become boot-time choices (`gfx=gl` a boot parameter and a setting). The
   first paint waits for the adapter (the boot shell shows meanwhile); a
@@ -188,7 +188,7 @@ they were drawn at.
   encoded blending, and an offscreen pass every frame costs power on
   phones; menus may draw directly in encoded values.
 - **P12. State the screens need moves out of `app`.** Settings
-  (`app/src/settings.rs`, `localStorage` through gloo), the song and
+  (`web/src/settings.rs`, `localStorage` through gloo), the song and
   noteskin libraries (`songs.rs`, `noteskins.rs`) and the song list's
   place (`menu.rs`, `sessionStorage`) become plain data behind `platform`
   traits, with the web's storage keys unchanged so players keep their
@@ -357,7 +357,7 @@ context (`WEBGL_lose_context`) recovers; texture-cache bytes in
 
 Done (2026-10-15):
 
-- **One canvas** (`app/src/web/screen.rs`): canvas and device made in
+- **One canvas** (`web/src/web/screen.rs`): canvas and device made in
   `main` before Yew mounts (the boot shell waits for the adapter, at most
   4 s); the backend chosen at boot (`gfx=gl` in the address, or the new
   Graphics setting), a route asking for WebGL2 later switching it once for
@@ -371,9 +371,9 @@ Done (2026-10-15):
   GPU the drawing pages say so and the Yew pages keep working.
 - **Texture cache** (`render/src/texture_cache.rs`): keyed by source and a
   size bucket (64 … 2048), stable ids, queued loads decoded by
-  `createImageBitmap` (`app/src/web/textures.rs`), least-recently-used
+  `createImageBitmap` (`web/src/web/textures.rs`), least-recently-used
   eviction under a byte budget, reloaded after a lost device.
-- **Text** (`render/src/text_atlas.rs`, `app/src/web/text.rs`,
+- **Text** (`render/src/text_atlas.rs`, `web/src/web/text.rs`,
   `render/src/cosmic.rs`): runs drawn white by Canvas2D on one staging
   canvas into 2048² `R8Unorm` pages with 2 px padding; one upload per page
   and stretch of a shelf each frame (a union rectangle would copy the
@@ -526,7 +526,7 @@ Done, the shells (2026-10-15):
 
 - **Shared state (P12).** `ddi_platform::storage` is a store each shell
   installs (`localStorage`/`sessionStorage` under the same keys on the
-  web, `app/src/web/kv.rs`; `storage.json` in the user's config folder on
+  web, `web/src/web/kv.rs`; `storage.json` in the user's config folder on
   desktop, an unreadable one kept as `storage.json.bad`). Settings and
   their migrations, the song list's place and the library views screens
   read live in `ui/src/state/`; the app re-exports them, and old settings
@@ -542,7 +542,8 @@ Done, the shells (2026-10-15):
   unwound on leaving. Pads are gestures for sound only: a file picker, a
   link, typing or the clipboard from a pad asks for a tap or a key. The
   gamepad poller rests while no pad is connected.
-- **Desktop.** `desktop/` (`ditoditoinfinito-desktop`): winit window, the
+- **Desktop.** `desktop/` (run by `app/` natively, binary
+  `ditoditoinfinito-desktop` until 2026-10-16): winit window, the
   painter in a plain format with cosmic-text and system fonts, keys
   mapped to the DOM's names, typing in own mode (IME allowed while
   typing, the caret's area sent as it moves; `Ime::Disabled` only clears
@@ -749,7 +750,7 @@ Firefox.
 
 1. **Results**, first: the smallest screen, and it proves layout frames.
    Today it is a state of the play route (`results_view`,
-   `app/src/components/game_canvas.rs`), and the engine keeps only totals,
+   `web/src/components/game_canvas.rs`), and the engine keeps only totals,
    the mean and the deviation (`engine/src/player.rs`, `Results`). The
    panels need more, recorded by the engine first, with replay-fixture
    tests: every judgement with its time, offset and lane; the life over
@@ -854,7 +855,7 @@ Done, 6.1 results (2026-10-15):
   ruleset's grades at both sizes.
 - **On the play route**: when a song's play ends, the play's frames stop
   and the screen takes the canvas, the keys and the pads
-  (`app/src/components/ui_dev.rs`'s host, embedded: its size the
+  (`web/src/components/ui_dev.rs`'s host, embedded: its size the
   canvas's, history the route's, its debug state added to the page's as
   `__DDI_DEBUG.results`, removed when they go). The backdrop is the
   background the play read, kept in memory (`web::textures::keep`) under

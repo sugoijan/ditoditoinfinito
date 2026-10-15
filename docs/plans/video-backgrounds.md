@@ -129,8 +129,8 @@ hashes; `check.mjs` decodes the three codecs.
 
 ## Step 2. The worker (commit 2)
 
-`app/src/web/video_worker.js` (plain JS, served by Trunk `copy-file`; it
-is small and it must run before any Rust) and `app/src/web/video.rs` (the
+`web/src/web/video_worker.js` (plain JS, served by Trunk `copy-file`; it
+is small and it must run before any Rust) and `web/src/web/video.rs` (the
 Rust side that owns the `Worker`).
 
 The worker:
@@ -335,7 +335,7 @@ checking the report and the manifest.
   `update_video(id, planes)` writes the three planes with `write_texture`
   (odd sizes: chroma is `(w+1)/2`). A native WGSL validation test like the
   one in `render/src/sprite.rs`.
-- `app/src/game_loop.rs`: `MovieState` per scheduled movie segment:
+- `web/src/game_loop.rs`: `MovieState` per scheduled movie segment:
   `open` 1 s before the segment starts (decoder `open` + `want 3`); on each
   frame compute `movie_time = (song_time − segment.seconds) × rate`
   (`rate` from the change's field, default 1), apply loop as `movie_time
@@ -393,7 +393,7 @@ late}`.
   saturate. The worker reports the file's last frame time at the end even
   when a seek past it decoded it without handing it over
   (`ddi_last_time`).
-- `app/src/movies.rs` (`MovieDeck`): the current and next movie segments
+- `web/src/movies.rs` (`MovieDeck`): the current and next movie segments
   (opened 2 s ahead) at most; a decoder moves to its movie's next segment
   instead of reopening the file; one texture per movie, shown only once it
   holds a frame of the current run (a retry or a restarting change shows
@@ -540,7 +540,7 @@ autoplay stays all top tier throughout (video never touches judging).
   natively tested on a generated clip. H.264 in AVI is Annex B with
   in-band SPS/PPS, which is what `VideoDecoder` takes with no
   `description`.
-- A second `VideoDecoder` implementation (`app/src/web/webcodecs.rs`):
+- A second `VideoDecoder` implementation (`web/src/web/webcodecs.rs`):
   `isConfigSupported({codec: "avc1.<profile from SPS>", optimizeForLatency: true})`,
   chunks as `EncodedVideoChunk {type: key|delta, timestamp: index × scale /
   rate × 1e6}`; output `VideoFrame`s uploaded with
