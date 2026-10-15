@@ -423,8 +423,8 @@ Checked on it:
 The maintainer published the fork on crates.io as `lunita` (0.1.0, its
 version reset; repository `sugoijan/lunita`, from `536a842`), on the
 released gc-arena 0.7 instead of the revision piccolo pinned. The
-workspace depends on `lunita = "0.1"`; `ddi-lua` re-exports it as
-`ddi_lua::lunita` (was `ddi_lua::piccolo`). One host change:
+workspace depends on `lunita` (`"0.1.2"` since 2026-10-15); `ddi-lua`
+re-exports it as `ddi_lua::lunita` (was `ddi_lua::piccolo`). One host change:
 `CompileLimits::for_context` gives a compilation the memory left before
 the limit refuses (gc-arena 0.7's `Metrics` count pointers, not bytes;
 `ddi-lua` had computed the room from `total_allocation` with its own
@@ -438,3 +438,26 @@ margin). Checked on it:
   release every outcome as expected (with the four Lua 5.1 differences
   above), the longest step 4.5 ms, at most 29.5 MiB; in wasm under Node
   the same outcomes, no trap, memory growth at most 32.4 MiB.
+
+## lunita 0.1.2 (2026-10-15)
+
+The workspace requires `lunita = "0.1.2"`: 0.1.1 fixed PUC-Rio
+semantics (a `local` statement's scope, the order of a multiple
+assignment's targets, `--[=` comments, `table.sort`/`move` argument
+checks) and bounded host conversions and frame growth; 0.1.2 bounds the
+values `table.insert`/`remove` shift in one step (lunita's
+`CHANGELOG.md`). No host change. Checked on it:
+
+- every native test of the workspace and clippy (native, and wasm with
+  the six warnings it had before);
+- the local skin corpus with its Lua and 20 s of play at 60 and 144 Hz
+  (StepMania 5.1's and ITGmania's skins and 22 community repositories):
+  348 of 349 skins load as before, and every skin's elements, load fuel
+  and most fuel in a frame are identical to 0.1.0's;
+- lunita's 126 exported limit cases (from `v0.1.2`): every outcome as
+  expected, on 0.1.2 as on 0.1.0; the longest step 4.4 ms in a quiet run
+  (runs while the machine was busy went past the 10 ms gate on either
+  version, on different cases each time);
+- headless Chrome (WebGPU) and Firefox (WebGL2): 20 s of autoplay with
+  each bundled skin that has Lua (Dito, Alpha-Arrows, Dake, CF_CHROME,
+  Delta), all top tier, the Lua running, no error.
