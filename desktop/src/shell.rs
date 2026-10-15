@@ -25,6 +25,7 @@ use ddi_ui::event::{
     TextEvent, UiEvent, WheelEvent, buttons, wheel_pixels,
 };
 use ddi_ui::request::Cursor;
+use ddi_ui::screens::{self as theme_screens, Env as ThemeEnv, sample};
 use ddi_ui::{TextMode, Ui, UiRequest};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize};
@@ -76,6 +77,10 @@ pub struct Shell {
     /// Quit after this many seconds (a run under a watchdog).
     pub quit_after: Option<f64>,
     pub error: Option<String>,
+    /// The theme's screens, when asked for (`--screen select`).
+    pub theme: Option<(ThemeEnv, Rc<ddi_theme::Infinito>)>,
+    /// Images came in at the last frame: one more frame shows them.
+    loaded: bool,
 }
 
 impl Shell {
@@ -85,18 +90,33 @@ impl Shell {
 
     /// The developer screen; with `widgets`, the widget screen over it.
     pub fn with_screen(widgets: bool) -> Shell {
+        Shell::named(if widgets { "widgets" } else { "" })
+    }
+
+    /// The screen `name`: the developer screen (`""`), the widget screen
+    /// over it (`widgets`), or the theme's song select, results or
+    /// options on sample data (`select`, `results`, `options`).
+    pub fn named(name: &str) -> Shell {
         let dev = Shared::default();
         let fold: FoldFn = Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&crate::Nfkd, s));
-        let shared = SharedWidgets::default();
-        let mut ui = Ui::new(dev::DESIGN, TextMode::Own, false);
-        ui.push(DevScreen::with_widgets(
-            dev.clone(),
-            shared.clone(),
-            fold.clone(),
-        ));
-        if widgets {
-            ui.push(WidgetScreen::new(shared, fold));
-        }
+        let mut theme = None;
+        let ui = if matches!(name, "select" | "results" | "options") {
+            let (ui, env, look) = theme_ui(name, fold);
+            theme = Some((env, look));
+            ui
+        } else {
+            let shared = SharedWidgets::default();
+            let mut ui = Ui::new(dev::DESIGN, TextMode::Own, false);
+            ui.push(DevScreen::with_widgets(
+                dev.clone(),
+                shared.clone(),
+                fold.clone(),
+            ));
+            if name == "widgets" {
+                ui.push(WidgetScreen::new(shared, fold));
+            }
+            ui
+        };
         Shell {
             ui,
             dev,
@@ -120,6 +140,8 @@ impl Shell {
             files: 0,
             quit_after: None,
             error: None,
+            theme,
+            loaded: false,
         }
     }
 
@@ -173,6 +195,11 @@ impl Shell {
         s.config.height = size.height.max(1);
         s.surface.configure(&s.gpu.device, &s.config);
         let logical = size.to_logical::<f32>(self.scale);
+        // The theme's design for this size (compact for a small window).
+        if let Some((_, look)) = &self.theme {
+            let design = theme_screens::design_for(&**look, [logical.width, logical.height]);
+            self.ui.set_design(design);
+        }
         self.send(UiEvent::Resize {
             size: [logical.width.max(1.0), logical.height.max(1.0)],
             ratio: self.scale as f32,
@@ -277,7 +304,7 @@ impl Shell {
 
     /// Asks for a frame if the UI needs one and none is coming.
     fn ask(&mut self) {
-        if self.occluded || self.pending || !self.ui.needs_redraw() {
+        if self.occluded || self.pending || !(self.ui.needs_redraw() || self.loaded) {
             return;
         }
         match self.retry_at {
@@ -332,8 +359,10 @@ impl Shell {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        s.gpu
-            .draw(&mut self.ui, &view, [s.config.width, s.config.height]);
+        self.loaded = s
+            .gpu
+            .draw(&mut self.ui, &view, [s.config.width, s.config.height])
+            > 0;
         s.window.pre_present_notify();
         s.gpu.queue.present(frame);
         self.frames += 1;
@@ -533,10 +562,53 @@ impl ApplicationHandler for Shell {
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
-        if self.occluded || !self.ui.needs_redraw() {
+        if self.occluded || !(self.ui.needs_redraw() || self.loaded) {
             // Idle: the next frame starts its clock afresh.
             self.last = None;
         }
         self.ask();
     }
+}
+
+/// A UI running the theme's screens on sample data, `first` on top: song
+/// select under it, at the theme's design. Desktop has no system setting
+/// for reduced motion: motion is reduced only when the settings say so.
+pub fn theme_ui(first: &str, fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
+    let look = Rc::new(ddi_theme::Infinito::new());
+    let env = ThemeEnv::new(look.clone(), fold);
+    let settings = ddi_ui::state::settings::Settings::load();
+    env.reduced_motion
+        .set(settings.reduced_motion.reduced(false));
+    env.state.borrow_mut().reduced_motion_setting = settings.reduced_motion as usize;
+    let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Own, false);
+    ui.set_focus_ring(false);
+    let changed = options_changed(&env);
+    ui.push(sample::select_screen(&env, Some(changed.clone())));
+    match first {
+        "results" => ui.push(sample::results_screen(&env)),
+        "options" => ui.push(sample::options_screen(&env, Some(changed))),
+        _ => {}
+    }
+    (ui, env, look)
+}
+
+/// Reduced motion changed in options: saved, and followed at once.
+fn options_changed(env: &ThemeEnv) -> theme_screens::options::ChangeFn {
+    use ddi_ui::state::settings::{ReducedMotion, Settings};
+    let flag = env.reduced_motion.clone();
+    let state = env.state.clone();
+    Rc::new(move |_section: &str, o: &theme_screens::data::OptionDef| {
+        if o.label != "Reduced motion" {
+            return;
+        }
+        let mut settings = Settings::load();
+        settings.reduced_motion = match o.index {
+            1 => ReducedMotion::On,
+            2 => ReducedMotion::Off,
+            _ => ReducedMotion::Auto,
+        };
+        settings.save();
+        flag.set(settings.reduced_motion.reduced(false));
+        state.borrow_mut().reduced_motion_setting = o.index;
+    })
 }

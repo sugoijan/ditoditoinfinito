@@ -102,6 +102,10 @@ pub struct Settings {
     /// Poll controllers every millisecond during play; off polls once per
     /// frame (less CPU, coarser timing).
     pub fast_pad_poll: bool,
+    /// Reduced motion in the menus (no beat pulse, no slides): as the
+    /// system says, or always, or never.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub reduced_motion: ReducedMotion,
     /// Debug overlay: backend, FPS, clock drift, timing error stats.
     pub debug: bool,
     /// Which graphics backend the app starts on (read once, at boot).
@@ -144,6 +148,28 @@ pub enum Graphics {
     /// WebGL2 always (a driver's trouble with WebGPU; testing the
     /// fallback).
     WebGl2,
+}
+
+/// Reduced motion in the menus.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReducedMotion {
+    /// As the system's setting (the web's `prefers-reduced-motion`;
+    /// desktop has none and moves).
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
+impl ReducedMotion {
+    /// Whether motion is reduced, given the system's preference.
+    pub fn reduced(self, system: bool) -> bool {
+        match self {
+            ReducedMotion::Auto => system,
+            ReducedMotion::On => true,
+            ReducedMotion::Off => false,
+        }
+    }
 }
 
 /// Whether background-change movies play.
@@ -243,6 +269,7 @@ impl Default for Settings {
             audio_offset: 0.0,
             visual_offset: 0.0,
             volume: 0.8,
+            reduced_motion: ReducedMotion::Auto,
             debug: false,
             graphics: Graphics::Auto,
             show_deltas: false,

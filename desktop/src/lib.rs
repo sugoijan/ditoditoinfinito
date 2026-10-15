@@ -1,16 +1,22 @@
 //! The desktop shell (`docs/plans/ui-core.md`, step 3): a winit window
 //! running the UI core, drawn by `ddi_render`'s painter with cosmic-text
 //! and the system's fonts. It runs the developer screen
-//! (`ddi_ui::dev`), the same code as the web's `#/ui-dev`; audio, play
-//! and the library on disk come with the rest of phase 9.
+//! (`ddi_ui::dev`), the same code as the web's `#/ui-dev`, and the
+//! theme's screens on sample data (song select by default, `--screen
+//! select|results|options` as `#/ui-dev?screen=…`; `--dev` for the
+//! developer screen); audio, play and the library on disk come
+//! with the rest of phase 9.
 //!
 //! - [`keys`]: winit's keys as the DOM names them.
 //! - [`store`]: settings in a file, through `ddi_platform::storage`.
-//! - [`gpu`]: the painter over a surface or an offscreen texture.
+//! - [`gpu`]: the painter over a surface or an offscreen texture, with
+//!   the bundled faces (the HUD's, the theme's) and the system's.
+//! - [`images`]: banners and backgrounds for the texture cache.
 //! - [`os`]: links, file dialogs, the clipboard.
 //! - [`shell`]: the window and its events.
 
 pub mod gpu;
+pub mod images;
 pub mod keys;
 pub mod os;
 pub mod shell;

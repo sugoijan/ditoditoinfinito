@@ -13,11 +13,15 @@
 //!   with `getImageData` and written with `write_texture`, at any origin.
 //!
 //! Runs are white, so the page keeps coverage alone (`R8Unorm`): copied
-//! premultiplied, red is alpha. The bundled font reaches the canvas as a
-//! `FontFace` ([`load_bundled_font`]); runs drawn before it loaded are
-//! drawn again once it has ([`RunRasterizer::fonts_version`]).
+//! premultiplied, red is alpha. Bundled faces reach the canvas as
+//! `FontFace`s: the HUD's from the wasm's bytes ([`load_bundled_font`]),
+//! the theme's text face from files served next to the app
+//! ([`load_theme_fonts`], fetched once a theme screen shows). Runs drawn
+//! before a face loaded are drawn again once it has
+//! ([`RunRasterizer::fonts_version`]), and pages drawing on demand are
+//! woken for it ([`on_fonts_loaded`]).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use ddi_actor::text::{RunMetrics, TextStyle};
@@ -30,9 +34,83 @@ use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
 /// style reads the same to cosmic-text on desktop).
 pub(crate) const BUNDLED_FAMILY: &str = "Iosevka Custom";
 
+/// The theme's text face (`ddi_theme`'s `fonts.text`): its weights and
+/// where they are served (`index.html` copies them from `assets/fonts`).
+pub(crate) const THEME_FAMILY: &str = "Iosevka Term";
+const THEME_FACES: [(&str, &str); 3] = [
+    ("400 500", "fonts/IosevkaTerm-Regular-latin.ttf"),
+    ("600", "fonts/IosevkaTerm-SemiBold-latin.ttf"),
+    ("700 900", "fonts/IosevkaTerm-Bold-latin.ttf"),
+];
+
 thread_local! {
     /// Bumped when a bundled face finishes loading.
     static FONTS_VERSION: Rc<Cell<u64>> = Rc::new(Cell::new(0));
+    /// The theme's faces were asked for.
+    static THEME_ASKED: Cell<bool> = const { Cell::new(false) };
+    /// Called when a face finishes loading; dropped once they answer
+    /// false (their page is gone).
+    static WAKERS: RefCell<Vec<Box<dyn Fn() -> bool>>> = RefCell::new(Vec::new());
+}
+
+/// Calls `f` each time a face finishes loading (a page drawing only on
+/// demand asks for a frame then), until it returns false.
+pub(crate) fn on_fonts_loaded(f: impl Fn() -> bool + 'static) {
+    WAKERS.with(|w| w.borrow_mut().push(Box::new(f)));
+}
+
+fn loaded() {
+    FONTS_VERSION.with(|v| v.set(v.get() + 1));
+    // Not borrowed while they run: a waker may draw.
+    let mut wakers = WAKERS.with(|w| std::mem::take(&mut *w.borrow_mut()));
+    wakers.retain(|f| f());
+    WAKERS.with(|w| {
+        let mut w = w.borrow_mut();
+        let added = std::mem::take(&mut *w);
+        *w = wakers;
+        w.extend(added);
+    });
+}
+
+/// Registers the theme's text face, its three weights fetched from their
+/// files (27 KB each, not in the wasm); once.
+pub(crate) fn load_theme_fonts() {
+    if THEME_ASKED.with(|a| a.replace(true)) {
+        return;
+    }
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    for (weight, url) in THEME_FACES {
+        let descriptors = web_sys::FontFaceDescriptors::new();
+        descriptors.set_weight(weight);
+        let face = match web_sys::FontFace::new_with_str_and_descriptors(
+            THEME_FAMILY,
+            &format!("url({url})"),
+            &descriptors,
+        ) {
+            Ok(f) => f,
+            Err(e) => {
+                web_sys::console::warn_1(&format!("theme font {url}: {e:?}").into());
+                continue;
+            }
+        };
+        let _ = document.fonts().add(&face);
+        let Ok(promise) = face.load() else {
+            continue;
+        };
+        wasm_bindgen_futures::spawn_local(async move {
+            match wasm_bindgen_futures::JsFuture::from(promise).await {
+                Ok(_) => loaded(),
+                Err(e) => web_sys::console::warn_1(&format!("theme font {url}: {e:?}").into()),
+            }
+        });
+    }
+}
+
+/// Faces loaded so far (a page compares it with the last it drew with).
+pub(crate) fn fonts_version() -> u64 {
+    FONTS_VERSION.with(|v| v.get())
 }
 
 /// Registers the bundled font with the document (`FontFace` from its
@@ -60,7 +138,7 @@ pub(crate) fn load_bundled_font() {
     };
     wasm_bindgen_futures::spawn_local(async move {
         match wasm_bindgen_futures::JsFuture::from(promise).await {
-            Ok(_) => FONTS_VERSION.with(|v| v.set(v.get() + 1)),
+            Ok(_) => loaded(),
             Err(e) => web_sys::console::warn_1(&format!("bundled font: {e:?}").into()),
         }
     });
@@ -72,8 +150,9 @@ pub(crate) struct CanvasRasterizer {
     /// Pages are filled from `getImageData` (WebGL2), not copied from the
     /// canvas.
     read_back: bool,
-    /// The CSS font last set.
+    /// The CSS font last set, and the letter spacing (pixels).
     font: String,
+    spacing: f32,
 }
 
 impl CanvasRasterizer {
@@ -104,6 +183,7 @@ impl CanvasRasterizer {
             canvas,
             read_back,
             font: String::new(),
+            spacing: 0.0,
         })
     }
 
@@ -118,6 +198,17 @@ impl CanvasRasterizer {
         if font != self.font {
             self.ctx.set_font(&font);
             self.font = font;
+        }
+        // Letter spacing (the theme's small capitals): `letterSpacing`
+        // where the browser has it, none where it does not.
+        let spacing = f32::from(style.tracking) / 1000.0 * style.size() * scale;
+        if spacing != self.spacing {
+            let _ = js_sys::Reflect::set(
+                &self.ctx,
+                &"letterSpacing".into(),
+                &format!("{spacing}px").into(),
+            );
+            self.spacing = spacing;
         }
     }
 }

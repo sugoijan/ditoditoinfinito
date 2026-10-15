@@ -38,7 +38,10 @@ the browser are implementation details, not advertised features.
 - `actor/` StepMania's actor model, shared by noteskins and later our
   screens (`docs/plans/ui-core.md`): actors, the tween queue, effects,
   sprite states, eases, commands as metrics write them, a model's meshes,
-  bones and animated textures, and what is drawn. Pure, natively tested;
+  bones and animated textures, and what is drawn (with our own
+  extensions for the theme: sprites' `cornerradius`, `softedge`,
+  `outline`, `saturation`; text's `ellipsis` and letter spacing). Pure,
+  natively tested;
   the files actors are built from (`metrics.ini`, MilkShape, legacy actor
   files, Lua) are read in `noteskin/`.
 - `ui/` the UI core our screens are built on (`docs/plans/ui-core.md`,
@@ -47,10 +50,18 @@ the browser are implementation details, not advertised features.
   touch and mouse gestures, menu navigation with key repeat and focus,
   screens with transitions, dialogs, messages to actors, the one-line text
   field (mirroring the web's hidden textarea, or editing itself on
-  desktop), and a headless harness; the state screens read (settings and
+  desktop), and a headless harness; the theme's screens
+  (`ui/src/screens/`: song select, results, options) with their sample
+  data; the state screens read (settings and
   their migrations, the song list's place, library views; stored through
   `ddi_platform::storage`, which each shell installs) and the developer
   screen both shells run (`ui/src/dev.rs`). Pure, natively tested.
+- `theme/` our theme (`ddi-theme`, `docs/plans/theme.md`): `Infinito`,
+  a look for the UI core whose components are the maintainer's mockups,
+  its colours, faces, sizes, timings and places in
+  `theme/src/infinito.toml` (turned into tables at build time). The
+  screens it dresses are `ui/src/screens/` (song select, results,
+  options; theme-agnostic, fed plain data). Pure, natively tested.
 - `noteskin/` StepMania noteskins: fallback chains, file lookup and
   redirects, `metrics.ini`, file name hints, what each element is (stand-ins
   for StepMania's `default` and `common`), its actors built (`actor/`) from
@@ -71,16 +82,21 @@ the browser are implementation details, not advertised features.
   in `localStorage` (`app/src/web/kv.rs`), imported songs in IndexedDB.
   Compiles for `wasm32-unknown-unknown` only.
 - `desktop/` the desktop shell (`ddi-desktop`, binary
-  `ditoditoinfinito-desktop [--seconds N]`): a winit window drawing the UI
+  `ditoditoinfinito-desktop [--screen select|results|options | --dev |
+  --widgets] [--seconds N]`): a winit window drawing the UI
   core through `render`'s painter with cosmic-text and system fonts,
   settings in `storage.json` in the user's config folder, file dialogs
-  (rfd), clipboard (arboard). So far it runs the developer screen; audio
-  and play come with the rest of phase 9. Built and tested by `just
+  (rfd), clipboard (arboard), banners and backgrounds decoded from
+  `assets/` (`image`). So far it runs the theme's screens on sample data
+  (song select by default, `--screen` for another) and the developer
+  screens (`--dev`, `--widgets`);
+  audio and play come with the rest of phase 9. Built and tested by `just
   test`, `just core-check` and CI (it builds on Debian with no system
   libraries: winit, rfd and arboard load theirs at run time).
   `desktop/tests/offscreen.rs` draws the developer screen on the GPU and
   compares pixels with the web's (`DDI_OFFSCREEN_PPM=<file>` keeps the
-  picture; skipped without an adapter).
+  picture; skipped without an adapter); `theme_offscreen.rs` draws the
+  theme's song select the same way.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md`.
 - `video/` the software video decoder: a C shim over FFmpeg's video
   decoders (every format StepMania plays), built to
@@ -88,7 +104,8 @@ the browser are implementation details, not advertised features.
   committed); `docs/plans/video-backgrounds.md`.
 - `assets/songs/<id>/` bundled songs with a `PROVENANCE.toml` each;
   `assets/noteskins/<game>/<name>/` bundled noteskins, the same way
-  (`docs/plans/bundled-skins.md`); `assets/fonts/` the embedded HUD font.
+  (`docs/plans/bundled-skins.md`); `assets/fonts/` the embedded HUD font
+  and the theme's text face (Iosevka Term, served as `fonts/`).
 
 ## Commands
 
@@ -100,7 +117,7 @@ the browser are implementation details, not advertised features.
 - `just build` release build with the production public URL.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
 - `just test` native tests (chart, engine, render, platform with `decode`,
-  library with `nfkd`, actor, ui, noteskin, lua, desktop, xtask). The app crate has no native tests; verify it in a browser.
+  library with `nfkd`, actor, ui, theme, noteskin, lua, desktop, xtask). The app crate has no native tests; verify it in a browser.
 - `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
   compares every `.sm` under a local folder against the two oracle parsers
   (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`).
@@ -172,7 +189,14 @@ publishes `window.__DDI_DEBUG.ui` (screens, focus, the field's text,
 selection and preedit, last requests, frames, actor rectangles);
 `#/ui-dev?screen=widgets` (or the Widgets button) shows the widgets: a
 10,000-song list, search with suggestions, option rows, a toggle, a
-slider and results-like panels (`--widgets` in the desktop binary).
+slider and results-like panels (`--widgets` in the desktop binary);
+`#/ui-dev?screen=select|results|options` runs the theme's screens on
+sample data (the bundled songs and made-up packs; `--screen select` and
+so on in the desktop binary), with their state in
+`__DDI_DEBUG.ui.theme` (screen, song, style, chart, greyed, search,
+popup, hints, pulse, compact, …); a window under 480 CSS pixels high
+gets the compact layout, and `prefers-reduced-motion` (or the
+`reduced_motion` setting) stops the beat pulse.
 `window.__DDI_LOSE_DEVICE()` loses the device, to test recovery;
 `__DDI_DEBUG` carries the canvas's `screen`, `textures`, `text` and
 `pass2d` counters. Imported songs have ids
@@ -226,7 +250,8 @@ calibrated offset.
   or CC0, declared in the upstream files; code we may not take (Lua derived
   from unlicensed skins) is replaced by our own and listed as a
   modification.
-- Bundled fonts: OFL-1.1 (as the HUD's Iosevka subset, `assets/fonts/`) or
+- Bundled fonts: OFL-1.1 (as the HUD's and the theme's Iosevka subsets,
+  `assets/fonts/`; the theme's are served as files, not embedded) or
   the licences above, declared upstream; subsetting is a modification.
 - Each song or skin directory keeps the upstream files byte-identical plus
   `PROVENANCE.toml` (source URL, pinned commit, retrieval date, licences per

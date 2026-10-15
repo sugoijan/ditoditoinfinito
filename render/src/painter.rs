@@ -56,6 +56,10 @@ const COVERAGE: u32 = 1;
 const UNTEXTURED: u32 = 2;
 const GLOW: u32 = 4;
 const PROJECTED: u32 = 8;
+/// Cut by `shape` (rounded corners, a soft edge, an outline).
+const CUT: u32 = 16;
+/// Its colour's saturation changed (`shape2`'s z).
+const SATURATION: u32 = 32;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -73,13 +77,18 @@ struct Instance {
     colors: [u32; 4],
     /// The corners' `w`, in the same order (1 but in perspective).
     w: [f32; 4],
+    /// With [`CUT`]: the corners' radius and the soft edge, in the
+    /// rectangle's units per axis.
+    shape: [f32; 4],
+    /// The outline's thickness per axis; the saturation.
+    shape2: [f32; 4],
 }
 
-const _: () = assert!(std::mem::size_of::<Instance>() == 96);
+const _: () = assert!(std::mem::size_of::<Instance>() == 128);
 
 impl Instance {
     /// By the fields' offsets (`_pad` keeps `rect` 16-byte aligned).
-    const ATTRIBUTES: [wgpu::VertexAttribute; 10] = {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 12] = {
         const fn a(
             shader_location: u32,
             format: wgpu::VertexFormat,
@@ -103,9 +112,14 @@ impl Instance {
             a(7, Unorm8x4, 72),
             a(8, Unorm8x4, 76),
             a(9, Float32x4, 80),
+            a(10, Float32x4, 96),
+            a(11, Float32x4, 112),
         ]
     };
 }
+
+/// No outline, full saturation.
+const NO_SHAPE2: [f32; 4] = [0.0, 0.0, 1.0, 0.0];
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -839,6 +853,8 @@ impl Painter {
                 // Opaque, so the alpha test keeps it; it draws no colour.
                 colors: [u32::MAX; 4],
                 w: [1.0; 4],
+                shape: [0.0; 4],
+                shape2: NO_SHAPE2,
             }
         };
         for command in &list.commands {
@@ -896,10 +912,16 @@ impl Painter {
                                 uv: q.uv,
                                 colors: colors.map(pack),
                                 w: p.w,
+                                shape: [0.0; 4],
+                                shape2: NO_SHAPE2,
                             }
                         }
                         None => {
                             let (axes, origin) = linear(q.transform.0);
+                            let sh = &q.shape;
+                            let mode = mode
+                                | if sh.is_cut() { CUT } else { 0 }
+                                | if sh.saturation != 1.0 { SATURATION } else { 0 };
                             Instance {
                                 axes,
                                 origin,
@@ -909,6 +931,8 @@ impl Painter {
                                 uv: q.uv,
                                 colors: colors.map(pack),
                                 w: [1.0; 4],
+                                shape: [sh.radius[0], sh.radius[1], sh.soft[0], sh.soft[1]],
+                                shape2: [sh.outline[0], sh.outline[1], sh.saturation, 0.0],
                             }
                         }
                     };
@@ -983,6 +1007,8 @@ impl Painter {
                         ],
                         colors: [pack(t.color); 4],
                         w: ws,
+                        shape: [0.0; 4],
+                        shape2: NO_SHAPE2,
                     });
                 }
             }

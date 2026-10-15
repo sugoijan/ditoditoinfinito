@@ -1,7 +1,10 @@
 //! The painter (`ddi_render`'s 2D pass) on desktop: over a window's
 //! surface, or into a texture for the offscreen test. Text is
-//! cosmic-text's with the system's fonts (P4). Menus are drawn in encoded
-//! values (P11), so the surface's format is a plain one, not sRGB.
+//! cosmic-text's with the bundled faces (the HUD's numbers, the theme's
+//! Iosevka Term) and the system's fonts behind them (P4). Menus are drawn
+//! in encoded values (P11), so the surface's format is a plain one, not
+//! sRGB. Images are decoded when a frame asks for them
+//! ([`crate::images`]); the frame after shows them.
 
 use ddi_render::cosmic::CosmicRasterizer;
 use ddi_render::texture_cache::TextureKey;
@@ -15,6 +18,28 @@ pub const CLEAR: wgpu::Color = wgpu::Color {
     b: 18.0 / 255.0,
     a: 1.0,
 };
+
+/// The bundled faces under the families styles name them by: the HUD's
+/// numbers and the theme's text face (the web registers the same files
+/// under the same names, `app/src/web/text.rs`).
+pub const FACES: &[(&str, &[u8])] = &[
+    (
+        "Iosevka Custom",
+        include_bytes!("../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf"),
+    ),
+    (
+        "Iosevka Term",
+        include_bytes!("../../assets/fonts/IosevkaTerm-Regular-latin.ttf"),
+    ),
+    (
+        "Iosevka Term",
+        include_bytes!("../../assets/fonts/IosevkaTerm-SemiBold-latin.ttf"),
+    ),
+    (
+        "Iosevka Term",
+        include_bytes!("../../assets/fonts/IosevkaTerm-Bold-latin.ttf"),
+    ),
+];
 
 /// The native backends.
 pub fn instance() -> wgpu::Instance {
@@ -67,7 +92,7 @@ pub struct Gpu {
 impl Gpu {
     pub fn new(device: wgpu::Device, queue: wgpu::Queue, format: wgpu::TextureFormat) -> Gpu {
         let mut painter = Painter::new(&device, &queue, format);
-        painter.set_rasterizer(Box::new(CosmicRasterizer::new(&[], true)));
+        painter.set_rasterizer(Box::new(CosmicRasterizer::with_families(FACES, true)));
         Gpu {
             device,
             queue,
@@ -76,8 +101,9 @@ impl Gpu {
         }
     }
 
-    /// Draws `ui` into `target` (`size` physical pixels) and submits.
-    pub fn draw(&mut self, ui: &mut Ui, target: &wgpu::TextureView, size: [u32; 2]) {
+    /// Draws `ui` into `target` (`size` physical pixels) and submits;
+    /// how many images were loaded for it (shown from the next frame).
+    pub fn draw(&mut self, ui: &mut Ui, target: &wgpu::TextureView, size: [u32; 2]) -> usize {
         let vp = *ui.viewport();
         let scale = vp.scale;
         let shift = [
@@ -99,11 +125,6 @@ impl Gpu {
             let (source, side) = ui.texture_source(t)?;
             Some(painter.texture(TextureKey::drawn(source, side * scale)))
         });
-        // No image loader on desktop yet (the library on disk comes with
-        // phase 9): every image asked for fails, the placeholders show.
-        for (id, _) in self.painter.take_texture_requests() {
-            self.painter.fail_texture(id);
-        }
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("ui") });
@@ -120,6 +141,22 @@ impl Gpu {
         );
         self.queue.submit(Some(encoder.finish()));
         self.painter.submitted();
+        // Images the draw asked for, decoded now (the library on disk comes with
+        // phase 9 and decodes off this thread); what fails keeps its
+        // placeholder.
+        let mut loaded = 0;
+        for (id, key) in self.painter.take_texture_requests() {
+            let side = key.max_side.min(self.painter.max_texture_side());
+            match crate::images::load(&key.source, side) {
+                Some((size, rgba)) => {
+                    self.painter
+                        .insert_rgba(&self.device, &self.queue, id, size, &rgba);
+                    loaded += 1;
+                }
+                None => self.painter.fail_texture(id),
+            }
+        }
+        loaded
     }
 
     /// Draws `ui` into a texture of `size` and reads it back: RGBA rows.
@@ -144,7 +181,13 @@ impl Gpu {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.draw(ui, &view, size);
+        // Again while images came in: they show from the frame after.
+        for _ in 0..3 {
+            if self.draw(ui, &view, size) == 0 {
+                break;
+            }
+            ui.update(0.0);
+        }
         let row = size[0] * 4;
         let padded =
             row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;

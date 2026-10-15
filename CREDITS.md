@@ -139,7 +139,10 @@ Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/P
 
 ## Fonts
 
-- `IosevkaCustom-ExtraBold-latin.ttf`: Renzhi Li (aka. Belleve Invis) — [SIL Open Font License 1.1](https://openfontlicense.org/); source: https://github.com/be5invis/Iosevka; modified: subset (see above)
+- `IosevkaCustom-ExtraBold-latin.ttf`: Renzhi Li (aka. Belleve Invis) — [SIL Open Font License 1.1](https://openfontlicense.org/); source: https://github.com/be5invis/Iosevka; modified: subset with fonttools pyftsubset to Latin-1 and a few symbols (assets/fonts/PROVENANCE.toml)
+- `IosevkaTerm-Regular-latin.ttf`: Renzhi Li (aka. Belleve Invis) — [SIL Open Font License 1.1](https://openfontlicense.org/); source: https://github.com/be5invis/Iosevka; modified: subset with fonttools pyftsubset to Latin-1, Latin Extended-A and the theme's symbols, layout features removed (assets/fonts/PROVENANCE.toml)
+- `IosevkaTerm-SemiBold-latin.ttf`: Renzhi Li (aka. Belleve Invis) — [SIL Open Font License 1.1](https://openfontlicense.org/); source: https://github.com/be5invis/Iosevka; modified: subset with fonttools pyftsubset to Latin-1, Latin Extended-A and the theme's symbols, layout features removed (assets/fonts/PROVENANCE.toml)
+- `IosevkaTerm-Bold-latin.ttf`: Renzhi Li (aka. Belleve Invis) — [SIL Open Font License 1.1](https://openfontlicense.org/); source: https://github.com/be5invis/Iosevka; modified: subset with fonttools pyftsubset to Latin-1, Latin Extended-A and the theme's symbols, layout features removed (assets/fonts/PROVENANCE.toml)
 
 ## Video decoder
 

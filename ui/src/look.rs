@@ -23,6 +23,15 @@
 //!   `Popup.Item`: `Plate`, `Text`, `Note`.
 //! - `Panel`: `Plate`, `Title`.
 //!
+//! - The theme's screens ask for more (`SongList.Row`, `StyleTab`,
+//!   `ChartLadder.Row`, …), listed in [`crate::screens`], each falling
+//!   back to one of these.
+//!
+//! A look also gives named colours, font stacks by role (`Text`,
+//! `Numbers`), the wheel's curve and named metrics (a region's place, a
+//! timing, an amount: [`Look::metric`]), which screens read with their
+//! own defaults.
+//!
 //! Sizes are virtual pixels; components are centred on their origin,
 //! except list rows and headers, whose origin is their top left.
 
@@ -38,6 +47,8 @@ pub struct Spec {
     pub size: [f32; 2],
     /// Its label or first text.
     pub text: String,
+    /// More texts some components take (a key hint's key caps).
+    pub items: Vec<String>,
 }
 
 impl Spec {
@@ -45,7 +56,14 @@ impl Spec {
         Spec {
             size,
             text: text.into(),
+            items: Vec::new(),
         }
+    }
+
+    /// With `items`.
+    pub fn with_items(mut self, items: impl IntoIterator<Item = impl Into<String>>) -> Spec {
+        self.items = items.into_iter().map(Into::into).collect();
+        self
     }
 }
 
@@ -54,6 +72,9 @@ impl Spec {
 pub struct WheelPlace {
     /// Moved right, virtual pixels.
     pub x: f32,
+    /// Moved down (up when negative), virtual pixels: room around a
+    /// selected row drawn larger.
+    pub y: f32,
     pub zoom: f32,
     pub alpha: f32,
 }
@@ -80,6 +101,44 @@ pub trait Look {
     fn wheel(&self, _list: &str, _distance: f32) -> Option<WheelPlace> {
         None
     }
+
+    /// A named number: a region's place or size (`Select.Wheel.X`), a
+    /// timing (`Motion.Select`), an amount (`Backdrop.Alpha`). Screens
+    /// give their own default for what a look leaves out.
+    fn metric(&self, _name: &str) -> Option<f32> {
+        None
+    }
+
+    /// The font stack for a role: `Text` (what [`Look::font`] gives) or
+    /// `Numbers` (meters, scores, key caps).
+    fn font_for(&self, role: &str) -> Option<Arc<str>> {
+        (role == "Text").then(|| self.font()).flatten()
+    }
+}
+
+/// A look's metric `name`, else `default`.
+pub fn metric(look: &dyn Look, name: &str, default: f32) -> f32 {
+    look.metric(name).unwrap_or(default)
+}
+
+/// A look's font for `role`, else its text font, else the plain one.
+pub fn font_for(look: &dyn Look, role: &str) -> Arc<str> {
+    look.font_for(role).unwrap_or_else(|| font(look))
+}
+
+/// How wide a run of `s` is in a monospaced face of `size` (a half em
+/// a character, a whole one for the wide characters of Japanese and
+/// the like): what screens lay out with before anything is measured.
+/// The theme's faces are monospaced (Iosevka); a proportional fallback
+/// makes this an estimate.
+pub fn mono_width(s: &str, size: f32) -> f32 {
+    s.chars()
+        .map(|c| {
+            let wide = matches!(c as u32, 0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x20000..=0x3FFFD);
+            if wide { 1.0 } else { 0.5 }
+        })
+        .sum::<f32>()
+        * size
 }
 
 /// Component `name` from `look`, else [`Plain`]'s (in the look's font),
@@ -112,6 +171,7 @@ pub fn wheel(look: &dyn Look, list: &str, distance: f32) -> WheelPlace {
         .or_else(|| Plain.wheel(list, distance))
         .unwrap_or(WheelPlace {
             x: 0.0,
+            y: 0.0,
             zoom: 1.0,
             alpha: 1.0,
         })
@@ -131,7 +191,7 @@ const MUTED: Rgba = [0.6, 0.62, 0.68, 1.0];
 
 /// Runs a command string on an actor (the plain look's own; ignores what
 /// fails).
-pub(crate) fn run(a: &mut Actor, commands: &str) {
+pub fn run(a: &mut Actor, commands: &str) {
     let mut p = Problems::default();
     if let Ok(calls) = parse(commands) {
         for c in calls {
@@ -140,14 +200,14 @@ pub(crate) fn run(a: &mut Actor, commands: &str) {
     }
 }
 
-/// [`call`] for tests and shells: a method with numbers.
+/// [`call`] under its older name.
 #[doc(hidden)]
 pub fn call_for_tests(a: &mut Actor, method: &str, args: &[f32]) {
     call(a, method, args);
 }
 
 /// One method call with numbers, no parsing (per frame).
-pub(crate) fn call(a: &mut Actor, method: &str, args: &[f32]) {
+pub fn call(a: &mut Actor, method: &str, args: &[f32]) {
     let c = Call {
         method: method.into(),
         args: args.iter().map(|&n| Arg::Num(n)).collect(),
@@ -155,13 +215,13 @@ pub(crate) fn call(a: &mut Actor, method: &str, args: &[f32]) {
     let _ = a.call(&c, &mut Problems::default(), 0);
 }
 
-pub(crate) fn named(kind: Kind, name: &str) -> Actor {
+pub fn named(kind: Kind, name: &str) -> Actor {
     let mut a = Actor::new(kind);
     a.name = name.into();
     a
 }
 
-pub(crate) fn quad(name: &str, size: [f32; 2], color: Rgba) -> Actor {
+pub fn quad(name: &str, size: [f32; 2], color: Rgba) -> Actor {
     let mut a = named(Kind::Sprite(Sprite::quad(size)), name);
     call(&mut a, "diffuse", &color);
     a
@@ -172,10 +232,41 @@ pub(crate) fn text(name: &str, s: &str, size: f32, color: Rgba) -> Actor {
 }
 
 /// A run of text in `font`.
-pub(crate) fn text_in(font: &str, name: &str, s: &str, size: f32, color: Rgba) -> Actor {
-    let mut a = named(Kind::Text(Text::new(s, TextStyle::new(font, size))), name);
+pub fn text_in(font: &str, name: &str, s: &str, size: f32, color: Rgba) -> Actor {
+    text_weighted(font, 400, name, s, size, color)
+}
+
+/// A run of text in `font` at CSS weight `weight`.
+pub fn text_weighted(
+    font: &str,
+    weight: u16,
+    name: &str,
+    s: &str,
+    size: f32,
+    color: Rgba,
+) -> Actor {
+    let mut style = TextStyle::new(font, size);
+    style.weight = weight;
+    let mut a = named(Kind::Text(Text::new(s, style)), name);
     call(&mut a, "diffuse", &color);
     a
+}
+
+/// `a` (a run of text) with letters `thousandths` of an em apart (our
+/// extension; small capitals).
+pub fn tracked(mut a: Actor, thousandths: i16) -> Actor {
+    if let Kind::Text(t) = &mut a.kind {
+        let mut style = t.style().clone();
+        style.tracking = thousandths;
+        t.set_style(style);
+    }
+    a
+}
+
+/// Sets command `name` from a command string (what fails to parse is
+/// left out).
+pub fn command_of(a: &mut Actor, name: &str, s: &str) {
+    a.set_command(name, parse(s).unwrap_or_default());
 }
 
 fn command(a: &mut Actor, name: &str, s: &str) {
@@ -221,7 +312,23 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
                 let mut label = text("Label", &spec.text, size, TEXT);
                 call(&mut label, "x", &[-w / 2.0 + 12.0]);
                 call(&mut label, "halign", &[0.0]);
-                let mut bx = quad("Box", [h * 0.55, h * 0.55], [0.3, 0.31, 0.36, 1.0]);
+                // The box an outline (a filled one read as checked while
+                // off), the mark inside it when on.
+                let (s, t) = (h * 0.55, 2.0);
+                let edge = |x: f32, y: f32, size: [f32; 2]| {
+                    let mut q = quad("", size, [0.45, 0.47, 0.53, 1.0]);
+                    call(&mut q, "xy", &[x, y]);
+                    q
+                };
+                let mut bx = named(
+                    Kind::Frame(vec![
+                        edge(0.0, -s / 2.0 + t / 2.0, [s, t]),
+                        edge(0.0, s / 2.0 - t / 2.0, [s, t]),
+                        edge(-s / 2.0 + t / 2.0, 0.0, [t, s]),
+                        edge(s / 2.0 - t / 2.0, 0.0, [t, s]),
+                    ]),
+                    "Box",
+                );
                 call(&mut bx, "x", &[w / 2.0 - h * 0.5]);
                 let mut mark = quad("Mark", [h * 0.35, h * 0.35], LIT);
                 call(&mut mark, "x", &[w / 2.0 - h * 0.5]);
@@ -397,6 +504,7 @@ impl Look for Plain {
         let d = distance.abs();
         Some(WheelPlace {
             x: d * d * 6.0,
+            y: 0.0,
             zoom: (1.0 - d * 0.04).max(0.7),
             alpha: (1.0 - d * 0.12).max(0.25),
         })

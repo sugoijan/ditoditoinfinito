@@ -37,6 +37,14 @@
 //! `window.__DDI_DEBUG.ui` publishes the screen stack, focus, the field,
 //! the last requests, frames drawn, sounds played and where the named
 //! actors are (CSS pixels), for the headless tests.
+//!
+//! `?screen=select|results|options` runs the theme's screens instead
+//! (`ddi_ui::screens` in `ddi_theme::Infinito`, step 5) on their sample
+//! data, at the theme's design size (1280×720; a window under
+//! `Compact.Below` CSS pixels high gets the compact design), with the
+//! theme's text face registered from its files, reduced motion from the
+//! settings and `prefers-reduced-motion`, and what they did in
+//! `__DDI_DEBUG.ui.theme`.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -54,6 +62,7 @@ use ddi_ui::event::{
     TextSync, UiEvent, WheelEvent, wheel_pixels,
 };
 use ddi_ui::request::{Cursor, EnterKey, InputMode};
+use ddi_ui::screens::{self as theme_screens, Env as ThemeEnv, sample};
 use ddi_ui::state::library::Libraries;
 use ddi_ui::text_field::composition_range;
 use ddi_ui::{Message, TextMode, Ui, UiRequest};
@@ -70,6 +79,34 @@ use crate::web::screen;
 
 /// Requests kept for the debug view.
 const KEPT_REQUESTS: usize = 24;
+/// The theme screens' actors whose places the debug view gives.
+const THEME_NAMED: [&str; 24] = [
+    "Wheel",
+    "Search",
+    "Info",
+    "Tab0",
+    "Tab1",
+    "Tab2",
+    "Ladder.Row0",
+    "Ladder.Row3",
+    "Ladder.Empty",
+    "Link.Options",
+    "Link.Add",
+    "Play",
+    "Chart0",
+    "Chart2",
+    "StyleButton",
+    "SearchIcon",
+    "SongList",
+    "Retry",
+    "OffsetUp",
+    "PanelSet1",
+    "Section1",
+    "Option0",
+    "Option2",
+    "Link.Back",
+];
+
 /// The actors whose places the debug view gives.
 const NAMED: [&str; 31] = [
     "Beep",
@@ -170,6 +207,29 @@ struct Host {
     /// Work of every frame drawn so far, ms (with `frames`, the mean).
     total_ms: f64,
     texture_stats: Option<ddi_render::texture_cache::TextureStats>,
+    /// The theme's screens, when the route asked for them.
+    theme: Option<ThemeHost>,
+}
+
+/// What the theme's screens run with.
+struct ThemeHost {
+    env: ThemeEnv,
+    look: Rc<ddi_theme::Infinito>,
+    /// The system asks for reduced motion (`prefers-reduced-motion`).
+    system_reduced: Rc<std::cell::Cell<bool>>,
+}
+
+/// Whether `screen` is one of the theme's.
+fn theme_screen(screen: &str) -> bool {
+    matches!(screen, "select" | "results" | "options")
+}
+
+/// The system's `prefers-reduced-motion`, and its query to listen to.
+fn reduced_motion_query() -> Option<web_sys::MediaQueryList> {
+    web_sys::window()?
+        .match_media("(prefers-reduced-motion: reduce)")
+        .ok()
+        .flatten()
 }
 
 impl Component for UiDev {
@@ -312,16 +372,43 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
     let dev: Shared = Shared::default();
     let widgets = SharedWidgets::default();
     let fold: FoldFn = Rc::new(nfkd);
-    let mut ui = Ui::new(dev::DESIGN, TextMode::Mirror, true);
-    ui.push(DevScreen::with_widgets(
-        dev.clone(),
-        widgets.clone(),
-        fold.clone(),
-    ));
-    if first == "widgets" {
-        ui.push(WidgetScreen::new(widgets.clone(), fold));
-    }
     let settings = crate::settings::Settings::load();
+    let mut theme = None;
+    let ui = if theme_screen(first) {
+        crate::web::text::load_theme_fonts();
+        let look = Rc::new(ddi_theme::Infinito::new());
+        let env = ThemeEnv::new(look.clone(), fold.clone());
+        let system = reduced_motion_query().is_some_and(|q| q.matches());
+        env.reduced_motion
+            .set(settings.reduced_motion.reduced(system));
+        env.state.borrow_mut().reduced_motion_setting = settings.reduced_motion as usize;
+        let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Mirror, true);
+        // The theme draws its own focus.
+        ui.set_focus_ring(false);
+        ui.push(sample::select_screen(&env, Some(options_changed(&env))));
+        match first {
+            "results" => ui.push(sample::results_screen(&env)),
+            "options" => ui.push(sample::options_screen(&env, Some(options_changed(&env)))),
+            _ => {}
+        }
+        theme = Some(ThemeHost {
+            env,
+            look,
+            system_reduced: Rc::new(std::cell::Cell::new(system)),
+        });
+        ui
+    } else {
+        let mut ui = Ui::new(dev::DESIGN, TextMode::Mirror, true);
+        ui.push(DevScreen::with_widgets(
+            dev.clone(),
+            widgets.clone(),
+            fold.clone(),
+        ));
+        if first == "widgets" {
+            ui.push(WidgetScreen::new(widgets.clone(), fold));
+        }
+        ui
+    };
     let host = Rc::new(RefCell::new(Host {
         ui,
         dev,
@@ -354,6 +441,7 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
         worst_ms: 0.0,
         total_ms: 0.0,
         texture_stats: None,
+        theme,
     }));
     resize(&host);
     // Back into an entry pushed for a dialog of an earlier visit (a reload,
@@ -365,7 +453,42 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
         host.borrow_mut().ignore_pops += 1;
         let _ = history.go_with_delta(-(n as i32));
     }
-    let listeners = listen(&host, &canvas, &textarea, &files);
+    let mut listeners = listen(&host, &canvas, &textarea, &files);
+    if host.borrow().theme.is_some() {
+        // A face loaded: the runs drawn meanwhile are drawn again.
+        let weak = Rc::downgrade(&host);
+        crate::web::text::on_fonts_loaded(move || {
+            let Some(rc) = weak.upgrade() else {
+                // The page is gone: no more calls.
+                return false;
+            };
+            if let Ok(mut h) = rc.try_borrow_mut() {
+                h.ui.broadcast(Message::new("FontsLoaded"));
+            }
+            schedule(&rc);
+            true
+        });
+        // The system's reduced motion changed.
+        if let Some(q) = reduced_motion_query() {
+            let weak = Rc::downgrade(&host);
+            listeners.push(EventListener::new(&q, "change", move |e| {
+                let reduce = js_sys::Reflect::get(e, &"matches".into())
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let Some(rc) = weak.upgrade() else { return };
+                if let Ok(mut h) = rc.try_borrow_mut()
+                    && let Some(t) = &h.theme
+                {
+                    t.system_reduced.set(reduce);
+                    let setting = crate::settings::Settings::load().reduced_motion;
+                    t.env.reduced_motion.set(setting.reduced(reduce));
+                    h.ui.broadcast(Message::new("ReducedMotion"));
+                }
+                schedule(&rc);
+            }));
+        }
+    }
     let pads = Gamepads::new();
     if let Some(p) = &pads {
         // Edges go to the listener alone: nothing drains a queue here.
@@ -790,6 +913,12 @@ fn resize(host: &Rc<RefCell<Host>>) {
     let Ok(mut host) = host.try_borrow_mut() else {
         return;
     };
+    // The theme's design for this size: the compact one for a small
+    // window.
+    if let Some(t) = &host.theme {
+        let design = theme_screens::design_for(&*t.look, [w as f32, h as f32]);
+        host.ui.set_design(design);
+    }
     let style = host.frame_el.style();
     let _ = style.set_property("left", &format!("{x}px"));
     let _ = style.set_property("top", &format!("{y}px"));
@@ -1408,7 +1537,12 @@ fn publish(h: &Host) {
     let rects = js_sys::Object::new();
     let vp = h.ui.viewport();
     let origin = h.canvas.get_bounding_client_rect();
-    for name in NAMED {
+    let names: &[&str] = if h.theme.is_some() {
+        &THEME_NAMED
+    } else {
+        &NAMED
+    };
+    for name in names {
         if let Some(b) = h.ui.bounds(name) {
             let a = vp.to_physical([b[0], b[1]]);
             let c = vp.to_physical([b[2], b[3]]);
@@ -1453,6 +1587,74 @@ fn publish(h: &Host) {
         set(&o, "submitted", a.into());
         set(&ui, "widgets", o.into());
     }
+    if let Some(t) = &h.theme {
+        let st = t.env.state.borrow();
+        let o = js_sys::Object::new();
+        let strings = |v: &[String]| {
+            let a = js_sys::Array::new();
+            for x in v {
+                a.push(&x.as_str().into());
+            }
+            JsValue::from(a)
+        };
+        set(&o, "screen", st.screen.as_str().into());
+        set(&o, "compact", st.compact.into());
+        set(&o, "reducedMotion", st.reduced_motion.into());
+        set(&o, "song", st.song.as_str().into());
+        set(&o, "songId", st.song_id.as_str().into());
+        set(
+            &o,
+            "header",
+            st.header.as_deref().map_or(JsValue::NULL, |s| s.into()),
+        );
+        set(&o, "greyed", st.greyed.into());
+        set(&o, "style", st.style.as_str().into());
+        set(
+            &o,
+            "chart",
+            st.chart.as_deref().map_or(JsValue::NULL, |s| s.into()),
+        );
+        set(&o, "preferred", st.preferred.as_str().into());
+        set(&o, "ladder", strings(&st.ladder));
+        let counts = js_sys::Object::new();
+        for (name, n) in &st.style_counts {
+            set(&counts, name, (*n as f64).into());
+        }
+        set(&o, "styleCounts", counts.into());
+        set(&o, "items", (st.items as f64).into());
+        set(&o, "closed", strings(&st.closed));
+        set(&o, "greyedRows", (st.greyed_rows as f64).into());
+        set(&o, "search", st.search.as_str().into());
+        set(&o, "popup", st.popup.into());
+        set(&o, "suggestions", strings(&st.suggestions));
+        set(&o, "matches", (st.matches as f64).into());
+        set(&o, "hints", strings(&st.hints));
+        set(&o, "pulse", st.pulse.into());
+        set(&o, "pulsing", st.pulsing.into());
+        set(
+            &o,
+            "backdrop",
+            st.backdrop.as_deref().map_or(JsValue::NULL, |s| s.into()),
+        );
+        set(&o, "panels", st.panels.as_str().into());
+        set(&o, "songOffset", st.song_offset.into());
+        set(&o, "section", st.section.as_str().into());
+        set(&o, "option", st.option.as_str().into());
+        set(&o, "value", st.value.as_str().into());
+        set(&o, "status", st.status.as_str().into());
+        set(
+            &o,
+            "fontsVersion",
+            (crate::web::text::fonts_version() as f64).into(),
+        );
+        let d = h.ui.design();
+        set(
+            &o,
+            "design",
+            js_sys::Array::of2(&d[0].into(), &d[1].into()).into(),
+        );
+        set(&ui, "theme", o.into());
+    }
     set(&ui, "cpuMs", h.cpu_ms.into());
     set(&ui, "worstMs", h.worst_ms.into());
     set(&ui, "totalMs", h.total_ms.into());
@@ -1465,4 +1667,26 @@ fn publish(h: &Host) {
     set(&obj, "ui", ui.into());
     screen::debug_into(&obj);
     let _ = js_sys::Reflect::set(&window, &"__DDI_DEBUG".into(), &obj);
+}
+
+/// What options do when changed: reduced motion is the settings' (saved,
+/// and the screens follow it at once); the rest is the sample's.
+fn options_changed(env: &ThemeEnv) -> theme_screens::options::ChangeFn {
+    let flag = env.reduced_motion.clone();
+    let state = env.state.clone();
+    Rc::new(move |_section: &str, o: &theme_screens::data::OptionDef| {
+        if o.label != "Reduced motion" {
+            return;
+        }
+        let mut settings = crate::settings::Settings::load();
+        settings.reduced_motion = match o.index {
+            1 => crate::settings::ReducedMotion::On,
+            2 => crate::settings::ReducedMotion::Off,
+            _ => crate::settings::ReducedMotion::Auto,
+        };
+        settings.save();
+        let system = reduced_motion_query().is_some_and(|q| q.matches());
+        flag.set(settings.reduced_motion.reduced(system));
+        state.borrow_mut().reduced_motion_setting = o.index;
+    })
 }

@@ -35,6 +35,30 @@ The maintainer chose:
 The maintainer expects many more adjustments later; this is the first
 version.
 
+## Built (step 5, 2026-10-15)
+
+The theme is `ddi_theme::Infinito` (`theme/`), its tunables in
+`theme/src/infinito.toml`; the screens are `ddi_ui::screens`, run on
+sample data at `#/ui-dev?screen=select|results|options` and with the
+desktop's `--screen`. Where the build differs from the mockups:
+
+- **Corners, rings, the selected row's shadow, grey banners, spaced
+  small capitals and "…"** are drawn as the mockups have them, through
+  our extensions to actors (`docs/plans/ui-core.md`, step 5). Long
+  titles are squeezed a little, then cut.
+- **The backdrop** is the background asked for tiny and drawn stretched,
+  five times a little apart, at 0.2 (results 0.14): close to the
+  mockups' 30 px blur at no extra pass. A song with no background shows
+  its banner.
+- **The subtitle** ("(OutFox Edit)") sits at the right of the title line
+  in song select, smaller.
+- **Compact:** the icon buttons show ‹, / and ••• (glyphs the face has);
+  results and options keep the large layout scaled down for now.
+- **Options' field preview** is a placeholder until step 6 draws the
+  field there. Unlit tabs and the empty ladder have square dashes.
+- **The compact threshold** is 480 CSS pixels of height
+  (`Compact.Below`).
+
 ## Starting point
 
 The maintainer (2026-10-15): close to today's pages, clean, on a black or

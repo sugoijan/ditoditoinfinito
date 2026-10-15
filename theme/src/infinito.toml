@@ -1,0 +1,133 @@
+# Infinito, our theme (docs/plans/theme.md): its tunables. Colours are
+# encoded sRGB, "#rrggbb" or "#rrggbbaa"; sizes are virtual pixels of the
+# 1280×720 design; times are seconds. Every key here is read, and every
+# name the screens and the theme ask for is here: a test checks both.
+
+[fonts]
+# The text face, with the system's fonts behind it for the scripts it
+# lacks (Japanese and the like; the browser draws text on the web, P4).
+# The maintainer may change the face: this line is the whole of it.
+text = "Iosevka Term, system-ui, sans-serif"
+# Numbers: meters, BPM, lengths, scores, counts, key caps (the HUD's
+# face; Iosevka Term behind it for the few signs it lacks, such as −).
+numbers = "Iosevka Custom, Iosevka Term, monospace"
+numbers_weight = 800
+
+[colors]
+"Ground" = "#0a090d"
+# The developer widget screen's ground, under this look.
+"Background" = "#0a090d"
+"Plate" = "#14121a"
+"Plate2" = "#1c1924"
+"Raised" = "#241f2d"
+"Selected" = "#221e2b"
+"Highlight" = "#2a2433"
+"Line" = "#26222e"
+"Line2" = "#3a3542"
+"HeaderLine" = "#2f2a38"
+"Text" = "#f2eee9"
+"Secondary" = "#c9c2bb"
+"Muted" = "#a39c95"
+"Faint" = "#8a837d"
+"Off" = "#5f5866"
+"Accent" = "#ff6ea0"
+"OnAccent" = "#120d12"
+"Header" = "#0a090db8"
+"Footer" = "#0a090dd9"
+"Row" = "#14121aeb"
+"HeaderRow" = "#1e1a26eb"
+"Panel" = "#14121aeb"
+"Cell" = "#ffffff0d"
+"CellEmpty" = "#ffffff05"
+"BannerEmpty" = "#1f1b28"
+"Greyed" = "#6d6676"
+"Track" = "#24212b"
+"Thumb" = "#6d6676"
+"Preview" = "#0f0d14"
+"Gold" = "#ffd166"
+"Danger" = "#e8584a"
+"Window" = "#5ad1ff12"
+"Difficulty.Beginner" = "#4ea3f0"
+"Difficulty.Easy" = "#49b86a"
+"Difficulty.Medium" = "#d9a925"
+"Difficulty.Hard" = "#e8584a"
+"Difficulty.Challenge" = "#a979ea"
+"Difficulty.Edit" = "#8f8a94"
+# Judgements as the HUD draws them (render/src/scene.rs,
+# `judgement_color`), so results read as play does.
+"Judgement.W1" = "#8cf2ff"
+"Judgement.W2" = "#ffe659"
+"Judgement.W3" = "#73f273"
+"Judgement.W4" = "#bf80ff"
+"Judgement.W5" = "#ff8c4d"
+"Judgement.Miss" = "#ff4d4d"
+"Graph.Line" = "#6ee08a"
+"Graph.Bar" = "#ffe55a"
+"Graph.Point" = "#8ef2ff"
+"Graph.Axis" = "#3a3542"
+
+[metrics]
+# The design size.
+"Design.Width" = 1280
+"Design.Height" = 720
+# Below this many CSS pixels of height a window gets the compact layout:
+# phones held sideways are 360–430 high, tablets and laptop windows 600
+# and more.
+"Compact.Below" = 480
+"Compact.Width" = 844
+"Compact.Height" = 390
+# Kept clear at the sides of the compact layout (a phone's notch).
+"Compact.Margin" = 48
+# Header, footer, the margin at the sides.
+"Header.Height" = 64
+"Footer.Height" = 40
+"Margin" = 32
+# Song select: the selected song on the left, the wheel on the right.
+"Select.Song.X" = 32
+"Select.Song.Y" = 84
+"Select.Song.Width" = 560
+"Select.Banner.Height" = 175
+"Select.Tabs.Y" = 377
+"Select.Ladder.Y" = 421
+"Select.Ladder.Row" = 44
+"Select.Ladder.Gap" = 5
+"Select.Search.X" = 280
+"Select.Search.Width" = 560
+# The wheel's rows: their left at the design's 640 (kept from the
+# right), their width, their pitch, the selected one's height, the gap
+# between rows.
+"Select.Wheel.X" = 640
+"Select.Wheel.Width" = 596
+"Select.Wheel.Row" = 66
+"Select.Wheel.Selected" = 88
+"Select.Wheel.Gap" = 6
+# The wheel's curve: rows drift right by this × distance², fade by this
+# a row, to no less than the floor.
+"Wheel.Drift" = 5
+"Wheel.Fade" = 0.11
+"Wheel.Floor" = 0.3
+# Results.
+"Results.Score.Width" = 400
+"Results.Panels.X" = 464
+"Results.Panels.Width" = 784
+"Results.Bar.Y" = 584
+# Options.
+"Options.Rail.Width" = 208
+"Options.Rows.X" = 272
+"Options.Rows.Width" = 600
+"Options.Preview.X" = 904
+# The selected song's background behind the menus: how strong (results'
+# fainter), how soft (the image is asked for this small, then drawn
+# large, several times this far apart), how long a new one fades in.
+"Backdrop.Alpha" = 0.2
+"Backdrop.Results" = 0.14
+"Backdrop.Side" = 64
+"Backdrop.Spread" = 14
+"Backdrop.Fade" = 0.35
+# Motion: a selection moving, a screen coming in, and the beat pulse
+# (the selection's ring lit this much on each beat, settling in this
+# long).
+"Motion.Select" = 0.12
+"Motion.Screen" = 0.2
+"Pulse.Amount" = 0.35
+"Pulse.Decay" = 0.3
