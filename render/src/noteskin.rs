@@ -11,11 +11,11 @@
 //! a host limit), every element is the built-in skin's for the rest of
 //! the play ([`NoteskinPlay::lua_failure`]).
 
+use ddi_actor::{Actor, Blend, Clocks, Drawn, Kind, ModelDraw, Problems, Quad};
 use ddi_chart::Layout;
 use ddi_engine::frame::{Frame, HoldKind, NoteSprite, SkinEvent, SkinEventKind, SpriteKind};
 use ddi_engine::rules::Judgement;
 use ddi_lua::Failure;
-use ddi_noteskin::actor::{Actor, Blend, Clocks, Drawn, Kind, ModelDraw, Problems, Quad};
 use ddi_noteskin::build::{Built, Images, TextureKey, Textures, build, build_colored};
 use ddi_noteskin::lua::{FrameBudget, LuaSkin, NOTE_COLORS, Param, Pause, Position};
 use ddi_noteskin::metrics::{NoteDisplay, Part};
@@ -1954,9 +1954,7 @@ mod tests {
         let layout = Layout::builtin("danoni-7").unwrap();
         let play = NoteskinPlay::new(&skin, &layout, &NoImages, false).unwrap();
         let texture = |e: &Element| match &actor(e).kind {
-            ddi_noteskin::actor::Kind::Sprite(s) => {
-                play.textures.keys()[s.texture as usize].clone()
-            }
+            ddi_actor::Kind::Sprite(s) => play.textures.keys()[s.texture as usize].clone(),
             other => panic!("{other:?}"),
         };
         // Lane 1, down-left: Down's tap note and receptor turned 45°.
@@ -2003,12 +2001,10 @@ mod tests {
             let layout = Layout::builtin(id).unwrap();
             let play = NoteskinPlay::new(&skin, &layout, &NoImages, false).unwrap();
             let texture = |e: &Element| match &actor(e).kind {
-                ddi_noteskin::actor::Kind::Sprite(s) => {
-                    match &play.textures.keys()[s.texture as usize] {
-                        TextureKey::Skin { path, .. } => path.clone(),
-                        other => panic!("{other:?}"),
-                    }
-                }
+                ddi_actor::Kind::Sprite(s) => match &play.textures.keys()[s.texture as usize] {
+                    TextureKey::Skin { path, .. } => path.clone(),
+                    other => panic!("{other:?}"),
+                },
                 other => panic!("{other:?}"),
             };
             for (lane, info) in play.lanes.iter().zip(&layout.lanes) {

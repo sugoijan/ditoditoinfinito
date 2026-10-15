@@ -49,11 +49,11 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context as TaskContext, Poll, Waker};
 
+use ddi_actor::{Actor, Clocks, Problems, TweenSteps};
 use ddi_chart::timing::TimingMap;
 use ddi_lua::lunita::{StashedFunction, StashedTable, Table, Value};
 use ddi_lua::{Budget, Failure, Outcome, Settings, Vm};
 
-use crate::actor::{Actor, Clocks, Problems, TweenSteps};
 use crate::build::{Built, Element, Images, Textures};
 use crate::load::{Button, sprite_only};
 use crate::skin::Skin;
@@ -655,7 +655,7 @@ impl LuaSkin {
             .get(root_id)
             .cloned()
             .ok_or_else(|| Failure::Error("the element was lost".into()))?;
-        if only_sprite && !matches!(tree.kind, crate::actor::Kind::Sprite(_)) {
+        if only_sprite && !matches!(tree.kind, ddi_actor::Kind::Sprite(_)) {
             // `NoteSkinManager::LoadActor`: "must be a Sprite", a blank one.
             notes.push(format!("{element} must be a Sprite"));
             return Ok((

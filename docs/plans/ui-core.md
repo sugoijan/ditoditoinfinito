@@ -179,7 +179,8 @@ they were drawn at.
   lost device or WebGL context is recreated (a new instance, perhaps a new
   canvas) and textures reloaded from their sources; a browser with no
   usable GPU gets a DOM page saying so.
-- **P11. Colour space of the 2D pass**, decided in step 2. Decision 17
+- **P11. Colour space of the 2D pass** (settled by step 0's results:
+  encoded values for menus). Decision 17
   draws in linear light and blends skins in encoded values, which on
   WebGL2 sends every frame through an offscreen float texture
   (`render/src/offscreen.rs`). Theme art and browser-drawn text expect
@@ -225,6 +226,60 @@ release build of 2026-10-15) and reported in the step's notes.
    macOS, with `Ime` events from the Japanese IME, resizes and scale
    changes. Windows (TSF) and Linux (ibus or fcitx; Wayland's text input)
    differ and are checked with the rest of phase 9.
+
+Results (2026-10-15; Chrome 155 headless, Firefox 151 and 158 through
+`firefox.mjs`, Playwright's WebKit 26.5 and 27.2, an M1 Max):
+
+- **Text.** Canvas2D runs packed into atlas pages and copied with
+  `copy_external_image_to_texture` work on every backend tried (Chrome
+  WebGPU and WebGL2, Firefox WebGL2, WebKit WebGPU and WebGL2; Firefox
+  gave no WebGPU adapter headless). 2,000 song titles (Latin, kana,
+  kanji, the bundled Iosevka with system fallback) take 63–132 ms cold,
+  25–50 ms warm, and a scroll's 30 new runs 0.4–2 ms (WebKit's WebGL2
+  11–14 ms). Findings that shape step 2:
+  - On WebGL2 wgpu runs the copy at the next `submit`, refuses an
+    `OffscreenCanvas` source and any source origin but zero; reusing one
+    staging canvas showed the last run everywhere. `getImageData` of the
+    dirty band plus `write_texture` works on every backend at any origin:
+    the WebGL2 path. WebGPU copies dirty rectangles. Never one copy per
+    run (0.2 ms each).
+  - White text on single-channel (`R8Unorm`) pages is pixel-identical to
+    RGBA and a quarter of the memory (2,000 titles: 4 pages of 2048² at
+    1×, 13–14 at 2×). The atlas caches what is shown, not the library.
+  - Ink exceeds `measureText`'s bounding box by up to 1.7 px: cells get
+    2 px of padding. `fontBoundingBox` covers the primary font only, so
+    line height is our own metric. The bundled font measures the same in
+    every browser; system fonts differ by about 2 %.
+  - Text blended in encoded values matches the DOM within 3 levels; an
+    sRGB view makes light text bolder and dark text thinner. Tinting
+    white text differs from text drawn in its colour by up to 53 levels
+    (browsers adjust contrast per colour); tinting is acceptable for our
+    theme, drawing in colour stays possible for an exact match.
+  - `FontFace` from bytes: 1–3 ms (WebKit's first, 17 ms).
+- **Typing.** With composition scripted in Chrome, the preedit lives in
+  the textarea's value, Enter while composing arrives as key code 229
+  with `isComposing`, Escape cancels the preedit, and arrows, Backspace,
+  select-all and undo work natively; Chrome fires no `selectionchange` on
+  arrows. Firefox orders `input` after `compositionend`, the opposite of
+  Chrome. Rule: re-read the value and selection on every composition,
+  input, key and selection event, never infer them from the order. What
+  worked: `opacity: 0` at the caret, 16 px, autocomplete,
+  autocapitalize and autocorrect off, no spellcheck, `inputmode`,
+  `enterkeyhint`, `focus({ preventScroll: true })` in `pointerup`. Not
+  checked: the candidate window's place, phones, Safari.
+- **Desktop.** The window opened (resize and scale-factor events
+  arrived) but the screen was locked, so nothing was drawn on it; the
+  play scene and system-font text (Japanese, Korean, Greek through
+  cosmic-text, 1,762 faces found in 25 ms) rendered offscreen on Metal,
+  0.5 ms a frame. winit's IME calls compile; `Ime::Preedit` ranges are
+  byte offsets. On `Occluded` the window stops drawing. rfd 0.17.2
+  (`xdg-portal` by default, no GTK) and arboard 3.6.1 build on macOS;
+  arboard needs `wayland-data-control` on Linux. Typing with a real IME
+  waits for the maintainer.
+- **P11, settled by these:** menus draw in encoded values through a
+  plain view (on WebGL2 the surface also offers plain `Rgba8Unorm`), so
+  no offscreen float pass while no play field is shown; the play field
+  keeps decision 17.
 
 ### Step 1. `ddi-actor`
 

@@ -18,7 +18,7 @@ app-check:
 
 # Check the platform-independent crates natively
 core-check:
-    @cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-noteskin -p ddi-lua -p xtask
+    @cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-noteskin -p ddi-lua -p xtask
 
 # Run all checks
 check: core-check app-check regen-seo reuse-lint
@@ -43,7 +43,7 @@ video-check file="": video
 
 # Run native unit tests
 test:
-    @cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-noteskin -p ddi-lua -p xtask --features ddi-platform/decode
+    @cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-noteskin -p ddi-lua -p xtask --features ddi-platform/decode
 
 # Regenerate the SEO fragments and sitemap from seo/metadata.toml
 # (trunk also runs this automatically as a pre_build hook)

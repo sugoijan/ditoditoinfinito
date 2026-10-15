@@ -4,9 +4,10 @@
 //! metrics give (`NoteSkins/common/common/`, 5_1-new). Whatever needs the
 //! skin's Lua is drawn by the built-in skin, with a note why.
 
-use crate::actor::{Actor, Kind, Model, ModelMaterial, Problems, Sprite, State};
+use ddi_actor::commands::{Arg, Call, parse};
+use ddi_actor::{Actor, Kind, Model, ModelMaterial, Problems, Sprite, State};
+
 use crate::builtin::NativeLua;
-use crate::commands::{Arg, Call, parse};
 use crate::load::{Button, Resolved, Source};
 use crate::skin::{Dir, FileRef, Skin};
 
@@ -244,7 +245,7 @@ impl Builder<'_, '_> {
             return Vec::new();
         };
         let parsed = if self.skin.legacy {
-            crate::commands::parse_legacy(text)
+            ddi_actor::commands::parse_legacy(text)
         } else {
             parse(text)
         };
@@ -399,7 +400,8 @@ pub(crate) fn model_actor(
     materials: &FileRef,
     bones: Option<&FileRef>,
 ) -> Result<Actor, String> {
-    use crate::model::{self, AnimatedTexture};
+    use crate::model;
+    use ddi_actor::model::{AnimatedTexture, Animation};
     let text = |f: &FileRef| {
         skin.folder(f.dir)
             .and_then(|folder| folder.text(&f.path))
@@ -410,7 +412,7 @@ pub(crate) fn model_actor(
         model::materials(text(materials)?).map_err(|e| format!("{}: {e}", materials.path))?;
     let animation = match bones {
         Some(bones) => model::bones(text(bones)?).map_err(|e| format!("{}: {e}", bones.path))?,
-        None => model::Animation::default(),
+        None => Animation::default(),
     };
     if let Some(i) = geometry
         .meshes
@@ -442,7 +444,7 @@ pub(crate) fn model_actor(
         } else {
             let f = skin.resolve_path(&format!("{}{}", dir_of(materials), m.texture))?;
             if f.path.to_ascii_lowercase().ends_with(".ini") {
-                let animated = AnimatedTexture::parse(text(&f)?);
+                let animated = model::animated_texture(text(&f)?);
                 let dir = dir_of(&f);
                 let mut ids = Vec::with_capacity(animated.frames.len());
                 for (frame, _) in &animated.frames {
@@ -615,14 +617,14 @@ mod tests {
             panic!("{e:?}")
         };
         let mut p = Problems::default();
-        let clocks = |beat| crate::actor::Clocks {
+        let clocks = |beat| ddi_actor::Clocks {
             beat,
             ..Default::default()
         };
         m.update(0.0, &clocks(1.0), &mut p);
         m.update(0.0, &clocks(1.5), &mut p);
         assert_eq!(m.children()[0].current().rotation[2], 270.0);
-        assert_eq!(m.children()[0].effect(), crate::actor::Effect::Spin);
+        assert_eq!(m.children()[0].effect(), ddi_actor::Effect::Spin);
         // The tap note is dance/default's own look: built in.
         assert_eq!(
             build(&skin, Button::Down, "Tap Note", &mut t, &Sizes(vec![])).built,

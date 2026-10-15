@@ -354,7 +354,7 @@ fn local_skins_lua() {
             };
             let mut textures = Textures::default();
             // The trees of dance-single's lanes, for the play.
-            let mut trees: Vec<(usize, &str, Box<ddi_noteskin::actor::Actor>)> = Vec::new();
+            let mut trees: Vec<(usize, &str, Box<ddi_actor::Actor>)> = Vec::new();
             if let Some(l) = &mut lua {
                 'all: for b in Button::ALL {
                     for e in ENGINE_ELEMENTS {
@@ -514,11 +514,11 @@ struct PlayCost {
 /// update each frame.
 fn play(
     lua: &mut ddi_noteskin::lua::LuaSkin,
-    trees: &mut [(usize, &str, Box<ddi_noteskin::actor::Actor>)],
+    trees: &mut [(usize, &str, Box<ddi_actor::Actor>)],
     hz: f64,
     seconds: f64,
 ) -> PlayCost {
-    use ddi_noteskin::actor::Clocks;
+    use ddi_actor::Clocks;
     use ddi_noteskin::lua::{FrameBudget, Param, Position};
     use std::time::Instant;
     let frames = (seconds * hz) as usize;
