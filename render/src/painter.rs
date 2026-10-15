@@ -17,10 +17,12 @@ use bytemuck::{Pod, Zeroable};
 use ddi_actor::text::{FixedMeasure, RunMetrics, TextMeasure, TextStyle};
 
 use crate::atlas::PageRect;
-use crate::draw2d::{Blend, ClipStack, Command, DrawList, scissor};
+use crate::draw2d::{Blend, ClipStack, Command, DrawList, Mask, scissor};
 use crate::instances::InstanceBuffers;
+use crate::stencil::{self, Kind};
 use crate::text_atlas::{Measurer, PAGE, PageSink, RunCache, RunRasterizer, TextStats};
 use crate::texture_cache::{TextureCache, TextureId, TextureKey, TextureStats};
+use crate::textured::Pipelines;
 
 /// Bytes of textures kept by default (P9: the platform may set its own).
 pub const TEXTURE_BUDGET: u64 = 96 << 20;
@@ -52,25 +54,32 @@ fn run_zoom(transform: &crate::draw2d::Affine) -> f32 {
 /// Instance mode bits (`painter.wgsl`).
 const COVERAGE: u32 = 1;
 const UNTEXTURED: u32 = 2;
+const GLOW: u32 = 4;
+const PROJECTED: u32 = 8;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct Instance {
+    /// The linear part; a projected quad's top corners, in pixels.
     axes: [f32; 4],
     origin: [f32; 2],
     mode: u32,
     _pad: u32,
+    /// The rectangle in its own space; a projected quad's bottom right
+    /// and bottom left corners, in pixels.
     rect: [f32; 4],
     uv: [f32; 4],
     /// Top left, top right, bottom right, bottom left, as 8-bit RGBA.
     colors: [u32; 4],
+    /// The corners' `w`, in the same order (1 but in perspective).
+    w: [f32; 4],
 }
 
-const _: () = assert!(std::mem::size_of::<Instance>() == 80);
+const _: () = assert!(std::mem::size_of::<Instance>() == 96);
 
 impl Instance {
     /// By the fields' offsets (`_pad` keeps `rect` 16-byte aligned).
-    const ATTRIBUTES: [wgpu::VertexAttribute; 9] = {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 10] = {
         const fn a(
             shader_location: u32,
             format: wgpu::VertexFormat,
@@ -93,6 +102,7 @@ impl Instance {
             a(6, Unorm8x4, 68),
             a(7, Unorm8x4, 72),
             a(8, Unorm8x4, 76),
+            a(9, Float32x4, 80),
         ]
     };
 }
@@ -129,8 +139,9 @@ enum Bind {
     Page(usize),
 }
 
-/// One draw: instances `start..end` with the same texture, blend and
-/// scissor rectangle.
+/// One draw: instances `start..end` with the same texture, blend,
+/// scissor rectangle and stencil state and reference (`None`: a frame
+/// without the stencil).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Batch {
     start: u32,
@@ -138,6 +149,7 @@ struct Batch {
     bind: Bind,
     blend: Blend,
     scissor: [u32; 4],
+    stencil: Option<(Kind, u32)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,12 +159,20 @@ enum Step {
 }
 
 /// Adds instance `index` to the last draw when it can join it.
-fn add(steps: &mut Vec<Step>, index: u32, bind: Bind, blend: Blend, scissor: [u32; 4]) {
+fn add(
+    steps: &mut Vec<Step>,
+    index: u32,
+    bind: Bind,
+    blend: Blend,
+    scissor: [u32; 4],
+    stencil: Option<(Kind, u32)>,
+) {
     if let Some(Step::Draw(b)) = steps.last_mut()
         && b.end == index
         && b.bind == bind
         && b.blend == blend
         && b.scissor == scissor
+        && b.stencil == stencil
     {
         b.end += 1;
         return;
@@ -163,12 +183,155 @@ fn add(steps: &mut Vec<Step>, index: u32, bind: Bind, blend: Blend, scissor: [u3
         bind,
         blend,
         scissor,
+        stencil,
     }));
+}
+
+/// A clip counted in the stencil: its quad (units) and the scissor it
+/// was counted within.
+type CountedClip = ([[f32; 2]; 4], [u32; 4]);
+
+/// A draw's stencil state and reference.
+type Stencil = (Kind, u32);
+
+/// A clip quad's draw when it is popped: its quad, scissor and stencil.
+type ClipOut = ([[f32; 2]; 4], [u32; 4], Stencil);
+
+/// The clips in force while a list is drawn: the scissor of their
+/// rectangles, and with the stencil (`stencil`) the level of those that
+/// are quads ([`crate::stencil`]).
+struct Clips {
+    rects: ClipStack,
+    /// `None`: nothing is left to draw in.
+    scissor: Option<[u32; 4]>,
+    /// Each clip pushed: its quad and scissor when it counted a level.
+    counted: Vec<Option<CountedClip>>,
+    level: u32,
+    stencil: bool,
+    scale: f32,
+    size: [u32; 2],
+}
+
+impl Clips {
+    fn new(stencil: bool, scale: f32, size: [u32; 2]) -> Clips {
+        Clips {
+            rects: ClipStack::default(),
+            scissor: scissor(None, scale, size),
+            counted: Vec::new(),
+            level: 0,
+            stencil,
+            scale,
+            size,
+        }
+    }
+
+    fn push(&mut self, r: crate::draw2d::Rect) {
+        self.rects.push(r);
+        self.scissor = scissor(self.rects.current(), self.scale, self.size);
+        self.counted.push(None);
+    }
+
+    /// A clip's quad within `bound`: the scissor and stencil state its
+    /// quad is drawn with to count a level where it is (within the clips
+    /// around), `None` when it counts none (no stencil, nothing left, or
+    /// too many).
+    fn push_quad(
+        &mut self,
+        corners: &[[f32; 2]; 4],
+        bound: crate::draw2d::Rect,
+    ) -> Option<([u32; 4], Stencil)> {
+        let count = self
+            .scissor
+            .filter(|_| self.stencil && self.level < stencil::MAX_LEVEL);
+        let drawn = count.map(|sc| (sc, (Kind::ClipIn, self.level)));
+        if count.is_some() {
+            self.level += 1;
+        }
+        self.rects.push(bound);
+        self.scissor = scissor(self.rects.current(), self.scale, self.size);
+        self.counted.push(count.map(|sc| (*corners, sc)));
+        drawn
+    }
+
+    /// Pops a clip: a counted one's quad again, its scissor and stencil
+    /// state, to take its level back.
+    fn pop(&mut self) -> Option<ClipOut> {
+        let taken = match self.counted.pop() {
+            Some(Some((corners, sc))) => {
+                let out = (corners, sc, (Kind::ClipOut, self.level));
+                self.level -= 1;
+                Some(out)
+            }
+            _ => None,
+        };
+        self.rects.pop();
+        self.scissor = scissor(self.rects.current(), self.scale, self.size);
+        taken
+    }
+
+    /// A draw's scissor and stencil state (`None`: not drawn); a mask's
+    /// clear covers the whole target, clips or not.
+    fn draw(&self, mask: Mask) -> Option<([u32; 4], Option<Stencil>)> {
+        let sc = if mask == Mask::Clear {
+            [0, 0, self.size[0], self.size[1]]
+        } else {
+            self.scissor?
+        };
+        Some((sc, self.stencil.then(|| mask.stencil(self.level))))
+    }
+}
+
+/// Whether drawing `list` needs the stencil: a mask, or a clip that is
+/// no rectangle.
+fn uses_stencil(list: &DrawList) -> bool {
+    list.commands.iter().any(|c| match c {
+        Command::Quad(q) => q.mask != Mask::None,
+        Command::Text(t) => t.mask != Mask::None,
+        Command::PushClipQuad { .. } => true,
+        _ => false,
+    })
+}
+
+/// A run's cell, `rect` in its line box's space, seen through
+/// `perspective`, in pixels (`scale` a unit), with each corner's `w`
+/// (top left, top right, bottom right, bottom left); `None` when a corner
+/// is outside the camera's depth.
+fn project_rect(
+    (m, camera): &([f32; 16], ddi_actor::Perspective),
+    rect: [f32; 4],
+    scale: f32,
+) -> Option<([f32; 4], [f32; 4], [f32; 4])> {
+    let mut points = [[0.0; 2]; 4];
+    let mut w = [0.0; 4];
+    for (i, (x, y)) in [
+        (rect[0], rect[1]),
+        (rect[2], rect[1]),
+        (rect[2], rect[3]),
+        (rect[0], rect[3]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let p = ddi_actor::transform_point(m, [x, y, 0.0]);
+        let (at, cw) = camera.project(p)?;
+        points[i] = [at[0] * scale, at[1] * scale];
+        w[i] = cw;
+    }
+    Some((
+        [points[0][0], points[0][1], points[1][0], points[1][1]],
+        [points[2][0], points[2][1], points[3][0], points[3][1]],
+        w,
+    ))
 }
 
 /// The device's objects; made again on a new device.
 struct Gpu {
-    pipelines: [wgpu::RenderPipeline; 4],
+    shader: wgpu::ShaderModule,
+    layout: wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+    /// By blend and stencil state, made as first needed.
+    pipelines: Pipelines,
+    stencil: stencil::Attachment,
     globals: wgpu::Buffer,
     globals_group: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
@@ -238,41 +401,6 @@ impl Gpu {
             bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
-        let pipelines = crate::textured::blend_states().map(|blend| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("ddi-painter-pipeline"),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[Some(wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &Instance::ATTRIBUTES,
-                    })],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend: Some(blend),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("ddi-painter-sampler"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -301,7 +429,11 @@ impl Gpu {
         );
         let blank = bind(device, &texture_layout, &sampler, &white);
         Gpu {
-            pipelines,
+            shader,
+            layout,
+            format,
+            pipelines: Pipelines::new(),
+            stencil: Default::default(),
             globals,
             globals_group,
             texture_layout,
@@ -315,6 +447,49 @@ impl Gpu {
             pages: Vec::new(),
             max_side: device.limits().max_texture_dimension_2d,
         }
+    }
+}
+
+impl Gpu {
+    /// Makes the pipeline of `key` unless it is there.
+    fn ensure(&mut self, device: &wgpu::Device, key: (Blend, Option<Kind>)) {
+        if self.pipelines.get(key).is_some() {
+            return;
+        }
+        let p = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ddi-painter-pipeline"),
+            layout: Some(&self.layout),
+            vertex: wgpu::VertexState {
+                module: &self.shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &Instance::ATTRIBUTES,
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &self.shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: self.format,
+                    blend: Some(crate::textured::blend_state(key.0)),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: key.1.map(stencil::state),
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        self.pipelines.insert(key, p);
     }
 }
 
@@ -643,27 +818,63 @@ impl Painter {
             });
         }
         let s = scale.max(1e-3);
-        let mut clips = ClipStack::default();
-        let mut clip = scissor(None, s, size);
+        let with_stencil = uses_stencil(list);
+        let mut clips = Clips::new(with_stencil, s, size);
         let linear = |m: [f32; 6]| {
             (
                 [m[0] * s, m[1] * s, m[2] * s, m[3] * s],
                 [m[4] * s, m[5] * s],
             )
         };
+        // A clip's quad, untextured, drawing nothing but the stencil.
+        let clip_quad = |corners: &[[f32; 2]; 4]| {
+            let p = corners.map(|c| [c[0] * s, c[1] * s]);
+            Instance {
+                axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
+                origin: [0.0; 2],
+                mode: UNTEXTURED | PROJECTED,
+                _pad: 0,
+                rect: [p[2][0], p[2][1], p[3][0], p[3][1]],
+                uv: [0.0, 0.0, 1.0, 1.0],
+                // Opaque, so the alpha test keeps it; it draws no colour.
+                colors: [u32::MAX; 4],
+                w: [1.0; 4],
+            }
+        };
         for command in &list.commands {
             match command {
-                Command::PushClip(r) => {
-                    clips.push(*r);
-                    clip = scissor(clips.current(), s, size);
+                Command::PushClip(r) => clips.push(*r),
+                Command::PushClipQuad { corners, bound } => {
+                    if let Some((sc, stencil)) = clips.push_quad(corners, *bound) {
+                        add(
+                            steps,
+                            instances.len() as u32,
+                            Bind::Blank,
+                            Blend::NoEffect,
+                            sc,
+                            Some(stencil),
+                        );
+                        instances.push(clip_quad(corners));
+                    }
                 }
                 Command::PopClip => {
-                    clips.pop();
-                    clip = scissor(clips.current(), s, size);
+                    if let Some((corners, sc, stencil)) = clips.pop() {
+                        add(
+                            steps,
+                            instances.len() as u32,
+                            Bind::Blank,
+                            Blend::NoEffect,
+                            sc,
+                            Some(stencil),
+                        );
+                        instances.push(clip_quad(&corners));
+                    }
                 }
                 Command::External(slot) => steps.push(Step::External(*slot)),
                 Command::Quad(q) => {
-                    let Some(sc) = clip else { continue };
+                    let Some((sc, stencil)) = clips.draw(q.mask) else {
+                        continue;
+                    };
                     let (bind, mode, colors) = match q.texture {
                         None => (Bind::Blank, UNTEXTURED, q.colors),
                         Some(id) if textures.get(id).is_some() => (Bind::Image(id), 0, q.colors),
@@ -672,20 +883,42 @@ impl Painter {
                             (Bind::Blank, UNTEXTURED, q.colors.map(|c| [r, g, b, c[3]]))
                         }
                     };
-                    let (axes, origin) = linear(q.transform.0);
-                    add(steps, instances.len() as u32, bind, q.blend, sc);
-                    instances.push(Instance {
-                        axes,
-                        origin,
-                        mode,
-                        _pad: 0,
-                        rect: q.rect,
-                        uv: q.uv,
-                        colors: colors.map(pack),
-                    });
+                    let mode = mode | if q.glow { GLOW } else { 0 };
+                    let instance = match &q.projected {
+                        Some(p) => {
+                            let c = p.corners.map(|c| [c[0] * s, c[1] * s]);
+                            Instance {
+                                axes: [c[0][0], c[0][1], c[1][0], c[1][1]],
+                                origin: [0.0; 2],
+                                mode: mode | PROJECTED,
+                                _pad: 0,
+                                rect: [c[2][0], c[2][1], c[3][0], c[3][1]],
+                                uv: q.uv,
+                                colors: colors.map(pack),
+                                w: p.w,
+                            }
+                        }
+                        None => {
+                            let (axes, origin) = linear(q.transform.0);
+                            Instance {
+                                axes,
+                                origin,
+                                mode,
+                                _pad: 0,
+                                rect: q.rect,
+                                uv: q.uv,
+                                colors: colors.map(pack),
+                                w: [1.0; 4],
+                            }
+                        }
+                    };
+                    add(steps, instances.len() as u32, bind, q.blend, sc, stencil);
+                    instances.push(instance);
                 }
                 Command::Text(t) => {
-                    let (Some(sc), Some(raster)) = (clip, raster.as_deref_mut()) else {
+                    let (Some((sc, stencil)), Some(raster)) =
+                        (clips.draw(t.mask), raster.as_deref_mut())
+                    else {
                         continue;
                     };
                     let mut sink = Sink {
@@ -708,18 +941,24 @@ impl Painter {
                     let baseline = placed.metrics.baseline / r;
                     let m = t.transform.0;
                     let one_for_one = m[1] == 0.0 && m[2] == 0.0 && m[0] == zoom && m[3] == zoom;
-                    let (axes, origin, rect) = if one_for_one {
+                    let x0 = -placed.pen[0] / r;
+                    let y0 = baseline - placed.pen[1] / r;
+                    let cell_rect = [x0, y0, x0 + w / r, y0 + h / r];
+                    let (axes, origin, rect, extra, ws) = if let Some(view) = &t.perspective {
+                        let Some((top, bottom, ws)) = project_rect(view, cell_rect, s) else {
+                            continue;
+                        };
+                        (top, [0.0; 2], bottom, PROJECTED, ws)
+                    } else if one_for_one {
                         // The page's texels one for one: the pen on a
                         // whole pixel.
                         let pen = t.transform.apply([0.0, baseline]);
                         let x = (pen[0] * s).round() - placed.pen[0];
                         let y = (pen[1] * s).round() - placed.pen[1];
-                        ([1.0, 0.0, 0.0, 1.0], [x, y], [0.0, 0.0, w, h])
+                        ([1.0, 0.0, 0.0, 1.0], [x, y], [0.0, 0.0, w, h], 0, [1.0; 4])
                     } else {
                         let (axes, origin) = linear(m);
-                        let x0 = -placed.pen[0] / r;
-                        let y0 = baseline - placed.pen[1] / r;
-                        (axes, origin, [x0, y0, x0 + w / r, y0 + h / r])
+                        (axes, origin, cell_rect, 0, [1.0; 4])
                     };
                     let p = PAGE as f32;
                     add(
@@ -728,11 +967,12 @@ impl Painter {
                         Bind::Page(placed.page),
                         t.blend,
                         sc,
+                        stencil,
                     );
                     instances.push(Instance {
                         axes,
                         origin,
-                        mode: COVERAGE,
+                        mode: COVERAGE | extra,
                         _pad: 0,
                         rect,
                         uv: [
@@ -742,6 +982,7 @@ impl Painter {
                             cell.bottom() as f32 / p,
                         ],
                         colors: [pack(t.color); 4],
+                        w: ws,
                     });
                 }
             }
@@ -767,6 +1008,12 @@ impl Painter {
         };
         queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
 
+        for step in steps.iter() {
+            if let Step::Draw(b) = step {
+                gpu.ensure(device, (b.blend, b.stencil.map(|s| s.0)));
+            }
+        }
+        let stencil_view = with_stencil.then(|| gpu.stencil.view(device, size));
         let (mut draws, mut passes) = (0, 0);
         let mut first = true;
         let mut at = 0;
@@ -793,13 +1040,16 @@ impl Painter {
                             store: wgpu::StoreOp::Store,
                         },
                     })],
-                    depth_stencil_attachment: None,
+                    // Cleared in the frame's first pass, kept after.
+                    depth_stencil_attachment: stencil_view
+                        .map(|v| stencil::Attachment::pass(v, passes == 1)),
                     timestamp_writes: None,
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
                 pass.set_bind_group(0, &gpu.globals_group, &[]);
                 let mut blend = None;
+                let mut reference = None;
                 let mut scissor_now = None;
                 for step in &steps[at..end] {
                     let Step::Draw(b) = step else { continue };
@@ -811,9 +1061,19 @@ impl Painter {
                         }
                     };
                     let Some(group) = group else { continue };
-                    if blend != Some(b.blend) {
-                        pass.set_pipeline(&gpu.pipelines[b.blend as usize]);
-                        blend = Some(b.blend);
+                    let key = (b.blend, b.stencil.map(|s| s.0));
+                    if blend != Some(key) {
+                        let Some(p) = gpu.pipelines.get(key) else {
+                            continue;
+                        };
+                        pass.set_pipeline(p);
+                        blend = Some(key);
+                    }
+                    if let Some((_, r)) = b.stencil
+                        && reference != Some(r)
+                    {
+                        pass.set_stencil_reference(r);
+                        reference = Some(r);
                     }
                     if scissor_now != Some(b.scissor) {
                         let [x, y, w, h] = b.scissor;
@@ -904,14 +1164,14 @@ mod tests {
         let full = [0, 0, 100, 100];
         let half = [0, 0, 50, 100];
         let mut steps = Vec::new();
-        add(&mut steps, 0, Bind::Blank, Blend::Normal, full);
-        add(&mut steps, 1, Bind::Blank, Blend::Normal, full);
-        add(&mut steps, 2, Bind::Page(0), Blend::Normal, full);
-        add(&mut steps, 3, Bind::Page(0), Blend::Add, full);
-        add(&mut steps, 4, Bind::Page(0), Blend::Add, half);
+        add(&mut steps, 0, Bind::Blank, Blend::Normal, full, None);
+        add(&mut steps, 1, Bind::Blank, Blend::Normal, full, None);
+        add(&mut steps, 2, Bind::Page(0), Blend::Normal, full, None);
+        add(&mut steps, 3, Bind::Page(0), Blend::Add, full, None);
+        add(&mut steps, 4, Bind::Page(0), Blend::Add, half, None);
         steps.push(Step::External(7));
         // Not after the slot, though everything else matches.
-        add(&mut steps, 5, Bind::Page(0), Blend::Add, half);
+        add(&mut steps, 5, Bind::Page(0), Blend::Add, half, None);
         let ranges: Vec<_> = steps
             .iter()
             .map(|s| match s {
@@ -923,5 +1183,102 @@ mod tests {
             ranges,
             vec![(0, 2), (2, 3), (3, 4), (4, 5), (107, 0), (5, 6)]
         );
+    }
+
+    #[test]
+    fn masks_and_turned_clips_need_the_stencil() {
+        let mut l = DrawList::new();
+        l.rect([0.0, 0.0, 1.0, 1.0], [1.0; 4]);
+        l.push_clip([0.0, 0.0, 1.0, 1.0]);
+        assert!(!uses_stencil(&l));
+        l.push(Command::PushClipQuad {
+            corners: [[0.0; 2]; 4],
+            bound: [0.0; 4],
+        });
+        assert!(uses_stencil(&l));
+        let mut m = DrawList::new();
+        m.quad(crate::draw2d::Quad {
+            mask: Mask::Outside,
+            ..crate::draw2d::Quad::plain([0.0; 4], [1.0; 4])
+        });
+        assert!(uses_stencil(&m));
+    }
+
+    #[test]
+    fn runs_in_perspective_are_projected_by_their_corners() {
+        let camera = ddi_actor::Perspective {
+            vanish: [100.0, 100.0],
+            distance: 400.0,
+            near: 1.0,
+            far: 1400.0,
+        };
+        // The run's space 100 units nearer the eye, at the vanishing point.
+        let mut m = [0.0; 16];
+        m[0] = 1.0;
+        m[5] = 1.0;
+        m[10] = 1.0;
+        m[12] = 100.0;
+        m[13] = 100.0;
+        m[14] = 100.0;
+        m[15] = 1.0;
+        let (top, bottom, w) = project_rect(&(m, camera), [0.0, 0.0, 30.0, 10.0], 2.0).unwrap();
+        // 4/3 as big, two pixels a unit.
+        let k = 400.0 / 300.0;
+        assert!((top[0] - 200.0).abs() < 1e-3 && (top[2] - (100.0 + 30.0 * k) * 2.0).abs() < 1e-3);
+        assert!((bottom[1] - (100.0 + 10.0 * k) * 2.0).abs() < 1e-3);
+        assert!(w.iter().all(|&w| (w - 0.75).abs() < 1e-6));
+        // Behind the eye: not drawn.
+        m[14] = 500.0;
+        assert!(project_rect(&(m, camera), [0.0, 0.0, 1.0, 1.0], 1.0).is_none());
+    }
+
+    #[test]
+    fn clips_count_levels_in_the_stencil_and_take_them_back() {
+        let quad = [[10.0, 0.0], [20.0, 10.0], [10.0, 20.0], [0.0, 10.0]];
+        let mut c = Clips::new(true, 2.0, [100, 100]);
+        assert_eq!(
+            c.draw(Mask::None),
+            Some(([0, 0, 100, 100], Some((Kind::Level, 0))))
+        );
+        // A turned clip counts where it is, at level 0, within the target.
+        assert_eq!(
+            c.push_quad(&quad, [0.0, 0.0, 20.0, 20.0]),
+            Some(([0, 0, 100, 100], (Kind::ClipIn, 0)))
+        );
+        // Inside: level 1 and its bound's scissor; a mask tested there.
+        assert_eq!(
+            c.draw(Mask::None),
+            Some(([0, 0, 40, 40], Some((Kind::Level, 1))))
+        );
+        assert_eq!(
+            c.draw(Mask::Inside),
+            Some(([0, 0, 40, 40], Some((Kind::Masked, 0x81))))
+        );
+        // A rectangle inside it counts nothing; a second quad counts
+        // within the first's scissor.
+        c.push([5.0, 5.0, 50.0, 50.0]);
+        assert_eq!(
+            c.push_quad(&quad, [0.0, 0.0, 15.0, 15.0]),
+            Some(([10, 10, 30, 30], (Kind::ClipIn, 1)))
+        );
+        // A clear of the mask covers the whole target.
+        assert_eq!(
+            c.draw(Mask::Clear),
+            Some(([0, 0, 100, 100], Some((Kind::MaskClear, 0))))
+        );
+        // Popped: each counted quad again, at its own level, with the
+        // scissor it counted within.
+        assert_eq!(c.pop(), Some((quad, [10, 10, 30, 30], (Kind::ClipOut, 2))));
+        assert_eq!(c.pop(), None);
+        assert_eq!(c.pop(), Some((quad, [0, 0, 100, 100], (Kind::ClipOut, 1))));
+        assert_eq!(
+            c.draw(Mask::None),
+            Some(([0, 0, 100, 100], Some((Kind::Level, 0))))
+        );
+        // Without the stencil, a quad clips by its bound alone.
+        let mut plain = Clips::new(false, 1.0, [100, 100]);
+        assert_eq!(plain.push_quad(&quad, [0.0, 0.0, 20.0, 20.0]), None);
+        assert_eq!(plain.draw(Mask::None), Some(([0, 0, 20, 20], None)));
+        assert_eq!(plain.pop(), None);
     }
 }

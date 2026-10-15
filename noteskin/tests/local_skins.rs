@@ -523,6 +523,9 @@ fn drawn_report(trees: &mut [(usize, &str, Box<ddi_actor::Actor>)]) -> String {
         masked: usize,
         quads: usize,
         corners: usize,
+        /// StepMania's blend modes past normal, add, subtract and
+        /// modulate (and no effect, the masks').
+        other_blends: usize,
     }
     fn walk(a: &Actor, s: &mut Set) {
         match &a.kind {
@@ -540,6 +543,10 @@ fn drawn_report(trees: &mut [(usize, &str, Box<ddi_actor::Actor>)]) -> String {
             _ => {}
         }
         s.masks += usize::from(a.blend == Blend::NoEffect);
+        s.other_blends += usize::from(!matches!(
+            a.blend,
+            Blend::Normal | Blend::Add | Blend::Subtract | Blend::Modulate | Blend::NoEffect
+        ));
         s.masked += usize::from(a.depth.test != ZTest::Off);
         for c in a.children() {
             walk(c, s);
@@ -566,9 +573,17 @@ fn drawn_report(trees: &mut [(usize, &str, Box<ddi_actor::Actor>)]) -> String {
         }
     }
     format!(
-        "set: shadows {}, sorted frames {}, by z {}, fov {}, masks {}, masked {}, quads {}, corners {}; \
+        "set: shadows {}, sorted frames {}, by z {}, fov {}, masks {}, masked {}, quads {}, corners {}, other blends {}; \
          one draw: items {items}, black unglowing quads {shadow_items}, in perspective {projected}, graded {graded}",
-        set.shadows, set.sorted, set.by_z, set.fov, set.masks, set.masked, set.quads, set.corners
+        set.shadows,
+        set.sorted,
+        set.by_z,
+        set.fov,
+        set.masks,
+        set.masked,
+        set.quads,
+        set.corners,
+        set.other_blends
     )
 }
 

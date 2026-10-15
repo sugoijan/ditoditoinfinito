@@ -9,6 +9,7 @@
 //!
 //! See `docs/PLAN.md` §3.4 and `docs/plans/ui-core.md`.
 
+pub mod actors2d;
 pub mod art;
 pub mod atlas;
 pub mod background;
@@ -26,6 +27,7 @@ pub mod renderer;
 pub mod scene;
 pub mod sprite;
 pub mod stage;
+pub mod stencil;
 pub mod text;
 pub mod text_atlas;
 pub mod texture_cache;
