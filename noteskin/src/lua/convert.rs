@@ -219,14 +219,8 @@ impl<'gc> Convert<'_, 'gc> {
         let (mut actor, class_index) = match class.as_str() {
             "Actor" => (Actor::new(Kind::Actor), 0),
             "Sprite" => (self.sprite(t, &where_)?, 1),
-            "Quad" => {
-                // A plain rectangle: the renderer's white.
-                let mut a = builtin_sprite(self.textures, "_quad.png");
-                if let Kind::Sprite(s) = &mut a.kind {
-                    s.size = [1.0, 1.0];
-                }
-                (a, 1)
-            }
+            // A plain rectangle, a pixel big until sized.
+            "Quad" => (Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0]))), 1),
             "ActorFrame" => (Actor::new(Kind::Frame(Vec::new())), 2),
             "Model" => (self.model(t, &where_)?, 3),
             "BitmapText" | "ActorMultiVertex" | "ActorFrameTexture" | "ActorProxy"

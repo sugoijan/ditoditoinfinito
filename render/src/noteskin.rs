@@ -1104,11 +1104,14 @@ impl NoteskinPlay {
         out: &mut Vec<TexQuad>,
     ) {
         let mut drawn = Vec::new();
-        actor.draw(transform, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut drawn);
+        let view = self.camera.view();
+        actor.draw_in(&view, transform, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut drawn);
         for d in drawn {
             match d {
                 Drawn::Quad(q) => self.push(q, offset, out),
                 Drawn::Model(m) => self.push_model(&m, offset, out),
+                // Skins make neither text nor clipping frames.
+                Drawn::Text(_) | Drawn::ClipPush(_) | Drawn::ClipPop => {}
             }
         }
     }
@@ -1121,7 +1124,12 @@ impl NoteskinPlay {
             return;
         }
         let mut seen = Vec::new();
-        triangles(m, &self.camera, offset, &mut seen);
+        // An `fov` frame's camera, or the field's.
+        let camera = m
+            .perspective
+            .as_ref()
+            .map_or(self.camera, Camera::of_perspective);
+        triangles(m, &camera, offset, &mut seen);
         // A frame's budget: models past it are not drawn.
         let passes = 1 + usize::from(m.glow[3] > 0.0001);
         let total = self.triangles.get() + seen.len() * passes;
@@ -1184,10 +1192,21 @@ impl NoteskinPlay {
         }
     }
 
+    /// A quad's diffuse and glow passes. Masks' depth states are not
+    /// drawn yet (the stencil comes with the 2D pass): a mask
+    /// (`BlendMode_NoEffect`) draws nothing, what it masks draws whole.
     fn push(&self, q: Quad, offset: [f32; 2], out: &mut Vec<TexQuad>) {
         self.quads.set(self.quads.get() + 1);
-        let Some(Some(texture)) = self.texture_ids.get(q.texture as usize) else {
+        if q.blend == Blend::NoEffect {
             return;
+        }
+        let texture = if q.texture == ddi_actor::UNTEXTURED {
+            UNTEXTURED
+        } else {
+            match self.texture_ids.get(q.texture as usize) {
+                Some(Some(t)) => *t,
+                _ => return,
+            }
         };
         let o = [
             offset[0] + q.texcoord_offset[0],
@@ -1204,21 +1223,31 @@ impl NoteskinPlay {
                 transform: q.transform,
                 uv,
             },
-            color: to_target(q.diffuse, self.srgb),
+            color: to_target(q.diffuse[0], self.srgb),
             glow: false,
-            texture: *texture,
+            texture,
             blend: quad_blend(q.blend),
             wrap: false,
         };
-        if q.diffuse[3] > 0.0 {
-            out.push(base);
+        let pieces = pieces(&q, uv);
+        if q.diffuse.iter().any(|c| c[3] > 0.0) {
+            for &(shape, color) in &pieces {
+                out.push(TexQuad {
+                    shape,
+                    color: to_target(color, self.srgb),
+                    ..base
+                });
+            }
         }
         if q.glow[3] > 0.0 {
-            out.push(TexQuad {
-                color: to_target(q.glow, self.srgb),
-                glow: true,
-                ..base
-            });
+            for &(shape, _) in &pieces {
+                out.push(TexQuad {
+                    shape,
+                    color: to_target(q.glow, self.srgb),
+                    glow: true,
+                    ..base
+                });
+            }
         }
     }
 
@@ -1763,8 +1792,100 @@ fn quad_blend(b: Blend) -> QuadBlend {
         Blend::Add => QuadBlend::Add,
         Blend::Subtract => QuadBlend::Subtract,
         Blend::Modulate => QuadBlend::Modulate,
-        Blend::Normal | Blend::Other => QuadBlend::Normal,
+        // `NoEffect` is never drawn ([`NoteskinPlay::push`]).
+        Blend::Normal | Blend::Other | Blend::NoEffect => QuadBlend::Normal,
     }
+}
+
+/// Cells a side of a quad is cut into when its corners differ in colour.
+const GRADIENT_CELLS: usize = 8;
+
+/// What a quad is drawn as, each with its colour: itself; seen in
+/// perspective, two triangles (in the corners' mean colour); with corners
+/// of different colours, cells along the sides that differ, each in the
+/// colour at its centre, until the textured pass interpolates vertex
+/// colours itself.
+fn pieces(q: &Quad, uv: [f32; 4]) -> Vec<(Shape, [f32; 4])> {
+    let d = q.diffuse;
+    if let Some(p) = q.projected {
+        let mean: [f32; 4] = std::array::from_fn(|i| d.iter().map(|c| c[i]).sum::<f32>() / 4.0);
+        let corner_uv = [
+            [uv[0], uv[1]],
+            [uv[2], uv[1]],
+            [uv[0], uv[3]],
+            [uv[2], uv[3]],
+        ];
+        return [[0, 1, 2], [1, 3, 2]]
+            .into_iter()
+            .map(|t| {
+                (
+                    Shape::Triangle {
+                        points: t.map(|i| p.corners[i]),
+                        w: t.map(|i| p.w[i]),
+                        uv: t.map(|i| corner_uv[i]),
+                    },
+                    mean,
+                )
+            })
+            .collect();
+    }
+    let whole = Shape::Quad {
+        transform: q.transform,
+        uv,
+    };
+    if d.iter().all(|c| *c == d[0]) {
+        return vec![(whole, d[0])];
+    }
+    // Columns where left and right differ, rows where top and bottom do.
+    let columns = if d[0] == d[1] && d[2] == d[3] {
+        1
+    } else {
+        GRADIENT_CELLS
+    };
+    let rows = if d[0] == d[2] && d[1] == d[3] {
+        1
+    } else {
+        GRADIENT_CELLS
+    };
+    let m = q.transform;
+    let mut out = Vec::with_capacity(columns * rows);
+    for row in 0..rows {
+        for column in 0..columns {
+            let (u0, u1) = (
+                column as f32 / columns as f32,
+                (column + 1) as f32 / columns as f32,
+            );
+            let (v0, v1) = (row as f32 / rows as f32, (row + 1) as f32 / rows as f32);
+            let (cu, cv) = ((u0 + u1) / 2.0, (v0 + v1) / 2.0);
+            let (du, dv) = (u1 - u0, v1 - v0);
+            let (x, y) = (cu - 0.5, cv - 0.5);
+            let color: [f32; 4] = std::array::from_fn(|i| {
+                let top = lerp(d[0][i], d[1][i], cu);
+                let bottom = lerp(d[2][i], d[3][i], cu);
+                lerp(top, bottom, cv)
+            });
+            out.push((
+                Shape::Quad {
+                    transform: [
+                        m[0] * du,
+                        m[1] * du,
+                        m[2] * dv,
+                        m[3] * dv,
+                        m[0] * x + m[2] * y + m[4],
+                        m[1] * x + m[3] * y + m[5],
+                    ],
+                    uv: [
+                        lerp(uv[0], uv[2], u0),
+                        lerp(uv[1], uv[3], v0),
+                        lerp(uv[0], uv[2], u1),
+                        lerp(uv[1], uv[3], v1),
+                    ],
+                },
+                color,
+            ));
+        }
+    }
+    out
 }
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
@@ -2101,7 +2222,7 @@ mod tests {
         ];
         for (child, j) in tap.children().iter().zip(judgements) {
             assert_eq!(
-                child.current().diffuse,
+                child.current().diffuse(),
                 crate::scene::judgement_color(j),
                 "{j:?}"
             );

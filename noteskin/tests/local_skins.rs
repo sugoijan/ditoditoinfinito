@@ -426,6 +426,9 @@ fn local_skins_lua() {
                         play_worst.push((r.max, r.max_ms, f.name.clone()));
                     }
                 }
+                if std::env::var_os("DDI_NOTESKINS_DRAWN").is_some() {
+                    println!("\tdrawn: {}", drawn_report(&mut trees));
+                }
                 let new = l.warnings_since(0);
                 if std::env::var_os("DDI_NOTESKINS_WARNINGS").is_some() {
                     for w in new {
@@ -503,6 +506,70 @@ struct PlayCost {
     mean_ms: f64,
     max_ms: f64,
     error: Option<String>,
+}
+
+/// What the trees use that StepMania draws and this game drew otherwise
+/// before (`docs/plans/ui-core.md`, step 1.2): actors set up for it, and
+/// what one draw of each tree now gives (`DDI_NOTESKINS_DRAWN`).
+fn drawn_report(trees: &mut [(usize, &str, Box<ddi_actor::Actor>)]) -> String {
+    use ddi_actor::{Actor, Blend, Drawn, Kind, UNTEXTURED, ZTest};
+    #[derive(Default)]
+    struct Set {
+        shadows: usize,
+        sorted: usize,
+        by_z: usize,
+        fov: usize,
+        masks: usize,
+        masked: usize,
+        quads: usize,
+        corners: usize,
+    }
+    fn walk(a: &Actor, s: &mut Set) {
+        match &a.kind {
+            Kind::Sprite(sp) => {
+                s.shadows += usize::from(a.shadow != [0.0; 2]);
+                s.quads += usize::from(sp.texture == UNTEXTURED);
+                let d = a.current().diffuse;
+                s.corners += usize::from(d.iter().any(|c| *c != d[0]));
+            }
+            Kind::Frame(c) => {
+                s.sorted += usize::from(c.iter().any(|c| c.draw_order != 0));
+                s.by_z += usize::from(a.draw_by_z);
+                s.fov += usize::from(a.fov != -1.0);
+            }
+            _ => {}
+        }
+        s.masks += usize::from(a.blend == Blend::NoEffect);
+        s.masked += usize::from(a.depth.test != ZTest::Off);
+        for c in a.children() {
+            walk(c, s);
+        }
+    }
+    let mut set = Set::default();
+    let (mut items, mut shadow_items, mut projected, mut graded) = (0, 0, 0, 0);
+    for (_, _, a) in trees.iter_mut() {
+        walk(a, &mut set);
+        let mut out = Vec::new();
+        a.draw(
+            ddi_actor::TRANSFORM_IDENTITY,
+            [1.0; 4],
+            [1.0, 1.0, 1.0, 0.0],
+            &mut out,
+        );
+        for d in &out {
+            items += 1;
+            if let Drawn::Quad(q) = d {
+                shadow_items += usize::from(q.glow == [0.0; 4] && q.diffuse[0][..3] == [0.0; 3]);
+                projected += usize::from(q.projected.is_some());
+                graded += usize::from(q.diffuse.iter().any(|c| *c != q.diffuse[0]));
+            }
+        }
+    }
+    format!(
+        "set: shadows {}, sorted frames {}, by z {}, fov {}, masks {}, masked {}, quads {}, corners {}; \
+         one draw: items {items}, black unglowing quads {shadow_items}, in perspective {projected}, graded {graded}",
+        set.shadows, set.sorted, set.by_z, set.fov, set.masks, set.masked, set.quads, set.corners
+    )
 }
 
 /// `seconds` of a play at `hz` with what the engine sends a skin

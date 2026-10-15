@@ -70,7 +70,7 @@ fn the_stand_ins_run_stepmanias_own_lua() {
     assert_eq!(row.children().len(), 5);
     assert_eq!(row.children()[3].base_rotation[2], 180.0);
     // Their Init: diffusealpha 0 on the flashes.
-    assert_eq!(row.children()[3].current().diffuse[3], 0.0);
+    assert_eq!(row.children()[3].current().diffuse()[3], 0.0);
     // dance/default blanks hold explosions: a plain actor (common's
     // `t .. { cmd(visible,false) }` puts the function in the array, where
     // it is no command, as in StepMania).
@@ -167,7 +167,7 @@ fn a_skins_own_lua_builds_its_elements() {
     // Init from the metrics, compiled to Lua.
     assert_eq!(under.current().scale[0], 0.5);
     assert_eq!(overlay.name, "Overlay");
-    assert_eq!(overlay.current().diffuse[3], 0.0);
+    assert_eq!(overlay.current().diffuse()[3], 0.0);
     assert!(matches!(
         &textures.keys()[s.texture as usize],
         TextureKey::Skin { path, .. } if path == "Receptor 4x1.png"
@@ -182,7 +182,7 @@ fn a_skins_own_lua_builds_its_elements() {
     assert_eq!(s.states[0].delay, 0.5);
     // The third keeps frame 2 (the previous one's) and takes its left half.
     assert_eq!(s.states[2].rect, [0.5, 0.0, 0.625, 0.5]);
-    assert_eq!(tap.current().diffuse, [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(tap.current().diffuse(), [1.0, 0.0, 0.0, 1.0]);
     assert_eq!(tap.current().pos[1], 2.0);
     assert_eq!(tap.current().glow, [0.0, 1.0, 0.0, 1.0]);
     assert_eq!(tap.base_rotation[2], -90.0);
@@ -534,7 +534,7 @@ fn children_of_one_name_and_failing_commands() {
     // Methods on several of one name go to the last one.
     assert_eq!(c[0].current().scale[0], 1.0);
     assert_eq!(c[1].current().scale[0], 3.0);
-    assert_eq!(c[1].current().diffuse[3], 0.5);
+    assert_eq!(c[1].current().diffuse()[3], 0.5);
     // `y`'s Init failed and was reported; `z`'s still ran.
     assert_eq!(c[3].current().scale[0], 2.0);
     assert!(
@@ -646,7 +646,7 @@ fn events_play_commands_with_their_parameters() {
     assert!(skin.reclaim(&mut ex));
     assert!(!skin.reclaim(&mut ex));
     assert_eq!(ex.current().pos[..2], [1.0, 1.0]);
-    assert_eq!(ex.current().diffuse[3], 0.5);
+    assert_eq!(ex.current().diffuse()[3], 0.5);
     assert!(
         skin.warnings().iter().any(|w| w.contains("boom")),
         "{:?}",
@@ -936,7 +936,7 @@ fn outfox_and_fallback_names_skins_read() {
         let images = Sizes(vec![("tap.png", (64, 64))]);
         let tap = built(skin.element(Button::Left, "Tap Note", &mut Textures::default(), &images));
         assert!(skin.warnings().is_empty(), "{:?}", skin.warnings());
-        assert_eq!(tap.current().diffuse, [1.0, 0.9, 0.35, 1.0]);
+        assert_eq!(tap.current().diffuse(), [1.0, 0.9, 0.35, 1.0]);
         assert_eq!(tap.current().scale[0], if reversed { 2.0 } else { 1.0 });
     }
 }
@@ -1070,4 +1070,106 @@ fn print_and_table_concat_take_any_values() {
     let images = Sizes(vec![("tap.png", (64, 64))]);
     built(skin.element(Button::Down, "Tap Note", &mut Textures::default(), &images));
     assert_eq!(skin.warnings(), ["1\tnil\ttrue\ta"]);
+}
+
+#[test]
+fn frames_sort_by_draw_order_and_lua_follows() {
+    let folders = vec![folder(
+        "dance",
+        "d",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Tap Note.lua",
+                "local order = {}\n\
+                 return Def.ActorFrame {\n\
+                   InitCommand = function(self)\n\
+                     -- Sorted before the frame's own Init.\n\
+                     local k = self:GetChild('a'):GetParent()\n\
+                     assert(k == self)\n\
+                     self:GetChild('back'):x(7)\n\
+                     self:playcommand('Mark')\n\
+                     self:GetChild('late'):draworder(-10)\n\
+                   end;\n\
+                   Def.Quad { Name = 'a', InitCommand = function(self) self:draworder(5) end,\n\
+                     MarkCommand = function(self) order[#order + 1] = 'a' end };\n\
+                   Def.Actor { Name = 'late', MarkCommand = function(self) order[#order + 1] = 'late' end };\n\
+                   Def.ActorFrame { Name = 'back', InitCommand = function(self) self:draworder(-1) end,\n\
+                     MarkCommand = function(self) order[#order + 1] = 'back' end,\n\
+                     Def.Actor { Name = 'deep', InitCommand = function(self) self:draworder(9) end } };\n\
+                   SortedCommand = function(self)\n\
+                     self:SortByDrawOrder()\n\
+                     self:GetChild('back'):GetChild('deep'):y(3)\n\
+                     assert(table.concat(order, ',') == 'back,late,a', table.concat(order, ','))\n\
+                   end;\n\
+                 }\n",
+            ),
+        ],
+    )];
+    let mut skin = lua_skin(&folders, "d").unwrap_or_else(|e| panic!("{e}"));
+    let mut tap = boxed(&mut skin, "Tap Note");
+    let names = |a: &ddi_actor::Actor| -> Vec<String> {
+        a.children().iter().map(|c| c.name.clone()).collect()
+    };
+    // `back` (-1) first, then `late` and `a` (0 and 5); `late`'s later
+    // draworder waits for the next sort.
+    assert_eq!(names(&tap), ["back", "late", "a"]);
+    assert_eq!(tap.children()[0].current().pos[0], 7.0);
+    // The quad is untextured, a pixel big.
+    let Kind::Sprite(q) = &tap.children()[2].kind else {
+        panic!()
+    };
+    assert_eq!((q.texture, q.size), (ddi_actor::UNTEXTURED, [1.0, 1.0]));
+    let id = tap.id;
+    skin.begin_frame(Position::default(), FrameBudget::default());
+    assert!(skin.lend(&mut tap));
+    skin.play(id, "Sorted", &[]).unwrap();
+    assert!(skin.reclaim(&mut tap));
+    assert!(skin.warnings().is_empty(), "{:?}", skin.warnings());
+    assert_eq!(names(&tap), ["late", "back", "a"]);
+    // Methods reach the actors where they went.
+    assert_eq!(tap.children()[1].children()[0].current().pos[1], 3.0);
+}
+
+#[test]
+fn corners_masks_and_shadows_from_lua() {
+    let folders = vec![folder(
+        "dance",
+        "d",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            (
+                "Down Tap Note.lua",
+                "return Def.ActorFrame {\n\
+                   InitCommand = function(self) self:fov(60):SetDrawByZPosition(true) end;\n\
+                   Def.Quad { InitCommand = function(self) self:MaskSource(true) end };\n\
+                   Def.Quad { InitCommand = function(self)\n\
+                     self:setsize(64, 64):diffuse(color('1,0,0,1')):MaskDest()\n\
+                       :diffusetopedge(color('1,1,1,0.05')):shadowlength(2)\n\
+                   end };\n\
+                 }\n",
+            ),
+        ],
+    )];
+    let mut skin = lua_skin(&folders, "d").unwrap_or_else(|e| panic!("{e}"));
+    let mut textures = Textures::default();
+    let tap = built(skin.element(Button::Down, "Tap Note", &mut textures, &Sizes(vec![])));
+    assert!(skin.warnings().is_empty(), "{:?}", skin.warnings());
+    assert_eq!((tap.fov, tap.draw_by_z), (60.0, true));
+    let [mask, dest] = tap.children() else {
+        panic!()
+    };
+    assert_eq!(mask.blend, ddi_actor::Blend::NoEffect);
+    assert!(mask.depth.write && mask.depth.clear);
+    assert_eq!(dest.depth.test, ddi_actor::ZTest::WriteOnPass);
+    assert_eq!(dest.shadow, [2.0, 2.0]);
+    assert_eq!(
+        dest.current().diffuse,
+        [
+            [1.0, 1.0, 1.0, 0.05],
+            [1.0, 1.0, 1.0, 0.05],
+            [1.0, 0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0, 1.0]
+        ]
+    );
 }

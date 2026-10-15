@@ -441,6 +441,19 @@ local function play(id, name, params, depth)
 	end
 end
 
+-- `ActorFrame::SortByDrawOrder`: the frame's children by draw order,
+-- played and drawn in that order from then on.
+local function sort_children(id)
+	if H.sort_children(actors[id]) then
+		children[id] = H.child_ids(actors[id])
+	end
+end
+
+function ActorFrame:SortByDrawOrder()
+	sort_children(H.actor_id(self))
+	return self
+end
+
 -- Several children of one name: a table of them whose methods call the
 -- last one's (`ActorFrame.cpp`, `CreateChildTable`).
 local function same_named(list)
@@ -499,6 +512,9 @@ local function init(id, depth)
 	local k = children[id]
 	if k then
 		for i = 1, #k do init(k[i], depth + 1) end
+		-- A frame sorts its children once they are loaded, before its own
+		-- `Init` (`ActorFrame::LoadChildrenFromNode`).
+		sort_children(id)
 	end
 	-- `PlayCommandNoRecurse(Message("Init"))`: an empty table.
 	play_own(id, "Init", {})
