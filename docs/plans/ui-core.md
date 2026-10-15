@@ -627,7 +627,9 @@ Done (2026-10-15):
 A design brief and mockups with the maintainer first: the look is theirs
 to choose. Their starting point (2026-10-15): close to today's pages,
 clean on a black or dark background, but laid out more as rhythm games
-lay out their screens. Then the theme:
+lay out their screens. The brief, with three song select layouts and
+the other screens mocked up, is `docs/plans/theme.md` (2026-10-15),
+awaiting the maintainer's choices. Then the theme:
 its tunables file, art with `PROVENANCE.toml` where it is not ours,
 components for the screens of step 6, its fonts (P4, P6).
 
