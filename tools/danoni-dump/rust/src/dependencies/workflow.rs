@@ -3,8 +3,8 @@ use super::*;
 use crate::profiles::{self, ProfileRequest};
 #[derive(Clone)]
 pub(super) enum Workflow {
-    Plan(NativePlan),
-    Profile(ProfileRequest),
+    Plan(Box<NativePlan>),
+    Profile(Box<ProfileRequest>),
 }
 pub(super) struct Attempt {
     pub ready: bool,
@@ -54,7 +54,7 @@ impl Workflow {
                         .bytes,
                 )?;
                 Ok((
-                    Self::Plan(current.plan),
+                    Self::Plan(Box::new(current.plan)),
                     Memory(
                         prepared
                             .files
@@ -66,7 +66,7 @@ impl Workflow {
             }
             Self::Profile(p) => {
                 let seed = profiles::prepare_seed(p, source, checkpoint)?;
-                Ok((Self::Profile(seed.request), Memory(seed.files)))
+                Ok((Self::Profile(Box::new(seed.request)), Memory(seed.files)))
             }
         }
     }

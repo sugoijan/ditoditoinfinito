@@ -40,7 +40,7 @@ cargo clippy --manifest-path /private/tmp/ddi-ruffle/rust-prepared/worker/Cargo.
 ```
 
 The Rust preparer reads pinned Git objects into a new owned source copy and adds
-three small hooks (inspection module export, stored-property access, halted-VM access), and copies
+four small hook locations (inspection module export, stored-property access, halted-VM access and renderer adapter/device setup), and copies
 our inspection modules and host into the scratch build. It leaves the upstream
 checkout untouched and never executes a movie. `prepare.py` remains a historical
 oracle; its fingerprint is retained in the existing capture identity. `Cargo.lock`
@@ -50,6 +50,19 @@ preparer, manifest template, lockfile and our Rust sources. The parent runner
 records the actual worker binary hash. Upstream source is not vendored here;
 retain its MIT/Apache-2.0 licences in the checkout. Our additions and original
 fixture generator are MIT, covered by the repository's `REUSE.toml` annotation.
+
+## Portable offscreen renderer
+
+The worker now selects among compiled native wgpu backends instead of forcing
+Metal. Its existing Ruffle texture target supplies backend-independent RGBA
+readback. The optional trusted `renderer` policy supports `backend`
+(`auto`/`metal`/`dx12`/`vulkan`/`gl`), `adapter`
+(`auto`/`hardware`/`software`) and an exact `adapterName`. Software selection
+requires an installed CPU adapter; no software driver is bundled. Explicit
+constraints never relax during fallback. Read the
+[renderer contract](../../../docs/research/danoni-rust-rendering.md) for receipts,
+initialization diagnostics, profile/URL integration and platform limitations.
+Rendering does not remove any runtime-audit or confinement requirement.
 
 ## Run and validate the original fixtures
 

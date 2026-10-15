@@ -343,3 +343,9 @@ statically selected page embed, preserves HTTP/source context, then runs automat
 profiles with policy-aware dependency recovery. Archive redirects cannot silently
 fall back live. A successful result contains normalized source proofs; prepared
 song export and library installation still need later integration.
+
+Portable native rendering and the optional trusted `renderer` policy are described
+in [the rendering handover](../../../docs/research/danoni-rust-rendering.md).
+Offscreen frame bytes use the same API across backend choices; software-only
+selection requires an installed CPU adapter. Linux/Windows confinement and
+packaging remain separate from this graphics portability work.

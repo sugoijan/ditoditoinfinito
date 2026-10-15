@@ -633,6 +633,7 @@ dependencies = [
  "encoding_rs",
  "ruffle_core",
  "ruffle_render_wgpu",
+ "serde",
  "serde_json",
  "sha2",
  "tracing",

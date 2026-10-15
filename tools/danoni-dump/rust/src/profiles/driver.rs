@@ -86,6 +86,8 @@ pub struct ProfileRequest {
     pub limits: ProfileLimits,
     #[serde(default)]
     pub capture_limits: Limits,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renderer: Option<supervisor::RendererOptions>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -157,11 +159,16 @@ fn config(
     mix: bool,
     render: bool,
     execution_ms: u64,
+    renderer: Option<&supervisor::RendererOptions>,
 ) -> Result<Vec<u8>> {
+    let render = render || renderer.is_some();
     let mut value = context.clone();
     value["events"] = json!(events);
     value["captureFrames"] = json!(frames);
     value["render"] = json!(render);
+    if render && let Some(renderer) = renderer {
+        value["renderer"] = serde_json::to_value(renderer).map_err(|e| invalid(e.to_string()))?;
+    }
     value["mixAudio"] = json!(mix);
     value["inspectionScale"] = json!(4);
     value["avmExecutionMs"] = json!(execution_ms);
@@ -175,6 +182,9 @@ fn prepare(
     checkpoint: &mut impl FnMut() -> Result<()>,
 ) -> Result<Prepared> {
     request.limits.validate()?;
+    if let Some(renderer) = &request.renderer {
+        renderer.validate().map_err(invalid)?;
+    }
     request.capture_limits.validate()?;
     if let Some(indices) = &request.selectors
         && (indices.is_empty()
@@ -214,6 +224,7 @@ fn prepare(
         false,
         profile.render(),
         profile.avm_execution_ms(),
+        request.renderer.as_ref(),
     )?;
     let mut files = BTreeMap::new();
     let movie = blob(&mut files, movie_bytes)?;
@@ -287,6 +298,7 @@ pub(crate) fn prepare_seed(
         metadata: request.metadata.clone(),
         limits: request.limits.clone(),
         capture_limits: request.capture_limits.clone(),
+        renderer: request.renderer.clone(),
     };
     let job = ProfileJob {
         schema: "ddi-danoni-native-profile-job/1".into(),
@@ -391,6 +403,7 @@ impl<F: FnMut(&ProfileProgress) -> Result<()>> Run<'_, F> {
             mix,
             self.prepared.profile.render(),
             self.prepared.profile.avm_execution_ms(),
+            self.request.renderer.as_ref(),
         )?;
         let binding = bind(format!("inputs/{id}.json"), &b);
         orchestration::write(self.root, &binding.path, &b)?;
@@ -784,20 +797,20 @@ pub fn execute(
                 config: projection_binding.config,
                 projection: Observation {
                     capture_frames: frames.clone(),
-                    render: prepared.profile.render(),
+                    render: prepared.profile.render() || request.renderer.is_some(),
                     mix_audio: true,
                     avm_execution_ms: None,
                 },
                 motion: Observation {
                     capture_frames: selection.iterations.clone(),
-                    render: prepared.profile.render(),
+                    render: prepared.profile.render() || request.renderer.is_some(),
                     mix_audio: true,
                     avm_execution_ms: None,
                 },
                 motion_selection: selection,
                 audio: Observation {
                     capture_frames: frames,
-                    render: prepared.profile.render(),
+                    render: prepared.profile.render() || request.renderer.is_some(),
                     mix_audio: true,
                     avm_execution_ms: None,
                 },
@@ -926,4 +939,28 @@ pub fn execute_job(
             .collect(),
     )?;
     execute(&job.request, &worker, &source, output, progress)
+}
+
+#[cfg(test)]
+mod renderer_policy_tests {
+    use super::*;
+    #[test]
+    fn explicit_host_policy_enables_rendering_and_preserves_script_context() {
+        let context = json!({"movie":"work.swf","sourceUrl":"https://example.test/work.swf","flashVars":{"difficulty":"Hard"},"resources":[]});
+        let policy = supervisor::RendererOptions::default();
+        let c: Value = serde_json::from_slice(
+            &config(&context, &[], &[1], false, false, 500, Some(&policy)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(c["render"], true);
+        assert_eq!(c["renderer"], serde_json::to_value(policy).unwrap());
+        for key in ["movie", "sourceUrl", "flashVars", "resources"] {
+            assert_eq!(c[key], context[key]);
+        }
+        let c: Value =
+            serde_json::from_slice(&config(&context, &[], &[1], false, false, 500, None).unwrap())
+                .unwrap();
+        assert_eq!(c["render"], false);
+        assert!(c.get("renderer").is_none());
+    }
 }

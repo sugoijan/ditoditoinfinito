@@ -483,7 +483,7 @@ pub fn execute(
     progress: &mut impl FnMut(&Progress) -> Result<()>,
 ) -> Result<DependencyOutcome> {
     execute_workflow(
-        &Workflow::Plan(plan.clone()),
+        &Workflow::Plan(Box::new(plan.clone())),
         worker,
         source,
         output,
@@ -507,7 +507,7 @@ pub fn execute_profile(
     progress: &mut impl FnMut(&Progress) -> Result<()>,
 ) -> Result<DependencyOutcome> {
     execute_workflow(
-        &Workflow::Profile(request.clone()),
+        &Workflow::Profile(Box::new(request.clone())),
         worker,
         source,
         output,

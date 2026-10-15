@@ -45,6 +45,8 @@ pub struct UrlRequest {
     pub profile: ProfileLimits,
     #[serde(default)]
     pub capture: Limits,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renderer: Option<crate::supervisor::RendererOptions>,
 }
 impl UrlRequest {
     pub fn new(url: impl Into<String>) -> Self {
@@ -58,6 +60,7 @@ impl UrlRequest {
             dependencies: DependencyLimits::default(),
             profile: ProfileLimits::default(),
             capture: Limits::default(),
+            renderer: None,
         }
     }
 }
@@ -241,6 +244,9 @@ pub fn execute(
     }
     request.dependencies.validate()?;
     request.profile.validate()?;
+    if let Some(renderer) = &request.renderer {
+        renderer.validate().map_err(invalid)?;
+    }
     request.capture.validate()?;
     if request.selectors.as_ref().is_some_and(|v| {
         v.is_empty()
@@ -402,6 +408,7 @@ pub fn execute(
             metadata,
             limits: request.profile.clone(),
             capture_limits: request.capture.clone(),
+            renderer: request.renderer.clone(),
         };
         let source = evidence.clone();
         // Resolver and progress callbacks share no mutable closure state.

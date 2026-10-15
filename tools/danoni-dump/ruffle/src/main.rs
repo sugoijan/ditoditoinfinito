@@ -1,11 +1,13 @@
 mod audio;
 mod navigator;
+mod renderer;
+mod renderer_options;
 
 use ruffle_core::{
     FloatDuration, PlayerBuilder, PlayerEvent, backend::navigator::NullExecutor,
     limits::ExecutionLimit, tag_utils::SwfMovie,
 };
-use ruffle_render_wgpu::{backend::WgpuRenderBackend, target::TextureTarget, wgpu};
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{any::Any, error::Error, fs, io::Write, path::Path, time::Duration};
@@ -217,6 +219,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err("AVM execution budget must be 50..10000 ms".into());
     }
     let render = config["render"].as_bool().unwrap_or(false);
+    let renderer_options: renderer_options::RendererOptions = match config.get("renderer") {
+        None | Some(Value::Null) => Default::default(),
+        Some(value) if render => serde_json::from_value(value.clone())?,
+        Some(_) => return Err("Renderer options require render=true".into()),
+    };
+    renderer_options.validate()?;
     let mix_audio = config["mixAudio"].as_bool().unwrap_or(false);
     let render_scale = match config.get("renderScale") {
         None => 1,
@@ -239,7 +247,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut executor = NullExecutor::new();
     let audit = navigator::Audit::default();
     use tracing_subscriber::prelude::*;
-    tracing_subscriber::registry().with(audit.clone()).init();
     let resources = navigator::read_resources(&config, config_path.parent().unwrap())?;
     let mut builder = PlayerBuilder::new()
         .with_movie(movie)
@@ -257,13 +264,16 @@ fn run() -> Result<(), Box<dyn Error>> {
     if mix_audio {
         builder = builder.with_audio(audio::OfflineAudio::new());
     }
-    if render {
-        builder = builder.with_renderer(WgpuRenderBackend::for_offscreen(
-            (320 * render_scale, 240 * render_scale),
-            wgpu::Backends::METAL,
-            wgpu::PowerPreference::LowPower,
-        )?);
-    }
+    let renderer_report = if render {
+        let (backend, report) =
+            renderer::create((320 * render_scale, 240 * render_scale), &renderer_options)?;
+        builder = builder.with_renderer(backend);
+        Some(report)
+    } else {
+        None
+    };
+    // Initialization diagnostics belong to renderer.json, not the movie audit.
+    tracing_subscriber::registry().with(audit.clone()).init();
     let player = builder.build();
     let mut loaded = false;
     for _ in 0..600 {
@@ -344,15 +354,12 @@ fn run() -> Result<(), Box<dyn Error>> {
                 json!({"frame":frame, "state":ruffle_core::ddi_snapshot::capture(&mut player, config["inspectGlobals"].as_bool().unwrap_or(false), inspection_scale)}),
             );
             if render {
-                let renderer = (player.renderer() as &dyn Any)
-                    .downcast_ref::<WgpuRenderBackend<TextureTarget>>()
-                    .ok_or("renderer type")?;
-                let image = renderer.capture_frame().ok_or("no rendered frame")?;
+                let image = renderer::capture(player.renderer() as &dyn Any)?;
                 // PPM avoids a new image encoder dependency; pixel data is exact RGB.
                 let mut out = fs::File::create(format!("frame-{frame}.ppm"))?;
-                write!(out, "P6\n{} {}\n255\n", image.width(), image.height())?;
-                for p in image.pixels() {
-                    out.write_all(&p.0[..3])?;
+                write!(out, "P6\n{} {}\n255\n", image.width, image.height)?;
+                for p in image.rgba.as_chunks::<4>().0 {
+                    out.write_all(&p[..3])?;
                 }
             }
         }
@@ -377,7 +384,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         "swfHeaderFps":fps, "clock":{"frames":"one run_frame per iteration","timers":"fixed header-FPS step",
             "getTimer":"wall clock","audio":if mix_audio {"offline PCM sample cursor"} else {"NullAudioBackend: sound position fixed at zero"},
             "timebaseVerified":false},"defaultFont":true,
-        "avm1Halted":halted,"rendered":render,"renderScale":render_scale,"audio":audio_report,
+        "avm1Halted":halted,"rendered":render,"renderer":renderer_report,"renderScale":render_scale,"audio":audio_report,
         "captures":captures, "audit":audit.report()});
     let output = serde_json::to_vec(&output)?;
     if output.len() > 32 * 1024 * 1024 {

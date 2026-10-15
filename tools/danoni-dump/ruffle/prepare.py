@@ -10,6 +10,7 @@ from paths import external_directory
 ROOT = Path(__file__).resolve().parent
 REVISION = "89a7049965f3090e706265670df309a5128233ac"
 HOOKS = {
+    "render/wgpu/src/backend.rs": '\npub fn ddi_adapters(instance: &wgpu::Instance, backends: wgpu::Backends) -> Vec<wgpu::Adapter> { futures::executor::block_on(instance.enumerate_adapters(backends)) }\npub fn ddi_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError> { futures::executor::block_on(request_device(adapter)) }\n',
     "core/src/lib.rs": '\npub mod ddi_snapshot;\n',
     "core/src/avm1/object/script_object.rs": '\ninclude!("../../ddi_properties.rs");\n',
     "core/src/avm1/runtime.rs": "\nimpl Avm1<'_> { pub(crate) fn ddi_halted(&self) -> bool { self.halted } }\n",

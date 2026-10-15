@@ -128,8 +128,9 @@ was removed from production recognition pending a complete rendered 5/7-key gate
 a regression rejects that unreviewed initialization. Its previously admitted
 manual/frozen exports remain unchanged.
 
-Next restore working Metal startup for the original blank fixture and repeat
-confined rendered probes before adding a bitmap-capable automatic variant.
+The next rendering step is now [portable backend and adapter selection](danoni-rust-rendering.md),
+with an original blank-fixture startup gate and an optional installed CPU adapter.
+Repeat confined rendered probes before adding a bitmap-capable automatic variant.
 This is a measured local runtime limitation, not proof of an unsupported chart
 format or a reason to discard bitmap calls. Broader classic/gen4 menu controls
 can proceed separately under their own signatures and reference comparisons.

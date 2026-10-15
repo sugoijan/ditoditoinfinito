@@ -19,8 +19,12 @@ use std::{
 const SOURCE_LIMIT: usize = 256 * 1024 * 1024;
 const FILE_LIMIT: usize = 32 * 1024 * 1024;
 const WORKER_LIMIT: usize = 256 * 1024 * 1024;
-const HOOKS: [(&str, &str); 3] = [
+const HOOKS: [(&str, &str); 4] = [
     ("core/src/lib.rs", "\npub mod ddi_snapshot;\n"),
+    (
+        "render/wgpu/src/backend.rs",
+        "\npub fn ddi_adapters(instance: &wgpu::Instance, backends: wgpu::Backends) -> Vec<wgpu::Adapter> { futures::executor::block_on(instance.enumerate_adapters(backends)) }\npub fn ddi_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError> { futures::executor::block_on(request_device(adapter)) }\n",
+    ),
     (
         "core/src/avm1/object/script_object.rs",
         "\ninclude!(\"../../ddi_properties.rs\");\n",
@@ -324,6 +328,8 @@ pub fn prepare_sources(
         "src/audio.rs",
         "src/main.rs",
         "src/navigator.rs",
+        "src/renderer.rs",
+        "src/renderer_options.rs",
     ] {
         inventory.push(write(
             &owned.path,
@@ -445,6 +451,8 @@ fn verify_inventory(
             "worker/src/main.rs",
             "worker/src/audio.rs",
             "worker/src/navigator.rs",
+            "worker/src/renderer.rs",
+            "worker/src/renderer_options.rs",
             "upstream/LICENSE.md",
             "upstream/Cargo.toml",
             "upstream/core/src/ddi_properties.rs",
@@ -539,6 +547,8 @@ pub fn package_worker(
         "src/audio.rs",
         "src/main.rs",
         "src/navigator.rs",
+        "src/renderer.rs",
+        "src/renderer_options.rs",
     ] {
         if artifact(&verified, &format!("worker/{name}"))? != reviewed[name] {
             return Err(invalid("Prepared worker source differs"));

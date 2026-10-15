@@ -1015,3 +1015,16 @@ works / 35 charts (19,783 taps, 1,134 holds, 22,051 endpoints, 786 authored-scro
 checks), including the existing seven-key references. No source timing/event
 field changes and canonical PCM stays within one signed unit. This replay gate
 does not claim fresh GPU execution while Metal startup is unavailable.
+
+### Portable offscreen backend selection (2026-10-15)
+
+The [rendering handover](danoni-rust-rendering.md) replaces the worker's forced
+Metal choice with compiled-backend discovery, adapter selection and bounded
+initialization fallback. The optional trusted `renderer` policy reaches source-only
+profiles, URL imports and their saved replay plans; explicit requests enable
+offscreen rendering. Ruffle retains device negotiation and frame readback. A
+software-only policy accepts CPU-class adapters and never silently uses a GPU.
+This does not bundle a software driver or complete Linux/Windows confinement.
+Unsupported bitmap calls still reject; their presence alone does not prove a
+chart-data dependency on rendered pixels. Renderer startup and movie execution
+are validated separately, and initialization diagnostics have their own receipt.

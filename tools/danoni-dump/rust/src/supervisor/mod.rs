@@ -1,6 +1,9 @@
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 //! Native host supervisor. A work never chooses the worker or confinement policy.
 mod config;
+#[path = "../../../ruffle/src/renderer_options.rs"]
+pub mod renderer_options;
+pub use renderer_options::RendererOptions;
 #[cfg(target_os = "macos")]
 mod macos;
 use crate::{
@@ -106,6 +109,14 @@ pub fn expected_build_identity() -> Value {
 }
 pub(crate) fn reviewed_sources() -> BTreeMap<&'static str, &'static [u8]> {
     BTreeMap::from([
+        (
+            "src/renderer.rs",
+            include_bytes!("../../../ruffle/src/renderer.rs").as_slice(),
+        ),
+        (
+            "src/renderer_options.rs",
+            include_bytes!("../../../ruffle/src/renderer_options.rs").as_slice(),
+        ),
         (
             "prepare.py",
             include_bytes!("../../../ruffle/prepare.py").as_slice(),
@@ -506,6 +517,21 @@ fn validate_capture(
             "native-capture-contract",
             "Worker protocol, source, build, settings or halted state differ",
         ));
+    }
+    if plan.config.render {
+        plan.config
+            .renderer
+            .clone()
+            .unwrap_or_default()
+            .validate_report(&s["renderer"])
+            .map_err(invalid)?;
+        let renderer: Value =
+            assets::json(&bounded(&root.join("capture/renderer.json"), 1024 * 1024)?)?;
+        if renderer != s["renderer"] {
+            return Err(invalid("Renderer report differs from snapshot"));
+        }
+    } else if !s["renderer"].is_null() {
+        return Err(invalid("Unexpected renderer on a renderer-free capture"));
     }
     if s["swfHeaderFps"].as_f64() != Some(plan.fps)
         || s["renderScale"] != plan.config.render_scale.unwrap_or(1)

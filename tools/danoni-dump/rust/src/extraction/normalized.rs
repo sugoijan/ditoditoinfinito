@@ -89,7 +89,13 @@ fn controls(config: &Value) -> Result<Value> {
         .as_object()
         .cloned()
         .ok_or_else(|| invalid("Invalid runtime config"))?;
-    for k in ["captureFrames", "render", "mixAudio", "avmExecutionMs"] {
+    for k in [
+        "captureFrames",
+        "render",
+        "renderer",
+        "mixAudio",
+        "avmExecutionMs",
+    ] {
         c.remove(k);
     }
     Ok(Value::Object(c))
@@ -639,6 +645,7 @@ mod tests {
         let mut changed = config.clone();
         changed["captureFrames"] = json!([100, 101]);
         changed["render"] = json!(true);
+        changed["renderer"] = json!({"backend":"vulkan","adapter":"software"});
         changed["mixAudio"] = json!(true);
         changed["avmExecutionMs"] = json!(10000);
         assert_eq!(controls(&config).unwrap(), controls(&changed).unwrap());

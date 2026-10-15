@@ -13,6 +13,7 @@ pub(super) struct Config {
     pub capture_frames: Vec<u64>,
     #[serde(default)]
     pub render: bool,
+    pub renderer: Option<RendererOptions>,
     #[serde(default)]
     pub mix_audio: bool,
     #[serde(default)]
@@ -77,6 +78,12 @@ fn address(raw: &str) -> Result<String> {
 impl Config {
     pub(super) fn parse(bytes: &[u8]) -> Result<Self> {
         let c: Self = serde_json::from_slice(bytes).map_err(|e| invalid(e.to_string()))?;
+        if let Some(options) = &c.renderer {
+            options.validate().map_err(invalid)?;
+            if !c.render {
+                return Err(invalid("Renderer options require render=true"));
+            }
+        }
         relative_path(&c.movie)?;
         address(&c.source_url)?;
         if let Some(page) = &c.page_url {
@@ -189,6 +196,7 @@ mod tests {
             ("inspectionScale", json!(5)),
             ("avmExecutionMs", json!(10001)),
             ("shell", json!("arbitrary")),
+            ("renderer", json!({"backend":"metal"})),
         ] {
             let mut bad = v.clone();
             bad[key] = value;
@@ -203,6 +211,23 @@ mod tests {
         bad = v;
         bad["resources"] = json!([{"url":"https://EXAMPLE.test:443/a","path":"a","sha256":"0".repeat(64)},{"url":"https://example.test/a","path":"b","sha256":"0".repeat(64)}]);
         assert!(parse(&bad).is_err());
+    }
+    #[test]
+    fn renderer_policy_requires_rendering_and_has_no_driver_loading_escape() {
+        let mut value = base();
+        value["render"] = json!(true);
+        value["renderer"] =
+            json!({"backend":"vulkan","adapter":"software","adapterName":"CPU rasterizer"});
+        parse(&value).unwrap();
+        for bad in [
+            json!({"backend":"unknown"}),
+            json!({"adapter":"unknown"}),
+            json!({"driverPath":"/tmp/a"}),
+            json!({"adapterName":""}),
+        ] {
+            value["renderer"] = bad;
+            assert!(parse(&value).is_err());
+        }
     }
     #[test]
     fn budgets_cannot_disable_confinement_or_raise_reviewed_limits() {
