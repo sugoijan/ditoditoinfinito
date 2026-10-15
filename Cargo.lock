@@ -1292,9 +1292,9 @@ checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
 
 [[package]]
 name = "lunita"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1eb821e731e26815898315a04ff4ccab46e3bf0e6c6330286e0dd05931f28b62"
+checksum = "de7e3ba4715506a8748f42039ab7679da7f6f23e3d3e334e008f1a8afed10478"
 dependencies = [
  "ahash",
  "anyhow",
