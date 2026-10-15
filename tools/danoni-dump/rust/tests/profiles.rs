@@ -727,3 +727,128 @@ fn installed_early_profile_discovers_collaborator_rows_and_replays_rendered_role
         assert!(c.projection.render && c.motion.render && c.audio.render);
     }
 }
+fn scheduled_capture(root: Value) -> Value {
+    let mut objects = vec![];
+    let reference = stored(&root, &mut objects);
+    json!({"captures":[{"frame":55,"state":{"objects":objects,"roots":[{"level":0,"value":reference,"movieFrame":5}],"displayTree":[],"incomplete":false,"avm1Halted":false}}]})
+}
+fn scheduled_chart() -> Value {
+    json!({"mode":"5","clockField":"frame_num","preparedIteration":55,"scheduleAgreement":true,"nativeLaneIndices":[0,2,4,6,3],"nativeSchedules":{"taps":[{"frame":200,"lane":0,"count":1}],"holds":[{"frame":100,"lane":0,"count":1}]},"speed":[],"lanes":(0..5).map(|i|if i==0 {json!({"nativeFrames":[300],"nativeHoldFrames":[[250,280]]})}else{json!({"nativeFrames":[],"nativeHoldFrames":[]})}).collect::<Vec<_>>()})
+}
+#[test]
+fn variable_travel_uses_each_first_head_schedule_and_preserves_reference() {
+    let p = EngineProfile::RekuScheduledMenu;
+    let c = scheduled_capture(json!({"frame_num":0,"judgeY":{"200":100,"100":150}}));
+    let chart = scheduled_chart();
+    let before = chart.clone();
+    let candidates = p
+        .motion_candidates(
+            &c,
+            &chart,
+            &json!({"logicalFrame":145,"iteration":201}),
+            &mut || Ok(()),
+        )
+        .unwrap();
+    assert_eq!(candidates[0].note, "fle_s0");
+    assert_eq!(candidates[0].iterations, vec![231, 232, 233, 234, 235, 236]);
+    assert!(
+        candidates
+            .iter()
+            .any(|c| c.note == "le_s0" && c.iterations == vec![306, 307, 308, 309, 310, 311])
+    );
+    assert_eq!(chart, before);
+    assert_eq!(
+        p.options(Mode::Five).unwrap().family,
+        ddi_danoni_export::extraction::Family::ScheduledCounter
+    );
+    assert!(p.options(Mode::Seven).is_err());
+    assert!(p.options(Mode::NineA).is_err());
+    assert!(p.options(Mode::NineB).is_err());
+    assert!(
+        EngineProfile::RekuConstantMenuEarly
+            .options(Mode::Seven)
+            .is_err()
+    );
+}
+#[test]
+fn variable_travel_rejects_wrong_clock_missing_or_ambiguous_schedules_and_cancels() {
+    let profile = EngineProfile::RekuScheduledMenu;
+    let origin = json!({"logicalFrame":145,"iteration":201});
+    let good = scheduled_capture(json!({"frame_num":0,"judgeY":{"200":100,"100":150}}));
+    for kind in [
+        "clock",
+        "missing",
+        "duplicate",
+        "snapshot",
+        "agreement",
+        "mode",
+    ] {
+        let mut c = good.clone();
+        let mut chart = scheduled_chart();
+        match kind {
+            "clock" => {
+                c = scheduled_capture(json!({"frame_num":1,"judgeY":{"200":100,"100":150}}));
+            }
+            "missing" => {
+                c = scheduled_capture(json!({"frame_num":0,"judgeY":{"100":150}}));
+            }
+            "duplicate" => {
+                chart["nativeSchedules"]["taps"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"frame":200,"lane":0,"count":1}));
+            }
+            "snapshot" => {
+                chart["preparedIteration"] = json!(56);
+            }
+            "agreement" => {
+                chart["scheduleAgreement"] = json!(false);
+            }
+            "mode" => {
+                chart["mode"] = json!("9i");
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            profile
+                .motion_candidates(&c, &chart, &origin, &mut || Ok(()))
+                .is_err(),
+            "{kind}"
+        );
+    }
+    let e = profile
+        .motion_candidates(&good, &scheduled_chart(), &origin, &mut || {
+            Err(Error {
+                code: "host-cancel",
+                message: "synthetic cancellation".into(),
+            })
+        })
+        .unwrap_err();
+    assert_eq!(e.code, "host-cancel");
+}
+#[test]
+fn scheduled_menu_uses_its_observed_controls_and_rejects_unknown_settings() {
+    let profile = EngineProfile::RekuScheduledMenu;
+    let mut capture = menu(1);
+    for item in capture["captures"].as_array_mut().unwrap() {
+        let props = item["state"]["objects"][0]["properties"]
+            .as_array_mut()
+            .unwrap();
+        props.push(json!({"name":string("motion"),"value":string("OFF")}));
+        props.push(json!({"name":string("ber"),"value":string("Default")}));
+    }
+    let menu = profile.read_menu(&capture).unwrap();
+    assert_eq!(menu.rows[1].mode, None);
+    let controls = profile.selector_controls(&menu, 0).unwrap();
+    assert_eq!(controls.events[0]["y"], 193);
+    assert_eq!(controls.events[1]["y"], 69);
+    let practice = controls.events.iter().find(|e| e["y"] == 169).unwrap();
+    assert_eq!(practice["frame"], controls.start - 3);
+    assert_eq!(controls.events.last().unwrap()["y"], 220);
+    assert_eq!(controls.events.last().unwrap()["x"], 105);
+    set_property(&mut capture, 0, "motion", string("ON"));
+    assert!(profile.read_menu(&capture).is_err());
+    set_property(&mut capture, 0, "motion", string("OFF"));
+    set_property(&mut capture, 0, "ber", string("Unknown"));
+    assert!(profile.read_menu(&capture).is_err());
+}

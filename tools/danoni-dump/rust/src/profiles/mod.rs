@@ -3,6 +3,7 @@
 mod driver;
 mod identity;
 mod play;
+mod scheduled;
 pub use crate::dependencies::{
     ProfileDependencyJob, execute_profile as execute_with_dependencies,
     execute_profile_job as execute_dependencies_job,
@@ -58,6 +59,12 @@ fn menu_at(profile: EngineProfile, item: &Value) -> Result<Menu> {
         ));
     }
     let root = graph.root()?;
+    if profile == EngineProfile::RekuScheduledMenu
+        && (extraction::text(prop(&root, "motion")?)? != "OFF"
+            || !["Default", "Practice"].contains(&extraction::text(prop(&root, "ber")?)?.as_str()))
+    {
+        return Err(invalid("Unproved scheduled-menu motion/gauge state"));
+    }
     let count = integer(prop(&root, "difficulty")?, 16)?;
     let labels = graph.array(prop(&root, "diff_label")?)?;
     let keys = graph.array(prop(&root, "key_label")?)?;
@@ -149,8 +156,17 @@ impl EngineProfile {
         for step in 0..clicks {
             events.push(json!({"frame":43+2*step,"type":"click","x":40,"y":self.next_y()}));
         }
-        let start = 50u64.max(46 + 2 * clicks as u64);
-        events.push(json!({"frame":start,"type":"click","x":50,"y":230}));
+        let start = 50u64.max(
+            if self == Self::RekuScheduledMenu {
+                48
+            } else {
+                46
+            } + 2 * clicks as u64,
+        );
+        if self == Self::RekuScheduledMenu {
+            events.push(json!({"frame":start-3,"type":"click","x":60,"y":169}));
+        }
+        events.push(json!({"frame":start,"type":"click","x":if self==Self::RekuScheduledMenu {105}else{50},"y":if self==Self::RekuScheduledMenu {220}else{230}}));
         Ok(SelectorControls {
             events,
             start,
@@ -178,6 +194,18 @@ pub fn motion_candidates(
     origin: &Value,
     checkpoint: &mut impl FnMut() -> Result<()>,
 ) -> Result<Vec<MotionSelection>> {
+    let travel = extraction::numeric(&chart["constantTravelFrames"])?;
+    if !(6.0..=12000.0).contains(&travel) {
+        return Err(invalid("Unbounded constant travel"));
+    }
+    propose_motion(chart, origin, &mut |_, _, _| Ok(travel), checkpoint)
+}
+fn propose_motion(
+    chart: &Value,
+    origin: &Value,
+    travel: &mut impl FnMut(usize, MotionSource, f64) -> Result<f64>,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<Vec<MotionSelection>> {
     let lanes = chart["lanes"]
         .as_array()
         .ok_or_else(|| invalid("Missing projected lanes"))?;
@@ -189,10 +217,9 @@ pub fn motion_candidates(
     if lanes.len() != clips.len() || chart["clockField"] != "frame_num" {
         return Err(invalid("Profile clock/lane layout differs"));
     }
-    let travel = extraction::numeric(&chart["constantTravelFrames"])?;
     let offset =
         extraction::numeric(&origin["logicalFrame"])? - extraction::numeric(&origin["iteration"])?;
-    if !(6.0..=12000.0).contains(&travel) || !offset.is_finite() {
+    if !offset.is_finite() {
         return Err(invalid("Unbounded travel/origin"));
     }
     let speeds = chart["speed"]
@@ -220,6 +247,10 @@ pub fn motion_candidates(
                 };
                 let Some(raw) = raw else { continue };
                 let raw = extraction::numeric(raw)?;
+                let travel = travel(index, source, raw)?;
+                if !(6.0..=12000.0).contains(&travel) {
+                    continue;
+                }
                 let first = (raw - travel * fraction - offset).ceil();
                 if !(1.0..=1195.0).contains(&first) {
                     continue;

@@ -156,6 +156,7 @@ fn config(
     frames: &[u64],
     mix: bool,
     render: bool,
+    execution_ms: u64,
 ) -> Result<Vec<u8>> {
     let mut value = context.clone();
     value["events"] = json!(events);
@@ -163,7 +164,7 @@ fn config(
     value["render"] = json!(render);
     value["mixAudio"] = json!(mix);
     value["inspectionScale"] = json!(4);
-    value["avmExecutionMs"] = json!(2000);
+    value["avmExecutionMs"] = json!(execution_ms);
     let b = bytes(&value)?;
     supervisor::validate_config(&b)?;
     Ok(b)
@@ -206,7 +207,14 @@ fn prepare(
         return Err(invalid("Source manifest names another movie"));
     }
     let mut value = serde_json::to_value(&context).map_err(|e| invalid(e.to_string()))?;
-    config(&value, &[], &[1], false, profile.render())?;
+    config(
+        &value,
+        &[],
+        &[1],
+        false,
+        profile.render(),
+        profile.avm_execution_ms(),
+    )?;
     let mut files = BTreeMap::new();
     let movie = blob(&mut files, movie_bytes)?;
     let source = add(&mut files, "inputs/source-manifest.json".into(), provenance)?;
@@ -382,6 +390,7 @@ impl<F: FnMut(&ProfileProgress) -> Result<()>> Run<'_, F> {
             frames,
             mix,
             self.prepared.profile.render(),
+            self.prepared.profile.avm_execution_ms(),
         )?;
         let binding = bind(format!("inputs/{id}.json"), &b);
         orchestration::write(self.root, &binding.path, &b)?;
@@ -460,6 +469,7 @@ impl<F: FnMut(&ProfileProgress) -> Result<()>> Run<'_, F> {
                 "Observed missing GETs must be resolved in the source context before menu planning",
             ));
         }
+        self.prepared.profile.check_render_support(&capture)?;
         Ok((capture, bindings))
     }
 }
@@ -555,7 +565,7 @@ pub fn execute(
             run.state.stage = "initialization";
             let controls = prepared.profile.selector_controls(&menu, row.index)?;
             let mut events = controls.events.clone();
-            let opts = options(mode)?;
+            let opts = prepared.profile.options(mode)?;
             let mut frames = controls.initialization_frames.clone();
             frames.push(prepared.profile.discovery_end());
             frames.sort_unstable();
@@ -579,6 +589,7 @@ pub fn execute(
                         .cloned()
                         .collect::<Vec<_>>()
                 );
+                prepared.profile.confirm_start_settings(&selected)?;
                 let selected = prepared.profile.read_menu(&selected)?;
                 if selected.rows != menu.rows || selected.selected != row.index {
                     return Err(invalid("Observed selected menu differs from planned row"));
@@ -626,7 +637,12 @@ pub fn execute(
             let projection = project_capture(&capture, &opts, &mut || run.check())?;
             let clock = projection.chart["clockField"].as_str();
             let origin = movie_audio_origin(&capture, clock, stream)?;
-            let candidates = motion_candidates(&projection.chart, &origin, &mut || run.check())?;
+            let candidates = prepared.profile.motion_candidates(
+                &capture,
+                &projection.chart,
+                &origin,
+                &mut || run.check(),
+            )?;
             let mut proved = None;
             for (index, candidate) in candidates
                 .into_iter()

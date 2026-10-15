@@ -9,7 +9,10 @@ job thread in a desktop shell.
 
 The [early-menu extension](danoni-rust-early-profiles.md) adds a separately
 identified gen1 profile with its own menu frame, controls and required offscreen
-renderer. The original later-profile API/defaults below remain available.
+renderer. The original later-profile API/defaults below remain available. The
+[variable-travel extension](danoni-rust-scheduled-profiles.md) adds a source-bound
+five-key gen3 subset using its stored spawn/travel ledger, observed Practice
+settings and a separate control contract.
 
 ## Scope and identification
 

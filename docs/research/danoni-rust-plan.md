@@ -973,3 +973,45 @@ uncached; saved-discovery selection recognizes its duplicate without changing th
 catalog. All transfers are zero, frozen Higan playback/revision data agree and
 original export/registry/cache indexes are unchanged. Evidence remains local at
 `~/Music/DanOni/reviews/rust-collections-20261015/`.
+
+
+### Automatic variable-travel five-key profile, 2026-10-15
+
+The [scheduled-menu extension](danoni-rust-scheduled-profiles.md) connects the
+existing `scheduled-counter` projector to two exact shared gen3 control
+combinations, observed Practice/Motion OFF settings and per-head travel derived
+from the same zero-counter graph used for projection. The normalizer and exact
+reference schema remain unchanged. Default old-profile controls/deadlines and
+the worker's process/sandbox limits remain unchanged; this compiler uses the
+existing 10-second per-activation maximum demonstrated by the frozen captures.
+
+Crow, Moon Drop, Sacrifice and River complete automatic source-only extraction
+and match the independent frozen chart/audio references: four charts, 1,710
+taps, 44 holds and 1,798 endpoints, canonical PCM within one signed unit and
+63 x1/x2/x3 scroll checks. Four original-page URL imports then prepare/install
+those songs in a fresh verified managed store with zero transfers. Metadata
+review inputs are supplied only to the differential comparison to match its
+frozen policy; production URL jobs have no per-song capture/fitting overrides.
+
+Maid's bitmap drawing remains an explicit failing requirement. An original blank
+movie reproduces the Metal compiler-service startup error outside the sandbox
+as well as within it; the production sandbox is unchanged. Cynthia's candidate
+initialization is excluded from automatic recognition pending a working rendered
+5/7-key gate. Broader gen3/classic/gen4 controls and renderer startup remain next
+native coverage work. The existing explicit 5/7-key projector and earlier
+constant-travel profile keep their verified scope. Local evidence is under
+`~/Music/DanOni/reviews/rust-scheduled-profiles-20261015/`; accepted exports and
+registry/cache indexes remain unchanged.
+
+
+Validation passes 269 native / 94 feature-disabled SDK tests, both strict Clippy
+configurations, formatting and `just check` (861/861 REUSE). The final CLI reports
+Maid's bitmap requirement explicitly, rejects the unverified Cynthia build before
+execution, and treats a repeated source-only Crow URL import as a no-op. The
+original accepted corpus and all main-owned implementation files are unchanged.
+
+The combined frozen replay gate passes all 28 earlier/new automatic-profile
+works / 35 charts (19,783 taps, 1,134 holds, 22,051 endpoints, 786 authored-scroll
+checks), including the existing seven-key references. No source timing/event
+field changes and canonical PCM stays within one signed unit. This replay gate
+does not claim fresh GPU execution while Metal startup is unavailable.
