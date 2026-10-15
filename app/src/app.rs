@@ -12,6 +12,7 @@ use crate::components::game_canvas::{GameCanvas, SongSource};
 use crate::components::options::Options;
 use crate::components::skin_preview::SkinPreview;
 use crate::components::song_select::SongSelect;
+use crate::components::ui_dev::UiDev;
 use crate::components::ui_test::UiTest;
 use crate::components::video_check::VideoCheck;
 use crate::router::Route;
@@ -93,6 +94,7 @@ impl Component for App {
                 | Route::CalibrateRun { .. }
                 | Route::Calibrate
                 | Route::UiTest { .. }
+                | Route::UiDev { .. }
         );
         let screen = self.screen(ctx);
         html! {
@@ -169,6 +171,11 @@ impl App {
             Route::SkinPreview { params } => html! { <SkinPreview params={params.clone()} /> },
             Route::UiTest { params } => html! {
                 <UiTest key={crate::web::screen::losses()} params={params.clone()} />
+            },
+            Route::UiDev { screen } => html! {
+                // Keyed by the screen too: a new `screen` in the address
+                // starts the page over on that screen.
+                <UiDev key={format!("{}-{screen}", crate::web::screen::losses())} screen={screen.clone()} />
             },
             Route::NotFound(p) => html! {
                 <main class="shell">

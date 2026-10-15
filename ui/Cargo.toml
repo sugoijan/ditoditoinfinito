@@ -10,5 +10,16 @@ description = "DitoDitoInfinito: screens, input routing, focus, text fields over
 
 [dependencies]
 ddi-actor.workspace = true
+ddi-chart.workspace = true
 ddi-engine.workspace = true
+ddi-library.workspace = true
+ddi-platform.workspace = true
+serde.workspace = true
 unicode-segmentation.workspace = true
+# Layout frames (P8), optional.
+taffy = { workspace = true, optional = true }
+
+[features]
+default = []
+# Flexbox and grid frames through taffy (`layout`).
+layout = ["dep:taffy"]

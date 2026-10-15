@@ -92,7 +92,7 @@ impl SessionConfig {
                 show_deltas: settings.show_deltas,
                 cancel_progress: 0.0,
                 cancel_hint: "",
-                note_colors: settings.note_colors.scheme(),
+                note_colors: crate::settings::note_scheme(settings.note_colors),
                 chart_colors: settings.chart_colors,
                 background: settings.bg_brightness,
                 // Chosen each frame by the game loop.

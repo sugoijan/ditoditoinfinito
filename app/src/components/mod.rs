@@ -6,5 +6,6 @@ pub(crate) mod game_canvas;
 pub(crate) mod options;
 pub(crate) mod skin_preview;
 pub(crate) mod song_select;
+pub(crate) mod ui_dev;
 pub(crate) mod ui_test;
 pub(crate) mod video_check;

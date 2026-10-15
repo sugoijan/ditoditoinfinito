@@ -17,6 +17,7 @@ ddi-platform = { workspace = true, features = ["decode"] }
 ddi-library.workspace = true
 ddi-noteskin.workspace = true
 ddi-lua.workspace = true
+ddi-ui.workspace = true
 yew.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
@@ -52,6 +53,7 @@ web-sys = { workspace = true, features = [
     "IdbRequest",
     "IdbTransaction",
     "IdbTransactionMode",
+    "Storage",
     "StorageManager",
     "ScrollIntoViewOptions",
     "ScrollLogicalPosition",
@@ -112,6 +114,12 @@ web-sys = { workspace = true, features = [
     "CanvasRenderingContext2d",
     "ImageData",
     "WebGl2RenderingContext",
+    "WheelEvent",
+    "HtmlTextAreaElement",
+    "CompositionEvent",
+    "VisualViewport",
+    "History",
+    "VisibilityState",
     "console",
 ] }
 

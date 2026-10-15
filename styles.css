@@ -1095,3 +1095,60 @@ button.danger {
 .arrows-preview .skin-preview-status {
   margin: 4px 0 0;
 }
+
+/* The UI core's developer screen (`components::ui_dev`): the canvas over
+   the visible area, a hidden textarea at the caret, a hidden file input. */
+.ui-dev {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #0c0c12;
+}
+
+.ui-dev-frame {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.ui-dev-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  outline: none;
+}
+
+.ui-dev-input {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: 16px;
+  resize: none;
+  overflow: hidden;
+  white-space: nowrap;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  pointer-events: none;
+}
+
+.ui-dev-files {
+  position: fixed;
+  left: -1000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}

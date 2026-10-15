@@ -23,5 +23,6 @@ pub mod image;
 pub mod manifest;
 pub mod pack;
 pub mod search;
+pub mod suggest;
 pub mod video;
 pub mod zip;

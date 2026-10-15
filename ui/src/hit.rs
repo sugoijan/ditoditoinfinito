@@ -265,6 +265,20 @@ pub fn transform_of(root: &Actor, transform: &Affine, path: &[usize]) -> Option<
     Some(m)
 }
 
+/// `point` (in the space `transform` maps the root's parent space to) in
+/// the own space of the first actor named `name`: where a press is along
+/// a slider's track or down a list, wherever they are placed.
+pub fn local_point(
+    root: &Actor,
+    transform: &Affine,
+    name: &str,
+    point: [f32; 2],
+) -> Option<[f32; 2]> {
+    let path = find(root, name)?;
+    let m = transform_of(root, transform, &path)?;
+    Some(apply(&invert(&m)?, point))
+}
+
 /// Whether the actor at `path` and everything above it is shown.
 pub fn shown(root: &Actor, path: &[usize]) -> bool {
     let mut a = root;

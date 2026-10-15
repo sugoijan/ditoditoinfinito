@@ -7,7 +7,9 @@
 //! to 4 ms when nested; message tasks are not). The loop only runs while a
 //! pad is connected, fast polling is on and the tab is visible; a rAF loop
 //! polls once per frame regardless, which finds new pads and restarts the
-//! fast loop after the tab was hidden.
+//! fast loop after the tab was hidden. With no pad connected the frame
+//! loop rests (P13): the pads are looked for twice a second instead, and at
+//! once when the browser says one connected (`gamepadconnected`).
 //!
 //! Reading the pads happens in a small JS function that packs every pad into
 //! one `Float64Array`, so a poll is one call into JS instead of dozens of
@@ -28,6 +30,8 @@ use super::clock::PerformanceClock;
 
 /// Minimum time between polls of the fast loop.
 const FAST_INTERVAL_MS: f64 = 1.0;
+/// How often pads are looked for while none is connected.
+const IDLE_POLL_MS: u32 = 500;
 /// Floats in the shared read buffer: enough for several pads with the
 /// largest button and axis counts browsers report.
 const BUFFER_LEN: u32 = 4096;
@@ -191,6 +195,9 @@ struct State {
     snapshot: PadSnapshot,
     queue: Vec<RawInput>,
     listener: Option<Listener>,
+    /// Whether edges are queued for [`InputSource::poll`] (off where a
+    /// listener takes them all and nothing drains the queue).
+    queue_edges: bool,
     /// When this hub started, on the performance timeline.
     created: HostTime,
     fast: bool,
@@ -308,6 +315,9 @@ fn poll_and_notify(state: &Rc<RefCell<State>>, now_ms: f64) {
     if s.listener.is_none() {
         s.listener = listener;
     }
+    if !s.queue_edges {
+        s.queue.clear();
+    }
 }
 
 struct Hub {
@@ -315,12 +325,17 @@ struct Hub {
     pump: DdiPadPump,
     _tick: Closure<dyn FnMut(f64)>,
     raf: Rc<RefCell<Option<AnimationFrame>>>,
+    /// The look for pads while none is connected, and what cuts it short.
+    idle: RefCell<Option<gloo::timers::callback::Timeout>>,
+    connected: RefCell<Option<gloo::events::EventListener>>,
 }
 
 impl Drop for Hub {
     fn drop(&mut self) {
         self.pump.close();
         self.raf.borrow_mut().take();
+        self.idle.borrow_mut().take();
+        self.connected.borrow_mut().take();
     }
 }
 
@@ -350,6 +365,7 @@ impl Gamepads {
             snapshot: PadSnapshot::default(),
             queue: Vec::new(),
             listener: None,
+            queue_edges: true,
             created: HostTime(
                 web_sys::window()
                     .and_then(|w| w.performance())
@@ -374,7 +390,24 @@ impl Gamepads {
             pump,
             _tick: tick,
             raf: Rc::new(RefCell::new(None)),
+            idle: RefCell::new(None),
+            connected: RefCell::new(None),
         });
+        if let Some(window) = web_sys::window() {
+            let weak = Rc::downgrade(&hub);
+            *hub.connected.borrow_mut() = Some(gloo::events::EventListener::new(
+                &window,
+                "gamepadconnected",
+                move |_| {
+                    // Resting: look now.
+                    if let Some(hub) = weak.upgrade()
+                        && hub.idle.borrow_mut().take().is_some()
+                    {
+                        schedule_frame(Rc::downgrade(&hub));
+                    }
+                },
+            ));
+        }
         schedule_frame(Rc::downgrade(&hub));
         Some(Gamepads(hub))
     }
@@ -388,6 +421,15 @@ impl Gamepads {
     /// Edge callback, run synchronously inside the poll that saw the edge.
     pub(crate) fn set_listener(&self, listener: Option<Listener>) {
         self.0.state.borrow_mut().listener = listener;
+    }
+
+    /// Whether edges are queued for [`InputSource::poll`] (on by default).
+    pub(crate) fn set_queue(&self, on: bool) {
+        let mut s = self.0.state.borrow_mut();
+        s.queue_edges = on;
+        if !on {
+            s.queue.clear();
+        }
     }
 
     /// Drops queued edges (e.g. presses made before a session started).
@@ -450,6 +492,20 @@ fn schedule_frame(hub: Weak<Hub>) {
         poll_and_notify(&hub.state, PerformanceClock::now_ms());
         hub.update_pump();
         let weak = Rc::downgrade(&hub);
+        if hub.state.borrow().slots.is_empty() {
+            // No pad: no frames for them (P13); look again in a while.
+            let again = weak.clone();
+            *hub.idle.borrow_mut() = Some(gloo::timers::callback::Timeout::new(
+                IDLE_POLL_MS,
+                move || {
+                    if let Some(hub) = again.upgrade() {
+                        hub.idle.borrow_mut().take();
+                        schedule_frame(Rc::downgrade(&hub));
+                    }
+                },
+            ));
+            return;
+        }
         drop(hub);
         schedule_frame(weak);
     });

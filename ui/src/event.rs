@@ -261,9 +261,10 @@ pub struct MenuEvent {
     /// Which controller (the pad's slot): each one's held directions
     /// repeat on their own.
     pub source: u32,
-    /// Whether the platform treats it as a user gesture. Pad presses come
-    /// from the poll loop, which Chrome and Firefox count as one and
-    /// Safari does not (P2); the shell says.
+    /// Whether the platform lets it start audio as a user gesture. Pad
+    /// presses come from the poll loop, which Chrome and Firefox count as
+    /// one and Safari does not (P2); the shell says. Even then it starts
+    /// only what [`crate::UiRequest::pad_may_start`] allows.
     pub gesture: bool,
     pub time: f64,
 }

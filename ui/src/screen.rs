@@ -61,7 +61,9 @@ pub enum Input {
     Menu { action: MenuAction, repeat: bool },
     /// A key no menu action claimed (shortcuts: read
     /// [`KeyEvent::key`]); while typing, the keys the field leaves (Up,
-    /// Down, Tab, Page Up and Down).
+    /// Down, Tab, Page Up and Down). Tab while typing is always consumed
+    /// (it would take focus out of the platform's field) and comes here
+    /// for the screen to use or ignore.
     Key(KeyEvent),
     /// A pointer's gesture on `target` (captured at the press: the rest of
     /// the gesture goes to it wherever the pointer goes); `None` where
@@ -127,6 +129,12 @@ pub trait Screen {
     /// A message broadcast, after the actors played its command.
     fn message(&mut self, _message: &Message, _root: &mut Actor, _cx: &mut Cx) {}
 
+    /// Whether the screen moves things itself (a list's inertia, not
+    /// tweens): frames keep coming while it does (P13).
+    fn animating(&self) -> bool {
+        false
+    }
+
     /// The named actors focus moves between, in order (the first is
     /// focused when the screen comes in), with any explicit neighbours.
     fn focusables(&self) -> Vec<Focusable> {
@@ -160,6 +168,7 @@ pub(crate) enum Op {
 /// A screen's way to the [`crate::Ui`] during a call.
 pub struct Cx {
     pub(crate) ops: Vec<Op>,
+    textures: std::rc::Rc<std::cell::RefCell<crate::textures::TextureTable>>,
     gesture: bool,
     viewport: Viewport,
     time: f64,
@@ -167,9 +176,16 @@ pub struct Cx {
 }
 
 impl Cx {
-    pub(crate) fn new(gesture: bool, viewport: Viewport, time: f64, focused: Option<String>) -> Cx {
+    pub(crate) fn new(
+        gesture: bool,
+        viewport: Viewport,
+        time: f64,
+        focused: Option<String>,
+        textures: std::rc::Rc<std::cell::RefCell<crate::textures::TextureTable>>,
+    ) -> Cx {
         Cx {
             ops: Vec::new(),
+            textures,
             gesture,
             viewport,
             time,
@@ -196,6 +212,12 @@ impl Cx {
     /// The name of this screen's focused actor.
     pub fn focused(&self) -> Option<&str> {
         self.focused.as_deref()
+    }
+
+    /// The actor texture id of the image at `source` drawn at most `side`
+    /// virtual pixels long ([`crate::textures`]).
+    pub fn texture(&mut self, source: &str, side: f32) -> u32 {
+        self.textures.borrow_mut().id(source, side)
     }
 
     pub fn request(&mut self, r: UiRequest) {

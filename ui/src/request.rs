@@ -114,6 +114,19 @@ pub enum UiRequest {
 }
 
 impl UiRequest {
+    /// Of the requests that need a gesture, those a controller's press may
+    /// start where the platform counts it as one (`MenuEvent::gesture`):
+    /// audio (Chrome and Firefox let a pad press start it; the play screen
+    /// relies on that). Opening a window, a picker, the keyboard or the
+    /// clipboard needs transient activation (a key, a click, a touch's
+    /// release), which a pad press never gives.
+    pub fn pad_may_start(&self) -> bool {
+        matches!(
+            self,
+            UiRequest::StartAudio | UiRequest::PlayPreview { .. } | UiRequest::StopPreview
+        )
+    }
+
     /// Whether the shell must carry it out inside a user gesture's
     /// handler: creating or resuming an `AudioContext` and starting media,
     /// clicking a hidden file input, focusing the textarea (iOS raises the
