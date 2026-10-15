@@ -302,6 +302,44 @@ Results (2026-10-15; Chrome 155 headless, Firefox 151 and 158 through
    `noteskin/src/lua/stage.rs`; an arena with stable ids if screens need
    to reach actors by id).
 
+Done (2026-10-15):
+
+- **The move.** `actor/` (`ddi-actor`) holds actors, commands and the
+  model data types; `noteskin` keeps the parsers (MilkShape's as
+  `ddi_noteskin::model::animated_texture` and friends) and the Lua. The
+  local corpus (348 skins with Lua and play) reported identical elements,
+  load fuel and fuel per frame, and 84 skin-preview screenshots (14 skins,
+  both backends, three beats) were identical pixel for pixel.
+- **Additions.** Quads (`ddi_actor::UNTEXTURED`; Lua's `Def.Quad` is now
+  StepMania's solid quad, not the built-in square art) and per-corner
+  colours (`TweenState.diffuse` is four corners, `Actor.h:460-472`); text
+  actors (`Kind::Text`, measured in a pass of their own through
+  `ddi_actor::text::TextMeasure`, drawn as `Drawn::Text`); clipping, our
+  own frame property, drawn as clip push and pop with a scissor and
+  whether it is exact; the virtual screen (`ddi_actor::screen`,
+  `ScreenDimensions.cpp:34-55`, plus a viewport to physical pixels);
+  `draworder` (a stable sort after the children's `Init`,
+  `ActorFrame.cpp:548`) and `SetDrawByZPosition`; shadows
+  (`Sprite.cpp:647-656`); `fov` and `vanishpoint` (`LoadMenuPerspective`,
+  `RageDisplay.cpp:573-611`), drawn quads carrying projected corners; masks
+  and the z-buffer calls as data (`Depth`, `Blend::NoEffect`; `02
+  Actor.lua:234-250`). `cullmode` and `SetTextureFiltering` stay ignored.
+- **Actors stay a tree.** The Lua stage's map from ids to paths is the
+  stable-id layer (re-indexed after a sort); nothing planned outside Lua
+  needs ids.
+- **Corpus.** Elements, warnings, failures and fuel per frame unchanged;
+  load fuel rose slightly on every Lua skin (the sort at `Init`). Drawn
+  differently, as StepMania draws them: Pulsen's eight shape skins (their
+  receptor frames call `fov(60)`), the seven STARLiGHT-NEXXT skins (mask
+  sprites no longer drawn opaque over the notes; quads solid). The bundled
+  skins' previews are unchanged pixel for pixel.
+- **Left for the renderer** (`render/src/noteskin.rs` approximates them
+  meanwhile): per-vertex colour in the textured pass (corner gradients
+  are cut into 8 cells a side), perspective-correct quads from projected
+  corners (drawn flat from the corners' mean), masks through the stencil
+  (sources skipped, destinations drawn whole), blend modes beyond normal,
+  add, subtract and modulate.
+
 ### Step 2. Drawing a scene outside play
 
 `render` gains the 2D pass over a draw list (P11) and the texture cache

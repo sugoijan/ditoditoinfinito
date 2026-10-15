@@ -1042,7 +1042,7 @@ mod tests {
         // The first of a repeated attribute counts.
         assert_eq!(s.states.len(), 1);
         assert_eq!(s.states[0].rect, [0.0, 0.0, 0.25, 1.0]);
-        assert_eq!(go.children()[0].current().diffuse[3], 0.5);
+        assert_eq!(go.children()[0].current().diffuse()[3], 0.5);
         let mut p = Problems::default();
         for c in ["Press", "W1"] {
             r.play(c, &mut p);
@@ -1072,7 +1072,7 @@ mod tests {
         x.play("DimW1", &mut p);
         assert!(shown(&x, 0, marvelous) && !shown(&x, 1, marvelous));
         assert_eq!(
-            x.children()[0].children()[marvelous].current().diffuse[3],
+            x.children()[0].children()[marvelous].current().diffuse()[3],
             1.0
         );
         x.play("DimHitMine", &mut p);
@@ -1167,7 +1167,7 @@ mod tests {
         for _ in 0..20 {
             x.update(0.05, &clocks, &mut p);
         }
-        assert_eq!(x.children()[0].children()[ok].current().diffuse[3], 0.0);
+        assert_eq!(x.children()[0].children()[ok].current().diffuse()[3], 0.0);
         assert!(p.messages.is_empty(), "{:?}", p.messages);
     }
 

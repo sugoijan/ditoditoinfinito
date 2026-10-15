@@ -344,13 +344,15 @@ impl Builder<'_, '_> {
     }
 
     /// A frame of `children`, each one's `Init` played (StepMania plays it
-    /// once per actor as it is loaded, children first).
+    /// once per actor as it is loaded, children first), then sorted by
+    /// their draw order before the frame's own (`LoadChildrenFromNode`).
     pub(crate) fn frame(&mut self, mut children: Vec<Actor>) -> Actor {
         let mut problems = Problems::default();
         for c in &mut children {
             c.play_own("Init", &mut problems);
         }
         let mut f = Actor::new(Kind::Frame(children));
+        f.sort_by_draw_order();
         f.play_own("Init", &mut problems);
         for m in problems.messages {
             self.note(m);
@@ -570,7 +572,7 @@ mod tests {
         let bright = &row.children()[3];
         assert_eq!(bright.base_rotation[2], 180.0);
         // Init left it transparent.
-        assert_eq!(bright.current().diffuse[3], 0.0);
+        assert_eq!(bright.current().diffuse()[3], 0.0);
         let mut p = Problems::default();
         // A bright W1: Judgment, Bright, W1 as GhostArrowRow sends them.
         for c in ["Judgment", "Bright", "W1"] {
@@ -579,7 +581,7 @@ mod tests {
         assert!(p.messages.is_empty(), "{:?}", p.messages);
         let bright = &row.children()[3];
         assert!(bright.visible);
-        assert_eq!(bright.current().diffuse[3], 1.0);
+        assert_eq!(bright.current().diffuse()[3], 1.0);
         assert!(!row.children()[2].visible);
         // dance/default blanks the hold explosion: an empty actor.
         assert_eq!(row.children()[0].kind, Kind::Actor);

@@ -7,12 +7,22 @@
 //! in degrees, positive clockwise on screen (y grows downwards).
 //!
 //! Commands as metrics write them are parsed here ([`commands`]); a
-//! model's meshes, bones and animated textures are [`model`]'s. Pure: the
-//! files that build actors (noteskins' metrics, Lua, MilkShape models) are
-//! read by `ddi_noteskin`, and what is drawn is `ddi_render`'s.
+//! model's meshes, bones and animated textures are [`model`]'s. Besides
+//! StepMania's actors: runs of text ([`Kind::Text`], measured through
+//! [`text::TextMeasure`]), clipping frames ([`Actor::clip`]), and the
+//! virtual screen they are placed on ([`screen`]). Pure: the files that
+//! build actors (noteskins' metrics, Lua, MilkShape models) are read by
+//! `ddi_noteskin`, and what is drawn ([`Drawn`]) is `ddi_render`'s.
+//!
+//! Actors are held as a tree: a frame owns its children, a screen or a
+//! skin owns its roots. Lua reaches them by handle through a map of
+//! handles to places in the tree (`ddi_noteskin`'s stage), kept current
+//! when a frame sorts its children.
 
 mod actor;
 pub mod commands;
 pub mod model;
+pub mod screen;
+pub mod text;
 
 pub use actor::*;

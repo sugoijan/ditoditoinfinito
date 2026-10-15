@@ -704,6 +704,28 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
             Ok(CallbackReturn::Return)
         })),
     );
+    // `SortByDrawOrder` (the prelude's): whether the children moved, their
+    // places then recorded again.
+    let shared = host.clone();
+    set(
+        "sort_children",
+        func(Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
+            let id = actor_id(ctx, stack.get(0))?;
+            let mut host = shared.borrow_mut();
+            let moved = match host.stage.get_mut(id) {
+                Some(a) => {
+                    charge(&mut exec, a.work("SortByDrawOrder") * 16);
+                    a.sort_by_draw_order()
+                }
+                None => false,
+            };
+            if moved {
+                host.stage.reindex(id);
+            }
+            stack.replace(ctx, moved);
+            Ok(CallbackReturn::Return)
+        })),
+    );
     let shared = host.clone();
     let _ = methods.set(
         ctx,

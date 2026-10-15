@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::commands::{Arg, Call};
 use crate::model::{AnimatedTexture, Animation, Geometry, Rest};
+use crate::text::{RunMetrics, TextMeasure, TextStyle};
 
 pub type Rgba = [f32; 4];
 
@@ -12,7 +13,9 @@ pub struct TweenState {
     pub pos: [f32; 3],
     pub rotation: [f32; 3],
     pub scale: [f32; 3],
-    pub diffuse: Rgba,
+    /// Per corner (`diffuse[4]`): upper left, upper right, lower left,
+    /// lower right.
+    pub diffuse: [Rgba; 4],
     pub glow: Rgba,
 }
 
@@ -23,7 +26,7 @@ impl Default for TweenState {
             pos: [0.0; 3],
             rotation: [0.0; 3],
             scale: [1.0; 3],
-            diffuse: [1.0; 4],
+            diffuse: [[1.0; 4]; 4],
             glow: [1.0, 1.0, 1.0, 0.0],
         }
     }
@@ -44,9 +47,15 @@ impl TweenState {
             pos: lerp_n(t, a.pos, b.pos),
             rotation: lerp_n(t, a.rotation, b.rotation),
             scale: lerp_n(t, a.scale, b.scale),
-            diffuse: lerp_n(t, a.diffuse, b.diffuse),
+            diffuse: std::array::from_fn(|i| lerp_n(t, a.diffuse[i], b.diffuse[i])),
             glow: lerp_n(t, a.glow, b.glow),
         }
+    }
+
+    /// The upper left corner's colour: what `GetDiffuse` answers and a
+    /// frame hands down to its children (`ActorFrame::DrawPrimitives`).
+    pub fn diffuse(&self) -> Rgba {
+        self.diffuse[0]
     }
 }
 
@@ -178,9 +187,42 @@ pub enum Blend {
     Add,
     Subtract,
     Modulate,
-    /// Masks and the rest: drawn as normal, reported.
+    /// `BlendMode_NoEffect`: leaves the colour as it is (`glBlendFunc(GL_ZERO,
+    /// GL_ONE)`); what a mask is drawn with ([`Actor`]'s `MaskSource`),
+    /// writing only depth.
+    NoEffect,
+    /// The rest: drawn as normal, reported.
     Other,
 }
+
+/// The depth buffer's state for an actor (`Actor::SetGlobalRenderStates`):
+/// what StepMania's masks are made of. `MaskSource` draws an actor into
+/// depth only ([`Blend::NoEffect`], `write`), nearer than the rest (its
+/// z-bias); a `MaskDest` actor tests depth and is drawn only where no
+/// mask is (`WriteOnPass`), or only inside one (`WriteOnFail`). Texels
+/// StepMania's alpha test drops (alpha 0.01 or less) write nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Depth {
+    pub write: bool,
+    pub test: ZTest,
+    /// `clearzbuffer`: depth is cleared before the actor draws.
+    pub clear: bool,
+}
+
+/// `ZTestMode`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ZTest {
+    #[default]
+    Off,
+    /// Drawn where nothing nearer was drawn.
+    WriteOnPass,
+    /// Drawn only behind what was drawn.
+    WriteOnFail,
+}
+
+/// The texture id of an untextured sprite ([`Sprite::quad`]): its colour
+/// alone.
+pub const UNTEXTURED: u32 = u32::MAX;
 
 /// A frame of a sprite's animation (`Sprite::State`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -243,6 +285,12 @@ impl Sprite {
         }
     }
 
+    /// `Def.Quad`: a sprite of no texture (`Quad::Quad` loads the blank
+    /// default one), `size` big until `setsize` or `zoomto` changes it.
+    pub fn quad(size: [f32; 2]) -> Sprite {
+        Sprite::new(UNTEXTURED, Vec::new(), size)
+    }
+
     pub fn state(&self) -> usize {
         self.current
     }
@@ -294,6 +342,89 @@ pub enum Kind {
     Sprite(Sprite),
     Frame(Vec<Actor>),
     Model(Box<Model>),
+    /// A run of text: ours, not StepMania's `BitmapText` (bitmap fonts come
+    /// with themes).
+    Text(Text),
+}
+
+/// A run of text drawn by whatever draws text ([`TextMeasure`]), one line.
+/// Its box is the run's advance wide and a line high
+/// ([`TextStyle::line_height`]); the alignment places that box, as a
+/// sprite's.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Text {
+    text: Arc<str>,
+    style: TextStyle,
+    /// `maxwidth`: a run wider than this (before zoom) is squeezed to it
+    /// (`BitmapText::UpdateBaseZoom`, here without touching the base
+    /// zoom); 0 for none.
+    pub max_width: f32,
+    /// `None` until measured again ([`Actor::measure`]).
+    metrics: Option<RunMetrics>,
+}
+
+impl Text {
+    pub fn new(text: impl Into<Arc<str>>, style: TextStyle) -> Text {
+        Text {
+            text: text.into(),
+            style,
+            max_width: 0.0,
+            metrics: None,
+        }
+    }
+
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn style(&self) -> &TextStyle {
+        &self.style
+    }
+
+    /// `settext`: measured again before it is drawn.
+    pub fn set_text(&mut self, text: &str) {
+        if *self.text != *text {
+            self.text = text.into();
+            self.metrics = None;
+        }
+    }
+
+    pub fn set_style(&mut self, style: TextStyle) {
+        if self.style != style {
+            self.style = style;
+            self.metrics = None;
+        }
+    }
+
+    /// The run's metrics, measured if they are not known.
+    pub fn measure(&mut self, measure: &mut dyn TextMeasure) -> RunMetrics {
+        *self
+            .metrics
+            .get_or_insert_with(|| measure.measure(&self.text, &self.style))
+    }
+
+    /// The last measurement; `None` after a change, until measured.
+    pub fn metrics(&self) -> Option<RunMetrics> {
+        self.metrics
+    }
+
+    /// The box: the advance (0 until measured) by a line.
+    pub fn size(&self) -> [f32; 2] {
+        [
+            self.metrics.map_or(0.0, |m| m.advance),
+            self.style.line_height(),
+        ]
+    }
+
+    /// The horizontal squeeze `maxwidth` asks for: never more than 1.
+    pub fn squeeze(&self) -> f32 {
+        let width = self.size()[0];
+        if self.max_width > 0.0 && width > 0.0 {
+            (self.max_width / width).min(1.0)
+        } else {
+            1.0
+        }
+    }
 }
 
 /// A 3D model (`Model`, `src/Model.cpp`): its meshes and bones (shared), its
@@ -457,13 +588,198 @@ pub struct ModelDraw {
     pub diffuse: Rgba,
     pub glow: Rgba,
     pub blend: Blend,
+    pub depth: Depth,
+    /// Under an `fov` frame, its camera; `None`: the drawer's own (the
+    /// note field's in play).
+    pub perspective: Option<Perspective>,
 }
 
-/// What an actor draws: quads and models, in drawing order.
+/// A run of text to draw ([`Kind::Text`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextDraw {
+    pub text: Arc<str>,
+    pub style: TextStyle,
+    pub metrics: RunMetrics,
+    /// The run's space (the pen at the origin on the baseline, x along the
+    /// run, y down, in virtual pixels at the style's size) to the target's
+    /// pixels: `x' = m[0]x + m[2]y + m[4]`, `y' = m[1]x + m[3]y + m[5]`,
+    /// `maxwidth`'s squeeze included. The scale it has is the one to
+    /// rasterise at.
+    pub transform: [f32; 6],
+    /// Per corner of the run's box, as [`Quad::diffuse`].
+    pub diffuse: [Rgba; 4],
+    pub glow: Rgba,
+    pub blend: Blend,
+    pub depth: Depth,
+    /// Under an `fov` frame: the run's space to the target's pixels with
+    /// z toward the viewer (a column-major 4×4), and the camera that sees
+    /// it ([`Perspective::project`]); `transform` is then its orthographic
+    /// view.
+    pub perspective: Option<(Mat4, Perspective)>,
+}
+
+impl TextDraw {
+    /// [`TextDraw::transform`] from the line box's top left instead of
+    /// the pen.
+    pub fn line_box_transform(&self) -> [f32; 6] {
+        shifted_local(&self.transform, [0.0, -self.metrics.baseline])
+    }
+}
+
+/// `m` after a move of `by` in its own space.
+fn shifted_local(m: &Mat, by: [f32; 2]) -> Mat {
+    mul(m, &[1.0, 0.0, 0.0, 1.0, by[0], by[1]])
+}
+
+/// A frame's clipping rectangle ([`Actor::clip`]): what is drawn between
+/// [`Drawn::ClipPush`] and its [`Drawn::ClipPop`] is cut to it, and to
+/// every clip around it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Clip {
+    /// The rectangle's corners on the target, as seen (upper left, upper
+    /// right, lower left, lower right of the frame's rectangle).
+    pub corners: [[f32; 2]; 4],
+    /// `[left, top, right, bottom]` on the target: the corners' bounds
+    /// within the enclosing clips' scissor. Never empty (a frame whose
+    /// clip leaves nothing draws nothing).
+    pub scissor: [f32; 4],
+    /// Whether the rectangle is the scissor alone (it stays axis-aligned:
+    /// no rotation, skew or perspective); otherwise the corners' quad
+    /// cuts too (a stencil).
+    pub exact: bool,
+}
+
+/// What an actor draws, in drawing order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Drawn {
     Quad(Quad),
     Model(ModelDraw),
+    Text(TextDraw),
+    ClipPush(Clip),
+    ClipPop,
+}
+
+/// Where StepMania's screen is on the target: what an `fov` frame's camera
+/// is made from (its vanishing point, by default the screen's centre, and
+/// its distance, `ActorFrame::BeginDraw`), and what a shadow's offset is
+/// measured in (`TranslateWorld`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct View {
+    /// Virtual pixels (the screen's, [`crate::screen::VirtualScreen`]) to
+    /// the target's.
+    pub transform: [f32; 6],
+    /// `SCREEN_WIDTH`, `SCREEN_HEIGHT`.
+    pub size: [f32; 2],
+}
+
+impl Default for View {
+    /// StepMania's 16:9 screen, 480 high, drawn as it is.
+    fn default() -> View {
+        View {
+            transform: IDENTITY,
+            size: [854.0, 480.0],
+        }
+    }
+}
+
+impl View {
+    /// The target's pixels per virtual pixel.
+    fn scale(&self) -> f32 {
+        let t = &self.transform;
+        (t[0] * t[3] - t[1] * t[2]).abs().sqrt()
+    }
+
+    /// A vector of the screen's on the target.
+    fn vector(&self, v: [f32; 2]) -> [f32; 2] {
+        let t = &self.transform;
+        [t[0] * v[0] + t[2] * v[1], t[1] * v[0] + t[3] * v[1]]
+    }
+
+    fn point(&self, p: [f32; 2]) -> [f32; 2] {
+        let v = self.vector(p);
+        [v[0] + self.transform[4], v[1] + self.transform[5]]
+    }
+}
+
+/// A camera an `fov` frame sets, in the target's pixels
+/// (`RageDisplay::LoadMenuPerspective`): the eye `distance` in front of
+/// the screen's plane, over the vanishing point; the plane z = 0 is seen
+/// as it is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Perspective {
+    pub vanish: [f32; 2],
+    pub distance: f32,
+    /// The frustum's near and far planes, as distances from the eye (1
+    /// and `distance + 1000` virtual pixels).
+    pub near: f32,
+    pub far: f32,
+}
+
+impl Perspective {
+    /// `LoadMenuPerspective(fov, SCREEN_WIDTH, SCREEN_HEIGHT, vanish)`
+    /// (`src/RageDisplay.cpp:573-611`): the eye where the screen's width
+    /// spans `fov` degrees; `None` for 0, which is orthographic.
+    pub fn new(view: &View, fov: f32, vanish: [f32; 2]) -> Option<Perspective> {
+        if fov == 0.0 || !fov.is_finite() {
+            return None;
+        }
+        let theta = fov.clamp(0.1, 179.9).to_radians() / 2.0;
+        let k = view.scale();
+        let distance = view.size[0] / 2.0 / theta.tan();
+        Some(Perspective {
+            vanish: view.point(vanish),
+            distance: distance * k,
+            near: k,
+            far: (distance + 1000.0) * k,
+        })
+    }
+
+    /// Where the point (target pixels, z toward the viewer) is seen, and
+    /// its `w` (its distance from the eye over the screen's); `None`
+    /// outside the frustum's depth.
+    pub fn project(&self, p: [f32; 3]) -> Option<([f32; 2], f32)> {
+        let depth = self.distance - p[2];
+        if !(depth >= self.near && depth <= self.far) {
+            return None;
+        }
+        let s = self.distance / depth;
+        Some((
+            [
+                self.vanish[0] + (p[0] - self.vanish[0]) * s,
+                self.vanish[1] + (p[1] - self.vanish[1]) * s,
+            ],
+            depth / self.distance,
+        ))
+    }
+}
+
+/// A quad's corners as a camera sees them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Projected {
+    /// Upper left, upper right, lower left, lower right, on the target.
+    pub corners: [[f32; 2]; 4],
+    /// Each corner's `w` ([`Perspective::project`]), for texturing in
+    /// perspective.
+    pub w: [f32; 4],
+}
+
+impl Projected {
+    /// The local `[-0.5, 0.5]²` square under `transform` (z toward the
+    /// viewer), seen by `camera`; `None` when a corner is outside its
+    /// depth.
+    fn of(camera: &Perspective, transform: &Mat4) -> Option<Projected> {
+        let mut corners = [[0.0; 2]; 4];
+        let mut w = [0.0; 4];
+        for (i, (x, y)) in [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)]
+            .into_iter()
+            .enumerate()
+        {
+            let (p, cw) = camera.project(transform_point(transform, [x, y, 0.0]))?;
+            corners[i] = p;
+            w[i] = cw;
+        }
+        Some(Projected { corners, w })
+    }
 }
 
 /// An actor.
@@ -481,8 +797,29 @@ pub struct Actor {
     pub base_alpha: f32,
     pub visible: bool,
     pub blend: Blend,
+    pub depth: Depth,
     pub halign: f32,
     pub valign: f32,
+    /// `draworder`: where a frame puts the actor among its children when
+    /// it sorts them ([`Actor::sort_by_draw_order`]).
+    pub draw_order: i32,
+    /// `shadowlength`: a sprite or text draws a copy of itself this far
+    /// right and down, in the screen's pixels, under it (`Sprite::DrawTexture`).
+    pub shadow: [f32; 2],
+    /// `shadowcolor`: the copy's colour, its alpha times the actor's.
+    pub shadow_color: Rgba,
+    /// A frame's `fov` (`ActorFrame::m_fFOV`): -1 keeps the camera around
+    /// it, 0 is orthographic, anything else the degrees the screen's width
+    /// spans ([`Perspective::new`]).
+    pub fov: f32,
+    /// A frame's `vanishpoint`, in the screen's pixels; `None`: its centre.
+    pub vanish: Option<[f32; 2]>,
+    /// A frame's `SetDrawByZPosition`: children drawn by their z, far
+    /// first (stable).
+    pub draw_by_z: bool,
+    /// A frame's clipping rectangle, `[left, top, right, bottom]` in its
+    /// own space: our own, not StepMania's ([`Clip`]).
+    pub clip: Option<[f32; 4]>,
     effect: Effect,
     secs_into_effect: f32,
     effect_delta: f32,
@@ -510,6 +847,7 @@ pub const METHODS: &[&str] = &[
     "MaskSource",
     "SetAllStateDelays",
     "SetDrawByZPosition",
+    "SetFOV",
     "SetHeight",
     "SetSecondsIntoAnimation",
     "SetTextureFiltering",
@@ -540,9 +878,17 @@ pub const METHODS: &[&str] = &[
     "diffuse",
     "diffusealpha",
     "diffuseblink",
+    "diffusebottomedge",
     "diffusecolor",
+    "diffuseleftedge",
+    "diffuselowerleft",
+    "diffuselowerright",
     "diffuseramp",
+    "diffuserightedge",
     "diffuseshift",
+    "diffusetopedge",
+    "diffuseupperleft",
+    "diffuseupperright",
     "draworder",
     "drop",
     "effect_hold_at_full",
@@ -576,6 +922,7 @@ pub const METHODS: &[&str] = &[
     "set_use_effect_clock_for_texcoords",
     "setsize",
     "setstate",
+    "shadowcolor",
     "shadowlength",
     "shadowlengthx",
     "shadowlengthy",
@@ -588,6 +935,7 @@ pub const METHODS: &[&str] = &[
     "texcoordvelocity",
     "thump",
     "valign",
+    "vanishpoint",
     "vertalign",
     "vibrate",
     "visible",
@@ -664,9 +1012,15 @@ pub struct Quad {
     /// `[left, top, right, bottom]` of the image, before `texcoord_offset`.
     pub uv: [f32; 4],
     pub texcoord_offset: [f32; 2],
-    pub diffuse: Rgba,
+    /// Per corner: upper left, upper right, lower left, lower right
+    /// (`Sprite::DrawTexture` gives each vertex its own).
+    pub diffuse: [Rgba; 4],
     pub glow: Rgba,
     pub blend: Blend,
+    pub depth: Depth,
+    /// Under an `fov` frame: the corners as its camera sees them;
+    /// `transform` is then their orthographic view.
+    pub projected: Option<Projected>,
 }
 
 type Mat = [f32; 6];
@@ -703,8 +1057,17 @@ impl Actor {
             base_alpha: 1.0,
             visible: true,
             blend: Blend::Normal,
+            depth: Depth::default(),
             halign: 0.5,
             valign: 0.5,
+            draw_order: 0,
+            shadow: [0.0; 2],
+            // `Actor::InitState`.
+            shadow_color: [0.0, 0.0, 0.0, 0.5],
+            fov: -1.0,
+            vanish: None,
+            draw_by_z: false,
+            clip: None,
             effect: Effect::None,
             secs_into_effect: 0.0,
             effect_delta: 0.0,
@@ -776,7 +1139,7 @@ impl Actor {
     /// note: the colour of the appearance mods and a hold's life.
     pub fn set_note_colors(&mut self, diffuse: Rgba, glow: Rgba) {
         let d = self.dest();
-        d.diffuse = diffuse;
+        d.diffuse = [diffuse; 4];
         d.glow = glow;
     }
 
@@ -793,11 +1156,43 @@ impl Actor {
     /// Every sprite texture the actor and its children draw.
     pub fn textures(&self) -> Vec<u32> {
         match &self.kind {
+            Kind::Sprite(s) if s.texture == UNTEXTURED => Vec::new(),
             Kind::Sprite(s) => vec![s.texture],
             Kind::Frame(c) => c.iter().flat_map(Actor::textures).collect(),
             Kind::Model(m) => m.materials.iter().flat_map(|m| m.frames.clone()).collect(),
-            Kind::Actor => Vec::new(),
+            Kind::Actor | Kind::Text(_) => Vec::new(),
         }
+    }
+
+    /// Measures the text runs changed since they were last measured
+    /// ([`Text::set_text`], `settext`), so that their size is known to
+    /// the alignment, `maxwidth`, `zoomto` and the getters. A screen calls
+    /// it after its updates, before drawing: commands run where nothing
+    /// measures (a skin's or a theme's Lua), so a run changed by one has
+    /// its old size until then.
+    pub fn measure(&mut self, measure: &mut dyn TextMeasure) {
+        self.each(&mut |a| {
+            if let Kind::Text(t) = &mut a.kind {
+                t.measure(measure);
+            }
+        });
+    }
+
+    /// `ActorFrame::SortByDrawOrder`: the children by draw order, those of
+    /// equal order kept as they are (`stable_sort`, `ActorFrame.cpp:548-552`).
+    /// StepMania sorts once a frame's children are loaded, after their
+    /// `Init` and before the frame's own (`LoadChildrenFromNode`), and when
+    /// Lua asks; a later `draworder` waits for the next sort. Whether the
+    /// order changed.
+    pub fn sort_by_draw_order(&mut self) -> bool {
+        let Kind::Frame(children) = &mut self.kind else {
+            return false;
+        };
+        if children.is_sorted_by_key(|c| c.draw_order) {
+            return false;
+        }
+        children.sort_by_key(|c| c.draw_order);
+        true
     }
 
     /// The state setters write: the last queued tween's end, or the
@@ -927,23 +1322,20 @@ impl Actor {
         let p = self.percent_through_effect();
         let blink_on = p > 0.5;
         let between = ((p + 0.25) * 2.0 * PI).sin() / 2.0 + 0.5;
-        let alpha = s.diffuse[3];
+        // `fOriginalAlpha`: the upper left corner's.
+        let alpha = s.diffuse[0][3];
         let (c1, c2) = (self.effect_color1, self.effect_color2);
         let mix = |t: f32| -> Rgba { std::array::from_fn(|i| c1[i] * t + c2[i] * (1.0 - t)) };
+        // Every corner the effect's colour, at the actor's alpha.
+        let corners = |mut c: Rgba| {
+            c[3] *= alpha;
+            [c; 4]
+        };
         match self.effect {
             Effect::None | Effect::Spin => {}
-            Effect::DiffuseBlink => {
-                s.diffuse = if blink_on { c1 } else { c2 };
-                s.diffuse[3] *= alpha;
-            }
-            Effect::DiffuseShift => {
-                s.diffuse = mix(between);
-                s.diffuse[3] *= alpha;
-            }
-            Effect::DiffuseRamp => {
-                s.diffuse = mix(p);
-                s.diffuse[3] *= alpha;
-            }
+            Effect::DiffuseBlink => s.diffuse = corners(if blink_on { c1 } else { c2 }),
+            Effect::DiffuseShift => s.diffuse = corners(mix(between)),
+            Effect::DiffuseRamp => s.diffuse = corners(mix(p)),
             Effect::GlowBlink => {
                 s.glow = if blink_on { c1 } else { c2 };
                 s.glow[3] *= alpha;
@@ -958,12 +1350,12 @@ impl Actor {
             }
             Effect::Rainbow => {
                 let a = between * 2.0 * PI;
-                s.diffuse = [
+                s.diffuse = [[
                     a.cos() * 0.5 + 0.5,
                     (a + PI * 2.0 / 3.0).cos() * 0.5 + 0.5,
                     (a + PI * 4.0 / 3.0).cos() * 0.5 + 0.5,
                     alpha,
-                ];
+                ]; 4];
             }
             Effect::Wag => {
                 let k = (p * 2.0 * PI).sin();
@@ -1213,7 +1605,7 @@ impl Actor {
             1 + a.tweens.len() + a.children().iter().map(tree).sum::<usize>()
         }
         match method {
-            "finishtweening" | "hurrytweening" => tree(self),
+            "finishtweening" | "hurrytweening" | "SortByDrawOrder" => tree(self),
             "SetAllStateDelays" => match &self.kind {
                 Kind::Sprite(s) => s.states.len(),
                 _ => 0,
@@ -1357,13 +1749,37 @@ impl Actor {
             "baserotationx" => self.base_rotation[0] = num(0)?,
             "baserotationy" => self.base_rotation[1] = num(0)?,
             "baserotationz" => self.base_rotation[2] = num(0)?,
-            // Colour.
-            "diffuse" => self.dest().diffuse = color(0)?,
-            "diffusealpha" => self.dest().diffuse[3] = num(0)?,
+            // Colour, of every corner or of some (`Actor.h:460-472`).
+            "diffuse" => self.dest().diffuse = [color(0)?; 4],
+            "diffusealpha" => {
+                let a = num(0)?;
+                for c in &mut self.dest().diffuse {
+                    c[3] = a;
+                }
+            }
             "diffusecolor" => {
                 let c = color(0)?;
+                for d in &mut self.dest().diffuse {
+                    d[..3].copy_from_slice(&c[..3]);
+                }
+            }
+            "diffuseupperleft" | "diffuseupperright" | "diffuselowerleft" | "diffuselowerright"
+            | "diffusetopedge" | "diffuserightedge" | "diffusebottomedge" | "diffuseleftedge" => {
+                let c = color(0)?;
+                let corners: &[usize] = match call.method.as_str() {
+                    "diffuseupperleft" => &[0],
+                    "diffuseupperright" => &[1],
+                    "diffuselowerleft" => &[2],
+                    "diffuselowerright" => &[3],
+                    "diffusetopedge" => &[0, 1],
+                    "diffuserightedge" => &[1, 3],
+                    "diffusebottomedge" => &[2, 3],
+                    _ => &[0, 2],
+                };
                 let d = self.dest();
-                d.diffuse[..3].copy_from_slice(&c[..3]);
+                for &i in corners {
+                    d.diffuse[i] = c;
+                }
             }
             "glow" => self.dest().glow = color(0)?,
             "basealpha" => self.base_alpha = num(0)?,
@@ -1380,6 +1796,7 @@ impl Actor {
                     "BlendMode_Add" => Blend::Add,
                     "BlendMode_Subtract" => Blend::Subtract,
                     "BlendMode_Modulate" => Blend::Modulate,
+                    "BlendMode_NoEffect" => Blend::NoEffect,
                     s if s.starts_with("BlendMode_") => Blend::Other,
                     s => return Err(format!("blend: {s} is not a blend mode")),
                 }
@@ -1665,22 +2082,71 @@ impl Actor {
                 }
                 self.update_rate = r;
             }
-            // Drawn the same or not at all here.
-            "SetTextureFiltering"
-            | "draworder"
-            | "fov"
-            | "SetDrawByZPosition"
-            | "zbuffer"
-            | "ztest"
-            | "zwrite"
-            | "clearzbuffer"
-            | "shadowlength"
-            | "shadowlengthx"
-            | "shadowlengthy"
-            | "MaskSource"
-            | "MaskDest"
-            | "cullmode"
-            | "ztestmode" => {}
+            // Drawing order. Frames' alone in StepMania, any actor's here.
+            "draworder" => self.draw_order = num(0)? as i32,
+            "SortByDrawOrder" => {
+                self.sort_by_draw_order();
+            }
+            // `BArg`: Lua's truth, so 0 is true.
+            "SetDrawByZPosition" => {
+                self.draw_by_z = !matches!(a.first(), None | Some(Arg::Nil | Arg::Bool(false)))
+            }
+            // Shadows (`Actor.h:571-574`).
+            "shadowlength" => self.shadow = [num(0)?; 2],
+            "shadowlengthx" => self.shadow[0] = num(0)?,
+            "shadowlengthy" => self.shadow[1] = num(0)?,
+            "shadowcolor" => self.shadow_color = color(0)?,
+            // Perspective (`ActorFrame.cpp:628-641`).
+            "fov" | "SetFOV" => self.fov = num(0)?,
+            "vanishpoint" => self.vanish = Some([num(0)?, num(1)?]),
+            // Depth: StepMania's masks (`Actor.cpp:1834-1840`; `MaskSource`
+            // and `MaskDest`, `02 Actor.lua:234-250`).
+            "zbuffer" => {
+                let on = flag(0)?;
+                self.depth.test = if on { ZTest::WriteOnPass } else { ZTest::Off };
+                self.depth.write = on;
+            }
+            "ztest" => {
+                self.depth.test = if flag(0)? {
+                    ZTest::WriteOnPass
+                } else {
+                    ZTest::Off
+                }
+            }
+            "ztestmode" => {
+                self.depth.test = match text(0)?.as_str() {
+                    "ZTestMode_Off" => ZTest::Off,
+                    "ZTestMode_WriteOnPass" => ZTest::WriteOnPass,
+                    "ZTestMode_WriteOnFail" => ZTest::WriteOnFail,
+                    s => return Err(format!("ztestmode: {s} is not a z test mode")),
+                }
+            }
+            "zwrite" => self.depth.write = flag(0)?,
+            "clearzbuffer" => self.depth.clear = flag(0)?,
+            "MaskSource" => {
+                // `noclear`, despite its name, clears when true.
+                if matches!(a.first(), Some(Arg::Bool(true))) {
+                    self.depth.clear = true;
+                }
+                self.depth.write = true;
+                self.blend = Blend::NoEffect;
+            }
+            "MaskDest" => self.depth.test = ZTest::WriteOnPass,
+            // Text (ours).
+            "settext" => {
+                let s = text(0)?;
+                if let Kind::Text(t) = &mut self.kind {
+                    t.set_text(&s);
+                }
+            }
+            "maxwidth" => {
+                let w = num(0)?;
+                if let Kind::Text(t) = &mut self.kind {
+                    t.max_width = w;
+                }
+            }
+            // Drawn the same here.
+            "SetTextureFiltering" | "cullmode" => {}
             other => return Err(format!("{other} is not supported")),
         }
         Ok(())
@@ -1711,8 +2177,8 @@ impl Actor {
             "GetBaseRotationX" => Value::Num(self.base_rotation[0]),
             "GetBaseRotationY" => Value::Num(self.base_rotation[1]),
             "GetBaseRotationZ" => Value::Num(self.base_rotation[2]),
-            "GetDiffuse" => Value::Color(d.diffuse),
-            "GetDiffuseAlpha" => Value::Num(d.diffuse[3]),
+            "GetDiffuse" => Value::Color(d.diffuse[0]),
+            "GetDiffuseAlpha" => Value::Num(d.diffuse[0][3]),
             "GetGlow" => Value::Color(d.glow),
             "GetVisible" => Value::Bool(self.visible),
             "GetWidth" => Value::Num(size[0]),
@@ -1750,6 +2216,7 @@ impl Actor {
     pub fn size(&self) -> [f32; 2] {
         match &self.kind {
             Kind::Sprite(s) => s.size,
+            Kind::Text(t) => t.size(),
             _ => [0.0; 2],
         }
     }
@@ -1758,45 +2225,63 @@ impl Actor {
 
     /// Appends what the actor draws at `transform` (its parent's), under the
     /// parent's diffuse and glow (`ActorFrame::DrawPrimitives` hands them
-    /// down; `Actor::PreDraw` multiplies and screens them in).
+    /// down; `Actor::PreDraw` multiplies and screens them in), on
+    /// StepMania's 16:9 screen drawn as it is ([`View::default`]).
     pub fn draw(&mut self, transform: [f32; 6], diffuse: Rgba, glow: Rgba, out: &mut Vec<Drawn>) {
-        // The same placement in 3D: the 2D part, depth scaled alike.
-        let t = transform;
-        let k = (t[0] * t[3] - t[1] * t[2]).abs().sqrt();
-        let parent3: Mat4 = [
-            t[0], t[1], 0.0, 0.0, t[2], t[3], 0.0, 0.0, 0.0, 0.0, k, 0.0, t[4], t[5], 0.0, 1.0,
-        ];
-        self.draw_depth(&transform, &parent3, diffuse, glow, out, 0);
+        self.draw_in(&View::default(), transform, diffuse, glow, out);
     }
 
-    fn draw_depth(
+    /// [`Actor::draw`] on `view`, which `fov` frames' cameras and shadows'
+    /// offsets are measured on. Text is drawn as last measured
+    /// ([`Actor::measure`]).
+    pub fn draw_in(
         &mut self,
-        parent: &Mat,
-        parent3: &Mat4,
+        view: &View,
+        transform: [f32; 6],
         diffuse: Rgba,
         glow: Rgba,
         out: &mut Vec<Drawn>,
-        depth: u32,
     ) {
+        // The same placement in 3D: the 2D part, depth scaled alike.
+        let t = transform;
+        let k = (t[0] * t[3] - t[1] * t[2]).abs().sqrt();
+        let m3: Mat4 = [
+            t[0], t[1], 0.0, 0.0, t[2], t[3], 0.0, 0.0, 0.0, 0.0, k, 0.0, t[4], t[5], 0.0, 1.0,
+        ];
+        let under = Under {
+            m: transform,
+            m3,
+            diffuse,
+            glow,
+            camera: None,
+            scissor: None,
+        };
+        self.draw_depth(&under, view, out, 0);
+    }
+
+    fn draw_depth(&mut self, under: &Under, view: &View, out: &mut Vec<Drawn>, depth: u32) {
         if !self.visible || self.hibernate > 0.0 || depth > MAX_DEPTH {
             return;
         }
         let mut s = self.with_effects();
-        let mut internal = diffuse;
+        let mut internal = under.diffuse;
         internal[3] *= self.base_alpha;
         if internal != [1.0; 4] {
-            for (d, k) in s.diffuse.iter_mut().zip(internal) {
-                *d *= k;
+            for corner in &mut s.diffuse {
+                for (d, k) in corner.iter_mut().zip(internal) {
+                    *d *= k;
+                }
             }
         }
-        if glow[3] > 0.0 {
+        if under.glow[3] > 0.0 {
             // Screen.
-            for (g, k) in s.glow.iter_mut().zip(glow) {
+            for (g, k) in s.glow.iter_mut().zip(under.glow) {
                 *g = *g + k - k * *g;
             }
         }
         // `PartiallyOpaque`.
-        if !(s.diffuse[3] > 0.0 || s.glow[3] > 0.0) {
+        let opaque = s.diffuse.iter().any(|c| c[3] > 0.0);
+        if !(opaque || s.glow[3] > 0.0) {
             return;
         }
         // Translate, rotate, scale, then the alignment (`BeginDraw`). The
@@ -1809,8 +2294,13 @@ impl Actor {
         ];
         let (sz, cz) = rot[2].sin_cos();
         let (cx, cy) = (rot[0].cos(), rot[1].cos());
+        // `maxwidth` squeezes a run (a base zoom in `BitmapText`).
+        let squeeze = match &self.kind {
+            Kind::Text(t) => t.squeeze(),
+            _ => 1.0,
+        };
         let scale = [
-            s.scale[0] * self.base_scale[0],
+            s.scale[0] * self.base_scale[0] * squeeze,
             s.scale[1] * self.base_scale[1],
         ];
         let size = self.size();
@@ -1828,9 +2318,10 @@ impl Actor {
             s.pos[0] + ax[0] * align[0] + ay[0] * align[1],
             s.pos[1] + ax[1] * align[0] + ay[1] * align[1],
         ];
-        let m = mul(parent, &local);
-        // In 3D (models, and what they are drawn under): the same order,
-        // the rotation `Rx(-x)·Ry(-y)·Rz(z)` (`RageMatrixRotationXYZ`).
+        let m = mul(&under.m, &local);
+        // In 3D (models, perspective, and what they are drawn under): the
+        // same order, the rotation `Rx(-x)·Ry(-y)·Rz(z)`
+        // (`RageMatrixRotationXYZ`).
         let local3 = mul4(
             &mul4(
                 &translation4([s.pos[0], s.pos[1], s.pos[2]]),
@@ -1844,20 +2335,49 @@ impl Actor {
                 &translation4([align[0], align[1], 0.0]),
             ),
         );
-        let m3 = mul4(parent3, &local3);
+        let m3 = mul4(&under.m3, &local3);
+        // A sprite's or a run's shadow: itself in the shadow's colour, moved
+        // in the screen's pixels (`TranslateWorld`), drawn first
+        // (`Sprite::DrawTexture`, `BitmapText::DrawPrimitives`).
+        let shadow = |alpha: f32| {
+            let mut c = self.shadow_color;
+            c[3] *= alpha;
+            (self.shadow != [0.0; 2]).then(|| (view.vector(self.shadow), c))
+        };
+        let (blend, depth_state, camera) = (self.blend, self.depth, under.camera);
         match &mut self.kind {
             Kind::Actor => {}
             Kind::Sprite(sprite) => {
                 let sized = mul(&m, &[size[0], 0.0, 0.0, size[1], 0.0, 0.0]);
-                out.push(Drawn::Quad(Quad {
-                    transform: sized,
-                    texture: sprite.texture,
-                    uv: sprite.custom.unwrap_or(sprite.states[sprite.current].rect),
-                    texcoord_offset: sprite.texcoord_offset,
-                    diffuse: s.diffuse,
-                    glow: s.glow,
-                    blend: self.blend,
-                }));
+                let sized3 = mul4(&m3, &scale4([size[0], size[1], 1.0]));
+                let quad = |transform: Mat, transform3: &Mat4, diffuse, glow| {
+                    let projected = match &camera {
+                        Some(c) => Some(Projected::of(c, transform3)?),
+                        None => None,
+                    };
+                    Some(Drawn::Quad(Quad {
+                        transform,
+                        texture: sprite.texture,
+                        uv: sprite.custom.unwrap_or(sprite.states[sprite.current].rect),
+                        texcoord_offset: sprite.texcoord_offset,
+                        diffuse,
+                        glow,
+                        blend,
+                        depth: depth_state,
+                        projected,
+                    }))
+                };
+                // Any corner seen draws the diffuse pass and the shadow
+                // (`DrawTexture`).
+                if opaque && let Some((by, c)) = shadow(s.diffuse[0][3]) {
+                    out.extend(quad(
+                        shifted(&sized, by),
+                        &shifted4(&sized3, by),
+                        [c; 4],
+                        [0.0; 4],
+                    ));
+                }
+                out.extend(quad(sized, &sized3, s.diffuse, s.glow));
             }
             Kind::Model(model) => {
                 // MilkShape's y is up (`Model::DrawPrimitives` scales y by
@@ -1865,20 +2385,191 @@ impl Actor {
                 out.push(Drawn::Model(ModelDraw {
                     transform: mul4(&m3, &scale4([1.0, -1.0, 1.0])),
                     geometry: model.geometry.clone(),
-                    materials: model.materials_now(s.diffuse),
+                    materials: model.materials_now(s.diffuse[0]),
                     bones: model.bones.clone(),
-                    diffuse: s.diffuse,
+                    diffuse: s.diffuse[0],
                     glow: s.glow,
-                    blend: self.blend,
+                    blend,
+                    depth: depth_state,
+                    perspective: camera,
                 }));
             }
+            Kind::Text(text) => {
+                let metrics = text.metrics().unwrap_or_default();
+                // The pen: the box's left, on the baseline.
+                let pen = [-size[0] / 2.0, -size[1] / 2.0 + metrics.baseline];
+                let run = mul(&m, &[1.0, 0.0, 0.0, 1.0, pen[0], pen[1]]);
+                let run3 = mul4(&m3, &translation4([pen[0], pen[1], 0.0]));
+                let draw = |transform, transform3, diffuse, glow| {
+                    Drawn::Text(TextDraw {
+                        text: text.text.clone(),
+                        style: text.style.clone(),
+                        metrics,
+                        transform,
+                        diffuse,
+                        glow,
+                        blend,
+                        depth: depth_state,
+                        perspective: camera.map(|c| (transform3, c)),
+                    })
+                };
+                // `BitmapText::DrawPrimitives` draws nothing but the glow
+                // while the upper left corner is transparent.
+                let seen = s.diffuse[0][3] != 0.0;
+                if seen && let Some((by, c)) = shadow(s.diffuse[0][3]) {
+                    out.push(draw(
+                        shifted(&run, by),
+                        shifted4(&run3, by),
+                        [c; 4],
+                        [0.0; 4],
+                    ));
+                }
+                if seen || s.glow[3] > 0.0 {
+                    out.push(draw(run, run3, s.diffuse, s.glow));
+                }
+            }
             Kind::Frame(children) => {
-                for c in children {
-                    c.draw_depth(&m, &m3, s.diffuse, s.glow, out, depth + 1);
+                // `ActorFrame::BeginDraw`: a camera of the frame's own for
+                // what is inside it.
+                let camera = if self.fov != -1.0 {
+                    let vanish = self
+                        .vanish
+                        .unwrap_or([view.size[0] / 2.0, view.size[1] / 2.0]);
+                    Perspective::new(view, self.fov, vanish)
+                } else {
+                    camera
+                };
+                let mut scissor = under.scissor;
+                let clipped = match self.clip {
+                    Some(r) => {
+                        let rect: Mat = [
+                            r[2] - r[0],
+                            0.0,
+                            0.0,
+                            r[3] - r[1],
+                            (r[0] + r[2]) / 2.0,
+                            (r[1] + r[3]) / 2.0,
+                        ];
+                        let Some(clip) = clip(&mul(&m, &rect), &m3, rect, camera, scissor) else {
+                            // Nothing of it can be seen.
+                            return;
+                        };
+                        scissor = Some(clip.scissor);
+                        out.push(Drawn::ClipPush(clip));
+                        true
+                    }
+                    None => false,
+                };
+                let inside = Under {
+                    m,
+                    m3,
+                    diffuse: s.diffuse[0],
+                    glow: s.glow,
+                    camera,
+                    scissor,
+                };
+                if self.draw_by_z {
+                    // `ActorUtil::SortByZPosition`: far first, stable.
+                    let mut order: Vec<usize> = (0..children.len()).collect();
+                    order.sort_by(|&a, &b| {
+                        let (za, zb) = (children[a].current.pos[2], children[b].current.pos[2]);
+                        za.partial_cmp(&zb).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    for i in order {
+                        children[i].draw_depth(&inside, view, out, depth + 1);
+                    }
+                } else {
+                    for c in children {
+                        c.draw_depth(&inside, view, out, depth + 1);
+                    }
+                }
+                if clipped {
+                    out.push(Drawn::ClipPop);
                 }
             }
         }
     }
+}
+
+/// What a frame hands its children to draw under.
+struct Under {
+    /// To the target, in 2D and in 3D (z toward the viewer).
+    m: Mat,
+    m3: Mat4,
+    diffuse: Rgba,
+    glow: Rgba,
+    /// The camera an `fov` frame around set; `None`: orthographic.
+    camera: Option<Perspective>,
+    /// The clips around, on the target.
+    scissor: Option<[f32; 4]>,
+}
+
+/// `m` moved by `by` on the target.
+fn shifted(m: &Mat, by: [f32; 2]) -> Mat {
+    [m[0], m[1], m[2], m[3], m[4] + by[0], m[5] + by[1]]
+}
+
+fn shifted4(m: &Mat4, by: [f32; 2]) -> Mat4 {
+    mul4(&translation4([by[0], by[1], 0.0]), m)
+}
+
+/// A frame's clip: the unit square to its rectangle (`rect`, in the
+/// frame's space) to the target under `sized` (2D) or, seen by `camera`,
+/// under `m3`; within the clips around (`scissor`). `None` when none of it
+/// is left.
+fn clip(
+    sized: &Mat,
+    m3: &Mat4,
+    rect: Mat,
+    camera: Option<Perspective>,
+    scissor: Option<[f32; 4]>,
+) -> Option<Clip> {
+    const EPS: f32 = 1e-5;
+    let (corners, exact) = match camera {
+        Some(c) => {
+            let rect3: Mat4 = [
+                rect[0], rect[1], 0.0, 0.0, rect[2], rect[3], 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+                rect[4], rect[5], 0.0, 1.0,
+            ];
+            (Projected::of(&c, &mul4(m3, &rect3))?.corners, false)
+        }
+        None => {
+            let m = sized;
+            let corners = [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)]
+                .map(|(x, y)| [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]);
+            // Turned by a multiple of 90° at most.
+            let straight =
+                (m[1].abs() < EPS && m[2].abs() < EPS) || (m[0].abs() < EPS && m[3].abs() < EPS);
+            (corners, straight)
+        }
+    };
+    let mut b = [
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    ];
+    for c in corners {
+        b = [
+            b[0].min(c[0]),
+            b[1].min(c[1]),
+            b[2].max(c[0]),
+            b[3].max(c[1]),
+        ];
+    }
+    if let Some(s) = scissor {
+        b = [
+            b[0].max(s[0]),
+            b[1].max(s[1]),
+            b[2].min(s[2]),
+            b[3].min(s[3]),
+        ];
+    }
+    (b[0] < b[2] && b[1] < b[3]).then_some(Clip {
+        corners,
+        scissor: b,
+        exact,
+    })
 }
 
 /// A column-major 4×4 matrix.
@@ -2026,22 +2717,22 @@ mod tests {
             "diffusealpha,1;linear,1;diffusealpha,0;decelerate,1;diffusealpha,1",
         );
         a.update(1.5, &clocks, &mut p);
-        assert!(close(a.current().diffuse[3], 0.75));
+        assert!(close(a.current().diffuse()[3], 0.75));
         // finishtweening jumps to the end.
         run(&mut a, "finishtweening");
-        assert_eq!(a.current().diffuse[3], 1.0);
+        assert_eq!(a.current().diffuse()[3], 1.0);
         // sleep holds, then the queued value lands.
         run(&mut a, "sleep,0.5;diffusealpha,0");
         a.update(0.25, &clocks, &mut p);
-        assert_eq!(a.current().diffuse[3], 1.0);
+        assert_eq!(a.current().diffuse()[3], 1.0);
         a.update(0.26, &clocks, &mut p);
-        assert_eq!(a.current().diffuse[3], 0.0);
+        assert_eq!(a.current().diffuse()[3], 0.0);
         // A zero-length tween waits for an update with time in it.
         run(&mut a, "linear,0;diffusealpha,1");
         a.update(0.0, &clocks, &mut p);
-        assert_eq!(a.current().diffuse[3], 0.0);
+        assert_eq!(a.current().diffuse()[3], 0.0);
         a.update(0.01, &clocks, &mut p);
-        assert_eq!(a.current().diffuse[3], 1.0);
+        assert_eq!(a.current().diffuse()[3], 1.0);
         assert!(p.messages.is_empty());
     }
 
@@ -2089,7 +2780,7 @@ mod tests {
                 },
                 &mut Problems::default(),
             );
-            a.with_effects().diffuse[0]
+            a.with_effects().diffuse()[0]
         };
         // 0.1 into the 0.2 ramp up (with the offset): half way to 0.5.
         assert!(close(at(&mut a, 3.05), 0.25 * 0.8 + 0.75));
@@ -2191,7 +2882,7 @@ mod tests {
         out.iter()
             .filter_map(|d| match d {
                 Drawn::Quad(q) => Some(*q),
-                Drawn::Model(_) => None,
+                _ => None,
             })
             .collect()
     }
@@ -2312,7 +3003,7 @@ mod tests {
         f.draw(TRANSFORM_IDENTITY, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
         assert_eq!(out.len(), 1);
         let q = quads(&out)[0];
-        assert_eq!(q.diffuse, [1.0, 0.5, 1.0, 0.25]);
+        assert_eq!(q.diffuse, [[1.0, 0.5, 1.0, 0.25]; 4]);
         // The child's y,10 turned by the frame's 90°: x moves by -10.
         assert!(close(q.transform[4], 90.0) && close(q.transform[5], 0.0));
         // Width along y after the turn.
@@ -2371,5 +3062,359 @@ mod tests {
         run(&mut f, "finishtweening");
         assert_eq!(f.children()[0].current().scale[0], 3.0);
         assert!(!run(&mut a, "visible").messages.is_empty());
+    }
+
+    fn draw_all(a: &mut Actor) -> Vec<Drawn> {
+        let mut out = Vec::new();
+        a.draw(TRANSFORM_IDENTITY, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
+        out
+    }
+
+    fn frame_of(children: Vec<Actor>) -> Actor {
+        Actor::new(Kind::Frame(children))
+    }
+
+    #[test]
+    fn quads_and_corner_colours() {
+        let mut q = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
+        assert!(q.textures().is_empty());
+        run(
+            &mut q,
+            "zoomto,20,10;diffuse,1,0,0,1;diffusebottomedge,0,0,1,0.5;diffuseupperright,0,1,0,1",
+        );
+        let out = draw_all(&mut q);
+        let [Drawn::Quad(d)] = out.as_slice() else {
+            panic!("{out:?}")
+        };
+        assert_eq!(d.texture, UNTEXTURED);
+        assert!(close(d.transform[0], 20.0) && close(d.transform[3], 10.0));
+        assert_eq!(
+            d.diffuse,
+            [
+                [1.0, 0.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0, 0.5],
+                [0.0, 0.0, 1.0, 0.5]
+            ]
+        );
+        // `GetDiffuse` is the upper left corner; `diffusealpha` sets every
+        // corner's alpha, `diffusecolor` every corner's colour.
+        assert_eq!(
+            q.getter("GetDiffuse"),
+            Some(Value::Color([1.0, 0.0, 0.0, 1.0]))
+        );
+        run(&mut q, "diffusealpha,0.25;diffusecolor,1,1,1,1");
+        assert_eq!(q.current().diffuse, [[1.0, 1.0, 1.0, 0.25]; 4]);
+        // Tweens move each corner.
+        run(
+            &mut q,
+            "diffuselowerleft,1,1,1,1;linear,1;diffuselowerleft,0,0,0,1",
+        );
+        q.update(0.5, &Clocks::default(), &mut Problems::default());
+        assert_eq!(q.current().diffuse[2], [0.5, 0.5, 0.5, 1.0]);
+        assert_eq!(q.current().diffuse[0], [1.0, 1.0, 1.0, 0.25]);
+        // A colour effect paints every corner, at the upper left's alpha.
+        run(&mut q, "finishtweening;diffuseblink");
+        assert_eq!(q.with_effects().diffuse, [[1.0, 1.0, 1.0, 0.25]; 4]);
+        // Only the upper left corner is handed down (`ActorFrame::DrawPrimitives`);
+        // any corner seen draws.
+        let mut f = frame_of(vec![Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])))]);
+        run(&mut f, "diffusealpha,0;diffuseupperleft,0.5,0.5,0.5,0.5");
+        let out = draw_all(&mut f);
+        assert_eq!(quads(&out)[0].diffuse, [[0.5, 0.5, 0.5, 0.5]; 4]);
+        let mut corner = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
+        run(&mut corner, "diffusealpha,0;diffuselowerright,1,1,1,1");
+        assert_eq!(draw_all(&mut corner).len(), 1);
+    }
+
+    #[test]
+    fn text_is_measured_aligned_and_squeezed() {
+        use crate::text::FixedMeasure;
+        let style = TextStyle::new("sans-serif", 20.0);
+        // Ten characters of 10 pixels; a line of 25, the baseline at 20.
+        let mut t = Actor::new(Kind::Text(Text::new("0123456789", style.clone())));
+        assert_eq!(t.size(), [0.0, 25.0]);
+        t.measure(&mut FixedMeasure);
+        assert_eq!(t.size(), [100.0, 25.0]);
+        assert_eq!(t.getter("GetWidth"), Some(Value::Num(100.0)));
+        run(
+            &mut t,
+            "x,300;y,50;horizalign,'HorizAlign_Left';vertalign,'VertAlign_Top'",
+        );
+        let out = draw_all(&mut t);
+        let [Drawn::Text(d)] = out.as_slice() else {
+            panic!("{out:?}")
+        };
+        // The pen: the box's left at x, the baseline 20 below its top.
+        assert_eq!(&*d.text, "0123456789");
+        assert!(
+            close(d.transform[4], 300.0) && close(d.transform[5], 70.0),
+            "{:?}",
+            d.transform
+        );
+        assert_eq!(d.metrics.advance, 100.0);
+        let top_left = d.line_box_transform();
+        assert!(close(top_left[4], 300.0) && close(top_left[5], 50.0));
+        // Centred, zoomed: the pen half the zoomed width left of x.
+        run(&mut t, "horizalign,'HorizAlign_Center';zoom,2");
+        let out = draw_all(&mut t);
+        let Drawn::Text(d) = &out[0] else { panic!() };
+        assert!(close(d.transform[0], 2.0) && close(d.transform[4], 200.0));
+        // `maxwidth` squeezes it (before zoom), alignment included.
+        run(&mut t, "maxwidth,50");
+        let out = draw_all(&mut t);
+        let Drawn::Text(d) = &out[0] else { panic!() };
+        assert!(close(d.transform[0], 1.0) && close(d.transform[3], 2.0));
+        assert!(close(d.transform[4], 250.0), "{:?}", d.transform);
+        // `settext` measures again; until then the old size stands.
+        run(&mut t, "settext,'01234'");
+        assert_eq!(t.size(), [0.0, 25.0]);
+        t.measure(&mut FixedMeasure);
+        assert_eq!(t.size(), [50.0, 25.0]);
+        // A shadow: the run again, under it, in the shadow's colour.
+        run(&mut t, "shadowlength,3;diffusealpha,0.5");
+        let out = draw_all(&mut t);
+        let [Drawn::Text(shadow), Drawn::Text(run_)] = out.as_slice() else {
+            panic!("{out:?}")
+        };
+        assert_eq!(shadow.diffuse, [[0.0, 0.0, 0.0, 0.25]; 4]);
+        assert!(close(shadow.transform[4] - run_.transform[4], 3.0));
+        assert!(close(shadow.transform[5] - run_.transform[5], 3.0));
+        assert_eq!(shadow.style, style);
+    }
+
+    #[test]
+    fn frames_clip_their_children() {
+        let child = || Actor::new(Kind::Sprite(Sprite::quad([10.0, 10.0])));
+        let mut inner = frame_of(vec![child()]);
+        inner.clip = Some([0.0, 0.0, 100.0, 100.0]);
+        run(&mut inner, "x,50");
+        let mut outer = frame_of(vec![inner, child()]);
+        outer.clip = Some([-20.0, -20.0, 120.0, 80.0]);
+        run(&mut outer, "zoom,2;x,10");
+        let out = draw_all(&mut outer);
+        let [
+            Drawn::ClipPush(a),
+            Drawn::ClipPush(b),
+            Drawn::Quad(_),
+            Drawn::ClipPop,
+            Drawn::Quad(_),
+            Drawn::ClipPop,
+        ] = out.as_slice()
+        else {
+            panic!("{out:?}")
+        };
+        // The outer: its rectangle zoomed and moved.
+        assert_eq!(a.scissor, [-30.0, -40.0, 250.0, 160.0]);
+        assert!(a.exact);
+        assert_eq!(a.corners[3], [250.0, 160.0]);
+        // The inner: its own, cut to the outer's.
+        assert_eq!(b.scissor, [110.0, 0.0, 250.0, 160.0]);
+        // Turned, it is a bound and the corners cut too.
+        let mut turned = frame_of(vec![child()]);
+        turned.clip = Some([0.0, 0.0, 10.0, 10.0]);
+        run(&mut turned, "rotationz,45");
+        let Drawn::ClipPush(c) = &draw_all(&mut turned)[0] else {
+            panic!()
+        };
+        assert!(!c.exact);
+        assert!(close(c.scissor[2] - c.scissor[0], 200f32.sqrt()));
+        // A quarter turn stays a scissor.
+        run(&mut turned, "rotationz,90");
+        let Drawn::ClipPush(c) = &draw_all(&mut turned)[0] else {
+            panic!()
+        };
+        assert!(c.exact);
+        // Nothing left: nothing drawn, no clip.
+        let mut gone = frame_of(vec![child()]);
+        gone.clip = Some([0.0, 0.0, 0.0, 10.0]);
+        assert!(draw_all(&mut gone).is_empty());
+    }
+
+    #[test]
+    fn draw_order_sorts_frames_stably() {
+        let named = |name: &str, order: &str| {
+            let mut a = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
+            a.name = name.into();
+            if !order.is_empty() {
+                run(&mut a, &format!("draworder,{order}"));
+            }
+            a
+        };
+        let mut f = frame_of(vec![
+            named("a", "10"),
+            named("b", ""),
+            named("c", "-5.7"),
+            named("d", "10"),
+            named("e", ""),
+        ]);
+        assert!(f.sort_by_draw_order());
+        let names: Vec<&str> = f.children().iter().map(|c| c.name.as_str()).collect();
+        // -5.7 is -5 (`IArg`); equal orders keep their places.
+        assert_eq!(names, ["c", "b", "e", "a", "d"]);
+        assert!(!f.sort_by_draw_order());
+        // `SetDrawByZPosition`: far first when drawn, the children as
+        // they are.
+        let mut z = frame_of(vec![named("near", ""), named("far", ""), named("mid", "")]);
+        run(&mut z.children_mut()[0], "z,5;diffuse,1,0,0,1");
+        run(&mut z.children_mut()[1], "z,-5;diffuse,0,1,0,1");
+        run(&mut z, "SetDrawByZPosition,true");
+        let reds: Vec<f32> = quads(&draw_all(&mut z))
+            .iter()
+            .map(|q| q.diffuse[0][0])
+            .collect();
+        assert_eq!(reds, [0.0, 1.0, 1.0]);
+        let greens: Vec<f32> = quads(&draw_all(&mut z))
+            .iter()
+            .map(|q| q.diffuse[0][1])
+            .collect();
+        assert_eq!(greens, [1.0, 1.0, 0.0]);
+        assert_eq!(z.children()[0].name, "near");
+    }
+
+    #[test]
+    fn sprites_draw_their_shadows_first() {
+        let mut s = Actor::new(Kind::Sprite(Sprite::new(4, vec![], [10.0, 10.0])));
+        run(
+            &mut s,
+            "shadowlength,2;diffuse,1,0,0,0.5;glow,1,1,1,1;rotationz,90",
+        );
+        let view = View {
+            transform: [3.0, 0.0, 0.0, 3.0, 0.0, 0.0],
+            size: [854.0, 480.0],
+        };
+        let mut out = Vec::new();
+        s.draw_in(
+            &view,
+            [3.0, 0.0, 0.0, 3.0, 30.0, 30.0],
+            [1.0; 4],
+            [1.0, 1.0, 1.0, 0.0],
+            &mut out,
+        );
+        let [Drawn::Quad(shadow), Drawn::Quad(q)] = out.as_slice() else {
+            panic!("{out:?}")
+        };
+        // Black at half the actor's alpha, no glow, the same texture.
+        assert_eq!(shadow.diffuse, [[0.0, 0.0, 0.0, 0.25]; 4]);
+        assert_eq!(shadow.glow[3], 0.0);
+        assert_eq!(shadow.texture, 4);
+        // Moved in the screen's pixels (3 target pixels each), not turned
+        // with the sprite.
+        assert!(close(shadow.transform[4] - q.transform[4], 6.0));
+        assert!(close(shadow.transform[5] - q.transform[5], 6.0));
+        // `shadowcolor`; a frame draws none of its own.
+        run(&mut s, "shadowcolor,1,1,1,1;shadowlengthx,0");
+        let out = draw_all(&mut s);
+        assert_eq!(quads(&out)[0].diffuse[0], [1.0, 1.0, 1.0, 0.5]);
+        assert!(close(
+            quads(&out)[0].transform[4],
+            quads(&out)[1].transform[4]
+        ));
+        let mut f = frame_of(vec![]);
+        run(&mut f, "shadowlength,2");
+        assert!(draw_all(&mut f).is_empty());
+    }
+
+    #[test]
+    fn fov_frames_see_their_children_in_perspective() {
+        let child = || Actor::new(Kind::Sprite(Sprite::quad([10.0, 10.0])));
+        let mut f = frame_of(vec![child(), child()]);
+        run(&mut f, "fov,90");
+        run(&mut f.children_mut()[0], "x,427;y,240");
+        run(&mut f.children_mut()[1], "x,527;y,240;z,100");
+        let view = View::default();
+        let mut out = Vec::new();
+        f.draw_in(
+            &view,
+            TRANSFORM_IDENTITY,
+            [1.0; 4],
+            [1.0, 1.0, 1.0, 0.0],
+            &mut out,
+        );
+        let q = quads(&out);
+        // At z = 0 the screen is seen as it is; the eye is 427 pixels away
+        // (90° across 854).
+        let p = q[0].projected.unwrap();
+        assert!(close(p.corners[0][0], 422.0) && close(p.corners[3][1], 245.0));
+        assert!(close(p.w[0], 1.0));
+        // Nearer the eye, bigger and away from the vanishing point.
+        let p = q[1].projected.unwrap();
+        let s = 427.0 / 327.0;
+        assert!(close(p.corners[0][0], 427.0 + 95.0 * s), "{p:?}");
+        assert!(close(p.corners[3][0] - p.corners[0][0], 10.0 * s));
+        assert!(close(p.w[0], 327.0 / 427.0));
+        // The orthographic view stays in `transform`.
+        assert!(close(q[1].transform[4], 527.0));
+        // A frame of fov 0 inside is orthographic again; one of -1 keeps
+        // the camera.
+        let mut inner = frame_of(vec![child()]);
+        run(&mut inner, "fov,0");
+        let mut keeps = frame_of(vec![child()]);
+        run(&mut keeps, "fov,-1");
+        let mut g = frame_of(vec![inner, keeps]);
+        run(&mut g, "fov,60;vanishpoint,0,0");
+        let mut out = Vec::new();
+        g.draw_in(
+            &view,
+            TRANSFORM_IDENTITY,
+            [1.0; 4],
+            [1.0, 1.0, 1.0, 0.0],
+            &mut out,
+        );
+        let q = quads(&out);
+        assert_eq!(q[0].projected, None);
+        assert!(q[1].projected.is_some());
+        // Behind the eye: not drawn.
+        let mut behind = frame_of(vec![child()]);
+        run(&mut behind, "fov,90");
+        run(&mut behind.children_mut()[0], "z,500");
+        assert!(draw_all(&mut behind).is_empty());
+        // Models carry the camera.
+        let mut m = frame_of(vec![model()]);
+        run(&mut m, "fov,45");
+        let Drawn::Model(d) = &draw_all(&mut m)[0] else {
+            panic!()
+        };
+        let c = d.perspective.unwrap();
+        assert!(close(c.distance, 427.0 / (22.5f32).to_radians().tan()));
+        assert_eq!(c.vanish, [427.0, 240.0]);
+    }
+
+    #[test]
+    fn masks_are_depth_states() {
+        let mut source = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
+        run(&mut source, "MaskSource,true");
+        let Drawn::Quad(q) = &draw_all(&mut source)[0] else {
+            panic!()
+        };
+        assert_eq!(q.blend, Blend::NoEffect);
+        assert_eq!(
+            q.depth,
+            Depth {
+                write: true,
+                test: ZTest::Off,
+                clear: true
+            }
+        );
+        // Without `true` the depth is kept (`noclear`, named backwards).
+        let mut kept = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
+        run(&mut kept, "MaskSource;MaskDest");
+        assert_eq!(
+            kept.depth,
+            Depth {
+                write: true,
+                test: ZTest::WriteOnPass,
+                clear: false
+            }
+        );
+        let mut dest = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
+        run(
+            &mut dest,
+            "ztestmode,'ZTestMode_WriteOnFail';blend,'BlendMode_NoEffect'",
+        );
+        assert_eq!(dest.depth.test, ZTest::WriteOnFail);
+        assert_eq!(dest.blend, Blend::NoEffect);
+        run(&mut dest, "zbuffer,false");
+        assert_eq!(dest.depth, Depth::default());
     }
 }

@@ -5,7 +5,7 @@
 //! which StepMania clears after every note anyway), then textured
 //! triangles in the skin's passes. `docs/plans/models.md`.
 
-use ddi_actor::{ModelDraw, mul4, transform_point};
+use ddi_actor::{ModelDraw, Perspective, View, mul4, transform_point};
 
 use crate::scene::FieldGeometry;
 
@@ -30,6 +30,33 @@ impl Camera {
         Camera {
             vanish: [geo.width / 2.0, geo.height / 2.0],
             distance: SM_DISTANCE * geo.arrow / 64.0,
+        }
+    }
+
+    /// StepMania's 16:9 screen, 480 high, as this camera sees it: centred
+    /// on its vanishing point, at the scale its distance is to
+    /// StepMania's. What a skin's `fov` frames and shadows measure in.
+    pub fn view(&self) -> View {
+        let k = self.distance / SM_DISTANCE;
+        let size = [854.0, 480.0];
+        View {
+            transform: [
+                k,
+                0.0,
+                0.0,
+                k,
+                self.vanish[0] - k * size[0] / 2.0,
+                self.vanish[1] - k * size[1] / 2.0,
+            ],
+            size,
+        }
+    }
+
+    /// The camera of an `fov` frame.
+    pub fn of_perspective(p: &Perspective) -> Camera {
+        Camera {
+            vanish: p.vanish,
+            distance: p.distance,
         }
     }
 
@@ -198,6 +225,8 @@ mod tests {
             diffuse: [1.0; 4],
             glow: [1.0, 1.0, 1.0, 0.0],
             blend: Blend::Normal,
+            depth: Default::default(),
+            perspective: None,
         }
     }
 

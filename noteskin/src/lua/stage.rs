@@ -4,7 +4,9 @@
 //! A play holds the trees it draws ([`Stage::reclaim`]); while Lua runs
 //! it lends them back ([`Stage::lend`]), so there is one copy of each
 //! actor and Lua's methods act on what is drawn. While a tree is out, Lua
-//! cannot reach its actors ("the actor is gone").
+//! cannot reach its actors ("the actor is gone"). An actor's place is the
+//! path of child indices to it, recorded again when a frame sorts its
+//! children ([`Stage::reindex`]).
 
 use ddi_actor::{Actor, Kind};
 
@@ -121,6 +123,40 @@ impl Stage {
         let (_, up) = path.split_last()?;
         let p = Self::walk(self.roots.get(*root)?, up)?;
         (p.id != 0).then_some(p.id)
+    }
+
+    /// Records again where the actors inside actor `id` are, after its
+    /// children moved (a frame sorted them).
+    pub fn reindex(&mut self, id: u32) {
+        fn visit(a: &Actor, path: &mut Vec<u16>, found: &mut Vec<(u32, Vec<u16>)>) {
+            for (i, c) in a.children().iter().enumerate() {
+                path.push(u16::try_from(i).unwrap_or(u16::MAX));
+                if c.id != 0 {
+                    found.push((c.id, path.clone()));
+                }
+                visit(c, path, found);
+                path.pop();
+            }
+        }
+        let Some((root, path)) = id
+            .checked_sub(1)
+            .and_then(|i| self.places.get(i as usize))
+            .cloned()
+        else {
+            return;
+        };
+        if !self.here(root) {
+            return;
+        }
+        let mut found = Vec::new();
+        if let Some(a) = self.roots.get(root).and_then(|r| Self::walk(r, &path)) {
+            visit(a, &mut path.clone(), &mut found);
+        }
+        for (child, path) in found {
+            if let Some(place) = self.places.get_mut(child as usize - 1) {
+                *place = (root, path);
+            }
+        }
     }
 
     /// The ids of an actor's children, in order.
