@@ -283,3 +283,9 @@ commands for a separately initialized external store. The in-memory checkpoint
 above remains the earlier handover test; the new document describes durable-store
 acceptance and the exact disk schema. Desktop shell integration is still owned by
 the main implementation session.
+
+
+The [native import-job coordinator](danoni-rust-import-job.md) now connects this
+handover to URL preparation and a catalog store, with full-plan progress and a
+hash-bound candidate token for restart. It preserves the same terminal commit/
+recovery rules; source extraction is not repeated by resumed installation.

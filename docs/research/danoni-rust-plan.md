@@ -19,8 +19,9 @@ New code initially lives in `tools/danoni-dump/rust/`, package
 `ddi-danoni-export`, MIT under the existing REUSE annotation. It is a standalone
 Cargo workspace, like `pack-verify`, and does not change the game's workspace or
 WASM dependency tree. Only research documents and tooling change on this branch.
-Adding desktop dependencies, storage adapters or changing `docs/PLAN.md` is a
-handover to the implementation session. The eventual crate location can change
+Changing the game workspace, main-shell storage adapters or `docs/PLAN.md` is a
+handover to the implementation session. The SDK supplies a separate native managed
+store and import-job coordinator without modifying those main-owned components. The eventual crate location can change
 without changing the API's responsibilities.
 
 The goal is Rust-owned application code and an installable desktop pipeline.
@@ -62,8 +63,9 @@ The eventual native API is conceptually `prepare_url(url, services, options)`:
 worker/browser providers, progress sink and cancellation token. The app supplies
 these services and reasonable defaults, so the only user input normally needed
 is a URL. The supported native single-work subset now implements this boundary
-as [`url_prepare::execute`](danoni-rust-url-preparation.md), with an I/O-free
-`preparation::prepare` coordinator beneath it. Broader index/browser routes remain
+as [`import_job::execute`](danoni-rust-import-job.md), connecting URL preparation,
+admission and library installation. [`url_prepare::execute`](danoni-rust-url-preparation.md)
+and I/O-free `preparation::prepare` remain separately callable beneath it. Broader index/browser routes remain
 planned; success is never promised for arbitrary URLs. The eventual desktop
 adapter should use resumable jobs with typed per-work outcomes rather than
 process-global configuration or a UI-blocking synchronous call.
@@ -71,9 +73,11 @@ process-global configuration or a UI-blocking synchronous call.
 A prepared import contains song identities, chart/media/banner artifacts,
 exact reference and provenance records, selected/excluded selectors, policy and
 implementation versions, content hashes and validation results. Internal artifact
-paths are relative and validated. A cache blob's hash identifies bytes; a work's
-identity also includes logical URL, semantic query/FlashVars and selector. The
-same engine SWF can represent different songs.
+paths are relative and validated. A cache blob's hash identifies bytes; source
+identity includes logical URL and semantic query/FlashVars, and song identity
+also includes the original encoded audio. Selectors describe chart coverage,
+not song identity, so selecting another difficulty does not duplicate a song.
+The same engine SWF can represent different songs.
 
 The host consumes prepared files directly through the existing song-library
 import path; ZIP generation is optional. Only the host commits the local-library
@@ -884,3 +888,46 @@ parents. All referenced inventories and playback files verify after reopening.
 The accepted exports/registry/cache indexes remain unchanged, and no new work is
 fetched or executed. Local evidence is under
 `~/Music/DanOni/reviews/rust-managed-store-20261015/`.
+
+
+### Native import-job coordinator, 2026-10-15
+
+The [job coordinator](danoni-rust-import-job.md) joins URL preparation → exact
+Ready admission → duplicate planning → installation through one blocking SDK API.
+The host owns its background queue, trusted services and target store. Structured
+progress preserves nested source/preparation details and emits the full admitted
+summary/plan before any installation transaction. Source-preparation readiness is
+never reported as an installed job.
+
+A saved `import-candidate.json` binds the absolute Ready root and exact manifest
+hash. Resume requires no cache, worker or font: it revalidates the bound proof
+closure and makes a fresh revision-checked plan. Cancellation at eight phases,
+callback failure and cooperative deadlines leave a validated candidate reusable.
+No fallible progress callback, filesystem write or cancellation check follows the
+host's terminal installation outcome. An uncertain commit is never automatically
+rolled back or retried; store recovery remains an explicit separate API.
+
+`import-url-native`, `bind-import` and `resume-import` are thin CLI adapters.
+Serializing the returned result is a host action; no separate job journal can
+claim installation independently of the managed catalog. Desktop UI/job scheduling
+and playback-library wiring are handed over to the main implementation session.
+
+Next extend native acquisition from individual works to a bounded, reviewed
+index/collection route, reusing these per-work jobs and the existing passive page
+parser. Enumerate supported child URLs with provenance and explicit unavailable/
+unsupported/partial outcomes; do not turn ordinary anchors into a general crawl.
+Preserve Wayback logical/retrieval context and per-host pacing. Start with frozen
+cached examples from the existing survey before fetching additional works. The
+native single-work flow is now joined; broader native families, HTML5 browser
+control, musical acceptance and other-platform worker confinement remain separate
+milestones.
+
+Validation passes 243 native / 94 feature-disabled SDK tests, strict Clippy in
+both configurations, formatting and `just check` (850/850 REUSE). A real offline
+Higan URL job cancels after planning, leaves its Ready/token with no installed
+songs, and resumes without source services. The CLI imports No Name into that
+fresh store, giving two songs / three charts. Both fresh content digests match
+the frozen earlier candidates; repeats are no-ops and a changed token cannot
+alter the catalog. Source transfers are zero, original export/registry/cache
+indexes are unchanged, and local evidence is under
+`~/Music/DanOni/reviews/rust-import-job-20261015/`.

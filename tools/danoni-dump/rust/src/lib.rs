@@ -13,6 +13,8 @@ pub mod dependencies;
 pub mod extraction;
 pub mod import_host;
 #[cfg(feature = "native")]
+pub mod import_job;
+#[cfg(feature = "native")]
 pub mod managed_store;
 pub mod model;
 mod mpeg;

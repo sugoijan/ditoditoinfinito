@@ -244,3 +244,10 @@ The subsequent [prepared-import boundary](danoni-rust-import.md) validates these
 outputs, builds the main library's existing `ManifestEntry`, supplies stable
 source/audio identities and coordinates a host-provided library transaction.
 The original outer receipt remains the required preparation Ready marker.
+
+
+The subsequent [native import-job coordinator](danoni-rust-import-job.md) joins
+this preparation API to validated admission, duplicate planning and a managed
+library transaction. It saves an exact Ready-hash restart token before library
+installation. This preparation API/layout stays available independently; the
+coordinator adds no post-commit progress callback or automatic uncertain retry.
