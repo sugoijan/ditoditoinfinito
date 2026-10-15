@@ -5,7 +5,7 @@ rhythm game) written entirely in Rust. Browser first (wasm, Trunk,
 GitHub Pages at `https://sugoijan.dev/ditoditoinfinito/`), desktop later, with
 the gameplay core shared unchanged between both.
 
-Status (2026-10-14): phases 0–3 done and deployed (scaffold, chart
+Status (2026-10-15): phases 0–3 done and deployed (scaffold, chart
 importers, engine, web platform, renderer, song select, options, credits,
 four bundled OutFox Serenity songs), phase 4 (format breadth), phase 5
 (import and storage), phase 6 (layouts as data: StepMania `dance-solo`,
@@ -287,7 +287,7 @@ Definition of done: a chart plays in Chrome, Firefox and Safari with judgements 
 
 ## 5. Roadmap
 
-Status as of 2026-10-14.
+Status as of 2026-10-15; known gaps before phase 9 below the table.
 
 | Phase | Status | Deliverable | Notes |
 |---|---|---|---|
@@ -320,7 +320,159 @@ matched only as written (no `Lemon` for `moon`); from three characters,
 two with any beyond ASCII (Japanese), or on a space or Enter;
 the packs it finds songs in open, other styles with matches offered; kept
 across a play; `/` to search, Enter or Down into the list; songs imported
-before it are found by their transliterations once imported again).
+before it are found by their transliterations once imported again), and
+autoplay in play pressing on the judged timeline, exact under any
+calibrated offset (2026-10-15; calibration's autoplayer still follows the
+heard or drawn cue).
+
+### Known gaps before phase 9 (2026-10-15)
+
+Everything known to be missing, approximate or unchecked before the
+desktop build, gathered in one place. Items marked *new* were found in
+code comments or test reports and were not written down before; the
+others point to where they are described.
+
+Charts and import:
+
+- *New:* `.sm` routine charts keep only the first player's notes
+  (`chart/src/formats/sm.rs`, module doc); routine and couple are not
+  played anyway (`docs/plans/pump.md`).
+- *New:* `#ATTACKS` (song and chart) is parsed, but no modifier is ever
+  applied; per-note `{mods}` are skipped (section 2.1).
+- *New:* `#LYRICSPATH` (`.lrc` lyrics) is ignored; only Dancing☆Onigiri
+  lyrics are drawn.
+- *New:* `.ssc` per-chart `#MUSIC`, `#PREVIEW` (a separate preview file)
+  and `#PREVIEWVID` are not used; `#JACKET` and `#CDTITLE` are read (so
+  their images are not taken as banner or background) but never shown.
+- *New:* `#BGCHANGES` file names containing `,` or `=` do not resolve
+  (`library/src/backgrounds.rs`; StepMania matches folder names first).
+- *New:* zips with encrypted entries, compression other than stored or
+  deflate, or several disks are refused (`library/src/zip.rs`).
+- Layouts not played (couple, routine, techno, kb7, para, ez2, …) are
+  left out with a note (decision 27); KSF, BMS, `.osu` and FFR are not
+  read (section 2.1, phase 10); keysounds are a non-goal (section 1).
+- Korean and Chinese legacy encodings come out as mojibake (section 7).
+- Songs imported before a change need importing again to gain it:
+  transliterations for search, pump charts, legacy skins' files,
+  Shift-JIS text (this section; `docs/plans/pump.md`,
+  `docs/plans/legacy-skins.md`, decision 31).
+
+Rules and options:
+
+- *New:* only the `itg`, `sm5`, `ddr-a` and `danoni` presets exist;
+  `ddr-extreme`, `itg-fa+` and `ffr` (section 3.3) are not built, and
+  the FA+ window `w0` is in the engine with no preset using it.
+- *New:* the fail policy is not offered as an option (`ImmediateContinue`,
+  `EndOfSong`, `Off` exist in the engine), nor a life or judge
+  difficulty.
+- Not built: lane covers (Hidden+/Sudden+), music rate, a separate judge
+  offset (section 3.3); DDR legacy scoring, FLARE, LIFE4, replays, editor
+  (phase 10). The battery gauge has no preset (`docs/plans/pump.md`).
+- DDR A windows and gauge are approximations (section 7);
+  the shock window and hide time are not measured (decision 42);
+  `#COMBOS` has no miss counter and comes from `.ssc` only (decision 43);
+  ticked holds' known deviations (`docs/plans/pump.md`).
+
+Play screen:
+
+- *New:* O.K. / N.G. for holds and shock rows are never shown in play,
+  only counted on the results.
+- *New:* no event sounds: no mine or shock sound, no assist clap; a
+  skin's `Def.Sound` is kept silent (`noteskin/src/lua/convert.rs`).
+- *New:* shock rows are drawn as the skin's mine; StepMania skins have no
+  shock graphic (decision 42).
+- *New:* in the calibration audio test the beat is held still, but a
+  skin effect timed in seconds still runs and could give a visual cue.
+- Hold checkpoints show no judgement word (`docs/plans/pump.md`);
+  Dancing☆Onigiri's rank X is not shown (decision 28).
+
+Menus:
+
+- *New:* autoplay has no switch in the menus, only `&auto=1`.
+- *New:* search: Down on a controller from the field lands on the first
+  pack header; the list has no way back up into the field, and only the
+  `/` key reaches it (no controller); a short query or Enter on a large
+  library opens most packs (not yet tried on the maintainer's full
+  library); kanji titles without a transliteration are not found by
+  romaji (no reading dictionary); input methods were only simulated
+  (to try in Firefox, and in Safari after a push).
+- *New:* the guided controller binding records one control per lane; a
+  second set (face buttons beside the d-pad) comes only from the standard
+  defaults, while the keyboard has "add key".
+- The skin preview shows the chosen skin only; lifts and fakes are not in
+  its demo (`docs/plans/skin-preview.md`).
+
+Audio and video:
+
+- *New:* Firefox: the maintainer saw lag and a slow "preparing audio…"
+  on a song with a software-decoded movie, not reproduced headless and
+  not seen again after the refresh-rate fix
+  (`docs/plans/video-backgrounds.md`). An autoplay that failed before
+  the judged-timeline change needed a calibrated offset near 100 ms,
+  which may mean Firefox reports no output latency there; unchecked.
+- *New:* Safari did not start an msmpeg4v3 movie (FFmpeg module) on a
+  local origin; WebKit plays it. To check on the published URL.
+- No fallback decoder for Opus; wasm memory grows after a fallback
+  decode; previews decode the whole song (sections 2.3, 7).
+- Videos: AV1 does not play, the module is 2.4 MB, Firefox's colours
+  for SD movies are its own, MP4 through WebCodecs and movie audio are
+  later, `-random-` picks images only (section 7,
+  `docs/research/video-backgrounds.md`, `docs/plans/video-backgrounds.md`).
+- Phase 8 left out: scripted backgrounds (BGAnimations), `#FGCHANGES`,
+  `#BGCHANGES2` (`docs/plans/lua.md`, `docs/plans/overlays.md`), and the
+  generative backgrounds and visualizers of the phase's deliverable
+  (*new*: never started).
+
+Noteskins, Lua and models:
+
+- Pump skins (`NoteSkins/pump/*`) and centre notes for the other bundled
+  skins (`docs/plans/pump.md`); OutFox's `global/` skins
+  (`docs/plans/noteskins.md`); StepMania 5.1's "newskin" format
+  (`docs/research/noteskins.md`).
+- *New:* legacy actor files' `Quad`, `BitmapText`, `ActorScroller` and
+  `BGAnimation` are not drawn (`noteskin/src/legacy.rs`); the cabinet
+  light effect clocks are reported and ignored (`noteskin/src/actor.rs`).
+- *New:* quads beyond one device buffer in a frame are not drawn
+  (`render/src/textured.rs`).
+- *New:* a bundled skin's Lua stopping is untested (none stops).
+- Known drawing differences and Lua gaps (`docs/plans/noteskins.md`,
+  `docs/plans/lua.md`), model features left out
+  (`docs/plans/models.md`), Lua actors drawn by the built-in skin
+  (`docs/plans/lua.md`), the VM's known costs (`docs/plans/piccolo-fork.md`),
+  NotITG's mods (`docs/plans/legacy-skins.md`); a skin's Lua state over a
+  retry, skin images' storage (section 7).
+- Not checked by the maintainer: a phone, WebGPU in Firefox
+  (`docs/plans/bundled-skins.md`).
+
+Dancing☆Onigiri:
+
+- *New:* the danoniplus sample "Combative InstinctⅡ", chart 2 (5 keys),
+  imports with no notes and ends at once; unexplained (a quirk of the
+  sample or of the importer), left as is.
+- Key-group switching, `playbackRate`, divided external dos,
+  `wordRev_data`; two-row and other key modes; key patterns past the
+  first; layers' colour boxes, transforms and script-computed positions
+  (phase 6, decisions 25–27, `docs/plans/overlays.md`,
+  `docs/plans/danoni-skins.md`).
+
+Input and browsers:
+
+- *New:* Firefox's coarse timestamps (`resistFingerprinting`) are named
+  as a risk with "detect and warn" (section 7), but nothing detects them.
+- *New:* checks waiting for Safari on the published URL: pump charts with
+  ticked holds, the search field's look and input method, the
+  msmpeg4v3 movie above.
+- WebHID left out; Safari takes no pad press as a gesture; small touch
+  targets on phones; storage eviction without `persist()`; a browser
+  refusing the sRGB view (phase 7, section 7).
+
+Tooling:
+
+- *New:* six old wasm clippy warnings (`game_canvas.rs` `Stage` size and
+  `results_view` arguments, `skin_preview.rs` types, `song_select.rs`
+  `Msg` size, a collapsible `if` in `game_loop.rs`).
+- The local-corpus tests (differential, autoplay, skins, Lua) are opt-in,
+  not in CI (phase 1, `AGENTS.md`).
 
 ## 6. Decisions (1–7 confirmed 2026-10-06; 8–10 made with phase 5, 2026-10-07; 11–12 with phase 7, 2026-10-07; 13–19 with phase 8, 2026-10-08; 20–29 with phase 6, 2026-10-08/09; 30–33 with the loose ends, 2026-10-09; 34–35 with the background videos, 2026-10-10; 36 with noteskins, 2026-10-10; 37–39 with bundled noteskins and skins' scripts, 2026-10-12; 40 with pump layouts, 2026-10-13; 41 with the overlays, 2026-10-14; 42–44 with the local corpus sweep, 2026-10-14)
 
