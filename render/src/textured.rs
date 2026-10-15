@@ -1,18 +1,41 @@
 //! Instanced textured quads and triangles, for noteskins: one draw per run
-//! with the same texture, blend and wrapping.
+//! with the same texture, blend, wrapping and mask.
+
+use std::collections::HashMap;
 
 use bytemuck::{Pod, Zeroable};
 
-/// How a quad blends (`BlendMode` Normal and Add; the rest draw as normal).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use crate::stencil::{self, Kind, Mask};
+
+/// How a quad blends: StepMania's `BlendMode`s
+/// (`RageDisplay_Legacy::SetBlendMode`, `src/RageDisplay_OGL.cpp:1869-1934`),
+/// the target's alpha kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum QuadBlend {
     Normal,
     Add,
     /// `BLEND_SUBTRACT`: the source times its alpha taken from what is
-    /// there.
+    /// there times one less the source's alpha.
     Subtract,
     /// `BLEND_MODULATE`: what is there times the source.
     Modulate,
+    /// `BLEND_COPY_SRC`: the source replaces what is there.
+    CopySrc,
+    /// `BLEND_ALPHA_MASK` and `BLEND_ALPHA_KNOCK_OUT`: they change only
+    /// the target's alpha, which stays as it is here (on WebGL2 the
+    /// canvas's alpha shows the page through), so they draw nothing.
+    AlphaMask,
+    AlphaKnockOut,
+    /// `BLEND_ALPHA_MULTIPLY`: the source times its alpha, nothing of
+    /// what is there.
+    AlphaMultiply,
+    /// `BLEND_WEIGHTED_MULTIPLY`: twice what is there times the source
+    /// (grey leaves it as it is).
+    WeightedMultiply,
+    /// `BLEND_INVERT_DEST`: the source less what is there.
+    InvertDest,
+    /// `BLEND_NO_EFFECT`: nothing drawn (a mask's source).
+    NoEffect,
 }
 
 /// [`TexQuad::texture`] of a shape drawn in its colour alone (a model's
@@ -22,6 +45,14 @@ pub const UNTEXTURED: u32 = u32::MAX;
 /// What a [`TexQuad`] covers.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Shape {
+    /// A quad seen in perspective (under an `fov` frame): its corners on
+    /// the screen (upper left, upper right, lower left, lower right) with
+    /// their `w`, textured in perspective.
+    Projected {
+        corners: [[f32; 2]; 4],
+        w: [f32; 4],
+        uv: [f32; 4],
+    },
     Quad {
         /// The unit square (-0.5..0.5) to screen pixels: `x' = m0 x + m2 y
         /// + m4`, `y' = m1 x + m3 y + m5`.
@@ -53,12 +84,18 @@ pub struct TexQuad {
     pub blend: QuadBlend,
     /// Repeat the texture (hold bodies) instead of clamping it.
     pub wrap: bool,
+    /// A colour a corner (upper left, upper right, lower left, lower
+    /// right; a triangle's first three), as the target expects them,
+    /// interpolated over the shape; `None`: `color` alone.
+    pub gradient: Option<[[f32; 4]; 4]>,
+    pub mask: Mask,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct Instance {
-    /// A quad's linear part and origin; a triangle's corners.
+    /// A quad's linear part and origin; a triangle's corners; a projected
+    /// quad's upper corners and its lower left.
     axes: [f32; 4],
     origin: [f32; 2],
     /// A quad's rectangle; a triangle's first two corners'.
@@ -67,16 +104,31 @@ struct Instance {
     mode: u32,
     /// A triangle's third corner's texture coordinates.
     uv2: [f32; 2],
-    /// A triangle's corners' `w` (a quad's are 1).
-    w: [f32; 3],
+    /// The corners' `w` (a quad's are 1).
+    w: [f32; 4],
+    /// A projected quad's lower right corner.
+    corner: [f32; 2],
+    /// The corners' colours with a gradient (the first is `color`).
+    c1: [f32; 4],
+    c2: [f32; 4],
+    c3: [f32; 4],
 }
 
 impl Instance {
-    const ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+    const ATTRIBUTES: [wgpu::VertexAttribute; 11] = wgpu::vertex_attr_array![
         0 => Float32x4, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Uint32,
-        5 => Float32x2, 6 => Float32x3
+        5 => Float32x2, 6 => Float32x4, 7 => Float32x2, 8 => Float32x4, 9 => Float32x4,
+        10 => Float32x4
     ];
 }
+
+/// Instance mode bits (`textured.wgsl`).
+const GLOW: u32 = 1;
+const WRAP: u32 = 2;
+const TRIANGLE: u32 = 4;
+const BLANK: u32 = 8;
+const PROJECTED: u32 = 32;
+const GRADIENT: u32 = 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -98,60 +150,81 @@ struct Batch {
     texture: u32,
     blend: QuadBlend,
     wrap: bool,
+    mask: Mask,
     start: u32,
     end: u32,
 }
 
-/// `BLEND_NORMAL`, `BLEND_ADD` (source times its alpha, added),
-/// `BLEND_SUBTRACT`, `BLEND_MODULATE`, for straight alpha: indexed as
-/// [`QuadBlend`].
-pub(crate) fn blend_states() -> [wgpu::BlendState; 4] {
-    [
-        wgpu::BlendState::ALPHA_BLENDING,
-        wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-        },
-        wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::ReverseSubtract,
-            },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-        },
-        wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::Src,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-        },
-    ]
+/// The blend state of `blend`, for straight alpha, as
+/// `RageDisplay_Legacy::SetBlendMode` sets it
+/// (`src/RageDisplay_OGL.cpp:1875-1926`). The target's alpha is kept but
+/// for normal blending: on WebGL2 it would let the page show through the
+/// canvas.
+pub(crate) fn blend_state(blend: QuadBlend) -> wgpu::BlendState {
+    use wgpu::BlendFactor::{Dst, One, OneMinusSrcAlpha, Src, SrcAlpha, Zero};
+    use wgpu::BlendOperation::{Add, ReverseSubtract, Subtract};
+    let c = |src_factor, dst_factor, operation| wgpu::BlendComponent {
+        src_factor,
+        dst_factor,
+        operation,
+    };
+    let keep = c(Zero, One, Add);
+    let (color, alpha) = match blend {
+        QuadBlend::Normal => return wgpu::BlendState::ALPHA_BLENDING,
+        QuadBlend::Add => (c(SrcAlpha, One, Add), keep),
+        // `GL_FUNC_REVERSE_SUBTRACT` with `GL_SRC_ALPHA`,
+        // `GL_ONE_MINUS_SRC_ALPHA` (lines 1877-1878, 1893-1895): what is
+        // there times one less the source's alpha, less the source times
+        // its alpha.
+        QuadBlend::Subtract => (c(SrcAlpha, OneMinusSrcAlpha, ReverseSubtract), keep),
+        QuadBlend::Modulate => (c(Zero, Src, Add), keep),
+        QuadBlend::CopySrc => (c(One, Zero, Add), keep),
+        QuadBlend::AlphaMask | QuadBlend::AlphaKnockOut => (keep, keep),
+        QuadBlend::AlphaMultiply => (c(SrcAlpha, Zero, Add), keep),
+        QuadBlend::WeightedMultiply => (c(Dst, Src, Add), keep),
+        QuadBlend::InvertDest => (c(One, One, Subtract), keep),
+        QuadBlend::NoEffect => (keep, keep),
+    };
+    wgpu::BlendState { color, alpha }
+}
+
+/// Pipelines made as they are first needed: by blend mode and stencil
+/// state (`None`: a pass with no stencil).
+pub(crate) struct Pipelines {
+    made: HashMap<(QuadBlend, Option<Kind>), wgpu::RenderPipeline>,
+}
+
+impl Pipelines {
+    pub(crate) fn new() -> Pipelines {
+        Pipelines {
+            made: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn insert(
+        &mut self,
+        key: (QuadBlend, Option<Kind>),
+        pipeline: wgpu::RenderPipeline,
+    ) {
+        self.made.insert(key, pipeline);
+    }
+
+    pub(crate) fn get(&self, key: (QuadBlend, Option<Kind>)) -> Option<&wgpu::RenderPipeline> {
+        self.made.get(&key)
+    }
 }
 
 pub struct TexturedPipeline {
-    /// Normal, add, subtract, modulate blending.
-    pipelines: [wgpu::RenderPipeline; 4],
-    /// The same to the target's plain view (StepMania's blending).
-    gamma: Option<[wgpu::RenderPipeline; 4]>,
+    shader: wgpu::ShaderModule,
+    layout: wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+    pipelines: Pipelines,
+    /// The plain view's format (StepMania's blending), and its pipelines.
+    gamma_format: Option<wgpu::TextureFormat>,
+    gamma: Option<Pipelines>,
+    /// Some of this frame's quads use the mask: their runs are drawn in
+    /// passes with the stencil ([`TexturedPipeline::masked`]).
+    masked: bool,
     /// Textures are made plain (their texels as encoded, sampled so),
     /// not sRGB with a plain view: a target with no other view of its
     /// textures (WebGL2) draws quads only to a plain texture.
@@ -237,48 +310,6 @@ impl TexturedPipeline {
             bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
-        let pipeline = |blend: wgpu::BlendState, format: wgpu::TextureFormat, entry: &str| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("ddi-textured-pipeline"),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[Some(wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &Instance::ATTRIBUTES,
-                    })],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(entry),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend: Some(blend),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
-        let blends = blend_states();
-        // With `plain_textures` every quad goes to the plain target: these
-        // are built but not drawn with.
-        let pipelines = blends.map(|b| pipeline(b, format, "fs_main"));
-        // Drawn to the plain view from the textures' plain views, so texels
-        // are filtered and blended as encoded, as StepMania does.
-        let gamma = gamma.map(|plain| blends.map(|b| pipeline(b, plain, "fs_main")));
         let plain_textures = plain_textures && gamma.is_some();
         let sampler = |mode| {
             device.create_sampler(&wgpu::SamplerDescriptor {
@@ -293,8 +324,13 @@ impl TexturedPipeline {
             })
         };
         let mut p = TexturedPipeline {
-            pipelines,
-            gamma,
+            shader,
+            layout,
+            format,
+            pipelines: Pipelines::new(),
+            gamma_format: gamma,
+            gamma: gamma.map(|_| Pipelines::new()),
+            masked: false,
             plain_textures,
             globals,
             globals_group,
@@ -427,6 +463,67 @@ impl TexturedPipeline {
         self.textures.len()
     }
 
+    /// The pipeline drawing `blend` with the stencil state of `kind` to
+    /// the target (`gamma`: its plain view).
+    fn make_pipeline(
+        &self,
+        device: &wgpu::Device,
+        gamma: bool,
+        blend: wgpu::BlendState,
+        depth_stencil: Option<wgpu::DepthStencilState>,
+    ) -> wgpu::RenderPipeline {
+        let format = match (gamma, self.gamma_format) {
+            (true, Some(f)) => f,
+            _ => self.format,
+        };
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ddi-textured-pipeline"),
+            layout: Some(&self.layout),
+            vertex: wgpu::VertexState {
+                module: &self.shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &Instance::ATTRIBUTES,
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &self.shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(blend),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        })
+    }
+
+    /// Whether some of the prepared quads use the mask: the runs holding
+    /// them are drawn in passes with the stencil.
+    pub fn masked(&self) -> bool {
+        self.masked
+    }
+
+    /// Whether quads `range` use the mask.
+    pub fn masked_in(&self, range: std::ops::Range<u32>) -> bool {
+        self.batches
+            .iter()
+            .any(|b| b.mask != Mask::None && b.start < range.end && b.end > range.start)
+    }
+
     /// Uploads this frame's quads, in drawing order.
     pub fn prepare(
         &mut self,
@@ -446,42 +543,99 @@ impl TexturedPipeline {
         for q in quads {
             let at = instances.len() as u32;
             match self.batches.last_mut() {
-                Some(b) if b.texture == q.texture && b.blend == q.blend && b.wrap == q.wrap => {
+                Some(b)
+                    if b.texture == q.texture
+                        && b.blend == q.blend
+                        && b.wrap == q.wrap
+                        && b.mask == q.mask =>
+                {
                     b.end += 1
                 }
                 _ => self.batches.push(Batch {
                     texture: q.texture,
                     blend: q.blend,
                     wrap: q.wrap,
+                    mask: q.mask,
                     start: at,
                     end: at + 1,
                 }),
             }
-            // Bit 0: the glow pass; bit 1: a repeating texture, sampled
-            // past its rectangle; bit 2: a triangle; bit 3: no texture.
-            let mode = u32::from(q.glow)
-                | (u32::from(q.wrap) << 1)
-                | (u32::from(q.texture == UNTEXTURED) << 3);
+            let mode = if q.glow { GLOW } else { 0 }
+                | if q.wrap { WRAP } else { 0 }
+                | if q.texture == UNTEXTURED { BLANK } else { 0 }
+                | if q.gradient.is_some() { GRADIENT } else { 0 };
+            let [c0, c1, c2, c3] = q.gradient.unwrap_or([q.color; 4]);
+            let base = Instance {
+                axes: [0.0; 4],
+                origin: [0.0; 2],
+                uv: [0.0; 4],
+                color: c0,
+                mode,
+                uv2: [0.0; 2],
+                w: [1.0; 4],
+                corner: [0.0; 2],
+                c1,
+                c2,
+                c3,
+            };
             instances.push(match q.shape {
                 Shape::Quad { transform: m, uv } => Instance {
                     axes: [m[0], m[1], m[2], m[3]],
                     origin: [m[4], m[5]],
                     uv,
-                    color: q.color,
-                    mode,
-                    uv2: [0.0; 2],
-                    w: [1.0; 3],
+                    ..base
                 },
                 Shape::Triangle { points: p, w, uv } => Instance {
                     axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
                     origin: p[2],
                     uv: [uv[0][0], uv[0][1], uv[1][0], uv[1][1]],
-                    color: q.color,
-                    mode: mode | 4,
+                    mode: mode | TRIANGLE,
                     uv2: uv[2],
+                    w: [w[0], w[1], w[2], 1.0],
+                    ..base
+                },
+                Shape::Projected { corners: p, w, uv } => Instance {
+                    axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
+                    origin: p[2],
+                    corner: p[3],
+                    uv,
+                    mode: mode | PROJECTED,
                     w,
+                    ..base
                 },
             });
+        }
+        // The pipelines this frame's runs need: in passes with the stencil
+        // too once a quad uses the mask.
+        self.masked = quads.iter().any(|q| q.mask != Mask::None);
+        for i in 0..self.batches.len() {
+            let (blend, mask) = (self.batches[i].blend, self.batches[i].mask);
+            // Outside a pass with the stencil only what tests no mask;
+            // inside one, with the mask's state, once a quad uses the mask.
+            let plain = (mask == Mask::None).then_some((blend, None));
+            let stenciled = self.masked.then(|| (blend, Some(mask.stencil(0).0)));
+            for key in [plain, stenciled].into_iter().flatten() {
+                for gamma in [false, true] {
+                    let set = if gamma {
+                        self.gamma.as_ref()
+                    } else {
+                        Some(&self.pipelines)
+                    };
+                    if set.is_none_or(|p| p.get(key).is_some()) {
+                        continue;
+                    }
+                    let p = self.make_pipeline(
+                        device,
+                        gamma,
+                        blend_state(key.0),
+                        key.1.map(stencil::state),
+                    );
+                    match (gamma, self.gamma.as_mut()) {
+                        (true, Some(g)) => g.insert(key, p),
+                        _ => self.pipelines.insert(key, p),
+                    }
+                }
+            }
         }
         self.instances
             .upload(device, queue, bytemuck::cast_slice(&instances));
@@ -494,12 +648,15 @@ impl TexturedPipeline {
 
     /// Draws the prepared quads `range` (indices into the slice given to
     /// [`TexturedPipeline::prepare`]); quads of an unknown texture are
-    /// skipped. `gamma`: in a pass on the plain view.
+    /// skipped. `gamma`: in a pass on the plain view; `stencil`: in a pass
+    /// with the stencil, which those using the mask need (they are
+    /// skipped elsewhere).
     pub fn draw<'a>(
         &'a self,
         pass: &mut wgpu::RenderPass<'a>,
         range: std::ops::Range<u32>,
         gamma: bool,
+        stencil: bool,
     ) {
         let pipelines = match (&self.gamma, gamma) {
             (Some(g), true) => g,
@@ -509,7 +666,7 @@ impl TexturedPipeline {
             return;
         }
         pass.set_bind_group(0, &self.globals_group, &[]);
-        let mut current: Option<QuadBlend> = None;
+        let mut current: Option<(QuadBlend, Option<Kind>)> = None;
         for b in &self.batches {
             let (start, end) = (b.start.max(range.start), b.end.min(range.end));
             let t = if b.texture == UNTEXTURED {
@@ -523,14 +680,17 @@ impl TexturedPipeline {
             if start >= end {
                 continue;
             }
-            if current != Some(b.blend) {
-                pass.set_pipeline(match b.blend {
-                    QuadBlend::Normal => &pipelines[0],
-                    QuadBlend::Add => &pipelines[1],
-                    QuadBlend::Subtract => &pipelines[2],
-                    QuadBlend::Modulate => &pipelines[3],
-                });
-                current = Some(b.blend);
+            let (kind, reference) = b.mask.stencil(0);
+            let key = (b.blend, stencil.then_some(kind));
+            if current != Some(key) {
+                let Some(p) = pipelines.get(key) else {
+                    continue;
+                };
+                pass.set_pipeline(p);
+                current = Some(key);
+            }
+            if stencil {
+                pass.set_stencil_reference(reference);
             }
             let groups = match (&t.plain, gamma) {
                 (Some([clamp, repeat]), true) => [clamp, repeat],
@@ -546,7 +706,7 @@ impl TexturedPipeline {
     }
 }
 
-const _: () = assert!(std::mem::size_of::<Instance>() == 80);
+const _: () = assert!(std::mem::size_of::<Instance>() == 140);
 
 #[cfg(test)]
 mod tests {
@@ -560,5 +720,35 @@ mod tests {
         )
         .validate(&module)
         .expect("WGSL validates");
+    }
+
+    #[test]
+    fn stepmanias_blend_modes() {
+        use super::{QuadBlend, blend_state};
+        use wgpu::BlendFactor as F;
+        // Nothing of no effect, nor of the modes about alpha alone.
+        for b in [
+            QuadBlend::NoEffect,
+            QuadBlend::AlphaMask,
+            QuadBlend::AlphaKnockOut,
+        ] {
+            let s = blend_state(b);
+            assert_eq!((s.color.src_factor, s.color.dst_factor), (F::Zero, F::One));
+        }
+        let w = blend_state(QuadBlend::WeightedMultiply);
+        assert_eq!((w.color.src_factor, w.color.dst_factor), (F::Dst, F::Src));
+        let s = blend_state(QuadBlend::Subtract);
+        assert_eq!(
+            (s.color.src_factor, s.color.dst_factor, s.color.operation),
+            (
+                F::SrcAlpha,
+                F::OneMinusSrcAlpha,
+                wgpu::BlendOperation::ReverseSubtract
+            )
+        );
+        let i = blend_state(QuadBlend::InvertDest);
+        assert_eq!(i.color.operation, wgpu::BlendOperation::Subtract);
+        // The target's alpha is kept by all but normal blending.
+        assert_eq!(blend_state(QuadBlend::CopySrc).alpha.dst_factor, F::One);
     }
 }

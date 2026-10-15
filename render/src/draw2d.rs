@@ -3,10 +3,11 @@
 //! [`crate::painter::Painter::draw`] scales them to physical pixels).
 //!
 //! Quads (a texture's rectangle or a plain colour, under a 2D affine
-//! transform, one colour a corner, StepMania's four blend modes), text
-//! runs (a string in a style, its line box's top left at the transform's
-//! origin, tinted), clip rectangles pushed and popped (scissor
-//! rectangles; masks later), and external slots, where the shell draws
+//! transform or seen in perspective, one colour a corner, StepMania's
+//! blend modes, glow and masks), text runs (a string in a style, its line
+//! box's top left at the transform's origin, tinted), clips pushed and
+//! popped (scissor rectangles, or any quad through the stencil), and
+//! external slots, where the shell draws
 //! something of its own between the list's layers (the play field, so a
 //! theme's layers can lie under and over it). Colours are encoded values
 //! with straight alpha: the 2D pass blends as StepMania and the browser
@@ -14,8 +15,10 @@
 
 use std::sync::Arc;
 
+use ddi_actor::Perspective;
 use ddi_actor::text::TextStyle;
 
+pub use crate::stencil::Mask;
 use crate::texture_cache::TextureId;
 pub use crate::textured::QuadBlend as Blend;
 
@@ -89,6 +92,38 @@ pub struct Quad {
     /// alpha.
     pub colors: [[f32; 4]; 4],
     pub blend: Blend,
+    /// StepMania's glow pass: the colours with the texture's alpha.
+    pub glow: bool,
+    pub mask: Mask,
+    /// Seen in perspective: `rect` and `transform` then give way to these
+    /// corners.
+    pub projected: Option<Projected>,
+}
+
+/// A quad seen in perspective (an actor under an `fov` frame).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Projected {
+    /// Top left, top right, bottom right, bottom left, in units.
+    pub corners: [[f32; 2]; 4],
+    /// Each corner's `w`, for texturing in perspective.
+    pub w: [f32; 4],
+}
+
+impl Quad {
+    /// `rect` in one colour, untextured.
+    pub fn plain(rect: Rect, color: [f32; 4]) -> Quad {
+        Quad {
+            rect,
+            transform: Affine::IDENTITY,
+            texture: None,
+            uv: [0.0, 0.0, 1.0, 1.0],
+            colors: [color; 4],
+            blend: Blend::Normal,
+            glow: false,
+            mask: Mask::None,
+            projected: None,
+        }
+    }
 }
 
 /// A run of text on one line.
@@ -101,6 +136,11 @@ pub struct TextRun {
     /// The tint (the run is drawn white).
     pub color: [f32; 4],
     pub blend: Blend,
+    pub mask: Mask,
+    /// Seen in perspective: the run's space (its line box's top left at
+    /// the origin, z toward the viewer) in units, a column-major 4×4, and
+    /// the camera; `transform` then gives the size it is drawn at.
+    pub perspective: Option<([f32; 16], Perspective)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -110,6 +150,13 @@ pub enum Command {
     /// Clips what follows to this rectangle of the screen (within the
     /// clip already in force) until the matching [`Command::PopClip`].
     PushClip(Rect),
+    /// Clips what follows to this quad (top left, top right, bottom
+    /// right, bottom left, in units), through the stencil, and to its
+    /// `bound`, a scissor rectangle.
+    PushClipQuad {
+        corners: [[f32; 2]; 4],
+        bound: Rect,
+    },
     PopClip,
     /// The shell draws slot `n` here (`Painter::draw`'s `external`).
     External(u32),
@@ -136,25 +183,14 @@ impl DrawList {
 
     /// A rectangle in one colour.
     pub fn rect(&mut self, rect: Rect, color: [f32; 4]) {
-        self.push(Command::Quad(Quad {
-            rect,
-            transform: Affine::IDENTITY,
-            texture: None,
-            uv: [0.0, 0.0, 1.0, 1.0],
-            colors: [color; 4],
-            blend: Blend::Normal,
-        }));
+        self.push(Command::Quad(Quad::plain(rect, color)));
     }
 
     /// A texture's whole picture in `rect`, tinted.
     pub fn image(&mut self, rect: Rect, texture: TextureId, tint: [f32; 4]) {
         self.push(Command::Quad(Quad {
-            rect,
-            transform: Affine::IDENTITY,
             texture: Some(texture),
-            uv: [0.0, 0.0, 1.0, 1.0],
-            colors: [tint; 4],
-            blend: Blend::Normal,
+            ..Quad::plain(rect, tint)
         }));
     }
 
@@ -177,6 +213,8 @@ impl DrawList {
             transform: Affine::translate(x, y),
             color,
             blend: Blend::Normal,
+            mask: Mask::None,
+            perspective: None,
         }));
     }
 

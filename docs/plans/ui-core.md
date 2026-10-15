@@ -403,10 +403,41 @@ Done (2026-10-15):
   touch quit button cut off from its handler, waiters dropped when the
   backend switched during start-up, a lost WebGL2 context reconfigured);
   all fixed and checked again.
-- **Left:** perspective quads, masks and runs drawn in colour
-  come with the bridge from actors; nothing draws the play field into an
-  `External` slot yet; the test scene redraws every frame (P13 is step
-  3); WebGPU in Firefox and Safari unchecked.
+- **Left:** runs drawn in colour (tinted white only); nothing draws the
+  play field into an `External` slot yet; the test scene redraws every
+  frame (P13 is step 3); WebGPU in Firefox and Safari unchecked.
+
+Done, actors in both passes (2026-10-15):
+
+- **The bridge** (`render/src/actors2d.rs`) turns actors' `Drawn` into the
+  2D pass's list: corner colours, glow as a second quad, text on its line
+  box, exact clips as scissors and turned ones as `PushClipQuad`, masks
+  and perspective; models are left to the play field.
+- **Both passes** (play field and painter) draw corner gradients (quads of
+  one colour keep the old path exactly), perspective-correct quads from
+  projected corners, and StepMania's masks through a
+  `Depth24PlusStencil8` attachment made only when a frame needs it (the
+  high bit is the mask, the low seven count turned clips): only a
+  `NoEffect` actor writing depth writes the mask (StepMania's z-bias,
+  `Actor.cpp:772-775`), `clearzbuffer` clears it whole, and tests follow
+  `ZTest`. Every draw drops fragments of alpha 1/256 or less, as
+  StepMania's alpha test does (`RageDisplay.cpp:275`,
+  `RageDisplay_OGL.cpp:2731`). On WebGL2 a pass is split only before one
+  that uses the stencil.
+- **Blend modes:** `ddi_actor::Blend` gains StepMania's CopySrc,
+  AlphaMask, AlphaKnockOut, AlphaMultiply, WeightedMultiply and
+  InvertDest, drawn with its factors (`RageDisplay_OGL.cpp:1869-1934`),
+  the target's alpha always kept (AlphaMask and AlphaKnockOut therefore
+  draw nothing); Subtract follows StepMania 5.1 (`dst·(1−a) − src·a`).
+- **Skins:** STARLiGHT-NEXXT's scroll texture is cut to the arrow by its
+  mask and multiplied as in StepMania; Pulsen's shape skins draw their
+  blobs in perspective; the bundled skins' previews are unchanged pixel
+  for pixel and the corpus reports nothing else changed. `#/ui-test`
+  gains a row of the new blend modes and a part built from actors (draw
+  order, corner colours, shadows, a clip turned 30°, an `fov` frame, a
+  mask with a hole). An independent review found eight defects (among
+  them no alpha test outside mask sources and an extra pass per frame on
+  WebGL2); all fixed.
 
 ### Step 3. `ddi-ui` core, shared state and the desktop shell
 

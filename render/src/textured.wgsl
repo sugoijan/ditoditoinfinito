@@ -17,22 +17,32 @@ struct Globals {
 
 struct Instance {
     // Columns of the linear part: (m0, m1) is where x goes, (m2, m3) y.
-    // A triangle: its first two corners.
+    // A triangle or a projected quad: its first two corners.
     @location(0) axes: vec4<f32>,
-    // A triangle: its third corner.
+    // A triangle: its third corner; a projected quad: its lower left.
     @location(1) origin: vec2<f32>,
     // left, top, right, bottom of the texture, in texture fractions. A
     // triangle: its first two corners'.
     @location(2) uv: vec4<f32>,
+    // The colour; with a gradient, the upper left corner's (a triangle's
+    // first).
     @location(3) color: vec4<f32>,
     // Bit 0: glow (colour, texture alpha) rather than diffuse (texture
     // times colour); bit 1: the texture repeats (hold bodies, models);
-    // bit 2: a triangle; bit 3: no texture (the colour alone).
+    // bit 2: a triangle; bit 3: no texture (the colour alone); bit 5: a
+    // quad seen in perspective; bit 6: a colour a corner.
     @location(4) mode: u32,
-    // A triangle: its third corner's texture coordinates, and each
-    // corner's w.
+    // A triangle: its third corner's texture coordinates.
     @location(5) uv2: vec2<f32>,
-    @location(6) w: vec3<f32>,
+    // Each corner's w (1 for a flat quad).
+    @location(6) w: vec4<f32>,
+    // A projected quad's lower right corner.
+    @location(7) corner: vec2<f32>,
+    // With a gradient: the upper right, lower left and lower right
+    // corners' colours (a triangle's second and third).
+    @location(8) c1: vec4<f32>,
+    @location(9) c2: vec4<f32>,
+    @location(10) c3: vec4<f32>,
 };
 
 struct VsOut {
@@ -41,6 +51,7 @@ struct VsOut {
     @location(1) color: vec4<f32>,
     @location(2) @interpolate(flat) mode: u32,
     @location(3) @interpolate(flat) rect: vec4<f32>,
+    @location(4) graded: vec4<f32>,
 };
 
 @vertex
@@ -49,6 +60,10 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
         vec2<f32>(-0.5, -0.5), vec2<f32>(0.5, -0.5), vec2<f32>(0.5, 0.5),
         vec2<f32>(-0.5, -0.5), vec2<f32>(0.5, 0.5), vec2<f32>(-0.5, 0.5),
     );
+    // The corner of each vertex: upper left, upper right, lower left,
+    // lower right.
+    var which = array<u32, 6>(0u, 1u, 3u, 0u, 3u, 2u);
+    var colors = array<vec4<f32>, 4>(inst.color, inst.c1, inst.c2, inst.c3);
     var out: VsOut;
     if ((inst.mode & 4u) != 0u) {
         // The second half of the six vertices collapses onto the first
@@ -60,12 +75,22 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
         // Divided by w again on the way: perspective-correct texturing.
         out.position = vec4<f32>((points[k] * globals.scale + globals.translate) * w, 0.0, w);
         out.uv = uvs[k];
+        out.graded = colors[k];
+    } else if ((inst.mode & 32u) != 0u) {
+        let k = which[vi];
+        var points = array<vec2<f32>, 4>(inst.axes.xy, inst.axes.zw, inst.origin, inst.corner);
+        let w = inst.w[k];
+        out.position = vec4<f32>((points[k] * globals.scale + globals.translate) * w, 0.0, w);
+        let t = corners[vi] + vec2<f32>(0.5, 0.5);
+        out.uv = vec2<f32>(mix(inst.uv.x, inst.uv.z, t.x), mix(inst.uv.y, inst.uv.w, t.y));
+        out.graded = colors[k];
     } else {
         let c = corners[vi];
         let px = inst.origin + inst.axes.xy * c.x + inst.axes.zw * c.y;
         out.position = vec4<f32>(px * globals.scale + globals.translate, 0.0, 1.0);
         let t = c + vec2<f32>(0.5, 0.5);
         out.uv = vec2<f32>(mix(inst.uv.x, inst.uv.z, t.x), mix(inst.uv.y, inst.uv.w, t.y));
+        out.graded = colors[which[vi]];
     }
     out.color = inst.color;
     out.mode = inst.mode;
@@ -89,13 +114,22 @@ fn texel_of(in: VsOut) -> vec4<f32> {
 }
 
 fn shade(texel: vec4<f32>, in: VsOut) -> vec4<f32> {
+    // Flat unless the corners differ, so a quad of one colour is exactly
+    // that colour.
+    let color = select(in.color, in.graded, (in.mode & 64u) != 0u);
     if ((in.mode & 1u) != 0u) {
-        return vec4<f32>(in.color.rgb, texel.a * in.color.a);
+        return vec4<f32>(color.rgb, texel.a * color.a);
     }
-    return texel * in.color;
+    return texel * color;
 }
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    return shade(texel_of(in), in);
+    let out = shade(texel_of(in), in);
+    // StepMania's alpha test, on for every draw: what is no more than
+    // 1/256 opaque is not drawn (nor masks), `RageDisplay_OGL.cpp:2731`.
+    if (out.a <= 0.00390625) {
+        discard;
+    }
+    return out;
 }

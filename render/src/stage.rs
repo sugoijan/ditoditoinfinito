@@ -74,6 +74,8 @@ pub fn quads(
             texture: tex.id,
             blend: QuadBlend::Normal,
             wrap: false,
+            gradient: None,
+            mask: Default::default(),
         };
         match d.layer {
             StageLayer::Back => back.push(quad),
@@ -162,7 +164,7 @@ mod tests {
         let (back, mask) = quads(&draws, (600.0, 500.0), 800.0, 1000.0, tex, false);
         let t = |q: &TexQuad| match q.shape {
             Shape::Quad { transform, .. } => transform,
-            Shape::Triangle { .. } => unreachable!(),
+            _ => unreachable!(),
         };
         // Its own size, 40 × 20: 80 × 40 px, top left at (200, 20).
         assert_eq!(t(&back[0]), [80.0, 0.0, 0.0, 40.0, 240.0, 40.0]);
@@ -184,7 +186,7 @@ mod tests {
         };
         let uv = |q: &TexQuad| match q.shape {
             Shape::Quad { uv, transform } => (uv, transform),
-            Shape::Triangle { .. } => unreachable!(),
+            _ => unreachable!(),
         };
         // Half of it left of the stage (500 × 500 on 500 px at 250).
         let mut d = draw(StageLayer::Back, -50.0, 0.0, 0.0);

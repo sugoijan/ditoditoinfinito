@@ -191,7 +191,22 @@ pub enum Blend {
     /// GL_ONE)`); what a mask is drawn with ([`Actor`]'s `MaskSource`),
     /// writing only depth.
     NoEffect,
-    /// The rest: drawn as normal, reported.
+    /// `BlendMode_CopySrc`: the source replaces what is there.
+    CopySrc,
+    /// `BlendMode_AlphaMask` and `BlendMode_AlphaKnockOut`: the colour
+    /// left alone, the target's alpha scaled by the source's (or by one
+    /// less it).
+    AlphaMask,
+    AlphaKnockOut,
+    /// `BlendMode_AlphaMultiply`: the source times its alpha, replacing
+    /// what is there.
+    AlphaMultiply,
+    /// `BlendMode_WeightedMultiply` (Lua's `Blend.Multiply`): twice what is
+    /// there times the source.
+    WeightedMultiply,
+    /// `BlendMode_InvertDest`: the source less what is there.
+    InvertDest,
+    /// A `BlendMode_` StepMania does not have: drawn as normal.
     Other,
 }
 
@@ -1797,6 +1812,13 @@ impl Actor {
                     "BlendMode_Subtract" => Blend::Subtract,
                     "BlendMode_Modulate" => Blend::Modulate,
                     "BlendMode_NoEffect" => Blend::NoEffect,
+                    // The rest of `BlendModeNames` (`src/RageTypes.cpp:118-155`).
+                    "BlendMode_CopySrc" => Blend::CopySrc,
+                    "BlendMode_AlphaMask" => Blend::AlphaMask,
+                    "BlendMode_AlphaKnockOut" => Blend::AlphaKnockOut,
+                    "BlendMode_AlphaMultiply" => Blend::AlphaMultiply,
+                    "BlendMode_WeightedMultiply" => Blend::WeightedMultiply,
+                    "BlendMode_InvertDest" => Blend::InvertDest,
                     s if s.starts_with("BlendMode_") => Blend::Other,
                     s => return Err(format!("blend: {s} is not a blend mode")),
                 }
@@ -3494,6 +3516,20 @@ mod tests {
         assert_eq!(dest.blend, Blend::NoEffect);
         run(&mut dest, "zbuffer,false");
         assert_eq!(dest.depth, Depth::default());
+        // StepMania's other modes by their enum names; an unknown one draws
+        // as normal.
+        for (name, blend) in [
+            ("WeightedMultiply", Blend::WeightedMultiply),
+            ("InvertDest", Blend::InvertDest),
+            ("CopySrc", Blend::CopySrc),
+            ("AlphaMultiply", Blend::AlphaMultiply),
+            ("AlphaMask", Blend::AlphaMask),
+            ("AlphaKnockOut", Blend::AlphaKnockOut),
+            ("Sparkle", Blend::Other),
+        ] {
+            run(&mut dest, &format!("blend,'BlendMode_{name}'"));
+            assert_eq!(dest.blend, blend);
+        }
     }
 
     #[test]

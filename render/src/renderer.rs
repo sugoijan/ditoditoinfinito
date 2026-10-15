@@ -45,6 +45,8 @@ pub struct Renderer {
     /// A work's back and mask layers' quads ([`Renderer::set_stage_quads`]).
     stage_back: Vec<crate::textured::TexQuad>,
     stage_mask: Vec<crate::textured::TexQuad>,
+    /// For skins' masks ([`crate::stencil`]).
+    stencil: crate::stencil::Attachment,
 }
 
 impl Renderer {
@@ -89,6 +91,7 @@ impl Renderer {
             srgb,
             stage_back: Vec::new(),
             stage_mask: Vec::new(),
+            stencil: Default::default(),
         }
     }
 
@@ -346,10 +349,20 @@ impl Renderer {
             "skins blend encoded: the plain view is needed"
         );
         let plain_view = plain_view.filter(|_| self.textured.gamma());
+        let textured = &self.textured;
         let plans = passes(
             &scene.order,
             plain_view.is_some() || self.offscreen.is_some(),
+            &|r| textured.masked() && textured.masked_in(r),
         );
+        if plans.iter().any(|p| p.stencil) {
+            self.stencil.view(device, [width, height]);
+        }
+        let stencil = self
+            .stencil
+            .current()
+            .filter(|_| plans.iter().any(|p| p.stencil));
+        let mut stencil_cleared = false;
         let clear = self.clear_color();
         let offscreen = self.offscreen.as_mut().map(|o| {
             o.prepare(device, width, height);
@@ -359,14 +372,26 @@ impl Renderer {
         // texture is read there alone.
         let mut run: Option<Rect> = None;
         for (n, pass_plan) in plans.iter().enumerate() {
-            if pass_plan.plain {
-                run = scene.order[pass_plan.segments.clone()]
+            // A pass of the other kind than the one before converts what
+            // is drawn so far (offscreen); one of the same kind (a run of
+            // a skin's masked quads) goes on.
+            let turned = n > 0 && plans[n - 1].plain != pass_plan.plain;
+            if pass_plan.plain && (turned || n == 0) {
+                // The run's quads, over its passes (a masked run's too);
+                // what draws no colour left out.
+                let end = plans[n..]
+                    .iter()
+                    .take_while(|p| p.plain)
+                    .last()
+                    .map_or(pass_plan.segments.end, |p| p.segments.end);
+                run = scene.order[pass_plan.segments.start..end]
                     .iter()
                     .filter_map(|s| match s {
                         Segment::Quads(r) => scene.quads.get(r.start as usize..r.end as usize),
                         Segment::Sprites(_) => None,
                     })
                     .flat_map(|q| q.iter())
+                    .filter(|q| q.blend != crate::textured::QuadBlend::NoEffect)
                     .filter_map(|q| quad_rect(q, width, height))
                     .reduce(Rect::union);
             }
@@ -376,32 +401,55 @@ impl Renderer {
                 (false, Some(o), _) => o.scene(),
                 _ => view,
             };
-            let load = match (n, pass_plan.plain, offscreen) {
+            let mut load = match (n, pass_plan.plain, offscreen) {
                 (0, _, _) => wgpu::LoadOp::Clear(clear),
                 // What the encoding leaves out is never read.
-                (_, true, Some(_)) => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                (_, true, Some(_)) if turned => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                 _ => wgpu::LoadOp::Load,
             };
-            let mut pass = begin_pass(encoder, target, load);
-            if n == 0 {
-                self.background.draw(&mut pass, &background);
-            }
-            // Every pass after the first follows one of the other kind.
-            if let (Some(o), Some(r)) = (offscreen, run)
-                && n > 0
-            {
+            let convert = |pass: &mut wgpu::RenderPass<'_>, o: &Offscreen, r: Rect| {
                 pass.set_scissor_rect(r.x, r.y, r.width, r.height);
                 if pass_plan.plain {
-                    o.scene_to_plain(&mut pass);
+                    o.scene_to_plain(pass);
                 } else {
-                    o.plain_to_scene(&mut pass);
+                    o.plain_to_scene(pass);
                 }
                 pass.set_scissor_rect(0, 0, width.max(1), height.max(1));
+            };
+            let conversion = offscreen.zip(run).filter(|_| turned);
+            if let Some((o, r)) = conversion
+                && pass_plan.stencil
+            {
+                // The conversion's pipelines have no stencil: a pass of
+                // its own before a masked run.
+                let mut pass = begin_pass(encoder, target, load, None);
+                convert(&mut pass, o, r);
+                drop(pass);
+                load = wgpu::LoadOp::Load;
+            }
+            let depth = match (&stencil, pass_plan.stencil) {
+                (Some(view), true) => Some(crate::stencil::Attachment::pass(
+                    view,
+                    !std::mem::replace(&mut stencil_cleared, true),
+                )),
+                _ => None,
+            };
+            let mut pass = begin_pass(encoder, target, load, depth);
+            if let Some((o, r)) = conversion
+                && !pass_plan.stencil
+            {
+                convert(&mut pass, o, r);
+            }
+            if n == 0 {
+                self.background.draw(&mut pass, &background);
             }
             for segment in &scene.order[pass_plan.segments.clone()] {
                 match segment {
                     Segment::Sprites(r) => self.sprites.draw_range(&mut pass, r.clone()),
-                    Segment::Quads(r) => self.textured.draw(&mut pass, r.clone(), pass_plan.plain),
+                    Segment::Quads(r) => {
+                        self.textured
+                            .draw(&mut pass, r.clone(), pass_plan.plain, pass_plan.stencil)
+                    }
                 }
             }
             if pass_plan.last {
@@ -409,7 +457,7 @@ impl Renderer {
             }
         }
         if let Some(o) = offscreen {
-            let mut pass = begin_pass(encoder, view, wgpu::LoadOp::Clear(wgpu::Color::BLACK));
+            let mut pass = begin_pass(encoder, view, wgpu::LoadOp::Clear(wgpu::Color::BLACK), None);
             o.scene_to_target(&mut pass);
         }
         self.text.trim();
@@ -449,6 +497,7 @@ fn quad_rect(q: &crate::textured::TexQuad, width: u32, height: u32) -> Option<Re
             .map(|&(u, v)| [m[4] + m[0] * u + m[2] * v, m[5] + m[1] * u + m[3] * v])
             .collect(),
         Shape::Triangle { points, .. } => points.to_vec(),
+        Shape::Projected { corners, .. } => corners.to_vec(),
     };
     let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
     for c in &corners {
@@ -481,36 +530,48 @@ struct PassPlan {
     segments: std::ops::Range<usize>,
     /// The frame's last pass (the text goes on top).
     last: bool,
+    /// A run of a skin's quads that use the mask, alone in a pass with
+    /// the stencil.
+    stencil: bool,
 }
 
 /// The passes a frame's `order` is drawn in: one, or with `plain` the
 /// skins' quads in passes of their own on the plain view between the
-/// scene's. The first pass clears and draws the background; the last
+/// scene's; a run of quads using the mask (`masked`) alone in a pass with
+/// the stencil. The first pass clears and draws the background; the last
 /// draws the text, on the scene's view.
-fn passes(order: &[Segment], plain: bool) -> Vec<PassPlan> {
+fn passes(
+    order: &[Segment],
+    plain: bool,
+    masked: &dyn Fn(std::ops::Range<u32>) -> bool,
+) -> Vec<PassPlan> {
     let mut out = vec![PassPlan {
         plain: false,
         segments: 0..0,
         last: false,
+        stencil: false,
     }];
     for (i, segment) in order.iter().enumerate() {
         let wants_plain = plain && matches!(segment, Segment::Quads(_));
+        let stencil = matches!(segment, Segment::Quads(r) if masked(r.clone()));
         let current = out.last_mut().expect("one pass at least");
-        if current.plain == wants_plain {
+        if current.plain == wants_plain && !current.stencil && !stencil {
             current.segments.end = i + 1;
         } else {
             out.push(PassPlan {
                 plain: wants_plain,
                 segments: i..i + 1,
                 last: false,
+                stencil,
             });
         }
     }
-    if out.last().is_some_and(|p| p.plain) {
+    if out.last().is_some_and(|p| p.plain || p.stencil) {
         out.push(PassPlan {
             plain: false,
             segments: order.len()..order.len(),
             last: false,
+            stencil: false,
         });
     }
     if let Some(p) = out.last_mut() {
@@ -519,11 +580,12 @@ fn passes(order: &[Segment], plain: bool) -> Vec<PassPlan> {
     out
 }
 
-/// A pass drawing to `target`.
+/// A pass drawing to `target`, with `depth` (the stencil) if given.
 fn begin_pass<'e>(
     encoder: &'e mut wgpu::CommandEncoder,
     target: &wgpu::TextureView,
     load: wgpu::LoadOp<wgpu::Color>,
+    depth: Option<wgpu::RenderPassDepthStencilAttachment<'_>>,
 ) -> wgpu::RenderPass<'e> {
     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("ddi-scene"),
@@ -536,7 +598,7 @@ fn begin_pass<'e>(
                 store: wgpu::StoreOp::Store,
             },
         })],
-        depth_stencil_attachment: None,
+        depth_stencil_attachment: depth,
         timestamp_writes: None,
         occlusion_query_set: None,
         multiview_mask: None,
@@ -552,8 +614,11 @@ mod tests {
             plain,
             segments,
             last,
+            stencil: false,
         }
     }
+
+    const NONE: &dyn Fn(std::ops::Range<u32>) -> bool = &|_| false;
 
     #[test]
     fn a_runs_rectangle_covers_its_quads_on_the_target() {
@@ -565,6 +630,8 @@ mod tests {
             texture: 0,
             blend: QuadBlend::Normal,
             wrap: false,
+            gradient: None,
+            mask: Default::default(),
         };
         // 20 × 10 at (100, 50), turned a quarter: 10 wide, 20 high.
         let turned = quad(Shape::Quad {
@@ -628,10 +695,10 @@ mod tests {
             Quads(4..6),
         ];
         // One pass without a plain view.
-        assert_eq!(passes(&order, false), [plan(false, 0..5, true)]);
+        assert_eq!(passes(&order, false, NONE), [plan(false, 0..5, true)]);
         // With one: the quads in plain passes, the text in a last scene pass.
         assert_eq!(
-            passes(&order, true),
+            passes(&order, true, NONE),
             [
                 plan(false, 0..1, false),
                 plan(true, 1..3, false),
@@ -642,13 +709,40 @@ mod tests {
         );
         // A frame starting with quads still clears first, on the scene's view.
         assert_eq!(
-            passes(&[Quads(0..1)], true),
+            passes(&[Quads(0..1)], true, NONE),
             [
                 plan(false, 0..0, false),
                 plan(true, 0..1, false),
                 plan(false, 1..1, true),
             ]
         );
-        assert_eq!(passes(&[], true), [plan(false, 0..0, true)]);
+        assert_eq!(passes(&[], true, NONE), [plan(false, 0..0, true)]);
+        // A run of masked quads alone in a pass with the stencil, on
+        // either view; the text after it in a pass of its own.
+        let masked: &dyn Fn(std::ops::Range<u32>) -> bool = &|r| r.start == 3;
+        let stencil = |plain, segments| PassPlan {
+            stencil: true,
+            ..plan(plain, segments, false)
+        };
+        assert_eq!(
+            passes(&order, true, masked),
+            [
+                plan(false, 0..1, false),
+                plan(true, 1..2, false),
+                stencil(true, 2..3),
+                plan(false, 3..4, false),
+                plan(true, 4..5, false),
+                plan(false, 5..5, true),
+            ]
+        );
+        let last: &dyn Fn(std::ops::Range<u32>) -> bool = &|r| r.start == 4;
+        assert_eq!(
+            passes(&order, false, last),
+            [
+                plan(false, 0..4, false),
+                stencil(false, 4..5),
+                plan(false, 5..5, true),
+            ]
+        );
     }
 }

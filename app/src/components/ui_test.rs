@@ -1,10 +1,13 @@
 //! The 2D pass's test scene (`docs/plans/ui-core.md`, step 2), at
 //! `#/ui-test`, not linked from the menus: quads (plain, one colour a
 //! corner, turned, textured, a texture loading late, one that fails),
-//! StepMania's four blend modes, text (system fonts with Japanese, the
+//! StepMania's blend modes, text (system fonts with Japanese, the
 //! bundled font, tinted, turned, scaled, measured), clips, an external
-//! slot, and a list of 2,000 titles scrolling through a clip, which runs
-//! the text atlas through its budget. The canvas shows behind the page,
+//! slot, actors drawn through the bridge (`ddi_render::actors2d`: draw
+//! order, corner colours, a shadow, a turned clip through the stencil, a
+//! frame in perspective, a mask, a text actor), and a list of 2,000
+//! titles scrolling through a clip, which runs the text atlas through
+//! its budget. The canvas shows behind the page,
 //! as it will while Yew's pages last; a line of the page's own text lies
 //! over it.
 //!
@@ -21,6 +24,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_actor::text::{TextMeasure, TextStyle};
+use ddi_actor::{Actor, Kind, Sprite, Text, View};
+use ddi_render::draw2d::Mask;
 use ddi_render::texture_cache::{TextureId, TextureKey};
 use ddi_render::{Affine, Blend, Command, DrawList, Quad, TextRun};
 use gloo::render::{AnimationFrame, request_animation_frame};
@@ -80,6 +85,8 @@ struct Scene {
     list: DrawList,
     titles: Vec<std::sync::Arc<str>>,
     textures: Option<(TextureId, TextureId)>,
+    /// The actors' part, built once.
+    actors: Option<Actor>,
     externals: u64,
     /// The last frame's time on the CPU (building, drawing, submitting),
     /// and the longest since the last report, ms.
@@ -124,6 +131,7 @@ impl Component for UiTest {
                 list: DrawList::new(),
                 titles: titles(),
                 textures: None,
+                actors: None,
                 externals: 0,
                 cpu_ms: 0.0,
                 worst_ms: 0.0,
@@ -264,13 +272,90 @@ fn rgb(r: u8, g: u8, b: u8) -> [f32; 4] {
 
 fn quad(rect: [f32; 4], colors: [[f32; 4]; 4], blend: Blend) -> Quad {
     Quad {
-        rect,
-        transform: Affine::IDENTITY,
-        texture: None,
-        uv: [0.0, 0.0, 1.0, 1.0],
         colors,
         blend,
+        ..Quad::plain(rect, [1.0; 4])
     }
+}
+
+/// Plays `commands` on `a` (as a metrics command string).
+fn run(a: &mut Actor, commands: &str) {
+    let mut p = ddi_actor::Problems::default();
+    for c in ddi_actor::commands::parse(commands).expect("the scene's commands parse") {
+        let _ = a.call(&c, &mut p, 0);
+    }
+}
+
+/// An untextured quad actor of `size` after `commands`.
+fn quad_actor(size: [f32; 2], commands: &str) -> Actor {
+    let mut a = Actor::new(Kind::Sprite(Sprite::quad(size)));
+    run(&mut a, commands);
+    a
+}
+
+fn frame_actor(children: Vec<Actor>, commands: &str) -> Actor {
+    let mut f = Actor::new(Kind::Frame(children));
+    f.sort_by_draw_order();
+    run(&mut f, commands);
+    f
+}
+
+/// The actors' part (`y` 680–790): draw order (red, drawn last, on
+/// top), a quad red at its top and blue at its bottom, a yellow quad's
+/// shadow on white, a turned clip (through the stencil), a quad nearer
+/// the eye of a frame in perspective, a magenta quad with a mask's hole,
+/// and a text actor with a shadow.
+fn actors() -> Actor {
+    let order = frame_actor(
+        vec![
+            quad_actor([40.0, 40.0], "diffuse,1,0,0,1;draworder,2"),
+            quad_actor([40.0, 40.0], "x,15;diffuse,0,1,0,1"),
+            quad_actor([40.0, 40.0], "x,30;diffuse,0,0,1,1;draworder,1"),
+        ],
+        "x,40;y,720",
+    );
+    let gradient = quad_actor(
+        [40.0, 60.0],
+        "x,120;y,720;diffusetopedge,1,0,0,1;diffusebottomedge,0,0,1,1",
+    );
+    let shadow = frame_actor(
+        vec![
+            quad_actor([80.0, 80.0], "diffuse,1,1,1,1"),
+            quad_actor([40.0, 40.0], "diffuse,1,0.9,0.2,1;shadowlength,6"),
+        ],
+        "x,200;y,730",
+    );
+    let mut clipped = frame_actor(
+        vec![quad_actor([200.0, 200.0], "diffuse,0.2,0.8,0.3,1")],
+        "x,300;y,730;rotationz,30",
+    );
+    clipped.clip = Some([-30.0, -30.0, 30.0, 30.0]);
+    let perspective = frame_actor(
+        vec![quad_actor(
+            [40.0, 40.0],
+            "x,420;y,730;z,200;diffuse,1,0.5,0,1",
+        )],
+        "fov,90;vanishpoint,420,730",
+    );
+    let mask = frame_actor(
+        vec![
+            quad_actor([20.0, 20.0], "MaskSource,true"),
+            quad_actor([60.0, 60.0], "diffuse,0.9,0.2,0.9,1;MaskDest"),
+        ],
+        "x,520;y,730",
+    );
+    let mut text = Actor::new(Kind::Text(Text::new(
+        "Actors 文字",
+        TextStyle::new("system-ui, sans-serif", 20.0),
+    )));
+    run(
+        &mut text,
+        "x,600;y,730;horizalign,'HorizAlign_Left';shadowlength,2;diffuse,0.6,0.9,1,1",
+    );
+    frame_actor(
+        vec![order, gradient, shadow, clipped, perspective, mask, text],
+        "",
+    )
 }
 
 /// The scene at `t` seconds, `width` units wide.
@@ -369,6 +454,8 @@ fn build(scene: &mut Scene, t: f64, width: f32, height: f32, measure: &mut dyn T
         transform: Affine::rotate(-0.2).then(Affine::translate(420.0, 330.0)),
         color: rgb(160, 255, 160),
         blend: Blend::Normal,
+        mask: Mask::None,
+        perspective: None,
     }));
     l.push(Command::Text(TextRun {
         text: "×2".into(),
@@ -376,6 +463,8 @@ fn build(scene: &mut Scene, t: f64, width: f32, height: f32, measure: &mut dyn T
         transform: Affine::scale(2.0, 2.0).then(Affine::translate(600.0, 380.0)),
         color: white,
         blend: Blend::Add,
+        mask: Mask::None,
+        perspective: None,
     }));
 
     // Clips: a rectangle and text cut by one, and a clip within a clip.
@@ -390,6 +479,44 @@ fn build(scene: &mut Scene, t: f64, width: f32, height: f32, measure: &mut dyn T
     // The shell's own drawing between layers (the play field, later).
     l.external(0);
     l.rect([24.0, 560.0, 124.0, 580.0], rgb(255, 255, 255));
+
+    // StepMania's other blend modes over grey, a half-transparent colour:
+    // weighted multiply, invert dest, alpha multiply, copy source, no
+    // effect.
+    for (i, blend) in [
+        Blend::WeightedMultiply,
+        Blend::InvertDest,
+        Blend::AlphaMultiply,
+        Blend::CopySrc,
+        Blend::NoEffect,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let x = 24.0 + i as f32 * 80.0;
+        l.rect([x, 600.0, x + 60.0, 660.0], rgb(128, 128, 128));
+        l.quad(quad(
+            [x + 30.0, 610.0, x + 70.0, 650.0],
+            [[0.5, 0.25, 0.75, 0.5]; 4],
+            blend,
+        ));
+    }
+
+    // Actors, through the bridge, measured as the painter draws.
+    let actors = scene.actors.get_or_insert_with(actors);
+    actors.measure(measure);
+    let mut drawn = Vec::new();
+    actors.draw_in(
+        &View {
+            transform: ddi_actor::TRANSFORM_IDENTITY,
+            size: [width, height],
+        },
+        ddi_actor::TRANSFORM_IDENTITY,
+        [1.0; 4],
+        [1.0, 1.0, 1.0, 0.0],
+        &mut drawn,
+    );
+    ddi_render::actors2d::append(&drawn, l, &mut |_| None);
 
     // The list: 2,000 titles through a clip, scrolling.
     let (x0, y0, x1, y1) = (width - 460.0, 70.0, width - 24.0, height - 24.0);
