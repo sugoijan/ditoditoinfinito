@@ -15,6 +15,12 @@ serde.workspace = true
 thiserror.workspace = true
 miniz_oxide.workspace = true
 serde_json.workspace = true
+# Unicode's NFKD tables for the search where no browser folds text
+# (desktop); the web uses `String.prototype.normalize`.
+unicode-normalization = { workspace = true, optional = true }
 
 [dev-dependencies]
 encoding_rs.workspace = true
+
+[features]
+nfkd = ["dep:unicode-normalization"]

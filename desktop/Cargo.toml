@@ -1,0 +1,30 @@
+[package]
+name = "ddi-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: the desktop shell (a window running the UI core)"
+
+[[bin]]
+name = "ditoditoinfinito-desktop"
+path = "src/main.rs"
+
+[dependencies]
+ddi-actor.workspace = true
+ddi-library = { workspace = true, features = ["nfkd"] }
+ddi-platform.workspace = true
+ddi-render.workspace = true
+ddi-ui.workspace = true
+serde_json.workspace = true
+wgpu = { workspace = true, features = ["std", "wgsl", "metal", "vulkan", "dx12"] }
+winit = "0.30.13"
+# File dialogs: on Linux through the XDG desktop portal (the default),
+# not GTK.
+rfd = "0.17.2"
+# The clipboard, text only (no `image`); Wayland's data-control too.
+arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
+
+[dev-dependencies]

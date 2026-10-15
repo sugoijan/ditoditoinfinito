@@ -590,11 +590,13 @@ fn consumed_events_are_reported() {
         ("Space", " "),
         ("Backspace", "Backspace"),
         ("ArrowLeft", "ArrowLeft"),
-        ("Tab", "Tab"),
     ] {
         h.key_down(code, key);
         assert!(!h.consumed, "{key}");
     }
+    // Tab stays in the field (the screen hears it).
+    h.key_down("Tab", "Tab");
+    assert!(h.consumed);
     h.key_down("ArrowDown", "ArrowDown");
     assert!(h.consumed);
     h.key_down("Enter", "Enter");
@@ -949,4 +951,43 @@ fn mirrored_text_keeps_to_the_limit() {
         }]
     );
     assert_eq!(h.ui.text_field().unwrap().1.text().chars().count(), 40);
+}
+
+#[test]
+fn pads_start_audio_but_not_windows() {
+    let (mut h, log) = harness(TextMode::Mirror);
+    // Start on Quit (a link) from a pad the browser counts as a gesture:
+    // refused, as window.open needs a key, a click or a touch.
+    h.key("ArrowDown", "ArrowDown");
+    h.key("ArrowDown", "ArrowDown");
+    clear(&log);
+    let r = h.pad(MenuAction::Start, true);
+    h.pad(MenuAction::Start, false);
+    assert!(r.is_empty(), "{r:?}");
+    assert_eq!(
+        logged(&log, "menu: needs"),
+        vec![r#"menu: needs OpenUrl("https://example.org")"#]
+    );
+    // Start on Play: audio is the pad's to start.
+    h.key("ArrowDown", "ArrowDown");
+    let r = h.pad(MenuAction::Start, true);
+    assert_eq!(r, vec![UiRequest::StartAudio]);
+}
+
+#[test]
+fn pasted_line_breaks_are_flattened() {
+    let (mut h, _) = harness(TextMode::Mirror);
+    h.tap(PointerKind::Touch, "SearchBox");
+    let r = h.send(UiEvent::Text(TextEvent::Sync(ddi_ui::event::TextSync {
+        text: "a\nb".into(),
+        selection: [3, 3],
+        composition: None,
+    })));
+    assert_eq!(
+        r,
+        vec![UiRequest::SetText {
+            text: "a b".into(),
+            selection: [3, 3]
+        }]
+    );
 }

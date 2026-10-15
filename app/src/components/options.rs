@@ -739,7 +739,7 @@ impl Options {
             demo: !still,
             rows: 6,
             speed: 1.5,
-            colors: s.note_colors.scheme(),
+            colors: crate::settings::note_scheme(s.note_colors),
             ..PreviewOptions::default()
         };
         let onchange = link.callback(|e: Event| {

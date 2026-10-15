@@ -6,9 +6,11 @@
 //! however the simfile spells it: Unicode compatibility decomposition
 //! (full-width letters become ASCII, `é` becomes `e` plus an accent),
 //! accents dropped, lower case, katakana as hiragana. The decomposition is
-//! passed in ([`Fold`]): the app uses the browser's
+//! passed in ([`Fold`]): the web app uses the browser's
 //! `String.prototype.normalize("NFKD")`, which keeps Unicode's tables out of
-//! the wasm; the tests use a stand-in.
+//! the wasm; elsewhere [`Nfkd`] (feature `nfkd`, the `unicode-normalization`
+//! crate). The tests run with either: a stand-in for the characters they
+//! use, or with the feature the real tables, checked against the stand-in.
 //!
 //! Each field is also kept romanised ([`romaji`]): kana in Hepburn, then
 //! reduced to one spelling ([`canonical`]) so that the romanisations
@@ -24,6 +26,20 @@ pub trait Fold {
 impl<F: Fn(&str) -> String> Fold for F {
     fn nfkd(&self, text: &str) -> String {
         self(text)
+    }
+}
+
+/// Unicode's NFKD from its own tables (feature `nfkd`): what shells
+/// without a browser fold with.
+#[cfg(feature = "nfkd")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Nfkd;
+
+#[cfg(feature = "nfkd")]
+impl Fold for Nfkd {
+    fn nfkd(&self, text: &str) -> String {
+        use unicode_normalization::UnicodeNormalization;
+        text.nfkd().collect()
     }
 }
 
@@ -161,6 +177,12 @@ fn voiced(base: &str, mark: char) -> String {
 /// dropped, `ゝ` repeats), then [`canonical`].
 pub fn romaji(text: &str, folder: &impl Fold) -> String {
     canonical(&hepburn(&fold(text, folder)))
+}
+
+/// Already folded text ([`fold`]) romanised as [`romaji`] does (no second
+/// fold: what a caller that folded once uses).
+pub fn romaji_folded(folded: &str) -> String {
+    canonical(&hepburn(folded))
 }
 
 /// Folded text with its kana in Hepburn; the rest as it is.
@@ -443,8 +465,17 @@ const ROMAN: char = '\u{0}';
 mod tests {
     use super::*;
 
-    /// NFKD for the characters these tests use.
+    /// NFKD as the tests run it: with feature `nfkd` the real tables (so
+    /// every test below checks them), else [`stand_in`].
     fn nfkd(text: &str) -> String {
+        #[cfg(feature = "nfkd")]
+        return Nfkd.nfkd(text);
+        #[cfg(not(feature = "nfkd"))]
+        stand_in(text)
+    }
+
+    /// NFKD for the characters these tests use.
+    fn stand_in(text: &str) -> String {
         text.chars()
             .flat_map(|c| -> Vec<char> {
                 match c {
@@ -650,5 +681,19 @@ mod tests {
         assert!(Query::new("", &nfkd).is_empty());
         assert!(Query::new("  \u{3000} ", &nfkd).is_empty());
         assert!(Query::new("", &nfkd).matches(""));
+    }
+
+    /// The real tables agree with the stand-in on every character it
+    /// knows, and fold what it does not as a browser would.
+    #[cfg(feature = "nfkd")]
+    #[test]
+    fn the_tables_agree_with_the_stand_in() {
+        let known = "éÖöドバばどぱパプデじゞがジヴōＡＺ\u{3000}abc";
+        for c in known.chars() {
+            let s = c.to_string();
+            assert_eq!(Nfkd.nfkd(&s), stand_in(&s), "{c}");
+        }
+        // Beyond it: ligatures, circled and half-width forms, ㌔.
+        assert_eq!(fold("ﬁ ① ｶﾞ ㌔", &Nfkd), "fi 1 か\u{3099} きろ");
     }
 }

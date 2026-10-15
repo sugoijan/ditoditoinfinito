@@ -376,6 +376,21 @@ impl TextField {
         (!text.is_empty() && self.insert(&text)) || had
     }
 
+    /// Mirror mode: the text on one line, as [`TextField::insert`] keeps
+    /// it (a paste into the textarea brings line breaks and tabs), the
+    /// selection moved with it. Never while composing. Whether it changed.
+    pub fn strip_controls(&mut self) -> bool {
+        if self.is_composing() || !self.text.chars().any(char::is_control) {
+            return false;
+        }
+        let at = |i: usize| single_line(&self.text[..i]).len();
+        let (anchor, caret) = (at(self.anchor), at(self.caret));
+        self.text = single_line(&self.text);
+        self.anchor = floor_char(&self.text, anchor);
+        self.caret = floor_char(&self.text, caret);
+        true
+    }
+
     /// Cuts the text to [`TextField::max_chars`] scalar values at a
     /// grapheme boundary (mirror mode: the textarea's `maxlength` counts
     /// UTF-16 units, so we count ourselves), the selection kept within.
@@ -782,6 +797,20 @@ mod tests {
         // Ending a preedit with nothing still changes what is shown.
         f.set_preedit("に", None);
         assert!(f.commit(""));
+    }
+
+    #[test]
+    fn mirrored_pastes_become_one_line() {
+        let mut f = TextField::new(TextMode::Mirror, "");
+        f.sync(&TextSync {
+            text: "a\r\nb\tc".into(),
+            selection: [6, 6],
+            composition: None,
+        });
+        assert!(f.strip_controls());
+        assert_eq!(f.text(), "a b c");
+        assert_eq!(f.anchor_caret(), [5, 5]);
+        assert!(!f.strip_controls());
     }
 
     #[test]

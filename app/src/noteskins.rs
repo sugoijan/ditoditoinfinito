@@ -309,6 +309,19 @@ pub(crate) struct Choices {
     pub(crate) default_lua_off: Option<String>,
 }
 
+impl Choices {
+    /// The skins as screens read them (P12).
+    pub(crate) fn views(&self) -> Vec<ddi_ui::state::library::NoteskinView> {
+        self.skins
+            .iter()
+            .map(|(key, name)| ddi_ui::state::library::NoteskinView {
+                key: key.clone(),
+                name: name.clone(),
+            })
+            .collect()
+    }
+}
+
 /// The dance skins one can pick; an error when none could be read.
 pub(crate) async fn choices() -> Result<Choices, String> {
     let imported = match Db::open().await {

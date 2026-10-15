@@ -20,6 +20,8 @@ mod web;
 
 fn main() {
     crash::install_hook();
+    // Settings and the song list's place, from the browser's storage.
+    web::kv::install();
     // The app's canvas and device, made once for every route.
     web::screen::boot();
     let document = web_sys::window()

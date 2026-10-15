@@ -1,7 +1,7 @@
 //! Hash routes. The site lives under a sub-path on GitHub Pages, so routing
 //! uses the fragment: `#/`, `#/play?song=<id>&chart=<n>`, `#/options`,
 //! `#/calibrate`, `#/credits`, `#/results`, `#/video-check`,
-//! `#/skin-preview`, `#/ui-test`.
+//! `#/skin-preview`, `#/ui-test`, `#/ui-dev`.
 
 use std::collections::BTreeMap;
 
@@ -54,6 +54,12 @@ pub(crate) enum Route {
     UiTest {
         params: Vec<(String, String)>,
     },
+    /// The UI core's developer screen (`components::ui_dev`), drawn by
+    /// the game on the whole window; `screen=widgets` opens the widget
+    /// screen at once.
+    UiDev {
+        screen: String,
+    },
     NotFound(String),
 }
 
@@ -103,6 +109,9 @@ impl Route {
                     .iter()
                     .map(|(k, v)| (k.to_string(), v.clone()))
                     .collect(),
+            },
+            "ui-dev" => Route::UiDev {
+                screen: params.get("screen").cloned().unwrap_or_default(),
             },
             "ui-test" => Route::UiTest {
                 params: params
@@ -195,6 +204,8 @@ impl Route {
                     format!("#/ui-test?{}", query.join("&"))
                 }
             }
+            Route::UiDev { screen } if screen.is_empty() => "#/ui-dev".into(),
+            Route::UiDev { screen } => format!("#/ui-dev?screen={}", percent_encode(screen)),
             Route::NotFound(p) => format!("#/{p}"),
         }
     }

@@ -1,10 +1,9 @@
 //! The song list's place, kept across a play, and moving through the list
 //! with the arrows, a controller or a dance pad.
 //!
-//! The place (open pack, last chart started, scroll, search) lives in
-//! `sessionStorage`: it is per tab, survives the play page and a reload,
-//! and is forgotten with the tab. Storage can be unavailable (private
-//! windows, blocked site data); the list then simply starts fresh.
+//! The place (open pack, last chart started, scroll, search) is shared
+//! with every shell (`ddi_ui::state::place`): on the web it lives in
+//! `sessionStorage`, per tab, surviving the play page and a reload.
 //!
 //! Navigation works on the page as drawn: rows are elements marked
 //! `data-nav-row` (a pack header, a song), their items `data-nav-item`
@@ -13,53 +12,14 @@
 //! clicks the item, back goes from a song to its pack's header and from an
 //! open pack's header closes it.
 
-use gloo::storage::{SessionStorage, Storage};
-use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlElement, ScrollIntoViewOptions, ScrollLogicalPosition};
-
-const KEY: &str = "ddi.menu.v1";
 
 /// Class of the item the last navigation moved to (drawn like keyboard
 /// focus, which programmatic focus does not always show).
 pub(crate) const CURRENT: &str = "nav-current";
 
-/// Where the song list was.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub(crate) struct MenuPlace {
-    /// Whether `open` was ever set (false before the first visit).
-    pub(crate) known: bool,
-    /// Key of the open pack ([`pack_key`]), `None` when all are closed.
-    pub(crate) open: Option<String>,
-    /// Song and chart index of the last chart started.
-    pub(crate) chart: Option<(String, usize)>,
-    /// `window.scrollY` when it was left.
-    pub(crate) scroll: f64,
-    /// What the search field held, and the text the search shown was run
-    /// on (short text is not searched until asked).
-    pub(crate) search: String,
-    pub(crate) searched: String,
-}
-
-impl MenuPlace {
-    pub(crate) fn load() -> MenuPlace {
-        SessionStorage::get(KEY).unwrap_or_default()
-    }
-
-    pub(crate) fn save(&self) {
-        let _ = SessionStorage::set(KEY, self);
-    }
-}
-
-/// Key of a group of the list: the bundled songs or an imported pack
-/// (packs are told apart ignoring case).
-pub(crate) fn pack_key(pack: Option<&str>) -> String {
-    match pack {
-        None => "bundled".into(),
-        Some(p) => format!("pack:{}", p.to_lowercase()),
-    }
-}
+pub(crate) use ddi_ui::state::place::{MenuPlace, pack_key};
 
 pub(crate) use ddi_engine::MenuInput as Nav;
 

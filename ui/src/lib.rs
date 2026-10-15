@@ -15,18 +15,30 @@
 //! - [`text_field`]: a single-line field, mirrored from the web's textarea
 //!   or edited by grapheme on desktop (P5).
 //! - [`screen`]: the [`Screen`] trait and its [`Cx`].
+//! - [`state`]: settings, the song list's place and the libraries' views,
+//!   shared by the shells (P12).
 //! - [`testing`]: a headless harness that scripts events and frames.
+//! - [`dev`]: the developer screen both shells run.
 
+pub mod dev;
+pub mod dev_widgets;
 pub mod event;
 pub mod gesture;
+pub mod graph;
 pub mod hit;
+#[cfg(feature = "layout")]
+pub mod layout;
+pub mod look;
 pub mod message;
 pub mod nav;
 pub mod request;
 pub mod screen;
+pub mod state;
 pub mod testing;
 pub mod text_field;
+pub mod textures;
 mod ui;
+pub mod widgets;
 
 pub use event::{KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase, UiEvent};
 pub use gesture::Gesture;

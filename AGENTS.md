@@ -47,7 +47,10 @@ the browser are implementation details, not advertised features.
   touch and mouse gestures, menu navigation with key repeat and focus,
   screens with transitions, dialogs, messages to actors, the one-line text
   field (mirroring the web's hidden textarea, or editing itself on
-  desktop), and a headless harness. Pure, natively tested.
+  desktop), and a headless harness; the state screens read (settings and
+  their migrations, the song list's place, library views; stored through
+  `ddi_platform::storage`, which each shell installs) and the developer
+  screen both shells run (`ui/src/dev.rs`). Pure, natively tested.
 - `noteskin/` StepMania noteskins: fallback chains, file lookup and
   redirects, `metrics.ini`, file name hints, what each element is (stand-ins
   for StepMania's `default` and `common`), its actors built (`actor/`) from
@@ -65,8 +68,19 @@ the browser are implementation details, not advertised features.
 - `app/` the web shell: Yew for menus, one wgpu canvas and device for the
   whole app (`app/src/web/screen.rs`: made at boot, moved into the page
   that draws, made again after a lost device), Web Audio clock, settings
-  in `localStorage`, imported songs in IndexedDB. Compiles for
-  `wasm32-unknown-unknown` only.
+  in `localStorage` (`app/src/web/kv.rs`), imported songs in IndexedDB.
+  Compiles for `wasm32-unknown-unknown` only.
+- `desktop/` the desktop shell (`ddi-desktop`, binary
+  `ditoditoinfinito-desktop [--seconds N]`): a winit window drawing the UI
+  core through `render`'s painter with cosmic-text and system fonts,
+  settings in `storage.json` in the user's config folder, file dialogs
+  (rfd), clipboard (arboard). So far it runs the developer screen; audio
+  and play come with the rest of phase 9. Built and tested by `just
+  test`, `just core-check` and CI (it builds on Debian with no system
+  libraries: winit, rfd and arboard load theirs at run time).
+  `desktop/tests/offscreen.rs` draws the developer screen on the GPU and
+  compares pixels with the web's (`DDI_OFFSCREEN_PPM=<file>` keeps the
+  picture; skipped without an adapter).
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md`.
 - `video/` the software video decoder: a C shim over FFmpeg's video
   decoders (every format StepMania plays), built to
@@ -85,8 +99,8 @@ the browser are implementation details, not advertised features.
   then open `http://localhost:8080`).
 - `just build` release build with the production public URL.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
-- `just test` native tests (chart, engine, render, platform with `decode`, library,
-  actor, noteskin, lua, xtask). The app crate has no native tests; verify it in a browser.
+- `just test` native tests (chart, engine, render, platform with `decode`,
+  library with `nfkd`, actor, ui, noteskin, lua, desktop, xtask). The app crate has no native tests; verify it in a browser.
 - `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
   compares every `.sm` under a local folder against the two oracle parsers
   (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`).
@@ -150,7 +164,15 @@ WebCodecs decoder with it frame by frame);
 holds and rolls kept and dropped, a mine), `rows`, `speed`, `layout=<id>`; `skin=builtin` for the
 built-in arrows; a test sets `window.__DDI_PREVIEW_BEAT`);
 `#/ui-test` draws the 2D pass's test scene (`t`, `scroll`, `delay`,
-`budget`, `speed`, `all=1`; module doc of `app/src/components/ui_test.rs`).
+`budget`, `speed`, `all=1`; module doc of `app/src/components/ui_test.rs`);
+`#/ui-dev` runs the UI core's developer screen (every primitive: focus,
+dialog, popup, the text field over a hidden textarea, a flickable strip,
+long press, a sound, a link and a file picker behind gestures) and
+publishes `window.__DDI_DEBUG.ui` (screens, focus, the field's text,
+selection and preedit, last requests, frames, actor rectangles);
+`#/ui-dev?screen=widgets` (or the Widgets button) shows the widgets: a
+10,000-song list, search with suggestions, option rows, a toggle, a
+slider and results-like panels (`--widgets` in the desktop binary).
 `window.__DDI_LOSE_DEVICE()` loses the device, to test recovery;
 `__DDI_DEBUG` carries the canvas's `screen`, `textures`, `text` and
 `pass2d` counters. Imported songs have ids

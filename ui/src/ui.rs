@@ -60,6 +60,9 @@ use crate::nav::{self, MenuAction, Repeater, Source};
 use crate::request::{CssRect, InputHints, UiRequest};
 use crate::screen::{Cx, Handled, Input, Op, Screen, TextChange};
 use crate::text_field::{KeyResult, TextField, TextMode};
+use crate::textures::TextureTable;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// How long after a mouse press its release still counts as a gesture,
 /// host milliseconds (Safari's transient activation, the shortest).
@@ -150,6 +153,9 @@ pub struct Ui {
     next_id: u64,
     out: Vec<UiRequest>,
     consumed: bool,
+    /// A pad's press is being handled ([`Ui::refused`]).
+    pad_press: bool,
+    textures: Rc<RefCell<TextureTable>>,
     pointers: Vec<Pointer>,
     hover: Option<(u64, Option<Target>)>,
     repeater: Repeater,
@@ -180,6 +186,8 @@ impl Ui {
             next_id: 1,
             out: Vec::new(),
             consumed: false,
+            pad_press: false,
+            textures: Rc::default(),
             pointers: Vec::new(),
             hover: None,
             repeater: Repeater::default(),
@@ -308,9 +316,16 @@ impl Ui {
 
     /// Draws every layer, bottom first, in virtual pixels.
     pub fn draw(&mut self, measure: &mut dyn TextMeasure) -> Vec<Drawn> {
+        self.draw_in(measure, IDENTITY)
+    }
+
+    /// [`Ui::draw`] under `transform` (virtual pixels to the target's
+    /// units: a renderer drawing in virtual pixels scaled by
+    /// `Viewport::scale` passes the viewport's offset over that scale).
+    pub fn draw_in(&mut self, measure: &mut dyn TextMeasure, transform: Affine) -> Vec<Drawn> {
         let mut out = Vec::new();
         let view = View {
-            transform: IDENTITY,
+            transform,
             size: [self.viewport.screen.width, self.viewport.screen.height],
         };
         let focus_layer = self.focus_layer();
@@ -332,16 +347,16 @@ impl Ui {
             layer.root.measure(measure);
             layer
                 .root
-                .draw_in(&view, IDENTITY, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
+                .draw_in(&view, transform, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
             if let (Some((path, _)), Some(t)) = (&typing, text.as_ref()) {
-                ime = field_marks(&layer.root, path, &t.field, measure, &mut out);
+                ime = field_marks(&layer.root, path, &t.field, measure, &transform, &mut out);
             }
             if ring
                 && Some(layer.id) == focus_layer
                 && let Some(name) = &layer.focused
                 && let Some(b) = visible_bounds(&layer.root, name)
             {
-                ring_quads(b, &mut out);
+                ring_quads(&transform, b, &mut out);
             }
         }
         if let Some(caret) = ime {
@@ -377,7 +392,7 @@ impl Ui {
                 .any(|l| !matches!(l.phase, Phase::Active))
             || self.layers[top.min(self.layers.len())..]
                 .iter()
-                .any(|l| l.root.in_motion())
+                .any(|l| l.screen.animating() || l.root.in_motion())
     }
 
     /// The layers, bottom first.
@@ -431,6 +446,17 @@ impl Ui {
     /// The field being typed into, and the text actor showing it.
     pub fn text_field(&self) -> Option<(&str, &TextField)> {
         self.text.as_ref().map(|t| (t.name.as_str(), &t.field))
+    }
+
+    /// The source and the longest side (virtual pixels) of an actor
+    /// texture id handed out by [`Cx::texture`], for the shell's cache.
+    pub fn texture_source(&self, id: u32) -> Option<(std::sync::Arc<str>, f32)> {
+        self.textures.borrow().source(id)
+    }
+
+    /// How many image sources were asked for so far.
+    pub fn texture_count(&self) -> usize {
+        self.textures.borrow().len()
     }
 
     /// What the actors' commands reported (most recent last, at most 64).
@@ -507,6 +533,7 @@ impl Ui {
             self.viewport,
             self.time,
             self.layer(id).and_then(|l| l.focused.clone()),
+            self.textures.clone(),
         )
     }
 
@@ -526,7 +553,13 @@ impl Ui {
             self.ime_rect = None;
             self.out.push(UiRequest::StopTextInput);
         }
-        let mut cx = Cx::new(gesture, self.viewport, self.time, None);
+        let mut cx = Cx::new(
+            gesture,
+            self.viewport,
+            self.time,
+            None,
+            self.textures.clone(),
+        );
         let mut root = screen.build(&mut cx);
         let left = start_transition(&mut root, "On", &["In"], &mut self.problems);
         let owner = if overlay { owner } else { None };
@@ -716,11 +749,17 @@ impl Ui {
     /// A request from layer `id`: out now, or refused outside a gesture
     /// where one is needed.
     fn emit(&mut self, id: u64, r: UiRequest, gesture: bool) {
-        if self.gestures && r.needs_gesture() && !gesture {
+        if self.refused(&r, gesture) {
             self.dispatch(id, Input::NeedsGesture(r), false);
         } else {
             self.out.push(r);
         }
+    }
+
+    /// Whether `r` needs a gesture this call does not give: none, or a
+    /// pad's press for what pads cannot start.
+    fn refused(&self, r: &UiRequest, gesture: bool) -> bool {
+        self.gestures && r.needs_gesture() && (!gesture || (self.pad_press && !r.pad_may_start()))
     }
 
     /// Hands `input` to layer `id`'s screen.
@@ -861,7 +900,11 @@ impl Ui {
         let source = Source::Pad(e.source, e.action);
         if e.down {
             self.repeater.press(source, e.action);
+            // A pad press starts audio where the platform says so, never
+            // what needs transient activation ([`UiRequest::pad_may_start`]).
+            self.pad_press = e.gesture;
             self.menu(e.action, false, e.gesture);
+            self.pad_press = false;
         } else {
             self.repeater.release(&source);
         }
@@ -926,6 +969,12 @@ impl Ui {
                     return;
                 }
                 match k.key.as_str() {
+                    // Never the browser's: it would move focus out of the
+                    // hidden textarea. The screen may use it (a completion).
+                    "Tab" => {
+                        self.consumed = true;
+                        self.dispatch(layer, Input::Key(k), gesture);
+                    }
                     "Enter" => {
                         self.consumed = true;
                         self.text_changed(TextChange::Submit, gesture);
@@ -958,6 +1007,8 @@ impl Ui {
                     KeyResult::Paste => self.emit(layer, UiRequest::Paste, gesture),
                     KeyResult::Consumed => {}
                     KeyResult::Ignored => {
+                        // Tab stays with the field, as on the web.
+                        self.consumed |= k.key == "Tab";
                         if k.down && passes {
                             self.dispatch(layer, Input::Key(k), gesture);
                         }
@@ -978,16 +1029,20 @@ impl Ui {
         let change = match (e, mode) {
             (TextEvent::Sync(s), TextMode::Mirror) => {
                 let before = t.field.text().to_string();
+                let was_composing = t.field.is_composing();
                 if !t.field.sync(&s) {
                     return;
                 }
                 // `maxlength` counts UTF-16 units: we count characters.
-                if t.field.enforce_max() {
+                // A paste may bring line breaks and tabs: one line, as
+                // typing on desktop keeps it; then our length.
+                if t.field.strip_controls() | t.field.enforce_max() {
                     let text = t.field.text().to_string();
                     let selection = t.field.selection_utf16();
                     self.out.push(UiRequest::SetText { text, selection });
                 }
-                if t.field.text() == before {
+                // A composition begun or ended is an edit too.
+                if t.field.text() == before && t.field.is_composing() == was_composing {
                     TextChange::Moved
                 } else {
                     TextChange::Edited
@@ -1103,7 +1158,7 @@ impl Ui {
         };
         // Only inside a gesture (a phone's keyboard opens only from one);
         // refused, the field does not start.
-        if self.gestures && !gesture {
+        if self.refused(&request, gesture) {
             self.dispatch(id, Input::NeedsGesture(request), false);
             return;
         }
@@ -1384,7 +1439,7 @@ fn quad(m: &Affine, r: [f32; 4], color: [f32; 4]) -> Drawn {
     })
 }
 
-fn ring_quads(b: [f32; 4], out: &mut Vec<Drawn>) {
+fn ring_quads(m: &Affine, b: [f32; 4], out: &mut Vec<Drawn>) {
     let (g, w) = (RING_GAP, RING_WIDTH);
     let o = [b[0] - g - w, b[1] - g - w, b[2] + g + w, b[3] + g + w];
     let i = [b[0] - g, b[1] - g, b[2] + g, b[3] + g];
@@ -1394,7 +1449,7 @@ fn ring_quads(b: [f32; 4], out: &mut Vec<Drawn>) {
         [o[0], i[1], i[0], i[3]],
         [i[2], i[1], o[2], i[3]],
     ] {
-        out.push(quad(&IDENTITY, r, RING_COLOR));
+        out.push(quad(m, r, RING_COLOR));
     }
 }
 
@@ -1405,6 +1460,7 @@ fn field_marks(
     path: &[usize],
     field: &TextField,
     measure: &mut dyn TextMeasure,
+    transform: &Affine,
     out: &mut Vec<Drawn>,
 ) -> Option<[f32; 4]> {
     let a = hit::actor_at(root, path)?;
@@ -1420,8 +1476,9 @@ fn field_marks(
     let [w, h] = a.size();
     // The run's space: the pen on the baseline at the box's left
     // (`Actor::draw`).
+    let on_target = hit::mul(transform, &m);
     let pen = hit::mul(
-        &m,
+        &on_target,
         &[1.0, 0.0, 0.0, 1.0, -w / 2.0, -h / 2.0 + metrics.baseline],
     );
     let l = field.layout(measure, &style);
@@ -1436,7 +1493,12 @@ fn field_marks(
     }
     let caret = [l.caret - thin / 2.0, top, l.caret + thin / 2.0, bottom];
     out.push(quad(&pen, caret, color));
-    let corners = [[caret[0], caret[1]], [caret[2], caret[3]]].map(|p| hit::apply(&pen, p));
+    // The caret's rectangle in virtual pixels, for the IME.
+    let in_virtual = hit::mul(
+        &m,
+        &[1.0, 0.0, 0.0, 1.0, -w / 2.0, -h / 2.0 + metrics.baseline],
+    );
+    let corners = [[caret[0], caret[1]], [caret[2], caret[3]]].map(|p| hit::apply(&in_virtual, p));
     Some([
         corners[0][0].min(corners[1][0]),
         corners[0][1].min(corners[1][1]),

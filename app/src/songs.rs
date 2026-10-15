@@ -133,6 +133,36 @@ impl Library {
     }
 }
 
+impl ddi_ui::state::library::Libraries for Library {
+    /// The songs as screens read them (P12): bundled first, then the
+    /// imported ones by pack; banners as texture sources (a site path, or
+    /// `files:<key>` for an imported one, `crate::web::textures`).
+    fn view(&self) -> ddi_ui::state::library::LibraryView {
+        use ddi_ui::state::library::{LibraryView, Origin, SongView};
+        let bundled = self.bundled.iter().map(|e| SongView {
+            banner: e.banner.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
+            entry: e.clone(),
+            origin: Origin::Bundled,
+        });
+        let imported = self.imported.iter().map(|s| SongView {
+            banner: s
+                .entry
+                .banner
+                .as_ref()
+                .map(|b| format!("files:{}", file_key(&s.entry.id, b))),
+            entry: s.entry.clone(),
+            origin: Origin::Imported {
+                pack: s.pack.clone(),
+            },
+        });
+        LibraryView {
+            songs: bundled.chain(imported).collect(),
+            noteskins: Vec::new(),
+            error: self.imported_error.clone(),
+        }
+    }
+}
+
 /// Imported songs, and the ids of records that do not parse.
 async fn load_imported() -> Result<(Vec<ImportedSong>, Vec<String>), String> {
     let db = Db::open().await?;

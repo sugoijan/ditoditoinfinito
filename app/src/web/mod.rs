@@ -14,6 +14,7 @@ pub(crate) mod gfx;
 pub(crate) mod idb;
 pub(crate) mod image;
 pub(crate) mod keyboard;
+pub(crate) mod kv;
 pub(crate) mod screen;
 pub(crate) mod storage;
 pub(crate) mod text;

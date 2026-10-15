@@ -10,7 +10,8 @@ measured, Masonry checked in depth, game UI and rhythm games, what to
 reuse) and `docs/research/stepmania-themes.md` (what a StepMania theme is
 and what hosting one takes).
 
-Status: draft, nothing built. Decided by the maintainer (2026-10-15): our
+Status (2026-10-15): steps 0–4 done (results under each step); the menus
+are still Yew until steps 5 and 6. Decided by the maintainer: our
 own UI core rather than a toolkit; web and desktop both kept in view;
 StepMania 5 themes later, gameplay and evaluation decorations first;
 Japanese input, a hidden text field being acceptable; accessibility
@@ -521,6 +522,44 @@ window follow):
   held press reaching a layer under a new dialog); all fixed, with its
   cases kept as tests.
 
+Done, the shells (2026-10-15):
+
+- **Shared state (P12).** `ddi_platform::storage` is a store each shell
+  installs (`localStorage`/`sessionStorage` under the same keys on the
+  web, `app/src/web/kv.rs`; `storage.json` in the user's config folder on
+  desktop, an unreadable one kept as `storage.json.bad`). Settings and
+  their migrations, the song list's place and the library views screens
+  read live in `ui/src/state/`; the app re-exports them, and old settings
+  load as before (checked natively and in Chrome). Search folds with
+  `unicode-normalization` natively (`ddi-library`'s `nfkd` feature).
+- **Web.** `#/ui-dev` runs the developer screen (`ui/src/dev.rs`, shared
+  with desktop) on the canvas: pointer events with `touch-action: none`,
+  no context menu or callout, every wheel prevented; keys prevented when
+  `consumed`; the hidden textarea (step 0's recipe; state re-read on every
+  composition, input, key and `selectionchange`; re-placed when the visual
+  viewport moves; pastes flattened to one line); frames only while
+  something moves; browser Back closes a dialog, with history entries
+  unwound on leaving. Pads are gestures for sound only: a file picker, a
+  link, typing or the clipboard from a pad asks for a tap or a key. The
+  gamepad poller rests while no pad is connected.
+- **Desktop.** `desktop/` (`ditoditoinfinito-desktop`): winit window, the
+  painter in a plain format with cosmic-text and system fonts, keys
+  mapped to the DOM's names, typing in own mode (IME allowed while
+  typing, the caret's area sent as it moves; `Ime::Disabled` only clears
+  the preedit), file dialogs, clipboard, links, `ControlFlow::Wait`, no
+  frames while occluded. It builds on Debian with no system libraries and
+  runs in CI. An offscreen test draws the developer screen on the GPU and
+  matches the web's pixels within 2 levels. The window itself waits for
+  the maintainer (the screen was locked during the runs).
+- **Checked:** Playwright in Chrome (WebGPU, WebGL2) and Firefox: focus,
+  dialog, popup, typing and Japanese composition (scripted in Chrome),
+  sound from a click, a key and a touch release under the strict autoplay
+  policy (refused from a long press), drag and flick with inertia, wheel,
+  Back; the Yew pages, old settings and plays (also through a fake pad)
+  unchanged. An independent review found eleven defects (among them
+  `Ime::Disabled` ending typing after each word on Windows, Back pushing
+  history during a dialog's close, pads opening pickers); all fixed.
+
 ### Step 4. Widgets
 
 - **Lists:** rows built only for what is visible plus a margin and reused
@@ -536,6 +575,52 @@ window follow):
 Verified: the harness per widget (a list of 10,000 rows scrolls with a
 bounded number of actors, text runs and texture bytes); the developer
 screen in both browsers and on desktop.
+
+Done (2026-10-15):
+
+- **Look seam (P6, `ui/src/look.rs`).** Widgets ask a `Look` for
+  components by name and only fill and move their named parts and play
+  commands on them; a built-in dark look answers what a theme does not.
+- **Images.** `Cx::texture(source, side)` gives a stable actor texture
+  id; the shell maps it to the render's texture cache, so only rows drawn
+  ask for images, a placeholder showing until they load.
+- **List** (`widgets/list.rs`): rows and variable-height headers, actors
+  only for what shows plus a margin (13–17 for 10,000 rows), inertia,
+  snapping, wheel and key glides, selection by keys and pads that the list
+  follows, tap to select and again to activate, a draggable scrollbar, and
+  a wheel style (the selected row on a fixed line).
+- **Controls** (`widgets/controls.rs`): button, toggle, StepMania-style
+  option row, slider. **Search field** (`widgets/field.rs`) with a
+  suggestion popup that never shows while composing, fed by
+  `ddi_library::suggest` (prefix, then word start, then anywhere; titles
+  before artists before packs; folding and romaji as search has them).
+- **Layout frames** (`ui/src/layout.rs`): taffy behind the `layout`
+  feature, off in both shells for now: flex and grid cost 77 KB of wasm,
+  about twice the estimate, and a hand-made grid serves so far; to decide
+  again with the results screen (step 6.1). **Graphs** (`graph.rs`):
+  segments, polylines, bars, points, a histogram, a line over time.
+- **Widget screen** (`ui/src/dev_widgets.rs`; `#/ui-dev?screen=widgets`,
+  `--widgets` on desktop; lists take a component prefix, `SongList.Row`
+  falling back to `List.Row`): 10,000 songs under 200 packs (the library's
+  own first, with banners), search with suggestions, option rows, a
+  toggle, a slider, and a results-like grid whose panels an option row
+  changes.
+- **Checked:** harness tests per widget; Playwright in Chrome (WebGPU,
+  WebGL2) and Firefox, banners loaded only for rows shown; wheel
+  scrolling at 0.6 ms a frame on Chrome's WebGPU, 1.1 ms on WebGL2,
+  5.3 ms in Firefox (means); desktop drawn offscreen. Suggestions over
+  23,400 entries take 1.3–1.9 ms for a first letter and 0.1–0.2 ms as the
+  word grows (results narrowed from the last ones). Wasm 2,391 KB gzip
+  (2,309 KB before step 1.2). An independent review found five severe
+  defects (a glide that never ended past 2 million pixels of list, a list
+  left blank after shrinking mid-glide, a panic in a short list's
+  scrollbar, a tap that caught a moving list starting a song, the wheel
+  style never settling) and ten lesser ones; all fixed, its cases kept as
+  tests (`ui/tests/review.rs`). Lists keep the selected item across a
+  reload (`ListModel::key`), positions are kept in `f64`, banners are not
+  asked for above 1,500 px/s, the popup is an overlay that flips above
+  the field near the visible bottom, and pointers reach widgets in their
+  own frame's space.
 
 ### Step 5. Our theme, first version
 
