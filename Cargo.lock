@@ -320,6 +320,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddi-actor"
+version = "0.1.0"
+
+[[package]]
 name = "ddi-chart"
 version = "0.1.0"
 dependencies = [
@@ -365,6 +369,7 @@ dependencies = [
 name = "ddi-noteskin"
 version = "0.1.0"
 dependencies = [
+ "ddi-actor",
  "ddi-chart",
  "ddi-lua",
  "serde",
@@ -385,6 +390,7 @@ name = "ddi-render"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "ddi-actor",
  "ddi-chart",
  "ddi-engine",
  "ddi-lua",

@@ -1,10 +1,3 @@
-//! Actors as StepMania runs them: the tween queue, effects on their
-//! clocks, sprite states, commands, and what is drawn (`src/Actor.cpp`,
-//! `src/Tween.cpp`, `src/Sprite.cpp`, `src/ActorFrame.cpp`,
-//! `Themes/_fallback/Scripts/02 Actor.lua`, 5_1-new). Positions are in
-//! StepMania pixels, a lane being 64; rotations in degrees, positive
-//! clockwise on screen (y grows downwards).
-
 use std::f32::consts::PI;
 use std::sync::Arc;
 
@@ -2223,9 +2216,13 @@ mod tests {
             materials: vec![ModelMaterial {
                 color: [0.5, 1.0, 1.0, 1.0],
                 frames: vec![3, 4],
-                texture: AnimatedTexture::parse(
-                    "[AnimatedTexture]\nTexVelocityX=1\nFrame0000=a.png\nDelay0000=1\nFrame0001=b.png\nDelay0001=1\n",
-                ),
+                // `TexVelocityX=1`, `a.png` and `b.png` a second each.
+                texture: AnimatedTexture {
+                    frames: vec![("a.png".into(), 1.0), ("b.png".into(), 1.0)],
+                    velocity: [1.0, 0.0],
+                    offset: [0.0; 2],
+                    translate: vec![[0.0; 2]; 2],
+                },
             }],
             rest: Arc::new(Vec::new()),
             bones: Vec::new(),

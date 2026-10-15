@@ -1,8 +1,9 @@
 //! Loading skins' Lua: the stand-ins' own scripts, a skin's `NoteSkin.lua`
 //! and elements, metrics commands as Lua, and failures.
 
+use ddi_actor::{Clocks, Kind};
+
 use super::*;
-use crate::actor::{Clocks, Kind};
 use crate::build::{TextureKey, Textures};
 use crate::skin::tests::folder;
 use crate::skin::{Dir, Folder, Skin};
@@ -35,7 +36,7 @@ fn lua_skin(folders: &[Folder], name: &str) -> Result<LuaSkin, Failure> {
     )
 }
 
-fn built(e: Result<Element, Failure>) -> crate::actor::Actor {
+fn built(e: Result<Element, Failure>) -> ddi_actor::Actor {
     match e {
         Ok(Element {
             built: Built::Actor(a),
@@ -203,7 +204,7 @@ fn update_after_load_animates_natively() {
     let mut textures = Textures::default();
     let images = Sizes(vec![("Receptor 4x1.png", (256, 64))]);
     let mut receptor = built(skin.element(Button::Down, "Receptor", &mut textures, &images));
-    let mut p = crate::actor::Problems::default();
+    let mut p = ddi_actor::Problems::default();
     // `effectclock,"beat"` from the metrics: the frames follow beats.
     let at = |beat| Clocks {
         beat,
@@ -610,7 +611,7 @@ fn live() -> Vec<Folder> {
 }
 
 /// An element as the play holds it.
-fn boxed(skin: &mut LuaSkin, element: &str) -> Box<crate::actor::Actor> {
+fn boxed(skin: &mut LuaSkin, element: &str) -> Box<ddi_actor::Actor> {
     let mut textures = Textures::default();
     let mut tree = Box::new(built(skin.element(
         Button::Down,
@@ -721,7 +722,7 @@ fn a_frame_out_of_fuel_ends_the_lua() {
     assert!(matches!(skin.failure(), Some(Failure::Fuel)));
     assert!(skin.reclaim(&mut tap) && skin.reclaim(&mut ex));
     assert_eq!(tap.children().len(), 0);
-    assert!(!skin.lend(&mut Box::new(crate::actor::Actor::new(Kind::Actor))));
+    assert!(!skin.lend(&mut Box::new(ddi_actor::Actor::new(Kind::Actor))));
 }
 
 #[test]

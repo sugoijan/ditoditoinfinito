@@ -31,9 +31,16 @@ the browser are implementation details, not advertised features.
 - `library/` song library logic shared by the app and xtask: pack scanning
   (which file is the chart, music, banner), a sans-IO zip reader, the manifest
   entry type. Pure, natively tested.
+- `actor/` StepMania's actor model, shared by noteskins and later our
+  screens (`docs/plans/ui-core.md`): actors, the tween queue, effects,
+  sprite states, eases, commands as metrics write them, a model's meshes,
+  bones and animated textures, and what is drawn. Pure, natively tested;
+  the files actors are built from (`metrics.ini`, MilkShape, legacy actor
+  files, Lua) are read in `noteskin/`.
 - `noteskin/` StepMania noteskins: fallback chains, file lookup and
   redirects, `metrics.ini`, file name hints, what each element is (stand-ins
-  for StepMania's `default` and `common`), actors and their commands, and
+  for StepMania's `default` and `common`), its actors built (`actor/`) from
+  images, MilkShape models and commands, and
   (`noteskin/src/lua/`) a skin's Lua run at load over `lua/`; StepMania
   3.9's and OpenITG's format built natively (`noteskin/src/legacy.rs`);
   SVG images in a checked subset (`noteskin/src/svg.rs`, our extension). Pure,
@@ -66,7 +73,7 @@ the browser are implementation details, not advertised features.
 - `just build` release build with the production public URL.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
 - `just test` native tests (chart, engine, render, platform with `decode`, library,
-  noteskin, lua, xtask). The app crate has no native tests; verify it in a browser.
+  actor, noteskin, lua, xtask). The app crate has no native tests; verify it in a browser.
 - `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
   compares every `.sm` under a local folder against the two oracle parsers
   (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`).

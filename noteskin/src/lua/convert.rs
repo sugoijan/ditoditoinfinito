@@ -10,11 +10,11 @@
 use ddi_lua::Failure;
 use std::collections::HashMap;
 
+use ddi_actor::{Actor, Kind, Sprite, State};
 use ddi_lua::lunita::{Context, Table, Value};
 
 use super::host::actor_userdata;
 use super::{Host, MAX_ACTORS, Registries};
-use crate::actor::{Actor, Kind, Sprite, State};
 use crate::build::{Images, Textures, builtin_sprite, image_sprite};
 use crate::load::Source;
 

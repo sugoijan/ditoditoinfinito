@@ -5,13 +5,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use ddi_actor::commands::{Arg, Call, color_from_string, to_lua};
+use ddi_actor::{METHODS, Problems, Value as Got};
 use ddi_lua::lunita::{
     Callback, CallbackReturn, Context, Error, Execution, Table, UserData, Value,
 };
 
 use super::{Host, Registries};
-use crate::actor::{METHODS, Problems, Value as Got};
-use crate::commands::{Arg, Call, color_from_string, to_lua};
 use crate::ini::string_to_float;
 
 /// The actor a userdata stands for.
@@ -773,8 +773,8 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
             };
             let mut host = shared.borrow_mut();
             let mut notes = Vec::new();
-            if let Some(crate::actor::Actor {
-                kind: crate::actor::Kind::Sprite(sprite),
+            if let Some(ddi_actor::Actor {
+                kind: ddi_actor::Kind::Sprite(sprite),
                 ..
             }) = host.stage.get_mut(id)
             {

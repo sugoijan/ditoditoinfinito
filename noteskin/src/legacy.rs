@@ -6,10 +6,11 @@
 //! `<children>`). `crate::build` makes actors of the nodes. Files are
 //! untrusted: the XML reader is strict and bounded.
 
-use crate::actor::{Actor, Kind, Problems, State};
+use ddi_actor::commands::{Call, parse_legacy};
+use ddi_actor::{Actor, Kind, Problems, State};
+
 use crate::build::{Builder, Built, builtin_sprite, fallback_art, image_sprite, model_actor};
 use crate::builtin::{LEGACY_NOTE_TYPES, Virtual};
-use crate::commands::{Call, parse_legacy};
 use crate::ini::{Ini, string_to_float, string_to_int};
 use crate::load::{Button, Source};
 use crate::metrics::Part;
@@ -408,7 +409,7 @@ fn state_index(key: &str, prefix: &str) -> Option<usize> {
 fn visible(on: bool) -> Call {
     Call {
         method: "visible".into(),
-        args: vec![crate::commands::Arg::Bool(on)],
+        args: vec![ddi_actor::commands::Arg::Bool(on)],
     }
 }
 
@@ -900,8 +901,9 @@ impl Builder<'_, '_> {
 
 #[cfg(test)]
 mod tests {
+    use ddi_actor::Blend;
+
     use super::*;
-    use crate::actor::Blend;
     use crate::build::{Images, Textures, build, build_colored};
     use crate::skin::tests::folder as folder_of;
     use crate::skin::{Dir, Skin};
@@ -1081,7 +1083,7 @@ mod tests {
         // The hold explosion, with its OnCommand run.
         let hold = &x.children()[2];
         assert!(!hold.visible);
-        assert_eq!(hold.effect(), crate::actor::Effect::GlowShift);
+        assert_eq!(hold.effect(), ddi_actor::Effect::GlowShift);
         x.play("HoldingOn", &mut p);
         assert!(x.children()[2].visible);
         assert!(p.messages.is_empty(), "{:?}", p.messages);
@@ -1140,7 +1142,7 @@ mod tests {
         let skin = Skin::load(&folders, "dance", "bare").unwrap();
         let mut t = Textures::default();
         let mut p = Problems::default();
-        let clocks = crate::actor::Clocks::default();
+        let clocks = ddi_actor::Clocks::default();
         let Built::Actor(mut r) = build(&skin, Button::Down, "Receptor", &mut t, &images()).built
         else {
             panic!()

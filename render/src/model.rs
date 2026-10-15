@@ -5,7 +5,7 @@
 //! which StepMania clears after every note anyway), then textured
 //! triangles in the skin's passes. `docs/plans/models.md`.
 
-use ddi_noteskin::actor::{ModelDraw, mul4, transform_point};
+use ddi_actor::{ModelDraw, mul4, transform_point};
 
 use crate::scene::FieldGeometry;
 
@@ -143,8 +143,8 @@ fn area(p: &[[f32; 2]; 3]) -> f32 {
 mod tests {
     use std::sync::Arc;
 
-    use ddi_noteskin::actor::Blend;
-    use ddi_noteskin::model::{Geometry, Mesh, Vertex};
+    use ddi_actor::Blend;
+    use ddi_actor::model::{Geometry, Mesh, Vertex};
 
     use super::*;
 

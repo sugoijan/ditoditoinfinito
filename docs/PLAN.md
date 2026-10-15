@@ -144,6 +144,7 @@ DitoDitoInfinito/
   render/       ddi-render    wgpu scene (atlas sprites, text), NoteSkin, background layers
   platform/     ddi-platform  traits: AudioBackend, InputSource, HostClock, SongStore, Surface; optional Vorbis decode
   library/      ddi-library   pack scanning, sans-IO zip reader, manifest entries (shared by app and xtask)
+  actor/        ddi-actor     StepMania's actor model: tweens, effects, sprite states, commands, model data (shared by noteskins and screens)
   app/          ddi (web)     Yew shell, web-sys platform impls, canvas host     [bin, wasm32]
   xtask/                      regen-seo, fixture tools, (later) atlas packing
   assets/       songs/ (CC-licensed .sm fixtures), skins/, fonts/
@@ -151,7 +152,7 @@ DitoDitoInfinito/
   (later) desktop/  ddi-desktop  winit + wgpu + web-audio-api + gilrs            [bin, native]
 ```
 
-Dependency direction: `app` → {`platform-web impls`, `render`, `engine`, `library`, `chart`}; `library` → `chart`; `render` → `engine` (reads `Frame`); `engine` → `chart`; `platform` → nothing. `chart`, `engine`, `platform` compile for native and wasm and are tested with plain `cargo test`.
+Dependency direction: `app` → {`platform-web impls`, `render`, `engine`, `library`, `chart`}; `library` → `chart`; `render` → `engine` (reads `Frame`), `actor`; `noteskin` → `actor`; `engine` → `chart`; `platform`, `actor` → nothing. `chart`, `engine`, `actor`, `platform` compile for native and wasm and are tested with plain `cargo test`.
 
 ### 3.2 `chart`: the internal model
 

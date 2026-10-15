@@ -9,6 +9,7 @@ repository.workspace = true
 description = "DitoDitoInfinito: render crate"
 
 [dependencies]
+ddi-actor.workspace = true
 ddi-chart.workspace = true
 ddi-engine.workspace = true
 ddi-noteskin.workspace = true

@@ -1,0 +1,9 @@
+[package]
+name = "ddi-actor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: StepMania's actor model (tweens, effects, sprite states, commands, models)"

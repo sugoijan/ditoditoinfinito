@@ -6,7 +6,7 @@
 //! actor and Lua's methods act on what is drawn. While a tree is out, Lua
 //! cannot reach its actors ("the actor is gone").
 
-use crate::actor::{Actor, Kind};
+use ddi_actor::{Actor, Kind};
 
 #[derive(Default)]
 pub(crate) struct Stage {

@@ -11,11 +11,9 @@
 //! it, what needs Lua is reported and drawn built in. Skins may also use
 //! SVG images, our extension ([`svg`]).
 
-pub mod actor;
 pub mod build;
 pub mod builtin;
 pub mod bundled;
-pub mod commands;
 pub mod hints;
 pub mod import;
 pub mod ini;
