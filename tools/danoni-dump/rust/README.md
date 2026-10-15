@@ -48,6 +48,11 @@ now connects these stages through `import_job::execute`, with structured progres
 cancellation and a serializable terminal result. `import-url-native` calls the
 same API; `bind-import`/`resume-import` use an exact Ready-hash token and need no
 worker/network services for resumed installation.
+The [reviewed collection coordinator](../../../docs/research/danoni-rust-collections.md)
+adds static publisher/event-list discovery and bounded sequential imports through
+those same jobs. `discover-index`, `import-index-native` and
+`import-discovered-native` report missing/browser-required/unsupported entries
+and partial results; earlier child commits survive later failures/cancellation.
 
 ## Commands
 

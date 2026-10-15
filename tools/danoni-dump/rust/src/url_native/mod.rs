@@ -1,6 +1,6 @@
 //! Blocking job-thread adapter from reviewed public URLs to normalized native works.
 //! Scripts run only in the existing confined worker; HTTP remains host-owned.
-mod evidence;
+pub(crate) mod evidence;
 use crate::{
     Error, Result,
     acquisition::{self, Movie, SourceAddress},

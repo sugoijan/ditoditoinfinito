@@ -2,7 +2,7 @@ use super::*;
 use std::sync::{Arc, Mutex};
 type SharedFiles = Arc<Mutex<BTreeMap<String, Arc<Vec<u8>>>>>;
 #[derive(Clone, Default)]
-pub(super) struct Evidence(SharedFiles);
+pub(crate) struct Evidence(SharedFiles);
 impl AssetSource for Evidence {
     fn read(&self, ns: &str, path: &str, max: usize) -> Result<Vec<u8>> {
         self.read_shared(ns, path, max).map(|b| b.as_ref().clone())

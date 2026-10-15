@@ -9,6 +9,8 @@ pub mod artwork;
 pub mod assets;
 pub mod audio;
 #[cfg(feature = "native")]
+pub mod collection;
+#[cfg(feature = "native")]
 pub mod dependencies;
 pub mod extraction;
 pub mod import_host;

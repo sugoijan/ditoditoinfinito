@@ -344,7 +344,7 @@ fn tokenize(text: &str) -> Tokens {
     }
     t
 }
-fn decode(body: &[u8], hint: Option<&str>) -> Result<(String, String)> {
+pub(crate) fn decode(body: &[u8], hint: Option<&str>) -> Result<(String, String)> {
     if body.len() > PAGE_LIMIT {
         return Err(limited());
     }

@@ -65,8 +65,10 @@ these services and reasonable defaults, so the only user input normally needed
 is a URL. The supported native single-work subset now implements this boundary
 as [`import_job::execute`](danoni-rust-import-job.md), connecting URL preparation,
 admission and library installation. [`url_prepare::execute`](danoni-rust-url-preparation.md)
-and I/O-free `preparation::prepare` remain separately callable beneath it. Broader index/browser routes remain
-planned; success is never promised for arbitrary URLs. The eventual desktop
+and I/O-free `preparation::prepare` remain separately callable beneath it. The
+[reviewed collection coordinator](danoni-rust-collections.md) adds bounded static
+publisher/event lists with sequential per-work transactions and partial outcomes.
+Broader index layouts and browser routes remain planned; success is never promised for arbitrary URLs. The eventual desktop
 adapter should use resumable jobs with typed per-work outcomes rather than
 process-global configuration or a UI-blocking synchronous call.
 
@@ -931,3 +933,43 @@ the frozen earlier candidates; repeats are no-ops and a changed token cannot
 alter the catalog. Source transfers are zero, original export/registry/cache
 indexes are unchanged, and local evidence is under
 `~/Music/DanOni/reviews/rust-import-job-20261015/`.
+
+
+### Reviewed static collection slice, 2026-10-15
+
+The [collection coordinator](danoni-rust-collections.md) adds four reviewed static
+list structures: AutumnLeaves Flash, CW author catalogues, the 2006 7-key festival
+and iso's numbered Flash list. It selects work cells rather than following all
+anchors, retains query/capture/scheme distinctions and missing destinations, and
+never executes list scripts. Iso work links remain browser-navigation-required
+because of the documented referrer guard. Engine/layout admission is still a
+per-child responsibility; a discovered link is not native compatibility proof.
+
+An opaque discovery replays its ordered inventory from exact hash-bound HTML and
+copied HTTP/cache evidence. The SDK and thin CLI can discover first or run a full
+URL-to-collection import. Sequential children share network/time/output bounds,
+retain independent Ready/resume tokens and publish individually. Unavailable or
+failed children produce partial results; cancellation preserves earlier commits.
+Uncertain publication, unknown transfer accounting or a failed parent report
+stops later work. The managed catalog remains authoritative after a crash; a
+collection status checkpoint does not establish a library transaction.
+
+Next broaden native engine-family coverage using the existing normalized source
+corpus, keeping each new adapter behind its own source-bound reference gate.
+Static discovery does not make the many HTML5 catalogue destinations executable
+natively. A packaged, controlled HTML5 capture provider remains a separate
+migration slice, alongside desktop UI/background-job and playback-library wiring
+owned by the main implementation session. Browser-required guarded routes,
+collection-wide crash reconciliation, retained-output quotas/garbage collection
+and Windows/Linux confinement also remain separate work.
+
+
+Validation passes 263 native / 94 feature-disabled SDK tests, strict Clippy,
+formatting and `just check` (859/859 REUSE). Four frozen indexes match an
+independent HTML oracle: 116 AutumnLeaves destinations, 272 CW destinations,
+31 festival links, and 34 browser-required iso links plus three unavailable rows.
+A real offline index import preserves Higan when another exact destination is
+uncached; saved-discovery selection recognizes its duplicate without changing the
+catalog. All transfers are zero, frozen Higan playback/revision data agree and
+original export/registry/cache indexes are unchanged. Evidence remains local at
+`~/Music/DanOni/reviews/rust-collections-20261015/`.
