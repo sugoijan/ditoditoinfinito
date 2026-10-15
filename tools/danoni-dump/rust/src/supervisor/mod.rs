@@ -1,11 +1,16 @@
-#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#![cfg_attr(
+    not(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))),
+    allow(dead_code)
+)]
 //! Native host supervisor. A work never chooses the worker or confinement policy.
 mod config;
 #[path = "../../../ruffle/src/renderer_options.rs"]
 pub mod renderer_options;
 pub use renderer_options::RendererOptions;
-#[cfg(target_os = "macos")]
-mod macos;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod linux;
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+mod process;
 use crate::{
     Error, Result,
     assets::{self, Inputs, valid_hash, *},
@@ -23,7 +28,18 @@ use std::{
 };
 const CONFIG_LIMIT: usize = 65536;
 const WORKER_LIMIT: usize = 256 * 1024 * 1024;
-const PROFILE: &[u8] = include_bytes!("../../../ruffle/worker.sb");
+#[cfg(not(target_os = "linux"))]
+pub(crate) const PROFILE: &[u8] = include_bytes!("../../../ruffle/worker.sb");
+#[cfg(target_os = "linux")]
+pub(crate) const PROFILE: &[u8] = include_bytes!("linux.rs");
+#[cfg(target_os = "linux")]
+pub(crate) const POLICY_FILE: &str = "worker-linux.rs";
+#[cfg(not(target_os = "linux"))]
+pub(crate) const POLICY_FILE: &str = "worker.sb";
+#[cfg(target_os = "linux")]
+const PRODUCER: &str = "linux-landlock-seccomp-supervisor/1";
+#[cfg(not(target_os = "linux"))]
+const PRODUCER: &str = "macos-sandbox-supervisor/1";
 pub(crate) const REVISION: &str = "89a7049965f3090e706265670df309a5128233ac";
 fn invalid(message: impl Into<String>) -> Error {
     Error::new("invalid-native-capture", message)
@@ -187,6 +203,13 @@ fn plan(
     let mut inputs = Inputs::new(source);
     let config = inputs.checked(&request.config, CONFIG_LIMIT)?;
     let parsed = Config::parse(&config)?;
+    #[cfg(target_os = "linux")]
+    if parsed.render && parsed.render_scale.unwrap_or(1) > 1 {
+        return Err(Error::new(
+            "unsupported-native-render-scale",
+            "Linux confined rendering is verified at native scale only; enlarged Lavapipe captures can exceed the 40 MiB kernel file budget",
+        ));
+    }
     let configured = request.config.sibling(&RelativeBinding {
         path: parsed.movie.clone(),
         sha256: request.movie.sha256.clone(),
@@ -319,7 +342,7 @@ fn atomic_json(dir: &Path, name: &str, value: &Value) -> Result<()> {
     )?;
     fs::rename(temporary, dir.join(name)).map_err(native::io)
 }
-/// Stage only bound inputs, launch under the fixed macOS sandbox and retain a
+/// Stage only bound inputs, launch under the fixed platform sandbox and retain a
 /// success or failure receipt. Unsupported platforms never execute a worker.
 pub fn capture(
     request: &CaptureRequest,
@@ -328,16 +351,18 @@ pub fn capture(
     output: &Path,
     checkpoint: &mut impl FnMut() -> Result<()>,
 ) -> Result<CaptureOutcome> {
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))))]
     {
         let _ = (request, worker, source, output, checkpoint);
         Err(Error::new(
             "unsupported-native-confinement",
-            "Native execution is only implemented for the tested macOS sandbox",
+            "Native execution requires a supported macOS or Linux confinement backend",
         ))
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
     {
+        #[cfg(target_os = "linux")]
+        linux::available()?;
         let plan = plan(request, worker, source, checkpoint)?;
         let mut owned = new_output(output)?;
         let root = &owned.path;
@@ -355,10 +380,10 @@ pub fn capture(
             .map_err(native::io)?;
         }
         write(&root.join("runtime/build-identity.json"), &plan.identity)?;
-        write(&root.join("runtime/worker.sb"), PROFILE)?;
+        write(&root.join("runtime").join(POLICY_FILE), PROFILE)?;
         fs::create_dir(root.join("capture")).map_err(native::io)?;
         checkpoint()?;
-        let mut run = macos::run(root, &request.limits, checkpoint)?;
+        let mut run = process::run(root, &request.limits, checkpoint)?;
         let verification = verify_staged(root, &plan);
         let unchanged = matches!(verification, Ok(true));
         run["inputVerificationError"] = json!(verification.err());
@@ -436,7 +461,7 @@ pub fn capture(
             bindings = None;
             atomic_json(root, "run.json", &run)?;
         }
-        let receipt = json!({"schema":"ddi-danoni-native-capture/1","producer":"macos-sandbox-supervisor/1","ready":failure.is_none(),"request":request,"worker":worker,"build":expected_build_identity(),"sandboxSha256":sha256(PROFILE),"sourceInputs":plan.source_inputs,"stagedInputs":plan.files.iter().map(|(path,bytes)|json!({"path":format!("inputs/{path}"),"sha256":sha256(bytes),"bytes":bytes.len()})).collect::<Vec<_>>(),"runtime":{"worker":"runtime/ddi-ruffle-probe","buildIdentity":"runtime/build-identity.json","sandbox":"runtime/worker.sb"},"bindings":bindings,"run":run,"failure":failure,"artifacts":artifact_result.unwrap_or_default(),"scope":"Restricted native capture and transport validation; family, movement, audio-origin and original Flash equivalence remain separate proofs"});
+        let receipt = json!({"schema":"ddi-danoni-native-capture/1","producer":PRODUCER,"ready":failure.is_none(),"request":request,"worker":worker,"build":expected_build_identity(),"sandboxSha256":sha256(PROFILE),"sourceInputs":plan.source_inputs,"stagedInputs":plan.files.iter().map(|(path,bytes)|json!({"path":format!("inputs/{path}"),"sha256":sha256(bytes),"bytes":bytes.len()})).collect::<Vec<_>>(),"runtime":{"worker":"runtime/ddi-ruffle-probe","buildIdentity":"runtime/build-identity.json","sandbox":format!("runtime/{POLICY_FILE}")},"bindings":bindings,"run":run,"failure":failure,"artifacts":artifact_result.unwrap_or_default(),"scope":"Restricted native capture and transport validation; family, movement, audio-origin and original Flash equivalence remain separate proofs"});
         if failure.is_none() {
             atomic_json(root, "manifest.json", &receipt)?;
             manifest = Some(receipt);
@@ -462,7 +487,7 @@ fn verify_staged(root: &Path, plan: &Plan) -> Result<bool> {
     Ok(
         bounded(&root.join("runtime/ddi-ruffle-probe"), WORKER_LIMIT)? == plan.executable
             && bounded(&root.join("runtime/build-identity.json"), CONFIG_LIMIT)? == plan.identity
-            && bounded(&root.join("runtime/worker.sb"), CONFIG_LIMIT)? == PROFILE,
+            && bounded(&root.join("runtime").join(POLICY_FILE), CONFIG_LIMIT)? == PROFILE,
     )
 }
 fn inventory(root: &Path, limits: &Limits) -> Result<Vec<Value>> {
@@ -609,6 +634,7 @@ fn validate_capture(
         return Err(invalid("Unexpected mixed audio"));
     }
     if plan.config.render {
+        expected.insert("renderer.json".into());
         let scale = plan.config.render_scale.unwrap_or(1);
         let header = format!("P6\n{} {}\n255\n", 320 * scale, 240 * scale);
         if s["renderScale"] != scale {

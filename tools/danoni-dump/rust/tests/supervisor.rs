@@ -1,4 +1,7 @@
-#![cfg(all(feature = "native", target_os = "macos"))]
+#![cfg(all(
+    feature = "native",
+    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
+))]
 //! Confinement probes use our own native helper, never a work's code.
 use ddi_danoni_export::{assets::*, native::DirectorySource, supervisor::*};
 use serde_json::{Value, json};
@@ -56,35 +59,34 @@ fn fixture(root: &Path, operation: &str) -> (DirectorySource, CaptureRequest) {
 }
 fn worker() -> WorkerSpec {
     static WORKER: OnceLock<WorkerSpec> = OnceLock::new();
-    WORKER.get_or_init(||{
-        let dir=scratch();let source=dir.join("helper.rs");
-        fs::write(&source,r#"
-use std::{fs,io::{self,Write},process::{Command,Stdio},time::Duration};
-fn main(){
-    let config=std::path::PathBuf::from(std::env::args().nth(1).unwrap());let data=fs::read_to_string(&config).unwrap();let input=config.parent().unwrap();let root=input.parent().unwrap();
-    fs::write("pid.txt",std::process::id().to_string()).unwrap();
-    if data.contains("/sleep"){std::thread::sleep(Duration::from_secs(30));}
-    if data.contains("/memory"){let mut v=vec![0u8;256*1024*1024];for(i,x)in v.iter_mut().enumerate(){*x=(i%251)as u8;}std::hint::black_box(&v);std::thread::sleep(Duration::from_secs(30));}
-    if data.contains("/cpu"){let mut x=1u64;loop{x=x.wrapping_mul(17).wrapping_add(3);std::hint::black_box(x);}}
-    if data.contains("/crash"){std::process::abort();}
-    if data.contains("/file"){let mut f=fs::File::create("large.bin").unwrap();loop{f.write_all(&[0;1024]).unwrap();}}
-    if data.contains("/output-symlink"){std::os::unix::fs::symlink(root.parent().unwrap().join("outside-secret"),"escape").unwrap();std::thread::sleep(Duration::from_secs(30));}
-    if data.contains("/aggregate"){for i in 0..8{fs::write(format!("extra-{i}"),vec![0;1024*1024]).unwrap();}std::thread::sleep(Duration::from_secs(30));}
-    if data.contains("/probe"){
-        let outside=root.parent().unwrap().join("outside-secret");
-        let read=fs::read(&outside).is_ok();let input_read=fs::read(input.join("fixture.swf")).is_ok();let input_write=fs::write(input.join("fixture.swf"),b"changed").is_ok();
-        let outside_write=fs::write(&outside,b"changed").is_ok();let link_read=fs::read(input.join("escape")).is_ok();
-        let at=data.find("probe?port=").unwrap()+"probe?port=".len();
-        let port=data[at..].split('"').next().unwrap();
-        let network=std::net::TcpStream::connect_timeout(&format!("127.0.0.1:{port}").parse().unwrap(),Duration::from_millis(100)).is_ok();
-        let spawn=Command::new("/usr/bin/true").stdout(Stdio::null()).status().is_ok();let output=fs::write("allowed.txt",b"allowed").is_ok();
-        println!("{{\"outsideRead\":{read},\"inputRead\":{input_read},\"inputWrite\":{input_write},\"outsideWrite\":{outside_write},\"linkRead\":{link_read},\"network\":{network},\"spawn\":{spawn},\"outputWrite\":{output}}}");
-    }else{io::stdout().write_all(b"malformed snapshot").unwrap();}
-}
-"#).unwrap();
-        let exe=dir.join("own-helper");let status=Command::new("rustc").args(["--edition=2024","-O"]).arg(&source).arg("-o").arg(&exe).status().unwrap();assert!(status.success());
-        let identity=dir.join("build.json");fs::write(&identity,serde_json::to_vec(&expected_build_identity()).unwrap()).unwrap();WorkerSpec{executable:exe.clone(),sha256:sha256(&fs::read(exe).unwrap()),build_identity:identity.clone(),build_identity_sha256:sha256(&fs::read(identity).unwrap())}
-    }).clone()
+    WORKER
+        .get_or_init(|| {
+            let dir = scratch();
+            let source = dir.join("helper.rs");
+            fs::write(&source, include_str!("support/supervisor_helper.rs")).unwrap();
+            let exe = dir.join("own-helper");
+            let status = Command::new("rustc")
+                .args(["--edition=2024", "-O"])
+                .arg(&source)
+                .arg("-o")
+                .arg(&exe)
+                .status()
+                .unwrap();
+            assert!(status.success());
+            let identity = dir.join("build.json");
+            fs::write(
+                &identity,
+                serde_json::to_vec(&expected_build_identity()).unwrap(),
+            )
+            .unwrap();
+            WorkerSpec {
+                executable: exe.clone(),
+                sha256: sha256(&fs::read(exe).unwrap()),
+                build_identity: identity.clone(),
+                build_identity_sha256: sha256(&fs::read(identity).unwrap()),
+            }
+        })
+        .clone()
 }
 #[test]
 fn original_probe_checks_os_confinement_independently_of_ruffle() {
@@ -131,8 +133,11 @@ fn wall_memory_file_aggregate_and_cancel_fail_without_readiness() {
     for (operation, kind) in [
         ("sleep", "wall-time-limit"),
         ("memory", "resident-memory-limit"),
+        #[cfg(target_os = "linux")]
+        ("memfd-growth", "resident-memory-limit"),
         ("file", "file-size-limit"),
         ("aggregate", "output-byte-limit"),
+        #[cfg(target_os = "macos")]
         ("output-symlink", "output-byte-limit"),
         ("sleep", "cancelled"),
         ("cpu", "cpu-kill"),
@@ -177,6 +182,19 @@ fn wall_memory_file_aggregate_and_cancel_fail_without_readiness() {
             let signal = result.run["signal"].as_i64().unwrap();
             assert!([libc::SIGKILL as i64, libc::SIGXCPU as i64].contains(&signal));
             assert!(result.run["elapsedSeconds"].as_f64().unwrap() < 5.0);
+        } else if kind == "file-size-limit" && result.run["signal"].is_null() {
+            // An embedding host can inherit SIGXFSZ ignored/blocked. EFBIG is
+            // also the kernel enforcing this budget, not a supervisor failure.
+            assert_eq!(result.run["exitCode"], 70);
+            assert!(
+                fs::read_to_string(out.join("capture/stderr.txt"))
+                    .unwrap()
+                    .contains("file-write-denied:27")
+            );
+            assert_eq!(
+                fs::metadata(out.join("capture/large.bin")).unwrap().len(),
+                4096
+            );
         } else if kind != "exit" {
             assert_eq!(
                 result.run["termination"], kind,
@@ -187,6 +205,11 @@ fn wall_memory_file_aggregate_and_cancel_fail_without_readiness() {
             assert_ne!(result.run["exitCode"], 0);
         }
         assert!(result.run["inputsUnchanged"].as_bool().unwrap());
+        if operation == "memfd-growth" {
+            assert!(result.run["peakAnonymousFileKiB"].as_u64().unwrap() > 0);
+            assert!(result.run["peakRssKiB"].as_u64().unwrap() < 32 * 1024);
+            assert!(result.run["peakAccountedMemoryKiB"].as_u64().unwrap() > 32 * 1024);
+        }
         if let Ok(pid) = fs::read_to_string(out.join("capture/pid.txt")) {
             let pid: libc::pid_t = pid.parse().unwrap();
             // SAFETY: Signal zero only queries existence of our synthetic child.
@@ -259,4 +282,119 @@ fn cancellation_after_complete_transport_prevents_final_readiness() {
         serde_json::from_slice(&fs::read(out.join("failure.json")).unwrap()).unwrap();
     assert!(failure["bindings"].is_null());
     assert_eq!(failure["run"]["termination"], "cancelled");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_threads_work_but_process_ipc_descriptor_and_filesystem_escapes_fail() {
+    use std::os::fd::AsRawFd;
+    let root = scratch();
+    let outside = root.join("outside-secret");
+    fs::write(&outside, b"untouched").unwrap();
+    let file = fs::File::open(&outside).unwrap();
+    // Deliberately non-CLOEXEC, above stdin/stdout/stderr. The child must not
+    // inherit a desktop host's open files, even if that host forgot CLOEXEC.
+    // SAFETY: Valid owned input fd, test-only target slot, closed after capture.
+    let fd = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD, 100) };
+    assert!(fd >= 100);
+    let (source, request) = fixture(&root, &format!("linux-probe?fd={fd}"));
+    let result = capture(&request, &worker(), &source, &root.join("out"), &mut || {
+        Ok(())
+    });
+    // SAFETY: Release only this test's duplicate descriptor.
+    unsafe {
+        libc::close(fd);
+    }
+    let result = result.unwrap();
+    assert!(!result.ready);
+    assert_eq!(result.run["exitCode"], 0, "{}", result.run);
+    let report = fs::read_to_string(root.join("out/capture/snapshot.json")).unwrap();
+    for line in report.lines() {
+        if line.starts_with("clone3=") {
+            assert_eq!(line, "clone3=-1:38");
+        } else if line.starts_with("thread=") {
+            assert_eq!(line, "thread=true");
+        } else if line.starts_with("inherited-fd=") {
+            assert_eq!(line, "inherited-fd=-1");
+        } else if line.contains(':') {
+            assert!(line.ends_with("=-1:1"), "{line}");
+        } else {
+            assert!(line.ends_with("=false"), "{line}");
+        }
+    }
+    assert_eq!(report.lines().count(), 33, "{report}");
+    assert_eq!(fs::read(outside).unwrap(), b"untouched");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_missing_required_kernel_support_never_stages_or_executes() {
+    const CHILD: &str = "DDI_TEST_DENY_LANDLOCK";
+    if std::env::var_os(CHILD).is_some() {
+        let root = scratch();
+        let (source, request) = fixture(&root, "sleep");
+        // Intentionally invalid worker: capability admission must precede it.
+        let w = WorkerSpec {
+            executable: root.join("absent"),
+            sha256: "0".repeat(64),
+            build_identity: root.join("absent-json"),
+            build_identity_sha256: "0".repeat(64),
+        };
+        let out = root.join("out");
+        let error = capture(&request, &w, &source, &out, &mut || Ok(())).unwrap_err();
+        assert_eq!(error.code, "unsupported-native-confinement");
+        assert!(!out.exists());
+        return;
+    }
+    use std::os::unix::process::CommandExt;
+    let mut child = Command::new(std::env::current_exe().unwrap());
+    child
+        .args([
+            "--exact",
+            "linux_missing_required_kernel_support_never_stages_or_executes",
+        ])
+        .env(CHILD, "1");
+    // SAFETY: Test child alone receives a stricter filter that simulates a kernel
+    // without Landlock. The fixed stack array survives the synchronous syscall.
+    unsafe {
+        child.pre_exec(|| {
+            let mut filter = [
+                libc::sock_filter {
+                    code: 0x20,
+                    jt: 0,
+                    jf: 0,
+                    k: 0,
+                },
+                libc::sock_filter {
+                    code: 0x15,
+                    jt: 0,
+                    jf: 1,
+                    k: libc::SYS_landlock_create_ruleset as u32,
+                },
+                libc::sock_filter {
+                    code: 0x06,
+                    jt: 0,
+                    jf: 0,
+                    k: 0x00050000 | libc::ENOSYS as u32,
+                },
+                libc::sock_filter {
+                    code: 0x06,
+                    jt: 0,
+                    jf: 0,
+                    k: 0x7fff0000,
+                },
+            ];
+            let program = libc::sock_fprog {
+                len: filter.len() as u16,
+                filter: filter.as_mut_ptr(),
+            };
+            if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0
+                || libc::prctl(libc::PR_SET_SECCOMP, 2, &program) != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    assert!(child.status().unwrap().success());
 }

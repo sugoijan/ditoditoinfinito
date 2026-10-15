@@ -1049,3 +1049,21 @@ Validation passes 274 native and 95 feature-disabled Rust tests, both strict
 Clippy configurations, six pack-policy and nine rebuild tests, verifier syntax,
 formatting and `just check`. Active parser tests exercise the four current
 targets; a separate test preserves 7i identity as historical source evidence.
+
+
+### Linux worker and software-rendering continuation, 2026-10-15
+
+The [Linux handover](danoni-rust-linux.md) adds an x86-64 Landlock/seccomp
+execution backend, shared Unix supervision, ELF bundle checks and original
+negative confinement/rendering tests. Java remains build-time only; Mesa is
+the tested CPU Vulkan runtime. Linux requires all reviewed kernel restrictions;
+Windows and other Linux architectures remain fail-closed. The transferred
+original rendering fixtures pass independently on Mesa Lavapipe. Confined
+native-scale frames and ActionScript bitmap reads match those original results;
+enlarged Linux rendering rejects before launch to retain the resource limits.
+SDK/worker tests, both SDK Clippy configurations and `just check` pass.
+
+Real-work Linux parity remains pending the corpus transfer. No corpus files or
+historical jobs were read or modified, no accepted exports were regenerated,
+and no actual chart dependency on bitmap pixels is inferred. See the Linux
+handover for the final restricted-capture and validation results.

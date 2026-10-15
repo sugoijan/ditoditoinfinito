@@ -1,5 +1,9 @@
 # Rust restricted native capture supervisor
 
+For the subsequent x86-64 Linux implementation, confinement requirements and
+validation scope, see [the Linux handover](danoni-rust-linux.md). The dated
+macOS-only results below remain historical evidence.
+
 Implemented 2026-10-13 within [milestone 4](danoni-rust-plan.md#4-native-extraction-and-supervision).
 `supervisor::capture` now stages verified inputs and a trusted installed Ruffle
 worker, executes it under the tested macOS sandbox, monitors resource limits,

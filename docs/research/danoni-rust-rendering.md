@@ -1,5 +1,9 @@
 # Portable native Ruffle rendering
 
+For the subsequent x86-64 Linux implementation, confinement requirements and
+validation scope, see [the Linux handover](danoni-rust-linux.md). The dated
+macOS-only results below remain historical evidence.
+
 The native extractor reads chart arrays and clocks from the ActionScript runtime.
 Artwork capture additionally needs offscreen frames. A movie can also call
 [`BitmapData.draw`][bitmap] during initialization or play: this asks the runtime to render
@@ -166,3 +170,10 @@ plan to make chart extraction depend on Metal compiler-service internals.
 [swiftshader]: https://github.com/google/swiftshader
 
 [bitmap]: https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/avm1/globals/bitmap_data.rs#L576-L600
+
+
+The [Linux continuation](danoni-rust-linux.md) subsequently proves CPU Vulkan
+frame readback and original ActionScript bitmap reads. Its checked CPU-only
+fixed-block allocation source edit preserves Ruffle's negotiation and the existing kernel
+file-size bound; hardware allocation hints stay unchanged. This is distinct from
+real-chart parity or evidence that a real chart consumes the bitmap pixels.

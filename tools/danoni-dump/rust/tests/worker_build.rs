@@ -1,12 +1,12 @@
 #![cfg(feature = "native")]
 //! Source preparation tests use an optional local pinned Git cache. Synthetic
-//! Mach-O headers only exercise bundle integrity; they are never executed.
-#[cfg(target_os = "macos")]
+//! Bundle integrity fixtures are never executed.
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
 use ddi_danoni_export::assets::sha256;
 use ddi_danoni_export::{Error, worker_build::*};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
 use serde_json::{Value, json};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
 use std::sync::OnceLock;
 use std::{
     fs,
@@ -32,11 +32,14 @@ impl Drop for Scratch {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
 fn source() -> Option<PathBuf> {
     static SOURCE: OnceLock<Option<PathBuf>> = OnceLock::new();
     SOURCE
         .get_or_init(|| {
+            if let Some(prepared) = std::env::var_os("DDI_DANONI_WORKER_SOURCES") {
+                return Some(PathBuf::from(prepared));
+            }
             let upstream = std::env::var_os("DDI_DANONI_RUFFLE_SOURCE")?;
             let root = Scratch::new();
             let out = root.0.join("sources");
@@ -47,7 +50,7 @@ fn source() -> Option<PathBuf> {
         })
         .clone()
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
 fn copy_sources(root: &Path, dest: &Path) {
     fs::create_dir(dest).unwrap();
     let b = fs::read(root.join("manifest.json")).unwrap();
@@ -60,17 +63,23 @@ fn copy_sources(root: &Path, dest: &Path) {
     }
     fs::write(dest.join("manifest.json"), b).unwrap();
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
 fn synthetic_binary(root: &Path) -> (PathBuf, String) {
-    let mut b = vec![0; 32];
-    b[..4].copy_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
-    let cpu = if cfg!(target_arch = "aarch64") {
-        0x0100000cu32
-    } else {
-        0x01000007u32
+    #[cfg(target_os = "linux")]
+    let b = fs::read(std::env::current_exe().unwrap()).unwrap();
+    #[cfg(target_os = "macos")]
+    let b = {
+        let mut b = vec![0; 32];
+        b[..4].copy_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        let cpu = if cfg!(target_arch = "aarch64") {
+            0x0100000cu32
+        } else {
+            0x01000007u32
+        };
+        b[4..8].copy_from_slice(&cpu.to_le_bytes());
+        b[12..16].copy_from_slice(&2u32.to_le_bytes());
+        b
     };
-    b[4..8].copy_from_slice(&cpu.to_le_bytes());
-    b[12..16].copy_from_slice(&2u32.to_le_bytes());
     let p = root.join("header-fixture");
     fs::write(&p, &b).unwrap();
     (p, sha256(&b))
@@ -148,7 +157,7 @@ fn pinned_objects_ignore_worktree_edits_and_symlinks() {
     );
     assert!(!cancel.exists());
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
 #[test]
 fn package_load_and_explicit_binary_hash() {
     let Some(source) = source() else {
@@ -197,7 +206,12 @@ fn package_load_and_explicit_binary_hash() {
     let cancelled = root.0.join("cancelled-stage");
     assert!(
         package_worker(&source, &binary, &hash, &cancelled, &mut || {
-            if cancelled.join("worker.sb").exists() {
+            let policy = if cfg!(target_os = "linux") {
+                "worker-linux.rs"
+            } else {
+                "worker.sb"
+            };
+            if cancelled.join(policy).exists() {
                 Err(Error {
                     code: "cancelled",
                     message: "test".into(),
@@ -218,7 +232,7 @@ fn package_load_and_explicit_binary_hash() {
     assert!(package_worker(&source, &binary, &hash, &invalid, &mut || Ok(())).is_err());
     assert!(!invalid.exists());
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
 #[test]
 fn changed_or_uninventoried_sources_are_not_packaged() {
     let Some(source) = source() else {
@@ -230,6 +244,8 @@ fn changed_or_uninventoried_sources_are_not_packaged() {
         "changed",
         "uninventoried",
         "forged-worker",
+        "missing-memory-rewrite",
+        "forged-rewrite-receipt",
         "symlink",
         "cancelled",
     ] {
@@ -238,6 +254,39 @@ fn changed_or_uninventoried_sources_are_not_packaged() {
         let out = root.0.join(format!("{kind}-bundle"));
         match kind {
             "changed" => fs::write(sources.join("upstream/core/src/lib.rs"), "changed").unwrap(),
+            "missing-memory-rewrite" => {
+                let path = sources.join("upstream/render/wgpu/src/backend.rs");
+                let bytes = fs::read_to_string(&path).unwrap().replace(
+                    "wgpu::MemoryHints::Manual { suballocated_device_memory_block_size: 4 * 1024 * 1024..4 * 1024 * 1024 }",
+                    "wgpu::MemoryHints::Performance",
+                );
+                fs::write(&path, &bytes).unwrap();
+                let mut m: Value =
+                    serde_json::from_slice(&fs::read(sources.join("manifest.json")).unwrap())
+                        .unwrap();
+                for row in m["artifacts"].as_array_mut().unwrap() {
+                    if row["path"] == "upstream/render/wgpu/src/backend.rs" {
+                        row["sha256"] = json!(sha256(bytes.as_bytes()));
+                        row["bytes"] = json!(bytes.len());
+                    }
+                }
+                fs::write(
+                    sources.join("manifest.json"),
+                    serde_json::to_vec(&m).unwrap(),
+                )
+                .unwrap();
+            }
+            "forged-rewrite-receipt" => {
+                let mut m: Value =
+                    serde_json::from_slice(&fs::read(sources.join("manifest.json")).unwrap())
+                        .unwrap();
+                m["rewrites"] = json!([]);
+                fs::write(
+                    sources.join("manifest.json"),
+                    serde_json::to_vec(&m).unwrap(),
+                )
+                .unwrap();
+            }
             "uninventoried" => fs::write(sources.join("worker/build.rs"), "fn main() {}").unwrap(),
             "forged-worker" => {
                 let path = "worker/src/main.rs";
@@ -284,7 +333,7 @@ fn changed_or_uninventoried_sources_are_not_packaged() {
         assert!(!out.exists(), "{kind}");
     }
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
 #[test]
 fn bundle_integrity_requires_full_inventory_and_policy() {
     let Some(source) = source() else {
@@ -320,12 +369,17 @@ fn bundle_integrity_requires_full_inventory_and_policy() {
             }
             "forged-policy" => {
                 let b = b"(allow default)";
-                fs::write(bundle.join("worker.sb"), b).unwrap();
+                let policy = if cfg!(target_os = "linux") {
+                    "worker-linux.rs"
+                } else {
+                    "worker.sb"
+                };
+                fs::write(bundle.join(policy), b).unwrap();
                 let mut m: Value =
                     serde_json::from_slice(&fs::read(bundle.join("manifest.json")).unwrap())
                         .unwrap();
                 for r in m["artifacts"].as_array_mut().unwrap() {
-                    if r["path"] == "worker.sb" {
+                    if r["path"] == policy {
                         r["sha256"] = json!(sha256(b));
                         r["bytes"] = json!(b.len());
                     }
@@ -349,7 +403,7 @@ fn bundle_integrity_requires_full_inventory_and_policy() {
         assert!(load_bundle(&bundle, &mut || Ok(())).is_err(), "{kind}");
     }
 }
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
 #[test]
 fn installed_bundle_runs_original_transport_under_supervision() {
     let Some(bundle) = std::env::var_os("DDI_DANONI_WORKER_BUNDLE") else {

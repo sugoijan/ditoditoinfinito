@@ -1,5 +1,9 @@
 # Rust native worker preparation and bundles
 
+For the subsequent x86-64 Linux implementation, confinement requirements and
+validation scope, see [the Linux handover](danoni-rust-linux.md). The dated
+macOS-only results below remain historical evidence.
+
 Implemented 2026-10-13 in `tools/danoni-dump/rust/`, behind `native`.
 This completes the Python preparer's replacement and adds a library API for
 loading a verified, installed worker. The [supervisor](danoni-rust-supervisor.md)
@@ -248,3 +252,15 @@ lockfile and sandbox policy remain unchanged. The new local bundle is under
 but current supervision requires the updated identity. Historical bound saved
 captures remain usable by passive adapters; only the new structured evidence
 can drive dependency resolution. No compiler/toolchain is added to import time.
+
+
+## Linux CPU allocation policy, 2026-10-15
+
+The [Linux continuation](danoni-rust-linux.md) adds one exact, reversible source
+replacement in `render/wgpu/src/backend.rs`: CPU adapters request wgpu's `Manual` hint with fixed 4 MiB blocks; other adapters keep the default. Ruffle retains all feature
+and limit negotiation. `rewrites` in the source manifest binds the original and
+replacement expression hashes, and packaging validates both the exact edit and
+the recovered original source hash. The historical Python preparer uses the same
+edit, so its fingerprint changes the expected worker identity. Rebuild old worker
+packages; previous captured evidence remains historical. This avoids a default
+64 MiB Lavapipe memfd allocation exceeding the unchanged 40 MiB kernel file limit.

@@ -17,6 +17,16 @@ HOOKS = {
 }
 
 
+MEMORY_HINT_FROM = 'memory_hints: Default::default(),'
+MEMORY_HINT_TO = 'memory_hints: if adapter.get_info().device_type == wgpu::DeviceType::Cpu { wgpu::MemoryHints::Manual { suballocated_device_memory_block_size: 4 * 1024 * 1024..4 * 1024 * 1024 } } else { Default::default() },'
+
+def patched(path, original):
+    if path != "render/wgpu/src/backend.rs":
+        return original
+    if original.count(MEMORY_HINT_FROM.encode()) != 1:
+        raise ValueError("Pinned memory hint location differs")
+    return original.replace(MEMORY_HINT_FROM.encode(), MEMORY_HINT_TO.encode())
+
 def write_changed(path, data):
     if not path.exists() or path.read_bytes() != data:
         path.write_bytes(data)
@@ -36,9 +46,10 @@ def prepare(upstream, build):
     for path, hook in HOOKS.items():
         original = subprocess.check_output(["git", "show", f"{REVISION}:{path}"], cwd=upstream)
         current = (upstream / path).read_bytes()
-        if current not in (original, original + hook.encode()):
+        prepared = patched(path, original) + hook.encode()
+        if current not in (original, original + hook.encode(), prepared):
             raise ValueError(f"Unexpected patch in {path}")
-        write_changed(upstream / path, original + hook.encode())
+        write_changed(upstream / path, prepared)
     write_changed(upstream / "core/src/ddi_properties.rs", (ROOT / "core-properties.rs").read_bytes())
     write_changed(upstream / "core/src/ddi_snapshot.rs", (ROOT / "core-snapshot.rs").read_bytes())
     (build / "src").mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,12 @@
 # Rust DanOni export core
 
+Linux x86-64 worker packages and capture use Landlock ABI >= 6 plus seccomp;
+see [the Linux handover](../../../docs/research/danoni-rust-linux.md) for runtime
+requirements, software-renderer tests and remaining corpus/distribution gates.
+Linux rendering currently requires native scale; enlarged captures reject before
+launch to preserve the kernel file-size limit. Windows and other Linux
+architectures cannot execute movies.
+
 An embeddable [Rust migration](../../../docs/research/danoni-rust-plan.md) of the
 DanOni export pipeline. The pure API now prepares complete SSC songs from
 normalized works, source-bound reviews and supplied PCM/playback media. An
@@ -273,7 +280,8 @@ songs with original reference parity, numeric stars, explicit child clocks and
 measured width-based scroll. Fresh Rust worker execution is now described below; automatic selector discovery, URL acquisition and installation remain pending.
 
 
-Fresh native captures now use the Rust-owned macOS supervisor:
+Fresh native captures use the Rust-owned supervisor on macOS and supported
+x86-64 Linux hosts (see the Linux requirements above):
 
 ```sh
 target/danoni-rust/debug/ddi-danoni-export capture-native /tmp/capture-job.json /tmp/capture-new
@@ -298,8 +306,8 @@ objects into a separate tree, leaving the upstream checkout untouched. Building
 uses Cargo explicitly; packaging binds its selected executable hash and keeps
 licences/provenance. The app loads its trusted installed bundle and passes the
 returned `WorkerSpec` directly to the supervisor. No Python is needed to prepare,
-package or run this worker. Other-platform confinement and distribution notice
-review remain pending.
+package or run this worker. Windows/other-architecture confinement and
+distribution notice review remain pending.
 
 
 The [selector/capture orchestrator](../../../docs/research/danoni-rust-orchestration.md)
@@ -347,5 +355,6 @@ song export and library installation still need later integration.
 Portable native rendering and the optional trusted `renderer` policy are described
 in [the rendering handover](../../../docs/research/danoni-rust-rendering.md).
 Offscreen frame bytes use the same API across backend choices; software-only
-selection requires an installed CPU adapter. Linux/Windows confinement and
-packaging remain separate from this graphics portability work.
+selection requires an installed CPU adapter. The subsequent
+[Linux handover](../../../docs/research/danoni-rust-linux.md) covers ELF packages,
+confinement and native-scale software rendering. Windows remains unsupported.

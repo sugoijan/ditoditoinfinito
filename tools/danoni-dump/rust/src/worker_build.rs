@@ -34,6 +34,23 @@ const HOOKS: [(&str, &str); 4] = [
         "\nimpl Avm1<'_> { pub(crate) fn ddi_halted(&self) -> bool { self.halted } }\n",
     ),
 ];
+// Ruffle retains all device feature/limit negotiation. This one checked edit
+// selects smaller allocation blocks on CPU adapters; the default 64 MiB host
+// block exceeds the unchanged 40 MiB file limit on Lavapipe's backing memfd.
+const MEMORY_HINT_FROM: &str = "memory_hints: Default::default(),";
+const MEMORY_HINT_TO: &str = "memory_hints: if adapter.get_info().device_type == wgpu::DeviceType::Cpu { wgpu::MemoryHints::Manual { suballocated_device_memory_block_size: 4 * 1024 * 1024..4 * 1024 * 1024 } } else { Default::default() },";
+fn memory_hint(bytes: &[u8], reverse: bool) -> Result<Vec<u8>> {
+    let (from, to) = if reverse {
+        (MEMORY_HINT_TO, MEMORY_HINT_FROM)
+    } else {
+        (MEMORY_HINT_FROM, MEMORY_HINT_TO)
+    };
+    let text = std::str::from_utf8(bytes).map_err(|_| invalid("Backend UTF8"))?;
+    if text.matches(from).count() != 1 {
+        return Err(invalid("Pinned backend memory hint differs"));
+    }
+    Ok(text.replacen(from, to, 1).into_bytes())
+}
 fn invalid(message: impl Into<String>) -> Error {
     Error::new("invalid-worker-build", message)
 }
@@ -279,6 +296,9 @@ pub fn prepare_sources(
             path.clone(),
             json!({"blob":blob,"mode":mode,"sha256":sha256(&bytes)}),
         );
+        if path == "render/wgpu/src/backend.rs" {
+            bytes = memory_hint(&bytes, false)?;
+        }
         if let Some((_, hook)) = HOOKS.iter().find(|(name, _)| name == path) {
             bytes.extend(hook.as_bytes());
         }
@@ -350,7 +370,7 @@ pub fn prepare_sources(
     )?);
     inventory.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
     checkpoint()?;
-    let receipt = json!({"schema":"ddi-danoni-worker-sources/1","producer":"rust-worker-sources/1","build":supervisor::expected_build_identity(),"upstream":{"url":"https://github.com/ruffle-rs/ruffle","revision":supervisor::REVISION,"files":originals},"hooks":HOOKS.iter().map(|(p,h)|json!({"path":p,"appendSha256":sha256(h.as_bytes())})).collect::<Vec<_>>(),"manifest":"worker/Cargo.toml","artifacts":inventory,"scope":"Pinned source preparation only. Cargo compilation is an explicit trusted build step, never part of a song import."});
+    let receipt = json!({"schema":"ddi-danoni-worker-sources/1","producer":"rust-worker-sources/1","build":supervisor::expected_build_identity(),"upstream":{"url":"https://github.com/ruffle-rs/ruffle","revision":supervisor::REVISION,"files":originals},"rewrites":[{"path":"render/wgpu/src/backend.rs","fromSha256":sha256(MEMORY_HINT_FROM.as_bytes()),"toSha256":sha256(MEMORY_HINT_TO.as_bytes())}],"hooks":HOOKS.iter().map(|(p,h)|json!({"path":p,"appendSha256":sha256(h.as_bytes())})).collect::<Vec<_>>(),"manifest":"worker/Cargo.toml","artifacts":inventory,"scope":"Pinned source preparation only. Cargo compilation is an explicit trusted build step, never part of a song import."});
     ready(&owned.path, &receipt)?;
     owned.ready = true;
     Ok(receipt)
@@ -463,7 +483,7 @@ fn verify_inventory(
         &[
             "ddi-ruffle-probe",
             "build-identity.json",
-            "worker.sb",
+            supervisor::POLICY_FILE,
             "licenses/Ruffle-LICENSE.md",
             "licenses/DDI-MIT.txt",
             "provenance/Cargo.lock",
@@ -486,6 +506,13 @@ fn manifest(root: &Path) -> Result<Value> {
     json(&contained(root, "manifest.json", 16 * 1024 * 1024)?)
 }
 fn platform_binary(bytes: &[u8]) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    return linux_elf(bytes);
+    #[cfg(not(target_os = "linux"))]
+    platform_macho(bytes)
+}
+#[cfg(not(target_os = "linux"))]
+fn platform_macho(bytes: &[u8]) -> Result<()> {
     // The currently implemented confinement backend is macOS. Universal and
     // other-platform bundles need their own reviewed installation contract.
     if !cfg!(target_os = "macos") {
@@ -538,6 +565,11 @@ pub fn package_worker(
         return Err(invalid("Unreviewed prepared source identity"));
     }
     let verified = verify_inventory(&sources, &source, FILE_LIMIT, checkpoint)?;
+    if source["rewrites"]
+        != json!([{"path":"render/wgpu/src/backend.rs","fromSha256":sha256(MEMORY_HINT_FROM.as_bytes()),"toSha256":sha256(MEMORY_HINT_TO.as_bytes())}])
+    {
+        return Err(invalid("Prepared memory-policy provenance differs"));
+    }
     if source["upstream"]["revision"] != supervisor::REVISION {
         return Err(invalid("Prepared upstream revision differs"));
     }
@@ -573,7 +605,12 @@ pub fn package_worker(
         let original = bytes
             .strip_suffix(hook.as_bytes())
             .ok_or_else(|| invalid("Prepared hook append differs"))?;
-        if source["upstream"]["files"][path]["sha256"] != sha256(original) {
+        let original = if path == "render/wgpu/src/backend.rs" {
+            memory_hint(original, true)?
+        } else {
+            original.to_vec()
+        };
+        if source["upstream"]["files"][path]["sha256"] != sha256(&original) {
             return Err(invalid("Prepared hook original differs"));
         }
     }
@@ -592,10 +629,7 @@ pub fn package_worker(
     for (path, b) in [
         ("ddi-ruffle-probe", binary.as_slice()),
         ("build-identity.json", identity.as_slice()),
-        (
-            "worker.sb",
-            include_bytes!("../../ruffle/worker.sb").as_slice(),
-        ),
+        (supervisor::POLICY_FILE, supervisor::PROFILE),
     ] {
         checkpoint()?;
         inventory.push(write(&owned.path, path, b)?);
@@ -645,7 +679,7 @@ pub fn package_worker(
     )?);
     inventory.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
     checkpoint()?;
-    let receipt = json!({"schema":"ddi-danoni-worker-bundle/1","producer":"rust-worker-package/1","platform":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH},"build":supervisor::expected_build_identity(),"worker":{"executable":"ddi-ruffle-probe","sha256":executable_sha256,"buildIdentity":"build-identity.json","buildIdentitySha256":sha256(&identity)},"sandboxSha256":sha256(include_bytes!("../../ruffle/worker.sb")),"sourceManifestSha256":sha256(&source_bytes),"artifacts":inventory,"scope":"Operator-selected local worker bundle; hashes are integrity, not signatures or compiler attestation. Third-party Cargo dependencies retain their own licences; redistribution requires their notices too."});
+    let receipt = json!({"schema":"ddi-danoni-worker-bundle/1","producer":"rust-worker-package/1","platform":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH},"build":supervisor::expected_build_identity(),"worker":{"executable":"ddi-ruffle-probe","sha256":executable_sha256,"buildIdentity":"build-identity.json","buildIdentitySha256":sha256(&identity)},"sandboxSha256":sha256(supervisor::PROFILE),"sourceManifestSha256":sha256(&source_bytes),"artifacts":inventory,"scope":"Operator-selected local worker bundle; hashes are integrity, not signatures or compiler attestation. Third-party Cargo dependencies retain their own licences; redistribution requires their notices too."});
     ready(&owned.path, &receipt)?;
     owned.ready = true;
     Ok(receipt)
@@ -660,7 +694,7 @@ pub fn load_bundle(root: &Path, checkpoint: &mut impl FnMut() -> Result<()>) -> 
         || m["platform"]["os"] != std::env::consts::OS
         || m["platform"]["arch"] != std::env::consts::ARCH
         || m["build"] != supervisor::expected_build_identity()
-        || m["sandboxSha256"] != sha256(include_bytes!("../../ruffle/worker.sb"))
+        || m["sandboxSha256"] != sha256(supervisor::PROFILE)
     {
         return Err(invalid("Unreviewed bundle/platform identity"));
     }
@@ -675,7 +709,7 @@ pub fn load_bundle(root: &Path, checkpoint: &mut impl FnMut() -> Result<()>) -> 
     if w["sha256"] != sha256(binary)
         || w["buildIdentitySha256"] != sha256(identity)
         || json::<Value>(identity)? != supervisor::expected_build_identity()
-        || artifact(&verified, "worker.sb")? != include_bytes!("../../ruffle/worker.sb")
+        || artifact(&verified, supervisor::POLICY_FILE)? != supervisor::PROFILE
     {
         return Err(invalid("Bundle runtime differs"));
     }
@@ -716,4 +750,106 @@ pub fn package_job(
         destination,
         checkpoint,
     )
+}
+
+/// Structural admission, not binary authentication: the host still binds the
+/// exact executable hash. No ldd, dynamic loader or other executable is run.
+#[cfg(target_os = "linux")]
+fn linux_elf(b: &[u8]) -> Result<()> {
+    let bad = || invalid("Need a complete native Linux ELF64 executable");
+    if !cfg!(target_arch = "x86_64") {
+        return Err(Error::new(
+            "unsupported-native-confinement",
+            "Linux worker packages currently require x86_64",
+        ));
+    }
+    if b.len() < 64 || &b[..7] != b"\x7fELF\x02\x01\x01" || ![0, 3].contains(&b[7]) || b[8] != 0 {
+        return Err(bad());
+    }
+    let u16_at = |n| u16::from_le_bytes(b[n..n + 2].try_into().unwrap());
+    let u32_at = |n| u32::from_le_bytes(b[n..n + 4].try_into().unwrap());
+    let u64_at = |n| u64::from_le_bytes(b[n..n + 8].try_into().unwrap());
+    if ![2, 3].contains(&u16_at(16))
+        || u16_at(18) != 62
+        || u32_at(20) != 1
+        || u16_at(52) != 64
+        || u16_at(54) != 56
+    {
+        return Err(bad());
+    }
+    let entry = u64_at(24);
+    let phoff = usize::try_from(u64_at(32)).map_err(|_| bad())?;
+    let count = u16_at(56) as usize;
+    if entry == 0
+        || !(1..=128).contains(&count)
+        || phoff < 64
+        || phoff
+            .checked_add(count * 56)
+            .is_none_or(|end| end > b.len())
+    {
+        return Err(bad());
+    }
+    let mut executable_entry = false;
+    let mut interpreter = false;
+    for i in 0..count {
+        let p = phoff + i * 56;
+        let kind = u32_at(p);
+        let offset = u64_at(p + 8);
+        let address = u64_at(p + 16);
+        let files = u64_at(p + 32);
+        let memory = u64_at(p + 40);
+        if offset
+            .checked_add(files)
+            .is_none_or(|end| end > b.len() as u64)
+            || files > memory
+            || address.checked_add(memory).is_none()
+        {
+            return Err(bad());
+        }
+        if kind == 1 && u32_at(p + 4) & 1 != 0 && entry >= address && entry < address + files {
+            executable_entry = true;
+        }
+        if kind == 3 {
+            if interpreter
+                || &b[offset as usize..(offset + files) as usize]
+                    != b"/lib64/ld-linux-x86-64.so.2\0"
+            {
+                return Err(bad());
+            }
+            interpreter = true;
+        }
+    }
+    if !executable_entry {
+        return Err(bad());
+    }
+    Ok(())
+}
+
+#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
+mod elf_tests {
+    use super::*;
+    #[test]
+    fn rejects_wrong_arch_shared_objects_and_truncated_or_overflowing_elf() {
+        let good = fs::read(std::env::current_exe().unwrap()).unwrap();
+        linux_elf(&good).unwrap();
+        for (at, bytes) in [
+            (0, vec![0]),
+            (4, vec![1]),
+            (5, vec![2]),
+            (7, vec![255]),
+            (16, 1u16.to_le_bytes().to_vec()),
+            (18, 183u16.to_le_bytes().to_vec()),
+            (24, 0u64.to_le_bytes().to_vec()),
+            (32, u64::MAX.to_le_bytes().to_vec()),
+            (54, 0u16.to_le_bytes().to_vec()),
+            (56, u16::MAX.to_le_bytes().to_vec()),
+        ] {
+            let mut bad = good.clone();
+            bad[at..at + bytes.len()].copy_from_slice(&bytes);
+            assert!(linux_elf(&bad).is_err(), "accepted corrupt field {at}");
+        }
+        for size in [0, 4, 63, 64, good.len() / 2] {
+            assert!(linux_elf(&good[..size]).is_err());
+        }
+    }
 }

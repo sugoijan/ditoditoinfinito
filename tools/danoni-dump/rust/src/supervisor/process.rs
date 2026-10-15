@@ -1,7 +1,7 @@
-//! The only execution backend. No shell, live worker network or fallback.
+//! Shared Unix resource monitoring, cancellation and owned-process teardown.
 use super::*;
 use std::{
-    mem::{self, MaybeUninit},
+    mem::MaybeUninit,
     os::unix::process::{CommandExt, ExitStatusExt},
     process::{Child, Command, Stdio},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -56,9 +56,14 @@ impl Drop for Running {
         }
     }
 }
-fn resident(pid: u32) -> Result<u64> {
+struct MemorySample {
+    rss: u64,
+    anonymous_files: u64,
+}
+#[cfg(target_os = "macos")]
+fn resident(pid: u32) -> Result<MemorySample> {
     let mut info = MaybeUninit::<libc::proc_taskinfo>::uninit();
-    let size = mem::size_of::<libc::proc_taskinfo>();
+    let size = std::mem::size_of::<libc::proc_taskinfo>();
     // SAFETY: Native API receives a valid PID, exact writable struct buffer and size.
     let returned = unsafe {
         libc::proc_pidinfo(
@@ -76,7 +81,62 @@ fn resident(pid: u32) -> Result<u64> {
         ));
     }
     // SAFETY: proc_pidinfo filled the complete struct, verified above.
-    Ok(unsafe { info.assume_init().pti_resident_size })
+    Ok(MemorySample {
+        rss: unsafe { info.assume_init().pti_resident_size },
+        anonymous_files: 0,
+    })
+}
+#[cfg(target_os = "linux")]
+fn resident(pid: u32) -> Result<MemorySample> {
+    // The parent reads only its owned child's proc entry. No procfs is exposed
+    // to the worker. A missing/invalid sample takes the same fail-closed path.
+    let value = fs::read_to_string(format!("/proc/{pid}/statm")).map_err(native::io)?;
+    let pages = value
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u64>().ok())
+        .ok_or_else(|| Error::new("native-memory-monitor", "Invalid child RSS"))?;
+    // SAFETY: sysconf has no pointer arguments or side effects.
+    let size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if size <= 0 {
+        return Err(invalid("Cannot determine page size"));
+    }
+    let rss = pages
+        .checked_mul(size as u64)
+        .ok_or_else(|| invalid("RSS overflow"))?;
+    // memfd pages written without mapping are not counted in RSS. Include
+    // allocated anonymous-file blocks so that path cannot bypass the budget.
+    // Mapped memfd pages may be counted twice: deliberately conservative.
+    use std::os::unix::fs::MetadataExt;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut anonymous_files = 0u64;
+    for entry in fs::read_dir(format!("/proc/{pid}/fd")).map_err(native::io)? {
+        let path = entry.map_err(native::io)?.path();
+        let target = match fs::read_link(&path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(native::io(e)),
+        };
+        if !target
+            .as_os_str()
+            .as_encoded_bytes()
+            .starts_with(b"/memfd:")
+        {
+            continue;
+        }
+        let meta = match fs::metadata(path) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(native::io(e)),
+        };
+        if seen.insert((meta.dev(), meta.ino())) {
+            anonymous_files = anonymous_files.saturating_add(meta.blocks().saturating_mul(512));
+        }
+    }
+    Ok(MemorySample {
+        rss,
+        anonymous_files,
+    })
 }
 fn output_size(root: &Path, limits: &Limits) -> Result<()> {
     let mut total = 0u64;
@@ -133,20 +193,33 @@ pub(super) fn run(
         .create_new(true)
         .open(output.join("stderr.txt"))
         .map_err(native::io)?;
-    let mut command = Command::new("/usr/bin/sandbox-exec");
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("/usr/bin/sandbox-exec");
+        command
+            .args([
+                "-D",
+                &format!("WORKER={}", executable.display()),
+                "-D",
+                &format!("INPUT={}", input.display()),
+                "-D",
+                &format!("OUTPUT={}", output.display()),
+                "-f",
+            ])
+            .arg(root.join("runtime/worker.sb"))
+            .arg(executable)
+            .arg(input.join("capture.json"));
+        command
+    };
+    #[cfg(target_os = "linux")]
+    let sandbox = super::linux::Sandbox::prepare(root)?;
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new(&executable);
+        command.arg(input.join("capture.json"));
+        command
+    };
     command
-        .args([
-            "-D",
-            &format!("WORKER={}", executable.display()),
-            "-D",
-            &format!("INPUT={}", input.display()),
-            "-D",
-            &format!("OUTPUT={}", output.display()),
-            "-f",
-        ])
-        .arg(root.join("runtime/worker.sb"))
-        .arg(executable)
-        .arg(input.join("capture.json"))
         .current_dir(&output)
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
@@ -155,6 +228,15 @@ pub(super) fn run(
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr);
+    #[cfg(target_os = "linux")]
+    command
+        .env("MESA_SHADER_CACHE_DISABLE", "true")
+        .env("LP_NUM_THREADS", "2")
+        .env("XDG_RUNTIME_DIR", &output);
+    #[cfg(target_os = "linux")]
+    let confinement = json!({"landlockAbi":sandbox.abi,"requiredLandlockAbi":6,"seccomp":"x86_64-allowlist/1","parentDeathSignal":libc::SIGKILL});
+    #[cfg(target_os = "macos")]
+    let confinement = json!({"backend":"sandbox-exec"});
     let cpu = limits.cpu_seconds;
     let file = limits.file_bytes;
     // SAFETY: After fork this closure calls only libc syscalls and obtains an
@@ -178,11 +260,15 @@ pub(super) fn run(
                     return Err(std::io::Error::last_os_error());
                 }
             }
+            #[cfg(target_os = "linux")]
+            sandbox.enforce()?;
             Ok(())
         });
     }
     let started = Instant::now();
     let mut peak = 0;
+    let mut peak_accounted = 0;
+    let mut peak_anonymous = 0;
     let mut reason = None;
     let mut monitor_error = None;
     let mut monitor_exit_race = None;
@@ -218,9 +304,12 @@ pub(super) fn run(
                     break None;
                 }
                 match resident(running.child.id()) {
-                    Ok(bytes) => {
-                        peak = peak.max(bytes);
-                        if bytes > limits.resident_mib * 1024 * 1024 {
+                    Ok(sample) => {
+                        let accounted = sample.rss.saturating_add(sample.anonymous_files);
+                        peak = peak.max(sample.rss);
+                        peak_anonymous = peak_anonymous.max(sample.anonymous_files);
+                        peak_accounted = peak_accounted.max(accounted);
+                        if accounted > limits.resident_mib * 1024 * 1024 {
                             reason = Some("resident-memory-limit");
                             break None;
                         }
@@ -285,7 +374,7 @@ pub(super) fn run(
         reason = Some("cpu-time-limit");
     }
     Ok(
-        json!({"schema":"ddi-ruffle-run/experimental-1","producer":"macos-sandbox-supervisor/1","exitCode":exit,"signal":signal,"termination":reason,"startedAt":started_at,"elapsedSeconds":started.elapsed().as_secs_f64(),"peakRssKiB":peak.div_ceil(1024),"monitorError":monitor_error,"monitorExitRace":monitor_exit_race,"limits":{"wallSeconds":limits.wall_ms as f64/1000.0,"residentMiB":limits.resident_mib,"cpuSeconds":limits.cpu_seconds,"fileBytes":limits.file_bytes,"outputBytes":limits.output_bytes,"openFiles":128,"coreBytes":0,"pollIntervalMs":10}}),
+        json!({"schema":"ddi-ruffle-run/experimental-1","producer":PRODUCER,"confinement":confinement,"exitCode":exit,"signal":signal,"termination":reason,"startedAt":started_at,"elapsedSeconds":started.elapsed().as_secs_f64(),"peakRssKiB":peak.div_ceil(1024),"peakAccountedMemoryKiB":peak_accounted.div_ceil(1024),"peakAnonymousFileKiB":peak_anonymous.div_ceil(1024),"monitorError":monitor_error,"monitorExitRace":monitor_exit_race,"limits":{"wallSeconds":limits.wall_ms as f64/1000.0,"residentMiB":limits.resident_mib,"cpuSeconds":limits.cpu_seconds,"fileBytes":limits.file_bytes,"outputBytes":limits.output_bytes,"openFiles":128,"coreBytes":0,"pollIntervalMs":10}}),
     )
 }
 
