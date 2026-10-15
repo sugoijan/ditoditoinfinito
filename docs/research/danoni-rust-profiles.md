@@ -36,7 +36,7 @@ launching a worker or creating output. This is not universal Flash support.
 The profile currently admits exact runtime key labels `5` and `7`. It retains
 other observed rows and records them in `excludedSelectors` with
 `unsupported-key-label`; it never interprets a nine-lane chart as 9A/9B or admits
-9i/9t. 7i, 9A and 9B remain supported elsewhere in the exporter but need their own
+9i/9t. 9A and 9B remain supported elsewhere in the exporter but need their own
 reviewed native menu/control contracts. Readiness covers requested observed supported
 selectors, not hidden charts or unsupported rows. Optional `selectors: [0, 2]`
 filters zero-based menu indices; omitted means every supported row. Unselected

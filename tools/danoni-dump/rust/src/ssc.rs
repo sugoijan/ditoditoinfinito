@@ -22,6 +22,8 @@ pub fn header_value(value: &str) -> Result<String> {
 
 /// Compile from normalized seconds and already validated review decisions.
 /// The caller remains responsible for hash-binding reviews to source evidence.
+/// Retired source modes remain compilable for frozen research comparisons;
+/// playable library admission independently enforces `Mode::is_playable_label`.
 pub fn compile_chart(
     chart: &Chart,
     metadata: &Metadata,

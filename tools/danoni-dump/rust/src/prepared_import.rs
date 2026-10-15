@@ -475,7 +475,8 @@ pub fn validate(
         for (chart_index, (chart, report)) in parsed.charts.iter().zip(reports).enumerate() {
             let id = text(report, "id")?;
             let n = selector(id)?;
-            if !seen_charts.insert(id.to_owned())
+            if !crate::model::Mode::is_playable_label(text(report, "mode")?)
+                || !seen_charts.insert(id.to_owned())
                 || chart.layout != format!("danoni-{}", text(report, "mode")?)
                 || parsed.layout_of(chart).is_none()
             {

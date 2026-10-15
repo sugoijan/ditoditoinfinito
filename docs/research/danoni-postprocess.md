@@ -1,5 +1,9 @@
 # Shared DanOni pack preparation and estimates
 
+Target update (2026-10-15): playable modes are 5, 7, 9A and 9B. 7i is
+retired. Existing 7i references and dated results below remain historical source
+evidence; the current policy is in [the Rust plan](danoni-rust-plan.md#retire-7i-as-a-playable-target-2026-10-15).
+
 Implemented and checked locally on 2026-10-09. The shared
 [`prepare_pack.py`](../../tools/danoni-dump/ruffle/prepare_pack.py),
 [`pack_policy.py`](../../tools/danoni-dump/ruffle/pack_policy.py) and

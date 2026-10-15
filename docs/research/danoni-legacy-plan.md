@@ -1,5 +1,9 @@
 # DanOni 5/7/9-key corpus and Ruffle extraction work plan
 
+Target update (2026-10-15): playable modes are 5, 7, 9A and 9B. 7i is
+retired. Existing 7i references and dated results below remain historical source
+evidence; the current policy is in [the Rust plan](danoni-rust-plan.md#retire-7i-as-a-playable-target-2026-10-15).
+
 Planning date: 2026-10-08. Status, updated 2026-10-09: native AVM1 inspection and
 two pinned engine families are verified through CW (Higan and the six-chart
 2004 Kouhaku collection); broad family support

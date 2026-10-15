@@ -24,7 +24,7 @@ from scroll_policy import validate_motion,base_ratio,summarize as scroll_summary
 from pack_policy import star_count,tier_for_stars,choose_preview,display_bpm,authored_display_bpm
 
 SCHEMAS={'ddi-legacy-export/experimental-1','ddi-synthetic-export/experimental-1','ddi-normalized-work/experimental-1'}
-MODES={'5':5,'7':7,'7i':7,'9A':9,'9B':9}
+MODES={'5':5,'7':7,'9A':9,'9B':9}
 
 
 def load_export(source):

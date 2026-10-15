@@ -79,7 +79,7 @@ Per-chart `validation[]` contains `chartIndex`, `selector`, `endpoints`,
 Errors remain bounded to 9 ms, native velocity must be observed/positive, and
 unsupported source presentation remains a limitation rather than being labelled
 reproduced. Native selector IDs currently have the canonical `chart-N` shape,
-N = 0–15. Built-in source modes remain 5, 7, 7i, 9A and 9B; this does not add new
+N = 0–15. Built-in source modes remain 5, 7, 9A and 9B; this does not add new
 extraction families or custom-key support.
 
 The normal main library summary supplies titles, unknown-artist wording,

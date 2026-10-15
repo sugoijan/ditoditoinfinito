@@ -32,7 +32,7 @@ with the desktop distribution and their licence notices. During migration,
 external tools may still be used by the reference/verification commands; do not
 claim the new pipeline is standalone before all runtime dependencies are addressed.
 
-Supported built-in modes are 5, 7, 7i, 9A and 9B, with 5-key first. Preserve
+Supported built-in modes are 5, 7, 9A and 9B, with 5-key first. Preserve
 unsupported charts and custom keys as evidence and report exclusions. Do not
 infer a built-in mode from lane count alone. Preserve original note frames,
 credits, difficulty notation and original files separately from derived SSC
@@ -1028,3 +1028,24 @@ This does not bundle a software driver or complete Linux/Windows confinement.
 Unsupported bitmap calls still reject; their presence alone does not prove a
 chart-data dependency on rendered pixels. Renderer startup and movie execution
 are validated separately, and initialization diagnostics have their own receipt.
+
+### Retire 7i as a playable target (2026-10-15)
+
+The current target is 5, 7, 9A and 9B. Collection filters, library admission,
+legacy pack preparation/rebuild selection and gameplay verification no longer
+accept 7i. New registry initialization does not require the 7i-only Canaria work.
+The Rust `Mode::SevenI` and low-level SSC compilation remain for decoding and
+comparing frozen research references; they do not authorize library installation.
+Do not reinterpret a 7i source as 7-key or delete historical source evidence.
+
+The 93-song/144-chart generation and its earlier all-chart migration checks are
+historical snapshots that include 7i. This policy change does not regenerate or
+modify the local exports/registry. A future corpus generation must exclude 7i
+selectors and report its new counts; mixed-mode HTML5 capture/preparation must
+select supported charts explicitly before admission. Other nine-key modes and
+larger/custom modes remain outside the playable target.
+
+Validation passes 274 native and 95 feature-disabled Rust tests, both strict
+Clippy configurations, six pack-policy and nine rebuild tests, verifier syntax,
+formatting and `just check`. Active parser tests exercise the four current
+targets; a separate test preserves 7i identity as historical source evidence.

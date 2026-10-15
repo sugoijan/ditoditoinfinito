@@ -10,6 +10,7 @@ pub enum Mode {
     Five,
     #[serde(rename = "7")]
     Seven,
+    /// Historical source/reference compatibility only; not a playable target.
     #[serde(rename = "7i")]
     SevenI,
     #[serde(rename = "9A")]
@@ -18,6 +19,13 @@ pub enum Mode {
     NineB,
 }
 impl Mode {
+    /// Current game targets. Historical reference types can retain retired modes.
+    pub fn is_playable_label(label: &str) -> bool {
+        matches!(label, "5" | "7" | "9A" | "9B")
+    }
+    pub fn is_playable(self) -> bool {
+        Self::is_playable_label(self.label())
+    }
     pub fn label(self) -> &'static str {
         match self {
             Self::Five => "5",

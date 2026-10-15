@@ -25,6 +25,23 @@ fn parsed(result: &PreparedChart) -> ddi_chart::Song {
 }
 
 #[test]
+fn playable_targets_exclude_retired_7i_without_reinterpreting_source_evidence() {
+    for label in ["5", "7", "9A", "9B"] {
+        let c = chart(label);
+        assert!(c.mode.is_playable());
+        assert!(Mode::is_playable_label(label));
+    }
+    let c = chart("7i");
+    assert_eq!(c.mode, Mode::SevenI);
+    assert_eq!(c.mode.lanes(), 7);
+    assert_eq!(serde_json::to_value(&c).unwrap()["mode"], "7i");
+    assert!(!c.mode.is_playable());
+    for label in ["7i", "9i", "9t", "11", "custom"] {
+        assert!(!Mode::is_playable_label(label));
+    }
+}
+
+#[test]
 fn rating_facts_and_configurable_tiers() {
     let mut c = chart("5");
     let mut metadata = Metadata::new();
@@ -72,7 +89,7 @@ fn rating_facts_and_configurable_tiers() {
 
 #[test]
 fn all_supported_modes_reach_the_game_parser() {
-    for mode in ["5", "7", "7i", "9A", "9B"] {
+    for mode in ["5", "7", "9A", "9B"] {
         let mut c = chart(mode);
         c.lanes[0].taps_seconds = vec![-0.5, 1.0];
         c.lanes.last_mut().unwrap().holds_seconds = vec![[2.0, 3.0]];
@@ -268,7 +285,7 @@ fn native_scroll_compensates_bpm_beneath_user_multiplier() {
 
 #[test]
 fn labels_ratings_and_effect_omissions_stay_distinct() {
-    let mut c = chart("7i");
+    let mut c = chart("7");
     c.lanes[0].taps_seconds = vec![1.0];
     c.metadata
         .insert("difficultyLabel".into(), json!("Original: #1 / test"));

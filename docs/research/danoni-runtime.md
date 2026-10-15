@@ -1,5 +1,9 @@
 # DanOni exports in the rebased game
 
+Target update (2026-10-15): 7i is retired. The dated playback counts and
+measurements below describe the preserved earlier generation; new mode galleries
+and verification requests target 5, 7, 9A and 9B.
+
 Verified 2026-10-13 against a fresh release bundle from `danoni-research`
 `7094061`, including game `main` revision `1ab3a9b`. No game crate or accepted
 export was changed. The corpus remains **93 songs / 144 charts**. Original works,
@@ -129,7 +133,7 @@ Spec schema **`ddi-danoni-game-check/1`** has these fields:
 | `packs` | Array of `{title,path,songs}`; absolute local ZIP path and expected imported count |
 | `songs`, `charts`, `heads` | Expected corpus counts; heads include holds |
 | `ratedPack`, `ratedCharts` | Collection and expected count of positive published meters |
-| `modes` | `{button,layout,songs}` per supported style; canonical `danoni-5/7/7i/9A/9B` |
+| `modes` | `{button,layout,songs}` per supported style; canonical `danoni-5/7/9A/9B` |
 | `playSpeed` | Positive user x-mod multiplier for playback smoke checks |
 | `play` | `{pack,title,chartIndex,layout,seconds,minimumHolds?}`; exact imported chart index |
 | `danceControl` | `{songId,chartIndex}` for a bundled eight-second Dito initialization control |

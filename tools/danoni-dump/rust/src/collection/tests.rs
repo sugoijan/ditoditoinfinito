@@ -120,15 +120,16 @@ fn cw_catalogue_requires_its_own_detail_cell_and_keeps_score_queries() {
             .logical_url
             .ends_with("id=A&scoreId=0")
     );
-    assert!(
-        inspect(
-            "https://cw7.sakura.ne.jp/lst/ds0301/?keys=9t",
+    for key in ["7i", "9i", "9t"] {
+        let error = inspect(
+            &format!("https://cw7.sakura.ne.jp/lst/ds0301/?keys={key}"),
             body.as_bytes(),
             None,
-            512
+            512,
         )
-        .is_err()
-    );
+        .unwrap_err();
+        assert_eq!(error.code, "unsupported-index-mode");
+    }
 }
 #[test]
 fn iso_navigation_and_removed_rows_stay_explicit() {

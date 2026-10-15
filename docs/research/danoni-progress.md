@@ -1,5 +1,9 @@
 # DanOni progress and next work
 
+Current target update (2026-10-15): playable modes are **5, 7, 9A and 9B**.
+7i is retired. Existing 7i captures, source facts and dated counts below are
+historical evidence, not targets for future playable exports.
+
 Reviewed 2026-10-13 after rebasing `danoni-research` onto local `main`
 `1ab3a9b`. This repository has no `master` branch. All 35 research patches replayed
 without conflicts; `git range-diff` reports every patch unchanged. The previous
@@ -26,7 +30,7 @@ selectors remain in three otherwise admitted works: SUN/鉋モドキ, Yamiyo/Fly
 and 歪んだ神/Death. ESS currently covers only the admitted レク selector; its other
 54 menu choices are outside that recipe's coverage.
 
-The playable target remains **5, 7, 7i, 9A and 9B**, with 5-key first. Other
+The playable target remains **5, 7, 9A and 9B**, with 5-key first. Other
 nine-key modes and larger/custom modes stay in source evidence or explicit
 exclusions. No additional game modes are proposed here.
 

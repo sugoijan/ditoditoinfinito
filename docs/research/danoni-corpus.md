@@ -1,5 +1,9 @@
 # DanOni publication survey, dump contract and importer handover
 
+Current target update (2026-10-15): playable modes are **5, 7, 9A and 9B**.
+7i is retired. Existing 7i captures, source facts and dated counts below are
+historical evidence, not targets for future playable exports.
+
 Research date: 2026-10-08. The dump tool is implemented in
 [`tools/danoni-dump/`](../../tools/danoni-dump/README.md). Its Chrome integration
 test captures synthetic charts and replays them with the fixture origin shut

@@ -21,7 +21,7 @@ HTML row structure:
 | `iso-flash/1` | `eucaly.net/~iso50/flash.html` | Six-cell numbered rows, including full-width digits; second cell only |
 
 HTTP/HTTPS and explicitly supplied supported Wayback snapshots are accepted.
-CW key filters are absent or exactly `5`, `7`, `7i`, `9A`, `9B`; unsupported
+CW key filters are absent or exactly `5`, `7`, `9A`, `9B`; unsupported
 filters fail. A missing filter does not admit unsupported charts: each child's
 real engine/profile/layout and chart admission still determine compatibility.
 Composer, advertising, homepage, detail and navigation links outside the selected
@@ -114,7 +114,7 @@ Retain both for a self-contained audit. No source scripts run during proof repla
 No index label, numeric row, catalogue difficulty or collection author overrides
 song metadata. Source star extraction, musical fitting, previews and artwork
 continue to use the existing per-work pipeline. Supported work layouts stay
-5/7/7i/9A/9B; a link's lane-count text is not a layout definition.
+5/7/9A/9B; a link's lane-count text is not a layout definition.
 
 ## Bounds, cancellation and partial results
 

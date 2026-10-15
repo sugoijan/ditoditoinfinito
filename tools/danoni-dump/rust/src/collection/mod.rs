@@ -51,7 +51,7 @@ impl Route {
                 if keys.len() > 1
                     || keys
                         .iter()
-                        .any(|s| !["5", "7", "7i", "9A", "9B"].contains(&s.as_str()))
+                        .any(|s| !crate::model::Mode::is_playable_label(s))
                 {
                     return Err(Error::new(
                         "unsupported-index-mode",

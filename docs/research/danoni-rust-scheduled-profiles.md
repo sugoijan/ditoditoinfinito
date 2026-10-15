@@ -29,7 +29,7 @@ roles is deduplicated before scanning.
 This slice proves **automatic five-key controls only**. Seven-key rows remain
 explicit unsupported rows, and `profile.options(Mode::Seven)` rejects. The
 original later constant-travel profile retains its previously verified 5/7-key
-support. 7i/9A/9B remain supported by other export paths; no nine-lane chart is
+support. 9A/9B remain supported by other export paths; no nine-lane chart is
 reinterpreted as an admitted built-in mode. Generic `scheduled-counter` projection
 still supports its independently verified explicit 5/7-key recipe inputs.
 

@@ -41,7 +41,7 @@ ProjectionRequest:
 
 `mode` is explicit: five/seven built-in lane order is not inferred from array
 length. Other modes remain unsupported by these native contracts; the separate
-HTML5 path still covers 7i/9A/9B. Child timelines require mode 5 and seven-lane
+HTML5 path targets 9A/9B. Child timelines require mode 5 and seven-lane
 DAC mode 7. A suffix has at most 32 letters/digits/underscores; it cannot select
 another family's data. The pinned five-key contracts require exact reviewed
 movie hashes and use separately documented movement/clock scope. Undefined

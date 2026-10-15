@@ -1,5 +1,9 @@
 # Regenerating the local DanOni exports
 
+Target update (2026-10-15): playable modes are 5, 7, 9A and 9B. 7i is
+retired. Existing 7i references and dated results below remain historical source
+evidence; the current policy is in [the Rust plan](danoni-rust-plan.md#retire-7i-as-a-playable-target-2026-10-15).
+
 Updated: 2026-10-12. `ruffle/rebuild_corpus.py` now builds the
 currently validated subset entirely from saved evidence, checks it with the
 game's actual parsers, and promotes it with archival and rollback journals.

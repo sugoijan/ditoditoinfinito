@@ -1,5 +1,9 @@
 # DanOni corpus expansion v2: catalogue and 2026 festival survey
 
+Current target update (2026-10-15): playable modes are **5, 7, 9A and 9B**.
+7i is retired. Existing 7i captures, source facts and dated counts below are
+historical evidence, not targets for future playable exports.
+
 Research date: 2026-10-10. This expands the
 [single-song source corpus](danoni-indexes.md) with more **live**
 publications, both legacy SWF works and HTML5 works spanning the CW engine

@@ -13,7 +13,7 @@ const externalFile = async file => requireExternalDirectory(path.dirname(await r
 await externalFile(specFile); await requireExternalDirectory(output);
 const specBytes = await readFile(specFile), spec = JSON.parse(specBytes);
 if (spec.schema !== 'ddi-danoni-game-check/1') throw Error('Unknown verification spec');
-const layouts = new Set(['danoni-5', 'danoni-7', 'danoni-7i', 'danoni-9A', 'danoni-9B']);
+const layouts = new Set(['danoni-5', 'danoni-7', 'danoni-9A', 'danoni-9B']);
 if (!spec.modes.every(m => layouts.has(m.layout)) || ![...spec.play, spec.scroll].every(t => layouts.has(t.layout) && Number.isInteger(t.chartIndex) && t.chartIndex >= 0)) throw Error('Invalid supported-mode target');
 const phases = spec.phases ?? ['play', 'scroll', 'previews'];
 if (!phases.length || phases.some(p => !['play', 'scroll', 'previews'].includes(p))) throw Error('Invalid verification phases');

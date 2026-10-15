@@ -19,7 +19,7 @@ from paths import external_directory
 from prepare_pack import prepare
 from artwork_review import undecorated_simfile
 
-MODES = {'5', '7', '7i', '9A', '9B'}
+MODES = {'5', '7', '9A', '9B'}
 SCHEMA = 'ddi-danoni-export-registry/1'
 
 
@@ -129,7 +129,7 @@ def bootstrap(root, registry):
                 if path.name != 'manifest.json': shutil.copyfile(path, golden / path.name)
             entry['baseline'] = binding(root, golden / 'manifest.json')
         works.append(entry)
-    selected = {'jam-with-pancake', 'straight-soul-html5', 'vh-dancing-at-dusk', 'vh-canaria-7i', 'vh-hikari-9ab'}
+    selected = {'jam-with-pancake', 'straight-soul-html5', 'vh-dancing-at-dusk', 'vh-hikari-9ab'}
     for path in sorted((root / 'corpus').glob('*/manifest.json')):
         manifest = json.loads(path.read_text())
         if manifest.get('schema') != 'ddi-danoni-dump/1': continue

@@ -25,6 +25,11 @@ def audio(path,stereo=False):
 
 
 class Policies(unittest.TestCase):
+    def test_retired_7i_is_not_a_playable_layout(self):
+        chart={'mode':'7i','lanes':[{'tapsSeconds':[],'holdsSeconds':[]} for _ in range(7)]}
+        with self.assertRaisesRegex(ValueError,'Unsupported/incorrect'):
+            ssc_chart(chart,'Edit',0)
+
     def test_source_stars_and_configurable_derived_tiers(self):
         self.assertEqual([tier_for_stars(n) for n in [1,3,4,5,6,7,8]],['Beginner','Easy','Medium','Medium','Hard','Hard','Challenge'])
         self.assertEqual(tier_for_stars(3,(2,5,9,13)),'Easy')

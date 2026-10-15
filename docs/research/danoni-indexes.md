@@ -6,7 +6,8 @@ multi-song SWF remains a collection case rather than the default adapter model.
 This is a bounded Japanese-language survey and a local source corpus, not an
 estimate of ecosystem-wide frequencies or a claim of universal SWF conversion.
 
-Gameplay targets are **5, 7, 7i, 9A and 9B**, with 5-key first. Exclude 9t,
+Gameplay targets are **5, 7, 9A and 9B**, with 5-key first.
+7i is retired; its captured examples below remain historical evidence. Exclude 9t,
 other nine-lane modes, larger modes and work-defined/redefined layouts from
 playable exports. Lane count alone does not establish a supported mode.
 Preserve unsupported definitions as source evidence, and report them per chart;
@@ -266,4 +267,4 @@ publisher list. Add exact Wayback resource bindings with mixed-date reporting
 before automatic archive fallback. Keep Flash-only navigation and arbitrary
 JS-generated work lists as explicit later adapters. Expand native projections
 from embedded 2004 5-key sources to external-dos sources and the 2006 7-key
-family; use later supported-mode HTML5 references to protect the 7i/9A/9B path.
+family; use later supported-mode HTML5 references to protect the 9A/9B path.
