@@ -178,6 +178,8 @@ calibrated offset.
   or CC0, declared in the upstream files; code we may not take (Lua derived
   from unlicensed skins) is replaced by our own and listed as a
   modification.
+- Bundled fonts: OFL-1.1 (as the HUD's Iosevka subset, `assets/fonts/`) or
+  the licences above, declared upstream; subsetting is a modification.
 - Each song or skin directory keeps the upstream files byte-identical plus
   `PROVENANCE.toml` (source URL, pinned commit, retrieval date, licences per
   part, exclusions, modifications). In that file, `excluded` and
