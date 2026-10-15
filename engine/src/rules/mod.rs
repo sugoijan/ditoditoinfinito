@@ -581,6 +581,11 @@ pub trait GaugeRules {
     fn life(&self) -> f32;
     fn failed(&self) -> bool;
     fn danger(&self) -> bool;
+    /// The life (`0..=1`, as [`GaugeRules::life`]) below which the gauge
+    /// is in danger, where it is one (the results' life graph draws it).
+    fn danger_line(&self) -> Option<f32> {
+        None
+    }
     /// Whether a play ending now fails [`FailPolicy::EndOfSong`] with
     /// `min_life` (a gauge may compare more exactly than through
     /// [`GaugeRules::life`]).

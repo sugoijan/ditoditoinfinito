@@ -106,6 +106,9 @@ pub struct Settings {
     /// system says, or always, or never.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub reduced_motion: ReducedMotion,
+    /// The results' panels the player chose ("Overview", "Timing",
+    /// "Song"; one a ruleset does not offer falls back to its default).
+    pub results_panels: String,
     /// Debug overlay: backend, FPS, clock drift, timing error stats.
     pub debug: bool,
     /// Which graphics backend the app starts on (read once, at boot).
@@ -270,6 +273,7 @@ impl Default for Settings {
             visual_offset: 0.0,
             volume: 0.8,
             reduced_motion: ReducedMotion::Auto,
+            results_panels: "Overview".into(),
             debug: false,
             graphics: Graphics::Auto,
             show_deltas: false,

@@ -147,29 +147,91 @@ pub struct Hit {
     pub lane: u8,
 }
 
+/// A judgement window of the histogram: how early and how late (ms,
+/// both positive) and its colour's name, best first.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Window {
+    pub early: f32,
+    pub late: f32,
+    pub color: String,
+}
+
+/// A lane as the by-lane panel names it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LaneName {
+    /// One character ("←", "■").
+    pub symbol: String,
+    /// "Left", "Up-left".
+    pub label: String,
+}
+
+/// A results panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PanelKind {
+    /// The timing histogram.
+    Timing,
+    /// Life over the song.
+    Life,
+    /// Each hit's offset over the song, misses marked.
+    Offsets,
+    /// Hits short of the best tier, by lane.
+    Lanes,
+}
+
+/// A set of panels the player picks ("Overview": all four).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelSet {
+    pub name: String,
+    pub panels: Vec<PanelKind>,
+}
+
+/// The per-song offset editor: the offset the play ran with, the one set
+/// now, and this play's mean error as a new offset when it is worth
+/// offering (seconds).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SongOffset {
+    pub played: f64,
+    pub current: f64,
+    pub suggested: Option<f64>,
+}
+
 /// Results' data.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ResultsData {
     pub song: SongEntry,
-    /// "Hard 13 · Single · ITG rules · ×2.5 Reverse".
+    /// The chart and the rules ("Hard 13 · Single · ITG rules").
     pub line: String,
+    /// What was played with ("×2.5 · reverse · shuffle ↓←→↑").
+    pub mods: String,
     pub grade: String,
-    /// Percent.
-    pub score: f32,
-    pub ex: f32,
+    /// As the ruleset scores: money ("987650"), percent ("96.77%") or
+    /// "—".
+    pub score: String,
+    /// "EX 1234 / 1400" where the ruleset has EX.
+    pub ex: Option<String>,
+    pub failed: bool,
+    /// "FULL COMBO", "PERFECT FULL COMBO · ASSIST", "ASSIST".
+    pub lamp: Option<String>,
+    /// The ruleset's tiers that have names, in order.
     pub judgements: Vec<JudgementCount>,
-    /// (label, value) pairs under the table ("Held / let go", "13 / 1").
+    /// (label, value) pairs under the table ("O.K. / N.G.", "13 / 1").
     pub stats: Vec<(String, String)>,
+    /// Lines worth saying ("an audio device or the display changed
+    /// during play").
+    pub notes: Vec<String>,
     pub hits: Vec<Hit>,
-    /// The judgement windows' edges (ms) the histogram colours by, best
-    /// first, with their colours' names.
-    pub windows: Vec<(f32, String)>,
+    /// The ruleset's windows the histogram colours by.
+    pub windows: Vec<Window>,
     /// Life over the song: (seconds, 0..=1).
     pub life: Vec<(f32, f32)>,
-    /// Lane names ("Left", "Down", …).
-    pub lanes: Vec<String>,
-    /// The song's offset now, ms.
-    pub song_offset: i32,
+    /// The gauge's danger line, where it has one.
+    pub danger: Option<f32>,
+    pub lanes: Vec<LaneName>,
+    /// The editor; `None`: none (not a song).
+    pub offset: Option<SongOffset>,
+    /// The panel sets offered, and the one shown.
+    pub panel_sets: Vec<PanelSet>,
+    pub panel_set: usize,
     /// A note under the footer ("Sample play: …").
     pub note: String,
 }

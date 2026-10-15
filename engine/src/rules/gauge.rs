@@ -143,6 +143,10 @@ impl GaugeRules for LifeBar {
         self.life < self.danger_threshold
     }
 
+    fn danger_line(&self) -> Option<f32> {
+        Some(self.danger_threshold)
+    }
+
     fn fresh(&self) -> Box<dyn GaugeRules> {
         Box::new(LifeBar {
             life: self.initial,
@@ -313,6 +317,10 @@ impl GaugeRules for FixedPercent {
 
     fn danger(&self) -> bool {
         self.life < self.danger_threshold
+    }
+
+    fn danger_line(&self) -> Option<f32> {
+        Some(self.danger_threshold)
     }
 
     fn fresh(&self) -> Box<dyn GaugeRules> {

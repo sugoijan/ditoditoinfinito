@@ -173,6 +173,8 @@ pub struct Cx {
     viewport: Viewport,
     time: f64,
     focused: Option<String>,
+    /// The menu action being handled came from a keyboard key.
+    pub(crate) menu_key: bool,
 }
 
 impl Cx {
@@ -190,7 +192,14 @@ impl Cx {
             viewport,
             time,
             focused,
+            menu_key: false,
         }
+    }
+
+    /// Whether the menu action being handled came from the keyboard (Tab
+    /// is the menu's Select; a pad's Y is too).
+    pub fn menu_from_keyboard(&self) -> bool {
+        self.menu_key
     }
 
     /// Whether this call comes from a user gesture: requests that need one

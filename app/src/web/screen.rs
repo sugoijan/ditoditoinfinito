@@ -628,13 +628,29 @@ pub(crate) fn debug_into(obj: &js_sys::Object) {
 }
 
 /// `window.__DDI_LOSE_DEVICE()`: destroys the device, as a lost one
-/// (testing; WebGL2's context is lost through `WEBGL_lose_context`).
+/// (testing; on WebGL2 the context is lost through `WEBGL_lose_context`).
 fn install_test_hook() {
     let Some(window) = web_sys::window() else {
         return;
     };
     let hook = Closure::<dyn Fn()>::new(|| {
-        if let Some(gfx) = current() {
+        let Some(gfx) = current() else {
+            return;
+        };
+        if gfx.is_gl() {
+            // WebGL2: the context lost as a browser loses it (wgpu's
+            // destroy does not lose it).
+            let ext = canvas()
+                .and_then(|c| c.get_context("webgl2").ok().flatten())
+                .and_then(|c| c.dyn_into::<web_sys::WebGl2RenderingContext>().ok())
+                .and_then(|c| c.get_extension("WEBGL_lose_context").ok().flatten());
+            if let Some(ext) = ext
+                && let Ok(f) = js_sys::Reflect::get(&ext, &"loseContext".into())
+                && let Ok(f) = f.dyn_into::<js_sys::Function>()
+            {
+                let _ = f.call0(&ext);
+            }
+        } else {
             gfx.device.destroy();
         }
     });

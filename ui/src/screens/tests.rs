@@ -233,7 +233,7 @@ fn the_pulse_runs_on_the_beat_and_not_with_reduced_motion() {
 fn results_and_options_come_and_go() {
     let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
     h.key("Enter", "Enter");
-    h.run(0.5);
+    h.run(0.7);
     assert_eq!(s.borrow().screen, "results");
     assert_eq!(s.borrow().panels, "Overview");
     assert!(
@@ -250,11 +250,21 @@ fn results_and_options_come_and_go() {
     h.tap(PointerKind::Mouse, "SongList");
     h.run(0.5);
     assert_eq!(s.borrow().screen, "select");
-    // Start goes back too (Song list has focus when results come in).
+    // Start goes back to the songs (Song list has focus when results come
+    // in), once they have settled; R retries; Backspace goes back.
     h.key("Enter", "Enter");
-    h.run(0.5);
+    h.run(0.7);
     assert_eq!(s.borrow().screen, "results");
     h.key("Enter", "Enter");
+    h.run(0.5);
+    assert_eq!(s.borrow().screen, "select");
+    h.key("Enter", "Enter");
+    h.run(0.7);
+    h.key("KeyR", "r");
+    h.run(0.2);
+    assert_eq!(s.borrow().status, "retry");
+    assert_eq!(s.borrow().screen, "results");
+    h.key("Backspace", "Backspace");
     h.run(0.5);
     assert_eq!(s.borrow().screen, "select");
     // The footer's Options link.
@@ -609,4 +619,100 @@ fn typing_goes_on_through_a_new_layout() {
     assert_eq!(state.borrow().search, "Sweet");
     assert!(h.actor("Search").visible);
     assert_eq!(state.borrow().song, "Sweeteners");
+}
+
+#[test]
+fn results_ask_the_shell_and_keep_what_they_show() {
+    use super::results::{ResultsActions, ResultsScreen};
+    use std::cell::RefCell;
+    let env = env();
+    let state = env.state.clone();
+    let log: Rc<RefCell<Vec<String>>> = Rc::default();
+    let l = |what: &'static str| {
+        let log = log.clone();
+        Rc::new(move |_: &Env, _: &mut crate::Cx| log.borrow_mut().push(what.into()))
+            as super::results::ActionFn
+    };
+    let offsets = log.clone();
+    let panels = log.clone();
+    let actions = ResultsActions {
+        retry: Some(l("retry")),
+        song_list: Some(l("song list")),
+        offset: Some(Rc::new(move |s| {
+            offsets.borrow_mut().push(format!("offset {s}"))
+        })),
+        panels: Some(Rc::new(move |n| {
+            panels.borrow_mut().push(format!("panels {n}"))
+        })),
+    };
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(ResultsScreen::new(env, sample::results(), actions));
+    // Keys held or mashed as the song ends do nothing at first; frames
+    // run until then (on demand, too).
+    h.run(0.3);
+    assert!(h.ui.needs_redraw());
+    h.key("Enter", "Enter");
+    h.key("KeyR", "r");
+    // A tap mashed at the end too (a phone's touch lanes covered the
+    // screen).
+    h.tap(PointerKind::Touch, "SongList");
+    h.tap(PointerKind::Touch, "Retry");
+    h.pad(crate::MenuAction::Start, true);
+    h.pad(crate::MenuAction::Start, false);
+    assert!(log.borrow().is_empty(), "{:?}", log.borrow());
+    assert!(h.run_on_demand(1.0) < 40);
+    // A held key's repeat is let go too.
+    let mut held = crate::event::KeyEvent::down("KeyR", "r");
+    held.repeat = true;
+    h.send(crate::UiEvent::Key(held));
+    assert!(log.borrow().is_empty(), "{:?}", log.borrow());
+    // Song list has focus: Enter goes back; R and a pad's Select retry;
+    // Escape and Backspace go back.
+    h.key("Enter", "Enter");
+    h.key("KeyR", "r");
+    h.pad(crate::MenuAction::Select, true);
+    h.pad(crate::MenuAction::Select, false);
+    h.key("Escape", "Escape");
+    h.key("Backspace", "Backspace");
+    // Tab is not a retry (it changes the style on song select).
+    h.key("Tab", "Tab");
+    assert_eq!(
+        *log.borrow(),
+        ["song list", "retry", "retry", "song list", "song list"]
+    );
+    log.borrow_mut().clear();
+    // The offset: a millisecond either way, this play's mean, reset.
+    h.tap(PointerKind::Mouse, "OffsetUp");
+    h.run(0.1);
+    h.tap(PointerKind::Mouse, "OffsetUp");
+    h.run(0.1);
+    assert_eq!(state.borrow().song_offset, 2);
+    h.tap(PointerKind::Mouse, "UseMean");
+    h.run(0.1);
+    assert_eq!(state.borrow().song_offset, -2);
+    // Taken: not offered again; reset is.
+    assert!(h.ui.bounds("UseMean").is_none());
+    h.tap(PointerKind::Mouse, "ResetOffset");
+    h.run(0.1);
+    assert_eq!(state.borrow().song_offset, 0);
+    assert!(h.ui.bounds("ResetOffset").is_none());
+    // Not the offset set any more: offered again, as the old card did.
+    assert!(h.ui.bounds("UseMean").is_some());
+    assert_eq!(
+        *log.borrow(),
+        ["offset 0.001", "offset 0.002", "offset -0.002", "offset 0"]
+    );
+    log.borrow_mut().clear();
+    // Panels, told to the shell; kept through a new layout.
+    h.key("ArrowRight", "ArrowRight");
+    h.key("ArrowRight", "ArrowRight");
+    assert_eq!(*log.borrow(), ["panels Timing", "panels Song"]);
+    h.send(crate::UiEvent::Resize {
+        size: [1000.0, 700.0],
+        ratio: 1.0,
+    });
+    h.run(0.2);
+    assert_eq!(state.borrow().panels, "Song");
+    assert!(h.ui.bounds("Panel.Life").is_some());
+    assert!(h.ui.bounds("Panel.Timing").is_none());
 }

@@ -367,9 +367,9 @@ fn the_screens_in_the_theme() {
     h.key("Enter", "Enter");
     h.run(0.5);
     let texts = h.texts();
-    assert!(texts.iter().any(|t| t == "96.77"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "96.77%"), "{texts:?}");
     assert!(texts.iter().any(|t| t.starts_with("mean −")), "{texts:?}");
-    assert!(texts.iter().any(|t| t == "EX 94.10%"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "EX 1680 / 1785"), "{texts:?}");
 }
 
 #[test]
@@ -422,5 +422,52 @@ fn only_the_selected_row_pulses() {
             })
             .count();
         assert!(lit <= 1, "{lit} rows lit");
+    }
+}
+
+#[test]
+fn every_rulesets_grade_fits_before_the_score() {
+    use ddi_ui::screens::results::{ResultsActions, ResultsScreen};
+    let theme = Rc::new(Infinito::new());
+    // The longest grades of every ruleset, and short ones.
+    for grade in [
+        "AAAA",
+        "AAA",
+        "AA+",
+        "SS",
+        "SA",
+        "PF",
+        "AP",
+        "★★★★",
+        "S+",
+        "F",
+        "E",
+    ] {
+        for score in ["100.00%", "1000000", "—"] {
+            for (size, design) in [([1280.0, 720.0], DESIGN), ([844.0, 390.0], COMPACT)] {
+                let mut data = sample::results();
+                data.grade = grade.into();
+                data.score = score.into();
+                let mut h = Harness::new(DESIGN, size, 1.0, TextMode::Mirror);
+                h.ui.set_design(design);
+                h.push(ResultsScreen::new(
+                    env(&theme),
+                    data,
+                    ResultsActions::default(),
+                ));
+                h.run(0.3);
+                let g = h.ui.bounds("Grade").expect("grade");
+                let s = h.ui.bounds("Score").expect("score");
+                let col = h.ui.bounds("ScoreColumn").expect("column");
+                // Measured at half an em a character here; the bold face is
+                // about 0.58 em: room for that.
+                let grade_right = g[0] + (g[2] - g[0]) * 1.16;
+                assert!(grade_right <= s[0], "{grade} {score} {size:?}: {g:?} {s:?}");
+                assert!(
+                    s[2] <= col[2] + 1.0,
+                    "{grade} {score} {size:?}: {s:?} {col:?}"
+                );
+            }
+        }
     }
 }

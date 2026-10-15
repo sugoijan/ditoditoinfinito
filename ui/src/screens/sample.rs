@@ -10,11 +10,11 @@ use ddi_chart::Difficulty;
 
 use super::Env;
 use super::data::{
-    ChartEntry, Hit, JudgementCount, OptionDef, OptionKind, OptionSection, OptionsData,
-    ResultsData, SelectData, SongEntry, StyleDef,
+    ChartEntry, Hit, JudgementCount, LaneName, OptionDef, OptionKind, OptionSection, OptionsData,
+    PanelKind, PanelSet, ResultsData, SelectData, SongEntry, SongOffset, StyleDef, Window,
 };
 use super::options::{ChangeFn, OptionsScreen};
-use super::results::ResultsScreen;
+use super::results::{ResultsActions, ResultsScreen};
 use super::select::{OpenFn, PlayFn, SelectScreen};
 use crate::screen::Cx;
 
@@ -352,11 +352,18 @@ pub fn results() -> ResultsData {
         color: color.into(),
         count,
     };
+    let set = |name: &str, panels: &[PanelKind]| PanelSet {
+        name: name.into(),
+        panels: panels.to_vec(),
+    };
     ResultsData {
-        line: "Hard 13 · Single · ITG rules · ×2.5 Reverse".into(),
+        line: "Hard 13 · Single · ITG rules".into(),
+        mods: "×2.5 · reverse".into(),
         grade: "★".into(),
-        score: 96.77,
-        ex: 94.10,
+        score: "96.77%".into(),
+        ex: Some("EX 1680 / 1785".into()),
+        failed: false,
+        lamp: None,
         judgements: vec![
             j("Fantastic", "Judgement.W1", counts[0]),
             j("Excellent", "Judgement.W2", counts[1]),
@@ -366,22 +373,52 @@ pub fn results() -> ResultsData {
             j("Miss", "Judgement.Miss", counts[5]),
         ],
         stats: vec![
-            ("Held / let go".into(), "13 / 1".into()),
+            ("Held / Let Go".into(), "13 / 1".into()),
+            ("Mines hit".into(), "0".into()),
             ("Max combo".into(), "187".into()),
-            ("Mines hit".into(), "0 / 6".into()),
             ("Fast / slow".into(), format!("{fast} / {slow}")),
+            ("Mean offset".into(), "−2.1 ms (σ 9.8)".into()),
         ],
+        notes: Vec::new(),
         hits,
-        windows: vec![
-            (21.5, "Judgement.W1".into()),
-            (43.0, "Judgement.W2".into()),
-            (102.0, "Judgement.W3".into()),
-            (135.0, "Judgement.W4".into()),
-            (180.0, "Judgement.W5".into()),
-        ],
+        windows: windows
+            .iter()
+            .enumerate()
+            .map(|(i, &w)| Window {
+                early: w,
+                late: w,
+                color: format!("Judgement.W{}", i + 1),
+            })
+            .collect(),
         life,
-        lanes: vec!["Left".into(), "Down".into(), "Up".into(), "Right".into()],
-        song_offset: 0,
+        danger: Some(0.25),
+        lanes: ["←", "↓", "↑", "→"]
+            .into_iter()
+            .zip(["Left", "Down", "Up", "Right"])
+            .map(|(s, l)| LaneName {
+                symbol: s.into(),
+                label: l.into(),
+            })
+            .collect(),
+        offset: Some(SongOffset {
+            played: 0.0,
+            current: 0.0,
+            suggested: Some(-0.002),
+        }),
+        panel_sets: vec![
+            set(
+                "Overview",
+                &[
+                    PanelKind::Timing,
+                    PanelKind::Life,
+                    PanelKind::Offsets,
+                    PanelKind::Lanes,
+                ],
+            ),
+            set("Timing", &[PanelKind::Timing, PanelKind::Offsets]),
+            set("Song", &[PanelKind::Life, PanelKind::Lanes]),
+        ],
+        panel_set: 0,
         note: "Sample play: the numbers are illustrative.".into(),
         song,
     }
@@ -614,7 +651,7 @@ pub fn select_screen(env: &Env, changed: Option<ChangeFn>) -> SelectScreen {
 /// Results over [`results`]; Retry goes back to the songs (no play
 /// here).
 pub fn results_screen(env: &Env) -> ResultsScreen {
-    ResultsScreen::new(env.clone(), results(), None)
+    ResultsScreen::new(env.clone(), results(), ResultsActions::default())
 }
 
 /// Options over [`options`], reduced motion as the shell has it.

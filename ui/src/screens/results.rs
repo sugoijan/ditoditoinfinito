@@ -1,22 +1,36 @@
-//! Results (`docs/plans/theme.md`, drawn in layout A):
+//! Results (`docs/plans/theme.md`, drawn in layout A;
+//! `docs/plans/ui-core.md`, step 6.1):
 //!
-//! - **Left**: the song, the grade, score and EX (`Results.Score`), the
-//!   judgement counts with bars (`Results.Judgement`), then held and let
-//!   go, max combo, mines, fast and slow.
-//! - **Right**: panels the player picks (`Panel`): **Overview** (timing
-//!   histogram, life, offsets over the song, misses by lane) or
-//!   **Timing** (a large histogram and the offsets); "Customize…" is
-//!   where a player would pick their own (not yet).
-//! - **Bottom**: the song offset editor, then Song list and Retry.
-//! - **Keys**: Start goes back to the songs, `R` retries, Left and Right
-//!   change the panels.
+//! - **Left**: the song and the chart, the mods, the grade, the score
+//!   (money, percent or "—", as the ruleset scores) and EX where the
+//!   ruleset has it (`Results.Score`), the lamp or FAILED, the ruleset's
+//!   tiers with bars (`Results.Judgement`; tiers it does not name are
+//!   left out), then holds (under the ruleset's names), hold ticks, mines,
+//!   stray presses, max combo, fast and slow, the mean and σ.
+//! - **Right**: panels in sets the ruleset offers and the player picks
+//!   ([`super::data::PanelSet`]): the timing histogram coloured by the
+//!   ruleset's windows, life over the song with the gauge's danger line,
+//!   offsets over the song with misses marked, and hits short of the best
+//!   tier by lane.
+//! - **Bottom**: the song offset editor (a millisecond either way, this
+//!   play's mean error when it is worth taking, reset), then Song list
+//!   and Retry.
+//! - **Keys**: Start activates the focused button (Song list at first,
+//!   as the mockup and StepMania's evaluation screen have it), Back
+//!   (Escape, Backspace, a pad's Back) goes to the songs too; `R` and a
+//!   pad's Select (Y; not Tab) retry; Left and Right change the panels.
+//!   Menu input and taps in the first [`SETTLE`] seconds, and repeats of
+//!   held keys, are let go. The footer says notes worth saying
+//!   (a device changed, the videos stopped).
 //!
-//! The panels read the per-hit record ([`super::data::Hit`]) that step
-//! 6.1 adds to the engine; the developer route shows a made-up play.
+//! What the buttons do is the shell's ([`ResultsActions`]); without them
+//! (the developer route) Song list leaves the screen.
+
+use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind, Sprite};
 
-use super::data::ResultsData;
+use super::data::{PanelKind, ResultsData};
 use super::{Backdrop, Env, fit, fit_root, footer, frame, ground, header, left, right};
 use crate::graph;
 use crate::hit;
@@ -25,31 +39,64 @@ use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::widgets::{part, set_image, set_text};
 
-/// The panel sets the header offers.
-pub const PANEL_SETS: [&str; 3] = ["Overview", "Timing", "Customize…"];
+/// What Retry or Song list does (the play route: play again, go to the
+/// songs).
+pub type ActionFn = Rc<dyn Fn(&Env, &mut Cx)>;
+/// The song offset set (seconds).
+pub type OffsetFn = Rc<dyn Fn(f64)>;
+/// The panel set picked (its name).
+pub type PanelsFn = Rc<dyn Fn(&str)>;
 
-/// What Retry does (step 6: play the chart again).
-pub type RetryFn = std::rc::Rc<dyn Fn(&Env, &mut Cx)>;
+/// The shell's part of the screen.
+#[derive(Clone, Default)]
+pub struct ResultsActions {
+    pub retry: Option<ActionFn>,
+    pub song_list: Option<ActionFn>,
+    pub offset: Option<OffsetFn>,
+    pub panels: Option<PanelsFn>,
+}
+
+/// The buttons focus moves through, in order: Song list first, so Start
+/// goes back to the songs (the mockup's and StepMania's evaluation
+/// screen's).
+const BUTTONS: [&str; 6] = [
+    "SongList",
+    "Retry",
+    "OffsetDown",
+    "OffsetUp",
+    "UseMean",
+    "ResetOffset",
+];
+
+/// Menu input in the first this many seconds is let go: keys and pads
+/// still held or mashed as the song ends must not leave or retry.
+pub const SETTLE: f32 = 0.6;
 
 pub struct ResultsScreen {
     env: Env,
     data: ResultsData,
-    panels: usize,
+    /// Seconds shown.
+    age: f32,
     backdrop: Backdrop,
     screen: [f32; 2],
-    retry: Option<RetryFn>,
+    actions: ResultsActions,
 }
 
 impl ResultsScreen {
-    pub fn new(env: Env, data: ResultsData, retry: Option<RetryFn>) -> ResultsScreen {
+    pub fn new(env: Env, data: ResultsData, actions: ResultsActions) -> ResultsScreen {
         ResultsScreen {
             env,
             data,
-            panels: 0,
+            age: 0.0,
             backdrop: Backdrop::with_alpha("Backdrop.Results"),
             screen: super::DESIGN,
-            retry,
+            actions,
         }
+    }
+
+    /// The data shown (the offset and the panels as changed).
+    pub fn data(&self) -> &ResultsData {
+        &self.data
     }
 
     /// The design's places: the score column's left, the panels' rect, the
@@ -82,6 +129,13 @@ impl ResultsScreen {
         children.push(self.bottom_bar([panels[0], bar_y, panels[2], 76.0]));
         children.push(header(&env, screen[0], "RESULTS"));
         children.push(self.panel_pills(screen));
+        let mut note = self.data.notes.join(" · ");
+        if !self.data.note.is_empty() {
+            if !note.is_empty() {
+                note.push_str(" · ");
+            }
+            note.push_str(&self.data.note);
+        }
         let (f, texts) = footer(
             &env,
             screen,
@@ -90,7 +144,7 @@ impl ResultsScreen {
                 (&["R"], "Retry"),
                 (&["←→"], "Panels"),
             ],
-            &self.data.note,
+            &note,
             &[],
         );
         env.state.borrow_mut().hints = texts;
@@ -115,11 +169,13 @@ impl ResultsScreen {
         let d = &self.data;
         let mut children = Vec::new();
         // The banner, with its placeholder under it.
-        let bh = (w * 125.0 / 400.0).round();
+        let bh = (w * 100.0 / 400.0).round();
         let mut ph = quad("BannerPlaceholder", [w, bh], env.color("BannerEmpty"));
         call(&mut ph, "xy", &[w / 2.0, bh / 2.0]);
+        call(&mut ph, "cornerradius", &[6.0]);
         let mut banner = named(Kind::Sprite(Sprite::quad([w, bh])), "Banner");
         call(&mut banner, "xy", &[w / 2.0, bh / 2.0]);
+        call(&mut banner, "cornerradius", &[6.0]);
         let mut holder = frame("BannerHolder", vec![banner]);
         set_image(
             &mut holder,
@@ -128,34 +184,106 @@ impl ResultsScreen {
         );
         children.push(ph);
         children.push(holder);
-        let mut ty = bh + 12.0 + 12.0;
+        let cut = |mut a: Actor, w: f32| {
+            if let Kind::Text(t) = &mut a.kind {
+                t.max_width = w;
+                t.ellipsis = true;
+            }
+            a
+        };
+        let mut ty = bh + 16.0;
+        let title = if d.song.subtitle.is_empty() {
+            d.song.title.clone()
+        } else {
+            format!("{} {}", d.song.title, d.song.subtitle)
+        };
         children.push(left(
-            env.text("SongTitle", &d.song.title, 20.0, 700, "Text"),
+            cut(env.text("SongTitle", &title, 20.0, 700, "Text"), w),
             0.0,
             ty,
         ));
         ty += 22.0;
-        let line = format!("{} · {}", d.song.artist, d.line);
-        let mut l = left(env.text("SongLine", &line, 14.0, 400, "Secondary"), 0.0, ty);
-        if let Kind::Text(t) = &mut l.kind {
-            t.max_width = w;
+        let line = if d.song.artist.is_empty() {
+            d.line.clone()
+        } else {
+            format!("{} · {}", d.song.artist, d.line)
+        };
+        children.push(left(
+            cut(env.text("SongLine", &line, 14.0, 400, "Secondary"), w),
+            0.0,
+            ty,
+        ));
+        ty += 19.0;
+        if !d.mods.is_empty() {
+            children.push(left(
+                cut(env.text("Mods", &d.mods, 13.0, 400, "Muted"), w),
+                0.0,
+                ty,
+            ));
+            ty += 18.0;
         }
-        children.push(l);
-        ty += 20.0;
+        ty += 2.0;
         // Grade, score, EX.
         let mut score = env.component(
             "Results.Score",
             "Panel",
-            &Spec::new([w, 70.0], ""),
+            &Spec::new([w, 66.0], ""),
             "ScoreBox",
             [0.0, ty],
         );
         set_text(&mut score, "Grade", &d.grade);
-        set_text(&mut score, "Score", &format!("{:.2}", d.score));
-        set_text(&mut score, "Ex", &format!("EX {:.2}%", d.ex));
-        set_text(&mut score, "Title", &format!("{} {:.2}%", d.grade, d.score));
+        // One run, the percent sign in it (how wide the number is is not
+        // known here).
+        set_text(&mut score, "Score", &d.score);
+        if let Some(p) = part(&mut score, "Percent") {
+            p.visible = false;
+        }
+        set_text(&mut score, "Title", &format!("{} {}", d.grade, d.score));
+        // A long grade ("AAAA", "★★★★") smaller, the score after it; EX
+        // goes on the line under them.
+        // The grade's box sized to the grade (a letter about 0.58 em in
+        // the bold face), no wider than 120; the score after it, made
+        // smaller if it would pass the column.
+        let full = look::mono_width(&d.grade, 64.0) * 1.15;
+        let zoom = (120.0 / full.max(1.0)).min(1.0);
+        if let Some(g) = part(&mut score, "Grade") {
+            call(g, "zoom", &[zoom]);
+        }
+        let grade_w = full * zoom;
+        if let Some(sc) = part(&mut score, "Score") {
+            let x = sc.current().pos[0].max(grade_w + 20.0);
+            call(sc, "x", &[x]);
+            // The numbers face: 0.6 em a figure.
+            let score_w = d.score.chars().count() as f32 * 0.6 * 56.0;
+            if score_w > w - x {
+                call(sc, "zoom", &[(w - x) / score_w]);
+            }
+        }
+        if let Some(ex) = part(&mut score, "Ex") {
+            ex.visible = false;
+        }
         children.push(score);
-        ty += 70.0 + 12.0;
+        ty += 66.0 + 10.0;
+        // The lamp, FAILED.
+        let mut marks = Vec::new();
+        if d.failed {
+            marks.push(("Failed", "FAILED".to_string(), "Danger"));
+        }
+        if let Some(l) = &d.lamp {
+            marks.push(("Lamp", l.clone(), "Gold"));
+        }
+        if !marks.is_empty() || d.ex.is_some() {
+            let mut mx = 0.0;
+            for (name, text, color) in marks {
+                let t = look::tracked(env.text(name, &text, 13.0, 700, color), 80);
+                children.push(left(t, mx, ty));
+                mx += look::mono_width(&text, 13.0) * 1.1 + 16.0;
+            }
+            if let Some(ex) = &d.ex {
+                children.push(right(env.numbers("Ex", ex, 14.0, "Muted"), w, ty));
+            }
+            ty += 22.0;
+        }
         // Judgements.
         let max = d
             .judgements
@@ -164,11 +292,12 @@ impl ResultsScreen {
             .max()
             .unwrap_or(1)
             .max(1) as f32;
+        let row_h = if d.judgements.len() > 6 { 22.0 } else { 26.0 };
         for (i, j) in d.judgements.iter().enumerate() {
             let mut row = env.component(
                 "Results.Judgement",
                 "List.Row",
-                &Spec::new([w, 28.0], &j.name),
+                &Spec::new([w, row_h], &j.name),
                 &format!("Judgement{i}"),
                 [0.0, ty],
             );
@@ -183,27 +312,46 @@ impl ResultsScreen {
             }
             row.finish_tweening();
             children.push(row);
-            ty += 28.0;
+            ty += row_h;
         }
-        ty += 12.0;
+        ty += 8.0;
         // The stats, two columns.
         let mut line = quad("StatsLine", [w, 1.0], env.color("Line"));
         call(&mut line, "xy", &[w / 2.0, ty]);
         children.push(line);
-        ty += 16.0;
+        ty += 14.0;
+        // Two a row; one with a long value takes a row of its own.
+        let (mut col, mut yy) = (0, ty);
         for (i, (label, value)) in d.stats.iter().enumerate() {
-            let (cx0, row) = ((i % 2) as f32 * (w / 2.0), (i / 2) as f32);
-            let yy = ty + row * 22.0;
+            let wide = value.chars().count() > 9;
+            if wide && col == 1 {
+                col = 0;
+                yy += 20.0;
+            }
+            let (x0, cw) = if wide {
+                (0.0, w)
+            } else {
+                (col as f32 * (w / 2.0 + 8.0), w / 2.0 - 8.0)
+            };
             children.push(left(
-                env.text(&format!("Stat{i}"), label, 13.0, 400, "Muted"),
-                cx0,
+                cut(
+                    env.text(&format!("Stat{i}"), label, 13.0, 400, "Muted"),
+                    if wide { w * 0.45 } else { cw - 70.0 },
+                ),
+                x0,
                 yy,
             ));
             children.push(right(
-                env.numbers(&format!("StatValue{i}"), value, 14.0, "Text"),
-                cx0 + w / 2.0 - 16.0,
+                env.numbers(&format!("StatValue{i}"), value, 13.0, "Text"),
+                x0 + cw,
                 yy,
             ));
+            if wide || col == 1 {
+                col = 0;
+                yy += 20.0;
+            } else {
+                col = 1;
+            }
         }
         let mut f = frame("ScoreColumn", children);
         call(&mut f, "xy", &[x, y]);
@@ -234,68 +382,117 @@ impl ResultsScreen {
         p
     }
 
+    /// The chosen set's panels: two side by side a row, the last of an
+    /// odd count across.
     fn panels_actor(&self, [x, y, w, h]: [f32; 4]) -> Actor {
         let gap = 16.0;
-        let children = match self.panels {
-            1 => {
-                let top = (h - gap) * 0.63;
-                vec![
-                    self.timing_panel([x, y, w, top], 1.5),
-                    self.offsets_panel([x, y + top + gap, w, h - top - gap]),
-                ]
+        let kinds = self
+            .data
+            .panel_sets
+            .get(self.data.panel_set)
+            .map(|s| s.panels.clone())
+            .unwrap_or_default();
+        let mut children = Vec::new();
+        let n = kinds.len();
+        let rects: Vec<[f32; 4]> = match n {
+            0 => Vec::new(),
+            1 => vec![[x, y, w, h]],
+            2 => {
+                let top = (h - gap) * 0.62;
+                vec![[x, y, w, top], [x, y + top + gap, w, h - top - gap]]
             }
-            2 => vec![self.panel(
-                "Customize",
-                "Customize…",
-                "",
-                [x, y, w, h],
-                vec![left(
-                    self.env.text(
-                        "CustomizeNote",
-                        "Pick your own panels here (not yet).",
-                        15.0,
-                        400,
-                        "Muted",
-                    ),
-                    16.0,
-                    h / 2.0,
-                )],
-            )],
             _ => {
-                let (pw, ph) = ((w - gap) / 2.0, (h - gap) / 2.0);
-                vec![
-                    self.timing_panel([x, y, pw, ph], 3.0),
-                    self.life_panel([x + pw + gap, y, pw, ph]),
-                    self.offsets_panel([x, y + ph + gap, pw, ph]),
-                    self.lanes_panel([x + pw + gap, y + ph + gap, pw, ph]),
-                ]
+                let rows = n.div_ceil(2);
+                let (pw, ph) = ((w - gap) / 2.0, (h - gap * (rows - 1) as f32) / rows as f32);
+                (0..n)
+                    .map(|i| {
+                        let (c, r) = ((i % 2) as f32, (i / 2) as f32);
+                        let wide = i == n - 1 && n % 2 == 1;
+                        [
+                            x + c * (pw + gap),
+                            y + r * (ph + gap),
+                            if wide { w } else { pw },
+                            ph,
+                        ]
+                    })
+                    .collect()
             }
         };
+        for (kind, rect) in kinds.into_iter().zip(rects) {
+            let large = rect[2] > 600.0;
+            children.push(match kind {
+                PanelKind::Timing => self.timing_panel(rect, large),
+                PanelKind::Life => self.life_panel(rect),
+                PanelKind::Offsets => self.offsets_panel(rect),
+                PanelKind::Lanes => self.lanes_panel(rect),
+            });
+        }
         frame("Panels", children)
     }
 
-    /// The timing histogram: bins of `bin` ms over ±45, coloured by
-    /// window, the best window's band behind them.
-    fn timing_panel(&self, rect: [f32; 4], bin: f32) -> Actor {
+    /// How far either way the timing panels reach (ms): the hits' spread,
+    /// at least twice the best window, at most the widest.
+    fn range(&self) -> f32 {
+        let widest = self
+            .data
+            .windows
+            .iter()
+            .map(|w| w.early.max(w.late))
+            .fold(0.0f32, f32::max);
+        let best = self
+            .data
+            .windows
+            .first()
+            .map_or(22.0, |w| w.early.max(w.late));
+        let mut spread: Vec<f32> = self
+            .data
+            .hits
+            .iter()
+            .filter_map(|h| h.offset.map(f32::abs))
+            .collect();
+        spread.sort_by(f32::total_cmp);
+        let p98 = spread
+            .get(spread.len().saturating_sub(1) * 98 / 100)
+            .copied()
+            .unwrap_or(0.0);
+        let r = p98.max(best * 2.0);
+        let r = if widest > 0.0 { r.min(widest) } else { r };
+        (r / 5.0).ceil().max(2.0) * 5.0
+    }
+
+    /// The timing histogram, bins coloured by the ruleset's windows, the
+    /// best window's band behind them.
+    fn timing_panel(&self, rect: [f32; 4], large: bool) -> Actor {
         let env = &self.env;
         let [_, _, w, h] = rect;
         let (mean, sd) = self.data.timing();
         let note = format!("mean {} ms · σ {sd:.1}", signed(mean, 1));
         let inner = [14.0, 40.0, w - 28.0, h - 40.0 - 30.0];
-        let range = 45.0;
-        let bins = (2.0 * range / bin).round() as usize;
+        let range = self.range();
+        // An odd count: a bin centred on 0, so a perfect play's bar
+        // stands on the axis.
+        let bins = if large { 61 } else { 31 };
+        let bin = 2.0 * range / bins as f32;
         let offsets: Vec<f32> = self.data.hits.iter().filter_map(|h| h.offset).collect();
         let counts = graph::histogram(&offsets, [-range, range], bins);
         let max = counts.iter().copied().max().unwrap_or(1).max(1) as f32;
         let [ix, iy, iw, ih] = inner;
         let mut c = Vec::new();
+        let px = |ms: f32| ix + iw * ((ms + range) / (2.0 * range)).clamp(0.0, 1.0);
         // The best window's band.
-        if let Some((edge, _)) = self.data.windows.first() {
-            let bw = iw * (edge * 2.0 / (2.0 * range)).min(1.0);
-            let mut band = quad("Window", [bw, ih], env.color("Window"));
-            call(&mut band, "xy", &[ix + iw / 2.0, iy + ih / 2.0]);
+        if let Some(win) = self.data.windows.first() {
+            let (a, b) = (px(-win.early), px(win.late));
+            let mut band = quad("Window", [b - a, ih], env.color("Window"));
+            call(&mut band, "xy", &[(a + b) / 2.0, iy + ih / 2.0]);
             c.push(band);
         }
+        // The zero line behind the bars, so a bar on it is not cut.
+        c.push(graph::segment(
+            [px(0.0), iy],
+            [px(0.0), iy + ih],
+            1.0,
+            env.color("Graph.Axis"),
+        ));
         let slot = iw / bins as f32;
         for (i, &n) in counts.iter().enumerate() {
             if n == 0 {
@@ -306,8 +503,14 @@ impl ResultsScreen {
                 .data
                 .windows
                 .iter()
-                .find(|(edge, _)| centre.abs() <= *edge)
-                .map_or("Judgement.Miss", |(_, c)| c.as_str());
+                .find(|w| {
+                    if centre < 0.0 {
+                        -centre <= w.early
+                    } else {
+                        centre <= w.late
+                    }
+                })
+                .map_or("Judgement.Miss", |w| w.color.as_str());
             let bh = n as f32 / max * ih;
             let mut q = quad("", [(slot - 1.0).max(1.0), bh], env.color(color));
             call(
@@ -317,23 +520,30 @@ impl ResultsScreen {
             );
             c.push(q);
         }
-        c.push(graph::segment(
-            [ix + iw / 2.0, iy],
-            [ix + iw / 2.0, iy + ih],
-            1.0,
-            env.color("Graph.Axis"),
-        ));
         c.push(left(
-            env.text("Early", "−45 ms early", 12.0, 400, "Faint"),
+            env.text(
+                "Early",
+                &format!("−{range:.0} ms early"),
+                12.0,
+                400,
+                "Faint",
+            ),
             ix,
             iy + ih + 14.0,
         ));
         c.push(right(
-            env.text("Late", "late +45 ms", 12.0, 400, "Faint"),
+            env.text("Late", &format!("late +{range:.0} ms"), 12.0, 400, "Faint"),
             ix + iw,
             iy + ih + 14.0,
         ));
         self.panel("Timing", "Timing", &note, rect, c)
+    }
+
+    /// The song's length, at least the last thing that happened.
+    fn length(&self) -> f32 {
+        let last_hit = self.data.hits.last().map_or(0.0, |h| h.time);
+        let last_life = self.data.life.last().map_or(0.0, |l| l.0);
+        self.data.song.length.max(last_hit).max(last_life).max(1.0)
     }
 
     fn life_panel(&self, rect: [f32; 4]) -> Actor {
@@ -346,28 +556,41 @@ impl ResultsScreen {
             .map(|&(_, v)| v)
             .fold(1.0f32, f32::min);
         let note = format!("lowest {:.0}%", lowest * 100.0);
-        let len = self.data.song.length.max(1.0);
+        let len = self.length();
         let inner = [14.0, 40.0, w - 28.0, h - 40.0 - 30.0];
         let [ix, iy, iw, ih] = inner;
+        // As steps: life holds until it changes.
+        let mut steps = Vec::with_capacity(self.data.life.len() * 2 + 1);
+        for (i, &(t, v)) in self.data.life.iter().enumerate() {
+            if i > 0 {
+                steps.push((t, self.data.life[i - 1].1));
+            }
+            steps.push((t, v));
+        }
+        if let Some(&(_, v)) = self.data.life.last() {
+            steps.push((len, v));
+        }
         let mut c = vec![graph::line_graph(
             "Life.Graph",
             &*env.look,
-            &self.data.life,
+            &steps,
             [0.0, len],
             [0.0, 1.0],
             inner,
         )];
-        // The danger line, dashed.
-        let dy = iy + ih * 0.75;
-        let mut x = ix;
-        while x < ix + iw {
-            c.push(graph::segment(
-                [x, dy],
-                [(x + 6.0).min(ix + iw), dy],
-                1.0,
-                env.color("Danger"),
-            ));
-            x += 10.0;
+        // The gauge's danger line, dashed.
+        if let Some(d) = self.data.danger.filter(|d| *d > 0.0 && *d < 1.0) {
+            let dy = iy + ih * (1.0 - d);
+            let mut x = ix;
+            while x < ix + iw {
+                c.push(graph::segment(
+                    [x, dy],
+                    [(x + 6.0).min(ix + iw), dy],
+                    1.0,
+                    env.color("Danger"),
+                ));
+                x += 10.0;
+            }
         }
         c.push(left(
             env.numbers("LifeStart", "0:00", 12.0, "Faint"),
@@ -386,9 +609,9 @@ impl ResultsScreen {
     fn offsets_panel(&self, rect: [f32; 4]) -> Actor {
         let env = &self.env;
         let [_, _, w, h] = rect;
-        let len = self.data.song.length.max(1.0);
+        let len = self.length();
         let [ix, iy, iw, ih] = [14.0, 40.0, w - 28.0, h - 40.0 - 14.0];
-        let range = 50.0;
+        let range = self.range();
         let mut c = vec![graph::segment(
             [ix, iy + ih / 2.0],
             [ix + iw, iy + ih / 2.0],
@@ -396,16 +619,20 @@ impl ResultsScreen {
             env.color("Graph.Axis"),
         )];
         let mut pts = Vec::new();
+        let mut misses = 0;
         for hit in &self.data.hits {
             let x = ix + (hit.time / len).clamp(0.0, 1.0) * iw;
             match hit.offset {
                 Some(o) => pts.push([x, iy + ih / 2.0 + (o / range).clamp(-1.0, 1.0) * ih / 2.0]),
-                None => c.push(graph::segment(
-                    [x, iy],
-                    [x, iy + ih],
-                    1.5,
-                    env.color("Judgement.Miss"),
-                )),
+                None => {
+                    misses += 1;
+                    c.push(graph::segment(
+                        [x, iy],
+                        [x, iy + ih],
+                        1.5,
+                        env.color("Judgement.Miss"),
+                    ));
+                }
             }
         }
         c.push(graph::points(
@@ -414,21 +641,26 @@ impl ResultsScreen {
             2.0,
             env.color("Graph.Point"),
         ));
-        self.panel("Offsets", "Offsets over the song", "early above", rect, c)
+        let note = match misses {
+            0 => format!("early above · ±{range:.0} ms"),
+            1 => "early above · 1 miss".to_string(),
+            n => format!("early above · {n} misses"),
+        };
+        self.panel("Offsets", "Offsets over the song", &note, rect, c)
     }
 
-    /// Per lane, the hits that were not the best judgement.
+    /// Per lane, the hits short of the best tier.
     fn lanes_panel(&self, rect: [f32; 4]) -> Actor {
         let env = &self.env;
         let [_, _, w, h] = rect;
-        let best = self.data.windows.first().map_or(21.5, |w| w.0);
+        let best = self.data.windows.first();
         let lanes = self.data.lanes.len().max(1);
         let mut counts = vec![0u32; lanes];
         let mut sums = vec![0f32; lanes];
         for hit in &self.data.hits {
             let l = usize::from(hit.lane).min(lanes - 1);
             match hit.offset {
-                Some(o) if o.abs() > best => {
+                Some(o) if best.is_none_or(|b| o < -b.early || o > b.late) => {
                     counts[l] += 1;
                     sums[l] += o;
                 }
@@ -439,6 +671,9 @@ impl ResultsScreen {
         let max = counts.iter().copied().max().unwrap_or(1).max(1) as f32;
         let [ix, iy, iw, ih] = [14.0, 40.0, w - 28.0, h - 40.0 - 44.0];
         let slot = iw / lanes as f32;
+        // Room for a name and a mean under each lane, else the symbol and
+        // the count.
+        let roomy = slot >= 84.0;
         let mut c = Vec::new();
         for l in 0..lanes {
             let bh = counts[l] as f32 / max * ih;
@@ -446,75 +681,48 @@ impl ResultsScreen {
             if counts[l] > 0 {
                 let mut q = quad("", [slot * 0.5, bh], env.color("Graph.Bar"));
                 call(&mut q, "xy", &[cxl, iy + ih - bh / 2.0]);
+                call(&mut q, "cornerradius", &[2.0]);
                 c.push(q);
             }
-            let mean = if counts[l] > 0 {
-                sums[l] / counts[l] as f32
+            let lane = self.data.lanes.get(l).cloned().unwrap_or_default();
+            let name = if roomy {
+                format!("{} {}", lane.symbol, lane.label)
             } else {
-                0.0
+                lane.symbol.clone()
             };
-            let mut name = env.text(
-                &format!("Lane{l}"),
-                &self.data.lanes[l],
-                13.0,
-                600,
-                "Secondary",
-            );
-            call(&mut name, "xy", &[cxl, iy + ih + 14.0]);
-            c.push(name);
-            let mut n = env.numbers(
-                &format!("LaneNote{l}"),
-                &format!("{} · {} ms", counts[l], signed(mean, 0)),
-                12.0,
-                "Muted",
-            );
+            let mut t = env.text(&format!("Lane{l}"), &name, 13.0, 600, "Secondary");
+            if let Kind::Text(tx) = &mut t.kind {
+                tx.max_width = slot - 4.0;
+                tx.ellipsis = true;
+            }
+            call(&mut t, "xy", &[cxl, iy + ih + 14.0]);
+            c.push(t);
+            let note = if roomy {
+                let mean = if counts[l] > 0 {
+                    sums[l] / counts[l] as f32
+                } else {
+                    0.0
+                };
+                format!("{} · {} ms", counts[l], signed(mean, 0))
+            } else {
+                counts[l].to_string()
+            };
+            let mut n = env.numbers(&format!("LaneNote{l}"), &note, 12.0, "Muted");
             call(&mut n, "xy", &[cxl, iy + ih + 32.0]);
             c.push(n);
         }
-        self.panel("Lanes", "By lane · not Fantastic", "", rect, c)
+        let best_name = self
+            .data
+            .judgements
+            .first()
+            .map_or("the best", |j| j.name.as_str());
+        self.panel("Lanes", &format!("By lane · not {best_name}"), "", rect, c)
     }
 
     fn bottom_bar(&self, [x, y, w, h]: [f32; 4]) -> Actor {
         let env = &self.env;
         let mid = h / 2.0;
-        let mut c = vec![left(
-            env.text("OffsetLabel", "Song offset", 15.0, 600, "Secondary"),
-            0.0,
-            mid,
-        )];
-        let bx = 118.0;
-        c.push(env.component(
-            "Button",
-            "Button",
-            &Spec::new([44.0, 44.0], "−"),
-            "OffsetDown",
-            [bx + 22.0, mid],
-        ));
-        let mut v = env.numbers(
-            "OffsetValue",
-            &format!("{:+} ms", self.data.song_offset),
-            20.0,
-            "Text",
-        );
-        call(&mut v, "xy", &[bx + 44.0 + 51.0, mid]);
-        c.push(v);
-        c.push(env.component(
-            "Button",
-            "Button",
-            &Spec::new([44.0, 44.0], "+"),
-            "OffsetUp",
-            [bx + 146.0 + 22.0, mid],
-        ));
-        let (mean, _) = self.data.timing();
-        let label = format!("Use the mean, {} ms", signed(mean, 0));
-        let uw = look::mono_width(&label, 15.0) + 28.0;
-        c.push(env.component(
-            "Button",
-            "Button",
-            &Spec::new([uw, 44.0], &label),
-            "UseMean",
-            [bx + 190.0 + 12.0 + uw / 2.0, mid],
-        ));
+        let mut c = Vec::new();
         let retry_w = 112.0;
         let list_w = 128.0;
         c.push(env.component(
@@ -531,6 +739,61 @@ impl ResultsScreen {
             "SongList",
             [w - retry_w - 12.0 - list_w / 2.0, mid],
         ));
+        if let Some(o) = &self.data.offset {
+            c.push(left(
+                env.text("OffsetLabel", "Song offset", 15.0, 600, "Secondary"),
+                0.0,
+                mid,
+            ));
+            let bx = 118.0;
+            c.push(env.component(
+                "Button",
+                "Button",
+                &Spec::new([44.0, 44.0], "−1"),
+                "OffsetDown",
+                [bx + 22.0, mid],
+            ));
+            let mut v = env.numbers(
+                "OffsetValue",
+                &format!("{} ms", signed((o.current * 1000.0) as f32, 0)),
+                20.0,
+                "Text",
+            );
+            call(&mut v, "xy", &[bx + 44.0 + 45.0, mid]);
+            c.push(v);
+            c.push(env.component(
+                "Button",
+                "Button",
+                &Spec::new([44.0, 44.0], "+1"),
+                "OffsetUp",
+                [bx + 134.0 + 22.0, mid],
+            ));
+            let mut bx = bx + 178.0 + 12.0;
+            // This play's mean as an offset, while it is not the offset
+            // set (as the old results offered it).
+            if let Some(s) = o.suggested.filter(|s| (s - o.current).abs() >= 0.001) {
+                let label = format!("Use {} ms", signed((s * 1000.0) as f32, 0));
+                let uw = look::mono_width(&label, 15.0) + 28.0;
+                c.push(env.component(
+                    "Button",
+                    "Button",
+                    &Spec::new([uw, 44.0], &label),
+                    "UseMean",
+                    [bx + uw / 2.0, mid],
+                ));
+                bx += uw + 12.0;
+            }
+            if o.current != 0.0 {
+                let rw = look::mono_width("Reset", 15.0) + 28.0;
+                c.push(env.component(
+                    "Button",
+                    "Button",
+                    &Spec::new([rw, 44.0], "Reset"),
+                    "ResetOffset",
+                    [bx + rw / 2.0, mid],
+                ));
+            }
+        }
         let mut f = frame("Bottom", c);
         call(&mut f, "xy", &[x, y]);
         f
@@ -540,16 +803,17 @@ impl ResultsScreen {
         let env = &self.env;
         let mut x = screen[0] - env.metric("Margin", 32.0);
         let mut c = Vec::new();
-        for (i, name) in PANEL_SETS.iter().enumerate().rev() {
+        for (i, set) in self.data.panel_sets.iter().enumerate().rev() {
+            let name = set.name.as_str();
             let w = look::mono_width(name, 13.0) + 24.0;
             let mut pill =
-                look::component_or(&*env.look, "Pill", "Button", &Spec::new([w, 30.0], *name));
+                look::component_or(&*env.look, "Pill", "Button", &Spec::new([w, 30.0], name));
             pill.name = format!("PanelSet{i}");
             let w = super::extent(&mut pill, [w, 30.0])[0];
             call(&mut pill, "xy", &[x - w / 2.0, 32.0]);
             crate::widgets::play(
                 &mut pill,
-                if i == self.panels {
+                if i == self.data.panel_set {
                     "Selected"
                 } else {
                     "Available"
@@ -559,20 +823,26 @@ impl ResultsScreen {
             x -= w + 8.0;
             c.push(pill);
         }
-        c.push(right(
-            env.text("PanelsLabel", "Panels", 13.0, 400, "Muted"),
-            x,
-            32.0,
-        ));
+        if !self.data.panel_sets.is_empty() {
+            c.push(right(
+                env.text("PanelsLabel", "Panels", 13.0, 400, "Muted"),
+                x,
+                32.0,
+            ));
+        }
         frame("PanelSets", c)
     }
 
     fn set_panels(&mut self, i: usize, root: &mut Actor) {
-        let i = i.min(PANEL_SETS.len() - 1);
-        if i == self.panels {
+        let n = self.data.panel_sets.len();
+        if n == 0 {
             return;
         }
-        self.panels = i;
+        let i = i.min(n - 1);
+        if i == self.data.panel_set {
+            return;
+        }
+        self.data.panel_set = i;
         let (_, rect, _) = self.places();
         let fresh = self.panels_actor(rect);
         if let Some(p) = hit::find_mut(root, "Panels") {
@@ -582,15 +852,33 @@ impl ResultsScreen {
         if let Some(p) = hit::find_mut(root, "PanelSets") {
             *p = pills;
         }
+        if let Some(f) = &self.actions.panels {
+            f(&self.data.panel_sets[i].name);
+        }
         self.publish();
     }
 
-    fn set_offset(&mut self, ms: i32, root: &mut Actor) {
-        self.data.song_offset = ms.clamp(-250, 250);
-        if let Some(v) = hit::find_mut(root, "OffsetValue")
-            && let Kind::Text(t) = &mut v.kind
+    /// A new song offset (seconds): kept by the shell, the bar drawn
+    /// again (its buttons depend on it).
+    fn set_offset(&mut self, seconds: f64, root: &mut Actor, cx: &mut Cx) {
+        let Some(o) = &mut self.data.offset else {
+            return;
+        };
+        let seconds = ((seconds * 1000.0).round() / 1000.0).clamp(-1.0, 1.0);
+        o.current = seconds;
+        if let Some(f) = &self.actions.offset {
+            f(seconds);
+        }
+        let (_, panels, bar_y) = self.places();
+        let fresh = self.bottom_bar([panels[0], bar_y, panels[2], 76.0]);
+        if let Some(b) = hit::find_mut(root, "Bottom") {
+            *b = fresh;
+        }
+        // Focus stays where it was, or on Retry when its button went.
+        if let Some(f) = cx.focused()
+            && hit::find(root, f).is_none()
         {
-            t.set_text(&format!("{:+} ms", self.data.song_offset));
+            cx.focus("Retry");
         }
         self.publish();
     }
@@ -598,17 +886,36 @@ impl ResultsScreen {
     fn publish(&self) {
         let mut st = self.env.state.borrow_mut();
         st.screen = "results".into();
-        st.panels = PANEL_SETS[self.panels].to_string();
-        st.song_offset = self.data.song_offset;
+        st.panels = self
+            .data
+            .panel_sets
+            .get(self.data.panel_set)
+            .map(|s| s.name.clone())
+            .unwrap_or_default();
+        st.song_offset = self
+            .data
+            .offset
+            .map_or(0, |o| (o.current * 1000.0).round() as i32);
         st.song = self.data.song.title.clone();
         st.backdrop = self.backdrop.source().map(str::to_string);
     }
 
     fn retry(&mut self, cx: &mut Cx) {
         self.env.state.borrow_mut().status = "retry".into();
-        if let Some(r) = self.retry.clone() {
+        if let Some(r) = self.actions.retry.clone() {
             let env = self.env.clone();
             r(&env, cx);
+        }
+    }
+
+    fn song_list(&mut self, cx: &mut Cx) {
+        self.env.state.borrow_mut().status = "song list".into();
+        match self.actions.song_list.clone() {
+            Some(f) => {
+                let env = self.env.clone();
+                f(&env, cx);
+            }
+            None => super::leave(&self.env, cx, true),
         }
     }
 }
@@ -641,16 +948,25 @@ impl Screen for ResultsScreen {
         root
     }
 
+    /// Frames until it has settled (its clock is the frames').
+    fn animating(&self) -> bool {
+        self.age < SETTLE
+    }
+
     fn focusables(&self) -> Vec<Focusable> {
-        let mut v: Vec<Focusable> = ["SongList", "Retry", "OffsetDown", "OffsetUp", "UseMean"]
-            .into_iter()
-            .map(Focusable::new)
-            .collect();
-        v.extend((0..PANEL_SETS.len()).map(|i| Focusable::new(format!("PanelSet{i}"))));
+        let mut v: Vec<Focusable> = BUTTONS.into_iter().map(Focusable::new).collect();
+        v.extend((0..self.data.panel_sets.len()).map(|i| Focusable::new(format!("PanelSet{i}"))));
         v
     }
 
-    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+    fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        let settling = self.age < SETTLE;
+        self.age += dt;
+        // Settled: focus back on Song list, whatever a tap meanwhile moved
+        // it to.
+        if settling && self.age >= SETTLE {
+            cx.focus("SongList");
+        }
         let vp = cx.viewport().screen;
         if fit(&*self.env.look, vp) != self.screen {
             self.screen = fit(&*self.env.look, vp);
@@ -664,40 +980,67 @@ impl Screen for ResultsScreen {
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        // Keys and pads held or mashed at the song's end, and any held
+        // key's repeat, are let go.
+        let settling = self.age < SETTLE;
+        match input {
+            Input::Menu { repeat, .. } if settling || *repeat => return Handled::Yes,
+            Input::Key(k) if k.down && (settling || k.repeat) => return Handled::Yes,
+            // Taps too: on a phone the play's touch lanes covered the
+            // screen, and a tap mashed at the end lands on a button.
+            Input::Activate { .. } if settling => return Handled::Yes,
+            _ => {}
+        }
         match input {
             Input::Menu { action, .. } => match action {
                 MenuAction::Left => {
-                    self.set_panels(self.panels.saturating_sub(1), root);
+                    self.set_panels(self.data.panel_set.saturating_sub(1), root);
                     Handled::Yes
                 }
                 MenuAction::Right => {
-                    self.set_panels(self.panels + 1, root);
-                    Handled::Yes
-                }
-                MenuAction::Start if cx.focused().is_none_or(|f| f == "SongList") => {
-                    super::leave(&self.env, cx, false);
+                    self.set_panels(self.data.panel_set + 1, root);
                     Handled::Yes
                 }
                 MenuAction::Back => {
-                    super::leave(&self.env, cx, true);
+                    self.song_list(cx);
                     Handled::Yes
                 }
+                // A pad's Select (Y) retries, as the old results' Start
+                // did; not Tab (it changes the style on song select: a
+                // key that does that must not restart a song here).
+                MenuAction::Select => {
+                    if !cx.menu_from_keyboard() {
+                        self.retry(cx);
+                    }
+                    Handled::Yes
+                }
+                // Start activates what has focus (Song list at first).
                 _ => Handled::No,
             },
-            Input::Key(k) if k.down && !k.repeat && k.key.eq_ignore_ascii_case("r") => {
-                self.retry(cx);
-                Handled::Yes
+            Input::Key(k) if k.down && !k.repeat && !k.composing => {
+                if k.key.eq_ignore_ascii_case("r") && !k.modifiers.command() {
+                    self.retry(cx);
+                    Handled::Yes
+                } else if k.key == "Backspace" {
+                    self.song_list(cx);
+                    Handled::Yes
+                } else {
+                    Handled::No
+                }
             }
             Input::Activate { name } => {
+                let current = self.data.offset.map_or(0.0, |o| o.current);
                 match name.as_str() {
-                    "SongList" => super::leave(&self.env, cx, false),
+                    "SongList" => self.song_list(cx),
                     "Retry" => self.retry(cx),
-                    "OffsetDown" => self.set_offset(self.data.song_offset - 1, root),
-                    "OffsetUp" => self.set_offset(self.data.song_offset + 1, root),
+                    "OffsetDown" => self.set_offset(current - 0.001, root, cx),
+                    "OffsetUp" => self.set_offset(current + 0.001, root, cx),
                     "UseMean" => {
-                        let (mean, _) = self.data.timing();
-                        self.set_offset(self.data.song_offset - mean.round() as i32, root);
+                        if let Some(s) = self.data.offset.and_then(|o| o.suggested) {
+                            self.set_offset(s, root, cx);
+                        }
                     }
+                    "ResetOffset" => self.set_offset(0.0, root, cx),
                     other => {
                         if let Some(i) = other.strip_prefix("PanelSet").and_then(|n| n.parse().ok())
                         {

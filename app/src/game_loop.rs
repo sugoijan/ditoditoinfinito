@@ -526,6 +526,12 @@ impl GameLoop {
         });
     }
 
+    /// The canvas back on the play's drawing (after a screen drew on it
+    /// with the 2D pass alone).
+    pub(crate) fn scene_mode(&self) {
+        self.gfx.set_mode(crate::web::gfx::SurfaceMode::Scene);
+    }
+
     pub(crate) fn clear_session(&mut self) {
         self.session = None;
         self.lyrics = None;
@@ -833,7 +839,7 @@ impl GameLoop {
         if let Some(s) = &self.session {
             let p = &s.player;
             let clock = p.clock();
-            let r = p.results();
+            let r = p.results_brief();
             set("song_time", clock.heard_now(host_now).into());
             set("combo", (p.combo() as f64).into());
             set("max_combo", (p.max_combo() as f64).into());

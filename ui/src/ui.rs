@@ -171,6 +171,8 @@ pub struct Ui {
     time: f64,
     dirty: bool,
     problems: Problems,
+    /// A keyboard key's menu action is being handled ([`Cx::menu_from_keyboard`]).
+    menu_key: bool,
 }
 
 impl Ui {
@@ -203,6 +205,7 @@ impl Ui {
             time: 0.0,
             dirty: true,
             problems: Problems::default(),
+            menu_key: false,
         }
     }
 
@@ -552,13 +555,15 @@ impl Ui {
     }
 
     fn cx(&self, id: u64, gesture: bool) -> Cx {
-        Cx::new(
+        let mut cx = Cx::new(
             gesture,
             self.viewport,
             self.time,
             self.layer(id).and_then(|l| l.focused.clone()),
             self.textures.clone(),
-        )
+        );
+        cx.menu_key = self.menu_key;
+        cx
     }
 
     fn push_layer(
@@ -954,7 +959,9 @@ impl Ui {
         }
         if let Some(action) = action {
             self.repeater.press(Source::Key(k.code.clone()), action);
+            self.menu_key = true;
             self.menu(action, false, gesture);
+            self.menu_key = false;
             return;
         }
         for id in self.input_chain() {
