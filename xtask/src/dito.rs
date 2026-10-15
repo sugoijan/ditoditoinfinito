@@ -44,7 +44,7 @@ pub(crate) const RAINBOW_FRAMES: usize = 16;
 /// Rows of the Quantized sheet: nine colours, padded to a power of two.
 const QUANTIZED_ROWS: usize = 16;
 
-/// The single colour (`app/src/settings.rs`, `NoteColors::Single`).
+/// The single colour (`web/src/settings.rs`, `NoteColors::Single`).
 const SINGLE: [f32; 4] = [0.35, 0.85, 1.0, 1.0];
 /// The mine (`render/src/scene.rs`).
 const MINE: [f32; 3] = [0.35, 0.3, 0.45];

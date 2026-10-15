@@ -21,7 +21,7 @@ pub const CLEAR: wgpu::Color = wgpu::Color {
 
 /// The bundled faces under the families styles name them by: the HUD's
 /// numbers and the theme's text face (the web registers the same files
-/// under the same names, `app/src/web/text.rs`).
+/// under the same names, `web/src/web/text.rs`).
 pub const FACES: &[(&str, &[u8])] = &[
     (
         "Iosevka Custom",

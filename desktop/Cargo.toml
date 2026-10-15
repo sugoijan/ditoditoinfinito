@@ -6,11 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "DitoDitoInfinito: the desktop shell (a window running the UI core)"
-
-[[bin]]
-name = "ditoditoinfinito-desktop"
-path = "src/main.rs"
+description = "DitoDitoInfinito: the desktop shell (a window running the UI core; run through the `ditoditoinfinito` crate)"
 
 [dependencies]
 ddi-actor.workspace = true

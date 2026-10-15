@@ -36,7 +36,8 @@ build. Gameplay URLs: `#/play?song=<id>&chart=<n>` plus `&auto=1` for autoplay a
 
 Workspace layout: `chart/` (chart model and importers), `engine/` (deterministic
 gameplay core), `render/` (wgpu scene), `platform/` (platform traits), `app/`
-(Yew web shell), `xtask/` (SEO fragments, song manifest, credits).
+(the game: the web shell on wasm, the desktop shell natively), `web/` (Yew
+web shell), `desktop/` (desktop shell), `xtask/` (SEO fragments, song manifest, credits).
 
 ## Bundled songs
 

@@ -77,7 +77,7 @@ not along the arrow). They draw no explosions.
 with unknown keys refused, `default`/`common` names refused, every skin
 loaded against the others; tested), a Noteskins section in the credits,
 Trunk's hook and `index.html`'s copy rules, the CI freshness step. In the
-app (`app/src/noteskins.rs`) the catalogue is imported records then the
+app (`web/src/noteskins.rs`) the catalogue is imported records then the
 bundled index (fetched once; a bundled skin plays when storage does not
 open, and Options still lists it),
 the chosen skin's folder put first so a shadowing import never plays in
