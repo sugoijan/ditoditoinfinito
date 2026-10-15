@@ -845,3 +845,42 @@ refuses both cancelled parents. Default and host insertion-order JSON features
 produce identical identities/revisions/catalog summaries. CLI/API summaries
 agree, and all original export/cache indexes and the registry remain unchanged.
 No durable desktop store or real library write is claimed by this test host.
+
+
+### Durable managed-store slice, 2026-10-15
+
+The native [managed store](danoni-rust-managed-store.md) implements the existing
+host transaction traits without changing the main library or shell. An explicit
+fresh store holds a writer lock, stores immutable song/evidence transactions and
+publishes a complete catalog with one atomic rename. Duplicate/no-op/replacement
+planning retains stable identities and selector coverage. Readers can retain old
+catalog rows after replacement; metadata listing does not load archived audio.
+
+A durable pending record distinguishes the exact old catalog from the receipted
+new one. Known uncommitted failures retire recovery markers; uncertain publication
+never triggers rollback/retry. Recovery audits the visible catalog and its
+referenced transaction inventories, retains interrupted payloads and fails closed
+on a third state, missing content, corruption or symlinks. CLI commands are thin
+SDK wrappers. The adapter currently requires Unix/local-filesystem semantics;
+process-exit and injected-error tests do not certify actual sudden power loss.
+
+Next wire the desktop host's background job, cancellation/progress UI and local
+library reader to URL preparation → admission → duplicate plan → managed-store
+installation, using explicit recovery after an uncertain outcome. Main-owned
+shell/library changes remain outside this worktree's scope. A separate SDK slice
+can add a single reusable job coordinator/status receipt for those calls, with
+cached preparation reuse and safe resume before publication. Retention/quotas,
+explicit abandoned-transaction garbage collection and broader URL/HTML5 engines
+remain follow-up work; no transaction directory should be removed while an older
+reader can reference it.
+
+Validation passes 234 native / 94 feature-disabled SDK tests, strict Clippy for
+both configurations, formatting and `just check` (847/847 REUSE). Eight injected
+error boundaries and eight child-process exits preserve whole multi-song
+replacements; additional tests exercise reentry and third-state recovery refusal.
+Separate fresh API/CLI stores admit two local songs / three charts, agree on
+identities/revisions/entries/files, recognize the duplicate and reject cancelled
+parents. All referenced inventories and playback files verify after reopening.
+The accepted exports/registry/cache indexes remain unchanged, and no new work is
+fetched or executed. Local evidence is under
+`~/Music/DanOni/reviews/rust-managed-store-20261015/`.

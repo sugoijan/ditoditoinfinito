@@ -12,6 +12,8 @@ pub mod audio;
 pub mod dependencies;
 pub mod extraction;
 pub mod import_host;
+#[cfg(feature = "native")]
+pub mod managed_store;
 pub mod model;
 mod mpeg;
 #[cfg(feature = "native")]
@@ -70,3 +72,9 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(all(test, feature = "native"))]
+extern crate self as ddi_danoni_export;
+#[cfg(all(test, feature = "native"))]
+#[path = "../tests/support/import_fixture.rs"]
+mod import_fixture;

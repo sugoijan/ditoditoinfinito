@@ -12,6 +12,26 @@ fn main() {
             })
         }),
         #[cfg(feature = "native")]
+        [command, root]
+            if [
+                "create-store",
+                "inspect-store",
+                "verify-store",
+                "recover-store",
+            ]
+            .contains(&command.as_str()) =>
+        {
+            store_command(command, std::path::Path::new(root))
+        }
+        #[cfg(feature = "native")]
+        [command, ready, root] if command == "install-import" => {
+            install_import(ready, root, "reject")
+        }
+        #[cfg(feature = "native")]
+        [command, ready, root, policy] if command == "install-import" => {
+            install_import(ready, root, policy)
+        }
+        #[cfg(feature = "native")]
         [command, root] if command == "inspect-import" => {
             ddi_danoni_export::prepared_import::load_ready(std::path::Path::new(root), &mut |_| {
                 Ok(())
@@ -270,7 +290,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export inspect-cached-page JOB.json\n       ddi-danoni-export replay-cache JOB.json\n       ddi-danoni-export fetch-url JOB.json\n       ddi-danoni-export inspect-import READY_DIRECTORY\n       ddi-danoni-export prepare-url-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-url-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export profile-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export profile-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json\n       ddi-danoni-export prepare-audio JOB.json NEW_OUTPUT\n       ddi-danoni-export estimate-tempo JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-worker UPSTREAM_GIT NEW_SOURCES\n       ddi-danoni-export package-worker JOB.json NEW_BUNDLE\n       ddi-danoni-export verify-worker BUNDLE\n       ddi-danoni-export capture-native JOB.json NEW_OUTPUT\n       ddi-danoni-export project-native JOB.json NEW_OUTPUT\n       ddi-danoni-export demux-native JOB.json NEW_OUTPUT\n       ddi-danoni-export normalize-native JOB.json NEW_OUTPUT"
+                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export inspect-cached-page JOB.json\n       ddi-danoni-export replay-cache JOB.json\n       ddi-danoni-export fetch-url JOB.json\n       ddi-danoni-export inspect-import READY_DIRECTORY\n       ddi-danoni-export create-store NEW_DIRECTORY\n       ddi-danoni-export inspect-store DIRECTORY\n       ddi-danoni-export verify-store DIRECTORY\n       ddi-danoni-export recover-store DIRECTORY\n       ddi-danoni-export install-import READY_DIRECTORY STORE [reject|keep-existing|replace]\n       ddi-danoni-export prepare-url-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-url-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export profile-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export profile-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json\n       ddi-danoni-export prepare-audio JOB.json NEW_OUTPUT\n       ddi-danoni-export estimate-tempo JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-worker UPSTREAM_GIT NEW_SOURCES\n       ddi-danoni-export package-worker JOB.json NEW_BUNDLE\n       ddi-danoni-export verify-worker BUNDLE\n       ddi-danoni-export capture-native JOB.json NEW_OUTPUT\n       ddi-danoni-export project-native JOB.json NEW_OUTPUT\n       ddi-danoni-export demux-native JOB.json NEW_OUTPUT\n       ddi-danoni-export normalize-native JOB.json NEW_OUTPUT"
             );
             std::process::exit(2);
         }
@@ -328,4 +348,53 @@ fn prepare(job: &str, output: &str) -> Result<serde_json::Value, Error> {
     Ok(
         serde_json::json!({"schema":prepared.manifest["schema"],"songs":prepared.manifest["songs"].as_array().unwrap().len(),"output":output}),
     )
+}
+
+#[cfg(feature = "native")]
+fn store_command(
+    command: &str,
+    root: &std::path::Path,
+) -> ddi_danoni_export::Result<serde_json::Value> {
+    use ddi_danoni_export::managed_store::Store;
+    let mut store = if command == "create-store" {
+        Store::create(root)?
+    } else {
+        Store::open(root)?
+    };
+    let value = match command {
+        "recover-store" => serde_json::to_value(store.recover()?),
+        "verify-store" => serde_json::to_value(store.verify()?),
+        _ => serde_json::to_value(store.catalog()?),
+    };
+    value.map_err(|e| Error {
+        code: "output-json",
+        message: e.to_string(),
+    })
+}
+#[cfg(feature = "native")]
+fn install_import(
+    ready: &str,
+    root: &str,
+    policy: &str,
+) -> ddi_danoni_export::Result<serde_json::Value> {
+    use ddi_danoni_export::{import_host as host, managed_store::Store, prepared_import};
+    let policy = match policy {
+        "reject" => host::DuplicatePolicy::Reject,
+        "keep-existing" => host::DuplicatePolicy::KeepExisting,
+        "replace" => host::DuplicatePolicy::Replace,
+        _ => {
+            return Err(Error {
+                code: "invalid-duplicate-policy",
+                message: policy.into(),
+            });
+        }
+    };
+    let import = prepared_import::load_ready(std::path::Path::new(ready), &mut |_| Ok(()))?;
+    let mut store = Store::open(std::path::Path::new(root))?;
+    let plan = host::plan(&import, &store.catalog()?.snapshot(), policy)?;
+    let result = host::install(&import, &plan, &mut store, &mut |_| Ok(()))?;
+    serde_json::to_value(result).map_err(|e| Error {
+        code: "output-json",
+        message: e.to_string(),
+    })
 }

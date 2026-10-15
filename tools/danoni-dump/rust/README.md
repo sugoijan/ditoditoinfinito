@@ -38,8 +38,11 @@ The [prepared-import handover](../../../docs/research/danoni-rust-import.md)
 validates outer Ready outputs against the real library APIs, assigns stable
 source/audio song identities and provides duplicate planning and host transaction
 traits. `inspect-import READY_DIRECTORY` is read-only. `import_host::install`
-coordinates the host's atomic commit, rollback and uncertain-commit recovery;
-a concrete desktop storage adapter remains host-owned.
+coordinates the host's atomic commit, rollback and uncertain-commit recovery.
+The native [managed-store adapter](../../../docs/research/danoni-rust-managed-store.md)
+provides an immutable filesystem store with atomic catalog publication and crash
+recovery. `create-store`, `install-import`, `inspect-store`, `verify-store` and
+`recover-store` wrap the same SDK API; main-app wiring remains separate.
 
 ## Commands
 

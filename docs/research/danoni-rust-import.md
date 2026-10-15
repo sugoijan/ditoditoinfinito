@@ -229,7 +229,7 @@ under `app/`, `library/`, `chart/` or the engine changes in this slice.
 
 ## Inspection and verification
 
-The native CLI is read-only:
+The import-inspection command is read-only:
 
 ```sh
 cargo run --locked --manifest-path tools/danoni-dump/rust/Cargo.toml \
@@ -272,3 +272,14 @@ skip execution. No new work was fetched or executed for this slice, no real
 library was installed, and original accepted exports/registry/cache indexes retain
 their previous hashes. Local `validation.json` binds sources, binaries, logs and
 these receipts. Durable host-store/crash-recovery acceptance remains outstanding.
+
+
+## Durable native adapter
+
+The subsequent [managed-store slice](danoni-rust-managed-store.md) implements
+these transaction traits with immutable payload/evidence directories, an atomic
+catalog and explicit recovery. It adds installation/inspection/verification CLI
+commands for a separately initialized external store. The in-memory checkpoint
+above remains the earlier handover test; the new document describes durable-store
+acceptance and the exact disk schema. Desktop shell integration is still owned by
+the main implementation session.
