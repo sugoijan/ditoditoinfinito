@@ -26,7 +26,7 @@ use gloo::events::{EventListener, EventListenerOptions};
 use gloo::render::{AnimationFrame, request_animation_frame};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{AudioBuffer, HtmlCanvasElement, HtmlElement, KeyboardEvent};
+use web_sys::{AudioBuffer, HtmlElement, KeyboardEvent};
 use yew::prelude::*;
 
 use crate::calibration::{self, CalMode, Outcome};
@@ -39,7 +39,7 @@ use crate::settings::{Settings, VideoMode};
 use crate::songs::{LoadError, load_background, load_layer_image, load_song};
 use crate::web::audio::WebAudio;
 use crate::web::gamepad::Gamepads;
-use crate::web::gfx::{BackendPreference, Gfx};
+use crate::web::gfx::{BackendPreference, SurfaceMode};
 use crate::web::video::ModuleStatus;
 use ddi_library::backgrounds::{self, BgImage};
 
@@ -79,6 +79,8 @@ pub(crate) struct Loaded {
 
 pub(crate) enum Msg {
     GfxReady(Result<Box<GameLoop>, String>),
+    /// The app's device was lost and made again.
+    DeviceLost,
     /// Escape/Backspace outside of play: leave the screen.
     BackRequested,
     SongLoaded(Result<Rc<Loaded>, LoadError>),
@@ -143,10 +145,20 @@ pub(crate) struct Props {
     /// automatic video setting).
     #[prop_or_default]
     pub(crate) slow: bool,
+    /// Asks the app to mount the screen again (a lost device).
+    #[prop_or_default]
+    pub(crate) restart: Callback<()>,
 }
 
 pub(crate) struct GameCanvas {
-    canvas: NodeRef,
+    /// Where the app's canvas is put (`web::screen`).
+    slot: NodeRef,
+    /// The app's canvas, while this screen holds it.
+    attachment: Option<crate::web::screen::Attachment>,
+    /// The device was lost while the results showed: they stay, and the
+    /// screen starts over when the player goes on.
+    device_lost: bool,
+    _lost: crate::web::screen::Listener,
     debug: NodeRef,
     /// Lyrics overlay (filled by the game loop).
     lyrics: NodeRef,
@@ -297,7 +309,13 @@ impl Component for GameCanvas {
             gloo::timers::callback::Interval::new(250, move || link.send_message(Msg::VideoTick))
         };
         GameCanvas {
-            canvas: NodeRef::default(),
+            slot: NodeRef::default(),
+            attachment: None,
+            device_lost: false,
+            _lost: {
+                let link = ctx.link().clone();
+                crate::web::screen::on_lost(move || link.send_message(Msg::DeviceLost))
+            },
             debug: NodeRef::default(),
             lyrics: NodeRef::default(),
             gfx: Status::Pending,
@@ -344,11 +362,20 @@ impl Component for GameCanvas {
             }
             return;
         }
-        let Some(canvas) = self.canvas.cast::<HtmlCanvasElement>() else {
+        let attached = self
+            .slot
+            .cast::<web_sys::Element>()
+            .and_then(|slot| crate::web::screen::attach(&slot, "game-canvas"));
+        let Some(canvas) = attached
+            .is_some()
+            .then(crate::web::screen::canvas)
+            .flatten()
+        else {
             ctx.link()
                 .send_message(Msg::GfxReady(Err("canvas element missing".into())));
             return;
         };
+        self.attachment = attached;
         let dpr = web_sys::window()
             .map(|w| w.device_pixel_ratio())
             .unwrap_or(1.0);
@@ -357,14 +384,22 @@ impl Component for GameCanvas {
         canvas.set_height((rect.height() * dpr).round().max(1.0) as u32);
         let link = ctx.link().clone();
         let on_event = ctx.link().callback(Msg::Session);
-        let preference = ctx.props().backend;
+        // `gfx=gl`: the app's device on WebGL2 from now on.
+        if ctx.props().backend == BackendPreference::WebGl2 {
+            crate::web::screen::require_gl();
+        }
         // The built-in arrows draw no skin: on WebGL2 frames then go
         // straight to the canvas (`Gfx::skin_blending`).
         let skins = self.settings.noteskin.as_deref() != Some(crate::noteskins::BUILT_IN);
         spawn_local(async move {
-            let result = Gfx::new(canvas, preference)
-                .await
-                .map(|(gfx, canvas)| Box::new(GameLoop::new(gfx, canvas, on_event, skins)));
+            let result = crate::web::screen::gfx().await.map(|gfx| {
+                gfx.set_mode(SurfaceMode::Scene);
+                // The canvas made with the device (another, if it was made
+                // again since).
+                let canvas = crate::web::screen::canvas().unwrap_or(canvas);
+                gfx.resize(canvas.width(), canvas.height());
+                Box::new(GameLoop::new(gfx, canvas, on_event, skins))
+            });
             link.send_message(Msg::GfxReady(result));
         });
     }
@@ -378,6 +413,18 @@ impl Component for GameCanvas {
                 self.apply_background();
                 schedule(self.raf.clone(), self.game.clone());
                 true
+            }
+            Msg::DeviceLost => {
+                // The results stay (a phone loses contexts under memory
+                // pressure); anything else starts over on the new device.
+                if matches!(self.stage, Stage::Finished { .. } | Stage::Saved(_)) {
+                    self.device_lost = true;
+                    self.raf.borrow_mut().take();
+                    self.game.borrow_mut().take();
+                } else {
+                    ctx.props().restart.emit(());
+                }
+                false
             }
             Msg::GfxReady(Err(e)) => {
                 self.gfx = Status::Failed(e);
@@ -634,6 +681,10 @@ impl Component for GameCanvas {
                 true
             }
             Msg::Retry => {
+                if self.device_lost {
+                    ctx.props().restart.emit(());
+                    return false;
+                }
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
                 }
@@ -677,7 +728,7 @@ impl Component for GameCanvas {
         let source = &ctx.props().source;
         let overlay = match (&self.gfx, &self.song, &self.stage) {
             (Status::Failed(e), _, _) => {
-                html! { <div class="canvas-overlay error">{ format!("renderer failed: {e}") }</div> }
+                html! { <div class="canvas-overlay error">{ crate::components::ui_test::no_gpu(e) }</div> }
             }
             (_, Status::Failed(e), _) => {
                 html! { <div class="canvas-overlay error">{ format!("song failed to load: {e}") }</div> }
@@ -816,7 +867,7 @@ impl Component for GameCanvas {
         });
         html! {
             <div class={classes!("game-canvas-host", playing.then_some("playing"))} {onpointerdown}>
-                <canvas ref={self.canvas.clone()} class="game-canvas"></canvas>
+                <div class="game-canvas-slot" ref={self.slot.clone()}></div>
                 <div class="lyrics" ref={self.lyrics.clone()} aria-hidden="true"></div>
                 { overlay }
                 { debug }
@@ -839,6 +890,7 @@ impl Component for GameCanvas {
         }
         self.raf.borrow_mut().take();
         self.game.borrow_mut().take();
+        self.attachment = None;
     }
 }
 
@@ -995,7 +1047,7 @@ impl GameCanvas {
         config.auto_bias = ctx.props().auto_bias;
         config.auto_pad = ctx.props().auto_pad;
         config.gamepads = self.gamepads.clone();
-        config.touch_canvas = self.canvas.cast::<HtmlCanvasElement>();
+        config.touch_canvas = crate::web::screen::canvas();
         let shift = match &ctx.props().source {
             SongSource::Song { id, .. } => self.settings.song_offset(id),
             SongSource::Calibration(_) => 0.0,

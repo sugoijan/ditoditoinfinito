@@ -354,6 +354,60 @@ in Firefox; a play after visiting other routes still all top tier; a lost
 context (`WEBGL_lose_context`) recovers; texture-cache bytes in
 `__DDI_DEBUG`.
 
+Done (2026-10-15):
+
+- **One canvas** (`app/src/web/screen.rs`): canvas and device made in
+  `main` before Yew mounts (the boot shell waits for the adapter, at most
+  4 s); the backend chosen at boot (`gfx=gl` in the address, or the new
+  Graphics setting), a route asking for WebGL2 later switching it once for
+  the session. Pages that draw attach the canvas into their own element
+  (play, skin preview); the 2D pass can show it fixed behind the page. A
+  lost device (WebGPU's callback, WebGL2's `webglcontextlost`) is made
+  again on a fresh canvas in the old one's place (the old WebGPU device
+  destroyed); a play goes back to its start prompt, except on its results,
+  which stay until retry; the skin preview rebuilds. wgpu's errors are
+  logged, not fatal; nothing configures a lost device. Without a usable
+  GPU the drawing pages say so and the Yew pages keep working.
+- **Texture cache** (`render/src/texture_cache.rs`): keyed by source and a
+  size bucket (64 … 2048), stable ids, queued loads decoded by
+  `createImageBitmap` (`app/src/web/textures.rs`), least-recently-used
+  eviction under a byte budget, reloaded after a lost device.
+- **Text** (`render/src/text_atlas.rs`, `app/src/web/text.rs`,
+  `render/src/cosmic.rs`): runs drawn white by Canvas2D on one staging
+  canvas into 2048² `R8Unorm` pages with 2 px padding; one upload per page
+  and stretch of a shelf each frame (a union rectangle would copy the
+  staging canvas's blank parts over earlier runs); budget in pages,
+  least-recently-used page cleared whole, never one in use this frame;
+  `compact` and `trim` keep pages few; `fillText` is clipped to its cell.
+  Runs are drawn at their shown scale (device pixel ratio times the
+  transform's, in quarter octaves) and snapped to whole pixels where they
+  map one to one; turned runs are sampled. The bundled font is the `FontFace`
+  "Iosevka Custom". Natively, cosmic-text with bundled and optionally
+  system fonts.
+- **The 2D pass** (`render/src/draw2d.rs`, `painter.rs`, `painter.wgsl`):
+  quads (textured, coverage, untextured; corner colours; four blend
+  modes), text runs, clips as scissors, `External` slots that end the
+  pass for the shell to draw into; drawn in encoded values through a plain
+  view, WebGL2's surface switched to plain `Rgba8Unorm` while no play
+  field is shown. Instance buffers are chunked (`render/src/instances.rs`),
+  so the textured pass no longer drops quads beyond one buffer.
+- **Checked:** 25 pixel checks of `#/ui-test` with no failure in Chrome
+  (WebGPU, WebGL2) and Firefox (WebGL2), also after a lost device (ids
+  kept, textures reloaded, text redrawn); a late texture shows its
+  placeholder first; scrolling 300 rows a second within one text page
+  (two at 2×) costs 0.4–3 ms a frame (4.4 ms at worst on WebGL2), 2,008
+  runs every frame 1–2 ms on three pages; a play after the other routes,
+  and after a lost device mid-play, all top tier on both backends; skin
+  previews identical pixel for pixel; wasm 2,350 KB (+41 KB with step
+  1.2). An independent review found eleven defects (among them the
+  touch quit button cut off from its handler, waiters dropped when the
+  backend switched during start-up, a lost WebGL2 context reconfigured);
+  all fixed and checked again.
+- **Left:** perspective quads, masks and runs drawn in colour
+  come with the bridge from actors; nothing draws the play field into an
+  `External` slot yet; the test scene redraws every frame (P13 is step
+  3); WebGPU in Firefox and Safari unchecked.
+
 ### Step 3. `ddi-ui` core, shared state and the desktop shell
 
 - **Core:** events and requests (P2), hit-testing through actors'

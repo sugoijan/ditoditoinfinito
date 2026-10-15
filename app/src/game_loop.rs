@@ -26,7 +26,8 @@ pub(crate) const FONT: &[u8] =
     include_bytes!("../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
 
 pub(crate) struct GameLoop {
-    gfx: Gfx,
+    /// The app's device (`web::screen`), shared.
+    gfx: Rc<Gfx>,
     canvas: HtmlCanvasElement,
     renderer: Renderer,
     session: Option<PlaySession>,
@@ -173,7 +174,7 @@ impl GameLoop {
     /// `skins`: the player draws layouts with a skin (not the
     /// built-in arrows, chosen to be lighter).
     pub(crate) fn new(
-        gfx: Gfx,
+        gfx: Rc<Gfx>,
         canvas: HtmlCanvasElement,
         on_event: Callback<SessionEvent>,
         skins: bool,
@@ -549,12 +550,18 @@ impl GameLoop {
         if w != self.canvas.width() || h != self.canvas.height() {
             self.canvas.set_width(w);
             self.canvas.set_height(h);
-            self.gfx.resize(w, h);
         }
+        // Another holder of the canvas may have left the surface at its
+        // own size.
+        self.gfx.resize(w, h);
     }
 
     /// One animation frame. `time_ms` is the rAF timestamp (performance timeline).
     pub(crate) fn frame(&mut self, time_ms: f64) {
+        // The device is gone: the route starts over on the new one.
+        if self.gfx.is_lost() {
+            return;
+        }
         self.fit_canvas();
         let second = self.fps.tick(time_ms);
         self.upload_backgrounds();
@@ -580,20 +587,8 @@ impl GameLoop {
             outcome = event;
         }
 
-        let surface = match self.gfx.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(s) => s,
-            wgpu::CurrentSurfaceTexture::Suboptimal(s) => {
-                self.gfx
-                    .surface
-                    .configure(&self.gfx.device, &self.gfx.config);
-                s
-            }
-            _ => {
-                self.gfx
-                    .surface
-                    .configure(&self.gfx.device, &self.gfx.config);
-                return;
-            }
+        let Some(surface) = self.gfx.frame() else {
+            return;
         };
         let view = surface.texture.create_view(&wgpu::TextureViewDescriptor {
             format: Some(self.gfx.view_format()),
@@ -712,7 +707,8 @@ impl GameLoop {
                     if stage.pending() {
                         stage.upload(&mut self.renderer, &self.gfx.device, &self.gfx.queue);
                     }
-                    let (w, h) = (self.gfx.config.width as f32, self.gfx.config.height as f32);
+                    let (w, h) = self.gfx.size();
+                    let (w, h) = (w as f32, h as f32);
                     let span = ddi_render::scene::field_span(&session.layout);
                     let geo = ddi_render::FieldGeometry::new(w, h, span, render.reverse);
                     let srgb = self.renderer.srgb() && !self.renderer.skins_blend_encoded();
@@ -727,8 +723,8 @@ impl GameLoop {
                     &mut encoder,
                     &view,
                     plain_view.as_ref(),
-                    self.gfx.config.width,
-                    self.gfx.config.height,
+                    self.gfx.size().0,
+                    self.gfx.size().1,
                     &frame,
                     &session.layout,
                     &session.names,
@@ -831,8 +827,8 @@ impl GameLoop {
             self.backend_name(),
             self.fps.fps,
             self.fps.worst_last,
-            self.gfx.config.width,
-            self.gfx.config.height
+            self.gfx.size().0,
+            self.gfx.size().1
         );
         if let Some(s) = &self.session {
             let p = &s.player;
@@ -948,6 +944,7 @@ impl GameLoop {
         if let Some(el) = &self.debug_el {
             el.set_text_content(Some(&text));
         }
+        crate::web::screen::debug_into(&obj);
         let _ = js_sys::Reflect::set(
             &window,
             &wasm_bindgen::JsValue::from_str("__DDI_DEBUG"),

@@ -9,6 +9,7 @@ repository.workspace = true
 description = "DitoDitoInfinito web app"
 
 [dependencies]
+ddi-actor.workspace = true
 ddi-chart.workspace = true
 ddi-engine.workspace = true
 ddi-render.workspace = true
@@ -55,6 +56,9 @@ web-sys = { workspace = true, features = [
     "ScrollIntoViewOptions",
     "ScrollLogicalPosition",
     "FocusOptions",
+    "FontFace",
+    "FontFaceDescriptors",
+    "FontFaceSet",
     "DomTokenList",
     "TextDecoder",
     "TextDecoderOptions",
@@ -107,6 +111,7 @@ web-sys = { workspace = true, features = [
     "MessageEvent",
     "CanvasRenderingContext2d",
     "ImageData",
+    "WebGl2RenderingContext",
     "console",
 ] }
 

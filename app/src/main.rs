@@ -20,6 +20,8 @@ mod web;
 
 fn main() {
     crash::install_hook();
+    // The app's canvas and device, made once for every route.
+    web::screen::boot();
     let document = web_sys::window()
         .and_then(|window| window.document())
         .expect("document must exist");

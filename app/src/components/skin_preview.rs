@@ -31,7 +31,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 use yew::prelude::*;
 
-use crate::web::gfx::{BackendPreference, Gfx};
+use crate::web::gfx::{Gfx, SurfaceMode};
 
 /// What a preview shows.
 #[derive(Clone, Debug, PartialEq)]
@@ -197,9 +197,10 @@ pub(crate) struct CanvasProps {
     pub(crate) options: PreviewOptions,
 }
 
-/// The canvas's device, kept while the skin shown changes.
+/// The app's device (`web::screen`) and a renderer on it, kept while the
+/// skin shown changes; made again when the device is.
 struct Device {
-    gfx: Gfx,
+    gfx: Rc<Gfx>,
     renderer: Renderer,
 }
 
@@ -229,7 +230,13 @@ impl Shown {
 #[derive(Default)]
 struct State {
     canvas: Option<HtmlCanvasElement>,
+    /// The app's canvas, while this preview holds it.
+    attachment: Option<crate::web::screen::Attachment>,
     device: Option<Device>,
+    /// A new device is being taken up (the last one was lost).
+    rebuilding: bool,
+    /// None could be: the preview stops.
+    failed: bool,
     shown: Option<Shown>,
     /// The options last asked for, and their number: a load of older
     /// options stops when it sees a newer one.
@@ -240,7 +247,8 @@ struct State {
 }
 
 pub(crate) struct PreviewCanvas {
-    canvas: NodeRef,
+    /// Where the app's canvas is put.
+    slot: NodeRef,
     state: Rc<RefCell<State>>,
     /// The animation frame callback, kept alive.
     tick: Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>,
@@ -264,7 +272,7 @@ impl Component for PreviewCanvas {
             ..State::default()
         };
         PreviewCanvas {
-            canvas: NodeRef::default(),
+            slot: NodeRef::default(),
             state: Rc::new(RefCell::new(state)),
             tick: Rc::new(RefCell::new(None)),
             frame: Rc::new(Cell::new(0)),
@@ -304,42 +312,35 @@ impl Component for PreviewCanvas {
             return;
         }
         let options = ctx.props().options.clone();
-        let Some(canvas) = self.canvas.cast::<HtmlCanvasElement>() else {
+        let Some(attachment) = self
+            .slot
+            .cast::<web_sys::Element>()
+            .and_then(|slot| crate::web::screen::attach(&slot, "skin-preview-gpu"))
+        else {
+            return;
+        };
+        let Some(canvas) = crate::web::screen::canvas() else {
             return;
         };
         size_canvas(&canvas, &options);
-        self.state.borrow_mut().canvas = Some(canvas.clone());
+        {
+            let mut st = self.state.borrow_mut();
+            st.canvas = Some(canvas);
+            st.attachment = Some(attachment);
+        }
+        if options.force_gl {
+            crate::web::screen::require_gl();
+        }
         let state = self.state.clone();
         let tick = self.tick.clone();
         let frame = self.frame.clone();
         let link = ctx.link().clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let preference = if options.force_gl {
-                BackendPreference::WebGl2
-            } else {
-                BackendPreference::Auto
-            };
-            let (gfx, _canvas) = match Gfx::new(canvas, preference).await {
-                Ok(g) => g,
-                Err(e) => {
-                    state.borrow_mut().status = format!("no graphics: {e}");
-                    link.send_message(Msg::Status);
-                    return;
-                }
-            };
-            let renderer = Renderer::new(
-                &gfx.device,
-                &gfx.queue,
-                gfx.view_format(),
-                gfx.skin_blending(true),
-                &[crate::game_loop::FONT],
-            );
+            if !take_device(&state, &link).await {
+                return;
+            }
             let (options, generation) = {
-                let mut st = state.borrow_mut();
-                if st.closed {
-                    return;
-                }
-                st.device = Some(Device { gfx, renderer });
+                let st = state.borrow();
                 (st.wanted.clone().unwrap_or(options), st.generation)
             };
             load(&state, options, generation).await;
@@ -348,7 +349,7 @@ impl Component for PreviewCanvas {
                 return;
             }
             link.send_message(Msg::Status);
-            start(state, tick, frame);
+            start(state, tick, frame, link);
         });
     }
 
@@ -362,20 +363,64 @@ impl Component for PreviewCanvas {
         if let Some(s) = st.shown.take() {
             s.close();
         }
-        // The GPU device goes now, not when a pending setup ends.
+        // The renderer goes now, not when a pending setup ends; the canvas
+        // is parked again.
         st.device = None;
         st.canvas = None;
+        st.attachment = None;
     }
 
     fn view(&self, _ctx: &Context<Self>) -> Html {
         let status = self.state.borrow().status.clone();
         html! {
             <div class="skin-preview-canvas">
-                <canvas ref={self.canvas.clone()} role="img" aria-label={format!("noteskin preview: {status}")} />
+                <div class="skin-preview-slot" ref={self.slot.clone()} role="img" aria-label={format!("noteskin preview: {status}")}></div>
                 <p class="skin-preview-status" aria-hidden="true">{ status }</p>
             </div>
         }
     }
+}
+
+/// Takes up the app's device (at the start, and after a loss): a renderer
+/// on it, the canvas made with it. `false` when there is none or the
+/// preview closed.
+async fn take_device(state: &Rc<RefCell<State>>, link: &html::Scope<PreviewCanvas>) -> bool {
+    let gfx = match crate::web::screen::gfx().await {
+        Ok(g) => g,
+        Err(e) => {
+            state.borrow_mut().status = format!("no graphics: {e}");
+            link.send_message(Msg::Status);
+            return false;
+        }
+    };
+    let mut st = state.borrow_mut();
+    if st.closed {
+        return false;
+    }
+    gfx.set_mode(SurfaceMode::Scene);
+    let renderer = Renderer::new(
+        &gfx.device,
+        &gfx.queue,
+        gfx.view_format(),
+        gfx.skin_blending(true),
+        &[crate::game_loop::FONT],
+    );
+    // A device made again comes with a new canvas, in the old one's place.
+    if let Some(canvas) = crate::web::screen::canvas() {
+        if let Some(options) = st
+            .shown
+            .as_ref()
+            .map(|s| s.options.clone())
+            .or(st.wanted.clone())
+        {
+            size_canvas(&canvas, &options);
+            let (w, h) = options.canvas_size(&options.layout());
+            gfx.resize(w, h);
+        }
+        st.canvas = Some(canvas);
+    }
+    st.device = Some(Device { gfx, renderer });
+    true
 }
 
 /// Sizes `canvas` for `options`: its pixels, and its size on the page.
@@ -406,7 +451,11 @@ async fn load(state: &Rc<RefCell<State>>, options: PreviewOptions, generation: u
         return;
     }
     let st = &mut *st;
-    let Some(device) = st.device.as_mut() else {
+    // A lost device: the skin is readied again on the new one (`start`).
+    let Some(device) = st.device.as_mut().filter(|d| !d.gfx.is_lost()) else {
+        if let Some(p) = prepared {
+            p.close();
+        }
         return;
     };
     if let Some(old) = st.shown.take() {
@@ -466,19 +515,57 @@ fn start(
     state: Rc<RefCell<State>>,
     tick: Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>,
     frame: Rc<Cell<i32>>,
+    link: html::Scope<PreviewCanvas>,
 ) {
     let again = tick.clone();
     let next = frame.clone();
     *tick.borrow_mut() = Some(Closure::new(move |time_ms: f64| {
-        {
+        let lost = {
             let mut st = state.borrow_mut();
             if st.closed {
                 return;
             }
             let st = &mut *st;
-            if let (Some(device), Some(shown)) = (st.device.as_mut(), st.shown.as_mut()) {
-                draw(device, shown, time_ms);
+            if st.failed {
+                return;
             }
+            let holds = st.attachment.as_ref().is_some_and(|a| a.holds());
+            match (st.device.as_mut(), st.shown.as_mut()) {
+                (Some(device), _) if device.gfx.is_lost() => !st.rebuilding,
+                (Some(device), Some(shown)) if holds => {
+                    draw(device, shown, time_ms);
+                    false
+                }
+                _ => false,
+            }
+        };
+        // The device was lost: the skin again on the new one.
+        if lost {
+            state.borrow_mut().rebuilding = true;
+            let (state, link) = (state.clone(), link.clone());
+            wasm_bindgen_futures::spawn_local(async move {
+                if take_device(&state, &link).await {
+                    let (options, generation) = {
+                        let mut st = state.borrow_mut();
+                        st.generation += 1;
+                        let options = st
+                            .shown
+                            .as_ref()
+                            .map(|s| s.options.clone())
+                            .or(st.wanted.clone());
+                        (options, st.generation)
+                    };
+                    if let Some(options) = options {
+                        load(&state, options, generation).await;
+                    }
+                    link.send_message(Msg::Status);
+                    state.borrow_mut().rebuilding = false;
+                } else {
+                    // No device to be had: the preview stops (its status
+                    // says why), rather than asking every frame.
+                    state.borrow_mut().failed = true;
+                }
+            });
         }
         if let (Some(w), Some(cb)) = (web_sys::window(), again.borrow().as_ref())
             && let Ok(id) = w.request_animation_frame(cb.as_ref().unchecked_ref())
@@ -590,12 +677,8 @@ fn draw(device: &mut Device, shown: &mut Shown, time_ms: f64) {
         }
     };
     let Device { gfx, renderer } = device;
-    let surface = match gfx.surface.get_current_texture() {
-        wgpu::CurrentSurfaceTexture::Success(s) | wgpu::CurrentSurfaceTexture::Suboptimal(s) => s,
-        _ => {
-            gfx.surface.configure(&gfx.device, &gfx.config);
-            return;
-        }
+    let Some(surface) = gfx.frame() else {
+        return;
     };
     let view = surface.texture.create_view(&wgpu::TextureViewDescriptor {
         format: Some(gfx.view_format()),
@@ -626,8 +709,8 @@ fn draw(device: &mut Device, shown: &mut Shown, time_ms: f64) {
         &mut encoder,
         &view,
         plain_view.as_ref(),
-        gfx.config.width,
-        gfx.config.height,
+        gfx.size().0,
+        gfx.size().1,
         &frame,
         &shown.layout,
         // Unused: a preview draws no judgements.
