@@ -165,7 +165,8 @@ Playwright's WebKit (not Safari) runs headless with WebGPU; it ignores the
 gesture rule below, so it does not replace the maintainer's Safari check.
 
 Useful URL parameters: `#/play?song=<id>&chart=<n>` (chart index as in the
-manifest), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
+manifest; the play ends on the theme's results drawn on the canvas, what
+they show in `window.__DDI_DEBUG.results`), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
 `&gfx=gl` force WebGL2 (read at boot, or switching the device once for
 the session; the Graphics setting chooses it too), `&auto=pad` autoplay through a fake gamepad the test
 installs as `window.__DDI_FAKE_PAD` (see the verify skill), `&slow=1`
@@ -197,7 +198,7 @@ so on in the desktop binary), with their state in
 popup, hints, pulse, compact, …); a window under 480 CSS pixels high
 gets the compact layout, and `prefers-reduced-motion` (or the
 `reduced_motion` setting) stops the beat pulse.
-`window.__DDI_LOSE_DEVICE()` loses the device, to test recovery;
+`window.__DDI_LOSE_DEVICE()` loses the device (a WebGL2 context too), to test recovery;
 `__DDI_DEBUG` carries the canvas's `screen`, `textures`, `text` and
 `pass2d` counters. Imported songs have ids
 `u-<hash>` and play through the same route.

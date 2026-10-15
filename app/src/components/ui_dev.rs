@@ -80,7 +80,11 @@ use crate::web::screen;
 /// Requests kept for the debug view.
 const KEPT_REQUESTS: usize = 24;
 /// The theme screens' actors whose places the debug view gives.
-const THEME_NAMED: [&str; 24] = [
+const THEME_NAMED: [&str; 28] = [
+    "OffsetDown",
+    "UseMean",
+    "ResetOffset",
+    "PanelSet2",
     "Wheel",
     "Search",
     "Info",
@@ -167,13 +171,15 @@ struct Composition {
     data: String,
 }
 
-struct Host {
-    ui: Ui,
+pub(crate) struct Host {
+    pub(crate) ui: Ui,
     dev: Shared,
     gfx: Option<Rc<Gfx>>,
     attachment: Option<screen::Attachment>,
     canvas: HtmlCanvasElement,
-    frame_el: HtmlElement,
+    /// The frame the canvas is placed in (the route's own); `None` when
+    /// embedded in another screen's canvas ([`embed`]).
+    frame_el: Option<HtmlElement>,
     textarea: HtmlTextAreaElement,
     files: HtmlInputElement,
     raf: Option<AnimationFrame>,
@@ -209,10 +215,22 @@ struct Host {
     texture_stats: Option<ddi_render::texture_cache::TextureStats>,
     /// The theme's screens, when the route asked for them.
     theme: Option<ThemeHost>,
+    /// Over another screen's canvas ([`embed`]): its size is the canvas's,
+    /// history is the route's, the debug state is added to the page's.
+    embedded: bool,
+    /// What the embedding screen adds to `__DDI_DEBUG`.
+    extra: Option<DebugFn>,
+    /// Embedded: where the canvas goes after a lost device, and the
+    /// listeners on the canvas (made again with it).
+    slot: Option<HtmlElement>,
+    listeners: Vec<EventListener>,
 }
 
+/// Adds an embedding screen's state to `__DDI_DEBUG`.
+pub(crate) type DebugFn = Box<dyn Fn(&js_sys::Object)>;
+
 /// What the theme's screens run with.
-struct ThemeHost {
+pub(crate) struct ThemeHost {
     env: ThemeEnv,
     look: Rc<ddi_theme::Infinito>,
     /// The system asks for reduced motion (`prefers-reduced-motion`).
@@ -347,6 +365,76 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
     el.append_child(&frame_el).map_err(|e| format!("{e:?}"))?;
     let attachment = screen::attach(&frame_el, "ui-dev-canvas").ok_or("no canvas")?;
     let canvas = screen::canvas().ok_or("no canvas")?;
+    let (textarea, files) = host_inputs(el)?;
+
+    let dev: Shared = Shared::default();
+    let widgets = SharedWidgets::default();
+    let fold: FoldFn = Rc::new(nfkd);
+    let mut theme = None;
+    let ui = if theme_screen(first) {
+        let t = theme_host(fold.clone());
+        let env = &t.env;
+        let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Mirror, true);
+        // The theme draws its own focus.
+        ui.set_focus_ring(false);
+        ui.push(sample::select_screen(env, Some(options_changed(env))));
+        match first {
+            "results" => ui.push(sample::results_screen(env)),
+            "options" => ui.push(sample::options_screen(env, Some(options_changed(env)))),
+            _ => {}
+        }
+        theme = Some(t);
+        ui
+    } else {
+        let mut ui = Ui::new(dev::DESIGN, TextMode::Mirror, true);
+        ui.push(DevScreen::with_widgets(
+            dev.clone(),
+            widgets.clone(),
+            fold.clone(),
+        ));
+        if first == "widgets" {
+            ui.push(WidgetScreen::new(widgets.clone(), fold));
+        }
+        ui
+    };
+    let host = new_host(
+        ui,
+        canvas.clone(),
+        Some(attachment),
+        Some(frame_el),
+        textarea.clone(),
+        files.clone(),
+        theme,
+    );
+    host.borrow_mut().dev = dev;
+    host.borrow_mut().widgets = widgets;
+    resize(&host);
+    // Back into an entry pushed for a dialog of an earlier visit (a reload,
+    // the route left with a dialog open): that dialog is gone, so step back
+    // to the route's own entry.
+    if let Some(n) = pushed_depth()
+        && let Some(history) = web_sys::window().and_then(|w| w.history().ok())
+    {
+        host.borrow_mut().ignore_pops += 1;
+        let _ = history.go_with_delta(-(n as i32));
+    }
+    let mut listeners = listen(&host, &canvas, &textarea, &files);
+    theme_listeners(&host, &mut listeners);
+    let pads = Gamepads::new();
+    if let Some(p) = &pads {
+        // Edges go to the listener alone: nothing drains a queue here.
+        p.set_queue(false);
+        let weak = Rc::downgrade(&host);
+        p.set_listener(Some(Box::new(move |edge| pad_edge(&weak, edge))));
+    }
+    publish(&host.borrow());
+    Ok((host, listeners, pads))
+}
+
+/// The hidden textarea (typing, P5) and file input, in `el`.
+fn host_inputs(el: &HtmlElement) -> Result<(HtmlTextAreaElement, HtmlInputElement), String> {
+    let doc = document();
+    let make = |tag: &str| doc.create_element(tag).map_err(|e| format!("{e:?}"));
     let textarea: HtmlTextAreaElement = make("textarea")?.unchecked_into();
     textarea.set_class_name("ui-dev-input");
     for (k, v) in [
@@ -368,57 +456,54 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
     // Out of the Tab order, as the textarea.
     let _ = files.set_attribute("tabindex", "-1");
     el.append_child(&files).map_err(|e| format!("{e:?}"))?;
+    Ok((textarea, files))
+}
 
-    let dev: Shared = Shared::default();
-    let widgets = SharedWidgets::default();
-    let fold: FoldFn = Rc::new(nfkd);
+/// The theme, its faces asked for, motion as the settings and the system
+/// say.
+pub(crate) fn theme_host(fold: FoldFn) -> ThemeHost {
+    crate::web::text::load_theme_fonts();
     let settings = crate::settings::Settings::load();
-    let mut theme = None;
-    let ui = if theme_screen(first) {
-        crate::web::text::load_theme_fonts();
-        let look = Rc::new(ddi_theme::Infinito::new());
-        let env = ThemeEnv::new(look.clone(), fold.clone());
-        let system = reduced_motion_query().is_some_and(|q| q.matches());
-        env.reduced_motion
-            .set(settings.reduced_motion.reduced(system));
-        env.state.borrow_mut().reduced_motion_setting = settings.reduced_motion as usize;
-        let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Mirror, true);
-        // The theme draws its own focus.
-        ui.set_focus_ring(false);
-        ui.push(sample::select_screen(&env, Some(options_changed(&env))));
-        match first {
-            "results" => ui.push(sample::results_screen(&env)),
-            "options" => ui.push(sample::options_screen(&env, Some(options_changed(&env)))),
-            _ => {}
-        }
-        theme = Some(ThemeHost {
-            env,
-            look,
-            system_reduced: Rc::new(std::cell::Cell::new(system)),
-        });
-        ui
-    } else {
-        let mut ui = Ui::new(dev::DESIGN, TextMode::Mirror, true);
-        ui.push(DevScreen::with_widgets(
-            dev.clone(),
-            widgets.clone(),
-            fold.clone(),
-        ));
-        if first == "widgets" {
-            ui.push(WidgetScreen::new(widgets.clone(), fold));
-        }
-        ui
-    };
-    let host = Rc::new(RefCell::new(Host {
+    let look = Rc::new(ddi_theme::Infinito::new());
+    let env = ThemeEnv::new(look.clone(), fold);
+    let system = reduced_motion_query().is_some_and(|q| q.matches());
+    env.reduced_motion
+        .set(settings.reduced_motion.reduced(system));
+    env.state.borrow_mut().reduced_motion_setting = settings.reduced_motion as usize;
+    ThemeHost {
+        env,
+        look,
+        system_reduced: Rc::new(std::cell::Cell::new(system)),
+    }
+}
+
+impl ThemeHost {
+    pub(crate) fn env(&self) -> &ThemeEnv {
+        &self.env
+    }
+}
+
+fn new_host(
+    ui: Ui,
+    canvas: HtmlCanvasElement,
+    attachment: Option<screen::Attachment>,
+    frame_el: Option<HtmlElement>,
+    textarea: HtmlTextAreaElement,
+    files: HtmlInputElement,
+    theme: Option<ThemeHost>,
+) -> Rc<RefCell<Host>> {
+    let settings = crate::settings::Settings::load();
+    let embedded = frame_el.is_none();
+    Rc::new(RefCell::new(Host {
         ui,
-        dev,
-        widgets,
+        dev: Shared::default(),
+        widgets: SharedWidgets::default(),
         gfx: None,
-        attachment: Some(attachment),
-        canvas: canvas.clone(),
+        attachment,
+        canvas,
         frame_el,
-        textarea: textarea.clone(),
-        files: files.clone(),
+        textarea,
+        files,
         raf: None,
         last_ms: None,
         frames: 0,
@@ -442,67 +527,196 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
         total_ms: 0.0,
         texture_stats: None,
         theme,
-    }));
-    resize(&host);
-    // Back into an entry pushed for a dialog of an earlier visit (a reload,
-    // the route left with a dialog open): that dialog is gone, so step back
-    // to the route's own entry.
-    if let Some(n) = pushed_depth()
-        && let Some(history) = web_sys::window().and_then(|w| w.history().ok())
-    {
-        host.borrow_mut().ignore_pops += 1;
-        let _ = history.go_with_delta(-(n as i32));
+        embedded,
+        extra: None,
+        slot: None,
+        listeners: Vec::new(),
+    }))
+}
+
+/// The theme's listeners: faces loading, the system's reduced motion.
+fn theme_listeners(host: &Rc<RefCell<Host>>, listeners: &mut Vec<EventListener>) {
+    if host.borrow().theme.is_none() {
+        return;
     }
-    let mut listeners = listen(&host, &canvas, &textarea, &files);
-    if host.borrow().theme.is_some() {
-        // A face loaded: the runs drawn meanwhile are drawn again.
-        let weak = Rc::downgrade(&host);
-        crate::web::text::on_fonts_loaded(move || {
-            let Some(rc) = weak.upgrade() else {
-                // The page is gone: no more calls.
-                return false;
-            };
-            if let Ok(mut h) = rc.try_borrow_mut() {
-                h.ui.broadcast(Message::new("FontsLoaded"));
+    // A face loaded: the runs drawn meanwhile are drawn again.
+    let weak = Rc::downgrade(host);
+    crate::web::text::on_fonts_loaded(move || {
+        let Some(rc) = weak.upgrade() else {
+            // The page is gone: no more calls.
+            return false;
+        };
+        if let Ok(mut h) = rc.try_borrow_mut() {
+            h.ui.broadcast(Message::new("FontsLoaded"));
+        }
+        schedule(&rc);
+        true
+    });
+    // The system's reduced motion changed.
+    if let Some(q) = reduced_motion_query() {
+        let weak = Rc::downgrade(host);
+        listeners.push(EventListener::new(&q, "change", move |e| {
+            let reduce = js_sys::Reflect::get(e, &"matches".into())
+                .ok()
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let Some(rc) = weak.upgrade() else { return };
+            if let Ok(mut h) = rc.try_borrow_mut()
+                && let Some(t) = &h.theme
+            {
+                t.system_reduced.set(reduce);
+                let setting = crate::settings::Settings::load().reduced_motion;
+                t.env.reduced_motion.set(setting.reduced(reduce));
+                h.ui.broadcast(Message::new("ReducedMotion"));
             }
             schedule(&rc);
-            true
+        }));
+    }
+}
+
+/// A theme screen drawn on another screen's canvas (the play route's
+/// results): its own input, frames on demand, the theme; the canvas, its
+/// place and the route stay the embedding screen's. Dropping it stops
+/// it.
+pub(crate) struct Embedded {
+    pub(crate) host: Rc<RefCell<Host>>,
+    /// The theme's (fonts, reduced motion).
+    _listeners: Vec<EventListener>,
+}
+
+/// Runs `ui` (built with `theme`'s env) on the app's canvas, already in
+/// the page; the hidden inputs go in `container`; `extra` adds to
+/// `__DDI_DEBUG` what the embedding screen shows.
+pub(crate) fn embed(
+    container: &HtmlElement,
+    ui: Ui,
+    theme: ThemeHost,
+    extra: DebugFn,
+) -> Result<Embedded, String> {
+    let canvas = screen::canvas().ok_or("no canvas")?;
+    let (textarea, files) = host_inputs(container)?;
+    let host = new_host(
+        ui,
+        canvas.clone(),
+        None,
+        None,
+        textarea.clone(),
+        files.clone(),
+        Some(theme),
+    );
+    host.borrow_mut().extra = Some(extra);
+    host.borrow_mut().slot = Some(container.clone());
+    resize(&host);
+    let canvas_listeners = listen(&host, &canvas, &textarea, &files);
+    host.borrow_mut().listeners = canvas_listeners;
+    let mut listeners = Vec::new();
+    theme_listeners(&host, &mut listeners);
+    let weak = Rc::downgrade(&host);
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Ok(gfx) = screen::gfx().await {
+            embedded_gfx(&weak, gfx, false);
+        }
+    });
+    publish(&host.borrow());
+    Ok(Embedded {
+        host,
+        _listeners: listeners,
+    })
+}
+
+fn embedded_gfx(weak: &Weak<RefCell<Host>>, gfx: Rc<Gfx>, again: bool) {
+    let Some(rc) = weak.upgrade() else { return };
+    if again {
+        // The device came with a new canvas: into the slot, listened to.
+        let parts = rc.try_borrow().ok().and_then(|h| {
+            Some((
+                h.slot.clone()?,
+                h.textarea.clone(),
+                h.files.clone(),
+                h.closed,
+            ))
         });
-        // The system's reduced motion changed.
-        if let Some(q) = reduced_motion_query() {
-            let weak = Rc::downgrade(&host);
-            listeners.push(EventListener::new(&q, "change", move |e| {
-                let reduce = js_sys::Reflect::get(e, &"matches".into())
-                    .ok()
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let Some(rc) = weak.upgrade() else { return };
-                if let Ok(mut h) = rc.try_borrow_mut()
-                    && let Some(t) = &h.theme
-                {
-                    t.system_reduced.set(reduce);
-                    let setting = crate::settings::Settings::load().reduced_motion;
-                    t.env.reduced_motion.set(setting.reduced(reduce));
-                    h.ui.broadcast(Message::new("ReducedMotion"));
+        let Some((slot, textarea, files, closed)) = parts else {
+            return;
+        };
+        if closed {
+            return;
+        }
+        let attachment = screen::attach(&slot, "game-canvas");
+        let Some(canvas) = screen::canvas() else {
+            return;
+        };
+        if let Ok(mut h) = rc.try_borrow_mut() {
+            h.attachment = attachment;
+            h.canvas = canvas.clone();
+            h.listeners.clear();
+        }
+        let listeners = listen(&rc, &canvas, &textarea, &files);
+        if let Ok(mut h) = rc.try_borrow_mut() {
+            h.listeners = listeners;
+        }
+        resize(&rc);
+    }
+    {
+        let Ok(mut h) = rc.try_borrow_mut() else {
+            return;
+        };
+        if h.closed {
+            return;
+        }
+        gfx.set_mode(SurfaceMode::Plain);
+        h.gfx = Some(gfx);
+        // Everything again on the new device (the cache reloads what is
+        // drawn).
+        h.ui.broadcast(Message::new("DeviceChanged"));
+    }
+    schedule(&rc);
+}
+
+impl Embedded {
+    /// The app's device was made again: drawn on the new one.
+    pub(crate) fn device_lost(&self) {
+        if let Ok(mut h) = self.host.try_borrow_mut() {
+            h.gfx = None;
+            h.raf = None;
+        }
+        let weak = Rc::downgrade(&self.host);
+        wasm_bindgen_futures::spawn_local(async move {
+            // The new device, once it is made (the lost one may still be
+            // the current one for a moment).
+            for _ in 0..100 {
+                match screen::gfx().await {
+                    Ok(gfx) if !gfx.is_lost() => {
+                        embedded_gfx(&weak, gfx, true);
+                        return;
+                    }
+                    Ok(_) => gloo::timers::future::TimeoutFuture::new(100).await,
+                    Err(_) => return,
                 }
-                schedule(&rc);
-            }));
+                if weak.upgrade().is_none_or(|h| h.borrow().closed) {
+                    return;
+                }
+            }
+        });
+    }
+}
+
+impl Drop for Embedded {
+    fn drop(&mut self) {
+        if let Ok(mut h) = self.host.try_borrow_mut() {
+            h.closed = true;
+            h.raf = None;
+            h.listeners.clear();
+            let _ = h.textarea.blur();
+            h.textarea.remove();
+            h.files.remove();
         }
     }
-    let pads = Gamepads::new();
-    if let Some(p) = &pads {
-        // Edges go to the listener alone: nothing drains a queue here.
-        p.set_queue(false);
-        let weak = Rc::downgrade(&host);
-        p.set_listener(Some(Box::new(move |edge| pad_edge(&weak, edge))));
-    }
-    publish(&host.borrow());
-    Ok((host, listeners, pads))
 }
 
 /// The browser's NFKD (`String.prototype.normalize`), which the search
 /// folds with on the web.
-fn nfkd(text: &str) -> String {
+pub(crate) fn nfkd(text: &str) -> String {
     js_sys::JsString::from(text)
         .normalize("NFKD")
         .as_string()
@@ -597,6 +811,15 @@ fn listen(
     out.push(EventListener::new_with_options(
         canvas,
         "contextmenu",
+        active,
+        |e| e.prevent_default(),
+    ));
+    // A touch's end makes no click: the press was the game's, and a click
+    // would land on whatever the press's action put in its place (the
+    // play's start prompt after Retry).
+    out.push(EventListener::new_with_options(
+        canvas,
+        "touchend",
         active,
         |e| e.prevent_default(),
     ));
@@ -799,7 +1022,7 @@ fn listen(
             dispatch(&weak, UiEvent::Focus(!hidden));
         }));
     }
-    {
+    if !host.borrow().embedded {
         let weak = weak.clone();
         out.push(EventListener::new(&window, "popstate", move |_| {
             let Some(h) = weak.upgrade() else { return };
@@ -908,22 +1131,30 @@ fn resize(host: &Rc<RefCell<Host>>) {
         ),
     };
     let [t, r, b, l] = safe_insets();
-    let (x, y, w, h) = (x + l, y + t, (w - l - r).max(1.0), (h - t - b).max(1.0));
+    let (x, y, mut w, mut h) = (x + l, y + t, (w - l - r).max(1.0), (h - t - b).max(1.0));
     let ratio = window.device_pixel_ratio() as f32;
     let Ok(mut host) = host.try_borrow_mut() else {
         return;
     };
+    // Embedded: the canvas is where its screen put it.
+    if host.embedded {
+        let rect = host.canvas.get_bounding_client_rect();
+        w = rect.width().max(1.0);
+        h = rect.height().max(1.0);
+    }
     // The theme's design for this size: the compact one for a small
     // window.
     if let Some(t) = &host.theme {
         let design = theme_screens::design_for(&*t.look, [w as f32, h as f32]);
         host.ui.set_design(design);
     }
-    let style = host.frame_el.style();
-    let _ = style.set_property("left", &format!("{x}px"));
-    let _ = style.set_property("top", &format!("{y}px"));
-    let _ = style.set_property("width", &format!("{w}px"));
-    let _ = style.set_property("height", &format!("{h}px"));
+    if let Some(frame_el) = &host.frame_el {
+        let style = frame_el.style();
+        let _ = style.set_property("left", &format!("{x}px"));
+        let _ = style.set_property("top", &format!("{y}px"));
+        let _ = style.set_property("width", &format!("{w}px"));
+        let _ = style.set_property("height", &format!("{h}px"));
+    }
     let out = host.ui.handle(UiEvent::Resize {
         size: [w as f32, h as f32],
         ratio,
@@ -990,7 +1221,7 @@ fn sync_text(weak: &Weak<RefCell<Host>>) {
     dispatch(weak, UiEvent::Text(TextEvent::Sync(sync)));
 }
 
-fn pad_edge(weak: &Weak<RefCell<Host>>, edge: &ddi_platform::RawInput) {
+pub(crate) fn pad_edge(weak: &Weak<RefCell<Host>>, edge: &ddi_platform::RawInput) {
     let DeviceId::Gamepad(id) = &edge.device else {
         return;
     };
@@ -1240,6 +1471,10 @@ impl Host {
     /// A history entry for each layer over the first, so Back closes it;
     /// entries of layers closed otherwise go back quietly.
     fn sync_history(&mut self) {
+        // Embedded: history is the route's.
+        if self.embedded {
+            return;
+        }
         let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else {
             return;
         };
@@ -1288,7 +1523,8 @@ impl Host {
         let Some(gfx) = self.gfx.clone() else {
             return;
         };
-        if gfx.is_lost() || !self.attachment.as_ref().is_some_and(|a| a.holds()) {
+        if gfx.is_lost() || !(self.embedded || self.attachment.as_ref().is_some_and(|a| a.holds()))
+        {
             return;
         }
         let dt = match self.last_ms {
@@ -1363,7 +1599,7 @@ impl Host {
                 label: Some("ui-dev"),
             });
         let list = &self.list;
-        screen::with_painter(&gfx, |p| {
+        let after = screen::with_painter(&gfx, |p| {
             p.draw(
                 &gfx.device,
                 &gfx.queue,
@@ -1380,11 +1616,18 @@ impl Host {
                 list,
                 &mut |_slot, _encoder| {},
             );
+            p.stats().textures
         });
         gfx.queue.submit(Some(encoder.finish()));
         gfx.queue.present(surface);
         screen::after_submit();
         self.frames += 1;
+        // The draw asks for the images it lacks: frames go on until they
+        // are in (a first display, a new device, a new size).
+        if let Some(stats) = after {
+            self.loading = stats.loading > 0;
+            self.texture_stats = Some(stats);
+        }
     }
 }
 
@@ -1457,10 +1700,20 @@ fn publish(h: &Host) {
     let set = |o: &js_sys::Object, k: &str, v: JsValue| {
         let _ = js_sys::Reflect::set(o, &k.into(), &v);
     };
-    let obj = js_sys::Object::new();
-    set(&obj, "frames", (h.frames as f64).into());
-    if let Some(gfx) = &h.gfx {
-        set(&obj, "backend", gfx.backend_name().into());
+    // Embedded: added to the page's own debug state (the play's).
+    let page = js_sys::Reflect::get(&window, &"__DDI_DEBUG".into())
+        .ok()
+        .filter(|v| v.is_object())
+        .map(js_sys::Object::from);
+    let obj = match (h.embedded, page) {
+        (true, Some(page)) => page,
+        _ => js_sys::Object::new(),
+    };
+    if !h.embedded {
+        set(&obj, "frames", (h.frames as f64).into());
+        if let Some(gfx) = &h.gfx {
+            set(&obj, "backend", gfx.backend_name().into());
+        }
     }
     let ui = js_sys::Object::new();
     let layers = js_sys::Array::new();
@@ -1666,6 +1919,9 @@ fn publish(h: &Host) {
     }
     set(&obj, "ui", ui.into());
     screen::debug_into(&obj);
+    if let Some(extra) = &h.extra {
+        extra(&obj);
+    }
     let _ = js_sys::Reflect::set(&window, &"__DDI_DEBUG".into(), &obj);
 }
 

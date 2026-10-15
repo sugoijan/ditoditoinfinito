@@ -33,6 +33,9 @@ pub enum MenuInput {
     Right,
     Confirm,
     Back,
+    /// StepMania's Select: a standard pad's Y (its Back/Select button is
+    /// Back).
+    Select,
 }
 
 /// Controls (or `KeyboardEvent.code` values) per lane, in lane order.
@@ -376,6 +379,7 @@ impl ControlBindings {
                 c if c == button(DPAD_RIGHT) || c == "axis:0+" => Some(MenuInput::Right),
                 c if c == button(A) || c == button(START) => Some(MenuInput::Confirm),
                 c if c == button(B) || c == button(BACK) => Some(MenuInput::Back),
+                c if c == button(Y) => Some(MenuInput::Select),
                 _ => None,
             };
         }
@@ -597,7 +601,8 @@ mod tests {
             Some(MenuInput::Confirm)
         );
         assert_eq!(b.menu_input("x", true, "button:8"), Some(MenuInput::Back));
-        assert_eq!(b.menu_input("x", true, "button:3"), None);
+        assert_eq!(b.menu_input("x", true, "button:3"), Some(MenuInput::Select));
+        assert_eq!(b.menu_input("x", true, "button:2"), None);
         // A dance pad: its arrows and its Start and Back.
         let mut pad = PadBindings {
             id: "mat".into(),

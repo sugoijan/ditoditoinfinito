@@ -105,6 +105,41 @@ pub struct Results {
     pub scroll_action: ScrollAction,
     /// Notes were removed or simplified ([`TransformOptions::is_assist`]).
     pub assist: bool,
+    /// Every judgement in play order, as judged (before a per-row
+    /// ruleset groups a row): what the results' panels draw (timing
+    /// histogram, offsets over the song, lanes).
+    #[serde(default)]
+    pub timeline: Vec<Judged>,
+    /// The life after each change, `[song second, life 0..=1]`, from
+    /// the start of play.
+    #[serde(default)]
+    pub life: Vec<[f32; 2]>,
+}
+
+/// One judgement of a play ([`Results::timeline`]).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Judged {
+    /// Song second it happened at.
+    pub time: f32,
+    /// The lane played (after a turn).
+    pub lane: u8,
+    pub kind: JudgeEventKind,
+}
+
+impl Results {
+    /// Taps and misses per lane played: `[lane][tier]`, tiers in
+    /// [`Judgement::ALL`] order (the best first, misses last).
+    pub fn taps_by_lane(&self, lanes: usize) -> Vec<[u32; 6]> {
+        let mut out = vec![[0; Judgement::ALL.len()]; lanes];
+        for j in &self.timeline {
+            if let JudgeEventKind::Tap(t, _) = j.kind
+                && let Some(l) = out.get_mut(usize::from(j.lane))
+            {
+                l[t.index()] += 1;
+            }
+        }
+        out
+    }
 }
 
 /// Partially judged row (per-row combo grouping).
@@ -150,6 +185,9 @@ pub struct Player {
     lane_flash: Vec<Option<(Judgement, f64)>>,
     failed: bool,
     finished: bool,
+    /// [`Results::timeline`] and [`Results::life`] as they grow.
+    timeline: Vec<Judged>,
+    life: Vec<[f32; 2]>,
     /// Display frame interval in seconds, for receptor snapping.
     frame_interval: f64,
     /// `take_from[new_lane] = old_lane` of the turn.
@@ -224,6 +262,8 @@ impl Player {
             lane_flash: vec![None; usize::from(lanes)],
             failed: false,
             finished: false,
+            timeline: Vec::new(),
+            life: Vec::new(),
             frame_interval: 1.0 / 60.0,
             lane_map: transformed.take_from,
             displayed: Vec::new(),
@@ -272,6 +312,8 @@ impl Player {
         };
         self.ruleset.score.begin(&self.ctx);
         self.ruleset.gauge.begin(&self.ctx);
+        self.timeline.clear();
+        self.life = vec![[self.song_offset as f32, self.ruleset.gauge.life()]];
     }
 
     /// The audio was scheduled from `song_offset` seconds into the song at
@@ -487,6 +529,11 @@ impl Player {
             if self.finished {
                 break;
             }
+            self.timeline.push(Judged {
+                time: ev.song_time as f32,
+                lane: ev.lane,
+                kind: ev.kind,
+            });
             if let JudgeEventKind::Tap(j, delta) = ev.kind
                 && j != Judgement::Miss
             {
@@ -674,6 +721,13 @@ impl Player {
         self.ctx.combo = self.combo;
         self.ruleset.score.on_event(ev, &self.ctx);
         self.ruleset.gauge.on_event(ev, &self.ctx);
+        let life = self.ruleset.gauge.life();
+        if self.life.last().is_none_or(|l| l[1] != life) {
+            // In time order: a press judged after a miss in the same
+            // update may be stamped a little before it.
+            let at = (ev.song_time as f32).max(self.life.last().map_or(f32::MIN, |l| l[0]));
+            self.life.push([at, life]);
+        }
         if let JudgeEventKind::Tap(j, delta) = ev.kind {
             let delta = if j.is_miss() { 0.0 } else { delta };
             self.last_flash = Some((j, delta, ev.song_time, self.combo));
@@ -858,6 +912,15 @@ impl Player {
 
     /// Summary of the play so far (final once `finished()`).
     pub fn results(&self) -> Results {
+        let mut r = self.results_brief();
+        r.timeline = self.timeline.clone();
+        r.life = self.life.clone();
+        r
+    }
+
+    /// [`Player::results`] without the timeline and the life (which it
+    /// would copy): for what reads them every frame.
+    pub fn results_brief(&self) -> Results {
         let score = self.ruleset.score.view();
         let n = f64::from(self.delta_count);
         let mean_delta = if n > 0.0 { self.delta_sum / n } else { 0.0 };
@@ -884,6 +947,8 @@ impl Player {
             appearance: self.options.appearance,
             scroll_action: self.options.scroll.scroll_action,
             assist: self.options.transform.is_assist(),
+            timeline: Vec::new(),
+            life: Vec::new(),
         }
     }
 }

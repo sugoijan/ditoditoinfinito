@@ -15,7 +15,7 @@
 //! song at once; the button runs the same hold or double-tap gesture.
 
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use ddi_chart::Song;
 use ddi_engine::lyrics::LyricTrack;
@@ -42,6 +42,9 @@ use crate::web::gamepad::Gamepads;
 use crate::web::gfx::{BackendPreference, SurfaceMode};
 use crate::web::video::ModuleStatus;
 use ddi_library::backgrounds::{self, BgImage};
+
+/// How long after the results' Retry a start is not taken (ms).
+const PROMPT_GUARD_MS: f64 = 500.0;
 
 /// How long a context created from a pad press may take to start before the
 /// screen asks for a real gesture, ms.
@@ -75,6 +78,44 @@ pub(crate) struct Loaded {
     pub(crate) bg_videos: Vec<String>,
     /// The song has a background image.
     pub(crate) has_background: bool,
+    /// Its manifest entry (the results' song).
+    pub(crate) entry: Option<ddi_library::manifest::ManifestEntry>,
+    /// Its banner as a texture source (`crate::web::textures`).
+    pub(crate) banner: Option<String>,
+}
+
+thread_local! {
+    /// The texture source the current play's background is kept under for
+    /// its results (`crate::web::textures::keep`): a name of its own for
+    /// every song loaded, since the texture cache keeps what a name showed
+    /// (and a name that failed to load).
+    static PLAY_BACKGROUND: RefCell<Option<String>> = const { RefCell::new(None) };
+    static PLAY_LOADS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// A new name for the background of song `id`, the last one let go.
+fn new_play_background(id: &str) -> String {
+    release_play_background();
+    let n = PLAY_LOADS.with(|c| {
+        c.set(c.get() + 1);
+        c.get()
+    });
+    let name = format!("play:{id}:{n}");
+    PLAY_BACKGROUND.with(|b| *b.borrow_mut() = Some(name.clone()));
+    name
+}
+
+/// The current play's background name, while its file is kept.
+fn play_background() -> Option<String> {
+    PLAY_BACKGROUND
+        .with(|b| b.borrow().clone())
+        .filter(|n| crate::web::textures::is_kept(n))
+}
+
+fn release_play_background() {
+    if let Some(old) = PLAY_BACKGROUND.with(|b| b.borrow_mut().take()) {
+        crate::web::textures::keep(&old, None);
+    }
 }
 
 pub(crate) enum Msg {
@@ -105,8 +146,6 @@ pub(crate) enum Msg {
     Session(SessionEvent),
     Retry,
     SaveCalibration,
-    /// On the results: set this song's offset (seconds, notes later).
-    SetSongOffset(f64),
     /// A background image decoded: the song's background or a background
     /// change's (`None`: no such image, or it failed to load).
     BackgroundLoaded(BgImage, Option<web_sys::ImageBitmap>),
@@ -205,6 +244,16 @@ pub(crate) struct GameCanvas {
     noteskin: Option<Box<crate::noteskins::Prepared>>,
     _video_tick: gloo::timers::callback::Interval,
     _keys: Option<EventListener>,
+    /// A song's results, the theme's screen on the canvas (step 6.1).
+    results: Option<crate::components::ui_dev::Embedded>,
+    /// While they show: their host, which takes the keys and the pads.
+    results_host: Rc<RefCell<Option<Weak<RefCell<crate::components::ui_dev::Host>>>>>,
+    /// The ruleset played by and the music's length, for the results.
+    rules: Option<ddi_engine::Ruleset>,
+    song_length: f64,
+    /// When the results' Retry brought the start prompt back (ms, the
+    /// page's clock): a click right after it is the tap's, not a start.
+    retried_at: f64,
 }
 
 enum Status<T> {
@@ -264,6 +313,8 @@ impl Component for GameCanvas {
                     bg_images: Vec::new(),
                     bg_videos: Vec::new(),
                     has_background: false,
+                    entry: None,
+                    banner: None,
                 };
                 let link = ctx.link().clone();
                 ctx.link().send_future(async move {
@@ -274,8 +325,11 @@ impl Component for GameCanvas {
                 });
             }
         }
+        let results_host: Rc<RefCell<Option<Weak<RefCell<crate::components::ui_dev::Host>>>>> =
+            Rc::default();
         let keys = web_sys::window().map(|w| {
             let link = ctx.link().clone();
+            let results = results_host.clone();
             EventListener::new_with_options(
                 &w,
                 "keydown",
@@ -284,7 +338,8 @@ impl Component for GameCanvas {
                     let Some(e) = event.dyn_ref::<KeyboardEvent>() else {
                         return;
                     };
-                    if e.repeat() {
+                    // The results take their own keys.
+                    if e.repeat() || results.borrow().is_some() {
                         return;
                     }
                     match e.code().as_str() {
@@ -298,7 +353,13 @@ impl Component for GameCanvas {
         let gamepads = Gamepads::new();
         if let Some(g) = &gamepads {
             let link = ctx.link().clone();
+            let results = results_host.clone();
             g.set_listener(Some(Box::new(move |edge| {
+                // The results take the pads while they show.
+                if let Some(host) = results.borrow().as_ref() {
+                    crate::components::ui_dev::pad_edge(host, edge);
+                    return;
+                }
                 if let (ddi_platform::DeviceId::Gamepad(id), true) = (&edge.device, edge.pressed) {
                     link.send_message(Msg::PadPress(id.clone(), edge.control.clone()));
                 }
@@ -341,6 +402,11 @@ impl Component for GameCanvas {
             video_line: None,
             _video_tick: video_tick,
             _keys: keys,
+            results: None,
+            results_host,
+            rules: None,
+            song_length: 0.0,
+            retried_at: f64::NEG_INFINITY,
         }
     }
 
@@ -421,6 +487,10 @@ impl Component for GameCanvas {
                     self.device_lost = true;
                     self.raf.borrow_mut().take();
                     self.game.borrow_mut().take();
+                    // The results' screen draws on the new device, as it was.
+                    if let Some(r) = &self.results {
+                        r.device_lost();
+                    }
                 } else {
                     ctx.props().restart.emit(());
                 }
@@ -516,8 +586,10 @@ impl Component for GameCanvas {
                 true
             }
             Msg::BackRequested => {
-                // During play the session owns the cancel gesture.
-                if matches!(self.stage, Stage::Playing | Stage::Decoding) {
+                // During play the session owns the cancel gesture; the
+                // results their own keys.
+                if matches!(self.stage, Stage::Playing | Stage::Decoding) || self.results.is_some()
+                {
                     return false;
                 }
                 if let Some(game) = self.game.borrow_mut().as_mut() {
@@ -527,6 +599,11 @@ impl Component for GameCanvas {
                 false
             }
             Msg::StartRequested => {
+                // The click a touch makes after a tap on the results'
+                // Retry lands on the prompt that replaced them.
+                if js_sys::Date::now() - self.retried_at < PROMPT_GUARD_MS {
+                    return false;
+                }
                 if let (Stage::Decoding, Some(audio)) = (&self.stage, &self.pad_start_ctx) {
                     let _ = audio.resume();
                     return false;
@@ -660,6 +737,9 @@ impl Component for GameCanvas {
                     video_stopped,
                     video_trouble,
                 };
+                if matches!(ctx.props().source, SongSource::Song { .. }) {
+                    self.show_results(ctx);
+                }
                 true
             }
             Msg::Session(SessionEvent::Aborted) => {
@@ -685,20 +765,17 @@ impl Component for GameCanvas {
                     ctx.props().restart.emit(());
                     return false;
                 }
+                let had_results = self.close_results();
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
+                    game.scene_mode();
+                }
+                if had_results {
+                    // The play's frames again (the results drew their own).
+                    schedule(self.raf.clone(), self.game.clone());
+                    self.retried_at = js_sys::Date::now();
                 }
                 self.stage = Stage::Idle;
-                true
-            }
-            Msg::SetSongOffset(seconds) => {
-                let SongSource::Song { id, .. } = &ctx.props().source else {
-                    return false;
-                };
-                let mut settings = Settings::load();
-                settings.set_song_offset(id, seconds);
-                settings.save();
-                self.settings = settings;
                 true
             }
             Msg::SaveCalibration => {
@@ -819,26 +896,30 @@ impl Component for GameCanvas {
                     *device_changed,
                     link,
                 ),
-                (SongSource::Song { id, .. }, _) => results_view(
-                    results,
-                    self.names.as_ref(),
-                    self.layout.as_ref(),
-                    *device_changed,
-                    *video_stopped,
-                    video_trouble.as_deref(),
-                    Some((self.played_offset, self.settings.song_offset(id))),
-                    link,
-                ),
-                (SongSource::Calibration(_), None) => results_view(
-                    results,
-                    self.names.as_ref(),
-                    self.layout.as_ref(),
-                    *device_changed,
-                    None,
-                    None,
-                    None,
-                    link,
-                ),
+                // The theme's results on the canvas; a plain card only
+                // should it not start.
+                (SongSource::Song { .. }, _) if self.results.is_some() => html! {},
+                (SongSource::Song { .. }, _) => html! {
+                    <div class="canvas-overlay results">
+                        <div class="results-card">
+                            <div class="results-score">{ score_text(results) }</div>
+                            <div class="results-actions">
+                                <button onclick={link.callback(|_| Msg::Retry)}>{ "retry" }</button>
+                                <a href={Route::Home.to_hash()}>{ "song list" }</a>
+                            </div>
+                        </div>
+                    </div>
+                },
+                (SongSource::Calibration(_), None) => {
+                    let _ = (video_stopped, video_trouble);
+                    results_view(
+                        results,
+                        self.names.as_ref(),
+                        self.layout.as_ref(),
+                        *device_changed,
+                        link,
+                    )
+                }
             },
             (_, _, Stage::Saved(o)) => match source {
                 SongSource::Calibration(mode) => calibration_view(
@@ -874,6 +955,8 @@ impl Component for GameCanvas {
                 if playing && touch {
                     // The session's touch source handles it (see `web::touch`).
                     <button class="touch-quit" aria-label="quit: hold or double-tap" title="hold or double-tap to quit">{ "✕" }</button>
+                } else if self.results.is_some() {
+                    // The results have their own way back.
                 } else {
                     <a class="back-link" href={back_route(source).to_hash()}>{ "← back" }</a>
                 }
@@ -882,6 +965,8 @@ impl Component for GameCanvas {
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
+        self.close_results();
+        release_play_background();
         for (_, image) in self.backgrounds.drain(..) {
             image.close();
         }
@@ -1077,6 +1162,8 @@ impl GameCanvas {
                 self.layout = Some(session.layout.clone());
                 // The ruleset is chosen per chart when the session starts.
                 self.names = Some(session.names.clone());
+                self.rules = Some(session.rules.fresh());
+                self.song_length = session.length;
                 let lyrics = self
                     .settings
                     .lyrics
@@ -1172,6 +1259,242 @@ impl GameCanvas {
     }
 }
 
+impl GameCanvas {
+    /// The theme's results for the song just played, on the canvas
+    /// (`ddi_ui::screens::results`): the play's frames stop, the screen
+    /// takes the canvas, the keys and the pads until Retry or Song list.
+    fn show_results(&mut self, ctx: &Context<Self>) {
+        use ddi_ui::screens::data::SongEntry;
+        use ddi_ui::screens::play::{PlayInfo, results_data};
+        use ddi_ui::screens::results::{
+            ActionFn, OffsetFn, PanelsFn, ResultsActions, ResultsScreen,
+        };
+
+        let Stage::Finished {
+            results,
+            device_changed,
+            video_stopped,
+            video_trouble,
+            ..
+        } = &self.stage
+        else {
+            return;
+        };
+        let SongSource::Song { id, chart } = ctx.props().source.clone() else {
+            return;
+        };
+        let (Some(rules), Some(layout), Status::Ready(song)) =
+            (&self.rules, &self.layout, &self.song)
+        else {
+            return;
+        };
+        let Some(container) = self.slot.cast::<HtmlElement>() else {
+            return;
+        };
+        let settings = Settings::load();
+        let entry = song.entry.clone();
+        let bpm_text = entry.as_ref().map(|e| e.bpm.clone()).unwrap_or_default();
+        let played = song.song.charts.get(chart);
+        let chart_line = match played {
+            Some(c) => format!(
+                "{} {} · {}",
+                ddi_ui::screens::data::difficulty_name(c.difficulty),
+                c.meter,
+                layout.name
+            ),
+            None => layout.name.clone(),
+        };
+        let song_entry = SongEntry {
+            id: id.clone(),
+            title: song.title.clone(),
+            subtitle: String::new(),
+            artist: song.subtitle.clone(),
+            pack: String::new(),
+            bpm: bpm_text.parse().unwrap_or(0.0),
+            bpm_text,
+            length: self.song_length as f32,
+            banner: song.banner.clone(),
+            // The background the play read, kept; else the banner.
+            background: play_background(),
+            charts: Vec::new(),
+        };
+        let mut video_notes = Vec::new();
+        if let Some(reason) = video_stopped {
+            let why = match reason {
+                ddi_platform::video::StopReason::DroppedFrames => "frames were being dropped",
+                ddi_platform::video::StopReason::DecoderBehind => "the decoder could not keep up",
+            };
+            video_notes.push(format!(
+                "Video was turned off for this song: {why} (Options)."
+            ));
+        }
+        if let Some(why) = video_trouble {
+            video_notes.push(format!("{why}; the song background showed."));
+        }
+        let data = results_data(&PlayInfo {
+            results,
+            ruleset: rules,
+            layout,
+            song: song_entry,
+            chart: chart_line,
+            mods: Vec::new(),
+            device_changed: *device_changed,
+            video_notes,
+            offset: Some((self.played_offset, settings.song_offset(&id))),
+            panels: settings.results_panels.clone(),
+        });
+        // What the buttons do: after the screen's call returns (they
+        // change this page).
+        let retry: ActionFn = {
+            let link = ctx.link().clone();
+            Rc::new(move |_, _| {
+                let link = link.clone();
+                spawn_local(async move { link.send_message(Msg::Retry) });
+            })
+        };
+        let song_list: ActionFn = Rc::new(|_, _| {
+            spawn_local(async { Route::Home.navigate() });
+        });
+        let offset: OffsetFn = {
+            let id = id.clone();
+            Rc::new(move |seconds| {
+                let mut settings = Settings::load();
+                settings.set_song_offset(&id, seconds);
+                settings.save();
+            })
+        };
+        let panels: PanelsFn = Rc::new(|name| {
+            let mut settings = Settings::load();
+            settings.results_panels = name.to_string();
+            settings.save();
+        });
+        let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
+        let env = theme.env().clone();
+        let mut ui = ddi_ui::Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Mirror, true);
+        ui.set_focus_ring(false);
+        ui.push(ResultsScreen::new(
+            env.clone(),
+            data.clone(),
+            ResultsActions {
+                retry: Some(retry),
+                song_list: Some(song_list),
+                offset: Some(offset),
+                panels: Some(panels),
+            },
+        ));
+        // What tests read: `__DDI_DEBUG.results`.
+        let extra = Box::new(move |obj: &js_sys::Object| {
+            let st = env.state.borrow();
+            js_debug(obj, &data, &st);
+        });
+        // The play's frames stop; the screen draws.
+        self.raf.borrow_mut().take();
+        match crate::components::ui_dev::embed(&container, ui, theme, extra) {
+            Ok(e) => {
+                *self.results_host.borrow_mut() = Some(Rc::downgrade(&e.host));
+                self.results = Some(e);
+            }
+            Err(e) => {
+                web_sys::console::warn_1(&format!("results: {e}").into());
+                schedule(self.raf.clone(), self.game.clone());
+            }
+        }
+    }
+
+    /// Takes the results' screen down (and what it said in
+    /// `__DDI_DEBUG`); whether it was up.
+    fn close_results(&mut self) -> bool {
+        self.results_host.borrow_mut().take();
+        let was = self.results.take().is_some();
+        if was
+            && let Some(d) = web_sys::window()
+                .and_then(|w| js_sys::Reflect::get(&w, &"__DDI_DEBUG".into()).ok())
+                .filter(|d| d.is_object())
+        {
+            let d = js_sys::Object::from(d);
+            let _ = js_sys::Reflect::delete_property(&d, &"results".into());
+            let _ = js_sys::Reflect::delete_property(&d, &"ui".into());
+        }
+        was
+    }
+}
+
+/// The results as tests read them (`__DDI_DEBUG.results`).
+fn js_debug(
+    obj: &js_sys::Object,
+    d: &ddi_ui::screens::data::ResultsData,
+    st: &ddi_ui::screens::ThemeState,
+) {
+    let set = |o: &js_sys::Object, k: &str, v: JsValue| {
+        let _ = js_sys::Reflect::set(o, &k.into(), &v);
+    };
+    let r = js_sys::Object::new();
+    set(&r, "grade", d.grade.as_str().into());
+    set(&r, "score", d.score.as_str().into());
+    set(
+        &r,
+        "ex",
+        d.ex.as_deref().map_or(JsValue::NULL, |s| s.into()),
+    );
+    set(
+        &r,
+        "lamp",
+        d.lamp.as_deref().map_or(JsValue::NULL, |s| s.into()),
+    );
+    set(&r, "failed", d.failed.into());
+    set(&r, "line", d.line.as_str().into());
+    set(&r, "mods", d.mods.as_str().into());
+    let tiers = js_sys::Array::new();
+    for j in &d.judgements {
+        let t = js_sys::Object::new();
+        set(&t, "name", j.name.as_str().into());
+        set(&t, "count", j.count.into());
+        tiers.push(&t);
+    }
+    set(&r, "tiers", tiers.into());
+    let stats = js_sys::Object::new();
+    for (k, v) in &d.stats {
+        set(&stats, k, v.as_str().into());
+    }
+    set(&r, "stats", stats.into());
+    let notes = js_sys::Array::new();
+    for n in &d.notes {
+        notes.push(&n.as_str().into());
+    }
+    set(&r, "notes", notes.into());
+    let lanes = js_sys::Array::new();
+    for l in &d.lanes {
+        lanes.push(&format!("{} {}", l.symbol, l.label).into());
+    }
+    set(&r, "lanes", lanes.into());
+    set(&r, "hits", (d.hits.len() as f64).into());
+    set(&r, "lifePoints", (d.life.len() as f64).into());
+    set(&r, "windows", (d.windows.len() as f64).into());
+    set(&r, "danger", d.danger.map_or(JsValue::NULL, |v| v.into()));
+    set(&r, "panels", st.panels.as_str().into());
+    let sets = js_sys::Array::new();
+    for s in &d.panel_sets {
+        sets.push(&s.name.as_str().into());
+    }
+    set(&r, "panelSets", sets.into());
+    set(&r, "offsetMs", st.song_offset.into());
+    set(
+        &r,
+        "suggestedMs",
+        d.offset
+            .and_then(|o| o.suggested)
+            .map_or(JsValue::NULL, |s| (s * 1000.0).round().into()),
+    );
+    set(&r, "status", st.status.as_str().into());
+    set(
+        &r,
+        "backdrop",
+        st.backdrop.as_deref().map_or(JsValue::NULL, |s| s.into()),
+    );
+    set(&r, "song", d.song.title.as_str().into());
+    set(obj, "results", r.into());
+}
+
 fn back_route(source: &SongSource) -> Route {
     match source {
         SongSource::Song { .. } => Route::Home,
@@ -1179,31 +1502,17 @@ fn back_route(source: &SongSource) -> Route {
     }
 }
 
+/// A calibration play's summary when it gave no outcome, as the old
+/// results card showed a play (songs show the theme's results,
+/// `ddi_ui::screens::results`; calibration's move with step 6.4). A
+/// calibration plays no background videos, so it has no video notes.
 fn results_view(
     r: &Results,
     names: Option<&ddi_engine::rules::JudgeNames>,
     layout: Option<&ddi_chart::Layout>,
     device_changed: bool,
-    video_stopped: Option<ddi_platform::video::StopReason>,
-    video_trouble: Option<&str>,
-    song_offset: Option<(f64, f64)>,
     link: &html::Scope<GameCanvas>,
 ) -> Html {
-    let video_stopped = video_stopped.map(|reason| {
-        let why = match reason {
-            ddi_platform::video::StopReason::DroppedFrames => "frames were being dropped",
-            ddi_platform::video::StopReason::DecoderBehind => "the decoder could not keep up",
-        };
-        html! {
-            <div class="muted video-stopped">
-                { format!("video was turned off for this song: {why} · ") }
-                <a href={Route::Options.to_hash()}>{ "options" }</a>
-            </div>
-        }
-    });
-    let video_trouble = video_trouble.map(|why| {
-        html! { <div class="muted video-stopped">{ format!("{why}; the song background showed") }</div> }
-    });
     let tier_name = |i: usize| -> String {
         names
             .map(|n| n.tiers[i].clone())
@@ -1212,28 +1521,6 @@ fn results_view(
     let held_name = names
         .map(|n| format!("{} / {}", n.held, n.let_go))
         .unwrap_or_else(|| "held / let go".into());
-    let score = match (r.score.money, r.score.percent) {
-        (Some(m), _) => format!("{m}"),
-        (None, Some(p)) => format!("{:.2}%", p * 100.0),
-        _ => "—".into(),
-    };
-    let ex = match (r.score.ex, r.score.max_ex) {
-        (Some(ex), Some(max)) => format!("EX {ex} / {max}"),
-        _ => String::new(),
-    };
-    let fc = match r.full_combo {
-        ddi_engine::rules::FullCombo::None => "",
-        ddi_engine::rules::FullCombo::FC => "FULL COMBO",
-        ddi_engine::rules::FullCombo::GreatFC => "GREAT FULL COMBO",
-        ddi_engine::rules::FullCombo::PerfectFC => "PERFECT FULL COMBO",
-        ddi_engine::rules::FullCombo::MarvelousFC => "MARVELOUS FULL COMBO",
-    };
-    // An assisted play (notes removed or simplified) says so with its lamp.
-    let (fc, fc_class) = match (fc.is_empty(), r.assist) {
-        (true, true) => ("ASSIST".to_string(), "results-fc results-assist"),
-        (false, true) => (format!("{fc} · ASSIST"), "results-fc"),
-        _ => (fc.to_string(), "results-fc"),
-    };
     let mods = mods_summary(
         &r.transform,
         r.appearance,
@@ -1241,29 +1528,32 @@ fn results_view(
         layout.map(|l| (r.lane_map.as_slice(), l)),
     )
     .join(" · ");
+    let ex = match (r.score.ex, r.score.max_ex) {
+        (Some(ex), Some(max)) => format!("EX {ex} / {max}"),
+        _ => String::new(),
+    };
+    let lamp = ddi_ui::screens::play::lamp(r).unwrap_or_default();
+    let t = &r.tally;
     html! {
         <div class="canvas-overlay results">
             <div class="results-card">
                 <div class="results-grade">{ &r.grade }</div>
-                <div class="results-score">{ score }</div>
+                <div class="results-score">{ score_text(r) }</div>
                 <div class="muted">{ ex }</div>
                 { if mods.is_empty() { html!{} } else { html!{ <div class="muted">{ mods }</div> } } }
                 { if r.failed { html!{ <div class="error">{ "FAILED" }</div> } } else { html!{} } }
                 { if device_changed { html!{ <div class="muted">{ "an audio device or the display changed during play" }</div> } } else { html!{} } }
-                { for video_stopped }
-                { for video_trouble }
-                { if fc.is_empty() { html!{} } else { html!{ <div class={fc_class}>{ fc }</div> } } }
+                { if lamp.is_empty() { html!{} } else { html!{ <div class="results-fc">{ lamp }</div> } } }
                 <table class="results-table">
-                    { for (0..6).filter(|i| !tier_name(*i).is_empty()).map(|i| html!{ <tr><td class="muted">{ tier_name(i) }</td><td>{ r.tally.taps[i] }</td></tr> }) }
-                    <tr><td class="muted">{ held_name }</td><td>{ format!("{} / {}", r.tally.held, r.tally.let_go) }</td></tr>
-                    { if r.tally.checkpoint_hit + r.tally.checkpoint_miss > 0 { html!{ <tr><td class="muted">{ "hold ticks hit / missed" }</td><td>{ format!("{} / {}", r.tally.checkpoint_hit, r.tally.checkpoint_miss) }</td></tr> } } else { html!{} } }
-                    <tr><td class="muted">{ "mines hit" }</td><td>{ r.tally.mine_hit }</td></tr>
-                    { if r.tally.boo > 0 { html!{ <tr><td class="muted">{ "stray presses" }</td><td>{ r.tally.boo }</td></tr> } } else { html!{} } }
+                    { for (0..6).filter(|i| !tier_name(*i).is_empty()).map(|i| html!{ <tr><td class="muted">{ tier_name(i) }</td><td>{ t.taps[i] }</td></tr> }) }
+                    <tr><td class="muted">{ held_name }</td><td>{ format!("{} / {}", t.held, t.let_go) }</td></tr>
+                    { if t.checkpoint_hit + t.checkpoint_miss > 0 { html!{ <tr><td class="muted">{ "hold ticks hit / missed" }</td><td>{ format!("{} / {}", t.checkpoint_hit, t.checkpoint_miss) }</td></tr> } } else { html!{} } }
+                    <tr><td class="muted">{ "mines hit" }</td><td>{ t.mine_hit }</td></tr>
+                    { if t.boo > 0 { html!{ <tr><td class="muted">{ "stray presses" }</td><td>{ t.boo }</td></tr> } } else { html!{} } }
                     <tr><td class="muted">{ "max combo" }</td><td>{ r.max_combo }</td></tr>
                     <tr><td class="muted">{ "fast / slow" }</td><td>{ format!("{} / {}", r.fast, r.slow) }</td></tr>
                     <tr><td class="muted">{ "mean offset" }</td><td>{ format!("{:+.1} ms (σ {:.1})", r.mean_delta * 1000.0, r.stddev_delta * 1000.0) }</td></tr>
                 </table>
-                { for song_offset.map(|(played, current)| song_offset_editor(r, played, current, link)) }
                 <div class="results-actions">
                     <button onclick={link.callback(|_| Msg::Retry)}>{ "retry" }</button>
                     <a href={Route::Home.to_hash()}>{ "song list" }</a>
@@ -1273,43 +1563,8 @@ fn results_view(
     }
 }
 
-/// Hits needed before the mean error is offered as this song's offset.
-const MIN_HITS_FOR_SONG_OFFSET: u32 = 20;
-
-/// Per-song offset on the results: nudge by a millisecond, adopt the mean
-/// error of this play, or reset. Takes effect from the next play. The
-/// suggestion builds on the offset the play ran with, not the current one,
-/// so adopting it twice does not add the error twice.
-fn song_offset_editor(
-    r: &Results,
-    played: f64,
-    current: f64,
-    link: &html::Scope<GameCanvas>,
-) -> Html {
-    let set = |v: f64| link.callback(move |_| Msg::SetSongOffset(v));
-    let ms = |s: f64| (s * 1000.0).round() / 1000.0;
-    let hits = r.hits;
-    let suggested = ms(played + r.mean_delta);
-    let suggest = (hits >= MIN_HITS_FOR_SONG_OFFSET
-        && (suggested - played).abs() >= 0.002
-        && (suggested - current).abs() >= 0.001)
-        .then(|| {
-            html! {
-                <button onclick={set(suggested)} title="Shift the notes by this play's mean error. If every song feels off, calibrate instead.">
-                    { format!("use {:+.0} ms", suggested * 1000.0) }
-                </button>
-            }
-        });
-    html! {
-        <div class="song-offset">
-            <span class="muted">{ "song offset" }</span>
-            <button class="small" onclick={set(ms(current - 0.001))} title="notes 1 ms earlier">{ "−1" }</button>
-            <span class="song-offset-value">{ format!("{:+.0} ms", current * 1000.0) }</span>
-            <button class="small" onclick={set(ms(current + 0.001))} title="notes 1 ms later">{ "+1" }</button>
-            { for suggest }
-            { if current != 0.0 { html!{ <button class="small" onclick={set(0.0)}>{ "reset" }</button> } } else { html!{} } }
-        </div>
-    }
+fn score_text(r: &Results) -> String {
+    ddi_ui::screens::play::score_text(r)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1480,6 +1735,7 @@ const TEXT_SCALE: f64 = 3.0;
 /// noteskin for the chart's layout; the song arrives as [`Msg::SongLoaded`].
 fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
     let link = ctx.link().clone();
+    let background_name = new_play_background(&id);
     let settings = Settings::load();
     let show_background = settings.bg_brightness > 0.0;
     // Off: no movie file is read and the decoder is never fetched.
@@ -1546,9 +1802,18 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
                 for what in images {
                     let entry = loaded.entry.clone();
                     let shared = shared.clone();
+                    let background_name = background_name.clone();
                     link.send_future(async move {
                         let bitmap = match load_background(&entry, &what, &shared).await {
                             Ok(Some(blob)) => {
+                                // Kept for the results' backdrop (read
+                                // once).
+                                if what == BgImage::Song {
+                                    crate::web::textures::keep(
+                                        &background_name,
+                                        Some(blob.clone()),
+                                    );
+                                }
                                 let side = match what {
                                     BgImage::Song => MAX_BACKGROUND_SIDE,
                                     // Movies are not loaded here (only images
@@ -1645,6 +1910,14 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
                     .chain(loaded.shared_videos.iter().map(|(name, _)| name.clone()))
                     .collect(),
                 has_background: loaded.entry.background.is_some(),
+                banner: loaded.entry.banner.as_ref().map(|b| {
+                    if crate::songs::is_imported_id(&loaded.entry.id) {
+                        format!("files:{}", crate::songs::file_key(&loaded.entry.id, b))
+                    } else {
+                        format!("songs/{}/{b}", loaded.entry.id)
+                    }
+                }),
+                entry: Some(loaded.entry.clone()),
                 song: loaded.song,
                 music_bytes: Some(loaded.music_bytes),
             })

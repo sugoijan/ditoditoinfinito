@@ -593,6 +593,17 @@ impl GaugeRules for DanoniGauge {
         }
     }
 
+    fn danger_line(&self) -> Option<f32> {
+        (self.max_life > 0.0).then(|| {
+            let line = if self.border_life() > 0.0 {
+                self.border_life()
+            } else {
+                self.max_life * 0.25
+            };
+            (line / self.max_life) as f32
+        })
+    }
+
     fn fresh(&self) -> Box<dyn GaugeRules> {
         Box::new(DanoniGauge::new(
             self.def.clone(),

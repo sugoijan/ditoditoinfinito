@@ -115,6 +115,11 @@ pub(crate) struct PlaySession {
     pub(crate) player: Player,
     pub(crate) layout: Layout,
     pub(crate) names: JudgeNames,
+    /// The ruleset played by, fresh (its windows and gauge for the
+    /// results).
+    pub(crate) rules: ddi_engine::Ruleset,
+    /// The music's length, seconds.
+    pub(crate) length: f64,
     pub(crate) render: RenderOptions,
     audio: WebAudio,
     /// Music volume the session plays at (0 in the muted calibration).
@@ -257,6 +262,8 @@ impl PlaySession {
             None => settings.ruleset_for(chart),
         };
         let names = ruleset.names.clone();
+        let rules = ruleset.fresh();
+        let length = buffer.duration();
         // Any key for the one lane (calibration by ear): judged there, shown
         // where pressed.
         let any_key = config.calibration.is_some_and(|m| m.any_key());
@@ -447,6 +454,8 @@ impl PlaySession {
             player,
             layout,
             names,
+            rules,
+            length,
             render: config.render,
             audio,
             keyboard,

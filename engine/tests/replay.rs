@@ -1476,3 +1476,121 @@ fn skin_events_follow_stepmanias_receptor_and_explosion_rules() {
     assert!(kinds(&player, seq).contains(&(1, SkinEventKind::Held { bright: false })));
     assert_eq!(player.frame(HostTime(5.2)).receptors[1].holding, None);
 }
+
+/// The results keep every judgement as it was made (for the results'
+/// panels): the run's own events in order, their tiers adding up to the
+/// tally, and the life after each change, ending where play ended.
+#[test]
+fn results_keep_every_judgement_and_the_life() {
+    let song = fixture_song();
+    for (name, ruleset) in [
+        ("itg", presets::itg()),
+        ("sm5", presets::sm5()),
+        ("ddr_a", presets::ddr_a()),
+    ] {
+        let per_row = ruleset.combo.per_row;
+        let run = run(ruleset, &song, 0.0, 0.0);
+        let r = run.player.results();
+        assert_eq!(r.timeline.len(), run.events.len(), "{name}");
+        for (j, e) in r.timeline.iter().zip(&run.events) {
+            assert_eq!((j.lane, j.kind), (e.lane, e.kind), "{name}");
+            assert!(close(f64::from(j.time), e.song_time, 1e-4), "{name}");
+        }
+        // Per lane, the tiers add up to the tally; a per-row ruleset
+        // tallies a jump once, by its worse note, where the timeline
+        // keeps both.
+        let by_lane = r.taps_by_lane(4);
+        let mut sum = [0u32; 6];
+        for lane in &by_lane {
+            for (s, n) in sum.iter_mut().zip(lane) {
+                *s += n;
+            }
+        }
+        if per_row {
+            assert!(
+                sum.iter().sum::<u32>() > r.tally.taps.iter().sum::<u32>(),
+                "{name}"
+            );
+        } else {
+            assert_eq!(sum, r.tally.taps, "{name}");
+        }
+        // Life: from the start, in time order, within 0..=1, each sample a
+        // change, the last the life play ended with.
+        assert_eq!(r.life[0][0], 0.0, "{name}");
+        assert!(
+            r.life
+                .windows(2)
+                .all(|w| w[0][0] <= w[1][0] && w[0][1] != w[1][1]),
+            "{name}"
+        );
+        assert!(r.life.iter().all(|l| (0.0..=1.0).contains(&l[1])), "{name}");
+        let end = run.player.frame(HostTime(13.0)).life;
+        assert!(
+            close(f64::from(r.life.last().unwrap()[1]), f64::from(end), 1e-6),
+            "{name}"
+        );
+    }
+    // Under a turn, lanes are the lanes played.
+    let options = PlayOptions {
+        transform: TransformOptions {
+            turn: ddi_engine::transform::Turn::Mirror,
+            ..TransformOptions::default()
+        },
+        ..PlayOptions::default()
+    };
+    let r = autoplay_run(presets::itg, &song, options).player.results();
+    let lanes: std::collections::BTreeSet<u8> = r.timeline.iter().map(|j| j.lane).collect();
+    assert!(lanes.iter().all(|&l| l < 4));
+    assert_eq!(
+        r.taps_by_lane(4).iter().map(|l| l[0]).sum::<u32>(),
+        r.tally.taps[0]
+    );
+}
+
+/// A press judged before an update that then declares an earlier note
+/// missed, stamped before the press: the life over the song stays in time
+/// order.
+#[test]
+fn life_stays_in_time_order_when_a_miss_is_declared_after_a_press() {
+    // 240 BPM: a beat is 0.25 s; notes at 1.0 s (lane 0, left alone) and
+    // 1.25 s (lane 1).
+    let song = song(
+        TimingMap::constant(240.0, 0.0),
+        vec![
+            Note::new(b(4), 0, NoteKind::Tap),
+            Note::new(b(5), 1, NoteKind::Tap),
+        ],
+    );
+    let mut player = Player::new(&song, 0, presets::itg(), PlayOptions::default());
+    player.clock_sample(ClockSample {
+        context_time: 0.0,
+        host_time: HostTime(0.0),
+        output_latency: 0.0,
+    });
+    player.start(0.0, 0.0);
+    let mut events = player.update(HostTime(1.15));
+    // The second note pressed at 1.2 s (judged now)…
+    events.extend(player.input(InputEvent {
+        lane: 1,
+        pressed: true,
+        host_time: HostTime(1.2),
+    }));
+    // …then the update declares the first missed, stamped at its late
+    // window (about 1.18 s).
+    events.extend(player.update(HostTime(1.3)));
+    let kinds: Vec<_> = events.iter().map(|e| (e.song_time, e.kind)).collect();
+    assert!(
+        events.iter().any(
+            |e| matches!(e.kind, JudgeEventKind::Tap(Judgement::Miss, t) if t > 0.0)
+                && e.song_time < 1.2
+        ),
+        "{kinds:?}"
+    );
+    let r = player.results();
+    assert!(r.life.len() >= 3, "{:?}", r.life);
+    assert!(
+        r.life.windows(2).all(|w| w[0][0] <= w[1][0]),
+        "{:?}",
+        r.life
+    );
+}

@@ -54,6 +54,7 @@
 
 pub mod data;
 pub mod options;
+pub mod play;
 pub mod results;
 pub mod sample;
 pub mod select;

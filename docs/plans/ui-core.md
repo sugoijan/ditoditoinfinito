@@ -763,6 +763,37 @@ Firefox.
    gesture, the import panel (its buttons click the DOM's hidden file
    inputs; drag and drop stays the page's), the storage prompt, keeping
    the list's place.
+   - **First, the play history** (the maintainer, 2026-10-15), which
+     the best scores need. Every play is kept: its raw data (the chart's
+     identity and content hash, the ruleset and options, the seed, the
+     offsets in effect, the input log with its timestamps: enough for
+     the engine to judge it again exactly) and what was worked out from
+     it (score, grade, lamp, counts, the timeline's summary), worked out
+     again from the raw data when the engine or a ruleset changes (a
+     version on each record). On the web in IndexedDB, on desktop in
+     files, behind a `platform` store; a few kilobytes a play, with an
+     export. It feeds the best scores on song select and, later,
+     replays (phase 10). A plan of its own first
+     (`docs/plans/play-history.md`, to write).
+
+   From the maintainer's try of step 5 (2026-10-15):
+   - **The selected row's ring is cut on its left edge** (the pink
+     outline of the wheel's selected song): fix in the theme, and keep
+     a test that the ring lies within what is drawn.
+   - **Trackpads:** two-finger scrolling moves the list only when fast;
+     slow scrolls do nothing (to find out why; perhaps small wheel
+     deltas are dropped before they add up to a row). The list follows the fingers one for one, as a drag, and
+     springs back onto a row ("rubber snap") once they stop; a mouse
+     wheel's notches keep moving a row each. Checked on a MacBook
+     trackpad in Firefox, Chrome and Safari.
+   - **Motion blur:** a vertical blur on the rows while the list moves
+     fast, growing with the speed, none at rest (and none under reduced
+     motion).
+   - **Banners:** each kept at a few sizes (mipmaps, or a smaller copy
+     for rows), the cache's count and bytes bounded and measured on a
+     large library (P9 keys images by the size drawn; a wheel row
+     zooming between sizes must not decode a banner twice).
+   - **Best scores on the chart ladder**, from the play history.
 3. **Options:** option rows, bindings and the bind flow, the volume
    sample, resets behind a confirmation dialog, the noteskin choice with
    its preview drawn in the scene. The preview (the panel beside the
@@ -779,6 +810,82 @@ Firefox.
    screen's DOM parts: the start prompt, the touch quit button, and
    Dancing☆Onigiri lyrics (decision 29), which move into the scene once
    P4 draws Japanese.
+
+Done, 6.1 results (2026-10-15):
+
+- **The engine** keeps every judgement in play order with its time,
+  lane and offset, and the life after each change
+  (`Results::timeline`, `Results::life`, `Results::taps_by_lane`; a
+  replay test), and a gauge says where its danger line is
+  (`GaugeRules::danger_line`).
+- **The mapping** (`ui/src/screens/play.rs`, natively tested): counts from
+  the ruleset's tally (a per-row ruleset counts a jump once), panels from
+  the timeline; the ruleset's tier names (tiers it does not have, named
+  "—" or empty and never judged, left out: DDR A and Dancing☆Onigiri
+  have no fifth), holds under its names (O.K. / N.G.), hold ticks when
+  ticked, mines, stray presses when any, max combo, fast and slow, the
+  mean and σ; the score as money, percent or "—"; EX where the ruleset
+  has it; FAILED; the lamp, with or without "· ASSIST"; the mods with a
+  shuffle's order (`mods_summary`, moved here from the app); the
+  device-changed and video notes; the per-song offset editor as before
+  (a millisecond either way, this play's mean error when worth taking,
+  reset; same storage).
+- **The screen** (`ui/src/screens/results.rs`) draws them with the
+  ruleset's windows colouring the histogram, the gauge's danger line on
+  the life graph, misses on the offsets, and the layout's lanes (4, 5, 6,
+  8, 10 and Dancing☆Onigiri's, by name when they fit, by symbol when
+  not). Panel sets (Overview, Timing, Song) are the ruleset's to offer
+  (one list for all today) and the player's to choose, kept in
+  `Settings::results_panels`. Keys as the mockup and StepMania's
+  evaluation screen have them: Start (Enter, a pad's Start) goes to the
+  songs (Song list has focus at first), as do Back, Escape and
+  Backspace; R, the Retry button and a pad's Select retry. A pad's Start
+  retried on the old card; that moved to Select, a standard pad's Y (new
+  `MenuInput::Select`; its Back/Select button stays Back). Not Tab, the
+  keyboard's Select: it changes the style on song select, and a key that
+  does that must not restart a song here (`Cx::menu_from_keyboard`).
+  Menu input and taps in the first 0.6 s, and held keys' repeats, are
+  let go, so keys held, taps on a phone's touch lanes or mashing as the
+  song ends neither leave nor retry; then Song list has focus again. A
+  start right after Retry is not taken (the click a touch makes lands on
+  the prompt that replaced the results).
+  The grade's box is sized to the grade (no wider than 120 px, the score
+  after it, shrunk if it would pass the column), tested for every
+  ruleset's grades at both sizes.
+- **On the play route**: when a song's play ends, the play's frames stop
+  and the screen takes the canvas, the keys and the pads
+  (`app/src/components/ui_dev.rs`'s host, embedded: its size the
+  canvas's, history the route's, its debug state added to the page's as
+  `__DDI_DEBUG.results`, removed when they go). The backdrop is the
+  background the play read, kept in memory (`web::textures::keep`) under
+  a name of its own for each song loaded (the texture cache keeps what a
+  name showed, and a name that failed), never fetched twice. A lost
+  device draws the same screen on the new canvas, panels and offset as
+  they were; Retry starts over as before. Calibration's results stay a
+  DOM card (step 6.4); the new-device card was never shown over results.
+- **Review fixes:** images asked for by a frame keep frames coming until
+  they are in (read after the draw: a lost device or a resize left them
+  unloaded until the next input); the offset suggestion shows while it
+  is not the offset set, as the old card offered it; life samples stay in
+  time order (a replay test); the histogram's bins are centred on 0; the
+  calibration card has its old fields back; the pad poller looks for pads
+  by a timer while none is connected, so a page at rest draws no frames
+  (2 a second before); `__DDI_LOSE_DEVICE` loses a WebGL2 context too.
+- **Layout frames:** taffy stays out. The panels are a grid of two
+  columns the screen computes in a few lines; nothing configurable here
+  needs flex or grid yet, and taffy costs 77 KB of wasm. To be decided
+  again if players arrange their own panels.
+- **Checked:** mapping tests per ruleset (names, missing tiers, tally
+  against timeline, lamp and assist, failed, money and percent, lanes of
+  4, 5, 7, 8 and 10), the screen's actions in the harness; autoplay to
+  the end on Chrome WebGPU, WebGL2 and Firefox under ITG (single), SM5
+  (double, 8 lanes; pump double, 10 lanes, at 844×390), DDR A (pump
+  single, 5 lanes, 140 counted against 155 judged) and Dancing☆Onigiri
+  rules, all top tier, and a failed ITG play; Song list by Enter,
+  Escape, a pad's Start and a tap; Retry by R, a click and a pad's
+  Select; the offset saved per
+  song; panels kept; a lost device (WebGPU's hook, WebGL2's lost
+  context) and a resize keep the screen. Wasm 2,474 KB gzip (+14 KB).
 
 Yew goes when no screen needs it; `#/video-check`, the crash page and
 the no-GPU page stay plain DOM.

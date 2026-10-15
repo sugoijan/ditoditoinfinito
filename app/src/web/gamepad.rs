@@ -493,23 +493,41 @@ fn schedule_frame(hub: Weak<Hub>) {
         hub.update_pump();
         let weak = Rc::downgrade(&hub);
         if hub.state.borrow().slots.is_empty() {
-            // No pad: no frames for them (P13); look again in a while.
-            let again = weak.clone();
-            *hub.idle.borrow_mut() = Some(gloo::timers::callback::Timeout::new(
-                IDLE_POLL_MS,
-                move || {
-                    if let Some(hub) = again.upgrade() {
-                        hub.idle.borrow_mut().take();
-                        schedule_frame(Rc::downgrade(&hub));
-                    }
-                },
-            ));
+            idle_poll(weak);
             return;
         }
         drop(hub);
         schedule_frame(weak);
     });
     *raf.borrow_mut() = Some(handle);
+}
+
+/// No pad: no frames for them (P13); a timer looks for one now and then
+/// and goes back to polling on frames once one is there.
+fn idle_poll(hub: Weak<Hub>) {
+    let Some(strong) = hub.upgrade() else {
+        return;
+    };
+    let again = hub.clone();
+    *strong.idle.borrow_mut() = Some(gloo::timers::callback::Timeout::new(
+        IDLE_POLL_MS,
+        move || {
+            let Some(hub) = again.upgrade() else {
+                return;
+            };
+            hub.idle.borrow_mut().take();
+            poll_and_notify(&hub.state, PerformanceClock::now_ms());
+            hub.update_pump();
+            let weak = Rc::downgrade(&hub);
+            let none = hub.state.borrow().slots.is_empty();
+            drop(hub);
+            if none {
+                idle_poll(weak);
+            } else {
+                schedule_frame(weak);
+            }
+        },
+    ));
 }
 
 impl InputSource for Gamepads {

@@ -47,6 +47,7 @@ impl From<MenuInput> for MenuAction {
             MenuInput::Right => MenuAction::Right,
             MenuInput::Confirm => MenuAction::Start,
             MenuInput::Back => MenuAction::Back,
+            MenuInput::Select => MenuAction::Select,
         }
     }
 }
