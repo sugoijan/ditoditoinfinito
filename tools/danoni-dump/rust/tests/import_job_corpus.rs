@@ -1,4 +1,7 @@
-#![cfg(all(feature = "native", target_os = "macos"))]
+#![cfg(all(
+    feature = "native",
+    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
+))]
 //! Opt-in offline URL job: cancel after admission, restart from token, install.
 use ddi_danoni_export::{
     assets::*, import_host as host, import_job::*, managed_store::Store, native::DirectorySource,

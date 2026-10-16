@@ -142,23 +142,35 @@ fn saved_native_works_normalize_and_feed_the_existing_rust_song_pipeline() {
                         current,
                         ddi_danoni_export::supervisor::expected_build_identity()
                     );
-                    // This slice changes only navigator request evidence. Bind
-                    // both complete identities, then compare every other field.
+                    // Source changes are explicit, hash-bound provenance. Current
+                    // identity must still equal this SDK's reviewed worker; no
+                    // gameplay/reference field is exempted by this comparison.
+                    let fields = witness.get("workerSourceChanges").map_or_else(
+                        || vec!["src/navigator.rs"],
+                        |v| {
+                            v.as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|p| p.as_str().unwrap())
+                                .collect()
+                        },
+                    );
+                    assert!(!fields.is_empty());
+                    assert_eq!(fields.iter().collect::<BTreeSet<_>>().len(), fields.len());
+                    let mut changes = Vec::new();
                     let mut before = previous.clone();
                     let mut after = current.clone();
-                    let old_hash = before["files"]
-                        .as_object_mut()
-                        .unwrap()
-                        .remove("src/navigator.rs")
-                        .unwrap();
-                    let new_hash = after["files"]
-                        .as_object_mut()
-                        .unwrap()
-                        .remove("src/navigator.rs")
-                        .unwrap();
-                    assert_ne!(old_hash, new_hash);
+                    for field in fields {
+                        let old_hash = before["files"].as_object_mut().unwrap().remove(field);
+                        let new_hash = after["files"].as_object_mut().unwrap().remove(field);
+                        assert_ne!(
+                            old_hash, new_hash,
+                            "unchanged declared worker source {field}"
+                        );
+                        changes.push(json!({"field":field,"previous":old_hash,"current":new_hash}));
+                    }
                     compare(&before, &after, "unchanged worker sources/revision");
-                    reviewed_worker_change = json!({"field":"src/navigator.rs","previous":old_hash,"current":new_hash,"previousBuild":witness["previousWorkerBuild"],"currentBuild":witness["currentWorkerBuild"]});
+                    reviewed_worker_change = json!({"files":changes,"previousBuild":witness["previousWorkerBuild"],"currentBuild":witness["currentWorkerBuild"]});
                     comparable_pinned["ruffle"] = previous;
                 }
                 compare(

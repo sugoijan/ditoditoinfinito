@@ -2,7 +2,8 @@
 
 Linux x86-64 worker packages and capture use Landlock ABI >= 6 plus seccomp;
 see [the Linux handover](../../../docs/research/danoni-rust-linux.md) for runtime
-requirements, software-renderer tests and remaining corpus/distribution gates.
+requirements, software-renderer tests, scoped real-corpus results and remaining
+distribution gates.
 Linux rendering currently requires native scale; enlarged captures reject before
 launch to preserve the kernel file-size limit. Windows and other Linux
 architectures cannot execute movies.

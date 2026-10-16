@@ -1067,3 +1067,25 @@ Real-work Linux parity remains pending the corpus transfer. No corpus files or
 historical jobs were read or modified, no accepted exports were regenerated,
 and no actual chart dependency on bitmap pixels is inferred. See the Linux
 handover for the final restricted-capture and validation results.
+
+
+### Real-work Linux validation, 2026-10-16
+
+On top of `644171a`, the transferred corpus is checked read-only against its
+recorded bindings and used for fresh confined Linux jobs. The
+[Linux handover](danoni-rust-linux.md#transferred-corpus-validation-2026-10-16)
+records 31 fresh native works / 44 charts, including all 28 earlier automatic
+works, explicit software-rendered Maid, the reviewed hold-intro selectors and
+six Kouhaku charts. A separate saved HTML5 conversion covers 9A/9B; no fresh
+HTML5 execution is claimed. Note/hold/event/origin/motion parity and real-parser
+SSC checks pass; canonical PCM stays within the existing one-unit tolerance.
+
+Crow completes an offline public-URL import, library reopen, cancellation after
+planning, persisted-token resume and unchanged repeat with zero new requests.
+The runtime audits and existing Cynthia/rewritten-selector refusals remain
+strict. Cross-build Ogg waveform/byte differences and real title raster/state
+differences are preserved and investigated separately from the chart result.
+Accepted exports, source caches and the export registry remain unchanged; the
+historical 93-song / 144-chart baseline still includes retired 7i. SDK tests,
+both strict Clippy configurations and `just check` pass. Production admission,
+worker confinement and reviewed maximum budgets are unchanged.

@@ -182,13 +182,21 @@ fn complete_songs_match_accepted_exports() {
         return;
     };
     let exports = Path::new(&root);
-    let registry = exports.parent().unwrap().join("export-registry.json");
+    let registry = std::env::var_os("DDI_DANONI_EXPORT_REGISTRY")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| exports.parent().unwrap().join("export-registry.json"));
     let mut dirs = fs::read_dir(exports.join("reports"))
         .unwrap()
         .map(|p| p.unwrap().path())
         .filter(|p| p.join("manifest.json").is_file())
         .collect::<Vec<_>>();
     dirs.sort();
+    if let Ok(ids) = std::env::var("DDI_DANONI_WORK_IDS") {
+        let wanted = ids.split(',').collect::<std::collections::BTreeSet<_>>();
+        assert!(!wanted.is_empty() && !wanted.contains(""));
+        dirs.retain(|p| wanted.contains(p.file_name().unwrap().to_str().unwrap()));
+        assert_eq!(dirs.len(), wanted.len(), "Every requested work must exist");
+    }
     let (mut songs, mut charts, mut banners, mut rated, mut heads) = (0, 0, 0, 0, 0);
     for dir in dirs {
         let id = dir.file_name().unwrap().to_str().unwrap();
