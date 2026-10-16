@@ -133,7 +133,12 @@ fn a_stepmania_folder_with_a_zip_lists_as_the_web_imports() {
     assert_eq!(a.entry.music, "Song.OGG");
     assert_eq!(
         a.source(a.entry.banner.as_deref().unwrap()),
-        root.join("Songs/Pack/Song A/BN.png").display().to_string()
+        root.join("Songs")
+            .join("Pack")
+            .join("Song A")
+            .join("BN.png")
+            .display()
+            .to_string()
     );
     let z = songs.iter().find(|s| s.zip).unwrap();
     assert_eq!(z.entry.id, pack::song_id("Zipped", "Zipped/Z"));
