@@ -151,7 +151,10 @@ the browser are implementation details, not advertised features.
   local skins' Lua, or run lunita's exported limit cases with
   their time gates (under the memory watchdog).
 - `just video` builds the decoder module (downloads the pinned toolchain and
-  FFmpeg into `target/video/`); `just video-check [file]` checks it on a file
+  FFmpeg into `target/video/`); every Trunk build runs it too when the
+  module is missing (as after `cargo clean`, a few minutes) or older than
+  its sources, and fails if it fails (`DDI_NO_VIDEO=1` builds the site
+  without it); `just video-check [file]` checks it on a file
   or on generated clips against the `ffmpeg` command's decode.
 - `cargo run -p xtask -- gen-songs` / `gen-noteskins` / `gen-credits`
   regenerate the song manifest, the bundled noteskins' index and the

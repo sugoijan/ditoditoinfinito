@@ -28,9 +28,10 @@ with a Video setting whose default turns a movie off when it costs frames.
   - `video/FFMPEG.toml`: version, git tag, source URL, licence, configure
     line, SHA-256 of the tarballs; read by `xtask gen-credits` for the
     Credits screen and `CREDITS.md`.
-- `justfile`: `just video` runs the build; `just build`/`just check` do not
-  need it (the app works without the module: section "Without the module"
-  below).
+- `justfile`: `just video` runs the build; `just check` does not need it,
+  and Trunk builds run it when the module is missing or out of date
+  (below; the app works without the module: section "Without the
+  module").
 - `index.html`: `<link data-trunk rel="copy-file" href="target/video/ddivideo.wasm" data-target-path="video" />`
   only when the file exists: Trunk fails on a missing file, so the copy
   line is written by the `regen-seo`-style pre-build hook (`xtask video-link`)
@@ -190,8 +191,12 @@ Safari by the maintainer, which settles research section 7's first item.
   A failed download is retried by the next open.
 - The module reaches the site through a Trunk `post_build` hook,
   `xtask stage-video`, which copies `target/video/ddivideo.{wasm,json,LICENSE.txt}`
-  into `video/` when they exist; `index.html` is unchanged and a build
-  without the module still works. CI's `build` job needs `video`, downloads
+  into `video/`; `index.html` is unchanged and a build without the module
+  still works. Since 2026-10-16 the hook first runs `video/build.sh` when
+  the module is missing or older than `build.sh`, `FFMPEG.toml` or
+  `ddivideo.c`, and fails the build if that fails: `cargo clean` had
+  removed the module and every later site quietly lacked it.
+  `DDI_NO_VIDEO=1` builds without it on purpose. CI's `build` job needs `video`, downloads
   its artifact after rust-cache (which may clean `target/`) and fails if
   the site lacks the module.
 - Protocol: `want` carries the seek generation; a seek cancels the wants
@@ -705,7 +710,7 @@ state says which decoder); Firefox and Safari by the maintainer.
 ## Without the module
 
 The app must keep working when `target/video/ddivideo.wasm` is absent
-(`just dev` without `just video`, a build host without the toolchain):
+(`DDI_NO_VIDEO=1`, a Windows build host, a site copied without `video/`):
 movies in a format WebCodecs handles still play; the others show the song
 background, and the results card says "video decoder not included in this
 build" once. The fetch of a missing module is a 404 handled like any
