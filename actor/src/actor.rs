@@ -685,6 +685,8 @@ pub struct TextDraw {
     /// it ([`Perspective::project`]); `transform` is then its orthographic
     /// view.
     pub perspective: Option<(Mat4, Perspective)>,
+    /// A motion blur on the target, as [`Quad::blur`].
+    pub blur: [f32; 2],
 }
 
 impl TextDraw {
@@ -877,6 +879,11 @@ pub struct Actor {
     pub shadow: [f32; 2],
     /// `shadowcolor`: the copy's colour, its alpha times the actor's.
     pub shadow_color: Rgba,
+    /// `motionblur`: what it draws, and everything inside it, smeared
+    /// this far along its own y axis (in its units, centred), as a list's
+    /// rows moving fast are. Our extension, not StepMania's: drawn only by
+    /// the 2D pass ([`Quad::blur`]).
+    pub motion_blur: f32,
     /// A frame's `fov` (`ActorFrame::m_fFOV`): -1 keeps the camera around
     /// it, 0 is orthographic, anything else the degrees the screen's width
     /// spans ([`Perspective::new`]).
@@ -982,6 +989,7 @@ pub const METHODS: &[&str] = &[
     "horizalign",
     "hurrytweening",
     "linear",
+    "motionblur",
     "outline",
     "pause",
     "play",
@@ -1136,6 +1144,10 @@ pub struct Quad {
     /// Its sprite's [`Shape`], and the size it is in (units before zoom).
     pub shape: Shape,
     pub size: [f32; 2],
+    /// A motion blur ([`Actor::motion_blur`] here and around it): the
+    /// quad smeared along this vector on the target, centred; `[0, 0]`:
+    /// none.
+    pub blur: [f32; 2],
 }
 
 type Mat = [f32; 6];
@@ -1179,6 +1191,7 @@ impl Actor {
             shadow: [0.0; 2],
             // `Actor::InitState`.
             shadow_color: [0.0, 0.0, 0.0, 0.5],
+            motion_blur: 0.0,
             fov: -1.0,
             vanish: None,
             draw_by_z: false,
@@ -2168,7 +2181,9 @@ impl Actor {
                     t.metrics = None;
                 }
             }
-            // Our extension (`Shape`), not StepMania's.
+            // Our extensions (`Actor::motion_blur`, `Shape`), not
+            // StepMania's.
+            "motionblur" => self.motion_blur = num(0)?.max(0.0),
             "cornerradius" | "softedge" | "outline" | "saturation" => {
                 let v = num(0)?;
                 if let Kind::Sprite(sp) = &mut self.kind {
@@ -2403,6 +2418,7 @@ impl Actor {
             glow,
             camera: None,
             scissor: None,
+            blur: [0.0; 2],
         };
         self.draw_depth(&under, view, out, 0);
     }
@@ -2457,6 +2473,16 @@ impl Actor {
             ),
         );
         let m3 = mul4(&under.m3, &local3);
+        // Its own motion blur, along its y on the target, adds to what is
+        // around it.
+        let blur = if self.motion_blur > 0.0 {
+            [
+                under.blur[0] + m[2] * self.motion_blur,
+                under.blur[1] + m[3] * self.motion_blur,
+            ]
+        } else {
+            under.blur
+        };
         // A sprite's or a run's shadow: itself in the shadow's colour, moved
         // in the screen's pixels (`TranslateWorld`), drawn first
         // (`Sprite::DrawTexture`, `BitmapText::DrawPrimitives`).
@@ -2488,6 +2514,7 @@ impl Actor {
                         projected,
                         shape: sprite.shape,
                         size,
+                        blur,
                     }))
                 };
                 // Any corner seen draws the diffuse pass and the shadow
@@ -2534,6 +2561,7 @@ impl Actor {
                         blend,
                         depth: depth_state,
                         perspective: camera.map(|c| (transform3, c)),
+                        blur,
                     })
                 };
                 // `BitmapText::DrawPrimitives` draws nothing but the glow
@@ -2590,6 +2618,7 @@ impl Actor {
                     glow: s.glow,
                     camera,
                     scissor,
+                    blur,
                 };
                 if self.draw_by_z {
                     // `ActorUtil::SortByZPosition`: far first, stable.
@@ -2730,6 +2759,8 @@ struct Under {
     camera: Option<Perspective>,
     /// The clips around, on the target.
     scissor: Option<[f32; 4]>,
+    /// The motion blur around, on the target ([`Actor::motion_blur`]).
+    blur: [f32; 2],
 }
 
 /// `m` moved by `by` on the target.

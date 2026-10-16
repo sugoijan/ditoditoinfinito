@@ -316,6 +316,10 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
         theme.component(name, &Spec::new([400.0, 42.0], "x"));
     }
     let _ = theme.color("Background");
+    // Which design a window gets: short or narrow, the compact one.
+    assert_eq!(screens::design_for(&*theme, [390.0, 844.0]), COMPACT);
+    assert_eq!(screens::design_for(&*theme, [844.0, 390.0]), COMPACT);
+    assert_eq!(screens::design_for(&*theme, [1280.0, 720.0]), DESIGN);
     let used = theme.used();
     let keys = theme.keys();
     let unused: Vec<&String> = keys.difference(&used).collect();
@@ -469,5 +473,374 @@ fn every_rulesets_grade_fits_before_the_score() {
                 );
             }
         }
+    }
+}
+
+/// The selected row's ring (and its pulse) lie within the wheel, which
+/// clips at its edges, as the row glides onto the line and at rest, in
+/// both layouts (the maintainer saw it cut on its left, 2026-10-15).
+#[test]
+fn the_selected_rows_ring_lies_within_the_wheel() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    for (size, design) in [([1280.0, 720.0], DESIGN), ([844.0, 390.0], COMPACT)] {
+        let mut h = harness(size, design);
+        h.push(sample::select_screen(&env, None));
+        h.run(0.5);
+        let mut checked = 0;
+        for key in ["ArrowDown", "ArrowDown", "ArrowUp", "ArrowUp", "ArrowUp"] {
+            h.key(key, key);
+            // Every frame of the glide, and at rest.
+            for f in 0..30 {
+                h.frame(1.0 / 60.0);
+                let st = state.borrow().clone();
+                let [x, y, w, hh] = st.wheel;
+                let Some(row) = st.selected_row else { continue };
+                for part in ["Ring", "Pulse"] {
+                    let Some([l, t, r, b]) = h.ui.bounds_of(&row, part) else {
+                        continue;
+                    };
+                    assert!(
+                        l >= x - 0.01 && r <= x + w + 0.01,
+                        "{part} of {row} at {l}..{r}, wheel {x}..{}",
+                        x + w
+                    );
+                    // Vertically, at rest: on the wheel's line, or
+                    // scrolled into view.
+                    if f == 29 {
+                        assert!(t >= y - 0.01 && b <= y + hh + 0.01, "{part} {t}..{b}");
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 100, "{checked}");
+    }
+}
+
+/// The best on the ladder: its grade, score and lamp in the lamp's
+/// colour; and the footer's hints never run into its links.
+#[test]
+fn bests_and_the_footer_in_the_theme() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::select_screen(&env, None));
+    h.run(0.5);
+    let texts = h.texts();
+    for t in ["AA", "96.12%", "FC"] {
+        assert!(texts.iter().any(|x| x == t), "no {t:?} in {texts:?}");
+    }
+    let fc = parse_color("#4ea3f0").unwrap();
+    let mut row = h.ui.actor("Ladder.Row3").unwrap().clone();
+    let lamp = ddi_ui::widgets::part(&mut row, "Lamp").unwrap();
+    assert_eq!(lamp.current().diffuse[0], fc);
+    // Hints left, links right: apart.
+    let last_hint = (0..8)
+        .filter_map(|i| h.ui.bounds(&format!("Hint{i}")))
+        .map(|b| b[2])
+        .fold(0.0f32, f32::max);
+    let first_link = [
+        "Link.Manage",
+        "Link.Add",
+        "Link.Options",
+        "Link.Calibrate",
+        "Link.Credits",
+        "Link.Source",
+    ]
+    .iter()
+    .filter_map(|n| h.ui.bounds(n))
+    .map(|b| b[0])
+    .fold(f32::MAX, f32::min);
+    assert!(last_hint + 8.0 < first_link, "{last_hint} {first_link}");
+}
+
+/// The import and manage dialogs, drawn in the theme without problems.
+#[test]
+fn the_dialogs_in_the_theme() {
+    use ddi_ui::screens::data::{ImportReportView, ImportView, PackEntry};
+    use ddi_ui::screens::select_dialogs::{ImportDialog, Manage, ManageDialog};
+    use std::cell::RefCell;
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    for (size, design) in [([1280.0, 720.0], DESIGN), ([844.0, 390.0], COMPACT)] {
+        let mut h = harness(size, design);
+        h.push(sample::select_screen(&env, None));
+        h.run(0.3);
+        let view = Rc::new(RefCell::new(ImportView {
+            folders: true,
+            report: Some(ImportReportView {
+                summary: "Imported 3 songs.".into(),
+                error: false,
+                sections: vec![("Not imported".into(), vec!["A/B: no chart".into()])],
+            }),
+            ..Default::default()
+        }));
+        h.ui.push(ImportDialog::new(env.clone(), view, None));
+        h.run(0.3);
+        let texts = h.texts();
+        for t in [
+            "ADD SONGS",
+            "Choose folder",
+            "Imported 3 songs.",
+            "A/B: no chart",
+        ] {
+            assert!(texts.iter().any(|x| x == t), "no {t:?} in {texts:?}");
+        }
+        for n in ["PickFolder", "PickFiles", "Option.copy", "Close"] {
+            let [l, t, r, b] = h.ui.bounds(n).unwrap_or_else(|| panic!("{n}"));
+            assert!(
+                l >= 0.0 && t >= 0.0 && r <= design[0] && b <= design[1],
+                "{n}"
+            );
+        }
+        h.ui.push(ManageDialog::new(
+            env.clone(),
+            Manage::Pack {
+                pack: PackEntry {
+                    name: "My Pack".into(),
+                    removable: true,
+                    rereadable: true,
+                },
+                songs: 3,
+            },
+            None,
+            false,
+        ));
+        h.run(0.3);
+        assert!(h.texts().iter().any(|t| t == "My Pack"));
+        assert!(h.ui.problems().is_empty(), "{:?}", h.ui.problems());
+    }
+}
+
+/// A flick across the wheel leaves no gap on its line: the selected
+/// row's room closes while rows rush past and opens as it settles.
+#[test]
+fn a_flick_leaves_no_gap_on_the_wheels_line() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::select_screen(&env, None));
+    h.run(0.5);
+    let gap = theme.metric("Select.Wheel.Gap").unwrap();
+    let [x, y, w, hh] = state.borrow().wheel;
+    let line = y + hh / 2.0;
+    let mut worst: f32 = 0.0;
+    let mut frames = 0;
+    for dir in [-1.0f32, 1.0] {
+        let from = [x + w / 2.0, line + dir * 200.0];
+        let to = [x + w / 2.0, line - dir * 200.0];
+        h.drag(PointerKind::Touch, from, to, 0.08, 4);
+        for _ in 0..90 {
+            h.frame(1.0 / 60.0);
+            frames += 1;
+            let Some(Kind::Frame(rows)) = h.ui.actor("Wheel.Items").map(|a| a.kind.clone()) else {
+                panic!("no wheel");
+            };
+            let mut plates: Vec<[f32; 4]> = rows
+                .iter()
+                .filter(|r| r.visible)
+                .filter_map(|r| h.ui.bounds_of(&r.name, "Plate"))
+                .filter(|b| b[3] > line - 150.0 && b[1] < line + 150.0)
+                .collect();
+            plates.sort_by(|a, b| a[1].total_cmp(&b[1]));
+            for p in plates.windows(2) {
+                let g = p[1][1] - p[0][3];
+                if g > gap + 6.0 {
+                    eprintln!(
+                        "frame {frames}: gap {g} between {:?} and {:?}; selected {:?}",
+                        p[0],
+                        p[1],
+                        state.borrow().selected_row
+                    );
+                }
+                worst = worst.max(g);
+            }
+        }
+    }
+    assert!(frames > 100);
+    assert!(
+        worst <= gap + 6.0,
+        "a gap of {worst} on the line (rows {gap} apart)"
+    );
+}
+
+/// Many styles: the tabs never run into the wheel; named charts by name,
+/// counted on the wheel's row; packs say how many songs match.
+#[test]
+fn many_styles_named_charts_and_counts_in_the_theme() {
+    use ddi_ui::screens::data::{ChartEntry, StyleDef};
+    use ddi_ui::screens::select::SelectScreen;
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    let mut d = sample::select();
+    let first_new = d.styles.len();
+    for i in 0..6 {
+        d.styles.push(StyleDef {
+            id: format!("danoni-{i}"),
+            name: format!("{} keys", 5 + i),
+        });
+    }
+    let song = d
+        .songs
+        .iter_mut()
+        .find(|s| s.id == "some-things-must")
+        .unwrap();
+    song.charts.push(ChartEntry {
+        style: "dance-single".into(),
+        difficulty: ddi_ui::screens::data::DIFFICULTIES[5],
+        meter: 0,
+        name: "Hyper Edit".into(),
+        index: 40,
+        ..Default::default()
+    });
+    for (i, st) in d.styles.clone().iter().skip(first_new).enumerate() {
+        song.charts.push(ChartEntry {
+            style: st.id.clone(),
+            difficulty: ddi_ui::screens::data::DIFFICULTIES[3],
+            meter: 5,
+            index: 50 + i,
+            ..Default::default()
+        });
+    }
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(SelectScreen::new(
+        env.clone(),
+        d,
+        Some("some-things-must"),
+        Rc::new(|_, _, _: &Env, _| {}),
+        Rc::new(|_, _| {}),
+    ));
+    h.run(0.5);
+    let wheel_left = state.borrow().wheel[0];
+    for _ in 0..12 {
+        for i in 0..12 {
+            if let Some(b) = h.ui.bounds(&format!("Tab{i}")) {
+                assert!(
+                    b[2] < wheel_left - 8.0,
+                    "Tab{i} reaches {} (wheel at {wheel_left})",
+                    b[2]
+                );
+            }
+        }
+        h.key("Tab", "Tab");
+        h.run(0.2);
+    }
+    for _ in 0..12 {
+        if state.borrow().style == "Single" {
+            break;
+        }
+        h.key("Tab", "Tab");
+        h.run(0.2);
+    }
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t == "HYPER EDIT"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "+1"), "{texts:?}");
+    // A search: the packs' counts.
+    h.key("Slash", "/");
+    h.sync("some", [4, 4], None);
+    h.run(0.3);
+    let texts = h.texts();
+    assert!(
+        texts.iter().any(|t| t.ends_with(" of 4 songs")),
+        "{texts:?}"
+    );
+}
+
+/// The import dialog's toggles take a tap anywhere on their row; its
+/// report's rows are text alone.
+#[test]
+fn import_toggles_and_report_rows_in_the_theme() {
+    use ddi_ui::screens::data::{ImportReportView, ImportView};
+    use ddi_ui::screens::select::SelectCall;
+    use ddi_ui::screens::select_dialogs::ImportDialog;
+    use std::cell::RefCell;
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::select_screen(&env, None));
+    h.run(0.3);
+    let view = Rc::new(RefCell::new(ImportView {
+        folders: true,
+        report: Some(ImportReportView {
+            summary: "Imported 3 songs.".into(),
+            error: false,
+            sections: vec![(
+                "Imported with problems".into(),
+                vec![format!("Pack/Song: {}", "a long reason ".repeat(12))],
+            )],
+        }),
+        ..Default::default()
+    }));
+    let calls: Rc<RefCell<Vec<SelectCall>>> = Rc::default();
+    let c = calls.clone();
+    h.ui.push(ImportDialog::new(
+        env.clone(),
+        view,
+        Some(Rc::new(move |call, _| c.borrow_mut().push(call))),
+    ));
+    h.run(0.3);
+    // The middle of the row.
+    let [l, t, r, b] = h.ui.bounds("Option.videos").unwrap();
+    h.tap_at(PointerKind::Mouse, [(l + r) / 2.0, (t + b) / 2.0]);
+    assert!(
+        calls
+            .borrow()
+            .contains(&SelectCall::ImportOption("videos".into(), true)),
+        "{:?}",
+        calls.borrow()
+    );
+    // Keys go up to the buttons, down the options, through the report to
+    // Close, and back up.
+    for _ in 0..12 {
+        h.key("ArrowUp", "ArrowUp");
+        h.run(0.1);
+    }
+    assert_eq!(h.ui.focused(), Some("PickFolder"));
+    h.key("ArrowRight", "ArrowRight");
+    h.run(0.1);
+    assert_eq!(h.ui.focused(), Some("PickFiles"));
+    let mut seen = Vec::new();
+    for _ in 0..12 {
+        h.key("ArrowDown", "ArrowDown");
+        h.run(0.1);
+        seen.push(h.ui.focused().unwrap_or("").to_string());
+    }
+    assert_eq!(
+        &seen[..4],
+        ["Option.copy", "Option.videos", "Option.details", "Report"],
+        "{seen:?}"
+    );
+    assert_eq!(seen.last().map(String::as_str), Some("Close"), "{seen:?}");
+    for _ in 0..12 {
+        h.key("ArrowUp", "ArrowUp");
+        h.run(0.1);
+    }
+    assert!(
+        h.ui.focused().is_some_and(|f| f.starts_with("Pick")),
+        "{:?}",
+        h.ui.focused()
+    );
+    // The long line wrapped over rows, none with a banner box.
+    let rows: Vec<String> = h
+        .texts()
+        .into_iter()
+        .filter(|t| t.contains("reason"))
+        .collect();
+    assert!(rows.len() >= 2, "{rows:?}");
+    if let Some(Kind::Frame(items)) = h.ui.actor("Report.Items").map(|a| a.kind.clone()) {
+        for r in items {
+            let mut n = Vec::new();
+            names(&r, &mut n);
+            assert!(
+                !n.iter().any(|x| x == "BannerBack" || x == "Banner"),
+                "{n:?}"
+            );
+        }
+    } else {
+        panic!("no report");
     }
 }

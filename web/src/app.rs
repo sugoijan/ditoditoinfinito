@@ -10,8 +10,8 @@ use crate::components::credits::CreditsScreen;
 use crate::components::device_watcher::DeviceWatcher;
 use crate::components::game_canvas::{GameCanvas, SongSource};
 use crate::components::options::Options;
+use crate::components::select_page::SelectPage;
 use crate::components::skin_preview::SkinPreview;
-use crate::components::song_select::SongSelect;
 use crate::components::ui_dev::UiDev;
 use crate::components::ui_test::UiTest;
 use crate::components::video_check::VideoCheck;
@@ -109,20 +109,10 @@ impl Component for App {
 impl App {
     fn screen(&self, ctx: &Context<Self>) -> Html {
         match &self.route {
+            // Song select, our theme's screen on the canvas (step 6.2);
+            // keyed by the device, made again after a lost one.
             Route::Home => html! {
-                <main class="shell">
-                    <h1>{ "Dito Dito Infinito" }<span class="demo-tag">{ "demo" }</span></h1>
-                    <SongSelect />
-                    <p class="footer-links muted">
-                        <a href={Route::Options.to_hash()}>{ "options" }</a>
-                        { " · " }
-                        <a href={Route::Calibrate.to_hash()}>{ "calibrate" }</a>
-                        { " · " }
-                        <a href={Route::Credits.to_hash()}>{ "credits" }</a>
-                        { " · " }
-                        <a href="https://github.com/sugoijan/ditoditoinfinito">{ "source" }</a>
-                    </p>
-                </main>
+                <SelectPage key={crate::web::screen::losses()} />
             },
             Route::Play {
                 song,

@@ -1,6 +1,7 @@
 //! Mipmaps for a texture already filled at level 0, drawn level by level
 //! (WebGPU and WebGL2 make none themselves): for noteskins' model textures,
-//! which StepMania draws mipmapped (`docs/plans/models.md`).
+//! which StepMania draws mipmapped (`docs/plans/models.md`), and the 2D
+//! pass's images (`crate::painter`), which are drawn smaller than decoded.
 
 use std::collections::HashMap;
 
@@ -77,6 +78,26 @@ impl Mipmaps {
         if texture.mip_level_count() < 2 {
             return;
         }
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("ddi-mipmaps"),
+        });
+        self.record(device, &mut encoder, texture, format);
+        queue.submit(Some(encoder.finish()));
+    }
+
+    /// [`Mipmaps::generate`] into `encoder`, after whatever filled the
+    /// first level (a queue's write or copy, done before what is
+    /// submitted next).
+    pub(crate) fn record(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        texture: &wgpu::Texture,
+        format: wgpu::TextureFormat,
+    ) {
+        if texture.mip_level_count() < 2 {
+            return;
+        }
         let pipeline = self.pipelines.entry(format).or_insert_with(|| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("ddi-mipmaps-pipeline"),
@@ -113,9 +134,6 @@ impl Mipmaps {
                 ..Default::default()
             })
         };
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("ddi-mipmaps"),
-        });
         for level in 1..texture.mip_level_count() {
             let (source, target) = (view(level - 1), view(level));
             let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -152,7 +170,6 @@ impl Mipmaps {
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);
         }
-        queue.submit(Some(encoder.finish()));
     }
 }
 

@@ -456,6 +456,7 @@ fn build(scene: &mut Scene, t: f64, width: f32, height: f32, measure: &mut dyn T
         blend: Blend::Normal,
         mask: Mask::None,
         perspective: None,
+        blur: [0.0; 2],
     }));
     l.push(Command::Text(TextRun {
         text: "×2".into(),
@@ -465,6 +466,7 @@ fn build(scene: &mut Scene, t: f64, width: f32, height: f32, measure: &mut dyn T
         blend: Blend::Add,
         mask: Mask::None,
         perspective: None,
+        blur: [0.0; 2],
     }));
 
     // Clips: a rectangle and text cut by one, and a clip within a clip.

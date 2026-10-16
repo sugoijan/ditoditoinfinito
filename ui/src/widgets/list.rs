@@ -11,12 +11,17 @@
 //!   given an item, and may give items stable keys so the selection
 //!   follows its item when the model changes ([`List::reload`]).
 //! - **Scrolling**: a drag moves it, a flick carries on with inertia that
-//!   slows by [`FRICTION`], the wheel and the keys glide to a target;
-//!   once still, it snaps to the nearest item's top (plain) or puts the
-//!   nearest item under the focus line and selects it (wheel). A press
-//!   catches a moving list (the tap that does is no selection). A
-//!   scrollbar's thumb can be dragged. Positions are kept in `f64`, so a
-//!   glide ends exactly however long the list.
+//!   slows by [`FRICTION`], a wheel's notches and the keys glide to a
+//!   target (a notch is a row in the wheel style); once still, it snaps
+//!   to the nearest item's top (plain) or puts the nearest item under the
+//!   focus line and selects it (wheel). A trackpad's stream
+//!   ([`crate::gesture::WheelKind::Precise`]) moves it one for one, as a
+//!   drag, and once it ends (no event for [`STREAM_END`]) the list snaps
+//!   as after a drag. Dragged or scrolled past an end, it gives less and
+//!   less ([`RUBBER`]) and springs back when let go. A press catches a
+//!   moving list (the tap that does is no selection). A scrollbar's
+//!   thumb can be dragged. Positions are kept in `f64`, so a glide ends
+//!   exactly however long the list.
 //! - **Selection**: Up and Down (keys, pads, repeated when held) move it,
 //!   the list following; a tap selects, a tap on the selected item (or
 //!   Start) activates it.
@@ -25,6 +30,12 @@
 //!   passes; they show (and load) once it slows.
 //! - **Wheel style**: the selected item sits at a fixed line and the
 //!   others are placed around it by the look ([`crate::look::wheel`]).
+//! - **Motion blur**: moving faster than the look's
+//!   `List.MotionBlurFrom` ([`BLUR_FROM`]), each item is smeared along
+//!   the list (`motionblur`, our actor extension) by `List.MotionBlur`
+//!   ([`BLUR`]) of a 60th of a second's travel past that speed, at most a
+//!   row; none at rest, none when the list does not glide (reduced
+//!   motion).
 //!
 //! Actors: a frame named [`ListConfig::name`], clipped to the list's
 //! rectangle, holding `<name>.Items` (the reused `<component>.Row` and
@@ -35,7 +46,7 @@
 
 use ddi_actor::{Actor, Kind};
 
-use crate::gesture::Gesture;
+use crate::gesture::{Gesture, WheelKind};
 use crate::hit;
 use crate::look::{self, Look, Spec, call, named};
 use crate::nav::MenuAction;
@@ -51,6 +62,33 @@ pub const GLIDE: f64 = 14.0;
 /// Faster than this (virtual pixels a second: a row of 48 on screen for
 /// a third of a second under a list 500 high), rows show no images.
 pub const FAST: f64 = 1500.0;
+/// A trackpad's stream has ended once no event came for this long
+/// (seconds): the fingers rest or lifted and the platform's momentum ran
+/// out ([`crate::gesture::STREAM_GAP`]).
+pub const STREAM_END: f64 = 0.12;
+/// A stream of at most this many events, moving less than half a row,
+/// was a wheel's notch reported as a few pixels (no trackpad gesture is
+/// so short): it moves a notch when it ends.
+pub const SHORT_STREAM: u32 = 2;
+/// A notch's worth of a wheel, virtual pixels (Firefox's 3 lines,
+/// Chrome's 100 to 120 pixels): a row each in the wheel style.
+pub const NOTCH: f64 = 120.0;
+/// Past an end, the list shows `d·c·x / (c·x + d)` of `x` pulled, `d`
+/// half its height (iOS's rubber band, `c` 0.55): about half at first,
+/// never more than `d`.
+pub const RUBBER: f64 = 0.55;
+/// The default share of a 60th of a second's travel a moving item is
+/// smeared over (`List.MotionBlur`).
+pub const BLUR: f32 = 0.5;
+/// The default speed motion blur starts at, virtual pixels a second
+/// (`List.MotionBlurFrom`): a slow drag or a glide's end stays sharp.
+pub const BLUR_FROM: f32 = 600.0;
+/// The measured speed's smoothing (seconds), over frames whose moves
+/// come in uneven steps (a pointer's or a trackpad's events).
+const MOTION_SMOOTH: f64 = 0.04;
+/// Below this measured speed the list counts as still (virtual pixels a
+/// second).
+const MOTION_FLOOR: f64 = 20.0;
 
 /// What an item is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,7 +138,7 @@ pub struct ListConfig {
     pub margin: f32,
     pub bar: f32,
     /// Glides to its targets (wheel, keys, snaps); off (reduced motion),
-    /// it jumps there.
+    /// it jumps there, and its items never blur.
     pub glide: bool,
 }
 
@@ -136,6 +174,17 @@ struct Slot {
     image: bool,
 }
 
+/// A trackpad's stream of wheel events, while it lasts.
+#[derive(Clone, Copy, Debug)]
+struct Stream {
+    /// Seconds since its last event.
+    idle: f64,
+    events: u32,
+    moved: f64,
+    /// Where the list was going when it began.
+    from: f64,
+}
+
 /// The list's state.
 pub struct List {
     pub config: ListConfig,
@@ -145,6 +194,13 @@ pub struct List {
     target: Option<f64>,
     velocity: f64,
     dragging: bool,
+    stream: Option<Stream>,
+    /// Where the last update left it, and how fast it has moved since
+    /// (smoothed; drags and streams have no velocity of their own).
+    last_pos: f64,
+    motion: f64,
+    /// The blur last given to the items (virtual pixels).
+    blur: f32,
     /// The press caught a moving list: its tap only stops it.
     caught: bool,
     /// Dragging the scrollbar's thumb: where it was grabbed (from its
@@ -169,6 +225,10 @@ impl List {
             target: None,
             velocity: 0.0,
             dragging: false,
+            stream: None,
+            last_pos: 0.0,
+            motion: 0.0,
+            blur: 0.0,
             caught: false,
             thumb: None,
             selected: 0,
@@ -216,7 +276,10 @@ impl List {
             self.pos = self.clamp(self.centre(self.selected) - f);
             self.target = None;
             self.velocity = 0.0;
+            self.stream = None;
         }
+        // Laid out again is no movement.
+        self.last_pos = self.pos;
         let moved = n > 0 && self.selected != before;
         if moved && self.focus_line().is_none() {
             // Keep it in view where it went.
@@ -264,20 +327,28 @@ impl List {
         v
     }
 
-    /// Whether it moves by itself (inertia, a glide): frames needed.
+    /// Whether it moves by itself (inertia, a glide), a trackpad's stream
+    /// is open, or it has just moved (its blur still to clear): frames
+    /// needed.
     pub fn animating(&self) -> bool {
-        self.velocity != 0.0 || self.target.is_some()
+        self.velocity != 0.0 || self.target.is_some() || self.stream.is_some() || self.motion > 0.0
     }
 
-    /// How fast it moves now, virtual pixels a second.
+    /// How fast it moves now, virtual pixels a second: its inertia or
+    /// glide, else as measured over the last frames (a drag, a stream).
     pub fn speed(&self) -> f64 {
         if self.velocity != 0.0 {
             self.velocity.abs()
         } else if let Some(t) = self.target {
             (t - self.pos).abs() * GLIDE
         } else {
-            0.0
+            self.motion
         }
+    }
+
+    /// The blur given to its items now (virtual pixels along the list).
+    pub fn blur(&self) -> f32 {
+        self.blur
     }
 
     fn content(&self) -> f64 {
@@ -322,6 +393,30 @@ impl List {
         pos.clamp(min, self.max_scroll().max(min))
     }
 
+    /// `pos` moved by `delta` as a finger moves it: one for one within the
+    /// ends, past them less and less ([`RUBBER`]).
+    fn rubber(&self, pos: f64, delta: f64) -> f64 {
+        let (min, max) = (self.min_scroll(), self.max_scroll().max(self.min_scroll()));
+        let d = (self.height_shown() / 2.0).max(1.0);
+        // Shown past the end for `x` pulled, and back.
+        let shown = |x: f64| d * RUBBER * x / (RUBBER * x + d);
+        let pulled = |o: f64| o * d / (RUBBER * (d - o.min(d * 0.999)));
+        let finger = if pos < min {
+            min - pulled(min - pos)
+        } else if pos > max {
+            max + pulled(pos - max)
+        } else {
+            pos
+        } + delta;
+        if finger < min {
+            min - shown(min - finger)
+        } else if finger > max {
+            max + shown(finger - max)
+        } else {
+            finger
+        }
+    }
+
     fn centre(&self, i: usize) -> f64 {
         (self.offsets[i] + self.offsets[i + 1]) / 2.0
     }
@@ -348,6 +443,8 @@ impl List {
         self.selected = i.min(self.kinds.len() - 1);
         self.selected_key = None;
         self.velocity = 0.0;
+        // Keys and taps end a trackpad's stream: its end would snap back.
+        self.stream = None;
         let (top, bottom) = (self.offsets[self.selected], self.offsets[self.selected + 1]);
         let to = match self.focus_line() {
             Some(f) => self.centre(self.selected) - f,
@@ -389,6 +486,7 @@ impl List {
             self.pos = t;
         }
         self.velocity = 0.0;
+        self.last_pos = self.pos;
     }
 
     /// Scrolls to `pos` at once (tests, a restored place).
@@ -396,6 +494,8 @@ impl List {
         self.pos = self.clamp(pos);
         self.target = None;
         self.velocity = 0.0;
+        self.stream = None;
+        self.last_pos = self.pos;
     }
 
     /// The list's actors, to put in the screen's tree.
@@ -430,13 +530,44 @@ impl List {
     ) -> Option<ListEvent> {
         let dt = f64::from(dt);
         let mut event = None;
+        // A trackpad's stream ends when its events stop: it snaps as a
+        // drag let go does, unless it was a wheel's notch in disguise.
+        if let Some(s) = &mut self.stream {
+            s.idle += dt;
+            if s.idle >= STREAM_END {
+                let s = *s;
+                self.stream = None;
+                let row = f64::from(self.config.row);
+                event = if s.events <= SHORT_STREAM && s.moved != 0.0 && s.moved.abs() < row / 2.0 {
+                    self.target = Some(s.from);
+                    self.notch(s.moved.signum() * NOTCH);
+                    None
+                } else if let Some(t) = self.target {
+                    // Still gliding (a notch's, a key's): it snaps where
+                    // the glide goes.
+                    let pos = std::mem::replace(&mut self.pos, t);
+                    let event = self.settle(model);
+                    self.target = Some(self.target.unwrap_or(t));
+                    self.pos = pos;
+                    event
+                } else {
+                    self.settle(model)
+                };
+            }
+        }
+        // A glide goes on under a stream (no inertia: a wheel stopped it).
         if !self.dragging && self.thumb.is_none() {
             if self.velocity != 0.0 {
+                let inside = self.clamp(self.pos) == self.pos;
                 self.pos += self.velocity * dt;
                 self.velocity *= (-FRICTION * dt).exp();
                 let clamped = self.clamp(self.pos);
                 if clamped != self.pos || self.velocity.abs() < STOP_SPEED {
-                    self.pos = clamped;
+                    // Running into an end stops it there; flicked from past
+                    // one, it springs back.
+                    if inside {
+                        self.pos = clamped;
+                    }
                     self.velocity = 0.0;
                     event = self.settle(model);
                 }
@@ -456,8 +587,38 @@ impl List {
                 }
             }
         }
+        if dt > 0.0 {
+            let v = (self.pos - self.last_pos).abs() / dt;
+            self.motion += (v - self.motion) * (1.0 - (-dt / MOTION_SMOOTH).exp());
+            if self.motion < MOTION_FLOOR {
+                self.motion = 0.0;
+            }
+        }
+        self.last_pos = self.pos;
         self.sync(root, model, look, cx);
         event
+    }
+
+    /// A wheel's notch (or a few, by `dy`'s size, [`NOTCH`] each): a row
+    /// each in the wheel style, from the row it is going to; [`NOTCH`]
+    /// pixels each plain, whatever the platform calls a notch.
+    fn notch(&mut self, dy: f64) {
+        let at = self.target.unwrap_or(self.pos);
+        let rows = (dy.abs() / NOTCH).round().max(1.0);
+        let to = match self.focus_line() {
+            Some(f) if !self.kinds.is_empty() => {
+                let rows = rows as usize;
+                let i = self.item_at(self.clamp(at) + f);
+                let j = if dy > 0.0 {
+                    (i + rows).min(self.kinds.len() - 1)
+                } else {
+                    i.saturating_sub(rows)
+                };
+                self.centre(j) - f
+            }
+            _ => at + dy.signum() * rows * NOTCH,
+        };
+        self.target = Some(self.clamp(to));
     }
 
     /// A wheel list at rest selects what is on its line.
@@ -576,9 +737,18 @@ impl List {
             }
         }
         // Images only while slow enough to look at them.
-        let fast = self.speed() > FAST;
+        let speed = self.speed();
+        let fast = speed > FAST;
         let focus = self.focus_line();
         let row = f64::from(self.config.row);
+        let blur = if self.config.glide {
+            let past = speed as f32 - look::metric(look, "List.MotionBlurFrom", BLUR_FROM);
+            (look::metric(look, "List.MotionBlur", BLUR) * past.max(0.0) / 60.0)
+                .min(self.config.row)
+        } else {
+            0.0
+        };
+        self.blur = blur;
         let children = items.children_mut();
         for (k, s) in self.slots.iter_mut().enumerate() {
             let Some(a) = children.get_mut(k) else {
@@ -591,18 +761,28 @@ impl List {
             let y = self.offsets[i] - self.pos;
             // Built and filled in the margin, drawn only where it shows.
             a.visible = y + (self.offsets[i + 1] - self.offsets[i]) > 0.0 && y < h;
+
             if s.image
                 && let Some(b) = hit::find_mut(a, "Banner")
             {
                 b.visible = !fast;
             }
             match focus {
-                None => call(a, "xy", &[0.0, y as f32]),
+                None => {
+                    call(a, "xy", &[0.0, y as f32]);
+                    a.motion_blur = blur;
+                }
                 Some(f) => {
                     let mid = (self.offsets[i] + self.offsets[i + 1]) / 2.0 - self.pos;
                     let place = look::wheel(look, &name, ((mid - f) / row) as f32);
                     call(a, "xy", &[place.x, y as f32 + place.y]);
                     call(a, "zoom", &[place.zoom]);
+                    // In the row's own units.
+                    a.motion_blur = if place.zoom > 0.0 {
+                        blur / place.zoom
+                    } else {
+                        0.0
+                    };
                     call(a, "diffusealpha", &[place.alpha]);
                     // Moved right, the row keeps its right edge: its
                     // `Right` part moves back, its plate and what is drawn
@@ -635,7 +815,8 @@ impl List {
             bar.visible = range > 0.0 && focus.is_none();
             if bar.visible {
                 let thumb = self.thumb_size();
-                let y = (self.pos - self.min_scroll()) / range * (h - thumb);
+                let y =
+                    ((self.pos - self.min_scroll()) / range * (h - thumb)).clamp(0.0, h - thumb);
                 if let Some(t) = hit::find_mut(bar, "Thumb") {
                     if let Kind::Sprite(s) = &mut t.kind {
                         s.size = [self.config.bar, thumb as f32];
@@ -689,13 +870,14 @@ impl List {
                 match gesture {
                     Gesture::Press => {
                         // Catch a moving list.
-                        self.caught = self.animating();
+                        self.caught = self.velocity != 0.0 || self.target.is_some();
                         self.velocity = 0.0;
                         self.target = None;
+                        self.stream = None;
                     }
                     Gesture::DragStart => self.dragging = true,
                     Gesture::Drag { delta } => {
-                        self.pos = self.clamp(self.pos - f64::from(delta[1]));
+                        self.pos = self.rubber(self.pos, -f64::from(delta[1]));
                     }
                     Gesture::Flick { velocity } => {
                         self.dragging = false;
@@ -727,18 +909,43 @@ impl List {
             Input::Wheel {
                 target: Some(t),
                 delta,
+                kind,
                 ..
             } if t.within(&name) => {
+                let dy = f64::from(delta[1]);
+                // Sideways (Shift with a wheel, a tilt, a trackpad's
+                // horizontal swipe): not this list's.
+                if dy == 0.0 {
+                    return (Handled::No, None);
+                }
                 self.velocity = 0.0;
-                let at = self.target.unwrap_or(self.pos) + f64::from(delta[1]);
-                let to = match self.focus_line() {
-                    // A wheel goes from row to row.
-                    Some(f) if !self.kinds.is_empty() => {
-                        self.centre(self.item_at(self.clamp(at) + f)) - f
+                match kind {
+                    WheelKind::Notch => {
+                        self.stream = None;
+                        self.notch(dy);
                     }
-                    _ => at,
-                };
-                self.target = Some(self.clamp(to));
+                    WheelKind::Precise => {
+                        let from = self.target.unwrap_or(self.pos);
+                        let s = self.stream.get_or_insert(Stream {
+                            idle: 0.0,
+                            events: 0,
+                            moved: 0.0,
+                            from,
+                        });
+                        s.idle = 0.0;
+                        s.events += 1;
+                        s.moved += dy;
+                        match self.target {
+                            // A glide under way carries the fingers' moves
+                            // on with it.
+                            Some(t) => {
+                                self.pos += dy;
+                                self.target = Some(self.clamp(t + dy));
+                            }
+                            None => self.pos = self.rubber(self.pos, dy),
+                        }
+                    }
+                }
                 (Handled::Yes, None)
             }
             Input::Menu { action, .. } => match action {
@@ -782,6 +989,7 @@ impl List {
             Gesture::Press => {
                 self.velocity = 0.0;
                 self.target = None;
+                self.stream = None;
                 let grab = if (thumb_y..thumb_y + thumb).contains(&y) {
                     y - thumb_y
                 } else {

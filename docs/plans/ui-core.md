@@ -170,7 +170,9 @@ they were drawn at.
   web's `createImageBitmap`, as now; a thread on desktop), downscaled to
   the size drawn, with a placeholder until ready and least-recently-used
   eviction under a byte budget the platform sets. Texture ids stay stable
-  across a device loss.
+  across a device loss. Images keep mipmaps, and a size not loaded is
+  drawn from a larger one of the same source when there is one (step
+  6.2).
 - **P10. One canvas and device for the whole web app**, created at boot
   and kept across routes. Today the play screen and the skin preview each
   call `Gfx::new` (`web/src/web/gfx.rs:151`), which may replace the canvas
@@ -887,6 +889,195 @@ Done, 6.1 results (2026-10-15):
   Select; the offset saved per
   song; panels kept; a lost device (WebGPU's hook, WebGL2's lost
   context) and a resize keep the screen. Wasm 2,474 KB gzip (+14 KB).
+
+Done, 6.2 from the maintainer's try: trackpads, motion blur, banners
+(2026-10-16):
+
+- **Trackpads.** Why slow scrolls did nothing: the wheel style moved
+  its target to the row under `target + delta`, and a few pixels stay
+  in the same row. Wheel events now say what the platform counted
+  (`WheelEvent::source`: the DOM's `deltaMode`, winit's `LineDelta` or
+  `PixelDelta`), and `gesture::WheelStream` tells a wheel's notches from
+  a precise stream (`Input::Wheel::kind`): `PixelDelta` is precise;
+  anything continues an open stream (an event within 120 ms, so a
+  swipe's momentum stays one stream however large its deltas, and a
+  precision touchpad's whole lines among its fractions too); lines are
+  notches when whole, precise when a fraction (Windows' precision
+  touchpads through winit, high-resolution wheels); pixels of unknown
+  origin are a notch when a whole number of 4.000244140625 (macOS's
+  mouse wheels in Chrome and Safari) at any of the browsers' page zooms
+  (the delta is divided by the zoom) or 50 px and more (Windows' 100,
+  Linux's 53 to 120), unless soon after a notch and neither a multiple
+  nor a fraction of it (a touchpad swipe that starts large: 60, then
+  90), and start a stream when smaller (a trackpad's first event is a
+  few pixels). Wheels with Ctrl or ⌘ (a trackpad's pinch) are the
+  page's zoom: the UI leaves them and the web shell lets the browser
+  have them. A list ignores sideways wheels (Shift, a tilt). It follows
+  a stream one for one, as a drag (a glide under way, a notch's or a
+  key's, carries the fingers' moves on); once no event came for 0.12 s
+  it snaps as after a drag (the wheel style onto its line, selected).
+  Keys, taps and the scrollbar end a stream, so its end does not undo
+  them. A notch moves a row in the wheel style (a few for a large
+  delta) and 120 virtual pixels plain, whatever the platform calls a
+  notch. A stream of one or two events moving under half a row, which
+  no trackpad gesture is, counts as a notch: a mouse whose notches the
+  platform reports as a few pixels still moves a row. Dragged or
+  scrolled past an end the list gives less and less (iOS's rubber band,
+  `d·c·x / (c·x + d)` with `d` half its height, `c` 0.55) and glides
+  back when let go; a flick into an end still stops there.
+- **Motion blur.** Actors have `motionblur` (our extension, like
+  `cornerradius`): what they draw and everything inside them smeared
+  along their y axis, in their units. It reaches `Drawn` quads and
+  runs as a vector on the target, the bridge turns it into each quad's
+  and run's own units (`Quad::blur`, `TextRun::blur`), and the painter
+  grows the quad by half the blur each way and averages taps along it
+  (at most 2 pixels apart, 16 at most, dithered so long blurs do not
+  band, with their alpha; the mipmap a plain sample would take; nothing
+  outside the quad). Instances grew to 144 bytes; with no blur the old
+  path runs unchanged (the 84 noteskin previews are identical on WebGPU
+  and WebGL2). The list blurs its items by `List.MotionBlur` (0.5) of a
+  60th of a second's travel past `List.MotionBlurFrom` (600 virtual
+  pixels a second), at most a row, from its glide or inertia or, for
+  drags and streams, the speed measured over its last frames; none at
+  rest (frames go on until the measured speed is gone) and none when it
+  does not glide (reduced motion). Cost, the widget list at 2560×1440
+  on an M1 Max: 2.0–2.4 ms a frame at rest, 3.1 ms blurred by 22
+  virtual pixels, 4.6 ms by 28; flicking 10,000 rows in Chrome (WebGPU
+  and WebGL2) and Firefox drops no frame.
+- **Banners.** The painter's images have mipmaps (filled at the next
+  draw, `mipmaps.rs`; text pages have none), and the texture cache
+  resolves a size it lacks to one as large or larger of the same source
+  (its mipmaps draw it smaller), waits for one being decoded, and only
+  otherwise asks for its own, a smaller one standing in meanwhile
+  (`TextureCache::resolve`; a size that failed is drawn from another
+  that loaded, and one waits for a larger decode 120 frames at most).
+  Mipmaps are recorded after the draw's eviction, and what is evicted
+  is dropped, not destroyed, so commands not yet submitted keep it. So a banner is decoded once for a row and
+  at most once more for the large panel, and a row zooming between
+  sizes decodes nothing again (its key was never the zoom: the size
+  asked for is the component's). What stays loaded is bounded by bytes
+  (mipmaps counted) and by count (`MAX_LOADED`, 768). Measured over
+  10,000 rows, two in three with a banner of their own
+  (`desktop/tests/banners.rs`, a budget of 100 banners): a slow
+  trackpad scroll through 300 rows loads 188
+  and evicts 88, never more than 100 loaded (10.7 MB); a long flick
+  loads only where it stops (14). Desktop decodes on two threads
+  (`images::Loader`; a decoder that panics fails its image only; at
+  most 96 MB a decode), and the shell polls for them while any is out;
+  the web already decodes with `createImageBitmap`.
+
+Done, 6.2 song select (2026-10-16):
+
+- **`#/` is our theme's song select** on the app's canvas over the whole
+  window (`web/src/components/select_page.rs`, the UI core's host from
+  `ui_dev.rs` started as a route of its own), on the real library: the
+  bundled manifest and the imported songs (`web/src/select_data.rs`),
+  every song in every style, greyed where it has no chart in it, packs
+  as the wheel's headers (bundled first, then each imported pack;
+  closed or open as left), banners and backgrounds through the texture
+  cache. The Yew song list (`song_select.rs`), its DOM navigation
+  (`menu.rs`) and its CSS are gone.
+- **Charts:** the ladder per style with difficulty (an Edit by its name,
+  as Dancing☆Onigiri charts are), meter, notes and step artist; Start
+  plays the chart (`#/play?song=&chart=` by its index, with `gfx`,
+  `auto`, `bias`, `slow` carried from `#/?…`); the song's BPM and length
+  (`ManifestEntry::length`, the end of the last note of the playable
+  charts, from `xtask gen-songs` and the import; songs imported before
+  get it, and their charts' digests, when their chart is next read).
+- **Bests** on the ladder rows (grade, score, the lamp as a word in its
+  colour and a bar at the row's end; "…" after the score while pending),
+  under the wheel rows' meters (a line in the lamp's colour) and on the
+  compact chart buttons, from the play history by chart digest and the
+  best key of the rules the settings choose for that chart (autoplay
+  never counts); they follow the history as it changes (a play kept,
+  stale plays worked out again).
+- **Search** in the header with suggestions (titles, artists, packs,
+  kana and romaji); "found in other styles" no longer applies, since
+  every style shows every song: the footer says how many songs match
+  ("3 songs match.", "No song matches."). Escape closes the
+  suggestions, stops typing, then clears the search, back on the song
+  shown.
+- **Previews:** one audio context for the page, made or resumed in
+  every key, click and tap (capture listeners), never later, so Safari's
+  and the autoplay policies' rule holds; the song shown starts its
+  preview about 0.3 s after the selection settles (the music and the
+  chart read then), looping, and stops when the page goes. A pad's move
+  in WebKit, which counts no pad press as a gesture, waits for a tap.
+  The pulse follows the preview's music through the chart's timing
+  (`Env::beat`), at the display BPM when silent.
+- **Import:** "+ Add songs" (compact: "+") opens a dialog
+  (`ui/src/screens/select_dialogs.rs`) whose buttons click the page's
+  real inputs inside the gesture (a folder through `showDirectoryPicker`
+  where it exists, else the `webkitdirectory` input; zips and files),
+  with the import options as toggles, the status, and the report in a
+  scrolled list; drag and drop anywhere on the page as before. Manage…
+  (and Delete) on an imported song or pack: read the folder again,
+  remove the song or the pack, each removal confirmed in the dialog.
+- **Notices** in a line over the song column: imported songs
+  unavailable, stored songs that could not be read (remove them), a
+  controller without bindings (bind it in Options), the storage prompt
+  ("This site stores about … keep them", asked in the gesture). The
+  mods ("Playing with") open the options; the footer's links are
+  Options, Calibrate, Credits and Source (through requests). No "demo"
+  tag: the title says Dito Dito Infinito as the theme's header has it.
+- **The ring:** the wheel's rows are drawn 5 px in (`ROW_INSET`, the
+  metric `Select.Wheel.Inset`) and the list starts as far out, so the
+  selected row's ring and pulse lie within the list, which clips;
+  `the_selected_rows_ring_lies_within_the_wheel` checks every frame of
+  the glide and both layouts.
+- **A flick leaves no gap:** the wheel selects what is on its line only
+  at rest, so while rows rush past (faster than 6 rows a second) or the
+  selected row is off the line, its room on the line closes and the row
+  shrinks (`Look::set_wheel_open`), both opening again as it settles
+  (`a_flick_leaves_no_gap_on_the_wheels_line`). The wheel's events carry
+  their source (the host's, shared with `#/ui-dev`).
+- **The place** (`ddi.menu.v1`: the song, its chart, the style, the
+  search, the packs closed) comes back after a play and a reload; the
+  style chosen is the settings' too.
+- **Checked:** harness tests on library data (the shell told the song
+  and the place within the input; the place back; bests, pending; new
+  data keeping the song; the search's count; links and notices; the
+  import dialog's calls, progress and report; removal confirmed); theme
+  tests (the ring, the bests' colours, the footer's hints clear of its
+  links, the dialogs at both sizes); Playwright in Chrome (WebGPU,
+  WebGL2) and Firefox: the bundled library, styles and greying, a typed
+  search and a composed Japanese one (Chrome), a preview starting with
+  the first key under `document-user-activation-required`, play from
+  the screen and back with the place kept, a reload, a folder and a zip
+  imported, the storage prompt, a counted play's best on the ladder, a
+  pack removed after its confirmation, 844×390 by touch, and no frames
+  at rest under reduced motion.
+- **From the review** (the old page's features back, and its defects):
+  search covers transliterations (`#TITLETRANSLIT`, `#ARTISTTRANSLIT`)
+  and credits as well; each pack header says "N of M songs" while
+  searching; the song's offset and credit beside its artist, "–" for an
+  unknown length; named charts by their names on the ladder and the
+  play button ("PLAY HYPER EDIT"), their meter shown only when they
+  have one, counted on the wheel's row as "+N"; style tabs that do not
+  fit are windowed around the chosen one ("‹", "›"); a Dancing☆Onigiri
+  chart's best under the key its mode and excess play under
+  (`Settings::best_key_for`); a removed song gives way to its
+  neighbour; nothing is removed or read again while an import runs;
+  files dropped open the import dialog with its progress; "remove
+  them" for unreadable songs is confirmed; the notices line opens every
+  notice in full; the import report wraps its lines over text rows; a
+  toggle takes a tap across its row, and keys go down the dialog (the
+  report takes Up and Down only while focused, and lets go at its
+  ends); Manage's buttons wrap; Backspace opens Manage too; a pad's
+  move in WebKit still chooses the preview (it starts at the next
+  tap); the device banner moves the screen below it (`Host::avoid`,
+  a `MutationObserver` on the page); a window narrower than 600 CSS
+  pixels gets the compact layout (`Compact.Narrower`); testing
+  parameters stay for the session's plays and the way back
+  (`router::keep_testing`). Typing in a 5,000-song library takes
+  11–38 ms a key in Chrome (84–109 before: the page's debug state
+  lowercased every song each frame); at rest the screen draws at the
+  display's rate while the pulse runs, none under reduced motion.
+- **Left for later:** a layout of its own for portrait phones (390×844
+  gets the compact layout, scaled to the width, the lower part empty); pack banners on the wheel's headers (the import
+  keeps them); the device watcher's notices stay DOM (6.4); a
+  Dancing☆Onigiri work was not imported in the browser test (the import
+  path is the one 5.x tested).
 
 Yew goes when no screen needs it; `#/video-check`, the crash page and
 the no-GPU page stay plain DOM.

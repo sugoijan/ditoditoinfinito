@@ -26,6 +26,11 @@ pub struct MenuPlace {
     /// on (short text is not searched until asked).
     pub search: String,
     pub searched: String,
+    /// Song select (step 6.2): the song shown, the style (its id) and the
+    /// packs closed (by name; `None` before the first visit).
+    pub song: Option<String>,
+    pub style: Option<String>,
+    pub closed: Option<Vec<String>>,
 }
 
 impl MenuPlace {

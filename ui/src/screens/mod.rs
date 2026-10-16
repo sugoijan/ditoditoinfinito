@@ -58,6 +58,7 @@ pub mod play;
 pub mod results;
 pub mod sample;
 pub mod select;
+pub mod select_dialogs;
 #[cfg(test)]
 mod tests;
 
@@ -78,10 +79,17 @@ pub const COMPACT: [f32; 2] = [844.0, 390.0];
 /// layout: phones held sideways are 360–430 high; tablets and laptop
 /// windows 600 and more.
 pub const COMPACT_BELOW: f32 = 480.0;
+/// Windows narrower than this many CSS pixels get the compact design too
+/// (a phone held upright).
+pub const COMPACT_NARROWER: f32 = 600.0;
 
 /// The design for a window `css` CSS pixels large.
 pub fn design_for(look: &dyn Look, css: [f32; 2]) -> [f32; 2] {
-    if css[1] < look::metric(look, "Compact.Below", COMPACT_BELOW) {
+    // Short (a phone held sideways) or narrow (held upright): the compact
+    // design.
+    if css[1] < look::metric(look, "Compact.Below", COMPACT_BELOW)
+        || css[0] < look::metric(look, "Compact.Narrower", COMPACT_NARROWER)
+    {
         [
             look::metric(look, "Compact.Width", COMPACT[0]),
             look::metric(look, "Compact.Height", COMPACT[1]),
@@ -157,6 +165,16 @@ pub struct ThemeState {
     /// Screens open over song select (results, options): it says what it
     /// does again only once none is.
     pub over: usize,
+    /// Song select: the selected row's actor, and where the wheel is
+    /// (virtual pixels `[x, y, w, h]`), for tests.
+    pub selected_row: Option<String>,
+    pub wheel: [f32; 4],
+    /// Song select: the selected chart's best, its notices, the import
+    /// dialog's status.
+    pub best: Option<String>,
+    pub notices: Vec<String>,
+    /// The import dialog is open (it says so while it is).
+    pub import_open: bool,
 }
 
 pub type SharedTheme = Rc<RefCell<ThemeState>>;

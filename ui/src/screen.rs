@@ -22,7 +22,7 @@ use ddi_actor::Actor;
 use ddi_actor::screen::Viewport;
 
 use crate::event::{KeyEvent, PointerKind};
-use crate::gesture::Gesture;
+use crate::gesture::{Gesture, WheelKind};
 use crate::hit::Target;
 use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
@@ -76,11 +76,14 @@ pub enum Input {
     },
     /// A mouse moved onto another target (or off every one).
     Hover { target: Option<Target> },
-    /// A wheel over `target`; positive y scrolls down.
+    /// A wheel over `target`; positive y scrolls down. `kind` says whether
+    /// it is a wheel's notch (a step) or part of a trackpad's stream (one
+    /// for one), as [`crate::gesture::WheelStream`] tells them apart.
     Wheel {
         target: Option<Target>,
         delta: [f32; 2],
         pos: [f32; 2],
+        kind: WheelKind,
     },
     /// Start on the focused actor, or a tap on a focusable one.
     Activate { name: String },

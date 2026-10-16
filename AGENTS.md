@@ -80,7 +80,10 @@ the browser are implementation details, not advertised features.
   a `main` that starts the web shell on wasm and the desktop shell
   everywhere else; Trunk builds it for the browser (`index.html`),
   `cargo run` for desktop.
-- `web/` the web shell (`ddi-web`): Yew for menus, one wgpu canvas and
+- `web/` the web shell (`ddi-web`): the UI core's screens on the canvas
+  (song select at `#/`, `web/src/components/select_page.rs`; results on
+  the play route), Yew for the menus not moved yet (options, calibration,
+  credits), one wgpu canvas and
   device for the whole app (`web/src/web/screen.rs`: made at boot, moved
   into the page that draws, made again after a lost device), Web Audio
   clock, settings in `localStorage` (`web/src/web/kv.rs`), imported songs
@@ -181,6 +184,13 @@ and the helper keeps Firefox away from the maintainer's profiles.
 Playwright's WebKit (not Safari) runs headless with WebGPU; it ignores the
 gesture rule below, so it does not replace the maintainer's Safari check.
 
+Song select (`#/`) is our theme's screen on the canvas: drive it by keys,
+a fake pad or taps at `window.__DDI_DEBUG.ui.rects`, read
+`__DDI_DEBUG.ui.select` and `__DDI_DEBUG.songs` (the library, the import,
+the preview), set files on the hidden `.import-panel input[type=file]`
+(the verify skill's "Song select"); `#/?gfx=gl` (and `auto`, `bias`,
+`slow`, given there or on `#/play?…`) stay for the session: every play
+Start opens and the way back to song select carry them.
 Useful URL parameters: `#/play?song=<id>&chart=<n>` (chart index as in the
 manifest; the play ends on the theme's results drawn on the canvas, what
 they show in `window.__DDI_DEBUG.results`), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
@@ -213,7 +223,7 @@ sample data (the bundled songs and made-up packs; `--screen select` and
 so on in the desktop binary), with their state in
 `__DDI_DEBUG.ui.theme` (screen, song, style, chart, greyed, search,
 popup, hints, pulse, compact, …); a window under 480 CSS pixels high
-gets the compact layout, and `prefers-reduced-motion` (or the
+or 600 wide gets the compact layout, and `prefers-reduced-motion` (or the
 `reduced_motion` setting) stops the beat pulse.
 `window.__DDI_LOSE_DEVICE()` loses the device (a WebGL2 context too), to test recovery;
 `__DDI_DEBUG` carries the canvas's `screen`, `textures`, `text` and

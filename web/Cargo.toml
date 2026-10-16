@@ -102,6 +102,8 @@ web-sys = { workspace = true, features = [
     "MediaDevices",
     "MediaQueryList",
     "MouseEvent",
+    "MutationObserver",
+    "MutationObserverInit",
     "PointerEvent",
     "Screen",
     "Navigator",

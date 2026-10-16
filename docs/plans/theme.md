@@ -57,7 +57,25 @@ desktop's `--screen`. Where the build differs from the mockups:
 - **Options' field preview** is a placeholder until step 6 draws the
   field there. Unlit tabs and the empty ladder have square dashes.
 - **The compact threshold** is 480 CSS pixels of height
-  (`Compact.Below`).
+  (`Compact.Below`) or 600 of width (`Compact.Narrower`: a portrait
+  phone gets the compact layout, scaled to its width).
+
+Song select on the real library (step 6.2, 2026-10-16), where it differs
+from the mockups:
+
+- **Bests:** on the ladder row the grade (numbers face), the score under
+  it, the lamp as a short word (FAILED, CLEAR, FC, GFC, PFC, MFC) in its
+  colour (`Lamp.*`) and a bar of that colour at the row's end; a line
+  under each wheel meter and each compact chart button.
+- **Notices** (storage, errors, controllers) are one line over the song
+  column, cut to fit, their links after it.
+- **Dialogs** for adding songs and for managing a pack or a song, on the
+  `Dialog` panel with the theme's buttons and toggles.
+- **The wheel's rows** are drawn 5 px in, so the selected row's ring is
+  never cut by the list's edge; the list starts 5 px further out, so
+  nothing moved.
+- **Compact** has a "+" icon for adding songs. Pack headers have no
+  banners yet.
 
 ## Starting point
 

@@ -10,8 +10,9 @@ use ddi_chart::Difficulty;
 
 use super::Env;
 use super::data::{
-    ChartEntry, Hit, JudgementCount, LaneName, OptionDef, OptionKind, OptionSection, OptionsData,
-    PanelKind, PanelSet, ResultsData, SelectData, SongEntry, SongOffset, StyleDef, Window,
+    Best, ChartEntry, Hit, JudgementCount, LaneName, OptionDef, OptionKind, OptionSection,
+    OptionsData, PanelKind, PanelSet, ResultsData, SelectData, SongEntry, SongOffset, StyleDef,
+    Window,
 };
 use super::options::{ChangeFn, OptionsScreen};
 use super::results::{ResultsActions, ResultsScreen};
@@ -154,15 +155,25 @@ pub fn bundled() -> Vec<SongEntry> {
                 length: *length,
                 banner: Some(format!("songs/{id}/{banner}")),
                 background: background.map(|b| format!("songs/{id}/{b}")),
+                removable: false,
+                offset_ms: 0,
+                title_translit: String::new(),
+                artist_translit: String::new(),
+                credit: String::new(),
                 charts: charts
                     .iter()
-                    .map(|(style, difficulty, meter, credit, notes)| ChartEntry {
-                        style: style.to_string(),
-                        difficulty: *difficulty,
-                        meter: *meter,
-                        notes: *notes,
-                        credit: credit.to_string(),
-                    })
+                    .enumerate()
+                    .map(
+                        |(index, (style, difficulty, meter, credit, notes))| ChartEntry {
+                            index,
+                            style: style.to_string(),
+                            difficulty: *difficulty,
+                            meter: *meter,
+                            notes: *notes,
+                            credit: credit.to_string(),
+                            ..Default::default()
+                        },
+                    )
                     .collect(),
             },
         )
@@ -260,6 +271,7 @@ pub fn select() -> SelectData {
                         meter,
                         notes: 80 + meter * 45 + rng.below(40) as u32,
                         credit: ARTISTS[rng.below(ARTISTS.len())].to_string(),
+                        ..Default::default()
                     });
                 }
             }
@@ -277,6 +289,7 @@ pub fn select() -> SelectData {
                 banner: None,
                 background: None,
                 charts,
+                ..Default::default()
             });
             n += 1;
         }
@@ -290,11 +303,49 @@ pub fn select() -> SelectData {
                 .any(|song| song.charts.iter().any(|c| c.style == s.id))
         })
         .collect();
+    // A few bests, to show them.
+    for (song, difficulty, best) in [
+        (
+            "some-things-must",
+            Difficulty::Hard,
+            sample_best("AA", "96.12%", "FullCombo", "FC"),
+        ),
+        (
+            "some-things-must",
+            Difficulty::Medium,
+            sample_best("★★", "99.20%", "PerfectFullCombo", "PFC"),
+        ),
+        (
+            "sweeteners",
+            Difficulty::Hard,
+            sample_best("C", "71.03%", "Failed", "FAILED"),
+        ),
+    ] {
+        if let Some(c) = songs.iter_mut().find(|s| s.id == song).and_then(|s| {
+            s.charts
+                .iter_mut()
+                .find(|c| c.style == "dance-single" && c.difficulty == difficulty)
+        }) {
+            c.best = Some(best);
+        }
+    }
     SelectData {
         styles,
         songs,
         mods: vec!["×2.5".into(), "Reverse".into(), "ITG".into()],
         preferred: Some(Difficulty::Hard),
+        ..Default::default()
+    }
+}
+
+fn sample_best(grade: &str, score: &str, lamp: &str, lamp_text: &str) -> Best {
+    Best {
+        grade: grade.into(),
+        score: score.into(),
+        lamp: lamp.into(),
+        lamp_text: lamp_text.into(),
+        pending: false,
+        plays: 3,
     }
 }
 

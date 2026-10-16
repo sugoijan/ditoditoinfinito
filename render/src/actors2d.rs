@@ -57,6 +57,14 @@ fn corners<T: Copy>(c: [T; 4]) -> [T; 4] {
     [c[0], c[1], c[3], c[2]]
 }
 
+/// A motion blur on the target in the space `transform` places.
+fn local_blur(blur: [f32; 2], transform: &Affine) -> [f32; 2] {
+    if blur == [0.0; 2] {
+        return blur;
+    }
+    transform.unapply_vector(blur)
+}
+
 /// Appends `drawn` to `list`; `texture` gives the list's texture of an
 /// actor's (`None`: not drawn).
 pub fn append(
@@ -114,6 +122,7 @@ pub fn append(
                     } else {
                         Shape::of(&q.shape, q.size)
                     },
+                    blur: local_blur(q.blur, &Affine(q.transform)),
                 };
                 if q.diffuse.iter().any(|c| c[3] > 0.0) {
                     list.quad(quad.clone());
@@ -147,6 +156,7 @@ pub fn append(
                     blend,
                     mask,
                     perspective,
+                    blur: local_blur(t.blur, &Affine(t.line_box_transform())),
                 };
                 if t.diffuse[0][3] > 0.0 {
                     list.push(Command::Text(run.clone()));
@@ -277,6 +287,37 @@ mod tests {
         // 30 wide, a line of 25, centred on (100, 50).
         assert_eq!(r.transform.apply([0.0, 0.0]), [85.0, 37.5]);
         assert_eq!(r.color, [1.0, 0.5, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn a_frames_motion_blur_reaches_what_is_inside_in_its_units() {
+        let mut q = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
+        run(&mut q, "zoomto,40,20");
+        let mut t = Actor::new(Kind::Text(Text::new(
+            "abc",
+            TextStyle::new("sans-serif", 20.0),
+        )));
+        t.measure(&mut FixedMeasure);
+        run(&mut t, "zoom,0.5");
+        let mut f = Actor::new(Kind::Frame(vec![q, t]));
+        // 10 of the frame's units along its y: 20 on the target.
+        run(&mut f, "zoom,2;motionblur,10");
+        let l = draw(&mut f);
+        let [Command::Quad(q), Command::Text(r)] = l.commands.as_slice() else {
+            panic!("{:?}", l.commands)
+        };
+        // The quad is 80 by 40 on the target: half its height.
+        assert_eq!(q.blur, [0.0, 0.5]);
+        // The run is drawn at a zoom of 1 on the target: 20 of its units.
+        assert_eq!(r.blur, [0.0, 20.0]);
+        // None: none at all.
+        run(&mut f, "motionblur,0");
+        let l = draw(&mut f);
+        assert!(l.commands.iter().all(|c| match c {
+            Command::Quad(q) => q.blur == [0.0; 2],
+            Command::Text(r) => r.blur == [0.0; 2],
+            _ => true,
+        }));
     }
 
     #[test]

@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use ddi_actor::{Actor, Drawn, Kind, UNTEXTURED};
 use ddi_ui::dev_widgets::{FoldFn, LIBRARY_MESSAGE, LibrarySong, SharedWidgets, WidgetScreen};
-use ddi_ui::event::{PointerKind, PointerPhase, TextEvent, TextSync};
+use ddi_ui::event::{PointerKind, PointerPhase, TextEvent, TextSync, WheelSource};
 use ddi_ui::look::Plain;
 use ddi_ui::testing::Harness;
 use ddi_ui::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, ListStyle};
@@ -41,6 +41,10 @@ struct Seen {
     pool: usize,
     animating: bool,
     shown: Vec<usize>,
+    blur: f32,
+    /// The fastest the list was seen moving, and its most blur.
+    top_speed: f64,
+    top_blur: f32,
 }
 
 struct ListScreen {
@@ -69,6 +73,9 @@ impl ListScreen {
         s.pool = self.list.pool();
         s.animating = self.list.animating();
         s.shown = self.list.shown();
+        s.blur = self.list.blur();
+        s.top_speed = s.top_speed.max(self.list.speed());
+        s.top_blur = s.top_blur.max(self.list.blur());
     }
 }
 
@@ -263,6 +270,240 @@ fn wheel_style_keeps_the_selection_on_its_line() {
         s.scroll
     );
     assert!(matches!(s.events.last(), Some(ListEvent::Selected(_))));
+}
+
+/// The wheel style's selected row centred on its line (240 down).
+fn on_its_line(seen: &Seen) -> bool {
+    let centre = seen.selected as f32 * 48.0 + 24.0;
+    (centre - seen.scroll - 240.0).abs() < 0.6
+}
+
+const AT: [f32; 2] = [200.0, 200.0];
+
+#[test]
+fn a_slow_trackpad_scroll_follows_the_fingers_then_snaps_to_a_row() {
+    for style in [ListStyle::Plain, ListStyle::Wheel { focus: 0.5 }] {
+        let (mut h, seen) = list(style);
+        let start = seen.borrow().scroll;
+        // A slow drift: 1.5 px a frame for a second (90 px), then still.
+        h.wheel_stream(AT, &[1.5; 60], WheelSource::Pixels, 1.0 / 60.0);
+        let moved = seen.borrow().scroll - start;
+        assert!((moved - 90.0).abs() < 0.01, "{style:?}: followed {moved}");
+        assert!(seen.borrow().animating, "the stream is still open");
+        assert_eq!(seen.borrow().blur, 0.0, "slow: no blur");
+        h.run(1.0);
+        let s = seen.borrow();
+        assert!(!s.animating);
+        match style {
+            // 90 down: two rows of 48 are nearer than one.
+            ListStyle::Plain => assert_eq!(s.scroll, 96.0),
+            ListStyle::Wheel { .. } => {
+                assert_eq!(s.selected, 2);
+                assert!(on_its_line(&s), "{} {}", s.selected, s.scroll);
+                assert_eq!(s.events.last(), Some(&ListEvent::Selected(2)));
+            }
+        }
+    }
+}
+
+#[test]
+fn a_fast_trackpad_flick_and_its_momentum_stay_one_stream() {
+    let (mut h, seen) = list(ListStyle::Wheel { focus: 0.5 });
+    let start = seen.borrow().scroll;
+    // Fingers speeding up, then the platform's momentum dying away.
+    let mut deltas = vec![3.0, 12.0, 40.0, 80.0, 120.0];
+    deltas.extend((0..90).map(|i| 120.0 * 0.93f32.powi(i)));
+    let total: f32 = deltas.iter().sum();
+    h.wheel_stream(AT, &deltas, WheelSource::Pixels, 1.0 / 60.0);
+    let moved = seen.borrow().scroll - start;
+    assert!((moved - total).abs() < 0.5, "{moved} of {total}");
+    assert!(seen.borrow().top_blur > 0.0, "fast: blurred");
+    h.run(1.0);
+    let s = seen.borrow();
+    assert!(!s.animating);
+    assert!(on_its_line(&s), "{} {}", s.selected, s.scroll);
+    assert_eq!(s.blur, 0.0);
+    // Rows are sharp again.
+    assert!(h.drawn.iter().all(|d| match d {
+        Drawn::Quad(q) => q.blur == [0.0; 2],
+        Drawn::Text(t) => t.blur == [0.0; 2],
+        _ => true,
+    }));
+}
+
+#[test]
+fn wheel_notches_move_a_row_each() {
+    // Firefox's 3 lines, Chrome's 100 px on Windows, macOS's
+    // 4.000244140625 in Chrome and Safari.
+    for (delta, source) in [
+        (120.0, WheelSource::Lines),
+        (100.0, WheelSource::Pixels),
+        (ddi_ui::gesture::MAC_NOTCH as f32, WheelSource::Pixels),
+    ] {
+        let (mut h, seen) = list(ListStyle::Wheel { focus: 0.5 });
+        for k in 1..=3 {
+            h.wheel(AT, [0.0, delta], source);
+            h.run(0.6);
+            let s = seen.borrow();
+            assert_eq!(s.selected, k, "{delta} {source:?}");
+            assert!(on_its_line(&s));
+        }
+        // Turned fast (one a frame): still a row each.
+        h.wheel_stream(AT, &[delta; 5], source, 1.0 / 60.0);
+        h.wheel(AT, [0.0, -delta], source);
+        h.run(1.0);
+        assert_eq!(seen.borrow().selected, 7, "{delta} {source:?}");
+    }
+    // A plain list glides a notch's pixels.
+    let (mut h, seen) = list(ListStyle::Plain);
+    h.wheel(AT, [0.0, 120.0], WheelSource::Lines);
+    h.run(1.0);
+    assert_eq!(seen.borrow().scroll, 120.0);
+}
+
+#[test]
+fn a_notch_reported_as_a_few_pixels_still_moves_a_row() {
+    // One small event and nothing after: no trackpad gesture is so short.
+    let (mut h, seen) = list(ListStyle::Wheel { focus: 0.5 });
+    h.wheel(AT, [0.0, 6.0], WheelSource::Pixels);
+    h.run(1.0);
+    assert_eq!(seen.borrow().selected, 1);
+    assert!(on_its_line(&seen.borrow()));
+    h.wheel(AT, [0.0, -6.0], WheelSource::Pixels);
+    h.run(1.0);
+    assert_eq!(seen.borrow().selected, 0);
+}
+
+#[test]
+fn sideways_wheels_leave_a_vertical_list_alone() {
+    let (mut h, seen) = list(ListStyle::Wheel { focus: 0.5 });
+    h.wheel(AT, [0.0, 120.0], WheelSource::Lines);
+    h.run(1.0);
+    assert_eq!(seen.borrow().selected, 1);
+    for dx in [100.0, -100.0, 120.0] {
+        h.wheel(AT, [dx, 0.0], WheelSource::Pixels);
+        h.run(1.0);
+        assert_eq!(seen.borrow().selected, 1, "{dx}");
+    }
+}
+
+#[test]
+fn keys_during_a_stream_are_kept_when_it_ends() {
+    let (mut h, seen) = list(ListStyle::Wheel { focus: 0.5 });
+    h.wheel_stream(AT, &[2.0; 20], WheelSource::Pixels, 1.0 / 60.0);
+    for _ in 0..3 {
+        h.key("ArrowDown", "ArrowDown");
+    }
+    // The fingers go on a little (20 px, under half a row), then lift.
+    h.wheel_stream(AT, &[0.5; 40], WheelSource::Pixels, 1.0 / 60.0);
+    h.run(1.5);
+    let s = seen.borrow();
+    assert_eq!(s.selected, 3);
+    assert!(on_its_line(&s), "{} {}", s.selected, s.scroll);
+    drop(s);
+    // Further (80 px): from where the keys went.
+    for _ in 0..3 {
+        h.key("ArrowDown", "ArrowDown");
+    }
+    h.wheel_stream(AT, &[2.0; 40], WheelSource::Pixels, 1.0 / 60.0);
+    h.run(1.5);
+    assert_eq!(seen.borrow().selected, 8);
+}
+
+#[test]
+fn a_stream_carries_a_glide_on() {
+    // A notch, then a trackpad at once: the notch's row is not lost.
+    let (mut h, seen) = list(ListStyle::Wheel { focus: 0.5 });
+    h.wheel(AT, [0.0, 120.0], WheelSource::Lines);
+    h.frame(1.0 / 60.0);
+    h.wheel_stream(AT, &[1.0; 10], WheelSource::Precise, 1.0 / 60.0);
+    h.run(1.5);
+    assert_eq!(seen.borrow().selected, 1);
+    assert!(on_its_line(&seen.borrow()));
+    // A plain list's notch glides as far as a notch the platform
+    // reports small (a stream of one event).
+    let (mut h, seen) = list(ListStyle::Plain);
+    h.wheel(AT, [0.0, 75.0], WheelSource::Pixels);
+    h.run(1.0);
+    let notch = seen.borrow().scroll;
+    h.wheel(AT, [0.0, 6.0], WheelSource::Pixels);
+    h.run(1.0);
+    assert_eq!(seen.borrow().scroll, 2.0 * notch);
+}
+
+#[test]
+fn past_the_ends_it_stretches_and_springs_back() {
+    let (mut h, seen) = list(ListStyle::Plain);
+    // Scrolled up at the top: it gives, less than the fingers move.
+    h.wheel_stream(AT, &[-10.0; 30], WheelSource::Precise, 1.0 / 60.0);
+    let over = seen.borrow().scroll;
+    assert!(over < -40.0 && over > -240.0, "{over}");
+    let more = {
+        h.wheel_stream(AT, &[-10.0; 30], WheelSource::Precise, 1.0 / 60.0);
+        seen.borrow().scroll
+    };
+    assert!(more < over && more - over > -150.0, "{over} {more}");
+    h.run(1.5);
+    assert_eq!(seen.borrow().scroll, 0.0);
+    assert!(!seen.borrow().animating);
+    // Dragged past the end the same way, and back when let go.
+    h.drag(PointerKind::Touch, [200.0, 150.0], [200.0, 450.0], 0.5, 30);
+    let dragged = seen.borrow().scroll;
+    assert!(dragged < -40.0 && dragged > -240.0, "{dragged}");
+    h.run(1.5);
+    assert_eq!(seen.borrow().scroll, 0.0);
+    // At the bottom too.
+    let end = 10_000.0 * 48.0 - 480.0;
+    h.wheel(AT, [0.0, 1.0e7], WheelSource::Lines);
+    h.run(2.0);
+    assert_eq!(seen.borrow().scroll, end);
+    h.wheel_stream(AT, &[10.0; 20], WheelSource::Pixels, 1.0 / 60.0);
+    assert!(seen.borrow().scroll > end + 20.0);
+    h.run(1.5);
+    assert_eq!(seen.borrow().scroll, end);
+}
+
+#[test]
+fn rows_blur_with_speed_and_never_under_reduced_motion() {
+    let (mut h, seen) = list(ListStyle::Plain);
+    h.drag(PointerKind::Touch, [200.0, 450.0], [200.0, 150.0], 0.05, 4);
+    h.frame(1.0 / 60.0);
+    let blur = seen.borrow().blur;
+    assert!(blur > 4.0 && blur <= 48.0, "{blur}");
+    // Each row's quads and runs carry it, along the list.
+    let blurred = h
+        .drawn
+        .iter()
+        .filter_map(|d| match d {
+            Drawn::Quad(q) => Some(q.blur),
+            Drawn::Text(t) => Some(t.blur),
+            _ => None,
+        })
+        .filter(|b| *b != [0.0; 2])
+        .collect::<Vec<_>>();
+    assert!(blurred.len() > 10);
+    assert!(
+        blurred
+            .iter()
+            .all(|b| b[0] == 0.0 && (b[1] - blur).abs() < 1e-3)
+    );
+    // It fades as the flick slows, and is gone at rest.
+    h.run(0.5);
+    assert!(seen.borrow().blur < blur);
+    h.run(4.0);
+    assert_eq!(seen.borrow().blur, 0.0);
+    assert!(!h.ui.needs_redraw());
+    // Reduced motion: none, however fast.
+    let seen = Rc::new(RefCell::new(Seen::default()));
+    let mut h = Harness::new([960.0, 540.0], [960.0, 540.0], 1.0, TextMode::Mirror);
+    let mut screen = ListScreen::new(ListStyle::Plain, seen.clone());
+    screen.list.config.glide = false;
+    h.push(screen);
+    h.drag(PointerKind::Touch, [200.0, 450.0], [200.0, 150.0], 0.05, 4);
+    h.run(2.0);
+    let s = seen.borrow();
+    assert!(s.top_speed > 2000.0, "{}", s.top_speed);
+    assert_eq!(s.top_blur, 0.0);
 }
 
 fn widgets(library: Vec<LibrarySong>) -> (Harness, SharedWidgets) {

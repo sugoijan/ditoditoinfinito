@@ -80,7 +80,32 @@ use crate::web::screen;
 /// Requests kept for the debug view.
 const KEPT_REQUESTS: usize = 24;
 /// The theme screens' actors whose places the debug view gives.
-const THEME_NAMED: [&str; 28] = [
+const THEME_NAMED: &[&str] = &[
+    "Link.Manage",
+    "Link.Calibrate",
+    "Link.Credits",
+    "Link.Source",
+    "Notice.Link0",
+    "Notice.Link1",
+    "Mod0",
+    "PickFolder",
+    "PickFiles",
+    "Option.copy",
+    "Option.videos",
+    "Option.details",
+    "Close",
+    "Confirm",
+    "Cancel",
+    "RemovePack",
+    "RemoveSong",
+    "Reread",
+    "AddIcon",
+    "Ladder.Row1",
+    "Ladder.Row2",
+    "Ladder.Row4",
+    "Tab3",
+    "Tab4",
+    "Chart1",
     "OffsetDown",
     "UseMean",
     "ResetOffset",
@@ -224,6 +249,9 @@ pub(crate) struct Host {
     /// listeners on the canvas (made again with it).
     slot: Option<HtmlElement>,
     listeners: Vec<EventListener>,
+    /// The page's own element over the top of the window (the device
+    /// notices, still DOM): the canvas is laid out below it.
+    avoid: Option<String>,
 }
 
 /// Adds an embedding screen's state to `__DDI_DEBUG`.
@@ -353,20 +381,71 @@ fn document() -> web_sys::Document {
         .expect("document")
 }
 
-type Started = (Rc<RefCell<Host>>, Vec<EventListener>, Option<Gamepads>);
+pub(crate) type Started = (Rc<RefCell<Host>>, Vec<EventListener>, Option<Gamepads>);
+
+/// Gives the host the app's device once it is there; `failed` hears why it
+/// is not.
+pub(crate) fn attach_gfx(host: Rc<RefCell<Host>>, failed: impl FnOnce(String) + 'static) {
+    wasm_bindgen_futures::spawn_local(async move {
+        match screen::gfx().await {
+            Ok(gfx) => {
+                let Ok(mut h) = host.try_borrow_mut() else {
+                    return;
+                };
+                if h.closed {
+                    return;
+                }
+                gfx.set_mode(SurfaceMode::Plain);
+                h.gfx = Some(gfx);
+                drop(h);
+                schedule(&host);
+            }
+            Err(e) => failed(e),
+        }
+    });
+}
+
+/// Stops a host [`start_ui`] made (the route left).
+pub(crate) fn stop_ui(host: &Rc<RefCell<Host>>, pads: Option<&Gamepads>) {
+    if let Some(pads) = pads {
+        pads.set_listener(None);
+    }
+    if let Ok(mut h) = host.try_borrow_mut() {
+        h.closed = true;
+        h.raf = None;
+        h.attachment = None;
+        let _ = h.textarea.blur();
+        if let Some(gfx) = h.gfx.take() {
+            gfx.set_mode(SurfaceMode::Scene);
+        }
+    }
+}
+
+/// Lays the canvas out below the element `selector` while it shows (the
+/// device notices, still DOM: `docs/plans/ui-core.md`, 6.4), and again
+/// whenever [`relayout`] is called.
+pub(crate) fn avoid(host: &Rc<RefCell<Host>>, selector: &str) {
+    if let Ok(mut h) = host.try_borrow_mut() {
+        h.avoid = Some(selector.to_string());
+    }
+    resize(host);
+}
+
+/// Lays the canvas out again (what it avoids came or went).
+pub(crate) fn relayout(host: &Rc<RefCell<Host>>) {
+    resize(host);
+    schedule(host);
+}
+
+/// Draws a frame soon (the UI changed outside its events: a message
+/// broadcast by the shell).
+pub(crate) fn wake(host: &Rc<RefCell<Host>>) {
+    schedule(host);
+}
 
 /// Makes the host: the canvas in its frame, the hidden textarea and file
 /// input, the listeners.
 fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
-    let doc = document();
-    let make = |tag: &str| doc.create_element(tag).map_err(|e| format!("{e:?}"));
-    let frame_el: HtmlElement = make("div")?.unchecked_into();
-    frame_el.set_class_name("ui-dev-frame");
-    el.append_child(&frame_el).map_err(|e| format!("{e:?}"))?;
-    let attachment = screen::attach(&frame_el, "ui-dev-canvas").ok_or("no canvas")?;
-    let canvas = screen::canvas().ok_or("no canvas")?;
-    let (textarea, files) = host_inputs(el)?;
-
     let dev: Shared = Shared::default();
     let widgets = SharedWidgets::default();
     let fold: FoldFn = Rc::new(nfkd);
@@ -397,6 +476,30 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
         }
         ui
     };
+    let started = start_ui(el, ui, theme, None)?;
+    started.0.borrow_mut().dev = dev;
+    started.0.borrow_mut().widgets = widgets;
+    Ok(started)
+}
+
+/// Runs `ui` (with `theme`'s env, when given) on the app's canvas over the
+/// whole window in `el`, a route of its own: its frame, the hidden inputs,
+/// the listeners, the pads, history for its dialogs; `extra` adds to
+/// `__DDI_DEBUG`. The device comes later ([`attach_gfx`]).
+pub(crate) fn start_ui(
+    el: &HtmlElement,
+    ui: Ui,
+    theme: Option<ThemeHost>,
+    extra: Option<DebugFn>,
+) -> Result<Started, String> {
+    let doc = document();
+    let make = |tag: &str| doc.create_element(tag).map_err(|e| format!("{e:?}"));
+    let frame_el: HtmlElement = make("div")?.unchecked_into();
+    frame_el.set_class_name("ui-dev-frame");
+    el.append_child(&frame_el).map_err(|e| format!("{e:?}"))?;
+    let attachment = screen::attach(&frame_el, "ui-dev-canvas").ok_or("no canvas")?;
+    let canvas = screen::canvas().ok_or("no canvas")?;
+    let (textarea, files) = host_inputs(el)?;
     let host = new_host(
         ui,
         canvas.clone(),
@@ -406,8 +509,7 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
         files.clone(),
         theme,
     );
-    host.borrow_mut().dev = dev;
-    host.borrow_mut().widgets = widgets;
+    host.borrow_mut().extra = extra;
     resize(&host);
     // Back into an entry pushed for a dialog of an earlier visit (a reload,
     // the route left with a dialog open): that dialog is gone, so step back
@@ -531,6 +633,7 @@ fn new_host(
         extra: None,
         slot: None,
         listeners: Vec::new(),
+        avoid: None,
     }))
 }
 
@@ -841,7 +944,11 @@ fn listen(
                 let Some(e) = e.dyn_ref::<web_sys::WheelEvent>() else {
                     return;
                 };
-                // Never the page's zoom or scroll.
+                // With Ctrl or ⌘ (a trackpad's pinch), the page zooms; the
+                // UI leaves such wheels. Never the page's scroll.
+                if e.ctrl_key() || e.meta_key() {
+                    return;
+                }
                 e.prevent_default();
                 let rect = canvas2.get_bounding_client_rect();
                 let mode = match e.delta_mode() {
@@ -862,6 +969,7 @@ fn listen(
                             (num(e, "clientY") - rect.top()) as f32,
                         ],
                         delta,
+                        source: ddi_ui::event::WheelSource::of(mode),
                         modifiers: modifiers(e),
                         time: e.time_stamp(),
                     }),
@@ -1131,11 +1239,20 @@ fn resize(host: &Rc<RefCell<Host>>) {
         ),
     };
     let [t, r, b, l] = safe_insets();
-    let (x, y, mut w, mut h) = (x + l, y + t, (w - l - r).max(1.0), (h - t - b).max(1.0));
-    let ratio = window.device_pixel_ratio() as f32;
     let Ok(mut host) = host.try_borrow_mut() else {
         return;
     };
+    // Below the page's element at the top, while it shows.
+    let top = host
+        .avoid
+        .as_deref()
+        .and_then(|sel| window.document()?.query_selector(sel).ok().flatten())
+        .map_or(0.0, |el| {
+            el.get_bounding_client_rect().bottom().max(0.0) - y
+        });
+    let t = t.max(top);
+    let (x, y, mut w, mut h) = (x + l, y + t, (w - l - r).max(1.0), (h - t - b).max(1.0));
+    let ratio = window.device_pixel_ratio() as f32;
     // Embedded: the canvas is where its screen put it.
     if host.embedded {
         let rect = host.canvas.get_bounding_client_rect();
@@ -1791,7 +1908,7 @@ fn publish(h: &Host) {
     let vp = h.ui.viewport();
     let origin = h.canvas.get_bounding_client_rect();
     let names: &[&str] = if h.theme.is_some() {
-        &THEME_NAMED
+        THEME_NAMED
     } else {
         &NAMED
     };
@@ -1819,6 +1936,7 @@ fn publish(h: &Host) {
         set(&o, "status", w.status.as_str().into());
         set(&o, "selected", (w.selected as f64).into());
         set(&o, "scroll", w.scroll.into());
+        set(&o, "blur", w.blur.into());
         set(&o, "items", (w.items as f64).into());
         set(&o, "pool", (w.pool as f64).into());
         set(&o, "style", (w.style as f64).into());
@@ -1895,6 +2013,20 @@ fn publish(h: &Host) {
         set(&o, "option", st.option.as_str().into());
         set(&o, "value", st.value.as_str().into());
         set(&o, "status", st.status.as_str().into());
+        set(
+            &o,
+            "best",
+            st.best.as_deref().map_or(JsValue::NULL, |s| s.into()),
+        );
+        set(&o, "notices", strings(&st.notices));
+        set(
+            &o,
+            "selectedRow",
+            st.selected_row
+                .as_deref()
+                .map_or(JsValue::NULL, |s| s.into()),
+        );
+        set(&o, "over", (st.over as f64).into());
         set(
             &o,
             "fontsVersion",

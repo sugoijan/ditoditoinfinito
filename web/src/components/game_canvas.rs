@@ -1521,6 +1521,7 @@ impl GameCanvas {
             // The background the play read, kept; else the banner.
             background: play_background(),
             charts: Vec::new(),
+            ..Default::default()
         };
         let mut video_notes = Vec::new();
         if let Some(reason) = video_stopped {

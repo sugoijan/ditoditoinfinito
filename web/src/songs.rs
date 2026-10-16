@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::Blob;
 
-use crate::web::files::{blob_bytes, object_url};
+use crate::web::files::blob_bytes;
 use crate::web::idb::{self, Db, Write};
 
 pub(crate) use ddi_library::manifest::{Manifest, ManifestEntry};
@@ -189,30 +189,6 @@ pub(crate) fn is_imported_id(id: &str) -> bool {
     id.starts_with("u-")
 }
 
-/// Object URLs for the banners of imported songs, read in one transaction.
-/// Revoke them with [`crate::web::files::revoke_object_url`].
-pub(crate) async fn imported_banner_urls(entries: &[ManifestEntry]) -> Vec<(String, String)> {
-    let wanted: Vec<(&str, String)> = entries
-        .iter()
-        .filter_map(|e| Some((e.id.as_str(), file_key(&e.id, e.banner.as_ref()?))))
-        .collect();
-    let keys: Vec<String> = wanted.iter().map(|(_, k)| k.clone()).collect();
-    let Ok(db) = Db::open().await else {
-        return Vec::new();
-    };
-    let Ok(blobs) = db.get_many(idb::FILES, &keys).await else {
-        return Vec::new();
-    };
-    wanted
-        .iter()
-        .zip(blobs)
-        .filter_map(|((id, _), v)| {
-            let blob = v?.dyn_into::<Blob>().ok()?;
-            Some((id.to_string(), object_url(&blob)?))
-        })
-        .collect()
-}
-
 const FOLDER_PREFIX: &str = "folders/";
 
 /// Keeps a picked folder's handle, so it can be re-read in place, and
@@ -262,25 +238,6 @@ pub(crate) fn pack_art_key(pack: &str) -> String {
 }
 
 const PACK_ART_PREFIX: &str = "packs/";
-
-/// Object URLs of the stored pack banners, by lowercased pack name.
-pub(crate) async fn pack_art_urls(packs: &[String]) -> Vec<(String, String)> {
-    let keys: Vec<String> = packs.iter().map(|p| pack_art_key(p)).collect();
-    let Ok(db) = Db::open().await else {
-        return Vec::new();
-    };
-    let Ok(blobs) = db.get_many(idb::FILES, &keys).await else {
-        return Vec::new();
-    };
-    packs
-        .iter()
-        .zip(blobs)
-        .filter_map(|(pack, v)| {
-            let blob = v?.dyn_into::<Blob>().ok()?;
-            Some((pack.to_lowercase(), object_url(&blob)?))
-        })
-        .collect()
-}
 
 /// A song's encoded audio, bundled or imported (for previews).
 pub(crate) async fn load_music(entry: &ManifestEntry) -> Result<Vec<u8>, String> {
@@ -573,20 +530,30 @@ async fn parse_found(found: &Found) -> Result<Song, LoadError> {
     Ok(song)
 }
 
-/// Songs imported before the manifest kept their charts' digests get them
-/// when their chart is next read (the history's bests are kept by them).
+/// Songs imported before the manifest kept their charts' digests (the
+/// history's bests are kept by them) and their length get them when their
+/// chart is next read.
 async fn fill_digests(found: &Found, song: &Song) {
     let Some(record) = &found.record else {
         return;
     };
-    if record.entry.charts.iter().all(|c| c.digest.is_some()) {
+    let danoni = record
+        .entry
+        .chart
+        .ends_with(ddi_library::danoni::STORED_EXT);
+    if record
+        .entry
+        .charts
+        .iter()
+        .all(|c| c.digest.is_some() && (!danoni || c.excessive.is_some()))
+        && record.entry.length > 0.0
+    {
         return;
     }
     let mut record = record.clone();
-    for c in &mut record.entry.charts {
-        if c.index < song.charts.len() {
-            c.digest = Some(song.chart_digest(c.index));
-        }
+    crate::select_data::fill_chart_keys(&mut record.entry, song);
+    if record.entry.length <= 0.0 {
+        record.entry.length = ddi_library::manifest::song_length(song);
     }
     let Ok(json) = serde_json::to_string(&record) else {
         return;

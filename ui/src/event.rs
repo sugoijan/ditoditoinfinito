@@ -115,6 +115,36 @@ pub fn wheel_pixels(delta: [f32; 2], mode: DeltaMode, page: [f32; 2]) -> [f32; 2
     }
 }
 
+/// What the platform says a wheel event's delta came from, before
+/// [`wheel_pixels`]; [`crate::gesture::WheelStream`] tells a wheel's
+/// notches from a trackpad's stream with it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WheelSource {
+    /// Pixels of unknown origin (the DOM's `deltaMode` 0): Chrome and
+    /// Safari report every wheel so, Firefox its trackpads and smooth
+    /// wheels. Told apart by size and cadence.
+    #[default]
+    Pixels,
+    /// Lines or pages (the DOM's `deltaMode` 1 or 2, winit's
+    /// `LineDelta`): a wheel's notches, unless a fraction of one (a
+    /// Windows precision touchpad, X11's smooth scrolling, a high
+    /// resolution wheel).
+    Lines,
+    /// Pixels from a device known to be precise (winit's `PixelDelta`:
+    /// macOS trackpads and the Magic Mouse, Wayland's touchpads).
+    Precise,
+}
+
+impl WheelSource {
+    /// The source of a DOM wheel event's deltas, by its `deltaMode`.
+    pub fn of(mode: DeltaMode) -> WheelSource {
+        match mode {
+            DeltaMode::Pixel => WheelSource::Pixels,
+            DeltaMode::Line | DeltaMode::Page => WheelSource::Lines,
+        }
+    }
+}
+
 /// A wheel turned (or a touchpad scrolled) over the surface.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WheelEvent {
@@ -123,6 +153,8 @@ pub struct WheelEvent {
     /// CSS pixels, already normalised ([`wheel_pixels`]); positive y
     /// scrolls down (the content moves up), as the DOM's `deltaY`.
     pub delta: [f32; 2],
+    /// What the delta was counted in.
+    pub source: WheelSource,
     pub modifiers: Modifiers,
     pub time: f64,
 }

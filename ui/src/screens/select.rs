@@ -34,7 +34,9 @@ use ddi_actor::{Actor, Kind};
 use ddi_chart::Difficulty;
 use ddi_library::suggest::{Kind as SuggestKind, Suggester};
 
-use super::data::{ChartEntry, SelectData, SongEntry, closest, difficulty_name};
+use super::data::{
+    ChartEntry, ImportView, Notice, SelectData, SongEntry, closest, difficulty_name,
+};
 use super::{Backdrop, Env, Pulse, extent, footer, frame, ground, header, left, light, right};
 use crate::hit;
 use crate::look::{self, Spec, call, quad};
@@ -46,14 +48,83 @@ use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, ListStyle};
 use crate::widgets::{part, set_image, set_text};
 
+use super::data::PackEntry;
+use super::select_dialogs::{ImportDialog, Manage, ManageDialog, NoticesDialog};
+
 /// What Start does on a song with a chart (step 6: start play; the
 /// developer routes: show the sample results).
 pub type PlayFn = Rc<dyn Fn(&SongEntry, &ChartEntry, &Env, &mut Cx)>;
 /// What the Options link does.
 pub type OpenFn = Rc<dyn Fn(&Env, &mut Cx)>;
 
+/// What song select asks the shell, inside the input that asked (a
+/// gesture, when it came from one).
+#[derive(Clone, Debug, PartialEq)]
+pub enum SelectCall {
+    /// The song shown changed (its preview starts): `None`, no song.
+    /// `from_pad`: the move came from a controller.
+    Selected {
+        song: Option<String>,
+        from_pad: bool,
+    },
+    /// Where the list is, kept for the session.
+    Place(SelectPlace),
+    /// A link: `calibrate`, `credits`, `source` (Options is [`OpenFn`]).
+    Open(String),
+    /// Import a folder (the browser's picker, kept to read again where it
+    /// can), or zips and files.
+    PickFolder,
+    PickFiles,
+    /// An import option changed: `copy`, `videos` or `details`.
+    ImportOption(String, bool),
+    /// Read a pack's folder again.
+    Reread(String),
+    /// Remove a pack (by name) or a song (by id), confirmed.
+    RemovePack(String),
+    RemoveSong(String),
+    /// A notice's link was taken (its id).
+    Notice(String),
+}
+
+/// The shell's part of song select (none on the developer routes).
+pub type ShellFn = Rc<dyn Fn(SelectCall, &mut Cx)>;
+
+/// Where the list is: the song shown, its chart (the play route's
+/// index), the style (id), the search, the packs closed.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SelectPlace {
+    pub song: Option<String>,
+    pub chart: Option<usize>,
+    pub style: String,
+    pub search: String,
+    pub closed: Vec<String>,
+}
+
+/// What the shell sends song select after it started (the library read
+/// again, bests worked out, an import running), taken when the message
+/// [`FEED`] comes.
+#[derive(Default)]
+pub struct Feed {
+    pub data: Option<SelectData>,
+    pub import: Option<ImportView>,
+    pub notices: Option<Vec<Notice>>,
+    /// Open the import dialog (files were dropped on the page).
+    pub open_import: bool,
+}
+
+pub type SharedFeed = Rc<RefCell<Feed>>;
+
+/// The message that says the feed has something.
+pub const FEED: &str = "SelectFeed";
+/// The message song select sends its dialogs when the import changed.
+pub const IMPORT_CHANGED: &str = "ImportChanged";
+/// The message the notices dialog sends for a notice's link (`Index`).
+pub const NOTICE_LINK: &str = "NoticeLink";
+
 /// Ladder rows at most.
 const LADDER_ROWS: usize = 8;
+/// Rows a second past which the wheel's room for its selected row closes.
+const FLICK_ROWS: f32 = 6.0;
 /// The compact layout's left side, from its top (`Phone.dc.html`):
 /// banner 94, the title and a line, then the style button (36), the
 /// chart buttons (44) and Play (48), 8 apart.
@@ -93,6 +164,9 @@ struct Layout {
 impl Layout {
     fn new(env: &Env, screen: [f32; 2], compact: bool) -> Layout {
         let m = |n: &str, d: f32| env.metric(n, d);
+        // The look draws the wheel's rows this far in (its selected row's
+        // ring stays inside the list's clip): the list starts as far out.
+        let inset = m("Select.Wheel.Inset", 0.0);
         if compact {
             let margin = m("Compact.Margin", 48.0);
             let right = screen[0] - margin;
@@ -104,9 +178,9 @@ impl Layout {
                 tabs_y: 0.0,
                 ladder: [0.0, 0.0],
                 wheel: [
-                    364.0_f32.max(margin + 316.0),
+                    364.0_f32.max(margin + 316.0) - inset,
                     56.0,
-                    right - 364.0_f32.max(margin + 316.0),
+                    right - 364.0_f32.max(margin + 316.0) + inset,
                     screen[1] - 56.0,
                 ],
                 row: 48.0,
@@ -130,9 +204,9 @@ impl Layout {
             tabs_y: m("Select.Tabs.Y", 377.0),
             ladder: [ladder_y, screen[1] - footer - 14.0 - ladder_y],
             wheel: [
-                wheel_x,
+                wheel_x - inset,
                 header,
-                m("Select.Wheel.Width", 596.0) + 5.0,
+                m("Select.Wheel.Width", 596.0) + 5.0 + inset,
                 screen[1] - header - footer,
             ],
             row: m("Select.Wheel.Row", 66.0),
@@ -152,6 +226,8 @@ struct Wheel<'a> {
     data: &'a SelectData,
     packs: &'a [(String, Vec<usize>)],
     closed: &'a BTreeSet<usize>,
+    /// The songs a search matches (none: no search).
+    matches: Option<&'a [bool]>,
     style: &'a str,
     style_name: &'a str,
     banner_side: f32,
@@ -184,11 +260,16 @@ impl ListModel for Wheel<'_> {
                 set_text(item, "Chevron", if open { "▾" } else { "▸" });
                 set_text(item, "Title", name);
                 let n = songs.len();
-                set_text(
-                    item,
-                    "Count",
-                    &format!("{n} song{}", if n == 1 { "" } else { "s" }),
-                );
+                let plural = if n == 1 { "" } else { "s" };
+                // While searching: how many of its songs match.
+                let count = match self.matches {
+                    Some(m) => {
+                        let found = songs.iter().filter(|&&s| m[s]).count();
+                        format!("{found} of {n} song{plural}")
+                    }
+                    None => format!("{n} song{plural}"),
+                };
+                set_text(item, "Count", &count);
             }
             Item::Song(s) => {
                 let song = &self.data.songs[s];
@@ -215,17 +296,37 @@ impl ListModel for Wheel<'_> {
                 .into_iter()
                 .enumerate()
                 {
-                    let meter = charts.iter().find(|c| c.difficulty == d).map(|c| c.meter);
+                    let chart = charts.iter().find(|c| c.difficulty == d);
+                    let meter = chart.map(|c| c.meter);
                     set_text(
                         item,
                         &format!("Meter{k}"),
                         &meter.map(|m| m.to_string()).unwrap_or_default(),
                     );
+                    // The best's lamp under the meter.
+                    if let Some(l) = part(item, &format!("Lamp{k}")) {
+                        let lamp = chart.and_then(|c| c.best.as_ref()).map(|b| b.lamp.as_str());
+                        crate::widgets::play(l, &format!("Lamp.{}", lamp.unwrap_or("None")));
+                    }
                     if let Some(c) = part(item, &format!("Cell{k}")) {
                         crate::widgets::play(c, if meter.is_some() { "Full" } else { "Empty" });
                     }
                 }
                 set_text(item, "NoCharts", &format!("no {} charts", self.style_name));
+                // Edits (and named charts) beside the five meters.
+                let edits = charts
+                    .iter()
+                    .filter(|c| c.difficulty == Difficulty::Edit)
+                    .count();
+                set_text(
+                    item,
+                    "Edits",
+                    &if edits > 0 {
+                        format!("+{edits}")
+                    } else {
+                        String::new()
+                    },
+                );
                 crate::widgets::play(
                     item,
                     if charts.is_empty() {
@@ -260,8 +361,9 @@ pub struct SelectScreen {
     pulse: Pulse,
     lit: Option<String>,
     layout: Layout,
-    /// The footer's hints, and whether a search was in them.
-    hints: Option<(Hints, bool)>,
+    /// The footer's hints, whether a search was in them, its note and
+    /// whether Manage was offered.
+    hints: Option<(Hints, bool, String, bool)>,
     /// The item whose song the left side shows.
     shown: Option<Item>,
     /// The left side is to be filled again (a new song, a new tree).
@@ -277,6 +379,21 @@ pub struct SelectScreen {
     reduced: bool,
     play: PlayFn,
     options: OpenFn,
+    shell: Option<ShellFn>,
+    feed: Option<SharedFeed>,
+    /// The import's state, shared with its dialog.
+    import: Rc<RefCell<ImportView>>,
+    notices: Vec<Notice>,
+    notices_dirty: bool,
+    /// What the shell was last told.
+    told_place: Option<SelectPlace>,
+    told_song: Option<Option<String>>,
+    /// The input being handled came from a controller.
+    from_pad: bool,
+    /// How open the wheel's room for the selected row is (closed while
+    /// it flicks), and whether the selected row was shrunk for it.
+    open: f32,
+    shut: bool,
 }
 
 impl SelectScreen {
@@ -289,33 +406,6 @@ impl SelectScreen {
         play: PlayFn,
         options: OpenFn,
     ) -> SelectScreen {
-        let mut packs: Vec<(String, Vec<usize>)> = Vec::new();
-        for (i, s) in data.songs.iter().enumerate() {
-            match packs.iter_mut().find(|(p, _)| *p == s.pack) {
-                Some((_, v)) => v.push(i),
-                None => packs.push((s.pack.clone(), vec![i])),
-            }
-        }
-        let f = |s: &str| (env.fold)(s);
-        let haystacks = data
-            .songs
-            .iter()
-            .map(|s| {
-                let credits: Vec<&str> = s.charts.iter().map(|c| c.credit.as_str()).collect();
-                ddi_library::search::haystack(
-                    [
-                        s.title.as_str(),
-                        s.subtitle.as_str(),
-                        s.artist.as_str(),
-                        s.pack.as_str(),
-                    ]
-                    .into_iter()
-                    .chain(credits),
-                    [],
-                    &f,
-                )
-            })
-            .collect();
         let layout = Layout::new(&env, super::DESIGN, false);
         let mut search = SearchField::new(
             "Search",
@@ -333,13 +423,14 @@ impl SelectScreen {
             max_chars: Some(80),
         };
         let preferred = data.preferred.unwrap_or(Difficulty::Hard);
-        let data = Rc::new(data);
+        let notices = data.notices.clone();
+        let import = Rc::new(RefCell::new(data.import.clone()));
         let mut s = SelectScreen {
             list: List::new(wheel_config(&layout), &EmptyModel),
             env,
-            data,
-            packs,
-            haystacks,
+            data: Rc::new(SelectData::default()),
+            packs: Vec::new(),
+            haystacks: Vec::new(),
             style: 0,
             preferred,
             pick: None,
@@ -363,18 +454,194 @@ impl SelectScreen {
             reduced: false,
             play,
             options,
+            shell: None,
+            feed: None,
+            import,
+            notices,
+            notices_dirty: true,
+            told_place: None,
+            told_song: None,
+            from_pad: false,
+            open: 1.0,
+            shut: false,
         };
+        let closed = data.closed.clone();
+        let style = data.style.clone();
+        let search = data.search.clone();
+        s.set_data(data, true);
+        s.closed = s
+            .packs
+            .iter()
+            .enumerate()
+            .filter(|(_, (name, _))| closed.contains(name))
+            .map(|(i, _)| i)
+            .collect();
+        if let Some(i) = style.and_then(|id| s.data.styles.iter().position(|st| st.id == id)) {
+            s.style = i;
+        }
+        if !search.is_empty() {
+            s.search.text = search.clone();
+            s.filter_matches(&search);
+        }
         s.lay_out_items();
         s.list = List::new(wheel_config(&s.layout), &s.model());
-        let at = start
-            .and_then(|id| s.data.songs.iter().position(|x| x.id == id))
+        // The start song's pack is open.
+        let start_song = start.and_then(|id| s.data.songs.iter().position(|x| x.id == id));
+        if let Some(i) = start_song
+            && let Some(p) = s.packs.iter().position(|(_, v)| v.contains(&i))
+            && s.closed.remove(&p)
+        {
+            s.lay_out_items();
+            s.reload();
+        }
+        let at = start_song
             .and_then(|i| s.items.iter().position(|it| *it == Item::Song(i)))
-            .or_else(|| s.items.iter().position(|it| matches!(it, Item::Song(_))));
+            .or_else(|| s.items.iter().position(|it| matches!(it, Item::Song(_))))
+            .or_else(|| (!s.items.is_empty()).then_some(0));
         if let Some(at) = at {
             s.list.select(at);
             s.list.finish();
         }
         s
+    }
+
+    /// What the shell does for song select: previews, the list's place,
+    /// links, the import; and where it sends data later.
+    pub fn with_shell(mut self, shell: ShellFn, feed: SharedFeed) -> SelectScreen {
+        self.shell = Some(shell);
+        self.feed = Some(feed);
+        self
+    }
+
+    /// The chart to show first for the start song (the last one started).
+    pub fn with_chart(mut self, index: usize) -> SelectScreen {
+        self.follow();
+        let (charts, _) = self.charts();
+        if let Some(k) = charts.iter().position(|c| c.index == index) {
+            self.preferred = charts[k].difficulty;
+            self.pick = Some(k);
+        }
+        self
+    }
+
+    /// New data (the library read again, bests changed): what was shown
+    /// stays, by name, where it still is.
+    fn set_data(&mut self, data: SelectData, first: bool) {
+        let shown_id = self.song().map(|s| s.id.clone());
+        // Where the song shown was: its pack and its place there, and the
+        // wheel's place (a removed song gives way to its neighbour).
+        let was = match self.shown {
+            Some(Item::Song(i)) => self.packs.iter().find_map(|(name, songs)| {
+                let k = songs.iter().position(|&s| s == i)?;
+                Some((name.clone(), k))
+            }),
+            _ => None,
+        };
+        let was_at = self.list.selected();
+        let style_id = self.style_id().to_string();
+        let closed: Vec<String> = self
+            .closed
+            .iter()
+            .filter_map(|&p| self.packs.get(p).map(|(n, _)| n.clone()))
+            .collect();
+        let mut packs: Vec<(String, Vec<usize>)> = Vec::new();
+        for (i, s) in data.songs.iter().enumerate() {
+            match packs.iter_mut().find(|(p, _)| *p == s.pack) {
+                Some((_, v)) => v.push(i),
+                None => packs.push((s.pack.clone(), vec![i])),
+            }
+        }
+        let f = |s: &str| (self.env.fold)(s);
+        self.haystacks = data
+            .songs
+            .iter()
+            .map(|s| {
+                let credits: Vec<&str> = s
+                    .charts
+                    .iter()
+                    .flat_map(|c| [c.credit.as_str(), c.name.as_str()])
+                    .collect();
+                ddi_library::search::haystack(
+                    [
+                        s.title.as_str(),
+                        s.subtitle.as_str(),
+                        s.artist.as_str(),
+                        s.pack.as_str(),
+                        s.credit.as_str(),
+                    ]
+                    .into_iter()
+                    .chain(credits),
+                    [s.title_translit.as_str(), s.artist_translit.as_str()],
+                    &f,
+                )
+            })
+            .collect();
+        self.packs = packs;
+        *self.suggester.borrow_mut() = None;
+        self.data = Rc::new(data);
+        if first {
+            return;
+        }
+        self.closed = self
+            .packs
+            .iter()
+            .enumerate()
+            .filter(|(_, (n, _))| closed.contains(n))
+            .map(|(i, _)| i)
+            .collect();
+        self.style = self
+            .data
+            .styles
+            .iter()
+            .position(|s| s.id == style_id)
+            .unwrap_or(0);
+        let text = self.search.text.clone();
+        self.filter_matches(&text);
+        self.lay_out_items();
+        let shown = shown_id
+            .and_then(|id| self.data.songs.iter().position(|s| s.id == id))
+            .map(Item::Song);
+        self.reload();
+        let at = shown
+            .and_then(|it| self.items.iter().position(|x| *x == it))
+            .or_else(|| self.neighbour(was, was_at))
+            .or_else(|| self.items.iter().position(|it| matches!(it, Item::Song(_))));
+        if let Some(at) = at {
+            self.list.select(at);
+            self.list.finish();
+        }
+        self.shown = None;
+        self.follow();
+        self.left_dirty = true;
+        self.hints = None;
+        self.publish_dirty = true;
+    }
+
+    /// The item to show when the song shown is gone (removed): the song
+    /// now at its place in its pack (its pack's header when closed), else,
+    /// the pack gone, the first song from where the wheel was.
+    fn neighbour(&self, was: Option<(String, usize)>, at: Option<usize>) -> Option<usize> {
+        if let Some((pack, k)) = was
+            && let Some(p) = self.packs.iter().position(|(n, _)| *n == pack)
+        {
+            let songs = &self.packs[p].1;
+            let song = songs[k.min(songs.len().saturating_sub(1))];
+            return self
+                .items
+                .iter()
+                .position(|x| *x == Item::Song(song))
+                .or_else(|| self.items.iter().position(|x| *x == Item::Header(p)));
+        }
+        let from = at?.min(self.items.len().checked_sub(1)?);
+        self.items[from..]
+            .iter()
+            .position(|it| matches!(it, Item::Song(_)))
+            .map(|k| from + k)
+            .or_else(|| {
+                self.items[..from]
+                    .iter()
+                    .rposition(|it| matches!(it, Item::Song(_)))
+            })
     }
 
     fn model(&self) -> Wheel<'_> {
@@ -383,6 +650,7 @@ impl SelectScreen {
             &self.data,
             &self.packs,
             &self.closed,
+            self.matches.as_deref(),
             self.style,
             self.layout.compact,
         )
@@ -413,6 +681,7 @@ impl SelectScreen {
             &self.data,
             &self.packs,
             &self.closed,
+            self.matches.as_deref(),
             self.style,
             self.layout.compact,
         );
@@ -534,6 +803,7 @@ impl SelectScreen {
             let margin = env.metric("Compact.Margin", 48.0);
             for (name, label, x) in [
                 ("Back", "‹", margin + 22.0),
+                ("AddIcon", "+", screen[0] - margin - 126.0),
                 ("SearchIcon", "/", screen[0] - margin - 74.0),
                 ("OptionsIcon", "•••", screen[0] - margin - 22.0),
             ] {
@@ -562,9 +832,11 @@ impl SelectScreen {
             field.visible = self.typing || !self.search.text.is_empty();
         }
         children.push(field);
+        children.push(frame("Notices", Vec::new()));
         let mut root = Actor::new(Kind::Frame(children));
         super::entrance(&mut root, &env);
         self.hints = None;
+        self.notices_dirty = true;
         // The same song and chart, drawn again.
         self.left_dirty = true;
         self.publish_dirty = true;
@@ -641,7 +913,7 @@ impl SelectScreen {
         };
         let Some(song) = self.song() else {
             for p in [
-                "Title", "Subtitle", "Artist", "Bpm", "Length", "Pack", "Line",
+                "Title", "Subtitle", "Artist", "Bpm", "Length", "Pack", "Line", "Offset", "Credit",
             ] {
                 set_text(info, p, "");
             }
@@ -654,16 +926,29 @@ impl SelectScreen {
         set_text(info, "Bpm", &song.bpm_text);
         set_text(info, "Length", &song.length_text());
         set_text(info, "Pack", &song.pack);
-        set_text(
-            info,
-            "Line",
-            &format!(
-                "{} · {} BPM · {}",
-                song.artist,
-                song.bpm_text,
-                song.length_text()
-            ),
+        let offset = if song.offset_ms != 0 {
+            format!("offset {:+} ms", song.offset_ms)
+        } else {
+            String::new()
+        };
+        set_text(info, "Offset", &offset);
+        // The credit line, unless it only repeats the artist.
+        let credit = if song.credit.trim() == song.artist.trim() {
+            ""
+        } else {
+            song.credit.as_str()
+        };
+        set_text(info, "Credit", credit);
+        let mut line = format!(
+            "{} · {} BPM · {}",
+            song.artist,
+            song.bpm_text,
+            song.length_text()
         );
+        if !offset.is_empty() {
+            line.push_str(&format!(" · {offset}"));
+        }
+        set_text(info, "Line", &line);
         let side = if self.layout.compact { 300.0 } else { 560.0 };
         let banner = song.banner.as_deref().map(|b| cx.texture(b, side));
         set_image(info, "Banner", banner);
@@ -721,19 +1006,59 @@ impl SelectScreen {
             return;
         };
         let y = self.layout.tabs_y - self.layout.song[1] + 16.0;
+        let widths: Vec<f32> = self
+            .data
+            .styles
+            .iter()
+            .zip(&counts)
+            .map(|(st, &n)| {
+                look::mono_width(&st.name, 13.0)
+                    + 20.0
+                    + if n > 0 {
+                        look::mono_width(&n.to_string(), 11.0) + 6.0
+                    } else {
+                        0.0
+                    }
+            })
+            .collect();
+        // As many tabs as fit before the TAB hint, the selected one among
+        // them; "‹" and "›" say there are more.
+        let room = self.layout.song[2] - 48.0;
+        let span = |a: usize, b: usize| -> f32 {
+            widths[a..b].iter().sum::<f32>()
+                + (b - a).saturating_sub(1) as f32 * 6.0
+                + if a > 0 { 22.0 } else { 0.0 }
+                + if b < widths.len() { 22.0 } else { 0.0 }
+        };
+        let n = widths.len();
+        let (mut a, mut b) = (self.style.min(n), (self.style + 1).min(n));
+        loop {
+            let grew_right = b < n && span(a, b + 1) <= room;
+            if grew_right {
+                b += 1;
+            }
+            let grew_left = a > 0 && span(a - 1, b) <= room;
+            if grew_left {
+                a -= 1;
+            }
+            if !grew_right && !grew_left {
+                break;
+            }
+        }
         let mut x = 0.0;
         let mut children = Vec::new();
-        for (i, st) in self.data.styles.iter().enumerate() {
+        if a > 0 {
+            children.push(left(
+                env.text("Tabs.Before", "‹", 16.0, 700, "Muted"),
+                x + 4.0,
+                y,
+            ));
+            x += 22.0;
+        }
+        for (i, st) in self.data.styles.iter().enumerate().take(b).skip(a) {
             let n = counts[i];
-            let label_w = look::mono_width(&st.name, 13.0);
             let count = if n > 0 { n.to_string() } else { String::new() };
-            let w = label_w
-                + 20.0
-                + if n > 0 {
-                    look::mono_width(&count, 11.0) + 6.0
-                } else {
-                    0.0
-                };
+            let w = widths[i];
             let mut tab = look::component_or(
                 &*env.look,
                 "StyleTab",
@@ -755,6 +1080,13 @@ impl SelectScreen {
             tab.finish_tweening();
             children.push(tab);
         }
+        if b < n {
+            children.push(left(
+                env.text("Tabs.After", "›", 16.0, 700, "Muted"),
+                x + 2.0,
+                y,
+            ));
+        }
         tabs.kind = Kind::Frame(children);
     }
 
@@ -774,15 +1106,28 @@ impl SelectScreen {
             let mut children = Vec::new();
             for k in 0..n {
                 let c = charts[first + k];
+                // Its meter; a named chart without one by its name (cut
+                // to the button; the play button says it whole).
+                let by_name = c.named() && c.meter == 0;
+                let shown = if by_name { c.label() } else { c.meter_text() };
                 let mut b = look::component_or(
                     &*env.look,
                     "ChartButton",
                     "Button",
-                    &Spec::new([cell, 44.0], c.meter.to_string()),
+                    &Spec::new([cell, 44.0], shown.clone()),
                 );
                 b.name = format!("Chart{k}");
-                set_text(&mut b, "Meter", &c.meter.to_string());
+                set_text(&mut b, "Meter", &shown);
+                if by_name
+                    && let Some(m) = part(&mut b, "Meter")
+                    && let Kind::Text(t) = &mut m.kind
+                {
+                    t.max_width = cell - 8.0;
+                    t.ellipsis = true;
+                }
                 crate::widgets::play(&mut b, difficulty_name(c.difficulty));
+                let lamp = c.best.as_ref().map_or("None", |b| b.lamp.as_str());
+                crate::widgets::play(&mut b, &format!("Lamp.{lamp}"));
                 crate::widgets::play(
                     &mut b,
                     if Some(first + k) == pick {
@@ -813,11 +1158,9 @@ impl SelectScreen {
                 f.kind = Kind::Frame(children);
             }
             let label = match pick.map(|p| charts[p]) {
-                Some(c) => format!(
-                    "PLAY {} {}",
-                    difficulty_name(c.difficulty).to_uppercase(),
-                    c.meter
-                ),
+                Some(c) => format!("PLAY {} {}", c.label().to_uppercase(), c.meter_text())
+                    .trim_end()
+                    .to_string(),
                 None => "NO CHARTS".to_string(),
             };
             super::set(root, "Play", "Label", &label);
@@ -836,16 +1179,37 @@ impl SelectScreen {
                 &format!("Ladder.Row{k}"),
                 [0.0, top + k as f32 * (row + gap)],
             );
-            set_text(
-                &mut r,
-                "Label",
-                &difficulty_name(c.difficulty).to_uppercase(),
-            );
-            set_text(&mut r, "Title", difficulty_name(c.difficulty));
-            let notes = format!("{} notes · steps by {}", c.notes, c.credit);
+            set_text(&mut r, "Label", &c.label().to_uppercase());
+            set_text(&mut r, "Title", &c.label());
+            let notes = if c.credit.is_empty() {
+                format!("{} notes", c.notes)
+            } else {
+                format!("{} notes · steps by {}", c.notes, c.credit)
+            };
             set_text(&mut r, "Notes", &notes);
             set_text(&mut r, "Subtitle", &notes);
-            set_text(&mut r, "Meter", &c.meter.to_string());
+            set_text(&mut r, "Meter", &c.meter_text());
+            // The best: grade, score, lamp; marked while it waits to be
+            // worked out again.
+            match &c.best {
+                Some(b) => {
+                    set_text(&mut r, "Grade", &b.grade);
+                    let score = if b.pending {
+                        format!("{} …", b.score)
+                    } else {
+                        b.score.clone()
+                    };
+                    set_text(&mut r, "Score", &score);
+                    set_text(&mut r, "LampText", &b.lamp_text);
+                    crate::widgets::play(&mut r, &format!("Lamp.{}", b.lamp));
+                }
+                None => {
+                    for p in ["Grade", "Score", "LampText"] {
+                        set_text(&mut r, p, "");
+                    }
+                    crate::widgets::play(&mut r, "Lamp.None");
+                }
+            }
             crate::widgets::play(&mut r, difficulty_name(c.difficulty));
             crate::widgets::play(
                 &mut r,
@@ -925,22 +1289,38 @@ impl SelectScreen {
         }
         let now = self.hints_now();
         let searching = !self.search.text.is_empty();
-        if self.hints == Some((now, searching)) {
+        let manage = self.manageable().is_some();
+        // While searching (not typing), what it found.
+        let found = match (&self.matches, now) {
+            (_, Hints::Typing) | (None, _) => String::new(),
+            (Some(m), _) => match m.iter().filter(|&&x| x).count() {
+                0 => "No song matches.".to_string(),
+                1 => "1 song matches.".to_string(),
+                n => format!("{n} songs match."),
+            },
+        };
+        let key = (now, searching, found.clone(), manage);
+        if self.hints.as_ref() == Some(&key) {
             return;
         }
-        self.hints = Some((now, searching));
+        self.hints = Some(key);
         // Escape clears a search before it closes packs.
         let esc = if searching {
             "Clear search"
         } else {
             "Close pack"
         };
-        let links: &[(&str, &str)] = &[
+        let mut links: Vec<(&str, &str)> = Vec::new();
+        if manage {
+            links.push(("Link.Manage", "Manage…"));
+        }
+        links.extend([
             ("Link.Add", "+ Add songs"),
             ("Link.Options", "Options"),
             ("Link.Calibrate", "Calibrate"),
             ("Link.Credits", "Credits"),
-        ];
+            ("Link.Source", "Source"),
+        ]);
         let (hints, note): (&[(&[&str], &str)], &str) = match now {
             Hints::Song => (
                 &[
@@ -983,7 +1363,16 @@ impl SelectScreen {
                 "Typing searches titles, artists, packs and step artists; kana and romaji match each other.",
             ),
         };
-        let links = if now == Hints::Typing { &[][..] } else { links };
+        let links = if now == Hints::Typing {
+            &[][..]
+        } else {
+            &links[..]
+        };
+        let note = if note.is_empty() {
+            found.as_str()
+        } else {
+            note
+        };
         let (f, texts) = footer(&self.env, self.layout.screen, hints, note, links);
         if let Some(old) = hit::find_mut(root, "Footer") {
             *old = f;
@@ -991,6 +1380,265 @@ impl SelectScreen {
             c.push(f);
         }
         self.env.state.borrow_mut().hints = texts;
+    }
+
+    /// A flick or a drag passes rows over the wheel's line while the
+    /// selected row stays where it was (the list selects what is on its
+    /// line once at rest): the room on the line for the selected row, and
+    /// the row's own growth, are there only while the selected row is on
+    /// the line and the list moves slower than [`FLICK_ROWS`] a second;
+    /// they close and open together, so a flick leaves no gap.
+    fn flick_room(&mut self, dt: f32, root: &mut Actor) {
+        if self.layout.compact {
+            return;
+        }
+        let row = f64::from(self.layout.row);
+        let fast = self.list.speed() > row * f64::from(FLICK_ROWS);
+        // Every wheel item is a row high (headers too).
+        let on_line = self.list.selected().is_some_and(|i| {
+            let mid = (i as f64 + 0.5) * row - self.list.scroll();
+            let line = f64::from(self.layout.wheel[3]) * 0.5;
+            ((mid - line) / row).abs() < 0.5
+        });
+        let shut = fast || !on_line;
+        if shut != self.shut {
+            self.shut = shut;
+            if let Some(name) = self.list.selected().and_then(|i| self.list.item_actor(i))
+                && let Some(a) = hit::find_mut(root, &name)
+            {
+                crate::widgets::play(a, if shut { "Deselect" } else { "Select" });
+            }
+        }
+        let target = if shut { 0.0 } else { 1.0 };
+        let t = self.env.metric("Motion.Select", 0.12).max(0.01);
+        self.open += (target - self.open) * (1.0 - (-dt / (t / 3.0)).exp());
+        if (target - self.open).abs() < 0.01 {
+            self.open = target;
+        }
+        self.env.look.set_wheel_open("Wheel", self.open);
+    }
+
+    /// What Manage acts on: the selected header's pack, or the selected
+    /// song (imported), when something can be done.
+    fn manageable(&self) -> Option<Manage> {
+        let pack = |name: &str| {
+            self.data
+                .packs
+                .iter()
+                .find(|p| p.name == name)
+                .cloned()
+                .unwrap_or_else(|| PackEntry {
+                    name: name.to_string(),
+                    ..Default::default()
+                })
+        };
+        let count = |name: &str| {
+            self.packs
+                .iter()
+                .find(|(n, _)| n == name)
+                .map_or(0, |(_, v)| v.len())
+        };
+        match self.selected_item()? {
+            Item::Header(p) => {
+                let name = &self.packs.get(p)?.0;
+                let pack = pack(name);
+                (pack.removable || pack.rereadable).then(|| Manage::Pack {
+                    songs: count(name),
+                    pack,
+                })
+            }
+            Item::Song(i) => {
+                let song = self.data.songs.get(i)?;
+                song.removable.then(|| Manage::Song {
+                    id: song.id.clone(),
+                    title: song.title.clone(),
+                    pack: pack(&song.pack),
+                    songs: count(&song.pack),
+                })
+            }
+        }
+    }
+
+    /// An import runs: removing and reading folders again wait.
+    fn busy(&self) -> bool {
+        self.import.borrow().running.is_some()
+    }
+
+    /// A notice's link: the options, removing the songs that could not be
+    /// read (asked first), else the shell's.
+    fn notice_link(&mut self, i: usize, cx: &mut Cx) {
+        let Some((_, id)) = self.notices.get(i).and_then(|n| n.link.clone()) else {
+            return;
+        };
+        match id.as_str() {
+            "options" => {
+                let env = self.env.clone();
+                (self.options)(&env, cx);
+            }
+            "remove-unreadable" => {
+                let count = self.notices[i]
+                    .text
+                    .split(' ')
+                    .next()
+                    .and_then(|n| n.parse().ok())
+                    .unwrap_or(0);
+                cx.overlay(
+                    ManageDialog::new(
+                        self.env.clone(),
+                        Manage::Unreadable { count },
+                        self.shell.clone(),
+                        self.busy(),
+                    ),
+                    true,
+                );
+            }
+            _ => self.call(SelectCall::Notice(id), cx),
+        }
+    }
+
+    fn call(&self, c: SelectCall, cx: &mut Cx) {
+        if let Some(s) = &self.shell {
+            s(c, cx);
+        }
+    }
+
+    /// Tells the shell what changed: the song shown (its preview), the
+    /// list's place.
+    fn tell(&mut self, cx: &mut Cx) {
+        if self.shell.is_none() {
+            return;
+        }
+        let song = match self.shown {
+            Some(Item::Song(i)) => self.data.songs.get(i).map(|s| s.id.clone()),
+            _ => None,
+        };
+        if self.told_song.as_ref() != Some(&song) {
+            self.told_song = Some(song.clone());
+            let from_pad = self.from_pad;
+            self.call(
+                SelectCall::Selected {
+                    song: song.clone(),
+                    from_pad,
+                },
+                cx,
+            );
+        }
+        let (charts, pick) = self.charts();
+        let place = SelectPlace {
+            song,
+            chart: pick.and_then(|p| charts.get(p)).map(|c| c.index),
+            style: self.style_id().to_string(),
+            search: self.search.text.clone(),
+            closed: self
+                .closed
+                .iter()
+                .filter_map(|&p| self.packs.get(p).map(|(n, _)| n.clone()))
+                .collect(),
+        };
+        if self.told_place.as_ref() != Some(&place) {
+            self.told_place = Some(place.clone());
+            self.call(SelectCall::Place(place), cx);
+        }
+    }
+
+    /// What the shell sent: new data, the import's progress, notices.
+    fn take_feed(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let Some(feed) = self.feed.clone() else {
+            return;
+        };
+        let (data, import, notices, open) = {
+            let mut f = feed.borrow_mut();
+            (
+                f.data.take(),
+                f.import.take(),
+                f.notices.take(),
+                std::mem::take(&mut f.open_import),
+            )
+        };
+        if let Some(d) = data {
+            self.set_data(d, false);
+            self.fill_tabs(root);
+            self.fill_charts(root);
+        }
+        if let Some(i) = import {
+            *self.import.borrow_mut() = i;
+            cx.broadcast(Message::new(IMPORT_CHANGED));
+        }
+        if let Some(n) = notices {
+            self.notices = n;
+            self.notices_dirty = true;
+        }
+        // Files dropped on the page: the dialog shows how the import goes.
+        if open && !self.import_open(cx) {
+            cx.focus("Wheel");
+            cx.overlay(
+                ImportDialog::new(self.env.clone(), self.import.clone(), self.shell.clone()),
+                true,
+            );
+        }
+    }
+
+    /// Whether the import dialog is open over the screen (the theme's
+    /// state counts what is over song select).
+    fn import_open(&self, _cx: &Cx) -> bool {
+        self.env.state.borrow().import_open
+    }
+
+    /// The notices under the header: their text and links.
+    fn fill_notices(&mut self, root: &mut Actor) {
+        if !std::mem::take(&mut self.notices_dirty) {
+            return;
+        }
+        let env = self.env.clone();
+        let l = self.layout;
+        // One line, as wide as the song's column: the notices' texts (cut
+        // to fit), then their links.
+        let [x0, _, width] = l.song;
+        let y = if l.compact { l.screen[1] - 16.0 } else { 74.0 };
+        let links: Vec<(usize, &str)> = self
+            .notices
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| n.link.as_ref().map(|(label, _)| (i, label.as_str())))
+            .collect();
+        let links_w: f32 = links
+            .iter()
+            .map(|(_, l)| look::mono_width(l, 13.0) + 16.0 + 8.0)
+            .sum();
+        let text = self
+            .notices
+            .iter()
+            .map(|n| n.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let error = self.notices.iter().any(|n| n.error);
+        let mut children = Vec::new();
+        let room = (width - links_w - 8.0).max(80.0);
+        let mut t = env.text(
+            "Notice",
+            &text,
+            13.0,
+            400,
+            if error { "Danger" } else { "Muted" },
+        );
+        if let Kind::Text(tx) = &mut t.kind {
+            tx.max_width = room;
+            tx.ellipsis = true;
+        }
+        children.push(left(t, x0, y));
+        let mut x = x0 + look::mono_width(&text, 13.0).min(room) + 8.0;
+        for (i, label) in links {
+            let lw = look::mono_width(label, 13.0) + 16.0;
+            let mut a =
+                look::component_or(&*env.look, "Link", "Button", &Spec::new([lw, 24.0], label));
+            a.name = format!("Notice.Link{i}");
+            call(&mut a, "xy", &[x + lw / 2.0, y]);
+            children.push(a);
+            x += lw + 8.0;
+        }
+        if let Some(f) = hit::find_mut(root, "Notices") {
+            f.kind = Kind::Frame(children);
+        }
     }
 
     // Actions.
@@ -1140,15 +1788,7 @@ impl SelectScreen {
 
     /// Shows the songs matching `text` (all for none).
     fn filter(&mut self, text: &str) {
-        self.filtered = text.to_string();
-        self.publish_dirty = true;
-        let f = |s: &str| (self.env.fold)(s);
-        self.matches = if text.trim().is_empty() {
-            None
-        } else {
-            let q = ddi_library::search::Query::new(text, &f);
-            Some(self.haystacks.iter().map(|h| q.matches(h)).collect())
-        };
+        self.filter_matches(text);
         // Cleared: the song shown comes back, its pack opened if it was
         // closed.
         if self.matches.is_none()
@@ -1171,6 +1811,24 @@ impl SelectScreen {
             self.list.select(at);
         }
         self.follow();
+        let n = self
+            .matches
+            .as_ref()
+            .map_or(self.data.songs.len(), |m| m.iter().filter(|&&x| x).count());
+        self.env.state.borrow_mut().matches = n;
+    }
+
+    /// The songs matching `text` (all for none), the wheel not laid out.
+    fn filter_matches(&mut self, text: &str) {
+        self.filtered = text.to_string();
+        self.publish_dirty = true;
+        let f = |s: &str| (self.env.fold)(s);
+        self.matches = if text.trim().is_empty() {
+            None
+        } else {
+            let q = ddi_library::search::Query::new(text, &f);
+            Some(self.haystacks.iter().map(|h| q.matches(h)).collect())
+        };
         let n = self
             .matches
             .as_ref()
@@ -1272,6 +1930,21 @@ impl SelectScreen {
         st.pulse = self.pulse.value;
         st.pulsing = self.pulse.on;
         st.backdrop = self.backdrop.source().map(str::to_string);
+        st.selected_row = self.list.selected().and_then(|i| self.list.item_actor(i));
+        st.wheel = self.layout.wheel;
+        st.best = pick
+            .and_then(|p| charts.get(p))
+            .and_then(|c| c.best.as_ref())
+            .map(|b| {
+                format!(
+                    "{} {} {}{}",
+                    b.grade,
+                    b.score,
+                    b.lamp,
+                    if b.pending { " pending" } else { "" }
+                )
+            });
+        st.notices = self.notices.iter().map(|n| n.text.clone()).collect();
     }
 }
 
@@ -1292,8 +1965,8 @@ fn suggestions(
             cands.push((p, "", SuggestKind::Pack));
         }
         for s in &data.songs {
-            cands.push((&s.title, "", SuggestKind::Title));
-            cands.push((&s.artist, "", SuggestKind::Artist));
+            cands.push((&s.title, &s.title_translit, SuggestKind::Title));
+            cands.push((&s.artist, &s.artist_translit, SuggestKind::Artist));
         }
         Suggester::new(cands, &f)
     });
@@ -1317,6 +1990,7 @@ fn wheel<'a>(
     data: &'a SelectData,
     packs: &'a [(String, Vec<usize>)],
     closed: &'a BTreeSet<usize>,
+    matches: Option<&'a [bool]>,
     style: usize,
     compact: bool,
 ) -> Wheel<'a> {
@@ -1326,6 +2000,7 @@ fn wheel<'a>(
         data,
         packs,
         closed,
+        matches,
         style: st.map_or("", |s| s.id.as_str()),
         style_name: st.map_or("", |s| s.name.as_str()),
         banner_side: if compact { 96.0 } else { 224.0 },
@@ -1394,22 +2069,43 @@ impl Screen for SelectScreen {
             Focusable::new(self.search.name.clone()),
         ];
         if self.layout.compact {
-            for n in ["Back", "SearchIcon", "OptionsIcon", "StyleButton", "Play"] {
+            for n in [
+                "Back",
+                "AddIcon",
+                "SearchIcon",
+                "OptionsIcon",
+                "StyleButton",
+                "Play",
+            ] {
                 v.push(Focusable::new(n));
             }
             v.extend((0..5).map(|k| Focusable::new(format!("Chart{k}"))));
         } else {
-            for n in ["Link.Add", "Link.Options", "Link.Calibrate", "Link.Credits"] {
+            for n in [
+                "Link.Manage",
+                "Link.Add",
+                "Link.Options",
+                "Link.Calibrate",
+                "Link.Credits",
+                "Link.Source",
+            ] {
                 v.push(Focusable::new(n));
             }
             v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
             v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Ladder.Row{k}"))));
         }
+        if !self.notices.is_empty() {
+            v.push(Focusable::new("Notice"));
+        }
+        v.extend((0..self.notices.len()).map(|i| Focusable::new(format!("Notice.Link{i}"))));
+        v.extend((0..self.data.mods.len()).map(|i| Focusable::new(format!("Mod{i}"))));
         v
     }
 
     fn animating(&self) -> bool {
-        self.list.animating() || self.pulse.on
+        self.list.animating()
+            || self.pulse.on
+            || (!self.layout.compact && (self.open > 0.0 && self.open < 1.0))
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
@@ -1433,6 +2129,7 @@ impl Screen for SelectScreen {
             // The first frame of the new tree shows it as it is.
             root.finish_tweening();
         }
+        self.flick_room(dt, root);
         let event = {
             let look = self.env.look.clone();
             let model = wheel(
@@ -1440,6 +2137,7 @@ impl Screen for SelectScreen {
                 &self.data,
                 &self.packs,
                 &self.closed,
+                self.matches.as_deref(),
                 self.style,
                 self.layout.compact,
             );
@@ -1450,6 +2148,8 @@ impl Screen for SelectScreen {
         }
         self.show(root, cx);
         self.fill_footer(root);
+        self.fill_notices(root);
+        self.tell(cx);
         // The scrollbar: where the selection is in the list.
         if let Some(sel) = self.list.selected() {
             let n = self.items.len().max(1);
@@ -1514,6 +2214,7 @@ impl Screen for SelectScreen {
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        self.from_pad = matches!(input, Input::Menu { .. }) && !cx.menu_from_keyboard();
         let h = self.input_inner(input, root, cx);
         // The song the selection shows, now: a Start in the same poll as a
         // move acts on the song moved to.
@@ -1521,16 +2222,28 @@ impl Screen for SelectScreen {
         self.sync_field(root);
         self.publish_dirty = true;
         self.publish();
+        // Inside the input: a preview starts in its gesture.
+        self.tell(cx);
+        self.from_pad = false;
         h
     }
 
     fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
+        if m.name == FEED {
+            self.take_feed(root, cx);
+        }
+        if m.name == NOTICE_LINK
+            && let Some(crate::message::Param::Int(i)) = m.get("Index")
+        {
+            self.notice_link(*i as usize, cx);
+        }
         if let Some(e) = self.search.message(m, root, cx) {
             self.field_event(e, root, cx);
         }
         self.follow();
         self.sync_field(root);
         self.publish();
+        self.tell(cx);
     }
 }
 
@@ -1576,6 +2289,21 @@ impl SelectScreen {
                 self.begin_search(root, cx);
                 return Handled::Yes;
             }
+            // Manage: Delete, or Backspace (a Mac's delete key).
+            Input::Key(k)
+                if k.down
+                    && !k.repeat
+                    && !self.typing
+                    && (k.key == "Delete" || k.key == "Backspace") =>
+            {
+                if let Some(m) = self.manageable() {
+                    cx.overlay(
+                        ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy()),
+                        true,
+                    );
+                }
+                return Handled::Yes;
+            }
             Input::Key(k)
                 if k.down && self.typing && (k.key == "ArrowUp" || k.key == "ArrowDown") =>
             {
@@ -1589,6 +2317,7 @@ impl SelectScreen {
                     &self.data,
                     &self.packs,
                     &self.closed,
+                    self.matches.as_deref(),
                     self.style,
                     self.layout.compact,
                 );
@@ -1620,6 +2349,7 @@ impl SelectScreen {
                 &self.data,
                 &self.packs,
                 &self.closed,
+                self.matches.as_deref(),
                 self.style,
                 self.layout.compact,
             );
@@ -1680,11 +2410,57 @@ impl SelectScreen {
             self.pick_chart(k, root, cx);
             return Handled::Yes;
         }
+        if name.starts_with("Mod") || name == "PlayingWith" {
+            let env = self.env.clone();
+            (self.options)(&env, cx);
+            cx.focus("Wheel");
+            return Handled::Yes;
+        }
+        if let Some(i) = name
+            .strip_prefix("Notice.Link")
+            .and_then(|n| n.parse::<usize>().ok())
+        {
+            self.notice_link(i, cx);
+            cx.focus("Wheel");
+            return Handled::Yes;
+        }
+        if name == "Notice" {
+            // Every notice in full.
+            cx.focus("Wheel");
+            cx.overlay(
+                NoticesDialog::new(self.env.clone(), self.notices.clone()),
+                true,
+            );
+            return Handled::Yes;
+        }
         match name {
             "Link.Options" | "OptionsIcon" => {
                 let env = self.env.clone();
                 (self.options)(&env, cx);
             }
+            "Link.Add" | "AddIcon" => {
+                // Back on the wheel once the dialog closes.
+                cx.focus("Wheel");
+                cx.overlay(
+                    ImportDialog::new(self.env.clone(), self.import.clone(), self.shell.clone()),
+                    true,
+                );
+                self.status("add songs".into());
+                return Handled::Yes;
+            }
+            "Link.Manage" => {
+                cx.focus("Wheel");
+                if let Some(m) = self.manageable() {
+                    cx.overlay(
+                        ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy()),
+                        true,
+                    );
+                }
+                return Handled::Yes;
+            }
+            "Link.Calibrate" => self.call(SelectCall::Open("calibrate".into()), cx),
+            "Link.Credits" => self.call(SelectCall::Open("credits".into()), cx),
+            "Link.Source" => self.call(SelectCall::Open("source".into()), cx),
             "SearchIcon" => self.begin_search(root, cx),
             "StyleButton" => self.next_style(root),
             "Play" => self.start(root, cx),

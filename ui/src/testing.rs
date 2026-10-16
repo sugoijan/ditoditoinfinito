@@ -9,7 +9,7 @@ use ddi_actor::{Actor, Drawn};
 
 use crate::event::{
     DeltaMode, KeyEvent, MenuEvent, Modifiers, PointerEvent, PointerKind, PointerPhase, TextEvent,
-    TextSync, UiEvent, WheelEvent, buttons, wheel_pixels,
+    TextSync, UiEvent, WheelEvent, WheelSource, buttons, wheel_pixels,
 };
 use crate::nav::MenuAction;
 use crate::request::UiRequest;
@@ -254,13 +254,33 @@ impl Harness {
 
     /// A wheel at a virtual point, `lines` of it (Firefox's unit).
     pub fn wheel_lines(&mut self, at: [f32; 2], lines: [f32; 2]) -> Vec<UiRequest> {
+        self.wheel(
+            at,
+            wheel_pixels(lines, DeltaMode::Line, [0.0; 2]),
+            WheelSource::Lines,
+        )
+    }
+
+    /// A wheel at a virtual point: `delta` CSS pixels, from `source`.
+    pub fn wheel(&mut self, at: [f32; 2], delta: [f32; 2], source: WheelSource) -> Vec<UiRequest> {
         let e = WheelEvent {
             pos: self.css(at),
-            delta: wheel_pixels(lines, DeltaMode::Line, [0.0; 2]),
+            delta,
+            source,
             modifiers: Modifiers::default(),
             time: self.now,
         };
         self.send(UiEvent::Wheel(e))
+    }
+
+    /// Wheel events at a virtual point, `deltas` CSS pixels down from
+    /// `source`, `every` seconds apart, frames of that length drawn
+    /// between them (a trackpad's stream, a wheel turned).
+    pub fn wheel_stream(&mut self, at: [f32; 2], deltas: &[f32], source: WheelSource, every: f32) {
+        for &d in deltas {
+            self.wheel(at, [0.0, d], source);
+            self.frame(every);
+        }
     }
 
     // Text.

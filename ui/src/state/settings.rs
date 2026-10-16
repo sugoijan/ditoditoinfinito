@@ -507,6 +507,55 @@ impl Settings {
             chart,
         )
     }
+
+    /// The key the play history keeps a chart's bests under, from what
+    /// the song list knows of the chart: its layout, whether it is a
+    /// Dancing☆Onigiri work's, and the excessive setting such a chart
+    /// gives ([`chart_excessive`]). The same as `ruleset_for(chart)`'s
+    /// key's `best_key` (a test holds them equal).
+    pub fn best_key_for(
+        &self,
+        layout: &str,
+        danoni: bool,
+        excessive: Option<bool>,
+    ) -> ddi_engine::rules::RulesetKey {
+        let chart = ddi_chart::Chart {
+            layout: layout.to_string(),
+            difficulty: ddi_chart::Difficulty::Edit,
+            meter: 0,
+            name: String::new(),
+            description: String::new(),
+            credit: String::new(),
+            notes: Vec::new(),
+            timing: None,
+            display_bpm: None,
+            danoni: danoni.then(Default::default),
+        };
+        let mut key = self.ruleset_for(&chart).key();
+        // Excessive as the chart sets it, where the player left it to the
+        // chart.
+        if let Some(d) = key.danoni.as_mut()
+            && self.danoni.excessive.is_none()
+        {
+            d.excessive = Some(excessive.unwrap_or(false));
+        }
+        key.best_key()
+    }
+}
+
+/// The excessive setting a Dancing☆Onigiri chart gives
+/// (`excessiveJdgUse`, `excessiveUse`), for the song list
+/// ([`Settings::best_key_for`]); `None` for other charts.
+pub fn chart_excessive(chart: &ddi_chart::Chart) -> Option<bool> {
+    chart.danoni.as_ref()?;
+    let options = ddi_engine::rules::danoni::DanoniOptions {
+        excessive: None,
+        ..Default::default()
+    };
+    ddi_engine::rules::danoni::ruleset(Some(chart), &options)
+        .key()
+        .danoni?
+        .excessive
 }
 
 /// Exact id match, or for audio ids (`audio:<rate>:<base>:<out>`) the entry
@@ -583,5 +632,66 @@ mod tests {
         assert_eq!(fresh.speed, Settings::default().speed);
         storage::set(Area::Local, KEY, "not json").unwrap();
         assert_eq!(Settings::load(), fresh);
+    }
+
+    #[test]
+    fn the_song_lists_best_key_is_the_plays() {
+        use ddi_chart::{Chart, DanoniChart, Difficulty};
+        let work = |headers: Vec<(&str, &str)>| Chart {
+            layout: "danoni-7".into(),
+            difficulty: Difficulty::Edit,
+            meter: 0,
+            name: "Normal".into(),
+            description: String::new(),
+            credit: String::new(),
+            notes: Vec::new(),
+            timing: None,
+            display_bpm: None,
+            danoni: Some(DanoniChart {
+                headers: headers
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+                ..Default::default()
+            }),
+        };
+        let plain = Chart {
+            danoni: None,
+            layout: "dance-single".into(),
+            ..work(Vec::new())
+        };
+        for mode in [
+            RulesetMode::Original,
+            RulesetMode::AllDanoni,
+            RulesetMode::AllStepMania,
+        ] {
+            for excessive in [None, Some(true), Some(false)] {
+                let mut s = Settings {
+                    ruleset_mode: mode,
+                    ..Settings::default()
+                };
+                s.danoni.excessive = excessive;
+                for chart in [
+                    work(vec![("excessiveJdgUse", "true")]),
+                    work(vec![("excessiveUse", "true,on")]),
+                    work(Vec::new()),
+                    plain.clone(),
+                ] {
+                    let play = s.ruleset_for(&chart).key().best_key();
+                    let list = s.best_key_for(
+                        &chart.layout,
+                        chart.danoni.is_some(),
+                        chart_excessive(&chart),
+                    );
+                    assert_eq!(list, play, "{mode:?} {excessive:?} {:?}", chart.danoni);
+                }
+            }
+        }
+        assert_eq!(
+            chart_excessive(&work(vec![("excessiveJdgUse", "true")])),
+            Some(true)
+        );
+        assert_eq!(chart_excessive(&work(Vec::new())), Some(false));
+        assert_eq!(chart_excessive(&plain), None);
     }
 }

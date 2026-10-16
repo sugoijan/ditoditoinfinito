@@ -102,6 +102,11 @@ pub trait Look {
         None
     }
 
+    /// How far open wheel-style list `list`'s room for its selected row is
+    /// now, `0..=1`: a screen closes it while the list flicks past rows
+    /// (the selected row is not on the line then) and opens it at rest.
+    fn set_wheel_open(&self, _list: &str, _open: f32) {}
+
     /// A named number: a region's place or size (`Select.Wheel.X`), a
     /// timing (`Motion.Select`), an amount (`Backdrop.Alpha`). Screens
     /// give their own default for what a look leaves out.

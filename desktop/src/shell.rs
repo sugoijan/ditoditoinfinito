@@ -22,7 +22,7 @@ use ddi_ui::dev::{self, DevScreen, Shared};
 use ddi_ui::dev_widgets::{FoldFn, SharedWidgets, WidgetScreen};
 use ddi_ui::event::{
     DeltaMode, KeyEvent, LINES_PER_NOTCH, Modifiers, PointerEvent, PointerKind, PointerPhase,
-    TextEvent, UiEvent, WheelEvent, buttons, wheel_pixels,
+    TextEvent, UiEvent, WheelEvent, WheelSource, buttons, wheel_pixels,
 };
 use ddi_ui::request::Cursor;
 use ddi_ui::screens::{self as theme_screens, Env as ThemeEnv, sample};
@@ -79,7 +79,7 @@ pub struct Shell {
     pub error: Option<String>,
     /// The theme's screens, when asked for (`--screen select`).
     pub theme: Option<(ThemeEnv, Rc<ddi_theme::Infinito>)>,
-    /// Images came in at the last frame: one more frame shows them.
+    /// Decoded images wait for a frame to show them.
     loaded: bool,
 }
 
@@ -359,10 +359,9 @@ impl Shell {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        self.loaded = s
-            .gpu
-            .draw(&mut self.ui, &view, [s.config.width, s.config.height])
-            > 0;
+        s.gpu
+            .draw(&mut self.ui, &view, [s.config.width, s.config.height]);
+        self.loaded = s.gpu.images_ready();
         s.window.pre_present_notify();
         s.gpu.queue.present(frame);
         self.frames += 1;
@@ -463,21 +462,32 @@ impl ApplicationHandler for Shell {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                // winit's positive y scrolls up; the DOM's down.
-                let delta = match delta {
-                    MouseScrollDelta::LineDelta(x, y) => wheel_pixels(
-                        [-x * LINES_PER_NOTCH, -y * LINES_PER_NOTCH],
-                        DeltaMode::Line,
-                        [0.0; 2],
+                // winit's positive y scrolls up; the DOM's down. Lines are
+                // a wheel's notches (or fractions of one: Windows'
+                // precision touchpads, X11's smooth scrolling); pixels
+                // come from precise devices only (macOS's trackpads and
+                // Magic Mouse, Wayland's touchpads), whose stream the UI
+                // follows one for one (`ddi_ui::gesture::WheelStream`).
+                // Its phases are not needed: a stream ends when its
+                // events stop, momentum included.
+                let (delta, source) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => (
+                        wheel_pixels(
+                            [-x * LINES_PER_NOTCH, -y * LINES_PER_NOTCH],
+                            DeltaMode::Line,
+                            [0.0; 2],
+                        ),
+                        WheelSource::Lines,
                     ),
                     MouseScrollDelta::PixelDelta(p) => {
                         let l = p.to_logical::<f32>(self.scale);
-                        [-l.x, -l.y]
+                        ([-l.x, -l.y], WheelSource::Precise)
                     }
                 };
                 self.send(UiEvent::Wheel(WheelEvent {
                     pos: self.cursor,
                     delta,
+                    source,
                     modifiers: self.modifiers,
                     time: self.now_ms(),
                 }));
@@ -559,8 +569,17 @@ impl ApplicationHandler for Shell {
             ));
         } else if let Some(at) = self.retry_at {
             event_loop.set_control_flow(ControlFlow::WaitUntil(at));
+        } else if self.surface.as_ref().is_some_and(|s| s.gpu.loading()) {
+            // Images are decoding on other threads: looked for shortly
+            // (only while they are).
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + std::time::Duration::from_millis(8),
+            ));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
+        }
+        if let Some(s) = &mut self.surface {
+            self.loaded |= s.gpu.images_ready();
         }
         if self.occluded || !(self.ui.needs_redraw() || self.loaded) {
             // Idle: the next frame starts its clock afresh.
