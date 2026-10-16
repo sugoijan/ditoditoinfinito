@@ -194,7 +194,14 @@ impl LibSong {
         if self.zip {
             format!("zip:{}!{}", self.root.display(), self.rooted(file))
         } else {
-            self.root.join(self.rooted(file)).display().to_string()
+            // Joined part by part, so the path uses the platform's
+            // separators (Windows' `\`) throughout.
+            let rooted = self.rooted(file);
+            let path = rooted
+                .split('/')
+                .filter(|part| !part.is_empty())
+                .fold(self.root.clone(), |path, part| path.join(part));
+            path.display().to_string()
         }
     }
 }
