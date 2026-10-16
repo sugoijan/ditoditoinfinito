@@ -1,5 +1,13 @@
 # Rust DanOni export core
 
+A [relocatable native runtime](../../../docs/research/danoni-rust-runtime.md) now
+packages the verified worker, portable Latin/Japanese fonts and notices. Shared
+Rust/CLI host defaults support URL-only imports after host setup, with a confined
+software-rendering diagnostic. Four fresh Linux URL works / five charts pass the
+frozen source gate; the normal 11-chart export study retains explicit musical
+phase/colour differences. System Vulkan/Mesa and distribution notice review
+remain separate prerequisites/gates; desktop integration is deferred.
+
 Linux x86-64 worker packages and capture use Landlock ABI >= 6 plus seccomp;
 see [the Linux handover](../../../docs/research/danoni-rust-linux.md) for runtime
 requirements, software-renderer tests, scoped real-corpus results and remaining

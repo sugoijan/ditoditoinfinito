@@ -521,3 +521,176 @@ also requires adding that chosen path as writable in the development-only Mesa
 mount view. Production hosts with system runtime packages need no such wrapper.
 The exact actual build/check commands, temporary Cargo target directories and
 explicit low-debug build settings are retained in the review logs/scripts.
+
+
+## Installed runtime and normal export validation, 2026-10-16
+
+Continuation after `0edc1be`. The [installed-runtime handover](danoni-rust-runtime.md)
+records the portable fonts, maintainer build workflow, host configuration,
+capability diagnostic and exact distribution limits. No merge/rebase, desktop,
+app/library change or accepted-export regeneration is included.
+
+Fresh evidence is at `~/sugoijan/ddi-native-runtime-study-20261016/`. The 344
+previously bound transferred files are rechecked before/after; selected cache
+bodies and all five existing colour-review/body bindings are separately checked.
+Original jobs, accepted exports, caches and references remain unchanged. Fresh
+cache, candidates, normal study exports, installed runtimes and managed library
+are separate. No requests are made to source sites in this checkpoint.
+
+### Direct installed-runtime proof
+
+The host now supplies Vulkan Loader **1.4.350.0**, Mesa **26.1.8** and LLVM
+**22.1.8** through its package manager. The Lavapipe ICD is
+`/usr/share/vulkan/icd.d/lvp_icd.x86_64.json`; Vulkan reports the CPU device as
+`llvmpipe (LLVM 22.1.8, 256 bits)`. The selected backend is explicitly **Vulkan**,
+not an OpenGL inference from that device name. Observed Landlock ABI is 7;
+required ABI remains 6. The fixed seccomp policy and all resource limits are
+unchanged. No development Mesa mount wrapper is involved.
+
+`install-001` adds portable fonts/renderer defaults; `install-002` additionally
+carries the existing exact missing-colour review data. Each is a fresh complete
+prefix containing the SDK, independently verified worker, fonts, licences and
+collected notices. Their confined original bitmap diagnostics pass frame
+readback and ActionScript pixel reads at native scale. The worker executable is
+the previously reviewed ELF, SHA-256
+`2b74edbbe232f64713280033ad10c747b96d106306e8377dab97b8e982772643`.
+The new host code does not change its build identity or confinement source.
+This host-built worker/SDK requires GLIBC_2.43; older-glibc distribution is not
+claimed. The complete release-build wrapper was not rerun end to end here.
+
+Four **fresh public-URL imports** use only `host.json` plus the URL, with
+`PATH=/nonexistent` and no Python/Node/Java/compiler/browser/research wrapper:
+
+| Work | Actual fresh native charts | Default renderer | Result |
+| --- | --- | --- | --- |
+| Crow | One 5-key chart | Vulkan/software for its reviewed scheduled family | Installs; complete frozen source/audio/motion gate passes |
+| Maid | One 5-key chart | Vulkan/software, native scale, from initialization | Installs with Japanese title banner; complete frozen gate passes |
+| March | One 7-key chart | Renderer-free later family | Installs with the existing exact optional-colour review; complete frozen gate passes |
+| No Name / 灼冬赫夜 | Two 5-key charts | Renderer-free later family | Both install; complete frozen gate passes |
+
+The combined gate checks **4 works / 5 charts / 3,080 taps / 36 holds /
+3,152 endpoints**, canonical PCM difference <= 1 signed 16-bit unit, original
+frames/events/audio origin and motion. Its exact-source-grid parser round trip
+is at most 2.84217094304e-11 ms. This is the source-equivalence gate before fresh
+musical fitting, not a claim that new fitted SSC rows equal the accepted rows.
+Every source receipt reports zero requests, wire bytes and decoded transfer bytes.
+
+The accepted final profiles retain 20 capture-role observations: eight rendered
+Crow/Maid roles have zero runtime errors, as do the renderer-free No Name roles.
+March retains five exact known `iro.txt` denial/error pairs, one per observation,
+under the original movie/HTTP-404/body-hash review. The raw errors remain visible;
+none is discarded or converted to an unknown-engine exception. The first March
+URL attempt (before the review data was packaged) rejects at its 404 and is
+preserved. Wrong response hash and wrong resource URL then explicitly reject
+before any worker capture; neither produces Ready output or a library mutation.
+This does not establish that Maid's real chart arrays depend on bitmap pixels.
+
+Four cold CLI-only resumes run with the external cache temporarily unavailable
+and no worker bundle, runtime manifest or separate fonts beside the CLI. Every
+candidate revalidates and returns `unchanged`; reopening verifies the managed
+store's four songs / five charts. A copied prefix also passes relocation before
+negative tests reject changed/missing font licences/assets, wrong versions,
+extra files, symlinks and a forged outer policy inventory.
+
+### Normal fitting, musical differences and visual output
+
+The normal `preparation::prepare` path now has an explicit `portableArtwork`
+option; `Installation::request` selects it and the shared renderer/review policy.
+`prepare-fresh` exposes this same fitting/export path for a bound normalized job.
+It does not accept cached BPM/grid analysis as fresh evidence.
+
+The actual four URL outputs, plus fresh normal exports of the six previously
+validated Kouhaku captures, pass **5 works / 9 songs / 11 charts /
+5,645 endpoints** through the game's real SSC parser. The maximum endpoint
+shift is **8.95385957155 ms**, within the unchanged 9 ms budget. All note/hold
+endpoint identities survive. 123 measured x1/x2/x3 checks preserve the accepted
+DanOni base scroll and authored speed multiplication; every base speed and pickup
+preview start also matches the accepted report. Ogg decoding preserves each
+source's recorded frame count, channels and sample rate (including Kouhaku's
+22.05 kHz media), with no skipped packets. No cross-platform Ogg byte or waveform
+identity is inferred. Kouhaku here is fresh fitting/export from verified captures,
+not fresh automatic URL discovery or a newly executed pack capture.
+
+The fitted output is **not musical parity** with the accepted reviews:
+
+| Chart | Fresh fitted BPM | Changed head-colour buckets / compared heads | Observation |
+| --- | ---: | ---: | --- |
+| Crow | 155.0105 | 0 / 679 | Same grid/phase to numerical precision; quarter/downbeat remains unresolved |
+| No Name, Remake | 149 | 751 / 751 | Different quarter alias from the accepted Python grid |
+| No Name, Hard | 148.99975 | 755 / 755 | Same alias distinction |
+| March | 126.0065 | 0 / 402 | Same grid/phase to numerical precision |
+| Maid | 187.0043821 | 437 / 529 | About -22.633 ms phase difference; current measured audio quarter support is not a downbeat oracle |
+| 桃源郷 | 159.78633 | 333 / 333 | Roughly one previous subdivision-period phase shift |
+| 桃源郷 Hard | 159.78733 | 605 / 605 | Same half-beat/colour ambiguity; shared song BPM 159.78683 |
+| RUN | 174.7565 | 0 / 401 | Small fitted-value difference without bucket changes |
+| 北風のメロディー | 219.3402424 | 259 / 433 | Twice the accepted ~109.6703131 BPM, with subdivision 1 instead of 2 |
+| ころっけわっしょい | 149.8126875 | 0 / 407 | Same grid/phase to numerical precision |
+| emy | 199.759 | 0 / 314 | Small fitted-value difference without bucket changes |
+
+That is **3,140 changed head-colour buckets / 5,609 compared heads**, across six
+charts, despite passing time budgets. Reports retain phases, lattice ratios,
+colour histograms and the existing uncertainty labels. No tempo/phase algorithm,
+tolerance or pack-specific constant changes here. The two No Name fits are exactly
+the earlier **macOS Rust normal-path** fits in
+`reviews/rust-url-preparation-20261014/noname-v2/success/prepared/manifest.json`;
+this difference predates Linux/font/runtime packaging. Other observations retain
+their existing measured uncertainty; no unique musical phase or author metre is
+asserted. These candidates are not promoted to replace accepted exports.
+
+All default displays currently use the fitted actual BPM (No Name shares a
+148.999875 BPM song header). Kouhaku's accepted
+rounded display overrides (160/175/110/150/200) are separately reviewed registry
+policy and are not invented from a new URL fit. Kouhaku's embedded source stars
+3/8/6/5/4/5 survive with Easy/Challenge/Hard/Medium/Medium/Medium tiers. The four
+URL works have no embedded numeric stars in these runtime menus, so they remain
+Edit/0. Their accepted catalogue-derived ratings are separate source-bound
+reviews, not silently inferred from labels or imported by this default path.
+Every pickup preview selects supported sustained audio at the accepted start.
+
+Portable PNG banners pass glyph, bounds and inventory checks; the actual Maid
+Japanese banner is also inspected visually. Mixed Japanese/Latin titles and
+credits shape through the packaged faces, decomposed kana produce the same
+pixels as the composed form, and an unsupported scalar rejects. Iosevka/Noto
+hashes, licences and actual family use are retained in artwork proofs and the
+runtime inventory. Main-owned font assets are unchanged. Captured native title
+art/enlarged screenshots are not required by this default plain-title policy.
+
+### Reproduction and checks
+
+The production setup/commands are in the
+[installed-runtime guide](danoni-rust-runtime.md); no paths in an installed
+request point at a research worker or system font. For this local evidence:
+
+```sh
+DDI_STUDY="$HOME/sugoijan/ddi-native-runtime-study-20261016"
+DDI_BIN="$DDI_STUDY/install-002/bin/ddi-danoni-export"
+DDI_MANIFEST=tools/danoni-dump/rust/Cargo.toml
+
+"$DDI_BIN" verify-runtime "$DDI_STUDY/install-002"
+"$DDI_BIN" diagnose-runtime "$DDI_STUDY/install-002" /external/new-diagnostic
+# Existing host.json is reusable; each URL creates a fresh staging candidate.
+env -i PATH=/nonexistent TMPDIR="$DDI_STUDY/scratch"   "$DDI_BIN" import-url "$DDI_STUDY/jobs/host.json"   http://autumnleaves.yukishigure.com/maid/maid.html
+"$DDI_BIN" verify-store "$DDI_STUDY/library"
+
+DDI_DANONI_PROFILE_CASES="$DDI_STUDY/jobs/installed-profile-cases.json" DDI_DANONI_PROFILE_RECEIPT=/external/new-source-parity.json   cargo test --locked --offline --manifest-path "$DDI_MANIFEST"   --test profiles_corpus -- --nocapture
+DDI_DANONI_FRESH_EXPORT_CASES="$DDI_STUDY/jobs/installed-export-cases.json" DDI_DANONI_FRESH_EXPORT_RECEIPT=/external/new-fit-check.json   cargo test --locked --offline --manifest-path "$DDI_MANIFEST"   --test fresh_export_corpus -- --nocapture
+
+DDI_DANONI_INSTALLED_RUNTIME="$DDI_STUDY/install-002"   cargo test --locked --offline --manifest-path "$DDI_MANIFEST"   --test runtime_installation -- --nocapture
+"$DDI_BIN" prepare-fresh "$DDI_STUDY/jobs/kouhaku-fresh.json"   /external/new-kouhaku-normal-export
+```
+
+The evidence's `scripts/`, `jobs/`, `checks/` and logs retain exact commands,
+bindings, negative outcomes and build settings. Full SDK suites pass with native
+features and without default features; strict Clippy passes both configurations,
+as do formatting and `just check` including REUSE. Native checks enable the
+installed integrity, pinned-source/bundle, original software-rendering and
+confinement gates against system libraries. Optional corpus functions with unset
+environment variables do not contribute works or charts to any count above.
+
+Remaining work: musical quarter/downbeat and octave choice, separately reviewed
+ratings/display policy in URL imports, clean release-build rehearsal and older
+glibc portability, complete dependency/embedded-font redistribution notices,
+broader URL/engine/collection support, fresh HTML5/9A/9B execution, enlarged/hardware
+rendering, other Linux architectures and Windows. Desktop integration/rebase
+remain deferred. Modes stay 5, 7, 9A and 9B; the accepted historical 93/144 baseline
+is untouched and still includes retired 7i.

@@ -1,5 +1,9 @@
 # Native import job coordinator
 
+For the relocatable tooling installation, packaged Japanese fonts, reusable host
+defaults and current Linux proof, see [the installed runtime](danoni-rust-runtime.md).
+The dated results below preserve their original scope.
+
 `import_job` connects URL preparation, validated admission, duplicate planning and
 library installation through one blocking SDK call. It is native-only; the web
 workspace and main-owned app/library code remain unchanged. Host services are

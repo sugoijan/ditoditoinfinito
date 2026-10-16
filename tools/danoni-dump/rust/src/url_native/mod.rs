@@ -47,6 +47,11 @@ pub struct UrlRequest {
     pub capture: Limits,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub renderer: Option<crate::supervisor::RendererOptions>,
+    #[serde(default)]
+    pub renderer_policy: RendererPolicy,
+    /// Host-reviewed exact missing-colour responses, not page-selected exceptions.
+    #[serde(default)]
+    pub optional_color_reviews: Vec<ReviewedColor>,
 }
 impl UrlRequest {
     pub fn new(url: impl Into<String>) -> Self {
@@ -61,7 +66,53 @@ impl UrlRequest {
             profile: ProfileLimits::default(),
             capture: Limits::default(),
             renderer: None,
+            renderer_policy: RendererPolicy::ExplicitOnly,
+            optional_color_reviews: Vec::new(),
         }
+    }
+}
+/// Exact source-bound exception already reviewed by the host. This never admits
+/// an engine, synthesizes an HTTP response or suppresses another runtime error.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReviewedColor {
+    pub work: String,
+    pub source_swf_sha256: String,
+    pub url: String,
+    pub response_sha256: String,
+}
+/// A host policy, never inferred from a runtime failure or requested by a page.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RendererPolicy {
+    #[default]
+    ExplicitOnly,
+    /// Select a fixed native-scale backend for the reviewed bitmap-using families.
+    ReviewedNativeScale,
+}
+impl RendererPolicy {
+    pub fn renderer(
+        self,
+        profile: crate::profiles::EngineProfile,
+    ) -> Option<crate::supervisor::RendererOptions> {
+        use crate::profiles::EngineProfile;
+        use crate::supervisor::renderer_options::{Adapter, Backend};
+        if self == Self::ExplicitOnly || profile == EngineProfile::RekuConstantMenu {
+            return None;
+        }
+        Some(crate::supervisor::RendererOptions {
+            backend: if cfg!(target_os = "linux") {
+                Backend::Vulkan
+            } else {
+                Backend::Auto
+            },
+            adapter: if cfg!(target_os = "linux") {
+                Adapter::Software
+            } else {
+                Adapter::Auto
+            },
+            adapter_name: None,
+        })
     }
 }
 #[derive(Clone, Debug, Serialize)]
@@ -244,6 +295,22 @@ pub fn execute(
     }
     request.dependencies.validate()?;
     request.profile.validate()?;
+    if request.optional_color_reviews.len() > 16 {
+        return Err(invalid("Optional colour review table exceeds 16 entries"));
+    }
+    let mut reviewed_sources = BTreeSet::new();
+    for review in &request.optional_color_reviews {
+        if !crate::assets::valid_hash(&review.source_swf_sha256)
+            || !crate::assets::valid_hash(&review.response_sha256)
+            || review.work.is_empty()
+            || review.work.len() > 128
+            || !reviewed_sources.insert(&review.source_swf_sha256)
+            || SourceAddress::parse(&review.url)?.logical_url != review.url
+            || !review.url.ends_with("/iro.txt")
+        {
+            return Err(invalid("Invalid/duplicate host optional-colour review"));
+        }
+    }
     if let Some(renderer) = &request.renderer {
         renderer.validate().map_err(invalid)?;
     }
@@ -389,6 +456,52 @@ pub fn execute(
             resources: vec![],
         };
         let context_binding = evidence.json(&root, "context.json".into(), &context)?;
+        let optional_color = if let Some(review) = request
+            .optional_color_reviews
+            .iter()
+            .find(|r| r.source_swf_sha256 == movie_binding.sha256)
+        {
+            let expected = movie.address.resolve("iro.txt")?;
+            if expected.logical_url != review.url {
+                return Err(invalid(
+                    "Reviewed optional-colour URL belongs to a different source directory",
+                ));
+            }
+            let address = dependency_base.resolve("iro.txt")?;
+            let acquired = acquire(
+                &runtime,
+                &mut fetcher,
+                &address,
+                EVIDENCE_LIMIT,
+                cancel,
+                site,
+                &mut checkpoint,
+            )?;
+            acquisitions.push(evidence.archive(&root, &fetcher, &acquired)?);
+            let response = acquired.response();
+            if response.status == 200 {
+                None
+            } else {
+                if response.status != 404
+                    || sha256(&response.body) != review.response_sha256
+                    || SourceAddress::parse(&response.response_url)?.logical_url != review.url
+                {
+                    return Err(Error::new(
+                        "unreviewed-native-optional-resource",
+                        "Optional iro.txt response differs from the exact host review; no runtime-error exception applied",
+                    ));
+                }
+                let body = evidence.body(&response.body_binding);
+                let proof=evidence.json(&root,"optional-color-review.json".into(),&json!({"schema":"ddi-native-optional-color-review/1",
+                    "sourceSwfSha256":movie_binding.sha256,"missingResources":[{"url":review.url,"status":404,"sha256":body.sha256,"path":body.path,"retrievedAt":response.selected_response["retrievedAt"]}]}))?;
+                Some(crate::extraction::OptionalColorEvidence {
+                    review: proof,
+                    missing_responses: vec![body],
+                })
+            }
+        } else {
+            None
+        };
         let source_binding = evidence.json(
             &root,
             "source-manifest.json".into(),
@@ -399,16 +512,28 @@ pub fn execute(
                 "roots":{"url":".","cache":"cache"}
             }),
         )?;
+        // Fingerprints must match before selecting any renderer. Unknown engines
+        // never reach execution, and there is no retry under a different policy.
+        let renderer = if request.renderer.is_some()
+            || request.renderer_policy == RendererPolicy::ExplicitOnly
+        {
+            request.renderer.clone()
+        } else {
+            let movie = swf::Movie::read(&captured.response().body, &mut checkpoint)?;
+            request
+                .renderer_policy
+                .renderer(crate::profiles::identify(&movie, &mut checkpoint)?)
+        };
         let profile = ProfileRequest {
             movie: movie_binding,
             source_manifest: source_binding,
             context: context_binding,
-            optional_color: None,
+            optional_color,
             selectors: request.selectors.clone(),
             metadata,
             limits: request.profile.clone(),
             capture_limits: request.capture.clone(),
-            renderer: request.renderer.clone(),
+            renderer,
         };
         let source = evidence.clone();
         // Resolver and progress callbacks share no mutable closure state.

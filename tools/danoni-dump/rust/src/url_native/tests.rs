@@ -386,3 +386,44 @@ fn passive_title_is_unique_complete_decoded_and_bounded() {
         );
     }
 }
+
+#[test]
+fn host_colour_reviews_are_bounded_and_reject_before_worker_or_network_access() {
+    let local = Scratch::new();
+    let review = ReviewedColor {
+        work: "reviewed".into(),
+        source_swf_sha256: "a".repeat(64),
+        url: "https://example.org/iro.txt".into(),
+        response_sha256: "b".repeat(64),
+    };
+    let worker = WorkerSpec {
+        executable: local.0.join("never-read"),
+        sha256: String::new(),
+        build_identity: local.0.join("never-read-identity"),
+        build_identity_sha256: String::new(),
+    };
+    for variant in 0..5 {
+        let mut req = UrlRequest::new("https://example.org/work.html");
+        req.optional_color_reviews = vec![review.clone()];
+        match variant {
+            0 => req.optional_color_reviews = vec![review.clone(); 17],
+            1 => req.optional_color_reviews.push(review.clone()),
+            2 => req.optional_color_reviews[0].response_sha256 = "unbound".into(),
+            3 => req.optional_color_reviews[0].source_swf_sha256 = "unbound".into(),
+            _ => req.optional_color_reviews[0].url = "https://example.org/required-data.txt".into(),
+        }
+        let output = local.0.join(format!("output-{variant}"));
+        let err = execute(
+            &req,
+            &local.0.join("cache"),
+            &worker,
+            &output,
+            &NetworkCancel::default(),
+            &mut |_| panic!("No site access"),
+            &mut |_| panic!("No job progress"),
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "invalid-url-native");
+        assert!(!output.exists());
+    }
+}

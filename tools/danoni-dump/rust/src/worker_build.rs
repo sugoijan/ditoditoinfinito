@@ -505,7 +505,7 @@ fn artifact<'a>(files: &'a BTreeMap<String, Vec<u8>>, path: &str) -> Result<&'a 
 fn manifest(root: &Path) -> Result<Value> {
     json(&contained(root, "manifest.json", 16 * 1024 * 1024)?)
 }
-fn platform_binary(bytes: &[u8]) -> Result<()> {
+pub(crate) fn platform_binary(bytes: &[u8]) -> Result<()> {
     #[cfg(target_os = "linux")]
     return linux_elf(bytes);
     #[cfg(not(target_os = "linux"))]

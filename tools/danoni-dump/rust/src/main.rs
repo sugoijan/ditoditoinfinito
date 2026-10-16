@@ -5,6 +5,46 @@ use std::io::{self, Read, Write};
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let result = match args.as_slice() {
+        #[cfg(feature = "native")]
+        [command, bundle, notices, output] if command == "install-runtime" => {
+            std::env::current_exe()
+                .map_err(|e| Error {
+                    code: "filesystem",
+                    message: e.to_string(),
+                })
+                .and_then(|exe| {
+                    ddi_danoni_export::runtime::install(
+                        std::path::Path::new(bundle),
+                        &exe,
+                        std::path::Path::new(notices),
+                        std::path::Path::new(output),
+                    )
+                })
+        }
+        #[cfg(feature = "native")]
+        [command, root] if command == "verify-runtime" => {
+            ddi_danoni_export::runtime::Installation::load(std::path::Path::new(root))
+                .map(|i| i.manifest)
+        }
+        #[cfg(feature = "native")]
+        [command, root, output] if command == "diagnose-runtime" => {
+            ddi_danoni_export::runtime::Installation::load(std::path::Path::new(root)).and_then(
+                |i| ddi_danoni_export::runtime::diagnose(&i, std::path::Path::new(output)),
+            )
+        }
+        #[cfg(feature = "native")]
+        [command, host, url] if command == "import-url" => {
+            ddi_danoni_export::runtime::HostConfig::read(std::path::Path::new(host))
+                .and_then(|config| ddi_danoni_export::runtime::import_url(&config, url))
+                .and_then(json_output)
+        }
+        #[cfg(feature = "native")]
+        [command, job, output] if command == "prepare-fresh" => {
+            ddi_danoni_export::preparation::execute_job(
+                std::path::Path::new(job),
+                std::path::Path::new(output),
+            )
+        }
         [command] if command == "compile-chart" => run().and_then(|result| {
             serde_json::to_value(result).map_err(|e| Error {
                 code: "output-json",
@@ -345,7 +385,7 @@ fn main() {
         }
         _ => {
             eprintln!(
-                "Usage: ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export discover-index JOB.json NEW_OUTPUT\n       ddi-danoni-export import-index-native BUNDLE JOB.json NEW_OUTPUT STORE\n       ddi-danoni-export import-discovered-native BUNDLE JOB.json DISCOVERY NEW_OUTPUT STORE\n       ddi-danoni-export inspect-cached-page JOB.json\n       ddi-danoni-export replay-cache JOB.json\n       ddi-danoni-export fetch-url JOB.json\n       ddi-danoni-export inspect-import READY_DIRECTORY\n       ddi-danoni-export bind-import READY_DIRECTORY\n       ddi-danoni-export resume-import CANDIDATE.json STORE [reject|keep-existing|replace]\n       ddi-danoni-export import-url-native BUNDLE JOB.json NEW_OUTPUT STORE\n       ddi-danoni-export create-store NEW_DIRECTORY\n       ddi-danoni-export inspect-store DIRECTORY\n       ddi-danoni-export verify-store DIRECTORY\n       ddi-danoni-export recover-store DIRECTORY\n       ddi-danoni-export install-import READY_DIRECTORY STORE [reject|keep-existing|replace]\n       ddi-danoni-export prepare-url-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-url-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export profile-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export profile-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json\n       ddi-danoni-export prepare-audio JOB.json NEW_OUTPUT\n       ddi-danoni-export estimate-tempo JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-worker UPSTREAM_GIT NEW_SOURCES\n       ddi-danoni-export package-worker JOB.json NEW_BUNDLE\n       ddi-danoni-export verify-worker BUNDLE\n       ddi-danoni-export capture-native JOB.json NEW_OUTPUT\n       ddi-danoni-export project-native JOB.json NEW_OUTPUT\n       ddi-danoni-export demux-native JOB.json NEW_OUTPUT\n       ddi-danoni-export normalize-native JOB.json NEW_OUTPUT"
+                "Usage: ddi-danoni-export prepare-fresh JOB.json NEW_OUTPUT\n       ddi-danoni-export install-runtime BUNDLE NOTICES NEW_PREFIX\n       ddi-danoni-export verify-runtime PREFIX\n       ddi-danoni-export diagnose-runtime PREFIX NEW_OUTPUT\n       ddi-danoni-export import-url HOST.json URL\n       ddi-danoni-export compile-chart < request.json\n       ddi-danoni-export discover-index JOB.json NEW_OUTPUT\n       ddi-danoni-export import-index-native BUNDLE JOB.json NEW_OUTPUT STORE\n       ddi-danoni-export import-discovered-native BUNDLE JOB.json DISCOVERY NEW_OUTPUT STORE\n       ddi-danoni-export inspect-cached-page JOB.json\n       ddi-danoni-export replay-cache JOB.json\n       ddi-danoni-export fetch-url JOB.json\n       ddi-danoni-export inspect-import READY_DIRECTORY\n       ddi-danoni-export bind-import READY_DIRECTORY\n       ddi-danoni-export resume-import CANDIDATE.json STORE [reject|keep-existing|replace]\n       ddi-danoni-export import-url-native BUNDLE JOB.json NEW_OUTPUT STORE\n       ddi-danoni-export create-store NEW_DIRECTORY\n       ddi-danoni-export inspect-store DIRECTORY\n       ddi-danoni-export verify-store DIRECTORY\n       ddi-danoni-export recover-store DIRECTORY\n       ddi-danoni-export install-import READY_DIRECTORY STORE [reject|keep-existing|replace]\n       ddi-danoni-export prepare-url-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-url-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export profile-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export profile-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native-dependencies BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-work JOB.json NEW_OUTPUT\n       ddi-danoni-export rebuild-accepted REGISTRY.json EXPORTS NEW_OUTPUT\n       ddi-danoni-export artwork JOB.json NEW_OUTPUT\n       ddi-danoni-export package-generation JOB.json NEW_OUTPUT\n       ddi-danoni-export verify-generation GENERATION\n       ddi-danoni-export promote STAGE DESTINATION HISTORY\n       ddi-danoni-export recover JOURNAL.json\n       ddi-danoni-export prepare-audio JOB.json NEW_OUTPUT\n       ddi-danoni-export estimate-tempo JOB.json NEW_OUTPUT\n       ddi-danoni-export extract-native BUNDLE JOB.json NEW_OUTPUT\n       ddi-danoni-export prepare-worker UPSTREAM_GIT NEW_SOURCES\n       ddi-danoni-export package-worker JOB.json NEW_BUNDLE\n       ddi-danoni-export verify-worker BUNDLE\n       ddi-danoni-export capture-native JOB.json NEW_OUTPUT\n       ddi-danoni-export project-native JOB.json NEW_OUTPUT\n       ddi-danoni-export demux-native JOB.json NEW_OUTPUT\n       ddi-danoni-export normalize-native JOB.json NEW_OUTPUT"
             );
             std::process::exit(2);
         }

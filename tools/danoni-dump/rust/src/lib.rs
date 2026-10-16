@@ -34,6 +34,8 @@ pub mod preview;
 #[cfg(feature = "native")]
 pub mod profiles;
 pub mod reviews;
+#[cfg(feature = "native")]
+pub mod runtime;
 pub mod ssc;
 #[cfg(feature = "native")]
 pub mod supervisor;

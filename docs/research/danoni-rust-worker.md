@@ -1,5 +1,9 @@
 # Rust native worker preparation and bundles
 
+For the relocatable tooling installation, packaged Japanese fonts, reusable host
+defaults and current Linux proof, see [the installed runtime](danoni-rust-runtime.md).
+The dated results below preserve their original scope.
+
 For the subsequent x86-64 Linux implementation, confinement requirements and
 validation scope, see [the Linux handover](danoni-rust-linux.md). The dated
 macOS-only results below remain historical evidence.

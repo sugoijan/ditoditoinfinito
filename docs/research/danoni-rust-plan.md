@@ -1089,3 +1089,37 @@ Accepted exports, source caches and the export registry remain unchanged; the
 historical 93-song / 144-chart baseline still includes retired 7i. SDK tests,
 both strict Clippy configurations and `just check` pass. Production admission,
 worker confinement and reviewed maximum budgets are unchanged.
+
+
+### Installed native runtime and normal export study, 2026-10-16
+
+After `0edc1be`, [runtime installation](danoni-rust-runtime.md) packages the SDK,
+verified worker, exact main Iosevka Term subset plus an unchanged OFL Japanese
+fallback, font provenance/licences, dependency notice inventory and existing
+source-bound optional-colour reviews. The shared Rust host factory and CLI take
+one URL after host setup. No per-song font/capture recipe or research Mesa wrapper
+is needed. A confined synthetic diagnostic proves native-scale CPU Vulkan frame
+readback and ActionScript pixel reads on system Mesa 26.1.8 / LLVM 22.1.8.
+No desktop integration or rebase is made.
+
+Four fresh offline URL imports (Crow, Maid, seven-key March and two-chart No Name)
+install/reopen/resume with no external-tool PATH. The full frozen gate passes
+4 works / 5 charts / 3,152 endpoints, PCM <= 1 and unchanged source/audio-origin/
+motion contracts. March retains its exact reviewed raw 404/error diagnostics;
+changed bindings reject before worker execution. Unknown engines and Linux
+enlarged rendering remain rejected. Original/accepted corpus files are untouched.
+
+The normal automatic fitting/export gate adds fresh exports of the six previously
+validated Kouhaku charts, for 9 songs / 11 charts / 5,645 endpoints, <= 8.954 ms
+shifts, matching base-scroll/preview/media contracts and portable title banners.
+It explicitly does **not** establish musical parity: 3,140/5,609 head colours
+differ from accepted phase/octave choices across six charts. No Name matches its
+earlier macOS Rust normal fits exactly; other ambiguous phases/octave choices
+remain provisional. No algorithms, budgets or pack constants change, and accepted
+exports are not replaced. The [Linux handover](danoni-rust-linux.md#installed-runtime-and-normal-export-validation-2026-10-16)
+records the exact cases, failures, comparisons and reproducible commands.
+
+Distribution remains scoped: current binaries require GLIBC_2.43; system Vulkan/
+Mesa libraries are prerequisites; missing Cargo/embedded-font notices, a complete
+release-build rehearsal and older-host binary tests remain open. This is a tested
+relocatable local setup, not a self-contained public distribution claim.
