@@ -146,7 +146,7 @@ fn a_stepmania_folder_with_a_zip_lists_as_the_web_imports() {
         z.source("bn.png"),
         format!(
             "zip:{}!Zipped/Z/bn.png",
-            root.join("Songs/Zipped.zip").display()
+            root.join("Songs").join("Zipped.zip").display()
         )
     );
     // The zip's files read in place.
