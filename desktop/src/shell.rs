@@ -713,6 +713,14 @@ impl Shell {
             return;
         }
         self.pointer_hidden = hide;
+        // On macOS AppKit hides it until the mouse moves: winit's invisible
+        // cursor is made from a GIF that ImageIO on macOS 27 fails to read
+        // (a bus error in `IIO_Reader_GIF::parse`).
+        #[cfg(target_os = "macos")]
+        if hide {
+            objc2_app_kit::NSCursor::setHiddenUntilMouseMoves(true);
+        }
+        #[cfg(not(target_os = "macos"))]
         if let Some(s) = &self.surface {
             s.window.set_cursor_visible(!hide);
         }
