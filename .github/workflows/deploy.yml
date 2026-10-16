@@ -75,9 +75,9 @@ jobs:
           cargo run -p xtask -- gen-songs
           cargo run -p xtask -- gen-noteskins
       - name: Build and test the desktop shell (background movies on)
-        run: cargo test -p ddi-desktop
+        run: cargo test -p ddi-desktop --no-fail-fast
       - name: Build and test it without background movies
-        run: cargo test -p ddi-desktop --no-default-features
+        run: cargo test -p ddi-desktop --no-default-features --no-fail-fast
 
   # The software video decoder (video/): FFmpeg built with wasi-sdk, checked
   # on generated clips against the ffmpeg command's own decode.
