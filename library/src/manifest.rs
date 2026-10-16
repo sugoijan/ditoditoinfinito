@@ -41,6 +41,14 @@ pub struct ManifestEntry {
     /// shared folders when the song is played.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bg_shared: Vec<String>,
+    /// Scripted animations (neither images nor movies) the background
+    /// changes name that exist, in the song's folder or the shared ones,
+    /// as written ([`crate::backgrounds::unshown_files`]): StepMania plays
+    /// them, so the second layer clears for them
+    /// ([`crate::backgrounds::second_layer`]); one found nowhere leaves it
+    /// as it is. Missing in songs imported before 2026-10-16.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bg_scripted: Vec<String>,
     /// Images a Dancing☆Onigiri work's back and mask layers show, by the
     /// names its data uses, stored as `layer/<name>`
     /// (`docs/plans/overlays.md`).
@@ -227,6 +235,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         bg_images: meta.bg_images,
         bg_videos: meta.bg_videos,
         bg_shared: meta.bg_shared,
+        bg_scripted: Vec::new(),
         layer_images: Vec::new(),
         credit: meta.credit,
         layouts,
@@ -374,6 +383,7 @@ mod tests {
             bg_images: Vec::new(),
             bg_videos: Vec::new(),
             bg_shared: Vec::new(),
+            bg_scripted: Vec::new(),
             layer_images: Vec::new(),
             credit: String::new(),
             bpm: "120".into(),

@@ -12,8 +12,10 @@
 //! check). Coming back with none (the session began on a play's
 //! address), one is made at once where the page has had input. A selection starts its preview a
 //! moment later, once the wheel has settled; the song's music and its
-//! chart (for the beat) are read then. The beat pulse follows the music
-//! as heard ([`beat`]).
+//! chart (for the beat) are read then. Before the first gesture the music
+//! is decoded on an `OfflineAudioContext` (any page may make one; no audio
+//! starts), so the gesture only starts the sound. The beat pulse follows
+//! the music as heard ([`beat`]).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -27,6 +29,10 @@ use crate::web::audio::WebAudio;
 
 /// Wait after a selection before its preview loads, ms.
 const SETTLE_MS: u32 = 300;
+/// The rate a preview decodes at before there is a context (the usual
+/// output's, and Opus's own): a context at another rate resamples it as
+/// it plays.
+const OFFLINE_RATE: f32 = 48_000.0;
 /// Preview length when the simfile gives none, and the longest one played.
 const DEFAULT_LENGTH: f64 = 12.0;
 const MAX_LENGTH: f64 = 30.0;
@@ -40,6 +46,15 @@ struct Playing {
     timing: Option<Rc<TimingMap>>,
 }
 
+/// A song's music and timing, read, not decoded yet.
+struct Fetched {
+    load: u64,
+    id: String,
+    bytes: Vec<u8>,
+    target: ddi_platform::mp3::Target,
+    timing: Option<Rc<TimingMap>>,
+}
+
 #[derive(Default)]
 struct State {
     audio: Option<WebAudio>,
@@ -50,6 +65,12 @@ struct State {
     playing: Option<Playing>,
     /// The decoded preview, kept for its loops.
     buffer: Option<(String, AudioBuffer, Option<Rc<TimingMap>>)>,
+    /// Read before there was a context (no gesture yet) where the browser
+    /// has no `OfflineAudioContext`: decoded at the first one, at once.
+    fetched: Option<Fetched>,
+    /// The song whose music could not be read, and its load: read again
+    /// at the next gesture (the network may be back).
+    failed: Option<(u64, ManifestEntry)>,
     volume: f32,
 }
 
@@ -77,19 +98,40 @@ pub(crate) fn gesture() {
             },
         }
     });
-    if made {
-        // The song selected before there was a context: its preview now.
-        let wanted = STATE.with(|s| s.borrow_mut().wanted.take());
-        select(wanted);
-        return;
+    // A read that failed is tried again.
+    let failed = STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        let load = s.load;
+        s.failed.take().filter(|(l, _)| *l == load)
+    });
+    if let Some((load, entry)) = failed {
+        wasm_bindgen_futures::spawn_local(fetch(entry, load));
     }
-    // A preview that waited for the context to run starts now.
+    if made {
+        // The song selected before there was a context: read already, it
+        // decodes now (a read still going on, or the settle's wait, find
+        // the context themselves).
+        let fetched = STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            let load = s.load;
+            s.fetched.take().filter(|f| f.load == load)
+        });
+        if let Some(f) = fetched
+            && let Some(decoder) = STATE.with(|s| s.borrow().audio.as_ref().map(WebAudio::decoder))
+        {
+            wasm_bindgen_futures::spawn_local(decode(decoder, f));
+            return;
+        }
+    }
+    // A preview that waited for the context (decoded before it, offline,
+    // or while it was held back) starts now, in this handler (the context
+    // resumes with it).
     let waiting = STATE.with(|s| {
         let s = s.borrow();
         s.playing.is_none() && s.timer.is_none() && s.buffer.is_some()
     });
     if waiting {
-        replay();
+        play(true);
     }
 }
 
@@ -151,52 +193,30 @@ pub(crate) fn close() {
         let mut s = s.borrow_mut();
         s.wanted = None;
         s.buffer = None;
+        // A decode in flight ends (its worker with it) and keeps nothing.
+        s.load += 1;
+        // A song read for a gesture that never came: not kept.
+        s.fetched = None;
+        s.failed = None;
         if let Some(a) = &s.audio {
             a.suspend_now();
         }
     });
 }
 
-/// Song select shows: without a context yet, one is made now where the
-/// page has had the player's input before (the results' Enter that came
-/// here), so the selected song's preview plays without another.
+/// Song select shows: where the browser lets audio start now (the
+/// results' Enter that came here counted: Chrome, Firefox), the context
+/// is made or the one kept is resumed, so the selected song's preview
+/// plays without another input; elsewhere the next gesture does it
+/// ([`gesture`]), never asked before (Firefox would refuse, and say so).
 pub(crate) fn arrive() {
-    let none = STATE.with(|s| s.borrow().audio.is_none());
-    if none && sticky_activation() {
+    if crate::web::autoplay::may_start() {
         gesture();
-        return;
     }
-    // The context kept from before, suspended when song select went: on
-    // again (a browser that wants a fresh gesture for it gets the next
-    // one, [`gesture`]).
-    STATE.with(|s| {
-        if let Some(a) = &s.borrow().audio {
-            a.resume_now();
-        }
-    });
-}
-
-/// Whether the page has had a user gesture (`navigator.userActivation
-/// .hasBeenActive`; `false` where the browser does not say).
-fn sticky_activation() -> bool {
-    let Some(nav) = web_sys::window().map(|w| w.navigator()) else {
-        return false;
-    };
-    js_sys::Reflect::get(&nav, &"userActivation".into())
-        .ok()
-        .filter(|u| u.is_object())
-        .and_then(|u| js_sys::Reflect::get(&u, &"hasBeenActive".into()).ok())
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
 }
 
 async fn fetch(entry: ManifestEntry, load: u64) {
     let current = || STATE.with(|s| s.borrow().load == load);
-    let decoder = STATE.with(|s| s.borrow().audio.as_ref().map(WebAudio::decoder));
-    let Some(decoder) = decoder else {
-        // No context yet (no gesture): the next gesture starts it.
-        return;
-    };
     let (music, chart) = futures_join(load_music(&entry), load_chart(&entry.id)).await;
     if !current() {
         return;
@@ -205,6 +225,7 @@ async fn fetch(entry: ManifestEntry, load: u64) {
         Ok(b) => b,
         Err(e) => {
             web_sys::console::warn_1(&format!("preview: {e}").into());
+            STATE.with(|s| s.borrow_mut().failed = Some((load, entry.clone())));
             return;
         }
     };
@@ -221,10 +242,39 @@ async fn fetch(entry: ManifestEntry, load: u64) {
         ddi_session::music_target,
     );
     let timing = chart.ok().map(|song| Rc::new(song.timing));
-    decoder.resume().await;
+    let fetched = Fetched {
+        load,
+        id: entry.id.clone(),
+        bytes,
+        target,
+        timing,
+    };
+    // No context yet (no gesture): decoded offline now, so the first
+    // gesture only starts it; without an offline context, kept for the
+    // first gesture, which decodes it at once ([`gesture`]).
+    let decoder = STATE
+        .with(|s| s.borrow().audio.as_ref().map(WebAudio::decoder))
+        .or_else(|| crate::web::audio::AudioDecoder::offline(OFFLINE_RATE));
+    let Some(decoder) = decoder else {
+        STATE.with(|s| s.borrow_mut().fetched = Some(fetched));
+        return;
+    };
+    decode(decoder, fetched).await;
+}
+
+/// Decodes what was read; plays it when the context runs.
+async fn decode(decoder: crate::web::audio::AudioDecoder, f: Fetched) {
+    let current = || STATE.with(|s| s.borrow().load == f.load);
+    // Running already, or allowed to: decoding waits for it (a context
+    // the browser holds back decodes as well, and plays at the gesture).
+    if crate::web::autoplay::may_start() {
+        decoder.resume().await;
+    }
     // The MP3 alignment stops when the player moved on.
-    let buffer = match decoder.decode_while(&bytes, target, current).await {
+    let buffer = match decoder.decode_while(&f.bytes, f.target, current).await {
         Ok(b) => b,
+        // Given up because the player moved on: nothing to say.
+        Err(_) if !current() => return,
         Err(e) => {
             web_sys::console::warn_1(&format!("preview: {e}").into());
             return;
@@ -233,7 +283,17 @@ async fn fetch(entry: ManifestEntry, load: u64) {
     if !current() {
         return;
     }
-    STATE.with(|s| s.borrow_mut().buffer = Some((entry.id.clone(), buffer, timing)));
+    STATE.with(|s| s.borrow_mut().buffer = Some((f.id.clone(), buffer, f.timing)));
+    // Decoded offline while a gesture made the context: it plays once that
+    // runs.
+    if crate::web::autoplay::may_start()
+        && let Some(live) = STATE.with(|s| s.borrow().audio.as_ref().map(WebAudio::decoder))
+    {
+        live.resume().await;
+        if !current() {
+            return;
+        }
+    }
     replay();
 }
 
@@ -251,6 +311,12 @@ async fn futures_join<A, B>(
 
 /// Plays the decoded preview from its start, and again when it ends.
 fn replay() {
+    play(false);
+}
+
+/// [`replay`]; `in_gesture`: inside a gesture's handler, whose resume
+/// lets the context run (it may not say so yet).
+fn play(in_gesture: bool) {
     let played = STATE.with(|s| {
         let mut s = s.borrow_mut();
         let entry = s.wanted.clone()?;
@@ -260,7 +326,7 @@ fn replay() {
         }
         let volume = s.volume;
         let audio = s.audio.as_mut()?;
-        if !audio.running() {
+        if !audio.running() && !in_gesture {
             // Waits for a gesture ([`gesture`]).
             return None;
         }

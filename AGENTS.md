@@ -37,10 +37,20 @@ the browser are implementation details, not advertised features.
 - `platform/` traits and plain data the shells implement (audio clock, input,
   device fingerprints), plus the Ogg Vorbis and MP3 fallback decoder behind
   the `decode` feature (Symphonia, MPL-2.0; MP3 as StepMania decodes it,
-  `platform/src/mp3.rs`) and, behind `decode-all` (the
-  desktop's), every format a simfile's music comes in: Opus through
-  `rusty-opus` (BSD-3-Clause), MP3 as StepMania 5.1 decodes it
-  (`platform/src/decode_all.rs`), resampling with rubato.
+  `platform/src/mp3.rs`), Ogg Opus through `rusty-opus` (BSD-3-Clause)
+  behind `opus` (`platform/src/opus.rs`: the web's Opus worker and
+  desktop's decoder) and, behind `decode-all` (the
+  desktop's), every format a simfile's music comes in: MP3 as StepMania
+  5.1 decodes it (`platform/src/decode_all.rs`), resampling with rubato.
+- `opus-worker/` the web's Ogg Opus fallback (`ddi-opus-worker`, PLAN.md
+  decision 9): a worker Trunk builds beside the app (index.html,
+  `data-type="worker"`; `xtask stage-opus`, a post-build hook, names its
+  files by their hash and tells the page in index.html's
+  `ddi-opus-worker` meta), started by `web/src/web/opus.rs` only when the
+  browser cannot decode an Ogg Opus file (the module compiled once a
+  session and handed to a worker a decode; one that has not started in
+  25 s fails); it sends back a float WAV at 48 kHz that
+  `decodeAudioData` resamples. Empty natively.
 - `library/` song library logic shared by the app and xtask: pack scanning
   (which file is the chart, music, banner), a sans-IO zip reader, the manifest
   entry type, and the import's core (`scan.rs`: a song's entry, its files
@@ -70,7 +80,8 @@ the browser are implementation details, not advertised features.
   data, options' rows made from the settings and the shell every
   platform shares (`options_model.rs`, `options_shell.rs`, the bind
   flow in `ui/src/state/bind.rs`); the state screens read (settings and
-  their migrations, the song list's place, library views; stored through
+  their migrations, the song list's place, library views, the play
+  history and its replays, `ui/src/state/history/`; stored through
   `ddi_platform::storage`, which each shell installs) and the developer
   screen both shells run (`ui/src/dev.rs`). Pure, natively tested.
 - `theme/` our theme (`ddi-theme`, `docs/plans/theme.md`): `Infinito`,
@@ -97,7 +108,7 @@ the browser are implementation details, not advertised features.
   `docs/plans/desktop.md` 7.1): the play (`play.rs`: the engine's
   `Player`, bindings, the quit gesture, autoplay and `auto=pad`, the
   fail's fade, a work's start and end fades, the facts a play is kept
-  with), calibration's modes, chart and click track, backgrounds' frame
+  with, a kept play replayed from its log), calibration's modes, chart and click track, backgrounds' frame
   and the automatic video setting's step, a work's layers' timeline;
   generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
   (`web/src/play.rs` is the web's). Platform-free, natively tested on a
@@ -124,7 +135,8 @@ the browser are implementation details, not advertised features.
   clock, settings in `localStorage` (`web/src/web/kv.rs`), imported songs
   and the play history in IndexedDB (`ddi-library` version 3; the plays in
   `plays` and `play_summaries`, `web/src/history.rs`,
-  `docs/plans/play-history.md`). Compiles for `wasm32-unknown-unknown` only (empty when
+  `docs/plans/play-history.md`), replays on the play route
+  (`#/play?replay=<play id>`, `web/src/replay.rs`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
 - `desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with
@@ -141,7 +153,12 @@ the browser are implementation details, not advertised features.
   movies (feature `video`, on by default: the web's FFmpeg module under
   wasmtime, `video.rs`; movies in zips read in place or extracted once),
   a work's layers and lyrics, the theme's results, the history in the
-  data folder); calibration's menu and tests (`calibrate.rs`); the
+  data folder, replays, `play/replays.rs`); a play's frames paced (`pacing/`: blocking in the
+  acquire by default, or each started as late before its refresh as its
+  cost allows; pure, with a simulated display in `pacing/sim.rs`, built
+  for tests only: feature `sim`, which the crate's dev-dependency on
+  itself turns on);
+  calibration's menu and tests (`calibrate.rs`); the
   devices' fingerprints and notices (`devices.rs`). Settings in
   `storage.json` in the config folder; `DDI_HOME` moves the config, data
   and cache folders under it (`paths.rs`). Tested without a sound device
@@ -156,7 +173,8 @@ the browser are implementation details, not advertised features.
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
   from the system); winit, rfd and arboard load their libraries at run
   time.
-- `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md`.
+- `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md` and
+  `THIRD_PARTY_RUST.md`.
 - `video/` the software video decoder: a C shim over FFmpeg's video
   decoders (every format StepMania plays), built to
   `target/video/ddivideo.wasm` with wasi-sdk (LGPL module, never
@@ -174,12 +192,17 @@ the browser are implementation details, not advertised features.
   `--songs DIR` (a folder for this run), `--sample`, `--screen
   select|results|options|calibration|credits`, `--dev`, `--widgets`,
   `--play SONG [--chart N] [--auto | --auto=pad] [--start]`,
+  `--replay PLAY_ID [--results] [--start]` (a kept play's replay, or its
+  results),
   `--calibrate visual|audio|combined [--auto] [--bias MS] [--start]`,
   `--fake-pad "1.0:13+,1.1:13-"`, `--silent` (no sound device: plays run
   on the host clock), `--volume V`, `--seconds N` (quits, printing the
   library, the clock's latency and jitter, the devices, the plays),
   `--lose-device-after S`, `--video-check FILE [--reference REF.yuv]
-  [--frames]`. **Agents' and tests' runs set
+  [--frames]`, `--pacing block|late` (a play's frame pacing; block is
+  the default), `--pacing-report` (both alternating every 5 s on Fifo, a
+  table of each printed when the play ends; `docs/plans/desktop.md`,
+  "Frame pacing"). **Agents' and tests' runs set
   `DDI_HOME=$PWD/target/scratch/<name>/home`** (never the maintainer's
   folders), use `--volume 0.005` or `--silent`, and run under
   `target/scratch/wd.sh`; prefer offscreen tests: a window takes the
@@ -240,8 +263,8 @@ the browser are implementation details, not advertised features.
   or on generated clips against the `ffmpeg` command's decode.
 - `cargo run -p xtask -- gen-songs` / `gen-noteskins` / `gen-credits`
   regenerate the song manifest, the bundled noteskins' index and the
-  credits (Trunk runs them before every build; CI checks `CREDITS.md` is
-  fresh). `gen-dito` regenerates the SVG art of Dito, the default skin
+  credits (Trunk runs them before every build; CI checks `CREDITS.md` and
+  `THIRD_PARTY_RUST.md` are fresh). `gen-dito` regenerates the SVG art of Dito, the default skin
   (committed; CI checks it with `--check`).
 
 Prefer the latest released versions of dependencies; check crates.io before
@@ -294,7 +317,11 @@ they show. A fresh profile shows the first-run one: seed
 `later`) when a test wants the screen without it.
 Useful URL parameters: `#/play?song=<id>&chart=<n>` (chart index as in the
 manifest; the play ends on the theme's results drawn on the canvas, what
-they show in `window.__DDI_DEBUG.results`), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
+they show in `window.__DDI_DEBUG.results`), `#/play?replay=<play id>` a
+kept play's replay (`&view=results` its results; `__DDI_DEBUG.replay`:
+`state`, `refused`, `fed`/`edges`, and at its end `check.matches`; the
+verify skill's "Replays"; with the `ghost` setting a play's
+`__DDI_DEBUG.ghost` is its lead over the chart's best play), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
 `&gfx=gl` force WebGL2 (read at boot, or switching the device once for
 the session; the Graphics setting chooses it too), `&auto=pad` autoplay through a fake gamepad the test
 installs as `window.__DDI_FAKE_PAD` (see the verify skill), `&slow=1`
@@ -340,7 +367,8 @@ loaded, `song` and its charts' `bests`); on the play route `still`
 `guard`; `docs/plans/video-backgrounds.md`, step 8). Songs
 played to the end or failed are kept (autoplay flagged, never counted
 toward bests); Options' Data → Play history → Export downloads them as
-JSON lines. Imported songs have ids
+JSON lines; song select's P (or "Plays…") lists the chosen chart's
+plays (`ui.theme.plays`), W watches its best play's replay. Imported songs have ids
 `u-<hash>` and play through the same route.
 
 Import is tested by setting files on the import panel's inputs (folder or zip)
@@ -423,15 +451,25 @@ calibrated offset.
 
 Third-party Rust dependencies keep their own licences (e.g. Symphonia is
 MPL-2.0, file-level copyleft, fine to link from MIT code). Only bundled
-assets and copied code are tracked in `REUSE.toml`.
+assets and copied code are tracked in `REUSE.toml`. Their notices ship
+with the game: `gen-credits` lists every crate in the web build (the app
+and the Opus worker) and in the desktop binary (`cargo tree`, normal
+dependencies without proc macros, Linux, macOS and Windows together) with
+its licence texts from the crate's files, deduplicated, into
+`THIRD_PARTY_RUST.md` and the Credits screen's folded "Rust libraries"
+(`xtask/src/rust_credits.rs`); a licence outside its allowlist (MIT,
+Apache-2.0, BSD, ISC, Zlib, 0BSD, Unicode, MPL-2.0, CC0, Unlicense,
+BSL-1.0, the LLVM exception) fails the generator, so check a new
+dependency's licence before adding it.
 
 ## Deployment
 
 - GitHub Pages from the `main` branch via the workflow in `.github/`. The
   public URL is lowercase; on a custom domain Pages paths are case-sensitive,
   which is why the repository name is lowercase.
-- `CREDITS.md` is generated and committed; `Trunk.toml` ignores it in the
-  watcher so regenerating it does not loop the dev server.
+- `CREDITS.md` and `THIRD_PARTY_RUST.md` are generated and committed;
+  `Trunk.toml` ignores them in the watcher so regenerating them does not
+  loop the dev server.
 
 ## Conventions
 

@@ -3,11 +3,13 @@
 //! StepMania 5.1 decodes it ([`crate::mp3`]), which the web also uses to
 //! line a browser's MP3 decode up with StepMania's.
 //!
-//! Ogg Vorbis and MP3 are decoded here, through Symphonia. WAV and FLAC
-//! are decoded natively by every target browser, and Ogg Opus by every
-//! browser but the oldest, so they are reported as unsupported
-//! ([`DecodeError::UnsupportedContainer`], [`DecodeError::UnsupportedCodec`]).
-//! See `docs/research/tech-stack.md` §6.
+//! Ogg Vorbis and MP3 are decoded here, through Symphonia, and with the
+//! feature `opus` Ogg Opus, through `rusty-opus` ([`crate::opus`]: the
+//! pre-skip dropped, the stream ended at its last granule, the header's
+//! gain applied; what WebKit builds without Opus need, PLAN.md decision
+//! 9). WAV and FLAC are decoded natively by every target browser, so
+//! they are reported as unsupported ([`DecodeError::UnsupportedContainer`],
+//! [`DecodeError::UnsupportedCodec`]). See `docs/research/tech-stack.md` §6.
 //!
 //! MP3s keep everything StepMania's libmad reader keeps: no encoder or
 //! decoder delay trimmed, a `Xing` tag frame skipped, an `Info` (or
@@ -85,10 +87,10 @@ impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DecodeError::UnsupportedContainer(kind) => {
-                write!(f, "{kind} is not supported (only Ogg Vorbis and MP3 are)")
+                write!(f, "{kind} is not supported (only {SUPPORTED} are)")
             }
             DecodeError::UnsupportedCodec(codec) => {
-                write!(f, "{codec} is not supported (only Ogg Vorbis and MP3 are)")
+                write!(f, "{codec} is not supported (only {SUPPORTED} are)")
             }
             DecodeError::NoAudioTrack => f.write_str("the stream has no audio track"),
             DecodeError::Malformed(msg) => write!(f, "malformed audio stream: {msg}"),
@@ -101,6 +103,33 @@ impl fmt::Display for DecodeError {
 }
 
 impl std::error::Error for DecodeError {}
+
+/// What [`Decoder`] reads, for error messages.
+#[cfg(feature = "opus")]
+const SUPPORTED: &str = "Ogg Vorbis, Ogg Opus and MP3";
+#[cfg(not(feature = "opus"))]
+const SUPPORTED: &str = "Ogg Vorbis and MP3";
+
+/// What decodes a stream's packets.
+enum Codec {
+    Symphonia(Box<dyn AudioDecoder>),
+    #[cfg(feature = "opus")]
+    Opus(Box<OpusState>),
+}
+
+/// An Opus stream's decoder and where the stream is.
+#[cfg(feature = "opus")]
+struct OpusState {
+    stream: crate::opus::Stream,
+    /// Frames of the stream so far (kept, skipped and silence put in).
+    at: usize,
+    /// Where it ends: the last granule less the pre-skip (RFC 7845,
+    /// section 4.5), if the reader found it.
+    end: Option<usize>,
+    /// The last packet's end, in its timestamps (a later packet's start
+    /// past it follows a page the reader dropped).
+    last: Option<i64>,
+}
 
 /// Best-effort name of a file's format, for error messages and to tell
 /// MP3 from the rest.
@@ -162,6 +191,17 @@ pub(crate) fn ogg_pages(bytes: &[u8]) -> usize {
     if last == 0 { bytes.len() } else { last }
 }
 
+/// Whether `bytes` are an Ogg Opus stream: its first page's first packet
+/// an `OpusHead` (RFC 7845, section 3). What the web's fallback sends to
+/// its Opus worker, the main module not decoding Opus (PLAN.md decision 9).
+pub fn is_ogg_opus(bytes: &[u8]) -> bool {
+    let Some(&segments) = bytes.get(26) else {
+        return false;
+    };
+    let body = 27 + usize::from(segments);
+    bytes.starts_with(b"OggS") && bytes.get(body..body + 8) == Some(b"OpusHead")
+}
+
 /// Whether `bytes` are an MP3 as StepMania's reader finds one: not
 /// another container (Ogg, FLAC, WAV, AIFF, MP4, Matroska) and a frame
 /// within [`crate::mp3::RESYNC`] bytes, past ID3v2 tags, junk (files that
@@ -197,7 +237,7 @@ fn riff_format(bytes: &[u8]) -> Option<u16> {
 /// batches of packets. [`decode`] runs it to completion.
 pub struct Decoder<'a> {
     reader: Box<dyn FormatReader + 'a>,
-    decoder: Box<dyn AudioDecoder>,
+    codec: Codec,
     track_id: u32,
     /// MP3: undecodable packets become silence (their full length).
     silence_errors: bool,
@@ -267,6 +307,10 @@ impl<'a> Decoder<'a> {
             })
         };
         let Some((track, params)) = audio_tracks().find(|(_, p)| p.codec == CODEC_ID_VORBIS) else {
+            #[cfg(feature = "opus")]
+            if audio_tracks().any(|(_, p)| p.codec == CODEC_ID_OPUS) {
+                return Decoder::opus(Box::new(reader), seconds, left);
+            }
             return Err(match audio_tracks().next() {
                 Some((_, p)) if p.codec == CODEC_ID_OPUS => {
                     DecodeError::UnsupportedCodec("Ogg Opus")
@@ -283,7 +327,7 @@ impl<'a> Decoder<'a> {
         let (track_id, rate, channels, frames) = Decoder::shape(track, params)?;
         Ok(Decoder {
             reader: Box::new(reader),
-            decoder: Box::new(decoder),
+            codec: Codec::Symphonia(Box::new(decoder)),
             track_id,
             silence_errors: false,
             audio_frames: 0,
@@ -292,6 +336,84 @@ impl<'a> Decoder<'a> {
             out: DecodedAudio {
                 sample_rate: rate,
                 channels: reserve(kept(channels, left), cap(frames, rate, seconds), rate),
+                skipped_packets: 0,
+            },
+            done: false,
+            planes: channels,
+            scratch: Vec::new(),
+        })
+    }
+
+    /// An Ogg Opus stream held in memory, and nothing else (the Vorbis and
+    /// MP3 decoders are not reached from here, so the web's Opus worker,
+    /// which calls only this, leaves them out).
+    #[cfg(feature = "opus")]
+    pub fn ogg_opus(bytes: &'a [u8]) -> Result<Decoder<'a>, DecodeError> {
+        if !bytes.starts_with(b"OggS") {
+            return Err(DecodeError::UnsupportedContainer(sniff(bytes)));
+        }
+        let bytes = &bytes[..ogg_pages(bytes)];
+        let source = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
+        let reader = OggReader::try_new(source, FormatOptions::default())
+            .map_err(|e| DecodeError::Malformed(e.to_string()))?;
+        Decoder::opus(Box::new(reader), None, false)
+    }
+
+    /// The Ogg Opus stream `reader` reads (its first Opus track), with
+    /// room reserved for `seconds` when given and the first channel only
+    /// kept when `left`.
+    #[cfg(feature = "opus")]
+    pub(crate) fn opus(
+        reader: Box<dyn FormatReader + 'a>,
+        seconds: Option<f64>,
+        left: bool,
+    ) -> Result<Decoder<'a>, DecodeError> {
+        let track = reader
+            .tracks()
+            .iter()
+            .find(|t| {
+                t.codec_params
+                    .as_ref()
+                    .and_then(|p| p.audio())
+                    .is_some_and(|p| p.codec == CODEC_ID_OPUS)
+            })
+            .ok_or(DecodeError::NoAudioTrack)?;
+        let head = track
+            .codec_params
+            .as_ref()
+            .and_then(|p| p.audio())
+            .and_then(|p| p.extra_data.as_deref())
+            .and_then(crate::opus::head)
+            .ok_or_else(|| DecodeError::Malformed("no OpusHead".into()))?;
+        let stream = crate::opus::Stream::new(head).ok_or(DecodeError::UnsupportedCodec(
+            "Ogg Opus of more than two channels",
+        ))?;
+        let track_id = track.id;
+        let end = track
+            .num_frames
+            .map(|granule| (granule as usize).saturating_sub(head.pre_skip));
+        let rate = crate::opus::RATE;
+        let channels = head.channels;
+        Ok(Decoder {
+            reader,
+            codec: Codec::Opus(Box::new(OpusState {
+                stream,
+                at: 0,
+                end,
+                last: None,
+            })),
+            track_id,
+            silence_errors: false,
+            audio_frames: 0,
+            skip: 0,
+            errors: 0,
+            out: DecodedAudio {
+                sample_rate: rate,
+                channels: reserve(
+                    kept(channels, left),
+                    cap(end.unwrap_or(0) as u64, rate, seconds),
+                    rate,
+                ),
                 skipped_packets: 0,
             },
             done: false,
@@ -367,7 +489,7 @@ impl<'a> Decoder<'a> {
         }
         Ok(Decoder {
             reader: Box::new(reader),
-            decoder: Box::new(decoder),
+            codec: Codec::Symphonia(Box::new(decoder)),
             track_id,
             silence_errors: true,
             audio_frames: 0,
@@ -482,7 +604,17 @@ impl<'a> Decoder<'a> {
                 continue;
             }
             decoded += 1;
-            let buf = match self.decoder.decode(&packet) {
+            // One variant without the feature `opus`.
+            #[allow(clippy::infallible_destructuring_match)]
+            let decoder = match &mut self.codec {
+                Codec::Symphonia(decoder) => decoder,
+                #[cfg(feature = "opus")]
+                Codec::Opus(_) => {
+                    self.opus_packet(&packet);
+                    continue;
+                }
+            };
+            let buf = match decoder.decode(&packet) {
                 Ok(buf) => buf,
                 Err(SymphoniaError::DecodeError(_) | SymphoniaError::IoError(_)) => {
                     self.out.skipped_packets += 1;
@@ -533,6 +665,39 @@ impl<'a> Decoder<'a> {
             self.drop_skipped();
         }
         Ok(self.done)
+    }
+
+    /// One Opus packet into the channels: the frames lost before it (a
+    /// dropped page) as silence, its own after the pre-skip, up to the
+    /// stream's end.
+    #[cfg(feature = "opus")]
+    fn opus_packet(&mut self, packet: &symphonia::core::packet::Packet) {
+        let Codec::Opus(o) = &mut self.codec else {
+            return;
+        };
+        let start = packet.pts.get();
+        let whole = (packet.dur.get() + packet.trim_start.get() + packet.trim_end.get()) as i64;
+        let lost = o.last.map_or(0, |e| (start - e).max(0) as usize);
+        o.last = Some(start + whole);
+        let silence = o.stream.gap(lost);
+        let ch = o.stream.channels();
+        let (pcm, failed) = o.stream.decode(&packet.data, packet.dur.get());
+        if failed {
+            self.out.skipped_packets += 1;
+        }
+        let room = o.end.map_or(usize::MAX, |e| e.saturating_sub(o.at));
+        let silence = silence.min(room);
+        let n = (pcm.len() / ch).min(room - silence);
+        for (k, c) in self.out.channels.iter_mut().enumerate() {
+            c.resize(c.len() + silence, 0.0);
+            c.extend(pcm[..n * ch].iter().skip(k).step_by(ch));
+        }
+        o.at += silence + n;
+        self.audio_frames += n;
+        if o.end.is_some_and(|e| o.at >= e) {
+            self.done = true;
+        }
+        self.drop_skipped();
     }
 
     /// The decoded audio, once [`step`](Self::step) has returned `Ok(true)`
@@ -996,6 +1161,7 @@ mod tests {
         assert_eq!(d.out.channels[0].capacity(), reserved);
     }
 
+    #[cfg(not(feature = "opus"))]
     #[test]
     fn reports_ogg_opus_as_unsupported() {
         let err = decode(OPUS).unwrap_err();
@@ -1004,5 +1170,84 @@ mod tests {
             err.to_string(),
             "Ogg Opus is not supported (only Ogg Vorbis and MP3 are)"
         );
+    }
+
+    #[test]
+    fn tells_ogg_opus() {
+        assert!(is_ogg_opus(OPUS));
+        assert!(!is_ogg_opus(SINE) && !is_ogg_opus(MP3_INFO) && !is_ogg_opus(b"OggS"));
+        assert!(!is_ogg_opus(&OPUS[..30]));
+    }
+
+    /// Ogg Opus with the feature on: the pre-skip dropped (312 frames
+    /// here), the stream ended at its last granule (0.1 s), stepping as
+    /// the web does giving the same samples as one go.
+    #[cfg(feature = "opus")]
+    #[test]
+    fn decodes_ogg_opus() {
+        let audio = decode(OPUS).unwrap();
+        assert_eq!(audio.sample_rate, 48_000);
+        assert_eq!(audio.channels.len(), 1);
+        assert_eq!(audio.frames(), 4_800);
+        assert_eq!(audio.skipped_packets, 0);
+        let mut d = Decoder::new(OPUS).unwrap();
+        while !d.step(1).unwrap() {}
+        assert_eq!(d.finish().unwrap(), audio);
+        // Reserved once, from the last granule.
+        assert_eq!(audio.channels[0].capacity(), audio.frames());
+        let mut d = Decoder::start_left(OPUS, 0.05).unwrap();
+        d.skip(100);
+        while !d.step(1).unwrap() {}
+        assert_eq!(d.left(), &audio.channels[0][100..]);
+    }
+
+    /// The bundled songs (all stereo Ogg Opus) through the web's fallback
+    /// give desktop's decode, which `decode_all`'s tests check against
+    /// libopus, sample for sample.
+    #[cfg(feature = "decode-all")]
+    #[test]
+    fn bundled_opus_songs_decode_as_on_desktop() {
+        let songs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/songs");
+        let mut checked = 0;
+        for dir in std::fs::read_dir(&songs).unwrap().flatten() {
+            let Some(file) = std::fs::read_dir(dir.path())
+                .unwrap()
+                .flatten()
+                .map(|e| e.path())
+                .find(|p| p.extension().is_some_and(|e| e == "opus"))
+            else {
+                continue;
+            };
+            let bytes = std::fs::read(&file).unwrap();
+            let web = decode(&bytes).unwrap();
+            let desktop = crate::decode_all::decode(&bytes, Some("opus")).unwrap();
+            assert_eq!(web.channels.len(), 2, "{}", file.display());
+            assert!(web == desktop, "{}", file.display());
+            // The web's worker: the same samples, as a float WAV.
+            assert!(is_ogg_opus(&bytes));
+            let (wav, skipped) = crate::opus::decode_wav(&bytes).unwrap();
+            assert_eq!(skipped, 0);
+            assert_eq!(&wav[..4], b"RIFF");
+            assert_eq!(wav.len(), 44 + web.frames() * 2 * 4);
+            assert_eq!(u32::from_le_bytes(wav[24..28].try_into().unwrap()), 48_000);
+            let back = crate::decode_all::decode(&wav, Some("wav")).unwrap();
+            assert!(back == web, "{}", file.display());
+            checked += 1;
+        }
+        assert_eq!(checked, 4);
+    }
+
+    /// Opus of mapping family 1 (surround) is said to be unsupported, not
+    /// decoded wrong.
+    #[cfg(feature = "opus")]
+    #[test]
+    fn rejects_surround_opus() {
+        let mut head = b"OpusHead\x01\x06\x38\x01\x80\xbb\0\0\0\0\x01".to_vec();
+        head.extend_from_slice(&[4, 2, 0, 4, 1, 2, 3, 5]);
+        let h = crate::opus::head(&head).unwrap();
+        assert_eq!((h.channels, h.pre_skip, h.family), (6, 312, 1));
+        assert!(crate::opus::Stream::new(h).is_none());
+        let stereo = crate::opus::head(b"OpusHead\x01\x02\x38\x01\x80\xbb\0\0\0\0\0").unwrap();
+        assert!(crate::opus::Stream::new(stereo).is_some());
     }
 }

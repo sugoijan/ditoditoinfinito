@@ -43,9 +43,10 @@ use files::{DirReader, Listed, ZipReader};
 pub const FOLDERS_KEY: &str = "ddi.desktop.folders.v1";
 /// Packs and songs the player removed from the list (files kept).
 pub const HIDDEN_KEY: &str = "ddi.desktop.hidden.v1";
-/// The cache's file (in the cache folder) and version.
+/// The cache's file (in the cache folder) and version (4: the second
+/// background layer's files are listed, and `bg_scripted` kept).
 pub const CACHE_FILE: &str = "library-v1.json";
-const CACHE_VERSION: u32 = 3;
+const CACHE_VERSION: u32 = 4;
 
 /// The song folders the settings list.
 pub fn folders() -> Vec<PathBuf> {
@@ -1148,6 +1149,23 @@ pub fn register_for_tests(songs: &[LibSong]) {
 /// The library's song `id`.
 pub fn song(id: &str) -> Option<LibSong> {
     registry().read().ok()?.get(id).cloned()
+}
+
+/// A song with a chart of content `digest` (a replay's chart moved to
+/// another song id): a bundled one, else the library's.
+pub fn find_by_digest(digest: ddi_chart::ChartDigest) -> Option<String> {
+    let has = |e: &ManifestEntry| e.charts.iter().any(|c| c.digest == Some(digest));
+    if let Some(e) = bundled().into_iter().find(|e| has(e)) {
+        return Some(e.id);
+    }
+    let reg = registry().read().ok()?;
+    let mut ids: Vec<&String> = reg
+        .iter()
+        .filter(|(_, s)| has(&s.entry))
+        .map(|(id, _)| id)
+        .collect();
+    ids.sort();
+    ids.first().map(|id| (*id).clone())
 }
 
 /// The bundled songs' entries: the manifest `xtask gen-songs` writes

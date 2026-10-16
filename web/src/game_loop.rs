@@ -5,10 +5,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::component::Callback;
-use ddi_library::backgrounds::{self, BgImage, BgSegment};
+use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_platform::HostTime;
 use ddi_platform::video::{GuardAction, StopReason};
-use ddi_render::{Backdrop, Renderer};
+use ddi_render::{Backdrop, Renderer, SecondLayer};
 use ddi_session::backgrounds::{FpsMeter, FrameShape, MovieGuard};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
@@ -60,8 +60,9 @@ pub(crate) struct GameLoop {
     pending_backgrounds: Vec<(BgImage, web_sys::ImageBitmap)>,
     /// Song time of the last frame drawn during play, `None` outside play.
     playing_at: Option<f64>,
-    /// The song's background changes; empty outside a song.
-    background_schedule: Vec<BgSegment>,
+    /// The song's background changes, a schedule per layer; empty outside
+    /// a song.
+    background_schedule: [Vec<BgSegment>; LAYERS],
     /// The chart's lyrics, if it has any and they are shown.
     lyrics: Option<LyricTrack>,
     /// The 2D pass over the play (the lyrics), made when first needed, and
@@ -165,7 +166,7 @@ impl GameLoop {
             background_ids: Vec::new(),
             pending_backgrounds: Vec::new(),
             playing_at: None,
-            background_schedule: Vec::new(),
+            background_schedule: Default::default(),
             lyrics: None,
             overlay: None,
             lyrics_shown: Vec::new(),
@@ -249,8 +250,8 @@ impl GameLoop {
                 let next_change = self
                     .background_schedule
                     .iter()
-                    .map(|s| s.seconds)
-                    .find(|&s| s > t);
+                    .filter_map(|l| l.iter().map(|s| s.seconds).find(|&s| s > t))
+                    .reduce(f64::min);
                 usize::from(next_change.is_none_or(|s| s - t >= 1.0))
             }
         };
@@ -360,9 +361,10 @@ impl GameLoop {
             .aspect(|| movies.picture_aspect(), shown_any, started)
     }
 
-    /// The background changes of the song about to play (empty: none).
-    pub(crate) fn set_background_schedule(&mut self, schedule: Vec<BgSegment>) {
-        self.background_schedule = schedule;
+    /// The background changes of the song about to play, a schedule per
+    /// layer (empty: none).
+    pub(crate) fn set_background_schedule(&mut self, layers: [Vec<BgSegment>; LAYERS]) {
+        self.background_schedule = layers;
     }
 
     /// What to show behind the field at song second `t` (fields passed
@@ -371,21 +373,35 @@ impl GameLoop {
         cache: &mut (Vec<(BgImage, usize)>, (usize, u64)),
         images: &[(BgImage, usize)],
         movies: &crate::movies::MovieDeck,
-        schedule: &[BgSegment],
+        layers: &[Vec<BgSegment>; LAYERS],
         t: f64,
     ) -> Backdrop {
         let key = (images.len(), movies.version());
         if cache.1 != key {
             *cache = (
-                images.iter().cloned().chain(movies.shown_ids()).collect(),
+                images
+                    .iter()
+                    .cloned()
+                    .chain(movies.shown_ids())
+                    // The second layer's opaque stand-in for a missing
+                    // song background.
+                    .chain(std::iter::once((BgImage::Plain, ddi_render::PLAIN)))
+                    .collect(),
                 key,
             );
         }
-        let shown = backgrounds::shown(schedule, t, &cache.0, movies.opening_plays(schedule));
+        let [first, second] = layers;
+        let shown = backgrounds::shown(first, t, &cache.0, movies.opening_plays(first));
+        let over = backgrounds::shown_over(second, t, &cache.0);
         Backdrop {
             current: shown.current,
             previous: shown.previous,
             mix: shown.mix,
+            second: SecondLayer {
+                current: over.current,
+                previous: over.previous,
+                mix: over.mix,
+            },
         }
     }
 
@@ -970,6 +986,19 @@ impl GameLoop {
             set("pressed", pressed.into());
             set("finished", p.finished().into());
             set("failed", p.failed().into());
+            // A replay's edges fed so far (`__DDI_DEBUG.replay`).
+            if let Some((fed, edges)) = s.replay_progress() {
+                crate::replay::progress(fed, edges);
+            }
+            // The best play's ghost: how far ahead of it (percentage
+            // points, or points).
+            if let Some(d) = s.ghost_delta() {
+                let v = match d {
+                    ddi_ui::state::history::GhostDelta::Percent(p)
+                    | ddi_ui::state::history::GhostDelta::Points(p) => p,
+                };
+                set("ghost", v.into());
+            }
             set("drift", clock.drift().unwrap_or(0.0).into());
             set("output_latency", clock.output_latency().into());
             set("mean_delta", r.mean_delta.into());
@@ -1081,7 +1110,7 @@ impl GameLoop {
             .ok()
             .filter(|v| v.is_object())
         {
-            for key in ["ui", "results", "prompt", "prompt_backdrop"] {
+            for key in ["ui", "results", "prompt", "prompt_backdrop", "replay"] {
                 if let Ok(v) = js_sys::Reflect::get(&old, &key.into())
                     && !v.is_undefined()
                 {

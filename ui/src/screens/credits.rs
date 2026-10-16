@@ -2,7 +2,9 @@
 //! (written by `xtask gen-credits`, the attribution the bundled works'
 //! licences require) as a [`PageDoc`]: the songs, the noteskins, the
 //! fonts, the video decoder (FFmpeg, from `video/FFMPEG.toml`, with its
-//! licence texts) and the code from other projects, every source a link.
+//! licence texts), the code from other projects, every source a link, and
+//! the Rust libraries of the build (folded: the web's in `credits.json`,
+//! the desktop's in `credits-desktop.json`), with their notices.
 
 use std::collections::BTreeMap;
 
@@ -19,6 +21,9 @@ pub struct Credits {
     pub video: VideoCredit,
     #[serde(default)]
     pub code: Vec<CodeCredit>,
+    /// The build's Rust libraries and their licences' notices.
+    #[serde(default)]
+    pub rust: Option<RustCredits>,
     /// Whose wording (the shell sets it: the file is the same).
     #[serde(skip)]
     pub platform: super::data::Platform,
@@ -34,6 +39,32 @@ pub struct CodeCredit {
     pub commit: String,
     pub license_url: String,
     pub notice: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct RustCredits {
+    pub crates: Vec<RustCrate>,
+    pub notices: Vec<RustNotice>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct RustCrate {
+    pub name: String,
+    pub version: String,
+    /// As the crate declares it.
+    pub license: String,
+    /// What it is used under.
+    pub chosen: String,
+    /// Indices into [`RustCredits::notices`].
+    pub notices: Vec<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct RustNotice {
+    pub license: String,
+    pub text: String,
+    /// `name version` of the crates it covers.
+    pub crates: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -307,11 +338,89 @@ pub fn doc(c: &Credits) -> PageDoc {
             });
         }
     }
+    if let Some(r) = &c.rust {
+        b.extend(rust(r, desktop));
+    }
     b.push(Block::Gap);
     PageDoc {
         title: "Credits".into(),
         blocks: b,
     }
+}
+
+/// The Rust libraries: what they are, then the list and the notices,
+/// folded (a few hundred lines unfolded).
+fn rust(r: &RustCredits, desktop: bool) -> Vec<Block> {
+    let mut b = vec![
+        Block::Heading("Rust libraries".into()),
+        Block::Text(format!(
+            "The game is built on {} open-source Rust libraries in {}. Their licences ask \
+             for these notices; where a library offers a choice of licences, the one it is \
+             used under is named.",
+            r.crates.len(),
+            if desktop {
+                "the desktop app"
+            } else {
+                "the web app (with its Opus decoder)"
+            }
+        )),
+    ];
+    b.push(Block::Fold {
+        id: "rust-crates".into(),
+        label: format!("The libraries ({})", r.crates.len()),
+        body: r
+            .crates
+            .iter()
+            .map(|k| {
+                let notices = k
+                    .notices
+                    .iter()
+                    .map(|i| (i + 1).to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Block::Muted(if k.chosen == k.license {
+                    format!(
+                        "{} {} — {} (notice {notices})",
+                        k.name, k.version, k.license
+                    )
+                } else {
+                    format!(
+                        "{} {} — {}, used under {} (notice {notices})",
+                        k.name, k.version, k.license, k.chosen
+                    )
+                })
+            })
+            .collect(),
+    });
+    b.push(Block::Fold {
+        id: "rust-notices".into(),
+        label: format!("Their licence notices ({})", r.notices.len()),
+        body: r
+            .notices
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                // A fold's label is one line: a few names, the rest inside.
+                let who = match n.crates.as_slice() {
+                    [a] => a.clone(),
+                    [a, b] => format!("{a}, {b}"),
+                    [a, b, rest @ ..] => format!("{a}, {b} and {} more", rest.len()),
+                    [] => String::new(),
+                };
+                let mut body = Vec::new();
+                if n.crates.len() > 2 {
+                    body.push(Block::Muted(format!("for {}", n.crates.join(", "))));
+                }
+                body.push(Block::Mono(n.text.clone()));
+                Block::Fold {
+                    id: format!("rust-notice{i}"),
+                    label: format!("{}. {} — {who}", i + 1, n.license),
+                    body,
+                }
+            })
+            .collect(),
+    });
+    b
 }
 
 /// While the file loads, or when it could not be read.
@@ -364,5 +473,70 @@ const SAMPLE: &str = r#"{
     "source": "https://github.com/stepmania/stepmania", "commit": "abcdef0123456789",
     "license_url": "https://github.com/stepmania/stepmania/blob/master/Docs/Licenses.txt",
     "notice": "Copyright (c) 2001-2015 Chris Danford, Glenn Maynard and others.\nPermission is hereby granted…"
-  }]
+  }],
+  "rust": {
+    "crates": [
+      {"name": "rusty-opus", "version": "1.0.1", "license": "BSD-3-Clause", "chosen": "BSD-3-Clause", "repository": "", "notices": [0]},
+      {"name": "serde", "version": "1.0.0", "license": "MIT OR Apache-2.0", "chosen": "MIT", "repository": "", "notices": [1]}
+    ],
+    "notices": [
+      {"license": "BSD-3-Clause", "text": "Copyright (c) 2026 Someone\nRedistribution and use in source and binary forms…", "crates": ["rusty-opus 1.0.1"]},
+      {"license": "MIT", "text": "Permission is hereby granted, free of charge…", "crates": ["serde 1.0.0"]}
+    ]
+  }
 }"#;
+
+#[cfg(test)]
+mod rust_tests {
+    use super::*;
+
+    /// The Rust libraries come last, folded: the list and the notices.
+    #[test]
+    fn rust_libraries_are_a_folded_section() {
+        let d = doc(&sample());
+        let at = d
+            .blocks
+            .iter()
+            .position(|b| *b == Block::Heading("Rust libraries".into()))
+            .expect("the section");
+        let folds: Vec<&str> = d.blocks[at..]
+            .iter()
+            .filter_map(|b| match b {
+                Block::Fold { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(folds, ["rust-crates", "rust-notices"]);
+        let Some(Block::Fold { body, .. }) = d
+            .blocks
+            .iter()
+            .find(|b| matches!(b, Block::Fold { id, .. } if id == "rust-crates"))
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            body[1],
+            Block::Muted("serde 1.0.0 — MIT OR Apache-2.0, used under MIT (notice 2)".into())
+        );
+    }
+
+    /// The generated files parse, when `xtask gen-credits` has run.
+    #[test]
+    fn generated_credits_parse() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/credits");
+        for f in ["credits.json", "credits-desktop.json"] {
+            let Ok(text) = std::fs::read_to_string(dir.join(f)) else {
+                continue;
+            };
+            let c = parse(&text).unwrap_or_else(|e| panic!("{f}: {e}"));
+            let r = c.rust.expect("its Rust libraries");
+            assert!(!r.crates.is_empty() && !r.notices.is_empty());
+            assert!(
+                r.crates
+                    .iter()
+                    .flat_map(|k| &k.notices)
+                    .all(|&i| i < r.notices.len())
+            );
+        }
+    }
+}

@@ -22,7 +22,10 @@ background layers can draw") held only in part.
   `Visualization*`), with `Color1`/`Color2` and a second file. A still in
   layer 2 under `StretchNormal` covers layer 1 entirely; layer 2 shows
   through only with art that has transparency or an effect that blends.
-  A missing file in layer 2 shows nothing (layer 1 gets a random movie).
+  A missing file in layer 2 is never loaded, so the layer keeps what it
+  showed (layer 1 gets a random movie instead); layer 2 shows nothing
+  before its first change (2026-10-16, decision 48: read again in
+  `UpdateCurBGChange`).
 - `#FGCHANGES` entries are actors (`ActorUtil::MakeActor` on the song's
   folder: a `default.lua` or XML BGAnimation, else the file), shown from
   their beat **until their tweens end** (`GetTweenTimeLeft`): a plain
@@ -187,4 +190,9 @@ them again (`makeSpriteWordData`).
    with a synthetic pack. **Deferred** (2026-10-14): wanted, but none of
    the 1,489 local chart files (StepMania, DWI and pump packs) uses
    `#BGCHANGES2`, `#FGCHANGES`, Lua or BGAnimation folders, so other work
-   comes first.
+   comes first. **The second layer done** (2026-10-16, PLAN.md decision
+   48): stills (with their transparency) and movies over the first
+   layer, with the rules StepMania gives that layer alone
+   (`backgrounds::second_layer`); still none of the 5,094 local simfiles
+   uses it. The script-free effects (`OverlayAdd`, tints, placements) are
+   not done, on either layer.

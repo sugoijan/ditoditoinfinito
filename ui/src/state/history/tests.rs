@@ -97,6 +97,7 @@ fn record(song: &Song, index: usize, rules: &RulesetKey, time: f64, auto: bool) 
         }),
         time,
         app_version: "0.1.0".into(),
+        judge_version: JUDGE_VERSION,
     }
 }
 
@@ -208,6 +209,7 @@ fn summary(rules: &RulesetKey, time: f64, score: f64, lamp: Lamp) -> PlaySummary
             Ending::Finished
         },
         worked: Some(worked),
+        options: None,
     }
 }
 
@@ -576,4 +578,231 @@ fn a_play_that_could_not_be_written_is_rolled_back() {
         Err("the store is full".into())
     );
     assert!(plays.history().is_empty());
+}
+
+/// A kept play of chart 0, pressed `bias` late, as its entry.
+fn kept_entry(bias: f64) -> (Song, PlayEntry, Results) {
+    let song = song();
+    let (log, results) = play(&song, 0, &itg(), Some(bias));
+    let rec = record(&song, 0, &itg(), 5_000.0, false);
+    let (entry, _) = new_entry(play_id(5_000.0, 3), &rec, &log, &results).unwrap();
+    (song, entry, results)
+}
+
+#[test]
+fn a_replay_reads_back_and_judges_to_the_play() {
+    let (song, entry, results) = kept_entry(0.02);
+    let r = Replay::from_entry(&entry).unwrap();
+    assert_eq!(r.chart(&song), Ok(0));
+    let again = r.results(&song).unwrap();
+    assert_eq!(again, results);
+    let check = r.check(&again, &again);
+    assert!(check.matches && check.with_record, "{check:?}");
+    assert_eq!(check.note(), None);
+    // A watched replay that judged otherwise is said so.
+    let mut other = again.clone();
+    other.tally.taps[0] -= 1;
+    other.tally.taps[1] += 1;
+    let check = r.check(&other, &again);
+    assert!(!check.matches);
+    assert!(
+        check
+            .note()
+            .unwrap()
+            .starts_with("This replay judged differently")
+    );
+    // Its rows: the chart's plays, newest first.
+    let mut h = History::default();
+    let summary: PlaySummary = serde_json::from_str(entry.summary.as_deref().unwrap()).unwrap();
+    h.add(entry.id.clone(), summary.clone());
+    let mut older = summary;
+    older.time = 1_000.0;
+    h.add(play_id(1_000.0, 1), older);
+    let rows = play_rows(&h, song.chart_digest(0), Some(&entry.id), &|_| 120);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].id, entry.id);
+    assert!(rows[0].best && !rows[1].best);
+    assert_eq!(rows[0].when, "1970-01-01 02:00");
+    assert_eq!(rows[0].mods, "×1");
+    assert_eq!(rows[0].ruleset, "ITG");
+    assert!(play_rows(&h, song.chart_digest(1), None, &|_| 0).is_empty());
+}
+
+#[test]
+fn replays_are_refused_when_they_would_be_wrong() {
+    let (song, entry, _) = kept_entry(0.0);
+    // A record of a later format.
+    let mut later = entry.clone();
+    let mut v: serde_json::Value = serde_json::from_str(&later.record).unwrap();
+    v["version"] = (RECORD_VERSION + 1).into();
+    later.record = v.to_string();
+    assert!(
+        Replay::from_entry(&later)
+            .unwrap_err()
+            .contains("newer version")
+    );
+    // Judged by a later judge.
+    let mut v: serde_json::Value = serde_json::from_str(&entry.record).unwrap();
+    v["judge_version"] = (JUDGE_VERSION + 1).into();
+    let mut newer = entry.clone();
+    newer.record = v.to_string();
+    assert!(
+        Replay::from_entry(&newer)
+            .unwrap_err()
+            .contains("judged by a newer")
+    );
+    // A log that does not read.
+    let mut garbled = entry.clone();
+    garbled.log.truncate(garbled.log.len() - 1);
+    assert!(
+        Replay::from_entry(&garbled)
+            .unwrap_err()
+            .contains("presses")
+    );
+    let mut garbled = entry.clone();
+    garbled.record = "{".into();
+    assert!(Replay::from_entry(&garbled).is_err());
+    // Records kept before the judge was written down were judged by the
+    // first.
+    let mut v: serde_json::Value = serde_json::from_str(&entry.record).unwrap();
+    v.as_object_mut().unwrap().remove("judge_version");
+    let mut old = entry.clone();
+    old.record = v.to_string();
+    assert_eq!(Replay::from_entry(&old).unwrap().record.judge_version, 1);
+    // The chart changed: no chart with its content.
+    let r = Replay::from_entry(&entry).unwrap();
+    let changed = parse_simfile(
+        &SM.replace("1000\n0100\n0010\n0001\n;", "1000\n0100\n0010\n0010\n;"),
+        "sm",
+    )
+    .unwrap();
+    assert!(
+        r.chart(&changed)
+            .unwrap_err()
+            .contains("changed since the play")
+    );
+    assert!(r.results(&changed).is_err());
+    // Moved in its song: found by content.
+    let mut moved = song.clone();
+    moved.charts.swap(0, 1);
+    assert_eq!(r.chart(&moved), Ok(1));
+    // Timing that does not read: played, compared with the log only.
+    let mut no_timing = entry.clone();
+    no_timing.timing.clear();
+    let r = Replay::from_entry(&no_timing).unwrap();
+    assert!(r.timing.is_none());
+    let again = r.results(&song).unwrap();
+    assert!(r.check(&again, &again).matches);
+}
+
+#[test]
+fn a_replay_is_drawn_as_played_on_this_devices_settings() {
+    use crate::state::settings::{OffsetProfile, Settings};
+    use ddi_platform::{DeviceFingerprint, DeviceProfile};
+    let (_, entry, _) = kept_entry(0.0);
+    let mut r = Replay::from_entry(&entry).unwrap();
+    // As it was kept: a skin, reverse, mirror, a speed; offsets of the
+    // devices it was played on.
+    r.record.settings = serde_json::json!({
+        "noteskin": "dance/metal",
+        "bg_brightness": 0.7,
+        "volume": 0.9,
+        "speed": 3.0,
+    });
+    r.record.options.scroll.reverse = true;
+    r.record.options.transform.turn = ddi_engine::Turn::Mirror;
+    r.record.options.scroll.speed = ddi_engine::SpeedMod::XMod(2.5);
+    r.record.setup.clock.audio = Some(Device {
+        id: "audio:a".into(),
+        label: String::new(),
+    });
+    r.record.setup.clock.display = Some(Device {
+        id: "display:a".into(),
+        label: String::new(),
+    });
+    r.record.setup.clock.audio_offset = 0.031;
+    r.record.setup.clock.visual_offset = -0.012;
+    let mut here = Settings {
+        volume: 0.2,
+        noteskin: None,
+        ..Settings::default()
+    };
+    here.audio_profiles.push(OffsetProfile {
+        id: "audio:b".into(),
+        label: String::new(),
+        offset: 0.05,
+        calibrated: true,
+        last_seen: 0.0,
+    });
+    let s = r.settings(&here);
+    assert_eq!(s.noteskin.as_deref(), Some("dance/metal"));
+    assert_eq!(s.bg_brightness, 0.7);
+    assert!(s.reverse);
+    assert_eq!(s.speed, 2.5);
+    assert_eq!(s.transform.turn, ddi_engine::Turn::Mirror);
+    // This device's volume and profiles.
+    assert_eq!(s.volume, 0.2);
+    assert_eq!(s.audio_profiles, here.audio_profiles);
+    assert_eq!(r.skin(&s, "dance-single").as_deref(), Some("dance/metal"));
+    // The offsets: the record's on its devices, this device's elsewhere.
+    let device = |a: &str, d: &str| DeviceProfile {
+        audio: DeviceFingerprint::new(a, ""),
+        display: DeviceFingerprint::new(d, ""),
+    };
+    let mine = ddi_engine::ClockOptions {
+        audio_offset: 0.05,
+        visual_offset: 0.0,
+        rate: 1.0,
+    };
+    let same = r.replaying(Some(&device("audio:a", "display:a")), mine);
+    assert_eq!(same.options.clock.audio_offset, 0.031);
+    assert_eq!(same.options.clock.visual_offset, -0.012);
+    assert!(same.options.scroll.reverse);
+    let other = r.replaying(Some(&device("audio:b", "display:a")), mine);
+    assert_eq!(other.options.clock, mine);
+    assert_eq!(other.log, r.log);
+}
+
+#[test]
+fn an_unreadable_snapshot_falls_back_to_how_the_play_was_drawn() {
+    use crate::state::settings::Settings;
+    let (_, entry, results) = kept_entry(0.0);
+    let mut r = Replay::from_entry(&entry).unwrap();
+    // A field of the wrong shape: the snapshot does not read.
+    r.record.settings = serde_json::json!({ "speed": "fast", "noteskin": 7 });
+    r.record.setup.drawn = DrawSetup {
+        noteskin: Some("dance/metal".into()),
+        note_colors: "Rainbow".into(),
+        bg_brightness: 0.25,
+        field_filter: 0.6,
+        show_deltas: true,
+        ..DrawSetup::default()
+    };
+    let here = Settings {
+        noteskin: Some("dance/other".into()),
+        bg_brightness: 0.9,
+        ..Settings::default()
+    };
+    let s = r.settings(&here);
+    assert_eq!(s.noteskin.as_deref(), Some("dance/metal"));
+    assert_eq!(s.bg_brightness, 0.25);
+    assert!(s.show_deltas);
+    assert_eq!(
+        serde_json::to_value(s.note_colors).unwrap(),
+        serde_json::json!("Rainbow")
+    );
+    // An older judge's play is said so; today's is not.
+    assert_eq!(r.older_judge_note(), None);
+    r.record.judge_version = 0;
+    assert!(r.older_judge_note().unwrap().contains("older version"));
+    // A kept summary written by JavaScript (`0` for `0.0`) still matches.
+    let mut e = entry.clone();
+    let mut v: serde_json::Value = serde_json::from_str(e.summary.as_deref().unwrap()).unwrap();
+    v["worked"]["stddev"] = serde_json::json!(0);
+    v["worked"]["mean"] = serde_json::json!(0);
+    e.summary = Some(v.to_string());
+    let r = Replay::from_entry(&e).unwrap();
+    assert_eq!(results.stddev_delta, 0.0);
+    let check = r.check(&results, &results);
+    assert!(check.matches, "{check:?}");
 }

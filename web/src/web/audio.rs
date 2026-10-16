@@ -17,7 +17,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     AnalyserNode, AudioBuffer, AudioBufferSourceNode, AudioContext, AudioContextLatencyCategory,
-    AudioContextOptions, AudioContextState, AudioScheduledSourceNode, GainNode,
+    AudioContextOptions, AudioContextState, AudioScheduledSourceNode, BaseAudioContext, GainNode,
 };
 
 use super::clock::PerformanceClock;
@@ -159,19 +159,11 @@ impl WebAudio {
         self.ctx.state() == AudioContextState::Running
     }
 
-    /// Decodes a whole song; see [`AudioDecoder::decode`].
-    pub(crate) async fn decode(
-        &self,
-        bytes: &[u8],
-        target: ddi_platform::mp3::Target,
-    ) -> Result<AudioBuffer, String> {
-        self.decoder().decode(bytes, target).await
-    }
-
     /// A handle that decodes on this context without borrowing it.
     pub(crate) fn decoder(&self) -> AudioDecoder {
         AudioDecoder {
-            ctx: self.ctx.clone(),
+            ctx: self.ctx.clone().into(),
+            live: Some(self.ctx.clone()),
         }
     }
 
@@ -333,14 +325,35 @@ impl WebAudio {
 /// decode in flight holds no borrow of it.
 #[derive(Clone)]
 pub(crate) struct AudioDecoder {
-    ctx: AudioContext,
+    /// What decodes: the live context, or an offline one.
+    ctx: BaseAudioContext,
+    /// The live context, when it is one.
+    live: Option<AudioContext>,
 }
 
 impl AudioDecoder {
+    /// A decoder on an `OfflineAudioContext` at `rate`, which any page may
+    /// make before the player's first input (no audio starts): a song
+    /// decodes before there is a context to play it on, and its buffer
+    /// plays on that context later (resampled as it plays if the rates
+    /// differ). `None` where the browser has none.
+    pub(crate) fn offline(rate: f32) -> Option<AudioDecoder> {
+        let ctx =
+            web_sys::OfflineAudioContext::new_with_number_of_channels_and_length_and_sample_rate(
+                2, 1, rate,
+            )
+            .ok()?;
+        Some(AudioDecoder {
+            ctx: ctx.into(),
+            live: None,
+        })
+    }
+
     /// Waits for the context to run (call `resume_now` in the gesture first).
     pub(crate) async fn resume(&self) {
-        if self.ctx.state() != AudioContextState::Running
-            && let Ok(promise) = self.ctx.resume()
+        if let Some(live) = &self.live
+            && live.state() != AudioContextState::Running
+            && let Ok(promise) = live.resume()
         {
             let _ = JsFuture::from(promise).await;
         }
@@ -379,7 +392,7 @@ impl AudioDecoder {
         target: ddi_platform::mp3::Target,
         wanted: impl Fn() -> bool,
     ) -> Result<AudioBuffer, String> {
-        let (buffer, ours) = self.decode_any(bytes).await?;
+        let (buffer, ours) = self.decode_any(bytes, &wanted).await?;
         if ours && ddi_platform::decode::is_mp3(bytes) {
             // Decoded as StepMania does: a work's starts where Chrome's
             // decode has it.
@@ -407,11 +420,15 @@ impl AudioDecoder {
     }
 
     /// The browser's decode, else the built-in one; whether it is the
-    /// built-in one.
-    async fn decode_any(&self, bytes: &[u8]) -> Result<(AudioBuffer, bool), String> {
+    /// built-in one. The built-in one stops once `wanted` says no.
+    async fn decode_any(
+        &self,
+        bytes: &[u8],
+        wanted: &dyn Fn() -> bool,
+    ) -> Result<(AudioBuffer, bool), String> {
         // A preview stopped mid-decode closes its context: give up rather
         // than run the wasm fallback for nothing.
-        let closed = |ctx: &AudioContext| ctx.state() == AudioContextState::Closed;
+        let closed = |ctx: &BaseAudioContext| ctx.state() == AudioContextState::Closed;
         if closed(&self.ctx) {
             return Err("audio context closed".into());
         }
@@ -420,7 +437,7 @@ impl AudioDecoder {
         } else {
             match self.decode_in_browser(bytes).await {
                 Ok(buffer) if !looks_silent(&buffer) => return Ok((buffer, false)),
-                Ok(buffer) => match self.decode_in_wasm(bytes).await {
+                Ok(buffer) => match self.decode_in_wasm(bytes, wanted).await {
                     Ok(wasm) => {
                         web_sys::console::info_1(
                             &"decodeAudioData returned silence; decoded in wasm instead".into(),
@@ -437,7 +454,7 @@ impl AudioDecoder {
         if closed(&self.ctx) {
             return Err("audio context closed".into());
         }
-        match self.decode_in_wasm(bytes).await {
+        match self.decode_in_wasm(bytes, wanted).await {
             Ok(buffer) => {
                 web_sys::console::info_1(
                     &format!("decodeAudioData failed ({browser_error}); decoded in wasm instead")
@@ -445,6 +462,8 @@ impl AudioDecoder {
                 );
                 Ok((buffer, true))
             }
+            // Given up, not failed.
+            Err(wasm_error) if !wanted() => Err(wasm_error),
             Err(wasm_error) => Err(format!(
                 "could not decode the audio. Browser decoder: {browser_error}. \
                  Built-in decoder: {wasm_error}"
@@ -575,16 +594,28 @@ impl AudioDecoder {
             .map_err(|e| js_err("decodeAudioData result", e))
     }
 
-    /// Decodes with Symphonia on the main thread, yielding to the event loop
-    /// every few milliseconds so the page keeps painting, then copies the
-    /// PCM into an `AudioBuffer` at the file's own rate (the source node
-    /// resamples it on playback, as with any buffer).
-    async fn decode_in_wasm(&self, bytes: &[u8]) -> Result<AudioBuffer, String> {
+    /// Decodes with the built-in decoders: Ogg Opus in the Opus worker
+    /// (`super::opus`, fetched only then: PLAN.md decision 9), resampled
+    /// there to the context's rate as `decodeAudioData` gives it; Ogg
+    /// Vorbis and MP3 here (`ddi_platform::decode`) on the main thread,
+    /// yielding to the event loop every few milliseconds so the page keeps
+    /// painting, at the file's own rate (the source node resamples it on
+    /// playback, as with any buffer). Gives up once `wanted` says no (a
+    /// preview of a song the player moved past) or the context closed.
+    async fn decode_in_wasm(
+        &self,
+        bytes: &[u8],
+        wanted: &dyn Fn() -> bool,
+    ) -> Result<AudioBuffer, String> {
         /// Main-thread time per slice before yielding.
         const SLICE_MS: f64 = 25.0;
         /// Packets per `step` (~20 ms of audio each, well under 1 ms of work).
         const PACKETS_PER_STEP: usize = 8;
 
+        let gone = || !wanted() || self.ctx.state() == AudioContextState::Closed;
+        if ddi_platform::decode::is_ogg_opus(bytes) {
+            return super::opus::decode(&self.ctx, bytes, &gone).await;
+        }
         let mut decoder = ddi_platform::decode::Decoder::new(bytes).map_err(|e| e.to_string())?;
         loop {
             let slice_start = PerformanceClock::now_ms();
@@ -596,6 +627,9 @@ impl AudioDecoder {
                 break;
             }
             gloo::timers::future::TimeoutFuture::new(0).await;
+            if gone() {
+                return Err("the decode is no longer wanted".into());
+            }
         }
         let pcm = decoder.finish().map_err(|e| e.to_string())?;
         if pcm.skipped_packets > 0 {

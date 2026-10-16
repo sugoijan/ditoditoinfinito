@@ -389,6 +389,168 @@ export, base64 included (5,004 such short plays export to 40 MB).
    Nothing records on desktop until it plays.
 7. **Song select's bests** (`ui-core.md` 6.2).
 
+## Replays (phase 10, 2026-10-16)
+
+A kept play can be watched again, as it looked, on both shells. The log
+is in judged song time, so a replay needs nothing of the play's clock:
+its edges are fed to a new play when this device's clock reaches them.
+
+**What a replay plays with.**
+
+- **The chart** found by its digest (`find_chart`) in the song the
+  record names, else in any song with a chart of that content
+  (`find_by_digest`). The record's song offset shifts it, as the play
+  was shifted.
+- **The rules** built from the `RulesetKey`, and **the options** as
+  played (speed, reverse, turn and its seed, cut, appearance, scroll
+  action, receptor snap), never the settings' now.
+- **How it was drawn,** from the settings the record kept: the skin, the
+  note colours, the chart's colours, the field filter, the background's
+  brightness and frame, the videos setting, lyrics, the timing-error
+  display. Not this device's volume, bindings or graphics backend.
+- **The offsets:** the record's when this is the audio path and display
+  it was played on (the play as the player saw and heard it); this
+  device's otherwise, since the record's corrected other hardware.
+  Either way the judged times are the log's, so the results do not
+  depend on them.
+- **The inputs:** the log's edges, each fed at its judged time
+  (`Player::input_at`) once this play's judged time reaches it, before
+  the frame's update. No edge is ever behind what was judged, so none is
+  late, at any frame rate. Live keys, pads and touches reach no lane;
+  the quit gesture still leaves.
+
+**What a replay never does:** record a play, count toward a best, change
+a song offset or a calibration, or report its fail to the history.
+
+**Checked, not assumed.** At its end a replay's results are compared
+with the same log judged offline (`replay`: equal) and with what the
+record kept: the timing (judgements and life, exactly) and the summary
+(all of it but `late_edges`, which only a live play can have), when the
+record was judged by today's judge. A difference is said on the results
+("This replay judged differently from the play: …") and in
+`__DDI_DEBUG`, never hidden. A play judged by an older judge is judged
+by today's; its results say so and are not compared with the old
+timing.
+
+**Refused with a reason, never played wrong:** a record or log of a
+format this build does not read, a play judged by a newer judge than
+this build's, a song that is gone (no song with a chart of that
+content), a chart that changed (no chart with the record's digest), a
+noteskin no longer installed.
+
+**Where.**
+
+- **Results:** "Watch replay" (W) once the play is kept. After a replay
+  the results are marked REPLAY, Retry becomes "Watch again", and the
+  song offset editor is not offered (a replay changes nothing).
+- **Song select:** P opens the chosen chart's plays (also the footer's
+  "Plays…" link; on a phone, a long press on a chart): every play kept of its content, newest first, eight a
+  page; when, grade, score, lamp, ruleset and the options as played,
+  autoplays marked, the best marked. Each can be watched, opened on the
+  results screen (judged again from its log: the same results), or
+  removed (pressed twice). W watches the chart's best play.
+- **The play route:** `#/play?replay=<play id>` on the web
+  (`&view=results` opens its results); desktop's host takes the same
+  requests (`--replay ID [--results]`).
+- **Summaries keep the options** (`PlaySummary::options`, optional;
+  none in older summaries, whose rows then show no options), so the list
+  needs no records.
+- **The ghost** (off by default; Options → Display → "Ghost of your
+  best"): during a play, under the score, how far ahead of the chart's
+  best play (under the rules it is played by, assist apart) the play is
+  at the same point, in the ruleset's terms (percentage points, or
+  points), green ahead, red behind. The best play is played again beside
+  the play from its log (`GhostRun`: its edges up to the time the play
+  is judged to, then the same update), so the two are judged the same
+  way at every frame and the last value is the difference of the final
+  scores; the song offsets each was played with are lined up. Not for a
+  replay or a test.
+
+Done (2026-10-16).
+
+- **The model** (`ui/src/state/history/replay.rs`): `Replay` (a play read
+  back: record, log, timing, summary; `from_entry` refuses a newer
+  record format or judge and a log that does not read), `chart`,
+  `played_song`, `results` (judged at once), `settings`, `clock`,
+  `replaying` (what the session needs), `skin`, `check` (`ReplayCheck`),
+  `play_rows` and `plays_list` (song select's list), `local_time`.
+  Records keep `judge_version` (1 when absent), summaries `options`.
+  `Plays::entry` and `Plays::remove_play`.
+- **The session** (`session/src/play.rs`): `SessionConfig::replay`; the
+  record's rules and options (never the settings', never worked out
+  again), its start; the log's edges fed before each update, up to the
+  time the update judges to; lane edges from the shell ignored, the quit
+  gesture kept; no autoplay, no fail report. `replaying`,
+  `replay_progress`.
+- **Screens:** the results' "Watch replay" (W; on top by the title
+  beside the offset editor, in the bar on an upright phone), `ResultsKind`
+  (`Play`, `Replay`: "Watch again", `Kept`: no Retry) and `mark_replay`;
+  song select's plays list (`PlaysDialog`), P, W, "Plays…", a long press
+  on a phone's chart.
+- **Web:** `#/play?replay=<id>[&view=results]` (`web/src/replay.rs`: the
+  loader reads the play, finds its chart, looks for its skin, then puts
+  the play screen up, or the refusal on its prompt); the play screen
+  replays with the replay's settings, checks it at its end
+  (`__DDI_DEBUG.replay`), never records; a play's results offer its
+  replay once kept. The UI host navigates only after its own history
+  pops (a dialog closing as it navigates: Firefox popped back after the
+  navigation and undid it).
+- **Desktop:** `Request::replay`/`view_results`/`refused`,
+  `play/replays.rs` (the same resolution, synchronous;
+  `library::find_by_digest`), the host's prompt, results ("Watch
+  replay", "Watch again", a kept play's at once) and `--replay ID
+  [--results]`; dates in the system's time zone (`localtime_r`; UTC on
+  Windows for now).
+- **The ghost:** `Ghost` and `GhostRun` (`replay.rs`), the session's
+  `SessionConfig::ghost` and `ghost_delta`, `RenderOptions::ghost`
+  (`ScoreDelta`, drawn under the score in ASCII signs: the HUD's font is
+  a subset), the setting and its row; the web reads the best play when
+  the chart loads, desktop when the play starts. `__DDI_DEBUG.ghost`.
+- **Checked:** natively, every bundled chart (4 songs, 38 charts) autoplayed
+  by the session and by desktop's play, kept, replayed at 144 Hz and at
+  uneven 37 and 50 fps on another clock and latency: the same results,
+  `check` matching the record; a play pressed by keys with misses, early
+  and late presses, holds let go and stray presses, the same, with keys
+  pressed throughout the replay; a failed play replays to its fail; a
+  play read back from the export's form replays the same (a web record on
+  desktop); Escape twice quits a replay; refusals (not kept, newer format,
+  newer judge, garbled log, chart changed, song gone, found in another
+  song, skin missing); the screens' buttons and keys at three sizes with
+  nothing overlapping; desktop's whole flow offscreen. In headless Chrome
+  (WebGPU) and Firefox (WebGL2): a play (autoplay 35 ms late), its replay
+  from the results to the end (`check.matches`, grade, score, tiers,
+  stats, hits and life equal, the history unchanged), the plays list on
+  song select, the kept play's results (equal) and its replay, the
+  device lost mid-replay (the prompt again, replayed from the start), a
+  quit mid-replay, a refused id. The ghost: natively the same play
+  beside itself is level at every frame (60 Hz, 1,000+ frames), a play
+  40 ms late is behind all along and ends at the difference of the final
+  scores, in the session and in desktop's play; in Chrome and Firefox an
+  autoplay kept as the player's own, then a play 40 ms late beside it
+  with the setting on: −4.74 points after 30 s, −20.00 at the end, the
+  difference of the two results' percentages, drawn under the score.
+
+Review fixes (2026-10-16):
+
+- **A replay changes no setting:** the web no longer registers the
+  devices' profiles for a replay (it made them on a fresh device, which
+  hid the first-run notice and the next play's new-device step, and
+  touched `last_seen`); checked in Chrome and Firefox: the stored
+  settings byte for byte the same after a whole replay on a device with
+  no profile.
+- Desktop offers "Watch replay" only once the play is kept.
+- The kept summary is compared as values read from its text (`0` and
+  `0.0` alike, as JavaScript writes them).
+- An older judge's play says so on its results; a settings snapshot that
+  does not read falls back to how the record says it was drawn; a
+  replay whose folder waited for access looks for its skin once the
+  song is read.
+- One `go(-n)` fires one `popstate`: one pop ignored, not `n`
+  (`ddi_ui::back_stack`, tested with two layers closed in one call).
+- The plays list's armed Remove disarms when focus moves away.
+- A synthetic chart with rolls (kept and dropped), holds, mines, a stop
+  and a tempo change replays exactly, autoplayed and pressed by hand.
+
 ## Decided here (the maintainer may change any)
 
 - Inputs are logged in judged song time, not host time, with the offsets

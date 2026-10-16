@@ -73,6 +73,26 @@ pub fn panel_sets(_ruleset: &Ruleset) -> Vec<PanelSet> {
     ]
 }
 
+/// The options a play was played with, as the start prompt says them
+/// ("×2 · reverse · mirror"; a constant speed "C400").
+pub fn options_line(o: &ddi_engine::player::PlayOptions) -> String {
+    let speed = match o.scroll.speed {
+        ddi_engine::scroll::SpeedMod::XMod(x) => format!("×{}", (x * 100.0).round() / 100.0),
+        ddi_engine::scroll::SpeedMod::CMod(c) => format!("C{}", c.round()),
+    };
+    let mut parts = vec![speed];
+    if o.scroll.reverse {
+        parts.push("reverse".into());
+    }
+    parts.extend(mods_summary(
+        &o.transform,
+        o.appearance,
+        o.scroll.scroll_action,
+        None,
+    ));
+    parts.join(" · ")
+}
+
 /// The score as the ruleset gives it: money, else percent, else "—".
 pub fn score_text(r: &Results) -> String {
     match (r.score.money, r.score.percent) {
@@ -237,6 +257,18 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         panel_set,
         note: String::new(),
         song: p.song.clone(),
+        kind: Default::default(),
+    }
+}
+
+/// Results of a replay or a kept play: marked so, with when it was
+/// played, and no song offset editor (they change nothing).
+pub fn mark_replay(data: &mut ResultsData, kind: super::data::ResultsKind, when: &str) {
+    data.kind = kind;
+    data.offset = None;
+    data.line = format!("{} · REPLAY", data.line);
+    if !when.is_empty() {
+        data.notes.insert(0, format!("{when}."));
     }
 }
 

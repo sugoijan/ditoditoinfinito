@@ -12,7 +12,9 @@ use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::{JudgeNames, Ruleset};
 use ddi_engine::{ConnectedPad, ControlBindings};
 use ddi_platform::{AudioBackend, DeviceId, DeviceProfile, HostTime, RawInput};
-use ddi_ui::state::history::{InputDevice, PlayLog, RulesetKey};
+use ddi_ui::state::history::{
+    Ghost, GhostDelta, GhostRun, InputDevice, PlayLog, Replaying, RulesetKey,
+};
 use ddi_ui::state::settings::Settings;
 
 use crate::calibration::{self, CalMode, Calibrator, Outcome};
@@ -96,6 +98,13 @@ pub struct SessionConfig {
     pub reverse: bool,
     /// The notes are hidden from the start (the sound-only test).
     pub hide_notes: bool,
+    /// A kept play replayed (`docs/plans/play-history.md`, Replays): its
+    /// options and rules instead of the settings', its log instead of
+    /// live presses; never autoplayed, never reported to the history.
+    pub replay: Option<Replaying>,
+    /// The chart's best play's score over the song, to show how far
+    /// ahead of it the play is (`Settings::ghost`).
+    pub ghost: Option<Ghost>,
 }
 
 impl SessionConfig {
@@ -116,6 +125,8 @@ impl SessionConfig {
             seed: 0,
             reverse: settings.reverse,
             hide_notes: false,
+            replay: None,
+            ghost: None,
         }
     }
 
@@ -192,6 +203,12 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     latency: Option<(f64, f64, f64)>,
     /// The fail's report, until the shell takes it.
     fail_report: Option<SessionEvent>,
+    /// A replay: the log's edges, and how many were fed.
+    replay: Option<(PlayLog, usize)>,
+    /// The best play's ghost played beside it, and how far ahead of it
+    /// the play was at its last update.
+    ghost: Option<GhostRun>,
+    ghost_delta: Option<GhostDelta>,
 }
 
 /// Which cue a simulated player follows. In calibration it plays as a
@@ -307,11 +324,15 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let layout = song
             .layout_of(chart)
             .ok_or_else(|| format!("layout {} not playable", chart.layout))?;
-        // Calibration keeps its own ruleset; songs follow the ruleset mode.
-        let ruleset = match config.calibration {
-            Some(_) => config.ruleset,
-            None => settings.ruleset_for(chart),
+        // Calibration keeps its own ruleset; songs follow the ruleset mode;
+        // a replay plays by the rules it was played by.
+        let ruleset = match (&config.replay, config.calibration) {
+            (Some(r), _) => r.ruleset.build(chart),
+            (None, Some(_)) => config.ruleset,
+            (None, None) => settings.ruleset_for(chart),
         };
+        // A replay is never autoplayed.
+        let auto_play = config.auto && config.replay.is_none();
         let names = ruleset.names.clone();
         let rules = ruleset.fresh();
         let duration = audio.duration(&buffer);
@@ -339,7 +360,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .collect();
         pad_cancel.sort();
         pad_cancel.dedup();
-        let via_pad = (config.auto && config.auto_pad).then(|| {
+        let via_pad = (auto_play && config.auto_pad).then(|| {
             (0..layout.lanes.len() as u8)
                 .map(|lane| {
                     bindings
@@ -368,20 +389,27 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         );
         inputs.begin(capture, &layout, config.reverse);
 
-        let mut options = config.options;
-        // A fresh shuffle every play; the seed is kept in the results.
-        options.seed = config.seed;
-        // Frame-based works: the x-mod means the same as at their tempo.
-        options.scroll.speed = ddi_engine::scroll::speed_for_chart(
-            song,
-            chart_index,
-            options.scroll.speed,
-            settings.speed_source,
-        );
+        let options = match &config.replay {
+            // As played: its seed, its speed as it was worked out.
+            Some(r) => r.options,
+            None => {
+                let mut options = config.options;
+                // A fresh shuffle every play; the seed is kept in the results.
+                options.seed = config.seed;
+                // Frame-based works: the x-mod means the same as at their tempo.
+                options.scroll.speed = ddi_engine::scroll::speed_for_chart(
+                    song,
+                    chart_index,
+                    options.scroll.speed,
+                    settings.speed_source,
+                );
+                options
+            }
+        };
         let mut player = Player::new(song, chart_index, ruleset, options);
         player.judge_all_in(any_lane);
         // The autoplayer presses the transformed chart's lanes.
-        let auto = config.auto.then(|| AutoPlay {
+        let auto = auto_play.then(|| AutoPlay {
             events: ddi_engine::autoplay::script(player.judge().notes(), config.auto_bias)
                 .into_iter()
                 .map(|p| (p.press, p.release, p.lane))
@@ -409,10 +437,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .danoni
             .as_ref()
             .filter(|_| config.calibration.is_none());
-        let song_offset = danoni
-            .and_then(|d| d.start)
-            .filter(|s| s.is_finite() && *s > 0.0 && *s < duration)
-            .unwrap_or(0.0);
+        let song_offset = match &config.replay {
+            // Where the play started.
+            Some(r) => r.log.start,
+            None => danoni
+                .and_then(|d| d.start)
+                .filter(|s| s.is_finite() && *s > 0.0 && *s < duration)
+                .unwrap_or(0.0),
+        };
         let music_end = danoni.and_then(|d| {
             let stop = d.end.map(|at| (at, MUSIC_STOP_FADE));
             [stop, d.fade]
@@ -476,6 +508,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             played_with: Vec::new(),
             latency,
             fail_report: None,
+            replay: config.replay.map(|r| (r.log, 0)),
+            ghost: config.ghost.as_ref().map(Ghost::run),
+            ghost_delta: None,
         })
     }
 
@@ -568,6 +603,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 }
                 continue;
             }
+            // A replay's lanes are its log's.
+            if self.replay.is_some() {
+                continue;
+            }
             if let Some(ev) = self.input.feed(&raw) {
                 self.note_device(&raw.device);
                 self.apply(ev, &mut events);
@@ -654,7 +693,17 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
         }
 
+        // Up to the time the update judges to.
+        self.feed_replay(HostTime(judge_now), &mut events);
         events.extend(self.player.update(HostTime(judge_now)));
+        // The ghost judged to the same point (a failed play's stops).
+        if let Some(g) = self.ghost.as_mut()
+            && !self.player.finished()
+        {
+            let t = self.player.clock().heard_now(HostTime(judge_now))
+                - self.player.ruleset().judge.judge_offset;
+            self.ghost_delta = Some(g.delta(&self.player.ruleset().score.view(), t));
+        }
         let hits: Vec<f64> = events
             .iter()
             .filter_map(|ev| match ev.kind {
@@ -673,8 +722,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         // blank; fade the music and hold the FAILED banner before the results.
         if self.player.failed() && self.failed_at.is_none() {
             self.failed_at = Some(host_now.0);
-            // Final now: kept even if the hold is cut short.
-            if self.calibration.is_none() {
+            // Final now: kept even if the hold is cut short (a replay's is
+            // not kept).
+            if self.calibration.is_none() && self.replay.is_none() {
                 self.fail_report = Some(SessionEvent::Failed {
                     results: Box::new(self.player.results()),
                     facts: Box::new(self.facts()),
@@ -721,6 +771,45 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             self.inputs.pads_running(None);
         }
         (events, outcome)
+    }
+
+    /// A replay: the log's edges whose judged time has come, each at its
+    /// own time, before the frame's update. Every edge not fed yet is
+    /// later than any judged time so far (updates judge behind the
+    /// clock), so none is judged late, at any frame rate.
+    fn feed_replay(&mut self, host_now: HostTime, events: &mut Vec<JudgeEvent>) {
+        let Some((log, next)) = self.replay.as_mut() else {
+            return;
+        };
+        let now =
+            self.player.clock().heard_now(host_now) - self.player.ruleset().judge.judge_offset;
+        let mut due = Vec::new();
+        while let Some(i) = log.inputs.get(*next).filter(|i| i.time <= now) {
+            due.push(*i);
+            *next += 1;
+        }
+        for i in due {
+            if let Some(h) = self.held.get_mut(usize::from(i.lane)) {
+                *h = i.pressed;
+            }
+            events.extend(self.player.input_at(i.lane, i.pressed, i.time));
+        }
+    }
+
+    /// How far ahead of the best play's ghost the play is now (behind:
+    /// negative); `None` without a ghost or before the play started.
+    pub fn ghost_delta(&self) -> Option<GhostDelta> {
+        self.ghost_delta
+    }
+
+    /// This session replays a kept play.
+    pub fn replaying(&self) -> bool {
+        self.replay.is_some()
+    }
+
+    /// A replay's edges fed so far, and in all.
+    pub fn replay_progress(&self) -> Option<(usize, usize)> {
+        self.replay.as_ref().map(|(log, n)| (*n, log.inputs.len()))
     }
 
     /// The play's fail, once, when it happened ([`SessionEvent::Failed`]).

@@ -1,0 +1,22 @@
+[package]
+name = "ddi-opus-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: the web's Ogg Opus fallback decoder, a worker fetched only when a browser cannot decode Opus"
+
+# Trunk builds it into the site as a worker (index.html, `data-type="worker"`);
+# the web shell starts it only when `decodeAudioData` rejects an Ogg Opus
+# file (PLAN.md decision 9). Natively it is empty.
+[[bin]]
+name = "opus-worker"
+path = "src/main.rs"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ddi-platform = { workspace = true, features = ["opus"] }
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+web-sys = { workspace = true, features = ["DedicatedWorkerGlobalScope", "MessageEvent"] }

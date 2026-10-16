@@ -348,6 +348,7 @@ impl Reading {
         let unshown = crate::backgrounds::unshown_files(&song, &c.dir, paths, &c.pack, shared);
         let (present, absent): (Vec<_>, Vec<_>) =
             unshown.into_iter().partition(|(_, exists)| *exists);
+        let scripted: Vec<String> = present.iter().map(|(n, _)| n.clone()).collect();
         let names = |list: Vec<(String, bool)>| {
             list.into_iter()
                 .map(|(n, _)| n)
@@ -388,6 +389,7 @@ impl Reading {
             },
             &song,
         );
+        entry.bg_scripted = scripted;
         // The keys the song list finds its charts' bests by (a work's
         // chart's own excessive setting among them).
         for chart in &mut entry.charts {
@@ -608,5 +610,24 @@ mod tests {
         let scan = scan_root(&Files(f), &paths, "Mine", &[], &|_| None);
         assert!(scan.songs.is_empty());
         assert!(scan.failed[0].1.contains("no audio"));
+    }
+    #[test]
+    fn the_second_layers_files_and_scripted_animations_are_kept() {
+        let mut f = BTreeMap::new();
+        let sm = SM.replace(
+            "#BPMS:0=120;",
+            "#BPMS:0=120;#BGCHANGES2:0=over.png=1=0=0=0,2=Spin=1=0=0=0,4=gone=1=0=0=0;",
+        );
+        f.insert("P/S/s.sm".into(), sm.into_bytes());
+        f.insert("P/S/song.ogg".into(), vec![0; 4]);
+        f.insert("P/S/over.png".into(), png(64, 48));
+        f.insert("P/S/spin/default.xml".into(), Vec::new());
+        let paths: Vec<String> = f.keys().cloned().collect();
+        let scan = scan_root(&Files(f), &paths, "Mine", &[], &|_| None);
+        let e = &scan.songs[0].entry;
+        assert_eq!(e.bg_images, vec!["over.png"]);
+        // The animation that exists (another case: found anyway), not the
+        // one found nowhere.
+        assert_eq!(e.bg_scripted, vec!["Spin"]);
     }
 }

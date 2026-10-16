@@ -22,6 +22,7 @@ mod noteskins;
 mod notices;
 mod play;
 mod preview;
+mod replay;
 mod router;
 mod select_data;
 mod select_preview;

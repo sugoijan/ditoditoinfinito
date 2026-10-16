@@ -469,8 +469,8 @@ pub(crate) async fn load_background(
             None => return Ok(None),
         },
         BgImage::File(path) | BgImage::Movie(path) => (format!("bg/{path}"), path.clone()),
-        // Not a file of the song's folder (`crate::stills`).
-        BgImage::Still => return Ok(None),
+        // Not a file of the song's folder (`crate::stills`), or nothing.
+        BgImage::Still | BgImage::Clear | BgImage::Plain => return Ok(None),
     };
     if is_imported_id(&entry.id) {
         let db = Db::open().await?;

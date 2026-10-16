@@ -688,6 +688,14 @@ impl OptionsModel {
                     "Shows how many milliseconds early or late each hit was.",
                 ),
                 choice(
+                    "ghost",
+                    "Ghost of your best",
+                    &["Off", "On"],
+                    s.ghost as usize,
+                    "Shows, under the score, how far ahead of your best play of the chart you are, \
+                     or behind it.",
+                ),
+                choice(
                     "receptor_snap",
                     "Receptor snap",
                     &["Off", "On"],
@@ -1235,6 +1243,7 @@ impl OptionsModel {
             "visual_offset" => s.visual_offset = offset_at(i),
             "volume" => s.volume = slider_to_volume(i as f32 / 100.0),
             "show_deltas" => s.show_deltas = on,
+            "ghost" => s.ghost = on,
             "receptor_snap" => s.receptor_snap = on,
             "note_colors" => s.note_colors = at(&NOTE_COLOURS, i),
             "chart_colors" => s.chart_colors = on,

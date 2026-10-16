@@ -345,6 +345,7 @@ fn sample_best(grade: &str, score: &str, lamp: &str, lamp_text: &str) -> Best {
         lamp_text: lamp_text.into(),
         pending: false,
         plays: 3,
+        play: String::new(),
     }
 }
 
@@ -471,6 +472,7 @@ pub fn results() -> ResultsData {
         panel_set: 0,
         note: "Sample play: the numbers are illustrative.".into(),
         song,
+        kind: Default::default(),
     }
 }
 

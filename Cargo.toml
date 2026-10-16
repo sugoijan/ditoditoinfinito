@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["chart", "engine", "render", "platform", "library", "actor", "ui", "theme", "noteskin", "lua", "session", "web", "desktop", "app", "xtask"]
+members = ["chart", "engine", "render", "platform", "library", "actor", "ui", "theme", "noteskin", "lua", "session", "web", "opus-worker", "desktop", "app", "xtask"]
 # `app` is the game: built for wasm by Trunk (index.html) it starts the
 # web shell, built natively (a bare `cargo run`) the desktop shell.
 default-members = ["app"]
