@@ -181,7 +181,7 @@ impl Component for Options {
             };
             match Library::load().await {
                 Ok(l) => {
-                    let styles = crate::components::song_select::library_styles(&l);
+                    let styles = crate::select_data::library_styles(&l);
                     Msg::Library(
                         l.bundled.into_iter().next(),
                         l.imported.len(),

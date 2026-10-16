@@ -1,7 +1,7 @@
 // The 2D pass (`painter.rs`): each instance is a rectangle of its own
 // space placed on the screen by a 2D affine transform, sampling a
 // rectangle of an image, of a text page's coverage, or nothing, tinted
-// with one colour a corner. Colours and texels are encoded values with
+// with one colour a corner, perhaps smeared along a motion blur. Colours and texels are encoded values with
 // straight alpha, drawn to a plain (non-sRGB) target: blending happens
 // in encoded values, as StepMania and the browser blend
 // (`docs/plans/ui-core.md`, P11).
@@ -43,6 +43,9 @@ struct Instance {
     // saturation (shape2.z). Our extension for the game's theme.
     @location(10) shape: vec4<f32>,
     @location(11) shape2: vec4<f32>,
+    // Bit 6: a motion blur along blur.xy, in the rect's units (our
+    // extension; never in perspective).
+    @location(12) blur: vec4<f32>,
 };
 
 struct VsOut {
@@ -57,6 +60,9 @@ struct VsOut {
     @location(6) @interpolate(flat) shape2: vec4<f32>,
     // Pixels per unit along x and y.
     @location(7) @interpolate(flat) ppu: vec2<f32>,
+    // A motion blur: its vector in the rect's units, and the texture's
+    // fractions per unit along x and y.
+    @location(8) @interpolate(flat) blur: vec4<f32>,
 };
 
 @vertex
@@ -77,6 +83,33 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
         let k = which[vi];
         let w = inst.w[k];
         out.position = vec4<f32>((points[k] * globals.scale + globals.translate) * w, 0.0, w);
+    } else if ((inst.mode & 64u) != 0u) {
+        // Blurred: the rect grows by half the blur each way, the texture's
+        // rectangle with it; what lies outside the quad draws nothing.
+        let size = inst.rect.zw - inst.rect.xy;
+        let grow = abs(inst.blur.xy) * 0.5 * sign(size);
+        let rect = vec4<f32>(inst.rect.xy - grow, inst.rect.zw + grow);
+        var per = vec2<f32>(0.0);
+        if (size.x != 0.0) {
+            per.x = (inst.uv.z - inst.uv.x) / size.x;
+        }
+        if (size.y != 0.0) {
+            per.y = (inst.uv.w - inst.uv.y) / size.y;
+        }
+        let uv = vec4<f32>(inst.uv.xy - grow * per, inst.uv.zw + grow * per);
+        let local = mix(rect.xy, rect.zw, t);
+        let px = inst.origin + inst.axes.xy * local.x + inst.axes.zw * local.y;
+        out.position = vec4<f32>(px * globals.scale + globals.translate, 0.0, 1.0);
+        out.uv = mix(uv.xy, uv.zw, t);
+        out.color = colors[vi];
+        out.mode = inst.mode;
+        out.local = local;
+        out.rect = inst.rect;
+        out.shape = inst.shape;
+        out.shape2 = inst.shape2;
+        out.ppu = vec2<f32>(length(inst.axes.xy), length(inst.axes.zw));
+        out.blur = vec4<f32>(inst.blur.xy, per);
+        return out;
     } else {
         let local = mix(inst.rect.xy, inst.rect.zw, t);
         let px = inst.origin + inst.axes.xy * local.x + inst.axes.zw * local.y;
@@ -90,6 +123,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     out.shape = inst.shape;
     out.shape2 = inst.shape2;
     out.ppu = vec2<f32>(length(inst.axes.xy), length(inst.axes.zw));
+    out.blur = vec4<f32>(0.0);
     return out;
 }
 
@@ -111,9 +145,14 @@ fn inside(d: f32, soft: f32) -> f32 {
 
 // The share of a cut quad's pixel that is drawn.
 fn cut(in: VsOut) -> f32 {
+    return cut_at(in, in.local);
+}
+
+// The share drawn of a cut quad's pixel at `local`.
+fn cut_at(in: VsOut, local: vec2<f32>) -> f32 {
     let ppu = in.ppu;
     let centre = (in.rect.xy + in.rect.zw) * 0.5;
-    let p = (in.local - centre) * ppu;
+    let p = (local - centre) * ppu;
     let soft = max(in.shape.z * ppu.x, in.shape.w * ppu.y);
     let half = abs(in.rect.zw - in.rect.xy) * 0.5 * ppu - vec2<f32>(soft);
     let r = clamp(min(in.shape.x * ppu.x, in.shape.y * ppu.y), 0.0, max(min(half.x, half.y), 0.0));
@@ -127,9 +166,71 @@ fn cut(in: VsOut) -> f32 {
     return a;
 }
 
+// One tap of a motion blur: the quad's colour at `uv` and `local`, as
+// `fs_main` makes it before the saturation, nothing outside the quad.
+fn tap(in: VsOut, uv: vec2<f32>, local: vec2<f32>, lod: f32) -> vec4<f32> {
+    let lo = min(in.rect.xy, in.rect.zw);
+    let hi = max(in.rect.xy, in.rect.zw);
+    if (any(local < lo) || any(local > hi)) {
+        return vec4<f32>(0.0);
+    }
+    var t = textureSampleLevel(image, image_sampler, uv, lod);
+    if ((in.mode & 1u) != 0u) {
+        t = vec4<f32>(1.0, 1.0, 1.0, t.r);
+    }
+    if ((in.mode & 2u) != 0u) {
+        t = vec4<f32>(1.0);
+    }
+    var out = t * in.color;
+    if ((in.mode & 4u) != 0u) {
+        out = vec4<f32>(in.color.rgb, t.a * in.color.a);
+    }
+    if ((in.mode & 16u) != 0u) {
+        out.a = out.a * cut_at(in, local);
+    }
+    return out;
+}
+
+// A motion-blurred pixel: taps along the blur, at most 2 pixels apart
+// (16 at most, their places dithered so long blurs do not band),
+// averaged with their alpha.
+fn blurred(in: VsOut) -> vec4<f32> {
+    let along = in.blur.xy;
+    let pixels = length(along * in.ppu);
+    let n = u32(clamp(ceil(pixels * 0.5), 2.0, 16.0));
+    // Interleaved gradient noise (Jimenez 2014), a tap's fraction.
+    let jitter = fract(52.9829189 * fract(dot(in.position.xy, vec2<f32>(0.06711056, 0.00583715))));
+    // The mipmap a plain sample would pick: texels a pixel.
+    let texels = abs(in.blur.zw) * vec2<f32>(textureDimensions(image, 0)) / max(in.ppu, vec2<f32>(1e-6));
+    let lod = max(log2(max(max(texels.x, texels.y), 1e-6)), 0.0);
+    var sum = vec4<f32>(0.0);
+    for (var i = 0u; i < n; i = i + 1u) {
+        let f = (f32(i) + jitter) / f32(n) - 0.5;
+        let c = tap(in, in.uv + along * in.blur.zw * f, in.local + along * f, lod);
+        sum = sum + vec4<f32>(c.rgb * c.a, c.a);
+    }
+    var out = vec4<f32>(0.0);
+    if (sum.a > 0.0) {
+        out = vec4<f32>(sum.rgb / sum.a, sum.a / f32(n));
+    }
+    if ((in.mode & 32u) != 0u) {
+        let grey = dot(out.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+        out = vec4<f32>(mix(vec3<f32>(grey), out.rgb, in.shape2.z), out.a);
+    }
+    return out;
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let texel = textureSample(image, image_sampler, in.uv);
+    if ((in.mode & 64u) != 0u) {
+        let out = blurred(in);
+        // The alpha test, as below.
+        if (out.a <= 0.00390625) {
+            discard;
+        }
+        return out;
+    }
     var t = texel;
     if ((in.mode & 1u) != 0u) {
         // White text: its coverage is its alpha.

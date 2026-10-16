@@ -536,6 +536,7 @@ fn empty_and_tiny_libraries_take_every_key() {
         meter: 3,
         notes: 100,
         credit: "c".into(),
+        ..Default::default()
     };
     for data in [
         SelectData::default(),
@@ -715,4 +716,676 @@ fn results_ask_the_shell_and_keep_what_they_show() {
     assert_eq!(state.borrow().panels, "Song");
     assert!(h.ui.bounds("Panel.Life").is_some());
     assert!(h.ui.bounds("Panel.Timing").is_none());
+}
+
+// Song select on a shell (step 6.2): what it asks, what it is sent.
+
+use std::cell::RefCell;
+
+use super::data::{
+    Best, ImportReportView, ImportView, Notice, PackEntry, SelectData as Data, SongEntry as Song,
+};
+use super::select::{FEED, Feed, SelectCall, SharedFeed, ShellFn};
+
+type Calls = Rc<RefCell<Vec<SelectCall>>>;
+
+fn shelled(data: Data, start: Option<&str>) -> (Harness, SharedTheme, Calls, SharedFeed) {
+    let env = env();
+    let state = env.state.clone();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    let play: PlayFn = Rc::new(|song, chart, env: &Env, _| {
+        env.state.borrow_mut().status = format!("PLAYED {} {}", song.id, chart.index);
+    });
+    let open: OpenFn = Rc::new(|env: &Env, _| env.state.borrow_mut().status = "OPTIONS".into());
+    let calls: Calls = Rc::default();
+    let c = calls.clone();
+    let shell: ShellFn = Rc::new(move |call, _| c.borrow_mut().push(call));
+    let feed: SharedFeed = Rc::new(RefCell::new(Feed::default()));
+    h.push(SelectScreen::new(env, data, start, play, open).with_shell(shell, feed.clone()));
+    h.run(0.5);
+    (h, state, calls, feed)
+}
+
+/// The sample, with an imported pack of two songs (one greyed in Single).
+fn library() -> Data {
+    let mut d = sample::select();
+    let chart = |style: &str, index: usize| ChartEntry {
+        style: style.into(),
+        difficulty: Difficulty::Hard,
+        meter: 9,
+        notes: 300,
+        credit: "x".into(),
+        index,
+        ..Default::default()
+    };
+    for (id, charts) in [
+        ("u-one", vec![chart("dance-single", 0)]),
+        ("u-two", vec![chart("dance-double", 3)]),
+    ] {
+        d.songs.push(Song {
+            id: id.into(),
+            title: id.into(),
+            artist: "a".into(),
+            pack: "My Pack".into(),
+            bpm: 150.0,
+            bpm_text: "150".into(),
+            length: 90.0,
+            charts,
+            removable: true,
+            ..Default::default()
+        });
+    }
+    d.packs = vec![
+        PackEntry {
+            name: sample::BUNDLED_PACK.into(),
+            ..Default::default()
+        },
+        PackEntry {
+            name: "My Pack".into(),
+            removable: true,
+            rereadable: true,
+        },
+    ];
+    d
+}
+
+fn last_place(calls: &Calls) -> super::select::SelectPlace {
+    calls
+        .borrow()
+        .iter()
+        .rev()
+        .find_map(|c| match c {
+            SelectCall::Place(p) => Some(p.clone()),
+            _ => None,
+        })
+        .expect("a place")
+}
+
+fn last_song(calls: &Calls) -> Option<(Option<String>, bool)> {
+    calls.borrow().iter().rev().find_map(|c| match c {
+        SelectCall::Selected { song, from_pad } => Some((song.clone(), *from_pad)),
+        _ => None,
+    })
+}
+
+#[test]
+fn the_shell_hears_the_song_shown_and_the_place() {
+    let (mut h, _s, calls, _) = shelled(library(), Some("some-things-must"));
+    assert_eq!(
+        last_song(&calls),
+        Some((Some("some-things-must".into()), false))
+    );
+    let p = last_place(&calls);
+    assert_eq!(p.song.as_deref(), Some("some-things-must"));
+    assert_eq!(p.style, "dance-single");
+    assert!(p.chart.is_some());
+    // A key: told in the key's own input (its gesture), not a pad's.
+    let n = calls.borrow().len();
+    h.key("ArrowDown", "ArrowDown");
+    assert!(calls.borrow().len() > n, "told within the key press");
+    assert_eq!(last_song(&calls), Some((Some("sweeteners".into()), false)));
+    // A pad's move says so.
+    h.pad(crate::MenuAction::Up, true);
+    assert_eq!(
+        last_song(&calls),
+        Some((Some("some-things-must".into()), true))
+    );
+    // The style and the packs closed are the place's.
+    tab(&mut h);
+    assert_eq!(last_place(&calls).style, "dance-double");
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert_eq!(
+        last_place(&calls).closed,
+        [sample::BUNDLED_PACK.to_string()]
+    );
+}
+
+#[test]
+fn the_place_comes_back() {
+    let mut d = library();
+    d.closed = vec![sample::BUNDLED_PACK.into()];
+    d.style = Some("dance-double".into());
+    let (_h, s, _, _) = shelled(d, Some("u-two"));
+    let st = s.borrow();
+    assert_eq!(st.song, "u-two");
+    assert_eq!(st.style, "Double");
+    // The start song's pack open; the bundled one kept closed.
+    assert_eq!(st.closed, [sample::BUNDLED_PACK.to_string()]);
+    drop(st);
+    // A search kept.
+    let mut d = library();
+    d.search = "sweet".into();
+    let (_h, s, _, _) = shelled(d, Some("sweeteners"));
+    assert_eq!(s.borrow().search, "sweet");
+    assert_eq!(s.borrow().matches, 1);
+    assert_eq!(s.borrow().song, "Sweeteners");
+    // The chart last started.
+    let env = env();
+    let state = env.state.clone();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    let screen = SelectScreen::new(
+        env,
+        library(),
+        Some("some-things-must"),
+        Rc::new(|_, _, _: &Env, _| {}),
+        Rc::new(|_, _| {}),
+    );
+    let medium = sample::select()
+        .songs
+        .iter()
+        .find(|s| s.id == "some-things-must")
+        .and_then(|s| {
+            s.charts
+                .iter()
+                .find(|c| c.style == "dance-single" && c.difficulty == Difficulty::Medium)
+                .map(|c| c.index)
+        })
+        .unwrap();
+    h.push(screen.with_chart(medium));
+    h.run(0.3);
+    assert_eq!(state.borrow().chart.as_deref(), Some("Medium 10"));
+}
+
+#[test]
+fn bests_show_on_the_ladder_and_the_wheel() {
+    let (mut h, s, _, _) = shelled(library(), Some("some-things-must"));
+    assert_eq!(s.borrow().best.as_deref(), Some("AA 96.12% FullCombo"));
+    h.key("ArrowLeft", "ArrowLeft");
+    h.run(0.2);
+    assert_eq!(
+        s.borrow().best.as_deref(),
+        Some("★★ 99.20% PerfectFullCombo")
+    );
+    h.key("ArrowLeft", "ArrowLeft");
+    h.run(0.2);
+    assert_eq!(s.borrow().best, None);
+    // Pending: marked.
+    let mut d = library();
+    for c in &mut d.songs[2].charts {
+        c.best = Some(Best {
+            grade: "B".into(),
+            score: "80.00%".into(),
+            lamp: "Clear".into(),
+            lamp_text: "CLEAR".into(),
+            pending: true,
+            plays: 1,
+        });
+    }
+    let id = d.songs[2].id.clone();
+    let (_h, s, _, _) = shelled(d, Some(&id));
+    assert!(s.borrow().best.as_deref().unwrap().ends_with("pending"));
+}
+
+#[test]
+fn new_data_keeps_the_song_shown() {
+    let (mut h, s, _, feed) = shelled(library(), Some("sweeteners"));
+    let mut d = library();
+    d.songs.retain(|s| s.id != "into-my-dream");
+    for c in &mut d
+        .songs
+        .iter_mut()
+        .find(|s| s.id == "sweeteners")
+        .unwrap()
+        .charts
+    {
+        c.best = Some(Best {
+            grade: "S".into(),
+            score: "100.00%".into(),
+            lamp: "MarvelousFullCombo".into(),
+            lamp_text: "MFC".into(),
+            ..Default::default()
+        });
+    }
+    feed.borrow_mut().data = Some(d);
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.3);
+    assert_eq!(s.borrow().song, "Sweeteners");
+    assert!(s.borrow().best.as_deref().unwrap().starts_with("S 100.00%"));
+    // The song shown gone: the first one.
+    let mut d = library();
+    d.songs.retain(|s| s.id != "sweeteners");
+    feed.borrow_mut().data = Some(d);
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.3);
+    assert_ne!(s.borrow().song, "Sweeteners");
+    assert!(!s.borrow().song.is_empty());
+}
+
+#[test]
+fn search_says_what_it_found() {
+    let (mut h, s, _, _) = shelled(library(), Some("some-things-must"));
+    h.key("Slash", "/");
+    h.sync("dream", [5, 5], None);
+    h.run(0.2);
+    h.key("Escape", "Escape");
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert_eq!(s.borrow().matches, 1);
+    assert!(
+        s.borrow().hints.iter().any(|t| t == "1 song matches."),
+        "{:?}",
+        s.borrow().hints
+    );
+}
+
+#[test]
+fn links_and_notices_ask_the_shell() {
+    let mut d = library();
+    d.notices = vec![
+        Notice {
+            text: "This site stores about 12 MB in this browser.".into(),
+            link: Some(("keep them".into(), "persist".into())),
+            error: false,
+        },
+        Notice {
+            text: "Controller “X” has no bindings.".into(),
+            link: Some(("bind it in Options".into(), "options".into())),
+            error: false,
+        },
+    ];
+    let (mut h, s, calls, _) = shelled(d, Some("some-things-must"));
+    assert_eq!(s.borrow().notices.len(), 2);
+    assert!(h.texts().iter().any(|t| t.starts_with("This site stores")));
+    h.tap(PointerKind::Mouse, "Notice.Link0");
+    assert!(
+        calls
+            .borrow()
+            .contains(&SelectCall::Notice("persist".into()))
+    );
+    h.tap(PointerKind::Mouse, "Notice.Link1");
+    assert_eq!(s.borrow().status, "OPTIONS");
+    for (link, what) in [
+        ("Link.Calibrate", "calibrate"),
+        ("Link.Credits", "credits"),
+        ("Link.Source", "source"),
+    ] {
+        h.tap(PointerKind::Mouse, link);
+        assert!(
+            calls.borrow().contains(&SelectCall::Open(what.into())),
+            "{link}"
+        );
+    }
+    // The mods open the options.
+    s.borrow_mut().status.clear();
+    h.tap(PointerKind::Mouse, "Mod0");
+    assert_eq!(s.borrow().status, "OPTIONS");
+    // Start plays the chart by its index.
+    h.key("Enter", "Enter");
+    assert!(s.borrow().status.starts_with("PLAYED some-things-must "));
+}
+
+fn top(h: &Harness) -> String {
+    h.ui.layers()
+        .last()
+        .map(|l| l.name.clone())
+        .unwrap_or_default()
+}
+
+#[test]
+fn the_import_dialog_asks_the_shell_and_shows_the_report() {
+    let mut d = library();
+    d.import = ImportView {
+        folders: true,
+        videos: false,
+        ..Default::default()
+    };
+    let (mut h, _s, calls, feed) = shelled(d, Some("some-things-must"));
+    h.tap(PointerKind::Mouse, "Link.Add");
+    h.run(0.3);
+    assert_eq!(top(&h), "import");
+    h.tap(PointerKind::Mouse, "PickFolder");
+    h.tap(PointerKind::Mouse, "PickFiles");
+    h.tap(PointerKind::Mouse, "Option.videos");
+    h.tap(PointerKind::Mouse, "Option.copy");
+    {
+        let c = calls.borrow();
+        assert!(c.contains(&SelectCall::PickFolder));
+        assert!(c.contains(&SelectCall::PickFiles));
+        assert!(c.contains(&SelectCall::ImportOption("videos".into(), true)));
+        assert!(c.contains(&SelectCall::ImportOption("copy".into(), true)));
+    }
+    // Running: the pickers wait.
+    feed.borrow_mut().import = Some(ImportView {
+        running: Some("reading 12 files…".into()),
+        ..Default::default()
+    });
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.3);
+    assert!(h.texts().iter().any(|t| t == "reading 12 files…"));
+    let n = calls.borrow().len();
+    h.tap(PointerKind::Mouse, "PickFiles");
+    assert_eq!(calls.borrow().len(), n, "not while importing");
+    // The report, in a list.
+    feed.borrow_mut().import = Some(ImportView {
+        report: Some(ImportReportView {
+            summary: "Imported 2 songs; 1 warning.".into(),
+            error: false,
+            sections: vec![(
+                "Imported with problems".into(),
+                vec!["Pack/Song: no music".into()],
+            )],
+        }),
+        ..Default::default()
+    });
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.3);
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t == "Imported 2 songs; 1 warning."));
+    assert!(texts.iter().any(|t| t == "Imported with problems"));
+    assert!(texts.iter().any(|t| t == "Pack/Song: no music"));
+    h.tap(PointerKind::Mouse, "Close");
+    h.run(0.3);
+    assert_eq!(top(&h), "select");
+    // Back on the wheel: Enter plays, it does not open the dialog again.
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(top(&h), "select");
+    assert!(
+        _s.borrow().status.starts_with("PLAYED"),
+        "{}",
+        _s.borrow().status
+    );
+}
+
+#[test]
+fn removing_asks_first() {
+    let (mut h, s, calls, _) = shelled(library(), Some("u-one"));
+    assert_eq!(s.borrow().song, "u-one");
+    // A song imported: Manage, then Remove song, confirmed.
+    assert!(h.ui.bounds("Link.Manage").is_some());
+    h.tap(PointerKind::Mouse, "Link.Manage");
+    h.run(0.3);
+    assert_eq!(top(&h), "manage");
+    h.tap(PointerKind::Mouse, "RemoveSong");
+    h.run(0.2);
+    assert!(h.texts().iter().any(|t| t == "Remove “u-one”?"));
+    h.tap(PointerKind::Mouse, "Cancel");
+    h.run(0.2);
+    assert_eq!(top(&h), "manage", "Keep goes back a step");
+    h.tap(PointerKind::Mouse, "RemoveSong");
+    h.tap(PointerKind::Mouse, "Confirm");
+    h.run(0.3);
+    assert!(
+        calls
+            .borrow()
+            .contains(&SelectCall::RemoveSong("u-one".into()))
+    );
+    assert_eq!(top(&h), "select");
+    // The pack, from its header with Delete: read again, or removed.
+    h.key("ArrowUp", "ArrowUp");
+    h.run(0.3);
+    assert_eq!(s.borrow().header.as_deref(), Some("My Pack"));
+    h.key("Delete", "Delete");
+    h.run(0.3);
+    assert_eq!(top(&h), "manage");
+    h.tap(PointerKind::Mouse, "Reread");
+    h.run(0.3);
+    assert!(
+        calls
+            .borrow()
+            .contains(&SelectCall::Reread("My Pack".into()))
+    );
+    h.key("Delete", "Delete");
+    h.run(0.3);
+    h.tap(PointerKind::Mouse, "RemovePack");
+    h.tap(PointerKind::Mouse, "Confirm");
+    h.run(0.3);
+    assert!(
+        calls
+            .borrow()
+            .contains(&SelectCall::RemovePack("My Pack".into()))
+    );
+    // Bundled songs: nothing to manage.
+    let (h, _, _, _) = shelled(library(), Some("some-things-must"));
+    assert!(h.ui.bounds("Link.Manage").is_none());
+}
+
+/// Typing a search on 5,000 songs (`cargo test --release -p ddi-ui
+/// typing_on_a_big_library -- --ignored --nocapture`).
+#[test]
+#[ignore]
+fn typing_on_a_big_library() {
+    let mut d = library();
+    let base = d.songs.clone();
+    let words = [
+        "sakura", "night", "dream", "flower", "star", "rain", "fire", "ocean",
+    ];
+    for i in 0..5000 {
+        let mut s = base[i % base.len()].clone();
+        s.id = format!("big-{i}");
+        s.title = format!("{} {} {i}", words[i % 8], words[(i / 8) % 8]);
+        s.pack = format!("Pack {}", i / 100);
+        d.songs.push(s);
+    }
+    let (mut h, s, _, _) = shelled(d, Some("some-things-must"));
+    h.key("Slash", "/");
+    h.run(0.1);
+    let mut text = String::new();
+    for c in "sakura nig".chars() {
+        text.push(c);
+        let t = std::time::Instant::now();
+        h.sync(&text, [text.len(), text.len()], None);
+        let input = t.elapsed();
+        h.frame(1.0 / 60.0);
+        println!(
+            "{text:12} input {:6.2} ms, +frame {:6.2} ms, {} matches",
+            input.as_secs_f64() * 1000.0,
+            t.elapsed().as_secs_f64() * 1000.0,
+            s.borrow().matches
+        );
+    }
+}
+
+#[test]
+fn transliterations_and_credits_are_searched() {
+    let mut d = library();
+    d.songs.push(Song {
+        id: "u-kakumei".into(),
+        title: "革命".into(),
+        title_translit: "Kakumei".into(),
+        artist: "木星".into(),
+        artist_translit: "Mokusei".into(),
+        credit: "Ponpokolin Steps".into(),
+        pack: "My Pack".into(),
+        bpm: 150.0,
+        bpm_text: "150".into(),
+        length: 90.0,
+        charts: vec![ChartEntry {
+            style: "dance-single".into(),
+            difficulty: Difficulty::Hard,
+            meter: 9,
+            ..Default::default()
+        }],
+        removable: true,
+        ..Default::default()
+    });
+    for q in ["kakumei", "mokusei", "ponpokolin"] {
+        let (mut h, s, _, _) = shelled(d.clone(), Some("some-things-must"));
+        h.key("Slash", "/");
+        h.sync(q, [q.len(), q.len()], None);
+        h.run(0.2);
+        assert_eq!(s.borrow().matches, 1, "{q}");
+        assert_eq!(s.borrow().song, "革命", "{q}");
+    }
+}
+
+#[test]
+fn a_removed_song_gives_way_to_its_neighbour() {
+    let mut d = library();
+    for (i, id) in ["u-three", "u-four"].into_iter().enumerate() {
+        let mut s = d.songs.iter().find(|s| s.id == "u-one").unwrap().clone();
+        s.id = id.into();
+        s.title = id.into();
+        s.pack = if i == 0 {
+            "My Pack".into()
+        } else {
+            "Other".into()
+        };
+        d.songs.push(s);
+    }
+    d.packs.push(PackEntry {
+        name: "Other".into(),
+        removable: true,
+        rereadable: false,
+    });
+    let (mut h, s, _, feed) = shelled(d.clone(), Some("u-two"));
+    assert_eq!(s.borrow().song, "u-two");
+    // u-two removed: u-three takes its place in its pack.
+    let mut d2 = d.clone();
+    d2.songs.retain(|s| s.id != "u-two");
+    feed.borrow_mut().data = Some(d2.clone());
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.3);
+    assert_eq!(s.borrow().song, "u-three");
+    // The whole pack removed: the next pack's first song.
+    let mut d3 = d2.clone();
+    d3.songs.retain(|s| s.pack != "My Pack");
+    d3.packs.retain(|p| p.name != "My Pack");
+    feed.borrow_mut().data = Some(d3);
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.3);
+    assert_eq!(s.borrow().song, "u-four");
+}
+
+#[test]
+fn unreadable_songs_are_removed_only_when_confirmed() {
+    let mut d = library();
+    d.notices = vec![Notice {
+        text: "3 stored songs could not be read.".into(),
+        link: Some(("remove them".into(), "remove-unreadable".into())),
+        error: true,
+    }];
+    let (mut h, _s, calls, _) = shelled(d, Some("some-things-must"));
+    h.tap(PointerKind::Mouse, "Notice.Link0");
+    h.run(0.3);
+    assert_eq!(top(&h), "manage");
+    assert!(
+        !calls
+            .borrow()
+            .iter()
+            .any(|c| matches!(c, SelectCall::Notice(_)))
+    );
+    assert!(
+        h.texts()
+            .iter()
+            .any(|t| t == "Remove 3 stored songs that could not be read?")
+    );
+    h.tap(PointerKind::Mouse, "Confirm");
+    h.run(0.3);
+    assert!(
+        calls
+            .borrow()
+            .contains(&SelectCall::Notice("remove-unreadable".into()))
+    );
+    // The line in full, in a dialog.
+    h.tap(PointerKind::Mouse, "Notice");
+    h.run(0.3);
+    assert_eq!(top(&h), "notices");
+    h.tap(PointerKind::Mouse, "Link0");
+    h.run(0.3);
+    assert_eq!(top(&h), "manage", "its link, as on the line");
+}
+
+#[test]
+fn nothing_is_removed_while_an_import_runs() {
+    let mut d = library();
+    d.import.running = Some("reading 12 files…".into());
+    let (mut h, _s, calls, _) = shelled(d, Some("u-one"));
+    h.key("Delete", "Delete");
+    h.run(0.3);
+    assert_eq!(top(&h), "manage");
+    assert!(h.ui.bounds("RemoveSong").is_none());
+    assert!(h.ui.bounds("RemovePack").is_none());
+    assert!(h.ui.bounds("Reread").is_none());
+    h.tap(PointerKind::Mouse, "Cancel");
+    h.run(0.3);
+    assert_eq!(top(&h), "select");
+    assert!(!calls.borrow().iter().any(|c| matches!(
+        c,
+        SelectCall::RemoveSong(_) | SelectCall::RemovePack(_) | SelectCall::Reread(_)
+    )));
+    // Backspace manages too (a Mac's delete key).
+    h.key("Backspace", "Backspace");
+    h.run(0.3);
+    assert_eq!(top(&h), "manage");
+}
+
+#[test]
+fn files_dropped_open_the_import_dialog() {
+    let (mut h, _s, _, feed) = shelled(library(), Some("some-things-must"));
+    feed.borrow_mut().open_import = true;
+    feed.borrow_mut().import = Some(ImportView {
+        running: Some("reading 3 files…".into()),
+        ..Default::default()
+    });
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.3);
+    assert_eq!(top(&h), "import");
+    assert!(h.texts().iter().any(|t| t == "reading 3 files…"));
+    // Again while it is open: still one.
+    feed.borrow_mut().open_import = true;
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.3);
+    assert_eq!(
+        h.ui.layers().iter().filter(|l| l.name == "import").count(),
+        1
+    );
+}
+
+#[test]
+fn named_charts_go_by_their_names() {
+    let mut d = library();
+    let song = d.songs.iter_mut().find(|s| s.id == "u-one").unwrap();
+    song.charts = vec![
+        ChartEntry {
+            style: "dance-single".into(),
+            difficulty: Difficulty::Edit,
+            meter: 0,
+            name: "Hyper Edit".into(),
+            index: 4,
+            ..Default::default()
+        },
+        ChartEntry {
+            style: "dance-single".into(),
+            difficulty: Difficulty::Hard,
+            meter: 9,
+            index: 1,
+            ..Default::default()
+        },
+        ChartEntry {
+            style: "dance-single".into(),
+            difficulty: Difficulty::Edit,
+            meter: 12,
+            name: "Stamina Edit".into(),
+            index: 5,
+            ..Default::default()
+        },
+    ];
+    let env = env();
+    let state = env.state.clone();
+    let mut h = Harness::new(DESIGN, COMPACT, 1.0, TextMode::Mirror);
+    h.ui.set_design(COMPACT);
+    h.push(SelectScreen::new(
+        env,
+        d.clone(),
+        Some("u-one"),
+        Rc::new(|_, _, _: &Env, _| {}),
+        Rc::new(|_, _| {}),
+    ));
+    h.run(0.5);
+    h.key("ArrowRight", "ArrowRight");
+    h.run(0.3);
+    assert_eq!(state.borrow().chart.as_deref(), Some("Edit 0"));
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t == "PLAY HYPER EDIT"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "Hyper Edit"), "{texts:?}");
+    // A named chart with a meter: its button shows the meter.
+    assert!(texts.iter().any(|t| t == "12"), "{texts:?}");
+    assert!(!texts.iter().any(|t| t == "Stamina Edit"), "{texts:?}");
+    // On the full layout's ladder (the theme counts it on the wheel's
+    // row: `ddi-theme`'s tests).
+    let (h, _, _, _) = shelled(d, Some("u-one"));
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t == "Hyper Edit"), "{texts:?}");
 }

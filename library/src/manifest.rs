@@ -57,6 +57,11 @@ pub struct ManifestEntry {
     pub preview_start: f64,
     #[serde(default)]
     pub preview_length: f64,
+    /// Seconds to the end of the last note of the playable charts (the
+    /// song list's length; the music may run on). 0 in entries from
+    /// before it was kept.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub length: f64,
     /// Playable charts sorted by layout, difficulty and meter; `index` is the
     /// position in `Song::charts`.
     #[serde(default)]
@@ -119,6 +124,11 @@ pub struct ChartInfo {
     /// (filled when the song's chart is next read).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<ddi_chart::ChartDigest>,
+    /// A Dancing☆Onigiri chart's own excessive setting (its headers'
+    /// `excessiveJdgUse`, `excessiveUse`): part of the key its bests are
+    /// kept under. Filled where the engine is at hand (the web import).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excessive: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -202,6 +212,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
             credit: c.credit.clone(),
             notes: c.judged_note_count(),
             digest: Some(song.chart_digest(index)),
+            excessive: None,
         })
         .collect();
     ManifestEntry {
@@ -221,6 +232,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         bpm,
         preview_start: song.preview_start,
         preview_length: song.preview_length,
+        length: song_length(song),
         charts,
         title_translit: [song.title_translit.trim(), song.subtitle_translit.trim()]
             .into_iter()
@@ -229,6 +241,32 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
             .join(" "),
         artist_translit: song.artist_translit.trim().to_string(),
     }
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+
+/// Seconds from the start to the end of the last note (a hold's or a
+/// roll's end) of the song's playable charts.
+pub fn song_length(song: &Song) -> f64 {
+    song.charts
+        .iter()
+        .filter(|c| song.layout_of(c).is_some())
+        .filter_map(|c| {
+            let timing = c.timing.as_ref().unwrap_or(&song.timing);
+            c.notes
+                .iter()
+                .map(|n| match n.kind {
+                    ddi_chart::NoteKind::HoldHead { end }
+                    | ddi_chart::NoteKind::RollHead { end } => end,
+                    _ => n.tick,
+                })
+                .max()
+                .map(|t| timing.seconds_at(t))
+        })
+        .filter(|s| s.is_finite())
+        .fold(0.0, f64::max)
 }
 
 /// Artist shown when the simfile names none (StepMania's wording).
@@ -282,6 +320,7 @@ mod tests {
         assert_eq!(entry.bpm, "120-180");
         assert_eq!(entry.preview_start, 12.5);
         assert_eq!(entry.preview_length, 15.0);
+        assert!(entry.length > 0.0, "{}", entry.length);
         let order: Vec<_> = entry
             .charts
             .iter()
@@ -339,6 +378,7 @@ mod tests {
             bpm: "120".into(),
             preview_start: 1.0,
             preview_length: 2.0,
+            length: 0.0,
             charts: vec![],
             layouts: Vec::new(),
             title_translit: String::new(),

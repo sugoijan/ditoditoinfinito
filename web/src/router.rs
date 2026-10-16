@@ -137,7 +137,12 @@ impl Route {
 
     pub(crate) fn to_hash(&self) -> String {
         match self {
-            Route::Home => "#/".into(),
+            // The testing parameters a page was opened with go on to every
+            // play and back ([`keep_testing`]).
+            Route::Home => match TESTING.with(|t| t.borrow().clone()) {
+                t if t.is_empty() => "#/".into(),
+                t => format!("#/?{t}"),
+            },
             Route::Play {
                 song,
                 chart,
@@ -214,6 +219,7 @@ impl Route {
         let hash = web_sys::window()
             .and_then(|w| w.location().hash().ok())
             .unwrap_or_default();
+        keep_testing(&hash);
         Route::parse(&hash)
     }
 
@@ -222,6 +228,36 @@ impl Route {
             let _ = window.location().set_hash(&self.to_hash());
         }
     }
+}
+
+thread_local! {
+    /// The testing parameters (`gfx`, `auto`, `bias`, `slow`) the page was
+    /// opened with, as written.
+    static TESTING: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+/// The testing parameters a song select or play address carries, kept
+/// for the session: song select passes them to the plays it starts, and
+/// the way back keeps them.
+pub(crate) fn keep_testing(hash: &str) {
+    let Some((path, query)) = hash.trim_start_matches('#').split_once('?') else {
+        return;
+    };
+    if !matches!(path.trim_start_matches('/'), "" | "play") {
+        return;
+    }
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|kv| matches!(kv.split('=').next(), Some("gfx" | "auto" | "bias" | "slow")))
+        .collect();
+    if !kept.is_empty() {
+        TESTING.with(|t| *t.borrow_mut() = kept.join("&"));
+    }
+}
+
+/// The testing parameters kept ([`keep_testing`]), `&`-joined.
+pub(crate) fn testing() -> String {
+    TESTING.with(|t| t.borrow().clone())
 }
 
 fn parse_bias(params: &BTreeMap<&str, String>) -> i64 {

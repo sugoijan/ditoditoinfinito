@@ -895,6 +895,8 @@ async fn import_song(
         },
         &song,
     );
+    // The keys the song list finds its charts' bests by.
+    crate::select_data::fill_chart_keys(&mut entry, &song);
     // serde_json writes a non-finite float as `null`, which would not read
     // back and would hide the song (`#SAMPLESTART:1e999` parses to inf).
     for v in [&mut entry.preview_start, &mut entry.preview_length] {

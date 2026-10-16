@@ -20,10 +20,160 @@
 //!
 //! Taps fire on release whatever the pointer, as a `click` does: a touch
 //! is only a user gesture when it lifts.
+//!
+//! Wheels ([`WheelStream`]) are told apart the same way, by what the
+//! platform says and by size and cadence: a wheel's notches each move a
+//! step, a trackpad's stream of small deltas is followed one for one.
 
 use std::collections::VecDeque;
 
-use crate::event::PointerKind;
+use crate::event::{LINE_PX, PointerKind, WheelEvent, WheelSource};
+
+/// How a wheel event is to move what it scrolls.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WheelKind {
+    /// A notch of a wheel (or a few, by its size): a step each (a row of
+    /// a list).
+    #[default]
+    Notch,
+    /// Part of a trackpad's (or a smooth wheel's) stream: followed one for
+    /// one, as a drag; the stream has ended once none came for
+    /// [`STREAM_GAP`] (the fingers lifted and the platform's momentum
+    /// ran out, or they rest).
+    Precise,
+}
+
+/// A stream of precise wheel events ends after this long without one,
+/// milliseconds. Trackpads send one a frame or more often (macOS 60 to
+/// 120 a second, momentum included); a slow drift of the fingers can
+/// leave 50 to 80 ms between them.
+pub const STREAM_GAP: f64 = 120.0;
+
+/// A pixel delta at least this large starting a stream is a notch:
+/// Chrome on Windows sends 100 a notch (more when scaled), on Linux 53 to
+/// 120, Safari and Firefox 100 or more; a trackpad's first event of a
+/// gesture is a few pixels.
+pub const NOTCH_PIXELS: f32 = 50.0;
+
+/// What macOS makes of a mouse wheel's notch in Chrome and Safari: deltas
+/// in multiples of this (acceleration multiplies it; Mapbox GL tells
+/// wheels from trackpads by it too).
+pub const MAC_NOTCH: f64 = 4.000244140625;
+
+/// The page zooms browsers offer (Chrome's and Firefox's presets): at a
+/// zoom, a pixel delta is the device's divided by it, so a macOS notch
+/// is [`MAC_NOTCH`] over one of these.
+pub const PAGE_ZOOMS: [f64; 24] = [
+    1.0,
+    0.25,
+    0.3,
+    1.0 / 3.0,
+    0.5,
+    2.0 / 3.0,
+    0.67,
+    0.75,
+    0.8,
+    0.9,
+    1.1,
+    1.2,
+    1.25,
+    1.33,
+    4.0 / 3.0,
+    1.5,
+    1.7,
+    1.75,
+    2.0,
+    2.4,
+    2.5,
+    3.0,
+    4.0,
+    5.0,
+];
+
+/// Whether `d` pixels is a whole number of macOS notches at one of the
+/// [`PAGE_ZOOMS`]. Exactly: a trackpad's 4 or 8 pixels are not.
+pub fn is_mac_notch(d: f32) -> bool {
+    d != 0.0
+        && PAGE_ZOOMS.iter().any(|z| {
+            let steps = f64::from(d.abs()) * z / MAC_NOTCH;
+            steps >= 0.5 && (steps - steps.round()).abs() < 1e-5
+        })
+}
+
+/// Tells wheel notches from precise streams ([`WheelKind`]), event by
+/// event:
+///
+/// - winit's `PixelDelta` ([`WheelSource::Precise`]) is precise;
+/// - anything else continues a precise stream while one is open (less
+///   than [`STREAM_GAP`] since its last event: a fast swipe and its
+///   momentum stay one stream, however large their deltas, and so do a
+///   precision touchpad's whole lines among its fractions);
+/// - lines and pages are notches when whole (a line or more), else
+///   precise (fractions of a notch: precision touchpads through winit on
+///   Windows, high-resolution wheels);
+/// - pixels of unknown origin are a notch when a whole number of macOS
+///   notches ([`is_mac_notch`], at any page zoom) or at least
+///   [`NOTCH_PIXELS`], and start a precise stream when smaller. A large
+///   delta soon after a notch that is neither a multiple of it nor a
+///   fraction of it (60 then 90: a fast swipe on a touchpad that starts
+///   large, as Windows' do in Chrome) starts a stream too; a wheel spun
+///   fast repeats its notch, or sends two at once.
+///
+/// What it cannot tell (a mouse whose notches the platform reports as a
+/// few pixels each, as Firefox on macOS may) starts a stream of one or
+/// two small events, which a list counts as a notch when it ends
+/// (`crate::widgets::list`). Wheels with Ctrl or ⌘ held (a trackpad's
+/// pinch, the page's zoom) never come here ([`crate::Ui`] leaves them).
+#[derive(Clone, Debug, Default)]
+pub struct WheelStream {
+    /// The host time of the open stream's last event.
+    last: Option<f64>,
+    /// The last notch: its host time and size.
+    notch: Option<(f64, f32)>,
+}
+
+impl WheelStream {
+    pub fn new() -> WheelStream {
+        WheelStream::default()
+    }
+
+    pub fn classify(&mut self, e: &WheelEvent) -> WheelKind {
+        let recent = |t: f64| e.time - t < STREAM_GAP && e.time >= t;
+        let open = self.last.is_some_and(recent);
+        let d = if e.delta[1] != 0.0 {
+            e.delta[1]
+        } else {
+            e.delta[0]
+        };
+        let kind = match e.source {
+            WheelSource::Precise => WheelKind::Precise,
+            _ if open => WheelKind::Precise,
+            WheelSource::Lines => {
+                let lines = f64::from(d.abs() / LINE_PX);
+                if lines >= 0.99 && (lines - lines.round()).abs() < 0.01 {
+                    WheelKind::Notch
+                } else {
+                    WheelKind::Precise
+                }
+            }
+            WheelSource::Pixels => {
+                // A whole number of the last notch, or a fraction of one.
+                let whole = |r: f32| r >= 0.99 && (r - r.round()).abs() < 0.01;
+                let unlike = self.notch.is_some_and(|(t, n)| {
+                    recent(t) && n > 0.0 && !whole(d.abs() / n) && !whole(n / d.abs())
+                });
+                if is_mac_notch(d) || (d.abs() >= NOTCH_PIXELS && !unlike) {
+                    WheelKind::Notch
+                } else {
+                    WheelKind::Precise
+                }
+            }
+        };
+        self.last = (kind == WheelKind::Precise).then_some(e.time);
+        self.notch = (kind == WheelKind::Notch).then_some((e.time, d.abs()));
+        kind
+    }
+}
 
 /// How far a touch or a pen may wander and still tap, CSS pixels.
 pub const SLOP_TOUCH: f32 = 10.0;
@@ -243,6 +393,85 @@ impl Tracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn wheel(source: WheelSource, dy: f32, time: f64) -> WheelEvent {
+        WheelEvent {
+            pos: [0.0; 2],
+            delta: [0.0, dy],
+            source,
+            modifiers: Default::default(),
+            time,
+        }
+    }
+
+    /// Kinds of `(delta, ms)` events from `source`.
+    fn kinds(source: WheelSource, events: &[(f32, f64)]) -> Vec<WheelKind> {
+        let mut s = WheelStream::new();
+        events
+            .iter()
+            .map(|&(d, t)| s.classify(&wheel(source, d, t)))
+            .collect()
+    }
+
+    #[test]
+    fn wheels_and_trackpads_are_told_apart() {
+        use WheelKind::{Notch, Precise};
+        use WheelSource::{Lines, Pixels};
+        // A slow trackpad drift: small deltas, gaps up to 80 ms.
+        let drift: Vec<(f32, f64)> = (0..20).map(|i| (1.5, f64::from(i) * 70.0)).collect();
+        assert!(kinds(Pixels, &drift).iter().all(|k| *k == Precise));
+        // A fast swipe and its momentum: one stream, large deltas included.
+        let mut swipe = vec![(4.0, 0.0), (30.0, 8.0), (90.0, 16.0), (160.0, 24.0)];
+        swipe.extend((0..60).map(|i| (150.0 * 0.92f32.powi(i), 32.0 + f64::from(i) * 16.0)));
+        assert!(kinds(Pixels, &swipe).iter().all(|k| *k == Precise));
+        // Windows' 100 px notches, however fast; macOS's in Chrome and
+        // Safari (4.000244140625 apiece, accelerated).
+        let notches = [(100.0, 0.0), (100.0, 30.0), (-100.0, 60.0), (100.0, 400.0)];
+        assert!(kinds(Pixels, &notches).iter().all(|k| *k == Notch));
+        let notch = MAC_NOTCH as f32;
+        let mac = [(notch, 0.0), (3.0 * notch, 20.0), (-notch, 300.0)];
+        assert!(kinds(Pixels, &mac).iter().all(|k| *k == Notch));
+        // Firefox's lines (3 a notch) are notches; fractions are precise.
+        assert_eq!(
+            kinds(Lines, &[(120.0, 0.0), (40.0, 10.0), (12.0, 20.0)]),
+            vec![Notch, Notch, Precise]
+        );
+        // A stream ends after its gap: a large delta then is a notch.
+        assert_eq!(
+            kinds(Pixels, &[(3.0, 0.0), (100.0, 100.0), (100.0, 400.0)]),
+            vec![Precise, Precise, Notch]
+        );
+        assert_eq!(kinds(WheelSource::Precise, &[(300.0, 0.0)]), vec![Precise]);
+        // A whole line among a precision touchpad's fractions stays in
+        // its stream.
+        let lines = [(12.0, 0.0), (12.0, 16.0), (40.0, 32.0), (12.0, 48.0)];
+        assert!(kinds(Lines, &lines).iter().all(|k| *k == Precise));
+        // A swipe starting large: its first event a notch, the rest a
+        // stream; a wheel spun fast stays notches (two at once too).
+        let ptp: Vec<(f32, f64)> = [60.0, 90.0, 120.0, 110.0, 90.0, 70.0, 55.0, 30.0, 8.0, 2.0]
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (*d, i as f64 * 16.0))
+            .collect();
+        let got = kinds(Pixels, &ptp);
+        assert_eq!(got[0], Notch);
+        assert!(got[1..].iter().all(|k| *k == Precise), "{got:?}");
+        let spun = [(100.0, 0.0), (200.0, 10.0), (100.0, 20.0), (100.0, 30.0)];
+        assert!(kinds(Pixels, &spun).iter().all(|k| *k == Notch));
+        // macOS's notches at a page zoom of 110 % and 90 %.
+        for z in [1.1, 0.9] {
+            let n = (MAC_NOTCH / z) as f32;
+            assert_eq!(
+                kinds(Pixels, &[(n, 0.0), (3.0 * n, 300.0)]),
+                vec![Notch, Notch],
+                "{z}"
+            );
+        }
+        // A trackpad's small deltas are no macOS notch at any zoom.
+        for d in [1.0f32, 1.5, 2.0, 2.5, 3.0, 4.0, 5.5, 6.0, 8.0, 12.0] {
+            assert!(!is_mac_notch(d), "{d}");
+        }
+    }
 
     fn run(kind: PointerKind, path: &[(f64, [f32; 2])]) -> Vec<Gesture> {
         let mut out = Vec::new();

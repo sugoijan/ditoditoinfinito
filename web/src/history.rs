@@ -552,6 +552,11 @@ pub(crate) fn debug_into(obj: &Object) {
         && !digests.is_empty()
     {
         set(&o, "song", song.as_str().into());
+        let d = Array::new();
+        for x in &digests {
+            d.push(&x.to_string().into());
+        }
+        set(&o, "digests", d.into());
         let mut all: Vec<_> = h.bests_of_charts(&digests).into_iter().collect();
         all.sort_by_key(|(k, _)| (k.digest.to_string(), k.ruleset.id.clone(), k.assist));
         for (k, b) in all {
@@ -573,8 +578,22 @@ pub(crate) fn debug_into(obj: &Object) {
     set(obj, "history", o.into());
 }
 
-/// Writes `__DDI_DEBUG.history` now (pages that do not draw keep it too).
+thread_local! {
+    /// The page shown that follows the history (song select's bests).
+    static WATCHER: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+/// Follows the history's changes (`None`: no more).
+pub(crate) fn watch(watcher: Option<Rc<dyn Fn()>>) {
+    WATCHER.with(|w| *w.borrow_mut() = watcher);
+}
+
+/// Writes `__DDI_DEBUG.history` now (pages that do not draw keep it too),
+/// and tells the page that follows.
 pub(crate) fn publish() {
+    if let Some(w) = WATCHER.with(|w| w.borrow().clone()) {
+        w();
+    }
     let Some(window) = web_sys::window() else {
         return;
     };

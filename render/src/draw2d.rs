@@ -74,6 +74,17 @@ impl Affine {
         let m = self.0;
         m[0] == 1.0 && m[1] == 0.0 && m[2] == 0.0 && m[3] == 1.0
     }
+
+    /// A vector of the target in this transform's own space (its linear
+    /// part undone); `[0, 0]` when it flattens everything.
+    pub fn unapply_vector(&self, [x, y]: [f32; 2]) -> [f32; 2] {
+        let m = self.0;
+        let det = m[0] * m[3] - m[1] * m[2];
+        if det == 0.0 || !det.is_finite() {
+            return [0.0; 2];
+        }
+        [(m[3] * x - m[2] * y) / det, (m[0] * y - m[1] * x) / det]
+    }
 }
 
 /// A rectangle `[left, top, right, bottom]`.
@@ -101,6 +112,10 @@ pub struct Quad {
     /// Rounded corners, a soft edge, an outline, saturation (our
     /// extension; not drawn in perspective).
     pub shape: Shape,
+    /// A motion blur: the quad smeared along this vector, in its rect's
+    /// units, centred (our extension; not drawn in perspective). `[0, 0]`
+    /// draws exactly as before.
+    pub blur: [f32; 2],
 }
 
 /// How a quad is cut and coloured beyond StepMania's (actors'
@@ -178,6 +193,7 @@ impl Quad {
             mask: Mask::None,
             projected: None,
             shape: Shape::NONE,
+            blur: [0.0; 2],
         }
     }
 }
@@ -197,6 +213,9 @@ pub struct TextRun {
     /// the origin, z toward the viewer) in units, a column-major 4×4, and
     /// the camera; `transform` then gives the size it is drawn at.
     pub perspective: Option<([f32; 16], Perspective)>,
+    /// A motion blur along this vector in the run's units, as
+    /// [`Quad::blur`].
+    pub blur: [f32; 2],
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -271,6 +290,7 @@ impl DrawList {
             blend: Blend::Normal,
             mask: Mask::None,
             perspective: None,
+            blur: [0.0; 2],
         }));
     }
 

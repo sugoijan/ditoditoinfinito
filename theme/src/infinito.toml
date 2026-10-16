@@ -53,6 +53,12 @@ numbers_weight = 800
 "Difficulty.Hard" = "#e8584a"
 "Difficulty.Challenge" = "#a979ea"
 "Difficulty.Edit" = "#8f8a94"
+"Lamp.Failed" = "#e8584a"
+"Lamp.Clear" = "#a39c95"
+"Lamp.FullCombo" = "#4ea3f0"
+"Lamp.GreatFullCombo" = "#73f273"
+"Lamp.PerfectFullCombo" = "#ffe659"
+"Lamp.MarvelousFullCombo" = "#8cf2ff"
 # Judgements as the HUD draws them (render/src/scene.rs,
 # `judgement_color`), so results read as play does.
 "Judgement.W1" = "#8cf2ff"
@@ -74,6 +80,7 @@ numbers_weight = 800
 # phones held sideways are 360–430 high, tablets and laptop windows 600
 # and more.
 "Compact.Below" = 480
+"Compact.Narrower" = 600
 "Compact.Width" = 844
 "Compact.Height" = 390
 # Kept clear at the sides of the compact layout (a phone's notch).
@@ -101,6 +108,7 @@ numbers_weight = 800
 "Select.Wheel.Row" = 66
 "Select.Wheel.Selected" = 88
 "Select.Wheel.Gap" = 6
+"Select.Wheel.Inset" = 5
 # The wheel's curve: rows drift right by this × distance², fade by this
 # a row, to no less than the floor.
 "Wheel.Drift" = 5
@@ -129,5 +137,10 @@ numbers_weight = 800
 # long).
 "Motion.Select" = 0.12
 "Motion.Screen" = 0.2
+# Lists moving fast blur their rows along them: by this share of a 60th
+# of a second's travel past this speed (virtual pixels a second); none
+# slower, none at rest or under reduced motion.
+"List.MotionBlur" = 0.5
+"List.MotionBlurFrom" = 600
 "Pulse.Amount" = 0.35
 "Pulse.Decay" = 0.3

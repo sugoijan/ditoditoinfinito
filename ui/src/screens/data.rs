@@ -49,6 +49,123 @@ pub struct ChartEntry {
     pub notes: u32,
     /// Its step artist.
     pub credit: String,
+    /// Its place in the song (the play route's `chart=`).
+    pub index: usize,
+    /// Its name: an Edit's, a Dancing☆Onigiri chart's (they go by it).
+    pub name: String,
+    /// The player's best on it under the rules in effect, if any.
+    pub best: Option<Best>,
+}
+
+impl Default for ChartEntry {
+    fn default() -> ChartEntry {
+        ChartEntry {
+            style: String::new(),
+            difficulty: Difficulty::Beginner,
+            meter: 0,
+            notes: 0,
+            credit: String::new(),
+            index: 0,
+            name: String::new(),
+            best: None,
+        }
+    }
+}
+
+impl ChartEntry {
+    /// Named: an Edit (or a Dancing☆Onigiri chart) with a name, which it
+    /// goes by.
+    pub fn named(&self) -> bool {
+        self.difficulty == Difficulty::Edit && !self.name.trim().is_empty()
+    }
+
+    /// What the ladder calls it: a named chart by its name, else its
+    /// difficulty.
+    pub fn label(&self) -> String {
+        if self.named() {
+            self.name.trim().to_string()
+        } else {
+            difficulty_name(self.difficulty).to_string()
+        }
+    }
+
+    /// Its meter as shown: none for a named chart of meter 0 (as the old
+    /// song list had it).
+    pub fn meter_text(&self) -> String {
+        if self.named() && self.meter == 0 {
+            String::new()
+        } else {
+            self.meter.to_string()
+        }
+    }
+}
+
+/// A best on a chart, as song select shows it (from the play history).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Best {
+    /// The ruleset's grade ("AA", "★★★").
+    pub grade: String,
+    /// As the ruleset scores ("96.77%", "987650").
+    pub score: String,
+    /// Its lamp's name, as colours and commands name it (`Failed`,
+    /// `Clear`, `FullCombo`, `GreatFullCombo`, `PerfectFullCombo`,
+    /// `MarvelousFullCombo`), and how it is written short ("PFC").
+    pub lamp: String,
+    pub lamp_text: String,
+    /// Plays under an older judge wait to be worked out again: the values
+    /// are the old ones.
+    pub pending: bool,
+    pub plays: u32,
+}
+
+/// A pack of the song list and what can be done to it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PackEntry {
+    pub name: String,
+    /// Imported: it can be removed.
+    pub removable: bool,
+    /// Imported from a folder the browser keeps: it can be read again.
+    pub rereadable: bool,
+}
+
+/// A line song select shows over everything (an error, the storage
+/// prompt, a controller without bindings), and what its link does.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Notice {
+    pub text: String,
+    /// The link's label and what it asks the shell
+    /// ([`SelectCall::Notice`]).
+    pub link: Option<(String, String)>,
+    pub error: bool,
+}
+
+/// The import dialog's state: the options, what runs, the last report.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ImportView {
+    /// The browser keeps a chosen folder's handle (Chromium): the copy
+    /// option applies.
+    pub folders: bool,
+    /// Store a chosen folder's songs in the browser.
+    pub copy: bool,
+    /// Also store background videos.
+    pub videos: bool,
+    /// Details for pack authors.
+    pub details: bool,
+    /// What runs now ("reading 120 files…").
+    pub running: Option<String>,
+    /// The last import's report.
+    pub report: Option<ImportReportView>,
+}
+
+/// An import's report, as the dialog shows it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ImportReportView {
+    /// "Imported 12 songs; 2 warnings."
+    pub summary: String,
+    /// Nothing was imported.
+    pub error: bool,
+    /// Titled lists ("Not imported", …), each line "what: why".
+    pub sections: Vec<(String, Vec<String>)>,
 }
 
 /// A song as song select shows it.
@@ -71,6 +188,17 @@ pub struct SongEntry {
     pub background: Option<String>,
     /// Easiest first within a style.
     pub charts: Vec<ChartEntry>,
+    /// Imported: it can be removed.
+    pub removable: bool,
+    /// Its offset (ms), when set.
+    pub offset_ms: i32,
+    /// The title and artist in Latin letters as the simfile spells them
+    /// (`#TITLETRANSLIT`, `#ARTISTTRANSLIT`), searched too.
+    pub title_translit: String,
+    pub artist_translit: String,
+    /// Its credit line (a bundled song's: the artist and the licence),
+    /// shown and searched.
+    pub credit: String,
 }
 
 impl SongEntry {
@@ -86,9 +214,14 @@ impl SongEntry {
         self.background.as_deref().or(self.banner.as_deref())
     }
 
-    /// "2:26".
+    /// "2:26"; "–" while unknown (a song imported before lengths were
+    /// kept, until its chart is read again).
     pub fn length_text(&self) -> String {
-        clock(self.length)
+        if self.length > 0.0 {
+            clock(self.length)
+        } else {
+            "–".into()
+        }
     }
 }
 
@@ -126,6 +259,17 @@ pub struct SelectData {
     /// The difficulty picked at first (the player's last; Hard when
     /// none).
     pub preferred: Option<Difficulty>,
+    /// The packs, in list order, with what can be done to them (packs
+    /// named by songs and missing here can do nothing).
+    pub packs: Vec<PackEntry>,
+    /// Packs closed at first, by name.
+    pub closed: Vec<String>,
+    /// The style shown at first (its id), and the search.
+    pub style: Option<String>,
+    pub search: String,
+    /// Lines over everything.
+    pub notices: Vec<Notice>,
+    pub import: ImportView,
 }
 
 /// A judgement row of results.
@@ -310,7 +454,7 @@ mod tests {
             difficulty: d,
             meter: 1,
             notes: 1,
-            credit: String::new(),
+            ..Default::default()
         }
     }
 

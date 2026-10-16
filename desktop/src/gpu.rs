@@ -3,8 +3,8 @@
 //! cosmic-text's with the bundled faces (the HUD's numbers, the theme's
 //! Iosevka Term) and the system's fonts behind them (P4). Menus are drawn
 //! in encoded values (P11), so the surface's format is a plain one, not
-//! sRGB. Images are decoded when a frame asks for them
-//! ([`crate::images`]); the frame after shows them.
+//! sRGB. Images are decoded on other threads when a frame asks for them
+//! ([`crate::images::Loader`]); a frame after they are in shows them.
 
 use ddi_render::cosmic::CosmicRasterizer;
 use ddi_render::texture_cache::TextureKey;
@@ -87,6 +87,7 @@ pub struct Gpu {
     pub queue: wgpu::Queue,
     pub painter: Painter,
     list: DrawList,
+    images: crate::images::Loader,
 }
 
 impl Gpu {
@@ -98,12 +99,45 @@ impl Gpu {
             queue,
             painter,
             list: DrawList::new(),
+            images: crate::images::Loader::new(),
         }
     }
 
-    /// Draws `ui` into `target` (`size` physical pixels) and submits;
-    /// how many images were loaded for it (shown from the next frame).
-    pub fn draw(&mut self, ui: &mut Ui, target: &wgpu::TextureView, size: [u32; 2]) -> usize {
+    /// Whether images are being decoded.
+    pub fn loading(&self) -> bool {
+        self.images.pending() > 0
+    }
+
+    /// Whether decoded images wait for a frame to show them.
+    pub fn images_ready(&mut self) -> bool {
+        self.images.has_ready()
+    }
+
+    /// Puts the images decoded so far on the device (`wait`: every one
+    /// asked for); how many. What failed keeps its placeholder.
+    fn receive(&mut self, wait: bool) -> usize {
+        let decoded = if wait {
+            self.images.wait()
+        } else {
+            self.images.take()
+        };
+        let n = decoded.len();
+        for (id, image) in decoded {
+            match image {
+                Some((size, rgba)) => {
+                    self.painter
+                        .insert_rgba(&self.device, &self.queue, id, size, &rgba)
+                }
+                None => self.painter.fail_texture(id),
+            }
+        }
+        n
+    }
+
+    /// Draws `ui` into `target` (`size` physical pixels), with the images
+    /// decoded by now, and submits; images it lacks are asked for.
+    pub fn draw(&mut self, ui: &mut Ui, target: &wgpu::TextureView, size: [u32; 2]) {
+        self.receive(false);
         let vp = *ui.viewport();
         let scale = vp.scale;
         let shift = [
@@ -141,22 +175,15 @@ impl Gpu {
         );
         self.queue.submit(Some(encoder.finish()));
         self.painter.submitted();
-        // Images the draw asked for, decoded now (the library on disk comes with
-        // phase 9 and decodes off this thread); what fails keeps its
-        // placeholder.
-        let mut loaded = 0;
+        // Images the draw asked for, decoded off this thread.
+        let limit = self.painter.max_texture_side();
         for (id, key) in self.painter.take_texture_requests() {
-            let side = key.max_side.min(self.painter.max_texture_side());
-            match crate::images::load(&key.source, side) {
-                Some((size, rgba)) => {
-                    self.painter
-                        .insert_rgba(&self.device, &self.queue, id, size, &rgba);
-                    loaded += 1;
-                }
-                None => self.painter.fail_texture(id),
-            }
+            let side = match key.max_side {
+                0 => limit,
+                s => s.min(limit),
+            };
+            self.images.request(id, &key.source, side);
         }
-        loaded
     }
 
     /// Draws `ui` into a texture of `size` and reads it back: RGBA rows.
@@ -181,11 +208,13 @@ impl Gpu {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        // Again while images came in: they show from the frame after.
+        // Again once the images asked for are in.
         for _ in 0..3 {
-            if self.draw(ui, &view, size) == 0 {
+            self.draw(ui, &view, size);
+            if !self.loading() {
                 break;
             }
+            self.receive(true);
             ui.update(0.0);
         }
         let row = size[0] * 4;

@@ -173,6 +173,8 @@ pub struct Ui {
     problems: Problems,
     /// A keyboard key's menu action is being handled ([`Cx::menu_from_keyboard`]).
     menu_key: bool,
+    /// Wheel notches told from trackpad streams.
+    wheel_stream: crate::gesture::WheelStream,
 }
 
 impl Ui {
@@ -206,6 +208,7 @@ impl Ui {
             dirty: true,
             problems: Problems::default(),
             menu_key: false,
+            wheel_stream: Default::default(),
         }
     }
 
@@ -453,6 +456,17 @@ impl Ui {
     pub fn bounds(&self, name: &str) -> Option<[f32; 4]> {
         self.layers.iter().rev().find_map(|l| {
             let path = hit::find(&l.root, name)?;
+            hit::bounds_deep(&l.root, &IDENTITY, &path)
+        })
+    }
+
+    /// Where the part `part` of the actor named `owner` is (the first of
+    /// that name inside it), virtual pixels `[left, top, right, bottom]`.
+    pub fn bounds_of(&self, owner: &str, part: &str) -> Option<[f32; 4]> {
+        self.layers.iter().rev().find_map(|l| {
+            let mut path = hit::find(&l.root, owner)?;
+            let inside = hit::find(hit::actor_at(&l.root, &path)?, part)?;
+            path.extend(inside);
             hit::bounds_deep(&l.root, &IDENTITY, &path)
         })
     }
@@ -1386,11 +1400,26 @@ impl Ui {
     }
 
     fn wheel(&mut self, e: WheelEvent) {
+        // With Ctrl or ⌘ a wheel zooms (a trackpad's pinch is one): the
+        // page's zoom on the web, nothing of ours.
+        if e.modifiers.command() {
+            return;
+        }
+        let kind = self.wheel_stream.classify(&e);
         let pos = self.viewport.to_virtual(e.pos);
         let k = self.virtual_per_css();
         if let Some((layer, target, false)) = self.pick(pos) {
             let delta = [e.delta[0] * k, e.delta[1] * k];
-            self.dispatch(layer, Input::Wheel { target, delta, pos }, false);
+            self.dispatch(
+                layer,
+                Input::Wheel {
+                    target,
+                    delta,
+                    pos,
+                    kind,
+                },
+                false,
+            );
         }
     }
 
@@ -1469,6 +1498,7 @@ fn quad(m: &Affine, r: [f32; 4], color: [f32; 4]) -> Drawn {
         projected: None,
         shape: ddi_actor::Shape::PLAIN,
         size: [1.0; 2],
+        blur: [0.0; 2],
     })
 }
 

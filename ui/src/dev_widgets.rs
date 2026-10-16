@@ -59,6 +59,8 @@ pub struct WidgetState {
     pub pool: usize,
     pub style: usize,
     pub speed: usize,
+    /// The list's motion blur now, virtual pixels.
+    pub blur: f32,
     pub panels: usize,
     pub reverse: bool,
     pub volume: f32,
@@ -357,6 +359,7 @@ impl WidgetScreen {
         let mut s = self.state.borrow_mut();
         s.selected = self.list.selected().unwrap_or(0);
         s.scroll = self.list.scroll() as f32;
+        s.blur = self.list.blur();
         s.items = self.list.len();
         s.pool = self.list.pool();
         s.style = self.style.index;

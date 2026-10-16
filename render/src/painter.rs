@@ -60,6 +60,8 @@ const PROJECTED: u32 = 8;
 const CUT: u32 = 16;
 /// Its colour's saturation changed (`shape2`'s z).
 const SATURATION: u32 = 32;
+/// Smeared along `blur` (a motion blur).
+const BLUR: u32 = 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -82,13 +84,15 @@ struct Instance {
     shape: [f32; 4],
     /// The outline's thickness per axis; the saturation.
     shape2: [f32; 4],
+    /// With [`BLUR`]: the blur's vector in the rectangle's units.
+    blur: [f32; 4],
 }
 
-const _: () = assert!(std::mem::size_of::<Instance>() == 128);
+const _: () = assert!(std::mem::size_of::<Instance>() == 144);
 
 impl Instance {
     /// By the fields' offsets (`_pad` keeps `rect` 16-byte aligned).
-    const ATTRIBUTES: [wgpu::VertexAttribute; 12] = {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 13] = {
         const fn a(
             shader_location: u32,
             format: wgpu::VertexFormat,
@@ -114,6 +118,7 @@ impl Instance {
             a(9, Float32x4, 80),
             a(10, Float32x4, 96),
             a(11, Float32x4, 112),
+            a(12, Float32x4, 128),
         ]
     };
 }
@@ -134,7 +139,8 @@ fn pack(c: [f32; 4]) -> u32 {
     b(c[0]) | b(c[1]) << 8 | b(c[2]) << 16 | b(c[3]) << 24
 }
 
-/// A texture of the cache on the device.
+/// A texture of the cache on the device, with its mipmaps (filled at the
+/// next draw).
 pub struct Image {
     texture: wgpu::Texture,
     group: wgpu::BindGroup,
@@ -354,6 +360,7 @@ struct Gpu {
     instances: InstanceBuffers,
     pages: Vec<Option<Page>>,
     max_side: u32,
+    mipmaps: crate::mipmaps::Mipmaps,
 }
 
 impl Gpu {
@@ -415,10 +422,13 @@ impl Gpu {
             bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
+        // Images have mipmaps (drawn smaller than decoded, as a banner
+        // kept large is in a row); text pages do not.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("ddi-painter-sampler"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         let white = texture(
@@ -426,6 +436,7 @@ impl Gpu {
             [1, 1],
             wgpu::TextureFormat::Rgba8Unorm,
             "ddi-painter-blank",
+            1,
         );
         queue.write_texture(
             white.as_image_copy(),
@@ -460,6 +471,7 @@ impl Gpu {
             ),
             pages: Vec::new(),
             max_side: device.limits().max_texture_dimension_2d,
+            mipmaps: crate::mipmaps::Mipmaps::new(device),
         }
     }
 }
@@ -512,6 +524,7 @@ fn texture(
     [width, height]: [u32; 2],
     format: wgpu::TextureFormat,
     label: &str,
+    levels: u32,
 ) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some(label),
@@ -520,7 +533,7 @@ fn texture(
             height: height.max(1),
             depth_or_array_layers: 1,
         },
-        mip_level_count: 1,
+        mip_level_count: levels,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format,
@@ -586,6 +599,7 @@ impl PageSink for Sink<'_> {
             [PAGE, PAGE],
             wgpu::TextureFormat::R8Unorm,
             "ddi-text-page",
+            1,
         );
         let group = bind(self.device, &self.gpu.texture_layout, &self.gpu.sampler, &t);
         if self.gpu.pages.len() <= page {
@@ -619,6 +633,8 @@ pub struct Painter {
     text: RunCache,
     raster: Option<Box<dyn RunRasterizer>>,
     fonts_version: u64,
+    /// Images whose mipmaps the next draw fills.
+    unmipped: Vec<TextureId>,
     /// The last frame's, kept for their allocations.
     instances: Vec<Instance>,
     steps: Vec<Step>,
@@ -640,6 +656,7 @@ impl Painter {
             text: RunCache::new(PAGE, TEXT_BUDGET),
             raster: None,
             fonts_version: 0,
+            unmipped: Vec::new(),
             instances: Vec::new(),
             steps: Vec::new(),
             last: (0, 0, 0),
@@ -661,6 +678,7 @@ impl Painter {
         format: wgpu::TextureFormat,
     ) {
         self.textures.unload_all();
+        self.unmipped.clear();
         self.text.reset();
         self.drawing = false;
         self.format = format;
@@ -697,7 +715,8 @@ impl Painter {
     }
 
     /// Makes texture `id`, `size` pixels of encoded RGBA, and has `fill`
-    /// write it (the platform's copy of a decoded image).
+    /// write its first level through the queue (the platform's copy of a
+    /// decoded image); the next draw fills its mipmaps.
     pub fn insert_texture(
         &mut self,
         device: &wgpu::Device,
@@ -705,18 +724,25 @@ impl Painter {
         size: [u32; 2],
         fill: impl FnOnce(&wgpu::Texture),
     ) {
+        let levels = crate::mipmaps::levels(size[0], size[1]);
         let t = texture(
             device,
             size,
             wgpu::TextureFormat::Rgba8Unorm,
             "ddi-painter-image",
+            levels,
         );
         fill(&t);
         let group = bind(device, &self.gpu.texture_layout, &self.gpu.sampler, &t);
+        // The mipmaps add a third.
         let bytes = u64::from(size[0].max(1)) * u64::from(size[1].max(1)) * 4;
-        for freed in self.textures.insert(id, Image { texture: t, group }, bytes) {
-            freed.texture.destroy();
+        let bytes = if levels > 1 { bytes * 4 / 3 } else { bytes };
+        if levels > 1 {
+            self.unmipped.push(id);
         }
+        // What it replaces or the budget evicts is dropped, not destroyed
+        // (a draw recorded and not submitted may sample it).
+        drop(self.textures.insert(id, Image { texture: t, group }, bytes));
     }
 
     /// [`Painter::insert_texture`] from encoded RGBA rows.
@@ -819,6 +845,7 @@ impl Painter {
             raster,
             instances,
             steps,
+            unmipped,
             ..
         } = self;
         instances.clear();
@@ -855,6 +882,7 @@ impl Painter {
                 w: [1.0; 4],
                 shape: [0.0; 4],
                 shape2: NO_SHAPE2,
+                blur: [0.0; 4],
             }
         };
         for command in &list.commands {
@@ -893,11 +921,14 @@ impl Painter {
                     };
                     let (bind, mode, colors) = match q.texture {
                         None => (Bind::Blank, UNTEXTURED, q.colors),
-                        Some(id) if textures.get(id).is_some() => (Bind::Image(id), 0, q.colors),
-                        Some(_) => {
-                            let [r, g, b] = PLACEHOLDER;
-                            (Bind::Blank, UNTEXTURED, q.colors.map(|c| [r, g, b, c[3]]))
-                        }
+                        // Its own size, or another of the same source.
+                        Some(id) => match textures.resolve(id) {
+                            Some(drawn) => (Bind::Image(drawn), 0, q.colors),
+                            None => {
+                                let [r, g, b] = PLACEHOLDER;
+                                (Bind::Blank, UNTEXTURED, q.colors.map(|c| [r, g, b, c[3]]))
+                            }
+                        },
                     };
                     let mode = mode | if q.glow { GLOW } else { 0 };
                     let instance = match &q.projected {
@@ -914,6 +945,7 @@ impl Painter {
                                 w: p.w,
                                 shape: [0.0; 4],
                                 shape2: NO_SHAPE2,
+                                blur: [0.0; 4],
                             }
                         }
                         None => {
@@ -921,7 +953,8 @@ impl Painter {
                             let sh = &q.shape;
                             let mode = mode
                                 | if sh.is_cut() { CUT } else { 0 }
-                                | if sh.saturation != 1.0 { SATURATION } else { 0 };
+                                | if sh.saturation != 1.0 { SATURATION } else { 0 }
+                                | if q.blur != [0.0; 2] { BLUR } else { 0 };
                             Instance {
                                 axes,
                                 origin,
@@ -933,6 +966,7 @@ impl Painter {
                                 w: [1.0; 4],
                                 shape: [sh.radius[0], sh.radius[1], sh.soft[0], sh.soft[1]],
                                 shape2: [sh.outline[0], sh.outline[1], sh.saturation, 0.0],
+                                blur: [q.blur[0], q.blur[1], 0.0, 0.0],
                             }
                         }
                     };
@@ -968,21 +1002,37 @@ impl Painter {
                     let x0 = -placed.pen[0] / r;
                     let y0 = baseline - placed.pen[1] / r;
                     let cell_rect = [x0, y0, x0 + w / r, y0 + h / r];
-                    let (axes, origin, rect, extra, ws) = if let Some(view) = &t.perspective {
+                    let blurred = t.blur != [0.0; 2];
+                    let (axes, origin, rect, extra, ws, blur) = if let Some(view) = &t.perspective {
                         let Some((top, bottom, ws)) = project_rect(view, cell_rect, s) else {
                             continue;
                         };
-                        (top, [0.0; 2], bottom, PROJECTED, ws)
+                        (top, [0.0; 2], bottom, PROJECTED, ws, [0.0; 2])
                     } else if one_for_one {
                         // The page's texels one for one: the pen on a
-                        // whole pixel.
+                        // whole pixel; the blur in pixels.
                         let pen = t.transform.apply([0.0, baseline]);
                         let x = (pen[0] * s).round() - placed.pen[0];
                         let y = (pen[1] * s).round() - placed.pen[1];
-                        ([1.0, 0.0, 0.0, 1.0], [x, y], [0.0, 0.0, w, h], 0, [1.0; 4])
+                        let k = zoom * s;
+                        (
+                            [1.0, 0.0, 0.0, 1.0],
+                            [x, y],
+                            [0.0, 0.0, w, h],
+                            if blurred { BLUR } else { 0 },
+                            [1.0; 4],
+                            [t.blur[0] * k, t.blur[1] * k],
+                        )
                     } else {
                         let (axes, origin) = linear(m);
-                        (axes, origin, cell_rect, 0, [1.0; 4])
+                        (
+                            axes,
+                            origin,
+                            cell_rect,
+                            if blurred { BLUR } else { 0 },
+                            [1.0; 4],
+                            t.blur,
+                        )
                     };
                     let p = PAGE as f32;
                     add(
@@ -1009,6 +1059,7 @@ impl Painter {
                         w: ws,
                         shape: [0.0; 4],
                         shape2: NO_SHAPE2,
+                        blur: [blur[0], blur[1], 0.0, 0.0],
                     });
                 }
             }
@@ -1023,8 +1074,20 @@ impl Painter {
             text.flush(&mut sink);
             text.trim(PAGE_TRIM_FRAMES, &mut sink);
         }
-        for freed in textures.evict() {
-            freed.texture.destroy();
+        // Dropped, not destroyed: what this frame's encoder (or one not
+        // submitted yet) uses stays alive until done with.
+        drop(textures.evict());
+        // Images loaded since, and still kept: their mipmaps, recorded
+        // before the passes that sample them.
+        for id in unmipped.drain(..) {
+            if let Some(image) = textures.peek(id) {
+                gpu.mipmaps.record(
+                    device,
+                    encoder,
+                    &image.texture,
+                    wgpu::TextureFormat::Rgba8Unorm,
+                );
+            }
         }
         gpu.instances
             .upload(device, queue, bytemuck::cast_slice(instances));

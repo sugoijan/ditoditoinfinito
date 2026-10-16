@@ -49,6 +49,9 @@ pub struct Infinito {
     /// and the screens agree (kept in tests only).
     #[cfg(test)]
     used: RefCell<BTreeSet<String>>,
+    /// How open the song wheel's room for its selected row is
+    /// ([`Look::set_wheel_open`]).
+    wheel_open: std::cell::Cell<f32>,
 }
 
 /// A colour as command arguments.
@@ -73,6 +76,7 @@ impl Infinito {
                 .collect(),
             #[cfg(test)]
             used: RefCell::default(),
+            wheel_open: std::cell::Cell::new(1.0),
         }
     }
 
@@ -153,6 +157,27 @@ impl Default for Infinito {
 }
 
 // Building blocks. Positions are of a top-left origin unless `centred`.
+
+/// The lamps, worst first, as `ddi_ui::state::history::Lamp` names them.
+const LAMPS: [&str; 6] = [
+    "Failed",
+    "Clear",
+    "FullCombo",
+    "GreatFullCombo",
+    "PerfectFullCombo",
+    "MarvelousFullCombo",
+];
+
+/// How far in from the list's left edge the wheel's rows are drawn: the
+/// selected row's pulse (5 out) starts at the edge.
+pub const ROW_INSET: f32 = 5.0;
+
+/// A row's actors moved [`ROW_INSET`] right, inside an unnamed frame
+/// (the list places that one).
+fn inset(mut a: Actor) -> Actor {
+    call(&mut a, "x", &[ROW_INSET]);
+    frame("", vec![a])
+}
 
 fn frame(name: &str, children: Vec<Actor>) -> Actor {
     named(Kind::Frame(children), name)
@@ -298,9 +323,11 @@ impl Infinito {
         f
     }
 
-    /// The song wheel's row (`h` ≥ 56) or the compact list's.
+    /// The song wheel's row (`h` ≥ 56) or the compact list's, drawn
+    /// [`ROW_INSET`] in from the left so the selected row's ring and
+    /// pulse lie within the list (which clips at its edges).
     fn song_row(&self, spec: &Spec) -> Actor {
-        let [w, h] = spec.size;
+        let [w, h] = [spec.size[0] - ROW_INSET, spec.size[1]];
         let compact = h < 56.0;
         let gap = self.m("Select.Wheel.Gap");
         let row = if compact {
@@ -394,7 +421,7 @@ impl Infinito {
         let cells = if compact {
             0.0
         } else {
-            5.0 * 26.0 + 4.0 * 4.0 + 28.0
+            5.0 * 26.0 + 4.0 * 4.0 + 28.0 + 24.0
         };
         max_width(&mut title, w - tx - cells - 8.0);
         max_width(&mut sub, w - tx - cells - 8.0);
@@ -516,11 +543,26 @@ impl Infinito {
                     x,
                     cy,
                 );
-                let mut both = frame(&format!("Meters{k}"), vec![cell, meter]);
+                // The best's lamp, a line under the cell.
+                let mut lamp = round(
+                    quad(&format!("Lamp{k}"), [18.0, 3.0], self.c("Lamp.Clear")),
+                    1.5,
+                );
+                call(&mut lamp, "xy", &[x, cy + 16.0]);
+                self.lamp_commands(&mut lamp);
+                let mut both = frame(&format!("Meters{k}"), vec![cell, meter, lamp]);
                 command_of(&mut both, "Unavailable", "diffusealpha,0");
                 command_of(&mut both, "Available", "diffusealpha,1");
                 right.push(both);
             }
+        }
+        // Edits and named charts, counted, left of the meters.
+        if !compact {
+            let x = w - 14.0 - 5.0 * 26.0 - 4.0 * 4.0 - 8.0;
+            let mut edits = at_right(self.num("Edits", "", 12.0, "Difficulty.Edit"), x, cy);
+            command_of(&mut edits, "Unavailable", "diffusealpha,0");
+            command_of(&mut edits, "Available", "diffusealpha,1");
+            right.push(edits);
         }
         let mut none = at_right(self.text("NoCharts", "", 12.0, 400, "Faint"), w - 14.0, cy);
         hide(&mut none);
@@ -541,14 +583,14 @@ impl Infinito {
                 &format!("stoptweening;decelerate,{t};y,0"),
             );
         }
-        frame(
+        inset(frame(
             "",
             vec![shadow, pulse, ring, p, back, banner, title, sub, right],
-        )
+        ))
     }
 
     fn song_header(&self, spec: &Spec) -> Actor {
-        let [w, h] = spec.size;
+        let [w, h] = [spec.size[0] - ROW_INSET, spec.size[1]];
         let compact = h < 56.0;
         let gap = self.m("Select.Wheel.Gap");
         let row = if compact {
@@ -625,7 +667,7 @@ impl Infinito {
                 command_of(a, "Deselect", &format!("stoptweening;decelerate,{t};y,0"));
             }
         }
-        frame("", vec![ring, p, line, middle, right])
+        inset(frame("", vec![ring, p, line, middle, right]))
     }
 
     /// The selected song: banner, titles, BPM, length and pack (narrow:
@@ -671,7 +713,11 @@ impl Infinito {
             max_width(&mut sub, w * 0.2);
             let ay = bh + 12.0 + 35.2 + 2.0 + 10.2;
             let mut artist = at_left(self.text("Artist", "", 17.0, 400, "Secondary"), 0.0, ay);
-            max_width(&mut artist, w);
+            max_width(&mut artist, w * 0.5);
+            // The credit line (a bundled song's artist and licence), at
+            // the right of the artist's.
+            let mut credit = at_right(self.text("Credit", "", 12.0, 400, "Muted"), w, ay + 2.0);
+            max_width(&mut credit, w * 0.48);
             let sy = ay + 10.2 + 12.0 + 12.0;
             c.extend([
                 title,
@@ -696,9 +742,12 @@ impl Infinito {
                 ),
                 {
                     let mut p = at_left(self.text("Pack", "", 14.0, 600, "Text"), 274.0, sy + 1.0);
-                    max_width(&mut p, w - 274.0);
+                    max_width(&mut p, w - 274.0 - 120.0);
                     p
                 },
+                // The song's own offset, when set.
+                at_right(self.text("Offset", "", 13.0, 600, "Accent"), w, sy + 1.0),
+                credit,
             ]);
         }
         frame("", c)
@@ -799,7 +848,8 @@ impl Infinito {
             18.0 + 120.0,
             h / 2.0,
         );
-        max_width(&mut notes, w - 138.0 - 60.0);
+        // Room for the best (grade, score, lamp) and the meter.
+        max_width(&mut notes, w - 138.0 - 60.0 - 150.0);
         let mut meter = at_right(
             self.num("Meter", "", if h < 40.0 { 24.0 } else { 28.0 }, &color),
             w - 14.0,
@@ -810,7 +860,61 @@ impl Infinito {
             command_of(&mut bar, d, &format!("diffuse,{c}"));
             command_of(&mut meter, d, &format!("diffuse,{c}"));
         }
-        frame("", vec![pulse, ring, p, bar, label, notes, meter])
+        let small = h < 40.0;
+        let grade = at_right(
+            self.num("Grade", "", if small { 15.0 } else { 17.0 }, "Text"),
+            w - 64.0,
+            if small { h / 2.0 } else { h / 2.0 - 7.0 },
+        );
+        let mut score = at_right(
+            self.text("Score", "", 11.0, 400, "Muted"),
+            w - 64.0,
+            h / 2.0 + 10.0,
+        );
+        if small {
+            hide(&mut score);
+        }
+        let mut lamp_text = at_right(
+            tracked(self.text("LampText", "", 11.0, 700, "Muted"), 80),
+            w - 64.0 - 70.0,
+            h / 2.0,
+        );
+        self.lamp_commands_text(&mut lamp_text);
+        let mut lamp = round(
+            plate(
+                "Lamp",
+                [w - 4.0, 6.0],
+                [3.0, h - 12.0],
+                self.c("Lamp.Clear"),
+            ),
+            1.5,
+        );
+        self.lamp_commands(&mut lamp);
+        frame(
+            "",
+            vec![
+                pulse, ring, p, bar, label, notes, lamp_text, grade, score, lamp, meter,
+            ],
+        )
+    }
+
+    /// `Lamp.<name>` commands: the lamp's colour, or hidden for none.
+    fn lamp_commands(&self, a: &mut Actor) {
+        hide(a);
+        command_of(a, "Lamp.None", "diffusealpha,0");
+        for name in LAMPS {
+            let c = rgba(self.c(&format!("Lamp.{name}")));
+            command_of(a, &format!("Lamp.{name}"), &format!("diffuse,{c}"));
+        }
+    }
+
+    /// The same for a lamp's text (shown in its colour).
+    fn lamp_commands_text(&self, a: &mut Actor) {
+        command_of(a, "Lamp.None", "diffusealpha,0");
+        for name in LAMPS {
+            let c = rgba(self.c(&format!("Lamp.{name}")));
+            command_of(a, &format!("Lamp.{name}"), &format!("diffuse,{c}"));
+        }
     }
 
     fn ladder_empty(&self, spec: &Spec) -> Actor {
@@ -875,7 +979,20 @@ impl Infinito {
             command_of(&mut top, d, &format!("diffuse,{c}"));
             command_of(&mut meter, d, &format!("diffuse,{c}"));
         }
-        frame("", vec![pulse, ring, p, top, meter, extent(spec.size)])
+        let mut lamp = round(
+            plate(
+                "Lamp",
+                [-w / 2.0 + 8.0, h / 2.0 - 6.0],
+                [w - 16.0, 3.0],
+                self.c("Lamp.Clear"),
+            ),
+            1.5,
+        );
+        self.lamp_commands(&mut lamp);
+        frame(
+            "",
+            vec![pulse, ring, p, top, meter, lamp, extent(spec.size)],
+        )
     }
 
     fn key_hint(&self, spec: &Spec) -> Actor {
@@ -1192,6 +1309,10 @@ impl Look for Infinito {
                 );
                 if let Kind::Frame(c) = &mut f.kind {
                     c.retain(|a| a.name != "Choices");
+                    // The whole row takes a tap, not only its ends: a hit
+                    // area must be drawn, however faintly.
+                    let hit = quad("Hit", spec.size, [0.0, 0.0, 0.0, 0.004]);
+                    c.insert(0, hit);
                     c.extend([bx, mark]);
                 }
                 f
@@ -1228,6 +1349,24 @@ impl Look for Infinito {
                 r
             }
             "List.Header" => self.song_header(&Spec::new([w, h.min(55.0)], "")),
+            // The import report's lines: text alone, no banner box.
+            "Report.Row" => {
+                let mut t = at_left(
+                    self.text("Title", "", 13.0, 400, "Secondary"),
+                    12.0,
+                    h / 2.0,
+                );
+                max_width(&mut t, w - 24.0);
+                frame("", vec![t, at(extent(spec.size), w / 2.0, h / 2.0)])
+            }
+            "Report.Header" => {
+                let t = at_left(
+                    tracked(self.text("Title", "", 12.0, 700, "Muted"), 100),
+                    4.0,
+                    h / 2.0 + 4.0,
+                );
+                frame("", vec![t, at(extent(spec.size), w / 2.0, h / 2.0)])
+            }
             "List.Bar" | "SongList.Bar" => {
                 let mut track = round(quad("Track", spec.size, self.c("Track")), w / 2.0);
                 call(&mut track, "valign", &[0.0]);
@@ -1384,6 +1523,10 @@ impl Look for Infinito {
     /// The wheel of layout A: the selected row taller on its line, the
     /// others `Wheel.Drift`·d² to the right and fading by `Wheel.Fade` a
     /// row; rows past the selected one moved down by the room it takes.
+    fn set_wheel_open(&self, _list: &str, open: f32) {
+        self.wheel_open.set(open.clamp(0.0, 1.0));
+    }
+
     fn wheel(&self, _list: &str, d: f32) -> Option<WheelPlace> {
         let pitch = self.m("Select.Wheel.Row");
         let big = self.m("Select.Wheel.Selected");
@@ -1392,7 +1535,9 @@ impl Look for Infinito {
         // next one a gap below its bottom.
         let above = pitch / 2.0 - big / 2.0;
         let below = big / 2.0 + gap - pitch / 2.0;
-        let y = above + (below - above) * d.clamp(0.0, 1.0);
+        // Closed while the list flicks past rows: no room on the line
+        // for a selected row that is elsewhere.
+        let y = (above + (below - above) * d.clamp(0.0, 1.0)) * self.wheel_open.get();
         Some(WheelPlace {
             x: self.m("Wheel.Drift") * d * d,
             y,

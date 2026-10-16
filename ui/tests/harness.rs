@@ -669,6 +669,27 @@ fn wheel_lines_become_virtual_pixels_on_the_target() {
         logged(&log, "menu: wheel"),
         vec!["menu: wheel Row2 60", "menu: wheel List -20"]
     );
+    // With Ctrl or ⌘ (a trackpad's pinch) it zooms the page: not ours.
+    for modifiers in [
+        ddi_ui::Modifiers {
+            ctrl: true,
+            ..Default::default()
+        },
+        ddi_ui::Modifiers {
+            meta: true,
+            ..Default::default()
+        },
+    ] {
+        let pos = h.css([540.0, 200.0]);
+        h.send(UiEvent::Wheel(ddi_ui::event::WheelEvent {
+            pos,
+            delta: [0.0, 3.0],
+            source: ddi_ui::event::WheelSource::Pixels,
+            modifiers,
+            time: h.now,
+        }));
+    }
+    assert_eq!(logged(&log, "menu: wheel").len(), 2);
 }
 
 #[test]

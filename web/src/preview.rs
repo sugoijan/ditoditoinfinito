@@ -1,6 +1,7 @@
 //! Song previews, played through Web Audio like gameplay: `<audio>` cannot
 //! play Ogg in Safari, while `decodeAudioData` (with the wasm fallback) can.
-//! Used by the song list and by the volume sample in the options.
+//! Used by the volume sample in the options (song select's previews are
+//! `crate::select_preview`).
 //!
 //! [`Preview::start`] must run inside the click handler itself: it creates
 //! the audio context, and Safari only lets a page start audio synchronously
@@ -19,8 +20,6 @@ const DEFAULT_LENGTH: f64 = 12.0;
 const MAX_LENGTH: f64 = 30.0;
 
 pub(crate) struct Preview {
-    /// Song id.
-    pub(crate) id: String,
     entry: ManifestEntry,
     audio: WebAudio,
     /// Fires the end callback after the preview's length.
@@ -33,7 +32,6 @@ impl Preview {
         let audio = WebAudio::new()?;
         audio.resume_now();
         Ok(Preview {
-            id: entry.id.clone(),
             entry: entry.clone(),
             audio,
             timer: None,

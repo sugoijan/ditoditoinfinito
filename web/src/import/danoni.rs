@@ -407,6 +407,8 @@ async fn store_song(
         },
         song,
     );
+    // The keys the song list finds its charts' bests by.
+    crate::select_data::fill_chart_keys(&mut entry, song);
     entry.preview_start = 0.0;
     entry.preview_length = 0.0;
     entry.layer_images = layers.iter().map(|(name, _)| name.clone()).collect();
