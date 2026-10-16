@@ -69,12 +69,32 @@ pub struct Artwork {
 }
 
 /// Explicit font bytes only. No system-font discovery or external href loader.
+pub const PORTABLE_LATIN: &[u8] = include_bytes!("../fonts/IosevkaTerm-Regular-latin.ttf");
+pub const PORTABLE_JAPANESE: &[u8] = include_bytes!("../fonts/NotoSansCJKjp-Regular.otf");
+/// Immutable assets used by the portable renderer and runtime package inventory.
+pub fn portable_fonts() -> Value {
+    json!({"policy":"iosevka-term-noto-cjk-jp/1", "fonts":[
+        {"path":"fonts/IosevkaTerm-Regular-latin.ttf", "sha256":sha256(PORTABLE_LATIN), "license":"OFL-1.1", "family":"Iosevka Term"},
+        {"path":"fonts/NotoSansCJKjp-Regular.otf", "sha256":sha256(PORTABLE_JAPANESE), "license":"OFL-1.1", "family":"Noto Sans CJK JP"}
+    ], "systemFonts":false, "shaping":"usvg 0.48.1 / rustybuzz", "missingGlyphs":"reject"})
+}
+
 pub struct TitleRenderer {
     options: resvg::usvg::Options<'static>,
     family: String,
     pub font_sha256: String,
 }
 impl TitleRenderer {
+    /// Latin face reused byte-for-byte from main, with a packaged Japanese face.
+    /// usvg shapes runs and resolves missing characters within this database only.
+    pub fn portable() -> Result<Self> {
+        let mut renderer = Self::new(PORTABLE_LATIN)?;
+        renderer
+            .options
+            .fontdb_mut()
+            .load_font_data(PORTABLE_JAPANESE.to_vec());
+        Ok(renderer)
+    }
     pub fn new(font: &[u8]) -> Result<Self> {
         if font.is_empty() || font.len() > 32 * 1024 * 1024 {
             return Err(invalid("Font exceeds 32 MiB or is empty"));
@@ -216,7 +236,28 @@ impl TitleRenderer {
             &mut pixmap.as_mut(),
         );
         let png = pixmap.encode_png().map_err(|e| invalid(&e.to_string()))?;
-        let proof = json!({"title":title,"artist":artist,"role":role.name(),"dimensions":[w,h],"typography":{"lines":lines,"size":size},"pngSha256":sha256(&png),"svgSha256":sha256(svg.as_bytes())});
+        let mut glyph_fonts = BTreeMap::<String, usize>::new();
+        fn collect(
+            group: &resvg::usvg::Group,
+            tree: &resvg::usvg::Tree,
+            fonts: &mut BTreeMap<String, usize>,
+        ) {
+            for node in group.children() {
+                match node {
+                    resvg::usvg::Node::Group(g) => collect(g, tree, fonts),
+                    resvg::usvg::Node::Text(t) => {
+                        for glyph in t.layouted().iter().flat_map(|s| &s.positioned_glyphs) {
+                            if let Some(face) = tree.fontdb().face(glyph.font) {
+                                *fonts.entry(face.families[0].0.clone()).or_default() += 1;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        collect(tree.root(), &tree, &mut glyph_fonts);
+        let proof = json!({"glyphFonts":glyph_fonts,"title":title,"artist":artist,"role":role.name(),"dimensions":[w,h],"typography":{"lines":lines,"size":size},"pngSha256":sha256(&png),"svgSha256":sha256(svg.as_bytes())});
         Ok((svg.into_bytes(), png, proof))
     }
 }
@@ -260,6 +301,36 @@ fn check_bounds(group: &resvg::usvg::Group, width: u32, height: u32) -> Result<(
     Ok(())
 }
 pub fn title_cards<S: AssetSource>(request: &TitleRequest, source: &S) -> Result<Artwork> {
+    let mut inputs = assets::Inputs::new(source);
+    let font = inputs.checked(&request.font, 32 * 1024 * 1024)?;
+    let renderer = TitleRenderer::new(&font)?;
+    render_cards(request, &renderer, false)
+}
+/// Portable generated artwork; no host fonts or font filesystem paths required.
+pub fn portable_title_cards(
+    title: &str,
+    artist: &str,
+    source_hash: &str,
+    roles: Vec<Role>,
+) -> Result<Artwork> {
+    let request = TitleRequest {
+        title: title.into(),
+        artist: artist.into(),
+        source_manifest_sha256: source_hash.into(),
+        font: Binding {
+            namespace: "portable".into(),
+            path: "IosevkaTerm-Regular-latin.ttf".into(),
+            sha256: sha256(PORTABLE_LATIN),
+        },
+        roles,
+    };
+    render_cards(&request, &TitleRenderer::portable()?, true)
+}
+fn render_cards(
+    request: &TitleRequest,
+    renderer: &TitleRenderer,
+    portable: bool,
+) -> Result<Artwork> {
     if request.source_manifest_sha256.len() != 64
         || !request
             .source_manifest_sha256
@@ -268,9 +339,6 @@ pub fn title_cards<S: AssetSource>(request: &TitleRequest, source: &S) -> Result
     {
         return Err(invalid("Need lowercase source manifest SHA-256"));
     }
-    let mut inputs = assets::Inputs::new(source);
-    let font = inputs.checked(&request.font, 32 * 1024 * 1024)?;
-    let renderer = TitleRenderer::new(&font)?;
     if request.roles.is_empty()
         || request.roles.len() > 3
         || request
@@ -300,7 +368,7 @@ pub fn title_cards<S: AssetSource>(request: &TitleRequest, source: &S) -> Result
         });
         records.push(proof);
     }
-    let manifest = json!({"schema":"ddi-artwork-study/experimental-1","template":"plain-title-rust/1","sourceManifestSha256":request.source_manifest_sha256,"fontSha256":renderer.font_sha256,"fontFamily":renderer.family,"renderer":"resvg 0.48.1 / tiny-skia 0.12.0","fontDistributed":false,"originalAssetsUsed":false,"networkRequests":0,"records":records});
+    let manifest = json!({"schema":"ddi-artwork-study/experimental-1","template":"plain-title-rust/1","sourceManifestSha256":request.source_manifest_sha256,"fontSha256":renderer.font_sha256,"fontFamily":renderer.family,"renderer":"resvg 0.48.1 / tiny-skia 0.12.0","fontDistributed":portable,"portableFonts":if portable {portable_fonts()}else{Value::Null},"originalAssetsUsed":false,"networkRequests":0,"records":records});
     Ok(Artwork { files, manifest })
 }
 

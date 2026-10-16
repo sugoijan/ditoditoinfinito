@@ -176,3 +176,69 @@ fn zip_is_deterministic_and_contains_only_requested_paths() {
     bad[0].path = "../escape".into();
     assert!(ddi_danoni_export::package::write_zip(Cursor::new(Vec::new()), &bad).is_err());
 }
+
+#[test]
+fn portable_fonts_shape_real_japanese_mixed_titles_and_reject_missing_glyphs() {
+    let latin = TitleRenderer::new(PORTABLE_LATIN).unwrap();
+    let portable = TitleRenderer::portable().unwrap();
+    for title in [
+        "灼冬赫夜",
+        "ふしぎなひかり",
+        "上海紅茶館 ～ Chinese Tea",
+        "メイドと血の懐中時計",
+        "Crow / 桃源郷",
+        "北風と太陽",
+        "か\u{3099} / ガ / g",
+    ] {
+        assert!(
+            latin.card(title, "", Role::Banner).is_err(),
+            "Latin subset unexpectedly covers {title}"
+        );
+        let (_, png, _) = portable
+            .card(title, "上海アリス幻樂団 / ZUN", Role::Banner)
+            .unwrap();
+        assert_eq!(image::load_from_memory(&png).unwrap().width(), 640);
+        let art = portable_title_cards(
+            title,
+            "上海アリス幻樂団 / ZUN",
+            &"a".repeat(64),
+            vec![Role::Banner],
+        )
+        .unwrap();
+        assert_eq!(art.manifest["portableFonts"]["systemFonts"], false);
+        assert_eq!(art.manifest["fontDistributed"], true);
+        let fonts = art.manifest["records"][0]["glyphFonts"]
+            .as_object()
+            .unwrap();
+        assert!(fonts.contains_key("Noto Sans CJK JP"));
+    }
+    assert_eq!(
+        portable.card("が", "", Role::Banner).unwrap().1,
+        portable.card("か\u{3099}", "", Role::Banner).unwrap().1,
+        "Canonical Japanese combining sequence should shape to the same pixels"
+    );
+    let (_, _, latin_proof) = portable
+        .card("Crow / Maid - March", "ZUN", Role::Banner)
+        .unwrap();
+    assert!(
+        latin_proof["glyphFonts"]
+            .as_object()
+            .unwrap()
+            .contains_key("Iosevka Term")
+    );
+    assert_eq!(
+        portable
+            .card("Unknown \u{10FFFF}", "", Role::Banner)
+            .unwrap_err()
+            .code,
+        "missing-font-glyph"
+    );
+    assert_eq!(
+        sha256(PORTABLE_LATIN),
+        "4aa11ea11626ffe18bb66800f1ee5225fbcbcd49c05f6bb9833fea8a9a941c5d"
+    );
+    assert_eq!(
+        sha256(PORTABLE_JAPANESE),
+        "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5"
+    );
+}

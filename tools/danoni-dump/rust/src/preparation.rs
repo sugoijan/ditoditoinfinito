@@ -16,6 +16,8 @@ fn invalid(message: impl Into<String>) -> Error {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct Options {
+    /// Generate banners using the packaged Latin/Japanese fonts when no override is supplied.
+    pub portable_artwork: bool,
     pub codec: Codec,
     pub quality: f32,
     pub work: WorkOptions,
@@ -23,6 +25,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
+            portable_artwork: false,
             codec: Codec::Ogg,
             quality: 0.5,
             work: WorkOptions::default(),
@@ -257,7 +260,7 @@ pub fn prepare(
         None
     };
     let mut art_charts = serde_json::Map::new();
-    if let Some(font) = &request.font {
+    if request.font.is_some() || request.options.portable_artwork {
         for (i, hash) in music.keys().enumerate() {
             event(Stage::Artwork, i, music.len())?;
             let group = entries
@@ -276,16 +279,25 @@ pub fn prepare(
                 .get("artist")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            let art = artwork::title_cards(
-                &artwork::TitleRequest {
-                    title: title.into(),
-                    artist: artist.into(),
-                    source_manifest_sha256: request.manifest.sha256.clone(),
-                    font: font.clone(),
-                    roles: vec![artwork::Role::Banner],
-                },
-                &session,
-            )?;
+            let art = if let Some(font) = &request.font {
+                artwork::title_cards(
+                    &artwork::TitleRequest {
+                        title: title.into(),
+                        artist: artist.into(),
+                        source_manifest_sha256: request.manifest.sha256.clone(),
+                        font: font.clone(),
+                        roles: vec![artwork::Role::Banner],
+                    },
+                    &session,
+                )?
+            } else {
+                artwork::portable_title_cards(
+                    title,
+                    artist,
+                    &request.manifest.sha256,
+                    vec![artwork::Role::Banner],
+                )?
+            };
             let prefix = format!("artwork/{hash}");
             let banner = art.files.iter().find(|f| f.path == "banner.png").unwrap();
             let banner_binding =
@@ -331,7 +343,7 @@ pub fn prepare(
         "sourceManifestSha256":request.manifest.sha256,"tempo":tempo,
         "musicalQuality":"provisional; mathematical endpoint checks are not musical acceptance",
         "motionPolicy":"source-bound observed default motion; user speed multiplier remains multiplicative",
-        "artworkPolicy":if request.font.is_some(){"generated plain title"}else{"absent; no host font supplied"},
+        "artworkPolicy":if request.font.is_some(){"generated plain title; explicit font"}else if request.options.portable_artwork {"generated plain title; packaged Latin/Japanese fonts"}else{"absent; no host font supplied"},
         "ratingPolicy":"source stars only; unknown stays Edit/0","libraryInstalled":false});
     let bytes = Arc::new(serde_json::to_vec_pretty(&report).map_err(|e| invalid(e.to_string()))?);
     result.files.push(Artifact {
@@ -348,4 +360,43 @@ pub fn prepare(
     );
     event(Stage::Complete, 1, 1)?;
     Ok(result)
+}
+
+/// Native CLI adapter for repeating fitting/export from bound normalized inputs.
+/// This does not execute source scripts or take over URL acquisition.
+#[cfg(feature = "native")]
+pub fn execute_job(job: &std::path::Path, output: &std::path::Path) -> Result<Value> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Job {
+        schema: String,
+        roots: BTreeMap<String, std::path::PathBuf>,
+        request: Request,
+    }
+    let job = job.canonicalize().map_err(crate::native::io)?;
+    let parent = job.parent().unwrap();
+    let source = crate::native::DirectorySource::new(BTreeMap::from([(
+        "job".into(),
+        parent.to_path_buf(),
+    )]))?;
+    let body = source.read(
+        "job",
+        job.file_name()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| invalid("Job filename"))?,
+        JSON_LIMIT,
+    )?;
+    let job: Job = crate::assets::json(&body)?;
+    if job.schema != "ddi-danoni-fresh-preparation-job/1" {
+        return Err(invalid("Unsupported fresh preparation schema"));
+    }
+    let source = crate::native::DirectorySource::new(
+        job.roots
+            .into_iter()
+            .map(|(k, p)| (k, if p.is_absolute() { p } else { parent.join(p) }))
+            .collect(),
+    )?;
+    let result = prepare(&job.request, &source, &mut |_| Ok(()))?;
+    crate::native::write_prepared(&result, output, &mut |_| Ok(()))?;
+    Ok(result.manifest)
 }

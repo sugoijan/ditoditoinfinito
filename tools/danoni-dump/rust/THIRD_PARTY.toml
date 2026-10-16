@@ -1,0 +1,18 @@
+# Tooling-only notices; these assets are not compiled into the main game.
+[[asset]]
+name = "Iosevka Term 34.9.0"
+files = ["fonts/IosevkaTerm-Regular-latin.ttf"]
+spdx = "OFL-1.1"
+holders = "Renzhi Li (aka. Belleve Invis)"
+source = "https://github.com/be5invis/Iosevka/releases/tag/v34.9.0"
+notice = "fonts/Iosevka-LICENSE.txt"
+provenance = "fonts/PROVENANCE.toml"
+
+[[asset]]
+name = "Noto Sans CJK JP 2.004"
+files = ["fonts/NotoSansCJKjp-Regular.otf"]
+spdx = "OFL-1.1"
+holders = "Adobe; Noto contributors"
+source = "https://github.com/notofonts/noto-cjk/tree/523d033d6cb47f4a80c58a35753646f5c3608a78"
+notice = "fonts/Noto-LICENSE.txt"
+provenance = "fonts/PROVENANCE.toml"
