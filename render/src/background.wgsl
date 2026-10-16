@@ -7,7 +7,8 @@ struct Params {
     // Texture coordinates: uv = uv_offset + screen01 * uv_scale.
     uv_scale: vec2<f32>,
     uv_offset: vec2<f32>,
-    // Brightness multiplier, in the target's colour space.
+    // Brightness multiplier, applied to the encoded values (on a linear
+    // target too: encoded, multiplied, decoded).
     brightness: f32,
     // Opacity, for crossfades.
     alpha: f32,
@@ -17,9 +18,22 @@ struct Params {
     kb: f32,
     full_range: f32,
     linear_out: f32,
+    // The field filter's band: left and right edges (target pixels) and
+    // the brightness kept inside it, applied as the brightness is.
+    band: vec2<f32>,
+    band_keep: f32,
+    _pad0: f32,
     _pad1: f32,
     _pad2: f32,
 };
+
+// The brightness at a pixel of the target: dimmed further in the band.
+fn dim_at(x: f32) -> f32 {
+    if (x >= params.band.x && x < params.band.y) {
+        return params.brightness * params.band_keep;
+    }
+    return params.brightness;
+}
 
 @group(0) @binding(0) var<uniform> params: Params;
 // The image, or a movie frame's Y plane.
@@ -50,13 +64,24 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureSample(image, image_sampler, in.uv);
-    return vec4<f32>(c.rgb * params.brightness, params.alpha);
+    let b = dim_at(in.position.x);
+    if (params.linear_out > 0.5) {
+        // Sampled as linear light from an sRGB texture.
+        return vec4<f32>(srgb_to_linear(linear_to_srgb(c.rgb) * b), params.alpha);
+    }
+    return vec4<f32>(c.rgb * b, params.alpha);
 }
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     let low = c / 12.92;
     let high = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
     return select(high, low, c <= vec3<f32>(0.04045));
+}
+
+fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
+    let low = c * 12.92;
+    let high = 1.055 * pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.4)) - 0.055;
+    return select(high, low, c <= vec3<f32>(0.0031308));
 }
 
 @fragment
@@ -80,11 +105,11 @@ fn fs_yuv(in: VsOut) -> @location(0) vec4<f32> {
     let r = luma + 2.0 * (1.0 - params.kr) * cr;
     let b = luma + 2.0 * (1.0 - params.kb) * cb;
     let g = (luma - params.kr * r - params.kb * b) / (1.0 - params.kr - params.kb);
-    var rgb = clamp(vec3<f32>(r, g, b), vec3<f32>(0.0), vec3<f32>(1.0));
-    // Video carries gamma-encoded RGB; an sRGB target blends in linear
-    // light, like image textures sampled from sRGB.
+    var rgb = clamp(vec3<f32>(r, g, b), vec3<f32>(0.0), vec3<f32>(1.0)) * dim_at(in.position.x);
+    // Video carries gamma-encoded RGB (dimmed as encoded); an sRGB target
+    // blends in linear light, like image textures sampled from sRGB.
     if (params.linear_out > 0.5) {
         rgb = srgb_to_linear(rgb);
     }
-    return vec4<f32>(rgb * params.brightness, params.alpha);
+    return vec4<f32>(rgb, params.alpha);
 }

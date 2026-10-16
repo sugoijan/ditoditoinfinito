@@ -31,6 +31,12 @@ pub enum UiEvent {
     /// `visibilitychange`, winit's `Focused(false)`): losing it releases
     /// held input and cancels pointer captures (P3).
     Focus(bool),
+    /// A controller's press or release as it is, for a screen that binds
+    /// controls ([`crate::Screen::raw_input`]): while one is shown the
+    /// shell sends a controller's edges this way instead of as
+    /// [`UiEvent::Menu`] ([`crate::Ui::wants_raw`]). Keys stay
+    /// [`UiEvent::Key`]: the UI hands them on raw itself.
+    Raw(ddi_platform::RawInput),
     /// The surface's size in CSS pixels and the device pixel ratio
     /// (winit's scale factor), at start and whenever either changes.
     Resize {

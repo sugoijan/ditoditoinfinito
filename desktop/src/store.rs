@@ -9,26 +9,10 @@ use std::rc::Rc;
 
 use ddi_platform::storage::{self, Area, MemoryStore, Store};
 
-/// `storage.json` in the configuration folder: `~/Library/Application
-/// Support/DitoDitoInfinito` on macOS, `%APPDATA%\DitoDitoInfinito` on
-/// Windows, `$XDG_CONFIG_HOME/ditoditoinfinito` (or `~/.config/…`)
-/// elsewhere.
+/// `storage.json` in the configuration folder ([`crate::paths`]:
+/// `$DDI_HOME/config` for a run that is not the player's).
 pub fn default_path() -> Option<PathBuf> {
-    let env = |k: &str| {
-        std::env::var_os(k)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
-    let dir = if cfg!(target_os = "macos") {
-        env("HOME")?.join("Library/Application Support/DitoDitoInfinito")
-    } else if cfg!(windows) {
-        env("APPDATA")?.join("DitoDitoInfinito")
-    } else {
-        env("XDG_CONFIG_HOME")
-            .or_else(|| env("HOME").map(|h| h.join(".config")))?
-            .join("ditoditoinfinito")
-    };
-    Some(dir.join("storage.json"))
+    Some(crate::paths::config_dir()?.join("storage.json"))
 }
 
 /// Local values in a file, written whole on every change.

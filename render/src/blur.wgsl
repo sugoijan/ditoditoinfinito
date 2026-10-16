@@ -7,10 +7,27 @@
 struct Blur {
     // One texel along the blur's direction (unused by the composite).
     step: vec2<f32>,
-    // The composite's brightness multiplier.
+    // The composite's brightness multiplier, applied to encoded values.
     brightness: f32,
-    _pad: f32,
+    // 1: the target holds linear light (encode, multiply, decode).
+    linear: f32,
+    // The field filter's band (target pixels) and what it keeps.
+    band: vec2<f32>,
+    band_keep: f32,
+    pad: f32,
 };
+
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let low = c / 12.92;
+    let high = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    return select(high, low, c <= vec3<f32>(0.04045));
+}
+
+fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
+    let low = c * 12.92;
+    let high = 1.055 * pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.4)) - 0.055;
+    return select(high, low, c <= vec3<f32>(0.0031308));
+}
 
 @group(0) @binding(0) var<uniform> blur: Blur;
 @group(0) @binding(1) var source: texture_2d<f32>;
@@ -48,5 +65,14 @@ fn fs_blur(in: VsOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureSampleLevel(source, source_sampler, in.uv, 0.0);
-    return vec4<f32>(c.rgb * blur.brightness, c.a);
+    var b = blur.brightness;
+    if (in.position.x >= blur.band.x && in.position.x < blur.band.y) {
+        b = b * blur.band_keep;
+    }
+    if (blur.linear > 0.5 && c.a > 0.0) {
+        // Premultiplied: the colour itself is dimmed, as encoded.
+        let rgb = srgb_to_linear(linear_to_srgb(c.rgb / c.a) * b);
+        return vec4<f32>(rgb * c.a, c.a);
+    }
+    return vec4<f32>(c.rgb * b, c.a);
 }

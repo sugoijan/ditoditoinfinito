@@ -121,6 +121,138 @@ impl VideoDecoder for MovieDecoder {
     }
 }
 
+/// Why [`frame_at`] has no frame.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum GrabError {
+    /// The movie cannot be decoded (or not in time).
+    Failed(String),
+    /// The decoder itself is not there now (the module did not load, the
+    /// worker stopped): worth trying again later.
+    Unavailable(String),
+}
+
+/// How long [`frame_at`] waits for a frame once the decoder is ready, ms
+/// (then it gives up for now: a busy machine, tried again later).
+const GRAB_WAIT_MS: f64 = 20_000.0;
+
+/// A looping movie's frame is taken at once when its duration puts the
+/// position this far before the end; otherwise its end is learned first.
+const LOOP_MARGIN: f64 = 1.0;
+
+/// How long [`frame_at`] keeps a frame while waiting to learn whether a
+/// looping movie of unknown length ends before the position, ms.
+const END_WAIT_MS: f64 = 2000.0;
+
+/// The frame movie `blob` shows at `position` (movie seconds) when its
+/// change starts, decoded as a play would draw it: through the browser's
+/// decoder or the module, chosen as play chooses, and picked by a
+/// [`MovieTrack`] (the first frame of the run as soon as it arrives). For
+/// the song's opening still (`crate::stills`). A looping movie's end is
+/// learned first when the position may be past it, so the frame is the
+/// one at the wrapped position (StepMania's 0.5 s loop restart), as play
+/// shows it. `worker` is kept for the next call (an import takes several;
+/// it is the play's own worker when one runs, `VideoWorker::shared`).
+pub(crate) async fn frame_at(
+    blob: &Blob,
+    name: &str,
+    format: &VideoFormat,
+    position: f64,
+    looping: bool,
+    worker: &mut Option<VideoWorker>,
+) -> Result<VideoFrame, GrabError> {
+    let now = || {
+        web_sys::window()
+            .and_then(|w| w.performance())
+            .map_or(0.0, |p| p.now())
+    };
+    let mut browser = webcodecs::may_play(format);
+    loop {
+        let backend = if browser && webcodecs::available() {
+            Backend::Browser(WebCodecsVideo::open(blob.clone()))
+        } else {
+            if worker
+                .as_ref()
+                .is_some_and(|w| matches!(w.status(), ModuleStatus::Failed(_)))
+            {
+                *worker = None;
+            }
+            let w = match worker {
+                Some(w) => w,
+                None => worker.insert(VideoWorker::shared().map_err(GrabError::Unavailable)?),
+            };
+            Backend::Module(w.open(blob.clone(), name, format))
+        };
+        let module = matches!(backend, Backend::Module(_));
+        let mut decoder = MovieDecoder {
+            backend,
+            fallback: None,
+        };
+        let mut track = MovieTrack::new(looping, AHEAD, None);
+        track.start(&mut decoder, position);
+        let mut since = now();
+        // A looping movie: its end, once learned, and its duration.
+        let mut end: Option<f64> = None;
+        let mut duration: Option<f64> = None;
+        let mut held: Option<(VideoFrame, f64)> = None;
+        loop {
+            let frame = track.update(&mut decoder, position);
+            if !looping || end.is_some() {
+                if let Some(frame) = frame {
+                    return Ok(frame);
+                }
+            } else {
+                duration = duration.or(track.info().and_then(|i| i.duration));
+                if let Some(e) = track.end() {
+                    // The end is known: the position wraps from here.
+                    end = Some(e);
+                    track = MovieTrack::new(looping, AHEAD, end);
+                    track.start(&mut decoder, position);
+                    held = None;
+                    continue;
+                }
+                let within = duration.is_some_and(|d| position + LOOP_MARGIN < d);
+                if let Some(frame) = frame {
+                    if within {
+                        return Ok(frame);
+                    }
+                    held = Some((frame, now()));
+                }
+                // The length is not known and no end came: the position
+                // was within the movie.
+                if held
+                    .as_ref()
+                    .is_some_and(|(_, at)| now() - at > END_WAIT_MS)
+                {
+                    return Ok(held.take().expect("checked").0);
+                }
+            }
+            let status = worker.as_ref().filter(|_| module).map(VideoWorker::status);
+            if let Some(ModuleStatus::Failed(e)) = status {
+                return Err(GrabError::Unavailable(e));
+            }
+            if let Some(e) = track.error() {
+                return Err(GrabError::Failed(e.to_string()));
+            }
+            if decoder.fallback.is_some() {
+                // The module takes over, as in play.
+                browser = false;
+                break;
+            }
+            // The wait counts once the module is there.
+            if matches!(
+                status,
+                Some(ModuleStatus::Idle | ModuleStatus::Loading { .. })
+            ) {
+                since = now();
+            }
+            if now() - since > GRAB_WAIT_MS {
+                return Err(GrabError::Unavailable("no frame came in time".into()));
+            }
+            gloo::timers::future::TimeoutFuture::new(10).await;
+        }
+    }
+}
+
 struct Open {
     /// The schedule segment it plays.
     segment: usize,
@@ -184,6 +316,9 @@ pub(crate) struct MovieDeck {
     shown_any: bool,
     /// Turned off for the rest of this play by the automatic setting.
     off: Option<StopReason>,
+    /// Paused by the automatic setting's trial: nothing decodes or goes
+    /// up, the frame shown stays.
+    paused: bool,
     /// Movies that failed this play, for the results (`failed` is cleared
     /// when the song ends).
     trouble: Vec<(String, String)>,
@@ -244,7 +379,7 @@ impl MovieDeck {
     /// there is none.
     fn worker(&mut self) -> Result<&mut VideoWorker, String> {
         if self.worker.is_none() {
-            let worker = VideoWorker::new()?;
+            let worker = VideoWorker::shared()?;
             worker.preload();
             self.worker = Some(worker);
         }
@@ -341,8 +476,9 @@ impl MovieDeck {
             .then_some(current)
     }
 
-    /// Stops every movie for the rest of this play (the song background
-    /// shows); a retry plays them again.
+    /// Stops every movie for the rest of this play: the song's own
+    /// background shows (not the opening still, [`MovieDeck::opening_plays`]);
+    /// a retry plays them again.
     pub(crate) fn turn_off(&mut self, reason: StopReason) {
         if self.off.is_some() {
             return;
@@ -351,6 +487,7 @@ impl MovieDeck {
             &format!("background videos turned off for this play: {reason:?}").into(),
         );
         self.off = Some(reason);
+        self.paused = false;
         for open in std::mem::take(&mut self.open) {
             self.close(open);
         }
@@ -358,6 +495,49 @@ impl MovieDeck {
             texture.fresh = false;
         }
         self.version += 1;
+    }
+
+    /// Pauses every movie (the automatic setting's trial: does the display
+    /// keep up without them?): decoders close, the frames shown stay.
+    pub(crate) fn pause(&mut self) {
+        if self.paused || self.off.is_some() {
+            return;
+        }
+        web_sys::console::info_1(
+            &"background videos paused: does the display keep up without them?".into(),
+        );
+        self.paused = true;
+        for open in std::mem::take(&mut self.open) {
+            self.close(open);
+        }
+    }
+
+    /// Paused by the automatic setting's trial.
+    pub(crate) fn paused(&self) -> bool {
+        self.paused
+    }
+
+    /// Plays on after a trial: the movies open again where they stand.
+    pub(crate) fn resume(&mut self) {
+        if self.paused {
+            web_sys::console::info_1(
+                &"background videos play on: the display fell behind without them too".into(),
+            );
+        }
+        self.paused = false;
+    }
+
+    /// Whether the song's opening movie (schedule segment 1) is expected to
+    /// play this play: the opening still stands in for it until its first
+    /// frame only then; off, failed or turned off, the song background
+    /// shows, as StepMania would.
+    pub(crate) fn opening_plays(&self, schedule: &[BgSegment]) -> bool {
+        let Some(BgImage::Movie(name)) = schedule.get(1).map(|s| &s.image) else {
+            return false;
+        };
+        self.off.is_none()
+            && !self.failed.iter().any(|(n, _)| n == name)
+            && !self.trouble.iter().any(|(n, _)| n == name)
     }
 
     /// Why the movies were turned off for this play, if they were.
@@ -393,6 +573,7 @@ impl MovieDeck {
         self.kept.clear();
         self.failed.clear();
         self.current = None;
+        self.paused = false;
         if self
             .worker
             .as_ref()
@@ -438,7 +619,7 @@ impl MovieDeck {
     ) {
         // Last frame's work is submitted: its browser frames may close.
         self.kept.clear();
-        if schedule.is_empty() || self.sources.is_empty() || self.off.is_some() {
+        if schedule.is_empty() || self.sources.is_empty() || self.off.is_some() || self.paused {
             return;
         }
         // A browser frame could not be drawn: the module plays every movie.
@@ -562,6 +743,7 @@ impl MovieDeck {
         }
         if let Some((name, frame)) = upload {
             self.upload(&name, &frame, renderer, device, queue);
+            crate::web::video::recycle(frame.planes);
         }
     }
 
@@ -881,6 +1063,7 @@ impl MovieDeck {
         set("late", (s.late as f64).into());
         set("seeks", (s.seeks as f64).into());
         set("open", (self.open.len() as f64).into());
+        set("paused", self.paused.into());
         let playing = js_sys::Array::new();
         let decoders = js_sys::Array::new();
         for open in &self.open {

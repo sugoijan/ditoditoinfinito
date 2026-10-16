@@ -12,9 +12,28 @@ description = "DitoDitoInfinito: platform crate"
 ddi-chart.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# Pure-Rust audio decoding (Ogg Vorbis only), the fallback for files the
-# browser's `decodeAudioData` rejects. Off by default; the web app enables it.
-symphonia = { workspace = true, optional = true, features = ["ogg", "vorbis"] }
+# Pure-Rust audio decoding (Ogg Vorbis and MP3), the fallback for files the
+# browser's `decodeAudioData` rejects, and MP3 as StepMania decodes it (the
+# web lines browsers' MP3s up with it). Off by default; the web app enables it.
+symphonia = { workspace = true, optional = true, features = ["ogg", "vorbis", "mp3"] }
+# Every format a simfile's music comes in (`decode-all`, the desktop's):
+# Opus through a pure-Rust decoder (BSD-3-Clause) and resampling to the
+# device's rate (rubato, MIT OR Apache-2.0).
+rusty-opus = { version = "1.0.1", optional = true }
+rubato = { version = "5.0.1", optional = true }
 
 [features]
 decode = ["dep:symphonia"]
+decode-all = [
+    "decode",
+    "symphonia/mp3",
+    "symphonia/flac",
+    "symphonia/wav",
+    "symphonia/aiff",
+    "symphonia/pcm",
+    "symphonia/id3v1",
+    "symphonia/id3v2",
+    "symphonia/ape",
+    "dep:rusty-opus",
+    "dep:rubato",
+]

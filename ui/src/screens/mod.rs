@@ -52,15 +52,30 @@
 //! with reduced motion ([`Env::reduced_motion`]) the pulse and the
 //! slides stop and the wheel jumps.
 
+pub mod calibration;
+pub mod credits;
 pub mod data;
+pub mod folders_offer;
+pub mod notices;
 pub mod options;
+pub mod options_dialogs;
+pub mod options_model;
+pub mod options_shell;
+#[cfg(test)]
+mod options_tests;
+pub mod page;
+#[cfg(test)]
+mod page_tests;
 pub mod play;
+pub mod prompt;
 pub mod results;
 pub mod sample;
 pub mod select;
 pub mod select_dialogs;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wording_tests;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -153,10 +168,18 @@ pub struct ThemeState {
     /// Results: the panel set; the song offset.
     pub panels: String,
     pub song_offset: i32,
-    /// Options: the section, the focused option and its value.
+    /// Options: the section, the focused option (its label and id) and
+    /// its value; the section's rows' ids, how far they are scrolled,
+    /// what the last action did, and where the field's preview is (the
+    /// surface's pixels).
     pub section: String,
     pub option: String,
+    pub option_id: String,
     pub value: String,
+    pub option_rows: Vec<String>,
+    pub scroll: f32,
+    pub notice: String,
+    pub preview: Option<[f32; 4]>,
     /// What happened last.
     pub status: String,
     /// The reduced motion setting as options show it (`Auto`, `On`,
@@ -175,6 +198,20 @@ pub struct ThemeState {
     pub notices: Vec<String>,
     /// The import dialog is open (it says so while it is).
     pub import_open: bool,
+    /// The app's notices: the banner's text and actions' ids, the line
+    /// at the bottom.
+    pub app_notice: Option<String>,
+    pub app_actions: Vec<String>,
+    pub app_toast: Option<String>,
+    /// A page (credits, calibration): its links', buttons' and folds' ids
+    /// (`link:<url>`, `button:<id>`, `fold:<id>`), the focused one's
+    /// index (-1: none), its height. The start prompt: its buttons'
+    /// names (`Start`, `Device.defaults`).
+    pub page_items: Vec<String>,
+    /// Song select: plays start autoplayed.
+    pub autoplay: bool,
+    pub page_focus: i32,
+    pub page_height: f32,
 }
 
 pub type SharedTheme = Rc<RefCell<ThemeState>>;

@@ -256,3 +256,75 @@ fn a_dialog_over_a_held_press_cancels_it() {
     assert!(r.is_empty());
     assert!(log.borrow().is_empty(), "{:?}", log.borrow());
 }
+
+/// The app's chrome (notices): on top of every screen and dialog, pressed
+/// by pointers on its actors only, never given keys, never focused.
+struct Chrome {
+    log: Log,
+}
+
+impl Screen for Chrome {
+    fn name(&self) -> &str {
+        "chrome"
+    }
+
+    fn build(&mut self, _cx: &mut Cx) -> Actor {
+        Actor::new(Kind::Frame(vec![quad("Later", [80.0, 30.0], "xy,600,20")]))
+    }
+
+    fn input(&mut self, input: &Input, _r: &mut Actor, _cx: &mut Cx) -> Handled {
+        if let Input::Pointer {
+            target: Some(t),
+            gesture: ddi_ui::Gesture::Tap,
+            ..
+        } = input
+        {
+            self.log.borrow_mut().push(format!("chrome tap {}", t.name));
+            return Handled::Yes;
+        }
+        self.log.borrow_mut().push("chrome other".into());
+        Handled::No
+    }
+}
+
+#[test]
+fn the_chrome_stays_on_top_and_takes_only_its_pointers() {
+    let log: Log = Rc::default();
+    let mut h = Harness::new([640.0, 360.0], [640.0, 360.0], 1.0, TextMode::Own);
+    h.push(Wheel {
+        log: log.clone(),
+        frames: 0,
+    });
+    h.ui.push_chrome(Chrome { log: log.clone() });
+    h.run(0.2);
+    // Keys and menu actions go to the screen.
+    h.key("ArrowDown", "ArrowDown");
+    assert!(
+        log.borrow().iter().any(|l| l == "menu Down false"),
+        "{log:?}"
+    );
+    assert!(
+        !log.borrow().iter().any(|l| l.starts_with("chrome")),
+        "{log:?}"
+    );
+    // A tap on the chrome's actor is the chrome's; elsewhere, the screen's.
+    h.tap(PointerKind::Mouse, "Later");
+    assert!(
+        log.borrow().iter().any(|l| l == "chrome tap Later"),
+        "{log:?}"
+    );
+    h.tap(PointerKind::Mouse, "Btn");
+    assert!(log.borrow().iter().any(|l| l == "activate Btn"), "{log:?}");
+    // A screen pushed later goes under it; the layers list leaves it out.
+    h.ui.push(Base("next"));
+    h.run(0.3);
+    let names: Vec<String> = h.ui.layers().into_iter().map(|l| l.name).collect();
+    assert_eq!(names.last().map(String::as_str), Some("next"));
+    assert!(!names.iter().any(|n| n == "chrome"), "{names:?}");
+    log.borrow_mut().clear();
+    h.tap(PointerKind::Mouse, "Later");
+    assert!(
+        log.borrow().iter().any(|l| l == "chrome tap Later"),
+        "{log:?}"
+    );
+}

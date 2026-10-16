@@ -19,6 +19,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
+use crate::component::{Callback, Component, Context, NodeRef};
 use ddi_engine::{ConnectedPad, PadUse};
 use ddi_ui::screens::data::Notice;
 use ddi_ui::screens::select::{
@@ -29,7 +30,6 @@ use gloo::events::{EventListener, EventListenerOptions};
 use gloo::timers::callback::{Interval, Timeout};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{DragEvent, HtmlElement, HtmlInputElement};
-use yew::prelude::*;
 
 use crate::components::ui_dev::{self, Host, Started};
 use crate::import;
@@ -69,7 +69,7 @@ pub(crate) enum Msg {
 
 /// What the screen's calls and the page share.
 struct Shared {
-    link: html::Scope<SelectPage>,
+    link: crate::component::Scope<SelectPage>,
     library: RefCell<Option<Library>>,
     folders: RefCell<HashMap<String, JsValue>>,
     feed: SharedFeed,
@@ -106,8 +106,18 @@ impl ImportDebug {
     }
 }
 
+/// The page's few DOM elements: the status line, the drop note, the
+/// error, and the inputs' listeners.
+struct Dom {
+    status: web_sys::HtmlElement,
+    drop: web_sys::HtmlElement,
+    error: web_sys::HtmlElement,
+    _listeners: Vec<EventListener>,
+}
+
 pub(crate) struct SelectPage {
     root: NodeRef,
+    dom: std::cell::RefCell<Option<Dom>>,
     shared: Rc<Shared>,
     started: Option<Started>,
     page: Vec<EventListener>,
@@ -122,11 +132,6 @@ pub(crate) struct SelectPage {
     seen_imports: u64,
     history_seen: u64,
     _pad_check: Option<Interval>,
-    /// Watches the page for the device notices.
-    observer: Option<(
-        web_sys::MutationObserver,
-        wasm_bindgen::closure::Closure<dyn FnMut()>,
-    )>,
     /// A line shown for a while, and which one it is.
     said: Option<(u64, String)>,
     said_count: u64,
@@ -148,6 +153,7 @@ impl Component for SelectPage {
             })));
         }
         crate::select_preview::set_volume(Settings::load().volume);
+        crate::select_preview::arrive();
         let shared = Rc::new(Shared {
             link: ctx.link().clone(),
             library: RefCell::new(None),
@@ -168,6 +174,7 @@ impl Component for SelectPage {
         };
         SelectPage {
             root: NodeRef::default(),
+            dom: std::cell::RefCell::new(None),
             shared,
             started: None,
             page: page_listeners(ctx),
@@ -181,7 +188,6 @@ impl Component for SelectPage {
             seen_imports: import::status().2,
             history_seen: 0,
             _pad_check: pad_check,
-            observer: None,
             said: None,
             said_count: 0,
             _said_timer: None,
@@ -340,54 +346,87 @@ impl Component for SelectPage {
         false
     }
 
-    fn view(&self, _ctx: &Context<Self>) -> Html {
+    fn view(&self, ctx: &Context<Self>) {
+        let root = ctx.root();
         if let Some(e) = &self.failure {
-            return super::ui_test::no_gpu(e);
+            self.dom.borrow_mut().take();
+            crate::component::no_gpu(root, e);
+            return;
         }
         let shared = &self.shared;
-        let on_pick = |input: NodeRef| {
-            let link = shared.link.clone();
-            Callback::from(move |_: Event| {
-                let Some(el) = input.cast::<HtmlInputElement>() else {
-                    return;
-                };
-                let files = files::from_input(&el);
-                // Clear so picking the same thing again fires `change`.
-                el.set_value("");
-                link.send_message(Msg::Picked(Ok(files)));
-            })
-        };
+        let mut dom = self.dom.borrow_mut();
+        let dom = dom.get_or_insert_with(|| {
+            use crate::component::element;
+            root.set_class_name("select-page");
+            self.root.set(root);
+            // The import's real inputs, hidden: the screen's buttons click
+            // them inside the gesture; tests set files on them.
+            let panel = element(root, "section", "import-panel");
+            let _ = panel.set_attribute("aria-hidden", "true");
+            let mut listeners = Vec::new();
+            let mut input = |which: &NodeRef, folder: bool| {
+                let el = element(&panel, "input", "");
+                let _ = el.set_attribute("type", "file");
+                let _ = el.set_attribute("multiple", "");
+                let _ = el.set_attribute("tabindex", "-1");
+                if folder {
+                    let _ = el.set_attribute("webkitdirectory", "");
+                } else {
+                    let _ = el.set_attribute("accept", ACCEPT);
+                }
+                which.set(&el);
+                let link = shared.link.clone();
+                let which = which.clone();
+                let pick: Callback<()> = Callback::from(move |()| {
+                    let Some(el) = which.cast::<HtmlInputElement>() else {
+                        return;
+                    };
+                    let files = files::from_input(&el);
+                    // Clear so picking the same thing again fires `change`.
+                    el.set_value("");
+                    link.send_message(Msg::Picked(Ok(files)));
+                });
+                listeners.push(EventListener::new(&el, "change", move |_| pick.emit(())));
+            };
+            if !folders::supported() {
+                input(&shared.folder_input, true);
+            }
+            input(&shared.file_input, false);
+            let status = element(root, "p", "import-status sr-only");
+            let _ = status.set_attribute("role", "status");
+            let _ = status.set_attribute("aria-live", "polite");
+            let drop = element(root, "div", "drop-note");
+            drop.set_text_content(Some("Drop to add the songs"));
+            let error = element(root, "p", "error select-error");
+            Dom {
+                status,
+                drop,
+                error,
+                _listeners: listeners,
+            }
+        });
         let (running, report, _) = import::status();
-        let status = running.or_else(|| {
+        let status = running.or_else(import::stills_status).or_else(|| {
             report.map(|r| select_data::report_view(&r, Settings::load().import_details).summary)
         });
-        html! {
-            <main class="select-page" ref={self.root.clone()}>
-                // The import's real inputs, hidden: the screen's buttons
-                // click them inside the gesture; tests set files on them.
-                <section class="import-panel" aria-hidden="true">
-                    { if folders::supported() { html! {} } else { html! {
-                        <input type="file" ref={shared.folder_input.clone()} webkitdirectory=true multiple=true
-                            onchange={on_pick(shared.folder_input.clone())} tabindex="-1" />
-                    } } }
-                    <input type="file" ref={shared.file_input.clone()} multiple=true accept={ACCEPT}
-                        onchange={on_pick(shared.file_input.clone())} tabindex="-1" />
-                </section>
-                <p class="import-status sr-only" role="status" aria-live="polite">{ status.unwrap_or_default() }</p>
-                { if self.dragging { html! { <div class="drop-note">{ "Drop to add the songs" }</div> } } else { html! {} } }
-                { if let Some(e) = &self.load_error { html! {
-                    <p class="error select-error">{ format!("could not load the song list: {e}") }</p>
-                } } else { html! {} } }
-            </main>
+        let status = status.unwrap_or_default();
+        if dom.status.text_content().as_deref() != Some(status.as_str()) {
+            dom.status.set_text_content(Some(&status));
+        }
+        dom.drop.set_hidden(!self.dragging);
+        match &self.load_error {
+            Some(e) => {
+                dom.error.set_hidden(false);
+                dom.error
+                    .set_text_content(Some(&format!("could not load the song list: {e}")));
+            }
+            None => dom.error.set_hidden(true),
         }
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
         import::watch(None);
         crate::history::watch(None);
-        if let Some((o, _)) = self.observer.take() {
-            o.disconnect();
-        }
         crate::select_preview::close();
         self.page.clear();
         if let Some((host, _, pads)) = &self.started {
@@ -463,9 +502,6 @@ impl SelectPage {
         match ui_dev::start_ui(&el, ui, Some(theme), Some(extra)) {
             Ok(started) => {
                 *self.shared.host.borrow_mut() = Some(Rc::downgrade(&started.0));
-                // The device notices (DOM until 6.4) push the screen down.
-                ui_dev::avoid(&started.0, ".device-banner");
-                self.watch_banner(&started.0);
                 let link = ctx.link().clone();
                 ui_dev::attach_gfx(started.0.clone(), move |e| {
                     link.send_message(Msg::Failed(e))
@@ -496,38 +532,8 @@ impl SelectPage {
         };
         data.notices = self.notices();
         data.import = select_data::import_view(&settings);
+        data.autoplay = crate::router::autoplay();
         data
-    }
-
-    /// Lays the screen out again when the page's DOM changes (a device
-    /// notice comes or goes).
-    fn watch_banner(&mut self, host: &Rc<RefCell<Host>>) {
-        let weak = Rc::downgrade(host);
-        let last = Rc::new(std::cell::Cell::new(f64::NAN));
-        let cb = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-            let bottom = web_sys::window()
-                .and_then(|w| w.document())
-                .and_then(|d| d.query_selector(".device-banner").ok().flatten())
-                .map_or(0.0, |el| el.get_bounding_client_rect().bottom());
-            if bottom != last.get() {
-                last.set(bottom);
-                if let Some(h) = weak.upgrade() {
-                    ui_dev::relayout(&h);
-                }
-            }
-        });
-        if let (Ok(observer), Some(body)) = (
-            web_sys::MutationObserver::new(cb.as_ref().unchecked_ref()),
-            web_sys::window()
-                .and_then(|w| w.document())
-                .and_then(|d| d.body()),
-        ) {
-            let init = web_sys::MutationObserverInit::new();
-            init.set_child_list(true);
-            init.set_subtree(true);
-            let _ = observer.observe_with_options(&body, &init);
-            self.observer = Some((observer, cb));
-        }
     }
 
     /// The library, the bests: to the screen.
@@ -877,6 +883,7 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             link.send_message(Msg::Remove(ids));
         }
         SelectCall::RemoveSong(id) => link.send_message(Msg::Remove(vec![id])),
+        SelectCall::Autoplay(on) => crate::router::set_autoplay(on),
         SelectCall::Notice(id) => match id.as_str() {
             "persist" => {
                 if let Some(answer) = storage::request_persist() {
@@ -900,7 +907,7 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
 
 /// Chromium's folder picker: it opens in the gesture itself, the handle is
 /// kept for reading again, and the folder's files are imported.
-fn pick_folder(link: html::Scope<SelectPage>, copy: bool) {
+fn pick_folder(link: crate::component::Scope<SelectPage>, copy: bool) {
     let picked = match folders::pick() {
         Ok(p) => p,
         Err(e) => return link.send_message(Msg::Picked(Err(e))),
@@ -1056,6 +1063,9 @@ fn debug_into(shared: &Shared, obj: &js_sys::Object) {
     set(&songs, "importing", d.running.is_some().into());
     if let Some(r) = d.running {
         set(&songs, "importStatus", r.into());
+    }
+    if let Some(r) = import::stills_status() {
+        set(&songs, "stills", r.into());
     }
     if let Some((summary, error)) = d.report {
         set(&songs, "report", summary.into());

@@ -139,9 +139,24 @@ pub struct Notice {
     pub error: bool,
 }
 
+/// Where the game runs, for the screens' wording: the shell says (the
+/// screens are the same; what keeping songs means is not).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Platform {
+    /// A browser: songs imported into its storage (IndexedDB), removed
+    /// for good; files dropped on the page.
+    #[default]
+    Web,
+    /// The desktop game: song folders and zips read where they are,
+    /// nothing copied; removing hides or forgets, never deletes.
+    Desktop,
+}
+
 /// The import dialog's state: the options, what runs, the last report.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ImportView {
+    /// Whose wording (the shell's platform).
+    pub platform: Platform,
     /// The browser keeps a chosen folder's handle (Chromium): the copy
     /// option applies.
     pub folders: bool,
@@ -209,9 +224,11 @@ impl SongEntry {
         v
     }
 
-    /// The image behind the menus: its background, else its banner.
+    /// The image behind the menus: its background, blurred (a step on
+    /// the way into the song). A song without one shows the theme's
+    /// plain backdrop, never its banner blown up (the maintainer's call).
     pub fn backdrop(&self) -> Option<&str> {
-        self.background.as_deref().or(self.banner.as_deref())
+        self.background.as_deref()
     }
 
     /// "2:26"; "–" while unknown (a song imported before lengths were
@@ -270,6 +287,8 @@ pub struct SelectData {
     /// Lines over everything.
     pub notices: Vec<Notice>,
     pub import: ImportView,
+    /// Plays started here are autoplayed (for the session; not counted).
+    pub autoplay: bool,
 }
 
 /// A judgement row of results.
@@ -401,11 +420,20 @@ pub enum OptionKind {
     Choices(Vec<String>),
     /// A number stepped through `values` (shown as given).
     Stepper(Vec<String>),
+    /// The same as a slider: a track the pointer drags or taps along,
+    /// keys and pads stepping it (the volume).
+    Slider(Vec<String>),
+    /// Buttons (none: a row that only says something, its `note`): Left
+    /// and Right move between them (`index`), Start or a tap presses one.
+    Actions(Vec<String>),
 }
 
 /// An option row.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OptionDef {
+    /// What the shell knows it by (`speed`, `keys.lane.2`); unique on the
+    /// screen.
+    pub id: String,
     pub label: String,
     pub kind: OptionKind,
     pub index: usize,
@@ -420,7 +448,10 @@ pub struct OptionDef {
 impl OptionDef {
     pub fn values(&self) -> &[String] {
         match &self.kind {
-            OptionKind::Choices(v) | OptionKind::Stepper(v) => v,
+            OptionKind::Choices(v)
+            | OptionKind::Stepper(v)
+            | OptionKind::Slider(v)
+            | OptionKind::Actions(v) => v,
         }
     }
 
@@ -442,6 +473,9 @@ pub struct OptionsData {
     pub sections: Vec<OptionSection>,
     /// Under the field preview ("Dito · Single · ×2.5 · Reverse").
     pub preview: String,
+    /// What the last action did ("Settings reset.", "3 plays
+    /// exported."), shown in the header.
+    pub notice: String,
 }
 
 #[cfg(test)]

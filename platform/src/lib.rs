@@ -1,8 +1,8 @@
 //! Platform traits and plain data types shared by the engine and the shells.
 //!
 //! The engine never sees `AudioContext`, DOM events or OS handles; it gets
-//! [`ClockSample`]s and [`RawInput`]s and talks to the song library through
-//! [`SongStore`]. Web and desktop shells implement these.
+//! [`ClockSample`]s and [`RawInput`]s. Web and desktop shells implement
+//! these; the play session (`ddi-session`) runs on them.
 //!
 //! See `docs/PLAN.md` §3.5.
 
@@ -51,15 +51,48 @@ pub enum DeviceId {
 
 pub type SoundId = u32;
 
-/// Audio playback and the audio clock.
+/// Audio playback and the audio clock: what a play session needs of Web
+/// Audio (`docs/plans/desktop.md`, section 1, "AudioBackend grows"). Times
+/// are the backend's context time (`AudioContext.currentTime`'s timeline).
 pub trait AudioBackend {
     type Buffer;
     type Error: core::fmt::Debug;
 
+    /// The output's sample rate.
+    fn sample_rate(&self) -> f64;
+    /// Moves the master volume smoothly (no click) to `volume`.
+    fn set_master_volume(&mut self, volume: f32);
+    /// Ramps the master gain linearly to `to` over `seconds`: from context
+    /// time `at`, where it is set to `from` first (a fade-in from 0, a
+    /// fade-out from 1); or, with `at` `None`, from now and the value it
+    /// has now, what was scheduled after now cancelled (the fail's fade).
+    fn master_ramp(&mut self, from: Option<f32>, to: f32, at: Option<f64>, seconds: f64);
+    /// Stops every sound playing or scheduled.
+    fn stop_all(&mut self);
+    /// Whether sound runs (not suspended, interrupted or gone).
+    fn running(&self) -> bool;
+    /// A buffer from planar PCM at `rate` (calibration's click track).
+    fn buffer_from_pcm(
+        &self,
+        channels: Vec<Vec<f32>>,
+        rate: f64,
+    ) -> Result<Self::Buffer, Self::Error>;
+    /// The output path's identity, once it is known.
+    fn fingerprint(&self) -> Option<DeviceFingerprint>;
+
     /// Current reading of the audio and host clocks.
     fn now(&self) -> ClockSample;
     /// Schedule `buffer` to start at `start_at_context_time`, from `offset`
-    /// seconds into the sound.
+    /// seconds into the sound. What the shells rely on:
+    ///
+    /// - `offset` is on the song's timeline: a buffer with a lead (an
+    ///   MP3 the web lined up with StepMania's decode, or Chrome's for a
+    ///   work; PLAN.md decision 46) is heard that much later than its
+    ///   samples say, so `offset` 0 is the lead's start, not the first
+    ///   sample (a negative lead starts further in);
+    /// - a negative `offset` counts as 0;
+    /// - a start in the past plays at once, from `offset` (not from where
+    ///   it would be by now).
     fn play(
         &mut self,
         buffer: &Self::Buffer,
@@ -69,6 +102,8 @@ pub trait AudioBackend {
     ) -> Result<SoundId, Self::Error>;
     fn stop(&mut self, id: SoundId);
     fn set_volume(&mut self, id: SoundId, volume: f32);
+    /// The sound's length on the song's timeline: its samples' plus its
+    /// lead (see [`Self::play`]).
     fn duration(&self, buffer: &Self::Buffer) -> f64;
 }
 
@@ -121,7 +156,10 @@ pub struct DeviceProfile {
 
 #[cfg(feature = "decode")]
 pub mod decode;
+#[cfg(feature = "decode-all")]
+pub mod decode_all;
 pub mod gamepad;
 pub mod history;
+pub mod mp3;
 pub mod storage;
 pub mod video;

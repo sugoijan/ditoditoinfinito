@@ -22,9 +22,16 @@ The maintainer chose:
   first background change is a movie at or before the first note, the
   movie's frame at that point is the song's background everywhere (song
   select's backdrop, the start prompt, the field before the first
-  change), kept as a still taken at import (and lazily for songs
-  imported before), so the menus never load the video decoder for it;
-  otherwise the song's `#BACKGROUND`, as StepMania shows it.
+  change), kept as a still taken at import (and on the first play for
+  songs imported before), so the menus never load the video decoder for
+  it; otherwise the song's `#BACKGROUND`, as StepMania shows it. Done
+  2026-10-16 (`docs/plans/video-backgrounds.md`, step 8). The lead's
+  refinement, for the maintainer to overrule: a blank still (a black or
+  white opening frame, as Bad Apple!!'s) shows nothing of the song, so
+  song select's backdrop and the results show the `#BACKGROUND` then;
+  the prompt and the field keep the still, so the cut stays seamless.
+  With Video off (the movie never plays) the prompt and the field show
+  the `#BACKGROUND`, and song select keeps the still.
 - **The beat pulse.**
 - **The style selector moves next to the chart ladder.** The song list
   then shows every song whatever the style:
@@ -52,13 +59,48 @@ desktop's `--screen`. Where the build differs from the mockups:
 - **The backdrop** is the background asked for tiny and drawn stretched,
   five times a little apart, at 0.2 (results 0.14): close to the
   mockups' 30 px blur at no extra pass. A song with no background shows
-  its banner.
+  the theme's plain backdrop, cross-faded like the rest (the
+  maintainer, 2026-10-16: the blurred background is a step on the way
+  into the song, and a banner blown up is not one).
 - **The subtitle** ("(OutFox Edit)") sits at the right of the title line
   in song select, smaller.
 - **Compact:** the icon buttons show ‹, / and ••• (glyphs the face has);
-  results and options keep the large layout scaled down for now.
+  options and results have phone layouts of their own (below).
 - **Options' field preview** is a placeholder until step 6 draws the
   field there. Unlit tabs and the empty ladder have square dashes.
+- **Pages** (calibration's menu, the credits; step 6.4): one column,
+  at most 880 wide, under the header: titles at 20, entries at 16,
+  text at 14, notes at 13 in the muted colour, links in the accent,
+  lit on the selected plate when focused, buttons as the theme's
+  (`PlayButton` for the first test).
+- **The device notices** (step 6.4): a band across the top in the
+  second plate colour with an accent line under it, the text at 15
+  (13 on a phone), "calibrate" as a `PlayButton` and the rest as
+  `Link`s, beside the text where they fit, else under it, "F2" faint at
+  its top right; the screens lie below it; the short "devices: …" line
+  a pill at the bottom.
+- **The autoplay switch** (2026-10-16): a `Pill` at the header's right
+  of song select ("Autoplay off", lit "AUTOPLAY ON"), the mods left of
+  it; on a phone an `IconButton` "AUTO", left of "+", and the play
+  button reads "AUTOPLAY HARD 11". The results show the lamp AUTOPLAY,
+  "· AUTOPLAY" in the chart line and a note.
+- **Song select upright on a phone** (2026-10-16): 480 wide zoomed to
+  the width (`Compact.Upright.Margin` 12 at the sides): the compact bar
+  on top; the song's banner the column's width, its title and line;
+  the style button; the five chart buttons, 52 high; the wheel under
+  them filling the height, its rows 52 high; the notices' line; Play,
+  60 high, across the bottom (a thumb's reach, the opposite of the
+  mockups' sideways column, where it closes the song's side).
+- **Results on a phone** (2026-10-16): upright the layout is 480 wide
+  zoomed to the width, sideways the screen as it is; a bar at the top
+  (Back "‹", "Results", the panel pills), one scrolled column (the score
+  column, the chosen set's panels stacked, the notes; sideways the
+  panels beside the score), the offset and the buttons at the bottom
+  (two rows upright).
+- **Accent buttons' focus:** the ring inside the plate, in the label's
+  colour (an accent ring around an accent plate barely shows).
+- **The volume** is a slider row: a thin track, the accent fill, a
+  light knob, the value and the dB note after it.
 - **The compact threshold** is 480 CSS pixels of height
   (`Compact.Below`) or 600 of width (`Compact.Narrower`: a portrait
   phone gets the compact layout, scaled to its width).
@@ -225,6 +267,15 @@ the right holding the charts as buttons and a large Play button.
   - **Right:** a live preview of the field with the current speed,
     reverse and arrows.
   - **Below:** what the focused option does, in a sentence.
+  - **On a phone** (step 6.3): sideways, the sections as a strip of
+    tabs (`StyleTab`) under a back icon, the rows down the whole
+    height, and beside them a column (`Options.Compact.Preview` wide)
+    with the preview and, under it, what the focused option does;
+    upright, the layout 480 wide (`Options.Narrow.Width`) zoomed to the
+    screen's width, the sentence and then the preview under the rows.
+    The sentence wraps; its panel is as tall as the longest needs. Choices too many for a row are stepped one at a
+    time (◀ value ▶); rows of buttons (bind, reset, export) use the
+    small `Button`, the lit one in its focus look.
 - **Phone, landscape (844×390 CSS px).** The 1280×720 design scaled to a
   phone's height would set titles at 10 px, so small screens get a
   compact layout of the same screen.
@@ -243,6 +294,43 @@ the right holding the charts as buttons and a large Play button.
 - **Off with reduced motion:** the beat pulse and the slides. This
   follows the system's reduced-motion setting, and a setting of our own
   overrides it.
+
+### Proposal: into the song (with 6.4 part two's shared prompt)
+
+The maintainer's idea (2026-10-16): song select's blurred backdrop is
+where the song begins, so starting a chart should carry it on rather
+than cut to another page: the blur sharpens into the start prompt's
+picture, then the play's background. Not built; it belongs with the
+shared start prompt of 6.4 part two. A sketch:
+
+1. **Start on song select** (Enter, Play, a pad's Start): the screen
+   does not leave at once. Its panels, wheel and footer slide and fade
+   out over about 250 ms (`Off`, as screens do now) while the backdrop
+   stays, and the play's loading starts in the same gesture (audio
+   context, `play()` as today).
+2. **The backdrop sharpens** over about 400 ms, decelerating: the five
+   spread copies close in on the middle one (their offsets to 0), the
+   strength goes from 0.2 to the prompt's dim (the background
+   brightness setting), and the tiny texture is swapped for the full
+   one when it is ready (the image cache has it by then: the prompt
+   asks for it anyway). A song with no background goes from the plain
+   backdrop to the prompt's, nothing to sharpen.
+3. **The prompt fades in over it** (title, chart, "press Enter or tap
+   to start"); its picture is the same backdrop actor, handed over, not
+   drawn again, so nothing jumps. Desktop and the web do the same: the
+   backdrop is the UI core's, the prompt is the shared one.
+4. **Into play:** at the start, the play's background layer (its first
+   frame, or the movie's still) cross-fades over the prompt's picture
+   in the time the prompt takes to go (about 200 ms), so the last image
+   of song select is the first of the song.
+5. **Back** (Escape at the prompt) runs it backwards: blur, panels in.
+6. **Reduced motion:** cross-fades only, no sliding or closing in;
+   frames stop once each step settles.
+
+What it needs: the backdrop as an actor the prompt can take over (one
+texture, the spread and strength as tweened properties, not five fixed
+copies), the play's loading overlapped with the transition, and the
+prompt drawn by the UI core on both shells, which 6.4 part two brings.
 
 ## The theme in code
 

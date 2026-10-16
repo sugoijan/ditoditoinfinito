@@ -53,6 +53,12 @@ pub fn adapter(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
 ) -> Option<wgpu::Adapter> {
+    // CI: none, as on a machine without a GPU (a runner's software or
+    // virtual adapter would run the GPU tests on pictures they were not
+    // checked against).
+    if std::env::var_os("DDI_NO_GPU").is_some() {
+        return None;
+    }
     crate::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: surface,
@@ -81,6 +87,9 @@ pub fn plain_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureForm
         .or_else(|| formats.first().map(|f| f.remove_srgb_suffix()))
 }
 
+/// What is drawn before the UI in a frame ([`Gpu::draw_over`]).
+pub type Scene<'a> = dyn FnMut(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder) + 'a;
+
 /// The UI's draw list on the device.
 pub struct Gpu {
     pub device: wgpu::Device,
@@ -88,6 +97,8 @@ pub struct Gpu {
     pub painter: Painter,
     list: DrawList,
     images: crate::images::Loader,
+    /// Options' field preview, where the screen shows it.
+    pub field: crate::field_preview::Field,
 }
 
 impl Gpu {
@@ -100,6 +111,7 @@ impl Gpu {
             painter,
             list: DrawList::new(),
             images: crate::images::Loader::new(),
+            field: Default::default(),
         }
     }
 
@@ -137,6 +149,19 @@ impl Gpu {
     /// Draws `ui` into `target` (`size` physical pixels), with the images
     /// decoded by now, and submits; images it lacks are asked for.
     pub fn draw(&mut self, ui: &mut Ui, target: &wgpu::TextureView, size: [u32; 2]) {
+        self.draw_over(ui, target, size, None);
+    }
+
+    /// [`Gpu::draw`] over what `scene` records first into the frame's
+    /// encoder (the start prompt's picture: the UI is drawn over it, not
+    /// over a clear screen).
+    pub fn draw_over(
+        &mut self,
+        ui: &mut Ui,
+        target: &wgpu::TextureView,
+        size: [u32; 2],
+        scene: Option<&mut Scene<'_>>,
+    ) {
         self.receive(false);
         let vp = *ui.viewport();
         let scale = vp.scale;
@@ -162,6 +187,16 @@ impl Gpu {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("ui") });
+        // The field preview's frame, before the painter shows it.
+        self.field
+            .draw(&self.device, &self.queue, &mut encoder, &mut self.painter);
+        let clear = match scene {
+            Some(scene) => {
+                scene(&self.device, &self.queue, &mut encoder);
+                None
+            }
+            None => Some(CLEAR),
+        };
         self.painter.draw(
             &self.device,
             &self.queue,
@@ -169,7 +204,7 @@ impl Gpu {
             target,
             size,
             scale,
-            Some(CLEAR),
+            clear,
             &self.list,
             &mut |_slot, _encoder| {},
         );

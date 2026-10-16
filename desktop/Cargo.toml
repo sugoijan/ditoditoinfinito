@@ -10,9 +10,25 @@ description = "DitoDitoInfinito: the desktop shell (a window running the UI core
 
 [dependencies]
 ddi-actor.workspace = true
+# The field preview's demo and options (`src/field_preview.rs`).
+ddi-chart.workspace = true
+ddi-engine.workspace = true
 ddi-library = { workspace = true, features = ["nfkd"] }
-ddi-platform.workspace = true
+# The music's decoders (`decode-all`: MP3, Ogg Vorbis and Opus, FLAC,
+# WAV; resampling).
+ddi-platform = { workspace = true, features = ["decode-all"] }
+# The noteskins in song folders (`src/library/noteskins.rs`), readied
+# for a play with their Lua (`src/play/skins.rs`).
+ddi-noteskin.workspace = true
+ddi-lua.workspace = true
 ddi-render.workspace = true
+# A Dancing☆Onigiri work's text layers drawn (`src/play/stage.rs`):
+# cosmic-text, as the 2D pass's text, on the system's fonts.
+glyphon.workspace = true
+# Their colours, as a canvas's `fillStyle` reads them.
+csscolorparser = "0.9.0"
+# The play (`src/play/`): the session the web runs too.
+ddi-session.workspace = true
 ddi-ui.workspace = true
 ddi-theme.workspace = true
 serde_json.workspace = true
@@ -23,7 +39,46 @@ winit = "0.30.13"
 rfd = "0.17.2"
 # The clipboard, text only (no `image`); Wayland's data-control too.
 arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
-# Banners and backgrounds: PNG and JPEG only.
-image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+# Banners and backgrounds: what StepMania reads (PNG, JPEG, GIF, BMP)
+# and WebP, which browsers show.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
+# SVG noteskins (Dito, the default skin; `src/play/skins.rs`): the subset
+# `ddi_noteskin::svg` checks, rasterised; no text, fonts or raster images.
+resvg = { version = "0.48.1", default-features = false }
+# Sound (`src/audio/`): the output stream (ALSA on Linux, linked from
+# the system), and the lock-free rings to the mixer on its thread.
+cpal = "0.18.2"
+rtrb = "0.4.0"
+# Controllers (`src/pads.rs`): gilrs on a thread of its own (libudev on
+# Linux, linked from the system).
+gilrs = "0.11.2"
+# The library on disk (`src/library/`): simfiles and zip names in
+# Shift-JIS, the cache's records, the data and cache folders.
+encoding_rs.workspace = true
+serde.workspace = true
+dirs = "7.0.0"
+# Background movies (`src/video.rs`, feature `video`): the web's FFmpeg
+# module (`target/video/ddivideo.wasm`) under wasmtime (Apache-2.0 WITH
+# LLVM-exception), compiling only, no WASI crate (the module's 20 calls
+# are ours, as `web/src/web/video_worker.js` has them).
+wasmtime = { version = "49.0.3", optional = true, default-features = false, features = ["anyhow", "cranelift", "runtime", "std", "parallel-compilation"] }
+
+[features]
+# Background movies through the FFmpeg module (steps 7.7 and 7.5), on by
+# default; `--no-default-features` builds without wasmtime.
+default = ["video"]
+video = ["dep:wasmtime"]
+
+# The output device's latencies, read from CoreAudio's HAL (`src/audio/hal.rs`);
+# already a dependency of cpal's.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-audio = { version = "0.3.2", default-features = false, features = ["std", "AudioHardware"] }
+# Keys' own times (`src/keyboard.rs`): an `NSEvent` local monitor.
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSEvent", "block2"] }
+block2 = "0.6.2"
 
 [dev-dependencies]
+# The video host's tests (`src/video/tests.rs`): small modules written as
+# text that trap, spin, flood and try to escape.
+wat = { version = "1.262.0", default-features = false }

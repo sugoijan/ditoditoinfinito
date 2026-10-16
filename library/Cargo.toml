@@ -10,6 +10,8 @@ description = "DitoDitoInfinito: song library (pack scanning, zip index, manifes
 
 [dependencies]
 ddi-chart.workspace = true
+# A work's charts' excessive setting, kept in its entry (`scan`).
+ddi-engine.workspace = true
 ddi-platform.workspace = true
 serde.workspace = true
 thiserror.workspace = true

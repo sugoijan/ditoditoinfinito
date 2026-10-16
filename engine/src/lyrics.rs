@@ -123,6 +123,8 @@ pub struct LyricTrack {
     lines: Vec<Vec<(f64, State)>>,
     /// Swap top and bottom (Reverse).
     flip: bool,
+    /// danoniplus's stage the lines are placed on, its px.
+    stage: (f32, f32),
 }
 
 impl LyricTrack {
@@ -206,7 +208,19 @@ impl LyricTrack {
             }
             lines[d].push((at, s.clone()));
         }
-        LyricTrack { lines, flip }
+        let stage = song
+            .charts
+            .get(chart)
+            .and_then(|c| c.danoni.as_ref())
+            .and_then(|d| d.stage)
+            .map_or((FIELD_HEIGHT, FIELD_HEIGHT), |(w, h)| (w as f32, h as f32));
+        LyricTrack { lines, flip, stage }
+    }
+
+    /// danoniplus's stage the lines are placed on (`lblWord`), width and
+    /// height in its px: 500 square, or as the work widens it.
+    pub fn stage(&self) -> (f32, f32) {
+        self.stage
     }
 
     pub fn is_empty(&self) -> bool {

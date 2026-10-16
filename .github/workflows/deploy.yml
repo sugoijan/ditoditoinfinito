@@ -29,14 +29,55 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Native tests
-        run: cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
+      # The desktop's sound (cpal) links ALSA, its controllers (gilrs)
+      # libudev; ffmpeg decodes the decoders' references (bundled songs,
+      # MP3s).
+      - name: ALSA and udev headers, ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev ffmpeg
+      # The bundled songs' and noteskins' indexes the desktop's tests read
+      # (its tests also write them when missing).
       - name: Generated files are fresh
         run: |
           cargo run -p xtask -- gen-songs
           cargo run -p xtask -- gen-dito --check
           cargo run -p xtask -- gen-noteskins
           cargo run -p xtask -- gen-credits --check
+      - name: Native tests
+        run: cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
+
+  # The desktop shell on the three systems it is for, with and without
+  # background movies (the `video` feature: wasmtime). Not among the
+  # deploy's needs: the site does not use it, so a desktop-only break does
+  # not hold back the web (the `test` job still builds and tests the
+  # desktop crate on Linux before a deploy). GPU tests skip as on a
+  # machine without one (`DDI_NO_GPU`: a runner's software adapter draws
+  # pictures the tests were not checked against); sound tests never open
+  # a device unless asked (`DDI_AUDIO_DEVICE_TESTS`).
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      DDI_NO_GPU: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop
+      - name: ALSA and udev headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+      - name: The bundled songs' and noteskins' indexes
+        run: |
+          cargo run -p xtask -- gen-songs
+          cargo run -p xtask -- gen-noteskins
+      - name: Build and test the desktop shell (background movies on)
+        run: cargo test -p ddi-desktop
+      - name: Build and test it without background movies
+        run: cargo test -p ddi-desktop --no-default-features
 
   # The software video decoder (video/): FFmpeg built with wasi-sdk, checked
   # on generated clips against the ffmpeg command's own decode.

@@ -1,9 +1,7 @@
-pub(crate) mod bind_flow;
-pub(crate) mod calibrate;
-pub(crate) mod credits;
 pub(crate) mod device_watcher;
 pub(crate) mod game_canvas;
-pub(crate) mod options;
+pub(crate) mod options_page;
+pub(crate) mod page_routes;
 pub(crate) mod select_page;
 pub(crate) mod skin_preview;
 pub(crate) mod ui_dev;

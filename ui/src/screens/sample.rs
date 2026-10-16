@@ -10,9 +10,8 @@ use ddi_chart::Difficulty;
 
 use super::Env;
 use super::data::{
-    Best, ChartEntry, Hit, JudgementCount, LaneName, OptionDef, OptionKind, OptionSection,
-    OptionsData, PanelKind, PanelSet, ResultsData, SelectData, SongEntry, SongOffset, StyleDef,
-    Window,
+    Best, ChartEntry, Hit, JudgementCount, LaneName, OptionsData, PanelKind, PanelSet, ResultsData,
+    SelectData, SongEntry, SongOffset, StyleDef, Window,
 };
 use super::options::{ChangeFn, OptionsScreen};
 use super::results::{ResultsActions, ResultsScreen};
@@ -475,218 +474,34 @@ pub fn results() -> ResultsData {
     }
 }
 
-fn option(
-    heading: Option<&str>,
-    label: &str,
-    kind: OptionKind,
-    index: usize,
-    note: &str,
-    description: &str,
-) -> OptionDef {
-    OptionDef {
-        label: label.into(),
-        kind,
-        index,
-        note: note.into(),
-        description: description.into(),
-        heading: heading.map(str::to_string),
-    }
-}
-
-fn choices(v: &[&str]) -> OptionKind {
-    OptionKind::Choices(v.iter().map(|s| s.to_string()).collect())
-}
-
-/// Options' sample, with reduced motion as the settings hold it
-/// (`Auto`, `On`, `Off`: 0, 1, 2).
+/// Options' sample: the default settings' rows (reduced motion as the
+/// settings hold it, `Auto`, `On`, `Off`: 0, 1, 2), with a few
+/// noteskins, a controller and a song for the volume sample.
 pub fn options(reduced_motion: usize) -> OptionsData {
-    let speeds: Vec<String> = (2..=32)
-        .map(|q| {
-            let v = q as f32 * 0.25;
-            format!("×{}", trim(v))
-        })
-        .collect();
-    let speed_at = speeds.iter().position(|s| s == "×2.5").unwrap_or(0);
-    let offsets: Vec<String> = (-50..=50).map(|ms| format!("{ms:+} ms")).collect();
-    let section = |name: &str, options: Vec<OptionDef>| OptionSection {
-        name: name.into(),
-        options,
+    use super::options_model::{OptionsModel, Sample, World};
+    use crate::state::settings::{ReducedMotion, Settings};
+    let settings = Settings {
+        reduced_motion: [ReducedMotion::Auto, ReducedMotion::On, ReducedMotion::Off]
+            [reduced_motion.min(2)],
+        ..Settings::default()
     };
-    OptionsData {
-        sections: vec![
-            section(
-                "Scroll and notes",
-                vec![
-                    option(
-                        Some("SCROLL"),
-                        "Speed",
-                        OptionKind::Stepper(speeds),
-                        speed_at,
-                        "400 at this song",
-                        "How fast the arrows scroll: the chart's tempo times this.",
-                    ),
-                    option(
-                        None,
-                        "Charts with their own speed",
-                        choices(&["the speed above", "the chart's"]),
-                        0,
-                        "",
-                        "Some charts set their own scroll speed; keep yours or follow theirs.",
-                    ),
-                    option(
-                        None,
-                        "Reverse",
-                        choices(&["Off", "On"]),
-                        1,
-                        "",
-                        "Arrows scroll down to targets at the bottom.",
-                    ),
-                    option(
-                        None,
-                        "Scroll action",
-                        choices(&["Normal", "Boost", "Brake", "Wave"]),
-                        0,
-                        "",
-                        "Arrows speed up, slow down or sway as they come.",
-                    ),
-                    option(
-                        Some("NOTES"),
-                        "Turn",
-                        choices(&["Off", "Mirror", "Left", "Right", "Shuffle"]),
-                        0,
-                        "",
-                        "Moves every arrow to another lane, the same way for the whole chart.",
-                    ),
-                    option(
-                        None,
-                        "Appearance",
-                        choices(&["Normal", "Hidden", "Sudden", "Both", "Stealth"]),
-                        0,
-                        "",
-                        "Hides the arrows near the targets, far from them, or everywhere.",
-                    ),
-                    option(
-                        None,
-                        "Notes",
-                        choices(&["All", "Quarters", "Quarters and eighths"]),
-                        0,
-                        "",
-                        "Leaves out the faster notes.",
-                    ),
-                    option(
-                        None,
-                        "No jumps",
-                        choices(&["Off", "On"]),
-                        0,
-                        "",
-                        "Two arrows at once become one.",
-                    ),
-                    option(
-                        None,
-                        "No holds",
-                        choices(&["Off", "On"]),
-                        0,
-                        "",
-                        "Holds and rolls become single taps.",
-                    ),
-                ],
-            ),
-            section(
-                "Rules",
-                vec![option(
-                    None,
-                    "Rules",
-                    choices(&["ITG", "StepMania", "DDR A"]),
-                    0,
-                    "",
-                    "How timing is judged and scored, after the game that set the rules.",
-                )],
-            ),
-            section(
-                "Timing",
-                vec![
-                    option(
-                        None,
-                        "Audio offset",
-                        OptionKind::Stepper(offsets.clone()),
-                        50,
-                        "",
-                        "Moves judgement against the music; calibrate to set it.",
-                    ),
-                    option(
-                        None,
-                        "Visual offset",
-                        OptionKind::Stepper(offsets),
-                        50,
-                        "",
-                        "Moves only what is drawn.",
-                    ),
-                ],
-            ),
-            section(
-                "Sound",
-                vec![option(
-                    None,
-                    "Volume",
-                    OptionKind::Stepper((0..=20).map(|v| format!("{} %", v * 5)).collect()),
-                    16,
-                    "",
-                    "How loud the music plays.",
-                )],
-            ),
-            section(
-                "Display",
-                vec![option(
-                    None,
-                    "Reduced motion",
-                    choices(&["As the system", "On", "Off"]),
-                    reduced_motion.min(2),
-                    "",
-                    "No beat pulse and no slides in the menus.",
-                )],
-            ),
-            section(
-                "Arrows",
-                vec![option(
-                    None,
-                    "Noteskin",
-                    choices(&["Dito", "Built-in"]),
-                    0,
-                    "",
-                    "How the arrows look.",
-                )],
-            ),
-            section(
-                "Controls",
-                vec![option(
-                    None,
-                    "Menu keys",
-                    choices(&["Arrows", "WASD"]),
-                    0,
-                    "",
-                    "Which keys move through the menus.",
-                )],
-            ),
-            section(
-                "Reset",
-                vec![option(
-                    None,
-                    "Reset",
-                    choices(&["Keep", "Reset everything"]),
-                    0,
-                    "",
-                    "Puts every option back as it came.",
-                )],
-            ),
+    let world = World {
+        noteskins: vec![
+            ("bundled:dance/delta".into(), "Delta (with the game)".into()),
+            ("dance/metal".into(), "Metal".into()),
         ],
-        preview: "Dito · Single · ×2.5 · Reverse".into(),
-    }
-}
-
-/// "2.5", "3".
-fn trim(v: f32) -> String {
-    let s = format!("{v:.2}");
-    s.trim_end_matches('0').trim_end_matches('.').to_string()
+        pads_supported: true,
+        connected: vec![ddi_engine::ConnectedPad {
+            id: "Xbox Wireless Controller (STANDARD GAMEPAD)".into(),
+            index: 0,
+            standard: true,
+        }],
+        sample: Sample::Ready,
+        imported: 12,
+        plays: 3,
+        ..World::default()
+    };
+    OptionsModel::new(settings, world).data()
 }
 
 /// The developer routes' screens: song select over [`select`], whose
@@ -703,6 +518,51 @@ pub fn select_screen(env: &Env, changed: Option<ChangeFn>) -> SelectScreen {
 /// here).
 pub fn results_screen(env: &Env) -> ResultsScreen {
     ResultsScreen::new(env.clone(), results(), ResultsActions::default())
+}
+
+/// The credits over song select: `credits` (the generated file where
+/// the shell has it, else [`super::credits::sample`]).
+pub fn credits_screen(env: &Env, credits: &super::credits::Credits) -> super::page::PageScreen {
+    super::page::PageScreen::new(env.clone(), "credits", super::credits::doc(credits))
+}
+
+/// Calibration's menu over song select, on the stored settings (its runs
+/// are the web's play route: here the buttons do nothing).
+pub fn calibration_screen(env: &Env) -> super::page::PageScreen {
+    let settings = crate::state::settings::Settings::load();
+    super::page::PageScreen::new(
+        env.clone(),
+        "calibration",
+        super::calibration::doc(&settings, 250.0),
+    )
+}
+
+/// The start prompt for Some Things Must's Hard chart at `step`, over
+/// its background, the choices ignored (the developer routes, tests).
+pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::prompt::PromptScreen {
+    use super::prompt::{PromptInfo, PromptPicture, PromptScreen, PromptState, chart_line};
+    let info = PromptInfo {
+        title: "Some Things Must (OutFox Edit)".into(),
+        artist: "Sevish".into(),
+        chart: chart_line(ddi_chart::Difficulty::Hard, 13, "Single"),
+        difficulty: "Hard".into(),
+        mods: "×3 · reverse · mirror".into(),
+        badge: "AUTOPLAY".into(),
+    };
+    let state = Rc::new(std::cell::RefCell::new(PromptState {
+        info,
+        step,
+        notes: vec!["loading the video decoder… 40 %".into()],
+        picture: Some(PromptPicture {
+            source: "songs/some-things-must/sevish-bg.png".into(),
+            aspect: 16.0 / 9.0,
+            frame: Some(4.0 / 3.0),
+            brightness: 0.6,
+            filter: Some(([0.5, 0.3], 0.4)),
+        }),
+        ..PromptState::default()
+    }));
+    PromptScreen::new(env.clone(), state, Rc::new(|_, _| {}))
 }
 
 /// Options over [`options`], reduced motion as the shell has it.
@@ -751,6 +611,6 @@ mod tests {
             (mean + 2.1).abs() < 1.5 && (sd - 9.8).abs() < 1.5,
             "{mean} {sd}"
         );
-        assert_eq!(options(0).sections.len(), 8);
+        assert_eq!(options(0).sections.len(), 9);
     }
 }

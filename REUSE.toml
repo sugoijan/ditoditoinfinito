@@ -19,8 +19,9 @@ path = ["chart/src/layout/danoni_table.rs", "chart/src/formats/danoni/keycodes.r
 SPDX-FileCopyrightText = "2018 tickle"
 SPDX-License-Identifier = "MIT"
 
-# StepMania 5.1's noteskin metrics and Lua (from NoteSkins/dance/default/
-# and NoteSkins/common/common/ at stepmania/stepmania 825467b; licence in
+# StepMania 5.1's noteskin metrics and Lua (from NoteSkins/dance/default/,
+# NoteSkins/pump/default/ and NoteSkins/common/common/ at
+# stepmania/stepmania 825467b; licence in
 # Docs/Licenses.txt there), and StepMania 3.9's dance/default and
 # dance/flat metrics (v390release 5d417c1f; licence in
 # stepmania/Docs/Copying.txt, the same terms), byte for byte. Credited

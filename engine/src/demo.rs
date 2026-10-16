@@ -17,7 +17,7 @@ use crate::InputEvent;
 use crate::autoplay;
 use crate::frame::{Frame, SkinEvent};
 use crate::player::{PlayOptions, Player};
-use crate::rules::presets;
+use crate::rules::{RulesetKey, presets};
 use crate::scroll::{ScrollOptions, SpeedMod};
 
 /// Beats before the first note.
@@ -154,6 +154,7 @@ pub fn song(layout: &str, bpm: f64) -> Option<Song> {
 pub struct Demo {
     song: Song,
     options: PlayOptions,
+    rules: RulesetKey,
     player: Player,
     /// `(song seconds, lane, pressed)`, in order.
     script: Vec<(f64, u8, bool)>,
@@ -206,7 +207,6 @@ impl Demo {
     /// The demo on built-in layout `layout` at `bpm`, notes `speed` times
     /// StepMania's 1x apart; `None` for a layout that is not built in.
     pub fn new(layout: &str, bpm: f64, speed: f64) -> Option<Demo> {
-        let song = song(layout, bpm)?;
         let options = PlayOptions {
             scroll: ScrollOptions {
                 speed: SpeedMod::XMod(speed),
@@ -214,11 +214,27 @@ impl Demo {
             },
             ..PlayOptions::default()
         };
+        Demo::with_options(layout, bpm, options, &presets::itg().key())
+    }
+
+    /// The demo played with `options` (the scroll, Turn and Cut, the
+    /// appearance, receptor snap: what a player chose) and judged by
+    /// the ruleset `rules` builds (never failing), as play would play and
+    /// judge it.
+    pub fn with_options(
+        layout: &str,
+        bpm: f64,
+        options: PlayOptions,
+        rules: &RulesetKey,
+    ) -> Option<Demo> {
+        let rules = rules.clone();
+        let song = song(layout, bpm)?;
         let length = (LEAD_IN + REPEATS * PHRASE + TAIL) as f64 * 60.0 / bpm;
-        let (player, script) = Self::start(&song, options);
+        let (player, script) = Self::start(&song, options, &rules);
         Some(Demo {
             song,
             options,
+            rules,
             player,
             script,
             next: 0,
@@ -233,9 +249,13 @@ impl Demo {
     /// A fresh play and its presses: the autoplayer's, moved through
     /// [`TIMINGS`], every other hold let go and every other roll left a
     /// third of the way, and a step on each mine.
-    fn start(song: &Song, options: PlayOptions) -> (Player, Vec<(f64, u8, bool)>) {
+    fn start(
+        song: &Song,
+        options: PlayOptions,
+        rules: &RulesetKey,
+    ) -> (Player, Vec<(f64, u8, bool)>) {
         // Its misses and drops must not end it.
-        let mut rules = presets::itg();
+        let mut rules = rules.build(&song.charts[0]);
         rules.fail = crate::rules::FailPolicy::Off;
         let mut player = Player::new(song, 0, rules, options);
         let mut presses: Vec<Option<autoplay::Press>> =
@@ -324,6 +344,11 @@ impl Demo {
         self.length
     }
 
+    /// The ruleset it is judged by (its judgement names, as drawn).
+    pub fn ruleset(&self) -> &crate::rules::Ruleset {
+        self.player.ruleset()
+    }
+
     /// The demo at `seconds` since it began (looping), with the events
     /// since the last step. Steps go forward in time; one of more than
     /// [`MAX_STEP`] (or across the loop's end) brings no events.
@@ -335,7 +360,7 @@ impl Demo {
             self.loop_start += loops * self.length;
             self.seq_base += self.seq;
             self.seq = 0;
-            let (player, script) = Self::start(&self.song, self.options);
+            let (player, script) = Self::start(&self.song, self.options, &self.rules);
             self.player = player;
             self.script = script;
             self.next = 0;
@@ -498,5 +523,39 @@ mod tests {
             .collect();
         assert!(!after.is_empty());
         assert!(events.iter().chain(&after).is_sorted_by_key(|e| e.seq));
+    }
+
+    /// The demo keeps every other hold and drops the rest: its frames
+    /// show O.K. and N.G. over the lanes in the dance game, under the
+    /// combo under Dancing☆Onigiri's rules, and none in the pump game.
+    #[test]
+    fn kept_and_dropped_holds_show_their_outcomes_where_the_rules_say() {
+        use crate::frame::HoldPlace;
+        let seen = |layout: &str, rules: &RulesetKey| {
+            let mut demo =
+                Demo::with_options(layout, 120.0, PlayOptions::default(), rules).unwrap();
+            let (mut ok, mut ng, mut place) = (false, false, HoldPlace::None);
+            for i in 0..(demo.length() * 30.0) as u32 {
+                let step = demo.step(f64::from(i) / 30.0);
+                place = step.frame.holds.place;
+                for f in &step.frame.holds.flashes {
+                    if f.held {
+                        ok = true;
+                    } else {
+                        ng = true;
+                    }
+                    assert!(usize::from(f.lane) < usize::from(step.frame.lanes));
+                }
+            }
+            (place, ok, ng)
+        };
+        let itg = presets::itg().key();
+        assert_eq!(seen("dance-single", &itg), (HoldPlace::Lanes, true, true));
+        assert_eq!(
+            seen("dance-single", &presets::danoni().key()),
+            (HoldPlace::Centre, true, true)
+        );
+        assert_eq!(seen("pump-single", &itg).0, HoldPlace::None);
+        assert!(!seen("pump-single", &itg).1);
     }
 }

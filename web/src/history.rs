@@ -483,9 +483,8 @@ pub(crate) fn export(done: impl FnOnce(Result<usize, String>) + 'static) {
     );
 }
 
-/// Forgets every play; a chart's (by content); a pack's songs'. No
-/// screen asks yet.
-#[allow(dead_code)]
+/// Forgets every play (Options' Data → Play history → Reset); a chart's
+/// (by content) and a pack's songs' (no screen asks yet).
 pub(crate) fn remove_all(done: impl FnOnce(Result<(), String>) + 'static) {
     plays().remove_all(move |r| {
         publish();

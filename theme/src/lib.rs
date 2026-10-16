@@ -289,12 +289,20 @@ impl Infinito {
         let [w, h] = spec.size;
         // Large buttons (44 and up) rounder.
         let r = if h >= 44.0 { 8.0 } else { 6.0 };
+        // The ring in the accent around a plain plate; on an accent one
+        // (the primary buttons, the notices' "calibrate") inside it, in
+        // the label's colour, or it would vanish into the plate.
+        let (colour, width, out) = if fill == "Accent" {
+            (label, 2.0, -3.0)
+        } else {
+            ("Accent", 2.0, 2.0)
+        };
         let mut ring = outline_r(
             "Ring",
-            [-w / 2.0 - 2.0, -h / 2.0 - 2.0, w + 4.0, h + 4.0],
-            2.0,
-            self.c("Accent"),
-            r + 2.0,
+            [-w / 2.0 - out, -h / 2.0 - out, w + 2.0 * out, h + 2.0 * out],
+            width,
+            self.c(colour),
+            (r + out).max(2.0),
         );
         hide(&mut ring);
         command_of(
@@ -317,7 +325,12 @@ impl Infinito {
             text = tracked(text, 80);
         }
         max_width(&mut text, w - 12.0);
-        let mut f = frame("", vec![ring, plate, text, extent(spec.size)]);
+        let parts = if fill == "Accent" {
+            vec![plate, ring, text, extent(spec.size)]
+        } else {
+            vec![ring, plate, text, extent(spec.size)]
+        };
+        let mut f = frame("", parts);
         command_of(&mut f, "Press", "stoptweening;linear,0.05;zoom,0.97");
         command_of(&mut f, "Release", "stoptweening;linear,0.08;zoom,1");
         f
@@ -673,8 +686,9 @@ impl Infinito {
     /// The selected song: banner, titles, BPM, length and pack (narrow:
     /// title and one line).
     fn song_info(&self, spec: &Spec) -> Actor {
-        let [w, _] = spec.size;
-        let compact = w < 400.0;
+        let [w, h] = spec.size;
+        // A phone's (upright: as wide as the screen, as short).
+        let compact = w < 400.0 || h < 220.0;
         let bh = if compact {
             (w * 94.0 / 300.0).round()
         } else {

@@ -9,7 +9,9 @@
 //   {type: "load"} (fetch the module now, while the start prompt is up),
 //   {type: "open", id, blob, name}, {type: "seek", id, t, gen},
 //   {type: "want", id, n, gen}, {type: "close", id},
-//   {type: "probe", id, blob, name} (sample the picture; step 5).
+//   {type: "probe", id, blob, name} (sample the picture; step 5),
+//   {type: "recycle", buffer} (a frame's buffer given back, transferred:
+//   the next frame is copied into it instead of a new one).
 // Worker → page: {type: "loading", loaded, total}, {type: "ready", ms,
 //   version}, {type: "failed", message} (the module), {type: "opened", id,
 //   width, height, duration, codec}, {type: "frame", id, gen, pts, width,
@@ -48,6 +50,10 @@ let nextFd = PREOPEN_FD + 1;
 const videos = new Map(); // id → {ptr, name, gen, last, bad}
 let logLines = 0;
 const logBuffers = { 1: "", 2: "" };
+// Frame buffers the page gave back, reused so that a playing movie makes
+// no garbage per frame (Firefox's collections paused the page).
+const spare = [];
+const SPARE_KEPT = 6;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -410,7 +416,7 @@ function want({ id, n, gen }) {
     video.bad = 0;
     video.last = pts;
     const at = exports.ddi_planes(video.ptr);
-    const planes = exports.memory.buffer.slice(at, at + exports.ddi_planes_size(video.ptr));
+    const planes = planesBuffer(at, exports.ddi_planes_size(video.ptr));
     post({
       type: "frame",
       id,
@@ -425,6 +431,21 @@ function want({ id, n, gen }) {
     }, [planes]);
     i++;
   }
+}
+
+// A buffer holding the module's planes at `at`: a spare one of that size,
+// else a new one.
+function planesBuffer(at, size) {
+  let buffer = null;
+  for (let i = spare.length - 1; i >= 0; i--) {
+    if (spare[i].byteLength === size) {
+      buffer = spare.splice(i, 1)[0];
+      break;
+    }
+  }
+  if (!buffer) buffer = new ArrayBuffer(size);
+  new Uint8Array(buffer).set(new Uint8Array(exports.memory.buffer, at, size));
+  return buffer;
 }
 
 function seek({ id, t, gen }) {
@@ -502,6 +523,14 @@ self.onmessage = (event) => {
   const msg = event.data;
   if (msg.type === "init") {
     base = msg.base;
+    return;
+  }
+  if (msg.type === "recycle") {
+    // The oldest goes when full, so a movie of another size takes over.
+    if (msg.buffer) {
+      spare.push(msg.buffer);
+      if (spare.length > SPARE_KEPT) spare.shift();
+    }
     return;
   }
   const handler = handlers[msg.type];

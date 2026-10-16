@@ -2,7 +2,7 @@
 //! (`docs/plans/overlays.md`): the images and text a song's layers show,
 //! decoded once per song (a retry keeps them), their textures, registered
 //! as a noteskin's are (and again after a skin replaces them), and the
-//! play's timeline.
+//! play's timeline (`ddi_session::stage`).
 
 use std::collections::HashMap;
 
@@ -10,11 +10,12 @@ use ddi_engine::sprites::{SpriteSource, SpriteTrack};
 use ddi_render::Renderer;
 use ddi_render::stage::{self, StageTexture};
 use ddi_render::textured::TexQuad;
+use ddi_session::stage::StageLayers;
 
 #[derive(Default)]
 pub(crate) struct StageView {
-    /// The play's layers; `None` between plays or when not shown.
-    track: Option<SpriteTrack>,
+    /// The play's layers; none between plays or when not shown.
+    layers: StageLayers,
     /// Decoded contents and their size in the stage's px.
     bitmaps: HashMap<SpriteSource, (web_sys::ImageBitmap, (f32, f32))>,
     /// Contents copied to the GPU since the textures were last cleared.
@@ -24,12 +25,12 @@ pub(crate) struct StageView {
 impl StageView {
     /// The layers of the play about to start (`None`: none shown).
     pub(crate) fn set_track(&mut self, track: Option<SpriteTrack>) {
-        self.track = track.filter(|t| !t.is_empty());
+        self.layers.set_track(track);
     }
 
     /// Whether a play's layers are shown.
     pub(crate) fn shown(&self) -> bool {
-        self.track.is_some()
+        self.layers.shown()
     }
 
     /// A content decoded (an image, or text drawn), `size` in the stage's
@@ -104,12 +105,12 @@ impl StageView {
         height: f32,
         srgb: bool,
     ) -> (Vec<TexQuad>, Vec<TexQuad>) {
-        let Some(track) = &self.track else {
+        let Some((sprites, size)) = self.layers.at(t) else {
             return (Vec::new(), Vec::new());
         };
         stage::quads(
-            &track.at(t),
-            track.stage(),
+            &sprites,
+            size,
             center_x,
             height,
             |s| self.textures.get(s).copied(),

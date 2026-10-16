@@ -203,10 +203,111 @@ impl VideoFrame {
     }
 }
 
+impl VideoFrame {
+    /// The frame as RGBA bytes (`width × height`, opaque), as the
+    /// background shader draws it at its own size: chroma sampled
+    /// bilinearly at the luma pixel's centre (centre-sited, edges clamped),
+    /// then [`yuv_to_rgb`], rounded to 8 bits. `None` for malformed planes
+    /// (or a frame the platform keeps). For a still that must match the
+    /// movie's first drawn frame (the song's opening still).
+    pub fn rgba(&self) -> Option<Vec<u8>> {
+        let (yp, up, vp) = self.split()?;
+        let (w, h) = (self.width as usize, self.height as usize);
+        let (cw, ch) = chroma_size(self.width, self.height);
+        let (cw, ch) = (cw as usize, ch as usize);
+        // Where each luma column or row falls among the chroma texels
+        // (texel centres at i + 0.5 in units of the chroma plane).
+        let taps = |n: usize, cn: usize| -> Vec<(usize, usize, f32)> {
+            (0..n)
+                .map(|i| {
+                    let at = ((i as f32 + 0.5) * cn as f32 / n as f32 - 0.5).max(0.0);
+                    let lo = (at.floor() as usize).min(cn - 1);
+                    let hi = (lo + 1).min(cn - 1);
+                    (lo, hi, at - at.floor())
+                })
+                .collect()
+        };
+        let (xs, ys) = (taps(w, cw), taps(h, ch));
+        let sample =
+            |plane: &[u8], (x0, x1, fx): (usize, usize, f32), (y0, y1, fy): (usize, usize, f32)| {
+                let p = |x: usize, y: usize| f32::from(plane[y * cw + x]);
+                let top = p(x0, y0) + (p(x1, y0) - p(x0, y0)) * fx;
+                let bottom = p(x0, y1) + (p(x1, y1) - p(x0, y1)) * fx;
+                top + (bottom - top) * fy
+            };
+        let mut out = vec![0u8; w * h * 4];
+        for (y, &ty) in ys.iter().enumerate() {
+            for (x, &tx) in xs.iter().enumerate() {
+                let rgb = yuv_to_rgb_f(
+                    f32::from(yp[y * w + x]),
+                    sample(up, tx, ty),
+                    sample(vp, tx, ty),
+                    self.matrix,
+                    self.full_range,
+                );
+                let o = (y * w + x) * 4;
+                for (c, v) in rgb.into_iter().enumerate() {
+                    out[o + c] = (v * 255.0).round() as u8;
+                }
+                out[o + 3] = 255;
+            }
+        }
+        Some(out)
+    }
+}
+
+/// Largest luma standard deviation (of 255) of a picture that shows
+/// nothing ([`blank_picture`]): a flat field with the codec's noise (a
+/// dim silhouette, Bad Apple!!'s, spreads about 6).
+pub const BLANK_SPREAD: f64 = 3.0;
+/// Mean luma (of 255) at or below which a flat picture is black, or at or
+/// above `255 −` this, white ([`blank_picture`]).
+pub const BLANK_EDGE: f64 = 32.0;
+/// Pixels further than this from the mean luma (of 255) ...
+pub const BLANK_OUTLIER: f64 = 16.0;
+/// ... may be at most this share of a blank picture (a small title on
+/// black is a picture).
+pub const BLANK_OUTLIERS: f64 = 0.005;
+
+/// Whether an RGBA picture shows nothing: nearly uniform (luma spread at
+/// most [`BLANK_SPREAD`], hardly a pixel more than [`BLANK_OUTLIER`] from
+/// the mean) and near black or near white (mean luma within
+/// [`BLANK_EDGE`] of either end), as the black or white frame many movies
+/// open on. A song's opening still that is blank shows nothing of the song,
+/// so the menus show its background image instead. Luma is BT.601's on
+/// the encoded values; an empty picture is blank.
+pub fn blank_picture(rgba: &[u8]) -> bool {
+    let pixels = rgba.as_chunks::<4>().0;
+    if pixels.is_empty() {
+        return true;
+    }
+    let luma =
+        |p: &[u8; 4]| 0.299 * f64::from(p[0]) + 0.587 * f64::from(p[1]) + 0.114 * f64::from(p[2]);
+    let n = pixels.len() as f64;
+    let (sum, squares) = pixels
+        .iter()
+        .map(luma)
+        .fold((0.0, 0.0), |(s, q), y| (s + y, q + y * y));
+    let mean = sum / n;
+    let spread = (squares / n - mean * mean).max(0.0).sqrt();
+    let outliers = pixels
+        .iter()
+        .filter(|p| (luma(p) - mean).abs() > BLANK_OUTLIER)
+        .count() as f64;
+    spread <= BLANK_SPREAD
+        && outliers <= BLANK_OUTLIERS * n
+        && (mean <= BLANK_EDGE || mean >= 255.0 - BLANK_EDGE)
+}
+
 /// YUV to non-linear (gamma-encoded, as the video carries it) RGB in 0–1,
 /// clamped. This is the reference the background shader follows.
 pub fn yuv_to_rgb(y: u8, u: u8, v: u8, matrix: YuvMatrix, full_range: bool) -> [f32; 3] {
-    let (y, u, v) = (f32::from(y), f32::from(u) - 128.0, f32::from(v) - 128.0);
+    yuv_to_rgb_f(f32::from(y), f32::from(u), f32::from(v), matrix, full_range)
+}
+
+/// [`yuv_to_rgb`] of interpolated samples (0–255 each).
+fn yuv_to_rgb_f(y: f32, u: f32, v: f32, matrix: YuvMatrix, full_range: bool) -> [f32; 3] {
+    let (u, v) = (u - 128.0, v - 128.0);
     let (luma, cb, cr) = if full_range {
         (y / 255.0, u / 255.0, v / 255.0)
     } else {
@@ -294,6 +395,10 @@ pub const SEEK_GAP_SECONDS: f64 = 2.0;
 /// lap of a short movie).
 pub const LOOP_CACHE_BYTES: usize = 24 << 20;
 
+/// A short movie started over behind the clock shows no frame further
+/// behind it than this (s) while it catches up ([`MovieTrack`]).
+pub const CATCH_UP_SECONDS: f64 = 0.1;
+
 /// Counts for the debug state and the "cannot keep up" rule.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MovieStats {
@@ -336,6 +441,14 @@ pub struct MovieTrack {
     previous: Option<f64>,
     /// Frames of a run from the start, while they fit [`LOOP_CACHE_BYTES`].
     collecting: Option<(Vec<VideoFrame>, usize)>,
+    /// A short movie started over from 0 behind the clock (to keep every
+    /// frame): its frames are decoded quickly up to where the clock is,
+    /// and only the one due then is shown (not the run of stale ones, which
+    /// would also count as late).
+    catch_up: bool,
+    /// The decoder hands over frames the platform keeps: they are never
+    /// kept for later laps, so a lap never starts over from 0 for them.
+    external_frames: bool,
     /// Every frame of the movie, once a run from the start reached the end
     /// within the budget: laps play from here.
     all_frames: Option<Vec<VideoFrame>>,
@@ -363,6 +476,8 @@ impl MovieTrack {
             last_decoded: None,
             previous: None,
             collecting: None,
+            catch_up: false,
+            external_frames: false,
             all_frames: None,
             info: None,
             error: None,
@@ -435,6 +550,7 @@ impl MovieTrack {
 
     fn seek(&mut self, decoder: &mut impl VideoDecoder, local: f64, lap: u64) {
         decoder.seek(local);
+        self.catch_up = false;
         self.origin = local;
         self.lap = lap;
         self.stats.dropped += self.queue.len() as u64;
@@ -458,7 +574,7 @@ impl MovieTrack {
                 VideoEvent::Opened(info) => self.info = Some(info),
                 VideoEvent::Frame(frame) => {
                     self.stats.decoded += 1;
-                    if now - frame.pts > LATE_SECONDS {
+                    if now - frame.pts > LATE_SECONDS && !self.catch_up {
                         self.stats.late += 1;
                     }
                     self.seeking = false;
@@ -466,6 +582,7 @@ impl MovieTrack {
                     // A frame the platform keeps holds a decoder's buffer:
                     // never kept for later laps.
                     if frame.external.is_some() {
+                        self.external_frames = true;
                         self.collecting = None;
                     }
                     if let Some((frames, bytes)) = self.collecting.as_mut() {
@@ -506,8 +623,9 @@ impl MovieTrack {
             if lap != self.lap && self.looping {
                 // A short movie starts over from 0 so that the run keeps
                 // every frame and later laps need no seek.
-                let short = self.end.is_some_and(|e| e <= 10.0);
+                let short = !self.external_frames && self.end.is_some_and(|e| e <= 10.0);
                 self.seek(decoder, if short { 0.0 } else { local }, lap);
+                self.catch_up = short && local > CATCH_UP_SECONDS;
             } else {
                 let jumped = self
                     .previous
@@ -521,22 +639,37 @@ impl MovieTrack {
         self.previous = Some(local);
         let due = self.queue.iter().rposition(|f| f.pts <= local + 1e-9);
         let frame = match due {
+            // Catching up: frames well behind the clock go unshown.
+            Some(i) if self.catch_up && local - self.queue[i].pts > CATCH_UP_SECONDS => {
+                self.stats.dropped += i as u64 + 1;
+                self.queue.drain(..=i);
+                None
+            }
             Some(i) => {
+                self.catch_up = false;
                 self.stats.dropped += i as u64;
                 self.queue.drain(..i);
                 self.queue.pop_front()
             }
             // StepMania shows a run's first frame as soon as it is decoded.
-            None if self.shown.is_none() && !self.seeking => self.queue.pop_front(),
+            None if self.shown.is_none() && !self.seeking && !self.catch_up => {
+                self.queue.pop_front()
+            }
             None => None,
         };
         if let Some(f) = &frame {
             self.shown = Some(f.pts);
             self.stats.shown += 1;
         }
+        // Catching up, more at once.
+        let ahead = if self.catch_up {
+            self.ahead * 4
+        } else {
+            self.ahead
+        };
         let have = self.queue.len() as u32 + decoder.pending();
-        if !self.ended && have < self.ahead {
-            decoder.want(self.ahead - have);
+        if !self.ended && have < ahead {
+            decoder.want(ahead - have);
         }
         frame
     }
@@ -583,12 +716,60 @@ pub const GUARD_LATE_FRAMES: u64 = 2;
 /// ... and this many behind seconds in a row turn the movie off (a single
 /// stall, a collection pause, makes one burst of late frames, not two).
 pub const GUARD_BEHIND_SECONDS: u32 = 2;
+/// A measured second holding a frame this long (ms) had a one-off stall,
+/// not a steady loss: the tab was hidden, the module compiled, a
+/// collection paused the page, a seek caught up. The movie warms up again
+/// from there, so the stall and what follows it count for nothing.
+pub const GUARD_HITCH_MS: f64 = 250.0;
+
+/// One measuring second of the display, for [`VideoGuard::update`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Second {
+    /// Frames per second over it.
+    pub fps: f64,
+    /// Its longest frame interval, ms.
+    pub worst_ms: f64,
+}
+
+/// Of a trial pause ([`VideoGuard`]), seconds judged at most, and its
+/// length in wall time (ms): undecided by then (a hidden tab, stalls), the
+/// movie plays on ...
+pub const GUARD_TRIAL_SECONDS: u32 = 3;
+pub const GUARD_TRIAL_MS: f64 = 3000.0;
+/// ... and how many of them must keep up for the movie to be the cause:
+/// at [`GUARD_SLOW_SHARE`] of the refresh rate or more, and faster than the
+/// slow seconds that started the trial by this share of it (so a display
+/// hovering at the threshold, busy with something else, is not blamed on
+/// the movie by noise).
+pub const GUARD_TRIAL_GOOD: u32 = 2;
+pub const GUARD_TRIAL_GAIN: f64 = 0.15;
+
+/// What [`VideoGuard::update`] asks of the movies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GuardAction {
+    /// Pause them (decoding and uploads stop; the frame shown stays) to
+    /// see whether the display keeps up without them.
+    Pause,
+    /// Play on: the display fell behind with them paused too, so the
+    /// dropped frames were not theirs.
+    Resume,
+    /// Turn them off for the rest of the play.
+    Off(StopReason),
+}
 
 /// The rule of the automatic video setting
 /// (`docs/plans/video-backgrounds.md`, step 5): while a movie is drawn,
-/// past its first [`GUARD_WARMUP_MS`], three seconds in a row below
-/// [`GUARD_SLOW_SHARE`] of the refresh rate, or two in a row with late
-/// frames, turn it off for the rest of the song.
+/// past its first [`GUARD_WARMUP_MS`], two seconds in a row with late
+/// frames turn it off for the rest of the song (the decoder cannot keep
+/// up). Three seconds in a row below [`GUARD_SLOW_SHARE`] of the refresh
+/// rate pause it for a trial: when the display then keeps up
+/// ([`GUARD_TRIAL_GOOD`] of [`GUARD_TRIAL_SECONDS`], clearly faster than
+/// before: [`GUARD_TRIAL_GAIN`]), the movie was the cause and goes off; when it does not, the machine is busy with
+/// something else, the movie plays on, and dropped frames are not held
+/// against it for the rest of the play. Only sustained loss counts: a
+/// second with a stall ([`GUARD_HITCH_MS`]) starts the warm-up again; in
+/// a trial it counts as not keeping up, and the trial ends after
+/// [`GUARD_TRIAL_MS`] whatever came.
 #[derive(Clone, Debug, Default)]
 pub struct VideoGuard {
     /// What is drawn and since when (ms); a new movie or segment starts the
@@ -598,53 +779,104 @@ pub struct VideoGuard {
     late_base: Option<u64>,
     slow_seconds: u32,
     behind_seconds: u32,
+    /// The slow seconds counted, their frame rates summed.
+    slow_fps: f64,
+    /// A trial pause: `(since when (ms), seconds judged, seconds that
+    /// kept up, the frame rate of the slow seconds before it)`.
+    trial: Option<(f64, u32, u32, f64)>,
+    /// A trial found the display slow without the movie: dropped frames
+    /// are no longer the movie's.
+    excused: bool,
 }
 
 impl VideoGuard {
     /// One display frame at `now_ms`: `shown` identifies the movie being
-    /// drawn (`None`: none), `second` is the frame rate of a measuring
-    /// second that ended with this frame, `refresh` the display's rate and
-    /// `late` the late frames counted so far ([`MovieStats::late`]).
+    /// drawn (`None`: none), `second` is a measuring second that ended with
+    /// this frame, `refresh` the display's rate and `late` the late frames
+    /// counted so far ([`MovieStats::late`]).
     pub fn update(
         &mut self,
         now_ms: f64,
         shown: Option<usize>,
-        second: Option<f64>,
+        second: Option<Second>,
         refresh: f64,
         late: u64,
-    ) -> Option<StopReason> {
+    ) -> Option<GuardAction> {
+        let keeps_up = |s: Second| s.fps >= GUARD_SLOW_SHARE * refresh;
+        if let Some((since, judged, good, before)) = self.trial.as_mut() {
+            if let Some(s) = second {
+                *judged += 1;
+                let gained = s.fps >= *before + GUARD_TRIAL_GAIN * refresh;
+                *good += u32::from(s.worst_ms <= GUARD_HITCH_MS && keeps_up(s) && gained);
+            }
+            let (judged, good) = (*judged, *good);
+            if good >= GUARD_TRIAL_GOOD {
+                self.trial = None;
+                return Some(GuardAction::Off(StopReason::DroppedFrames));
+            }
+            if judged - good > GUARD_TRIAL_SECONDS - GUARD_TRIAL_GOOD
+                || now_ms - *since >= GUARD_TRIAL_MS
+            {
+                *self = VideoGuard {
+                    excused: true,
+                    ..VideoGuard::default()
+                };
+                return Some(GuardAction::Resume);
+            }
+            return None;
+        }
+        let fresh = |shown: Option<(usize, f64)>, excused: bool| VideoGuard {
+            shown,
+            excused,
+            ..VideoGuard::default()
+        };
         let Some(shown) = shown else {
-            *self = VideoGuard::default();
+            *self = fresh(None, self.excused);
             return None;
         };
-        if self.shown.is_none_or(|(s, _)| s != shown) {
-            *self = VideoGuard {
-                shown: Some((shown, now_ms)),
-                ..VideoGuard::default()
-            };
+        let hitch = second.is_some_and(|s| s.worst_ms > GUARD_HITCH_MS);
+        if hitch || self.shown.is_none_or(|(s, _)| s != shown) {
+            *self = fresh(Some((shown, now_ms)), self.excused);
         }
         let since = self.shown.map_or(now_ms, |(_, t)| t);
         if now_ms - since < GUARD_WARMUP_MS {
             return None;
         }
-        let Some(fps) = second else {
+        let Some(s) = second else {
             // The first second judged starts after the warm-up.
             self.late_base.get_or_insert(late);
             return None;
         };
         let base = self.late_base.replace(late)?;
         let count = |n: &mut u32, bad: bool| *n = if bad { *n + 1 } else { 0 };
-        count(&mut self.slow_seconds, fps < GUARD_SLOW_SHARE * refresh);
+        count(&mut self.slow_seconds, !keeps_up(s));
+        self.slow_fps = if self.slow_seconds == 0 {
+            0.0
+        } else {
+            self.slow_fps + s.fps
+        };
         count(
             &mut self.behind_seconds,
             late.saturating_sub(base) >= GUARD_LATE_FRAMES,
         );
         if self.behind_seconds >= GUARD_BEHIND_SECONDS {
-            Some(StopReason::DecoderBehind)
-        } else if self.slow_seconds >= GUARD_SLOW_SECONDS {
-            Some(StopReason::DroppedFrames)
+            Some(GuardAction::Off(StopReason::DecoderBehind))
+        } else if self.slow_seconds >= GUARD_SLOW_SECONDS && !self.excused {
+            self.trial = Some((now_ms, 0, 0, self.slow_fps / f64::from(self.slow_seconds)));
+            Some(GuardAction::Pause)
         } else {
             None
+        }
+    }
+
+    /// Where the rule stands, for the debug state: `watching`, `trial`
+    /// (the movie paused to see whether the display keeps up without it)
+    /// or `excused` (it did not: dropped frames are not the movie's).
+    pub fn state(&self) -> &'static str {
+        match (self.trial.is_some(), self.excused) {
+            (true, _) => "trial",
+            (false, true) => "excused",
+            _ => "watching",
         }
     }
 }
@@ -1026,6 +1258,33 @@ mod tests {
     }
 
     #[test]
+    fn a_short_loop_joined_past_its_end_shows_no_stale_frames() {
+        // 20 frames (0.63 s at 30 fps), joined 3.2 s in, end unknown: the
+        // seek past the end teaches it, the track starts over from 0 to keep
+        // the run, and catches up without showing what is behind the clock.
+        let mut d = FakeDecoder::new(20, 0, 0);
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut d, 3.2);
+        let positions = display_frames(3.2, 4.2);
+        let shown = play(&mut track, &mut d, &positions);
+        let end = track.end().expect("learned");
+        let mut first = None;
+        for (p, f) in positions.iter().zip(&shown) {
+            let Some(i) = f else { continue };
+            let pts = f64::from(*i) / 30.0;
+            let (local, _) = track.local(*p);
+            // Within the catch-up margin (or just wrapped to the restart).
+            assert!(
+                local - pts <= CATCH_UP_SECONDS + 1.0 / 30.0 || local < LOOP_RESTART + 0.1,
+                "frame {i} at local {local} (end {end})"
+            );
+            first.get_or_insert(*p);
+        }
+        assert!(first.is_some_and(|p| p < 3.35), "{first:?}");
+        assert_eq!(track.stats.late, 0);
+    }
+
+    #[test]
     fn frames_the_platform_keeps_are_never_kept_for_later_laps() {
         // A short movie loops from memory, once its frames are its own…
         let mut own = FakeDecoder::new(20, 0, 0);
@@ -1054,7 +1313,8 @@ mod tests {
         track.start(&mut d, 12.0);
         let shown = play(&mut track, &mut d, &display_frames(12.0, 13.0));
         assert_eq!(track.end(), Some(end));
-        assert!(shown.iter().flatten().count() > 20, "{shown:?}");
+        // It starts over from 0 to keep the run and catches up unseen.
+        assert!(shown.iter().flatten().count() > 15, "{shown:?}");
         // Knowing it (an earlier track learned it): straight to the frame.
         let mut d = FakeDecoder::new(150, 0, 0);
         let mut track = MovieTrack::new(true, 3, Some(end));
@@ -1135,6 +1395,170 @@ mod tests {
             ..frame
         };
         assert_eq!(short.split(), None);
+        assert_eq!(short.rgba(), None);
+    }
+
+    #[test]
+    fn blank_pictures_are_flat_and_near_black_or_white() {
+        let flat = |v: u8| [v, v, v, 255].repeat(100);
+        assert!(blank_picture(&flat(0)));
+        assert!(blank_picture(&flat(16)));
+        assert!(blank_picture(&flat(250)));
+        assert!(blank_picture(&[]));
+        // A flat mid grey or colour is a picture (a title card).
+        assert!(!blank_picture(&flat(128)));
+        assert!(!blank_picture(&[200, 30, 30, 255].repeat(100)));
+        // Black with the codec's noise is still blank ...
+        let noisy: Vec<u8> = (0..100u8)
+            .flat_map(|i| {
+                let v = 8 + i % 9;
+                [v, v, v, 255]
+            })
+            .collect();
+        assert!(blank_picture(&noisy));
+        // ... a dim silhouette (luma 14 and 26, spread 6) is not ...
+        let dim: Vec<u8> = (0..100u8)
+            .flat_map(|i| {
+                if i % 2 == 0 {
+                    [14, 14, 14, 255]
+                } else {
+                    [26, 26, 26, 255]
+                }
+            })
+            .collect();
+        assert!(!blank_picture(&dim));
+        // ... nor black with a small white title (1 % of it) ...
+        let small: Vec<u8> = (0..200u8)
+            .flat_map(|i| {
+                if i < 2 {
+                    [255, 255, 255, 255]
+                } else {
+                    [0, 0, 0, 255]
+                }
+            })
+            .collect();
+        assert!(!blank_picture(&small));
+        // ... nor black with a white title on a tenth of it.
+        let titled: Vec<u8> = (0..100u8)
+            .flat_map(|i| {
+                if i < 10 {
+                    [255, 255, 255, 255]
+                } else {
+                    [0, 0, 0, 255]
+                }
+            })
+            .collect();
+        assert!(!blank_picture(&titled));
+    }
+
+    #[test]
+    fn rgba_follows_the_shader() {
+        // 4×2: two chroma columns, red on the left, blue on the right
+        // (BT.709, full range), mid-grey luma.
+        let red = [128u8, 255]; // U, V of a reddish sample
+        let blue = [255u8, 128];
+        let mut planes = vec![128u8; 8];
+        planes.extend([red[0], blue[0]]); // U
+        planes.extend([red[1], blue[1]]); // V
+        let frame = VideoFrame {
+            pts: 0.0,
+            width: 4,
+            height: 2,
+            matrix: YuvMatrix::Bt709,
+            full_range: true,
+            planes,
+            decode_ms: 0.0,
+            external: None,
+        };
+        let rgba = frame.rgba().unwrap();
+        assert_eq!(rgba.len(), 4 * 2 * 4);
+        let px = |x: usize, y: usize| &rgba[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
+        let byte = |v: f32| (v * 255.0).round() as u8;
+        // The outer columns sit on their chroma sample (edges clamped): the
+        // conversion of that sample exactly.
+        let left = yuv_to_rgb(128, red[0], red[1], YuvMatrix::Bt709, true).map(byte);
+        let right = yuv_to_rgb(128, blue[0], blue[1], YuvMatrix::Bt709, true).map(byte);
+        assert_eq!(px(0, 0), [left[0], left[1], left[2], 255]);
+        assert_eq!(px(3, 1), [right[0], right[1], right[2], 255]);
+        // The inner ones are a quarter of the way to the other sample
+        // (centre-sited chroma, interpolated as the GPU's sampler does).
+        let inner = yuv_to_rgb_f(
+            128.0,
+            128.0 + 127.0 * 0.25,
+            255.0 - 127.0 * 0.25,
+            YuvMatrix::Bt709,
+            true,
+        );
+        assert_eq!(&px(1, 0)[..3], &inner.map(byte));
+        // A uniform frame converts every pixel as `rgb_at` does.
+        let mut flat = vec![100u8; 9];
+        flat.extend([90; 8]);
+        let flat = VideoFrame {
+            width: 3,
+            height: 3,
+            matrix: YuvMatrix::Bt601,
+            full_range: false,
+            planes: flat,
+            ..frame
+        };
+        let rgba = flat.rgba().unwrap();
+        let expected = flat.rgb_at(1, 1).unwrap().map(byte);
+        assert!(rgba.chunks(4).all(|p| p[..3] == expected && p[3] == 255));
+    }
+
+    /// A second of evenly spaced frames.
+    fn steady(fps: f64) -> Second {
+        Second {
+            fps,
+            worst_ms: 1000.0 / fps.max(1.0),
+        }
+    }
+
+    #[test]
+    fn the_guard_lets_one_off_stalls_pass() {
+        // A 60 Hz display: a slow second, then one with a 600 ms stall (a
+        // hidden tab, a collection), then two slow ones: the stall started
+        // the warm-up again, so three slow seconds in a row never come.
+        let mut g = VideoGuard::default();
+        let stall = Second {
+            fps: 20.0,
+            worst_ms: 600.0,
+        };
+        let seconds = [
+            steady(60.0),
+            steady(60.0),
+            steady(30.0),
+            stall,
+            steady(30.0),
+            steady(30.0),
+        ];
+        for (i, s) in seconds.iter().enumerate() {
+            let ms = 1000.0 * (i + 1) as f64;
+            assert_eq!(g.update(ms, Some(0), Some(*s), 60.0, 0), None, "{i}");
+        }
+        // Late frames from catching up after a stall are not counted
+        // either: the warm-up hides them.
+        let mut g = VideoGuard::default();
+        let mut late = 0;
+        for i in 1..=6u32 {
+            let ms = 1000.0 * f64::from(i);
+            let s = if i == 4 { stall } else { steady(60.0) };
+            if i >= 4 {
+                late += 3;
+            }
+            assert_eq!(g.update(ms, Some(0), Some(s), 60.0, late), None, "{i}");
+        }
+        // A display that stays slow is still caught: three slow seconds
+        // after the warm-up that followed the stall.
+        let mut stop = None;
+        for i in 7..=20u32 {
+            let ms = 1000.0 * f64::from(i);
+            if let Some(r) = g.update(ms, Some(0), Some(steady(30.0)), 60.0, late) {
+                stop = Some((r, i));
+                break;
+            }
+        }
+        assert_eq!(stop, Some((GuardAction::Pause, 9)));
     }
 
     #[test]
@@ -1145,30 +1569,128 @@ mod tests {
         let mut at = 0.0;
         for ms in (0..=8000).step_by(50) {
             let ms = f64::from(ms);
-            let second = (ms > 0.0 && ms % 1000.0 == 0.0).then_some(30.0);
+            let second = (ms > 0.0 && ms % 1000.0 == 0.0).then_some(steady(30.0));
             if let Some(r) = g.update(ms, Some(0), second, 60.0, 0) {
                 stop = Some(r);
                 at = ms;
                 break;
             }
         }
-        // Warm-up to 2 s, the first second judged ends at 3 s: 3, 4, 5.
-        assert_eq!(stop, Some(StopReason::DroppedFrames));
+        // Warm-up to 2 s, the first second judged ends at 3 s: 3, 4, 5;
+        // then a trial.
+        assert_eq!(stop, Some(GuardAction::Pause));
         assert_eq!(at, 5000.0);
+        assert_eq!(g.state(), "trial");
         // A good second in between starts the count again.
         let mut g = VideoGuard::default();
         let rates = [60.0, 60.0, 30.0, 30.0, 59.0, 30.0, 30.0, 58.0];
         for (i, fps) in rates.iter().enumerate() {
             let ms = 1000.0 * (i + 1) as f64;
-            assert_eq!(g.update(ms, Some(0), Some(*fps), 60.0, 0), None);
+            assert_eq!(g.update(ms, Some(0), Some(steady(*fps)), 60.0, 0), None);
         }
         // Without a movie, nothing counts, and a new one warms up again.
         let mut g = VideoGuard::default();
         for i in 1..=10 {
             let shown = if i < 6 { None } else { Some(i) };
             let ms = 1000.0 * f64::from(i as u32);
-            assert_eq!(g.update(ms, shown, Some(10.0), 60.0, 0), None);
+            assert_eq!(g.update(ms, shown, Some(steady(10.0)), 60.0, 0), None);
         }
+    }
+
+    #[test]
+    fn a_trial_tells_the_movies_cost_from_a_busy_machine() {
+        // Shown from 1 s, warm to 3 s, then three slow seconds to 6 s: paused.
+        let slow = |g: &mut VideoGuard| {
+            for i in 1..=6u32 {
+                let ms = 1000.0 * f64::from(i);
+                let action = g.update(ms, Some(0), Some(steady(30.0)), 60.0, 0);
+                assert_eq!(action, (i == 6).then_some(GuardAction::Pause), "{i}");
+            }
+        };
+        // Without the movie the display keeps up: the movie was the cause.
+        let mut g = VideoGuard::default();
+        slow(&mut g);
+        assert_eq!(g.update(7000.0, Some(0), Some(steady(60.0)), 60.0, 0), None);
+        // Slow at 45 fps, then barely over the threshold (48) without a
+        // clear gain (9 asked): noise, not the movie's doing.
+        let mut h = VideoGuard::default();
+        for i in 1..=6u32 {
+            h.update(1000.0 * f64::from(i), Some(0), Some(steady(45.0)), 60.0, 0);
+        }
+        assert_eq!(h.state(), "trial");
+        assert_eq!(h.update(7000.0, Some(0), Some(steady(49.0)), 60.0, 0), None);
+        assert_eq!(
+            h.update(8000.0, Some(0), Some(steady(50.0)), 60.0, 0),
+            Some(GuardAction::Resume)
+        );
+        // A stall in the trial counts as not keeping up (one is allowed).
+        let stall = Second {
+            fps: 50.0,
+            worst_ms: 400.0,
+        };
+        assert_eq!(g.update(8000.0, Some(0), Some(stall), 60.0, 0), None);
+        assert_eq!(
+            g.update(9000.0, Some(0), Some(steady(59.0)), 60.0, 0),
+            Some(GuardAction::Off(StopReason::DroppedFrames))
+        );
+        // Still slow without it: the machine is busy; the movie plays on
+        // and slow seconds no longer count against it.
+        let mut g = VideoGuard::default();
+        slow(&mut g);
+        assert_eq!(g.update(7000.0, Some(0), Some(steady(60.0)), 60.0, 0), None);
+        assert_eq!(g.update(8000.0, Some(0), Some(steady(30.0)), 60.0, 0), None);
+        assert_eq!(
+            g.update(9000.0, Some(0), Some(steady(31.0)), 60.0, 0),
+            Some(GuardAction::Resume)
+        );
+        assert_eq!(g.state(), "excused");
+        for i in 10..=30u32 {
+            let ms = 1000.0 * f64::from(i);
+            assert_eq!(g.update(ms, Some(1), Some(steady(30.0)), 60.0, 0), None);
+        }
+        // A decoder that falls behind is still turned off.
+        let mut stop = None;
+        for i in 31..=40u32 {
+            let ms = 1000.0 * f64::from(i);
+            if let Some(a) = g.update(ms, Some(1), Some(steady(30.0)), 60.0, u64::from(i) * 10) {
+                stop = Some(a);
+                break;
+            }
+        }
+        assert_eq!(stop, Some(GuardAction::Off(StopReason::DecoderBehind)));
+    }
+
+    #[test]
+    fn a_trial_ends_in_three_seconds_whatever_comes() {
+        let pause = |g: &mut VideoGuard| {
+            for i in 1..=6u32 {
+                g.update(1000.0 * f64::from(i), Some(0), Some(steady(30.0)), 60.0, 0);
+            }
+            assert_eq!(g.state(), "trial");
+        };
+        // Stalls every second (frames of 400 ms): not keeping up, decided
+        // after two of them.
+        let stall = Second {
+            fps: 60.0,
+            worst_ms: 400.0,
+        };
+        let mut g = VideoGuard::default();
+        pause(&mut g);
+        assert_eq!(g.update(7000.0, Some(0), Some(stall), 60.0, 0), None);
+        assert_eq!(
+            g.update(8000.0, Some(0), Some(stall), 60.0, 0),
+            Some(GuardAction::Resume)
+        );
+        // No measured second at all (a hidden tab draws no frames): the
+        // first frame after three seconds ends the trial.
+        let mut g = VideoGuard::default();
+        pause(&mut g);
+        assert_eq!(g.update(8000.0, Some(0), None, 60.0, 0), None);
+        assert_eq!(
+            g.update(16000.0, Some(0), None, 60.0, 0),
+            Some(GuardAction::Resume)
+        );
+        assert_eq!(g.state(), "excused");
     }
 
     #[test]
@@ -1180,20 +1702,24 @@ mod tests {
             let ms = 1000.0 * f64::from(i);
             // Late frames from the start: the warm-up ones do not count.
             late += 20;
-            if let Some(r) = g.update(ms, Some(3), Some(60.0), 60.0, late) {
+            if let Some(r) = g.update(ms, Some(3), Some(steady(60.0)), 60.0, late) {
                 stop = Some((r, i));
                 break;
             }
         }
         // Drawn from 1 s: the warm-up ends at 3 s and the judged seconds
         // at 4 s and 5 s.
-        assert_eq!(stop, Some((StopReason::DecoderBehind, 5)));
+        assert_eq!(stop, Some((GuardAction::Off(StopReason::DecoderBehind), 5)));
         // One burst (a stall) is not enough.
         let mut g = VideoGuard::default();
         let lates = [0, 0, 0, 5, 5, 5, 5, 9, 9, 9];
         for (i, l) in lates.iter().enumerate() {
             let ms = 1000.0 * (i + 1) as f64;
-            assert_eq!(g.update(ms, Some(0), Some(60.0), 60.0, *l), None, "{i}");
+            assert_eq!(
+                g.update(ms, Some(0), Some(steady(60.0)), 60.0, *l),
+                None,
+                "{i}"
+            );
         }
     }
 

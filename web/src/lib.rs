@@ -1,6 +1,6 @@
-//! The web shell: Yew for the menus still on the DOM, one wgpu canvas
-//! and device for the whole app, Web Audio, settings in `localStorage`,
-//! songs in IndexedDB. Compiles for `wasm32-unknown-unknown` only; the
+//! The web shell: our theme's screens on one wgpu canvas and device for
+//! the whole app (pages as components of our own, `component`), Web
+//! Audio, settings in `localStorage`, songs in IndexedDB. Compiles for `wasm32-unknown-unknown` only; the
 //! `ditoditoinfinito` crate (`app/`) starts it there, and the desktop
 //! shell everywhere else. Built natively (an editor's analysis, a
 //! workspace-wide `cargo check`) it is empty.
@@ -9,15 +9,17 @@
 mod app;
 mod boot;
 mod calibration;
+mod component;
 mod components;
 mod crash;
+mod field_preview;
 mod game_loop;
 mod history;
 mod import;
-mod lyrics;
 mod mods;
 mod movies;
 mod noteskins;
+mod notices;
 mod play;
 mod preview;
 mod router;
@@ -26,6 +28,7 @@ mod select_preview;
 mod settings;
 mod songs;
 mod stage;
+mod stills;
 mod web;
 
 /// Starts the app in the page (`#app-root`).
@@ -43,5 +46,5 @@ pub fn start() {
     let root = document
         .get_element_by_id("app-root")
         .expect("#app-root must exist in index.html");
-    yew::Renderer::<app::App>::with_root(root).render();
+    app::start(root);
 }

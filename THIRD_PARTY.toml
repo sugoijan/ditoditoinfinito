@@ -10,13 +10,26 @@
 
 [[code]]
 name = "StepMania 5.1"
-what = "The metrics.ini and Lua files of its dance/default and common/common noteskins, byte for byte: the stand-ins every imported noteskin falls back to."
+what = "The metrics.ini and Lua files of its dance/default, pump/default and common/common noteskins, byte for byte: the stand-ins every imported noteskin falls back to."
 files = [
   "noteskin/src/builtin/stepmania/dance/default/metrics.ini",
   "noteskin/src/builtin/stepmania/dance/default/NoteSkin.lua",
   "noteskin/src/builtin/stepmania/dance/default/Down Receptor.lua",
   "noteskin/src/builtin/stepmania/dance/default/Down Tap Lift.lua",
   "noteskin/src/builtin/stepmania/dance/default/Down Tap Note.lua",
+  "noteskin/src/builtin/stepmania/pump/default/metrics.ini",
+  "noteskin/src/builtin/stepmania/pump/default/NoteSkin.lua",
+  "noteskin/src/builtin/stepmania/pump/default/Center Tap Lift.lua",
+  "noteskin/src/builtin/stepmania/pump/default/DownLeft Tap Lift.lua",
+  "noteskin/src/builtin/stepmania/pump/default/DownRight Ready Receptor.lua",
+  "noteskin/src/builtin/stepmania/pump/default/DownRight Tap Lift.lua",
+  "noteskin/src/builtin/stepmania/pump/default/DownRight Tap Note.lua",
+  "noteskin/src/builtin/stepmania/pump/default/UpLeft Explosion.lua",
+  "noteskin/src/builtin/stepmania/pump/default/UpLeft Receptor.lua",
+  "noteskin/src/builtin/stepmania/pump/default/UpLeft Tap Lift.lua",
+  "noteskin/src/builtin/stepmania/pump/default/UpRight Ready Receptor.lua",
+  "noteskin/src/builtin/stepmania/pump/default/UpRight Tap Lift.lua",
+  "noteskin/src/builtin/stepmania/pump/default/UpRight Tap Note.lua",
   "noteskin/src/builtin/stepmania/common/common/metrics.ini",
   "noteskin/src/builtin/stepmania/common/common/NoteSkin.lua",
   "noteskin/src/builtin/stepmania/common/common/Fallback Explosion.lua",

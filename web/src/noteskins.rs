@@ -14,11 +14,12 @@
 //! rest of a play); the next play tries again, and a second stop turns
 //! its Lua off until the skin is imported again (`docs/plans/lua.md`).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use std::future::Future;
 use std::pin::Pin;
+use std::rc::Rc;
 
 use ddi_chart::Layout;
 use ddi_noteskin::build::{Images, TextureKey};
@@ -341,8 +342,10 @@ pub(crate) async fn choices() -> Result<Choices, String> {
     let mut skins: Vec<(bool, String, String)> = skins
         .into_iter()
         // Dito and its colours are the default, chosen as such.
+        // Pump skins are listed too, for the pump layouts
+        // (`Settings::pump_noteskin`).
         .filter(|s| {
-            s.game == "dance"
+            (s.game == "dance" || s.game == "pump")
                 && !s.name.eq_ignore_ascii_case("default")
                 && s.variant_of.is_none()
                 && !(s.bundled.is_some() && s.name == "Dito")
@@ -369,28 +372,63 @@ pub(crate) async fn choices() -> Result<Choices, String> {
 /// What each element of a skin is, in a line for the import report: how
 /// many of a column's elements are the skin's own and why the rest are
 /// the built-in skin's, as its Lua builds them when it has Lua, else as
-/// they resolve without it.
+/// they resolve without it. A dance skin is probed on dance single's
+/// Down, a pump skin on Pump single's UpLeft; `common` is said to be the
+/// shared files.
 pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> String {
+    use ddi_noteskin::Button;
+    if game == "common" {
+        return "StepMania's shared files (common), which the other skins fall back on".to_string();
+    }
     let skin = match Skin::load(folders, game, name) {
         Ok(s) => s,
         Err(e) => return e.to_string(),
     };
-    if skin.legacy {
-        return legacy_summary(&skin);
+    let pump = game == "pump";
+    let (layout, button) = if pump {
+        (Layout::pump_single(), Button::UpLeft)
+    } else {
+        (Layout::dance_single(), Button::Down)
+    };
+    let line = if skin.legacy {
+        legacy_summary(&skin, button)
+    } else if !has_lua(&skin) && !pump {
+        native_summary(&skin, button)
+    } else {
+        lua_summary(folders, &skin, game, name, &layout, button).await
+    };
+    if pump {
+        format!("a pump skin, on Pump single: {line}")
+    } else {
+        line
     }
-    if !has_lua(&skin) {
-        return native_summary(&skin);
-    }
+}
+
+/// [`summary`]'s line from the skin's Lua (a pump skin's always runs:
+/// pump/default's Lua makes its elements).
+async fn lua_summary(
+    folders: &[Folder],
+    skin: &Skin<'_>,
+    game: &str,
+    name: &str,
+    layout: &Layout,
+    button: ddi_noteskin::Button,
+) -> String {
     let probe = Sizes::probe();
-    let layout = Layout::dance_single();
+    let env = Env {
+        game: game.to_string(),
+        style: ddi_noteskin::lua::style_for(game, layout).into(),
+        ..Env::default()
+    };
     match lua_play(
         folders,
         game,
         name,
-        Env::default(),
+        env,
         hash_seed(),
-        &layout,
+        layout,
         &probe,
+        clock(),
     )
     .await
     {
@@ -400,11 +438,11 @@ pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> Strin
             let mut line = format!("its Lua ran: {own} of {total} elements are its own");
             if own < total {
                 // Why the first few are not (text, an unsupported actor).
+                let prefix = format!("{}: ", button.name());
                 let why: Vec<&str> = play
                     .notes
                     .iter()
-                    .filter(|n| n.starts_with("Down: "))
-                    .map(|n| n.trim_start_matches("Down: "))
+                    .filter_map(|n| n.strip_prefix(prefix.as_str()))
                     .take(3)
                     .collect();
                 line.push_str(&format!("; {} drawn built in", total - own));
@@ -417,7 +455,7 @@ pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> Strin
         Ok(None) => "a layout's lanes it cannot draw".to_string(),
         Err(e) => format!(
             "its Lua stopped ({e}); it is drawn without it: {}",
-            native_summary(&skin)
+            native_summary(skin, button)
         ),
     }
 }
@@ -426,7 +464,7 @@ pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> Strin
 /// A skin in StepMania 3.9's format, built natively: how many of the
 /// elements the engine asks for are its own, and why the first few are
 /// not.
-fn legacy_summary(skin: &Skin<'_>) -> String {
+fn legacy_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> String {
     use ddi_noteskin::build::{Built, Textures, build};
     use ddi_noteskin::load::ENGINE_ELEMENTS;
     let probe = Sizes::probe();
@@ -439,7 +477,7 @@ fn legacy_summary(skin: &Skin<'_>) -> String {
         .collect();
     let (mut own, mut why) = (0, Vec::new());
     for e in &elements {
-        let el = build(skin, ddi_noteskin::Button::Down, e, &mut textures, &probe);
+        let el = build(skin, button, e, &mut textures, &probe);
         match el.built {
             Built::Actor(_) | Built::Blank => own += 1,
             Built::BuiltIn => why.extend(el.notes.into_iter().take(1)),
@@ -459,12 +497,12 @@ fn legacy_summary(skin: &Skin<'_>) -> String {
     line
 }
 
-fn native_summary(skin: &Skin<'_>) -> String {
+fn native_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> String {
     use ddi_noteskin::load::ENGINE_ELEMENTS;
     use ddi_noteskin::{Resolved, Source};
     let (mut own, mut lua, mut other, mut builtin) = (0, 0, 0, 0);
     for e in ENGINE_ELEMENTS {
-        match skin.resolve(ddi_noteskin::Button::Down, e) {
+        match skin.resolve(button, e) {
             Resolved::File {
                 source: Source::Image(_) | Source::Model(_),
                 ..
@@ -511,10 +549,33 @@ fn clock() -> Box<dyn FnMut() -> f64> {
     Box::new(move || performance.as_ref().map_or(0.0, |p| p.now() / 1000.0))
 }
 
+/// Whether a load is still wanted ([`prepare_while`]).
+pub(crate) type Wanted = Rc<dyn Fn() -> bool>;
+
+/// A load's clock for its Lua: the host's, until the load is no longer
+/// wanted while it runs (not `done`); from then on each reading is an
+/// hour on, so the Lua's deadline ends it at its next check, whatever
+/// it was doing, rather than running to its end for nothing.
+fn load_clock(wanted: Wanted, done: Rc<Cell<bool>>) -> Box<dyn FnMut() -> f64> {
+    let mut host = clock();
+    let mut ahead = 0.0;
+    Box::new(move || {
+        if !done.get() && !wanted() {
+            ahead += 3600.0;
+        }
+        host() + ahead
+    })
+}
+
 /// Starts a skin's Lua: its own VM with hash seed `seed` (the two passes
 /// of a play share one, so tables iterate alike), the prelude and the
 /// `NoteSkin.lua` chain.
-async fn lua_skin(skin: Skin<'static>, env: Env, seed: u64) -> Result<LuaSkin, ddi_lua::Failure> {
+async fn lua_skin(
+    skin: Skin<'static>,
+    env: Env,
+    seed: u64,
+    clock: Box<dyn FnMut() -> f64>,
+) -> Result<LuaSkin, ddi_lua::Failure> {
     let settings = ddi_lua::Settings {
         hash_seed: seed,
         ..ddi_lua::Settings::default()
@@ -524,7 +585,7 @@ async fn lua_skin(skin: Skin<'static>, env: Env, seed: u64) -> Result<LuaSkin, d
         env,
         settings,
         LoadBudget::default(),
-        clock(),
+        clock,
         Some(&mut pause),
     )
     .await
@@ -631,7 +692,9 @@ const MAX_IMAGE_SIDE: u32 = 4096;
 /// and drawn by the built-in skin.
 const MAX_PIXELS: u64 = 64 << 20;
 
-/// Builds skin `name` through its Lua for `layout`; why it could not.
+/// Builds skin `name` through its Lua for `layout` (`clock` its
+/// deadlines'); why it could not.
+#[allow(clippy::too_many_arguments)]
 async fn lua_play(
     folders: &[Folder],
     game: &str,
@@ -640,13 +703,14 @@ async fn lua_play(
     seed: u64,
     layout: &Layout,
     images: &dyn Images,
+    clock: Box<dyn FnMut() -> f64>,
 ) -> Result<Option<NoteskinPlay>, String> {
     let loaded = Skin::load(folders, game, name).map_err(|e| e.to_string())?;
     // Lanes no skin draws (`Skin::lane_button`).
     if layout.lanes.iter().any(|l| loaded.lane_button(l).is_none()) {
         return Ok(None);
     }
-    let lua = lua_skin(loaded.into_owned(), env, seed)
+    let lua = lua_skin(loaded.into_owned(), env, seed, clock)
         .await
         .map_err(|e| e.to_string())?;
     NoteskinPlay::with_lua(lua, layout, images, true, Some(&mut pause))
@@ -751,11 +815,16 @@ async fn decode(
     sizes: &mut Sizes,
     bitmaps: &mut HashMap<(usize, String), ImageBitmap>,
     pixels: &mut u64,
+    wanted: &Wanted,
 ) {
     let mut asked = sizes.asked.take();
     asked.sort();
     asked.dedup();
     for (i, path) in asked {
+        // A load no longer wanted decodes no more.
+        if !wanted() {
+            break;
+        }
         if bitmaps.contains_key(&(i, path.clone())) {
             continue;
         }
@@ -886,9 +955,66 @@ pub(crate) fn forget_stops(key: &str) {
 /// there is no such skin, it does not load, or the layout's lanes are not
 /// dance buttons.
 pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prepared> {
+    prepare_while(key, layout, env, Rc::new(|| true)).await
+}
+
+/// [`prepare`], given up (`None`) as soon as it is no longer `wanted`
+/// (a preview stepping through skins): between its stages, between
+/// images, and inside the skin's Lua, which its clock ends
+/// ([`load_clock`]). A load given up never counts against the skin's
+/// Lua.
+pub(crate) async fn prepare_while(
+    key: &str,
+    layout: &Layout,
+    env: Env,
+    wanted: Wanted,
+) -> Option<Prepared> {
+    let done = Rc::new(Cell::new(false));
+    let prepared = prepare_until(key, layout, env, &wanted, &done).await;
+    // The skin's Lua keeps the clock for the play: the host's from now on.
+    done.set(true);
+    let given_up = !wanted();
+    LOADS.with(|l| {
+        let (done, gave_up) = l.get();
+        l.set(if given_up {
+            (done, gave_up + 1)
+        } else {
+            (done + 1, gave_up)
+        });
+    });
+    match prepared {
+        Some(p) if given_up => {
+            p.close();
+            None
+        }
+        p => p,
+    }
+}
+
+thread_local! {
+    /// Loads that ran to their end, and loads given up (`__DDI_DEBUG`).
+    static LOADS: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
+}
+
+/// Loads that ran to their end, and loads given up, so far.
+pub(crate) fn loads() -> (u64, u64) {
+    LOADS.with(Cell::get)
+}
+
+async fn prepare_until(
+    key: &str,
+    layout: &Layout,
+    env: Env,
+    wanted: &Wanted,
+    done: &Rc<Cell<bool>>,
+) -> Option<Prepared> {
+    let clock = || load_clock(wanted.clone(), done.clone());
     // A bundled skin plays without storage.
     let db = Db::open().await.ok();
     let mut stored = catalogue(db.as_ref()).await;
+    if !wanted() {
+        return None;
+    }
     // Skins are found by name, and an imported one may share a bundled
     // one's: the chosen skin first; a bundled skin's fallbacks only among
     // the bundled ones (no import, not an imported `default` or `common`,
@@ -926,6 +1052,9 @@ pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prep
             add_missing_texts(db, s).await;
         }
     }
+    if !wanted() {
+        return None;
+    }
     let stored = stored;
     let chosen = &stored[chosen];
     let folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
@@ -942,8 +1071,14 @@ pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prep
         );
     }
     // Skins with no Lua of their own (nor their fallbacks) play natively:
-    // the same as StepMania's stand-ins' Lua, without its costs.
-    let with_lua = chosen.lua_broken.is_none() && has_lua(&skin);
+    // the same as StepMania's stand-ins' Lua, without its costs. A pump
+    // skin's elements are pump/default's Lua's (the right side's taken
+    // from the left's): it always runs.
+    let with_lua = chosen.lua_broken.is_none() && (has_lua(&skin) || chosen.game == "pump");
+    // The skin's Lua is told its own game, and the style it plays.
+    let mut env = env;
+    env.game = chosen.game.clone();
+    env.style = ddi_noteskin::lua::style_for(&chosen.game, layout).into();
     let seed = hash_seed();
     let mut lua_error = None;
     // First pass: which images the actors use.
@@ -957,11 +1092,13 @@ pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prep
             seed,
             layout,
             &sizes,
+            clock(),
         )
         .await
         {
             Ok(Some(_)) => {}
             Ok(None) => return None,
+            Err(_) if !wanted() => return None,
             Err(e) => lua_error = Some(e),
         }
     }
@@ -970,7 +1107,25 @@ pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prep
     }
     let mut bitmaps: HashMap<(usize, String), ImageBitmap> = HashMap::new();
     let mut pixels: u64 = 0;
-    decode(db.as_ref(), &stored, &mut sizes, &mut bitmaps, &mut pixels).await;
+    // Every image decoded so far is closed when the load is given up.
+    let give_up = |bitmaps: &HashMap<(usize, String), ImageBitmap>| {
+        for b in bitmaps.values() {
+            b.close();
+        }
+        None
+    };
+    decode(
+        db.as_ref(),
+        &stored,
+        &mut sizes,
+        &mut bitmaps,
+        &mut pixels,
+        wanted,
+    )
+    .await;
+    if !wanted() {
+        return give_up(&bitmaps);
+    }
     let mut play = None;
     if with_lua && lua_error.is_none() {
         match lua_play(
@@ -981,16 +1136,26 @@ pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prep
             seed,
             layout,
             &sizes,
+            clock(),
         )
         .await
         {
             Ok(p) => play = p,
+            Err(_) if !wanted() => return give_up(&bitmaps),
             Err(e) => {
                 lua_error = Some(e);
                 // The native build may want images the Lua did not.
                 sizes.probe = true;
                 let _ = NoteskinPlay::new(&skin, layout, &sizes, true);
-                decode(db.as_ref(), &stored, &mut sizes, &mut bitmaps, &mut pixels).await;
+                decode(
+                    db.as_ref(),
+                    &stored,
+                    &mut sizes,
+                    &mut bitmaps,
+                    &mut pixels,
+                    wanted,
+                )
+                .await;
             }
         }
     }

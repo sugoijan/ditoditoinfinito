@@ -65,6 +65,62 @@ pub struct JudgementFlash {
     pub combo_at: u32,
 }
 
+/// Where a play shows its holds' (and shocks') outcomes, O.K. and N.G.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum HoldPlace {
+    /// Not shown: StepMania's pump game (`HoldJudgmentY…` −99999 there).
+    /// Ticked holds elsewhere show none either (their checkpoints are
+    /// their judgement), but the shocks of their charts still do.
+    #[default]
+    None,
+    /// Over each lane, a little past its receptor towards the field's
+    /// middle (StepMania's `HoldJudgment`, one a column).
+    Lanes,
+    /// Dancing☆Onigiri's freeze judgement: one at a time, beside the
+    /// tap judgement (100 px right of it and 70 px below in its 50 px
+    /// arrows, `mainWindow.js`), shown still for 60 frames.
+    Centre,
+}
+
+/// A hold's or a shock's outcome being shown.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct HoldFlash {
+    pub lane: u8,
+    /// Kept (O.K.), else dropped (N.G.).
+    pub held: bool,
+    /// Seconds since it.
+    pub age: f32,
+}
+
+/// The holds' outcomes to show, and where.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HoldJudgements {
+    pub place: HoldPlace,
+    /// One a lane at most ([`HoldPlace::Centre`]: the latest only).
+    pub flashes: Vec<HoldFlash>,
+}
+
+/// How long a hold's outcome shows (seconds): StepMania's `_fallback`
+/// `HoldJudgmentHeldCommand` (0.3 + 0.5 + 0.1) and
+/// `HoldJudgmentLetGoCommand` (0.8 + 0.5 + 0.1).
+pub const HELD_SECONDS: f32 = 0.9;
+pub const LET_GO_SECONDS: f32 = 1.4;
+/// Dancing☆Onigiri's freeze judgement shows for 60 frames
+/// (`g_workObj.fjudgeTimer`, `mainWindow.js`), at its 60 frames a second.
+pub const CENTRE_SECONDS: f32 = 1.0;
+
+impl HoldPlace {
+    /// How long an outcome shows here (seconds).
+    pub fn seconds(self, held: bool) -> f32 {
+        match self {
+            HoldPlace::None => 0.0,
+            HoldPlace::Centre => CENTRE_SECONDS,
+            HoldPlace::Lanes if held => HELD_SECONDS,
+            HoldPlace::Lanes => LET_GO_SECONDS,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SpriteKind {
     Tap,
@@ -122,6 +178,8 @@ pub struct Frame {
     /// Only notes with `y` in `[-2, visible_range]` (tails included for holds).
     pub notes: Vec<NoteSprite>,
     pub judgement: Option<JudgementFlash>,
+    /// Holds' and shocks' outcomes (O.K., N.G.).
+    pub holds: HoldJudgements,
     pub combo: u32,
     pub score: ScoreView,
     /// `0..=1`.

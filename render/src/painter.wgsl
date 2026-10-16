@@ -4,13 +4,29 @@
 // with one colour a corner, perhaps smeared along a motion blur. Colours and texels are encoded values with
 // straight alpha, drawn to a plain (non-sRGB) target: blending happens
 // in encoded values, as StepMania and the browser blend
-// (`docs/plans/ui-core.md`, P11).
+// (`docs/plans/ui-core.md`, P11). Over a play's sRGB surface (WebGL2)
+// they are decoded at the end (`to_target`), and blend in linear light.
 
 struct Globals {
     // Pixels -> clip space: x' = x * sx + tx, y' = y * sy + ty
     scale: vec2<f32>,
     translate: vec2<f32>,
+    // 1: the target is an sRGB view (linear light): colours are decoded.
+    linear: f32,
+    // To 32 bytes: WebGL2 binds uniforms in multiples of 16.
+    pad0: f32,
+    pad1: vec2<f32>,
 };
+
+// An encoded colour as the target takes it (`Globals::linear`).
+fn to_target(c: vec4<f32>) -> vec4<f32> {
+    if (globals.linear > 0.5) {
+        let lo = c.rgb / 12.92;
+        let hi = pow((c.rgb + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+        return vec4<f32>(select(hi, lo, c.rgb <= vec3<f32>(0.04045)), c.a);
+    }
+    return c;
+}
 
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(1) @binding(0) var image: texture_2d<f32>;
@@ -229,7 +245,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         if (out.a <= 0.00390625) {
             discard;
         }
-        return out;
+        return to_target(out);
     }
     var t = texel;
     if ((in.mode & 1u) != 0u) {
@@ -255,5 +271,5 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (out.a <= 0.00390625) {
         discard;
     }
-    return out;
+    return to_target(out);
 }

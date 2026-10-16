@@ -298,11 +298,30 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     h.tap(PointerKind::Mouse, "Link.Options");
     h.run(0.5);
     assert_eq!(state.borrow().screen, "options");
+    // The start prompt.
+    let mut p = harness([1280.0, 720.0], DESIGN);
+    p.push(sample::prompt_screen(
+        &env,
+        screens::prompt::PromptStep::Ready,
+    ));
+    p.run(0.3);
+    assert_eq!(state.borrow().screen, "prompt");
     // The compact layout.
     let mut c = harness([844.0, 390.0], COMPACT);
     c.push(sample::select_screen(&env, None));
     c.run(0.5);
     assert!(state.borrow().compact);
+    let mut c = harness([390.0, 844.0], COMPACT);
+    c.push(sample::select_screen(&env, None));
+    c.run(0.5);
+    assert!(state.borrow().compact);
+    // Options on a phone, sideways and upright.
+    for size in [[844.0, 390.0], [390.0, 844.0]] {
+        let mut o = harness(size, COMPACT);
+        o.push(sample::options_screen(&env, None));
+        o.run(0.3);
+        assert!(state.borrow().compact);
+    }
     // The plain components the screens do not use.
     for name in [
         "Toggle",
@@ -843,4 +862,618 @@ fn import_toggles_and_report_rows_in_the_theme() {
     } else {
         panic!("no report");
     }
+}
+
+/// Options at every size: the rows, their values and buttons inside the
+/// rows' room and the screen, every row reachable, the preview and the
+/// description on the screen.
+#[test]
+fn options_fit_every_size() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    for (size, design) in [
+        ([1280.0, 720.0], DESIGN),
+        ([844.0, 390.0], COMPACT),
+        ([390.0, 844.0], COMPACT),
+    ] {
+        let mut h = harness(size, design);
+        h.push(sample::options_screen(&env, None));
+        h.run(0.5);
+        let vp = h.ui.viewport().screen;
+        let inside = |b: [f32; 4], outer: [f32; 4], what: &str| {
+            assert!(
+                b[0] >= outer[0] - 1.0
+                    && b[1] >= outer[1] - 1.0
+                    && b[2] <= outer[2] + 1.0
+                    && b[3] <= outer[3] + 1.0,
+                "{size:?} {what}: {b:?} not in {outer:?}"
+            );
+        };
+        let screen = [0.0, 0.0, vp.width, vp.height];
+        for name in ["Preview", "Description", "RowsClip", "Sections"] {
+            let b =
+                h.ui.bounds(name)
+                    .unwrap_or_else(|| panic!("{size:?} {name}"));
+            inside(b, screen, name);
+        }
+        let sections = state.borrow().option_rows.len();
+        assert!(sections > 0);
+        for _ in 0..10 {
+            let rows = state.borrow().option_rows.clone();
+            let clip = h.ui.bounds("RowsClip").unwrap();
+            for (i, id) in rows.iter().enumerate() {
+                if i > 0 {
+                    h.key("ArrowDown", "ArrowDown");
+                }
+                h.run(0.02);
+                assert_eq!(&state.borrow().option_id, id);
+                let row = h.ui.bounds(&format!("Option{i}")).unwrap();
+                inside(
+                    row,
+                    [clip[0] - 6.0, clip[1] - 6.0, clip[2] + 6.0, clip[3] + 6.0],
+                    id,
+                );
+                // What it does, whole, inside its panel.
+                let panel = h.ui.bounds("Description").unwrap();
+                for k in 0..12 {
+                    let Some(a) = h.ui.actor(&format!("Description.Line{k}")) else {
+                        break;
+                    };
+                    if let Kind::Text(t) = &a.kind {
+                        assert!(!t.text().ends_with('…'), "{size:?} {id}: {:?}", t.text());
+                    }
+                    let b = h.ui.bounds(&format!("Description.Line{k}")).unwrap();
+                    inside(b, panel, &format!("{id} description line {k}"));
+                }
+                if let Some(v) = h.ui.bounds(&format!("Option{i}.Values")) {
+                    inside(
+                        [v[0], row[1], v[2], row[3]],
+                        [row[0] - 6.0, row[1], row[2] + 6.0, row[3]],
+                        &format!("{id} values"),
+                    );
+                }
+            }
+            h.key("Tab", "Tab");
+            h.run(0.05);
+        }
+        // The compact tab strip: the chosen tab shows.
+        let s = state.borrow().section.clone();
+        let names: Vec<String> = sample::options(0)
+            .sections
+            .iter()
+            .map(|x| x.name.clone())
+            .collect();
+        let i = names.iter().position(|n| *n == s).unwrap();
+        let tab = h.ui.bounds(&format!("Section{i}")).unwrap();
+        inside(tab, screen, "the chosen section");
+        assert!(state.borrow().preview.is_some(), "{size:?}");
+    }
+}
+
+/// The credits, calibration's menu and the app's notices at every size:
+/// every link and button inside the column and the screen, the banner's
+/// buttons on the screen.
+#[test]
+fn pages_and_notices_fit_every_size() {
+    use ddi_ui::screens::notices::{AppNotice, AppNotices, NOTICES_CHANGED, NoticeBar};
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    for (size, design) in [
+        ([1280.0, 720.0], DESIGN),
+        ([844.0, 390.0], COMPACT),
+        ([390.0, 844.0], COMPACT),
+    ] {
+        for page in ["credits", "calibration"] {
+            let mut h = harness(size, design);
+            match page {
+                "credits" => h.push(sample::credits_screen(&env, &screens::credits::sample())),
+                _ => h.push(sample::calibration_screen(&env)),
+            }
+            h.run(0.4);
+            let vp = h.ui.viewport().screen;
+            let screen = [0.0, 0.0, vp.width, vp.height];
+            let column = h.ui.bounds("Column").unwrap();
+            let inside = |b: [f32; 4], o: [f32; 4], what: &str| {
+                assert!(
+                    b[0] >= o[0] - 1.0 && b[2] <= o[2] + 1.0,
+                    "{size:?} {page} {what}: {b:?} not in {o:?}"
+                );
+            };
+            inside(column, screen, "column");
+            let n = state.borrow().page_items.len();
+            assert!(n > 0);
+            for i in 0..n {
+                // Each one scrolled into view in turn.
+                h.key("ArrowDown", "ArrowDown");
+                h.run(0.02);
+                if let Some(b) = h.ui.bounds(&format!("Item{i}")) {
+                    inside(b, column, &format!("Item{i}"));
+                }
+            }
+            assert!(state.borrow().page_height > 200.0);
+        }
+        // The banner, with the longest wording and every action.
+        let mut h = harness(size, design);
+        h.push(sample::select_screen(&env, None));
+        let feed: ddi_ui::screens::notices::NoticesFeed = Rc::default();
+        h.ui.push_chrome(NoticeBar::new(
+            env.clone(),
+            feed.clone(),
+            Rc::new(|_, _| {}),
+        ));
+        *feed.borrow_mut() = AppNotices {
+            banner: Some(AppNotice {
+                text: "New audio path: 44 kHz · ~21 ms output latency (wired/built-in?). New \
+                       display: 1280×720 (1×), ~60 Hz. No calibration for it yet."
+                    .into(),
+                actions: vec![
+                    ("calibrate".into(), "calibrate".into(), true),
+                    ("defaults".into(), "use defaults".into(), false),
+                    (
+                        "copy-audio:a".into(),
+                        "use +12 ms from Headphones".into(),
+                        false,
+                    ),
+                    ("later".into(), "later".into(), false),
+                ],
+            }),
+            toast: Some("devices: Headphones (+12 ms) · 1280×720 (+0 ms)".into()),
+        };
+        h.ui.broadcast(ddi_ui::Message::new(NOTICES_CHANGED));
+        h.run(0.4);
+        let vp = h.ui.viewport().screen;
+        for a in ["calibrate", "defaults", "copy-audio:a", "later"] {
+            let b =
+                h.ui.bounds(&format!("AppNotice.{a}"))
+                    .unwrap_or_else(|| panic!("{size:?} {a}"));
+            assert!(
+                b[0] >= -1.0 && b[2] <= vp.width + 1.0 && b[3] <= vp.height * 0.5,
+                "{size:?} {a}: {b:?}"
+            );
+        }
+        assert!(h.ui.bounds("AppToast").is_some());
+    }
+}
+
+#[test]
+fn page_links_take_taps_upright() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut h = harness([390.0, 844.0], COMPACT);
+    h.push(sample::credits_screen(&env, &screens::credits::sample()));
+    h.run(0.4);
+    let r = h.tap(PointerKind::Touch, "Item0");
+    assert!(
+        r.iter().any(|q| matches!(q, ddi_ui::UiRequest::OpenUrl(_))),
+        "{r:?} {:?}",
+        h.ui.bounds("Item0")
+    );
+}
+
+#[test]
+fn options_sections_take_taps() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(sample::options_screen(&env, None));
+    h.run(0.5);
+    h.tap(PointerKind::Mouse, "Section3");
+    h.run(0.1);
+    assert_eq!(
+        state.borrow().section,
+        "Timing",
+        "{:?}",
+        h.ui.bounds("Section3")
+    );
+}
+
+/// With the device banner up, every screen and dialog lies below it, at
+/// every size; "+" takes its tap at 844×390.
+#[test]
+fn screens_lie_below_the_notices() {
+    use ddi_ui::screens::notices::{AppNotice, AppNotices, NOTICES_CHANGED, NoticeBar};
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    let banner = || AppNotices {
+        banner: Some(AppNotice {
+            text: "New audio path: 44 kHz · ~21 ms output latency (wired/built-in?). New \
+                   display: 1280×720 (1×), ~60 Hz. No calibration for it yet."
+                .into(),
+            actions: vec![
+                ("calibrate".into(), "calibrate".into(), true),
+                ("defaults".into(), "use defaults".into(), false),
+                ("later".into(), "later".into(), false),
+            ],
+        }),
+        toast: None,
+    };
+    for (size, design) in [
+        ([1280.0, 720.0], DESIGN),
+        ([844.0, 390.0], COMPACT),
+        ([390.0, 844.0], COMPACT),
+    ] {
+        for screen in ["select", "options", "credits", "results", "import"] {
+            let mut h = harness(size, design);
+            match screen {
+                "options" => h.push(sample::options_screen(&env, None)),
+                "credits" => h.push(sample::credits_screen(&env, &screens::credits::sample())),
+                "results" => {
+                    h.push(sample::select_screen(&env, None));
+                    h.push(sample::results_screen(&env));
+                }
+                _ => h.push(sample::select_screen(&env, None)),
+            }
+            let feed: ddi_ui::screens::notices::NoticesFeed =
+                Rc::new(std::cell::RefCell::new(banner()));
+            h.ui.push_chrome(NoticeBar::new(
+                env.clone(),
+                feed.clone(),
+                Rc::new(|_, _| {}),
+            ));
+            h.ui.broadcast(ddi_ui::Message::new(NOTICES_CHANGED));
+            h.run(0.6);
+            if screen == "import" {
+                let add = if state.borrow().compact {
+                    "AddIcon"
+                } else {
+                    "Link.Add"
+                };
+                h.tap(PointerKind::Touch, add);
+                h.run(0.4);
+                assert_eq!(
+                    h.ui.layers().last().map(|l| l.name.clone()).as_deref(),
+                    Some("import"),
+                    "{size:?}: {add} opens the import dialog"
+                );
+            }
+            let plate = h.ui.bounds("AppNotice.Plate").unwrap();
+            let names: &[&str] = match screen {
+                "select" if state.borrow().compact => &["Back", "AddIcon", "SearchIcon", "Wheel"],
+                "select" => &["Search", "Wheel", "Info"],
+                "options" => &["Sections", "RowsClip", "Preview"],
+                "credits" => &["Column"],
+                "results" => &["SongList"],
+                _ => &["PickFolder", "Close"],
+            };
+            for n in names {
+                let b =
+                    h.ui.bounds(n)
+                        .unwrap_or_else(|| panic!("{size:?} {screen}: {n}"));
+                assert!(
+                    b[1] >= plate[3] - 0.5,
+                    "{size:?} {screen}: {n} at {b:?} under the banner {plate:?}"
+                );
+            }
+        }
+    }
+}
+
+/// The results at every size: on a phone one column (two sideways)
+/// scrolling between the bar and the buttons, nothing past the screen's
+/// sides, the end reachable by keys.
+#[test]
+fn results_fit_every_size() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    for (size, design) in [
+        ([1280.0, 720.0], DESIGN),
+        ([844.0, 390.0], COMPACT),
+        ([390.0, 844.0], COMPACT),
+    ] {
+        let mut h = harness(size, design);
+        h.push(sample::results_screen(&env));
+        h.run(1.0);
+        let vp = h.ui.viewport().screen;
+        let inside = |b: [f32; 4], o: [f32; 4], what: &str| {
+            assert!(
+                b[0] >= o[0] - 1.0
+                    && b[2] <= o[2] + 1.0
+                    && b[1] >= o[1] - 1.0
+                    && b[3] <= o[3] + 1.0,
+                "{size:?} {what}: {b:?} not in {o:?}"
+            );
+        };
+        let screen = [0.0, 0.0, vp.width, vp.height];
+        for n in ["SongList", "Retry", "OffsetDown", "OffsetUp", "PanelSet0"] {
+            let b = h.ui.bounds(n).unwrap_or_else(|| panic!("{size:?} {n}"));
+            inside(b, screen, n);
+        }
+        let compact = state.borrow().compact;
+        assert_eq!(compact, design == COMPACT, "{size:?}");
+        if compact {
+            let clip = h.ui.bounds("ResultsClip").unwrap();
+            let sides = [clip[0], f32::MIN, clip[2], f32::MAX];
+            for n in ["ScoreColumn", "Judgement0", "Panel.Timing"] {
+                if let Some(b) = h.ui.bounds(n) {
+                    inside(b, sides, n);
+                }
+            }
+            // The buttons stay below the column.
+            assert!(h.ui.bounds("SongList").unwrap()[1] >= clip[3] - 1.0);
+            // Down to the end: the last thing shows.
+            for _ in 0..30 {
+                h.key("ArrowDown", "ArrowDown");
+                h.run(0.02);
+            }
+            assert!(state.borrow().scroll > 0.0, "{size:?}");
+            let content = h.ui.bounds("ResultsContent").unwrap();
+            assert!(
+                content[3] <= clip[3] + 20.0,
+                "{size:?} {content:?} {clip:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_prompt_fits_every_size_at_every_step() {
+    use screens::prompt::PromptStep;
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let steps = [
+        (PromptStep::Ready, vec!["Start", "Back"]),
+        (PromptStep::Loading("preparing audio…".into()), vec!["Back"]),
+        (
+            PromptStep::Access {
+                folder: "A pack with a rather long folder name (2026)".into(),
+                refused: Some("Reading the folder was not allowed.".into()),
+            },
+            vec!["Allow", "Back"],
+        ),
+        (
+            PromptStep::NewDevice {
+                lines: vec![
+                    "Offsets are kept per audio path and per display. These have not been calibrated yet:".into(),
+                    "New audio path: 48 kHz · ~21 ms output latency (wired/built-in?)".into(),
+                    "New display: 1280×720 (1×), ~60 Hz".into(),
+                ],
+                actions: vec![
+                    (
+                        "copy-audio:a+copy-display:c".into(),
+                        "Use +30 ms from Headphones and +8 ms from 2560×1440 (2×)".into(),
+                    ),
+                    ("calibrate".into(), "Calibrate now".into()),
+                    ("defaults".into(), "Play with defaults".into()),
+                ],
+            },
+            vec![
+                "Device.defaults",
+                "Device.copy-audio:a+copy-display:c",
+                "Device.calibrate",
+            ],
+        ),
+        (PromptStep::Interrupted, vec!["Retry", "Back"]),
+        (
+            PromptStep::Card {
+                heading: "+12.4 ms ≈ 0.74 frames at 60 Hz".into(),
+                lines: vec![
+                    ("34 hits (8 warm-up/adaptation ignored, 2 extremes trimmed) · 0 missed · residual σ 4.1 ms · 95% CI ±1.6 ms".into(), "Muted".into()),
+                    ("Converged after 2 adjustments: the remaining error (+0.4 ms ± 1.6) is within noise. Saving adds +12.4 ms to the visual offset, so these hits count as on time.".into(), "Text".into()),
+                    ("offsets in effect: audio +0 ms · visual +0 ms".into(), "Muted".into()),
+                ],
+                actions: vec![
+                    ("save".into(), "Save to the visual offset".into()),
+                    ("again".into(), "Again".into()),
+                    ("next".into(), "Next: sound only".into()),
+                    ("done".into(), "Done".into()),
+                ],
+            },
+            vec!["Action.save", "Action.again", "Action.next", "Action.done"],
+        ),
+        (
+            PromptStep::Error("song failed to load: no music file".into()),
+            vec!["Back"],
+        ),
+    ];
+    for (size, design) in [
+        ([1280.0, 720.0], DESIGN),
+        ([844.0, 390.0], COMPACT),
+        ([390.0, 844.0], COMPACT),
+        ([360.0, 740.0], COMPACT),
+    ] {
+        for (step, buttons) in &steps {
+            let mut h = harness(size, design);
+            h.push(sample::prompt_screen(&env, step.clone()));
+            h.run(0.3);
+            let vp = h.ui.viewport().screen;
+            let card = h.ui.bounds("Card").unwrap();
+            assert!(
+                card[0] >= -1.0
+                    && card[1] >= -1.0
+                    && card[2] <= vp.width + 1.0
+                    && card[3] <= vp.height + 1.0,
+                "{size:?} {step:?}: {card:?} in {vp:?}"
+            );
+            for b in buttons {
+                let r =
+                    h.ui.bounds(b)
+                        .unwrap_or_else(|| panic!("{size:?} {step:?}: no {b}"));
+                assert!(
+                    r[0] >= card[0] - 1.0
+                        && r[2] <= card[2] + 1.0
+                        && r[1] >= card[1] - 1.0
+                        && r[3] <= card[3] + 1.0,
+                    "{size:?} {step:?} {b}: {r:?} in {card:?}"
+                );
+            }
+            // Text stays inside the card, and the picture is drawn.
+            for n in ["SongTitle", "Status0"] {
+                let r =
+                    h.ui.bounds(n)
+                        .unwrap_or_else(|| panic!("{size:?} {step:?}: no {n}"));
+                assert!(
+                    r[0] >= card[0] - 1.0 && r[2] <= card[2] + 1.0,
+                    "{size:?} {step:?} {n}: {r:?} in {card:?}"
+                );
+            }
+            assert!(h.ui.actor("Picture").is_some());
+            // Readable on a phone: CSS pixels of the status line and the
+            // buttons.
+            let css = |r: [f32; 4]| (r[3] - r[1]) * size[0] / vp.width;
+            let status = css(h.ui.bounds("Status0").unwrap());
+            assert!(status >= 12.0, "{size:?} {step:?}: status {status} CSS px");
+            for b in buttons {
+                let px = css(h.ui.bounds(b).unwrap());
+                assert!(px >= 30.0, "{size:?} {step:?} {b}: {px} CSS px");
+            }
+        }
+    }
+}
+
+#[test]
+fn song_select_fits_upright_phones() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    for size in [[390.0, 844.0], [360.0, 740.0]] {
+        let mut h = harness(size, COMPACT);
+        h.push(sample::select_screen(&env, None));
+        h.run(0.6);
+        assert!(state.borrow().compact, "{size:?}");
+        let vp = h.ui.viewport().screen;
+        let b = |n: &str| h.ui.bounds(n).unwrap_or_else(|| panic!("{size:?} {n}"));
+        let inside = |r: [f32; 4], what: &str| {
+            assert!(
+                r[0] >= -1.0 && r[1] >= -1.0 && r[2] <= vp.width + 1.0 && r[3] <= vp.height + 1.0,
+                "{size:?} {what}: {r:?} not in {vp:?}"
+            );
+        };
+        let apart = |a: [f32; 4], b: [f32; 4], what: &str| {
+            let overlap =
+                a[0] < b[2] - 1.0 && b[0] < a[2] - 1.0 && a[1] < b[3] - 1.0 && b[1] < a[3] - 1.0;
+            assert!(!overlap, "{size:?} {what}: {a:?} and {b:?} overlap");
+        };
+        let bar = [
+            "Back",
+            "PackTitle",
+            "AutoIcon",
+            "AddIcon",
+            "SearchIcon",
+            "OptionsIcon",
+        ];
+        for n in bar {
+            inside(b(n), n);
+        }
+        for w in bar.windows(2) {
+            apart(b(w[0]), b(w[1]), &format!("{} {}", w[0], w[1]));
+        }
+        let (info, style, wheel, play) = (b("Info"), b("StyleButton"), b("Wheel"), b("Play"));
+        for (r, n) in [
+            (info, "Info"),
+            (style, "StyleButton"),
+            (wheel, "Wheel"),
+            (play, "Play"),
+        ] {
+            inside(r, n);
+        }
+        let charts = b("Charts");
+        // Top to bottom: the song, its style, its charts, the wheel, Play.
+        assert!(
+            info[3] <= style[1] + 1.0,
+            "{size:?} info {info:?} style {style:?}"
+        );
+        assert!(
+            style[3] <= charts[1] + 1.0,
+            "{size:?} style {style:?} charts {charts:?}"
+        );
+        assert!(
+            charts[3] <= wheel[1] + 1.0,
+            "{size:?} charts {charts:?} wheel {wheel:?}"
+        );
+        assert!(
+            wheel[3] <= play[1] + 1.0,
+            "{size:?} wheel {wheel:?} play {play:?}"
+        );
+        // Play within the thumb's reach, the wheel using the height.
+        assert!(play[1] > vp.height * 0.85, "{size:?} play {play:?}");
+        assert!(
+            wheel[3] - wheel[1] > vp.height * 0.4,
+            "{size:?} wheel {wheel:?}"
+        );
+        // Text a phone can read: the title 14 CSS pixels at least.
+        let css = |r: [f32; 4]| (r[3] - r[1]) * size[0] / vp.width;
+        assert!(css(b("Play")) >= 44.0, "{size:?} play {} CSS px", css(play));
+        assert!(
+            css(b("Chart0")) >= 36.0,
+            "{size:?} chart {} CSS px",
+            css(b("Chart0"))
+        );
+    }
+}
+
+#[test]
+fn song_select_upright_by_touch_keys_and_pad() {
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let state = env.state.clone();
+    let mut h = harness([390.0, 844.0], COMPACT);
+    h.push(sample::select_screen(&env, None));
+    h.run(0.6);
+    // Keys: Down moves the wheel, Right the chart.
+    let song = state.borrow().song.clone();
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.3);
+    assert_ne!(state.borrow().song, song);
+    let chart = state.borrow().chart.clone();
+    h.key("ArrowLeft", "ArrowLeft");
+    assert_ne!(state.borrow().chart, chart);
+    // A pad's Up goes back up the wheel.
+    h.pad(ddi_ui::MenuAction::Up, true);
+    h.pad(ddi_ui::MenuAction::Up, false);
+    h.run(0.3);
+    assert_eq!(state.borrow().song, song);
+    // A tap on a chart picks it; a tap on a row selects it.
+    h.tap(ddi_ui::PointerKind::Touch, "Chart0");
+    h.run(0.2);
+    let picked = state.borrow().chart.clone();
+    h.tap(ddi_ui::PointerKind::Touch, "Chart1");
+    h.run(0.2);
+    assert_ne!(state.borrow().chart, picked);
+    // A flick up the wheel moves it as far as the finger and on.
+    let wheel = h.ui.bounds("Wheel").unwrap();
+    let x = (wheel[0] + wheel[2]) / 2.0;
+    let before = h.texts();
+    h.drag(
+        ddi_ui::PointerKind::Touch,
+        [x, wheel[3] - 20.0],
+        [x, wheel[1] + 20.0],
+        0.12,
+        6,
+    );
+    h.run(1.5);
+    assert_ne!(h.texts(), before, "a flick scrolls the wheel");
+    // A tap on a row selects it (a song's, or a pack's header).
+    let before = (
+        state.borrow().song_id.clone(),
+        state.borrow().header.clone(),
+    );
+    let rows: Vec<String> = (0..40)
+        .map(|k| format!("Wheel#{k}"))
+        .filter(|n| {
+            h.ui.visible_bounds(n)
+                .is_some_and(|r| r[1] > wheel[1] + 40.0)
+        })
+        .collect();
+    assert!(rows.len() > 6, "{rows:?}");
+    h.run(3.0);
+    let mut changed = false;
+    for row in [&rows[2], &rows[5]] {
+        h.tap(ddi_ui::PointerKind::Touch, row);
+        h.run(0.4);
+        let after = (
+            state.borrow().song_id.clone(),
+            state.borrow().header.clone(),
+        );
+        changed |= after != before;
+    }
+    assert!(
+        changed,
+        "a tap on a row selects it: {before:?}, {}",
+        state.borrow().status
+    );
 }

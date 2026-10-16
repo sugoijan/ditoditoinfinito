@@ -1063,7 +1063,9 @@ Done, 6.2 song select (2026-10-16):
   notice in full; the import report wraps its lines over text rows; a
   toggle takes a tap across its row, and keys go down the dialog (the
   report takes Up and Down only while focused, and lets go at its
-  ends); Manage's buttons wrap; Backspace opens Manage too; a pad's
+  ends); Manage's buttons wrap; ⌘ Backspace (Ctrl elsewhere) opens
+  Manage too, and Backspace alone is Back, as Escape (the maintainer's
+  call: Back where a Mac's delete key is; typing, it deletes); a pad's
   move in WebKit still chooses the preview (it starts at the next
   tap); the device banner moves the screen below it (`Host::avoid`,
   a `MutationObserver` on the page); a window narrower than 600 CSS
@@ -1073,14 +1075,471 @@ Done, 6.2 song select (2026-10-16):
   11–38 ms a key in Chrome (84–109 before: the page's debug state
   lowercased every song each frame); at rest the screen draws at the
   display's rate while the pulse runs, none under reduced motion.
-- **Left for later:** a layout of its own for portrait phones (390×844
-  gets the compact layout, scaled to the width, the lower part empty); pack banners on the wheel's headers (the import
+- **Left for later:** pack banners on the wheel's headers (the import
   keeps them); the device watcher's notices stay DOM (6.4); a
   Dancing☆Onigiri work was not imported in the browser test (the import
   path is the one 5.x tested).
 
-Yew goes when no screen needs it; `#/video-check`, the crash page and
-the no-GPU page stay plain DOM.
+Done, 6.3's field preview (2026-10-16):
+
+- **What it is** (`render/src/field_preview.rs`, platform-free): each
+  frame it plays the demo chart (`engine/src/demo.rs`, now playable
+  with any play options and ruleset, `Demo::with_options`) and draws the
+  frame as play draws it, HUD and all (life bar, score, combo, the
+  ruleset's judgement names, the timing error), with the play
+  renderer, into a texture of its own. The 2D pass draws that texture
+  as an image under the source `field-preview`
+  (`Painter::set_external_image`: by source, whatever size the sprite
+  asks for, never loaded by the platform, loads already asked for
+  cancelled), so no pixel goes through the CPU. The options screen's
+  sprite `Preview.Field` shows it, in its place in the draw order (under
+  a dialog's dim).
+- **How it is drawn:** as on an sRGB target (linear light), offscreen in
+  half floats, skins' quads blending as StepMania's, and encoded into a
+  plain `Rgba8Unorm` texture at the end (`SkinBlending::Encoded`, the
+  WebGL2 play path's offscreen with the final encode the plain runs
+  already had), so one path serves WebGPU, WebGL2 and desktop; without
+  half floats the device renders and blends, straight into the plain
+  texture, blending in encoded values.
+- **What it follows** (`FieldPreviewOptions`, built from the settings by
+  the shell as play builds its own, `web/src/field_preview.rs`): the
+  style's layout (pump and Dancing☆Onigiri lanes), speed and Reverse,
+  Boost/Brake/Wave, Turn, Cut and the simplifications, Hidden, Sudden,
+  Stealth, receptor snap (the player's `PlayOptions`, the demo played
+  with them), the ruleset (its windows judge the demo's hits, its names
+  show), the note colours, the field filter, the timing error, and the
+  background's brightness and frame. The demo has no song background,
+  so the preview shows a plate of ours (a dark 16:9 gradient with soft
+  light bands, `field_preview::plate`) at the chosen brightness, fitted
+  into the chosen frame (Auto fits the plate's 16:9), so brightness,
+  frame and filter all show; the panel stays dark at brightness 0. The
+  demo has no speed of its own, so "charts with their own speed"
+  changes nothing here (as on such a chart in play); offsets are not
+  applied. The arrows are the noteskin play would draw the layout with
+  (`noteskins::play_skin`, Dito in the note colours' variant without a
+  choice), loaded as play loads it (`noteskins::prepare` with the
+  demo's Lua environment, in slices, off the frame) and shown from the
+  frame after it is in; the last one shows meanwhile. A change shows
+  at the next frame; the demo is played again (from the same point of
+  its loop) only when what it plays changes; a skin loads again only
+  when its key, the layout or the direction changes.
+- **The shell** (the web host, `ui_dev.rs`, for `#/options` and the
+  developer routes):
+  `UiRequest::FieldPreview(Some([x, y, w, h]))` makes a
+  `FieldPreviewHost` on the device (again after a lost one), takes the
+  settings (handed over by the options page as they are edited,
+  `ui_dev::field_settings`; read from storage every 0.4 s on the
+  developer routes), and records the preview's
+  frame at `w × h` canvas pixels into the frame's encoder before the 2D
+  pass; frames go on while it shows, and stop with `None`.
+  `__DDI_DEBUG.ui.fieldPreviewDrawn` has `{frames, status, skin, layout,
+  demoTime, texture}`.
+- **Checked:** native tests (options, the plate, the demo with options,
+  the cache's cancel); `desktop/tests/field_preview_offscreen.rs` on the
+  GPU (Reverse puts the receptors at the bottom, Hidden blanks the notes
+  near them and not further, Mirror swaps the lanes' notes, the
+  background's brightness and the filter, the 2D pass drawing the
+  texture pixel for pixel and asking nothing of the platform). In the
+  browser on `#/ui-dev?screen=options`, Chrome WebGPU, WebGL2 and
+  Firefox: seven option sets (Dito, Reverse with Hidden at ×2.5, the
+  built-in arrows in quantized colours with the filter and the timing
+  error, CF_CHROME with Boost in a 4:3 frame, pump single, 7 keys with
+  Mirror and Wave, DDR A with Sudden and Cut), a live change, a lost
+  device; the 84 noteskin previews identical; beatucada autoplayed all
+  top tier. Frame cost of the page with the preview (344 × 500) against
+  song select's: Chrome WebGPU 1.0 ms against 0.6, WebGL2 1.6 against
+  1.1, at 60 fps; headless Firefox (WebGL2) 9 against 5 ms. In
+  headless Firefox the preview's own share is about 5 ms (options with
+  the preview's frame skipped: 6 ms): not the half floats or the encode
+  pass (the direct path into the plain texture costs the same, 10
+  against 11 ms), nor the skin (the built-in arrows cost the same);
+  about 2 ms of it was the HUD's text, the judgement's pop drawing it
+  at a new size each frame (glyphon shapes and rasterises each size),
+  which play paid too. Fixed for both: the pop's overshoot goes in half
+  pixels (`scene::popped`), a few sizes shaped and rasterised once and
+  cached, the resting size exact. Not by scaling one raster: glyphon
+  samples its atlas pixel for pixel at whole-pixel places, so a scaled
+  raster would show its pixels. The look is the same
+  (`desktop/tests/hud_text_offscreen.rs`: the same box within a pixel
+  and the same ink within 4 % at five points of a pop; a second pop
+  shapes nothing). Shapings a second in a beatucada autoplay
+  (`__DDI_DEBUG.text_shaped`): 31.7 → 6.6 in headless Firefox at 120
+  frames a second, 17.1 → 4.6 in Chrome at 60; the preview's page in
+  headless Firefox 10 → 8 ms. Play's pacing in headless Firefox has
+  headroom either way (8.4 ms mean, p99 10.3, at 120 Hz); to be read
+  off the debug overlay in a real Firefox.
+- **Desktop** (`desktop/src/field_preview.rs`, `Gpu::field`): the
+  window answers `UiRequest::FieldPreview` the same way, with the
+  settings read from `storage.json` when the panel shows, frames going
+  on while it does; the built-in arrows only until desktop loads
+  noteskins (step 7). `cargo run -- --screen options`;
+  `desktop/tests/options_offscreen.rs` draws the screen with the
+  preview (Reverse moving the receptors to the panel's bottom).
+
+Done, 6.3 options (2026-10-16):
+
+- **`#/options` is our theme's options screen** on the app's canvas
+  (`web/src/components/options_page.rs`, the same host as song select),
+  on the player's settings: every setting the Yew page had, in nine
+  sections (Scroll, Notes, Rules, Timing, Sound, Display, Arrows,
+  Controls, Data: History and Reset merged on 2026-10-16, with a
+  "Reset play history" asked first), saved to `ddi.settings.v1` as each changes,
+  through the same `Settings` and its migrations. The Yew page
+  (`options.rs`), its bind flow (`bind_flow.rs`) and their CSS are gone;
+  calibration and credits stay Yew until 6.4 (Options' Calibrate and
+  the autoplay demo go to their routes).
+- **Pure and shared:** `ui/src/screens/options_model.rs` makes the rows
+  from the settings and what the platform knows (`World`: the
+  noteskins, the controllers connected, the library's counts, the
+  volume sample) and applies each change; `options_shell.rs` is the
+  screen's shell for any platform, opening the dialogs and handing the
+  rest to an `OptionsPlatform` (the sample, the export, removing songs
+  or a noteskin, going elsewhere); `options_dialogs.rs` has the
+  confirmation, the guided binding and taking one key. Desktop can use
+  them as they are (step 7).
+- **Rows:** choices underlined, or stepped one at a time with ◀ ▶ where
+  they do not fit the row (Ruleset, the gauge, the noteskin, the note
+  colours); numbers stepped (speed by ×0.25, offsets by 1 ms, volume
+  by 1 % of the slider, background brightness by 5 %); rows of buttons
+  (`OptionKind::Actions`: Left and Right move between them, Start or a
+  tap presses one); rows that only say something (a controller's lanes,
+  "1 play kept"). The rows scroll: keys keep the focused one in view,
+  a wheel or a drag moves them. Headings group them (SIMPLIFY, KNOWN
+  DEVICES, KEYBOARD, each controller by name).
+- **Bindings:** the layout whose bindings show (StepMania's and the
+  library's), "Any device" (the first press picks it), the keyboard
+  (bind, reset its keys, per lane: add a key, clear), each controller
+  connected or saved (what it plays: saved, defaults, one pad of a
+  double; bind, clear, use defaults, forget). The bind flow
+  (`ui/src/state/bind.rs`, natively tested) is the Yew one's: each lane,
+  then a controller's Start and Back (skippable), a press released
+  before the next, one device only, a control used twice or a lane of
+  another style's table refused with the reason, opposite ends of one
+  axis warned about, a live test that lights what is held; Enter (or
+  the controller's Start) saves, Escape cancels. It takes keys and
+  controls as they are: a screen that says so (`Screen::raw_input`)
+  gets `Input::Raw` for every key (none with Ctrl, Alt or Meta, no
+  function keys), and the shell sends controllers' edges as
+  `UiEvent::Raw` while `Ui::wants_raw` (`ui_dev::pad_edge`).
+- **Resets** (settings; imported songs, noteskins and shared images;
+  everything) and removing an imported noteskin ask first in a dialog
+  whose first button keeps everything. **The volume sample** starts
+  inside the press (an audio context made there) and follows the
+  volume; **the play history's export** downloads as before.
+- **The field preview** (above): the panel's sprite `Preview.Field`
+  over the placeholder; the screen tells the shell where it is in
+  surface pixels when it shows and when it moves
+  (`UiRequest::FieldPreview`), `None` when it leaves; the page hands the
+  edited settings over at once.
+- **Layouts:** the full design (sections down the left, rows, the
+  preview, what the focused option does); a phone held sideways
+  (844×390: a tab strip, rows, a narrower preview, one line below); a
+  phone upright (390×844: the layout 480 wide zoomed to the width,
+  rows, what the option does, the preview below). The chosen tab is
+  kept in the middle of the strip.
+- **Fixed on the way:** a pop of the browser's history that leaves the
+  host's route is a navigation away, not Back (Firefox fires `popstate`
+  at once when the hash is set: Back went to the screen being left and
+  the listener ran inside itself); the device banner is watched by
+  both canvas pages (`ui_dev::watch_avoided`), so the screen follows it
+  as it changes size.
+- **Checked:** the model (every row's every value applied and shown
+  again, ids unique, keys moved between lanes, controllers bound,
+  resets keeping songs' offsets), the bind flow, harness tests on the
+  shared shell with a fake platform (rows saved; the sample in the
+  press; the export; Back and `FieldPreview(None)`; the preview told
+  once and again when it moves; the keyboard bound by keys without
+  moving the focus, Escape cancelling; a controller bound by its own
+  presses, its new Start saving; resets confirmed, Cancel first;
+  scrolling to the focused row, by wheel and by drag), a theme test of
+  every row at 1280×720, 844×390 and 390×844. Playwright in Chrome
+  (WebGPU, WebGL2) and Firefox: speed, Reverse (a tap), Turn, a bundled
+  noteskin and the volume changed on the canvas and seen in a play
+  (Reverse and the skin drawn, "mirror" on the results); the keyboard
+  bound by keys and a fake controller by its presses, its new button
+  playing Up in a play; a reset cancelled, then confirmed; the export
+  downloaded; tabs, choices, buttons and dragging by touch at 844×390
+  and 390×844; a standard pad's d-pad, A, Y and B; the preview dimmed
+  under both dialogs; seven option sets and a live change in the
+  preview.
+
+Done, 6.4 part one (2026-10-16):
+
+- **Pages to read** (`ui/src/screens/page.rs`): headings, paragraphs,
+  links, buttons and folded sections in one column that scrolls (keys go
+  from one link or button to the next and scroll it into view, Page Up
+  and Down, Home and End; a wheel or a drag), under the theme's header,
+  or a back icon on a compact screen; laid out as options are on a
+  phone upright (480 wide, zoomed). Links open through
+  `UiRequest::OpenUrl` from the press; a link's hit area lies over its
+  text.
+- **Calibration's menu** at `#/calibrate` (`ui/src/screens/calibration.rs`,
+  the page `web/src/components/page_routes.rs`): what the three tests do
+  and a button to start each (the run is still the play route's
+  `#/calibrate/run?mode=…`, unchanged, its autoplayer still following
+  the physical cue), the default offsets and every device's, and "Reset
+  offsets to 0" (asked first: the defaults and each device's offset to
+  0, the devices kept as not calibrated), Options. `#/calibrate?auto=1&
+  bias=<ms>` carries `auto` and `bias` to the run it starts.
+- **The credits** at `#/credits` (`ui/src/screens/credits.rs`, the same
+  page): `credits/credits.json` as the Yew page showed it, every source,
+  licence and the video decoder's licence texts a link, the configure
+  flags and each copied code's notice folded.
+- **The app's notices in the scene** (`ui/src/screens/notices.rs`): the
+  device watcher's banners ("First time here? …", "New audio path: …
+  New display: … No calibration for it yet.", with calibrate, use
+  defaults, use another device's offset, later) and its "devices: …"
+  line, worded as before (`device_notice`, natively tested), drawn by
+  our theme across the top of every canvas page. They are the UI's
+  chrome (`Ui::push_chrome`): above every screen and dialog, which the
+  UI core lays out below it while it shows (`Screen::reserve`: its
+  height; every other layer gets the viewport under it, drawn and hit
+  there, and moves back up when it goes), taking the pointers on it,
+  no keys or menu actions unless reached: F2, or a fresh Up past a
+  screen's top (options' first row, a page's top, the wheel's first
+  row and then what is above it on song select; a held Up never gets
+  there), moves the menu's focus into its actions (Left and Right
+  between them, Start presses one, Down, Back or F2 go back; a hint
+  "F2" on the banner); pushed by every theme host (`ui_dev::start_ui`)
+  and fed by `web/src/notices.rs` from the watcher, which no longer
+  draws anything. Same persistence:
+  "later" until a new device shows up, "use defaults" and "use … from …"
+  keep the devices, held back in play, calibration and the developer
+  routes; a change of devices mid-session probes again as before. The
+  DOM banner, its CSS and the canvas's DOM inset (6.2) are gone; the
+  room is the UI core's now. Song select's storage notices were already
+  the scene's (6.2).
+- **Desktop:** `--screen calibration` and `--screen credits` (the
+  generated file when `target/credits/credits.json` is there, else a
+  sample); no device watcher there yet.
+- **The Yew pages** (`calibrate.rs`, `credits.rs`) and their CSS are
+  gone.
+- **From the review of 6.3:** a controller alone gets out of every
+  options dialog (a controller's Back, as the menus read it, cancels the
+  key dialog and a binding of another device or of none yet; in review
+  the device's recorded or saved Back cancels; holding any controller's
+  button a second cancels, `state::bind::Holds`, lanes being tested
+  exempt); Space saves a keyboard binding whose lanes took Enter; a
+  click on a rail section opens it (the sections had no hit area where
+  their plate is not drawn); the browser's Forward into the entry of a
+  dialog already closed goes back again quietly, a pop counts as Back
+  only when it leaves a dialog's own entry, and navigation leaves the
+  handler that asked (`Timeout(0)`: Firefox fires `popstate` at once);
+  descriptions wrap over as many lines as the longest needs (the panel
+  sized to it; at 844×390 under the preview); under reduced motion the
+  preview is one still frame (held at 2.5 s of the demo), drawn again
+  when an option changes, no frames otherwise; the preview follows a
+  chosen skin let go; "Preview on" shows the arrows on another layout
+  (not kept); a speed off the ×0.25 steps shows as stored until
+  changed; the banner is thinner on a phone (its buttons beside the
+  text when they fit).
+- **Checked:** the chrome layer (on top of screens pushed later, taps on
+  it only, keys to the screen), the banner's wording and actions, the
+  pages (links opened from keys and taps, folds, scrolling, Back), the
+  calibration buttons and reset, a theme test of the pages and the
+  banner with every action at 1280×720, 844×390 and 390×844. Playwright
+  in Chrome (WebGPU, WebGL2) and Firefox: the first-run banner on song
+  select and options, "later", a key starting the probe and the new
+  devices' banner, "use defaults" keeping them, a `devicechange` with
+  known devices showing none, the banner's calibrate leading to the
+  menu; the menu at three sizes, its reset confirmed, a run started with
+  `auto` and `bias`; the credits at three sizes without overflow, a link
+  opening a tab, End and Escape; song select's and options' checks
+  again.
+
+Done after 6.4 part one's review (2026-10-16):
+
+- **Past the top, explicitly:** a screen sends the focus up into the
+  chrome with `Cx::enter_chrome` on a fresh Up at its true top (options'
+  first row, or its tab strip and Back on a phone; a page's top; song
+  select's header row), instead of the menu's default moving through
+  what lies above first; the screen's focus is kept and given back on
+  Down, Back or F2 (`Ui::chrome_return`). A screen that does not ask
+  still reaches it where nothing is above. F2 does nothing while a bind
+  dialog takes keys raw.
+- **Overlays laid out again** when their viewport changes (the banner
+  coming or going, a resize): built again, the focused actor lit again
+  (`Layer::built`). The IME's caret and the hidden textarea follow a
+  layer's shift and scale.
+- **Focus looks:** an accent button's ring is drawn inside it in the
+  label's colour (on the accent it would vanish); the banner lights its
+  focused action again when built anew. Its "F2" shows only after a key
+  or a pad (`Cx::by_keys`), in room kept for it. On a phone it offers one
+  other device's offset, the devices' line lets taps through
+  (`Screen::lets_through`), "later" holds for the devices it was said
+  for.
+- **Links from a pad:** refused (`NeedsGesture`), the page's row and
+  song select's footer say "press Enter or tap to open".
+- **Small ones:** a commit cut by characters, long words cut in folds,
+  `ui.rects` only what is on view (`Ui::visible_bounds`), hold-to-cancel
+  counting only buttons pressed alone in the dialog (no axes, none a
+  revealed pad reports at once), desktop's credits links opened as the
+  checkout's files (`target/…`), its pages without song select's
+  preview.
+- **The autoplay switch** (song select's header pill, a phone's
+  `AutoIcon`): per session, never saved, the address and the plays'
+  hashes follow it (the testing parameters' `auto`); on song select only,
+  where a play's options are summed up and plays start, not in Options,
+  which holds saved settings. Plays started with it are autoplays as
+  `&auto=1` is: flagged in the history, not counted, their results say
+  so. **Results on a phone:** one scrolled column (score, the chosen
+  set's panels, the notes) under a bar with Back and the panel pills,
+  the offset and the buttons fixed at the bottom; sideways the score
+  beside the panels.
+- **Song select upright on a phone** (390×844, 360×740; it had the
+  sideways layout scaled to the width, the lower part empty):
+  `Layout::upright`, 480 wide zoomed to the width as options and
+  results are; the bar on top (Back, the pack, AUTO, +, /, •••), the
+  song's banner, title and line, the style button and the chart buttons
+  (52 high), the wheel filling the middle (52-high rows, flicked and
+  tapped; the pointers' moves scaled by the zoom so it follows the
+  finger one for one), the notices' line above Play, and Play (60 high)
+  at the bottom within the thumb's reach. Keys and pads as sideways.
+  Theme tests at 390×844 and 360×740 (fit, order, sizes in CSS pixels,
+  touch, keys, a pad).
+- **Wording by platform:** the shell says where the game runs
+  (`data::Platform`, in the import view, Options' `World` and the
+  credits), never a `cfg` in `ui/`. On desktop the import dialog speaks
+  of song folders and zips read in place (no browser options, "Choose
+  zip"), Manage hides and forgets ("Hide pack", nothing deleted, reading
+  the folder again brings them back), Options offers no noteskin removal
+  (skins are read in place) and saves the export to a file, the
+  credits' video module is not "served"; a test checks no desktop
+  screen says "browser", "this page", "site" or "download".
+- **The maintainer's notes:** Backspace on song select is Back (as
+  Escape; typing, it deletes), Delete or ⌘/Ctrl Backspace manages; the
+  volume is a slider (dragged, tapped, stepped; the sample plays as it
+  changes, in the gesture); History and Reset are one "Data" section
+  with "Reset play history" (asked first, Export offered); the pointer
+  hides on keys and pads; a song without a background shows the plain
+  backdrop (no blown-up banner).
+
+Done, 6.4 part two (2026-10-16):
+
+- **One start prompt for both shells** (`ui/src/screens/prompt.rs`,
+  dressed by the theme): the song, its artist, the chart in its
+  difficulty's colour, AUTOPLAY, the mods it will play with (the speed,
+  Reverse, every option off its default, `mods_line`) over its picture;
+  steps the shell sets through a shared `PromptState` (its `version`
+  rebuilds the screen): loading, ready (Start, Back; Enter, a pad's
+  Start or a tap anywhere but Back starts), preparing audio, the linked
+  folder to allow, a new device (each calibrated device's offset
+  offered, "Calibrate now", "Play with defaults" focused first, as a
+  pad's Start played on), interrupted (Retry, Back), an error; lines
+  under it (the video decoder's download, "this browser needs a tap…"),
+  the quit hint for keys or touch, key hints in the footer. Choices go
+  to the shell inside the input that made them (`PromptFn`, with
+  `Cx::in_gesture` and the new `Cx::menu_from_pad`): on the web the
+  audio context is made and resumed there, and the folder asked for
+  there, with no `await` before.
+- **Its picture is the prompt's own**, drawn through the 2D pass from a
+  file the shell keeps: the opening still, else the background (the
+  web keeps both under the play's background name), cover-fitted into
+  the background frame (the play's automatic shape too,
+  `GameLoop::prompt_frame`), dimmed by the backgrounds' brightness, a
+  blurred, dimmer copy over the rest as the play's extension, and the
+  field filter's band where the chart's lanes will be
+  (`ddi_render::scene::filter_band`, shared with the play). The 2D pass
+  cannot draw over the play's sRGB surface on WebGL2, so the play's
+  renderer no longer draws a prompt (`GameLoop::draw_prompt` is gone);
+  while the prompt shows, the play's loop idles (`GameLoop::idle`:
+  measuring the refresh rate, uploading backgrounds, no frames drawn).
+  Shaped for the transition from song select (`docs/plans/theme.md`):
+  its blurred copy is song select's backdrop's way of drawing, ready to
+  sharpen into the framed picture.
+- **The web's play route** shows it as it shows the results
+  (`ui_dev::embed`), keys and pads to it while it shows; the DOM prompt,
+  its folder, new-device and interrupted cards and their CSS are gone.
+  `__DDI_DEBUG.prompt` (`step`, `notes`, `picture`, `frame`) and
+  `prompt_backdrop` say what it shows; `#/ui-dev?screen=prompt` shows
+  it on sample data.
+- **The touch quit button is the scene's** (`scene::quit_button`,
+  `Renderer::set_quit_button`): drawn over the play at the left (where
+  since part three's review), kept clear of the safe area; `web::touch`
+  takes presses on it as the cancel control. Lyrics stayed DOM here
+  (moved in part three, below).
+- **Desktop** swaps its stand-in (`desktop/src/play/prompt.rs`) for the
+  shared screen: `PromptScreen::new(env, state, act)`, its picture drawn
+  by the screen (the desktop's prompt picture under the UI can go).
+- **Checked:** the screen's choices and steps natively (Enter, a pad's
+  press counted or not as a gesture, taps, the steps as the shell
+  changes them, a new device's offers), the theme at 1280×720, 844×390
+  and 390×844 at every step. Playwright: Chrome (WebGPU and WebGL2) and
+  Firefox from song select through the prompt to an autoplayed play,
+  its results, Retry (the prompt again) and back; manual starts with the
+  new-device step in Firefox and by touch at 844×390 in Chrome, quitting
+  by a double tap on the scene's ✕; Chrome with
+  `--autoplay-policy=document-user-activation-required` (the audio
+  running after Enter); a linked song's folder allowed from the prompt
+  (an OPFS folder whose permission answers `prompt`, granted only with
+  the user's activation); Bad Apple's prompt on its opening still.
+
+Done, 6.4 part three (2026-10-16):
+
+- **The 2D pass over a play, on every backend:** the painter draws to an
+  sRGB target too (`Painter::new` with an sRGB format: its colours are
+  decoded before blending and the target encodes them again; the same
+  colours, the edges of text and soft shapes blended in linear light),
+  so the play's loop draws a `DrawList` after the scene: through the
+  surface's plain view on WebGPU (blended encoded, as the menus), through
+  the sRGB surface on WebGL2. Its own painter (made when first needed,
+  with the browser's text), a pass a frame only while something shows;
+  the uniform padded to 32 bytes (WebGL2 binds in sixteens; a test
+  checks both sides).
+- **Dancing☆Onigiri's lyrics in the scene** (decision 29): the track's
+  lines (timing, fades, alignment, sizes as before) drawn through the 2D
+  pass (`ddi_render::lyrics`): on the work's stage mapped onto the
+  screen as its back and mask layers are, in danoniplus's `lblword` box
+  (100 px in from either side; 10 px down for even depths, 60 px up from
+  the bottom for odd ones), wrapped to it (between words, anywhere in
+  Japanese) and aligned in it, in its `#cccccc` with a soft shadow; the
+  browser's text on the web (Japanese without a download), cosmic-text
+  with the system's fonts for desktop's play to call. The DOM overlay
+  (`web/src/lyrics.rs`) and its CSS are gone; `__DDI_DEBUG.lyrics`
+  lists the texts drawn.
+- **The calibration run's outcome on the canvas:** a card on the start
+  prompt's screen (`PromptStep::Card`: a heading, coloured lines,
+  actions; `PromptChoice::Action`), worded as the DOM card was: the
+  offset (and frames at the refresh rate), the hits, ignored, trimmed
+  and missed, the verdict, the offsets in effect, the devices, a device
+  changed; Save, the next test, Again, Done as before (the autoplayer
+  still follows the physical cue). A calibration without an outcome and
+  a song's score when the theme's results cannot start are cards too.
+- **No Yew:** the web shell's pages are components of our own
+  (`web/src/component.rs`: a page's messages handled one after another
+  in a microtask after they are sent, as Yew did, its few DOM elements
+  made and updated by itself under its root), the router mounts the
+  page of the address (made again when its key changes: the route, a
+  lost device for the pages keyed by it, the play starting over) and
+  the device watcher hears the route by a message. `#/video-check`, the
+  crash page and the no-GPU page are plain DOM. The wasm went from
+  6,679,767 to 6,582,778 bytes (2,737,061 to 2,696,965 gzipped at -9);
+  6,592,906 (2,700,787) with the lyrics and the review's fixes.
+- **From the prompt's review:** a play's kept files let go take their
+  textures with them (`Painter::forget_textures`; each load has names of
+  its own, and sixteen trips had kept 80 MB); the touch quit button sits
+  at the left, beside the field where there is room, at the end away
+  from the receptors (it sat by the Left receptor at 390×844), the safe
+  area read again on a resize; the backgrounds' brightness multiplies
+  the encoded values on every target (on an sRGB one the backdrop's
+  shaders encode, multiply and decode, where they took the brightness
+  to the power 2.2 in linear light: dark tones came out darker than on a
+  plain target), so the prompt's picture and the play's first frame are
+  the same pixels (`desktop/tests/backdrop_brightness_offscreen.rs`, and
+  in Chrome); the shared calibration card (`ddi_session::calibration::
+  card`) on the web too.
+- **Checked:** the painter's sRGB target on the GPU (a grey and a
+  half-transparent white read back as on a plain one,
+  `desktop/tests/painter_srgb_offscreen.rs`), the lyrics' layout
+  natively; Playwright: a synthetic work (danoniplus's 7-key sample with
+  a `word_data` of Japanese and Latin lines, fades, alignment, a line
+  break) in Chrome on WebGPU and WebGL2 and in Firefox; every route
+  without Yew (song select, options, calibration's menu and a run to its
+  card and Again, credits, the developer routes, the skin preview with
+  the demo, the video check on a generated clip, an unknown route); the
+  earlier prompt checks again (the flow in Chrome and Firefox, a manual
+  start by touch, the gesture rule, a linked folder, an import of a
+  pump skin).
 
 ### Step 7. Desktop parity for the menus
 

@@ -10,9 +10,60 @@ sections 1, 2, 4 and 5 (clocks, input, native audio and input),
 `docs/research/video-backgrounds.md` (the decoder), and the crates checked
 on crates.io on 2026-10-16 (versions below).
 
-Status (2026-10-16): proposed. Nothing here is built yet; every choice
-below is a proposal with its reason, settled step by step as in the other
-plans. What the lead should decide is gathered at the end.
+## Where it stands (2026-10-16)
+
+`cargo run` is the game on desktop: song select on the bundled songs and
+the song folders on disk (simfiles and Dancing☆Onigiri works, folders
+and zips read in place), options with the bindings, the UI core's start
+prompt, plays through the session the web runs (keyboard and
+controllers, noteskins with their Lua, backgrounds, movies, a work's
+layers and lyrics), the theme's results, the play history, calibration
+with per-device offsets, and the device notices. Each step's results are
+under it in section 7:
+
+| Step | State |
+|---|---|
+| 7.0 Measure | the clock, Opus and the video module measured; the loopback, key timing and the controller wait for the maintainer |
+| 7.1 One session | done: `session/`, the import's core in `library/` |
+| 7.2 Audio | done: cpal with our mixer, CoreAudio's latency, every format, MP3 as StepMania |
+| 7.3 Library | done: folders, StepMania roots and zips in place, the cache |
+| 7.4 Input | done: keys with the OS's stamps on macOS, gilrs, the bind flow |
+| 7.5 Play | done, and its review's fixes |
+| 7.5b Works | done: Dancing☆Onigiri works, layers, lyrics |
+| 7.6 Calibration | done, and its review's fixes |
+| 7.7 Video | done: the module under wasmtime, wired in 7.5, on by default |
+| 7.8 Windows and Linux | CI on all three; Windows checked from the Mac; the gilrs change waits |
+| 7.9 Docs | done |
+
+**Left to do:**
+
+- Frame pacing with `WaitUntil` ahead of the display (frames now wait in
+  `get_current_texture` under Fifo), if a measurement shows a gain.
+- Packaging and signing (an `.app`, an installer, the video module and
+  the licences beside the executable), in their own plan.
+- Windows: the gilrs change (8 ms polling, stamps from the reading) needs
+  the maintainer's account and a Windows machine; a run on Windows
+  hardware; the video module built on Windows and Linux hosts.
+
+**The maintainer's checks** (what no agent or CI can do here):
+
+1. **The microphone loopback** (7.0, item 2): a click played and
+   recorded on the built-in speakers, wired headphones and Bluetooth;
+   the true output latency against what the clock reports.
+2. **Key timing** (7.0, item 3): the monitor's stamps against receipt at
+   60 and 120 Hz (a `--seconds` run prints the pairing at its end).
+3. **The controller** (7.0, item 4; 7.4): song select, options and play
+   by a real controller, binding it.
+4. **Windowed play** (7.5): whole plays by keyboard and controller in
+   the window, against Firefox on the same Mac (the calibrated offsets
+   should agree within a few milliseconds once the latencies are
+   subtracted); a song folder of one's own and its bests.
+5. **Calibration by hand** (7.6): on speakers and on Bluetooth
+   headphones, kept per device; the new-device notices.
+6. **Video on desktop** (7.7): a pack's movies in play, by eye.
+7. **IME** on song select's search (macOS).
+8. **Linux and Windows hardware:** the window, sound, IME and a
+   controller on a real Linux desktop (a UTM VM will do) and on Windows.
 
 ## Goals
 
@@ -41,7 +92,9 @@ Not goals for now: packaging and signing (an `.app`, an installer, a
 Flatpak), automatic updates, ASIO or JACK, dance-pad lights, keysounds,
 multiplayer, mobile.
 
-## Where it starts
+## Where it started
+
+(Before step 7; kept for the record.)
 
 - **`desktop/`** (`ddi-desktop`, run by `app/` natively): a winit 0.30
   window, the painter over a plain-format surface (`desktop/src/gpu.rs`),
@@ -83,7 +136,7 @@ multiplayer, mobile.
   lyrics). Desktop play needs 6.4's prompt in the scene; until then
   desktop draws none and starts at once.
 
-## Decisions proposed
+## Decisions (proposed, then settled step by step in section 7)
 
 - **D1. One play session for both shells.** The session, calibration,
   song select's data and the import's song building move out of `web/`
@@ -354,7 +407,7 @@ start, as on the web.
 
 ## 3. Play on desktop
 
-### The frame loop (`desktop/src/play.rs`)
+### The frame loop (`desktop/src/play/`)
 
 - **Menus** stay on demand (`ControlFlow::Wait`, P13). **Play** runs
   continuously: each frame reads the clock, drains input, updates the
@@ -577,16 +630,7 @@ start, as on the web.
   Ubuntu build. Neither has a display, audio or a pad: for the window,
   sound, IME and controller on Linux, a Linux VM on the Mac (UTM) is the
   way, if the maintainer wants it.
-- **By the maintainer, on the Mac:**
-  - 7.0's measurements (they need speakers, the built-in microphone for
-    the loopback and the controller);
-  - a play by keyboard and by the controller, against the web on the
-    same Mac in Firefox: the calibrated offsets should agree within a few
-    milliseconds once the latency figures are subtracted;
-  - Bluetooth headphones (the latency reported, the calibration);
-  - IME on macOS (done for step 3's window; again on song select's
-    search);
-  - a song folder of their own and the history's bests.
+- **By the maintainer:** the list under "Where it stands" at the top.
 - **Not checkable here:** Windows (only CI builds and tests), dance pads
   (no pad), Linux audio latency on real hardware. Each is said in the
   step that ships it.
@@ -779,6 +823,56 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
   recorded with the same facts, imports with the same reports), plus the
   session's native tests (section 6). Wasm size reported.
 
+#### Done, 7.1 (2026-10-16)
+
+- **`session/`** (`ddi-session`): `play.rs`, the play the web ran in
+  `web/src/play.rs` (the engine's `Player`, bindings, the quit gesture,
+  autoplay and `auto=pad`, the fail's fade, a work's fades, the facts a
+  play is kept with), generic over `ddi_platform::AudioBackend` and an
+  `Inputs` trait (begin and poll, connected pads, interruptions, device
+  changes, the test pad); `calibration.rs` (modes, chart, click track,
+  generic); `backgrounds.rs` (the frame's shape, the refresh meter, the
+  automatic video setting's step); `stage.rs` (a work's layers'
+  timeline). The web keeps a thin wrapper (`web/src/play.rs`: its
+  keyboard, gamepads, touch lanes, listeners, and what the field draws).
+  Nine native tests on a fake clock: autoplay all top tier at 60, 144
+  and 37 fps, through a test pad, calibration converging on a late
+  player (visual +30 ms, audio −20 ms), the quit gestures, an
+  interruption, the click track and the chart's gaps, the frame and
+  the meter.
+- **`AudioBackend`** gained what the session needs (sample rate, master
+  volume and its ramps, stop all, running, a buffer from PCM, the
+  device's fingerprint); `WebAudio` and desktop's `Audio` implement it.
+  `SongStore` is gone from the docs (PLAN.md 3.5).
+- **Song select's view** of the library is `ddi_ui::state::select_view`
+  (the web's `select_data.rs` keeps what only it knows: banners from
+  storage, the import's panel).
+- **The import's core:** `library/src/scan.rs` now has its steps apart
+  (`read_song`, `Reading::images_to_size` and `sized`,
+  `Reading::movies`, `Reading::finish` with the files `Naming::InPlace`
+  or `Naming::Stored`), so the web's `import_song` runs it on `Blob`s
+  (its reads asynchronous) and desktop's `scan_song` on its folders; the
+  web's own copy is gone, and so are its `identity` and `LOOSE_PACK`
+  (`SongCandidate::identity`, `pack::LOOSE_PACK`) and its duplicate
+  check (`scan::Duplicates`). Encrypted zip entries are left out and
+  reported ("encrypted; not read"), as desktop does, instead of failing
+  the song when read.
+- **Checked** in Chrome (`--disable-audio-output`) against a bundle built
+  before: autoplay all top tier on WebGPU and WebGL2 and through
+  `auto=pad` (Beatucada, 38 taps), calibration's three automatic runs
+  converging on +30 ms in one adjustment, the plays kept with the same
+  records; the stills checks (opening stills, prompts, the play's
+  pixels and the movie guard on generated packs) the same up to timing
+  noise; an import of a folder (12 songs: four songs of two local packs, with
+  background changes and movies, seven generated MP3 songs and a loose
+  one) and of a zip (one song, an encrypted simfile beside it), every stored song record (ids, entries, digests, links) and file
+  key and size identical, the zip's report now listing its encrypted
+  entries; desktop's `every_layout_has_the_webs_ids`. Firefox and WebKit
+  runs were not made (the Mac's sound was unavailable; see the report).
+- **Wasm:** 6,578,792 → 6,627,052 bytes after `wasm-opt` (+48 KB),
+  2,060,263 → 2,072,889 brotli (+12.6 KB), with other work landed in
+  the same tree meanwhile and the MP3 fixes included.
+
 ### 7.2 Audio on desktop
 
 - `desktop/src/audio/` (stream, mixer, clock, decoder thread),
@@ -789,6 +883,204 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
 - Checked: the mixer and clock tests; the decoders against references;
   by the maintainer: previews start promptly, no clicks at the fades,
   the device changed while playing (headphones unplugged) keeps sound.
+
+#### Done, 7.2 (2026-10-16)
+
+Built: `desktop/src/audio/` (`mod.rs` the backend and the cpal stream,
+`mixer.rs`, `clock.rs`, `hal.rs`, `decoder.rs`), `desktop/src/clock.rs`
+(the process's epoch), `desktop/src/preview.rs` (song select's
+previews, the developer screen's tone), `decode-all` in `platform`
+(`platform/src/decode_all.rs`), `[profile.desktop]` in the workspace's
+`Cargo.toml`, and the shell's wiring (`StartAudio`, `PlayPreview`,
+`StopPreview`, song select's `Selected`, the pulse's `BeatFn`).
+
+- **The clock as built.** On CoreAudio a frame is heard at cpal's
+  `callback` (`mHostTime`) plus the device's and its output stream's
+  latency read from the HAL (`hal.rs`, read on the main thread once a
+  second and when cpal reports the system moved the stream). Stream
+  instants become host time through an offset measured once from the
+  tightest of 16 back-to-back readings of cpal's `Stream::now()` and
+  `Instant` (the same clock on macOS, so the offset is constant). The
+  latency reported is the lead (how far ahead of its call a buffer
+  reaches the device, the largest over the last 0.5–1 s) plus the HAL's
+  latencies, so `context_time` is, at a callback's start, the first
+  frame of its buffer (`currentTime`) and the engine's `heard =
+  context_time − output_latency` is `mHostTime` + HAL exactly. Other
+  hosts keep the plan's anchor (smallest `entry − callback` over 0.5–1
+  s) with cpal's `playback` and `playback − callback` as the latency;
+  WASAPI's and ALSA's meaning of `callback` is still to check. Without
+  the HAL, cpal's `playback` is used. Published through a sequence lock;
+  `Audio::now` returns the web's `ClockSample`.
+- **Measured** in the running shell (`cargo run -- --seconds 6 --volume
+  0.005`, the clock sampled every millisecond on another thread, the
+  first half second dropped), M1 Max, the default output (the headphone
+  jack, 44.1 kHz), a 256-frame buffer: latency **9.45 ms** (9.42–9.49)
+  = a 7.41 ms lead + 90 frames from the HAL (66 device + 24 stream,
+  2.04 ms), where cpal alone would say 8.89 ms from `callback` and hear
+  everything 6.9 ms late; jitter of `heard − host` about a fitted line
+  **sd 18–20 µs, max 31–52 µs** over four runs, dev and `desktop` profile alike (7.0's 14 µs / 47–63 µs
+  on the jack); drift +1.0 to +3.3 ppm; output peak −46 dBFS at master
+  0.005. The bundled preview (Some Things Must, from its start to the
+  preview's end) decoded and resampled in 0.15–0.19 s.
+- **The mixer** (`mixer.rs`): voices of `Arc<Pcm>` (interleaved, mono or
+  stereo; 5.1 folded as Web Audio does) started on an output frame (a
+  start already past plays at once from its offset, Web Audio's rule),
+  each with a gain that follows `Set`, `Hold`, linear `Ramp` and
+  `Target` events (`AudioParam`'s, sample-accurate), a master with the
+  same events (`set_master_volume` is the web's 15 ms target,
+  `master_ramp(to, at, seconds)` and `master_set_at` the fades), stops
+  on a frame or at once with a 5 ms fade (the web stops dead; a click
+  is not worth it), linear interpolation only if a stream reopened at
+  another rate. 64 voices, 16 events a gain, two `rtrb` rings of 256
+  (commands in, finished voices out to be dropped on the main thread);
+  the callback neither locks nor allocates. Deviation from Web Audio,
+  on purpose: a ramp with nothing pending before it starts when it is
+  scheduled, not at the last event's time.
+- **`Audio`** implements `AudioBackend` (`now`, `play`, `stop`,
+  `set_volume`, `duration`) and has, as inherent methods under the
+  names section 1 gives them, `sample_rate`, `set_master_volume`,
+  `master_ramp`, `stop_all`, `running`, `buffer_from_pcm` (resampled to
+  the device's rate) and `fingerprint` (`audio:<host>:<device>:<rate>:<5 ms
+  bucket>`, labelled with the device's name), so 7.1's grown trait is a
+  move of signatures. Also `status_line` (with the output's peak, the
+  web's meter) and `ClockProbe` for measurements. Without a device the
+  clock is the host's and nothing sounds (CI).
+- **Device changes.** macOS: cpal's default-output stream follows the
+  system's default itself (`DeviceChanged`); the HAL's latencies and
+  the name are read again. Elsewhere, and when the stream fails, it is
+  opened again on the new default within a second, its timeline going
+  on from where the old one was; sounds playing then stop (a preview
+  starts again on its next loop). Not exercised unattended (no
+  unplugging).
+- **Decoding** (`decode-all`): Symphonia's readers (MP3, Ogg, FLAC, WAV,
+  AIFF; ID3 and APE tags skipped) and decoders, Ogg Opus through
+  `rusty-opus` (pre-skip dropped, ended at the last granule, the
+  header's gain applied; mapping family 0 only, which every simfile
+  uses), a `Range` to stop early, and `resample` (rubato's FFT
+  resampler over the whole clip, its delay trimmed). The decoder thread
+  reads the file, decodes to the end of what is asked, drops what is
+  before its start, resamples once and hands back a `Sound`; a newer
+  job replaces any waiting, a panic fails its job only. Checked: the
+  four bundled songs against libopus's float decode (`ffmpeg 9.0.2 -c:a
+  libopus -request_sample_fmt flt`, libopus 1.6.1) above 120 dB SNR
+  and within 1e-4 once libopus is clamped to ±1 (`rusty-opus` clamps
+  inside its decode and has no unclamped output, so loud masters'
+  peaks above 1 stay clipped: the 7.0 note stands); our length ends at
+  the granule, ffmpeg's 312 frames earlier. FLAC and WAV lossless,
+  Vorbis identical to the web's fallback, resampling keeping pitch,
+  phase and length.
+- **MP3 as StepMania 5.1 decodes it (D9).** Read in `RageSoundReader_MP3.cpp`
+  (libmad): no encoder delay or padding trimmed, a first frame holding a
+  `Xing` tag skipped, one holding an `Info` tag decoded as audio (a
+  frame of silence) "so we match DWI sync" as BASS does, frames whose
+  bit reservoir is missing played as silence. Built as Symphonia
+  without gapless trimming, plus 1152 (MPEG-1; 576 for MPEG-2/2.5)
+  frames of silence when the first frame holds `Info` (or `VBRI`, which
+  StepMania's `xing_parse` does not know), plus silence of a packet's
+  length for packets that fail. Checked sample for sample against
+  FFmpeg's untrimmed decode (`-flags2 +skip_manual`, which drops the tag
+  frame as Symphonia does) on generated fixtures with an `Info` tag, a
+  `Xing` tag and none, and the shift against a gapless decode: +2257
+  frames with LAME's `Info` (1152 + 576 + 529), +1105 with `Xing`, 0
+  without. Local MP3s (`~/Music/Simfiles`, 219 files, scanned locally
+  only): 203 have no tag frame (decoded as browsers do), 13 a LAME
+  `Info` tag (2257 frames, 51 ms at 44.1 kHz later than a browser's
+  decode; checked on one by decoding), 2 a LAME `Xing` tag (1105
+  frames, 25 ms), 1 no frame in its first 64 KB (an `Info` file behind
+  a large ID3 tag, found by the stricter scan since). That was the data
+  for the web's separate question, settled the same day: the web now
+  lines MP3s up with StepMania's decode too (PLAN.md decision 46), and
+  the MP3 decoder is `ddi_platform::decode`'s, shared by both shells.
+- **Previews** as the web's (300 ms settle, `#SAMPLESTART` for
+  `#SAMPLELENGTH`, 12 s when none and 30 s at most, 0.5 s fades, again
+  0.6 s after it ends), with no gesture needed, decoded from the file's
+  start to the preview's end and cut (exact, and 0.2 s for a bundled
+  song; seeking is for later if long songs make it slow). The pulse
+  reads the heard position from the clock (`Player::beat`); the shell
+  draws a frame when the first sample is heard. Sample data's made-up
+  songs have no music and pulse by their BPM. The developer screen's
+  sound is the web's tone (880 Hz, 0.2 s, −14 dBFS) through the master.
+  The options' volume sample: `Player::sample(song, play, volume)` and
+  `Player::set_volume` are ready; desktop's options run on sample data
+  with no platform yet, so it waits for the options screen's desktop
+  shell.
+- **`[profile.desktop]`** inherits `release` with `opt-level = 3` and
+  `panic = "unwind"`; `cargo run --profile desktop` (AGENTS.md). A clean
+  build takes about 5 minutes (fat LTO, one codegen unit), 1.5 minutes
+  after a change.
+- **Linux:** CI's test job installs `libasound2-dev` (and `ffmpeg` for the
+  references); AGENTS.md says so. Checked in a Debian 13 container (`rust:1`,
+  Rust 1.99, through `container`): `ddi-desktop` builds against ALSA and
+  its tests pass (no sound device there: the backend runs silent), and
+  `decode-all`'s pass; libopus 1.5.2 there decodes Sweeteners 86 dB from
+  1.4 (Ubuntu 24.04, CI's) and 1.6.1, which agree with `rusty-opus`
+  above 135 dB, so the reference test's bar is 80 dB and 2e-4. Not run:
+  sound on a Linux machine.
+- **Not checked here:** Windows (WASAPI's `callback`, only CI will build
+  it), Linux's timing on real hardware, the loopback (7.0 item 2), and
+  by ear: previews starting promptly, no clicks at the fades or stops,
+  headphones unplugged while one plays.
+
+**After review (2026-10-16).** An independent review's findings, fixed:
+
+- **Underruns no longer reopen the stream.** cpal reports `Xrun` on
+  CoreAudio overloads and on WASAPI, ALSA and PipeWire; only
+  `DeviceNotAvailable`, `StreamInvalidated`, `HostUnavailable` and
+  `BackendError` reopen it now. Underruns are counted (`Audio::xruns`,
+  across reopens, in the status line) for 7.5 to flag a play;
+  `RealtimeDenied` and the rest are ignored.
+- **One timeline across reopens and without a device.** A new stream's
+  clock is seeded from the old timeline and its first reading's frames
+  renumbered so heard time goes on from it; with no stream the last
+  timeline is extrapolated (a silent backend's starts at 0). Measured
+  with the reviewer's harness: no step back in a `SongClock`'s song
+  time across a forced reopen, `context_time` never 0 again (reopen
+  takes 13–57 ms on the Mac).
+- **The mixer:** a voice stopped (or `stop_all`) before it sounds is
+  handed back at once (it played 5 ms at full gain); a `Target` snaps
+  to its value and ends when within 1e-6 or when a step no longer moves
+  an `f32` (0.8 → 0.5 stalled at 0.500021, 0 went subnormal), and the
+  callback sets FTZ/DAZ on x86-64 (checked by compiling for it in a
+  container); gains are cleaned at the API and in every event (finite,
+  0 to 8).
+- **Retry without a device:** the player wakes the loop once a second
+  whatever the stream's state, so a gone device is opened again.
+- **The fingerprint** is `None` until sound runs and buckets the
+  stream's nominal latency (on CoreAudio the stream's buffer, the
+  safety offset and the HAL's latencies; elsewhere `playback −
+  callback`), so a device near a bucket's edge cannot flip profiles.
+- **No voice freed on the audio thread:** the return ring holds every
+  voice that can exist (commands, mixer) and is emptied before each
+  command; a voice it had no room for would be leaked and counted, not
+  freed.
+- **Decoding:** an Ogg stream (Vorbis, Opus) ends at its last whole page
+  (garbage after it no longer fails the probe); container errors are
+  read past (32 in a row end the stream there); audio the reader drops
+  (a corrupt FLAC frame, an Ogg page with a bad CRC) comes back as
+  silence of its length from the packets' times, and FLAC and PCM are
+  padded to their header's length, so later audio stays in time (the
+  reviewer's corruption harness: every damaged FLAC, Opus and Vorbis
+  case keeps its length; a 200-byte-flipped Ogg still fails its
+  headers). MP3 is found as StepMania does, through up to 32 KB of junk
+  (its 25,000-byte limit, checked as its 16 KB buffer runs dry) and
+  past every ID3v2 tag met on the way, and fails past that ("Can't find
+  data"); the probe no longer has to recognise the start, and a WAV of
+  format 0x55 is read as the MP3 it holds.
+- **Memory:** a decode keeps only its range (`Range::from`: frames
+  before it dropped as they come) and resamples straight into the
+  interleaved buffer the mixer plays: the decoded part and the result
+  at most, not four copies. The reviewer's 500 preview switches peaked
+  at 220 MB RSS (it saw 0.5–1.3 GB), 92 KB live after closing.
+- **Tests added** for each: errors' kinds, the timeline across a forced
+  reopen (with the Mac's device, and without), voices stopped before
+  sounding, cleaned gains and arriving targets, the Opus output gain
+  (−6 dB set in the header, −6.000 dB measured), ranges, garbage around
+  Ogg and MP3, a corrupt FLAC frame.
+- **Left as it is, with its alternative written down:** WASAPI's and
+  ALSA's instants are on `Instant`'s clock too, so `Timebase::Host` with
+  a measured offset may be exact there as well; the anchor stays until
+  a check on such a machine logs `Stream::now()` against `Instant` and
+  what `callback` means there (`audio/clock.rs`).
 
 ### 7.3 The library on disk
 
@@ -801,6 +1093,106 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
   reported); by the maintainer: their folder added, a pack zip, packs
   removed and read again.
 
+Done, 7.3 (2026-10-16):
+
+- **Shared building** (`library/src/scan.rs`): `scan_song` is the
+  platform-free part of the web's `import_song` (parse, notes and
+  warnings, `resolve_assets`, `classify_images` from image headers,
+  movies sniffed, missing files, `summarize`, the chart digests) over a
+  `Reader` (read, read a range); `scan_root` builds a listing's songs.
+  It follows the web's import where they differed: songs at an import's
+  root are named by their simfile (`SongCandidate::identity`, with
+  `pack::LOOSE_PACK`, both now in `ddi_library::pack` for the web to
+  call in 7.1), a second song folder with the same pack and folder
+  names is reported and left out (`scan::Duplicates`), scripted
+  background animations get the web's notes; zip names are sorted as
+  the web sorts its paths; a movie read in place counts as kept
+  (`VideoRef::stored`), as in the web's linked import. Encrypted zip
+  entries are reported and skipped on desktop (the web lists them,
+  then fails to read them). The web's import is not moved onto it yet
+  (7.1), so the two copies must agree until then; the ids and digests
+  below say they do.
+- **Folders** (`desktop/src/library/`): `ddi.desktop.folders.v1` in
+  desktop's storage (the web's settings untouched); each is a StepMania
+  root (`Songs/`, with `RandomMovies/` and `SongMovies/` as the shared
+  folders and `NoteSkins/` for skins), a songs folder, one pack, or a
+  zip; zips lying in a songs folder are packs of their own. Each root's
+  files are named as the web names the same folder or zip picked for an
+  import (the folder's name first; a zip's entries under its name, a
+  zip in a songs folder under the folder's), so packs, ids and titles
+  come out the same in every layout: a pack whose name has a dot, a
+  StepMania root's loose songs, a folder that is itself a song, a zip
+  with one song at its root (`every_layout_has_the_webs_ids`). File
+  names are compared as bytes: Chrome and Firefox give a folder's and a
+  zip's NFD names as they are on disk, as desktop reads them (measured),
+  so no normalisation is applied (it would change existing web ids).
+  `files.rs` walks a folder as `pack` lists files (six levels, ignored
+  names skipped, symbolic links never walked twice) and reads zips in
+  place through `ddi_library::zip` (the central directory, then each
+  entry by a seek, a range of one by a seek or by inflating only as far
+  as the range; legacy names decoded as the web does, Shift-JIS by
+  `encoding_rs`). Links are followed only inside the root, a folder
+  reached both as itself and through a link is walked as itself, names
+  that are not Unicode are reported. The first folder holding a pack
+  wins; the others are reported. `--songs <dir>` adds a folder for a run; `--sample` shows
+  the sample data instead.
+- **Scan and cache:** a thread of its own; `library-v1.json` in the
+  cache folder (`dirs::cache_dir()/DitoDitoInfinito`) keeps, per root,
+  its songs with a hash of each song folder's listing (names, sizes,
+  times, hashed over the song's own sorted range), a zip's size and
+  time, and the folders that failed (tried again when their listing
+  changes); each song is read with its pack's files only. At start the
+  cache's list (of the folders listed now) shows at once; the scan then
+  parses only what changed and song select's `Feed` follows. A newer
+  scan stops an older one, which never saves. A folder that is not
+  there (an unplugged drive) keeps its cached songs for its return.
+  "Read again" reads that pack whole (song select's Manage) or every
+  folder (Options).
+- **Song select on the library** (`desktop/src/songs.rs`): the bundled
+  songs first, then the library by pack, through
+  `ddi_ui::state::select_view` (the web's `select_data` logic in
+  `ui::state`, D1; the web adopts it in 7.1), with bests from the
+  history; previews from the music's path (a zip's music extracted
+  once into `previews/` in the cache folder); banners and backgrounds
+  by path, a zip's as `zip:<zip>!<entry>` through `crate::images`;
+  "Add songs" opens the system's folder or zip picker (rfd; files
+  other than zips are reported); removing a pack or a song hides it
+  (`ddi.desktop.hidden.v1`), files untouched, until the folder is added
+  or the pack read again. A library song's preview is made ready on a
+  thread (its simfile read, a zip's music extracted once into
+  `previews/`, written whole then renamed, named by the zip's size and
+  time, the folder kept to 64 files).
+- **Options:** a "Songs" section lists the folders with Remove, Add…
+  and Read again, and what the last scan found
+  (`OptionsPlatform::add_folder`, `remove_folder`, `rescan`, default
+  no-ops on the web); its reset forgets the folders, what was hidden and
+  the cache (in desktop's words: nothing in the folders is deleted); the
+  noteskins of the folders' `NoteSkins/` (walked on a thread) and the
+  bundled index are listed with the web's keys
+  (`desktop/src/library/noteskins.rs`; drawn natively from phase 9:
+  the field preview keeps the built-in arrows until then); the play
+  history exports as JSON lines to a file the player picks.
+- **History** in the data folder (`desktop/src/history.rs`, D10):
+  `~/Library/Application Support/DitoDitoInfinito/plays` on macOS,
+  `%APPDATA%\DitoDitoInfinito\plays` on Windows,
+  `~/.local/share/ditoditoinfinito/plays` on Linux, where plays kept in
+  the config folder before are moved before anything records: the
+  folder renamed, or file by file (each removed once copied, never over
+  a newer file), what is left said on the console.
+- **Measured** on the local library (`~/Music/Simfiles`, local only,
+  `--profile desktop`): 1,305 songs from 1,332 simfiles (27 without
+  their music, reported); a full scan 1.6 s (4.9–5.7 s before the
+  per-song ranges); the cache 2.1 MB; a start with the cache lists the
+  songs in 7–11 ms and its scan takes 110–230 ms, nothing parsed.
+  Synthetic: 8,000 songs in 80 packs scan in 1.6–3.0 s (61 s before),
+  640 ms from the cache.
+- **Ids:** two local packs imported on the web (folder input, a fresh
+  Chrome profile) and the same pack zipped: the same 12 ids and chart
+  digests on both shells for each; bundled songs keep their folder
+  names.
+- **Not yet:** drawing a folder's noteskins (phase 9). The first
+  start's offer came with 7.8.
+
 ### 7.4 Input on desktop
 
 - `DesktopKeyboard` with receipt stamps and the macOS `NSEvent` monitor;
@@ -810,6 +1202,85 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
 - Checked: the tracker tests with recorded streams; a fake pad source
   (`--auto=pad`); by the maintainer: song select and options by
   controller, binding the controller's buttons.
+
+Done, 7.4 (2026-10-16):
+
+- **Keys** (`desktop/src/keyboard.rs`): `Stamps` pairs winit's
+  `KeyboardInput` with the OS's stamp of the same key code (winit's
+  `to_scancode`, macOS's virtual key code; a key winit cannot name by
+  the OS's own code, macOS's ISO § key, 0x0a, as winit's `Backquote`),
+  direction and repeat: of the stamps of that key and direction before
+  its next stamp the other way, the newest (the older ones were never
+  delivered: a key an input method or a system panel took, a doubled
+  call), the older dropped; a key without one (another platform, a
+  stamp gone stale after a second, one more than 2 ms in the future)
+  is stamped on receipt. On macOS
+  the `NSEvent` local monitor (objc2-app-kit, key down and up; modifier
+  keys' `FlagsChanged` are not monitored and stamp on receipt) queues
+  each event's `timestamp`, converted to host time by reading
+  `CLOCK_UPTIME_RAW` (`clock_gettime_nsec_np`) and the host clock back
+  to back, and hands the event on unchanged. `DesktopKeyboard` is the
+  play's `InputSource` (physical codes, repeats and doubles dropped,
+  everything released on `Focused(false)`), kept from 7.5 on; menus get
+  the stamped time already. The shell's UI times are the host clock's
+  now (`crate::clock`), so keys, pads and audio share one.
+- **Controllers** (`desktop/src/pads.rs`): gilrs 0.11.2 with its filters
+  off on a thread of its own, blocking in `next_event_blocking`; each
+  report becomes `PadEvent`s, read as one snapshot by the pad's
+  `PadTracker` (the d-pad's two buttons of one hat change are one
+  reading, so their stamp is trusted), the stamp from gilrs's
+  `SystemTime` through `SystemTime::now()` and the host clock read
+  together. Ids `<name> (Vendor: vvvv Product: pppp)`; pads SDL's
+  mappings know, or (Linux, Windows) mapped by their driver with a
+  gamepad's buttons (Linux: `BTN_GAMEPAD` in sysfs' capabilities), by
+  the W3C numbers, buttons the standard does not name from 17 on (by
+  their raw index); gilrs 0.11 calls every unmapped pad `Driver`, so on
+  macOS any other HID joystick, as a dance pad, reads raw. Pads there
+  before gilrs started get their `Connected` from `gamepads()`, a pad
+  first seen through an event is made then, and a pad connected again
+  in its slot lets go of what it held. Mapped pads by the W3C numbers, the d-pad's axes
+  (macOS's hat) as buttons 12–15, the sticks' y turned down; unmapped
+  ones by their raw codes, in ascending order and the same each time
+  (macOS: the button page's usages from 1, the generic desktop's axes
+  from X, so the hat is axes 9 and 10 as browsers number it; Linux:
+  `BTN_*` from `BTN_MISC`, `ABS_*` codes; Windows: the raw indices),
+  hats as two axes. Edges go to the main thread over a channel and wake
+  the loop through an `EventLoopProxy`; a pad unplugged releases what
+  it held.
+- **Menus by pad on every screen** (`desktop/src/input.rs`): edges
+  through `ControlBindings::menu_input` (the options' bindings as
+  edited, else the stored ones) as `UiEvent::Menu`, a gesture always;
+  while a screen binds (`Ui::wants_raw`), as `UiEvent::Raw`, decided
+  for each edge once the one before was handled (the press that opens
+  the bind flow sends the next ones raw).
+- **Options on desktop** (`desktop/src/options.rs`): `--screen options`
+  is the theme's options on the stored settings through
+  `options_shell` (the API unchanged), `OptionsPlatform` on desktop: the
+  volume sample on the preview player, the controllers connected and
+  what each holds (the bind flow's), the settings as edited for the
+  field preview and the menus, Back to the songs. Export, removal,
+  calibration and the demo wait for 7.3, 7.5 and 7.6.
+- **Fake pad:** `--fake-pad "1.0:13+,1.1:13-"` (seconds, W3C button,
+  pressed) plays a standard pad through the same thread, hub and
+  routing; `Pads::fake` does in tests.
+- **Linux:** gilrs links libudev: CI installs `libudev-dev` beside
+  ALSA's headers; AGENTS.md says so. Checked in a container (`rust:1`,
+  Debian, with `libasound2-dev` and `libudev-dev`): the desktop crate
+  and its tests build, the keyboard and pad tests pass.
+- **Checked:** keyboard pairing on recorded macOS streams (a roll, a
+  repeat, stale, missing and future stamps), the conversion of a stamp
+  onto the host clock; the hub on recorded standard and unmapped
+  streams (W3C numbers, the d-pad's hat, stick hysteresis, a stamp from
+  the future falling back to receipt, an unplugged pad); gilrs's own
+  events through `button_event` and `axis_events`; the bind flow on
+  desktop's options driven by the fake pad (`desktop/tests/bind_flow.rs`:
+  the pad moves down the rows as a menu, opens its own row's bind flow
+  with A, binds its d-pad, Start and Back, and the stored bindings have
+  them); 4-second windowed runs with gilrs (no controller connected:
+  none seen, the monitor installed) and with the fake pad driving
+  options (6 edges to menus). By the maintainer: a real controller in
+  song select and options, binding it, and keys' stamps (the monitor's
+  pairing ratio is printed at the end of a `--seconds` run).
 
 ### 7.5 Play
 
@@ -822,6 +1293,255 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
   (real audio); `--auto=pad`; the maintainer plays by keyboard and
   controller, and compares with Firefox on the same Mac.
 
+#### Done, 7.5 (2026-10-16)
+
+Built in `desktop/src/play/`:
+
+- **`mod.rs`:** `Play`, the shared session (`ddi_session::play`) on the
+  desktop's `Audio` and `DesktopInputs`: the shell's keyboard and pad
+  edges come through a `Feed` (the keyboard's only while a play reads
+  them; a hidden window interrupts the play, as a hidden page does),
+  `--auto=pad`'s test pad answers there too. The play is kept in the
+  history at its fail or its end through `ddi_session::record`, the
+  record the web now builds the same way (moved out of
+  `game_canvas.rs`). Sound dropouts during the play (`Audio::xruns`) are
+  a line on the results.
+- **`load.rs`:** the song read on a thread from where the library has
+  it (a bundled folder, a song folder, a zip in place), its music
+  decoded and resampled once (`audio::decoder::sound`).
+- **`view.rs`:** the play field's `Renderer` over the window's surface,
+  configured plain with an sRGB view format (D6): the scene through the
+  sRGB view, skins through the plain one (`SkinBlending::PlainView`); the
+  backgrounds and their changes (images decoded on a thread, uploaded as
+  the web uploads them), the frame's shape and the automatic video
+  setting's guard (`ddi_session::backgrounds`). A surface without the
+  sRGB view (Vulkan without mutable swapchain formats, wgpu's
+  `SURFACE_VIEW_FORMATS`) draws the play into the plain surface itself,
+  its pipelines encoding (skins blend as the scene does; `Offscreen` is
+  not open to it: it needs an sRGB target): the same picture
+  (`a_plain_surface_draws_the_same_play`, mean difference under 3 of
+  255).
+- **`skins.rs`:** the chosen noteskin readied natively, as the web's
+  `noteskins.rs` does in two passes: bundled skins from the index,
+  the song folders' `NoteSkins/` (`library::noteskins`), the Lua run by
+  `ddi-noteskin`/`lunita` (the skin's Lua steps every frame in
+  `NoteskinPlay::update`), PNG and the rest through `image`, SVG (Dito)
+  checked and rasterised through `resvg` 0.48.1 at four times its size.
+  Read on a thread (`skins::Reading`: the files, the first pass, the
+  images decoded; Dito took 113 ms on the UI thread), made on the UI
+  thread (`skins::build`: the Lua's VM stays where it is made); the
+  prompt says it loads until then, and Options' preview lets a pick's
+  read go when another comes first. A skin's Lua that stops twice is
+  off for the run (`library::noteskins::lua_stopped`, the web's rule for
+  bundled skins; a skin on disk can change, so it is not kept), named so
+  in Options' list; a stall on the clock is not held against it.
+- **`movies.rs`** (feature `video`): the web's `MovieDeck` without its
+  browser path: every movie on the FFmpeg module (7.7's host), the same
+  schedule rules, lead time and queue depth.
+- **The start prompt** is the UI core's (`ddi_ui::screens::prompt`,
+  6.4's), as the web's play route shows it: the song, its chart and
+  mods over its background in the play's frame with the field's filter
+  (drawn by the 2D pass); "loading…" until the song is read and its
+  skin made, "preparing audio…" until the play's sound runs (opened
+  while the prompt is up, so a play starts on a running output: its
+  clock, latency and device known; Start offered anyway after 3 s), on
+  new devices their offsets offered first (`new_device_step`: another
+  device's, calibrate now, play with defaults; not for a test or
+  autoplay), an interrupted play's Retry, a test's outcome on its card.
+  An offscreen picture of desktop's prompt against the web's play route
+  for the same chart differs in 0.8 % of its pixels (the focus ring,
+  text edges).
+- **`host.rs`:** the shell's side: song select's call (`SelectCall` and
+  its `PlayFn`; the autoplay switch, `SelectCall::Autoplay`, kept by
+  `Songs`), the prompt while the song is read, the play, the theme's
+  results with retry (the prompt again) and the song list.
+- **The shell:** a play's keys and pads go to it, not to the menus;
+  play mode (the keys read, the present mode) follows the play after
+  each poll and each frame (a play ends inside a frame), the keyboard's
+  queue dropped at each change (`play_mode.rs`); frames run
+  continuously while the play is up, and the prompt asks for one when
+  it changes; in play
+  the surface presents Mailbox where it has it, else Fifo, with one
+  frame in flight, and back to AutoVsync after. `--play SONG [--chart N]
+  [--auto | --auto=pad]` opens a chart's prompt at once; `--silent`
+  opens no sound device (`audio::set_headless`: every `Audio::new` is
+  `Audio::headless`, which runs on the host clock, silent, with no
+  latency).
+- **A fix in `render`:** the HUD's text (`TextPipeline`) now uses only
+  the embedded font, as on the web: on desktop cosmic-text matched a
+  system face ("System Font" on macOS) even for the embedded family's
+  name, so the HUD differed from the web's (the field preview's too).
+
+Checked, with no sound device (CoreAudio is off limits for now) and no
+window (the display is asleep):
+
+- `desktop/tests/play.rs`: every playable chart of the four bundled
+  songs autoplayed on a fake clock at 60 and 144 frames a second, all
+  top tier, no hold let go, kept once in the history; Beatucada through
+  the test pad, the same tally.
+- **Against the web:** five charts (Beatucada's Challenge and double,
+  Into My Dream's Challenge, Some Things Must's pump double, Sweeteners'
+  Hard) autoplayed in Chrome (`--disable-audio-output`) and here: the
+  same presses and releases in the same order, judged times at most
+  47–56 µs apart (the web's estimate of its audio clock), and each log
+  judged again under the web's record (its ruleset and options): the
+  same judgement for every note, the same tally, money and EX score
+  (`the_same_judgements_as_the_web`, `DDI_WEB_PLAYS`).
+- `play_offscreen.rs` on the Mac's GPU: the prompt's picture, then a
+  frame 12 s into Beatucada's Challenge with Dito (SVG), Delta (Lua) and
+  the built-in arrows: receptors, notes, the background, the skin
+  loaded. Against Chrome's screenshot of the same chart at the same
+  second at 1280×720: the background, the field's filter, the receptors
+  and the HUD's corner (the score) are identical (mean 0.29 levels over
+  the frame, 99% of pixels within 1); what differs is the judgement's
+  animation phase (the frames are 0.1 s apart) and the web's DOM "back"
+  link.
+- `play_flow.rs`: song select's call, the prompt, Enter, the play drawn
+  every frame to its end, the results, kept once, R retries (the
+  prompt), Escape goes back to song select.
+- `play_movie.rs` (feature `video`): a song folder made with FFmpeg's
+  test pattern as its `#BGCHANGES` movie, listed by the scan and played:
+  the module compiled, 180 frames decoded, 217 shown (it loops), none
+  late.
+
+With sound (once CoreAudio was back): Beatucada's Beginner autoplayed
+on the Mac's output in real time at master volume 0.005 (peak −47.8
+dBFS), all top tier, no late edge, no dropout; the clock over the play
+read 9.43 ms of latency (9.41–9.46), jitter 13.0 µs (σ; 25.8 µs at
+most), drift +5.2 ppm (`a_play_on_the_sound_device`,
+`DDI_AUDIO_DEVICE_TESTS=1`). Windowed runs (`--play SONG --auto
+--start`, `DDI_HOME` in a scratch folder) draw about 115 frames a
+second, but with the display asleep macOS reports the window covered
+and the play stops as a hidden page's does, so whole windowed plays
+wait for the maintainer.
+
+After the maintainer's first look:
+
+- **`DDI_HOME`** (`desktop/src/paths.rs`): the configuration, data and
+  cache folders move under it; every agent's and test's run sets it
+  (AGENTS.md, the verify skill), so no run writes the player's
+  `storage.json` again.
+- **Options' field preview** readies the noteskin play would draw
+  (`Settings::noteskin_for`, the pump skin for pump layouts) natively,
+  shown from the next frame after a pick
+  (`desktop/tests/field_skin_offscreen.rs`).
+- **Movies on by default:** feature `video` is ddi-desktop's default
+  (`--no-default-features` builds without wasmtime; CI tests both). A
+  `cargo run` finds the module in `target/video/` under any profile
+  (the desktop one included); the desktop
+  profile's binary is 24.5 MB with it (7.7 measured +8.4 MB for it, +6.8
+  stripped). Bad Apple!! (a local pack, `--songs`, read in place)
+  plays its movie: 20 s offscreen, 603 frames decoded, 595 shown, 6
+  dropped, none late (`a_local_songs_movie_plays`,
+  `DDI_MOVIE_SONGS=<dir>`, ignored by default).
+- **`/` opens search without typing itself:** the key that starts a
+  field's typing does not commit its text (`types_text` in the shell;
+  `/` is the only key that opens a field).
+- **The mouse pointer** hides on a key's or a pad's press and comes
+  back when the mouse moves.
+
+Not done here: the pacing by `WaitUntil` ahead of the display (frames
+wait in `get_current_texture` under Fifo; not measured yet), WebKit
+comparisons. Dancing☆Onigiri works: 7.5b.
+
+Then, after its review (2026-10-16): play mode now ends with the play
+(it stayed on, presses piling up for the next play); the play's sound
+opens with the prompt (records had no devices and no latency: the
+stream had not called back yet; latency facts now come from a running
+output only, `ddi_session::play`); the refresh rate the OS gives stands
+in until frames measure it (a first play recorded 60 Hz on a 120 Hz
+display); a record's noteskin is the layout's (`noteskin_for`, both
+shells) and its time whole milliseconds; a device error is logged and
+a lost device made again (the window's surface and the UI's textures;
+a play stops as interrupted, its prompt readies it again; results
+stay), tried with `--lose-device-after S`; `--songs` folders' noteskins
+are found; movies inside zips play: a stored entry read in place
+(`video::MovieFile`'s range), a compressed one extracted once into the
+cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
+
+### 7.5b Dancing☆Onigiri works
+
+- Desktop's library reads works where they are (pages with their
+  external dos, music and back and mask images; dumps), found as the
+  web's import finds them, with the same ids and entries; plays them
+  with their layers, lyrics and music lined up with Chrome's decode.
+- Checked: local works read in place against the web's import of the
+  same folder; every chart autoplayed all top tier headless; a work
+  with back and mask layers offscreen against Chrome.
+
+#### Done, 7.5b (2026-10-16)
+
+- **One core for both shells** (`library/src/works.rs`): what the web's
+  import did with a page or a dump once read, moved as 7.1 moved the
+  simfiles' (`scan.rs`): a page's dos (`read_page`, then
+  `Page::finish` with the external dos), a dump's (`dump_work`), the
+  songs, their ids, music, layer images and the report's lines
+  (`plan`), a song's entry with its charts' keys (`entry`,
+  `fill_chart_keys`). The web's import (`web/src/import/danoni.rs`)
+  reads the files and stores what it found, as before.
+- **The library on disk** (`desktop/src/library/`): each root's works
+  scanned after its simfiles (read every scan: a few files each; a
+  zip's kept with the zip's stamp), the page decoded in its declared
+  charset (`encoding_rs`); a song's `WorkRef` says where its work is
+  (page or dump, external or effective dos, music, layer images),
+  kept in the cache (version 3). Works that cannot play (a key mode
+  the game does not play, a dump without its dos) are reported as the
+  web reports them.
+- **A play** reads the work again (`play::load::read_work`, as the web
+  reads its stored work), its music (a script's decoded, a dump's blob
+  sniffed) lined up with Chrome's decode, its layers' images where
+  they are. Previews of works too: from the start, a script's or a
+  zip's music written once into the previews folder, lined up the same
+  way.
+- **Layers** (`desktop/src/play/stage.rs`, the web's `stage.rs`): the
+  contents read on a thread (images at most 2048 px, their own size in
+  the stage's px; texts drawn with cosmic-text on the system's fonts as
+  the web's canvas draws them, three times their size, in their colour),
+  their textures registered as a skin's (again after a skin replaces
+  them), placed by `ddi_render::stage` on the play's timeline
+  (`ddi_session::stage`).
+- **Lyrics** (the renderer's `ddi_render::lyrics`): drawn by a 2D pass
+  over the play (a painter of the play's view, cosmic-text with the
+  bundled faces and the system's, Japanese included, read on a thread
+  when the chart has lyrics), through the plain view where the surface
+  has one, as the web's game loop draws them.
+- **Checked:** the local corpus (`~/Music/DanOni/corpus`, read in place,
+  13 works): the same 4 songs as Chrome's import of the folder (ids,
+  pack, title, artist, BPM, length, layer images, every chart's layout,
+  difficulty, meter, notes, digest and excessive setting); the 9
+  others not read (key modes the game does not play, dumps without
+  their dos); 6 charts autoplayed headless, all top tier
+  (`desktop/tests/works.rs`, `local_works`, with `DDI_WORKS` and
+  `DDI_WEB_WORKS`). A generated work with back and mask layers (two
+  images, a text, Japanese lyrics; a folder and the same as a zip): the
+  same id as Chrome's import, and offscreen at 2 s against Chrome's
+  frame at 2 s, 0.6 % of the pixels differing (the text's face, the
+  web's back link) (`a_works_layers_show_in_play`, always run where
+  there is a GPU). `ddi_library::works` has its own test.
+- **A known limit, kept as the web's:** a work's id hashes its pack and
+  the last part of its page's path with its music number
+  (`pack::song_id`), so two works at `site/a/index.html` and
+  `site/b/index.html` of one pack get the same ids and the second is
+  skipped as a duplicate. Changing the id needs a migration: the play
+  history, bests and song offsets are kept by id. A way: a new id from
+  the whole path inside the pack, and on both shells a one-time map
+  from each old id to the new one, applied to the stored records and
+  settings (the web's at its next import or load, desktop's at its
+  next scan), the old id kept as an alias until then.
+- **After its review (2026-10-16):** a fresh checkout's tests write the
+  bundled songs' and noteskins' indexes they read when missing
+  (`desktop/tests/common/mod.rs`; checked on a fresh copy with its own
+  target folder), and CI writes them before its tests in both jobs; a
+  charset label no decoder knows (`UTF-8N`) or a "replacement" one
+  reads the page by what its bytes are, as the web does; text layers'
+  colours are every form a canvas reads (`csscolorparser`); a page over
+  8 MB is not read as a work; works are cached by their folder's
+  listing, as simfile folders are (a page's music or images outside
+  that folder changing does not read it again: "read again" does);
+  the prompt waits for the song's pictures (5 s at most), after a lost
+  device too; a bare `--calibrate` and a `--bias` that is not a number
+  are errors.
+
 ### 7.6 Calibration and device profiles
 
 - Calibration's three tests on desktop (6.4's menu), audio and display
@@ -831,6 +1551,83 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
   converge to the simulated and the real offsets; by the maintainer: a
   calibration on speakers and on Bluetooth headphones, kept per device.
 
+#### Done, 7.6 (2026-10-16)
+
+- **The tests run as plays** (`desktop/src/play/`): a calibration is a
+  `Request` like a song's (`Request::calibration`), its chart and click
+  track generated (`load::calibration`, the session's
+  `calibration::song` and `click_samples` at the output's rate), played
+  through the shared session with the web's configuration
+  (`SessionConfig::calibrate`, now shared: the plain chart, the
+  calibration ruleset, the sound-only test's notes hidden, the
+  arrows-only one muted; the field with no background and each hit's
+  error shown). The autoplayer follows the physical cue as on the web
+  (the session's). A test is never kept in the history.
+- **Its outcome** is the start prompt's card, as on the web
+  (`ddi_session::calibration::card`, the web's `calibration_card`
+  shared): what was measured, the offsets in effect, the devices, a
+  device change during the test; save (to the device's profile, else
+  the default), the guided flow's next, again, done. Done (and Escape,
+  and leaving a test's prompt or quitting it) opens the menu again; the
+  last step's done goes back to the songs, as the web's.
+- **Calibration's menu** (`desktop/src/calibrate.rs`): 6.4's page, from
+  song select's Calibrate link and Options' Calibrate button, its tests
+  started through the library's play call (the menu closes, the test's
+  prompt comes), Options in its place, the reset asked first.
+- **Devices** (`desktop/src/devices.rs`): the audio path's fingerprint
+  (the output's host, device, rate and nominal latency in 5 ms buckets,
+  7.2) and the display's (`display:<monitor>:<w>x<h>@<scale>`, the
+  refresh rate left out), looked at every second; the web's notices in
+  the scene as the UI core's chrome (`NoticeBar`: "First time here?",
+  "New audio path: …", the devices' line for five seconds), with their
+  actions (calibrate opens the menu, use defaults, another device's
+  offset, later, which holds for those devices); none over a play, its
+  prompt or results, or calibration's pages: the prompt offers a new
+  device's offsets itself before a play (its `NewDevice` step, as the
+  web's). A play starts on the devices seen, touched in the settings
+  (new ones at the default offsets when the prompt did not ask: a test,
+  an autoplay), and a change during it is flagged on its results. `--silent` has no audio path: plays take the defaults.
+- **CLI:** `--calibrate visual|audio|combined [--auto] [--bias MS]
+  [--start]`; a timed run's last lines say the devices and the notice.
+- **Checked:** headless on a fake clock (`desktop/tests/calibration.rs`):
+  every test reads a 30 ms late autoplayer as +30 ms, and saving the
+  sound-only and arrows-only tests' results brings offsets set 40 and
+  25 ms off back to 0 ± 4 ms, the check then reading nothing to change;
+  the window's flow offscreen (`calibration_flow.rs`: the menu, the
+  arrows-only test's prompt and play, its card's Save as the visual
+  offset, next, Escape back to the menu); the watcher's notices
+  (`devices::tests`). On this Mac's headphones at volume 0.003 the
+  sound-only test autoplayed converged at +0.0 ms in 20 hits (the
+  latency the clock reports is the one heard); a fresh profile showed
+  "New audio path: External Headphones · 44.1 kHz · ~9 ms output
+  latency. New display: …".
+
+Not done here: a calibration by hand on speakers and Bluetooth (the
+maintainer's).
+
+Then, after its review (2026-10-16): a skin in the settings' song
+folders is found when read on its thread (the folders are taken on the
+caller's: the settings are a thread's; `desktop/tests/skins.rs`); a
+compressed movie inflates whatever its ratio (never miniz's `Finish`,
+which wanted the rest of the output at once: 11 of 313 local movies;
+a stream cut short is an error); two loads of a zipped movie extract it
+side by side (parts of their own, the first one's kept), a load let go
+gives its extraction up, a movie larger than the cache is not
+extracted, parts left by an earlier run go at the start
+(`zip_movies.rs`); a lost device reads the song's pictures again and the
+prompt waits for them, and Retry after an interruption brings the
+prompt's Start back (and its new-device step) rather than playing at
+once (`play_recover.rs`); a record keeps the autoplayer's bias; the
+web's `__DDI_MP3` says when the built-in decoder decoded the MP3; a
+work's preview keeps Chrome's decode when its chart does not load.
+Audio profiles match desktop's ids within 10 ms too (the web's rule, on
+host, device and rate), and the watcher says nothing when only the
+bucket moves; it reads the play's output while one runs, and the play's
+output is kept between frames (voices given back; opened again, the
+play stops as interrupted). The prompt's "preparing audio…" is looked at
+every 15 ms. A misspelt `--calibrate` mode is an error. `just test`
+writes the bundled songs' and noteskins' indexes first.
+
 ### 7.7 Video
 
 - `desktop/src/video.rs` on wasmtime (feature `video`), the module found
@@ -838,6 +1635,116 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
 - Checked: the module's frames against the web's on generated clips
   (`video-check`'s references), a local pack with movies played all top
   tier with no frame late; a build without the module.
+
+#### Done, 7.7 groundwork (2026-10-16)
+
+What play (7.5) plugs in, behind ddi-desktop's `video` feature (off by
+default until then): `desktop/src/video.rs`, its unit tests in
+`desktop/src/video/tests.rs`, `desktop/tests/video.rs`, and
+`--video-check FILE [--reference REF.yuv] [--frames]` (run with
+`--features ddi-desktop/video`).
+
+- **The host.** `VideoHost` (`VideoBackend`, its source a path) runs the
+  FFmpeg module on one decoder thread, shared by every movie
+  (`VideoHost::shared`, as the web shares its worker), and `DesktopVideo`
+  is `VideoDecoder`. It mirrors `web/src/web/video_worker.js` and
+  `web/src/web/video.rs` call for call: the module's 20 WASI calls are
+  ours (no `wasmtime-wasi`), over the movie files with the worker's
+  64 KiB read-ahead and names (`/v/<id>.<ext>`), everything else refused;
+  messages in order (open, seek, want, close, probe, recycle, load);
+  frames only on `want`, so `MovieTrack` sets the queue's depth; a seek's
+  generation cancelling older wants and frames; the end once until the
+  next seek, with `ddi_last_time`; 50 broken frames fail a movie; a trap
+  fails every open movie and the next open starts a fresh instance.
+  Frame buffers are recycled as on the web (`VideoHost::recycle`, eight
+  kept; frames a seek or close passes over go back by themselves). The
+  black-bar probe is there too (`probe`, `probe_result`, `Picture`).
+- **Frames as the renderer takes them:** `VideoFrame`'s planes are what
+  `Renderer::set_video_frame` reads (Y, then U and V, 8-bit 4:2:0, rows
+  packed), so `video::show(renderer, device, queue, id, &frame)` passes
+  them with the matrix and range; 7.5 calls `Renderer::add_video` once a
+  movie is opened and `show` with `MovieTrack::update`'s frame.
+- **The module and its compilation.** Found at `DDI_VIDEO_MODULE`, beside
+  the executable (`video/ddivideo.wasm`), then, for an executable built
+  in the workspace (any profile), the workspace's `target/video/`,
+  found by walking up from the executable to its `target` folder.
+  Missing, every open fails with the web's "the video decoder is not
+  included in this build". Compiled with Cranelift (`OptLevel::Speed`,
+  parallel) on first use or `preload()`: 0.85 s (desktop profile), 1.9
+  s (dev); serialised into the cache folder (`dirs::cache_dir()`'s
+  app folder, as the library's, `/video/`, or `DDI_VIDEO_CACHE`), named by the
+  module's hash and size and the engine's compatibility hash, written
+  aside and renamed; read back in 5 ms (wasmtime refuses a file from
+  another version or config, and it is compiled again). Memory is capped
+  at 1 GiB per instance (`StoreLimits`), as the module's own build caps
+  it for the web.
+- **Packaging, later:** ship `ddivideo.wasm` with `ddivideo.json` and
+  `ddivideo.LICENSE.txt` in a `video/` folder beside the executable (or
+  the bundle's resources, with `module_path` taught where), and FFmpeg's
+  source tarball or an offer for it, as the site serves them (LGPL-2.1,
+  the module a separate replaceable file, decision 35); the cache folder
+  needs nothing.
+- **Checked against the web module under Node** on all 29 clips of
+  `video/clips.sh` (generated in a scratch folder; Theora skipped, this
+  ffmpeg has no encoder): every frame's time and planes' CRC-32 the same
+  as `video/check.mjs`'s run under Node, every clip against `ffmpeg`'s
+  own decode within `clips.sh`'s bounds, and 104–124 seeks a clip (each
+  frame time, mid-periods, the gap of dropped frames, the end, past it,
+  and a loop back to the start) landing on the straight-through frames
+  byte for byte. `desktop/tests/video.rs` does the same on four clips it
+  generates (Xvid, Xvid with dropped frames, MPEG-2, H.264), plus two
+  movies decoded at once, a truncated file (plays what it has and ends),
+  a corrupt one (fails to open, the decoder carries on), and the cache
+  read back by a new host; skipped without the module or `ffmpeg`.
+- **Speed** (desktop profile, M1 Max, the machine busy with other
+  builds): 0.40 ms a frame for Xvid and DivX 3 640×480 (Bad Apple!!,
+  6,571 frames), 1.19 ms for H.264 640×360, 1.71 ms at 854×480, 3.78 ms
+  at 1280×720 (clip), 6.66 ms for a pack's 720p MP4 and 13.6 ms for a
+  1080p one: 7.0's figures (0.43–0.45, 1.04–1.41, 1.97, 4.04, 6.67,
+  14.5). Single frames took up to 0.5 s on the 720p and 1080p MP4s
+  under that load (7.0 saw 36 and 55 ms), which a decoder thread a few
+  frames ahead and `MovieTrack`'s late-frame rule absorb; to measure
+  again on a quiet machine. Exact seeks within a GOP cost up to 0.7–1.4 s
+  on H.264 with long GOPs, as on the web.
+- **Binary size** (`--profile desktop`): 21.9 MB with `video` (18.5 MB
+  stripped) against 13.6 MB without (11.7 MB): +8.4 MB, +6.8 MB stripped
+  (7.0 measured +13 MB with `wasmtime-wasi` and default features).
+- **Hardened after review (2026-10-16).** Every call into the module
+  has a deadline (`CALL_DEADLINE`, 10 s: wasmtime's epoch interruption,
+  the epoch moved every 50 ms by a ticker thread): past it the call
+  traps and counts as a crash (every open movie fails, the next open
+  starts a fresh instance), so a module spinning on a broken file
+  cannot hold the thread. A panic while handling a message (none known)
+  counts as a crash too instead of leaving the thread dead while its
+  status reads `Ready`; the probe's and frames' reads from the module's
+  memory are checked and the WASI calls' sums saturate. The cached
+  compilation is sealed with its length and two checksums (CRC-32,
+  SipHash) and checked before wasmtime runs it, so a file cut short or
+  damaged recompiles instead of crashing every launch (it did, with
+  SIGILL); a new compilation removes the cache's older modules and
+  temporary files an hour old, and its temporary name is the process's
+  own. The module may hold 32 files open (more are refused, `EMFILE`),
+  a decoder message is cut at 4 KB, a later success clears a `Failed`
+  status, and no build path is kept in the binary (the workspace's
+  `target/video/` is found from the executable, any profile).
+  `desktop/src/video/tests.rs` runs a stand-in module written as text
+  (`wat`, a dev-dependency) that traps, spins, opens its movie 1,000
+  times, writes 64 MiB of messages with no line end, asks for files
+  outside `/v` and claims a 100,000×100,000 picture; and damages and
+  truncates the cache. The deadline's checks cost decode time in tight
+  loops: on the clips, interleaved with the earlier build, Cinepak,
+  MS Video 1 and ZMBV at 320×240 went from 0.7–1.3 to 1.3–2.9 ms a
+  frame, PNG 2.2–2.9 to 2.9–4.1, H.264 at 720p 1.86–1.92 to 2.04–2.12
+  (on the decoder thread, well within a frame); all 29 clips still
+  decode to the same frames as under Node.
+- **Not done here:** the play's wiring (7.5: `MovieTrack` per movie, the
+  textures, `VideoGuard`), the probe's use in the menus, Windows (CI
+  only), and the module's build on Linux and Windows hosts
+  (`video/build.sh` is macOS- and Linux-tested for the web already).
+- **Since:** 7.5 wired it into play (movies play, the probe frames the
+  backgrounds, the feature is on by default), and its review added
+  movies inside zips (a stored entry read in place, a compressed one
+  extracted once into the cache).
 
 ### 7.8 Windows and Linux
 
@@ -847,12 +1754,79 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
 - Checked: CI green on all three; Linux by `act`; by hand where hardware
   allows (section 6).
 
+Done, 7.8 (2026-10-16):
+
+- **CI:** a `desktop` job (`.github/workflows/deploy.yml`) on
+  `ubuntu-latest`, `macos-latest` and `windows-latest`, `fail-fast` off:
+  `cargo test -p ddi-desktop`, then with `--features video` (wasmtime),
+  rust-cache keyed `desktop`, ALSA and udev headers on Linux. Not among
+  the deploy's needs: the site does not use the desktop shell, and the
+  `test` job still builds and tests it on Linux before every deploy.
+  `DDI_NO_GPU=1` makes `gpu::adapter` find none, so the GPU tests skip
+  as on a machine without one (runners have software or virtual
+  adapters the pictures were not checked against); sound tests open a
+  device only with `DDI_AUDIO_DEVICE_TESTS`.
+- **Windows, checked from the Mac:** `cargo check` and `cargo clippy`
+  of `ddi-desktop` and its tests for `x86_64-pc-windows-msvc` (with and
+  without `video`) and `aarch64-pc-windows-msvc`: clean, nothing to fix
+  in cfgs, paths or the keyboard's other-platform path (keys stamped on
+  receipt). Folders: settings and plays in `%APPDATA%\DitoDitoInfinito`
+  (config and data are both Roaming there), the library's cache and
+  previews and the compiled video module in
+  `%LOCALAPPDATA%\DitoDitoInfinito` (the video cache was the only one
+  named in lower case on macOS and Windows: it follows the app folder
+  now); file dialogs are rfd's native ones. Controllers: a pad mapped by
+  its driver counts as standard only when Windows.Gaming.Input sees a
+  `Gamepad` (XInput's and WGI's own; gilrs-core gives those a nil uuid),
+  any other raw game controller (a dance pad) reads raw.
+- **Linux:** the job's commands in `catthehacker/ubuntu:act-latest` (the
+  image `act` uses) through `container run`: both test runs pass (58
+  and 64 tests in the library, the integration tests skipping without a
+  GPU). `act` itself with `socktainer` 1.5.3 stops at the first `run`
+  step: its scripts never reach the container (the copy into
+  `/var/run/act/workflow` leaves it empty), so the image is run
+  directly.
+- **The first start's offer** (D7, `desktop/src/library/offer.rs`): with
+  no song folder (settings and `--songs`) and no answer kept
+  (`ddi.desktop.offer.v1`), the places StepMania 5, ITGmania and OutFox
+  keep songs are looked at by folder names only (a folder counts with a
+  `Songs` folder holding a folder): `StepMania 5`, `StepMania 5.1`,
+  `StepMania 5.2`, `ITGmania` and `Project OutFox` in `~/Library/
+  Application Support` (macOS) or `%APPDATA%` (Windows), Linux's
+  `~/.stepmania-5.0`, `~/.stepmania-5.1`, `~/.stepmania-5.2`,
+  `~/.itgmania` and `~/.project-outfox` (from StepMania 5.1's
+  `MountUserFilesystems`, MIT, and the games' documentation; nothing
+  from ITGmania's code), and portable installs: folders named
+  StepMania…, ITGmania…, OutFox… in `/Applications`, `~/Applications`,
+  `C:\Games` and Steam's `steamapps/common`. Found folders are offered
+  in our theme's dialog over song select (`ddi_ui::screens::
+  folders_offer`, opened through song select's `Feed::overlay`): "Add
+  them" adds them as song folders (StepMania roots: their noteskins and
+  movie folders come too), "No thanks" (or backing out) declines; either
+  answer is kept, and Options adds and removes folders later. A `--seconds`
+  run's last lines name the UI's layers (`select › folders-offer`).
+  Checked: the places on made-up trees for each system, the dialog in
+  the harness (it opens through the feed, "Add it" answers yes) and on
+  the GPU (`desktop/tests/offer_offscreen.rs`), first-start runs on a
+  scratch `HOME` (offered; on this Mac also OutFox's real folders in
+  `/Applications/OutFox` and `~/Library/Application Support/Project
+  OutFox`, which confirm macOS's OutFox place).
+- **Not done:** the gilrs merge request (Windows' 8 ms polling, stamps
+  from the reading's `Timestamp`) needs the maintainer's account and a
+  Windows machine to test; CI on macOS and Windows runs once this is
+  pushed (only Linux could be run here).
+
 ### 7.9 Docs
 
 - `PLAN.md` (phase 9's row, decisions for D1–D11 as settled, section 3.1
   with `session/`, the crate versions line), `AGENTS.md` (layout:
   `session/`, desktop's modules; commands: `cargo run -- --play …`, the
   desktop profile, the CI libraries), this plan's results under each step.
+
+Done, 7.9 (2026-10-16): this plan's status at the top with what is left
+and the maintainer's checks in one place; PLAN.md's phase 9 row and
+decisions; AGENTS.md's desktop and web paragraphs rewritten shorter (the
+details live here and in the code's docs).
 
 ## 8. Dependencies
 
@@ -861,18 +1835,22 @@ Added or changed, all compatible with MIT distribution:
 | Crate | Version | Licence | Where | Note |
 |---|---|---|---|---|
 | cpal | 0.18.2 | Apache-2.0 | desktop | links ALSA on Linux (below) |
-| rtrb | 0.4.0 | MIT OR Apache-2.0 | desktop | the mixer's command rings |
+| rtrb | 0.4.0 | MIT OR Apache-2.0 | desktop | the mixer's command rings (7.2) |
 | symphonia | 0.6.1 | MPL-2.0 | platform (`decode-all`) | file-level copyleft, unmodified: already accepted |
 | rusty-opus | 1.0.1 | BSD-3-Clause | platform (`decode-all`) | chosen by 7.0 (5); else `opus-rs` 0.1.37 (BSD-3-Clause), or `opus` 0.4.0 over libopus |
-| rubato | 5.0.1 | MIT OR Apache-2.0 | desktop | resampling at decode |
+| rubato | 5.0.1 | MIT OR Apache-2.0 | platform (`decode-all`) | resampling at decode (7.2) |
+| objc2-core-audio | 0.3.2 | Zlib OR Apache-2.0 OR MIT | desktop (macOS) | the HAL's latencies (7.2); already under cpal |
 | gilrs | 0.11.2 | Apache-2.0/MIT | desktop | links libudev on Linux (below) |
 | objc2, objc2-app-kit | 0.6.5, 0.3.2 | MIT; Zlib OR Apache-2.0 OR MIT | desktop (macOS) | the `NSEvent` monitor |
 | resvg | 0.48.1 | Apache-2.0 OR MIT | desktop | SVG skins; tiny-skia under it is BSD-3-Clause |
 | image | 0.25.10 | MIT OR Apache-2.0 | desktop | + `gif`, `bmp`, `webp` features |
 | dirs | 7.0.0 | MIT OR Apache-2.0 | desktop | config, data, cache folders |
 | arboard | 3.6.1 → 3.7.0 | MIT OR Apache-2.0 | desktop | |
-| wasmtime, wasmtime-wasi | 49.0.3 | Apache-2.0 WITH LLVM-exception | desktop (`video`) | 7.7 |
+| wasmtime | 49.0.3 | Apache-2.0 WITH LLVM-exception | desktop (`video`) | 7.7: `cranelift`, `runtime`, `std`, `anyhow`, `parallel-compilation` only; the WASI calls are ours, no `wasmtime-wasi` |
+| wat | 1.262.0 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | desktop (dev-dependency) | the video host's tests write their stand-in module as text |
 | winit | 0.30.13 | Apache-2.0 | desktop | 0.31 is still beta (0.31.0-beta.3) |
+| glyphon | 0.12 (workspace) | MIT OR Apache-2.0 OR Zlib | desktop | 7.5b: a work's text layers drawn with its cosmic-text |
+| csscolorparser | 0.9.0 | MIT OR Apache-2.0 | desktop | 7.5b: the text layers' colours, every form a canvas's `fillStyle` reads |
 
 System libraries, linked dynamically, flagged as copyleft: ALSA's
 `libasound` and `libudev` (systemd) are LGPL-2.1-or-later; dynamic
@@ -972,7 +1950,9 @@ step 7 to the lead and may change any of them):
   against it). Whether the web should match it is its own question,
   measured on local MP3s with encoder-delay headers and settled in a
   separate change, so the two shells are never knowingly apart without
-  a note in the results of that check.
+  a note in the results of that check. *Settled 2026-10-16:* the web
+  matches it in every browser (PLAN.md decision 46; what each browser's
+  `decodeAudioData` does is measured there).
 - **A `[profile.desktop]`** for native release builds (speed, unwinding),
   leaving the wasm release profile as it is.
 - **Packaging, signing and the dependencies' licence notices** after 7.8,

@@ -7,9 +7,8 @@
 //! order, corner colours, a shadow, a turned clip through the stencil, a
 //! frame in perspective, a mask, a text actor), and a list of 2,000
 //! titles scrolling through a clip, which runs the text atlas through
-//! its budget. The canvas shows behind the page,
-//! as it will while Yew's pages last; a line of the page's own text lies
-//! over it.
+//! its budget. The canvas shows behind the page; a line of the page's
+//! own text lies over it.
 //!
 //! Parameters: `t` holds the scene at that second; `scroll` holds the
 //! list at that row; `delay` holds the late texture back that many ms
@@ -23,6 +22,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::component::{Component, Context};
 use ddi_actor::text::{TextMeasure, TextStyle};
 use ddi_actor::{Actor, Kind, Sprite, Text, View};
 use ddi_render::draw2d::Mask;
@@ -30,12 +30,11 @@ use ddi_render::texture_cache::{TextureId, TextureKey};
 use ddi_render::{Affine, Blend, Command, DrawList, Quad, TextRun};
 use gloo::render::{AnimationFrame, request_animation_frame};
 use wasm_bindgen::JsValue;
-use yew::prelude::*;
 
 use crate::web::gfx::{Gfx, SurfaceMode};
 use crate::web::screen;
 
-#[derive(Properties, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub(crate) struct Props {
     pub(crate) params: Vec<(String, String)>,
 }
@@ -184,28 +183,18 @@ impl Component for UiTest {
         }
     }
 
-    fn view(&self, _ctx: &Context<Self>) -> Html {
+    fn view(&self, ctx: &Context<Self>) {
+        let root = ctx.root();
         if let Some(e) = &self.failure {
-            return no_gpu(e);
+            crate::component::no_gpu(root, e);
+            return;
         }
-        html! {
-            <main class="ui-test">
-                <p class="ui-test-dom">{ "This line is the page's: the scene is drawn on the canvas behind it." }</p>
-            </main>
+        if root.child_element_count() == 0 {
+            root.set_class_name("ui-test");
+            crate::component::element(root, "p", "ui-test-dom").set_text_content(Some(
+                "This line is the page's: the scene is drawn on the canvas behind it.",
+            ));
         }
-    }
-}
-
-/// The page for a browser without a usable GPU (also the play screen's
-/// message).
-pub(crate) fn no_gpu(reason: &str) -> Html {
-    html! {
-        <main class="shell no-gpu">
-            <h1>{ "No graphics" }</h1>
-            <p>{ "This browser gave the game no usable GPU (neither WebGPU nor WebGL2), so nothing can be drawn. Menus that are plain pages still work." }</p>
-            <p class="muted">{ reason }</p>
-            <p><a href={crate::router::Route::Home.to_hash()}>{ "← home" }</a></p>
-        </main>
     }
 }
 

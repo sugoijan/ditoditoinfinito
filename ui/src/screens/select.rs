@@ -42,7 +42,7 @@ use crate::hit;
 use crate::look::{self, Spec, call, quad};
 use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
-use crate::request::{EnterKey, InputHints, InputMode};
+use crate::request::{EnterKey, InputHints, InputMode, UiRequest};
 use crate::screen::{Cx, Handled, Input, Screen, TextChange};
 use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, ListStyle};
@@ -84,6 +84,8 @@ pub enum SelectCall {
     RemoveSong(String),
     /// A notice's link was taken (its id).
     Notice(String),
+    /// Autoplay switched on or off (for the session).
+    Autoplay(bool),
 }
 
 /// The shell's part of song select (none on the developer routes).
@@ -110,7 +112,13 @@ pub struct Feed {
     pub notices: Option<Vec<Notice>>,
     /// Open the import dialog (files were dropped on the page).
     pub open_import: bool,
+    /// Open a dialog of the shell's over song select (desktop's first
+    /// start offers other games' song folders).
+    pub overlay: Option<OverlayFn>,
 }
+
+/// Opens a shell's dialog over song select ([`Feed::overlay`]).
+pub type OverlayFn = Box<dyn FnOnce(&Env, &mut Cx)>;
 
 pub type SharedFeed = Rc<RefCell<Feed>>;
 
@@ -150,8 +158,26 @@ enum Hints {
 /// Where everything goes, from the look's metrics and the screen's size.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Layout {
+    /// The viewport's size it was made for, and the layout's own size
+    /// and zoom onto it (a phone upright: 480 wide, zoomed to the width).
+    vp: [f32; 2],
+    zoom: f32,
     screen: [f32; 2],
     compact: bool,
+    /// A phone upright: the song on top, the wheel under it, Play at
+    /// the bottom.
+    upright: bool,
+    /// The compact layouts' side margin.
+    margin: f32,
+    /// The compact song column's parts, from its top: the info's height,
+    /// the style button's, the chart buttons' and Play's centres.
+    info_h: f32,
+    style_y: f32,
+    charts_y: f32,
+    play_y: f32,
+    /// The chart buttons' and Play's heights.
+    chart_h: f32,
+    play_h: f32,
     song: [f32; 3],
     banner: f32,
     tabs_y: f32,
@@ -162,6 +188,68 @@ struct Layout {
 }
 
 impl Layout {
+    /// The layout for viewport `vp`: a phone upright gets its own, 480
+    /// wide (`Options.Narrow.Width`) zoomed to the width.
+    fn fit(env: &Env, vp: [f32; 2], compact: bool) -> Layout {
+        let narrow = env.metric("Options.Narrow.Width", 480.0);
+        if compact && vp[1] > vp[0] {
+            let z = (vp[0] / narrow).max(1.0);
+            let mut l = Layout::upright(env, [vp[0] / z, vp[1] / z]);
+            l.vp = vp;
+            l.zoom = z;
+            return l;
+        }
+        Layout::new(env, vp, compact)
+    }
+
+    /// A phone upright (`screen` about 480 × 1000): the bar on top, the
+    /// song's banner, title, style and charts under it, the wheel filling
+    /// the middle, Play at the bottom within the thumb's reach.
+    fn upright(env: &Env, screen: [f32; 2]) -> Layout {
+        let inset = env.metric("Select.Wheel.Inset", 0.0);
+        let margin = env.metric("Compact.Upright.Margin", 12.0);
+        let w = screen[0] - 2.0 * margin;
+        let top = 64.0;
+        // The banner as the compact one, wider (the look's proportion).
+        let info_h = (w * 94.0 / 300.0).round() + 50.0;
+        // Taller buttons than sideways: thumbs, and a narrower phone
+        // (360 wide) zooms them down.
+        let chart_h = 52.0;
+        let style_y = info_h + 22.0;
+        let charts_y = style_y + 22.0 + 8.0 + chart_h / 2.0;
+        let play_h = 60.0;
+        let play = screen[1] - margin - play_h / 2.0;
+        // The notices' line above Play, the wheel above it.
+        let wheel_top = top + charts_y + chart_h / 2.0 + 10.0;
+        let wheel_bottom = play - play_h / 2.0 - 32.0;
+        Layout {
+            vp: screen,
+            zoom: 1.0,
+            screen,
+            compact: true,
+            upright: true,
+            margin,
+            info_h,
+            style_y,
+            charts_y,
+            play_y: play - top,
+            chart_h,
+            play_h,
+            song: [margin, top, w],
+            banner: 94.0,
+            tabs_y: 0.0,
+            ladder: [0.0, 0.0],
+            wheel: [
+                margin - inset,
+                wheel_top,
+                w + inset,
+                (wheel_bottom - wheel_top).max(96.0),
+            ],
+            row: 52.0,
+            field: [margin + 52.0, 6.0, w - 52.0 - 52.0, 44.0],
+        }
+    }
+
     fn new(env: &Env, screen: [f32; 2], compact: bool) -> Layout {
         let m = |n: &str, d: f32| env.metric(n, d);
         // The look draws the wheel's rows this far in (its selected row's
@@ -171,8 +259,18 @@ impl Layout {
             let margin = m("Compact.Margin", 48.0);
             let right = screen[0] - margin;
             return Layout {
+                vp: screen,
+                zoom: 1.0,
                 screen,
                 compact,
+                upright: false,
+                margin,
+                info_h: 140.0,
+                style_y: COMPACT_STYLE_Y,
+                charts_y: COMPACT_CHARTS_Y,
+                play_y: COMPACT_PLAY_Y,
+                chart_h: 44.0,
+                play_h: 48.0,
                 song: [margin, 60.0, 300.0],
                 banner: 94.0,
                 tabs_y: 0.0,
@@ -193,8 +291,18 @@ impl Layout {
         let wheel_x = screen[0] - (design_w - m("Select.Wheel.X", 640.0));
         let ladder_y = m("Select.Ladder.Y", 421.0);
         Layout {
+            vp: screen,
+            zoom: 1.0,
             screen,
             compact,
+            upright: false,
+            margin: m("Margin", 32.0),
+            info_h: 0.0,
+            style_y: 0.0,
+            charts_y: 0.0,
+            play_y: 0.0,
+            chart_h: 0.0,
+            play_h: 0.0,
             song: [
                 m("Select.Song.X", 32.0),
                 m("Select.Song.Y", 84.0),
@@ -344,6 +452,8 @@ impl ListModel for Wheel<'_> {
 pub struct SelectScreen {
     env: Env,
     data: Rc<SelectData>,
+    /// Plays start autoplayed (the switch; the data's at first).
+    autoplay: bool,
     packs: Vec<(String, Vec<usize>)>,
     /// Each song's search text, folded.
     haystacks: Vec<String>,
@@ -364,6 +474,9 @@ pub struct SelectScreen {
     /// The footer's hints, whether a search was in them, its note and
     /// whether Manage was offered.
     hints: Option<(Hints, bool, String, bool)>,
+    /// A link a controller pressed could not open (a browser opens one
+    /// only from a key or a tap): how long the footer still says so.
+    gesture_note: f32,
     /// The item whose song the left side shows.
     shown: Option<Item>,
     /// The left side is to be filled again (a new song, a new tree).
@@ -429,6 +542,7 @@ impl SelectScreen {
             list: List::new(wheel_config(&layout), &EmptyModel),
             env,
             data: Rc::new(SelectData::default()),
+            autoplay: false,
             packs: Vec::new(),
             haystacks: Vec::new(),
             style: 0,
@@ -444,6 +558,7 @@ impl SelectScreen {
             lit: None,
             layout,
             hints: None,
+            gesture_note: 0.0,
             shown: None,
             left_dirty: true,
             ladder: (0, 0),
@@ -527,6 +642,9 @@ impl SelectScreen {
     /// New data (the library read again, bests changed): what was shown
     /// stays, by name, where it still is.
     fn set_data(&mut self, data: SelectData, first: bool) {
+        if first {
+            self.autoplay = data.autoplay;
+        }
         let shown_id = self.song().map(|s| s.id.clone());
         // Where the song shown was: its pack and its place there, and the
         // wheel's place (a removed song gives way to its neighbour).
@@ -753,7 +871,7 @@ impl SelectScreen {
         // The selected song.
         let [sx, sy, sw] = l.song;
         let info_h = if l.compact {
-            140.0
+            l.info_h
         } else {
             l.tabs_y - sy - 12.0
         };
@@ -772,7 +890,7 @@ impl SelectScreen {
                 "Button",
                 &Spec::new([w, 36.0], ""),
                 "StyleButton",
-                [w / 2.0, COMPACT_STYLE_Y],
+                [w / 2.0, l.style_y],
             );
             if let Some(p) = part(&mut style, "Label") {
                 call(p, "halign", &[0.0]);
@@ -783,9 +901,9 @@ impl SelectScreen {
             let play = env.component(
                 "PlayButton",
                 "Button",
-                &Spec::new([w, 48.0], "PLAY"),
+                &Spec::new([w, l.play_h], "PLAY"),
                 "Play",
-                [w / 2.0, COMPACT_PLAY_Y],
+                [w / 2.0, l.play_y],
             );
             song.push(play);
         } else {
@@ -800,7 +918,7 @@ impl SelectScreen {
         children.push(song);
         // Header, mods, search.
         if l.compact {
-            let margin = env.metric("Compact.Margin", 48.0);
+            let margin = l.margin;
             for (name, label, x) in [
                 ("Back", "‹", margin + 22.0),
                 ("AddIcon", "+", screen[0] - margin - 126.0),
@@ -815,11 +933,16 @@ impl SelectScreen {
                     [x, 28.0],
                 ));
             }
-            children.push(left(
-                env.text("PackTitle", "", 16.0, 700, "Text"),
-                margin + 56.0,
-                28.0,
-            ));
+            let auto = self.autoplay_switch(screen);
+            // The pack's name between Back and the icons.
+            let room = auto.current().pos[0] - auto.size()[0] / 2.0 - 8.0 - (margin + 56.0);
+            children.push(auto);
+            let mut title = env.text("PackTitle", "", 16.0, 700, "Text");
+            if let Kind::Text(t) = &mut title.kind {
+                t.max_width = room.max(40.0);
+                t.ellipsis = true;
+            }
+            children.push(left(title, margin + 56.0, 28.0));
         } else {
             children.push(header(&env, screen[0], "SELECT MUSIC"));
             children.push(self.mods(screen));
@@ -835,6 +958,9 @@ impl SelectScreen {
         children.push(frame("Notices", Vec::new()));
         let mut root = Actor::new(Kind::Frame(children));
         super::entrance(&mut root, &env);
+        if l.zoom != 1.0 {
+            call(&mut root, "zoom", &[l.zoom]);
+        }
         self.hints = None;
         self.notices_dirty = true;
         // The same song and chart, drawn again.
@@ -847,11 +973,84 @@ impl SelectScreen {
     }
 
     /// "Playing with" and the pills, from the header's right.
+    /// The autoplay switch: lit when on (every play started then is
+    /// autoplayed, not counted). In the header's right, or among the
+    /// compact icons.
+    fn autoplay_switch(&self, screen: [f32; 2]) -> Actor {
+        let env = &self.env;
+        let on = self.autoplay;
+        let (name, label, x, y, h) = if self.layout.compact {
+            let margin = self.layout.margin;
+            (
+                "AutoIcon",
+                if on { "AUTO ON" } else { "AUTO" },
+                screen[0] - margin - 154.0,
+                28.0,
+                44.0,
+            )
+        } else {
+            let margin = env.metric("Margin", 32.0);
+            (
+                "Autoplay",
+                if on { "AUTOPLAY ON" } else { "Autoplay off" },
+                screen[0] - margin,
+                32.0,
+                26.0,
+            )
+        };
+        let w = look::mono_width(label, 14.0) + 24.0;
+        let mut pill = look::component_or(&*env.look, "Pill", "Button", &Spec::new([w, h], label));
+        pill.name = name.into();
+        let w = extent(&mut pill, [w, h])[0];
+        // Its right edge at `x` (the compact one left of "+", the full one
+        // at the margin).
+        call(&mut pill, "xy", &[x - w / 2.0, y]);
+        crate::widgets::play(&mut pill, if on { "Selected" } else { "Available" });
+        pill.finish_tweening();
+        pill
+    }
+
+    /// Autoplay on or off: the switch drawn again, the play button's
+    /// word, the shell told.
+    fn toggle_autoplay(&mut self, root: &mut Actor, cx: &mut Cx) {
+        self.autoplay = !self.autoplay;
+        let screen = self.layout.screen;
+        if self.layout.compact {
+            let fresh = self.autoplay_switch(screen);
+            if let Some(a) = hit::find_mut(root, "AutoIcon") {
+                *a = fresh;
+            }
+            self.left_dirty = true;
+        } else {
+            let fresh = self.mods(screen);
+            if let Some(m) = hit::find_mut(root, "Mods") {
+                *m = fresh;
+            }
+        }
+        if let Some(s) = &self.shell {
+            s(SelectCall::Autoplay(self.autoplay), cx);
+        }
+        self.publish();
+    }
+
     fn mods(&self, screen: [f32; 2]) -> Actor {
         let env = &self.env;
         let margin = env.metric("Margin", 32.0);
         let mut x = screen[0] - margin;
         let mut children = Vec::new();
+        // The autoplay switch, rightmost.
+        let auto = self.autoplay_switch(screen);
+        x -= extent(&mut auto.clone(), [0.0, 26.0])[0].max(
+            look::mono_width(
+                if self.autoplay {
+                    "AUTOPLAY ON"
+                } else {
+                    "Autoplay off"
+                },
+                14.0,
+            ) + 24.0,
+        ) + 12.0;
+        children.push(auto);
         for (i, m) in self.data.mods.iter().enumerate().rev() {
             let w = look::mono_width(m, 14.0) + 20.0;
             let mut pill =
@@ -949,7 +1148,11 @@ impl SelectScreen {
             line.push_str(&format!(" · {offset}"));
         }
         set_text(info, "Line", &line);
-        let side = if self.layout.compact { 300.0 } else { 560.0 };
+        let side = if self.layout.compact {
+            self.layout.song[2]
+        } else {
+            560.0
+        };
         let banner = song.banner.as_deref().map(|b| cx.texture(b, side));
         set_image(info, "Banner", banner);
         if self.layout.compact {
@@ -1114,7 +1317,7 @@ impl SelectScreen {
                     &*env.look,
                     "ChartButton",
                     "Button",
-                    &Spec::new([cell, 44.0], shown.clone()),
+                    &Spec::new([cell, self.layout.chart_h], shown.clone()),
                 );
                 b.name = format!("Chart{k}");
                 set_text(&mut b, "Meter", &shown);
@@ -1140,7 +1343,7 @@ impl SelectScreen {
                 call(
                     &mut b,
                     "xy",
-                    &[cell / 2.0 + k as f32 * (cell + 5.0), COMPACT_CHARTS_Y],
+                    &[cell / 2.0 + k as f32 * (cell + 5.0), self.layout.charts_y],
                 );
                 children.push(b);
             }
@@ -1152,15 +1355,20 @@ impl SelectScreen {
                     600,
                     "Text",
                 );
-                children.push(left(t, 0.0, COMPACT_CHARTS_Y));
+                children.push(left(t, 0.0, self.layout.charts_y));
             }
             if let Some(f) = hit::find_mut(root, "Charts") {
                 f.kind = Kind::Frame(children);
             }
             let label = match pick.map(|p| charts[p]) {
-                Some(c) => format!("PLAY {} {}", c.label().to_uppercase(), c.meter_text())
-                    .trim_end()
-                    .to_string(),
+                Some(c) => format!(
+                    "{} {} {}",
+                    if self.autoplay { "AUTOPLAY" } else { "PLAY" },
+                    c.label().to_uppercase(),
+                    c.meter_text()
+                )
+                .trim_end()
+                .to_string(),
                 None => "NO CHARTS".to_string(),
             };
             super::set(root, "Play", "Label", &label);
@@ -1292,6 +1500,9 @@ impl SelectScreen {
         let manage = self.manageable().is_some();
         // While searching (not typing), what it found.
         let found = match (&self.matches, now) {
+            _ if self.gesture_note > 0.0 && now != Hints::Typing => {
+                "Press Enter or tap to open the link.".to_string()
+            }
             (_, Hints::Typing) | (None, _) => String::new(),
             (Some(m), _) => match m.iter().filter(|&&x| x).count() {
                 0 => "No song matches.".to_string(),
@@ -1368,12 +1579,17 @@ impl SelectScreen {
         } else {
             &links[..]
         };
+        // Delete (or ⌘/Ctrl Backspace) manages what was imported.
+        let mut hints: Vec<(&[&str], &str)> = hints.to_vec();
+        if manage && now != Hints::Typing {
+            hints.push((&["DEL"], "Manage"));
+        }
         let note = if note.is_empty() {
             found.as_str()
         } else {
             note
         };
-        let (f, texts) = footer(&self.env, self.layout.screen, hints, note, links);
+        let (f, texts) = footer(&self.env, self.layout.screen, &hints, note, links);
         if let Some(old) = hit::find_mut(root, "Footer") {
             *old = f;
         } else if let Kind::Frame(c) = &mut root.kind {
@@ -1488,7 +1704,8 @@ impl SelectScreen {
                         Manage::Unreadable { count },
                         self.shell.clone(),
                         self.busy(),
-                    ),
+                    )
+                    .on(self.import.borrow().platform),
                     true,
                 );
             }
@@ -1546,13 +1763,14 @@ impl SelectScreen {
         let Some(feed) = self.feed.clone() else {
             return;
         };
-        let (data, import, notices, open) = {
+        let (data, import, notices, open, overlay) = {
             let mut f = feed.borrow_mut();
             (
                 f.data.take(),
                 f.import.take(),
                 f.notices.take(),
                 std::mem::take(&mut f.open_import),
+                f.overlay.take(),
             )
         };
         if let Some(d) = data {
@@ -1567,6 +1785,9 @@ impl SelectScreen {
         if let Some(n) = notices {
             self.notices = n;
             self.notices_dirty = true;
+        }
+        if let Some(open) = overlay {
+            open(&self.env, cx);
         }
         // Files dropped on the page: the dialog shows how the import goes.
         if open && !self.import_open(cx) {
@@ -1594,7 +1815,13 @@ impl SelectScreen {
         // One line, as wide as the song's column: the notices' texts (cut
         // to fit), then their links.
         let [x0, _, width] = l.song;
-        let y = if l.compact { l.screen[1] - 16.0 } else { 74.0 };
+        let y = if l.upright {
+            l.song[1] + l.play_y - l.play_h / 2.0 - 16.0
+        } else if l.compact {
+            l.screen[1] - 16.0
+        } else {
+            74.0
+        };
         let links: Vec<(usize, &str)> = self
             .notices
             .iter()
@@ -1874,6 +2101,7 @@ impl SelectScreen {
         let mut st = self.env.state.borrow_mut();
         st.screen = "select".into();
         st.compact = self.layout.compact;
+        st.autoplay = self.autoplay;
         st.reduced_motion = self.reduced;
         st.style = self.style_name().to_string();
         st.preferred = difficulty_name(self.preferred).to_string();
@@ -2059,18 +2287,39 @@ impl Screen for SelectScreen {
         let vp = cx.viewport().screen;
         let compact = super::is_compact(&*self.env.look, vp);
         self.reduced = self.env.reduced();
-        self.layout = Layout::new(&self.env, [vp.width, vp.height], compact);
+        self.layout = Layout::fit(&self.env, [vp.width, vp.height], compact);
         self.build_tree(cx)
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        let mut v = vec![
-            Focusable::new("Wheel"),
-            Focusable::new(self.search.name.clone()),
-        ];
+        // The header's row in order, explicitly (the wheel below lies
+        // nearer than the next thing to the right): the search, the mods,
+        // the autoplay switch.
+        let n = self.data.mods.len();
+        let row: Vec<String> = if self.layout.compact {
+            Vec::new()
+        } else {
+            std::iter::once(self.search.name.clone())
+                .chain((0..n).map(|i| format!("Mod{i}")))
+                .chain(std::iter::once("Autoplay".to_string()))
+                .collect()
+        };
+        let along = |name: &str| -> Focusable {
+            let mut f = Focusable::new(name);
+            if let Some(i) = row.iter().position(|r| r == name) {
+                f.left = i.checked_sub(1).map(|j| row[j].clone());
+                f.right = row.get(i + 1).cloned();
+                if name != row[0] {
+                    f.down = Some("Wheel".into());
+                }
+            }
+            f
+        };
+        let mut v = vec![Focusable::new("Wheel"), along(&self.search.name)];
         if self.layout.compact {
             for n in [
                 "Back",
+                "AutoIcon",
                 "AddIcon",
                 "SearchIcon",
                 "OptionsIcon",
@@ -2081,6 +2330,7 @@ impl Screen for SelectScreen {
             }
             v.extend((0..5).map(|k| Focusable::new(format!("Chart{k}"))));
         } else {
+            v.push(along("Autoplay"));
             for n in [
                 "Link.Manage",
                 "Link.Add",
@@ -2098,7 +2348,7 @@ impl Screen for SelectScreen {
             v.push(Focusable::new("Notice"));
         }
         v.extend((0..self.notices.len()).map(|i| Focusable::new(format!("Notice.Link{i}"))));
-        v.extend((0..self.data.mods.len()).map(|i| Focusable::new(format!("Mod{i}"))));
+        v.extend((0..n).map(|i| along(&format!("Mod{i}"))));
         v
     }
 
@@ -2113,12 +2363,19 @@ impl Screen for SelectScreen {
         // reduced motion changed: laid out again.
         let vp = cx.viewport().screen;
         let compact = super::is_compact(&*self.env.look, vp);
-        if [vp.width, vp.height] != self.layout.screen
+        if self.gesture_note > 0.0 {
+            self.gesture_note -= dt;
+            if self.gesture_note <= 0.0 {
+                self.hints = None;
+                self.fill_footer(root);
+            }
+        }
+        if [vp.width, vp.height] != self.layout.vp
             || compact != self.layout.compact
             || self.env.reduced() != self.reduced
         {
             self.reduced = self.env.reduced();
-            self.layout = Layout::new(&self.env, [vp.width, vp.height], compact);
+            self.layout = Layout::fit(&self.env, [vp.width, vp.height], compact);
             let selected = self.list.selected();
             *root = self.build_tree(cx);
             self.reload();
@@ -2214,7 +2471,56 @@ impl Screen for SelectScreen {
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        // Zoomed (a phone upright): pointers' moves and the wheel in the
+        // layout's pixels, so the list follows the finger one for one
+        // (places stay the screen's: the list finds its own through the
+        // actors).
+        let scaled;
+        let input = match input {
+            Input::Pointer {
+                target,
+                gesture,
+                pos,
+                kind,
+            } if self.layout.zoom != 1.0 => {
+                let k = 1.0 / self.layout.zoom;
+                scaled = Input::Pointer {
+                    target: target.clone(),
+                    gesture: gesture.scaled(k),
+                    pos: *pos,
+                    kind: *kind,
+                };
+                &scaled
+            }
+            Input::Wheel {
+                target,
+                delta,
+                pos,
+                kind,
+            } if self.layout.zoom != 1.0 => {
+                let k = 1.0 / self.layout.zoom;
+                scaled = Input::Wheel {
+                    target: target.clone(),
+                    delta: [delta[0] * k, delta[1] * k],
+                    pos: *pos,
+                    kind: *kind,
+                };
+                &scaled
+            }
+            _ => input,
+        };
         self.from_pad = matches!(input, Input::Menu { .. }) && !cx.menu_from_keyboard();
+        // A link a controller pressed: the browser opens it only from a
+        // key or a tap; the footer says so for a while.
+        if let Input::NeedsGesture(UiRequest::OpenUrl(_)) = input {
+            self.gesture_note = 4.0;
+            self.hints = None;
+            self.fill_footer(root);
+            self.status("press Enter or tap to open".into());
+            self.publish_dirty = true;
+            self.publish();
+            return Handled::Yes;
+        }
         let h = self.input_inner(input, root, cx);
         // The song the selection shows, now: a Start in the same poll as a
         // move acts on the song moved to.
@@ -2289,16 +2595,30 @@ impl SelectScreen {
                 self.begin_search(root, cx);
                 return Handled::Yes;
             }
-            // Manage: Delete, or Backspace (a Mac's delete key).
+            // Backspace is Back, as Escape (closing the song's pack,
+            // clearing a search); typing, it deletes.
             Input::Key(k)
                 if k.down
                     && !k.repeat
                     && !self.typing
-                    && (k.key == "Delete" || k.key == "Backspace") =>
+                    && k.key == "Backspace"
+                    && !k.modifiers.any_but_shift() =>
+            {
+                self.back(root, cx);
+                return Handled::Yes;
+            }
+            // Manage: Delete, or ⌘ Backspace (Ctrl elsewhere: a Mac's
+            // forward delete is fn Backspace).
+            Input::Key(k)
+                if k.down
+                    && !k.repeat
+                    && !self.typing
+                    && (k.key == "Delete" || k.key == "Backspace" && k.modifiers.command()) =>
             {
                 if let Some(m) = self.manageable() {
                     cx.overlay(
-                        ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy()),
+                        ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy())
+                            .on(self.import.borrow().platform),
                         true,
                     );
                 }
@@ -2336,6 +2656,51 @@ impl SelectScreen {
                 return self.activate(&name, root, cx);
             }
             _ => {}
+        }
+        // The header (the search, the switch, the mods, a phone's
+        // icons): menu directions move the focus there, not the chart or
+        // the wheel.
+        let in_header = cx.focused().is_some_and(|f| {
+            f == self.search.name
+                || f.starts_with("Mod")
+                || matches!(
+                    f,
+                    "Autoplay" | "Back" | "AutoIcon" | "AddIcon" | "SearchIcon" | "OptionsIcon"
+                )
+        });
+        // (The search field keeps Up and Down for the wheel, as before.)
+        let on_search = cx.focused() == Some(self.search.name.as_str());
+        // The header is the top: a fresh Up there goes past it, to the
+        // app's notices (the focus stays, for Down to come back to).
+        if in_header
+            && !on_search
+            && matches!(
+                input,
+                Input::Menu {
+                    action: MenuAction::Up,
+                    repeat: false
+                }
+            )
+        {
+            cx.enter_chrome();
+            return Handled::Yes;
+        }
+        if in_header
+            && matches!(input, Input::Menu { action, .. }
+                if matches!(action, MenuAction::Left | MenuAction::Right)
+                    || (!on_search && action.is_direction()))
+        {
+            return Handled::No;
+        }
+        // A fresh Up on the first row goes on up (the search field, then
+        // the app's notices over the screen).
+        if let Input::Menu {
+            action: MenuAction::Up,
+            repeat: false,
+        } = input
+            && self.list.selected() == Some(0)
+        {
+            return Handled::No;
         }
         // The wheel: pointers and the wheel on it, and the menu's Up and
         // Down whatever has focus.
@@ -2410,6 +2775,10 @@ impl SelectScreen {
             self.pick_chart(k, root, cx);
             return Handled::Yes;
         }
+        if name == "Autoplay" || name == "AutoIcon" {
+            self.toggle_autoplay(root, cx);
+            return Handled::Yes;
+        }
         if name.starts_with("Mod") || name == "PlayingWith" {
             let env = self.env.clone();
             (self.options)(&env, cx);
@@ -2452,7 +2821,8 @@ impl SelectScreen {
                 cx.focus("Wheel");
                 if let Some(m) = self.manageable() {
                     cx.overlay(
-                        ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy()),
+                        ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy())
+                            .on(self.import.borrow().platform),
                         true,
                     );
                 }

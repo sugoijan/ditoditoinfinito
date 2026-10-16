@@ -80,6 +80,14 @@ pub struct ResultsScreen {
     backdrop: Backdrop,
     screen: [f32; 2],
     actions: ResultsActions,
+    /// On a phone: one column (two sideways) that scrolls between a bar
+    /// on top and the buttons at the bottom; the zoom from the layout
+    /// to the screen (upright, 480 wide).
+    compact: bool,
+    zoom: f32,
+    scroll: f32,
+    /// The banner's texture, kept for the content built again.
+    banner: Option<u32>,
 }
 
 impl ResultsScreen {
@@ -91,6 +99,181 @@ impl ResultsScreen {
             backdrop: Backdrop::with_alpha("Backdrop.Results"),
             screen: super::DESIGN,
             actions,
+            compact: false,
+            zoom: 1.0,
+            scroll: 0.0,
+            banner: None,
+        }
+    }
+
+    /// The layout's size and zoom: the full design as `fit` makes it; on
+    /// a compact screen, sideways as it is, upright 480 wide zoomed to
+    /// the width.
+    fn fit(&self, vp: ddi_actor::screen::VirtualScreen) -> ([f32; 2], f32, bool) {
+        if !super::is_compact(&*self.env.look, vp) {
+            return (fit(&*self.env.look, vp), 1.0, false);
+        }
+        let narrow = self.env.metric("Options.Narrow.Width", 480.0);
+        if vp.width >= vp.height || vp.width <= narrow {
+            ([vp.width, vp.height], 1.0, true)
+        } else {
+            let z = vp.width / narrow;
+            ([narrow, vp.height / z], z, true)
+        }
+    }
+
+    fn place(&mut self, vp: ddi_actor::screen::VirtualScreen) -> bool {
+        let (screen, zoom, compact) = self.fit(vp);
+        let changed = (screen, zoom, compact) != (self.screen, self.zoom, self.compact);
+        self.screen = screen;
+        self.zoom = zoom;
+        self.compact = compact;
+        changed
+    }
+
+    /// The root for this layout: built, zoomed.
+    fn make_root(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        self.banner = self
+            .data
+            .song
+            .banner
+            .as_deref()
+            .map(|b| cx.texture(b, self.env.metric("Results.Score.Width", 400.0)));
+        let mut root = if self.compact {
+            self.build_compact(cx)
+        } else {
+            self.build_tree(cx)
+        };
+        if self.compact {
+            if self.zoom != 1.0 {
+                call(&mut root, "zoom", &[self.zoom]);
+            }
+        } else {
+            fit_root(&*self.env.look, &mut root, vp);
+        }
+        root
+    }
+
+    /// The compact parts: the bar's height on top, the buttons' at the
+    /// bottom, the margin.
+    fn compact_bars(&self) -> (f32, f32, f32) {
+        let upright = self.screen[0] < self.screen[1];
+        (52.0, if upright { 112.0 } else { 60.0 }, 12.0)
+    }
+
+    /// A phone's results: the bar (back, the title, the panel sets), the
+    /// content (the score column, then the panels, one under another;
+    /// side by side when sideways) scrolling, the buttons.
+    fn build_compact(&mut self, cx: &mut Cx) -> Actor {
+        let env = self.env.clone();
+        let screen = self.screen;
+        let [w, h] = screen;
+        let (top, bottom, m) = self.compact_bars();
+        let mut children = vec![ground(&env, screen), self.backdrop.build(&env, screen)];
+        let view = [m, top, w - 2.0 * m, h - top - bottom];
+        let (content, _) = self.compact_content(view[2]);
+        let mut content = content;
+        call(&mut content, "y", &[-self.scroll]);
+        let mut clip = frame("ResultsClip", vec![content]);
+        clip.clip = Some([-4.0, 0.0, view[2] + 4.0, view[3]]);
+        call(&mut clip, "xy", &[view[0], view[1]]);
+        children.push(clip);
+        children.push(env.component(
+            "IconButton",
+            "Button",
+            &Spec::new([40.0, 40.0], "‹"),
+            "Back",
+            [m + 20.0, top / 2.0],
+        ));
+        children.push(left(
+            env.text("Title", "Results", 16.0, 700, "Text"),
+            m + 52.0,
+            top / 2.0,
+        ));
+        children.push(self.panel_pills(screen));
+        children.push(self.bottom_bar([m, h - bottom, w - 2.0 * m, bottom]));
+        env.state.borrow_mut().hints = Vec::new();
+        let mut root = Actor::new(Kind::Frame(children));
+        super::entrance(&mut root, &env);
+        if let Some(src) = self.data.song.backdrop().map(str::to_string) {
+            self.backdrop.set(Some(&src), &mut root, cx, &env);
+            if let Some(b) = hit::find_mut(&mut root, "Backdrop") {
+                b.finish_tweening();
+                for c in b.children_mut() {
+                    c.finish_tweening();
+                }
+            }
+        }
+        root
+    }
+
+    /// The scrolling content `w` wide, and its height.
+    fn compact_content(&self, w: f32) -> (Actor, f32) {
+        let env = &self.env;
+        let sideways = self.screen[0] >= self.screen[1];
+        let gap = 16.0;
+        let score_w = if sideways { (w * 0.44).min(380.0) } else { w };
+        let (score, score_h) = self.score_column_sized([0.0, 0.0, score_w]);
+        let mut children = vec![score];
+        let kinds = self
+            .data
+            .panel_sets
+            .get(self.data.panel_set)
+            .map(|s| s.panels.clone())
+            .unwrap_or_default();
+        let (px, pw, mut py) = if sideways {
+            (score_w + gap, w - score_w - gap, 0.0)
+        } else {
+            (0.0, w, score_h + gap)
+        };
+        let ph = if sideways { 190.0 } else { 200.0 };
+        for kind in kinds {
+            let rect = [px, py, pw, ph];
+            children.push(match kind {
+                PanelKind::Timing => self.timing_panel(rect, false),
+                PanelKind::Life => self.life_panel(rect),
+                PanelKind::Offsets => self.offsets_panel(rect),
+                PanelKind::Lanes => self.lanes_panel(rect),
+            });
+            py += ph + gap;
+        }
+        let mut end = py.max(score_h);
+        // What is worth saying, under it all.
+        let mut notes = self.data.notes.clone();
+        if !self.data.note.is_empty() {
+            notes.push(self.data.note.clone());
+        }
+        for (i, line) in notes
+            .iter()
+            .flat_map(|n| super::select_dialogs::wrap_lines(n, w, 13.0))
+            .enumerate()
+        {
+            let t = env.text(&format!("Note{i}"), &line, 13.0, 400, "Muted");
+            children.push(left(t, 0.0, end + 10.0));
+            end += 18.0;
+        }
+        let height = end + 16.0;
+        (frame("ResultsContent", children), height)
+    }
+
+    fn max_scroll(&self) -> f32 {
+        let (top, bottom, m) = self.compact_bars();
+        let (_, height) = self.compact_content(self.screen[0] - 2.0 * m);
+        (height - (self.screen[1] - top - bottom)).max(0.0)
+    }
+
+    fn scroll_by(&mut self, dy: f32, root: &mut Actor) {
+        if !self.compact {
+            return;
+        }
+        let to = (self.scroll + dy).clamp(0.0, self.max_scroll());
+        if to != self.scroll {
+            self.scroll = to;
+            if let Some(c) = hit::find_mut(root, "ResultsContent") {
+                call(c, "y", &[-self.scroll]);
+            }
+            self.env.state.borrow_mut().scroll = self.scroll;
         }
     }
 
@@ -164,7 +347,12 @@ impl ResultsScreen {
         root
     }
 
-    fn score_column(&self, [x, y, w]: [f32; 3], cx: &mut Cx) -> Actor {
+    fn score_column(&self, [x, y, w]: [f32; 3], _cx: &mut Cx) -> Actor {
+        self.score_column_sized([x, y, w]).0
+    }
+
+    /// The score column at `[x, y]`, `w` wide, and its height.
+    fn score_column_sized(&self, [x, y, w]: [f32; 3]) -> (Actor, f32) {
         let env = &self.env;
         let d = &self.data;
         let mut children = Vec::new();
@@ -177,11 +365,7 @@ impl ResultsScreen {
         call(&mut banner, "xy", &[w / 2.0, bh / 2.0]);
         call(&mut banner, "cornerradius", &[6.0]);
         let mut holder = frame("BannerHolder", vec![banner]);
-        set_image(
-            &mut holder,
-            "Banner",
-            d.song.banner.as_deref().map(|b| cx.texture(b, w)),
-        );
+        set_image(&mut holder, "Banner", self.banner);
         children.push(ph);
         children.push(holder);
         let cut = |mut a: Actor, w: f32| {
@@ -244,7 +428,19 @@ impl ResultsScreen {
         // The grade's box sized to the grade (a letter about 0.58 em in
         // the bold face), no wider than 120; the score after it, made
         // smaller if it would pass the column.
-        let full = look::mono_width(&d.grade, 64.0) * 1.15;
+        // Stars come from the system's fonts (the theme's face leaves
+        // them out): about an em each, not a letter's 0.6.
+        let full = d
+            .grade
+            .chars()
+            .map(|c| {
+                if matches!(c, '★' | '☆') {
+                    64.0
+                } else {
+                    look::mono_width(&c.to_string(), 64.0) * 1.15
+                }
+            })
+            .sum::<f32>();
         let zoom = (120.0 / full.max(1.0)).min(1.0);
         if let Some(g) = part(&mut score, "Grade") {
             call(g, "zoom", &[zoom]);
@@ -353,9 +549,10 @@ impl ResultsScreen {
                 col = 1;
             }
         }
+        let height = if col == 1 { yy + 20.0 } else { yy };
         let mut f = frame("ScoreColumn", children);
         call(&mut f, "xy", &[x, y]);
-        f
+        (f, height)
     }
 
     /// A panel with its title and note.
@@ -721,7 +918,14 @@ impl ResultsScreen {
 
     fn bottom_bar(&self, [x, y, w, h]: [f32; 4]) -> Actor {
         let env = &self.env;
-        let mid = h / 2.0;
+        // Upright on a phone: the editor on a row of its own, the buttons
+        // under it.
+        let two_rows = self.compact && self.screen[0] < self.screen[1];
+        let (mid, edit_mid) = if two_rows {
+            (h * 0.75, h * 0.27)
+        } else {
+            (h / 2.0, h / 2.0)
+        };
         let mut c = Vec::new();
         let retry_w = 112.0;
         let list_w = 128.0;
@@ -741,17 +945,27 @@ impl ResultsScreen {
         ));
         if let Some(o) = &self.data.offset {
             c.push(left(
-                env.text("OffsetLabel", "Song offset", 15.0, 600, "Secondary"),
+                env.text(
+                    "OffsetLabel",
+                    if self.compact {
+                        "Offset"
+                    } else {
+                        "Song offset"
+                    },
+                    15.0,
+                    600,
+                    "Secondary",
+                ),
                 0.0,
-                mid,
+                edit_mid,
             ));
-            let bx = 118.0;
+            let bx = if self.compact { 64.0 } else { 118.0 };
             c.push(env.component(
                 "Button",
                 "Button",
                 &Spec::new([44.0, 44.0], "−1"),
                 "OffsetDown",
-                [bx + 22.0, mid],
+                [bx + 22.0, edit_mid],
             ));
             let mut v = env.numbers(
                 "OffsetValue",
@@ -759,14 +973,14 @@ impl ResultsScreen {
                 20.0,
                 "Text",
             );
-            call(&mut v, "xy", &[bx + 44.0 + 45.0, mid]);
+            call(&mut v, "xy", &[bx + 44.0 + 45.0, edit_mid]);
             c.push(v);
             c.push(env.component(
                 "Button",
                 "Button",
                 &Spec::new([44.0, 44.0], "+1"),
                 "OffsetUp",
-                [bx + 134.0 + 22.0, mid],
+                [bx + 134.0 + 22.0, edit_mid],
             ));
             let mut bx = bx + 178.0 + 12.0;
             // This play's mean as an offset, while it is not the offset
@@ -779,7 +993,7 @@ impl ResultsScreen {
                     "Button",
                     &Spec::new([uw, 44.0], &label),
                     "UseMean",
-                    [bx + uw / 2.0, mid],
+                    [bx + uw / 2.0, edit_mid],
                 ));
                 bx += uw + 12.0;
             }
@@ -790,7 +1004,7 @@ impl ResultsScreen {
                     "Button",
                     &Spec::new([rw, 44.0], "Reset"),
                     "ResetOffset",
-                    [bx + rw / 2.0, mid],
+                    [bx + rw / 2.0, edit_mid],
                 ));
             }
         }
@@ -810,7 +1024,12 @@ impl ResultsScreen {
                 look::component_or(&*env.look, "Pill", "Button", &Spec::new([w, 30.0], name));
             pill.name = format!("PanelSet{i}");
             let w = super::extent(&mut pill, [w, 30.0])[0];
-            call(&mut pill, "xy", &[x - w / 2.0, 32.0]);
+            let py = if self.compact {
+                self.compact_bars().0 / 2.0
+            } else {
+                32.0
+            };
+            call(&mut pill, "xy", &[x - w / 2.0, py]);
             crate::widgets::play(
                 &mut pill,
                 if i == self.data.panel_set {
@@ -823,7 +1042,7 @@ impl ResultsScreen {
             x -= w + 8.0;
             c.push(pill);
         }
-        if !self.data.panel_sets.is_empty() {
+        if !self.data.panel_sets.is_empty() && !self.compact {
             c.push(right(
                 env.text("PanelsLabel", "Panels", 13.0, 400, "Muted"),
                 x,
@@ -843,10 +1062,20 @@ impl ResultsScreen {
             return;
         }
         self.data.panel_set = i;
-        let (_, rect, _) = self.places();
-        let fresh = self.panels_actor(rect);
-        if let Some(p) = hit::find_mut(root, "Panels") {
-            *p = fresh;
+        if self.compact {
+            let (_, _, m) = self.compact_bars();
+            self.scroll = self.scroll.min(self.max_scroll());
+            let (mut fresh, _) = self.compact_content(self.screen[0] - 2.0 * m);
+            call(&mut fresh, "y", &[-self.scroll]);
+            if let Some(p) = hit::find_mut(root, "ResultsContent") {
+                *p = fresh;
+            }
+        } else {
+            let (_, rect, _) = self.places();
+            let fresh = self.panels_actor(rect);
+            if let Some(p) = hit::find_mut(root, "Panels") {
+                *p = fresh;
+            }
         }
         let pills = self.panel_pills(self.screen);
         if let Some(p) = hit::find_mut(root, "PanelSets") {
@@ -869,8 +1098,14 @@ impl ResultsScreen {
         if let Some(f) = &self.actions.offset {
             f(seconds);
         }
-        let (_, panels, bar_y) = self.places();
-        let fresh = self.bottom_bar([panels[0], bar_y, panels[2], 76.0]);
+        let fresh = if self.compact {
+            let (_, bottom, m) = self.compact_bars();
+            let [w, h] = self.screen;
+            self.bottom_bar([m, h - bottom, w - 2.0 * m, bottom])
+        } else {
+            let (_, panels, bar_y) = self.places();
+            self.bottom_bar([panels[0], bar_y, panels[2], 76.0])
+        };
         if let Some(b) = hit::find_mut(root, "Bottom") {
             *b = fresh;
         }
@@ -886,6 +1121,8 @@ impl ResultsScreen {
     fn publish(&self) {
         let mut st = self.env.state.borrow_mut();
         st.screen = "results".into();
+        st.compact = self.compact;
+        st.scroll = self.scroll;
         st.panels = self
             .data
             .panel_sets
@@ -940,10 +1177,8 @@ impl Screen for ResultsScreen {
 
     fn build(&mut self, cx: &mut Cx) -> Actor {
         self.env.state.borrow_mut().over += 1;
-        let vp = cx.viewport().screen;
-        self.screen = fit(&*self.env.look, vp);
-        let mut root = self.build_tree(cx);
-        fit_root(&*self.env.look, &mut root, vp);
+        self.place(cx.viewport().screen);
+        let root = self.make_root(cx);
         self.publish();
         root
     }
@@ -955,6 +1190,9 @@ impl Screen for ResultsScreen {
 
     fn focusables(&self) -> Vec<Focusable> {
         let mut v: Vec<Focusable> = BUTTONS.into_iter().map(Focusable::new).collect();
+        if self.compact {
+            v.push(Focusable::new("Back"));
+        }
         v.extend((0..self.data.panel_sets.len()).map(|i| Focusable::new(format!("PanelSet{i}"))));
         v
     }
@@ -967,12 +1205,11 @@ impl Screen for ResultsScreen {
         if settling && self.age >= SETTLE {
             cx.focus("SongList");
         }
-        let vp = cx.viewport().screen;
-        if fit(&*self.env.look, vp) != self.screen {
-            self.screen = fit(&*self.env.look, vp);
-            *root = self.build_tree(cx);
-            fit_root(&*self.env.look, root, vp);
+        if self.place(cx.viewport().screen) {
+            self.scroll = 0.0;
+            *root = self.make_root(cx);
             root.finish_tweening();
+            self.publish();
         }
         if self.env.state.borrow().screen != "results" {
             self.publish();
@@ -992,6 +1229,42 @@ impl Screen for ResultsScreen {
             _ => {}
         }
         match input {
+            // A phone's column scrolls: by Up and Down, a wheel, a drag.
+            Input::Menu {
+                action: MenuAction::Up | MenuAction::Down,
+                ..
+            } if self.compact => {
+                let down = matches!(
+                    input,
+                    Input::Menu {
+                        action: MenuAction::Down,
+                        ..
+                    }
+                );
+                let before = self.scroll;
+                self.scroll_by(if down { 80.0 } else { -80.0 }, root);
+                if self.scroll != before {
+                    Handled::Yes
+                } else {
+                    Handled::No
+                }
+            }
+            Input::Wheel {
+                target: Some(t),
+                delta,
+                ..
+            } if self.compact && t.within("ResultsClip") => {
+                self.scroll_by(delta[1] / self.zoom, root);
+                Handled::Yes
+            }
+            Input::Pointer {
+                target: Some(t),
+                gesture: crate::Gesture::Drag { delta },
+                ..
+            } if self.compact && t.within("ResultsClip") => {
+                self.scroll_by(-delta[1] / self.zoom, root);
+                Handled::Yes
+            }
             Input::Menu { action, .. } => match action {
                 MenuAction::Left => {
                     self.set_panels(self.data.panel_set.saturating_sub(1), root);
@@ -1031,7 +1304,7 @@ impl Screen for ResultsScreen {
             Input::Activate { name } => {
                 let current = self.data.offset.map_or(0.0, |o| o.current);
                 match name.as_str() {
-                    "SongList" => self.song_list(cx),
+                    "SongList" | "Back" => self.song_list(cx),
                     "Retry" => self.retry(cx),
                     "OffsetDown" => self.set_offset(current - 0.001, root, cx),
                     "OffsetUp" => self.set_offset(current + 0.001, root, cx),

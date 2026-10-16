@@ -172,8 +172,53 @@ cost). After an independent review: heads always W1 (pressed late or
 held through), `InitialHoldLife`, the tail row left out of the outcome,
 the events of a press in time order, the battery.
 
+## Pump skins (2026-10-16)
+
+Done: StepMania's `NoteSkins/pump/*` are imported (`import::kept_game`)
+and listed beside the dance skins; Options' Arrows has a "Pump arrows"
+row (`Settings::pump_noteskin`, keys `pump/<name>`), shown once one is
+imported: "As above" (the dance skin draws the pump layouts, as before)
+or a pump skin, which then draws every pump layout (play, the field
+preview, `Settings::noteskin_for`). Each lane takes its own panel
+(`Skin::lane_buttons` for a pump skin; never Down turned), and the
+skin's Lua is told the pump game and its style (`single`, `halfdouble`,
+`double`, `ddi_noteskin::lua::style_for`).
+
+A pump skin falls back only on what it names (`FallbackNoteSkin`), then
+pump's `default` and `common`, as StepMania's chain does: never on a
+dance skin. pump's `default` is a stand-in (`BuiltIn::PumpDefault`): its
+`metrics.ini` and Lua are StepMania 5.1's byte for byte
+(`noteskin/src/builtin/stepmania/pump/default/`, 825467b, credited in
+`THIRD_PARTY.toml`), its art (not under an explicit licence) listed by
+name and drawn by the built-in skin. Its `NoteSkin.lua` builds every
+element (the right side's notes and receptors are the left's turned
+about the y axis), so a pump skin always runs its Lua; without it (its
+Lua off) its conventions are reimplemented natively, without the
+mirroring. The prelude gained StepMania's `scale` and `clamp`, which its
+receptor's beat flash calls.
+
+Checked: StepMania 5.1's eleven pump skins, ITGmania's and OutFox's
+(29 in all) load through their Lua without `default` and `common`
+(the stand-ins), every element an actor, and play 20 s at 60 and 144 Hz
+(`DDI_NOTESKINS=… DDI_NOTESKINS_STANDINS=1 DDI_NOTESKINS_LUA=1
+DDI_NOTESKINS_LUA_PLAY=1`); a synthetic left-side-only skin draws every
+panel, the right side mirrored (`render/src/noteskin.rs`); in headless
+Chrome (WebGPU and WebGL2) `pump/cmd` and `pump/simple` imported from a
+scratch copy, chosen for the pump styles, drawn in the field preview on
+Pump single and in an autoplayed pump chart (all top tier).
+
+Review fixes (2026-10-16): a pump skin's folder picked on its own (no
+`pump` parent) is told by its files, which name only pump's panels
+(`UpLeft`, `Center`, `DownLeft`, no `Down`); the import report sums up a
+pump skin as probed on Pump single (its UpLeft column) and calls `common`
+StepMania's shared files; an imported pump skin chosen has its own
+"Remove" row; a `pump_noteskin` that is not a pump skin's key (nor
+`builtin`) is let go when the settings load and never drawn.
+
+Fades and crops (pump/delta's notes use `fadetop`) came after
+(2026-10-16, `docs/plans/noteskins.md`). No pump skin is bundled (none
+with art under a licence we can ship was found).
+
 ## Later
 
-- Import `NoteSkins/pump/*` and draw pump layouts with them by default
-  when the player picks one; their panel colours.
 - Centre notes for the other bundled skins (the maintainer's wish).

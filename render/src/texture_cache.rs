@@ -91,8 +91,15 @@ pub enum TextureState {
 enum Slot<T> {
     Unloaded,
     Loading,
-    Ready { item: T, bytes: u64 },
+    Ready {
+        item: T,
+        bytes: u64,
+    },
     Failed,
+    /// Forgotten while its load ran: free once the load answers.
+    Leaving,
+    /// Forgotten: the id is handed out again for another key.
+    Free,
 }
 
 struct Entry<T> {
@@ -122,6 +129,8 @@ pub struct TextureStats {
 
 pub struct TextureCache<T> {
     ids: HashMap<TextureKey, TextureId>,
+    /// Ids forgotten, handed out again.
+    free: Vec<TextureId>,
     /// Each source's sizes.
     sizes: HashMap<Arc<str>, Vec<TextureId>>,
     entries: Vec<Entry<T>>,
@@ -141,6 +150,7 @@ impl<T> TextureCache<T> {
     pub fn new(budget: u64) -> TextureCache<T> {
         TextureCache {
             ids: HashMap::new(),
+            free: Vec::new(),
             sizes: HashMap::new(),
             entries: Vec::new(),
             loaded: 0,
@@ -168,13 +178,22 @@ impl<T> TextureCache<T> {
         if let Some(&id) = self.ids.get(&key) {
             return id;
         }
-        let id = TextureId(self.entries.len() as u32);
-        self.entries.push(Entry {
+        let entry = Entry {
             key: key.clone(),
             slot: Slot::Unloaded,
             last_used: 0,
             asked: 0,
-        });
+        };
+        let id = match self.free.pop() {
+            Some(id) => {
+                self.entries[id.0 as usize] = entry;
+                id
+            }
+            None => {
+                self.entries.push(entry);
+                TextureId(self.entries.len() as u32 - 1)
+            }
+        };
         self.sizes.entry(key.source.clone()).or_default().push(id);
         self.ids.insert(key, id);
         id
@@ -186,8 +205,9 @@ impl<T> TextureCache<T> {
 
     pub fn state(&self, id: TextureId) -> Option<TextureState> {
         self.entries.get(id.0 as usize).map(|e| match e.slot {
-            Slot::Unloaded => TextureState::Unloaded,
-            Slot::Loading => TextureState::Loading,
+            // A forgotten id stands for nothing loaded.
+            Slot::Unloaded | Slot::Free => TextureState::Unloaded,
+            Slot::Loading | Slot::Leaving => TextureState::Loading,
             Slot::Ready { .. } => TextureState::Ready,
             Slot::Failed => TextureState::Failed,
         })
@@ -270,6 +290,59 @@ impl<T> TextureCache<T> {
         smaller.and_then(|(_, other)| use_other(self, other))
     }
 
+    /// No texture of `source` is loading any more, and none is asked
+    /// for: the shell draws that source itself
+    /// (`crate::Painter::set_external_image`), so the platform answers no
+    /// load of it.
+    pub fn cancel(&mut self, source: &str) {
+        let Some(ids) = self.sizes.get(source) else {
+            return;
+        };
+        for id in ids {
+            let e = &mut self.entries[id.0 as usize];
+            if matches!(e.slot, Slot::Loading) {
+                e.slot = Slot::Unloaded;
+            }
+        }
+        let entries = &self.entries;
+        self.requests
+            .retain(|id| &*entries[id.0 as usize].key.source != source);
+    }
+
+    /// Lets every texture of the sources `which` picks go (files the
+    /// shell no longer keeps, `play:<id>:<n>` and its parts): loaded ones
+    /// are returned, for the renderer to free; none is asked for any
+    /// more. The ids stay (drawn again, they load again).
+    pub fn forget(&mut self, which: impl Fn(&str) -> bool) -> Vec<T> {
+        let mut freed = Vec::new();
+        let sources: Vec<Arc<str>> = self.sizes.keys().filter(|s| which(s)).cloned().collect();
+        for source in sources {
+            for id in self.sizes.remove(&source).unwrap_or_default() {
+                let e = &mut self.entries[id.0 as usize];
+                self.ids.remove(&e.key);
+                match std::mem::replace(&mut e.slot, Slot::Free) {
+                    Slot::Ready { item, bytes } => {
+                        self.bytes -= bytes;
+                        self.loaded -= 1;
+                        freed.push(item);
+                        self.free.push(id);
+                    }
+                    // Asked for and not taken yet: never loaded.
+                    Slot::Loading if self.requests.contains(&id) => self.free.push(id),
+                    // Its load answers later: freed then.
+                    Slot::Loading => e.slot = Slot::Leaving,
+                    Slot::Leaving => e.slot = Slot::Leaving,
+                    Slot::Free => {}
+                    Slot::Unloaded | Slot::Failed => self.free.push(id),
+                }
+            }
+        }
+        let entries = &self.entries;
+        self.requests
+            .retain(|id| !matches!(entries[id.0 as usize].slot, Slot::Leaving | Slot::Free));
+        freed
+    }
+
     /// The texture of `id` if it is loaded, not counted as drawn.
     pub fn peek(&self, id: TextureId) -> Option<&T> {
         match &self.entries.get(id.0 as usize)?.slot {
@@ -294,6 +367,20 @@ impl<T> TextureCache<T> {
             freed.push(item);
             return freed;
         };
+        // Forgotten: the id goes free now; a free one's load is stale.
+        match entry.slot {
+            Slot::Leaving => {
+                entry.slot = Slot::Free;
+                self.free.push(id);
+                freed.push(item);
+                return freed;
+            }
+            Slot::Free => {
+                freed.push(item);
+                return freed;
+            }
+            _ => {}
+        }
         if let Slot::Ready { item: old, bytes } =
             std::mem::replace(&mut entry.slot, Slot::Ready { item, bytes })
         {
@@ -312,10 +399,16 @@ impl<T> TextureCache<T> {
 
     /// The platform could not load `id`.
     pub fn fail(&mut self, id: TextureId) {
-        if let Some(entry) = self.entries.get_mut(id.0 as usize)
-            && matches!(entry.slot, Slot::Loading)
-        {
-            entry.slot = Slot::Failed;
+        let Some(entry) = self.entries.get_mut(id.0 as usize) else {
+            return;
+        };
+        match entry.slot {
+            Slot::Loading => entry.slot = Slot::Failed,
+            Slot::Leaving => {
+                entry.slot = Slot::Free;
+                self.free.push(id);
+            }
+            _ => {}
         }
     }
 
@@ -374,7 +467,7 @@ impl<T> TextureCache<T> {
         TextureStats {
             bytes: self.bytes,
             budget: self.budget,
-            entries: self.entries.len(),
+            entries: self.entries.len() - self.free.len(),
             loaded: self.loaded,
             loading: count(|s| matches!(s, Slot::Loading)),
             failed: count(|s| matches!(s, Slot::Failed)),
@@ -410,6 +503,43 @@ mod tests {
         assert_eq!(c.key(large).unwrap().max_side, 512);
         assert_eq!(TextureKey::drawn("x", 9000.0).max_side, 2048);
         assert_eq!(c.id(TextureKey::drawn("a.png", 120.0)), small);
+    }
+
+    #[test]
+    fn a_kept_file_let_go_frees_its_textures() {
+        let mut c = TextureCache::<&str>::new(10_000);
+        let song = c.id(TextureKey::drawn("play:s:1:song", 1280.0));
+        let tiny = c.id(TextureKey::drawn("play:s:1:song", 64.0));
+        let other = c.id(key("songs/x/bg.png"));
+        c.begin_frame();
+        for id in [song, tiny, other] {
+            c.get(id);
+        }
+        c.take_requests();
+        c.insert(song, "big", 4000);
+        c.insert(tiny, "small", 100);
+        c.insert(other, "x", 100);
+        let next = c.id(key("play:s:1:still"));
+        c.get(next);
+        let mut freed = c.forget(|s| s == "play:s:1" || s.starts_with("play:s:1:"));
+        freed.sort();
+        assert_eq!(freed, ["big", "small"]);
+        assert_eq!(c.stats().bytes, 100);
+        // Asked for no more; the other source kept.
+        assert!(c.take_requests().is_empty());
+        assert_eq!(c.peek(other), Some(&"x"));
+        // The ids go free: the next trip's names take them.
+        assert_eq!(c.stats().entries, 1);
+        let again = c.id(key("play:s:2:song"));
+        assert!([song, tiny, next].contains(&again));
+        assert_eq!(c.stats().entries, 2);
+        // A load in flight when forgotten frees its id when it answers.
+        c.get(again);
+        c.take_requests();
+        assert!(c.forget(|s| s.starts_with("play:s:2")).is_empty());
+        assert_eq!(c.insert(again, "late", 10), ["late"]);
+        assert_eq!(c.stats().bytes, 100);
+        assert_eq!(c.stats().entries, 1);
     }
 
     #[test]
@@ -554,6 +684,26 @@ mod tests {
             c.take_requests(),
             vec![(small, TextureKey::drawn("x.png", 100.0))]
         );
+    }
+
+    #[test]
+    fn a_source_drawn_by_the_shell_stops_loading() {
+        let mut c = TextureCache::<u32>::new(1 << 20);
+        let a = c.id(TextureKey::drawn("field-preview", 300.0));
+        let b = c.id(TextureKey::drawn("other.png", 300.0));
+        c.begin_frame();
+        c.resolve(a);
+        c.resolve(b);
+        c.cancel("field-preview");
+        assert_eq!(
+            c.take_requests(),
+            vec![(b, TextureKey::drawn("other.png", 300.0))]
+        );
+        assert_eq!(c.state(a), Some(TextureState::Unloaded));
+        c.resolve(a);
+        c.take_requests();
+        c.cancel("field-preview");
+        assert_eq!(c.stats().loading, 1);
     }
 
     #[test]

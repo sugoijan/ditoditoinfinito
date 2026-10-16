@@ -284,6 +284,8 @@ pub fn replay_with(
     }
     let last = log.inputs.last().map_or(log.start, |i| i.time);
     player.update_at(last.max(player.song_end_time()));
+    // Past the last O.K. or N.G. those updates showed.
+    player.update_at(player.end_time());
     player.results()
 }
 

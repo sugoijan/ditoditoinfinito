@@ -278,10 +278,10 @@ fn results_and_options_come_and_go() {
     h.key("ArrowDown", "ArrowDown");
     h.key("ArrowDown", "ArrowDown");
     assert_eq!(s.borrow().option, "Reverse");
-    h.key("ArrowLeft", "ArrowLeft");
-    assert_eq!(s.borrow().value, "Off");
+    h.key("ArrowRight", "ArrowRight");
+    assert_eq!(s.borrow().value, "On");
     h.key("Tab", "Tab");
-    assert_eq!(s.borrow().section, "Rules");
+    assert_eq!(s.borrow().section, "Notes");
     h.key("Escape", "Escape");
     h.run(0.5);
     assert_eq!(s.borrow().screen, "select");
@@ -1291,7 +1291,7 @@ fn unreadable_songs_are_removed_only_when_confirmed() {
 fn nothing_is_removed_while_an_import_runs() {
     let mut d = library();
     d.import.running = Some("reading 12 files…".into());
-    let (mut h, _s, calls, _) = shelled(d, Some("u-one"));
+    let (mut h, s, calls, _) = shelled(d, Some("u-one"));
     h.key("Delete", "Delete");
     h.run(0.3);
     assert_eq!(top(&h), "manage");
@@ -1305,10 +1305,38 @@ fn nothing_is_removed_while_an_import_runs() {
         c,
         SelectCall::RemoveSong(_) | SelectCall::RemovePack(_) | SelectCall::Reread(_)
     )));
-    // Backspace manages too (a Mac's delete key).
-    h.key("Backspace", "Backspace");
+    // ⌘ Backspace (Ctrl elsewhere) manages too; Backspace alone is Back.
+    h.key_with(
+        "Backspace",
+        "Backspace",
+        crate::Modifiers {
+            meta: true,
+            ..Default::default()
+        },
+    );
     h.run(0.3);
     assert_eq!(top(&h), "manage");
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert_eq!(top(&h), "select");
+    h.key_with(
+        "Backspace",
+        "Backspace",
+        crate::Modifiers {
+            ctrl: true,
+            ..Default::default()
+        },
+    );
+    h.run(0.3);
+    assert_eq!(top(&h), "manage");
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    // Backspace alone: Back, as Escape (the song's pack closes).
+    assert!(s.borrow().header.is_none());
+    h.key("Backspace", "Backspace");
+    h.run(0.3);
+    assert_eq!(top(&h), "select");
+    assert!(s.borrow().header.is_some());
 }
 
 #[test]
@@ -1388,4 +1416,150 @@ fn named_charts_go_by_their_names() {
     let (h, _, _, _) = shelled(d, Some("u-one"));
     let texts = h.texts();
     assert!(texts.iter().any(|t| t == "Hyper Edit"), "{texts:?}");
+}
+
+/// Desktop's first start: the shell's offer of other games' song folders
+/// opens over song select through the feed; "Add them" answers yes, and
+/// the dialog goes.
+#[test]
+fn the_shells_folders_offer_opens_over_song_select() {
+    use super::folders_offer::{AnswerFn, FoldersOfferDialog};
+    let (mut h, _state, _calls, feed) = shelled(library(), None);
+    let answers: Rc<RefCell<Vec<bool>>> = Rc::default();
+    let a = answers.clone();
+    feed.borrow_mut().overlay = Some(Box::new(move |env: &Env, cx: &mut crate::Cx| {
+        let on: AnswerFn = Rc::new(move |add, _| a.borrow_mut().push(add));
+        cx.overlay(
+            FoldersOfferDialog::new(
+                env.clone(),
+                vec!["/Users/me/Library/Application Support/StepMania 5".into()],
+                on,
+            ),
+            true,
+        );
+    }));
+    h.ui.broadcast(crate::message::Message::new(FEED));
+    h.run(0.5);
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t.contains("StepMania 5")), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "Add it"), "{texts:?}");
+    h.tap(PointerKind::Mouse, "Add");
+    h.run(0.5);
+    assert_eq!(*answers.borrow(), vec![true]);
+    assert!(!h.texts().iter().any(|t| t == "Add it"));
+}
+
+#[test]
+fn the_autoplay_switch_is_shown_and_told() {
+    let (mut h, state, calls, _) = shelled(library(), None);
+    assert!(!state.borrow().autoplay);
+    assert!(
+        h.texts().iter().any(|t| t == "Autoplay off"),
+        "{:?}",
+        h.texts()
+    );
+    // A tap turns it on: the shell is told, the switch says so.
+    h.tap(PointerKind::Mouse, "Autoplay");
+    h.run(0.1);
+    assert!(state.borrow().autoplay);
+    assert!(calls.borrow().contains(&SelectCall::Autoplay(true)));
+    assert!(
+        h.texts().iter().any(|t| t == "AUTOPLAY ON"),
+        "{:?}",
+        h.texts()
+    );
+    // The tap left the focus on it: Start turns it off.
+    assert_eq!(h.ui.focused(), Some("Autoplay"));
+    h.key("Enter", "Enter");
+    assert!(!state.borrow().autoplay);
+    assert_eq!(calls.borrow().last(), Some(&SelectCall::Autoplay(false)));
+}
+
+#[test]
+fn the_autoplay_switch_on_a_phone() {
+    let mut d = library();
+    d.autoplay = true;
+    let env = env();
+    let state = env.state.clone();
+    let mut h = Harness::new(DESIGN, COMPACT, 1.0, TextMode::Mirror);
+    h.ui.set_design(COMPACT);
+    h.push(SelectScreen::new(
+        env,
+        d,
+        Some("some-things-must"),
+        Rc::new(|_, _, _: &Env, _| {}),
+        Rc::new(|_, _| {}),
+    ));
+    h.run(0.5);
+    assert!(state.borrow().autoplay);
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("AUTOPLAY ")),
+        "{:?}",
+        h.texts()
+    );
+    assert!(h.ui.bounds("AutoIcon").is_some());
+    h.tap(PointerKind::Touch, "AutoIcon");
+    h.run(0.3);
+    assert!(!state.borrow().autoplay);
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("PLAY ")),
+        "{:?}",
+        h.texts()
+    );
+}
+
+#[test]
+fn the_import_dialog_moves_below_the_notices_arriving_after_it() {
+    use super::notices::{AppNotice, AppNotices, NoticeBar, NoticesFeed};
+    let (mut h, _s, _calls, _feed) = shelled(library(), None);
+    h.tap(PointerKind::Mouse, "Link.Add");
+    h.run(0.5);
+    assert_eq!(top(&h), "import");
+    let before = h.ui.bounds("Panel").unwrap();
+    let feed: NoticesFeed = Rc::new(RefCell::new(AppNotices {
+        banner: Some(AppNotice {
+            text: "New audio path: 48 kHz. No calibration for it yet.".into(),
+            actions: vec![("later".into(), "later".into(), false)],
+        }),
+        toast: None,
+    }));
+    h.ui.push_chrome(NoticeBar::new(env(), feed, Rc::new(|_, _| {})));
+    h.run(0.3);
+    let plate = h.ui.bounds("AppNotice.Plate").unwrap();
+    let after = h.ui.bounds("Panel").unwrap();
+    assert!(after[1] >= plate[3] - 0.5, "{after:?} under {plate:?}");
+    assert_ne!(before, after);
+    assert_eq!(top(&h), "import");
+}
+
+#[test]
+fn the_devices_line_lets_taps_through_to_the_footer() {
+    use super::notices::{AppNotices, NoticeBar, NoticesFeed};
+    let (mut h, _s, calls, _feed) = shelled(library(), None);
+    let feed: NoticesFeed = Rc::new(RefCell::new(AppNotices {
+        banner: None,
+        toast: Some(format!(
+            "devices: {} (+0 ms)",
+            "a very long device name ".repeat(8)
+        )),
+    }));
+    h.ui.push_chrome(NoticeBar::new(env(), feed, Rc::new(|_, _| {})));
+    h.run(0.3);
+    let toast = h.ui.bounds("AppToast.Frame").unwrap();
+    let l = h.ui.bounds("Link.Credits").unwrap();
+    // A point on both: the line's plate over the link's top.
+    let link = [
+        (l[0] + l[2]) / 2.0,
+        (l[1].max(toast[1]) + l[3].min(toast[3])) / 2.0,
+    ];
+    assert!(
+        l[1] < toast[3] && link[0] > toast[0] && link[0] < toast[2],
+        "{l:?} under {toast:?}"
+    );
+    h.tap_at(PointerKind::Mouse, link);
+    assert!(
+        calls.borrow().contains(&SelectCall::Open("credits".into())),
+        "{:?}",
+        calls.borrow()
+    );
 }

@@ -24,7 +24,9 @@ use ddi_ui::event::{
     DeltaMode, KeyEvent, LINES_PER_NOTCH, Modifiers, PointerEvent, PointerKind, PointerPhase,
     TextEvent, UiEvent, WheelEvent, WheelSource, buttons, wheel_pixels,
 };
+use ddi_ui::message::Message;
 use ddi_ui::request::Cursor;
+use ddi_ui::screens::select::{SelectCall, SharedFeed, ShellFn};
 use ddi_ui::screens::{self as theme_screens, Env as ThemeEnv, sample};
 use ddi_ui::{TextMode, Ui, UiRequest};
 use winit::application::ApplicationHandler;
@@ -34,6 +36,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::window::{CursorIcon, Window, WindowId};
 
 use crate::gpu::{self, Gpu};
+use crate::preview::{Player, SharedPlayer};
+use std::cell::RefCell;
 
 /// How long to wait before asking the surface for a frame again.
 const RETRY: std::time::Duration = std::time::Duration::from_millis(250);
@@ -46,10 +50,15 @@ struct Surface {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     gpu: Gpu,
+    /// What the play draws through (D6): the sRGB view the surface was
+    /// configured with, and the plain one.
+    formats: crate::play::view::Formats,
+    /// Present modes the surface has (play prefers Mailbox).
+    modes: Vec<wgpu::PresentMode>,
 }
 
 pub struct Shell {
-    ui: Ui,
+    pub ui: Ui,
     pub dev: Shared,
     surface: Option<Surface>,
     scale: f64,
@@ -81,6 +90,31 @@ pub struct Shell {
     pub theme: Option<(ThemeEnv, Rc<ddi_theme::Infinito>)>,
     /// Decoded images wait for a frame to show them.
     loaded: bool,
+    /// Sound: song select's previews, the developer screen's tone
+    /// (`crate::preview`).
+    pub sound: SharedPlayer,
+    /// Input (`crate::keyboard`, `crate::pads`): the keyboard's source,
+    /// the OS's key stamps waiting for winit's events, the controllers,
+    /// the bindings menus read, the options screen's state.
+    pub input: crate::input::Input,
+    /// The library on disk, when song select runs on it.
+    pub songs: Option<Rc<crate::songs::Songs>>,
+    /// A play: its prompt, the play itself, its results
+    /// (`crate::play::host`).
+    pub play: crate::play::host::Host,
+    /// The mouse pointer is hidden (a key or a pad was pressed since it
+    /// last moved).
+    pointer_hidden: bool,
+    /// The device notices' buttons pressed, for the watcher.
+    notice_actions: Rc<RefCell<Vec<String>>>,
+    /// Play mode is on ([`Shell::sync_play_mode`]).
+    play_on: bool,
+    /// The device was lost (its callback's flag).
+    lost: Arc<std::sync::atomic::AtomicBool>,
+    /// Devices lost and made again.
+    pub devices_lost: u32,
+    /// Lose the device this long after the start (`--lose-device-after`).
+    pub lose_device_after: Option<f64>,
 }
 
 impl Shell {
@@ -97,11 +131,77 @@ impl Shell {
     /// over it (`widgets`), or the theme's song select, results or
     /// options on sample data (`select`, `results`, `options`).
     pub fn named(name: &str) -> Shell {
+        Shell::named_at(name, None)
+    }
+
+    /// [`Shell::named`], with the master volume `volume` instead of the
+    /// settings' (`--volume`).
+    pub fn named_at(name: &str, volume: Option<f32>) -> Shell {
+        Shell::named_with(name, volume, None)
+    }
+
+    /// [`Shell::named_at`]; with `songs`, song select and options are on
+    /// the library on disk (`crate::songs`), not on sample data.
+    pub fn named_with(
+        name: &str,
+        volume: Option<f32>,
+        songs: Option<Rc<crate::songs::Songs>>,
+    ) -> Shell {
+        let volume = volume.unwrap_or_else(|| ddi_ui::state::settings::Settings::load().volume);
+        let sound: SharedPlayer = Rc::new(RefCell::new(match songs {
+            // Previews of the library's songs too.
+            Some(_) => Player::with(
+                crate::audio::Audio::new(volume),
+                crate::library::preview_song,
+            ),
+            None => Player::new(volume),
+        }));
         let dev = Shared::default();
         let fold: FoldFn = Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&crate::Nfkd, s));
         let mut theme = None;
-        let ui = if matches!(name, "select" | "results" | "options") {
-            let (ui, env, look) = theme_ui(name, fold);
+        let mut input = crate::input::Input::default();
+        let mut play = crate::play::host::Host::new(
+            songs.as_ref().map(|s| s.play.clone()).unwrap_or_default(),
+            songs.as_ref().and_then(|s| s.plays.clone()),
+        );
+        let notice_actions: Rc<RefCell<Vec<String>>> = Rc::default();
+        let ui = if let Some(songs) = songs
+            .as_ref()
+            .filter(|_| matches!(name, "select" | "options"))
+        {
+            let (mut ui, env, look) = library_ui(name, fold, sound.clone(), songs);
+            // Calibration's menu, opened again when a test leaves.
+            {
+                let (songs, sound) = (songs.clone(), sound.clone());
+                play.menu = Some(Rc::new(move |env: &ThemeEnv, ui: &mut Ui| {
+                    ui.push(crate::calibrate::menu(env, &songs, Some(sound.clone())));
+                }));
+            }
+            // The devices' notices over every screen (`crate::devices`).
+            let actions = notice_actions.clone();
+            ui.push_chrome(theme_screens::notices::NoticeBar::new(
+                env.clone(),
+                play.watcher.feed.clone(),
+                Rc::new(move |id: &str, _cx: &mut ddi_ui::Cx| {
+                    actions.borrow_mut().push(id.to_string())
+                }),
+            ));
+            theme = Some((env, look));
+            ui
+        } else if matches!(
+            name,
+            "select" | "results" | "options" | "credits" | "calibration"
+        ) {
+            let (mut ui, env, look) = theme_ui_with(
+                if name == "options" { "select" } else { name },
+                fold,
+                Some(sound.clone()),
+            );
+            if name == "options" {
+                let (screen, shared) = crate::options::screen(&env, Some(sound.clone()), None);
+                ui.push(screen);
+                input.options = Some(shared);
+            }
             theme = Some((env, look));
             ui
         } else {
@@ -142,11 +242,23 @@ impl Shell {
             error: None,
             theme,
             loaded: false,
+            play,
+            notice_actions,
+            play_on: false,
+            lost: Arc::default(),
+            devices_lost: 0,
+            lose_device_after: None,
+            sound,
+            input,
+            songs,
+            pointer_hidden: false,
         }
     }
 
+    /// The host clock (`crate::clock`) in milliseconds: keys and pads are
+    /// stamped on it.
     fn now_ms(&self) -> f64 {
-        self.start.elapsed().as_secs_f64() * 1000.0
+        crate::clock::now().0 * 1000.0
     }
 
     fn open(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
@@ -158,6 +270,14 @@ impl Shell {
             )
             .map_err(|e| e.to_string())?;
         let window = Arc::new(window);
+        self.with_gpu(window)
+    }
+
+    /// The window's surface and the device it draws with: made at the
+    /// start, and again after the device was lost.
+    fn with_gpu(&mut self, window: Arc<Window>) -> Result<(), String> {
+        // The old surface goes before a new one is made on the window.
+        self.surface = None;
         let instance = gpu::instance();
         let surface = instance
             .create_surface(window.clone())
@@ -175,16 +295,100 @@ impl Shell {
         if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
             config.alpha_mode = wgpu::CompositeAlphaMode::Opaque;
         }
+        // The play draws in linear light through an sRGB view of the
+        // plain surface (D6); a surface that cannot have one draws it
+        // through the plain view.
+        // Vulkan drivers without mutable swapchain formats cannot: the
+        // play then draws into the plain surface itself (its colours
+        // encoded by its pipelines, skins blending as the scene does).
+        let srgb = format.add_srgb_suffix();
+        let srgb_view = srgb != format
+            && adapter
+                .get_downlevel_capabilities()
+                .flags
+                .contains(wgpu::DownlevelFlags::SURFACE_VIEW_FORMATS);
+        if srgb_view {
+            config.view_formats = vec![srgb];
+        }
         surface.configure(&device, &config);
+        self.watch_device(&device);
         self.scale = window.scale_factor();
+        self.play.display = display_fingerprint(&window);
+        self.play.refresh_hint = refresh_rate(&window);
+        self.play.graphics = format!("{:?}", adapter.get_info().backend);
         self.surface = Some(Surface {
             window,
             surface,
             config,
             gpu: Gpu::new(device, queue, format),
+            formats: crate::play::view::Formats::of(format, srgb_view),
+            modes: caps.present_modes.clone(),
         });
         self.resized();
         Ok(())
+    }
+
+    /// A device error is logged, not a panic (wgpu's default); a lost
+    /// device is found in the next turn of the loop
+    /// ([`Shell::recover_device`]).
+    fn watch_device(&self, device: &wgpu::Device) {
+        device.on_uncaptured_error(Arc::new(|error: wgpu::Error| {
+            use std::sync::atomic::{AtomicU32, Ordering};
+            static LOGGED: AtomicU32 = AtomicU32::new(0);
+            if LOGGED.fetch_add(1, Ordering::Relaxed) < 20 {
+                eprintln!("wgpu: {error}");
+            }
+        }));
+        let lost = self.lost.clone();
+        let wake = self.play.wake.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            if reason != wgpu::DeviceLostReason::Destroyed || !message.is_empty() {
+                eprintln!("the GPU device was lost ({reason:?}): {message}");
+            }
+            lost.store(true, std::sync::atomic::Ordering::SeqCst);
+            if let Some(w) = &wake {
+                w();
+            }
+        });
+    }
+
+    /// The device was lost: a new one, and everything made on the old
+    /// one made again (the UI's textures reload from their sources; a
+    /// play stops as interrupted, its prompt readies the song's drawing
+    /// again; results stay), as the web recovers.
+    fn recover_device(&mut self) {
+        // The callback runs from a poll of the device.
+        if let Some(s) = &self.surface {
+            let _ = s.gpu.device.poll(wgpu::PollType::Poll);
+        }
+        if !self.lost.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let Some(window) = self.surface.as_ref().map(|s| s.window.clone()) else {
+            return;
+        };
+        self.devices_lost += 1;
+        self.play.device_lost();
+        let field = self.surface.as_ref().map(|s| s.gpu.field.for_new_device());
+        if let Err(e) = self.with_gpu(window) {
+            eprintln!("no new GPU device: {e}");
+            self.error = Some(e);
+            return;
+        }
+        if let (Some(s), Some(field)) = (&mut self.surface, field) {
+            s.gpu.field = field;
+        }
+        self.ui.broadcast(Message::new("DeviceRecovered"));
+        self.pending = false;
+        self.ask();
+    }
+
+    /// Loses the device on purpose (`--lose-device-after`: a test of the
+    /// recovery).
+    pub fn lose_device(&self) {
+        if let Some(s) = &self.surface {
+            s.gpu.device.destroy();
+        }
     }
 
     fn resized(&mut self) {
@@ -246,10 +450,12 @@ impl Shell {
                     }
                 }
                 UiRequest::StartAudio => {
-                    // Sound comes with the rest of phase 9.
                     self.sounds += 1;
-                    self.dev.borrow_mut().status = "beep (no sound on desktop yet)".into();
+                    self.sound.borrow_mut().beep();
+                    self.dev.borrow_mut().status = "beep".into();
                 }
+                UiRequest::PlayPreview { song } => self.sound.borrow_mut().select(Some(&song)),
+                UiRequest::StopPreview => self.sound.borrow_mut().stop(),
                 UiRequest::CopyText(text) => {
                     let _ = crate::os::copy(&text);
                 }
@@ -272,11 +478,18 @@ impl Shell {
                 UiRequest::Persist { key, value } => {
                     let _ = storage::set(Area::Local, &key, &value);
                 }
-                UiRequest::SetText { .. }
-                | UiRequest::Navigate(_)
-                | UiRequest::PlayPreview { .. }
-                | UiRequest::StopPreview
-                | UiRequest::Redraw => {}
+                UiRequest::SetText { .. } | UiRequest::Navigate(_) | UiRequest::Redraw => {}
+                // Options' field preview: drawn where the screen says,
+                // with the settings as they are now.
+                UiRequest::FieldPreview(rect) => {
+                    if let Some(s) = &mut self.surface {
+                        s.gpu.field.set_rect(rect);
+                        if rect.is_some() {
+                            let settings = ddi_ui::state::settings::Settings::load();
+                            s.gpu.field.set_settings(&settings);
+                        }
+                    }
+                }
             }
         }
         for e in later {
@@ -304,7 +517,10 @@ impl Shell {
 
     /// Asks for a frame if the UI needs one and none is coming.
     fn ask(&mut self) {
-        if self.occluded || self.pending || !(self.ui.needs_redraw() || self.loaded) {
+        let field = self.surface.as_ref().is_some_and(|s| s.gpu.field.shown())
+            || self.play.animating()
+            || self.play.prompt_changed();
+        if self.occluded || self.pending || !(self.ui.needs_redraw() || self.loaded || field) {
             return;
         }
         match self.retry_at {
@@ -359,14 +575,187 @@ impl Shell {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        s.gpu
-            .draw(&mut self.ui, &view, [s.config.width, s.config.height]);
+        let size = [s.config.width, s.config.height];
+        // What the play draws through: the sRGB view, skins the plain one.
+        let formats = s.formats;
+        let scene_view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(formats.view),
+            ..Default::default()
+        });
+        let plain = formats.plain.is_some().then_some(&view);
+        let env = self.theme.as_ref().map(|(e, _)| e.clone());
+        if self.play.playing()
+            && let Some(env) = &env
+        {
+            // The play alone: its field, nothing of the UI under it.
+            let dev = crate::play::host::Device {
+                device: &s.gpu.device,
+                queue: &s.gpu.queue,
+                formats,
+            };
+            let mut encoder =
+                s.gpu
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("play"),
+                    });
+            self.play.scale = self.scale as f32;
+            self.play.draw_play(
+                &dev,
+                &mut encoder,
+                &scene_view,
+                plain,
+                size,
+                crate::clock::now(),
+                &mut self.ui,
+                env,
+            );
+            s.gpu.queue.submit(Some(encoder.finish()));
+        } else {
+            s.gpu.draw(&mut self.ui, &view, size);
+        }
         self.loaded = s.gpu.images_ready();
         s.window.pre_present_notify();
         s.gpu.queue.present(frame);
         self.frames += 1;
+        // A play that ended in this frame: menus again.
+        self.sync_play_mode();
         let r = self.ui.take_requests();
         self.run(r);
+    }
+}
+
+impl Shell {
+    /// The play's news: one asked for, its song read, the prompt's or
+    /// the results' choice; the keyboard and present mode follow whether
+    /// a play runs.
+    fn poll_play(&mut self) {
+        let Some((env, _)) = self.theme.clone() else {
+            return;
+        };
+        let rate = self.sound.borrow().audio.sample_rate();
+        let dev = self.surface.as_ref().map(|s| crate::play::host::Device {
+            device: &s.gpu.device,
+            queue: &s.gpu.queue,
+            formats: s.formats,
+        });
+        self.play.poll(&mut self.ui, &env, dev, rate);
+        self.sync_play_mode();
+        if self.play.playing() {
+            let mut feed = self.play.feed.borrow_mut();
+            use ddi_platform::InputSource;
+            self.input.keyboard.poll(&mut feed.edges);
+            feed.pads = self
+                .input
+                .pads
+                .as_ref()
+                .map(crate::pads::Pads::connected)
+                .unwrap_or_default();
+        }
+    }
+
+    /// The devices looked at again (every second: the default output
+    /// can change under the stream, the window move to another display),
+    /// the notices' buttons done, the notices shown as they are now (none
+    /// over a play, its prompt and results, or calibration's pages); a
+    /// change during a play flags it. When to look again.
+    fn watch_devices(&mut self) -> Option<Instant> {
+        self.songs.as_ref()?;
+        let actions: Vec<String> = self.notice_actions.borrow_mut().drain(..).collect();
+        for id in actions {
+            self.play.watcher.act(&id);
+            if id == "calibrate"
+                && let (Some((env, _)), Some(menu)) = (self.theme.clone(), self.play.menu.clone())
+            {
+                menu(&env, &mut self.ui);
+            }
+        }
+        let due = self
+            .play
+            .watcher
+            .checked
+            .is_none_or(|c| c.elapsed() >= crate::devices::EVERY);
+        if due {
+            let audio = self
+                .play
+                .play_fingerprint()
+                .or_else(|| self.sound.borrow().audio.fingerprint());
+            let display = self
+                .surface
+                .as_ref()
+                .and_then(|s| display_fingerprint(&s.window));
+            if display.is_some() {
+                self.play.display = display.clone();
+            }
+            if let Some(s) = &self.surface {
+                self.play.refresh_hint = refresh_rate(&s.window);
+            }
+            if self.play.watcher.probe(audio, display) && self.play.playing() {
+                self.play.feed.borrow_mut().device_changed = true;
+            }
+        }
+        let calibrating = self
+            .ui
+            .layers()
+            .iter()
+            .any(|l| l.name.starts_with("calibration"));
+        if self.play.watcher.publish(!self.play.idle() || calibrating) {
+            self.ui
+                .broadcast(Message::new(theme_screens::notices::NOTICES_CHANGED));
+        }
+        self.play.watcher.checked.map(|c| c + crate::devices::EVERY)
+    }
+
+    /// The mouse pointer hidden on a key's or a pad's press, shown again
+    /// when the mouse moves.
+    fn hide_pointer(&mut self, hide: bool) {
+        if self.pointer_hidden == hide {
+            return;
+        }
+        self.pointer_hidden = hide;
+        if let Some(s) = &self.surface {
+            s.window.set_cursor_visible(!hide);
+        }
+    }
+
+    /// Play mode follows the play: a play starts in a poll, and ends in a
+    /// frame (`Host::draw_play`) or a poll.
+    pub fn sync_play_mode(&mut self) {
+        let now = self.play.playing();
+        if now != self.play_on {
+            self.play_on = now;
+            self.play_mode(now);
+        }
+    }
+
+    /// Whether play mode is on (the play's keys read, its presentation).
+    pub fn play_mode_on(&self) -> bool {
+        self.play_on
+    }
+
+    /// A play starts (`true`) or ends: its keys are read, previews stop,
+    /// frames go out with the least latency the surface has (D6: Mailbox
+    /// where there is one, else Fifo, one frame in flight).
+    fn play_mode(&mut self, on: bool) {
+        self.input.keyboard.enabled = on;
+        // Keys from before are not the play's (nor the menus' after it).
+        ddi_platform::InputSource::poll(&mut self.input.keyboard, &mut Vec::new());
+        if on {
+            self.sound.borrow_mut().pause();
+        }
+        let Some(s) = &mut self.surface else { return };
+        if on {
+            s.config.present_mode = if s.modes.contains(&wgpu::PresentMode::Mailbox) {
+                wgpu::PresentMode::Mailbox
+            } else {
+                wgpu::PresentMode::Fifo
+            };
+            s.config.desired_maximum_frame_latency = 1;
+        } else {
+            s.config.present_mode = wgpu::PresentMode::AutoVsync;
+            s.config.desired_maximum_frame_latency = 2;
+        }
+        s.surface.configure(&s.gpu.device, &s.config);
     }
 }
 
@@ -390,6 +779,8 @@ impl ApplicationHandler for Shell {
             self.error = Some(e);
             event_loop.exit();
         }
+        // After the app is up: keys' own times (macOS).
+        self.input.monitored = crate::keyboard::monitor::install();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -405,6 +796,9 @@ impl ApplicationHandler for Shell {
                 self.resized();
             }
             WindowEvent::Focused(f) => {
+                if !f {
+                    self.input.keyboard.release_all(crate::clock::now());
+                }
                 // Typing ends with the window's focus, as the web's
                 // textarea blurs with its page.
                 if !f && self.typing {
@@ -418,6 +812,11 @@ impl ApplicationHandler for Shell {
                 self.send(UiEvent::Focus(f));
             }
             WindowEvent::Occluded(o) => {
+                // A play stops when its window is hidden, as the web's
+                // does with its page (its frames would stop).
+                if o && self.play.playing() {
+                    self.play.feed.borrow_mut().interrupted = true;
+                }
                 self.occluded = o;
                 self.pending = false;
                 self.last = None;
@@ -432,6 +831,7 @@ impl ApplicationHandler for Shell {
                 };
             }
             WindowEvent::CursorMoved { position, .. } => {
+                self.hide_pointer(false);
                 self.cursor = to_logical(position, self.scale);
                 self.pointer(MOUSE, PointerKind::Mouse, PointerPhase::Move, self.cursor);
             }
@@ -504,14 +904,29 @@ impl ApplicationHandler for Shell {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 let down = event.state == ElementState::Pressed;
+                let code = crate::keys::code(event.physical_key);
+                // The OS's own time where it said (macOS), else now.
+                let time = self.input.key_time(event.physical_key, down, event.repeat);
+                self.input.keyboard.key(&code, down, event.repeat, time);
+                if down {
+                    self.hide_pointer(true);
+                }
+                // A play's keys are its own (`crate::play`): not the
+                // menus' under it.
+                if self.play.playing() {
+                    return;
+                }
+                // Whether a field was typed into before this key: a key
+                // that opens one (`/` for search) does not type itself.
+                let was_typing = self.typing;
                 self.send(UiEvent::Key(KeyEvent {
-                    code: crate::keys::code(event.physical_key),
+                    code,
                     key: crate::keys::key(&event.logical_key),
                     down,
                     repeat: event.repeat,
                     modifiers: self.modifiers,
                     composing: self.preedit,
-                    time: self.now_ms(),
+                    time: time.0 * 1000.0,
                 }));
                 // A key's text is typed unless a composition is showing:
                 // winit sends no `KeyboardInput` for keys an IME takes
@@ -521,10 +936,7 @@ impl ApplicationHandler for Shell {
                 // input source, a dead key's result) only as this `text`,
                 // not as `Ime::Commit`. Control characters are dropped by
                 // the field.
-                if down
-                    && self.typing
-                    && !self.preedit
-                    && !self.modifiers.command()
+                if types_text(down, was_typing, self.typing, self.preedit, self.modifiers)
                     && let Some(text) = event.text
                 {
                     self.send(UiEvent::Text(TextEvent::Commit(text.to_string())));
@@ -559,6 +971,67 @@ impl ApplicationHandler for Shell {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self
+            .lose_device_after
+            .is_some_and(|t| self.start.elapsed().as_secs_f64() >= t)
+        {
+            self.lose_device_after = None;
+            self.lose_device();
+        }
+        self.recover_device();
+        // The library's news (its scan woke the loop), and the options
+        // screen open over it.
+        if let Some(songs) = &self.songs {
+            songs.poll(&mut self.ui);
+            // A library song's preview made ready on its thread.
+            if crate::library::take_prepared() {
+                self.sound.borrow_mut().refind();
+            }
+            if let Some(o) = songs.options.borrow().clone() {
+                if o.take_pending() {
+                    self.ui
+                        .broadcast(Message::new(theme_screens::options::OPTIONS_CHANGED));
+                }
+                self.input.options = Some(o);
+            }
+        }
+        // The controllers' news (their thread woke the loop): a play's
+        // own while it runs, else the menus'.
+        let playing = self.play.playing();
+        for edge in self.input.poll(&mut self.ui) {
+            if edge.pressed {
+                self.hide_pointer(true);
+            }
+            if playing {
+                self.play.feed.borrow_mut().edges.push(edge);
+            } else if let Some(e) = self.input.route(&self.ui, edge) {
+                self.send(e);
+            }
+        }
+        self.poll_play();
+        let watch_at = self.watch_devices();
+        if let Some(settings) = self.input.take_edited()
+            && let Some(s) = &mut self.surface
+        {
+            s.gpu.field.set_settings(&settings);
+        }
+        // Back on song select after a play (its results and prompt gone):
+        // the selected song's preview plays again.
+        if self.sound.borrow().paused()
+            && !self.play.playing()
+            && self.ui.layers().last().is_some_and(|l| l.name == "select")
+        {
+            self.sound.borrow_mut().resume();
+        }
+        // Sound moves on (a preview settled, decoded, looped); a preview
+        // that started draws a frame, so the pulse starts.
+        let (wake, started) = {
+            let mut p = self.sound.borrow_mut();
+            (p.tick(), p.take_started())
+        };
+        if started {
+            self.ui.broadcast(Message::new("PreviewStarted"));
+        }
         if let Some(limit) = self.quit_after {
             if self.start.elapsed().as_secs_f64() >= limit {
                 event_loop.exit();
@@ -578,10 +1051,29 @@ impl ApplicationHandler for Shell {
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
+        // The prompt waiting for the play's sound: looked at again soon.
+        let sound_at = self
+            .play
+            .wants_poll()
+            .then(|| Instant::now() + std::time::Duration::from_millis(15));
+        if let Some(at) = wake.into_iter().chain(watch_at).chain(sound_at).min() {
+            match event_loop.control_flow() {
+                ControlFlow::WaitUntil(t) if t <= at => {}
+                ControlFlow::Poll => {}
+                _ => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
+            }
+        }
         if let Some(s) = &mut self.surface {
             self.loaded |= s.gpu.images_ready();
         }
-        if self.occluded || !(self.ui.needs_redraw() || self.loaded) {
+        let field =
+            self.surface.as_ref().is_some_and(|s| s.gpu.field.shown()) || self.play.animating();
+        if self.play.animating() && !self.occluded && self.quit_after.is_none() {
+            // A play's frames come one after another (each waits for the
+            // display in `get_current_texture`).
+            event_loop.set_control_flow(ControlFlow::Poll);
+        }
+        if self.occluded || !(self.ui.needs_redraw() || self.loaded || field) {
             // Idle: the next frame starts its clock afresh.
             self.last = None;
         }
@@ -593,8 +1085,22 @@ impl ApplicationHandler for Shell {
 /// select under it, at the theme's design. Desktop has no system setting
 /// for reduced motion: motion is reduced only when the settings say so.
 pub fn theme_ui(first: &str, fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
+    theme_ui_with(first, fold, None)
+}
+
+/// [`theme_ui`]; with `sound`, song select's previews play and its pulse
+/// follows them (the made-up songs, which have no music, pulse by their
+/// BPM).
+pub fn theme_ui_with(
+    first: &str,
+    fold: FoldFn,
+    sound: Option<SharedPlayer>,
+) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let look = Rc::new(ddi_theme::Infinito::new());
-    let env = ThemeEnv::new(look.clone(), fold);
+    let mut env = ThemeEnv::new(look.clone(), fold);
+    if let Some(p) = &sound {
+        env.beat = preview_beat(p.clone());
+    }
     let settings = ddi_ui::state::settings::Settings::load();
     env.reduced_motion
         .set(settings.reduced_motion.reduced(false));
@@ -602,13 +1108,83 @@ pub fn theme_ui(first: &str, fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infin
     let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Own, false);
     ui.set_focus_ring(false);
     let changed = options_changed(&env);
-    ui.push(sample::select_screen(&env, Some(changed.clone())));
+    let mut select = sample::select_screen(&env, Some(changed.clone()));
+    // Under a page (the credits, calibration's menu) the song list's
+    // preview stays quiet.
+    if let Some(p) = sound.filter(|_| !matches!(first, "credits" | "calibration")) {
+        let calls: ShellFn = Rc::new(move |call, _cx| {
+            if let SelectCall::Selected { song, .. } = call {
+                p.borrow_mut().select(song.as_deref());
+            }
+        });
+        select = select.with_shell(calls, SharedFeed::default());
+    }
+    ui.push(select);
     match first {
         "results" => ui.push(sample::results_screen(&env)),
         "options" => ui.push(sample::options_screen(&env, Some(changed))),
+        // The generated credits when they are there (`xtask gen-credits`).
+        "credits" => {
+            let credits = std::fs::read_to_string("target/credits/credits.json")
+                .ok()
+                .and_then(|t| theme_screens::credits::parse(&t).ok())
+                .unwrap_or_else(theme_screens::credits::sample);
+            let credits = theme_screens::credits::Credits {
+                platform: theme_screens::data::Platform::Desktop,
+                ..credits
+            };
+            ui.push(sample::credits_screen(&env, &credits));
+        }
+        "calibration" => ui.push(sample::calibration_screen(&env)),
         _ => {}
     }
     (ui, env, look)
+}
+
+/// The theme's song select on the library on disk (`first`: `select`,
+/// or `options` over it), its previews and pulse from `sound`.
+pub fn library_ui(
+    first: &str,
+    fold: FoldFn,
+    sound: SharedPlayer,
+    songs: &Rc<crate::songs::Songs>,
+) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
+    let look = Rc::new(ddi_theme::Infinito::new());
+    let mut env = ThemeEnv::new(look.clone(), fold);
+    {
+        // The pulse follows a preview as heard, else the song's BPM.
+        let player = sound.clone();
+        let by_bpm = theme_screens::bpm_beat();
+        env.beat =
+            Rc::new(move |id, t, bpm| player.borrow().beat(id).or_else(|| by_bpm(id, t, bpm)));
+    }
+    let settings = ddi_ui::state::settings::Settings::load();
+    env.reduced_motion
+        .set(settings.reduced_motion.reduced(false));
+    env.state.borrow_mut().reduced_motion_setting = settings.reduced_motion as usize;
+    let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Own, false);
+    ui.set_focus_ring(false);
+    ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
+    if first == "options" {
+        let (screen, shared) = crate::options::screen(&env, Some(sound), Some(songs.clone()));
+        *songs.options.borrow_mut() = Some(shared);
+        ui.push(screen);
+    }
+    (ui, env, look)
+}
+
+/// The beat as the preview is heard; by the BPM for songs without music.
+fn preview_beat(player: SharedPlayer) -> theme_screens::BeatFn {
+    let with_music: std::collections::HashSet<String> =
+        sample::bundled().into_iter().map(|s| s.id).collect();
+    let by_bpm = theme_screens::bpm_beat();
+    Rc::new(move |id, t, bpm| {
+        if with_music.contains(id) {
+            player.borrow().beat(id)
+        } else {
+            by_bpm(id, t, bpm)
+        }
+    })
 }
 
 /// Reduced motion changed in options: saved, and followed at once.
@@ -630,4 +1206,56 @@ fn options_changed(env: &ThemeEnv) -> theme_screens::options::ChangeFn {
         flag.set(settings.reduced_motion.reduced(false));
         state.borrow_mut().reduced_motion_setting = o.index;
     })
+}
+
+/// The window's display as the offsets' profile names it (D6, AGENTS.md):
+/// `display:<monitor name>:<w>x<h>@<scale>`, the refresh rate left out
+/// (variable-rate panels change it).
+fn display_fingerprint(window: &Window) -> Option<ddi_platform::DeviceFingerprint> {
+    let m = window.current_monitor()?;
+    let name = m.name().unwrap_or_else(|| "display".into());
+    let size = m.size();
+    let scale = m.scale_factor();
+    Some(ddi_platform::DeviceFingerprint::new(
+        format!("display:{name}:{}x{}@{scale}", size.width, size.height),
+        format!("{name} · {}×{} · ×{scale}", size.width, size.height),
+    ))
+}
+
+/// The window's display's refresh rate as the OS says it (Hz).
+fn refresh_rate(window: &Window) -> Option<f64> {
+    let mhz = window.current_monitor()?.refresh_rate_millihertz()?;
+    (mhz > 0).then(|| f64::from(mhz) / 1000.0)
+}
+
+/// Whether a key's text is typed into the field: on a press, while a
+/// field was already typed into before the key (the key that opens one,
+/// `/` for search, does not type itself) and still is, with no
+/// composition showing and no command held.
+fn types_text(down: bool, was_typing: bool, typing: bool, preedit: bool, m: Modifiers) -> bool {
+    down && was_typing && typing && !preedit && !m.command()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_key_that_opens_a_field_does_not_type_itself() {
+        let none = Modifiers::default();
+        // `/` opened search: not typed.
+        assert!(!types_text(true, false, true, false, none));
+        // The next keys are.
+        assert!(types_text(true, true, true, false, none));
+        // A key that closed the field, a release, a composition, a command.
+        assert!(!types_text(true, true, false, false, none));
+        assert!(!types_text(false, true, true, false, none));
+        assert!(!types_text(true, true, true, true, none));
+        let cmd = Modifiers {
+            meta: cfg!(target_os = "macos"),
+            ctrl: !cfg!(target_os = "macos"),
+            ..Modifiers::default()
+        };
+        assert!(!types_text(true, true, true, false, cmd));
+    }
 }

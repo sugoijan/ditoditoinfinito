@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
 
-use super::data::{ImportView, Notice, PackEntry};
+use super::data::{ImportView, Notice, PackEntry, Platform};
 use super::select::NOTICE_LINK;
 use super::select::{IMPORT_CHANGED, SelectCall, ShellFn};
 use super::{Env, left};
@@ -22,7 +22,12 @@ use crate::widgets::list::{ItemKind, List, ListConfig, ListModel, ListStyle};
 use crate::widgets::{part, set_text};
 
 /// The dimmed screen around a dialog, its panel and its title.
-fn shell(env: &Env, screen: [f32; 2], size: [f32; 2], title: &str) -> (Vec<Actor>, [f32; 2]) {
+pub(crate) fn shell(
+    env: &Env,
+    screen: [f32; 2],
+    size: [f32; 2],
+    title: &str,
+) -> (Vec<Actor>, [f32; 2]) {
     let [w, h] = size;
     let x = (screen[0] - w) / 2.0;
     let y = (screen[1] - h) / 2.0;
@@ -38,7 +43,14 @@ fn shell(env: &Env, screen: [f32; 2], size: [f32; 2], title: &str) -> (Vec<Actor
     (vec![dim, panel, t], [x, y])
 }
 
-fn button(env: &Env, name: &str, label: &str, centre: [f32; 2], w: f32, kind: &str) -> Actor {
+pub(crate) fn button(
+    env: &Env,
+    name: &str,
+    label: &str,
+    centre: [f32; 2],
+    w: f32,
+    kind: &str,
+) -> Actor {
     let mut b = look::component_or(&*env.look, kind, "Button", &Spec::new([w, 40.0], label));
     b.name = name.into();
     call(&mut b, "xy", &centre);
@@ -58,24 +70,24 @@ pub fn wrap_lines(text: &str, width: f32, size: f32) -> Vec<String> {
         };
         if look::mono_width(&candidate, size) <= width || line.is_empty() {
             line = candidate;
-            // A word longer than a line: cut it into lines.
-            while look::mono_width(&line, size) > width && line.chars().count() > 1 {
-                let mut head = String::new();
-                let mut rest = line.chars().peekable();
-                while let Some(c) = rest.peek() {
-                    let next = format!("{head}{c}");
-                    if look::mono_width(&next, size) > width && !head.is_empty() {
-                        break;
-                    }
-                    head = next;
-                    rest.next();
-                }
-                out.push(head);
-                line = rest.collect();
-            }
         } else {
             out.push(std::mem::take(&mut line));
             line = word.to_string();
+        }
+        // A word longer than a line (a link, a hash): cut it into lines.
+        while look::mono_width(&line, size) > width && line.chars().count() > 1 {
+            let mut head = String::new();
+            let mut rest = line.chars().peekable();
+            while let Some(c) = rest.peek() {
+                let next = format!("{head}{c}");
+                if look::mono_width(&next, size) > width && !head.is_empty() {
+                    break;
+                }
+                head = next;
+                rest.next();
+            }
+            out.push(head);
+            line = rest.collect();
         }
     }
     if !line.is_empty() || out.is_empty() {
@@ -85,14 +97,14 @@ pub fn wrap_lines(text: &str, width: f32, size: f32) -> Vec<String> {
 }
 
 /// Text no wider than `w`: cut with "…".
-fn wrap(a: &mut Actor, w: f32) {
+pub(crate) fn wrap(a: &mut Actor, w: f32) {
     if let Kind::Text(t) = &mut a.kind {
         t.max_width = w;
         t.ellipsis = true;
     }
 }
 
-fn dialog_root(children: Vec<Actor>) -> Actor {
+pub(crate) fn dialog_root(children: Vec<Actor>) -> Actor {
     let mut root = Actor::new(Kind::Frame(children));
     look::command_of(&mut root, "On", "diffusealpha,0;linear,0.12;diffusealpha,1");
     look::command_of(&mut root, "Off", "linear,0.1;diffusealpha,0");
@@ -140,6 +152,7 @@ pub struct ManageDialog {
     /// An import runs: nothing is removed or read again until it ends
     /// (removing clears up shared files the import may be writing).
     busy: bool,
+    platform: Platform,
 }
 
 impl ManageDialog {
@@ -155,7 +168,14 @@ impl ManageDialog {
             shell,
             screen: super::DESIGN,
             busy,
+            platform: Platform::Web,
         }
+    }
+
+    /// Worded for `platform` (desktop hides songs, never deletes).
+    pub fn on(mut self, platform: Platform) -> ManageDialog {
+        self.platform = platform;
+        self
     }
 
     fn pack(&self) -> &PackEntry {
@@ -181,20 +201,33 @@ impl ManageDialog {
         match self.step {
             Step::Choose => {
                 let mut v = Vec::new();
+                let verb = if self.platform == Platform::Desktop {
+                    "Hide"
+                } else {
+                    "Remove"
+                };
                 if let Manage::Song { .. } = self.what {
-                    v.push(("RemoveSong", "Remove song".to_string(), "Button"));
+                    v.push(("RemoveSong", format!("{verb} song"), "Button"));
                 }
                 if self.pack().rereadable {
                     v.push(("Reread", "Read folder again".to_string(), "Button"));
                 }
                 if self.pack().removable {
-                    v.push(("RemovePack", "Remove pack".to_string(), "Button"));
+                    v.push(("RemovePack", format!("{verb} pack"), "Button"));
                 }
                 v.push(("Cancel", "Cancel".to_string(), "Button"));
                 v
             }
             Step::ConfirmPack | Step::ConfirmSong | Step::ConfirmUnreadable => vec![
-                ("Confirm", "Remove".to_string(), "DangerButton"),
+                (
+                    "Confirm",
+                    if self.platform == Platform::Desktop {
+                        "Hide".to_string()
+                    } else {
+                        "Remove".to_string()
+                    },
+                    "DangerButton",
+                ),
                 ("Cancel", "Keep".to_string(), "Button"),
             ],
         }
@@ -213,6 +246,11 @@ impl ManageDialog {
                 "An import is running: removing and reading folders again wait until it ends."
                     .into(),
             );
+        }
+        if self.platform == Platform::Desktop
+            && let Some(t) = self.desktop_texts()
+        {
+            return t;
         }
         match (&self.step, &self.what) {
             (Step::Choose, Manage::Pack { pack, songs }) => (
@@ -255,6 +293,45 @@ impl ManageDialog {
                 (String::new(), String::new())
             }
         }
+    }
+
+    /// Desktop's: the songs are read from their folders; hiding takes
+    /// them off the list, reading the folder again brings them back.
+    fn desktop_texts(&self) -> Option<(String, String)> {
+        let plural = |n: usize| if n == 1 { "song" } else { "songs" };
+        Some(match (&self.step, &self.what) {
+            (Step::Choose, Manage::Pack { pack, songs }) => (
+                pack.name.clone(),
+                format!(
+                    "{songs} {}, read from a song folder in place.",
+                    plural(*songs)
+                ),
+            ),
+            (Step::ConfirmPack, _) => (
+                format!("Hide “{}”?", self.pack().name),
+                format!(
+                    "Its {} {} leave the list; nothing in the folder is deleted, and reading it \
+                     again brings them back. Their plays stay in the history.",
+                    self.songs(),
+                    plural(self.songs())
+                ),
+            ),
+            (Step::ConfirmSong, Manage::Song { title, .. }) => (
+                format!("Hide “{title}”?"),
+                "It leaves the list; nothing in the folder is deleted, and reading the folder \
+                 again brings it back. Its plays stay in the history."
+                    .to_string(),
+            ),
+            (Step::ConfirmUnreadable, _) => (
+                format!(
+                    "Forget {} {} that could not be read?",
+                    self.songs(),
+                    plural(self.songs())
+                ),
+                "They leave the list; nothing on disk is deleted.".to_string(),
+            ),
+            _ => return None,
+        })
     }
 
     fn call(&self, c: SelectCall, cx: &mut Cx) {
@@ -458,6 +535,10 @@ impl ImportDialog {
 
     fn options(&self) -> Vec<(&'static str, &'static str, bool)> {
         let v = self.view.borrow();
+        // Desktop copies nothing: the options are the browser's.
+        if v.platform == Platform::Desktop {
+            return Vec::new();
+        }
         OPTIONS
             .iter()
             .filter(|(n, _)| *n != "copy" || v.folders)
@@ -513,18 +594,22 @@ impl Screen for ImportDialog {
         let (mut children, [x, y]) = shell(&env, self.screen, [w, h], "ADD SONGS");
         let busy = self.view.borrow().running.is_some();
         // What is kept where, as the import keeps it.
-        let (folders, copy) = {
+        let (folders, copy, platform) = {
             let v = self.view.borrow();
-            (v.folders, v.copy)
+            (v.folders, v.copy, v.platform)
         };
         let keeps = if folders && !copy {
             "A chosen folder's music and backgrounds are read from the folder, the rest is stored in this browser only."
         } else {
             "They stay in this browser only."
         };
-        let intro = format!(
-            "StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works: a folder, a zip or files, or drop them on this page. {keeps}"
-        );
+        let intro = if platform == Platform::Desktop {
+            "StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works: a song folder (a StepMania, ITGmania or OutFox folder, a Songs folder, a pack) or a pack's zip. They are read where they are, nothing is copied; Options lists the folders.".to_string()
+        } else {
+            format!(
+                "StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works: a folder, a zip or files, or drop them on this page. {keeps}"
+            )
+        };
         let lines = wrap_lines(&intro, w - 48.0, 14.0);
         for (i, line) in lines.iter().enumerate() {
             let mut t = env.text(&format!("Intro{i}"), line, 14.0, 400, "Muted");
@@ -533,12 +618,14 @@ impl Screen for ImportDialog {
         }
         let bw = ((w - 48.0 - 10.0) / 2.0).min(260.0);
         let by = y + 58.0 + lines.len() as f32 * 18.0 + 24.0;
-        for (i, (name, label)) in [
-            ("PickFolder", "Choose folder"),
-            ("PickFiles", "Choose zip or files"),
-        ]
-        .into_iter()
-        .enumerate()
+        let files = if platform == Platform::Desktop {
+            "Choose zip"
+        } else {
+            "Choose zip or files"
+        };
+        for (i, (name, label)) in [("PickFolder", "Choose folder"), ("PickFiles", files)]
+            .into_iter()
+            .enumerate()
         {
             let mut b = button(
                 &env,

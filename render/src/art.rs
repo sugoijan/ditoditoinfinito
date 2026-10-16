@@ -25,8 +25,12 @@ pub fn builtin(name: &str) -> Art {
         mine
     } else if lower.contains("hold explosion") || lower.contains("roll explosion") {
         hold_glow
-    } else if lower.contains("glow") || lower.contains("explosion") {
+    } else if lower.contains("glow") || lower.contains("explosion") || lower.contains("flash") {
+        // pump/default's `_flash` is a soft burst too, not a square.
         glow
+    } else if lower.contains("outline") {
+        // pump/default's `Center Outline Receptor`: the pad's thin outline.
+        outline
     } else if lower.contains("blank") {
         |_, _, _| 0.0
     } else {
@@ -80,6 +84,12 @@ fn mine(u: f32, v: f32, _frame: u32) -> f32 {
     (disc * hole).max(spoke)
 }
 
+/// A thin square frame.
+fn outline(u: f32, v: f32, _frame: u32) -> f32 {
+    let d = u.abs().max(v.abs());
+    smooth(0.9 - d, 0.05) * smooth(d - 0.84, 0.05)
+}
+
 /// A filled square with a soft edge.
 fn square(u: f32, v: f32, _frame: u32) -> f32 {
     smooth(0.9 - u.abs().max(v.abs()), 0.05)
@@ -107,5 +117,12 @@ mod tests {
         assert!(blank.rgba.chunks(4).all(|p| p[3] == 0));
         let m = builtin("_mine (doubleres).png");
         assert!(px(&m, 64, 30) > 0);
+        // pump/default's flash is a soft glow, its outline a thin frame:
+        // neither a white square.
+        let flash = builtin("_flash (doubleres).png");
+        assert!(px(&flash, 64, 64) > 200 && px(&flash, 8, 8) == 0);
+        let outline = builtin("Center Outline Receptor.png");
+        assert!(px(&outline, 64, 64) == 0 && px(&outline, 64, 8) > 100);
+        assert!(px(&outline, 64, 0) == 0);
     }
 }

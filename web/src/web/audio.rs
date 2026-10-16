@@ -57,6 +57,17 @@ pub(crate) struct WebAudio {
     bad_timestamps: Cell<Option<u32>>,
 }
 
+/// Starts `ctx` resuming without waiting, its promise's rejection caught
+/// (Firefox rejects it with "Closed before resume completed" when the
+/// context closes meanwhile: nothing to report).
+fn resume_quietly(ctx: &AudioContext) {
+    if let Ok(promise) = ctx.resume() {
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = JsFuture::from(promise).await;
+        });
+    }
+}
+
 impl WebAudio {
     /// Must be called from inside a user gesture so the context may start.
     pub(crate) fn new() -> Result<WebAudio, String> {
@@ -69,7 +80,7 @@ impl WebAudio {
             .map_err(|e| js_err("creating AudioContext", e))?;
         // Kick off resuming while still inside the gesture; callers that need
         // the context running await `resume()` as well.
-        let _ = ctx.resume();
+        resume_quietly(&ctx);
         let master = ctx
             .create_gain()
             .map_err(|e| js_err("creating master gain", e))?;
@@ -121,7 +132,7 @@ impl WebAudio {
     /// Asks the context to start without waiting; call it inside the user
     /// gesture that created the context, then await [`Self::resume`].
     pub(crate) fn resume_now(&self) {
-        let _ = self.ctx.resume();
+        resume_quietly(&self.ctx);
     }
 
     pub(crate) async fn resume(&self) {
@@ -132,6 +143,16 @@ impl WebAudio {
         }
     }
 
+    /// Suspends the context (its output stops, its clock with it) without
+    /// waiting; [`Self::resume_now`] starts it again.
+    pub(crate) fn suspend_now(&self) {
+        if let Ok(promise) = self.ctx.suspend() {
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = JsFuture::from(promise).await;
+            });
+        }
+    }
+
     /// Whether the context is producing sound (not suspended by the browser
     /// or interrupted by the OS).
     pub(crate) fn running(&self) -> bool {
@@ -139,8 +160,12 @@ impl WebAudio {
     }
 
     /// Decodes a whole song; see [`AudioDecoder::decode`].
-    pub(crate) async fn decode(&self, bytes: &[u8]) -> Result<AudioBuffer, String> {
-        self.decoder().decode(bytes).await
+    pub(crate) async fn decode(
+        &self,
+        bytes: &[u8],
+        target: ddi_platform::mp3::Target,
+    ) -> Result<AudioBuffer, String> {
+        self.decoder().decode(bytes, target).await
     }
 
     /// A handle that decodes on this context without borrowing it.
@@ -186,32 +211,6 @@ impl WebAudio {
     }
 
     /// Stops and forgets every scheduled or playing sound.
-    /// Ramps the master gain to silence over `seconds` (sounds keep running;
-    /// call `stop_all` afterwards or let them end).
-    pub(crate) fn fade_out(&self, seconds: f64) {
-        let gain = self.master.gain();
-        let now = self.ctx.current_time();
-        let _ = gain.cancel_scheduled_values(now);
-        let _ = gain.set_value_at_time(gain.value(), now);
-        let _ = gain.linear_ramp_to_value_at_time(0.0, now + seconds.max(0.01));
-    }
-
-    /// Schedules the master gain on the audio clock: silent from context
-    /// second `from`, rising to full over `seconds`.
-    pub(crate) fn fade_in_at(&self, from: f64, seconds: f64) {
-        let gain = self.master.gain();
-        let _ = gain.set_value_at_time(0.0, from);
-        let _ = gain.linear_ramp_to_value_at_time(1.0, from + seconds.max(0.01));
-    }
-
-    /// Schedules the master gain on the audio clock to fall to silence
-    /// from context second `from` over `seconds`.
-    pub(crate) fn fade_out_at(&self, from: f64, seconds: f64) {
-        let gain = self.master.gain();
-        let _ = gain.set_value_at_time(1.0, from);
-        let _ = gain.linear_ramp_to_value_at_time(0.0, from + seconds.max(0.01));
-    }
-
     pub(crate) fn stop_all(&mut self) {
         let mut voices = self.voices.borrow_mut();
         let live: Vec<Voice> = voices.live.drain().map(|(_, v)| v).collect();
@@ -354,10 +353,62 @@ impl AudioDecoder {
     /// Vorbis in `decodeAudioData` but decodes it to silence, so a rejection
     /// alone does not catch it.
     ///
+    /// MP3s come out as StepMania 5.1 decodes them (`ddi_platform::mp3`,
+    /// PLAN.md decision 46): a browser's decode is lined up with ours
+    /// ([`Self::align_mp3`]); the built-in decoder decodes them that way.
+    ///
     /// Test hook: `window.__DDI_FORCE_WASM_DECODE = true` skips the browser
     /// decoder, so the fallback can be exercised in browsers that decode
     /// Vorbis natively.
-    pub(crate) async fn decode(&self, bytes: &[u8]) -> Result<AudioBuffer, String> {
+    pub(crate) async fn decode(
+        &self,
+        bytes: &[u8],
+        target: ddi_platform::mp3::Target,
+    ) -> Result<AudioBuffer, String> {
+        self.decode_while(bytes, target, || true).await
+    }
+
+    /// [`Self::decode`], the MP3 alignment given up (the browser's decode
+    /// returned as it is) once `wanted` says the result is no longer
+    /// wanted (a preview of a song the player moved past). `target`:
+    /// whose decode the song's notes are timed against (StepMania's, or
+    /// Chrome's for a Dancing☆Onigiri work).
+    pub(crate) async fn decode_while(
+        &self,
+        bytes: &[u8],
+        target: ddi_platform::mp3::Target,
+        wanted: impl Fn() -> bool,
+    ) -> Result<AudioBuffer, String> {
+        let (buffer, ours) = self.decode_any(bytes).await?;
+        if ours && ddi_platform::decode::is_mp3(bytes) {
+            // Decoded as StepMania does: a work's starts where Chrome's
+            // decode has it.
+            if let Some(first) = ddi_platform::mp3::first_frame(bytes) {
+                let shift = first.target_lag(target) as f64 / f64::from(first.header.rate.max(1));
+                if shift != 0.0 {
+                    set_lead(&buffer, -shift);
+                }
+                report_ours(&first, -shift);
+            }
+            return Ok(buffer);
+        }
+        if ours || !ddi_platform::decode::is_mp3(bytes) {
+            if !ours && ddi_platform::mp3::free_format(bytes) {
+                web_sys::console::warn_1(
+                    &"MP3: a free-format file, which the built-in decoder does not read; \
+                      the browser's decode is kept as it is"
+                        .into(),
+                );
+            }
+            return Ok(buffer);
+        }
+        self.align_mp3(bytes, &buffer, target, wanted).await;
+        Ok(buffer)
+    }
+
+    /// The browser's decode, else the built-in one; whether it is the
+    /// built-in one.
+    async fn decode_any(&self, bytes: &[u8]) -> Result<(AudioBuffer, bool), String> {
         // A preview stopped mid-decode closes its context: give up rather
         // than run the wasm fallback for nothing.
         let closed = |ctx: &AudioContext| ctx.state() == AudioContextState::Closed;
@@ -368,17 +419,17 @@ impl AudioDecoder {
             "skipped by window.__DDI_FORCE_WASM_DECODE".to_string()
         } else {
             match self.decode_in_browser(bytes).await {
-                Ok(buffer) if !looks_silent(&buffer) => return Ok(buffer),
+                Ok(buffer) if !looks_silent(&buffer) => return Ok((buffer, false)),
                 Ok(buffer) => match self.decode_in_wasm(bytes).await {
                     Ok(wasm) => {
                         web_sys::console::info_1(
                             &"decodeAudioData returned silence; decoded in wasm instead".into(),
                         );
-                        return Ok(wasm);
+                        return Ok((wasm, true));
                     }
                     // Not a format the fallback reads: keep the browser's
                     // result, the song may really be silent there.
-                    Err(_) => return Ok(buffer),
+                    Err(_) => return Ok((buffer, false)),
                 },
                 Err(e) => e,
             }
@@ -392,13 +443,120 @@ impl AudioDecoder {
                     &format!("decodeAudioData failed ({browser_error}); decoded in wasm instead")
                         .into(),
                 );
-                Ok(buffer)
+                Ok((buffer, true))
             }
             Err(wasm_error) => Err(format!(
                 "could not decode the audio. Browser decoder: {browser_error}. \
                  Built-in decoder: {wasm_error}"
             )),
         }
+    }
+
+    /// Moves `buffer` (a browser's decode of the MP3 `bytes`) to where
+    /// StepMania 5.1's decode of the file has it. Browsers trim the LAME
+    /// delay or part of it and drop an `Info` frame StepMania plays as
+    /// silence, each its own way (Chrome all of LAME's delay, Firefox the
+    /// decoder's 529 samples, WebKit 529 always and more for some files).
+    /// The first frame says which lags are possible
+    /// ([`ddi_platform::mp3::FirstFrame::candidates`]); the start of the
+    /// song is decoded here as StepMania does and the one the music
+    /// agrees on is taken ([`ddi_platform::mp3::align`]), else (a tone, a
+    /// loop, silence, a decode that differs) the one this browser was
+    /// measured to have ([`ddi_platform::mp3::FirstFrame::expected`]),
+    /// logged. The buffer keeps its samples: the lag is kept on it as
+    /// its lead ([`set_lead`]), and sounds made from it start that much
+    /// later (or further in), so no second copy of the song is made. The
+    /// clock, offsets and calibration are untouched. A Dancing☆Onigiri
+    /// work (`target` Chromium) goes where Chrome's decode has it instead:
+    /// the lag found less Chrome's ([`ddi_platform::mp3::FirstFrame::target_lag`]),
+    /// so Chrome's own decode stays as it is. What was done is kept in
+    /// `window.__DDI_MP3` for tests.
+    async fn align_mp3(
+        &self,
+        bytes: &[u8],
+        buffer: &AudioBuffer,
+        target: ddi_platform::mp3::Target,
+        wanted: impl Fn() -> bool,
+    ) {
+        use ddi_platform::mp3;
+        /// How far into the song the reference is decoded, at most.
+        const STEPS: [f64; 3] = [8.0, 20.0, 40.0];
+        const SLICE_MS: f64 = 25.0;
+        let started = PerformanceClock::now_ms();
+        let Some(first) = mp3::first_frame(bytes) else {
+            return;
+        };
+        let browser = mp3::Browser::from_user_agent(
+            &web_sys::window()
+                .and_then(|w| w.navigator().user_agent().ok())
+                .unwrap_or_default(),
+        );
+        let candidates = first.candidates();
+        // The left channel only, room for the first step (it grows if
+        // more is needed), not the song.
+        let mut decoder =
+            match ddi_platform::decode::Decoder::start_left(bytes, STEPS[0] + first.max_lag()) {
+                Ok(d) => d,
+                Err(e) => {
+                    web_sys::console::warn_1(&format!("MP3 alignment: {e}").into());
+                    return;
+                }
+            };
+        let ref_rate = decoder.sample_rate();
+        let rate = buffer.sample_rate() as u32;
+        let length = buffer.length() as usize;
+        let mut result = Err(mp3::Unsure::Silent);
+        let mut done = false;
+        for seconds in STEPS {
+            let want = (seconds * f64::from(ref_rate)) as usize;
+            while !done && decoder.frames() < want {
+                let slice = PerformanceClock::now_ms();
+                while !done
+                    && decoder.frames() < want
+                    && PerformanceClock::now_ms() - slice < SLICE_MS
+                {
+                    match decoder.step(8) {
+                        Ok(d) => done = d,
+                        Err(_) => done = true,
+                    }
+                }
+                gloo::timers::future::TimeoutFuture::new(0).await;
+                if !wanted() {
+                    return;
+                }
+            }
+            // The browser's samples only where the stretches are, read
+            // from its buffer as they are needed.
+            result = mp3::align(
+                decoder.left(),
+                ref_rate,
+                rate,
+                &candidates,
+                |start, out: &mut [f32]| {
+                    let n = length.saturating_sub(start).min(out.len());
+                    if n == 0
+                        || buffer
+                            .copy_from_channel_with_start_in_channel(&mut out[..n], 0, start as u32)
+                            .is_err()
+                    {
+                        out.fill(0.0);
+                    } else {
+                        out[n..].fill(0.0);
+                    }
+                },
+            );
+            if result.is_ok() || done {
+                break;
+            }
+        }
+        let took = PerformanceClock::now_ms() - started;
+        let lag = match result {
+            Ok(a) => a.lag,
+            Err(_) => first.expected(browser) as f64 / f64::from(ref_rate),
+        };
+        let lead = lag - first.target_lag(target) as f64 / f64::from(ref_rate);
+        set_lead(buffer, lead);
+        report_mp3(&first, browser, result, lag, lead, rate, took);
     }
 
     async fn decode_in_browser(&self, bytes: &[u8]) -> Result<AudioBuffer, String> {
@@ -465,6 +623,137 @@ impl AudioDecoder {
     }
 }
 
+/// The property an MP3's lead is kept in on its `AudioBuffer`.
+const LEAD: &str = "__ddiLead";
+
+/// Keeps on `buffer` the seconds its audio is to be heard later than its
+/// samples say (earlier when negative): an MP3's lag against StepMania's
+/// decode ([`AudioDecoder::align_mp3`]). [`WebAudio`] honours it when it
+/// plays the buffer and in its duration.
+fn set_lead(buffer: &AudioBuffer, seconds: f64) {
+    let _ = Reflect::set(buffer, &JsValue::from_str(LEAD), &JsValue::from(seconds));
+}
+
+/// The lead [`set_lead`] kept on `buffer` (0 without one).
+pub(crate) fn lead(buffer: &AudioBuffer) -> f64 {
+    Reflect::get(buffer, &JsValue::from_str(LEAD))
+        .ok()
+        .and_then(|v| v.as_f64())
+        .filter(|v| v.is_finite())
+        .unwrap_or(0.0)
+}
+
+/// `window.__DDI_MP3`: the last MP3's tag, the lag applied (ms and
+/// samples at the buffer's rate), whether the music told it or the
+/// browser's measured lag stood in (and why), and how long it took.
+fn report_mp3(
+    first: &ddi_platform::mp3::FirstFrame,
+    browser: ddi_platform::mp3::Browser,
+    result: Result<ddi_platform::mp3::Alignment, ddi_platform::mp3::Unsure>,
+    lag: f64,
+    lead: f64,
+    rate: u32,
+    took_ms: f64,
+) {
+    use ddi_platform::mp3::{Tag, Unsure};
+    let tag = match first.tag {
+        Tag::Info => "Info",
+        Tag::Xing => "Xing",
+        Tag::Vbri => "VBRI",
+        Tag::None => "none",
+    };
+    let how = match result {
+        Ok(_) => "found",
+        Err(Unsure::Silent) => "expected (no music in the first 40 s)",
+        Err(Unsure::NoMatch { .. }) => "expected (the decodes differ)",
+        Err(Unsure::Ambiguous { .. }) => "expected (the music cannot tell)",
+    };
+    let corr = match result {
+        Ok(a) => Some(a.corr),
+        Err(Unsure::NoMatch { best } | Unsure::Ambiguous { best, .. }) => Some(best),
+        Err(Unsure::Silent) => None,
+    };
+    let o = js_sys::Object::new();
+    let set = |k: &str, v: JsValue| {
+        let _ = Reflect::set(&o, &JsValue::from_str(k), &v);
+    };
+    set("tag", JsValue::from_str(tag));
+    set(
+        "lameDelay",
+        first.lame.map_or(JsValue::NULL, |l| JsValue::from(l.0)),
+    );
+    set("lagMs", JsValue::from(lag * 1000.0));
+    set("frames", JsValue::from((lag * f64::from(rate)).round()));
+    // What the buffer was moved by: the lag, less Chrome's for a work.
+    set("leadMs", JsValue::from(lead * 1000.0));
+    set("how", JsValue::from_str(how));
+    set("browser", JsValue::from_str(&format!("{browser:?}")));
+    set("corr", corr.map_or(JsValue::NULL, JsValue::from));
+    set("tookMs", JsValue::from(took_ms));
+    if let Some(w) = web_sys::window() {
+        let _ = Reflect::set(&w, &JsValue::from_str("__DDI_MP3"), &o);
+    }
+    let what = match first.tag {
+        Tag::None => "no tag".to_string(),
+        _ => format!("{tag} tag"),
+    };
+    let line = if (lead - lag).abs() > 1e-9 {
+        format!(
+            "MP3 ({what}): the browser's decode is {:+.2} ms from StepMania's, {how}; moved \
+             {:+.2} ms to where Chrome's has it (a work) ({:.0} ms)",
+            lag * 1000.0,
+            lead * 1000.0,
+            took_ms
+        )
+    } else {
+        format!(
+            "MP3 ({what}): the browser's decode moved {:+.2} ms to match StepMania's, {how} \
+             ({:.0} ms)",
+            lag * 1000.0,
+            took_ms
+        )
+    };
+    if result.is_ok() {
+        web_sys::console::info_1(&line.into());
+    } else {
+        web_sys::console::warn_1(&line.into());
+    }
+}
+
+/// `window.__DDI_MP3` for an MP3 the built-in decoder decoded (as
+/// StepMania does: no lag to find), and the lead it was given (a work's).
+fn report_ours(first: &ddi_platform::mp3::FirstFrame, lead: f64) {
+    use ddi_platform::mp3::Tag;
+    let tag = match first.tag {
+        Tag::Info => "Info",
+        Tag::Xing => "Xing",
+        Tag::Vbri => "VBRI",
+        Tag::None => "none",
+    };
+    let o = js_sys::Object::new();
+    let set = |k: &str, v: JsValue| {
+        let _ = Reflect::set(&o, &JsValue::from_str(k), &v);
+    };
+    set("tag", JsValue::from_str(tag));
+    set(
+        "lameDelay",
+        first.lame.map_or(JsValue::NULL, |l| JsValue::from(l.0)),
+    );
+    set("lagMs", JsValue::from(0.0));
+    set("frames", JsValue::from(0.0));
+    set("leadMs", JsValue::from(lead * 1000.0));
+    set(
+        "how",
+        JsValue::from_str("decoded in wasm as StepMania does"),
+    );
+    set("browser", JsValue::NULL);
+    set("corr", JsValue::NULL);
+    set("tookMs", JsValue::from(0.0));
+    if let Some(w) = web_sys::window() {
+        let _ = Reflect::set(&w, &JsValue::from_str("__DDI_MP3"), &o);
+    }
+}
+
 /// Whether a decoded buffer is all silence, judged from short windows
 /// spread over its middle (intros and outros are often silent). Reads a
 /// few thousand samples, not the song.
@@ -505,6 +794,58 @@ fn force_wasm_decode() -> bool {
 impl AudioBackend for WebAudio {
     type Buffer = AudioBuffer;
     type Error = String;
+
+    fn sample_rate(&self) -> f64 {
+        f64::from(self.ctx.sample_rate())
+    }
+
+    fn set_master_volume(&mut self, volume: f32) {
+        WebAudio::set_master_volume(self, volume);
+    }
+
+    fn master_ramp(&mut self, from: Option<f32>, to: f32, at: Option<f64>, seconds: f64) {
+        let gain = self.master.gain();
+        match at {
+            // `fade_out`'s way: from now and the value now.
+            None => {
+                let now = self.ctx.current_time();
+                let _ = gain.cancel_scheduled_values(now);
+                let _ = gain.set_value_at_time(gain.value(), now);
+                let _ = gain.linear_ramp_to_value_at_time(to, now + seconds.max(0.01));
+            }
+            // `fade_in_at`'s and `fade_out_at`'s.
+            Some(at) => {
+                let _ = gain.set_value_at_time(from.unwrap_or_else(|| gain.value()), at);
+                let _ = gain.linear_ramp_to_value_at_time(to, at + seconds.max(0.01));
+            }
+        }
+    }
+
+    fn stop_all(&mut self) {
+        WebAudio::stop_all(self);
+    }
+
+    fn running(&self) -> bool {
+        WebAudio::running(self)
+    }
+
+    fn buffer_from_pcm(&self, channels: Vec<Vec<f32>>, rate: f64) -> Result<AudioBuffer, String> {
+        let frames = channels.first().map_or(0, Vec::len) as u32;
+        let buffer = self
+            .ctx
+            .create_buffer(channels.len().max(1) as u32, frames.max(1), rate as f32)
+            .map_err(|e| js_err("createBuffer", e))?;
+        for (i, c) in channels.iter().enumerate() {
+            buffer
+                .copy_to_channel(c, i as i32)
+                .map_err(|e| js_err("copyToChannel", e))?;
+        }
+        Ok(buffer)
+    }
+
+    fn fingerprint(&self) -> Option<ddi_platform::DeviceFingerprint> {
+        Some(WebAudio::fingerprint(self))
+    }
 
     fn now(&self) -> ClockSample {
         // Everything between `currentTime` and the speaker: the graph's own
@@ -559,8 +900,16 @@ impl AudioBackend for WebAudio {
             .map_err(|e| js_err("connect source", e))?;
         gain.connect_with_audio_node(&self.master)
             .map_err(|e| js_err("connect gain", e))?;
+        // An MP3's lead: its audio heard that much later than its
+        // samples (or earlier).
+        let offset = offset.max(0.0) - lead(buffer);
+        let (when, offset) = if offset < 0.0 {
+            (start_at_context_time - offset, 0.0)
+        } else {
+            (start_at_context_time, offset)
+        };
         source
-            .start_with_when_and_grain_offset(start_at_context_time, offset.max(0.0))
+            .start_with_when_and_grain_offset(when, offset)
             .map_err(|e| js_err("start", e))?;
         let id = self.next_id;
         self.next_id += 1;
@@ -604,7 +953,7 @@ impl AudioBackend for WebAudio {
     }
 
     fn duration(&self, buffer: &AudioBuffer) -> f64 {
-        buffer.duration()
+        buffer.duration() + lead(buffer)
     }
 }
 

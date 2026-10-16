@@ -17,11 +17,14 @@ modified = "subset with fonttools pyftsubset to Latin-1 and a few symbols (asset
 # release's unhinted TTF package, retrieved 2026-10-15:
 #   https://github.com/be5invis/Iosevka/releases/download/v34.9.0/PkgTTF-Unhinted-IosevkaTerm-34.9.0.zip
 #   sha256 b11472aab68b01d5936758962af8da5902ebbb7f8311303236f5e1023a4bee45
-# Subset with fonttools pyftsubset to Latin-1, Latin Extended-A and the
-# symbols the theme draws, without layout features (no ligatures in titles);
-# other scripts fall back to the system's fonts:
+# Subset with fonttools pyftsubset (fonttools 4.67.0, 2026-10-16) to Latin-1,
+# Latin Extended-A and the symbols the theme draws (theme/tests/glyphs.rs
+# checks the screens' strings against it), without layout features (no
+# ligatures in titles); other scripts fall back to the system's fonts, and
+# so do ☆ and ★ on purpose (Iosevka's fill a monospace cell and read as
+# "=" at text sizes):
 #   pyftsubset IosevkaTerm-<Weight>.ttf \
-#     --unicodes="U+0020-007E,U+00A0-017F,U+2013-2014,U+2018-201D,U+2022,U+2026,U+2039-203A,U+2190-2193,U+2212,U+25A0,U+25B2,U+25B6,U+25B8,U+25BC,U+25BE,U+25C0,U+25C2,U+2605-2606,U+266A-266B,U+2715" \
+#     --unicodes="U+0020-007E,U+00A0-017F,U+03C3,U+2013-2014,U+2018-201D,U+2022,U+2026,U+2039-203A,U+2190-2193,U+2196-2199,U+2212,U+2248,U+25A0,U+25B2,U+25B6,U+25B8,U+25BC,U+25BE,U+25C0,U+25C2,U+25C9,U+25CF,U+266A-266B,U+2715" \
 #     --layout-features="" --output-file=IosevkaTerm-<Weight>-latin.ttf
 [[file]]
 path = "IosevkaTerm-Regular-latin.ttf"

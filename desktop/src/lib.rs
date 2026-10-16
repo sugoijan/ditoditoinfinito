@@ -3,7 +3,7 @@
 //! and the system's fonts. It runs the developer screen
 //! (`ddi_ui::dev`), the same code as the web's `#/ui-dev`, and the
 //! theme's screens on sample data (song select by default, `--screen
-//! select|results|options` as `#/ui-dev?screen=…`; `--dev` for the
+//! select|results|options|credits|calibration` as `#/ui-dev?screen=…`; `--dev` for the
 //! developer screen); audio, play and the library on disk come
 //! with the rest of phase 9.
 //!
@@ -15,14 +15,72 @@
 //! - [`os`]: links, file dialogs, the clipboard.
 //! - [`plays`]: the play history, a file a play.
 //! - [`shell`]: the window and its events.
+//! - [`audio`]: sound (cpal, our mixer, the clock, the decoder thread);
+//!   [`clock`]: the host clock everything stamps against; [`preview`]:
+//!   song select's previews.
 
+pub mod audio;
+pub mod calibrate;
+pub mod clock;
+pub mod devices;
+pub mod field_preview;
 pub mod gpu;
+pub mod history;
 pub mod images;
+pub mod input;
+pub mod keyboard;
 pub mod keys;
+pub mod library;
+pub mod options;
 pub mod os;
+pub mod pads;
+pub mod paths;
+pub mod play;
 pub mod plays;
+pub mod preview;
 pub mod shell;
+pub mod songs;
 pub mod store;
+#[cfg(feature = "video")]
+pub mod video;
+
+/// `--video-check FILE [--reference REF.yuv] [--frames]`: the exit code.
+fn video_check(args: &[String], at: usize) -> i32 {
+    let Some(file) = args.get(at + 1) else {
+        eprintln!("--video-check needs a file");
+        return 2;
+    };
+    #[cfg(feature = "video")]
+    {
+        let reference = args
+            .iter()
+            .position(|a| a == "--reference")
+            .and_then(|i| args.get(i + 1))
+            .map(std::path::PathBuf::from);
+        let path = std::path::Path::new(file);
+        let mut host = video::VideoHost::shared();
+        let report = video::check(&mut host, path, reference.as_deref());
+        let name = path
+            .file_name()
+            .map_or(file.clone(), |n| n.to_string_lossy().into_owned());
+        for line in report.lines(&name) {
+            println!("{line}");
+        }
+        // Each frame's time and planes' CRC-32, to compare with the web
+        // module's under Node.
+        if args.iter().any(|a| a == "--frames") {
+            for (i, (pts, crc)) in report.frames.iter().enumerate() {
+                println!("frame {i} {pts:.6} {crc:08x}");
+            }
+        }
+        i32::from(!report.failures.is_empty())
+    }
+    #[cfg(not(feature = "video"))]
+    {
+        eprintln!("{file}: this build has no video decoder (feature `video`)");
+        2
+    }
+}
 
 /// How desktop folds text for the search: Unicode's tables (the web asks
 /// the browser).
@@ -41,24 +99,161 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
     }
 }
 
-/// Runs the desktop app: `ditoditoinfinito [--screen select|results|options |
-/// --dev | --widgets] [--seconds N]`, the theme's screens on sample data in a
-/// window, song select unless `--screen` names another (`--dev`: the UI
-/// core's developer screen; `--widgets`: its widget screen); with
-/// `--seconds`, it quits after that long and prints what it drew.
+/// Runs the desktop app: `ditoditoinfinito [--screen select|results|options|credits|calibration |
+/// --dev | --widgets] [--seconds N] [--volume V] [--fake-pad SCRIPT]`,
+/// the theme's screens on sample data in a window (options on the stored
+/// settings), song select unless `--screen` names another (`--dev`: the
+/// UI core's developer screen; `--widgets`: its widget screen); with
+/// `--seconds`, it quits after that long and prints what it drew, how
+/// the audio clock went and the input it had; `--volume` sets the master
+/// volume (0–1, a gain) instead of the settings'; `--fake-pad` plays a
+/// scripted standard controller instead of the real ones
+/// (`input::script`: `1.0:13+,1.1:13-`). `--video-check FILE
+/// [--reference REF.yuv]` decodes a movie through the FFmpeg module
+/// (feature `video`), seeks through it, prints what it found and quits.
+/// `--play SONG [--chart N] [--auto | --auto=pad] [--start]` opens
+/// that chart's start prompt over song select (charts are played from
+/// song select too), `--start` starting it once the song is read;
+/// `--calibrate visual|audio|combined` opens that calibration test's
+/// prompt (`--auto` autoplays it following the cue, `--bias MS` that
+/// late; leaving it opens calibration's menu); `--silent` opens no sound device at all
+/// (plays run on the host clock, silent).
 pub fn run() {
+    clock::epoch();
     store::install();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Flags that would be misread: said before anything opens.
+    if let Some(i) = args.iter().position(|a| a == "--calibrate")
+        && !args
+            .get(i + 1)
+            .is_some_and(|m| matches!(m.as_str(), "visual" | "audio" | "combined"))
+    {
+        eprintln!("--calibrate takes a test: visual, audio or combined");
+        std::process::exit(2);
+    }
+    if let Some(i) = args.iter().position(|a| a == "--bias")
+        && !args
+            .get(i + 1)
+            .and_then(|v| v.parse::<f64>().ok())
+            .is_some_and(f64::is_finite)
+    {
+        eprintln!("--bias takes milliseconds (a number)");
+        std::process::exit(2);
+    }
+    if let Some(i) = args.iter().position(|a| a == "--video-check") {
+        std::process::exit(video_check(&args, i));
+    }
+    // No sound device at all: plays run on the host clock.
+    if args.iter().any(|a| a == "--silent") {
+        audio::set_headless(true);
+    }
     let screen = match args.iter().position(|a| a == "--screen") {
         Some(i) => args.get(i + 1).cloned().unwrap_or_default(),
         None if args.iter().any(|a| a == "--widgets") => "widgets".into(),
         None if args.iter().any(|a| a == "--dev") => "dev".into(),
         None => "select".into(),
     };
-    let mut shell = shell::Shell::named(&screen);
+    let volume = args
+        .iter()
+        .position(|a| a == "--volume")
+        .and_then(|i| args.get(i + 1)?.parse::<f32>().ok())
+        .map(|v| v.clamp(0.0, 1.0));
+    // Song select and options on the library on disk (the bundled songs
+    // and the song folders), unless `--sample` asks for the sample data;
+    // `--songs <dir>` adds a folder for this run.
+    let songs = (!args.iter().any(|a| a == "--sample")
+        && matches!(screen.as_str(), "select" | "options"))
+    .then(|| {
+        let extra: Vec<std::path::PathBuf> = args
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| *a == "--songs")
+            .filter_map(|(i, _)| args.get(i + 1).map(std::path::PathBuf::from))
+            .collect();
+        songs::Songs::new(extra)
+    });
+    // A play or a test opened from here: no first start's offer over it.
+    if let Some(s) = &songs
+        && args.iter().any(|a| a == "--play" || a == "--calibrate")
+    {
+        s.skip_offer();
+    }
+    // What an earlier run left half extracted.
+    play::load::clean_stale_parts();
+    let mut shell = shell::Shell::named_with(&screen, volume, songs);
+    shell.play.master = volume;
+    shell.play.start_when_ready = args.iter().any(|a| a == "--start");
+    // `--bias MS`: autoplay presses that late (negative: early), as the
+    // web's `&bias=`.
+    // (Checked above.)
+    let bias = args
+        .iter()
+        .position(|a| a == "--bias")
+        .and_then(|i| args.get(i + 1)?.parse::<f64>().ok())
+        .map_or(0.0, |ms| ms / 1000.0);
+    if let Some(songs) = &shell.songs {
+        songs
+            .testing
+            .set((args.iter().any(|a| a == "--auto"), bias));
+    }
+    // `--play <song> [--chart N] [--auto | --auto=pad]`: that chart's
+    // prompt at once (song select under it).
+    if let Some(song) = args
+        .iter()
+        .position(|a| a == "--play")
+        .and_then(|i| args.get(i + 1))
+    {
+        let chart = args
+            .iter()
+            .position(|a| a == "--chart")
+            .and_then(|i| args.get(i + 1)?.parse().ok())
+            .unwrap_or(0);
+        let auto_pad = args.iter().any(|a| a == "--auto=pad");
+        let mut r =
+            play::Request::song(song, chart, auto_pad || args.iter().any(|a| a == "--auto"));
+        r.auto_pad = auto_pad;
+        r.bias = bias;
+        *shell.play.requested.borrow_mut() = Some(r);
+    }
+    // `--calibrate visual|audio|combined [--auto [--bias MS]]`: that
+    // test's prompt at once (leaving it opens calibration's menu).
+    if let Some(mode) = args
+        .iter()
+        .position(|a| a == "--calibrate")
+        .and_then(|i| args.get(i + 1))
+    {
+        // (Checked above.)
+        let mode = ddi_session::calibration::CalMode::parse(mode);
+        let mut r = play::Request::calibration(mode, args.iter().any(|a| a == "--auto"));
+        r.bias = bias;
+        *shell.play.requested.borrow_mut() = Some(r);
+    }
+    // `--lose-device-after S`: the GPU device lost on purpose, to see the
+    // window recover (as the web's `__DDI_LOSE_DEVICE`).
+    shell.lose_device_after = args
+        .iter()
+        .position(|a| a == "--lose-device-after")
+        .and_then(|i| args.get(i + 1)?.parse().ok());
     if let Some(i) = args.iter().position(|a| a == "--seconds") {
         shell.quit_after = args.get(i + 1).and_then(|s| s.parse().ok());
     }
+    // A timed run samples the audio clock every millisecond.
+    let probe = shell.quit_after.and_then(|_| {
+        let probe = shell.sound.borrow().audio.probe()?;
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stop.clone();
+        let thread = std::thread::spawn(move || {
+            let mut samples = Vec::new();
+            while !flag.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Some(s) = probe.now() {
+                    samples.push(s);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            samples
+        });
+        Some((stop, thread))
+    });
     let event_loop = match winit::event_loop::EventLoop::new() {
         Ok(l) => l,
         Err(e) => {
@@ -66,6 +261,37 @@ pub fn run() {
             std::process::exit(1);
         }
     };
+    // Controllers on their thread, waking the loop with their news; with
+    // `--fake-pad <script>`, a scripted standard pad instead
+    // (`input::script`).
+    let proxy = event_loop.create_proxy();
+    {
+        // A song read for a play, its pictures: the loop wakes.
+        let proxy = std::sync::Mutex::new(proxy.clone());
+        shell.play.wake = Some(std::sync::Arc::new(move || {
+            if let Ok(p) = proxy.lock() {
+                let _ = p.send_event(());
+            }
+        }));
+    }
+    if let Some(songs) = &shell.songs {
+        let proxy = std::sync::Mutex::new(proxy.clone());
+        songs.start(std::sync::Arc::new(move || {
+            if let Ok(p) = proxy.lock() {
+                let _ = p.send_event(());
+            }
+        }));
+    }
+    let fake = args
+        .iter()
+        .position(|a| a == "--fake-pad")
+        .and_then(|i| args.get(i + 1).cloned());
+    shell.input.start_pads(
+        Box::new(move || {
+            let _ = proxy.send_event(());
+        }),
+        fake.as_deref(),
+    );
     if let Err(e) = event_loop.run_app(&mut shell) {
         eprintln!("event loop: {e}");
     }
@@ -74,10 +300,11 @@ pub fn run() {
         std::process::exit(1);
     }
     println!(
-        "frames {} · redraws asked {} · skipped while occluded {} · status {:?}",
+        "frames {} · redraws asked {} · skipped while occluded {} · devices lost {} · status {:?}",
         shell.frames,
         shell.asked,
         shell.occluded_skips,
+        shell.devices_lost,
         shell.dev.borrow().status,
     );
     if let Some((env, _)) = &shell.theme {
@@ -86,5 +313,83 @@ pub fn run() {
             "theme: screen {} · song {:?} · style {} · chart {:?} · compact {} · pulse {}",
             s.screen, s.song, s.style, s.chart, s.compact, s.pulsing
         );
+    }
+    let layers: Vec<String> = shell.ui.layers().into_iter().map(|l| l.name).collect();
+    println!("layers: {}", layers.join(" › "));
+    let player = shell.sound.borrow();
+    println!("{}", shell.input.summary());
+    if let Some(songs) = &shell.songs
+        && let Some(l) = songs.library.borrow().as_ref()
+    {
+        let r = &l.report;
+        println!(
+            "library: {} songs from {} folders{} and {} bundled · listed from the cache in {} · scan {:.0} ms, {} parsed, {} from the cache · {} not read, {} duplicate packs, {} missing",
+            l.songs.len(),
+            songs.folders().len(),
+            if l.scanning { " (still reading)" } else { "" },
+            songs.bundled.len(),
+            r.cached_ms
+                .map_or("—".to_string(), |ms| format!("{ms:.0} ms")),
+            r.ms,
+            r.parsed,
+            r.reused,
+            r.failed.len(),
+            r.duplicates.len(),
+            r.missing.len(),
+        );
+    }
+    println!("{}", player.audio.status_line());
+    if let Some(info) = player.audio.info() {
+        println!("audio: {info:?}");
+    }
+    for (id, took) in &player.decoded {
+        println!(
+            "preview decoded: {id} in {:.0} ms",
+            took.as_secs_f64() * 1000.0
+        );
+    }
+    for e in &player.errors {
+        println!("preview error: {e}");
+    }
+    for line in &shell.play.log {
+        println!("{line}");
+    }
+    println!(
+        "play: {}",
+        if shell.play.playing() {
+            "playing".to_string()
+        } else if shell.play.prompting() {
+            format!("prompt {:?}", shell.play.prompt_step())
+        } else if shell.play.idle() {
+            "none".to_string()
+        } else {
+            "results".to_string()
+        }
+    );
+    // The devices as last seen, and what the notices said.
+    if let Some(d) = &shell.play.watcher.last {
+        println!("devices: {} · {}", d.audio.id, d.display.id);
+    }
+    let notices = shell.play.watcher.feed.borrow().clone();
+    if let Some(b) = &notices.banner {
+        println!("notice: {}", b.text);
+    }
+    if let Some((stop, thread)) = probe {
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(samples) = thread.join() {
+            // The first half second settles (the anchor, the lead).
+            let skip = samples.len().min(500);
+            let s = audio::ClockStats::of(&samples[skip..]);
+            println!(
+                "audio clock: {} samples · jitter sd {:.1} µs, max {:.1} µs · drift {:+.1} ppm · latency {:.2} ms ({:.2}–{:.2})",
+                s.samples,
+                s.jitter_sd * 1e6,
+                s.jitter_max * 1e6,
+                s.drift_ppm,
+                s.latency_mean * 1e3,
+                s.latency_min * 1e3,
+                s.latency_max * 1e3,
+            );
+        }
     }
 }

@@ -501,6 +501,105 @@ pub fn extract(entry: &ZipEntry, data: &[u8]) -> Result<Vec<u8>, ZipError> {
     Ok(out)
 }
 
+/// [`extract`] in pieces: an entry's `compressed_size` data bytes read
+/// from `input` (at the entry's data), decompressed (or copied) into `out`
+/// as they come, its size and CRC-32 checked at the end. For an entry
+/// larger than is worth holding (a movie). `out` may hold part of it when
+/// it fails.
+pub fn extract_to(
+    entry: &ZipEntry,
+    input: &mut impl std::io::Read,
+    out: &mut impl std::io::Write,
+) -> Result<(), ZipError> {
+    use miniz_oxide::inflate::stream::{InflateState, inflate};
+    use miniz_oxide::{DataFormat, MZError, MZFlush, MZStatus};
+    if entry.encrypted {
+        return Err(ZipError::Encrypted {
+            name: entry.name.clone(),
+        });
+    }
+    let io = |e: std::io::Error| ZipError::Inflate(e.to_string());
+    let mut left = entry.compressed_size;
+    let mut crc = !0u32;
+    let mut written = 0u64;
+    let mut emit = |bytes: &[u8], out: &mut dyn std::io::Write| -> Result<(), ZipError> {
+        written += bytes.len() as u64;
+        if written > entry.uncompressed_size {
+            return Err(ZipError::SizeMismatch {
+                name: entry.name.clone(),
+                expected: entry.uncompressed_size,
+                actual: written,
+            });
+        }
+        crc = crc32_update(crc, bytes);
+        out.write_all(bytes)
+            .map_err(|e| ZipError::Inflate(e.to_string()))
+    };
+    let mut inbuf = vec![0u8; 256 << 10];
+    match entry.method {
+        Method::Stored => {
+            while left > 0 {
+                let n = (left.min(inbuf.len() as u64)) as usize;
+                input.read_exact(&mut inbuf[..n]).map_err(io)?;
+                emit(&inbuf[..n], out)?;
+                left -= n as u64;
+            }
+        }
+        Method::Deflated => {
+            let mut state = InflateState::new_boxed(DataFormat::Raw);
+            let mut outbuf = vec![0u8; 512 << 10];
+            let (mut have, mut at) = (0usize, 0usize);
+            loop {
+                if at == have && left > 0 {
+                    let n = (left.min(inbuf.len() as u64)) as usize;
+                    input.read_exact(&mut inbuf[..n]).map_err(io)?;
+                    left -= n as u64;
+                    (have, at) = (n, 0);
+                }
+                // Never `Finish`: with all the input given, miniz would
+                // want the rest of the output to fit at once.
+                let r = inflate(&mut state, &inbuf[at..have], &mut outbuf, MZFlush::None);
+                at += r.bytes_consumed;
+                emit(&outbuf[..r.bytes_written], out)?;
+                let stuck = r.bytes_consumed == 0 && r.bytes_written == 0;
+                match r.status {
+                    Ok(MZStatus::StreamEnd) => break,
+                    Ok(_) if !(stuck && left == 0 && at == have) => {}
+                    Err(MZError::Buf) if !(left == 0 && at == have) => {}
+                    // All the input given and nothing more comes out: the
+                    // stream is cut short.
+                    Ok(_) | Err(MZError::Buf) => {
+                        return Err(ZipError::Inflate("the stream ends early".into()));
+                    }
+                    Err(e) => return Err(ZipError::Inflate(format!("{e:?}"))),
+                }
+            }
+        }
+        Method::Other(method) => {
+            return Err(ZipError::UnsupportedMethod {
+                name: entry.name.clone(),
+                method,
+            });
+        }
+    }
+    if written != entry.uncompressed_size {
+        return Err(ZipError::SizeMismatch {
+            name: entry.name.clone(),
+            expected: entry.uncompressed_size,
+            actual: written,
+        });
+    }
+    let actual = !crc;
+    if actual != entry.crc32 {
+        return Err(ZipError::CrcMismatch {
+            name: entry.name.clone(),
+            expected: entry.crc32,
+            actual,
+        });
+    }
+    Ok(())
+}
+
 /// Inflates a raw deflate stream (no zlib header), refusing to produce more
 /// than `expected_len` bytes so a lying header cannot exhaust memory. The
 /// output may be shorter; [`extract`] checks the exact length.
@@ -551,7 +650,12 @@ const CRC_TABLE: [u32; 256] = {
 
 /// CRC-32 (IEEE 802.3, reflected, as used by zip and PNG).
 pub fn crc32(bytes: &[u8]) -> u32 {
-    !bytes.iter().fold(!0u32, |c, &b| {
+    !crc32_update(!0, bytes)
+}
+
+/// The CRC-32 register after `bytes` (start from `!0`, finish with `!`).
+fn crc32_update(crc: u32, bytes: &[u8]) -> u32 {
+    bytes.iter().fold(crc, |c, &b| {
         CRC_TABLE[((c ^ u32::from(b)) & 0xFF) as usize] ^ (c >> 8)
     })
 }
@@ -761,6 +865,54 @@ pub(crate) mod tests {
     }
 
     const SIMFILE: &[u8] = b"#TITLE:Test;\n#BPMS:0=120;\n#NOTES:\n     dance-single:\n     :\n     Easy:\n     1:\n     0,0,0,0,0:\n1000\n0100\n0010\n0001\n;\n";
+
+    /// An entry inflated into a writer in pieces is what [`extract`]
+    /// gives; a wrong CRC or a short stream fails.
+    #[test]
+    fn extract_to_streams_large_entries() {
+        // 3 MB that compress unevenly, over several input and output
+        // buffers.
+        let big: Vec<u8> = (0..3_000_000u32)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> (i % 23)) as u8)
+            .collect();
+        // And 20 MB of near silence: it inflates to far more than the
+        // output buffer from the last of its input.
+        let flat: Vec<u8> = (0..20_000_000u32)
+            .map(|i| u8::from(i % 65_536 == 0))
+            .collect();
+        let zip = write_zip(
+            &[
+                TestFile::deflated("a/movie.avi", &big),
+                TestFile::stored("a/clip.mp4", &big[..700_000]),
+                TestFile::deflated("a/flat.avi", &flat),
+            ],
+            &WriteOpts::default(),
+        );
+        let entries = read_all(&zip).unwrap();
+        for (e, whole) in &entries {
+            let at = local_data_offset(
+                &zip[e.local_header_offset as usize..][..LOCAL_HEADER_LEN as usize],
+                e,
+            )
+            .unwrap() as usize;
+            let mut out = Vec::new();
+            extract_to(e, &mut &zip[at..], &mut out).unwrap();
+            assert_eq!(&out, whole, "{}", e.name);
+            let mut bad = e.clone();
+            bad.crc32 ^= 1;
+            assert!(matches!(
+                extract_to(&bad, &mut &zip[at..], &mut Vec::new()),
+                Err(ZipError::CrcMismatch { .. })
+            ));
+            let mut short = e.clone();
+            short.uncompressed_size -= 1;
+            assert!(extract_to(&short, &mut &zip[at..], &mut Vec::new()).is_err());
+            // A stream cut short ends with an error, not a hang.
+            let mut cut = e.clone();
+            cut.compressed_size /= 2;
+            assert!(extract_to(&cut, &mut &zip[at..], &mut Vec::new()).is_err());
+        }
+    }
 
     #[test]
     fn crc32_known_values() {

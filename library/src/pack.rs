@@ -78,6 +78,22 @@ impl SongCandidate {
         song_id(&self.pack, &self.dir)
     }
 
+    /// The id and the fallback name (the title when the simfile has none)
+    /// an import gives the song: [`SongCandidate::id`] and its folder's
+    /// name, except for files at the import's root (loose files picked
+    /// without a folder), which are told apart by the simfile's name
+    /// (the web's import, `web/src/import`'s `identity`, until it calls
+    /// this in step 7.1).
+    pub fn identity(&self) -> (String, String) {
+        if self.dir.is_empty() {
+            let name = file_name(&self.chart);
+            let name = name.rsplit_once('.').map_or(name, |(s, _)| s);
+            (song_id(&self.pack, name), name.to_string())
+        } else {
+            (self.id(), self.dir_name().to_string())
+        }
+    }
+
     /// The pack's folder (`""` for the import root, as for a zip of one
     /// pack's song folders), or `None` for a song at the root itself.
     pub fn pack_dir(&self) -> Option<&str> {
@@ -632,6 +648,11 @@ fn windows_1252(b: u8) -> char {
         _ => b as char,
     }
 }
+
+/// The pack of songs found at or directly under an import's root when
+/// the import names none (the web's import of a folder or of loose
+/// files; a zip picked alone names it after itself).
+pub const LOOSE_PACK: &str = "Imported";
 
 /// Stable id of an imported song, so importing the same folder again
 /// replaces it: `u-` and the 16 hex digits of the 64-bit FNV-1a hash of

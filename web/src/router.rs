@@ -139,7 +139,8 @@ impl Route {
         match self {
             // The testing parameters a page was opened with go on to every
             // play and back ([`keep_testing`]).
-            Route::Home => match TESTING.with(|t| t.borrow().clone()) {
+            // `auto` as the autoplay switch has it ([`testing`]).
+            Route::Home => match testing() {
                 t if t.is_empty() => "#/".into(),
                 t => format!("#/?{t}"),
             },
@@ -239,25 +240,99 @@ thread_local! {
 /// The testing parameters a song select or play address carries, kept
 /// for the session: song select passes them to the plays it starts, and
 /// the way back keeps them.
+///
+/// Song select's own address says whether its plays autoplay: `auto`
+/// there (or its absence) replaces what was kept, and the switch follows
+/// it again (the switch rewrites that address when used,
+/// [`set_autoplay`]).
 pub(crate) fn keep_testing(hash: &str) {
-    let Some((path, query)) = hash.trim_start_matches('#').split_once('?') else {
-        return;
-    };
-    if !matches!(path.trim_start_matches('/'), "" | "play") {
+    let (path, query) = hash
+        .trim_start_matches('#')
+        .split_once('?')
+        .unwrap_or((hash.trim_start_matches('#'), ""));
+    let path = path.trim_start_matches('/');
+    if !matches!(path, "" | "play" | "calibrate") {
         return;
     }
     let kept: Vec<&str> = query
         .split('&')
         .filter(|kv| matches!(kv.split('=').next(), Some("gfx" | "auto" | "bias" | "slow")))
         .collect();
+    if path.is_empty() {
+        AUTOPLAY.with(|a| a.set(None));
+        TESTING.with(|t| {
+            let mut t = t.borrow_mut();
+            let mut parts: Vec<String> = t
+                .split('&')
+                .filter(|kv| !kv.is_empty() && kv.split('=').next() != Some("auto"))
+                .filter(|kv| {
+                    // What the address gives again replaces the old.
+                    let k = kv.split('=').next();
+                    !kept.iter().any(|n| n.split('=').next() == k)
+                })
+                .map(String::from)
+                .collect();
+            parts.extend(kept.iter().map(|s| s.to_string()));
+            *t = parts.join("&");
+        });
+        return;
+    }
     if !kept.is_empty() {
         TESTING.with(|t| *t.borrow_mut() = kept.join("&"));
     }
 }
 
-/// The testing parameters kept ([`keep_testing`]), `&`-joined.
+thread_local! {
+    /// Song select's autoplay switch, once used: it decides `auto`
+    /// whatever the address said.
+    static AUTOPLAY: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// The testing parameters kept ([`keep_testing`]), `&`-joined, `auto` as
+/// the autoplay switch has it once used.
 pub(crate) fn testing() -> String {
-    TESTING.with(|t| t.borrow().clone())
+    let kept = TESTING.with(|t| t.borrow().clone());
+    let Some(on) = AUTOPLAY.with(|a| a.get()) else {
+        return kept;
+    };
+    let mut parts: Vec<&str> = kept
+        .split('&')
+        .filter(|kv| !kv.is_empty() && kv.split('=').next() != Some("auto"))
+        .collect();
+    if on {
+        parts.push("auto=1");
+    }
+    parts.join("&")
+}
+
+/// Whether plays started from song select are autoplayed (the switch,
+/// else `auto=` in the address).
+pub(crate) fn autoplay() -> bool {
+    testing()
+        .split('&')
+        .any(|kv| kv.starts_with("auto=") && kv != "auto=0")
+}
+
+/// Song select's autoplay switch (for the session). The address says so
+/// too (replaced, not navigated: a reload keeps the switch as it is).
+pub(crate) fn set_autoplay(on: bool) {
+    AUTOPLAY.with(|a| a.set(Some(on)));
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let hash = window.location().hash().unwrap_or_default();
+    let path = hash.trim_start_matches('#').split('?').next().unwrap_or("");
+    if matches!(path.trim_start_matches('/'), "") {
+        let q = testing();
+        let next = if q.is_empty() {
+            "#/".to_string()
+        } else {
+            format!("#/?{q}")
+        };
+        if let Ok(h) = window.history() {
+            let _ = h.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&next));
+        }
+    }
 }
 
 fn parse_bias(params: &BTreeMap<&str, String>) -> i64 {

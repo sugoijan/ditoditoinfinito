@@ -1,5 +1,5 @@
-//! Stand-ins for StepMania's own `dance/default` and `common/common`, the
-//! fallbacks every dance skin ends in. Their art is not under an explicit
+//! Stand-ins for StepMania's own `dance/default`, `pump/default` and
+//! `common/common`, the fallbacks every dance and pump skin ends in. Their art is not under an explicit
 //! licence (`docs/research/noteskins.md`, section 10), so their files are
 //! listed by name only: a lookup lands on them exactly as in StepMania, and
 //! what it finds is drawn by the built-in skin. Their redirects, the
@@ -30,6 +30,12 @@ pub enum NativeLua {
     /// dance/default's `Down Tap Note.lua`, `Down Tap Lift.lua` and
     /// `Down Receptor.lua`: its own look, drawn by the built-in skin.
     DanceDefaultLook,
+    /// pump/default's Lua (its receptor, explosion, the right side's notes
+    /// and receptors taken from the left's, the lifts): it runs when the
+    /// skin's Lua runs, which a pump skin's always does (pump/default's
+    /// `NoteSkin.lua` builds every element); otherwise drawn by the
+    /// built-in skin.
+    PumpDefaultLook,
 }
 
 /// One of the stand-in folders.
@@ -37,6 +43,8 @@ pub enum NativeLua {
 pub enum BuiltIn {
     /// `NoteSkins/dance/default`.
     DanceDefault,
+    /// `NoteSkins/pump/default`.
+    PumpDefault,
     /// `NoteSkins/common/common`.
     Common,
     /// StepMania 3.9's and OpenITG's `NoteSkins/dance/default`, for skins in
@@ -72,7 +80,10 @@ pub enum Virtual {
 impl BuiltIn {
     pub fn name(self) -> &'static str {
         match self {
-            BuiltIn::DanceDefault | BuiltIn::LegacyDefault | BuiltIn::LegacyCommon => "default",
+            BuiltIn::DanceDefault
+            | BuiltIn::PumpDefault
+            | BuiltIn::LegacyDefault
+            | BuiltIn::LegacyCommon => "default",
             BuiltIn::Common => "common",
             BuiltIn::LegacyFlat => "flat",
         }
@@ -82,6 +93,7 @@ impl BuiltIn {
     pub fn game(self) -> &'static str {
         match self {
             BuiltIn::Common | BuiltIn::LegacyCommon => "common",
+            BuiltIn::PumpDefault => "pump",
             _ => "dance",
         }
     }
@@ -90,6 +102,7 @@ impl BuiltIn {
     pub fn files(self) -> &'static [(&'static str, Virtual)] {
         match self {
             BuiltIn::DanceDefault => DANCE_DEFAULT_FILES,
+            BuiltIn::PumpDefault => PUMP_DEFAULT_FILES,
             BuiltIn::Common => COMMON_FILES,
             BuiltIn::LegacyDefault => legacy_default_files(),
             BuiltIn::LegacyFlat => LEGACY_FLAT_FILES,
@@ -113,6 +126,7 @@ impl BuiltIn {
     pub fn metrics(self) -> &'static str {
         match self {
             BuiltIn::DanceDefault => DANCE_DEFAULT_METRICS,
+            BuiltIn::PumpDefault => PUMP_DEFAULT_METRICS,
             BuiltIn::Common => COMMON_METRICS,
             BuiltIn::LegacyDefault => LEGACY_DEFAULT_METRICS,
             BuiltIn::LegacyFlat => LEGACY_FLAT_METRICS,
@@ -319,7 +333,7 @@ OKCommand=diffuse,1.0,1.0,0.3,1;zoom,1;linear,0.06;zoom,1.1;linear,0.06;diffusea
 OnCommand=
 ";
 
-use NativeLua::{DanceDefaultLook, Explosion, Helper, Receptor, TapMine};
+use NativeLua::{DanceDefaultLook, Explosion, Helper, PumpDefaultLook, Receptor, TapMine};
 use Virtual::{Art, Lua, Other, Redir};
 
 const DANCE_DEFAULT_FILES: &[(&str, Virtual)] = &[
@@ -349,6 +363,43 @@ const DANCE_DEFAULT_FILES: &[(&str, Virtual)] = &[
     ("_glow (doubleres).png", Art),
     ("_receptor (doubleres).png", Art),
     ("_rflash (doubleres).png", Art),
+    ("metrics.ini", Other),
+];
+
+/// StepMania 5.1's `NoteSkins/pump/default`: its art by name (drawn by
+/// the built-in skin), its Lua and metrics as they are.
+const PUMP_DEFAULT_FILES: &[(&str, Virtual)] = &[
+    ("Center Hold Body Active 6x1.png", Art),
+    ("Center Hold BottomCap Active 6x1.png", Art),
+    ("Center Outline Receptor.png", Art),
+    ("Center Ready Receptor 1x3.png", Art),
+    ("Center Tap Lift.lua", Lua(PumpDefaultLook)),
+    ("Center Tap Note 3x2.png", Art),
+    ("DownLeft Hold Body Active 6x1.png", Art),
+    ("DownLeft Hold BottomCap Active 6x1.png", Art),
+    ("DownLeft Outline Receptor.redir", Redir("_blank")),
+    ("DownLeft Ready Receptor 1x3.png", Art),
+    ("DownLeft Tap Lift.lua", Lua(PumpDefaultLook)),
+    ("DownLeft Tap Note 3x2.png", Art),
+    ("DownRight Hold Body Active 6x1.png", Art),
+    ("DownRight Hold BottomCap Active 6x1.png", Art),
+    ("DownRight Ready Receptor.lua", Lua(PumpDefaultLook)),
+    ("DownRight Tap Lift.lua", Lua(PumpDefaultLook)),
+    ("DownRight Tap Note.lua", Lua(PumpDefaultLook)),
+    ("NoteSkin.lua", Other),
+    ("UpLeft Explosion.lua", Lua(PumpDefaultLook)),
+    ("UpLeft Hold Body Active 6x1.png", Art),
+    ("UpLeft Hold BottomCap Active 6x1.png", Art),
+    ("UpLeft Ready Receptor 1x3.png", Art),
+    ("UpLeft Receptor.lua", Lua(PumpDefaultLook)),
+    ("UpLeft Tap Lift.lua", Lua(PumpDefaultLook)),
+    ("UpLeft Tap Note 3x2.png", Art),
+    ("UpRight Hold Body Active 6x1.png", Art),
+    ("UpRight Hold BottomCap Active 6x1.png", Art),
+    ("UpRight Ready Receptor.lua", Lua(PumpDefaultLook)),
+    ("UpRight Tap Lift.lua", Lua(PumpDefaultLook)),
+    ("UpRight Tap Note.lua", Lua(PumpDefaultLook)),
+    ("_flash (doubleres).png", Art),
     ("metrics.ini", Other),
 ];
 
@@ -472,6 +523,66 @@ const LUA_SOURCES: &[(BuiltIn, &str, &str)] = &[
         "Down Tap Note.lua",
         include_str!("builtin/stepmania/dance/default/Down Tap Note.lua"),
     ),
+    (
+        BuiltIn::PumpDefault,
+        "NoteSkin.lua",
+        include_str!("builtin/stepmania/pump/default/NoteSkin.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "Center Tap Lift.lua",
+        include_str!("builtin/stepmania/pump/default/Center Tap Lift.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "DownLeft Tap Lift.lua",
+        include_str!("builtin/stepmania/pump/default/DownLeft Tap Lift.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "DownRight Ready Receptor.lua",
+        include_str!("builtin/stepmania/pump/default/DownRight Ready Receptor.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "DownRight Tap Lift.lua",
+        include_str!("builtin/stepmania/pump/default/DownRight Tap Lift.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "DownRight Tap Note.lua",
+        include_str!("builtin/stepmania/pump/default/DownRight Tap Note.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "UpLeft Explosion.lua",
+        include_str!("builtin/stepmania/pump/default/UpLeft Explosion.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "UpLeft Receptor.lua",
+        include_str!("builtin/stepmania/pump/default/UpLeft Receptor.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "UpLeft Tap Lift.lua",
+        include_str!("builtin/stepmania/pump/default/UpLeft Tap Lift.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "UpRight Ready Receptor.lua",
+        include_str!("builtin/stepmania/pump/default/UpRight Ready Receptor.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "UpRight Tap Lift.lua",
+        include_str!("builtin/stepmania/pump/default/UpRight Tap Lift.lua"),
+    ),
+    (
+        BuiltIn::PumpDefault,
+        "UpRight Tap Note.lua",
+        include_str!("builtin/stepmania/pump/default/UpRight Tap Note.lua"),
+    ),
 ];
 
 impl BuiltIn {
@@ -487,6 +598,8 @@ impl BuiltIn {
 const DANCE_DEFAULT_METRICS: &str = include_str!("builtin/stepmania/dance/default/metrics.ini");
 
 const COMMON_METRICS: &str = include_str!("builtin/stepmania/common/common/metrics.ini");
+
+const PUMP_DEFAULT_METRICS: &str = include_str!("builtin/stepmania/pump/default/metrics.ini");
 
 #[cfg(test)]
 mod tests {

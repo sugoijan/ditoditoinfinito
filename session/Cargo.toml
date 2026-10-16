@@ -1,0 +1,19 @@
+[package]
+name = "ddi-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: one play session for both shells (the play, calibration, backgrounds' rules, the layers' timeline), over ddi-platform's traits"
+
+[dependencies]
+ddi-chart.workspace = true
+ddi-engine.workspace = true
+ddi-library.workspace = true
+ddi-platform.workspace = true
+ddi-ui.workspace = true
+# The play's record (`record.rs`): the settings' names as stored.
+serde.workspace = true
+serde_json.workspace = true

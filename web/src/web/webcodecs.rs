@@ -473,9 +473,16 @@ async fn planes_of(frame: &JsFrame) -> Result<Copied, String> {
         let n = |k: &str| get(&p, k).as_f64().unwrap_or(0.0) as usize;
         (n("offset"), n("stride"))
     };
-    let data = buffer.to_vec();
+    // Copied through a buffer kept for the next frame (nothing below
+    // awaits, so frames copied at once never share it).
+    let data = COPY_SCRATCH.with(|scratch| {
+        let mut data = scratch.take();
+        data.resize(buffer.length() as usize, 0);
+        buffer.copy_to(&mut data);
+        data
+    });
     let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
-    let mut out = Vec::with_capacity(w * h + 2 * cw * ch);
+    let mut out = super::video::spare_planes(w * h + 2 * cw * ch);
     let rows =
         |out: &mut Vec<u8>, (offset, stride): (usize, usize), width: usize, height: usize| {
             for row in 0..height {
@@ -501,6 +508,7 @@ async fn planes_of(frame: &JsFrame) -> Result<Copied, String> {
         rows(&mut out, plane(1), cw, ch)?;
         rows(&mut out, plane(2), cw, ch)?;
     }
+    COPY_SCRATCH.with(|scratch| scratch.replace(data));
     Ok(Copied {
         width: w as u32,
         height: h as u32,
@@ -508,6 +516,11 @@ async fn planes_of(frame: &JsFrame) -> Result<Copied, String> {
         full_range,
         external: None,
     })
+}
+
+thread_local! {
+    /// The bytes of the last frame copied out, kept for the next.
+    static COPY_SCRATCH: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The luma of an RGB frame (for the black-bar probe on the direct path),

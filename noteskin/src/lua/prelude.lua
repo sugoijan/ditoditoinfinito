@@ -62,6 +62,15 @@ Blend = {
 }
 function StringToBlend(s) return Blend[s] or nil end
 
+-- StepMania's numeric helpers (`_fallback`'s utilities, as it defines
+-- them): `scale` maps x from [l1, h1] onto [l2, h2], `clamp` bounds it.
+function scale(x, l1, h1, l2, h2)
+	return (x - l1) * (h2 - l2) / (h1 - l1) + l2
+end
+function clamp(x, low, high)
+	return math.max(low, math.min(x, high))
+end
+
 function ProductFamily() return "ITGmania" end
 function ProductVersion() return "1.0.0" end
 function ProductID() return "ITGmania" end

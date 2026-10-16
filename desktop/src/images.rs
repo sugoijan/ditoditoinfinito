@@ -137,6 +137,9 @@ const MAX_SIDE: u32 = 8192;
 /// (a background is 1920 by 1080); with [`WORKERS`] decoding at once and
 /// the RGBA copy, a few hundred megabytes at worst.
 const MAX_ALLOC: u64 = 96 * 1024 * 1024;
+/// The largest image file read: anything larger is not a banner or a
+/// background, and is not read whole to find out.
+const MAX_FILE: u64 = 48 * 1024 * 1024;
 
 /// Where `songs/…` and the rest are read from.
 pub fn assets() -> PathBuf {
@@ -161,12 +164,73 @@ pub fn path(source: &str) -> Option<PathBuf> {
     Some(assets().join(p))
 }
 
+/// A zip's entry as a source names it: `zip:<zip>!<entry>`.
+pub fn zip_source(source: &str) -> Option<(PathBuf, String)> {
+    let rest = source.strip_prefix("zip:")?;
+    let at = rest.to_ascii_lowercase().find(".zip!")? + 4;
+    Some((PathBuf::from(&rest[..at]), rest[at + 1..].to_string()))
+}
+
+/// Zips whose directory was read, kept for their next entries (a pack's
+/// banners come one after another).
+fn zips() -> &'static std::sync::Mutex<Vec<OpenZip>> {
+    static ZIPS: std::sync::OnceLock<std::sync::Mutex<Vec<OpenZip>>> = std::sync::OnceLock::new();
+    ZIPS.get_or_init(Default::default)
+}
+
+/// A zip read before, by path.
+type OpenZip = (PathBuf, std::sync::Arc<crate::library::files::ZipReader>);
+
+/// An entry of a zip.
+fn zip_entry(zip: &Path, entry: &str) -> Option<Vec<u8>> {
+    use ddi_library::scan::Reader;
+    let reader = {
+        let mut list = zips().lock().ok()?;
+        match list.iter().position(|(p, _)| p == zip) {
+            Some(i) => list[i].1.clone(),
+            None => {
+                let r = std::sync::Arc::new(
+                    crate::library::files::ZipReader::open(zip, &crate::library::shift_jis).ok()?,
+                );
+                // A few zips kept.
+                if list.len() >= 8 {
+                    list.remove(0);
+                }
+                list.push((zip.to_path_buf(), r.clone()));
+                r
+            }
+        }
+    };
+    if reader.size(entry)? > MAX_FILE {
+        return None;
+    }
+    reader.read(entry).ok()
+}
+
 /// The image at `source`, its longest side at most `max_side` (0: as
 /// it is): its size and encoded RGBA rows.
 pub fn load(source: &str, max_side: u32) -> Option<([u32; 2], Vec<u8>)> {
-    let path = path(source)?;
-    let mut reader = image::ImageReader::open(&path)
-        .ok()?
+    load_sized(source, max_side).map(|(size, data, _)| (size, data))
+}
+
+/// An image read: its size, its RGBA rows, and its own size (before any
+/// scaling down).
+pub type Sized = ([u32; 2], Vec<u8>, (u32, u32));
+
+/// [`load`], with the image's own size (before any scaling down).
+pub fn load_sized(source: &str, max_side: u32) -> Option<Sized> {
+    let bytes = match zip_source(source) {
+        // A zip's entry, read in place (`crate::library`).
+        Some((zip, entry)) => zip_entry(&zip, &entry)?,
+        None => {
+            let path = path(source)?;
+            if std::fs::metadata(&path).ok()?.len() > MAX_FILE {
+                return None;
+            }
+            std::fs::read(path).ok()?
+        }
+    };
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .ok()?;
     // A hostile file cannot ask for more than a banner or a background
@@ -189,7 +253,7 @@ pub fn load(source: &str, max_side: u32) -> Option<([u32; 2], Vec<u8>)> {
         img
     };
     let rgba = img.to_rgba8();
-    Some(([rgba.width(), rgba.height()], rgba.into_raw()))
+    Some(([rgba.width(), rgba.height()], rgba.into_raw(), (w, h)))
 }
 
 #[cfg(test)]
@@ -235,5 +299,19 @@ mod tests {
         assert!(load("./songs/sweeteners/banner.jpg", 64).is_none());
         assert!(path("songs//sweeteners").is_some());
         assert!(load("songs/nothing/here.png", 64).is_none());
+    }
+
+    #[test]
+    fn a_zips_banner_loads_in_place() {
+        let dir = crate::library::tests::scratch("zip-banner");
+        let jpg = std::fs::read(assets().join("songs/sweeteners/banner.jpg")).unwrap();
+        let zip = dir.join("Pack.zip");
+        crate::library::tests::zip(&zip, &[("Pack/Song/bn.jpg", &jpg)]);
+        let source = format!("zip:{}!Pack/Song/bn.jpg", zip.display());
+        let (size, _) = load(&source, 64).expect("the zip's banner");
+        assert_eq!(size[0].max(size[1]), 64);
+        // Read again from the zip kept open; a name it lacks fails.
+        assert!(load(&source, 32).is_some());
+        assert!(load(&format!("zip:{}!Pack/Song/none.png", zip.display()), 64).is_none());
     }
 }

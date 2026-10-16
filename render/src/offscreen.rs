@@ -115,6 +115,11 @@ impl Offscreen {
         }
     }
 
+    /// Lets the frame's textures go (made again by the next frame).
+    pub(crate) fn release_targets(&mut self) {
+        self.targets = None;
+    }
+
     /// Makes the textures for a `width × height` frame (again, when the
     /// size changed).
     pub(crate) fn prepare(&mut self, device: &wgpu::Device, width: u32, height: u32) {

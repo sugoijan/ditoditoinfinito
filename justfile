@@ -18,7 +18,7 @@ app-check:
 
 # Check the platform-independent crates natively
 core-check:
-    @cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-desktop -p ditoditoinfinito -p xtask
+    @cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-desktop -p ditoditoinfinito -p xtask
 
 # Run all checks
 check: core-check app-check regen-seo reuse-lint
@@ -43,7 +43,11 @@ video-check file="": video
 
 # Run native unit tests
 test:
-    @cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
+    @# The bundled songs' and noteskins' indexes the desktop's tests read
+    @# (Trunk's builds write them too; a fresh checkout has none).
+    @cargo run -q -p xtask -- gen-songs
+    @cargo run -q -p xtask -- gen-noteskins
+    @cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
 
 # Regenerate the SEO fragments and sitemap from seo/metadata.toml
 # (trunk also runs this automatically as a pre_build hook)

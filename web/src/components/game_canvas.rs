@@ -2,12 +2,20 @@
 //! for a user gesture (the audio context must be created inside one), starts
 //! the play session and shows the results when it ends.
 //!
+//! Until the play starts the canvas shows the start prompt, the UI core's
+//! screen (`ddi_ui::screens::prompt`, step 6.4) on the page's canvas as the
+//! results are: the song over its picture, what still loads, the linked
+//! folder to allow, the devices not calibrated yet, an interruption. Its
+//! choices come back inside the key, click, tap or pad press that made them
+//! ([`PromptShell::choose`]): the audio context is made and resumed there,
+//! and a linked folder asked for there, with no `await` before.
+//!
 //! A controller's Start button starts the song too: Chrome and Firefox treat
-//! a gamepad press as a user gesture, so the audio context is created right
-//! after the poll that saw the press (Yew handles the message in a microtask
-//! of the same task), as a keydown does. Safari does not; when the context
-//! does not start, the prompt asks for a tap, click or key press instead, and
-//! one made while the screen still waits resumes the waiting context.
+//! a gamepad press as a user gesture, so the audio context is created in
+//! the poll that saw the press, as a keydown does. Safari does not; when the
+//! context does not start, the prompt asks for a tap, click or key press
+//! instead, and one made while the screen still waits resumes the waiting
+//! context.
 //!
 //! On touch screens (a coarse pointer, or once a finger has touched the
 //! screen) the play screen shows a quit button instead of the back link,
@@ -17,6 +25,7 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
+use crate::component::{Callback, Component, Context, NodeRef};
 use ddi_chart::Song;
 use ddi_engine::lyrics::LyricTrack;
 use ddi_engine::player::Results;
@@ -26,12 +35,10 @@ use gloo::events::{EventListener, EventListenerOptions};
 use gloo::render::{AnimationFrame, request_animation_frame};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{AudioBuffer, HtmlElement, KeyboardEvent};
-use yew::prelude::*;
+use web_sys::{AudioBuffer, HtmlElement, KeyboardEvent, PointerEvent};
 
 use crate::calibration::{self, CalMode, Outcome};
 use crate::game_loop::GameLoop;
-use crate::lyrics::LyricsView;
 use crate::mods::mods_summary;
 use crate::play::{PlaySession, SessionConfig, SessionEvent};
 use crate::router::Route;
@@ -42,6 +49,10 @@ use crate::web::gamepad::Gamepads;
 use crate::web::gfx::{BackendPreference, SurfaceMode};
 use crate::web::video::ModuleStatus;
 use ddi_library::backgrounds::{self, BgImage};
+use ddi_ui::screens::prompt::{
+    PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptState, PromptStep, SharedPrompt,
+    chart_line, mods_line, new_device_step,
+};
 
 /// How long after the results' Retry a start is not taken (ms).
 const PROMPT_GUARD_MS: f64 = 500.0;
@@ -84,6 +95,13 @@ pub(crate) struct Loaded {
     pub(crate) banner: Option<String>,
 }
 
+/// What the start prompt shows behind it: the opening still's or the
+/// background's kept file (`crate::web::textures`), under the play's
+/// background name and a suffix, and the image's width over its height.
+fn prompt_source(kind: &str) -> Option<String> {
+    PLAY_BACKGROUND.with(|b| b.borrow().as_ref().map(|n| format!("{n}:{kind}")))
+}
+
 thread_local! {
     /// The texture source the current play's background is kept under for
     /// its results (`crate::web::textures::keep`): a name of its own for
@@ -114,7 +132,13 @@ fn play_background() -> Option<String> {
 
 fn release_play_background() {
     if let Some(old) = PLAY_BACKGROUND.with(|b| b.borrow_mut().take()) {
+        // The textures made of them go too (each load has names of its
+        // own: kept, they would fill the cache visit after visit).
+        crate::web::screen::forget_textures(&old);
         crate::web::textures::keep(&old, None);
+        for kind in ["still", "song"] {
+            crate::web::textures::keep(&format!("{old}:{kind}"), None);
+        }
     }
 }
 
@@ -131,7 +155,10 @@ pub(crate) enum Msg {
     SongLoaded(Result<Rc<Loaded>, LoadError>),
     /// The answer to asking for a linked song's folder.
     Access(bool),
-    StartRequested,
+    /// The start prompt's Start: the audio context made inside the gesture
+    /// (or a pad's press), and whether it came from a pad the browser may
+    /// not count as a gesture.
+    Begin(Box<Result<WebAudio, String>>, bool),
     /// A controller button went down: `(Gamepad.id, control)`.
     PadPress(String, String),
     /// Started from a pad, but the browser kept the audio context
@@ -147,6 +174,8 @@ pub(crate) enum Msg {
     },
     /// On the new-device prompt: register the devices and go calibrate.
     DeviceCalibrate,
+    /// A card's action (a calibration's outcome; a song's score).
+    CardAction(String),
     Session(SessionEvent),
     Retry,
     SaveCalibration,
@@ -171,29 +200,34 @@ pub(crate) enum Msg {
     NoteskinLoaded(Option<Box<crate::noteskins::Prepared>>),
 }
 
-#[derive(Properties, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct Props {
     pub(crate) source: SongSource,
-    #[prop_or_default]
     pub(crate) backend: BackendPreference,
-    #[prop_or_default]
     pub(crate) auto: bool,
     /// Autoplay through the headless tests' fake gamepad.
-    #[prop_or_default]
     pub(crate) auto_pad: bool,
     /// Autoplay bias in seconds (testing aid).
-    #[prop_or_default]
     pub(crate) auto_bias: f64,
     /// Frames take longer while a movie is drawn (testing aid for the
     /// automatic video setting).
-    #[prop_or_default]
     pub(crate) slow: bool,
     /// Asks the app to mount the screen again (a lost device).
-    #[prop_or_default]
     pub(crate) restart: Callback<()>,
 }
 
+/// The page's few DOM elements around the canvas.
+struct PlayDom {
+    overlay: HtmlElement,
+    back: HtmlElement,
+    _pointer: EventListener,
+}
+
 pub(crate) struct GameCanvas {
+    /// The page's DOM, made at the first view.
+    dom: RefCell<Option<PlayDom>>,
+    /// A finger or a pen was seen (the pointer listener's own copy).
+    touch_seen: Rc<std::cell::Cell<bool>>,
     /// Where the app's canvas is put (`web::screen`).
     slot: NodeRef,
     /// The app's canvas, while this screen holds it.
@@ -203,8 +237,6 @@ pub(crate) struct GameCanvas {
     device_lost: bool,
     _lost: crate::web::screen::Listener,
     debug: NodeRef,
-    /// Lyrics overlay (filled by the game loop).
-    lyrics: NodeRef,
     gfx: Status<&'static str>,
     song: Status<Rc<Loaded>>,
     /// A linked song whose folder needs the permission asked again: the
@@ -223,9 +255,6 @@ pub(crate) struct GameCanvas {
     gamepads: Option<Gamepads>,
     /// A pad start left the audio suspended; the prompt asks for a gesture.
     needs_gesture: bool,
-    /// The context a pad press created, while the screen waits to see
-    /// whether it starts; a tap or key press meanwhile resumes it.
-    pad_start_ctx: Option<web_sys::AudioContext>,
     /// Touch screen: show the quit button and touch hints.
     touch: bool,
     /// Decoded background images until they are copied to the GPU (which
@@ -244,20 +273,29 @@ pub(crate) struct GameCanvas {
     )>,
     /// The video decoder's download, for the start prompt.
     video_line: Option<String>,
+    /// The start prompt on the canvas while the play has not started (or
+    /// was interrupted), what it shows, and what its choices reach.
+    prompt: Option<crate::components::ui_dev::Embedded>,
+    prompt_state: SharedPrompt,
+    shell: Rc<PromptShell>,
+    /// The theme's results could not start: a card says the score.
+    results_failed: bool,
+    /// The prompt's picture: the still's and the background's kept
+    /// sources with their shapes, once loaded.
+    still: Option<(String, f32)>,
+    song_picture: Option<(String, f32)>,
     /// The noteskin readied before the game loop was there.
     noteskin: Option<Box<crate::noteskins::Prepared>>,
     _video_tick: gloo::timers::callback::Interval,
     _keys: Option<EventListener>,
     /// A song's results, the theme's screen on the canvas (step 6.1).
     results: Option<crate::components::ui_dev::Embedded>,
-    /// While they show: their host, which takes the keys and the pads.
+    /// While a screen of the page's shows on the canvas (the prompt, the
+    /// results): its host, which takes the keys and the pads.
     results_host: Rc<RefCell<Option<Weak<RefCell<crate::components::ui_dev::Host>>>>>,
     /// The ruleset played by and the music's length, for the results.
     rules: Option<ddi_engine::Ruleset>,
     song_length: f64,
-    /// When the results' Retry brought the start prompt back (ms, the
-    /// page's clock): a click right after it is the tap's, not a start.
-    retried_at: f64,
     /// The display's refresh rate as the play started (for the history).
     start_refresh: f64,
     /// Keeping the play: not asked, under way (the results wait a moment
@@ -278,6 +316,78 @@ enum Save {
 /// a library waiting for another tab would take longer).
 const SAVE_WAIT_MS: u32 = 1000;
 
+/// What the start prompt's choices reach, inside the input that made
+/// them (`ddi_ui::screens::prompt::PromptFn`).
+pub(crate) struct PromptShell {
+    link: crate::component::Scope<GameCanvas>,
+    state: SharedPrompt,
+    /// The linked folder's handle while the prompt asks for it.
+    access: RefCell<Option<JsValue>>,
+    /// The context a pad press made, while the screen waits to see
+    /// whether it starts; a tap or key press meanwhile resumes it.
+    pad_ctx: RefCell<Option<web_sys::AudioContext>>,
+    /// When the results' Retry brought the start prompt back (ms, the
+    /// page's clock): a tap right after it is the Retry's, not a start.
+    retried_at: std::cell::Cell<f64>,
+}
+
+impl PromptShell {
+    fn choose(&self, choice: PromptChoice, cx: &mut ddi_ui::Cx) {
+        let send = |m: Msg| self.link.send_message(m);
+        match choice {
+            PromptChoice::Start => {
+                if js_sys::Date::now() - self.retried_at.get() < PROMPT_GUARD_MS {
+                    return;
+                }
+                // A pad's start is waiting: this gesture lets it play.
+                if let Some(ctx) = self.pad_ctx.borrow().as_ref() {
+                    if cx.in_gesture() {
+                        let _ = ctx.resume();
+                    }
+                    return;
+                }
+                if self.state.borrow().step != PromptStep::Ready {
+                    return;
+                }
+                // Made and asked to start here, inside the gesture (no
+                // `await` before; `AGENTS.md`).
+                let audio = WebAudio::new();
+                // A pad's press: the context is watched until it starts
+                // (it may stay suspended), not awaited.
+                let from_pad = !cx.in_gesture() || cx.menu_from_pad();
+                if let Ok(a) = &audio {
+                    a.resume_now();
+                    if from_pad {
+                        *self.pad_ctx.borrow_mut() = Some(a.context().clone());
+                    }
+                }
+                self.state
+                    .borrow_mut()
+                    .set_step(PromptStep::Loading("preparing audio…".into()));
+                send(Msg::Begin(Box::new(audio), from_pad));
+            }
+            PromptChoice::Back => send(Msg::BackRequested),
+            PromptChoice::Allow => {
+                // The ask happens here, in the gesture.
+                if let Some(handle) = self.access.borrow().as_ref() {
+                    let answer = crate::web::folders::access(handle);
+                    self.link
+                        .send_future(async move { Msg::Access(answer.await) });
+                }
+            }
+            PromptChoice::Retry => send(Msg::Retry),
+            PromptChoice::Action(id) => send(Msg::CardAction(id)),
+            PromptChoice::Device(id) => send(match id.as_str() {
+                "calibrate" => Msg::DeviceCalibrate,
+                other => Msg::DeviceContinue {
+                    copy_audio_from: other.strip_prefix("copy-audio:").map(str::to_string),
+                    copy_display_from: other.strip_prefix("copy-display:").map(str::to_string),
+                },
+            }),
+        }
+    }
+}
+
 enum Status<T> {
     Pending,
     Ready(T),
@@ -297,7 +407,7 @@ enum Stage {
     },
     Playing,
     Finished {
-        results: Results,
+        results: Box<Results>,
         calibration: Option<Outcome>,
         device_changed: bool,
         /// Why the automatic setting turned the background videos off.
@@ -367,10 +477,11 @@ impl Component for GameCanvas {
                     if e.repeat() || results.borrow().is_some() {
                         return;
                     }
-                    match e.code().as_str() {
-                        "Enter" | "Space" => link.send_message(Msg::StartRequested),
-                        "Escape" | "Backspace" => link.send_message(Msg::BackRequested),
-                        _ => {}
+                    // The prompt and the results take their own keys; in
+                    // play the session has Escape; on calibration's card
+                    // Escape and Backspace leave.
+                    if matches!(e.code().as_str(), "Escape" | "Backspace") {
+                        link.send_message(Msg::BackRequested);
                     }
                 },
             )
@@ -394,7 +505,20 @@ impl Component for GameCanvas {
             let link = ctx.link().clone();
             gloo::timers::callback::Interval::new(250, move || link.send_message(Msg::VideoTick))
         };
+        let prompt_state = SharedPrompt::default();
+        prompt_state
+            .borrow_mut()
+            .set_step(PromptStep::Loading("loading…".into()));
+        let shell = Rc::new(PromptShell {
+            link: ctx.link().clone(),
+            state: prompt_state.clone(),
+            access: RefCell::new(None),
+            pad_ctx: RefCell::new(None),
+            retried_at: std::cell::Cell::new(f64::NEG_INFINITY),
+        });
         GameCanvas {
+            dom: RefCell::new(None),
+            touch_seen: Rc::new(std::cell::Cell::new(false)),
             slot: NodeRef::default(),
             attachment: None,
             device_lost: false,
@@ -403,7 +527,6 @@ impl Component for GameCanvas {
                 crate::web::screen::on_lost(move || link.send_message(Msg::DeviceLost))
             },
             debug: NodeRef::default(),
-            lyrics: NodeRef::default(),
             gfx: Status::Pending,
             song: Status::Pending,
             access: None,
@@ -417,7 +540,6 @@ impl Component for GameCanvas {
             played_offset: 0.0,
             gamepads,
             needs_gesture: false,
-            pad_start_ctx: None,
             touch: coarse_pointer(),
             backgrounds: Vec::new(),
             stage_contents: Vec::new(),
@@ -425,13 +547,18 @@ impl Component for GameCanvas {
             movies: Vec::new(),
             noteskin: None,
             video_line: None,
+            prompt: None,
+            prompt_state,
+            shell,
+            results_failed: false,
+            still: None,
+            song_picture: None,
             _video_tick: video_tick,
             _keys: keys,
             results: None,
             results_host,
             rules: None,
             song_length: 0.0,
-            retried_at: f64::NEG_INFINITY,
             start_refresh: 0.0,
             save: Save::NotAsked,
             _save_wait: None,
@@ -439,21 +566,7 @@ impl Component for GameCanvas {
     }
 
     fn rendered(&mut self, ctx: &Context<Self>, first_render: bool) {
-        // The folder prompt's button takes Enter (a gesture, as the ask
-        // needs); `autofocus` is ignored on inserted elements.
-        if self.access.is_some()
-            && let Some(button) = web_sys::window()
-                .and_then(|w| w.document())
-                .and_then(|d| d.query_selector(".access-prompt button").ok().flatten())
-                .and_then(|b| b.dyn_into::<HtmlElement>().ok())
-        {
-            let _ = button.focus();
-        }
         if !first_render {
-            // The debug element is re-created on re-render; keep the loop pointed at it.
-            if let Some(game) = self.game.borrow_mut().as_mut() {
-                game.set_debug_element(self.debug.cast::<HtmlElement>());
-            }
             return;
         }
         let attached = self
@@ -499,13 +612,32 @@ impl Component for GameCanvas {
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
+        let render = self.handle(ctx, msg);
+        self.sync_prompt(ctx);
+        // The quit button over a touch screen's play (drawn in the scene).
+        crate::web::touch::set_quit_shown(matches!(self.stage, Stage::Playing) && self.touch);
+        render
+    }
+
+    fn view(&self, ctx: &Context<Self>) {
+        self.page(ctx)
+    }
+
+    fn destroy(&mut self, _ctx: &Context<Self>) {
+        self.teardown();
+    }
+}
+
+impl GameCanvas {
+    fn handle(&mut self, ctx: &Context<Self>, msg: Msg) -> bool {
         match msg {
             Msg::GfxReady(Ok(mut game)) => {
                 self.gfx = Status::Ready(game.backend_name());
                 game.set_debug_element(self.debug.cast::<HtmlElement>());
                 *self.game.borrow_mut() = Some(*game);
                 self.apply_background();
-                schedule(self.raf.clone(), self.game.clone());
+                // The prompt draws (`sync_prompt`); the play's frames start
+                // with the play.
                 true
             }
             Msg::DeviceLost => {
@@ -538,6 +670,16 @@ impl Component for GameCanvas {
             }
             Msg::BackgroundLoaded(what, image) => {
                 if let Some(image) = image {
+                    // The prompt's picture: the still, else the background
+                    // (as the play opens on them), kept under its own name.
+                    let shape = image.width() as f32 / image.height().max(1) as f32;
+                    match what {
+                        BgImage::Still => self.still = prompt_source("still").map(|s| (s, shape)),
+                        BgImage::Song => {
+                            self.song_picture = prompt_source("song").map(|s| (s, shape))
+                        }
+                        _ => {}
+                    }
                     self.backgrounds.push((what, image));
                     self.apply_background();
                 }
@@ -597,6 +739,7 @@ impl Component for GameCanvas {
                 changed
             }
             Msg::SongLoaded(Err(LoadError::NeedsAccess { handle, name })) => {
+                *self.shell.access.borrow_mut() = Some(handle.clone());
                 self.access = Some((handle, name, None));
                 true
             }
@@ -612,6 +755,7 @@ impl Component for GameCanvas {
                     return true;
                 }
                 self.access = None;
+                self.shell.access.borrow_mut().take();
                 if let SongSource::Song { id, chart } = ctx.props().source.clone() {
                     load(ctx, id, chart);
                 }
@@ -630,18 +774,7 @@ impl Component for GameCanvas {
                 back_route(&ctx.props().source).navigate();
                 false
             }
-            Msg::StartRequested => {
-                // The click a touch makes after a tap on the results'
-                // Retry lands on the prompt that replaced them.
-                if js_sys::Date::now() - self.retried_at < PROMPT_GUARD_MS {
-                    return false;
-                }
-                if let (Stage::Decoding, Some(audio)) = (&self.stage, &self.pad_start_ctx) {
-                    let _ = audio.resume();
-                    return false;
-                }
-                self.start(ctx, false)
-            }
+            Msg::Begin(audio, from_pad) => self.start(ctx, *audio, from_pad),
             Msg::PadPress(id, control) => {
                 // During play the session owns the pad (Back included).
                 if matches!(self.stage, Stage::Playing | Stage::Decoding) {
@@ -657,22 +790,14 @@ impl Component for GameCanvas {
                 };
                 let is_start = pad.start.as_deref() == Some(control.as_str());
                 let is_back = pad.back.as_deref() == Some(control.as_str());
+                // The prompt takes the pads while it shows (its new-device
+                // step plays on with a pad's Start); here what is left: a
+                // calibration's card.
                 match &self.stage {
-                    Stage::Idle if is_start => self.start(ctx, true),
-                    // A player on a pad alone must get past the new-device
-                    // prompt too: Start plays with the default offsets.
-                    Stage::NewDevice { .. } if is_start => <Self as Component>::update(
-                        self,
-                        ctx,
-                        Msg::DeviceContinue {
-                            copy_audio_from: None,
-                            copy_display_from: None,
-                        },
-                    ),
                     Stage::Finished { .. } | Stage::Interrupted if is_start => {
-                        <Self as Component>::update(self, ctx, Msg::Retry)
+                        self.handle(ctx, Msg::Retry)
                     }
-                    _ if is_back => <Self as Component>::update(self, ctx, Msg::BackRequested),
+                    _ if is_back => self.handle(ctx, Msg::BackRequested),
                     _ => false,
                 }
             }
@@ -682,13 +807,13 @@ impl Component for GameCanvas {
                 changed
             }
             Msg::NeedsGesture => {
-                self.pad_start_ctx = None;
+                self.shell.pad_ctx.borrow_mut().take();
                 self.stage = Stage::Idle;
                 self.needs_gesture = true;
                 true
             }
             Msg::Decoded(Ok((audio, buffer))) => {
-                self.pad_start_ctx = None;
+                self.shell.pad_ctx.borrow_mut().take();
                 // Probe the devices now that the context is running.
                 let refresh = self
                     .game
@@ -744,7 +869,7 @@ impl Component for GameCanvas {
                 true
             }
             Msg::Decoded(Err(e)) => {
-                self.pad_start_ctx = None;
+                self.shell.pad_ctx.borrow_mut().take();
                 self.stage = Stage::Error(e);
                 true
             }
@@ -772,7 +897,7 @@ impl Component for GameCanvas {
                     })
                     .unwrap_or_default();
                 self.stage = Stage::Finished {
-                    results: *results,
+                    results,
                     calibration,
                     device_changed,
                     video_stopped,
@@ -829,7 +954,35 @@ impl Component for GameCanvas {
                 }
                 true
             }
+            Msg::CardAction(id) => match id.as_str() {
+                "save" => self.handle(ctx, Msg::SaveCalibration),
+                "again" => self.handle(ctx, Msg::Retry),
+                "songs" => {
+                    Route::Home.navigate();
+                    false
+                }
+                "next" | "done" => {
+                    if let SongSource::Calibration(mode) = &ctx.props().source {
+                        match (id.as_str(), mode.next()) {
+                            ("next", Some(m)) => Route::CalibrateRun {
+                                mode: m.id().into(),
+                                auto: false,
+                                bias_ms: 0,
+                            }
+                            .navigate(),
+                            // The last step of the guided flow ends it: back
+                            // to the songs; earlier ones leave the flow, to
+                            // the calibration page.
+                            (_, None) => Route::Home.navigate(),
+                            _ => Route::Calibrate.navigate(),
+                        }
+                    }
+                    false
+                }
+                _ => false,
+            },
             Msg::Retry => {
+                self.results_failed = false;
                 if self.device_lost {
                     ctx.props().restart.emit(());
                     return false;
@@ -837,13 +990,11 @@ impl Component for GameCanvas {
                 let had_results = self.close_results();
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
-                    game.scene_mode();
                 }
                 if had_results {
-                    // The play's frames again (the results drew their own).
-                    schedule(self.raf.clone(), self.game.clone());
-                    self.retried_at = js_sys::Date::now();
+                    self.shell.retried_at.set(js_sys::Date::now());
                 }
+                // The prompt again (`sync_prompt`).
                 self.stage = Stage::Idle;
                 true
             }
@@ -869,178 +1020,69 @@ impl Component for GameCanvas {
         }
     }
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let link = ctx.link();
+    /// The page around the canvas: what is not on it yet (a GPU that
+    /// failed, calibration's card, results that could not start), the
+    /// debug text, the lyrics, the touch quit button, the way back.
+    fn page(&self, ctx: &Context<Self>) {
+        use crate::component::element;
+        let root = ctx.root();
         let source = &ctx.props().source;
-        let overlay = match (&self.gfx, &self.song, &self.stage) {
-            (Status::Failed(e), _, _) => {
-                html! { <div class="canvas-overlay error">{ crate::components::ui_test::no_gpu(e) }</div> }
+        let mut dom = self.dom.borrow_mut();
+        let dom = dom.get_or_insert_with(|| {
+            let slot = element(root, "div", "game-canvas-slot");
+            self.slot.set(&slot);
+            // A GPU that failed: plain DOM (nothing draws on the canvas).
+            let overlay = element(root, "div", "canvas-overlay error");
+            if self.settings.debug {
+                let debug = element(root, "pre", "debug-hud");
+                self.debug.set(&debug);
             }
-            (_, Status::Failed(e), _) => {
-                html! { <div class="canvas-overlay error">{ format!("song failed to load: {e}") }</div> }
-            }
-            (_, Status::Pending, _) if self.access.is_some() => {
-                let (handle, name, refused) = self.access.clone().expect("checked");
-                // The ask happens in the click itself (a user gesture).
-                let onclick = {
-                    let link = link.clone();
-                    Callback::from(move |_: MouseEvent| {
-                        let answer = crate::web::folders::access(&handle);
-                        link.send_future(async move { Msg::Access(answer.await) });
-                    })
-                };
-                html! {
-                    <div class="canvas-overlay access-prompt">
-                        <div>{ format!("This song plays from the folder “{name}”, which the browser asks about again.") }</div>
-                        <button class="button" {onclick} autofocus=true>{ "allow reading the folder" }</button>
-                        { for refused.map(|r| html! { <div class="error">{ r }</div> }) }
-                    </div>
-                }
-            }
-            (Status::Pending, _, _) | (_, Status::Pending, _) => {
-                html! { <div class="canvas-overlay muted">{ "loading…" }</div> }
-            }
-            (Status::Ready(_), Status::Ready(song), Stage::Idle) => html! {
-                <div class="canvas-overlay start-prompt" onclick={link.callback(|_| Msg::StartRequested)}>
-                    <div class="start-title">{ &song.title }</div>
-                    <div class="muted">{ &song.subtitle }</div>
-                    if self.needs_gesture {
-                        <div class="start-hint">{ "This browser needs a tap, click or key press to start the audio." }</div>
-                    }
-                    if let Some(line) = &self.video_line {
-                        <div class="muted">{ line }</div>
-                    }
-                    if self.touch {
-                        <div class="start-hint">{ "tap to start · during play, hold or double-tap the ✕ button to quit" }</div>
-                    } else {
-                        <div class="start-hint">{ "press Enter (or Start on a controller) or click to start · Esc goes back · during play, hold or double-tap Esc (or Back) to quit" }</div>
-                    }
-                </div>
-            },
-            (
-                _,
-                _,
-                Stage::NewDevice {
-                    new_audio,
-                    new_display,
-                    ..
-                },
-            ) => self.new_device_view(ctx, *new_audio, *new_display),
-            (_, _, Stage::Decoding) => {
-                html! { <div class="canvas-overlay muted">{ "preparing audio…" }</div> }
-            }
-            (_, _, Stage::Playing) => html! {},
-            (_, _, Stage::Aborted) => html! {},
-            (_, _, Stage::Interrupted) => html! {
-                <div class="canvas-overlay results">
-                    <div class="results-card">
-                        <div class="results-score">{ "interrupted" }</div>
-                        <p class="muted">{ "The tab was hidden or audio was suspended." }</p>
-                        <div class="results-actions">
-                            <button onclick={link.callback(|_| Msg::Retry)}>{ "retry" }</button>
-                            <a href={back_route(source).to_hash()}>{ "back" }</a>
-                        </div>
-                    </div>
-                </div>
-            },
-            (_, _, Stage::Error(e)) => html! { <div class="canvas-overlay error">{ e }</div> },
-            (
-                _,
-                _,
-                Stage::Finished {
-                    results,
-                    calibration,
-                    device_changed,
-                    video_stopped,
-                    video_trouble,
-                },
-            ) => match (source, calibration) {
-                (SongSource::Calibration(mode), Some(o)) => calibration_view(
-                    o,
-                    *mode,
-                    &self.settings,
-                    self.devices.as_ref(),
-                    self.refresh_hz(),
-                    false,
-                    *device_changed,
-                    link,
-                ),
-                // The theme's results on the canvas (or a moment's wait
-                // for the play to be kept); a plain card only should it
-                // not start.
-                (SongSource::Song { .. }, _)
-                    if self.results.is_some() || self._save_wait.is_some() =>
+            let back = element(root, "a", "back-link");
+            let _ = back.set_attribute("href", &back_route(source).to_hash());
+            back.set_text_content(Some("← back"));
+            let link = ctx.link().clone();
+            let touch = self.touch_seen.clone();
+            let pointer = EventListener::new(root, "pointerdown", move |e| {
+                if let Some(e) = e.dyn_ref::<PointerEvent>()
+                    && !touch.get()
+                    && matches!(e.pointer_type().as_str(), "touch" | "pen")
                 {
-                    html! {}
+                    touch.set(true);
+                    link.send_message(Msg::TouchSeen);
                 }
-                (SongSource::Song { .. }, _) => html! {
-                    <div class="canvas-overlay results">
-                        <div class="results-card">
-                            <div class="results-score">{ score_text(results) }</div>
-                            <div class="results-actions">
-                                <button onclick={link.callback(|_| Msg::Retry)}>{ "retry" }</button>
-                                <a href={Route::Home.to_hash()}>{ "song list" }</a>
-                            </div>
-                        </div>
-                    </div>
-                },
-                (SongSource::Calibration(_), None) => {
-                    let _ = (video_stopped, video_trouble);
-                    results_view(
-                        results,
-                        self.names.as_ref(),
-                        self.layout.as_ref(),
-                        *device_changed,
-                        link,
-                    )
-                }
-            },
-            (_, _, Stage::Saved(o)) => match source {
-                SongSource::Calibration(mode) => calibration_view(
-                    o,
-                    *mode,
-                    &self.settings,
-                    self.devices.as_ref(),
-                    self.refresh_hz(),
-                    true,
-                    false,
-                    link,
-                ),
-                SongSource::Song { .. } => html! {},
-            },
-        };
-        let debug = if self.settings.debug {
-            html! { <pre class="debug-hud" ref={self.debug.clone()}></pre> }
-        } else {
-            html! {}
-        };
-        let playing = matches!(self.stage, Stage::Playing);
-        let touch = self.touch;
-        let onpointerdown = link.batch_callback(move |e: PointerEvent| {
-            (!touch && matches!(e.pointer_type().as_str(), "touch" | "pen"))
-                .then_some(Msg::TouchSeen)
+            });
+            PlayDom {
+                overlay,
+                back,
+                _pointer: pointer,
+            }
         });
-        html! {
-            <div class={classes!("game-canvas-host", playing.then_some("playing"))} {onpointerdown}>
-                <div class="game-canvas-slot" ref={self.slot.clone()}></div>
-                <div class="lyrics" ref={self.lyrics.clone()} aria-hidden="true"></div>
-                { overlay }
-                { debug }
-                if playing && touch {
-                    // The session's touch source handles it (see `web::touch`).
-                    <button class="touch-quit" aria-label="quit: hold or double-tap" title="hold or double-tap to quit">{ "✕" }</button>
-                } else if self.results.is_some() {
-                    // The results have their own way back.
-                } else {
-                    <a class="back-link" href={back_route(source).to_hash()}>{ "← back" }</a>
+        let playing = matches!(self.stage, Stage::Playing);
+        root.set_class_name(if playing {
+            "game-canvas-host playing"
+        } else {
+            "game-canvas-host"
+        });
+        match &self.gfx {
+            Status::Failed(e) => {
+                dom.overlay.set_hidden(false);
+                if dom.overlay.child_element_count() == 0 {
+                    let page = element(&dom.overlay, "div", "");
+                    crate::component::no_gpu(&page, e);
                 }
-            </div>
+            }
+            _ => dom.overlay.set_hidden(true),
         }
+        // The way back: the prompt and the results have their own, and a
+        // touch screen's play the scene's quit button (`web::touch`).
+        dom.back
+            .set_hidden((playing && self.touch) || self.results.is_some() || self.prompt.is_some());
     }
 
-    fn destroy(&mut self, _ctx: &Context<Self>) {
+    fn teardown(&mut self) {
         crate::history::set_playing(false);
         crate::history::set_current(None);
+        self.close_prompt();
         self.close_results();
         release_play_background();
         for (_, image) in self.backgrounds.drain(..) {
@@ -1049,31 +1091,62 @@ impl Component for GameCanvas {
         if let Some(p) = self.noteskin.take() {
             p.close();
         }
-        self.raf.borrow_mut().take();
-        self.game.borrow_mut().take();
+        // The route can change inside a frame (the game loop or its
+        // animation frame borrowed): what is borrowed goes once that
+        // returns.
+        take_later(&self.raf);
+        take_later(&self.game);
         self.attachment = None;
     }
 }
 
-impl GameCanvas {
-    /// Creates the audio context (synchronously: this runs inside the key,
-    /// click or pad press that asked for it) and decodes the song.
-    fn start(&mut self, ctx: &Context<Self>, from_pad: bool) -> bool {
-        if !matches!(self.stage, Stage::Idle) {
-            return false;
+/// Empties `cell` now, or right after whoever borrows it returns.
+fn take_later<T: 'static>(cell: &Rc<RefCell<Option<T>>>) {
+    match cell.try_borrow_mut() {
+        Ok(mut c) => drop(c.take()),
+        Err(_) => {
+            let cell = cell.clone();
+            gloo::timers::callback::Timeout::new(0, move || {
+                if let Ok(mut c) = cell.try_borrow_mut() {
+                    drop(c.take());
+                }
+            })
+            .forget();
         }
-        let (Status::Ready(song), Status::Ready(_)) = (&self.song, &self.gfx) else {
-            return false;
-        };
-        let audio = match WebAudio::new() {
-            Ok(a) => a,
+    }
+}
+
+impl GameCanvas {
+    /// Decodes the song with the audio context the prompt's Start made
+    /// inside its gesture (`PromptShell::choose`), waiting for a pad's to
+    /// start.
+    fn start(
+        &mut self,
+        ctx: &Context<Self>,
+        audio: Result<WebAudio, String>,
+        from_pad: bool,
+    ) -> bool {
+        let ready = matches!(
+            (&self.stage, &self.song, &self.gfx),
+            (Stage::Idle, Status::Ready(_), Status::Ready(_))
+        );
+        let audio = match audio {
+            Ok(a) if ready => a,
+            Ok(a) => {
+                // Not waiting for a start (a second press): let it go.
+                let _ = a.context().close();
+                self.shell.pad_ctx.borrow_mut().take();
+                return false;
+            }
             Err(e) => {
                 self.stage = Stage::Error(e);
                 return true;
             }
         };
+        let Status::Ready(song) = &self.song else {
+            return false;
+        };
         self.stage = Stage::Decoding;
-        let audio_ctx = audio.context().clone();
         let song = song.clone();
         ctx.link().send_future(async move {
             if from_pad {
@@ -1092,14 +1165,17 @@ impl GameCanvas {
             }
             audio.wait_for_latency().await;
             let r = match &song.music_bytes {
-                Some(bytes) => audio.decode(bytes).await,
+                Some(bytes) => {
+                    audio
+                        .decode(bytes, ddi_session::music_target(&song.song))
+                        .await
+                }
                 None => calibration::click_track(&audio, &song.song)
                     .ok_or_else(|| "could not synthesize the click track".to_string()),
             };
             Msg::Decoded(r.map(|b| (audio, b)))
         });
         self.needs_gesture = false;
-        self.pad_start_ctx = from_pad.then(|| audio_ctx.clone());
         true
     }
 
@@ -1188,25 +1264,16 @@ impl GameCanvas {
                     ctx.props().auto,
                     self.devices.clone(),
                 );
-                c.ruleset = ddi_engine::rules::presets::calibration();
-                // The test measures the plain chart: no turn, no removed
-                // notes, every note drawn at a steady speed.
-                c.options.transform = Default::default();
-                c.options.appearance = Default::default();
-                c.options.scroll.scroll_action = Default::default();
+                c.session.calibrate(*mode);
                 c.render.background = 0.0;
                 c.render.field_filter = 0.0;
                 c.render.hide_notes = mode.hide_notes();
                 c.render.show_deltas = true;
-                c.calibration = Some(*mode);
-                if mode.muted() {
-                    c.volume = 0.0;
-                }
                 (0, c)
             }
         };
-        config.auto_bias = ctx.props().auto_bias;
-        config.auto_pad = ctx.props().auto_pad;
+        config.session.auto_bias = ctx.props().auto_bias;
+        config.session.auto_pad = ctx.props().auto_pad;
         config.gamepads = self.gamepads.clone();
         config.touch_canvas = crate::web::screen::canvas();
         let shift = match &ctx.props().source {
@@ -1240,6 +1307,7 @@ impl GameCanvas {
                 self.names = Some(session.names.clone());
                 self.rules = Some(session.rules.fresh());
                 self.song_length = session.length;
+                // Drawn over the play by the 2D pass (`GameLoop`).
                 let lyrics = self
                     .settings
                     .lyrics
@@ -1247,9 +1315,7 @@ impl GameCanvas {
                         let single_row = session.layout.lanes.iter().all(|l| l.row == 0);
                         LyricTrack::new(play_song, chart, self.settings.reverse, single_row)
                     })
-                    .filter(|t| !t.is_empty())
-                    .zip(self.lyrics.cast::<HtmlElement>())
-                    .map(|(track, el)| LyricsView::new(track, el));
+                    .filter(|t| !t.is_empty());
                 self.start_refresh = self.refresh_hz();
                 self.save = Save::NotAsked;
                 crate::history::set_playing(true);
@@ -1273,80 +1339,365 @@ impl GameCanvas {
             Err(e) => self.stage = Stage::Error(e),
         }
     }
+}
 
-    fn new_device_view(&self, ctx: &Context<Self>, new_audio: bool, new_display: bool) -> Html {
-        let link = ctx.link();
-        let Some(d) = &self.devices else {
-            return html! {};
+/// The start prompt on the canvas (`ddi_ui::screens::prompt`).
+impl GameCanvas {
+    /// The prompt as the page is now: shown while the play has not started
+    /// (or was interrupted), with the step, lines and picture of the
+    /// moment; gone, the play's frames, once it plays.
+    fn sync_prompt(&mut self, ctx: &Context<Self>) {
+        // A calibration's outcome, or a song's should its results not
+        // start, show on the prompt's screen as a card.
+        let card = match (&self.stage, &ctx.props().source) {
+            (Stage::Finished { .. } | Stage::Saved(_), SongSource::Calibration(_)) => true,
+            (Stage::Finished { .. }, SongSource::Song { .. }) => self.results_failed,
+            _ => false,
         };
-        let s = &self.settings;
-        let row = |what: &str,
-                   fp: &ddi_platform::DeviceFingerprint,
-                   is_new: bool,
-                   known: Vec<(String, String, f64)>,
-                   kind: &'static str|
-         -> Html {
-            if !is_new {
-                return html! { <li>{ format!("{what}: {} (known)", fp.label) }</li> };
+        let waiting = (card
+            || matches!(
+                self.stage,
+                Stage::Idle
+                    | Stage::Decoding
+                    | Stage::NewDevice { .. }
+                    | Stage::Interrupted
+                    | Stage::Error(_)
+            ))
+            && self.results.is_none()
+            && matches!(self.gfx, Status::Ready(_));
+        if !waiting {
+            if self.prompt.is_some() {
+                self.close_prompt();
+                if matches!(self.stage, Stage::Playing) {
+                    if let Some(game) = self.game.borrow_mut().as_mut() {
+                        game.scene_mode();
+                    }
+                    schedule(self.raf.clone(), self.game.clone());
+                }
             }
-            html! {
-                <li>
-                    { format!("new {what}: {}", fp.label) }
-                    { if known.is_empty() { html!{} } else { html! {
-                        <ul class="copy-list">
-                            { for known.into_iter().map(|(id, label, off)| {
-                                let onclick = if kind == "audio" {
-                                    link.callback(move |_| Msg::DeviceContinue { copy_audio_from: Some(id.clone()), copy_display_from: None })
-                                } else {
-                                    link.callback(move |_| Msg::DeviceContinue { copy_audio_from: None, copy_display_from: Some(id.clone()) })
-                                };
-                                html!{ <li><button class="link-button" {onclick}>{ format!("use {:+.0} ms from {label}", off * 1000.0) }</button></li> }
-                            }) }
-                        </ul>
-                    } } }
-                </li>
-            }
+            return;
+        }
+        let step = self.prompt_step(ctx);
+        let mut notes = Vec::new();
+        if self.needs_gesture {
+            notes.push("This browser needs a tap, click or key press to start the audio.".into());
+        }
+        if matches!(self.stage, Stage::Idle)
+            && let Some(line) = &self.video_line
+        {
+            notes.push(line.clone());
+        }
+        let picture = self.prompt_picture(ctx);
+        let info = self.prompt_info(ctx);
+        let changed = {
+            let mut st = self.prompt_state.borrow_mut();
+            let before = st.version;
+            st.set_info(info);
+            st.set_step(step);
+            st.set_notes(notes);
+            st.set_touch(self.touch);
+            st.set_picture(picture);
+            st.version != before
         };
-        let known_audio: Vec<_> = s
-            .audio_profiles
-            .iter()
-            .filter(|p| p.calibrated)
-            .map(|p| (p.id.clone(), p.label.clone(), p.offset))
-            .collect();
-        let known_display: Vec<_> = s
-            .display_profiles
-            .iter()
-            .filter(|p| p.calibrated)
-            .map(|p| (p.id.clone(), p.label.clone(), p.offset))
-            .collect();
-        html! {
-            <div class="canvas-overlay results">
-                <div class="results-card">
-                    <div class="results-score">{ "new device" }</div>
-                    <p class="muted">{ "Offsets are kept per audio path and per display. These have not been calibrated yet:" }</p>
-                    <ul class="device-list">
-                        { row("audio path", &d.audio, new_audio, known_audio, "audio") }
-                        { row("display", &d.display, new_display, known_display, "display") }
-                    </ul>
-                    <div class="results-actions">
-                        <button onclick={link.callback(|_| Msg::DeviceCalibrate)}>{ "calibrate now" }</button>
-                        <button onclick={link.callback(|_| Msg::DeviceContinue { copy_audio_from: None, copy_display_from: None })}>{ "play with defaults" }</button>
-                    </div>
-                </div>
-            </div>
+        if self.prompt.is_none() {
+            self.open_prompt();
+        } else if changed && let Some(p) = &self.prompt {
+            crate::components::ui_dev::wake(&p.host);
+        }
+    }
+
+    /// What the prompt is at, from the page's state.
+    fn prompt_step(&self, ctx: &Context<Self>) -> PromptStep {
+        if let Some((_, name, refused)) = &self.access {
+            return PromptStep::Access {
+                folder: name.clone(),
+                refused: refused.clone(),
+            };
+        }
+        match (&self.song, &self.stage) {
+            (Status::Failed(e), _) => PromptStep::Error(format!("The song failed to load: {e}")),
+            // A chart the address names that this game does not play (a
+            // style it leaves out, a chart past the song's): said at once.
+            (Status::Ready(song), _)
+                if !matches!(self.stage, Stage::Finished { .. } | Stage::Saved(_))
+                    && let SongSource::Song { chart, .. } = &ctx.props().source
+                    && song
+                        .song
+                        .charts
+                        .get(*chart)
+                        .and_then(|c| song.song.layout_of(c))
+                        .is_none() =>
+            {
+                PromptStep::Error(match song.song.charts.get(*chart) {
+                    Some(c) => format!(
+                        "This chart is for {}, a style this game does not play.",
+                        c.layout
+                    ),
+                    None => format!("This song has no chart {chart}."),
+                })
+            }
+            (Status::Pending, _) => PromptStep::Loading("loading…".into()),
+            (_, Stage::Decoding) => PromptStep::Loading("preparing audio…".into()),
+            (
+                _,
+                Stage::NewDevice {
+                    new_audio,
+                    new_display,
+                    ..
+                },
+            ) => match &self.devices {
+                Some(d) => new_device_step(&self.settings, d, *new_audio, *new_display),
+                None => PromptStep::Loading("preparing audio…".into()),
+            },
+            (_, Stage::Interrupted) => PromptStep::Interrupted,
+            (_, Stage::Error(e)) => PromptStep::Error(e.clone()),
+            (
+                _,
+                Stage::Finished {
+                    results,
+                    calibration,
+                    device_changed,
+                    ..
+                },
+            ) => match (&ctx.props().source, calibration) {
+                (SongSource::Calibration(mode), Some(o)) => ddi_session::calibration::card(
+                    o,
+                    *mode,
+                    &self.settings,
+                    self.devices.as_ref(),
+                    self.refresh_hz(),
+                    false,
+                    *device_changed,
+                ),
+                _ => results_card(
+                    results,
+                    self.names.as_ref(),
+                    self.layout.as_ref(),
+                    *device_changed,
+                ),
+            },
+            (_, Stage::Saved(o)) => match &ctx.props().source {
+                SongSource::Calibration(mode) => ddi_session::calibration::card(
+                    o,
+                    *mode,
+                    &self.settings,
+                    self.devices.as_ref(),
+                    self.refresh_hz(),
+                    true,
+                    false,
+                ),
+                SongSource::Song { .. } => PromptStep::Ready,
+            },
+            _ => PromptStep::Ready,
+        }
+    }
+
+    /// The song the prompt names (once it is read), its chart and the
+    /// mods it will play with.
+    fn prompt_info(&self, ctx: &Context<Self>) -> PromptInfo {
+        let props = ctx.props();
+        match (&self.song, &props.source) {
+            (Status::Ready(song), SongSource::Song { chart, .. }) => {
+                let c = song.song.charts.get(*chart);
+                let style = c
+                    .and_then(|c| song.song.layout_of(c))
+                    .map(|l| l.name.clone())
+                    .unwrap_or_default();
+                PromptInfo {
+                    title: song.title.clone(),
+                    artist: song.subtitle.clone(),
+                    chart: c
+                        .map(|c| chart_line(c.difficulty, c.meter, &style))
+                        .unwrap_or_default(),
+                    difficulty: c
+                        .map(|c| ddi_ui::screens::data::difficulty_name(c.difficulty).to_string())
+                        .unwrap_or_default(),
+                    mods: mods_line(&self.settings),
+                    badge: if props.auto {
+                        "AUTOPLAY".into()
+                    } else {
+                        String::new()
+                    },
+                }
+            }
+            (Status::Ready(song), SongSource::Calibration(_)) => PromptInfo {
+                title: song.title.clone(),
+                artist: song.subtitle.clone(),
+                badge: if props.auto {
+                    "AUTOPLAY".into()
+                } else {
+                    String::new()
+                },
+                ..PromptInfo::default()
+            },
+            // Its name comes once it is read (`SongLoaded`).
+            _ => PromptInfo {
+                title: match &props.source {
+                    SongSource::Calibration(mode) => mode.title().into(),
+                    SongSource::Song { .. } => String::new(),
+                },
+                ..PromptInfo::default()
+            },
+        }
+    }
+
+    /// The song's picture as the play opens on it: its opening still,
+    /// else its background, in the background frame, dimmed, with the
+    /// field's filter where the chart's lanes will be.
+    fn prompt_picture(&self, ctx: &Context<Self>) -> Option<PromptPicture> {
+        let (source, aspect) = self.still.clone().or_else(|| self.song_picture.clone())?;
+        // The canvas's size in CSS pixels (the field's geometry is its).
+        let (cw, ch) = crate::web::screen::canvas()
+            .map(|c| (c.client_width() as f32, c.client_height() as f32))
+            .filter(|(w, h)| *w > 0.0 && *h > 0.0)
+            .unwrap_or((1280.0, 720.0));
+        let filter = match (&self.song, &ctx.props().source) {
+            (Status::Ready(song), SongSource::Song { chart, .. })
+                if self.settings.field_filter > 0.0 =>
+            {
+                song.song
+                    .charts
+                    .get(*chart)
+                    .and_then(|c| song.song.layout_of(c))
+                    .filter(|l| !l.lanes.is_empty())
+                    .map(|layout| {
+                        let span = ddi_render::scene::field_span(&layout);
+                        let geo =
+                            ddi_render::FieldGeometry::new(cw, ch, span, self.settings.reverse);
+                        let [mid, w] = ddi_render::scene::filter_band(&geo, span);
+                        ([mid / cw, w / cw], self.settings.field_filter)
+                    })
+            }
+            _ => None,
+        };
+        let frame = self
+            .game
+            .try_borrow_mut()
+            .ok()
+            .and_then(|mut g| g.as_mut().map(|g| g.prompt_frame()))
+            .flatten();
+        Some(PromptPicture {
+            source,
+            aspect,
+            frame,
+            brightness: self.settings.bg_brightness,
+            filter,
+        })
+    }
+
+    /// Puts the prompt on the canvas: the play's frames give way to the
+    /// screen's (the play's loop keeps measuring the display and readying
+    /// the backgrounds, drawing nothing).
+    fn open_prompt(&mut self) {
+        use ddi_ui::screens::prompt::PromptScreen;
+        let Some(container) = self.slot.cast::<HtmlElement>() else {
+            return;
+        };
+        let shell = self.shell.clone();
+        let act: PromptFn = Rc::new(move |choice, cx| shell.choose(choice, cx));
+        let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
+        let env = theme.env().clone();
+        let mut ui = ddi_ui::Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Mirror, true);
+        ui.set_focus_ring(false);
+        ui.push(PromptScreen::new(env, self.prompt_state.clone(), act));
+        // What tests read: `__DDI_DEBUG.prompt` and `prompt_backdrop`.
+        let state = self.prompt_state.clone();
+        let extra = Box::new(move |obj: &js_sys::Object| prompt_debug(obj, &state.borrow()));
+        // The play's frames stop; the screen draws, the loop idles.
+        self.raf.borrow_mut().take();
+        match crate::components::ui_dev::embed(&container, ui, theme, extra) {
+            Ok(e) => {
+                *self.results_host.borrow_mut() = Some(Rc::downgrade(&e.host));
+                self.prompt = Some(e);
+                schedule_idle(self.raf.clone(), self.game.clone());
+            }
+            Err(e) => web_sys::console::warn_1(&format!("start prompt: {e}").into()),
+        }
+    }
+
+    /// Takes the prompt down (and what it said in `__DDI_DEBUG`).
+    fn close_prompt(&mut self) {
+        if self.prompt.take().is_none() {
+            return;
+        }
+        self.results_host.borrow_mut().take();
+        self.raf.borrow_mut().take();
+        if let Some(d) = web_sys::window()
+            .and_then(|w| js_sys::Reflect::get(&w, &"__DDI_DEBUG".into()).ok())
+            .filter(|d| d.is_object())
+        {
+            let d = js_sys::Object::from(d);
+            for key in ["ui", "prompt", "prompt_backdrop"] {
+                let _ = js_sys::Reflect::delete_property(&d, &key.into());
+            }
         }
     }
 }
 
-/// A setting's name as stored (`"quantized"`).
-fn setting_name(v: &impl serde::Serialize) -> String {
-    match serde_json::to_value(v) {
-        Ok(serde_json::Value::String(s)) => s,
-        Ok(other) => other.to_string(),
-        Err(_) => String::new(),
+/// The prompt as tests read it: `__DDI_DEBUG.prompt` (`step`, `notes`,
+/// `picture`), and `prompt_backdrop` (`still`, `background` or `none`).
+fn prompt_debug(obj: &js_sys::Object, st: &PromptState) {
+    let set = |o: &js_sys::Object, k: &str, v: JsValue| {
+        let _ = js_sys::Reflect::set(o, &k.into(), &v);
+    };
+    let p = js_sys::Object::new();
+    let step = match &st.step {
+        PromptStep::Loading(s) => s.as_str(),
+        PromptStep::Ready => "ready",
+        PromptStep::Access { .. } => "access",
+        PromptStep::NewDevice { .. } => "new device",
+        PromptStep::Interrupted => "interrupted",
+        PromptStep::Error(_) => "error",
+        PromptStep::Card { .. } => "card",
+    };
+    set(&p, "step", step.into());
+    if let PromptStep::Error(e) = &st.step {
+        set(&p, "error", e.as_str().into());
     }
+    // A card's heading, lines and actions' ids.
+    if let PromptStep::Card {
+        heading,
+        lines,
+        actions,
+    } = &st.step
+    {
+        set(&p, "heading", heading.as_str().into());
+        let l = js_sys::Array::new();
+        for (t, _) in lines {
+            l.push(&t.as_str().into());
+        }
+        set(&p, "lines", l.into());
+        let a = js_sys::Array::new();
+        for (id, _) in actions {
+            a.push(&id.as_str().into());
+        }
+        set(&p, "actions", a.into());
+    }
+    let notes = js_sys::Array::new();
+    for n in &st.notes {
+        notes.push(&n.as_str().into());
+    }
+    set(&p, "notes", notes.into());
+    set(
+        &p,
+        "picture",
+        st.picture
+            .as_ref()
+            .map_or(JsValue::NULL, |p| p.source.as_str().into()),
+    );
+    if let Some(pic) = &st.picture {
+        set(&p, "frame", pic.frame.map_or(JsValue::NULL, |f| f.into()));
+    }
+    set(obj, "prompt", p.into());
+    let backdrop = match &st.picture {
+        None => "none",
+        Some(p) if p.source.ends_with(":still") => "still",
+        Some(_) => "background",
+    };
+    set(obj, "prompt_backdrop", backdrop.into());
 }
 
+/// A setting's name as stored (`"quantized"`).
 impl GameCanvas {
     /// Keeps the play just ended in the history (`crate::history`): what
     /// it was of, every parameter it ran with, its log and its timing.
@@ -1358,91 +1709,37 @@ impl GameCanvas {
         results: &Results,
         facts: crate::play::PlayFacts,
     ) {
-        use ddi_ui::state::history::{
-            Autoplay, ChartKey, ClockSetup, Device, DrawSetup, Ending, OffsetSource, PlayRecord,
-            PlaySetup, RECORD_VERSION,
-        };
+        use ddi_ui::state::history::Autoplay;
         let Status::Ready(song) = &self.song else {
             return;
         };
-        // The chart as stored (the song offset is kept apart).
-        if chart >= song.song.charts.len() {
-            return;
-        }
-        let digest = song.song.chart_digest(chart);
-        let settings = &self.settings;
-        let source = |p: Option<&crate::settings::OffsetProfile>| match p {
-            Some(p) if p.calibrated => OffsetSource::Calibrated,
-            Some(_) => OffsetSource::Profile,
-            None => OffsetSource::Default,
-        };
-        let devices = self.devices.as_ref();
-        let clock = ClockSetup {
-            audio_offset: facts.options.clock.audio_offset,
-            audio_source: source(devices.and_then(|d| settings.audio_profile(&d.audio.id))),
-            visual_offset: facts.options.clock.visual_offset,
-            visual_source: source(devices.and_then(|d| settings.display_profile(&d.display.id))),
-            audio: devices.map(|d| Device {
-                id: d.audio.id.clone(),
-                label: d.audio.label.clone(),
-            }),
-            display: devices.map(|d| Device {
-                id: d.display.id.clone(),
-                label: d.display.label.clone(),
-            }),
-            output_latency: facts.output_latency,
-            sample_rate: facts.sample_rate,
-            refresh_hz: self.start_refresh,
-            latency_min: facts.latency_min,
-            latency_max: facts.latency_max,
-        };
-        let drawn = DrawSetup {
-            noteskin: settings.noteskin.clone(),
-            note_colors: setting_name(&settings.note_colors),
-            chart_colors: settings.chart_colors,
-            field_filter: settings.field_filter,
-            bg_brightness: settings.bg_brightness,
-            background_frame: setting_name(&settings.background_frame),
-            video: setting_name(&settings.video),
-            show_deltas: settings.show_deltas,
-            graphics: crate::web::screen::current()
-                .map(|g| g.backend_name().to_string())
-                .unwrap_or_default(),
-        };
         let props = ctx.props();
-        let record = PlayRecord {
-            version: RECORD_VERSION,
-            chart: ChartKey {
-                song: id.to_string(),
-                digest,
-                index: chart as u32,
-            },
-            ruleset: facts.ruleset,
-            options: facts.options,
-            song_offset: self.played_offset,
-            setup: PlaySetup {
-                clock,
-                drawn,
-                inputs: facts.inputs,
-            },
+        let played = ddi_session::record::Played {
+            song_id: id,
+            song: &song.song,
+            chart,
+            settings: &self.settings,
             // As stored, so fields this version does not know are kept.
-            settings: ddi_platform::storage::get(
+            stored_settings: ddi_platform::storage::get(
                 ddi_platform::storage::Area::Local,
                 ddi_ui::state::settings::KEY,
             )
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_else(|| serde_json::to_value(settings).unwrap_or_default()),
-            ended: if results.failed {
-                Ending::Failed
-            } else {
-                Ending::Finished
-            },
+            .and_then(|s| serde_json::from_str(&s).ok()),
+            devices: self.devices.as_ref(),
+            refresh_hz: self.start_refresh,
+            graphics: crate::web::screen::current()
+                .map(|g| g.backend_name().to_string())
+                .unwrap_or_default(),
+            song_offset: self.played_offset,
             autoplay: props.auto.then_some(Autoplay {
                 pad: props.auto_pad,
                 bias: props.auto_bias,
             }),
             time: js_sys::Date::now(),
-            app_version: env!("CARGO_PKG_VERSION").to_string(),
+            app_version: env!("CARGO_PKG_VERSION"),
+        };
+        let Some(record) = ddi_session::record::play_record(&played, results, &facts) else {
+            return;
         };
         self.save = Save::Pending;
         let link = ctx.link().clone();
@@ -1550,6 +1847,7 @@ impl GameCanvas {
             video_notes,
             offset: Some((self.played_offset, settings.song_offset(&id))),
             panels: settings.results_panels.clone(),
+            autoplay: ctx.props().auto,
         });
         // What the buttons do: after the screen's call returns (they
         // change this page).
@@ -1604,7 +1902,8 @@ impl GameCanvas {
             }
             Err(e) => {
                 web_sys::console::warn_1(&format!("results: {e}").into());
-                schedule(self.raf.clone(), self.game.clone());
+                // A card on the prompt's screen instead (`sync_prompt`).
+                self.results_failed = true;
             }
         }
     }
@@ -1710,25 +2009,20 @@ fn back_route(source: &SongSource) -> Route {
     }
 }
 
-/// A calibration play's summary when it gave no outcome, as the old
-/// results card showed a play (songs show the theme's results,
-/// `ddi_ui::screens::results`; calibration's move with step 6.4). A
-/// calibration plays no background videos, so it has no video notes.
-fn results_view(
+/// A calibration play's summary when it gave no outcome (or a song's,
+/// should the theme's results not start), as the old results card had
+/// it: a card on the start prompt's screen.
+fn results_card(
     r: &Results,
     names: Option<&ddi_engine::rules::JudgeNames>,
     layout: Option<&ddi_chart::Layout>,
     device_changed: bool,
-    link: &html::Scope<GameCanvas>,
-) -> Html {
-    let tier_name = |i: usize| -> String {
-        names
-            .map(|n| n.tiers[i].clone())
-            .unwrap_or_else(|| format!("tier {}", i + 1))
-    };
-    let held_name = names
-        .map(|n| format!("{} / {}", n.held, n.let_go))
-        .unwrap_or_else(|| "held / let go".into());
+) -> PromptStep {
+    let mut lines: Vec<(String, String)> = Vec::new();
+    let mut push = |s: String, color: &str| lines.push((s, color.to_string()));
+    if let (Some(ex), Some(max)) = (r.score.ex, r.score.max_ex) {
+        push(format!("EX {ex} / {max}"), "Muted");
+    }
     let mods = mods_summary(
         &r.transform,
         r.appearance,
@@ -1736,171 +2030,70 @@ fn results_view(
         layout.map(|l| (r.lane_map.as_slice(), l)),
     )
     .join(" · ");
-    let ex = match (r.score.ex, r.score.max_ex) {
-        (Some(ex), Some(max)) => format!("EX {ex} / {max}"),
-        _ => String::new(),
-    };
-    let lamp = ddi_ui::screens::play::lamp(r).unwrap_or_default();
+    if !mods.is_empty() {
+        push(mods, "Muted");
+    }
+    if r.failed {
+        push("FAILED".into(), "Danger");
+    }
+    if device_changed {
+        push(
+            "an audio device or the display changed during play".into(),
+            "Muted",
+        );
+    }
+    if let Some(lamp) = ddi_ui::screens::play::lamp(r) {
+        push(lamp, "Accent");
+    }
     let t = &r.tally;
-    html! {
-        <div class="canvas-overlay results">
-            <div class="results-card">
-                <div class="results-grade">{ &r.grade }</div>
-                <div class="results-score">{ score_text(r) }</div>
-                <div class="muted">{ ex }</div>
-                { if mods.is_empty() { html!{} } else { html!{ <div class="muted">{ mods }</div> } } }
-                { if r.failed { html!{ <div class="error">{ "FAILED" }</div> } } else { html!{} } }
-                { if device_changed { html!{ <div class="muted">{ "an audio device or the display changed during play" }</div> } } else { html!{} } }
-                { if lamp.is_empty() { html!{} } else { html!{ <div class="results-fc">{ lamp }</div> } } }
-                <table class="results-table">
-                    { for (0..6).filter(|i| !tier_name(*i).is_empty()).map(|i| html!{ <tr><td class="muted">{ tier_name(i) }</td><td>{ t.taps[i] }</td></tr> }) }
-                    <tr><td class="muted">{ held_name }</td><td>{ format!("{} / {}", t.held, t.let_go) }</td></tr>
-                    { if t.checkpoint_hit + t.checkpoint_miss > 0 { html!{ <tr><td class="muted">{ "hold ticks hit / missed" }</td><td>{ format!("{} / {}", t.checkpoint_hit, t.checkpoint_miss) }</td></tr> } } else { html!{} } }
-                    <tr><td class="muted">{ "mines hit" }</td><td>{ t.mine_hit }</td></tr>
-                    { if t.boo > 0 { html!{ <tr><td class="muted">{ "stray presses" }</td><td>{ t.boo }</td></tr> } } else { html!{} } }
-                    <tr><td class="muted">{ "max combo" }</td><td>{ r.max_combo }</td></tr>
-                    <tr><td class="muted">{ "fast / slow" }</td><td>{ format!("{} / {}", r.fast, r.slow) }</td></tr>
-                    <tr><td class="muted">{ "mean offset" }</td><td>{ format!("{:+.1} ms (σ {:.1})", r.mean_delta * 1000.0, r.stddev_delta * 1000.0) }</td></tr>
-                </table>
-                <div class="results-actions">
-                    <button onclick={link.callback(|_| Msg::Retry)}>{ "retry" }</button>
-                    <a href={Route::Home.to_hash()}>{ "song list" }</a>
-                </div>
-            </div>
-        </div>
+    let tiers: Vec<String> = (0..6)
+        .filter_map(|i| {
+            let name = names.map_or_else(|| format!("tier {}", i + 1), |n| n.tiers[i].clone());
+            (!name.is_empty()).then(|| format!("{name} {}", t.taps[i]))
+        })
+        .collect();
+    push(tiers.join(" · "), "Secondary");
+    let held = names.map_or_else(
+        || "held / let go".into(),
+        |n| format!("{} / {}", n.held, n.let_go),
+    );
+    push(format!("{held} {} / {}", t.held, t.let_go), "Secondary");
+    if t.checkpoint_hit + t.checkpoint_miss > 0 {
+        push(
+            format!(
+                "hold ticks hit / missed {} / {}",
+                t.checkpoint_hit, t.checkpoint_miss
+            ),
+            "Secondary",
+        );
+    }
+    let mut more = format!("mines hit {} · max combo {}", t.mine_hit, r.max_combo);
+    if t.boo > 0 {
+        more.push_str(&format!(" · stray presses {}", t.boo));
+    }
+    push(more, "Secondary");
+    push(
+        format!(
+            "fast / slow {} / {} · mean offset {:+.1} ms (σ {:.1})",
+            r.fast,
+            r.slow,
+            r.mean_delta * 1000.0,
+            r.stddev_delta * 1000.0
+        ),
+        "Secondary",
+    );
+    PromptStep::Card {
+        heading: format!("{} {}", r.grade, score_text(r)),
+        lines,
+        actions: vec![
+            ("again".into(), "Retry".into()),
+            ("songs".into(), "Song list".into()),
+        ],
     }
 }
 
 fn score_text(r: &Results) -> String {
     ddi_ui::screens::play::score_text(r)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn calibration_view(
-    o: &Outcome,
-    mode: CalMode,
-    settings: &Settings,
-    devices: Option<&DeviceProfile>,
-    refresh_hz: f64,
-    saved: bool,
-    device_changed: bool,
-    link: &html::Scope<GameCanvas>,
-) -> Html {
-    let total_ms = o.total() * 1000.0;
-    let frames = if mode == CalMode::Visual {
-        format!(
-            " ≈ {:.2} frames at {refresh_hz:.0} Hz",
-            o.total() * refresh_hz
-        )
-    } else {
-        String::new()
-    };
-    let (audio_now, visual_now) = match devices {
-        Some(d) => (
-            settings
-                .audio_profile(&d.audio.id)
-                .map(|p| p.offset)
-                .unwrap_or(settings.audio_offset),
-            settings
-                .display_profile(&d.display.id)
-                .map(|p| p.offset)
-                .unwrap_or(settings.visual_offset),
-        ),
-        None => (settings.audio_offset, settings.visual_offset),
-    };
-    let device_line = match devices {
-        Some(d) => format!("audio: {} · display: {}", d.audio.label, d.display.label),
-        None => String::new(),
-    };
-    let ci_ms = o.confidence() * 1000.0;
-    let enough = o.hits >= calibration::MIN_RESIDUAL as u32;
-    let unusable = o.out_of_range || o.unreliable();
-    let meaningful = enough
-        && !unusable
-        && o.total().abs() >= calibration::MIN_STEP
-        && (o.rounds > 0 || o.residual_significant());
-    let status = if o.out_of_range {
-        format!(
-            "The measured offset is beyond ±{:.0} ms, which this test cannot tell apart from hitting the neighbouring note. If you really hear the clicks that late (some Bluetooth headphones do), set the audio offset by hand in the options and run the test again from there.",
-            calibration::MAX_OFFSET * 1000.0
-        )
-    } else if o.high_miss_rate() {
-        format!(
-            "{} of {} notes were missed, so the result is unreliable. Presses more than {:.0} ms off do not count, and a press stream one note late misses after every rest. If you hear the clicks later than that, set the offset by hand first; otherwise try again and hit every note.",
-            o.misses,
-            o.hits + o.misses,
-            calibration::MAX_OFFSET * 1000.0
-        )
-    } else if !enough {
-        "Too few hits to measure; try again and hit every note.".to_string()
-    } else if o.unreliable() {
-        format!(
-            "Spread is too high (σ {:.0} ms) to trust the mean. Try again, keeping a steady rhythm.",
-            o.residual_sd * 1000.0
-        )
-    } else if o.converged {
-        format!(
-            "Converged after {} adjustment{}: the remaining error ({:+.1} ms ± {:.1}) is within noise.",
-            o.rounds,
-            if o.rounds == 1 { "" } else { "s" },
-            o.residual_mean * 1000.0,
-            ci_ms
-        )
-    } else if o.residual_significant() {
-        format!(
-            "Ran out of notes before converging; the remaining error ({:+.1} ms ± {:.1}) is still significant. Try again, keeping a steady rhythm.",
-            o.residual_mean * 1000.0,
-            ci_ms
-        )
-    } else {
-        "Finished; the remaining error is within noise.".to_string()
-    };
-    let verdict = if !meaningful {
-        "Nothing to change.".to_string()
-    } else {
-        format!(
-            "Saving adds {:+.1} ms to the {}, so these hits count as on time.",
-            total_ms,
-            mode.target()
-        )
-    };
-    // The last step of the guided flow ends it: back to the songs. Earlier
-    // steps leave the flow, so they return to the calibration page.
-    let done = if mode.next().is_none() {
-        Route::Home
-    } else {
-        Route::Calibrate
-    };
-    let next = mode.next().map(|m| {
-        let label = match m {
-            CalMode::Audio => "next: sound only",
-            CalMode::Combined => "next: check with both",
-            CalMode::Visual => "next",
-        };
-        html! { <a class="button" href={Route::CalibrateRun { mode: m.id().into(), auto: false, bias_ms: 0 }.to_hash()}>{ label }</a> }
-    });
-    html! {
-        <div class="canvas-overlay results">
-            <div class="results-card">
-                <div class="results-score">{ if unusable { "unreliable".to_string() } else { format!("{total_ms:+.1} ms{frames}") } }</div>
-                <div class="muted">{ format!("{} hits ({} warm-up/adaptation ignored, {} extremes trimmed) · {} missed · residual σ {:.1} ms · 95% CI ±{:.1} ms", o.hits, o.ignored, o.trimmed, o.misses, o.residual_sd * 1000.0, ci_ms) }</div>
-                <p class="cal-verdict">{ status }{ " " }{ verdict }</p>
-                <p class="muted">{ format!("offsets in effect: audio {:+.0} ms · visual {:+.0} ms", audio_now * 1000.0, visual_now * 1000.0) }</p>
-                { if device_line.is_empty() { html!{} } else { html!{ <p class="muted device-line">{ device_line }</p> } } }
-                { if device_changed { html!{ <p class="error">{ "a device changed during the test; discard this result" }</p> } } else { html!{} } }
-                <div class="results-actions">
-                    { if saved {
-                        html!{ <span class="results-fc">{ "saved" }</span> }
-                    } else if meaningful {
-                        html!{ <button onclick={link.callback(|_| Msg::SaveCalibration)}>{ format!("save to {}", mode.target()) }</button> }
-                    } else { html!{} } }
-                    <button onclick={link.callback(|_| Msg::Retry)}>{ "again" }</button>
-                    { if saved || !meaningful { next.unwrap_or_default() } else { html!{} } }
-                    <a href={done.to_hash()}>{ "done" }</a>
-                </div>
-            </div>
-        </div>
-    }
 }
 
 /// Whether the primary pointer is a finger (phones, tablets).
@@ -1920,6 +2113,22 @@ fn schedule(raf: Rc<RefCell<Option<AnimationFrame>>>, game: Rc<RefCell<Option<Ga
             return;
         }
         schedule(raf2, game2);
+    });
+    *raf.borrow_mut() = Some(handle);
+}
+
+/// The play's loop while the start prompt draws: it measures and readies,
+/// drawing nothing (`GameLoop::idle`).
+fn schedule_idle(raf: Rc<RefCell<Option<AnimationFrame>>>, game: Rc<RefCell<Option<GameLoop>>>) {
+    let raf2 = raf.clone();
+    let game2 = game.clone();
+    let handle = request_animation_frame(move |time_ms| {
+        if let Some(g) = game2.borrow_mut().as_mut() {
+            g.idle(time_ms);
+        } else {
+            return;
+        }
+        schedule_idle(raf2, game2);
     });
     *raf.borrow_mut() = Some(handle);
 }
@@ -1950,6 +2159,117 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
     let play_videos = show_background && settings.video != VideoMode::Off;
     ctx.link().send_future(async move {
         let r = load_song(&id).await.map(|loaded| {
+            // The song's own images, then those found in shared folders,
+            // under the names it uses; the movies that play.
+            let bg_images: Vec<String> = loaded
+                .entry
+                .bg_images
+                .iter()
+                .chain(loaded.shared_bg.iter().map(|(name, _)| name))
+                .cloned()
+                .collect();
+            let bg_videos: Vec<String> = loaded
+                .entry
+                .bg_videos
+                .iter()
+                .filter(|v| v.plays())
+                .map(|v| v.name.clone())
+                .chain(loaded.shared_videos.iter().map(|(name, _)| name.clone()))
+                .collect();
+            // The opening movie's still (`crate::stills`): the one taken,
+            // when it is still this schedule's opening, or taken now for a
+            // song imported before stills were kept (never with videos
+            // off: no decoder then).
+            let opening = backgrounds::opening_movie(
+                &loaded.song,
+                &backgrounds::schedule(
+                    &loaded.song,
+                    &bg_images,
+                    &bg_videos,
+                    loaded.entry.background.is_some(),
+                ),
+            );
+            // With videos off the movie never plays: the prompt and the
+            // field show the `#BACKGROUND`, as the cut then goes to it.
+            let still_taken = play_videos
+                && matches!(
+                    &loaded.still,
+                    Some(crate::songs::Still::Taken { movie, .. })
+                        if opening.as_ref().is_some_and(|o| o.movie == *movie)
+                );
+            // A blank still (a black or white opening frame) stays out of
+            // the results' backdrop, which shows the song's background.
+            let mut blank = match &loaded.still {
+                Some(crate::songs::Still::Taken { blank, .. }) => *blank,
+                _ => None,
+            };
+            // A song imported before its shared folder recorded no movie:
+            // looked at again when its opening movie is found now.
+            let still_now = matches!(loaded.still, None | Some(crate::songs::Still::NoMovie))
+                && opening.is_some()
+                && play_videos
+                && crate::songs::is_imported_id(&loaded.entry.id);
+            // The results' backdrop is kept by the still's load when there
+            // is one (the still, or the song's background when blank), else
+            // by the song background's: one keeper, so the order is fixed.
+            let still_keeps = show_background && (still_taken || still_now);
+            if still_keeps {
+                let id = loaded.entry.id.clone();
+                let entry = loaded.entry.clone();
+                let background_name = background_name.clone();
+                link.send_future(async move {
+                    let keep_song = || async {
+                        if let Ok(Some(blob)) = load_background(&entry, &BgImage::Song, &[]).await {
+                            crate::web::textures::keep(&background_name, Some(blob));
+                        }
+                    };
+                    if still_now {
+                        let filled =
+                            crate::stills::fill(&id, &mut crate::stills::Taker::default()).await;
+                        web_sys::console::info_1(
+                            &format!("song picture from its video: {filled:?}").into(),
+                        );
+                        let crate::stills::Filled::Taken { blank: b } = filled else {
+                            keep_song().await;
+                            return Msg::BackgroundLoaded(BgImage::Still, None);
+                        };
+                        blank = Some(b);
+                    }
+                    let bitmap = match crate::stills::load(&id).await {
+                        Ok(blob) => {
+                            // Taken before blankness was kept: checked now.
+                            if blank.is_none() {
+                                blank = crate::stills::check_blank(&id, &blob)
+                                    .await
+                                    .map_err(|e| web_sys::console::warn_1(&e.into()))
+                                    .ok();
+                            }
+                            // The prompt's picture, blank or not (the play
+                            // opens on it); the results' backdrop, unless
+                            // blank.
+                            crate::web::textures::keep(
+                                &format!("{background_name}:still"),
+                                Some(blob.clone()),
+                            );
+                            if blank == Some(false) {
+                                crate::web::textures::keep(&background_name, Some(blob.clone()));
+                            } else {
+                                keep_song().await;
+                            }
+                            crate::web::image::decode(&blob, MAX_BACKGROUND_SIDE)
+                                .await
+                                .map_err(|e| web_sys::console::warn_1(&e.into()))
+                                .ok()
+                        }
+                        Err(e) => {
+                            web_sys::console::warn_1(&e.into());
+                            keep_song().await;
+                            None
+                        }
+                    };
+                    Msg::BackgroundLoaded(BgImage::Still, bitmap)
+                });
+            }
             if show_background {
                 // Loads alongside the start prompt; the play
                 // never waits for it.
@@ -2014,19 +2334,27 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
                     link.send_future(async move {
                         let bitmap = match load_background(&entry, &what, &shared).await {
                             Ok(Some(blob)) => {
-                                // Kept for the results' backdrop (read
-                                // once).
+                                // Kept for the prompt's picture and the
+                                // results' backdrop (read once).
                                 if what == BgImage::Song {
                                     crate::web::textures::keep(
-                                        &background_name,
+                                        &format!("{background_name}:song"),
                                         Some(blob.clone()),
                                     );
+                                    if !still_keeps {
+                                        crate::web::textures::keep(
+                                            &background_name,
+                                            Some(blob.clone()),
+                                        );
+                                    }
                                 }
                                 let side = match what {
                                     BgImage::Song => MAX_BACKGROUND_SIDE,
                                     // Movies are not loaded here (only images
                                     // are listed above).
-                                    BgImage::File(_) | BgImage::Movie(_) => MAX_CHANGE_SIDE,
+                                    BgImage::File(_) | BgImage::Movie(_) | BgImage::Still => {
+                                        MAX_CHANGE_SIDE
+                                    }
                                 };
                                 crate::web::image::decode(&blob, side)
                                     .await
@@ -2098,25 +2426,8 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
             Rc::new(Loaded {
                 title: loaded.entry.title.clone(),
                 subtitle: loaded.entry.artist.clone(),
-                // The song's own images, then those found in
-                // shared folders, under the names it uses.
-                bg_images: loaded
-                    .entry
-                    .bg_images
-                    .iter()
-                    .chain(loaded.shared_bg.iter().map(|(name, _)| name))
-                    .cloned()
-                    .collect(),
-                // Until movies are drawn (docs/plans/video-backgrounds.md,
-                // step 4) a movie segment shows the song background.
-                bg_videos: loaded
-                    .entry
-                    .bg_videos
-                    .iter()
-                    .filter(|v| v.plays())
-                    .map(|v| v.name.clone())
-                    .chain(loaded.shared_videos.iter().map(|(name, _)| name.clone()))
-                    .collect(),
+                bg_images,
+                bg_videos,
                 has_background: loaded.entry.background.is_some(),
                 banner: loaded.entry.banner.as_ref().map(|b| {
                     if crate::songs::is_imported_id(&loaded.entry.id) {
@@ -2148,12 +2459,12 @@ fn noteskin_ready(
     chart: usize,
 ) -> Option<impl std::future::Future<Output = Option<Box<crate::noteskins::Prepared>>> + use<>> {
     let c = song.charts.get(chart)?;
+    let layout = song.layout_of(c)?;
     let key = crate::noteskins::play_skin(
-        settings.noteskin.as_deref(),
+        settings.noteskin_for(&layout.id),
         settings.note_colors,
         settings.chart_colors && c.notes.iter().any(|n| n.color.is_some()),
     )?;
-    let layout = song.layout_of(c)?;
     let env = crate::noteskins::lua_env(song, c, &layout, settings.reverse);
     Some(async move {
         crate::noteskins::prepare(&key, &layout, env)

@@ -1,33 +1,32 @@
 //! Watches the audio output path and the display across the whole app and
-//! shows a banner when the game meets a device it has no calibration for.
+//! tells the player when the game meets a device it has no calibration for:
+//! a banner drawn by our theme on every canvas page (`crate::notices`, the
+//! UI's chrome: `ddi_ui::screens::notices`), whose wording and actions are
+//! `ddi_ui::screens::notices::device_notice`'s.
 //!
 //! Audio cannot be probed before a user gesture, so: with no profiles at all
 //! a "first time" banner shows immediately; the first click or key anywhere
 //! starts a background audio context and the first probe; `devicechange`
 //! (output device added/removed/switched) and display-scale changes trigger
-//! re-probes. Banners are held back while a song is playing.
+//! re-probes. Banners are held back while a song is playing. "later" hides
+//! the banner until a new device shows up; a change to known devices shows
+//! a short line ("devices: …") for five seconds.
 
 use std::rc::Rc;
 
+use crate::component::{Component, Context};
 use ddi_platform::DeviceProfile;
 use gloo::events::EventListener;
 use gloo::timers::callback::Timeout;
-use yew::prelude::*;
 
-use crate::router::Route;
 use crate::settings::Settings;
 use crate::web::audio::WebAudio;
 use crate::web::devices::{self, RefreshSampler};
 use crate::web::display;
 
-#[derive(Properties, PartialEq)]
+/// Whether banners are held back at first ([`Msg::Route`] after).
 pub(crate) struct Props {
-    /// True while a song or calibration is running, or on the calibration
-    /// pages themselves; banners wait or are redundant there.
     pub(crate) suppressed: bool,
-    /// Current route; a change re-evaluates the banner against the settings
-    /// (a calibration may just have saved a profile).
-    pub(crate) route: String,
 }
 
 pub(crate) enum Msg {
@@ -41,31 +40,29 @@ pub(crate) enum Msg {
     /// `Probed`, applied after a short delay so any click in flight on the
     /// banner that triggered the probe can finish first.
     Apply(DeviceProfile),
-    UseDefaults,
-    CopyAudioFrom(String),
-    CopyDisplayFrom(String),
-    Dismiss,
+    /// The route changed: held back or not (true while a song or
+    /// calibration is running, or on the calibration pages themselves;
+    /// banners wait or are redundant there). The banner is evaluated
+    /// against the settings again (a calibration may just have saved a
+    /// profile).
+    Route {
+        suppressed: bool,
+    },
+    /// A banner's button (`defaults`, `copy-audio:<id>`,
+    /// `copy-display:<id>`, `later`; `calibrate` navigates by itself).
+    Action(String),
     HideToast,
 }
 
-enum Banner {
-    /// No profiles at all yet.
-    FirstRun,
-    /// A probed profile with at least one unknown device.
-    Unknown {
-        profile: DeviceProfile,
-        new_audio: bool,
-        new_display: bool,
-    },
-}
-
 pub(crate) struct DeviceWatcher {
+    suppressed: bool,
     audio: Option<Rc<WebAudio>>,
     refresh_hz: f64,
     last: Option<DeviceProfile>,
-    banner: Option<Banner>,
     toast: Option<String>,
     dismissed: bool,
+    /// The devices (audio and display ids) "later" was said for.
+    dismissed_for: Option<(String, String)>,
     probing: bool,
     _gesture: Vec<EventListener>,
     _devicechange: Option<EventListener>,
@@ -110,16 +107,21 @@ impl Component for DeviceWatcher {
             let l = link.clone();
             Timeout::new(1500, move || l.send_message(Msg::StartSampling))
         };
-        let settings = Settings::load();
-        let banner = (settings.audio_profiles.is_empty() && settings.display_profiles.is_empty())
-            .then_some(Banner::FirstRun);
-        DeviceWatcher {
+        {
+            let l = link.clone();
+            crate::notices::on_action(Some(Rc::new(move |id: &str| {
+                l.send_message(Msg::Action(id.to_string()))
+            })));
+        }
+        let watcher = DeviceWatcher {
+            suppressed: ctx.props().suppressed,
             audio: None,
             refresh_hz: 60.0,
             last: None,
-            banner,
             toast: None,
-            dismissed: false,
+            // "later", said earlier this session (a reload keeps it).
+            dismissed: later::load().is_some(),
+            dismissed_for: later::load().flatten(),
             probing: false,
             _gesture: gesture,
             _devicechange: devicechange,
@@ -128,34 +130,37 @@ impl Component for DeviceWatcher {
             _debounce: Some(sampler_timer),
             _toast_timer: None,
             _apply_timer: None,
-        }
+        };
+        watcher.publish();
+        watcher
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             Msg::Gesture => {
-                if self.audio.is_some() {
+                if let Some(a) = &self.audio {
+                    // Suspended during a play and not resumed after it
+                    // (a browser that wants a gesture for that): now.
+                    if !self.suppressed && !a.running() {
+                        a.resume_now();
+                    }
                     return false;
                 }
                 // Inside the gesture: the context may start.
                 if let Ok(a) = WebAudio::new() {
                     self.audio = Some(Rc::new(a));
-                    self._gesture.clear();
                     self.probe(ctx);
                 }
-                false
             }
             Msg::StartSampling => {
                 let l = ctx.link().clone();
                 self._sampler = Some(devices::sample_refresh_rate(120, move |hz| {
                     l.send_message(Msg::RefreshMeasured(hz))
                 }));
-                false
             }
             Msg::RefreshMeasured(hz) => {
                 self.refresh_hz = hz;
                 self._sampler = None;
-                false
             }
             Msg::DevicesChanged => {
                 // The DPR query only watches the old value; re-arm it.
@@ -171,174 +176,124 @@ impl Component for DeviceWatcher {
                 // will probe anyway.
                 let link = ctx.link().clone();
                 self._debounce = Some(Timeout::new(1800, move || link.send_message(Msg::Reprobe)));
-                false
             }
             Msg::Reprobe => {
                 self.probe(ctx);
-                false
             }
             Msg::Probed(profile) => {
                 self.probing = false;
+                // Probed during a play (its first gesture made the
+                // context): suspended until the play is over.
+                if self.suppressed
+                    && let Some(a) = &self.audio
+                {
+                    a.suspend_now();
+                }
                 let link = ctx.link().clone();
                 self._apply_timer = Some(Timeout::new(400, move || {
                     link.send_message(Msg::Apply(profile))
                 }));
-                false
             }
             Msg::Apply(profile) => {
                 let settings = Settings::load();
                 let changed = self.last.as_ref() != Some(&profile);
                 self.last = Some(profile.clone());
-                let was_unknown = self.reevaluate(&settings);
-                if was_unknown {
-                    self.dismissed = false;
-                } else {
-                    if changed {
-                        let a = settings.audio_profile(&profile.audio.id);
-                        let d = settings.display_profile(&profile.display.id);
-                        self.toast = Some(format!(
-                            "devices: {} ({:+.0} ms) · {} ({:+.0} ms)",
-                            profile.audio.label,
-                            a.map(|p| p.offset).unwrap_or(0.0) * 1000.0,
-                            profile.display.label,
-                            d.map(|p| p.offset).unwrap_or(0.0) * 1000.0
-                        ));
-                        let link = ctx.link().clone();
-                        self._toast_timer = Some(Timeout::new(5000, move || {
-                            link.send_message(Msg::HideToast)
-                        }));
+                let unknown =
+                    ddi_ui::screens::notices::device_notice(&settings, Some(&profile)).is_some();
+                // "later" holds for the devices it was said on (those
+                // probed then, or, said before any probe, the first ones
+                // probed); new ones bring the banner back.
+                let ids = (profile.audio.id.clone(), profile.display.id.clone());
+                if unknown {
+                    if self.dismissed {
+                        match &self.dismissed_for {
+                            None => {
+                                self.dismissed_for = Some(ids);
+                                later::save(self.dismissed_for.clone());
+                            }
+                            Some(d) if *d == ids => {}
+                            Some(_) => {
+                                self.dismissed = false;
+                                self.dismissed_for = None;
+                                later::clear();
+                            }
+                        }
+                    }
+                } else if changed {
+                    let a = settings.audio_profile(&profile.audio.id);
+                    let d = settings.display_profile(&profile.display.id);
+                    self.toast = Some(format!(
+                        "devices: {} ({:+.0} ms) · {} ({:+.0} ms)",
+                        profile.audio.label,
+                        a.map(|p| p.offset).unwrap_or(0.0) * 1000.0,
+                        profile.display.label,
+                        d.map(|p| p.offset).unwrap_or(0.0) * 1000.0
+                    ));
+                    let link = ctx.link().clone();
+                    self._toast_timer = Some(Timeout::new(5000, move || {
+                        link.send_message(Msg::HideToast)
+                    }));
+                }
+            }
+            Msg::Action(id) => match id.as_str() {
+                "later" => {
+                    self.dismissed = true;
+                    self.dismissed_for = self
+                        .last
+                        .as_ref()
+                        .map(|p| (p.audio.id.clone(), p.display.id.clone()));
+                    later::save(self.dismissed_for.clone());
+                }
+                "calibrate" => {}
+                other => {
+                    if let Some(profile) = self.last.clone() {
+                        let mut settings = Settings::load();
+                        ddi_ui::screens::notices::register_devices(&mut settings, &profile, other);
+                        settings.save();
                     }
                 }
-                true
-            }
-            Msg::UseDefaults => {
-                self.register(None, None);
-                true
-            }
-            Msg::CopyAudioFrom(id) => {
-                self.register(Some(&id), None);
-                true
-            }
-            Msg::CopyDisplayFrom(id) => {
-                self.register(None, Some(&id));
-                true
-            }
-            Msg::Dismiss => {
-                self.dismissed = true;
-                true
-            }
-            Msg::HideToast => {
-                self.toast = None;
-                true
-            }
-        }
-    }
-
-    fn changed(&mut self, _ctx: &Context<Self>, _old: &Self::Properties) -> bool {
-        // Route changed: settings may have gained profiles (calibration).
-        let settings = Settings::load();
-        self.reevaluate(&settings);
-        true
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        if ctx.props().suppressed {
-            return html! {};
-        }
-        let link = ctx.link();
-        let toast = self
-            .toast
-            .as_ref()
-            .map(|t| html! { <div class="device-toast muted">{ t }</div> });
-        if self.dismissed {
-            return html! { { for toast } };
-        }
-        let settings = Settings::load();
-        let banner = match &self.banner {
-            None => html! {},
-            Some(Banner::FirstRun) => html! {
-                <div class="device-banner">
-                    <span>{ "First time here? Calibrate the timing for your audio and display before playing; it takes a minute." }</span>
-                    <a class="button" href={Route::Calibrate.to_hash()} onclick={go_calibrate()}>{ "calibrate" }</a>
-                    <button class="link-button" onclick={link.callback(|_| Msg::Dismiss)}>{ "later" }</button>
-                </div>
             },
-            Some(Banner::Unknown {
-                profile,
-                new_audio,
-                new_display,
-            }) => {
-                let copies = |kind: &'static str,
-                              profiles: &[crate::settings::OffsetProfile]|
-                 -> Html {
-                    html! {
-                        { for profiles.iter().filter(|p| p.calibrated).map(|p| {
-                            let id = p.id.clone();
-                            let onclick = if kind == "audio" {
-                                link.callback(move |_| Msg::CopyAudioFrom(id.clone()))
-                            } else {
-                                link.callback(move |_| Msg::CopyDisplayFrom(id.clone()))
-                            };
-                            html!{ <button class="link-button" {onclick}>{ format!("use {:+.0} ms from {}", p.offset * 1000.0, p.label) }</button> }
-                        }) }
+            Msg::HideToast => self.toast = None,
+            Msg::Route { suppressed } => {
+                // A play (or calibration) has its own context: this one
+                // is suspended meanwhile (no second live output), and on
+                // again after.
+                if suppressed != self.suppressed
+                    && let Some(a) = &self.audio
+                {
+                    if suppressed {
+                        a.suspend_now();
+                    } else {
+                        a.resume_now();
                     }
-                };
-                html! {
-                    <div class="device-banner">
-                        <span>
-                            { if *new_audio { format!("New audio path: {}. ", profile.audio.label) } else { String::new() } }
-                            { if *new_display { format!("New display: {}. ", profile.display.label) } else { String::new() } }
-                            { "No calibration for it yet." }
-                        </span>
-                        <a class="button" href={Route::Calibrate.to_hash()} onclick={go_calibrate()}>{ "calibrate" }</a>
-                        <button class="link-button" onclick={link.callback(|_| Msg::UseDefaults)}>{ "use defaults" }</button>
-                        { if *new_audio { copies("audio", &settings.audio_profiles) } else { html!{} } }
-                        { if *new_display { copies("display", &settings.display_profiles) } else { html!{} } }
-                        <button class="link-button" onclick={link.callback(|_| Msg::Dismiss)}>{ "later" }</button>
-                    </div>
                 }
+                self.suppressed = suppressed;
             }
-        };
-        html! { <>{ banner }{ for toast }</> }
+        }
+        self.publish();
+        false
     }
-}
 
-/// Navigate to the calibration hub from the banner regardless of what the
-/// anchor's default action does (the banner may re-render under the click).
-fn go_calibrate() -> Callback<MouseEvent> {
-    Callback::from(|e: MouseEvent| {
-        e.prevent_default();
-        Route::Calibrate.navigate();
-    })
+    fn destroy(&mut self, _ctx: &Context<Self>) {
+        crate::notices::on_action(None);
+        crate::notices::set(Default::default());
+    }
 }
 
 impl DeviceWatcher {
-    /// Recomputes the banner from the last probe and the stored profiles.
-    /// Returns whether the current devices are (still) unknown.
-    fn reevaluate(&mut self, settings: &Settings) -> bool {
-        match &self.last {
-            Some(profile) => {
-                let new_audio = settings.audio_profile(&profile.audio.id).is_none();
-                let new_display = settings.display_profile(&profile.display.id).is_none();
-                if new_audio || new_display {
-                    self.banner = Some(Banner::Unknown {
-                        profile: profile.clone(),
-                        new_audio,
-                        new_display,
-                    });
-                    true
-                } else {
-                    self.banner = None;
-                    false
-                }
-            }
-            None => {
-                let first =
-                    settings.audio_profiles.is_empty() && settings.display_profiles.is_empty();
-                self.banner = first.then_some(Banner::FirstRun);
-                first
-            }
-        }
+    /// What the pages show: the banner (unless held back or put off) and
+    /// the short line.
+    fn publish(&self) {
+        let suppressed = self.suppressed;
+        let banner = if suppressed || self.dismissed {
+            None
+        } else {
+            ddi_ui::screens::notices::device_notice(&Settings::load(), self.last.as_ref())
+        };
+        crate::notices::set(ddi_ui::screens::notices::AppNotices {
+            banner,
+            toast: if suppressed { None } else { self.toast.clone() },
+        });
     }
 
     fn probe(&mut self, ctx: &Context<Self>) {
@@ -355,25 +310,24 @@ impl DeviceWatcher {
             Msg::Probed(profile)
         });
     }
+}
 
-    fn register(&mut self, copy_audio_from: Option<&str>, copy_display_from: Option<&str>) {
-        let Some(Banner::Unknown { profile, .. }) = &self.banner else {
-            return;
-        };
-        let mut settings = Settings::load();
-        let audio_initial = copy_audio_from
-            .and_then(|id| settings.audio_profile(id).map(|p| p.offset))
-            .unwrap_or(settings.audio_offset);
-        let display_initial = copy_display_from
-            .and_then(|id| settings.display_profile(id).map(|p| p.offset))
-            .unwrap_or(settings.visual_offset);
-        Settings::touch_profile(&mut settings.audio_profiles, &profile.audio, audio_initial);
-        Settings::touch_profile(
-            &mut settings.display_profiles,
-            &profile.display,
-            display_initial,
-        );
-        settings.save();
-        self.banner = None;
+/// "later" for the session (`sessionStorage`): the devices it was said
+/// for (none yet: said before the first probe).
+mod later {
+    use ddi_platform::storage::{self, Area};
+
+    const KEY: &str = "ddi.notices.later.v1";
+
+    pub(super) fn load() -> Option<Option<(String, String)>> {
+        storage::load(Area::Session, KEY)
+    }
+
+    pub(super) fn save(devices: Option<(String, String)>) {
+        let _ = storage::save(Area::Session, KEY, &devices);
+    }
+
+    pub(super) fn clear() {
+        storage::remove(Area::Session, KEY);
     }
 }

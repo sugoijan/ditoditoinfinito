@@ -100,6 +100,11 @@ pub enum Input {
     },
     /// A press outside a modal overlay (it may close itself).
     Outside,
+    /// A key or a controller's control pressed or released, as it is, to
+    /// a screen that asked for them ([`Screen::raw_input`]): keys by their
+    /// code (no repeats, none with Ctrl, Alt or Meta, no function keys),
+    /// controllers' as the shell reads them.
+    Raw(ddi_platform::RawInput),
     /// A request that needs a user gesture was made outside one (from a
     /// frame, a message, a long press, a pad press the browser does not
     /// count) and was refused: show a prompt, and ask again from the next
@@ -143,6 +148,28 @@ pub trait Screen {
     fn focusables(&self) -> Vec<Focusable> {
         Vec::new()
     }
+
+    /// Whether, on top, it takes keys and controllers' controls as they
+    /// are ([`Input::Raw`]) instead of as menu actions: binding them.
+    /// Pointers still come as gestures.
+    fn raw_input(&self) -> bool {
+        false
+    }
+
+    /// The chrome's ([`crate::Ui::push_chrome`]): how much of the top of
+    /// the screen it takes (virtual pixels), which every other layer is
+    /// laid out below.
+    fn reserve(&self) -> f32 {
+        0.0
+    }
+
+    /// The chrome's: whether a pointer on `target` goes on to what is
+    /// under it (a line that only informs, such as the devices' toast,
+    /// must not swallow taps on the screen's footer).
+    fn lets_through(&self, target: &crate::hit::Target) -> bool {
+        let _ = target;
+        false
+    }
 }
 
 /// What a screen asks for while handling a call.
@@ -166,6 +193,7 @@ pub(crate) enum Op {
     },
     SetText(String),
     EndText,
+    EnterChrome,
 }
 
 /// A screen's way to the [`crate::Ui`] during a call.
@@ -178,6 +206,10 @@ pub struct Cx {
     focused: Option<String>,
     /// The menu action being handled came from a keyboard key.
     pub(crate) menu_key: bool,
+    /// ... or from a controller.
+    pub(crate) menu_pad: bool,
+    /// The last input was a key or a pad's (not a pointer).
+    pub(crate) by_keys: bool,
 }
 
 impl Cx {
@@ -196,13 +228,29 @@ impl Cx {
             time,
             focused,
             menu_key: false,
+            menu_pad: false,
+            by_keys: false,
         }
+    }
+
+    /// Whether the player last used keys or a pad (the focus ring shows),
+    /// not a pointer: key hints are worth showing then.
+    pub fn by_keys(&self) -> bool {
+        self.by_keys
     }
 
     /// Whether the menu action being handled came from the keyboard (Tab
     /// is the menu's Select; a pad's Y is too).
     pub fn menu_from_keyboard(&self) -> bool {
         self.menu_key
+    }
+
+    /// Whether the menu action being handled (and the activation it
+    /// made) came from a controller: on the web its press may count as a
+    /// gesture yet start no audio (WebKit; a context a poll made may stay
+    /// suspended).
+    pub fn menu_from_pad(&self) -> bool {
+        self.menu_pad
     }
 
     /// Whether this call comes from a user gesture: requests that need one
@@ -269,6 +317,15 @@ impl Cx {
     /// Focuses this screen's actor `name`.
     pub fn focus(&mut self, name: impl Into<String>) {
         self.ops.push(Op::Focus(name.into()));
+    }
+
+    /// The menu's focus goes up past this screen's top: to the app's
+    /// chrome (its notices), when it has something to focus. The
+    /// screen's own focus stays where it is and is given back on Down,
+    /// Back or F2. A screen calls it on a fresh Up at its top, instead of
+    /// letting the menu's default move the focus to whatever lies above.
+    pub fn enter_chrome(&mut self) {
+        self.ops.push(Op::EnterChrome);
     }
 
     /// Starts typing into the text actor `name` of this screen, holding
