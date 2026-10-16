@@ -55,9 +55,11 @@ enum Commands {
         #[arg(long)]
         check: bool,
     },
-    /// Copy the video decoder (target/video/, built by `just video`) into
-    /// the site being built, when it was built. Trunk runs this after a
-    /// build, with TRUNK_STAGING_DIR set.
+    /// Copy the video decoder (target/video/) into the site being built,
+    /// building it first (`video/build.sh`, as `just video`) when it is
+    /// missing or older than its sources; DDI_NO_VIDEO=1 builds the site
+    /// without it. Trunk runs this after a build, with TRUNK_STAGING_DIR
+    /// set.
     #[command(name = "stage-video")]
     StageVideo {
         /// The site's folder (default: $TRUNK_STAGING_DIR).
@@ -455,13 +457,35 @@ fn stage_video(dest: Option<PathBuf>) -> Result<()> {
     };
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let built = root.join("target/video");
-    if !built.join(VIDEO_FILES[0]).exists() {
+    if std::env::var_os("DDI_NO_VIDEO").is_some_and(|v| !v.is_empty() && v != "0") {
         // The app works without it: movies only the module decodes show
         // the song background instead.
-        eprintln!(
-            "stage-video: no video decoder in target/video (run `just video`); building without it"
-        );
+        eprintln!("stage-video: DDI_NO_VIDEO is set; building the site without the video decoder");
         return Ok(());
+    }
+    // `cargo clean` takes target/video with it, and a site built without
+    // the module looks fine until a movie needs it; so build it here.
+    if let Some(why) = video_out_of_date(&root, &built) {
+        if cfg!(windows) {
+            eprintln!(
+                "stage-video: the video decoder is {why}, and video/build.sh does not run on Windows; building without it"
+            );
+            return Ok(());
+        }
+        eprintln!(
+            "stage-video: the video decoder is {why}; building it (video/build.sh, a few minutes the first time)"
+        );
+        let status = std::process::Command::new("bash")
+            .arg(root.join("video/build.sh"))
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()
+            .context("running video/build.sh")?;
+        if !status.success() {
+            bail!(
+                "stage-video: video/build.sh failed ({status}); fix it, or set DDI_NO_VIDEO=1 to build the site without the video decoder"
+            );
+        }
     }
     // FFmpeg's source goes with the module (LGPL 2.1 section 4: offered
     // from the same place), as the release tarball the build checked.
@@ -487,6 +511,27 @@ fn stage_video(dest: Option<PathBuf>) -> Result<()> {
         out.display()
     );
     Ok(())
+}
+
+/// Why the module in `built` needs building, if it does: missing, or
+/// older than a file it is built from (the build script then skips what
+/// is current).
+fn video_out_of_date(root: &Path, built: &Path) -> Option<&'static str> {
+    let modified = |path: &Path| fs::metadata(path).and_then(|m| m.modified()).ok();
+    let mut oldest = None;
+    for name in VIDEO_FILES {
+        let Some(time) = modified(&built.join(name)) else {
+            return Some("not built");
+        };
+        oldest = Some(oldest.map_or(time, |t: std::time::SystemTime| t.min(time)));
+    }
+    let oldest = oldest?;
+    let sources = ["video/build.sh", "video/FFMPEG.toml", "video/ddivideo.c"];
+    sources
+        .iter()
+        .filter_map(|source| modified(&root.join(source)))
+        .any(|time| time > oldest)
+        .then_some("older than its sources")
 }
 
 #[cfg(test)]

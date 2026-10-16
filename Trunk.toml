@@ -37,7 +37,8 @@ command = "cargo"
 command_arguments = ["run", "-p", "xtask", "--", "gen-credits"]
 
 # The video decoder (target/video/, `just video`) into the site's video/,
-# when it was built; without it the app still runs.
+# built first when it is missing (after `cargo clean`) or older than its
+# sources; DDI_NO_VIDEO=1 builds the site without it.
 [[hooks]]
 stage = "post_build"
 command = "cargo"
