@@ -15,6 +15,9 @@ numbers_weight = 800
 
 [colors]
 "Ground" = "#0a090d"
+# The play's field colour (render's `Skin::background`), under the start
+# prompt's picture: a song without one opens on it.
+"Play.Field" = "#05020d"
 # The developer widget screen's ground, under this look.
 "Background" = "#0a090d"
 "Plate" = "#14121a"
@@ -119,11 +122,19 @@ numbers_weight = 800
 "Results.Panels.X" = 464
 "Results.Panels.Width" = 784
 "Results.Bar.Y" = 584
+# The start prompt's card.
+"Prompt.Width" = 560
 # Options.
 "Options.Rail.Width" = 208
 "Options.Rows.X" = 272
 "Options.Rows.Width" = 600
 "Options.Preview.X" = 904
+# Compact: the preview's width sideways; upright, the layout's width
+# (zoomed to the screen's).
+"Options.Compact.Preview" = 320
+"Options.Narrow.Width" = 480
+# Song select upright on a phone: its side margins (the layout 480 wide).
+"Compact.Upright.Margin" = 12
 # The selected song's background behind the menus: how strong (results'
 # fainter), how soft (the image is asked for this small, then drawn
 # large, several times this far apart), how long a new one fades in.

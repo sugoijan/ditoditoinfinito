@@ -90,19 +90,29 @@ fn taps() -> Vec<(f64, u8, bool)> {
 fn play(
     preset: &str,
     script: &[(f64, u8, bool)],
+    at: impl FnMut(f64, &Player),
+) -> (Player, Vec<JudgeEventKind>) {
+    play_song(&song(), preset, HoldStyle::ByGame, script, at)
+}
+
+/// [`play`] on `song`, its holds kept as `holds` says.
+fn play_song(
+    song: &Song,
+    preset: &str,
+    holds: HoldStyle,
+    script: &[(f64, u8, bool)],
     mut at: impl FnMut(f64, &Player),
 ) -> (Player, Vec<JudgeEventKind>) {
-    let song = song();
     let ruleset = presets::for_chart(
         RulesetMode::AllStepMania,
         preset,
         &DanoniOptions::default(),
-        HoldStyle::ByGame,
+        holds,
         &song.charts[0],
     );
     let mut script = script.to_vec();
     script.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let mut player = Player::new(&song, 0, ruleset, PlayOptions::default());
+    let mut player = Player::new(song, 0, ruleset, PlayOptions::default());
     player.clock_sample(ClockSample {
         context_time: 0.0,
         host_time: HostTime(0.0),
@@ -126,13 +136,22 @@ fn play(
         at(now, &player);
     }
     assert!(player.finished());
-    replays_alike(&song, &player);
+    replays_alike(song, &player);
     (player, events.into_iter().map(|e| e.kind).collect())
 }
 
 #[test]
 fn a_shock_avoided_is_one_ok_that_adds_to_the_combo() {
-    let (player, events) = play("ddr-a", &taps(), |_, _| {});
+    // O.K. shows over every lane of the row as it passes.
+    let mut oks: Vec<Vec<u8>> = Vec::new();
+    let (player, events) = play("ddr-a", &taps(), |now, p| {
+        if (2.0..2.6).contains(&now) {
+            let f = p.frame(HostTime(now));
+            assert!(f.holds.flashes.iter().all(|h| h.held), "{:?}", f.holds);
+            oks.push(f.holds.flashes.iter().map(|h| h.lane).collect());
+        }
+    });
+    assert!(oks.iter().any(|l| l == &[0, 1, 2, 3]), "{oks:?}");
     let shocks: Vec<_> = events
         .iter()
         .filter(|k| matches!(k, JudgeEventKind::AvoidShock | JudgeEventKind::HitShock))
@@ -178,11 +197,54 @@ fn a_shock_stepped_on_in_any_lane_is_one_ng_and_hides_what_comes() {
         .map(|e| e.lane)
         .collect();
     assert_eq!(lanes, [0, 1, 2, 3]);
+    // N.G. over each of them.
+    let f = player.frame(HostTime(2.3));
+    let ng: Vec<(u8, bool)> = f.holds.flashes.iter().map(|h| (h.lane, h.held)).collect();
+    assert_eq!(ng, [(0, false), (1, false), (2, false), (3, false)]);
     // The notes to come vanish for a moment, then come back.
     for (now, n) in shown {
         let blind = (2.0..2.0 + SHOCK_BLIND_SECONDS - 1e-9).contains(&now);
         assert_eq!(n == 0, blind, "{n} notes shown at {now}");
     }
+}
+
+#[test]
+fn with_ticked_holds_a_shock_still_shows_its_ok() {
+    // Ticked holds show no O.K. of their own; shocks are not holds.
+    let mut oks = 0;
+    play_song(&song(), "ddr-a", HoldStyle::Ticked, &taps(), |now, p| {
+        if (2.0..2.6).contains(&now) {
+            oks += p.frame(HostTime(now)).holds.flashes.len();
+        }
+    });
+    assert!(oks > 0);
+}
+
+#[test]
+fn the_play_ends_after_the_last_ng_has_shown() {
+    // The shock is the last row: stepped on, its N.G. shows 1.4 s, past
+    // the second the play would otherwise end after it.
+    let mut song = song();
+    song.charts[0]
+        .notes
+        .retain(|n| n.tick <= Tick::from_beats(2));
+    let script = [
+        (0.0, 0, true),
+        (0.05, 0, false),
+        (2.0, 2, true),
+        (2.05, 2, false),
+    ];
+    let mut end = None;
+    let (player, _) = play_song(&song, "ddr-a", HoldStyle::ByGame, &script, |now, p| {
+        if p.finished() && end.is_none() {
+            end = Some(now);
+            let f = p.frame(HostTime(now));
+            assert!(f.holds.flashes.is_empty(), "{:?}", f.holds);
+        }
+    });
+    let end = end.unwrap();
+    assert!(end > player.song_end_time() + 0.3, "{end}");
+    assert!(end < 2.0 + 1.6, "{end}");
 }
 
 #[test]

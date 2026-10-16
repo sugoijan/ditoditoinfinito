@@ -111,6 +111,13 @@ pub enum UiRequest {
     /// Read the clipboard and answer with [`crate::UiEvent::Paste`]
     /// (desktop: the web's textarea pastes by itself).
     Paste,
+    /// Where the options screen shows the field's preview, in the
+    /// surface's physical pixels `[x, y, w, h]`, or `None` when it shows
+    /// none (hidden, or the screen gone): the shell draws the demo chart
+    /// into the texture named
+    /// [`crate::screens::options::FIELD_PREVIEW`] at that size. Sent when
+    /// it changes.
+    FieldPreview(Option<[f32; 4]>),
 }
 
 impl UiRequest {

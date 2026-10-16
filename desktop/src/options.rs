@@ -1,0 +1,323 @@
+//! Options on desktop (`docs/plans/desktop.md`, 7.4): the theme's options
+//! screen on the player's settings (`storage.json`), through the shared
+//! shell (`ddi_ui::screens::options_shell`), as the web's options page
+//! runs it. What only the platform does is [`Desktop`]'s: the volume
+//! sample on the preview player, the controllers connected and what they
+//! hold (for the bind flow), the settings as edited (the field preview,
+//! the menus' bindings), leaving for the songs; with the library on disk,
+//! its song folders (added through the system's picker, taken off the
+//! list, read again) and the history's export to a file.
+
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::rc::Rc;
+
+use ddi_engine::ConnectedPad;
+use ddi_ui::message::Message;
+use ddi_ui::screens::options::{OPTIONS_CHANGED, OptionsFeed, OptionsScreen};
+use ddi_ui::screens::options_model::{OptionsModel, Reset, World};
+use ddi_ui::screens::options_shell::{self, Leave, OptionsPlatform};
+use ddi_ui::screens::{Env, sample};
+use ddi_ui::state::settings::Settings;
+use ddi_ui::{Cx, Ui};
+
+use crate::preview::SharedPlayer;
+
+/// What the options screen and the shell share.
+pub struct Shared {
+    pub model: Rc<RefCell<OptionsModel>>,
+    pub feed: OptionsFeed,
+    /// The controls each controller (by id) holds now, kept by the shell.
+    pub held: RefCell<std::collections::BTreeMap<String, HashSet<String>>>,
+    /// Settings changed since the shell last took them.
+    pub edited: RefCell<Option<Settings>>,
+    /// Rows changed outside a call (the scan): the shell tells the screen.
+    pending: std::cell::Cell<bool>,
+    env: Env,
+    sound: Option<SharedPlayer>,
+    songs: Option<Rc<crate::songs::Songs>>,
+    /// The noteskins of the song folders, listed on a thread of their own
+    /// (`crate::library::noteskins`): put in the rows when they come.
+    skins: RefCell<Option<std::sync::mpsc::Receiver<Skins>>>,
+}
+
+impl Shared {
+    /// The controllers connected changed: the rows say so.
+    pub fn set_pads(&self, pads: Vec<ConnectedPad>, ui: &mut Ui) {
+        if pads == self.model.borrow().world.connected {
+            return;
+        }
+        self.model.borrow_mut().world.connected = pads;
+        *self.feed.borrow_mut() = Some(self.model.borrow().data());
+        ui.broadcast(Message::new(OPTIONS_CHANGED));
+    }
+
+    /// The song folders changed (or what the scan found): the rows say
+    /// so, the next frame.
+    pub fn set_folders(&self, folders: Vec<String>, note: String) {
+        {
+            let mut m = self.model.borrow_mut();
+            if m.world.folders.as_ref() == Some(&folders) && m.world.library_note == note {
+                return;
+            }
+            m.world.folders = Some(folders);
+            m.world.library_note = note;
+        }
+        *self.feed.borrow_mut() = Some(self.model.borrow().data());
+        self.pending.set(true);
+    }
+
+    /// Whether the rows changed since the screen was last told.
+    pub fn take_pending(&self) -> bool {
+        let skins = self
+            .skins
+            .borrow()
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok());
+        if let Some(skins) = skins {
+            *self.skins.borrow_mut() = None;
+            // Not `complete`: a skin chosen on another machine stays chosen.
+            self.model.borrow_mut().set_noteskins(skins, false, false);
+            *self.feed.borrow_mut() = Some(self.model.borrow().data());
+            self.pending.set(true);
+        }
+        self.pending.replace(false)
+    }
+
+    /// The settings as edited, once after each change.
+    pub fn take_edited(&self) -> Option<Settings> {
+        self.edited.borrow_mut().take()
+    }
+}
+
+/// The noteskins one can choose, `(key, name)`.
+type Skins = Vec<(String, String)>;
+
+/// The options screen on the stored settings, and what the shell keeps of
+/// it.
+pub fn screen(
+    env: &Env,
+    sound: Option<SharedPlayer>,
+    songs: Option<Rc<crate::songs::Songs>>,
+) -> (OptionsScreen, Rc<Shared>) {
+    let world = World {
+        platform: ddi_ui::screens::data::Platform::Desktop,
+        pads_supported: true,
+        library_styles: songs.as_ref().map_or_else(Vec::new, |s| {
+            let listed = s.listed();
+            ddi_ui::state::select_view::library_styles(listed.iter().map(|l| &l.entry))
+        }),
+        // The bundled ones at once; the folders' when their walk is done.
+        noteskins: crate::library::noteskins::choices(&crate::library::noteskins::bundled()),
+        plays: songs
+            .as_ref()
+            .and_then(|s| s.plays.as_ref())
+            .map_or(0, |p| p.history().len()),
+        folders: songs.as_ref().map(|s| {
+            s.folders()
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect()
+        }),
+        library_note: songs.as_ref().map(|s| s.folders_note()).unwrap_or_default(),
+        ..World::default()
+    };
+    let model = Rc::new(RefCell::new(OptionsModel::new(Settings::load(), world)));
+    let feed = OptionsFeed::default();
+    let shared = Rc::new(Shared {
+        model: model.clone(),
+        feed: feed.clone(),
+        held: RefCell::default(),
+        edited: RefCell::default(),
+        pending: std::cell::Cell::new(false),
+        env: env.clone(),
+        skins: RefCell::new(songs.as_ref().map(|s| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let folders = s.folders();
+            let wake = s.wake.borrow().clone();
+            let _ = std::thread::Builder::new()
+                .name("ddi-noteskins".into())
+                .spawn(move || {
+                    let skins = crate::library::noteskins::all(&folders);
+                    let _ = tx.send(crate::library::noteskins::choices(&skins));
+                    if let Some(w) = wake {
+                        w();
+                    }
+                });
+            rx
+        })),
+        sound,
+        songs,
+    });
+    let shell = options_shell::shell(
+        env.clone(),
+        model.clone(),
+        feed.clone(),
+        Rc::new(Desktop(shared.clone())),
+    );
+    let data = model.borrow().data();
+    let screen = OptionsScreen::new(env.clone(), data, None).with_shell(shell, feed);
+    (screen, shared)
+}
+
+/// The options' platform on desktop.
+struct Desktop(Rc<Shared>);
+
+/// Today as the export's file name has it (`YYYY-MM-DD`, UTC).
+fn today() -> String {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() / 86_400) as i64;
+    // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// The song the volume sample plays: the first bundled one with music.
+fn sample_song() -> Option<String> {
+    sample::bundled().into_iter().map(|s| s.id).next()
+}
+
+impl OptionsPlatform for Desktop {
+    fn sample(&self, play: bool, volume: f32, _cx: &mut Cx) -> bool {
+        let (Some(sound), Some(song)) = (&self.0.sound, sample_song()) else {
+            return false;
+        };
+        sound.borrow_mut().sample(&song, play, volume)
+    }
+
+    fn volume(&self, volume: f32) {
+        if let Some(sound) = &self.0.sound {
+            sound.borrow_mut().set_volume(volume);
+        }
+    }
+
+    /// The history as JSON lines, one a play (the web's export), to a
+    /// file the player names.
+    fn export(&self) {
+        let Some(plays) = self.0.songs.as_ref().and_then(|s| s.plays.clone()) else {
+            return;
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .set_file_name(format!("ditoditoinfinito-plays-{}.jsonl", today()))
+            .save_file()
+        else {
+            return;
+        };
+        let out = Rc::new(RefCell::new(String::new()));
+        let (model, feed, o) = (self.0.model.clone(), self.0.feed.clone(), out.clone());
+        let shared = self.0.clone();
+        plays.export(
+            50,
+            move |lines| o.borrow_mut().push_str(&lines),
+            move |r| {
+                let notice = match r.and_then(|n| {
+                    std::fs::write(&path, out.borrow().as_bytes())
+                        .map(|_| n)
+                        .map_err(|e| e.to_string())
+                }) {
+                    Ok(n) => format!("{n} plays exported to {}.", path.display()),
+                    Err(e) => format!("The export failed: {e}"),
+                };
+                model.borrow_mut().notice = notice;
+                *feed.borrow_mut() = Some(model.borrow().data());
+                shared.pending.set(true);
+            },
+        );
+    }
+
+    /// The song folders are forgotten (the settings' part, the folders'
+    /// songs' offsets, is the model's); nothing in them is deleted.
+    /// Noteskins are read in place too: none is stored to remove.
+    fn remove(&self, reset: &Reset) {
+        if matches!(reset, Reset::Songs | Reset::Everything)
+            && let Some(s) = &self.0.songs
+        {
+            s.forget_all();
+        }
+        // The plays folder emptied (every play's two files): the history's
+        // reset, and everything's.
+        if matches!(reset, Reset::History | Reset::Everything)
+            && let Some(plays) = self.0.songs.as_ref().and_then(|s| s.plays.clone())
+        {
+            let (model, feed, shared, p) = (
+                self.0.model.clone(),
+                self.0.feed.clone(),
+                self.0.clone(),
+                plays.clone(),
+            );
+            let alone = *reset == Reset::History;
+            plays.remove_all(move |r| {
+                {
+                    let mut m = model.borrow_mut();
+                    match r {
+                        Ok(()) if alone => m.notice = "Play history deleted.".into(),
+                        Ok(()) => m.notice = "Everything reset.".into(),
+                        Err(e) => m.notice = format!("Could not delete the play history: {e}"),
+                    }
+                    m.world.plays = p.history().len();
+                }
+                *feed.borrow_mut() = Some(model.borrow().data());
+                shared.pending.set(true);
+            });
+        }
+    }
+
+    fn held(&self, id: &str) -> HashSet<String> {
+        self.0.held.borrow().get(id).cloned().unwrap_or_default()
+    }
+
+    fn changed(&self, id: &str, model: &OptionsModel) {
+        *self.0.edited.borrow_mut() = Some(model.settings.clone());
+        if id == "reduced_motion" {
+            let env = &self.0.env;
+            env.reduced_motion
+                .set(model.settings.reduced_motion.reduced(false));
+            env.state.borrow_mut().reduced_motion_setting = model.settings.reduced_motion as usize;
+        }
+    }
+
+    /// Back to the songs under it, or calibration's menu in its place;
+    /// the demo play is the web's (a WebGL2 check).
+    fn leave(&self, to: Leave, cx: &mut Cx) {
+        match to {
+            Leave::Songs => cx.close(false),
+            Leave::Calibrate => {
+                if let Some(songs) = &self.0.songs {
+                    cx.replace(crate::calibrate::menu(
+                        &self.0.env,
+                        songs,
+                        self.0.sound.clone(),
+                    ));
+                }
+            }
+            Leave::Demo { .. } => {}
+        }
+    }
+
+    fn add_folder(&self, _cx: &mut Cx) {
+        if let Some(s) = &self.0.songs {
+            s.add_folders(crate::os::pick(true));
+        }
+    }
+
+    fn remove_folder(&self, index: usize) {
+        if let Some(s) = &self.0.songs {
+            s.remove_folder(index);
+        }
+    }
+
+    fn rescan(&self) {
+        if let Some(s) = &self.0.songs {
+            s.rescan(s.folders());
+        }
+    }
+}

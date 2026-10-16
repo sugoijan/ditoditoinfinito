@@ -4,19 +4,30 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use crate::component::Callback;
 use ddi_library::backgrounds::{self, BgImage, BgSegment};
 use ddi_platform::HostTime;
-use ddi_platform::video::{StopReason, VideoGuard};
+use ddi_platform::video::{GuardAction, StopReason};
 use ddi_render::{Backdrop, Renderer};
+use ddi_session::backgrounds::{FpsMeter, FrameShape, MovieGuard};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{HtmlCanvasElement, HtmlElement, ResizeObserver, ResizeObserverEntry};
-use yew::Callback;
 
-use crate::lyrics::LyricsView;
 use crate::play::{PlaySession, SessionEvent};
 use crate::settings::{BackgroundFrame, VideoMode};
 use crate::web::gfx::Gfx;
+use ddi_engine::lyrics::{LyricLine, LyricTrack};
+
+/// The lyrics' lines of a frame, and where they go.
+type Lyrics = (Vec<LyricLine>, ddi_render::lyrics::Place);
+
+/// The 2D pass over a play: its painter (in the surface's format) and
+/// what it draws.
+struct Overlay {
+    painter: ddi_render::painter::Painter,
+    list: ddi_render::DrawList,
+}
 
 /// The observer and the closure it calls, kept alive together and
 /// disconnected before the closure is dropped (see `Drop`).
@@ -52,7 +63,11 @@ pub(crate) struct GameLoop {
     /// The song's background changes; empty outside a song.
     background_schedule: Vec<BgSegment>,
     /// The chart's lyrics, if it has any and they are shown.
-    lyrics: Option<LyricsView>,
+    lyrics: Option<LyricTrack>,
+    /// The 2D pass over the play (the lyrics), made when first needed, and
+    /// the lines it drew last.
+    overlay: Option<Overlay>,
+    lyrics_shown: Vec<String>,
     /// A work's back and mask layers: the song's decoded contents, the
     /// play's timeline.
     stage: crate::stage::StageView,
@@ -66,18 +81,18 @@ pub(crate) struct GameLoop {
     /// The movies were stopped at the end of the song.
     movies_stopped: bool,
     video_mode: VideoMode,
-    /// The automatic setting's rule.
-    guard: VideoGuard,
-    /// The refresh rate measured before the play started.
-    refresh_at_start: f64,
+    /// The automatic setting's rule, and the refresh rate measured
+    /// before the play started (`ddi_session::backgrounds`).
+    guard: MovieGuard,
     /// Testing aid: each frame takes 40 ms longer while a movie is drawn.
     slow: bool,
-    frame_setting: BackgroundFrame,
-    /// The automatic frame, once settled: it never changes while a movie
-    /// shows (that would be a jump of its own).
-    frozen_frame: Option<Option<f32>>,
-    /// Width over height of the song's background image.
-    song_bg_aspect: Option<f32>,
+    /// The shape backgrounds are fitted into (`ddi_session::backgrounds`).
+    frame_shape: FrameShape,
+    /// Main-thread time the movies took this second (sum, longest, frames
+    /// they ran in), ms, and the last full second's (mean, longest): what
+    /// the debug overlay shows of the movie's cost.
+    video_ms: (f64, f64, u32),
+    video_ms_last: (f64, f64),
     /// The noteskin of this play, if one is chosen and fits the layout.
     noteskin: Option<ddi_render::noteskin::NoteskinPlay>,
     /// A noteskin readied while a play was on: used from the next play.
@@ -92,84 +107,13 @@ pub(crate) struct GameLoop {
     lua_stop_reported: bool,
 }
 
+fn now_ms() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or(0.0, |p| p.now())
+}
+
 /// Width over height of the screens pack art was made for.
-const FOUR_THREE: f32 = 4.0 / 3.0;
-const SIXTEEN_NINE: f32 = 16.0 / 9.0;
-
-/// The cabinet screen shape nearest to `aspect` (by ratio): a square
-/// jacket fills a 4:3 frame, an ultrawide picture a 16:9 one.
-fn cabinet_shape(aspect: f32) -> f32 {
-    if aspect < (FOUR_THREE * SIXTEEN_NINE).sqrt() {
-        FOUR_THREE
-    } else {
-        SIXTEEN_NINE
-    }
-}
-
-/// Frames per second over the last second, from rAF timestamps.
-struct FpsMeter {
-    window_start: f64,
-    count: u32,
-    fps: f64,
-    last: Option<f64>,
-    /// Longest frame interval in the current window, ms.
-    worst_ms: f64,
-    worst_last: f64,
-    /// Recent per-second rates; frames can be dropped but never exceed the
-    /// refresh rate, so the maximum is the robust estimate. Single
-    /// intervals are no clue: Firefox's frame timestamps jitter by several
-    /// ms (1.2–9 ms apart at a steady 125 fps), which made the shortest
-    /// one read as a faster screen and the automatic video setting turn
-    /// every movie off.
-    history: Vec<f64>,
-}
-
-impl FpsMeter {
-    fn new() -> FpsMeter {
-        FpsMeter {
-            window_start: 0.0,
-            count: 0,
-            fps: 0.0,
-            last: None,
-            worst_ms: 0.0,
-            worst_last: 0.0,
-            history: Vec::new(),
-        }
-    }
-
-    /// Best estimate of the display refresh rate, or `None` before two full
-    /// seconds have been measured.
-    fn refresh_estimate(&self) -> Option<f64> {
-        if self.history.len() < 2 {
-            return None;
-        }
-        Some(self.history.iter().copied().fold(f64::MIN, f64::max))
-    }
-
-    /// Counts a frame; the rate of a second that ended with it, if one did.
-    fn tick(&mut self, time_ms: f64) -> Option<f64> {
-        if let Some(last) = self.last {
-            let dt = time_ms - last;
-            self.worst_ms = self.worst_ms.max(dt);
-        }
-        self.last = Some(time_ms);
-        self.count += 1;
-        if time_ms - self.window_start >= 1000.0 {
-            self.fps = self.count as f64 * 1000.0 / (time_ms - self.window_start);
-            self.count = 0;
-            self.window_start = time_ms;
-            self.worst_last = self.worst_ms;
-            self.worst_ms = 0.0;
-            self.history.push(self.fps);
-            if self.history.len() > 4 {
-                self.history.remove(0);
-            }
-            return Some(self.fps);
-        }
-        None
-    }
-}
-
 impl GameLoop {
     /// `skins`: the player draws layouts with a skin (not the
     /// built-in arrows, chosen to be lighter).
@@ -223,18 +167,19 @@ impl GameLoop {
             playing_at: None,
             background_schedule: Vec::new(),
             lyrics: None,
+            overlay: None,
+            lyrics_shown: Vec::new(),
             stage: crate::stage::StageView::default(),
             stage_drawn: (0, 0),
             movies: crate::movies::MovieDeck::default(),
             shown_cache: (Vec::new(), (0, u64::MAX)),
             movies_stopped: false,
             video_mode: VideoMode::Auto,
-            guard: VideoGuard::default(),
-            refresh_at_start: 60.0,
+            guard: MovieGuard::default(),
             slow: false,
-            frame_setting: BackgroundFrame::Auto,
-            frozen_frame: None,
-            song_bg_aspect: None,
+            frame_shape: FrameShape::default(),
+            video_ms: (0.0, 0.0, 0),
+            video_ms_last: (0.0, 0.0),
             noteskin: None,
             next_noteskin: None,
             noteskin_key: String::new(),
@@ -258,8 +203,7 @@ impl GameLoop {
     pub(crate) fn set_session(&mut self, session: PlaySession) {
         // Everything decoded so far goes up before the music starts.
         self.playing_at = None;
-        self.guard = VideoGuard::default();
-        self.refresh_at_start = self.refresh_hz();
+        self.guard.start(self.refresh_hz());
         self.upload_backgrounds();
         if let Some((play, images, key)) = self.next_noteskin.take() {
             self.install_noteskin(Some(play), images, key);
@@ -359,8 +303,10 @@ impl GameLoop {
                 depth_or_array_layers: 1,
             },
         );
-        if what == BgImage::Song {
-            self.song_bg_aspect = Some(width as f32 / height as f32);
+        match what {
+            BgImage::Song => self.frame_shape.song_bg_aspect = Some(width as f32 / height as f32),
+            BgImage::Still => self.frame_shape.still_aspect = Some(width as f32 / height as f32),
+            _ => {}
         }
         let id = self.renderer.add_background(&self.gfx.device, &texture);
         self.background_ids.push((what, id));
@@ -384,7 +330,7 @@ impl GameLoop {
     /// that forces the automatic rule.
     pub(crate) fn set_video(&mut self, mode: VideoMode, frame: BackgroundFrame, slow: bool) {
         self.video_mode = mode;
-        self.frame_setting = frame;
+        self.frame_shape.setting = frame;
         self.slow = slow;
     }
 
@@ -408,24 +354,10 @@ impl GameLoop {
     /// background image, and settles once a movie frame shows, or when the
     /// song starts with nothing left to learn.
     fn frame_aspect(&mut self, started: bool) -> Option<f32> {
-        match self.frame_setting {
-            BackgroundFrame::Screen => return None,
-            BackgroundFrame::FourThree => return Some(FOUR_THREE),
-            BackgroundFrame::SixteenNine => return Some(SIXTEEN_NINE),
-            BackgroundFrame::Auto => {}
-        }
-        if let Some(frame) = self.frozen_frame {
-            return frame;
-        }
-        let (movie, probing) = match self.movies.picture_aspect() {
-            Ok(a) => (Some(a), false),
-            Err(probing) => (None, probing),
-        };
-        let frame = movie.or(self.song_bg_aspect).map(cabinet_shape);
-        if self.movies.shown_any() || (started && !probing) {
-            self.frozen_frame = Some(frame);
-        }
-        frame
+        let movies = &mut self.movies;
+        let shown_any = movies.shown_any();
+        self.frame_shape
+            .aspect(|| movies.picture_aspect(), shown_any, started)
     }
 
     /// The background changes of the song about to play (empty: none).
@@ -449,7 +381,7 @@ impl GameLoop {
                 key,
             );
         }
-        let shown = backgrounds::shown(schedule, t, &cache.0);
+        let shown = backgrounds::shown(schedule, t, &cache.0, movies.opening_plays(schedule));
         Backdrop {
             current: shown.current,
             previous: shown.previous,
@@ -475,8 +407,9 @@ impl GameLoop {
     }
 
     /// The lyrics of the song about to play (`None`: none shown).
-    pub(crate) fn set_lyrics(&mut self, lyrics: Option<LyricsView>) {
+    pub(crate) fn set_lyrics(&mut self, lyrics: Option<LyricTrack>) {
         self.lyrics = lyrics;
+        self.lyrics_shown.clear();
     }
 
     /// Uses `play` for the plays to come, with its skin images decoded
@@ -490,10 +423,10 @@ impl GameLoop {
     ) {
         // Mid-play the arrows do not change: from the next play on.
         if self.session.is_some() {
-            if let Some(play) = play {
-                if let Some((_, old, _)) = self.next_noteskin.replace((play, images, key)) {
-                    old.into_iter().flatten().for_each(|b| b.close());
-                }
+            if let Some(play) = play
+                && let Some((_, old, _)) = self.next_noteskin.replace((play, images, key))
+            {
+                old.into_iter().flatten().for_each(|b| b.close());
             }
             return;
         }
@@ -530,6 +463,29 @@ impl GameLoop {
     /// with the 2D pass alone).
     pub(crate) fn scene_mode(&self) {
         self.gfx.set_mode(crate::web::gfx::SurfaceMode::Scene);
+    }
+
+    /// A frame while the start prompt (`ddi_ui::screens::prompt`, the
+    /// page's) draws on the canvas: nothing drawn here, but the refresh
+    /// rate is measured (the devices' fingerprint and the video rule read
+    /// it), decoded backgrounds go up to the GPU, and the debug state is
+    /// kept.
+    pub(crate) fn idle(&mut self, time_ms: f64) {
+        if self.gfx.is_lost() {
+            return;
+        }
+        let _ = self.fps.tick(time_ms);
+        self.upload_backgrounds();
+        self.frames += 1;
+        if self.frames.is_multiple_of(10) {
+            self.publish_debug(HostTime(time_ms / 1000.0));
+        }
+    }
+
+    /// The background frame's shape as the play would start with it
+    /// (`None`: the whole screen), for the start prompt's picture.
+    pub(crate) fn prompt_frame(&mut self) -> Option<f32> {
+        self.frame_aspect(false)
     }
 
     pub(crate) fn clear_session(&mut self) {
@@ -569,10 +525,19 @@ impl GameLoop {
             return;
         }
         self.fit_canvas();
-        let second = self.fps.tick(time_ms);
+        let second = self.fps.tick(time_ms).map(|fps| self.fps.second(fps));
+        if second.is_some() {
+            let (sum, max, n) = std::mem::take(&mut self.video_ms);
+            self.video_ms_last = if n > 0 {
+                (sum / f64::from(n), max)
+            } else {
+                (0.0, 0.0)
+            };
+        }
         self.upload_backgrounds();
         let drawing = self.movies.drawing(&self.background_schedule);
-        if self.slow && drawing.is_some() {
+        // As a movie that costs frames would: not while it is paused.
+        if self.slow && drawing.is_some() && !self.movies.paused() {
             let now = || {
                 web_sys::window()
                     .and_then(|w| w.performance())
@@ -586,6 +551,7 @@ impl GameLoop {
         let host_now = HostTime(time_ms / 1000.0);
 
         let mut outcome = None;
+        let mut lyrics: Option<Lyrics> = None;
         if let Some(session) = self.session.as_mut()
             && !self.done
         {
@@ -643,6 +609,7 @@ impl GameLoop {
                     }
                 } else {
                     self.movies_stopped = false;
+                    let before = now_ms();
                     self.movies.update(
                         &self.background_schedule,
                         frame.song_time,
@@ -650,16 +617,43 @@ impl GameLoop {
                         &self.gfx.device,
                         &self.gfx.queue,
                     );
+                    if drawing.is_some() {
+                        let spent = now_ms() - before;
+                        let (sum, max, n) = &mut self.video_ms;
+                        *sum += spent;
+                        *max = max.max(spent);
+                        *n += 1;
+                    }
                     if self.video_mode == VideoMode::Auto {
-                        let refresh = self.refresh_at_start.max(self.refresh_hz());
+                        let refresh = self.refresh_hz();
                         let late = self.movies.stats().late;
-                        if let Some(reason) =
-                            self.guard.update(time_ms, drawing, second, refresh, late)
-                        {
-                            self.movies.turn_off(reason);
+                        match self.guard.step(time_ms, drawing, second, refresh, late) {
+                            Some(GuardAction::Pause) => self.movies.pause(),
+                            Some(GuardAction::Resume) => self.movies.resume(),
+                            Some(GuardAction::Off(reason)) => self.movies.turn_off(reason),
+                            None => {}
                         }
                     }
                 }
+                // The touch screens' quit button, at the canvas's pixels,
+                // clear of the field's receptors and the safe area.
+                let quit = crate::web::touch::quit_shown().then(|| {
+                    let css = self.css_size.get();
+                    let (w, h) = self.gfx.size();
+                    let ratio = w as f32 / (css.0 as f32).max(1.0);
+                    let span = ddi_render::scene::field_span(&session.layout);
+                    let geo = ddi_render::FieldGeometry::new(
+                        w as f32,
+                        h as f32,
+                        span,
+                        session.render.reverse,
+                    );
+                    let insets = crate::web::touch::safe_insets(css);
+                    let b = ddi_render::scene::quit_button(&geo, &session.layout, ratio, insets);
+                    crate::web::touch::set_quit_at(Some(b.map(|v| v / ratio)));
+                    b
+                });
+                self.renderer.set_quit_button(quit);
                 let mut render = session.render;
                 render.frame_aspect = frame_aspect;
                 render.backdrop = Self::backdrop(
@@ -671,16 +665,27 @@ impl GameLoop {
                 );
                 self.playing_at = (session.player.started() && !session.player.finished())
                     .then_some(frame.song_time);
-                if let Some(lyrics) = self.lyrics.as_mut() {
-                    match self.playing_at {
-                        Some(t) => {
-                            let (w, h) = self.css_size.get();
-                            let span = ddi_render::scene::field_span(&session.layout);
-                            let geo =
-                                ddi_render::FieldGeometry::new(w as f32, h as f32, span, false);
-                            lyrics.update(t, f64::from(geo.arrow * span), h)
-                        }
-                        None => lyrics.hide(),
+                // The lyrics at this frame's time, over the field's middle.
+                if let (Some(track), Some(t)) = (self.lyrics.as_ref(), self.playing_at) {
+                    let (w, h) = self.gfx.size();
+                    let span = ddi_render::scene::field_span(&session.layout);
+                    let geo = ddi_render::FieldGeometry::new(
+                        w as f32,
+                        h as f32,
+                        span,
+                        session.render.reverse,
+                    );
+                    let lines = track.at(t);
+                    if !lines.is_empty() {
+                        let ratio = w as f32 / (self.css_size.get().0 as f32).max(1.0);
+                        let place = ddi_render::lyrics::Place::for_play(
+                            &geo,
+                            &session.layout,
+                            track.stage(),
+                            quit,
+                            ratio,
+                        );
+                        lyrics = Some((lines, place));
                     }
                 }
                 let layer = match self.noteskin.as_mut() {
@@ -762,7 +767,18 @@ impl GameLoop {
                 });
             }
         }
+        // Over the play: the 2D pass (the lyrics, with the browser's text).
+        let overlaid = match lyrics {
+            Some(l) => self.draw_overlay(&mut encoder, &view, plain_view.as_ref(), l),
+            None => {
+                self.lyrics_shown.clear();
+                false
+            }
+        };
         self.gfx.queue.submit(Some(encoder.finish()));
+        if overlaid && let Some(o) = self.overlay.as_mut() {
+            o.painter.submitted();
+        }
         for image in self.uploaded_images.drain(..) {
             image.close();
         }
@@ -778,6 +794,69 @@ impl GameLoop {
         }
     }
 
+    /// Draws the lyrics' lines through the 2D pass over the frame just
+    /// encoded: through the surface's plain view where it has one
+    /// (WebGPU: blended encoded, as the menus), else through the sRGB
+    /// one (WebGL2, `Painter`'s linear target). Whether it drew.
+    fn draw_overlay(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        plain_view: Option<&wgpu::TextureView>,
+        (lines, place): Lyrics,
+    ) -> bool {
+        let format = self
+            .gfx
+            .plain_format()
+            .unwrap_or_else(|| self.gfx.view_format());
+        let target = plain_view.unwrap_or(view);
+        if self
+            .overlay
+            .as_ref()
+            .is_none_or(|o| o.painter.format() != format)
+        {
+            let mut painter =
+                ddi_render::painter::Painter::new(&self.gfx.device, &self.gfx.queue, format);
+            match crate::web::text::CanvasRasterizer::new(self.gfx.is_gl()) {
+                Ok(r) => painter.set_rasterizer(Box::new(r)),
+                Err(e) => {
+                    web_sys::console::warn_1(&format!("lyrics: no text: {e}").into());
+                    return false;
+                }
+            }
+            self.overlay = Some(Overlay {
+                painter,
+                list: ddi_render::DrawList::new(),
+            });
+        }
+        let Some(o) = self.overlay.as_mut() else {
+            return false;
+        };
+        o.list.clear();
+        {
+            let mut measure = o.painter.measure(1.0);
+            ddi_render::lyrics::draw(&mut o.list, &lines, &place, &mut measure);
+        }
+        let (w, h) = self.gfx.size();
+        o.painter.draw(
+            &self.gfx.device,
+            &self.gfx.queue,
+            encoder,
+            target,
+            [w, h],
+            1.0,
+            None,
+            &o.list,
+            &mut |_, _| {},
+        );
+        self.lyrics_shown = lines
+            .iter()
+            .filter(|l| l.opacity > 0.0)
+            .map(|l| l.text.to_string())
+            .collect();
+        true
+    }
+
     /// Debug text for the overlay element and `window.__DDI_DEBUG`.
     fn publish_debug(&self, host_now: HostTime) {
         let Some(window) = web_sys::window() else {
@@ -788,7 +867,21 @@ impl GameLoop {
             let _ = js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(k), &v);
         };
         set("frames", (self.frames as f64).into());
-        set("video", self.movies.debug().into());
+        // The lyrics drawn over the play (their texts).
+        let lyrics = js_sys::Array::new();
+        for l in &self.lyrics_shown {
+            lyrics.push(&l.as_str().into());
+        }
+        set("lyrics", lyrics.into());
+        let video = self.movies.debug();
+        let _ = js_sys::Reflect::set(&video, &"update_ms".into(), &self.video_ms_last.0.into());
+        let _ = js_sys::Reflect::set(
+            &video,
+            &"update_ms_max".into(),
+            &self.video_ms_last.1.into(),
+        );
+        let _ = js_sys::Reflect::set(&video, &"guard".into(), &self.guard.guard.state().into());
+        set("video", video.into());
         set(
             "noteskin",
             match &self.noteskin {
@@ -832,6 +925,17 @@ impl GameLoop {
         set("skins_encoded", self.renderer.skins_blend_encoded().into());
         set("offscreen", self.renderer.offscreen().into());
         set("fps", self.fps.fps.into());
+        // HUD runs shaped so far (a new string or size each).
+        set("text_shaped", (self.renderer.text_shaped() as f64).into());
+        // The song's opening still is loaded (what the start prompt shows
+        // is the page's, `prompt_backdrop`).
+        set(
+            "still",
+            self.background_ids
+                .iter()
+                .any(|(w, _)| *w == BgImage::Still)
+                .into(),
+        );
         let mut text = format!(
             "{} · {:.0} fps · worst {:.1} ms · {}×{}",
             self.backend_name(),
@@ -885,6 +989,22 @@ impl GameLoop {
                 r.stddev_delta * 1000.0,
                 r.fast,
                 r.slow
+            ));
+        }
+        if self.movies.module_status().is_some() || self.movies.stats().decoded > 0 {
+            let v = self.movies.stats();
+            text.push_str(&format!(
+                "\nvideo: decoded {} · shown {} · dropped {} · late {} · {} ms a frame (worst {:.1}){}",
+                v.decoded,
+                v.shown,
+                v.dropped,
+                v.late,
+                format_args!("{:.2}", self.video_ms_last.0),
+                self.video_ms_last.1,
+                match self.movies.off() {
+                    Some(r) => format!(" · turned off: {r:?}"),
+                    None => String::new(),
+                }
             ));
         }
         if let Some(s) = &self.session {
@@ -955,6 +1075,20 @@ impl GameLoop {
             el.set_text_content(Some(&text));
         }
         crate::web::screen::debug_into(&obj);
+        // What the page's screens on the canvas (the prompt, the results)
+        // added stays.
+        if let Some(old) = js_sys::Reflect::get(&window, &"__DDI_DEBUG".into())
+            .ok()
+            .filter(|v| v.is_object())
+        {
+            for key in ["ui", "results", "prompt", "prompt_backdrop"] {
+                if let Ok(v) = js_sys::Reflect::get(&old, &key.into())
+                    && !v.is_undefined()
+                {
+                    set(key, v);
+                }
+            }
+        }
         let _ = js_sys::Reflect::set(
             &window,
             &wasm_bindgen::JsValue::from_str("__DDI_DEBUG"),

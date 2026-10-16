@@ -5,7 +5,8 @@
 //!
 //! [`Preview::start`] must run inside the click handler itself: it creates
 //! the audio context, and Safari only lets a page start audio synchronously
-//! within the gesture (Yew runs `update` later, in a microtask).
+//! within the gesture (a page's `update` runs later, in a microtask,
+//! `crate::component`).
 
 use std::future::Future;
 
@@ -47,7 +48,13 @@ impl Preview {
         async move {
             let bytes = load_music(&entry).await?;
             decoder.resume().await;
-            decoder.decode(&bytes).await
+            // A work's MP3 where Chrome's decode has it.
+            let target = if entry.chart.ends_with(ddi_library::danoni::STORED_EXT) {
+                ddi_platform::mp3::Target::Chromium
+            } else {
+                ddi_platform::mp3::Target::StepMania
+            };
+            decoder.decode(&bytes, target).await
         }
     }
 

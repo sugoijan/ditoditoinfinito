@@ -406,7 +406,10 @@ impl<'a> Skin<'a> {
         match dir {
             Dir::Folder(i) => self.folders[i].has_file("NoteSkin.lua"),
             // StepMania 3.9's and OpenITG's skins have none.
-            Dir::BuiltIn(b) => matches!(b, BuiltIn::DanceDefault | BuiltIn::Common),
+            Dir::BuiltIn(b) => matches!(
+                b,
+                BuiltIn::DanceDefault | BuiltIn::PumpDefault | BuiltIn::Common
+            ),
         }
     }
 
@@ -732,6 +735,9 @@ fn find(folders: &[Folder], game: &str, name: &str, legacy: bool) -> Option<Dir>
     if name.eq_ignore_ascii_case(BASE) && game.eq_ignore_ascii_case("dance") {
         return Some(Dir::BuiltIn(BuiltIn::DanceDefault));
     }
+    if name.eq_ignore_ascii_case(BASE) && game.eq_ignore_ascii_case("pump") {
+        return Some(Dir::BuiltIn(BuiltIn::PumpDefault));
+    }
     if let Some(i) = by(COMMON) {
         return Some(Dir::Folder(i));
     }
@@ -863,8 +869,30 @@ pub(crate) mod tests {
         );
         // A skin that is not there.
         assert!(Skin::load(&alone, "dance", "zzz").is_err());
-        // Another game's `default` has no stand-in.
-        assert!(Skin::load(&[], "pump", "default").is_err());
+        // pump's `default` has a stand-in, another game's none.
+        assert_eq!(
+            Skin::load(&[], "pump", "default").unwrap().chain,
+            [
+                Dir::BuiltIn(BuiltIn::PumpDefault),
+                Dir::BuiltIn(BuiltIn::Common)
+            ]
+        );
+        assert!(Skin::load(&[], "kb7", "default").is_err());
+        // A pump skin never falls back on a dance skin: only on what its
+        // metrics name, pump's `default` and `common`.
+        let mixed = [
+            folder("dance", "default", &[("metrics.ini", "")]),
+            folder("dance", "p", &[("metrics.ini", "")]),
+            folder("pump", "p", &[("metrics.ini", "")]),
+        ];
+        assert_eq!(
+            Skin::load(&mixed, "pump", "p").unwrap().chain,
+            [
+                Dir::Folder(2),
+                Dir::BuiltIn(BuiltIn::PumpDefault),
+                Dir::BuiltIn(BuiltIn::Common)
+            ]
+        );
     }
 
     #[test]

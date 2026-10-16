@@ -720,6 +720,18 @@ fn grades() -> GradeTable {
     }
 }
 
+/// The excessive setting a Dancing☆Onigiri chart gives itself
+/// (`excessiveJdgUse`, `excessiveUse`): part of the key its bests are
+/// kept under; `None` for other charts.
+pub fn chart_excessive(chart: &Chart) -> Option<bool> {
+    chart.danoni.as_ref()?;
+    let options = DanoniOptions {
+        excessive: None,
+        ..Default::default()
+    };
+    ruleset(Some(chart), &options).key().danoni?.excessive
+}
+
 /// The Dancing☆Onigiri ruleset for `chart` (any chart: one from another
 /// format gets danoniplus's defaults).
 pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {

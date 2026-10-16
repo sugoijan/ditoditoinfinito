@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["chart", "engine", "render", "platform", "library", "actor", "ui", "theme", "noteskin", "lua", "web", "desktop", "app", "xtask"]
+members = ["chart", "engine", "render", "platform", "library", "actor", "ui", "theme", "noteskin", "lua", "session", "web", "desktop", "app", "xtask"]
 # `app` is the game: built for wasm by Trunk (index.html) it starts the
 # web shell, built natively (a bare `cargo run`) the desktop shell.
 default-members = ["app"]
@@ -27,12 +27,12 @@ ddi-noteskin = { path = "noteskin" }
 ddi-lua = { path = "lua" }
 ddi-web = { path = "web" }
 ddi-desktop = { path = "desktop" }
+ddi-session = { path = "session" }
 
 # lunita, our hardened fork of piccolo (docs/plans/piccolo-fork.md).
 lunita = "0.1"
 
 # app / web
-yew = { version = "0.23", features = ["csr"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 gloo = { version = "0.12", features = ["futures"] }
@@ -51,6 +51,7 @@ bytemuck = { version = "1", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
+ttf-parser = "0.25.1"
 thiserror = "2"
 miniz_oxide = "0.9"
 encoding_rs = "0.8.42"
@@ -69,6 +70,15 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "debuginfo"
+
+# Native release builds (`cargo run --profile desktop`): `release` is
+# tuned for the wasm bundle's size; the desktop wants speed, and
+# unwinding so a decoder that panics on a broken file fails that file
+# only (`catch_unwind` in the image loader and the audio decoder).
+[profile.desktop]
+inherits = "release"
+opt-level = 3
+panic = "unwind"
 
 [profile.dev]
 opt-level = 1

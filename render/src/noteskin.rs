@@ -1864,6 +1864,7 @@ mod tests {
             ],
             notes: Vec::new(),
             judgement: None,
+            holds: Default::default(),
             combo: 0,
             score: Default::default(),
             life: 0.5,
@@ -2081,6 +2082,101 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A pump skin with the left side's art only (as StepMania's
+    /// `pump/simple`), on StepMania's `pump/default` (the stand-in, its
+    /// Lua): every panel draws its own, the right side the left's,
+    /// mirrored (`BaseRotationY` 180), and nothing falls back on a dance
+    /// skin.
+    #[test]
+    fn a_pump_skin_draws_every_panel_through_pump_defaults_lua() {
+        let mut files: Vec<String> = [
+            "UpLeft Tap Note.png",
+            "DownLeft Tap Note.png",
+            "Center Tap Note.png",
+            "UpLeft Ready Receptor.png",
+            "DownLeft Ready Receptor.png",
+            "Center Ready Receptor.png",
+            "UpLeft Hold Body Active.png",
+            "DownLeft Hold Body Active.png",
+            "Center Hold Body Active.png",
+        ]
+        .iter()
+        .map(|f| f.to_string())
+        .collect();
+        files.push("metrics.ini".into());
+        let folders = vec![
+            // A dance skin of the same name: never used.
+            Folder {
+                game: "dance".into(),
+                name: "simple".into(),
+                files: vec!["Down Tap Note.png".into()],
+                texts: Vec::new(),
+            },
+            Folder {
+                game: "pump".into(),
+                name: "simple".into(),
+                files,
+                texts: vec![("metrics.ini".into(), String::new())],
+            },
+        ];
+        let skin = Skin::load(&folders, "pump", "simple").unwrap().into_owned();
+        let layout = Layout::pump_single();
+        let mut t = 0.0;
+        let lua = LuaSkin::new(
+            skin,
+            Env {
+                game: "pump".into(),
+                style: "single".into(),
+                columns: 5,
+                ..Env::default()
+            },
+            ddi_lua::Settings::default(),
+            LoadBudget::default(),
+            Box::new(move || {
+                t += 1e-6;
+                t
+            }),
+        )
+        .unwrap();
+        let mut f = std::pin::pin!(NoteskinPlay::with_lua(lua, &layout, &NoImages, false, None));
+        let play = match f
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+        {
+            std::task::Poll::Ready(r) => r.unwrap().unwrap(),
+            std::task::Poll::Pending => panic!("pending"),
+        };
+        // The textures the tap notes draw, and whether they are mirrored.
+        let tap = |lane: &Lane| -> (String, f32) {
+            // Its texture, and the turn about y down to it.
+            fn first_sprite(a: &Actor) -> Option<(u32, f32)> {
+                if let ddi_actor::Kind::Sprite(s) = &a.kind {
+                    return Some((s.texture, a.base_rotation[1]));
+                }
+                let (t, r) = a.children().iter().find_map(first_sprite)?;
+                Some((t, r + a.base_rotation[1]))
+            }
+            let a = actor(&lane.tap);
+            let (texture, turned) = first_sprite(a).expect("a sprite");
+            let path = match &play.textures.keys()[texture as usize] {
+                TextureKey::Skin { path, .. } => path.clone(),
+                other => panic!("{other:?}"),
+            };
+            (path, turned)
+        };
+        let got: Vec<(String, f32)> = play.lanes.iter().map(tap).collect();
+        assert_eq!(
+            got,
+            [
+                ("DownLeft Tap Note.png".into(), 0.0),
+                ("UpLeft Tap Note.png".into(), 0.0),
+                ("Center Tap Note.png".into(), 0.0),
+                ("UpLeft Tap Note.png".into(), 180.0),
+                ("DownLeft Tap Note.png".into(), 180.0),
+            ]
+        );
     }
 
     #[test]

@@ -9,8 +9,8 @@ use crate::clock::{ClockOptions, SongClock};
 use std::collections::VecDeque;
 
 use crate::frame::{
-    Frame, HoldKind, JudgementFlash, NoteSprite, ReceptorState, SkinEvent, SkinEventKind,
-    SpriteKind,
+    Frame, HoldFlash, HoldJudgements, HoldKind, HoldPlace, JudgementFlash, NoteSprite,
+    ReceptorState, SkinEvent, SkinEventKind, SpriteKind,
 };
 use crate::history::{LoggedInput, PlayLog};
 use crate::input::InputEvent;
@@ -203,6 +203,13 @@ pub struct Player {
     pressing: Option<u8>,
     /// Per lane `(judgement, song_time)`.
     lane_flash: Vec<Option<(Judgement, f64)>>,
+    /// Per lane, a hold's or shock's outcome `(held, song_time)`, and
+    /// where they show.
+    hold_flash: Vec<Option<(bool, f64)>>,
+    hold_place: HoldPlace,
+    /// Holds' own outcomes are shown (not with ticked holds: their
+    /// checkpoints are their judgement; shocks' still are).
+    holds_shown: bool,
     failed: bool,
     finished: bool,
     /// Every press and release judged, at its judged time ([`Player::log`]).
@@ -258,6 +265,19 @@ impl Player {
             .max(judge.lane_count())
             .min(usize::from(u8::MAX)) as u8;
         let ruleset = ruleset.fresh();
+        // StepMania's `HoldJudgment`: one a column in the dance game, none
+        // in the pump game (`HoldJudgmentYStandard` −99999 there), and
+        // for shocks only with ticked holds (their checkpoints are judged
+        // instead); Dancing☆Onigiri shows its freeze judgement beside
+        // the tap judgement.
+        let holds_shown = !ruleset.judge.hold.is_ticked();
+        let hold_place = if layout.id.starts_with("pump") {
+            HoldPlace::None
+        } else if ruleset.id == "danoni" {
+            HoldPlace::Centre
+        } else {
+            HoldPlace::Lanes
+        };
         let mut player = Player {
             timing,
             clock: SongClock::new(options.clock),
@@ -282,6 +302,9 @@ impl Player {
             judged_lane: None,
             pressing: None,
             lane_flash: vec![None; usize::from(lanes)],
+            hold_flash: vec![None; usize::from(lanes)],
+            hold_place,
+            holds_shown,
             failed: false,
             finished: false,
             log: PlayLog::default(),
@@ -432,9 +455,28 @@ impl Player {
         self.ctx
     }
 
-    /// Song second after which the play finishes: last note end + 1 s.
+    /// Song second after which the play finishes: last note end + 1 s
+    /// (later while a hold's or shock's outcome still shows,
+    /// [`Player::end_time`]).
     pub fn song_end_time(&self) -> f64 {
         self.judge.last_end_seconds().unwrap_or(self.song_offset) + END_MARGIN
+    }
+
+    /// When the play finishes as far as is known now: at
+    /// [`Player::song_end_time`], or once the last O.K. or N.G. has been
+    /// shown, so the last hold's outcome is not cut short (StepMania keeps
+    /// drawing judgements through its out transition).
+    pub fn end_time(&self) -> f64 {
+        self.song_end_time().max(self.flashes_end())
+    }
+
+    /// When the holds' and shocks' outcomes shown so far are over.
+    fn flashes_end(&self) -> f64 {
+        self.hold_flash
+            .iter()
+            .flatten()
+            .map(|&(held, at)| at + f64::from(self.hold_place.seconds(held)))
+            .fold(f64::NEG_INFINITY, f64::max)
     }
 
     /// Heard song time of a host timestamp, shifted by the judge offset: a
@@ -578,7 +620,7 @@ impl Player {
 
     /// [`Player::update`] to a judged song time: what a replay calls (it
     /// too judges [`JUDGE_LAG`] behind; the play finishes once `song_time`
-    /// passes [`Player::song_end_time`], every note judged).
+    /// passes [`Player::end_time`], every note judged).
     pub fn update_at(&mut self, song_time: f64) -> Vec<JudgeEvent> {
         if !self.started || self.finished || !song_time.is_finite() {
             return Vec::new();
@@ -586,7 +628,7 @@ impl Player {
         let t = to_microsecond(song_time);
         let mut events = self.judge.update(to_microsecond(t - JUDGE_LAG), &self.held);
         self.apply(&mut events);
-        if !self.finished && t >= self.song_end_time() && self.judge.all_resolved() {
+        if !self.finished && t >= self.end_time() && self.judge.all_resolved() {
             self.finish();
         }
         events
@@ -705,22 +747,29 @@ impl Player {
                 }
             }
             JudgeEventKind::Held => {
+                if self.holds_shown {
+                    self.hold_flash[usize::from(ev.lane)] = Some((true, ev.song_time));
+                }
                 self.skin_event(ev.lane, SkinEventKind::Held { bright }, ev.song_time)
+            }
+            JudgeEventKind::LetGo => {
+                if self.holds_shown {
+                    self.hold_flash[usize::from(ev.lane)] = Some((false, ev.song_time));
+                }
+            }
+            // A shock row's outcome shows in each of its lanes.
+            JudgeEventKind::AvoidShock => {
+                for lane in self.shock_lanes(ev.tick) {
+                    self.hold_flash[usize::from(lane)] = Some((true, ev.song_time));
+                }
             }
             JudgeEventKind::HitMine => {
                 self.skin_event(ev.lane, SkinEventKind::HitMine, ev.song_time)
             }
             // A shock goes off in every lane, and hides what comes next.
             JudgeEventKind::HitShock => {
-                let tick = ev.tick;
-                let lanes: Vec<u8> = self
-                    .judge
-                    .notes()
-                    .iter()
-                    .filter(|n| n.note.kind == NoteKind::Shock && n.note.tick == tick)
-                    .map(|n| n.note.lane)
-                    .collect();
-                for lane in lanes {
+                for lane in self.shock_lanes(ev.tick) {
+                    self.hold_flash[usize::from(lane)] = Some((false, ev.song_time));
                     self.skin_event(lane, SkinEventKind::HitMine, ev.song_time);
                 }
                 self.shock_blind = Some((ev.song_time, ev.song_time + SHOCK_BLIND_SECONDS));
@@ -735,11 +784,18 @@ impl Player {
                     self.skin_event(lane, SkinEventKind::Held { bright }, ev.song_time);
                 }
             }
-            JudgeEventKind::LetGo
-            | JudgeEventKind::Boo
-            | JudgeEventKind::AvoidShock
-            | JudgeEventKind::Checkpoint { .. } => {}
+            JudgeEventKind::Boo | JudgeEventKind::Checkpoint { .. } => {}
         }
+    }
+
+    /// The lanes of the shock row at `tick`.
+    fn shock_lanes(&self, tick: ddi_chart::Tick) -> Vec<u8> {
+        self.judge
+            .notes()
+            .iter()
+            .filter(|n| n.note.kind == NoteKind::Shock && n.note.tick == tick)
+            .map(|n| n.note.lane)
+            .collect()
     }
 
     /// One scored event (a note, or a whole row when per-row).
@@ -980,6 +1036,29 @@ impl Player {
             })
             .filter(|f| f.age < FLASH_SECONDS);
 
+        let mut flashes: Vec<HoldFlash> = match self.hold_place {
+            HoldPlace::None => Vec::new(),
+            _ => self
+                .hold_flash
+                .iter()
+                .enumerate()
+                .filter_map(|(lane, f)| {
+                    let (held, at) = (*f)?;
+                    Some(HoldFlash {
+                        lane: lane as u8,
+                        held,
+                        age: age(at),
+                    })
+                })
+                .filter(|f| f.age < self.hold_place.seconds(f.held))
+                .collect(),
+        };
+        if self.hold_place == HoldPlace::Centre {
+            // The latest only.
+            flashes.sort_by(|a, b| a.age.total_cmp(&b.age));
+            flashes.truncate(1);
+        }
+
         Frame {
             song_time,
             beat,
@@ -987,6 +1066,10 @@ impl Player {
             receptors,
             notes,
             judgement,
+            holds: HoldJudgements {
+                place: self.hold_place,
+                flashes,
+            },
             combo: self.combo,
             score: self.ruleset.score.view(),
             life: self.ruleset.gauge.life(),

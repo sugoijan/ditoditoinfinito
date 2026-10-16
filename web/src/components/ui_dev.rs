@@ -50,6 +50,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::{Rc, Weak};
 
+use crate::component::{Component, Context, NodeRef};
 use ddi_engine::ControlBindings;
 use ddi_platform::DeviceId;
 use ddi_platform::storage::{self, Area};
@@ -70,7 +71,6 @@ use gloo::events::{EventListener, EventListenerOptions};
 use gloo::render::{AnimationFrame, request_animation_frame};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{HtmlCanvasElement, HtmlElement, HtmlInputElement, HtmlTextAreaElement};
-use yew::prelude::*;
 
 use crate::web::audio::WebAudio;
 use crate::web::gamepad::Gamepads;
@@ -134,6 +134,13 @@ const THEME_NAMED: &[&str] = &[
     "Option0",
     "Option2",
     "Link.Back",
+    "Autoplay",
+    "AutoIcon",
+    "OptionsIcon",
+    "Back",
+    "ResultsClip",
+    "PanelSet0",
+    "Extra",
 ];
 
 /// The actors whose places the debug view gives.
@@ -171,10 +178,9 @@ const NAMED: [&str; 31] = [
     "Songs.Bar",
 ];
 
-#[derive(Properties, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub(crate) struct Props {
     /// `widgets`: the widget screen at once.
-    #[prop_or_default]
     pub(crate) screen: String,
 }
 
@@ -224,6 +230,15 @@ pub(crate) struct Host {
     ignore_pops: u32,
     files_picked: u32,
     last_consumed: bool,
+    /// The mouse pointer hidden after a key or a pad's press (until the
+    /// mouse moves), and the cursor the screen asked for meanwhile.
+    pointer_hidden: bool,
+    cursor: &'static str,
+    /// A mouse button is held (the pointer is not hidden then).
+    mouse_held: bool,
+    /// A page's host: drawn on the app's new device when the old one is
+    /// lost, its screens as they were ([`device_lost`]).
+    lost: Option<screen::Listener>,
     list: DrawList,
     closed: bool,
     /// Where the caret was last put (CSS pixels of the canvas).
@@ -238,6 +253,10 @@ pub(crate) struct Host {
     /// Work of every frame drawn so far, ms (with `frames`, the mean).
     total_ms: f64,
     texture_stats: Option<ddi_render::texture_cache::TextureStats>,
+    /// Options' field preview (`crate::field_preview`), made when first
+    /// shown ([`Host::field_preview`] says where; frames go on while it
+    /// shows).
+    field: Rc<RefCell<Option<crate::field_preview::FieldPreviewHost>>>,
     /// The theme's screens, when the route asked for them.
     theme: Option<ThemeHost>,
     /// Over another screen's canvas ([`embed`]): its size is the canvas's,
@@ -249,10 +268,25 @@ pub(crate) struct Host {
     /// listeners on the canvas (made again with it).
     slot: Option<HtmlElement>,
     listeners: Vec<EventListener>,
-    /// The page's own element over the top of the window (the device
-    /// notices, still DOM): the canvas is laid out below it.
-    avoid: Option<String>,
+    /// Keeps the app's notices current ([`crate::notices`]).
+    notices: Option<crate::notices::Subscription>,
+    /// Where the options screen shows the field's preview, physical
+    /// pixels of the canvas ([`UiRequest::FieldPreview`]).
+    pub(crate) field_preview: Option<[f32; 4]>,
+    /// The settings the options page is editing, handed over as they
+    /// change (taken by the next frame); the preview reads the stored
+    /// ones on the developer routes, where nothing hands them over.
+    field_settings: Rc<RefCell<Option<crate::settings::Settings>>>,
+    field_last: Option<crate::settings::Settings>,
+    /// Under reduced motion the preview is one still frame: frames are
+    /// drawn only this many more times (after a change, while a skin
+    /// loads), then none.
+    field_busy: u32,
+    field_size: [u32; 2],
 }
+
+/// The demo's moment the still preview shows (ms).
+const FIELD_STILL_MS: f64 = 2500.0;
 
 /// Adds an embedding screen's state to `__DDI_DEBUG`.
 pub(crate) type DebugFn = Box<dyn Fn(&js_sys::Object)>;
@@ -267,11 +301,14 @@ pub(crate) struct ThemeHost {
 
 /// Whether `screen` is one of the theme's.
 fn theme_screen(screen: &str) -> bool {
-    matches!(screen, "select" | "results" | "options")
+    matches!(
+        screen,
+        "select" | "results" | "options" | "credits" | "calibration" | "prompt"
+    )
 }
 
 /// The system's `prefers-reduced-motion`, and its query to listen to.
-fn reduced_motion_query() -> Option<web_sys::MediaQueryList> {
+pub(crate) fn reduced_motion_query() -> Option<web_sys::MediaQueryList> {
     web_sys::window()?
         .match_media("(prefers-reduced-motion: reduce)")
         .ok()
@@ -361,17 +398,20 @@ impl Component for UiDev {
             h.raf = None;
             h.attachment = None;
             let _ = h.textarea.blur();
+            drop_field(&h);
             if let Some(gfx) = h.gfx.take() {
                 gfx.set_mode(SurfaceMode::Scene);
             }
         }
     }
 
-    fn view(&self, _ctx: &Context<Self>) -> Html {
+    fn view(&self, ctx: &Context<Self>) {
         if let Some(e) = &self.failure {
-            return super::ui_test::no_gpu(e);
+            crate::component::no_gpu(ctx.root(), e);
+            return;
         }
-        html! { <main class="ui-dev" ref={self.root.clone()}></main> }
+        ctx.root().set_class_name("ui-dev");
+        self.root.set(ctx.root());
     }
 }
 
@@ -415,26 +455,30 @@ pub(crate) fn stop_ui(host: &Rc<RefCell<Host>>, pads: Option<&Gamepads>) {
         h.raf = None;
         h.attachment = None;
         let _ = h.textarea.blur();
+        drop_field(&h);
         if let Some(gfx) = h.gfx.take() {
             gfx.set_mode(SurfaceMode::Scene);
         }
     }
 }
 
-/// Lays the canvas out below the element `selector` while it shows (the
-/// device notices, still DOM: `docs/plans/ui-core.md`, 6.4), and again
-/// whenever [`relayout`] is called.
-pub(crate) fn avoid(host: &Rc<RefCell<Host>>, selector: &str) {
-    if let Ok(mut h) = host.try_borrow_mut() {
-        h.avoid = Some(selector.to_string());
+/// The field's preview goes with the page: the 2D pass (which outlives
+/// pages) forgets its image, and its textures, skin and load go.
+fn drop_field(h: &Host) {
+    let field = h.field.borrow_mut().take();
+    if let (Some(mut f), Some(gfx)) = (field, h.gfx.as_ref())
+        && f.on(gfx)
+    {
+        f.release(gfx);
     }
-    resize(host);
 }
 
-/// Lays the canvas out again (what it avoids came or went).
-pub(crate) fn relayout(host: &Rc<RefCell<Host>>) {
-    resize(host);
-    schedule(host);
+/// Where a page editing the settings hands them to the field's preview
+/// ([`Host::field_settings`]): set it whenever they change.
+pub(crate) fn field_settings(
+    host: &Rc<RefCell<Host>>,
+) -> Rc<RefCell<Option<crate::settings::Settings>>> {
+    host.borrow().field_settings.clone()
 }
 
 /// Draws a frame soon (the UI changed outside its events: a message
@@ -460,6 +504,15 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
         match first {
             "results" => ui.push(sample::results_screen(env)),
             "options" => ui.push(sample::options_screen(env, Some(options_changed(env)))),
+            "credits" => ui.push(sample::credits_screen(
+                env,
+                &theme_screens::credits::sample(),
+            )),
+            "calibration" => ui.push(sample::calibration_screen(env)),
+            "prompt" => ui.push(sample::prompt_screen(
+                env,
+                theme_screens::prompt::PromptStep::Ready,
+            )),
             _ => {}
         }
         theme = Some(t);
@@ -492,6 +545,26 @@ pub(crate) fn start_ui(
     theme: Option<ThemeHost>,
     extra: Option<DebugFn>,
 ) -> Result<Started, String> {
+    let mut ui = ui;
+    // The app's notices over every theme page (the device watcher's).
+    let notices = theme.as_ref().map(|t| {
+        let feed: theme_screens::notices::NoticesFeed =
+            Rc::new(RefCell::new(crate::notices::now()));
+        let action: theme_screens::notices::NoticeActionFn = Rc::new(|id, cx| {
+            if id == "calibrate" {
+                cx.request(UiRequest::Navigate(
+                    crate::router::Route::Calibrate.to_hash(),
+                ));
+            }
+            crate::notices::act(id);
+        });
+        ui.push_chrome(theme_screens::notices::NoticeBar::new(
+            t.env.clone(),
+            feed.clone(),
+            action,
+        ));
+        feed
+    });
     let doc = document();
     let make = |tag: &str| doc.create_element(tag).map_err(|e| format!("{e:?}"));
     let frame_el: HtmlElement = make("div")?.unchecked_into();
@@ -510,6 +583,36 @@ pub(crate) fn start_ui(
         theme,
     );
     host.borrow_mut().extra = extra;
+    {
+        let weak = Rc::downgrade(&host);
+        let lost = screen::on_lost(move || {
+            if let Some(h) = weak.upgrade() {
+                device_lost(&h);
+            }
+        });
+        host.borrow_mut().lost = Some(lost);
+    }
+    if let Some(feed) = notices {
+        let weak = Rc::downgrade(&host);
+        let sub = crate::notices::subscribe(
+            feed,
+            Rc::new(move || {
+                let weak = weak.clone();
+                // As soon as the host is free (a press on the banner may
+                // be what changed them).
+                gloo::timers::callback::Timeout::new(0, move || {
+                    let Some(h) = weak.upgrade() else { return };
+                    if let Ok(mut hm) = h.try_borrow_mut() {
+                        hm.ui
+                            .broadcast(Message::new(theme_screens::notices::NOTICES_CHANGED));
+                    }
+                    wake(&h);
+                })
+                .forget();
+            }),
+        );
+        host.borrow_mut().notices = Some(sub);
+    }
     resize(&host);
     // Back into an entry pushed for a dialog of an earlier visit (a reload,
     // the route left with a dialog open): that dialog is gone, so step back
@@ -620,10 +723,15 @@ fn new_host(
         ignore_pops: 0,
         files_picked: 0,
         last_consumed: false,
+        pointer_hidden: false,
+        cursor: "default",
+        mouse_held: false,
+        lost: None,
         list: DrawList::new(),
         closed: false,
         caret: None,
         loading: false,
+        field: Rc::default(),
         cpu_ms: 0.0,
         worst_ms: 0.0,
         total_ms: 0.0,
@@ -633,7 +741,12 @@ fn new_host(
         extra: None,
         slot: None,
         listeners: Vec::new(),
-        avoid: None,
+        notices: None,
+        field_preview: None,
+        field_settings: Rc::default(),
+        field_last: None,
+        field_busy: 0,
+        field_size: [0, 0],
     }))
 }
 
@@ -730,22 +843,23 @@ pub(crate) fn embed(
 fn embedded_gfx(weak: &Weak<RefCell<Host>>, gfx: Rc<Gfx>, again: bool) {
     let Some(rc) = weak.upgrade() else { return };
     if again {
-        // The device came with a new canvas: into the slot, listened to.
+        // The device came with a new canvas: into the slot (an embedded
+        // screen's) or the page's frame, listened to.
         let parts = rc.try_borrow().ok().and_then(|h| {
-            Some((
-                h.slot.clone()?,
-                h.textarea.clone(),
-                h.files.clone(),
-                h.closed,
-            ))
+            let (place, id) = match (&h.slot, &h.frame_el) {
+                (Some(s), _) => (s.clone(), "game-canvas"),
+                (None, Some(f)) => (f.clone(), "ui-dev-canvas"),
+                _ => return None,
+            };
+            Some((place, id, h.textarea.clone(), h.files.clone(), h.closed))
         });
-        let Some((slot, textarea, files, closed)) = parts else {
+        let Some((slot, id, textarea, files, closed)) = parts else {
             return;
         };
         if closed {
             return;
         }
-        let attachment = screen::attach(&slot, "game-canvas");
+        let attachment = screen::attach(&slot, id);
         let Some(canvas) = screen::canvas() else {
             return;
         };
@@ -779,29 +893,35 @@ fn embedded_gfx(weak: &Weak<RefCell<Host>>, gfx: Rc<Gfx>, again: bool) {
 impl Embedded {
     /// The app's device was made again: drawn on the new one.
     pub(crate) fn device_lost(&self) {
-        if let Ok(mut h) = self.host.try_borrow_mut() {
-            h.gfx = None;
-            h.raf = None;
-        }
-        let weak = Rc::downgrade(&self.host);
-        wasm_bindgen_futures::spawn_local(async move {
-            // The new device, once it is made (the lost one may still be
-            // the current one for a moment).
-            for _ in 0..100 {
-                match screen::gfx().await {
-                    Ok(gfx) if !gfx.is_lost() => {
-                        embedded_gfx(&weak, gfx, true);
-                        return;
-                    }
-                    Ok(_) => gloo::timers::future::TimeoutFuture::new(100).await,
-                    Err(_) => return,
-                }
-                if weak.upgrade().is_none_or(|h| h.borrow().closed) {
+        device_lost(&self.host);
+    }
+}
+
+/// The app's device was made again: the host's screens, as they are (the
+/// section, the row, a dialog open), drawn on the new one.
+pub(crate) fn device_lost(host: &Rc<RefCell<Host>>) {
+    if let Ok(mut h) = host.try_borrow_mut() {
+        h.gfx = None;
+        h.raf = None;
+    }
+    let weak = Rc::downgrade(host);
+    wasm_bindgen_futures::spawn_local(async move {
+        // The new device, once it is made (the lost one may still be
+        // the current one for a moment).
+        for _ in 0..100 {
+            match screen::gfx().await {
+                Ok(gfx) if !gfx.is_lost() => {
+                    embedded_gfx(&weak, gfx, true);
                     return;
                 }
+                Ok(_) => gloo::timers::future::TimeoutFuture::new(100).await,
+                Err(_) => return,
             }
-        });
-    }
+            if weak.upgrade().is_none_or(|h| h.borrow().closed) {
+                return;
+            }
+        }
+    });
 }
 
 impl Drop for Embedded {
@@ -811,6 +931,7 @@ impl Drop for Embedded {
             h.raf = None;
             h.listeners.clear();
             let _ = h.textarea.blur();
+            drop_field(&h);
             h.textarea.remove();
             h.files.remove();
         }
@@ -1132,7 +1253,14 @@ fn listen(
     }
     if !host.borrow().embedded {
         let weak = weak.clone();
+        // The route this host runs on: a pop to another one is a
+        // navigation away (Firefox fires `popstate` at once when the hash
+        // is set), not the browser's Back out of a dialog.
+        let route = route_path();
         out.push(EventListener::new(&window, "popstate", move |_| {
+            if route_path() != route {
+                return;
+            }
             let Some(h) = weak.upgrade() else { return };
             {
                 let Ok(mut h) = h.try_borrow_mut() else {
@@ -1142,7 +1270,21 @@ fn listen(
                     h.ignore_pops -= 1;
                     return;
                 }
-                h.depth = h.depth.saturating_sub(1);
+                // Back only when the pop leaves a dialog's own entry (the
+                // entry reached is below it); Forward into an entry of a
+                // dialog already closed goes back again, quietly.
+                let reached = pushed_depth().unwrap_or(0) as usize;
+                if reached >= h.depth {
+                    if reached > h.depth
+                        && let Some(history) = web_sys::window().and_then(|w| w.history().ok())
+                    {
+                        let n = reached - h.depth;
+                        h.ignore_pops += n as u32;
+                        let _ = history.go_with_delta(-(n as i32));
+                    }
+                    return;
+                }
+                h.depth = reached;
             }
             // The browser's Back: the menu's Back (no gesture).
             for down in [true, false] {
@@ -1181,7 +1323,7 @@ fn listen(
 }
 
 /// The safe-area insets (top, right, bottom, left), CSS pixels.
-fn safe_insets() -> [f64; 4] {
+pub(crate) fn safe_insets() -> [f64; 4] {
     let doc = document();
     let Some(body) = doc.body() else {
         return [0.0; 4];
@@ -1242,15 +1384,6 @@ fn resize(host: &Rc<RefCell<Host>>) {
     let Ok(mut host) = host.try_borrow_mut() else {
         return;
     };
-    // Below the page's element at the top, while it shows.
-    let top = host
-        .avoid
-        .as_deref()
-        .and_then(|sel| window.document()?.query_selector(sel).ok().flatten())
-        .map_or(0.0, |el| {
-            el.get_bounding_client_rect().bottom().max(0.0) - y
-        });
-    let t = t.max(top);
     let (x, y, mut w, mut h) = (x + l, y + t, (w - l - r).max(1.0), (h - t - b).max(1.0));
     let ratio = window.device_pixel_ratio() as f32;
     // Embedded: the canvas is where its screen put it.
@@ -1300,6 +1433,28 @@ fn dispatch(weak: &Weak<RefCell<Host>>, event: UiEvent) -> bool {
         if h.closed {
             return false;
         }
+        // Keys and pads hide the mouse pointer (not while a mouse button
+        // is held: a drag goes on); the mouse moving shows it.
+        if let UiEvent::Pointer(p) = &event
+            && p.kind == ddi_ui::PointerKind::Mouse
+        {
+            h.mouse_held = p.buttons != 0;
+        }
+        let held = h.mouse_held;
+        let hide = match &event {
+            UiEvent::Key(k) => (k.down && !held).then_some(true),
+            UiEvent::Menu(m) => (m.down && !held).then_some(true),
+            UiEvent::Pointer(p) if p.kind == ddi_ui::PointerKind::Mouse => Some(false),
+            UiEvent::Wheel(_) => Some(false),
+            _ => None,
+        };
+        if let Some(hide) = hide
+            && hide != h.pointer_hidden
+        {
+            h.pointer_hidden = hide;
+            let css = if hide { "none" } else { h.cursor };
+            let _ = h.canvas.style().set_property("cursor", css);
+        }
         let out = h.ui.handle(event);
         h.last_consumed = out.consumed;
         h.run(out.requests);
@@ -1342,6 +1497,15 @@ pub(crate) fn pad_edge(weak: &Weak<RefCell<Host>>, edge: &ddi_platform::RawInput
     let DeviceId::Gamepad(id) = &edge.device else {
         return;
     };
+    // Binding: the press as it is.
+    let raw = weak
+        .upgrade()
+        .and_then(|rc| rc.try_borrow().ok().map(|h| h.ui.wants_raw()))
+        .unwrap_or(false);
+    if raw {
+        dispatch(weak, UiEvent::Raw(edge.clone()));
+        return;
+    }
     let (action, gesture) = {
         let Some(rc) = weak.upgrade() else { return };
         let Ok(h) = rc.try_borrow() else { return };
@@ -1401,7 +1565,10 @@ fn schedule(rc: &Rc<RefCell<Host>>) {
     if h.closed || h.raf.is_some() || h.gfx.is_none() {
         return;
     }
-    if !h.ui.needs_redraw() && !h.loading {
+    // The field preview moves, unless motion is reduced (then a still
+    // frame, drawn again only when it changes).
+    let field = h.field_preview.is_some() && (!h.field_still() || h.field_busy > 0);
+    if !h.ui.needs_redraw() && !h.loading && !field {
         // Idle: the next frame starts its clock afresh.
         h.last_ms = None;
         return;
@@ -1422,6 +1589,13 @@ fn schedule(rc: &Rc<RefCell<Host>>) {
 }
 
 impl Host {
+    /// Whether the field preview is a still frame (reduced motion).
+    fn field_still(&self) -> bool {
+        self.theme
+            .as_ref()
+            .is_some_and(|t| t.env.reduced_motion.get())
+    }
+
     /// Carries out requests (inside the platform's handler when they come
     /// from an event).
     fn run(&mut self, requests: Vec<UiRequest>) {
@@ -1488,10 +1662,15 @@ impl Host {
                         let _ = w.open_with_url_and_target_and_features(&url, "_blank", "noopener");
                     }
                 }
+                // Out of the handler that asked: setting the hash fires
+                // `popstate` at once in Firefox, into this host's listener.
                 UiRequest::Navigate(route) => {
-                    if let Some(w) = web_sys::window() {
-                        let _ = w.location().set_hash(&route);
-                    }
+                    gloo::timers::callback::Timeout::new(0, move || {
+                        if let Some(w) = web_sys::window() {
+                            let _ = w.location().set_hash(&route);
+                        }
+                    })
+                    .forget();
                 }
                 UiRequest::StartAudio => self.beep(),
                 UiRequest::PlayPreview { .. } | UiRequest::StopPreview => {}
@@ -1504,7 +1683,10 @@ impl Host {
                         Cursor::Grab => "grab",
                         Cursor::Grabbing => "grabbing",
                     };
-                    let _ = self.canvas.style().set_property("cursor", css);
+                    self.cursor = css;
+                    if !self.pointer_hidden {
+                        let _ = self.canvas.style().set_property("cursor", css);
+                    }
                 }
                 UiRequest::Persist { key, value } => {
                     let _ = storage::set(Area::Local, &key, &value);
@@ -1522,6 +1704,10 @@ impl Host {
                 }
                 // The textarea pastes by itself.
                 UiRequest::Paste => {}
+                // Where the options screen shows the field (the preview
+                // is drawn by the play's renderer: kept for it and the
+                // debug state).
+                UiRequest::FieldPreview(rect) => self.field_preview = rect,
             }
         }
     }
@@ -1715,6 +1901,52 @@ impl Host {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("ui-dev"),
             });
+        // Options' field preview: its frame first, then the 2D pass that
+        // shows it.
+        if let Some([_, _, pw, ph]) = self.field_preview {
+            let size = [pw.round().max(1.0) as u32, ph.round().max(1.0) as u32];
+            let mut slot = self.field.borrow_mut();
+            let mut fresh = false;
+            if let Some(s) = self.field_settings.borrow_mut().take() {
+                self.field_last = Some(s);
+                fresh = true;
+            }
+            if slot.as_ref().is_none_or(|f| !f.on(&gfx)) {
+                *slot = Some(crate::field_preview::FieldPreviewHost::new(&gfx));
+                fresh = true;
+            }
+            let still = self.field_still();
+            if fresh || size != self.field_size {
+                // A change: draw it (and the skin it may load).
+                self.field_busy = 30;
+                self.field_size = size;
+            }
+            if let Some(f) = slot.as_mut() {
+                match &self.field_last {
+                    Some(s) if fresh => f.set_settings(s),
+                    Some(_) => {}
+                    None => f.poll_settings(time_ms),
+                }
+                if still {
+                    f.seek(FIELD_STILL_MS / 1000.0);
+                }
+                f.draw(
+                    &gfx,
+                    &mut encoder,
+                    size,
+                    if still { FIELD_STILL_MS } else { time_ms },
+                    &Rc::downgrade(&self.field),
+                );
+                if f.status.contains("loading") {
+                    self.field_busy = self.field_busy.max(2);
+                }
+            }
+            self.field_busy = self.field_busy.saturating_sub(1);
+        } else if let Some(f) = self.field.borrow_mut().as_mut()
+            && f.on(&gfx)
+        {
+            f.release(&gfx);
+        }
         let list = &self.list;
         let after = screen::with_painter(&gfx, |p| {
             p.draw(
@@ -1875,6 +2107,53 @@ fn publish(h: &Host) {
     }
     set(&ui, "requests", requests.into());
     set(&ui, "frames", (h.frames as f64).into());
+    set(
+        &ui,
+        "chromeFocus",
+        h.ui.chrome_focused().map_or(JsValue::NULL, |s| s.into()),
+    );
+    set(
+        &ui,
+        "fieldPreview",
+        h.field_preview.map_or(JsValue::NULL, |r| {
+            let a = js_sys::Array::new();
+            for v in r {
+                a.push(&v.into());
+            }
+            a.into()
+        }),
+    );
+    // What draws it: `{frames, status, skin, layout, demoTime, texture}`.
+    {
+        let f = js_sys::Object::new();
+        if let Ok(slot) = h.field.try_borrow()
+            && let Some(fp) = slot.as_ref()
+        {
+            let p = fp.preview();
+            set(&f, "frames", (p.frames() as f64).into());
+            set(&f, "status", fp.status.as_str().into());
+            set(
+                &f,
+                "skin",
+                p.noteskin()
+                    .map_or(JsValue::NULL, |s| s.name.as_str().into()),
+            );
+            set(&f, "layout", p.options().layout.as_str().into());
+            set(&f, "demoTime", p.demo_time().into());
+            set(&f, "textShaped", (p.text_shaped() as f64).into());
+            // Skin loads finished and given up (stepping through skins).
+            let (done, given_up) = crate::noteskins::loads();
+            set(&f, "loads", (done as f64).into());
+            set(&f, "loadsGivenUp", (given_up as f64).into());
+            if let Some(t) = p.texture() {
+                let a = js_sys::Array::new();
+                a.push(&f64::from(t.width()).into());
+                a.push(&f64::from(t.height()).into());
+                set(&f, "texture", a.into());
+            }
+        }
+        set(&ui, "fieldPreviewDrawn", f.into());
+    }
     set(&ui, "sounds", (h.sounds as f64).into());
     set(
         &ui,
@@ -1903,7 +2182,8 @@ fn publish(h: &Host) {
         set(&ui, "velocity", d.velocity.into());
         set(&ui, "songs", (d.songs.len() as f64).into());
     }
-    // Where the named actors are, CSS pixels `[x, y, w, h]` in the window.
+    // Where the named actors are on view, CSS pixels `[x, y, w, h]` in
+    // the window.
     let rects = js_sys::Object::new();
     let vp = h.ui.viewport();
     let origin = h.canvas.get_bounding_client_rect();
@@ -1912,8 +2192,45 @@ fn publish(h: &Host) {
     } else {
         &NAMED
     };
-    for name in names {
-        if let Some(b) = h.ui.bounds(name) {
+    let mut names: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+    // Options: its rows and what they hold, its sections; a page's items;
+    // the notices' buttons.
+    if let Some(t) = &h.theme {
+        let st = t.env.state.borrow();
+        names.extend(st.app_actions.iter().map(|a| format!("AppNotice.{a}")));
+        names.push("AppNotice".into());
+        if st.screen == "prompt" {
+            // The start prompt's buttons, by name (`Start`, `Device.defaults`).
+            names.extend(st.page_items.iter().cloned());
+            names.push("Card".into());
+        } else if !st.page_items.is_empty() {
+            names.extend(["Column".to_string(), "Back".into()]);
+            names.extend((0..st.page_items.len()).map(|i| format!("Item{i}")));
+        }
+        if st.screen == "options" {
+            names.extend(["Back", "RowsClip", "Preview", "Description"].map(String::from));
+            names.extend((0..12).map(|i| format!("Section{i}")));
+            for i in 0..st.option_rows.len() {
+                names.push(format!("Option{i}"));
+                names.push(format!("Option{i}.Down"));
+                names.push(format!("Option{i}.Up"));
+                names.push(format!("Option{i}.Track"));
+                for part in ["Choice", "Button"] {
+                    for j in 0.. {
+                        let n = format!("Option{i}.{part}{j}");
+                        if h.ui.bounds(&n).is_none() {
+                            break;
+                        }
+                        names.push(n);
+                    }
+                }
+            }
+        }
+    }
+    // Only what is on view: shown, and cut by the clips around it (a
+    // row scrolled under a header is not there to tap).
+    for name in &names {
+        if let Some(b) = h.ui.visible_bounds(name) {
             let a = vp.to_physical([b[0], b[1]]);
             let c = vp.to_physical([b[2], b[3]]);
             let r = f64::from(vp.ratio);
@@ -1926,7 +2243,7 @@ fn publish(h: &Host) {
             ] {
                 arr.push(&v.into());
             }
-            set(&rects, name, arr.into());
+            set(&rects, name.as_str(), arr.into());
         }
     }
     set(&ui, "rects", rects.into());
@@ -2011,7 +2328,37 @@ fn publish(h: &Host) {
         set(&o, "songOffset", st.song_offset.into());
         set(&o, "section", st.section.as_str().into());
         set(&o, "option", st.option.as_str().into());
+        set(&o, "optionId", st.option_id.as_str().into());
         set(&o, "value", st.value.as_str().into());
+        set(&o, "rows", strings(&st.option_rows));
+        set(&o, "scroll", st.scroll.into());
+        set(&o, "notice", st.notice.as_str().into());
+        set(
+            &o,
+            "appNotice",
+            st.app_notice.as_deref().map_or(JsValue::NULL, |s| s.into()),
+        );
+        set(&o, "appActions", strings(&st.app_actions));
+        set(
+            &o,
+            "appToast",
+            st.app_toast.as_deref().map_or(JsValue::NULL, |s| s.into()),
+        );
+        set(&o, "pageItems", strings(&st.page_items));
+        set(&o, "autoplay", st.autoplay.into());
+        set(&o, "pageFocus", st.page_focus.into());
+        set(&o, "pageHeight", st.page_height.into());
+        set(
+            &o,
+            "preview",
+            st.preview.map_or(JsValue::NULL, |r| {
+                let a = js_sys::Array::new();
+                for v in r {
+                    a.push(&v.into());
+                }
+                a.into()
+            }),
+        );
         set(&o, "status", st.status.as_str().into());
         set(
             &o,
@@ -2077,4 +2424,16 @@ fn options_changed(env: &ThemeEnv) -> theme_screens::options::ChangeFn {
         flag.set(settings.reduced_motion.reduced(system));
         state.borrow_mut().reduced_motion_setting = o.index;
     })
+}
+
+/// The address's route without its parameters (`#/options`).
+fn route_path() -> String {
+    let hash = web_sys::window()
+        .and_then(|w| w.location().hash().ok())
+        .unwrap_or_default();
+    hash.split('?')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('/')
+        .to_string()
 }

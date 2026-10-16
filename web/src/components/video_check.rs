@@ -11,6 +11,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use crate::component::{Component, Context, NodeRef, element};
 use ddi_platform::video::{
     VideoBackend, VideoCodec, VideoContainer, VideoDecoder, VideoEvent, VideoFormat, VideoFrame,
     YuvMatrix,
@@ -20,7 +21,6 @@ use gloo::timers::future::TimeoutFuture;
 use serde::Serialize;
 use wasm_bindgen::{Clamped, JsCast};
 use web_sys::{Blob, CanvasRenderingContext2d, HtmlCanvasElement, HtmlInputElement, ImageData};
-use yew::prelude::*;
 
 use crate::router::Route;
 use crate::web::clock::PerformanceClock;
@@ -87,14 +87,24 @@ pub(crate) struct Sample {
     rgba: Vec<u8>,
 }
 
-#[derive(Clone, PartialEq, Properties)]
+#[derive(Clone, Default, PartialEq)]
 pub(crate) struct Props {
     /// Site paths to check instead of picked files.
-    #[prop_or_default]
     pub sources: Vec<String>,
     /// `module` (also when empty), `webcodecs` or `both`.
-    #[prop_or_default]
     pub decoder: String,
+}
+
+/// The page's elements that change (it is plain DOM).
+struct Dom {
+    status: web_sys::HtmlElement,
+    error: web_sys::HtmlElement,
+    input: HtmlInputElement,
+    table: web_sys::HtmlElement,
+    frames: web_sys::HtmlElement,
+    /// Each file's row of frames, by name.
+    pairs: Vec<(String, web_sys::HtmlElement)>,
+    _change: gloo::events::EventListener,
 }
 
 pub(crate) enum Msg {
@@ -106,6 +116,7 @@ pub(crate) enum Msg {
 }
 
 pub(crate) struct VideoCheck {
+    dom: std::cell::RefCell<Option<Dom>>,
     worker: Option<VideoWorker>,
     files: Vec<FileCheck>,
     canvases: Vec<NodeRef>,
@@ -143,6 +154,7 @@ impl Component for VideoCheck {
             worker: None,
             files: Vec::new(),
             canvases: Vec::new(),
+            dom: std::cell::RefCell::new(None),
             drawn: Vec::new(),
             running: false,
             error: None,
@@ -321,82 +333,110 @@ impl Component for VideoCheck {
         }
     }
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let onchange = ctx.link().batch_callback(|e: Event| {
-            let input: HtmlInputElement = e.target_unchecked_into();
-            let picked: Vec<(String, Blob)> = crate::web::files::from_input(&input)
-                .into_iter()
-                .map(|p| (p.path, p.file.into()))
-                .collect();
-            input.set_value("");
-            (!picked.is_empty()).then_some(Msg::Picked(picked))
+    fn view(&self, ctx: &Context<Self>) {
+        let root = ctx.root();
+        let mut dom = self.dom.borrow_mut();
+        let dom = dom.get_or_insert_with(|| {
+            root.set_class_name("shell video-check");
+            element(root, "h1", "").set_text_content(Some("Video decoder check"));
+            element(root, "p", "").set_text_content(Some(
+                "Plays movies through the game's own video decoder in this browser, \
+                 to see whether it works here and how fast it is. Pick one or more \
+                 movie files from a pack (any format StepMania plays: AVI, MPEG, MP4, \
+                 MOV, MKV, WebM, OGV, WMV, FLV); nothing is stored.",
+            ));
+            let agent = web_sys::window()
+                .map(|w| w.navigator().user_agent().unwrap_or_default())
+                .unwrap_or_default();
+            element(root, "p", "muted").set_text_content(Some(&agent));
+            let status = element(root, "p", "");
+            let error = element(root, "p", "error");
+            let holder = element(root, "p", "");
+            let input: HtmlInputElement = element(&holder, "input", "").unchecked_into();
+            input.set_type("file");
+            input.set_multiple(true);
+            input.set_accept(
+                ".avi,.f4v,.flv,.m2v,.mkv,.mov,.mp4,.mpeg,.mpg,.ogv,.webm,.wmv,video/*",
+            );
+            let link = ctx.link().clone();
+            let change = gloo::events::EventListener::new(&input, "change", move |e| {
+                let Some(input) = e
+                    .target()
+                    .and_then(|t| t.dyn_into::<HtmlInputElement>().ok())
+                else {
+                    return;
+                };
+                let picked: Vec<(String, Blob)> = crate::web::files::from_input(&input)
+                    .into_iter()
+                    .map(|p| (p.path, p.file.into()))
+                    .collect();
+                input.set_value("");
+                if !picked.is_empty() {
+                    link.send_message(Msg::Picked(picked));
+                }
+            });
+            let table = element(root, "table", "results-table video-check-table");
+            let frames = element(root, "div", "");
+            let back = element(&element(root, "p", ""), "a", "");
+            let _ = back.set_attribute("href", &Route::Home.to_hash());
+            back.set_text_content(Some("← back"));
+            Dom {
+                status,
+                error,
+                input,
+                table,
+                frames,
+                pairs: Vec::new(),
+                _change: change,
+            }
         });
-        let agent = web_sys::window()
-            .map(|w| w.navigator().user_agent().unwrap_or_default())
-            .unwrap_or_default();
-        html! {
-            <main class="shell video-check">
-                <h1>{ "Video decoder check" }</h1>
-                <p>
-                    { "Plays movies through the game's own video decoder in this browser, \
-                       to see whether it works here and how fast it is. Pick one or more \
-                       movie files from a pack (any format StepMania plays: AVI, MPEG, MP4, \
-                       MOV, MKV, WebM, OGV, WMV, FLV); nothing is stored." }
-                </p>
-                <p class="muted">{ agent }</p>
-                <p>{ self.status_line() }</p>
-                if let Some(e) = &self.error {
-                    <p class="error">{ e }</p>
+        dom.status.set_text_content(Some(&self.status_line()));
+        match &self.error {
+            Some(e) => {
+                dom.error.set_hidden(false);
+                dom.error.set_text_content(Some(e));
+            }
+            None => dom.error.set_hidden(true),
+        }
+        dom.input.set_disabled(self.running);
+        dom.table.set_inner_html("");
+        dom.table.set_hidden(self.files.is_empty());
+        if !self.files.is_empty() {
+            let head = element(&dom.table, "tr", "");
+            for h in ["file", "movie", "frames", "decode", "seeks", "state"] {
+                element(&head, "th", "").set_text_content(Some(h));
+            }
+            for f in &self.files {
+                row(&dom.table, f);
+            }
+        }
+        // Each file's sampled frames, side by side; a frame's canvas is
+        // made once and drawn once (`rendered`).
+        for (i, f) in self.files.iter().enumerate() {
+            let Some(sample) = &f.sample else { continue };
+            if self.canvases[i].get().is_some() {
+                continue;
+            }
+            let pair = match dom.pairs.iter().find(|(n, _)| *n == f.name) {
+                Some((_, p)) => p.clone(),
+                None => {
+                    let p = element(&dom.frames, "div", "video-check-pair");
+                    dom.pairs.push((f.name.clone(), p.clone()));
+                    p
                 }
-                <p>
-                    <input type="file" multiple=true accept=".avi,.f4v,.flv,.m2v,.mkv,.mov,.mp4,.mpeg,.mpg,.ogv,.webm,.wmv,video/*"
-                        disabled={self.running} {onchange} />
-                </p>
-                if !self.files.is_empty() {
-                    <table class="results-table video-check-table">
-                        <tr>
-                            <th>{ "file" }</th><th>{ "movie" }</th><th>{ "frames" }</th>
-                            <th>{ "decode" }</th><th>{ "seeks" }</th><th>{ "state" }</th>
-                        </tr>
-                        { for self.files.iter().map(row) }
-                    </table>
-                    { for self.pairs().into_iter().map(|rows| html! {
-                        <div class="video-check-pair">
-                            { for rows.into_iter().map(|i| {
-                                let (f, canvas) = (&self.files[i], &self.canvases[i]);
-                                html! {
-                                    if let Some(s) = &f.sample {
-                                        <figure class="video-check-frame">
-                                            <canvas ref={canvas.clone()} />
-                                            <figcaption class="muted">
-                                                { format!("{} · {}: frame {} at {:.3} s", f.name, f.decoder, s.index, s.pts) }
-                                            </figcaption>
-                                        </figure>
-                                    }
-                                }
-                            }) }
-                        </div>
-                    }) }
-                }
-                <p><a href={Route::Home.to_hash()}>{ "← back" }</a></p>
-            </main>
+            };
+            let figure = element(&pair, "figure", "video-check-frame");
+            let canvas = element(&figure, "canvas", "");
+            self.canvases[i].set(&canvas);
+            element(&figure, "figcaption", "muted").set_text_content(Some(&format!(
+                "{} · {}: frame {} at {:.3} s",
+                f.name, f.decoder, sample.index, sample.pts
+            )));
         }
     }
 }
 
 impl VideoCheck {
-    /// The rows of each file, its decoders side by side.
-    fn pairs(&self) -> Vec<Vec<usize>> {
-        let mut out: Vec<Vec<usize>> = Vec::new();
-        for (i, f) in self.files.iter().enumerate() {
-            match out.last_mut() {
-                Some(rows) if self.files[rows[0]].name == f.name => rows.push(i),
-                _ => out.push(vec![i]),
-            }
-        }
-        out
-    }
-
     fn status_line(&self) -> String {
         match self.worker.as_ref().map(VideoWorker::status) {
             None | Some(ModuleStatus::Idle) => {
@@ -438,7 +478,8 @@ impl VideoCheck {
     }
 }
 
-fn row(f: &FileCheck) -> Html {
+/// A file's rows in `table`.
+fn row(table: &web_sys::HtmlElement, f: &FileCheck) {
     let movie = if f.codec.is_empty() {
         format!("{:.1} MB", f.bytes / 1e6)
     } else {
@@ -471,26 +512,39 @@ fn row(f: &FileCheck) -> Html {
     } else {
         String::new()
     };
-    let state = match &f.error {
-        Some(e) => html! { <span class="error">{ e }</span> },
-        None => html! { { &f.state } },
+    let tr = element(table, "tr", "");
+    for text in [
+        format!("{} · {}", f.name, f.decoder),
+        movie,
+        frames,
+        decode,
+        seeks,
+    ] {
+        element(&tr, "td", "").set_text_content(Some(&text));
+    }
+    let state = element(&tr, "td", "");
+    match &f.error {
+        Some(e) => element(&state, "span", "error").set_text_content(Some(e)),
+        None => state.set_text_content(Some(&f.state)),
+    }
+    let note = |text: String, class: &str| {
+        let tr = element(table, "tr", "");
+        element(&tr, "td", "");
+        let td = element(&tr, "td", class);
+        let _ = td.set_attribute("colspan", "5");
+        td.set_text_content(Some(&text));
     };
-    html! {
-        <>
-            <tr>
-                <td>{ &f.name }{ " · " }{ &f.decoder }</td><td>{ movie }</td><td>{ frames }</td>
-                <td>{ decode }</td><td>{ seeks }</td><td>{ state }</td>
-            </tr>
-            { for f.colours.iter().map(|c| html! {
-                <tr><td></td><td colspan="5">{ format!("browser colours: {c}") }</td></tr>
-            }) }
-            { for f.compared.iter().map(|c| html! {
-                <tr><td></td><td colspan="5" class={if c.starts_with("same") { "" } else { "error" }}>{ format!("against the module: {c}") }</td></tr>
-            }) }
-            { for f.seek_failures.iter().map(|s| html! {
-                <tr><td></td><td colspan="5" class="error">{ s }</td></tr>
-            }) }
-        </>
+    if let Some(c) = &f.colours {
+        note(format!("browser colours: {c}"), "");
+    }
+    if let Some(c) = &f.compared {
+        note(
+            format!("against the module: {c}"),
+            if c.starts_with("same") { "" } else { "error" },
+        );
+    }
+    for s in &f.seek_failures {
+        note(s.clone(), "error");
     }
 }
 

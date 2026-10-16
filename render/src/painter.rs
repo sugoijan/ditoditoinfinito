@@ -13,6 +13,8 @@
 //! instances with the same texture, blend mode and clip are one draw, and
 //! a frame of any size is drawn ([`crate::instances`]).
 
+use std::sync::Arc;
+
 use bytemuck::{Pod, Zeroable};
 use ddi_actor::text::{FixedMeasure, RunMetrics, TextMeasure, TextStyle};
 
@@ -131,6 +133,10 @@ const NO_SHAPE2: [f32; 4] = [0.0, 0.0, 1.0, 0.0];
 struct Globals {
     scale: [f32; 2],
     translate: [f32; 2],
+    /// 1 when the target holds linear light (an sRGB view): colours are
+    /// decoded before blending, and the target encodes them again.
+    linear: f32,
+    _pad: [f32; 3],
 }
 
 /// A colour as 8-bit RGBA (memory order r, g, b, a).
@@ -157,6 +163,8 @@ enum Bind {
     Blank,
     Image(TextureId),
     Page(usize),
+    /// An image the shell draws itself ([`Painter::set_external_image`]).
+    External(usize),
 }
 
 /// One draw: instances `start..end` with the same texture, blend,
@@ -379,7 +387,7 @@ impl Gpu {
             label: Some("ddi-painter-globals-bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -624,6 +632,9 @@ pub struct PainterStats {
     pub instances: usize,
     pub draws: usize,
     pub passes: usize,
+    /// Images the shell draws itself, set now
+    /// ([`Painter::set_external_image`]).
+    pub externals: usize,
 }
 
 pub struct Painter {
@@ -635,6 +646,9 @@ pub struct Painter {
     fonts_version: u64,
     /// Images whose mipmaps the next draw fills.
     unmipped: Vec<TextureId>,
+    /// Images the shell draws itself, by source, and their bindings
+    /// (`None`: none yet, the placeholder shows).
+    externals: Vec<(Arc<str>, Option<wgpu::BindGroup>)>,
     /// The last frame's, kept for their allocations.
     instances: Vec<Instance>,
     steps: Vec<Step>,
@@ -646,8 +660,12 @@ pub struct Painter {
 }
 
 impl Painter {
-    /// A painter drawing to `format`, a plain (non-sRGB) view of the
-    /// target: colours are blended as given, encoded.
+    /// A painter drawing to `format`: a plain (non-sRGB) view of the
+    /// target, where colours are blended as given, encoded (the menus');
+    /// or an sRGB one (a play's surface on WebGL2, which has no plain
+    /// view), where they are decoded first and blended in linear light, as
+    /// the scene's are: the same colours, the edges of text and of soft
+    /// shapes a little different.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Painter {
         Painter {
             format,
@@ -657,6 +675,7 @@ impl Painter {
             raster: None,
             fonts_version: 0,
             unmipped: Vec::new(),
+            externals: Vec::new(),
             instances: Vec::new(),
             steps: Vec::new(),
             last: (0, 0, 0),
@@ -679,6 +698,9 @@ impl Painter {
     ) {
         self.textures.unload_all();
         self.unmipped.clear();
+        for e in &mut self.externals {
+            e.1 = None;
+        }
         self.text.reset();
         self.drawing = false;
         self.format = format;
@@ -696,6 +718,13 @@ impl Painter {
     pub fn set_budgets(&mut self, textures: u64, text: u64) {
         self.textures.set_budget(textures);
         self.text.set_budget(text);
+    }
+
+    /// Lets go of the textures of the sources `which` picks
+    /// ([`TextureCache::forget`]).
+    pub fn forget_textures(&mut self, which: impl Fn(&str) -> bool) {
+        // Dropped, not destroyed: a draw not submitted yet may sample them.
+        drop(self.textures.forget(which));
     }
 
     /// The id of a texture of `key`, the same every time.
@@ -772,6 +801,28 @@ impl Painter {
         });
     }
 
+    /// Draws the images of `source` from `texture` (a plain, filterable
+    /// texture of encoded values the shell draws into each frame: the
+    /// options' field preview, `crate::field_preview`), whatever size they
+    /// are asked at, never loaded by the platform; `None` shows their
+    /// placeholder. Set again when the texture is made again (a new size);
+    /// what it draws shows in the draws after it is drawn into. Gone with
+    /// the device ([`Painter::device_changed`]).
+    pub fn set_external_image(
+        &mut self,
+        device: &wgpu::Device,
+        source: &str,
+        texture: Option<&wgpu::Texture>,
+    ) {
+        // Loads asked of the platform before are not waited for.
+        self.textures.cancel(source);
+        let group = texture.map(|t| bind(device, &self.gpu.texture_layout, &self.gpu.sampler, t));
+        match self.externals.iter_mut().find(|e| &*e.0 == source) {
+            Some(e) => e.1 = group,
+            None => self.externals.push((source.into(), group)),
+        }
+    }
+
     /// The platform could not load texture `id`: its placeholder stays.
     pub fn fail_texture(&mut self, id: TextureId) {
         self.textures.fail(id);
@@ -794,6 +845,7 @@ impl Painter {
             instances: self.last.0,
             draws: self.last.1,
             passes: self.last.2,
+            externals: self.externals.iter().filter(|e| e.1.is_some()).count(),
         }
     }
 
@@ -846,6 +898,7 @@ impl Painter {
             instances,
             steps,
             unmipped,
+            externals,
             ..
         } = self;
         instances.clear();
@@ -921,14 +974,22 @@ impl Painter {
                     };
                     let (bind, mode, colors) = match q.texture {
                         None => (Bind::Blank, UNTEXTURED, q.colors),
-                        // Its own size, or another of the same source.
-                        Some(id) => match textures.resolve(id) {
-                            Some(drawn) => (Bind::Image(drawn), 0, q.colors),
-                            None => {
-                                let [r, g, b] = PLACEHOLDER;
-                                (Bind::Blank, UNTEXTURED, q.colors.map(|c| [r, g, b, c[3]]))
+                        // An image the shell draws (never loaded), else its
+                        // own size, or another of the same source.
+                        Some(id) => {
+                            let drawn = match external_image(externals, textures, id) {
+                                Some(Some(i)) => Some(Bind::External(i)),
+                                Some(None) => None,
+                                None => textures.resolve(id).map(Bind::Image),
+                            };
+                            match drawn {
+                                Some(bind) => (bind, 0, q.colors),
+                                None => {
+                                    let [r, g, b] = PLACEHOLDER;
+                                    (Bind::Blank, UNTEXTURED, q.colors.map(|c| [r, g, b, c[3]]))
+                                }
                             }
-                        },
+                        }
                     };
                     let mode = mode | if q.glow { GLOW } else { 0 };
                     let instance = match &q.projected {
@@ -1094,6 +1155,8 @@ impl Painter {
         let g = Globals {
             scale: [2.0 / size[0].max(1) as f32, -2.0 / size[1].max(1) as f32],
             translate: [-1.0, 1.0],
+            linear: if self.format.is_srgb() { 1.0 } else { 0.0 },
+            _pad: [0.0; 3],
         };
         queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
 
@@ -1145,6 +1208,7 @@ impl Painter {
                     let group = match b.bind {
                         Bind::Blank => Some(&gpu.blank),
                         Bind::Image(id) => textures.peek(id).map(|i| &i.group),
+                        Bind::External(i) => externals.get(i).and_then(|e| e.1.as_ref()),
                         Bind::Page(p) => {
                             gpu.pages.get(p).and_then(Option::as_ref).map(|p| &p.group)
                         }
@@ -1190,6 +1254,22 @@ impl Painter {
     }
 }
 
+/// The external image texture `id` is drawn from: `Some(Some(i))` with
+/// one, `Some(None)` a source the shell draws that has none now, `None` an
+/// ordinary texture.
+fn external_image(
+    externals: &[(Arc<str>, Option<wgpu::BindGroup>)],
+    textures: &TextureCache<Image>,
+    id: TextureId,
+) -> Option<Option<usize>> {
+    if externals.is_empty() {
+        return None;
+    }
+    let key = textures.key(id)?;
+    let i = externals.iter().position(|e| e.0 == key.source)?;
+    Some(externals[i].1.is_some().then_some(i))
+}
+
 /// [`Painter::measure`]: measures runs as the painter draws them, through
 /// its cache; without a rasterizer, [`FixedMeasure`].
 pub struct PainterMeasure<'a> {
@@ -1227,6 +1307,24 @@ mod tests {
         )
         .validate(&module)
         .expect("WGSL validates");
+    }
+
+    /// WebGL2 binds uniforms in multiples of 16 bytes, and the shader's
+    /// globals are the struct written to them.
+    #[test]
+    fn the_globals_are_whole_sixteens_on_both_sides() {
+        let module =
+            wgpu::naga::front::wgsl::parse_str(include_str!("painter.wgsl")).expect("parses");
+        let (_, ty) = module
+            .types
+            .iter()
+            .find(|(_, t)| t.name.as_deref() == Some("Globals"))
+            .expect("Globals");
+        let wgpu::naga::TypeInner::Struct { span, .. } = ty.inner else {
+            panic!("{ty:?}")
+        };
+        assert_eq!(span as usize, std::mem::size_of::<Globals>());
+        assert_eq!(span % 16, 0);
     }
 
     #[test]

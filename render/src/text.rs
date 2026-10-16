@@ -69,6 +69,9 @@ pub struct TextPipeline {
     glyphon_cache: Cache,
     cache: HashMap<TextKey, CachedBuffer>,
     frame: u64,
+    /// Runs shaped since the start (each a cache miss: a new string or
+    /// size).
+    shaped: u64,
 }
 
 impl TextPipeline {
@@ -80,15 +83,25 @@ impl TextPipeline {
         format: wgpu::TextureFormat,
         fonts: &[&'static [u8]],
     ) -> TextPipeline {
-        let mut font_system = FontSystem::new_with_fonts(
-            fonts
-                .iter()
-                .map(|f| glyphon::fontdb::Source::Binary(std::sync::Arc::new(*f))),
-        );
-        // Make sure fallback works even with no embedded font.
-        font_system.db_mut().set_sans_serif_family("sans-serif");
+        // Only the embedded fonts, as on the web (where there are no
+        // others): the HUD looks the same on every platform. A system's
+        // fonts would win the match on desktop (cosmic-text prefers its
+        // own system face over a named embedded one there).
+        let mut db = glyphon::fontdb::Database::new();
+        for f in fonts {
+            db.load_font_source(glyphon::fontdb::Source::Binary(std::sync::Arc::new(*f)));
+        }
+        // The first family for everything.
+        let family = db
+            .faces()
+            .next()
+            .and_then(|f| f.families.first().map(|(n, _)| n.clone()))
+            .unwrap_or_else(|| "sans-serif".to_string());
+        db.set_sans_serif_family(family);
+        let font_system = FontSystem::new_with_locale_and_db("en-US".into(), db);
         let cache = Cache::new(device);
-        let mut atlas = TextAtlas::new(device, queue, &cache, format);
+        let mut atlas =
+            TextAtlas::with_color_mode(device, queue, &cache, format, color_mode(format));
         let viewport = Viewport::new(device, &cache);
         let renderer =
             TextRenderer::new(&mut atlas, device, wgpu::MultisampleState::default(), None);
@@ -101,6 +114,7 @@ impl TextPipeline {
             glyphon_cache: cache,
             cache: HashMap::new(),
             frame: 0,
+            shaped: 0,
         }
     }
 
@@ -112,7 +126,13 @@ impl TextPipeline {
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
     ) {
-        self.atlas = TextAtlas::new(device, queue, &self.glyphon_cache, format);
+        self.atlas = TextAtlas::with_color_mode(
+            device,
+            queue,
+            &self.glyphon_cache,
+            format,
+            color_mode(format),
+        );
         self.renderer = TextRenderer::new(
             &mut self.atlas,
             device,
@@ -134,11 +154,12 @@ impl TextPipeline {
         self.frame += 1;
         let frame = self.frame;
         let font_system = &mut self.font_system;
+        let shaped = &mut self.shaped;
         for item in items {
-            let entry = self
-                .cache
-                .entry(TextKey::of(item))
-                .or_insert_with(|| shape(font_system, item));
+            let entry = self.cache.entry(TextKey::of(item)).or_insert_with(|| {
+                *shaped += 1;
+                shape(font_system, item)
+            });
             entry.last_used = frame;
         }
         self.cache
@@ -189,20 +210,51 @@ impl TextPipeline {
         let _ = self.renderer.render(&self.atlas, &self.viewport, pass);
     }
 
+    /// Runs shaped (and their glyphs rasterised) since the start.
+    pub fn shaped(&self) -> u64 {
+        self.shaped
+    }
+
     /// Call after a frame when the atlas may hold stale glyphs.
     pub fn trim(&mut self) {
         self.atlas.trim();
     }
 }
 
+/// How glyphon takes a run's colour (sRGB values, as written) for a
+/// target: turned into linear light where the target holds linear light
+/// (an sRGB view, which encodes it again, or a float texture encoded at
+/// the end); as they are where it holds encoded values (a plain view).
+/// So a colour draws as written on every target.
+pub fn color_mode(format: wgpu::TextureFormat) -> glyphon::ColorMode {
+    use wgpu::TextureFormat as F;
+    let linear = format.is_srgb()
+        || matches!(
+            format,
+            F::Rgba16Float | F::Rgba32Float | F::Rg11b10Ufloat | F::Rgb9e5Ufloat
+        );
+    if linear {
+        glyphon::ColorMode::Accurate
+    } else {
+        glyphon::ColorMode::Web
+    }
+}
+
 fn shape(font_system: &mut FontSystem, item: &TextItem) -> CachedBuffer {
     let mut buffer = Buffer::new(font_system, Metrics::new(item.size, item.size * 1.2));
     buffer.set_size(None, None);
-    let attrs = Attrs::new().family(Family::SansSerif).weight(if item.bold {
-        glyphon::Weight::BOLD
-    } else {
-        glyphon::Weight::NORMAL
-    });
+    // Unhinted: the HUD's face is hinted, and hinting draws a run at its
+    // size rounded to a whole pixel while it is laid out at the exact one
+    // (and a pop's cached sizes, `scene::popped`, a whole pixel off the
+    // exact ones). The HUD's sizes are fractions of an arrow, and large.
+    let attrs = Attrs::new()
+        .family(Family::SansSerif)
+        .weight(if item.bold {
+            glyphon::Weight::BOLD
+        } else {
+            glyphon::Weight::NORMAL
+        })
+        .cache_key_flags(glyphon::cosmic_text::CacheKeyFlags::DISABLE_HINTING);
     buffer.set_text(&item.text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(font_system, false);
     let line_w = buffer

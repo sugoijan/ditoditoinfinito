@@ -5,16 +5,14 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ddi_chart::Song;
-use ddi_chart::formats::danoni::{self, Dos, source};
-use ddi_library::danoni::{self as work, SharedWork, StoredWork, WorkSource};
-use ddi_library::manifest::{EntryMeta, summarize};
+use ddi_library::danoni::{self as work, StoredWork, WorkSource};
 use ddi_library::pack;
+use ddi_library::works::{self, Work, WorkSong};
 use wasm_bindgen::JsCast;
 use web_sys::Blob;
 
 use super::{ImportReport, Source, mime_type, read_blob, read_bytes, source};
-use crate::songs::{ImportedSong, MAX_LAYER_IMAGES, file_key};
+use crate::songs::{ImportedSong, file_key};
 use crate::web::files::bytes_blob;
 use crate::web::idb::{self, Db, Write};
 
@@ -30,14 +28,16 @@ pub(super) struct WorksOutcome {
     pub(super) ids: Vec<String>,
 }
 
-/// Imports every work among `paths` into the library.
+/// Imports every work among `paths` into the library: each read here,
+/// its songs found by the library's core (`ddi_library::works`, as
+/// desktop's library finds them), stored.
 pub(super) async fn import_works(
     db: &Db,
     sources: &HashMap<String, Source>,
     paths: &[String],
     fallback_pack: &str,
     report: &mut ImportReport,
-    progress: &yew::Callback<String>,
+    progress: &crate::component::Callback<String>,
     origin: Option<&super::Origin>,
 ) -> WorksOutcome {
     let folder = origin.map(|o| o.folder.as_str());
@@ -51,7 +51,7 @@ pub(super) async fn import_works(
                 (manifest.clone(), read_dump(sources, paths, manifest).await)
             }
         };
-        let work = match result {
+        let w = match result {
             Ok(Some(w)) => w,
             Ok(None) => continue,
             Err(e) => {
@@ -62,27 +62,15 @@ pub(super) async fn import_works(
         };
         out.found = true;
         progress.emit(format!("importing {label}…"));
-        let import = match danoni::import(&work.dos) {
-            Ok(i) => i,
-            Err(e) => {
-                report.skipped.push((label, e));
-                continue;
-            }
-        };
-        report
-            .warnings
-            .extend(import.warnings.iter().map(|w| (label.clone(), w.clone())));
-        let pack = pack_name(&label, fallback_pack);
-        // A song's id comes from its pack and a name like a song folder's:
-        // the page's file name, or the dump's folder.
-        // The page's path inside the pack (or the dump's folder), so
-        // `a/index.html` and `b/index.html` stay apart.
-        let ident = match &ws {
-            WorkSource::Page(page) => inside_pack(page),
-            WorkSource::Dump(manifest) => inside_pack(parent(manifest)),
-        };
+        let plan = works::plan(&ws, &label, &w, paths, fallback_pack, &mut seen);
+        report.warnings.extend(plan.warnings);
+        report.skipped.extend(plan.skipped);
+        out.music.extend(plan.music);
+        if plan.songs.is_empty() {
+            continue;
+        }
         // The work's fields are stored once, with its first stored song.
-        let shared = match SharedWork::new(&work.dos).stored() {
+        let shared = match works::shared(&w).stored() {
             Ok((key, json)) => (free_work_key(db, key, &json).await, json),
             Err(e) => {
                 report.skipped.push((label, e));
@@ -90,131 +78,19 @@ pub(super) async fn import_works(
             }
         };
         let mut shared_stored = false;
-        let mut uncaptured: Vec<&str> = Vec::new();
-        for (k, song) in import.songs.iter().enumerate() {
-            let music_no = import.music[k];
-            let song_label = format!("{label} ({})", song.title);
-            let music = match &work.music {
-                Music::Page(page) => song
-                    .music
-                    .as_deref()
-                    .and_then(|url| work::music_path(page, &work.dos, url, paths))
-                    .map(|p| {
-                        let encoded = work::is_encoded_music(&p);
-                        (p, encoded)
-                    })
-                    .ok_or_else(|| match &song.music {
-                        Some(url) => format!("music {url} was not found"),
-                        None => "the work names no music".to_string(),
-                    }),
-                Music::Dump(by_chart) => {
-                    let found = import
-                        .charts
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, c)| c.is_some_and(|(s, _)| s == k))
-                        .find_map(|(id, _)| by_chart.get(&id).cloned());
-                    let Some((found, encoded)) = found else {
-                        // Dumps capture some charts of a work: one line for
-                        // all the songs left without music.
-                        uncaptured.push(&song.title);
-                        continue;
-                    };
-                    Ok((found, encoded))
-                }
-            };
-            let (music, encoded) = match music {
-                Ok(m) => m,
-                Err(e) => {
-                    report.skipped.push((song_label, e));
-                    continue;
-                }
-            };
-            out.music.insert(music.clone());
-            // Back and mask images: a page's, where danoniplus loads them;
-            // a capture holds none.
-            let layers = match &ws {
-                WorkSource::Page(page) => {
-                    let (mut found, mut missing) = work::layer_images(song, page, &work.dos, paths);
-                    if !missing.is_empty() {
-                        let more = missing.len().saturating_sub(12);
-                        missing.truncate(12);
-                        let more = if more > 0 {
-                            format!(" and {more} more")
-                        } else {
-                            String::new()
-                        };
-                        report.warnings.push((
-                            song_label.clone(),
-                            format!(
-                                "back and mask images not found (or not drawn, like SVG): {}{more}",
-                                missing.join(", ")
-                            ),
-                        ));
-                    }
-                    if found.len() > MAX_LAYER_IMAGES {
-                        report.warnings.push((
-                            song_label.clone(),
-                            format!(
-                                "{} back and mask images; only the first {MAX_LAYER_IMAGES} are kept",
-                                found.len()
-                            ),
-                        ));
-                        found.truncate(MAX_LAYER_IMAGES);
-                    }
-                    found
-                }
-                WorkSource::Dump(_) => {
-                    if song.effects.iter().any(|e| {
-                        (e.kind == danoni::SPRITE_BACK || e.kind == danoni::SPRITE_MASK)
-                            && e.fields.get(2).is_some_and(|s| work::is_layer_image(s))
-                    }) {
-                        report.warnings.push((
-                            song_label.clone(),
-                            "a capture holds no back and mask images".into(),
-                        ));
-                    }
-                    Vec::new()
-                }
-            };
-            report.warnings.extend(
-                ddi_engine::sprites::import_notes(song)
-                    .into_iter()
-                    .map(|n| (song_label.clone(), n)),
-            );
-            let id = pack::song_id(&pack, &format!("{ident}#{music_no}"));
-            if let Some(first) = seen.get(&id) {
-                report
-                    .skipped
-                    .push((song_label, format!("same pack and file name as {first}")));
-                continue;
-            }
-            seen.insert(id.clone(), label.clone());
-            let stored = StoredWork::referencing(&shared.0, music_no);
+        for s in &plan.songs {
+            let stored = StoredWork::referencing(&shared.0, s.music_no);
             let with_work = (!shared_stored).then_some(&shared);
-            match store_song(
-                db, sources, &id, &pack, &label, song, &stored, with_work, &music, encoded,
-                &layers, folder, link,
-            )
-            .await
-            {
+            match store_song(db, sources, s, &stored, with_work, folder, link).await {
                 Ok(title) => {
                     shared_stored = true;
                     report.imported.push(title);
-                    out.ids.push(id.clone());
+                    out.ids.push(s.id.clone());
                 }
-                Err(e) => report.skipped.push((song_label, e)),
+                Err(e) => report
+                    .skipped
+                    .push((format!("{} ({})", s.label, s.song.title), e)),
             }
-        }
-        if !uncaptured.is_empty() {
-            report.skipped.push((
-                label.clone(),
-                format!(
-                    "{} song(s) of the work have no captured music: {}",
-                    uncaptured.len(),
-                    uncaptured.join(", ")
-                ),
-            ));
         }
     }
     out
@@ -247,19 +123,6 @@ async fn free_work_key(db: &Db, key: String, json: &str) -> String {
     format!("{key}-{}", js_sys::Date::now() as u64)
 }
 
-/// Where a work's music comes from.
-enum Music {
-    /// Resolved from the page's `musicUrl`.
-    Page(String),
-    /// Captured per chart: `chartId` → (path, encoded music script).
-    Dump(HashMap<usize, (String, bool)>),
-}
-
-struct Work {
-    dos: Dos,
-    music: Music,
-}
-
 /// A page's dos (inline, then external), or `None` for a page without one.
 async fn read_page(
     sources: &HashMap<String, Source>,
@@ -269,33 +132,17 @@ async fn read_page(
     let bytes = read_bytes(source(sources, page)?).await?;
     let charset = work::declared_charset(&bytes);
     let html = decode_with(&bytes, charset.as_deref());
-    let Some(found) = source::scan_html(&html) else {
+    let Some(read) = works::read_page(page, &html, charset.as_deref(), paths)? else {
         return Ok(None);
     };
-    let mut dos = Dos::default();
-    if let Some(inline) = &found.inline {
-        dos.merge(inline, found.flags);
-    }
-    if found.divided {
-        return Err("splits its charts over several dos files, which is not supported yet".into());
-    }
-    if let Some(name) = &found.external {
-        let path = work::external_path(page, name, paths)
-            .ok_or_else(|| format!("its dos file {name} is missing"))?;
-        let bytes = read_bytes(source(sources, &path)?).await?;
-        let text = decode_with(
-            &bytes,
-            found.external_charset.as_deref().or(charset.as_deref()),
-        );
-        let dos_text = source::external_dos_text(&text).ok_or_else(|| {
-            format!("{name} builds its dos with a script, which an import never runs")
-        })?;
-        dos.merge(&dos_text, found.flags);
-    }
-    Ok(Some(Work {
-        dos,
-        music: Music::Page(page.to_string()),
-    }))
+    let external = match &read.external {
+        Some((path, charset)) => {
+            let bytes = read_bytes(source(sources, path)?).await?;
+            Some(decode_with(&bytes, charset.as_deref()))
+        }
+        None => None,
+    };
+    read.finish(external.as_deref()).map(Some)
 }
 
 /// A dump's effective dos and captured music, or `None` for another
@@ -310,51 +157,27 @@ async fn read_dump(
         return Ok(None);
     };
     let eff = pack::decode_text(&read_bytes(source(sources, &plan.effective)?).await?);
-    Ok(Some(Work {
-        dos: work::dump_dos(&eff)?,
-        music: Music::Dump(
-            plan.music
-                .into_iter()
-                .map(|(id, path, encoded)| (id, (path, encoded)))
-                .collect(),
-        ),
-    }))
-}
-
-/// A path without its first folder (the pack).
-fn inside_pack(path: &str) -> &str {
-    path.split_once('/').map_or(path, |(_, rest)| rest)
-}
-
-fn parent(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(d, _)| d)
-}
-
-/// The pack of a work: the top folder of what was picked.
-fn pack_name(path: &str, fallback: &str) -> String {
-    match path.split_once('/') {
-        Some((top, _)) if !top.is_empty() => top.to_string(),
-        _ => fallback.to_string(),
-    }
+    works::dump_work(plan, &eff).map(Some)
 }
 
 /// Stores one song of a work: the work file and its music.
-#[allow(clippy::too_many_arguments)]
 async fn store_song(
     db: &Db,
     sources: &HashMap<String, Source>,
-    id: &str,
-    pack: &str,
-    dir: &str,
-    song: &Song,
+    s: &WorkSong,
     stored: &StoredWork,
     shared: Option<&(String, String)>,
-    music: &str,
-    encoded: bool,
-    layers: &[(String, String)],
     folder: Option<&str>,
     link: bool,
 ) -> Result<String, String> {
+    let (id, pack, dir, music, encoded, layers) = (
+        s.id.as_str(),
+        s.pack.as_str(),
+        s.label.as_str(),
+        s.music.as_str(),
+        s.encoded,
+        s.layers.as_slice(),
+    );
     let link = link && folder.is_some();
     // Linked (a kept folder): the music stays there, unless it is a script
     // that has to be decoded.
@@ -364,7 +187,7 @@ async fn store_song(
         .filter(|_| link && !encoded);
     let (music_blob, music_ext) = if let Some(music_link) = music_link {
         let ext = match mime_type(music) {
-            "" => sniff_audio(&read_head_bytes(sources, music).await?)
+            "" => works::sniff_audio(&read_head_bytes(sources, music).await?)
                 .0
                 .to_string(),
             _ => super::extension(music).unwrap_or_else(|| "mp3".into()),
@@ -374,14 +197,14 @@ async fn store_song(
     } else if encoded {
         let js = pack::decode_text(&read_bytes(source(sources, music)?).await?);
         let bytes = work::decode_music(&js).ok_or("its music script holds no audio")?;
-        let (ext, mime) = sniff_audio(&bytes);
+        let (ext, mime) = works::sniff_audio(&bytes);
         (Some(bytes_blob(&bytes, mime)?), ext.to_string())
     } else {
         // A file without an audio extension (a dump's blob) is named
         // by what it holds.
         let (ext, mime) = match mime_type(music) {
             "" => {
-                let (ext, mime) = sniff_audio(&read_head_bytes(sources, music).await?);
+                let (ext, mime) = works::sniff_audio(&read_head_bytes(sources, music).await?);
                 (ext.to_string(), mime)
             }
             m => (super::extension(music).unwrap_or_else(|| "mp3".into()), m),
@@ -390,28 +213,8 @@ async fn store_song(
     };
     let chart_name = format!("chart.{}", work::STORED_EXT);
     let music_name = format!("music.{music_ext}");
-    let title = song.title.clone();
-    let mut entry = summarize(
-        EntryMeta {
-            id: id.to_string(),
-            title: title.clone(),
-            artist: song.artist.clone(),
-            chart: chart_name.clone(),
-            music: music_name.clone(),
-            banner: None,
-            background: None,
-            bg_images: Vec::new(),
-            bg_videos: Vec::new(),
-            bg_shared: Vec::new(),
-            credit: song.credit.trim().to_string(),
-        },
-        song,
-    );
-    // The keys the song list finds its charts' bests by.
-    crate::select_data::fill_chart_keys(&mut entry, song);
-    entry.preview_start = 0.0;
-    entry.preview_length = 0.0;
-    entry.layer_images = layers.iter().map(|(name, _)| name.clone()).collect();
+    let title = s.song.title.clone();
+    let entry = works::entry(s, &chart_name, &music_name);
     let json = serde_json::to_string(stored).map_err(|e| e.to_string())?;
     let mut files: Vec<(String, Blob)> = vec![(
         chart_name,
@@ -444,6 +247,7 @@ async fn store_song(
         work: stored.work.clone(),
         folder: folder.map(str::to_string),
         links,
+        still: None,
     };
     let record = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     let mut writes = vec![Write::DeletePrefix {
@@ -473,22 +277,6 @@ async fn store_song(
 
 async fn read_head_bytes(sources: &HashMap<String, Source>, path: &str) -> Result<Vec<u8>, String> {
     super::read_head(source(sources, path)?, 16).await
-}
-
-/// Extension and content type of audio bytes by their signature (an
-/// encoded music script does not say what it holds).
-fn sniff_audio(bytes: &[u8]) -> (&'static str, &'static str) {
-    if bytes.starts_with(b"OggS") {
-        ("ogg", "audio/ogg")
-    } else if bytes.starts_with(b"RIFF") {
-        ("wav", "audio/wav")
-    } else if bytes.starts_with(b"fLaC") {
-        ("flac", "audio/flac")
-    } else if bytes.len() >= 8 && &bytes[4..8] == b"ftyp" {
-        ("m4a", "audio/mp4")
-    } else {
-        ("mp3", "audio/mpeg")
-    }
 }
 
 /// Text in the charset a page declares, decoded by the browser (Shift_JIS

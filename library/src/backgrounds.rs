@@ -66,6 +66,71 @@ pub enum BgImage {
     File(String),
     /// A movie, as listed in the movies given to [`schedule`].
     Movie(String),
+    /// The song's opening movie's frame where its change starts, kept as
+    /// a still ([`opening_movie`]): what the field shows before the first
+    /// change in place of the song's background, and in place of that
+    /// movie while it has no frame ([`shown`]). Never in a schedule.
+    Still,
+}
+
+/// A song whose first background change is a movie at or before its first
+/// note: that movie's frame where the change starts is the song's
+/// background everywhere (song select, the start prompt, the field before
+/// the change; the maintainer's decision of 2026-10-16), so the cut to the
+/// movie is seamless.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Opening {
+    /// The movie, as its [`BgImage::Movie`] names it.
+    pub movie: String,
+    /// The schedule segment it starts (always 1: the first change).
+    pub segment: usize,
+    /// Where the movie is, in movie seconds, when it first shows: 0, or
+    /// further in when the change is before the music starts (a negative
+    /// beat), at the change's rate ([`movie_position`]).
+    pub position: f64,
+}
+
+/// Song second at which a play starts drawing: the music is scheduled this
+/// far ahead of the start (the web shell's start lookahead takes it from
+/// here), so the first frame drawn is at −0.8 s. A change before it is
+/// joined part-way, and the opening still is the frame shown then, so the
+/// movie runs on from it.
+pub const PLAY_START: f64 = -0.8;
+
+/// The song's opening movie ([`Opening`]), from its schedule: `None` when
+/// the first change is not a movie, or comes after the earliest first note
+/// of the song's playable charts (each on its own timing). Background
+/// changes belong to the song, not to a chart (StepMania 5.1 reads
+/// `#BGCHANGES` only among the song's tags, `NotesLoaderSSC.cpp`), so one
+/// still serves every chart; a chart whose own timing puts its first note
+/// before the movie counts like any other.
+pub fn opening_movie(song: &Song, segments: &[BgSegment]) -> Option<Opening> {
+    let first = segments.get(1)?;
+    let BgImage::Movie(movie) = &first.image else {
+        return None;
+    };
+    let first_note = song
+        .charts
+        .iter()
+        .filter(|c| song.layout_of(c).is_some())
+        .filter_map(|c| {
+            let timing = c.timing.as_ref().unwrap_or(&song.timing);
+            c.notes
+                .iter()
+                .map(|n| n.tick)
+                .min()
+                .map(|t| timing.seconds_at(t))
+        })
+        .filter(|s| s.is_finite())
+        .fold(f64::INFINITY, f64::min);
+    if first.seconds > first_note + 1e-9 {
+        return None;
+    }
+    Some(Opening {
+        movie: movie.clone(),
+        segment: 1,
+        position: movie_position(segments, 1, first.seconds.max(PLAY_START)),
+    })
 }
 
 /// One background, shown from `seconds` on.
@@ -696,23 +761,40 @@ pub fn state_at(segments: &[BgSegment], t: f64) -> BgState {
 /// `(image, id)`. An image that did not load shows the song background; the
 /// song background shows nothing when it did not load. Without a schedule
 /// the song background is shown.
-pub fn shown(segments: &[BgSegment], t: f64, loaded: &[(BgImage, usize)]) -> Shown {
+///
+/// A loaded [`BgImage::Still`] (given only for a song with an
+/// [`opening_movie`], whose segment 1 it is taken from) shows before the
+/// first change instead of the song background, and, while
+/// `opening_plays` (the movie is expected to play: not off, failed or
+/// turned off), in place of the opening movie's segment until that has a
+/// frame, so the cut into the movie is seamless. A movie that does not
+/// play shows the song background, as StepMania would; so do later
+/// changes to it (named, or StepMania's return at the last beat).
+pub fn shown(
+    segments: &[BgSegment],
+    t: f64,
+    loaded: &[(BgImage, usize)],
+    opening_plays: bool,
+) -> Shown {
     let find = |w: &BgImage| loaded.iter().find(|(k, _)| k == w).map(|(_, id)| *id);
-    let id = |image: &BgImage| match image {
-        BgImage::Song => find(&BgImage::Song),
+    let song = || find(&BgImage::Still).or_else(|| find(&BgImage::Song));
+    let id = |index: usize| match &segments[index].image {
+        BgImage::Song if index == 0 => song(),
+        BgImage::Song | BgImage::Still => find(&BgImage::Song),
+        movie @ BgImage::Movie(_) if index == 1 && opening_plays => find(movie).or_else(song),
         file => find(file).or_else(|| find(&BgImage::Song)),
     };
     if segments.is_empty() {
         return Shown {
-            current: find(&BgImage::Song),
+            current: song(),
             previous: None,
             mix: 1.0,
         };
     }
     let state = state_at(segments, t);
     Shown {
-        current: id(&segments[state.current].image),
-        previous: state.previous.and_then(|p| id(&segments[p].image)),
+        current: id(state.current),
+        previous: state.previous.and_then(id),
         mix: state.mix,
     }
 }
@@ -891,7 +973,7 @@ mod tests {
         let loaded = [(BgImage::Song, 0), (BgImage::File("A.png".into()), 1)];
         // Mid-crossfade from the song background into A.
         assert_eq!(
-            shown(&seg, 2.5, &loaded),
+            shown(&seg, 2.5, &loaded, true),
             Shown {
                 current: Some(1),
                 previous: Some(0),
@@ -899,11 +981,11 @@ mod tests {
             }
         );
         // B never loaded: the song background instead.
-        assert_eq!(shown(&seg, 5.0, &loaded).current, Some(0));
+        assert_eq!(shown(&seg, 5.0, &loaded, true).current, Some(0));
         // Nothing loaded at all: nothing to draw.
-        assert_eq!(shown(&seg, 5.0, &[]).current, None);
+        assert_eq!(shown(&seg, 5.0, &[], true).current, None);
         // No schedule (calibration): the song background, if loaded.
-        assert_eq!(shown(&[], 1.0, &loaded).current, Some(0));
+        assert_eq!(shown(&[], 1.0, &loaded, true).current, Some(0));
     }
 
     #[test]
@@ -1036,9 +1118,104 @@ mod tests {
         );
         // Until a movie has a frame, the song background stands in.
         let loaded = [(BgImage::Song, 0), (BgImage::File("A.png".into()), 1)];
-        assert_eq!(shown(&seg, 4.5, &loaded).current, Some(0));
+        assert_eq!(shown(&seg, 4.5, &loaded, true).current, Some(0));
         let playing = [(BgImage::Song, 0), (BgImage::Movie("movie.avi".into()), 7)];
-        assert_eq!(shown(&seg, 5.5, &playing).current, Some(7));
+        assert_eq!(shown(&seg, 5.5, &playing, true).current, Some(7));
+    }
+
+    #[test]
+    fn an_opening_movie_at_or_before_the_first_note() {
+        // The chart's first note is on beat 32 (16 s).
+        let at = |tags: &str, movies: &[&str]| {
+            let s = song(tags);
+            opening_movie(&s, &schedule(&s, &["A.png"], movies, true))
+        };
+        let opening = |position: f64| {
+            Some(Opening {
+                movie: "movie.avi".into(),
+                segment: 1,
+                position,
+            })
+        };
+        assert_eq!(
+            at("#BGCHANGES:1=movie.avi=1=0=0=1;", &["movie.avi"]),
+            opening(0.0)
+        );
+        // On the first note's beat still counts; after it, not.
+        assert_eq!(
+            at("#BGCHANGES:32=movie.avi=1=0=0=1;", &["movie.avi"]),
+            opening(0.0)
+        );
+        assert_eq!(at("#BGCHANGES:33=movie.avi=1=0=0=1;", &["movie.avi"]), None);
+        // The first change must be the movie: an image first, a movie that
+        // cannot play, or none at all keeps the song's background.
+        assert_eq!(
+            at(
+                "#BGCHANGES:1=a.png=1=0=0=1,2=movie.avi=1=0=0=1;",
+                &["movie.avi"]
+            ),
+            None
+        );
+        assert_eq!(at("#BGCHANGES:1=movie.avi=1=0=0=1;", &[]), None);
+        assert_eq!(at("", &[]), None);
+        // A change before the play's first frame (beat −8, −4 s; the
+        // first frame is at −0.8 s) is joined part way, at its rate: the
+        // movie is 3.2 s in at 1×, 6.4 s in at 2×. One after it (beat −1,
+        // −0.5 s) starts from the movie's beginning.
+        let position = |tags: &str| at(tags, &["movie.avi"]).map(|o| o.position);
+        let near = |p: Option<f64>, want: f64| p.is_some_and(|p| (p - want).abs() < 1e-9);
+        assert!(near(position("#BGCHANGES:-8=movie.avi=1=0=0=1;"), 3.2));
+        assert!(near(position("#BGCHANGES:-8=movie.avi=2=0=0=1;"), 6.4));
+        assert_eq!(
+            at("#BGCHANGES:-1=movie.avi=1=0=0=1;", &["movie.avi"]),
+            opening(0.0)
+        );
+        // A song without changes and with one movie plays it from beat 0.
+        let s = song("");
+        let seg = schedule(&s, &[] as &[&str], &["movie.avi"], true);
+        assert_eq!(opening_movie(&s, &seg), opening(0.0));
+        // The earliest first note of any chart, on its own timing: a second
+        // chart whose first note is on beat 1 (0.5 s) puts it before a
+        // movie on beat 4.
+        let two = parse_simfile(
+            "#TITLE:t;#OFFSET:0;#BPMS:0=120;#BGCHANGES:4=movie.avi=1=0=0=1;\n\
+             #NOTES:dance-single::Easy:1::\n0000\n0000\n0000\n0000\n,\n1000\n0000\n0000\n0000\n;\n\
+             #NOTES:dance-single::Hard:1::\n0000\n1000\n0000\n0000\n;",
+            "sm",
+        )
+        .unwrap();
+        let seg = schedule(&two, &[] as &[&str], &["movie.avi"], false);
+        assert_eq!(opening_movie(&two, &seg), None);
+    }
+
+    #[test]
+    fn the_still_stands_in_for_the_song_background_before_the_movie() {
+        // The movie on beat 4 (2 s), an image on beat 8, the song's
+        // background again on beat 32 (16 s).
+        let s = song("#BGCHANGES:4=movie.avi=1=0=0=1,8=a.png=1=0=0=0;");
+        let seg = schedule(&s, &["A.png"], &["movie.avi"], true);
+        assert!(opening_movie(&s, &seg).is_some());
+        let still = [
+            (BgImage::Song, 0),
+            (BgImage::File("A.png".into()), 1),
+            (BgImage::Still, 2),
+        ];
+        // Before the change, the still; at the change, still the still until
+        // the movie has a frame; then the movie.
+        assert_eq!(shown(&seg, 1.0, &still, true).current, Some(2));
+        assert_eq!(shown(&seg, 2.5, &still, true).current, Some(2));
+        let playing = [&still[..], &[(BgImage::Movie("movie.avi".into()), 3)]].concat();
+        assert_eq!(shown(&seg, 2.5, &playing, true).current, Some(3));
+        // The return to the song background at the last beat shows the
+        // song's own background, as StepMania does.
+        assert_eq!(shown(&seg, 17.0, &still, true).current, Some(0));
+        // A movie that does not play (off, failed, turned off): the song
+        // background from the change on, the still only before it.
+        assert_eq!(shown(&seg, 1.0, &still, false).current, Some(2));
+        assert_eq!(shown(&seg, 2.5, &still, false).current, Some(0));
+        // Without a still, the song background throughout.
+        assert_eq!(shown(&seg, 1.0, &still[..2], true).current, Some(0));
+        assert_eq!(shown(&seg, 2.5, &still[..2], true).current, Some(0));
     }
 
     #[test]

@@ -25,6 +25,43 @@ use super::js_err;
 
 const WORKER_JS: &str = include_str!("video_worker.js");
 
+/// Plane buffers kept for the next frames, so a playing movie allocates
+/// none per frame (a 640×480 frame is 460 KB; at 30 frames a second the
+/// garbage made collections pause the page, in Firefox most).
+const SPARE_KEPT: usize = 8;
+
+thread_local! {
+    static SPARE: std::cell::RefCell<Vec<Vec<u8>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// An empty buffer for a frame's planes, `len` bytes or more of capacity:
+/// one given back by [`recycle`] when there is one.
+pub(crate) fn spare_planes(len: usize) -> Vec<u8> {
+    let found = SPARE.with(|s| {
+        let mut s = s.borrow_mut();
+        let i = s.iter().position(|v| v.capacity() >= len)?;
+        Some(s.swap_remove(i))
+    });
+    let mut v = found.unwrap_or_else(|| Vec::with_capacity(len));
+    v.clear();
+    v
+}
+
+/// Gives a frame's planes back once they are drawn (or passed over); the
+/// oldest kept goes when full, so a movie of another size takes over.
+pub(crate) fn recycle(planes: Vec<u8>) {
+    if planes.capacity() == 0 {
+        return;
+    }
+    SPARE.with(|s| {
+        let mut s = s.borrow_mut();
+        if s.len() >= SPARE_KEPT {
+            s.remove(0);
+        }
+        s.push(planes);
+    });
+}
+
 /// Where the FFmpeg module is.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ModuleStatus {
@@ -110,11 +147,22 @@ impl VideoWorker {
         }));
         let on_message = {
             let shared = Rc::clone(&shared);
-            Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
-                receive(&mut shared.borrow_mut(), &event.data());
-            })
+            let back: Rc<RefCell<Option<Worker>>> = Rc::default();
+            let closure_back = Rc::clone(&back);
+            let closure = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
+                let used = receive(&mut shared.borrow_mut(), &event.data());
+                // The frame's buffer goes back to the worker for its next
+                // frame (transferred, not copied).
+                if let (Some(buffer), Some(worker)) = (used, closure_back.borrow().as_ref()) {
+                    let msg = message("recycle", &[("buffer", buffer.clone().into())]);
+                    let _ = worker.post_message_with_transfer(&msg, &js_sys::Array::of1(&buffer));
+                }
+            });
+            (closure, back)
         };
+        let (on_message, back) = on_message;
         worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+        *back.borrow_mut() = Some(worker.clone());
         // The script failed or the worker died: nothing more will arrive.
         let on_error = {
             let shared = Rc::clone(&shared);
@@ -147,6 +195,25 @@ impl VideoWorker {
             _on_message: on_message,
             _on_error: on_error,
         })))
+    }
+
+    /// The page's worker: the one a play or a still already runs (so the
+    /// module is fetched and compiled once), else a new one. It stops when
+    /// the last holder lets it go; a worker that failed is not shared.
+    pub(crate) fn shared() -> Result<VideoWorker, String> {
+        thread_local! {
+            static SHARED: RefCell<std::rc::Weak<Inner>> = const { RefCell::new(std::rc::Weak::new()) };
+        }
+        let live = SHARED
+            .with(|s| s.borrow().upgrade())
+            .map(VideoWorker)
+            .filter(|w| !matches!(w.status(), ModuleStatus::Failed(_)));
+        if let Some(w) = live {
+            return Ok(w);
+        }
+        let w = VideoWorker::new()?;
+        SHARED.with(|s| *s.borrow_mut() = Rc::downgrade(&w.0));
+        Ok(w)
     }
 
     pub(crate) fn status(&self) -> ModuleStatus {
@@ -320,8 +387,9 @@ fn text(msg: &JsValue, key: &str) -> String {
     field(msg, key).as_string().unwrap_or_default()
 }
 
-/// Applies one message from the worker.
-fn receive(shared: &mut Shared, msg: &JsValue) {
+/// Applies one message from the worker; a frame's buffer, once its planes
+/// are copied out, to give back.
+fn receive(shared: &mut Shared, msg: &JsValue) -> Option<ArrayBuffer> {
     let kind = text(msg, "type");
     match kind.as_str() {
         "loading" => {
@@ -338,6 +406,11 @@ fn receive(shared: &mut Shared, msg: &JsValue) {
         "failed" => shared.status = ModuleStatus::Failed(text(msg, "message")),
         _ => {}
     }
+    // Frames of a movie closed or sought away from still give their
+    // buffer back.
+    let buffer = (kind == "frame")
+        .then(|| field(msg, "planes").dyn_into::<ArrayBuffer>().ok())
+        .flatten();
     let id = number(msg, "id") as u32;
     if let Some(probe) = shared.probes.get_mut(&id) {
         match kind.as_str() {
@@ -345,10 +418,10 @@ fn receive(shared: &mut Shared, msg: &JsValue) {
             "error" => *probe = Some(Err(text(msg, "message"))),
             _ => {}
         }
-        return;
+        return None;
     }
     let Some(movie) = shared.movies.get_mut(&id) else {
-        return;
+        return buffer;
     };
     let current = number(msg, "gen") as u32 == movie.generation;
     let event = match kind.as_str() {
@@ -359,10 +432,16 @@ fn receive(shared: &mut Shared, msg: &JsValue) {
             codec: text(msg, "codec"),
         }),
         "frame" if current => {
-            let planes = field(msg, "planes")
-                .dyn_into::<ArrayBuffer>()
-                .map(|b| Uint8Array::new(&b).to_vec())
-                .unwrap_or_default();
+            let planes = match &buffer {
+                Some(b) => {
+                    let view = Uint8Array::new(b);
+                    let mut planes = spare_planes(view.length() as usize);
+                    planes.resize(view.length() as usize, 0);
+                    view.copy_to(&mut planes);
+                    planes
+                }
+                None => Vec::new(),
+            };
             VideoEvent::Frame(VideoFrame {
                 pts: number(msg, "pts"),
                 width: number(msg, "width") as u32,
@@ -382,9 +461,10 @@ fn receive(shared: &mut Shared, msg: &JsValue) {
             last_pts: field(msg, "last").as_f64(),
         },
         "error" => VideoEvent::Error(text(msg, "message")),
-        _ => return,
+        _ => return buffer,
     };
     movie.events.push(event);
+    buffer
 }
 
 /// A `probed` message's samples, measured.

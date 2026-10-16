@@ -125,6 +125,24 @@ impl Skin<'_> {
     /// the last, Down, always stays.
     pub fn lane_buttons(&self, lane: &ddi_chart::Lane) -> Vec<LaneButton> {
         use ddi_chart::Glyph;
+        // A pump skin has every panel's elements (pump/default's Lua makes
+        // the right side's from the left's): each lane its own panel.
+        if self.game.eq_ignore_ascii_case("pump") {
+            let own = match &lane.glyph {
+                Glyph::Arrow { rotation_deg } => match Button::for_arrow(*rotation_deg) {
+                    (Button::Down, t) if (t - 45.0).abs() < 0.01 => Some(Button::DownLeft),
+                    (Button::Down, t) if (t - 315.0).abs() < 0.01 => Some(Button::DownRight),
+                    (b @ (Button::UpLeft | Button::UpRight), _) => Some(b),
+                    _ => None,
+                },
+                Glyph::Center => Some(Button::Center),
+                _ => None,
+            };
+            return own
+                .map(|button| LaneButton { button, turn: 0.0 })
+                .into_iter()
+                .collect();
+        }
         match &lane.glyph {
             Glyph::Arrow { rotation_deg } => {
                 let (button, turn) = Button::for_arrow(*rotation_deg);
@@ -291,11 +309,19 @@ pub enum Conventions {
     Common,
     /// `dance/default`'s on top of common's.
     DanceDefault,
+    /// `pump/default`'s on top of common's: its `bBlanks`,
+    /// `ElementRedirs` and the explosion, mine and receptor of `UpLeft`
+    /// (its mirroring of the right side, a turn about the y axis, is
+    /// not drawn natively).
+    PumpDefault,
 }
 
 impl Conventions {
     /// `dance/default`'s `Blank`.
     fn blank(self, element: &str) -> bool {
+        if self == Conventions::PumpDefault {
+            return matches!(element, "Hold Tail Active" | "Roll Tail Inactive");
+        }
         self == Conventions::DanceDefault
             && matches!(
                 element,
@@ -324,6 +350,33 @@ impl Conventions {
                     element
                 };
                 (Button::Down, element.to_string())
+            }
+            Conventions::PumpDefault => {
+                let element = match element {
+                    "Hold Head Active" | "Hold Head Inactive" | "Tap Fake" | "Tap Lift" => {
+                        "Tap Note"
+                    }
+                    "Roll Head Inactive" => "Roll Head Active",
+                    "Hold Topcap Inactive" | "Roll Topcap Active" | "Roll Topcap Inactive" => {
+                        "Hold Topcap Active"
+                    }
+                    "Hold Body Inactive" | "Roll Body Active" | "Roll Body Inactive" => {
+                        "Hold Body Active"
+                    }
+                    "Hold Bottomcap Inactive"
+                    | "Roll Bottomcap Active"
+                    | "Roll Bottomcap Inactive" => "Hold Bottomcap Active",
+                    "Hold Tail Inactive" | "Roll Tail Active" | "Roll Tail Inactive" => {
+                        "Hold Tail Active"
+                    }
+                    e => e,
+                };
+                let button = if matches!(element, "Explosion" | "Tap Mine" | "Receptor") {
+                    Button::UpLeft
+                } else {
+                    button
+                };
+                (button, element.to_string())
             }
         }
     }
@@ -373,7 +426,11 @@ impl Skin<'_> {
                 continue;
             }
             if name.eq_ignore_ascii_case(BASE) {
-                return Conventions::DanceDefault;
+                return if self.game.eq_ignore_ascii_case("pump") {
+                    Conventions::PumpDefault
+                } else {
+                    Conventions::DanceDefault
+                };
             }
             if name.eq_ignore_ascii_case(COMMON) {
                 return Conventions::Common;

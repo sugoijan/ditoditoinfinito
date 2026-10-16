@@ -1,32 +1,46 @@
 //! Pure-Rust audio decoding, the fallback for files the browser's
-//! `decodeAudioData` rejects (Ogg Vorbis on Safari, mostly).
+//! `decodeAudioData` rejects (Ogg Vorbis on Safari, mostly), and MP3 as
+//! StepMania 5.1 decodes it ([`crate::mp3`]), which the web also uses to
+//! line a browser's MP3 decode up with StepMania's.
 //!
-//! Only Ogg Vorbis is decoded here, through Symphonia. MP3, WAV and FLAC are
-//! decoded natively by every target browser, and Symphonia has no pure-Rust
-//! Opus decoder, so Ogg Opus is reported as [`DecodeError::UnsupportedCodec`].
+//! Ogg Vorbis and MP3 are decoded here, through Symphonia. WAV and FLAC
+//! are decoded natively by every target browser, and Ogg Opus by every
+//! browser but the oldest, so they are reported as unsupported
+//! ([`DecodeError::UnsupportedContainer`], [`DecodeError::UnsupportedCodec`]).
 //! See `docs/research/tech-stack.md` §6.
+//!
+//! MP3s keep everything StepMania's libmad reader keeps: no encoder or
+//! decoder delay trimmed, a `Xing` tag frame skipped, an `Info` (or
+//! `VBRI`) tag frame played as a frame of silence, frames that fail
+//! decoded as silence of their length.
 //!
 //! The PCM is written straight into one `Vec<f32>` per channel (no
 //! interleaved intermediate), reserved up front from the stream length the
-//! Ogg reader finds in the last page, so a song costs its PCM size once
-//! (a 3-minute stereo 44.1 kHz song is ~64 MB) instead of up to twice that
-//! from `Vec` doubling.
+//! reader finds (the Ogg's last page, the MP3's tag), so a song costs its
+//! PCM size once (a 3-minute stereo 44.1 kHz song is ~64 MB) instead of up
+//! to twice that from `Vec` doubling.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::io::Cursor;
 
-use symphonia::core::codecs::audio::well_known::{CODEC_ID_FLAC, CODEC_ID_OPUS, CODEC_ID_VORBIS};
+use symphonia::core::codecs::audio::well_known::{
+    CODEC_ID_FLAC, CODEC_ID_MP3, CODEC_ID_OPUS, CODEC_ID_VORBIS,
+};
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::io::MediaSourceStream;
-use symphonia::default::codecs::VorbisDecoder;
-use symphonia::default::formats::OggReader;
+use symphonia::default::codecs::{MpaDecoder, VorbisDecoder};
+use symphonia::default::formats::{MpaReader, OggReader};
 
 /// Upper bound on the up-front reservation, so a corrupt length field in the
 /// last page cannot request gigabytes. Longer streams still decode; they
 /// just grow the buffers as they go.
 const MAX_RESERVE_SECONDS: u64 = 20 * 60;
+
+/// Container errors in a row after which a stream with audio ends.
+const MAX_ERRORS: u32 = 32;
 
 /// Decoded audio at the file's own sample rate, one sample vector per
 /// channel, all of equal length.
@@ -34,7 +48,8 @@ const MAX_RESERVE_SECONDS: u64 = 20 * 60;
 pub struct DecodedAudio {
     pub sample_rate: u32,
     pub channels: Vec<Vec<f32>>,
-    /// Packets that failed to decode and were skipped (left as a gap).
+    /// Packets that failed to decode and were skipped (left as a gap; MP3:
+    /// as silence of their length).
     pub skipped_packets: usize,
 }
 
@@ -53,9 +68,10 @@ impl DecodedAudio {
 /// Why a file could not be decoded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DecodeError {
-    /// Not an Ogg stream. Holds the sniffed format (`"MP3"`, `"WAV"`, …).
+    /// Neither Ogg nor MP3. Holds the sniffed format (`"WAV"`, …).
     UnsupportedContainer(&'static str),
-    /// An Ogg stream whose audio codec this decoder does not handle.
+    /// An Ogg stream whose audio codec this decoder does not handle, or a
+    /// free-format MP3. Holds the codec's name.
     UnsupportedCodec(&'static str),
     /// An Ogg stream without any audio track.
     NoAudioTrack,
@@ -69,13 +85,13 @@ impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DecodeError::UnsupportedContainer(kind) => {
-                write!(f, "{kind} is not supported (only Ogg Vorbis is)")
+                write!(f, "{kind} is not supported (only Ogg Vorbis and MP3 are)")
             }
             DecodeError::UnsupportedCodec(codec) => {
-                write!(f, "Ogg {codec} is not supported (only Ogg Vorbis is)")
+                write!(f, "{codec} is not supported (only Ogg Vorbis and MP3 are)")
             }
-            DecodeError::NoAudioTrack => f.write_str("the Ogg stream has no audio track"),
-            DecodeError::Malformed(msg) => write!(f, "malformed Ogg Vorbis stream: {msg}"),
+            DecodeError::NoAudioTrack => f.write_str("the stream has no audio track"),
+            DecodeError::Malformed(msg) => write!(f, "malformed audio stream: {msg}"),
             DecodeError::NoAudio { skipped_packets } => write!(
                 f,
                 "no audio could be decoded ({skipped_packets} packets failed)"
@@ -86,7 +102,8 @@ impl fmt::Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
-/// Best-effort name of a non-Ogg file's format, for error messages.
+/// Best-effort name of a file's format, for error messages and to tell
+/// MP3 from the rest.
 fn sniff(bytes: &[u8]) -> &'static str {
     match bytes {
         [b'I', b'D', b'3', ..] | [0xff, 0xe0..=0xff, ..] => "MP3",
@@ -112,23 +129,133 @@ fn sniff(bytes: &[u8]) -> &'static str {
     }
 }
 
+/// Where the last whole Ogg page of `bytes` ends: garbage after the
+/// stream (a tag, a cut download's tail) left out, as the Ogg reader
+/// looks at the last page for the length and gives up on garbage there.
+/// Garbage between pages stays (the reader resyncs past it). All of
+/// `bytes` when no page is whole.
+pub(crate) fn ogg_pages(bytes: &[u8]) -> usize {
+    let page_end = |at: usize| -> Option<usize> {
+        if bytes.get(at..at + 4)? != b"OggS" {
+            return None;
+        }
+        let segments = usize::from(*bytes.get(at + 26)?);
+        let lacing = bytes.get(at + 27..at + 27 + segments)?;
+        let end = at + 27 + segments + lacing.iter().map(|&x| usize::from(x)).sum::<usize>();
+        (end <= bytes.len()).then_some(end)
+    };
+    let mut last = 0;
+    let mut at = 0;
+    while at + 4 <= bytes.len() {
+        match page_end(at) {
+            Some(end) => {
+                last = end;
+                at = end;
+            }
+            // Past garbage to the next capture pattern.
+            None => match bytes[at + 1..].windows(4).position(|w| w == b"OggS") {
+                Some(k) => at += 1 + k,
+                None => break,
+            },
+        }
+    }
+    if last == 0 { bytes.len() } else { last }
+}
+
+/// Whether `bytes` are an MP3 as StepMania's reader finds one: not
+/// another container (Ogg, FLAC, WAV, AIFF, MP4, Matroska) and a frame
+/// within [`crate::mp3::RESYNC`] bytes, past ID3v2 tags, junk (files that
+/// start with zeros, an APE tag) or a RIFF header around MP3 data (a WAV
+/// of format 0x55, which StepMania's MP3 reader reads through).
+pub fn is_mp3(bytes: &[u8]) -> bool {
+    match sniff(bytes) {
+        "WAV" => riff_format(bytes) == Some(0x55) && crate::mp3::first_frame(bytes).is_some(),
+        "MP3" | "this file format"
+            if !bytes.starts_with(b"OggS") && !bytes.starts_with(b"FORM") =>
+        {
+            crate::mp3::first_frame(bytes).is_some()
+        }
+        _ => false,
+    }
+}
+
+/// The format tag of a RIFF/WAVE file's `fmt ` chunk.
+fn riff_format(bytes: &[u8]) -> Option<u16> {
+    let mut at = 12;
+    while let Some(head) = bytes.get(at..at + 8) {
+        let len = u32::from_le_bytes(head[4..8].try_into().ok()?) as usize;
+        if &head[..4] == b"fmt " {
+            let tag = bytes.get(at + 8..at + 10)?;
+            return Some(u16::from_le_bytes([tag[0], tag[1]]));
+        }
+        at = at.checked_add(8 + len + (len & 1))?;
+    }
+    None
+}
+
 /// Incremental decoder, so a caller on a UI thread can yield between
 /// batches of packets. [`decode`] runs it to completion.
 pub struct Decoder<'a> {
-    reader: OggReader<'a>,
-    decoder: VorbisDecoder,
+    reader: Box<dyn FormatReader + 'a>,
+    decoder: Box<dyn AudioDecoder>,
     track_id: u32,
+    /// MP3: undecodable packets become silence (their full length).
+    silence_errors: bool,
     out: DecodedAudio,
+    /// Frames the codec gave (not silence put in).
+    audio_frames: usize,
+    /// Frames still to drop from the start (`skip`).
+    skip: usize,
+    /// Container errors in a row since the last packet.
+    errors: u32,
     done: bool,
+    /// The stream's channels (`out` may keep the first only).
+    planes: usize,
+    /// The other channels' samples of a packet, when only the first is
+    /// kept.
+    scratch: Vec<Vec<f32>>,
 }
 
 impl<'a> Decoder<'a> {
-    /// Opens an Ogg Vorbis stream held in memory. Reads the headers and
-    /// scans the last page for the stream length; no audio is decoded yet.
+    /// Opens an Ogg Vorbis stream or an MP3 held in memory. Reads the
+    /// headers (and an Ogg's last page, for its length); no audio is
+    /// decoded yet.
     pub fn new(bytes: &'a [u8]) -> Result<Decoder<'a>, DecodeError> {
-        if !bytes.starts_with(b"OggS") {
-            return Err(DecodeError::UnsupportedContainer(sniff(bytes)));
+        Decoder::open(bytes, None, false)
+    }
+
+    /// [`Decoder::new`] for the first `seconds` of the audio only: room
+    /// is reserved for that, not for the whole song (wasm memory, once
+    /// grown, never shrinks). Decoding further still works; the
+    /// channels then grow as they go.
+    pub fn start(bytes: &'a [u8], seconds: f64) -> Result<Decoder<'a>, DecodeError> {
+        Decoder::open(bytes, Some(seconds), false)
+    }
+
+    /// [`Decoder::start`], keeping the first channel only ([`Self::left`]:
+    /// what the web lines a browser's decode up with, at half a stereo
+    /// song's memory).
+    pub fn start_left(bytes: &'a [u8], seconds: f64) -> Result<Decoder<'a>, DecodeError> {
+        Decoder::open(bytes, Some(seconds), true)
+    }
+
+    fn open(bytes: &'a [u8], seconds: Option<f64>, left: bool) -> Result<Decoder<'a>, DecodeError> {
+        if bytes.starts_with(b"OggS") {
+            return Decoder::ogg(bytes, seconds, left);
         }
+        // An ID3v2 tag or a frame first with no frame after: the MP3
+        // decoder says why.
+        if is_mp3(bytes) || sniff(bytes) == "MP3" {
+            return Decoder::mp3_with(bytes, seconds, left);
+        }
+        if crate::mp3::free_format(bytes) {
+            return Err(DecodeError::UnsupportedCodec("free-format MP3"));
+        }
+        Err(DecodeError::UnsupportedContainer(sniff(bytes)))
+    }
+
+    fn ogg(bytes: &'a [u8], seconds: Option<f64>, left: bool) -> Result<Decoder<'a>, DecodeError> {
+        let bytes = &bytes[..ogg_pages(bytes)];
         let source = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
         let reader = OggReader::try_new(source, FormatOptions::default())
             .map_err(|e| DecodeError::Malformed(e.to_string()))?;
@@ -141,44 +268,172 @@ impl<'a> Decoder<'a> {
         };
         let Some((track, params)) = audio_tracks().find(|(_, p)| p.codec == CODEC_ID_VORBIS) else {
             return Err(match audio_tracks().next() {
-                Some((_, p)) if p.codec == CODEC_ID_OPUS => DecodeError::UnsupportedCodec("Opus"),
-                Some((_, p)) if p.codec == CODEC_ID_FLAC => DecodeError::UnsupportedCodec("FLAC"),
-                Some(_) => DecodeError::UnsupportedCodec("audio of an unknown codec"),
+                Some((_, p)) if p.codec == CODEC_ID_OPUS => {
+                    DecodeError::UnsupportedCodec("Ogg Opus")
+                }
+                Some((_, p)) if p.codec == CODEC_ID_FLAC => {
+                    DecodeError::UnsupportedCodec("Ogg FLAC")
+                }
+                Some(_) => DecodeError::UnsupportedCodec("Ogg audio of an unknown codec"),
                 None => DecodeError::NoAudioTrack,
             });
         };
-        let sample_rate = params
+        let decoder = VorbisDecoder::try_new(params, &AudioDecoderOptions::default())
+            .map_err(|e| DecodeError::Malformed(e.to_string()))?;
+        let (track_id, rate, channels, frames) = Decoder::shape(track, params)?;
+        Ok(Decoder {
+            reader: Box::new(reader),
+            decoder: Box::new(decoder),
+            track_id,
+            silence_errors: false,
+            audio_frames: 0,
+            skip: 0,
+            errors: 0,
+            out: DecodedAudio {
+                sample_rate: rate,
+                channels: reserve(kept(channels, left), cap(frames, rate, seconds), rate),
+                skipped_packets: 0,
+            },
+            done: false,
+            planes: channels,
+            scratch: Vec::new(),
+        })
+    }
+
+    /// An MP3 as StepMania 5.1 decodes it (the module's doc), whatever
+    /// its first bytes are: the first frame is looked for as StepMania
+    /// does, through up to [`crate::mp3::RESYNC`] bytes of junk and any
+    /// ID3v2 tags ("Can't find data" past that).
+    pub fn mp3(bytes: &'a [u8]) -> Result<Decoder<'a>, DecodeError> {
+        Decoder::mp3_part(bytes, None)
+    }
+
+    /// [`Decoder::mp3`], with room reserved for `seconds` when given.
+    pub fn mp3_part(bytes: &'a [u8], seconds: Option<f64>) -> Result<Decoder<'a>, DecodeError> {
+        Decoder::mp3_with(bytes, seconds, false)
+    }
+
+    fn mp3_with(
+        bytes: &'a [u8],
+        seconds: Option<f64>,
+        left: bool,
+    ) -> Result<Decoder<'a>, DecodeError> {
+        let first = crate::mp3::first_frame(bytes).ok_or_else(|| {
+            if crate::mp3::free_format(bytes) {
+                DecodeError::UnsupportedCodec("free-format MP3")
+            } else {
+                DecodeError::Malformed(format!(
+                    "no MP3 frame in the first {} bytes",
+                    crate::mp3::RESYNC
+                ))
+            }
+        })?;
+        // The reader starts at the first frame, as libmad syncs to it.
+        let at = first.at;
+        // Later tag frames (files joined end to end) are frames of
+        // silence to StepMania; Symphonia drops them, unless their tag
+        // is no longer one.
+        let later = crate::mp3::later_tags(bytes, &first);
+        let data: Cow<'a, [u8]> = if later.is_empty() {
+            Cow::Borrowed(&bytes[at..])
+        } else {
+            let mut owned = bytes[at..].to_vec();
+            for p in later {
+                owned[p - at..p - at + 4].fill(0);
+            }
+            Cow::Owned(owned)
+        };
+        let source = MediaSourceStream::new(Box::new(Cursor::new(data)), Default::default());
+        let reader = MpaReader::try_new(source, FormatOptions::default())
+            .map_err(|e| DecodeError::Malformed(e.to_string()))?;
+        let (track, params) = reader
+            .tracks()
+            .iter()
+            .find_map(|t| {
+                let p = t.codec_params.as_ref()?.audio()?;
+                (p.codec == CODEC_ID_MP3).then_some((t, p))
+            })
+            .ok_or(DecodeError::NoAudioTrack)?;
+        let decoder = MpaDecoder::try_new(params, &AudioDecoderOptions::default().gapless(false))
+            .map_err(|e| DecodeError::Malformed(e.to_string()))?;
+        let (track_id, rate, channels, frames) = Decoder::shape(track, params)?;
+        // The tag frame StepMania plays as silence (Symphonia drops it).
+        let silence = first.silence();
+        let frames = cap(frames + silence as u64 + 2 * 1152 + 1105, rate, seconds);
+        let planes = channels;
+        let mut channels = reserve(kept(channels, left), frames, rate);
+        for c in &mut channels {
+            c.resize(silence, 0.0);
+        }
+        Ok(Decoder {
+            reader: Box::new(reader),
+            decoder: Box::new(decoder),
+            track_id,
+            silence_errors: true,
+            audio_frames: 0,
+            skip: 0,
+            errors: 0,
+            out: DecodedAudio {
+                sample_rate: rate,
+                channels,
+                skipped_packets: 0,
+            },
+            done: false,
+            planes,
+            scratch: Vec::new(),
+        })
+    }
+
+    /// A track's id, rate, channels and length (frames, 0 if unknown).
+    fn shape(
+        track: &symphonia::core::formats::Track,
+        params: &symphonia::core::codecs::audio::AudioCodecParameters,
+    ) -> Result<(u32, u32, usize, u64), DecodeError> {
+        let rate = params
             .sample_rate
             .filter(|&rate| rate > 0)
             .ok_or_else(|| DecodeError::Malformed("missing sample rate".into()))?;
-        let channel_count = params
+        let channels = params
             .channels
             .as_ref()
             .map(|c| c.count())
             .filter(|&n| n > 0)
             .ok_or_else(|| DecodeError::Malformed("missing channel layout".into()))?;
-        let decoder = VorbisDecoder::try_new(params, &AudioDecoderOptions::default())
-            .map_err(|e| DecodeError::Malformed(e.to_string()))?;
+        Ok((track.id, rate, channels, track.num_frames.unwrap_or(0)))
+    }
 
-        let reserve = track
-            .num_frames
-            .unwrap_or(0)
-            .min(u64::from(sample_rate) * MAX_RESERVE_SECONDS) as usize;
-        let channels = (0..channel_count)
-            .map(|_| Vec::with_capacity(reserve))
-            .collect();
-        let track_id = track.id;
-        Ok(Decoder {
-            reader,
-            decoder,
-            track_id,
-            out: DecodedAudio {
-                sample_rate,
-                channels,
-                skipped_packets: 0,
-            },
-            done: false,
-        })
+    /// The audio's rate and channels.
+    pub fn sample_rate(&self) -> u32 {
+        self.out.sample_rate
+    }
+
+    /// Frames decoded so far (kept: after those skipped).
+    pub fn frames(&self) -> usize {
+        self.out.frames()
+    }
+
+    /// Drops the first `frames` frames of the audio as they are decoded
+    /// (a preview needs its part, not what is before), counting the
+    /// silence an MP3's tag frame is.
+    pub fn skip(&mut self, frames: usize) {
+        self.skip = frames;
+        self.drop_skipped();
+    }
+
+    fn drop_skipped(&mut self) {
+        if self.skip == 0 {
+            return;
+        }
+        let n = self.skip.min(self.out.frames());
+        for c in &mut self.out.channels {
+            c.drain(..n);
+        }
+        self.skip -= n;
+    }
+
+    /// The first channel as decoded so far.
+    pub fn left(&self) -> &[f32] {
+        self.out.channels.first().map_or(&[], Vec::as_slice)
     }
 
     /// Decodes up to `max_packets` packets of the audio track. Returns
@@ -186,9 +441,13 @@ impl<'a> Decoder<'a> {
     ///
     /// Packets the codec rejects are skipped, as in Symphonia's examples,
     /// leaving a short gap (in practice the Vorbis decoder is lenient and
-    /// turns most garbage into noise instead); pages with a bad CRC are
-    /// dropped by the reader before that. A truncated file ends the stream
-    /// early. Any other container error is fatal.
+    /// turns most garbage into noise instead), or for MP3 decoded as
+    /// silence of their length; pages with a bad CRC are dropped by the
+    /// reader before that. A truncated file ends the stream early. Other
+    /// container errors are fatal before any audio; after, the reader is
+    /// asked again (it resyncs past a broken page or frame), and after
+    /// [`MAX_ERRORS`] in a row the stream ends there (garbage after the
+    /// music).
     pub fn step(&mut self, max_packets: usize) -> Result<bool, DecodeError> {
         let mut decoded = 0;
         while !self.done && decoded < max_packets {
@@ -206,8 +465,19 @@ impl<'a> Decoder<'a> {
                     self.done = true;
                     break;
                 }
-                Err(e) => return Err(DecodeError::Malformed(e.to_string())),
+                Err(e) if self.audio_frames == 0 => {
+                    return Err(DecodeError::Malformed(e.to_string()));
+                }
+                Err(_) => {
+                    self.errors += 1;
+                    self.out.skipped_packets += 1;
+                    if self.errors >= MAX_ERRORS {
+                        self.done = true;
+                    }
+                    continue;
+                }
             };
+            self.errors = 0;
             if packet.track_id != self.track_id {
                 continue;
             }
@@ -216,6 +486,17 @@ impl<'a> Decoder<'a> {
                 Ok(buf) => buf,
                 Err(SymphoniaError::DecodeError(_) | SymphoniaError::IoError(_)) => {
                     self.out.skipped_packets += 1;
+                    if self.silence_errors {
+                        // The whole frame, as the decoder would have
+                        // given it untrimmed.
+                        let frames = (packet.dur.get()
+                            + packet.trim_start.get()
+                            + packet.trim_end.get()) as usize;
+                        for c in &mut self.out.channels {
+                            c.resize(c.len() + frames, 0.0);
+                        }
+                        self.drop_skipped();
+                    }
                     continue;
                 }
                 Err(e) => return Err(DecodeError::Malformed(e.to_string())),
@@ -224,12 +505,15 @@ impl<'a> Decoder<'a> {
             if frames == 0 {
                 continue;
             }
-            if buf.num_planes() != self.out.channels.len() {
+            if buf.num_planes() != self.planes {
                 self.out.skipped_packets += 1;
                 continue;
             }
-            // Grow every channel by `frames` and let Symphonia write (and
-            // convert, should a decoder ever emit non-f32) into the tails.
+            // Grow every channel kept by `frames` and let Symphonia write
+            // (and convert, should a decoder ever emit non-f32) into the
+            // tails; the others into the scratch.
+            let extra = self.planes - self.out.channels.len();
+            self.scratch.resize_with(extra, Vec::new);
             let mut tails: Vec<&mut [f32]> = self
                 .out
                 .channels
@@ -239,8 +523,14 @@ impl<'a> Decoder<'a> {
                     channel.resize(start + frames, 0.0);
                     &mut channel[start..]
                 })
+                .chain(self.scratch.iter_mut().map(|c| {
+                    c.resize(frames, 0.0);
+                    &mut c[..]
+                }))
                 .collect();
             buf.copy_to_slice_planar(&mut tails);
+            self.audio_frames += frames;
+            self.drop_skipped();
         }
         Ok(self.done)
     }
@@ -248,7 +538,7 @@ impl<'a> Decoder<'a> {
     /// The decoded audio, once [`step`](Self::step) has returned `Ok(true)`
     /// (calling it earlier returns what has been decoded so far).
     pub fn finish(self) -> Result<DecodedAudio, DecodeError> {
-        if self.out.frames() == 0 {
+        if self.audio_frames == 0 {
             return Err(DecodeError::NoAudio {
                 skipped_packets: self.out.skipped_packets,
             });
@@ -257,11 +547,50 @@ impl<'a> Decoder<'a> {
     }
 }
 
-/// Decodes a whole Ogg Vorbis file held in memory.
+/// The frames to reserve: the stream's, or `seconds`' when only a start
+/// is wanted, with room for the batch of packets that passes it (a
+/// caller stepping 8 or 16 packets at a time; a `Vec` that outgrows its
+/// room doubles).
+fn cap(frames: u64, rate: u32, seconds: Option<f64>) -> u64 {
+    match seconds {
+        Some(s) => {
+            let want = (s.max(0.0) * f64::from(rate)).ceil() as u64 + 32 * 1152;
+            if frames == 0 { want } else { frames.min(want) }
+        }
+        None => frames,
+    }
+}
+
+/// The channels kept of `channels`.
+fn kept(channels: usize, left: bool) -> usize {
+    if left { channels.min(1) } else { channels }
+}
+
+/// Planar channels reserved for `frames` (capped).
+fn reserve(channels: usize, frames: u64, rate: u32) -> Vec<Vec<f32>> {
+    let frames = frames.min(u64::from(rate) * MAX_RESERVE_SECONDS) as usize;
+    (0..channels).map(|_| Vec::with_capacity(frames)).collect()
+}
+
+/// Decodes a whole Ogg Vorbis file or MP3 held in memory.
 pub fn decode(bytes: &[u8]) -> Result<DecodedAudio, DecodeError> {
     let mut decoder = Decoder::new(bytes)?;
     while !decoder.step(usize::MAX)? {}
     decoder.finish()
+}
+
+/// The first `seconds` of an MP3 (or Ogg Vorbis file), decoded (as
+/// [`decode`] does, cut there); what the web compares a browser's decode
+/// with.
+pub fn decode_start(bytes: &[u8], seconds: f64) -> Result<DecodedAudio, DecodeError> {
+    let mut decoder = Decoder::start(bytes, seconds)?;
+    let want = (seconds.max(0.0) * f64::from(decoder.sample_rate())).ceil() as usize;
+    while decoder.frames() < want && !decoder.step(8)? {}
+    let mut audio = decoder.finish()?;
+    for c in &mut audio.channels {
+        c.truncate(want);
+    }
+    Ok(audio)
 }
 
 #[cfg(test)]
@@ -317,6 +646,23 @@ mod tests {
         assert!(audio.channels.iter().all(|c| c.len() == FRAMES));
         assert_eq!(audio.skipped_packets, 0);
         assert!((audio.duration() - 0.5).abs() < 1e-9);
+    }
+
+    /// The web's alignment decodes the left channel only: the same
+    /// samples, half the memory, room for the start asked for.
+    #[test]
+    fn keeps_the_left_channel_only_when_asked() {
+        let whole = decode(SINE).unwrap();
+        let mut d = Decoder::start_left(SINE, 0.1).unwrap();
+        assert_eq!(d.out.channels.len(), 1);
+        let room = d.out.channels[0].capacity();
+        while !d.step(8).unwrap() {}
+        assert_eq!(d.left(), &whole.channels[0][..]);
+        assert!(room >= (0.1 * 44_100.0) as usize);
+        let info = include_bytes!("../tests/fixtures/sine-441-info.mp3");
+        let mut m = Decoder::start_left(info, 8.0).unwrap();
+        while !m.step(8).unwrap() {}
+        assert_eq!(m.left(), &decode(info).unwrap().channels[0][..]);
     }
 
     #[test]
@@ -515,10 +861,11 @@ mod tests {
 
     #[test]
     fn rejects_other_containers() {
-        assert_eq!(
+        // An MP3 with nothing after its tag.
+        assert!(matches!(
             decode(b"ID3\x04\0\0\0\0\0\0").unwrap_err(),
-            DecodeError::UnsupportedContainer("MP3")
-        );
+            DecodeError::Malformed(_) | DecodeError::NoAudio { .. }
+        ));
         assert_eq!(
             decode(b"RIFF\0\0\0\0WAVEfmt ").unwrap_err(),
             DecodeError::UnsupportedContainer("WAV")
@@ -529,13 +876,133 @@ mod tests {
         );
     }
 
+    /// The MP3 fixtures (see `decode_all`'s tests for how they were made
+    /// and checked against FFmpeg's untrimmed decode).
+    const MP3_INFO: &[u8] = include_bytes!("../tests/fixtures/sine-441-info.mp3");
+    const MP3_XING: &[u8] = include_bytes!("../tests/fixtures/sine-441-xing.mp3");
+
+    #[test]
+    fn mp3_decodes_as_stepmania_does() {
+        assert!(is_mp3(MP3_INFO) && !is_mp3(SINE));
+        let info = decode(MP3_INFO).unwrap();
+        let xing = decode(MP3_XING).unwrap();
+        assert_eq!(info.sample_rate, 44_100);
+        // Whole frames, nothing trimmed; the `Info` frame as 1152 frames
+        // of silence, then LAME's and the decoder's delay (1105).
+        assert_eq!(info.frames() % 1152, 0);
+        assert!(info.channels[0][..1152].iter().all(|&s| s == 0.0));
+        assert!(
+            info.channels[0][1152..1152 + 500]
+                .iter()
+                .all(|s| s.abs() < 1e-3)
+        );
+        // The `Xing` frame is skipped: the music starts right away, at
+        // the delay.
+        assert_eq!(xing.frames() % 1152, 0);
+        assert!(xing.channels[0][..200].iter().all(|s| s.abs() < 1e-3));
+        assert!(
+            xing.channels[0][1105 + 200..1105 + 400]
+                .iter()
+                .any(|s| s.abs() > 0.05)
+        );
+        // The start of it, cut where asked.
+        let start = decode_start(MP3_INFO, 0.05).unwrap();
+        assert_eq!(start.frames(), 2205);
+        assert_eq!(start.channels[0][..], info.channels[0][..2205]);
+    }
+
+    const MP3_BARE: &[u8] = include_bytes!("../tests/fixtures/sine-441-bare.mp3");
+
+    #[test]
+    fn mp3_found_as_stepmania_finds_it() {
+        let whole = decode(MP3_INFO).unwrap();
+        // Zeros first (75 of 219 local MP3s start with 417), an APE tag
+        // first, a WAV of format 0x55 around it.
+        let mut zeros = vec![0u8; 417];
+        zeros.extend_from_slice(MP3_INFO);
+        let mut ape = b"APETAGEX\xd0\x07\0\0".to_vec();
+        ape.resize(32, 0);
+        ape.extend_from_slice(MP3_INFO);
+        let mut riff = b"RIFF\0\0\0\0WAVEfmt \x1e\0\0\0\x55\0\x01\0".to_vec();
+        riff.resize(12 + 8 + 30, 0);
+        riff.extend_from_slice(b"fact\x04\0\0\0\0\0\0\0data");
+        riff.extend_from_slice(&(MP3_INFO.len() as u32).to_le_bytes());
+        riff.extend_from_slice(MP3_INFO);
+        for b in [&zeros, &ape, &riff] {
+            assert!(is_mp3(b));
+            assert_eq!(decode(b).unwrap().channels, whole.channels);
+        }
+        // A PCM WAV is not one, nor Ogg.
+        let mut pcm = riff.clone();
+        pcm[20] = 1;
+        assert!(!is_mp3(&pcm) && !is_mp3(SINE) && !is_mp3(OPUS));
+        // Free format: said so.
+        let mut free = vec![0xff, 0xfb, 0x00, 0x00];
+        free.resize(2000, 0x55);
+        assert_eq!(
+            decode(&free).unwrap_err(),
+            DecodeError::UnsupportedCodec("free-format MP3")
+        );
+    }
+
+    #[test]
+    fn mp3_tag_frames_stepmania_plays_as_silence() {
+        let info = decode(MP3_INFO).unwrap();
+        let xing = decode(MP3_XING).unwrap();
+        let bare = decode(MP3_BARE).unwrap();
+        // Files joined end to end: the second file's `Xing` frame is a
+        // frame of silence to StepMania (only the first frame is looked
+        // at for a tag), not dropped.
+        let mut joined = MP3_INFO.to_vec();
+        joined.extend_from_slice(MP3_XING);
+        joined.extend_from_slice(MP3_BARE);
+        let j = decode(&joined).unwrap();
+        assert_eq!(
+            j.frames(),
+            info.frames() + 1152 + xing.frames() + bare.frames()
+        );
+        // The second file's music where StepMania has it (the first
+        // file's last frame overlaps into the silent one).
+        let at = info.frames() + 1152;
+        for (a, b) in j.channels[0][at + 2000..at + 4000]
+            .iter()
+            .zip(&xing.channels[0][2000..4000])
+        {
+            assert!((a - b).abs() < 1e-3, "{a} {b}");
+        }
+        // A `Xing` frame in a file with CRCs: StepMania misses the tag
+        // and decodes the frame, as silence.
+        let mut crc = MP3_XING.to_vec();
+        crc[1] &= !1;
+        let c = decode(&crc).unwrap();
+        assert_eq!(c.frames(), xing.frames() + 1152);
+        assert!(c.channels[0][..1152].iter().all(|&s| s == 0.0));
+        assert_eq!(c.channels[0][1152..], xing.channels[0][..]);
+    }
+
+    #[test]
+    fn a_start_reserves_only_the_start() {
+        // A five-minute song's first 8 s: room for those (and a batch of
+        // packets past them), not for the song; a short stream: itself.
+        let room = 8 * 44_100 + 32 * 1152;
+        assert_eq!(cap(300 * 44_100, 44_100, Some(8.0)), room);
+        assert_eq!(cap(1000, 44_100, Some(8.0)), 1000);
+        assert_eq!(cap(0, 44_100, Some(8.0)), room);
+        assert_eq!(cap(300 * 44_100, 44_100, None), 300 * 44_100);
+        let mut d = Decoder::start(MP3_INFO, 0.05).unwrap();
+        let reserved = d.out.channels[0].capacity();
+        while !d.step(8).unwrap() {}
+        // Never grown.
+        assert_eq!(d.out.channels[0].capacity(), reserved);
+    }
+
     #[test]
     fn reports_ogg_opus_as_unsupported() {
         let err = decode(OPUS).unwrap_err();
-        assert_eq!(err, DecodeError::UnsupportedCodec("Opus"));
+        assert_eq!(err, DecodeError::UnsupportedCodec("Ogg Opus"));
         assert_eq!(
             err.to_string(),
-            "Ogg Opus is not supported (only Ogg Vorbis is)"
+            "Ogg Opus is not supported (only Ogg Vorbis and MP3 are)"
         );
     }
 }

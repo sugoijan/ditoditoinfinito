@@ -9,9 +9,7 @@ pub(crate) fn install_hook() {
             console_error_panic_hook::hook(info);
             crate::boot::crash(&info.to_string());
         });
-    // Yew's Renderer::render() overwrites any panic hook that wasn't
-    // registered through yew::set_custom_panic_hook.
-    yew::set_custom_panic_hook(hook);
+    std::panic::set_hook(hook);
     #[cfg(debug_assertions)]
     install_test_hooks();
 }

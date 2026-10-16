@@ -114,6 +114,14 @@ struct Layer {
     modal: bool,
     /// An overlay's: the layer that opened it.
     owner: Option<u64>,
+    /// The app's chrome ([`Ui::push_chrome`]): always on top, focused
+    /// and given menu actions only while it has the menu's focus
+    /// ([`Ui::chrome_focused`]), pointers on its actors.
+    chrome: bool,
+    /// The screen size (virtual pixels) its root was built for: an
+    /// overlay is built again when it changes (a window resized, the
+    /// chrome's banner come or gone), since dialogs lay out only there.
+    built: [f32; 2],
 }
 
 /// A pointer held down: where its gesture goes.
@@ -165,6 +173,15 @@ pub struct Ui {
     repeater: Repeater,
     ring_shown: bool,
     draw_ring: bool,
+    /// The chrome's height across the top (virtual pixels): the other
+    /// layers are laid out below it ([`Screen::reserve`]).
+    inset: f32,
+    /// The chrome layer that has the menu's focus (reached by Up past a
+    /// screen's top, or F2), if one has.
+    chrome_focus: Option<u64>,
+    /// Where the focus was when the chrome took it: the layer and its
+    /// focused actor, given back when the chrome lets go.
+    chrome_return: Option<(u64, Option<String>)>,
     text: Option<ActiveText>,
     ime_rect: Option<CssRect>,
     last_mouse_down: Option<f64>,
@@ -173,8 +190,12 @@ pub struct Ui {
     problems: Problems,
     /// A keyboard key's menu action is being handled ([`Cx::menu_from_keyboard`]).
     menu_key: bool,
+    /// A controller's menu action is being handled ([`Cx::menu_from_pad`]).
+    menu_pad: bool,
     /// Wheel notches told from trackpad streams.
     wheel_stream: crate::gesture::WheelStream,
+    /// The chrome is being built (its viewport is the whole surface).
+    building_chrome: bool,
 }
 
 impl Ui {
@@ -201,6 +222,10 @@ impl Ui {
             repeater: Repeater::default(),
             ring_shown: false,
             draw_ring: true,
+            inset: 0.0,
+            chrome_focus: None,
+            chrome_return: None,
+            building_chrome: false,
             text: None,
             ime_rect: None,
             last_mouse_down: None,
@@ -208,6 +233,7 @@ impl Ui {
             dirty: true,
             problems: Problems::default(),
             menu_key: false,
+            menu_pad: false,
             wheel_stream: Default::default(),
         }
     }
@@ -240,6 +266,144 @@ impl Ui {
     pub fn push(&mut self, screen: impl Screen + 'static) {
         self.push_layer(Box::new(screen), false, false, None, false);
         self.dirty = true;
+    }
+
+    /// Puts `screen` over every screen and dialog for as long as the UI
+    /// runs: the app's notices. It takes the menu's focus only when sent
+    /// there (F2, or [`Cx::enter_chrome`] and a fresh Up past a screen's
+    /// top where nothing is above), and gives it back on Down, Back or F2
+    /// to where it was; keys otherwise go to the screens. A pointer on
+    /// one of its actors goes to it (unless [`Screen::lets_through`]),
+    /// anywhere else to what is under it. The other layers are laid out
+    /// below the room it reserves ([`Screen::reserve`]); screens pushed
+    /// later still go under it.
+    pub fn push_chrome(&mut self, screen: impl Screen + 'static) {
+        self.building_chrome = true;
+        self.push_layer(Box::new(screen), true, false, None, false);
+        self.building_chrome = false;
+        if let Some(l) = self.layers.last_mut() {
+            l.chrome = true;
+            l.focused = None;
+        }
+        self.follow_inset();
+        self.dirty = true;
+    }
+
+    /// The other layers' viewport: the part of the surface below the
+    /// chrome, a design's screen fitted into it as into a window that
+    /// size (everything a little smaller, nothing cut).
+    fn inner_viewport(&self) -> Viewport {
+        let v = self.viewport;
+        if self.inset <= 0.0 {
+            return v;
+        }
+        let css = [v.physical[0] / v.ratio, v.physical[1] / v.ratio];
+        let top = self.inset * v.scale / v.ratio;
+        let mut inner = Viewport::new(self.design, [css[0], (css[1] - top).max(1.0)], v.ratio);
+        inner.offset[1] += top * v.ratio;
+        inner
+    }
+
+    /// Layer `id`'s place on the whole screen: its virtual pixels times
+    /// `k`, plus `t` (identity for the chrome and without it).
+    fn map_of(&self, id: u64) -> (f32, [f32; 2]) {
+        self.map_for(self.layer(id).is_some_and(|l| l.chrome))
+    }
+
+    fn map_for(&self, chrome: bool) -> (f32, [f32; 2]) {
+        if chrome || self.inset <= 0.0 {
+            return (1.0, [0.0, 0.0]);
+        }
+        let (o, i) = (self.viewport, self.inner_viewport());
+        (
+            i.scale / o.scale,
+            [
+                (i.offset[0] - o.offset[0]) / o.scale,
+                (i.offset[1] - o.offset[1]) / o.scale,
+            ],
+        )
+    }
+
+    /// A point of the whole screen in layer `id`'s pixels.
+    fn local(&self, id: u64, p: [f32; 2]) -> [f32; 2] {
+        let (k, t) = self.map_of(id);
+        [(p[0] - t[0]) / k, (p[1] - t[1]) / k]
+    }
+
+    /// Layer `id`'s viewport: the whole surface for the chrome, the part
+    /// below it for the rest.
+    fn viewport_of(&self, id: u64) -> Viewport {
+        if self.layer(id).is_some_and(|l| l.chrome) {
+            self.viewport
+        } else {
+            self.inner_viewport()
+        }
+    }
+
+    /// The chrome's height now; the screens lay themselves out again at
+    /// their next frame when it changed. Its focus goes when it has
+    /// nothing to focus.
+    fn follow_inset(&mut self) {
+        let inset: f32 = self
+            .layers
+            .iter()
+            .filter(|l| l.chrome && !matches!(l.phase, Phase::Leaving(_)))
+            .map(|l| l.screen.reserve())
+            .sum();
+        if inset != self.inset {
+            self.inset = inset.max(0.0);
+            self.dirty = true;
+        }
+        if let Some(c) = self.chrome_focus
+            && self
+                .layer(c)
+                .is_none_or(|l| l.screen.focusables().is_empty())
+        {
+            self.leave_chrome(false);
+        }
+    }
+
+    /// The chrome takes the menu's focus (its first action).
+    fn enter_chrome(&mut self, gesture: bool) -> bool {
+        let Some((id, first)) = self.layers.iter().rev().find_map(|l| {
+            let f = l.screen.focusables().into_iter().next()?;
+            (l.chrome && matches!(l.phase, Phase::Active)).then_some((l.id, f.name))
+        }) else {
+            return false;
+        };
+        if self.chrome_focus.is_none() {
+            self.chrome_return = self
+                .focus_layer()
+                .and_then(|l| Some((l, self.layer(l)?.focused.clone())));
+        }
+        self.chrome_focus = Some(id);
+        self.ring_shown = true;
+        self.set_focus(id, Some(first), gesture);
+        true
+    }
+
+    /// The menu's focus goes back from the chrome to the screen, on what
+    /// it had when the chrome took it (if that is still there).
+    fn leave_chrome(&mut self, gesture: bool) {
+        if let Some(id) = self.chrome_focus.take() {
+            self.set_focus(id, None, gesture);
+        }
+        if let Some((l, name)) = self.chrome_return.take()
+            && let Some(layer) = self.layer(l)
+            && layer.focused != name
+            && name
+                .as_ref()
+                .is_none_or(|n| layer.screen.focusables().iter().any(|f| &f.name == n))
+        {
+            self.set_focus(l, name, gesture);
+        }
+    }
+
+    /// Whether the chrome has the menu's focus (tests, the shells' debug
+    /// state).
+    pub fn chrome_focused(&self) -> Option<&str> {
+        let id = self.chrome_focus?;
+        self.layer(id)?.focused.as_deref()
     }
 
     /// Broadcasts a message to every layer (the app's own:
@@ -275,6 +439,7 @@ impl Ui {
                     }
                 }
             }
+            UiEvent::Raw(e) => self.raw(e),
             UiEvent::Focus(true) => {}
             UiEvent::Focus(false) => self.blur(),
             UiEvent::Resize { size, ratio } => {
@@ -282,6 +447,7 @@ impl Ui {
                 self.ime_rect = None;
             }
         }
+        self.follow_inset();
         Outcome {
             consumed: self.consumed,
             requests: std::mem::take(&mut self.out),
@@ -293,6 +459,7 @@ impl Ui {
     pub fn update(&mut self, dt: f32) {
         let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
         self.time += f64::from(dt);
+        self.follow_inset();
         for action in self.repeater.update(dt) {
             self.menu(action, true, false);
         }
@@ -316,6 +483,26 @@ impl Ui {
             let Some(layer) = self.layer_mut(id) else {
                 continue;
             };
+            // An overlay laid out for another size: built again, as it
+            // is (no transition).
+            let size = [cx.viewport().screen.width, cx.viewport().screen.height];
+            if layer.overlay
+                && !layer.chrome
+                && size != layer.built
+                && !matches!(layer.phase, Phase::Leaving(_))
+            {
+                layer.built = size;
+                layer.root = layer.screen.build(&mut cx);
+                // The focused actor lit again.
+                if let Some(a) = layer
+                    .focused
+                    .as_deref()
+                    .and_then(|n| hit::find_mut(&mut layer.root, n))
+                {
+                    a.play("GainFocus", &mut Problems::default());
+                }
+                layer.root.finish_tweening();
+            }
             let mut problems = Problems::default();
             layer.root.update(dt, &clocks, &mut problems);
             layer.screen.update(dt, &mut layer.root, &mut cx);
@@ -342,6 +529,7 @@ impl Ui {
             }
         }
         self.problems.messages.truncate(64);
+        self.follow_inset();
     }
 
     /// Draws every layer, bottom first, in virtual pixels.
@@ -361,8 +549,24 @@ impl Ui {
         let focus_layer = self.focus_layer();
         let mut ime = None;
         let ring = self.draw_ring && self.ring_shown;
+        let (k, sh) = self.map_for(false);
         let text = &mut self.text;
+        let base = transform;
         for layer in self.layers.iter_mut() {
+            // Below the chrome, the rest.
+            let transform = if layer.chrome || k == 1.0 && sh == [0.0, 0.0] {
+                base
+            } else {
+                let [a, b, c, d, tx, ty] = base;
+                [
+                    a * k,
+                    b * k,
+                    c * k,
+                    d * k,
+                    a * sh[0] + c * sh[1] + tx,
+                    b * sh[0] + d * sh[1] + ty,
+                ]
+            };
             // The field being typed shows the field's text.
             let typing = text.as_ref().filter(|t| t.layer == layer.id).and_then(|t| {
                 let path = hit::find(&layer.root, &t.name)?;
@@ -379,7 +583,15 @@ impl Ui {
                 .root
                 .draw_in(&view, transform, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut out);
             if let (Some((path, _)), Some(t)) = (&typing, text.as_ref()) {
-                ime = field_marks(&layer.root, path, &t.field, measure, &transform, &mut out);
+                // The caret in the whole screen's pixels (a layer below
+                // the chrome is shifted and scaled).
+                let (k, sh) = if layer.chrome {
+                    (1.0, [0.0, 0.0])
+                } else {
+                    (k, sh)
+                };
+                ime = field_marks(&layer.root, path, &t.field, measure, &transform, &mut out)
+                    .map(|r| shift(r, k, sh));
             }
             if ring
                 && Some(layer.id) == focus_layer
@@ -425,10 +637,11 @@ impl Ui {
                 .any(|l| l.screen.animating() || l.root.in_motion())
     }
 
-    /// The layers, bottom first.
+    /// The layers, bottom first (not the chrome).
     pub fn layers(&self) -> Vec<LayerInfo> {
         self.layers
             .iter()
+            .filter(|l| !l.chrome)
             .map(|l| LayerInfo {
                 name: l.screen.name().to_string(),
                 overlay: l.overlay,
@@ -456,8 +669,26 @@ impl Ui {
     pub fn bounds(&self, name: &str) -> Option<[f32; 4]> {
         self.layers.iter().rev().find_map(|l| {
             let path = hit::find(&l.root, name)?;
-            hit::bounds_deep(&l.root, &IDENTITY, &path)
+            let b = hit::bounds_deep(&l.root, &IDENTITY, &path)?;
+            Some(self.shifted(l, b))
         })
+    }
+
+    /// What of the actor named `name` is on view ([`hit::visible_rect`]:
+    /// shown, cut by the clips around it), virtual pixels `[left, top,
+    /// right, bottom]`; `None` when hidden or clipped away.
+    pub fn visible_bounds(&self, name: &str) -> Option<[f32; 4]> {
+        self.layers.iter().rev().find_map(|l| {
+            let path = hit::find(&l.root, name)?;
+            let b = hit::visible_rect(&l.root, &IDENTITY, &path)?;
+            Some(self.shifted(l, b))
+        })
+    }
+
+    /// A layer's box on the whole screen (below the chrome).
+    fn shifted(&self, l: &Layer, b: [f32; 4]) -> [f32; 4] {
+        let (k, t) = self.map_for(l.chrome);
+        shift(b, k, t)
     }
 
     /// Where the part `part` of the actor named `owner` is (the first of
@@ -467,7 +698,8 @@ impl Ui {
             let mut path = hit::find(&l.root, owner)?;
             let inside = hit::find(hit::actor_at(&l.root, &path)?, part)?;
             path.extend(inside);
-            hit::bounds_deep(&l.root, &IDENTITY, &path)
+            let b = hit::bounds_deep(&l.root, &IDENTITY, &path)?;
+            Some(self.shifted(l, b))
         })
     }
 
@@ -542,10 +774,13 @@ impl Ui {
     }
 
     /// The layers input goes through, topmost first: popups down to the
-    /// first dialog or screen, where focus is.
+    /// first dialog or screen, where focus is (the chrome is not).
     fn input_chain(&self) -> Vec<u64> {
         let mut chain = Vec::new();
         for l in self.layers.iter().rev() {
+            if l.chrome {
+                continue;
+            }
             chain.push(l.id);
             if l.modal || !l.overlay {
                 break;
@@ -565,18 +800,21 @@ impl Ui {
 
     /// Whether layer `id` takes input now.
     fn takes_input(&self, id: u64) -> bool {
-        self.active(id) && self.input_chain().contains(&id)
+        self.active(id)
+            && (self.input_chain().contains(&id) || self.layer(id).is_some_and(|l| l.chrome))
     }
 
     fn cx(&self, id: u64, gesture: bool) -> Cx {
         let mut cx = Cx::new(
             gesture,
-            self.viewport,
+            self.viewport_of(id),
             self.time,
             self.layer(id).and_then(|l| l.focused.clone()),
             self.textures.clone(),
         );
         cx.menu_key = self.menu_key;
+        cx.menu_pad = self.menu_pad;
+        cx.by_keys = self.ring_shown;
         cx
     }
 
@@ -596,13 +834,13 @@ impl Ui {
             self.ime_rect = None;
             self.out.push(UiRequest::StopTextInput);
         }
-        let mut cx = Cx::new(
-            gesture,
-            self.viewport,
-            self.time,
-            None,
-            self.textures.clone(),
-        );
+        let viewport = if self.building_chrome {
+            self.viewport
+        } else {
+            self.inner_viewport()
+        };
+        let built = [viewport.screen.width, viewport.screen.height];
+        let mut cx = Cx::new(gesture, viewport, self.time, None, self.textures.clone());
         let mut root = screen.build(&mut cx);
         let left = start_transition(&mut root, "On", &["In"], &mut self.problems);
         let owner = if overlay { owner } else { None };
@@ -620,9 +858,11 @@ impl Ui {
             overlay,
             modal,
             owner,
+            chrome: false,
+            built,
         };
         // An overlay goes directly above its owner and the owner's other
-        // overlays; a screen on top of everything.
+        // overlays; a screen on top of everything but the chrome.
         let at = match owner.and_then(|o| Some((o, self.index(o)?))) {
             Some((o, i)) => {
                 let mut j = i + 1;
@@ -631,7 +871,11 @@ impl Ui {
                 }
                 j
             }
-            None => self.layers.len(),
+            None => self
+                .layers
+                .iter()
+                .position(|l| l.chrome)
+                .unwrap_or(self.layers.len()),
         };
         self.layers.insert(at, layer);
         self.repeater.clear();
@@ -765,6 +1009,11 @@ impl Ui {
                 Op::Close { cancel } => self.close(id, cancel),
                 Op::Broadcast(m) => self.broadcast_inner(&m, gesture),
                 Op::Focus(name) => self.set_focus(id, Some(name), gesture),
+                Op::EnterChrome => {
+                    if self.focus_layer() == Some(id) {
+                        self.enter_chrome(gesture);
+                    }
+                }
                 Op::BeginText { name, text, hints } => {
                     self.begin_text(id, name, &text, hints, gesture)
                 }
@@ -864,9 +1113,11 @@ impl Ui {
     }
 
     /// The default for a menu action a screen left.
-    fn menu_default(&mut self, id: u64, action: MenuAction, gesture: bool) {
+    /// What a menu action does where the screen left it; whether the
+    /// focus moved (or something happened).
+    fn menu_default(&mut self, id: u64, action: MenuAction, gesture: bool) -> bool {
         let Some(layer) = self.layer(id) else {
-            return;
+            return false;
         };
         let focusables = layer.screen.focusables();
         let rect = |name: &str| visible_bounds(&layer.root, name);
@@ -877,8 +1128,9 @@ impl Ui {
         {
             if let Some(f) = focusables.iter().find(|f| rect(&f.name).is_some()) {
                 self.set_focus(id, Some(f.name.clone()), gesture);
+                return true;
             }
-            return;
+            return false;
         }
         let current = layer.focused.clone().unwrap_or_default();
         match action {
@@ -897,15 +1149,23 @@ impl Ui {
                             .map(|i| others[i].0.clone())
                     }
                 };
-                if let Some(next) = next {
-                    self.set_focus(id, Some(next), gesture);
+                match next {
+                    Some(next) => {
+                        self.set_focus(id, Some(next), gesture);
+                        true
+                    }
+                    None => false,
                 }
             }
             MenuAction::Start => {
                 self.dispatch(id, Input::Activate { name: current }, gesture);
+                true
             }
-            MenuAction::Back if layer.overlay || self.screens() > 1 => self.close(id, true),
-            _ => {}
+            MenuAction::Back if layer.overlay || self.screens() > 1 => {
+                self.close(id, true);
+                true
+            }
+            _ => false,
         }
     }
 
@@ -914,6 +1174,22 @@ impl Ui {
     fn menu(&mut self, action: MenuAction, repeat: bool, gesture: bool) {
         self.ring_shown = true;
         self.dirty = true;
+        // The chrome's actions, while it has the focus: Left and Right
+        // between them, Start presses one, Down or Back go back.
+        if let Some(c) = self.chrome_focus {
+            self.consumed = true;
+            if self.dispatch(c, Input::Menu { action, repeat }, gesture) == Handled::Yes {
+                return;
+            }
+            match action {
+                MenuAction::Down | MenuAction::Back => self.leave_chrome(gesture),
+                MenuAction::Left | MenuAction::Right | MenuAction::Start => {
+                    self.menu_default(c, action, gesture);
+                }
+                _ => {}
+            }
+            return;
+        }
         let chain = self.input_chain();
         // Menu buttons are ours wherever they go (no page scrolling).
         self.consumed |= !chain.is_empty();
@@ -928,7 +1204,16 @@ impl Ui {
                 return;
             }
             if self.focus_layer() == Some(id) {
-                self.menu_default(id, action, gesture);
+                let moved = self.menu_default(id, action, gesture);
+                // Up past a screen's top (a fresh press, not a held one):
+                // into the chrome, when it has something to do.
+                if !moved
+                    && action == MenuAction::Up
+                    && !repeat
+                    && self.layer(id).is_some_and(|l| !l.overlay)
+                {
+                    self.enter_chrome(gesture);
+                }
                 return;
             }
         }
@@ -946,10 +1231,33 @@ impl Ui {
             // A pad press starts audio where the platform says so, never
             // what needs transient activation ([`UiRequest::pad_may_start`]).
             self.pad_press = e.gesture;
+            self.menu_pad = true;
             self.menu(e.action, false, e.gesture);
+            self.menu_pad = false;
             self.pad_press = false;
         } else {
             self.repeater.release(&source);
+        }
+    }
+
+    /// Whether the screen on top takes keys and controls as they are
+    /// ([`Screen::raw_input`]): the shell then sends a controller's edges
+    /// as [`UiEvent::Raw`].
+    pub fn wants_raw(&self) -> bool {
+        self.raw_layer().is_some()
+    }
+
+    fn raw_layer(&self) -> Option<u64> {
+        let id = self.focus_layer()?;
+        let l = self.layer(id)?;
+        (matches!(l.phase, Phase::Active) && l.screen.raw_input()).then_some(id)
+    }
+
+    fn raw(&mut self, e: ddi_platform::RawInput) {
+        // Gone raw between the shell's look and now: dropped.
+        if let Some(id) = self.raw_layer() {
+            self.consumed = true;
+            self.dispatch(id, Input::Raw(e), false);
         }
     }
 
@@ -959,8 +1267,42 @@ impl Ui {
         if !k.down {
             self.repeater.release(&Source::Key(k.code.clone()));
         }
+        // Binding: keys as they are, but never the browser's or the
+        // system's shortcuts.
+        if let Some(id) = self.raw_layer()
+            && !k.modifiers.any_but_shift()
+            && !is_function_key(&k.code)
+        {
+            self.consumed = true;
+            if !k.repeat {
+                self.repeater.clear();
+                self.dispatch(
+                    id,
+                    Input::Raw(ddi_platform::RawInput {
+                        device: ddi_platform::DeviceId::Keyboard,
+                        control: k.code.clone(),
+                        pressed: k.down,
+                        host_time: ddi_platform::HostTime(k.time / 1000.0),
+                        slot: 0,
+                    }),
+                    gesture,
+                );
+            }
+            return;
+        }
         if self.typing_layer().is_some() {
             self.text_key(k, gesture);
+            return;
+        }
+        // F2: the chrome's actions (the app's notices), and back; not
+        // while a dialog binds keys (it would only take the focus away).
+        if k.code == "F2" && k.down && !k.repeat && self.raw_layer().is_none() {
+            self.consumed = true;
+            if self.chrome_focus.is_some() {
+                self.leave_chrome(gesture);
+            } else {
+                self.enter_chrome(gesture);
+            }
             return;
         }
         let action = (!k.modifiers.any_but_shift())
@@ -1194,7 +1536,10 @@ impl Ui {
                     top[1].max(bottom[1]),
                 ])
             })
-            .map_or([0.0, 0.0, 1.0, 16.0], |r| self.css_rect(r));
+            .map_or([0.0, 0.0, 1.0, 16.0], |r| {
+                let (k, sh) = self.map_of(id);
+                self.css_rect(shift(r, k, sh))
+            });
         let request = UiRequest::StartTextInput {
             caret,
             text: field.text().to_string(),
@@ -1236,6 +1581,18 @@ impl Ui {
     /// The topmost target under `pos` along the input chain: the layer,
     /// and the target (`None`: a dialog's outside, or a screen's nothing).
     fn pick(&self, pos: [f32; 2]) -> Option<(u64, Option<Target>, bool)> {
+        // The chrome's actors first; around them, what is under.
+        for l in self.layers.iter().rev().filter(|l| l.chrome) {
+            if matches!(l.phase, Phase::Active)
+                && let Some(t) = hit::target_at(&l.root, &IDENTITY, pos)
+                && !l.screen.lets_through(&t)
+            {
+                return Some((l.id, Some(t), false));
+            }
+        }
+        // The rest lie below the chrome.
+        let (k, t) = self.map_for(false);
+        let pos = [(pos[0] - t[0]) / k, (pos[1] - t[1]) / k];
         for id in self.input_chain() {
             let layer = self.layer(id)?;
             if !matches!(layer.phase, Phase::Active) {
@@ -1276,6 +1633,9 @@ impl Ui {
                     return;
                 };
                 self.consumed = true;
+                if self.chrome_focus.is_some_and(|c| c != layer) {
+                    self.leave_chrome(gesture);
+                }
                 if !self.inside_field(layer, target.as_ref()) {
                     self.end_typing(true);
                 }
@@ -1375,7 +1735,8 @@ impl Ui {
         if gesture != Gesture::Cancel && !self.takes_input(layer) {
             return;
         }
-        let k = self.virtual_per_css();
+        let k = self.virtual_per_css() / self.map_of(layer).0;
+        let pos = self.local(layer, pos);
         let input = Input::Pointer {
             target: target.clone(),
             gesture: gesture.scaled(k),
@@ -1409,7 +1770,9 @@ impl Ui {
         let pos = self.viewport.to_virtual(e.pos);
         let k = self.virtual_per_css();
         if let Some((layer, target, false)) = self.pick(pos) {
+            let k = k / self.map_of(layer).0;
             let delta = [e.delta[0] * k, e.delta[1] * k];
+            let pos = self.local(layer, pos);
             self.dispatch(
                 layer,
                 Input::Wheel {
@@ -1516,6 +1879,17 @@ fn ring_quads(m: &Affine, b: [f32; 4], out: &mut Vec<Drawn>) {
     }
 }
 
+/// A layer's `[left, top, right, bottom]` on the whole screen: times `k`,
+/// plus `t` ([`Ui::map_of`]).
+fn shift(r: [f32; 4], k: f32, t: [f32; 2]) -> [f32; 4] {
+    [
+        r[0] * k + t[0],
+        r[1] * k + t[1],
+        r[2] * k + t[0],
+        r[3] * k + t[1],
+    ]
+}
+
 /// The field's selection, composition underline and caret over its text
 /// actor (at `path`); the caret's rectangle, virtual pixels.
 fn field_marks(
@@ -1568,4 +1942,10 @@ fn field_marks(
         corners[0][0].max(corners[1][0]),
         corners[0][1].max(corners[1][1]),
     ])
+}
+
+/// `F1`…`F24`: never bound (the browser's and the system's).
+fn is_function_key(code: &str) -> bool {
+    code.strip_prefix('F')
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }

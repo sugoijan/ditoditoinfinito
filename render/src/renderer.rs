@@ -25,9 +25,18 @@ pub enum SkinBlending {
     /// float format (the device must render and blend it) and copied to
     /// the sRGB target (WebGL2, whose surface has no other view).
     Offscreen(wgpu::TextureFormat),
+    /// Frames for a plain texture of encoded values the 2D pass samples
+    /// (Options' field preview, [`crate::field_preview`]), drawn as on an
+    /// sRGB target: offscreen in this float format as
+    /// [`SkinBlending::Offscreen`], and encoded into the target at the
+    /// end. The target's format is plain (`Rgba8Unorm`), on every backend.
+    Encoded(wgpu::TextureFormat),
 }
 
 pub struct Renderer {
+    /// The touch screens' quit button, drawn over a play
+    /// ([`Renderer::set_quit_button`]).
+    quit_button: Option<[f32; 3]>,
     background: BackgroundPipeline,
     sprites: SpritePipeline,
     textured: TexturedPipeline,
@@ -47,6 +56,8 @@ pub struct Renderer {
     stage_mask: Vec<crate::textured::TexQuad>,
     /// For skins' masks ([`crate::stencil`]).
     stencil: crate::stencil::Attachment,
+    /// [`SkinBlending::Encoded`]: always offscreen, encoded at the end.
+    encoded: bool,
 }
 
 impl Renderer {
@@ -59,26 +70,32 @@ impl Renderer {
         skins: SkinBlending,
         fonts: &[&'static [u8]],
     ) -> Renderer {
-        let srgb = format.is_srgb();
+        let encoded = matches!(skins, SkinBlending::Encoded(_)) && format == offscreen::PLAIN;
+        // Encoded, the scene is drawn as on an sRGB target.
+        let srgb = format.is_srgb() || encoded;
         let skins = match skins {
             SkinBlending::PlainView(p) if srgb && !p.is_srgb() => skins,
-            SkinBlending::Offscreen(_) if srgb => skins,
+            SkinBlending::Offscreen(_) if format.is_srgb() => skins,
+            SkinBlending::Encoded(_) if encoded => skins,
             _ => SkinBlending::Scene,
         };
         // Offscreen, the scene's pipelines draw linear light into the
         // float texture.
         let (scene_format, offscreen) = match skins {
-            SkinBlending::Offscreen(f) => (f, Some(Offscreen::new(device, format, f))),
+            SkinBlending::Offscreen(f) | SkinBlending::Encoded(f) => {
+                (f, Some(Offscreen::new(device, format, f)))
+            }
             _ => (format, None),
         };
         let textured = match skins {
             SkinBlending::PlainView(p) => TexturedPipeline::new(device, format, Some(p), false),
-            SkinBlending::Offscreen(f) => {
+            SkinBlending::Offscreen(f) | SkinBlending::Encoded(f) => {
                 TexturedPipeline::new(device, f, Some(offscreen::PLAIN), true)
             }
             SkinBlending::Scene => TexturedPipeline::new(device, format, None, false),
         };
         Renderer {
+            quit_button: None,
             background: BackgroundPipeline::new(device, scene_format, srgb),
             sprites: SpritePipeline::new(device, scene_format, srgb),
             textured,
@@ -92,6 +109,7 @@ impl Renderer {
             stage_back: Vec::new(),
             stage_mask: Vec::new(),
             stencil: Default::default(),
+            encoded,
         }
     }
 
@@ -99,7 +117,8 @@ impl Renderer {
     /// [`SkinBlending::Offscreen`], frames are drawn offscreen only then:
     /// without a skin the scene's pipelines draw to the target again.
     pub fn set_skins_drawn(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, drawn: bool) {
-        let Some(float) = self.offscreen_format else {
+        // Encoded frames are offscreen whatever is drawn.
+        let Some(float) = self.offscreen_format.filter(|_| !self.encoded) else {
             return;
         };
         if drawn == self.offscreen.is_some() {
@@ -110,6 +129,17 @@ impl Renderer {
         self.background.retarget(device, scene_format);
         self.text.retarget(device, queue, scene_format);
         self.offscreen = drawn.then(|| Offscreen::new(device, self.format, float));
+    }
+
+    /// Lets the textures kept at the frame's size go (offscreen, the
+    /// stencil), for a renderer not drawing for a while: the next frame
+    /// makes them again. Dropped, not destroyed: an encoder not yet
+    /// submitted may still draw with them.
+    pub fn release_targets(&mut self) {
+        if let Some(o) = &mut self.offscreen {
+            o.release_targets();
+        }
+        self.stencil.reset();
     }
 
     /// A texture for [`Renderer::set_background`], to be filled by the shell
@@ -235,6 +265,11 @@ impl Renderer {
         self.stage_mask = mask;
     }
 
+    /// HUD runs shaped since the start (a counter for the debug state).
+    pub fn text_shaped(&self) -> u64 {
+        self.text.shaped()
+    }
+
     /// The target format is sRGB.
     pub fn srgb(&self) -> bool {
         self.srgb
@@ -262,6 +297,12 @@ impl Renderer {
             b: f64::from(b),
             a: f64::from(a),
         }
+    }
+
+    /// The touch screens' quit button over the plays drawn from now on
+    /// ([`scene::quit_button`]: its middle and radius in pixels), or none.
+    pub fn set_quit_button(&mut self, button: Option<[f32; 3]>) {
+        self.quit_button = button;
     }
 
     /// Encode a full frame into `view` (`width × height` pixels); skins'
@@ -293,17 +334,43 @@ impl Renderer {
                 opts.reverse,
             ),
         };
+        // The field filter dims the backdrop in its own shaders (encoded
+        // values multiplied, as the 2D pass dims the start prompt's
+        // picture) when nothing lies between them; else (back layers, no
+        // image) a dark quad over everything under the field, blended in
+        // the target's light.
+        let band = (opts.field_filter > 0.0
+            && opts.background > 0.0
+            && opts.backdrop.current.is_some()
+            && self.stage_back.is_empty()
+            && !layout.lanes.is_empty())
+        .then(|| {
+            let [mid, w] = scene::filter_band(&geo, scene::field_span(layout));
+            (
+                [mid - w / 2.0, mid + w / 2.0],
+                1.0 - opts.field_filter.clamp(0.0, 1.0),
+            )
+        });
+        let mut scene_opts = opts;
+        if band.is_some() {
+            scene_opts.field_filter = 0.0;
+        }
         let mut scene = scene::build(
             frame,
             layout,
             names,
             &self.skin,
             &geo,
-            opts,
+            scene_opts,
             self.srgb,
             layer,
             (&self.stage_back, &self.stage_mask),
         );
+        if opts.preview.is_none()
+            && let Some(b) = self.quit_button
+        {
+            scene::add_quit_button(&mut scene, b);
+        }
         for i in &mut scene.instances {
             i.color = to_target(i.color, self.srgb);
             if i.shape == crate::sprite::Shape::ArrowGradient as u32
@@ -314,11 +381,8 @@ impl Renderer {
                 i.params = [r, g, b, phase];
             }
         }
-        for t in &mut scene.text {
-            // Text keeps the look it had on a plain target, where glyphon's
-            // accurate colour mode showed it in linear light.
-            t.color = to_target(t.color, self.srgb);
-        }
+        // Text colours go as written: glyphon turns them into linear light
+        // where the target holds it (`text::color_mode`).
         let background = self.background.prepare(
             device,
             queue,
@@ -327,6 +391,7 @@ impl Renderer {
             opts.background,
             opts.backdrop,
             opts.frame_aspect,
+            band,
         );
         self.background.draw_extension(encoder, &background);
         self.sprites
@@ -458,7 +523,11 @@ impl Renderer {
         }
         if let Some(o) = offscreen {
             let mut pass = begin_pass(encoder, view, wgpu::LoadOp::Clear(wgpu::Color::BLACK), None);
-            o.scene_to_target(&mut pass);
+            if self.encoded {
+                o.scene_to_plain(&mut pass);
+            } else {
+                o.scene_to_target(&mut pass);
+            }
         }
         self.text.trim();
     }

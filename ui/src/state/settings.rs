@@ -58,6 +58,9 @@ pub struct Settings {
     /// `builtin` for the built-in arrows without a skin; `None`: Dito, the
     /// built-in arrows as a skin (`crate::noteskins::play_skin`).
     pub noteskin: Option<String>,
+    /// The pump noteskin pump layouts are drawn with (`pump/<name>`, an
+    /// imported one's key); `None`: the noteskin above draws them too.
+    pub pump_noteskin: Option<String>,
     /// Draw notes in the colours a chart gives them (Dancing☆Onigiri
     /// works) instead of `note_colors` (decision 23: off by default).
     pub chart_colors: bool,
@@ -255,6 +258,7 @@ impl Default for Settings {
             appearance: Appearance::Visible,
             note_colors: NoteColors::Vivid,
             noteskin: None,
+            pump_noteskin: None,
             chart_colors: false,
             lyrics: true,
             import_details: false,
@@ -287,7 +291,31 @@ impl Default for Settings {
     }
 }
 
+/// Whether a noteskin key is a pump skin's (`pump/…`, `bundled:pump/…`).
+pub fn is_pump_skin(key: &str) -> bool {
+    let key = key.strip_prefix("bundled:").unwrap_or(key);
+    key.split('/')
+        .next()
+        .is_some_and(|g| g.eq_ignore_ascii_case("pump"))
+}
+
+/// Whether a [`Settings::pump_noteskin`] key draws the pump layouts: a
+/// pump skin's, or the built-in arrows (`builtin`).
+fn draws_pump(key: &str) -> bool {
+    is_pump_skin(key) || key == "builtin"
+}
+
 impl Settings {
+    /// The noteskin key chosen for layout `layout` (an id): the pump skin
+    /// on a pump layout when one is chosen (and draws them), else
+    /// [`Settings::noteskin`].
+    pub fn noteskin_for(&self, layout: &str) -> Option<&str> {
+        match &self.pump_noteskin {
+            Some(k) if layout.starts_with("pump") && draws_pump(k) => Some(k),
+            _ => self.noteskin.as_deref(),
+        }
+    }
+
     pub fn load() -> Settings {
         let stored: Settings = storage::load(Area::Local, KEY).unwrap_or_default();
         let mut s = stored.clone();
@@ -304,6 +332,14 @@ impl Settings {
     /// so a hand-edited or stale `localStorage` entry cannot misbehave.
     fn sanitize(&mut self) {
         let defaults = Settings::default();
+        // Only a pump skin draws the pump layouts.
+        if self
+            .pump_noteskin
+            .as_deref()
+            .is_some_and(|k| !draws_pump(k))
+        {
+            self.pump_noteskin = None;
+        }
         if !self.speed.is_finite() {
             self.speed = defaults.speed;
         }
@@ -547,49 +583,86 @@ impl Settings {
 /// (`excessiveJdgUse`, `excessiveUse`), for the song list
 /// ([`Settings::best_key_for`]); `None` for other charts.
 pub fn chart_excessive(chart: &ddi_chart::Chart) -> Option<bool> {
-    chart.danoni.as_ref()?;
-    let options = ddi_engine::rules::danoni::DanoniOptions {
-        excessive: None,
-        ..Default::default()
-    };
-    ddi_engine::rules::danoni::ruleset(Some(chart), &options)
-        .key()
-        .danoni?
-        .excessive
+    ddi_engine::rules::danoni::chart_excessive(chart)
 }
 
-/// Exact id match, or for audio ids (`audio:<rate>:<base>:<out>`) the entry
-/// whose output-latency bucket is within 10 ms with the same rate and base
-/// latency, so jitter across a 5 ms bucket boundary is the same device.
+/// Exact id match, or for audio ids (the web's `audio:<rate>:<base>:<out>`,
+/// desktop's `audio:<host>:<device>:<rate>:<bucket>`) the entry whose
+/// output-latency bucket is within 10 ms on the same path (rate and base
+/// latency; host, device and rate), so jitter across a 5 ms bucket
+/// boundary, or a new buffer size, is the same device.
 fn find_profile(profiles: &[OffsetProfile], id: &str) -> Option<usize> {
     if let Some(i) = profiles.iter().position(|p| p.id == id) {
         return Some(i);
     }
-    let (rate, base, out) = audio_parts(id)?;
+    let (path, out) = audio_parts(id)?;
     profiles
         .iter()
         .enumerate()
         .filter_map(|(i, p)| {
-            let (r, b, o) = audio_parts(&p.id)?;
-            (r == rate && b == base && (o as i64 - out as i64).abs() <= 10).then_some((i, o))
+            let (pp, o) = audio_parts(&p.id)?;
+            (pp == path && (o - out).abs() <= 10).then_some((i, o))
         })
-        .min_by_key(|(_, o)| (*o as i64 - out as i64).abs())
+        .min_by_key(|(_, o)| (*o - out).abs())
         .map(|(i, _)| i)
 }
 
-fn audio_parts(id: &str) -> Option<(u32, u32, u32)> {
+/// Whether audio ids `a` and `b` name the same output (the same id, or
+/// the same path with latency buckets within 10 ms; see
+/// [`Settings::audio_profile`]).
+pub fn same_audio_device(a: &str, b: &str) -> bool {
+    a == b
+        || matches!((audio_parts(a), audio_parts(b)), (Some((pa, oa)), Some((pb, ob))) if pa == pb && (oa - ob).abs() <= 10)
+}
+
+/// An audio id's path and its latency bucket (ms): the web's
+/// `audio:<rate>:<base>:<out>`, desktop's
+/// `audio:<host>:<device>:<rate>:<bucket>` (`ddi-desktop`'s
+/// `Audio::fingerprint`): everything before the last field, and it.
+fn audio_parts(id: &str) -> Option<(&str, i64)> {
     let rest = id.strip_prefix("audio:")?;
-    let mut it = rest.split(':');
-    let rate = it.next()?.parse().ok()?;
-    let base = it.next()?.parse().ok()?;
-    let out = it.next()?.parse().ok()?;
-    Some((rate, base, out))
+    let (path, out) = rest.rsplit_once(':')?;
+    // The web's form has its rate and base latency before it.
+    if !path.contains(':') {
+        return None;
+    }
+    Some((path, out.parse().ok()?))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::rc::Rc;
+
+    #[test]
+    fn audio_profiles_match_within_ten_ms_on_both_shells_ids() {
+        let p = |id: &str| OffsetProfile {
+            id: id.into(),
+            label: id.into(),
+            offset: 0.01,
+            calibrated: true,
+            last_seen: 0.0,
+        };
+        let list = vec![
+            p("audio:48000:5:170"),
+            p("audio:CoreAudio:External Headphones:44100:10"),
+        ];
+        assert_eq!(find_profile(&list, "audio:48000:5:175"), Some(0));
+        assert_eq!(find_profile(&list, "audio:48000:10:170"), None);
+        assert_eq!(
+            find_profile(&list, "audio:CoreAudio:External Headphones:44100:20"),
+            Some(1)
+        );
+        assert_eq!(
+            find_profile(&list, "audio:CoreAudio:External Headphones:44100:25"),
+            None
+        );
+        assert_eq!(
+            find_profile(&list, "audio:CoreAudio:Speakers:44100:10"),
+            None
+        );
+        assert_eq!(find_profile(&list, "display:x:1x1@1"), None);
+    }
 
     use ddi_platform::storage::MemoryStore;
 

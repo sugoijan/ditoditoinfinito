@@ -707,6 +707,172 @@ state says which decoder); Firefox and Safari by the maintainer.
   besides the start prompt's line. Checked on a bundle with `video/`
   removed and on the full one (no line).
 
+## Step 8. The opening still, and frames lost in Firefox (2026-10-16)
+
+**The song's picture from its opening movie** (maintainer's decision,
+2026-10-16; `docs/plans/theme.md`, the selected song's background). When
+a song's first background change is a movie at or before its first note,
+the frame that movie shows when its change starts is the song's picture in
+song select's backdrop, behind the start prompt, and in the field before
+the change; otherwise its `#BACKGROUND` stays, as before.
+
+- The rule is `backgrounds::opening_movie` (natively tested): segment 1 of
+  the play's schedule is a movie, and it starts at or before the earliest
+  first note of the song's playable charts, each on its own timing.
+  Background changes are the song's, not a chart's: StepMania 5.1 reads
+  `#BGCHANGES` only among the song's tags (`NotesLoaderSSC.cpp`), so one
+  still serves every chart, and a chart with split timing whose first note
+  comes before the movie counts like any other. A song without changes
+  and with one movie (StepMania's DWI rule, step 4) qualifies from beat 0.
+- "The frame at that point" is `movie_position` where the change starts,
+  or at the play's first drawn frame when the change is earlier:
+  `backgrounds::PLAY_START`, −0.8 s, the one constant the web shell's
+  start lookahead (`play.rs`) is taken from, since play draws from there
+  while the music is scheduled. Bad Apple!! (`#OFFSET:1.660`, the movie at
+  beat 1, −1.23 s) is joined 0.43 s in, as play joins it, and the movie
+  runs on from the still (review, 2026-10-16: at first song second 0 was
+  used, so the cut jumped back 0.8 s). The frame is the one a play draws
+  there: `movies::frame_at` decodes it through the browser's decoder or
+  the module, chosen as play chooses (falling back the same way), and
+  picks it with a `MovieTrack`. A looping movie whose position may be past
+  its end (a short clip from a negative beat) has its end learned first
+  (a seek past it reports it), and the frame is taken at the wrapped
+  position with StepMania's 0.5 s loop restart, as play wraps it. In play,
+  such a short loop starts over from 0 to keep its frames; the track now
+  catches up unseen (`MovieTrack`, `CATCH_UP_SECONDS`, natively tested)
+  instead of flashing the frames behind the clock and counting them late.
+- Taken after the import, as `still.jpg` with the song's files (copied,
+  linked and zip imports alike; linked songs keep it in the browser, like
+  their banner), at the movie's size scaled down to 1280 px on the longest
+  side (what background-change images are kept at): 640×480 and 1280×720
+  frames take 3–100 KB at JPEG quality 0.9 (every browser's canvas encodes
+  JPEG; Safari's no WebP). Decoded planes are converted on the CPU as the
+  shader converts them (`VideoFrame::rgba`: centre-sited chroma
+  interpolated as the sampler does, then `yuv_to_rgb`, natively tested);
+  a browser frame in its own colours (Firefox's direct path) is drawn as
+  the browser draws it. Song select and the prompt read the JPEG and never
+  load the decoder. The stills are taken in a pass after the import (since
+  the review: the report and the songs show at once, the status line says
+  "taking pictures from the songs' videos… N of M", the next import never
+  waits, and the song list reloads when they are done; Checks went from
+  0.6 to 4 s in Firefox when they were taken inside the import). A frame
+  that does not come in 20 s is tried again later, not recorded as a
+  failure. The record keeps what became of it
+  (`ImportedSong::still`: `taken` with movie, position and size,
+  `no_movie`, or `failed` with the reason); a movie that cannot be decoded
+  leaves the `#BACKGROUND` and a line in the import's details. A movie not
+  stored (copied without "also store background videos") never plays, so
+  it is no opening movie either.
+- Songs imported before have no `still` in their record (the format is
+  unchanged otherwise; nothing to re-import), and one that recorded
+  `no_movie` before its shared folder was imported is looked at again
+  when its opening movie is found now: the first play takes it
+  during the start prompt, with the video setting not off (Off never
+  loads a decoder), and the prompt switches to it when it arrives; song
+  select shows it from then on. An idle pass in song select was left out
+  on purpose: it would load the 2.4 MB module while the player browses.
+  The fill and the play share one worker (`VideoWorker::shared`), so the
+  module is fetched and compiled once.
+  A decoder that could not load (offline, no module) leaves the record
+  unchanged, to be tried again.
+- Blank stills (the lead's refinement of the maintainer's rule, for the
+  maintainer to overrule): Bad Apple!!'s still is black, its opening
+  frame, and a blank still shows nothing of the song where the backdrop
+  is meant to show it. A still is blank when nearly uniform and near black
+  or white (`ddi_platform::video::blank_picture`: BT.601 luma spread at
+  most 3 of 255, at most 0.5 % of the pixels further than 16 from the
+  mean, mean within 32 of either end; natively tested: a dim silhouette,
+  Bad Apple!!'s 153 s frame with luma about 20 and spread 6, is a
+  picture); it is
+  decided when the still is taken and kept as `blank` in the record
+  (stills taken before it was kept get it on their next play). Song
+  select's backdrop and the results then show the `#BACKGROUND`; the
+  prompt and the field keep the still, so the cut into the movie stays
+  seamless.
+- In play the still is `BgImage::Still`: `backgrounds::shown` puts it in
+  place of the song background before the first change, and in place of
+  the opening movie until its first frame while the movie is expected to
+  play (`MovieDeck::opening_plays`), so the cut is seamless. A movie that
+  does not play (failed, turned off by the automatic rule) shows the
+  `#BACKGROUND` from its change on, as StepMania would; with Video off the
+  still is not used in play at all, and the prompt shows the
+  `#BACKGROUND` too, so its cut matches (the lead's call after the
+  review). StepMania's return to the song background at the last beat
+  (and a change naming it) shows the `#BACKGROUND` itself. The automatic
+  background frame takes the still's shape until the black-bar probe
+  answers. The results' backdrop is the still (the `#BACKGROUND` when
+  blank), kept in one place so the order is fixed.
+- The start prompt now draws the song's picture behind it (the still, else
+  the `#BACKGROUND`) at the play's background brightness, with the field
+  filter at the chart's width (doubles and pump included) and scroll
+  direction, through the play's own drawing path with an empty field,
+  from the prompt until the music starts, so the prompt, the field and the cut to the movie are one
+  picture. `__DDI_DEBUG.still` (the still is loaded) and
+  `prompt_backdrop` (`still`, `background`, `none`) say what shows.
+- Checked headless in Chrome (WebGPU and `gfx=gl`) and Firefox on a
+  scratch pack (a numbered-colour clip from beat 0, H.264 from beat −8,
+  the same clip after the first note, a broken file) and on local packs:
+  Bad Apple!! (DivX 3 AVI, module), BAD (1920×1080 H.264 MP4, stored
+  1280×720), BANG BANG (1280×720 MP4), 1116 (H.264 AVI, WebCodecs; in
+  Firefox the direct path). The pixel left of the field is the same on the
+  prompt and at the start of play; the beat −8 clip's still is frame 118
+  (3.93 s in); the late movie keeps its `#BACKGROUND`; the broken one says
+  "could not be decoded" in the details; records stripped of their still
+  got it on their first play. Full autoplays stay all top tier.
+
+**Frames lost in Firefox.** The maintainer's Firefox on macOS played Bad
+Apple!! "a bit laggy" and once turned it off. What was measured:
+
+- Real Firefox 158 on this Mac has a WebGPU adapter (a headed run; headless
+  ones have none and play on WebGL2), so the maintainer's plays run on
+  WebGPU, which the headless checks never covered. Headed and headless,
+  WebGPU and WebGL2, Bad Apple!! plays at 120 fps with no late frame on an
+  idle machine; the movie path costs 0.02–0.12 ms of the main thread a
+  frame (decoding is in the worker). The lag did not reproduce as such.
+- What did: on a loaded machine (load average 33–38 from parallel builds)
+  headless Firefox fell to about 60 fps in bursts, and the automatic rule
+  turned the movie off, before and after the changes below, although the
+  movie was not the cause: a page busy with something else (an init script
+  spinning 12 ms a frame) turned it off the same way, with the movie
+  costing 0.05 ms a frame.
+- Garbage per frame: the worker sliced a new `ArrayBuffer` for each
+  frame's planes (460 KB at 640×480), the page copied it into a new `Vec`,
+  WebCodecs frames made two more. Each is now reused: the page gives the
+  buffer back to the worker (transferred, `recycle`), planes go into kept
+  `Vec`s once uploaded (`video::spare_planes`, `recycle`; both sides drop
+  the oldest when full, so a movie of another size takes over), and the copy of
+  a browser frame goes through a kept scratch buffer. In one headed
+  WebGPU run each under that load, frames over 25 ms went from 16 to 0
+  (the longest from 52 to 17 ms); headless runs are dominated by the
+  machine's load, either way.
+- The automatic rule (`VideoGuard`, natively tested) now blames the movie
+  only for sustained loss the movie causes. A second with a frame over
+  250 ms (a hidden tab, a compile, a collection, a seek catching up)
+  starts the warm-up again. Three slow seconds no longer turn the movie
+  off at once: they pause it (decoding and uploads stop, the frame shown
+  stays) for a trial of three seconds of wall time at most (a second
+  with a stall counts as not keeping up; since the review, a trial
+  through stalls or a hidden tab could otherwise last the song); when
+  the display then keeps
+  up (two seconds at 80 % of the refresh rate and 15 % of it faster than
+  the slow seconds), the movie was the cause and goes off as before; when
+  it does not, it plays on from where the music is, and dropped frames are
+  not held against it for the rest of the play. A decoder that falls
+  behind (late frames two seconds running) still turns it off. Checked in
+  headless Firefox: the busy page paused the movie, found the display slow
+  without it, and played it to the end; `&slow=1` (cost while the movie
+  plays, now not while it is paused) paused it about 5 s in and turned it
+  off two seconds later, with the results' note; autoplay all top tier in both.
+- For the maintainer's Firefox: the debug overlay now has a `video:` line
+  (frames decoded, shown, dropped and late, the main thread's ms a frame
+  for the movies and the worst, and "turned off" with the reason), next to
+  the frame rate, the worst frame and the clock drift. Laggy with that
+  line near 0 ms and nothing late means frames are lost elsewhere (the
+  WebGPU backend, the compositor, the machine); then the same song with
+  Video off, or with `?gfx=gl`, tells whether the movie or the backend
+  costs them. `__DDI_DEBUG.video` adds `update_ms`, `update_ms_max`,
+  `paused` and `guard` (`watching`, `trial`, `excused`).
+
 ## Without the module
 
 The app must keep working when `target/video/ddivideo.wasm` is absent

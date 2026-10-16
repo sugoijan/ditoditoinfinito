@@ -10,6 +10,7 @@
 //! - [`image`]: image dimensions from file headers, for the banner and
 //!   background guess by size.
 //! - [`manifest`]: the song list entry shared by bundled and imported songs.
+//! - [`scan`]: a song's list entry from its folder, read in place.
 //! - [`backgrounds`]: `#BGCHANGES` as a timed schedule of still images.
 //! - [`h264`]: H.264 parameters and the FFmpeg module's frame times, for other decoders.
 //! - [`danoni`]: Dancing☆Onigiri works (pages and dumps) in an import.
@@ -22,7 +23,9 @@ pub mod h264;
 pub mod image;
 pub mod manifest;
 pub mod pack;
+pub mod scan;
 pub mod search;
 pub mod suggest;
 pub mod video;
+pub mod works;
 pub mod zip;

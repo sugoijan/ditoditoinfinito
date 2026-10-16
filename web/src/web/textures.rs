@@ -44,6 +44,11 @@ pub(crate) fn is_kept(source: &str) -> bool {
 
 /// Starts loading texture `id`; the screen gets the result.
 pub(crate) fn load(id: TextureId, key: TextureKey, limit: u32) {
+    // Options' field preview is drawn, not loaded (`crate::field_preview`
+    // puts it in the cache itself): no fetch, no failure.
+    if &*key.source == ddi_ui::screens::options::FIELD_PREVIEW {
+        return;
+    }
     wasm_bindgen_futures::spawn_local(async move {
         let result = decode(&key, limit).await;
         if let Some(ms) = delay_ms() {

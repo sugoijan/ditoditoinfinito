@@ -6,7 +6,7 @@
 pub struct Found {
     /// The folder's path in the import.
     pub dir: String,
-    /// `dance`, `common`, or another game (not kept).
+    /// `dance`, `pump`, `common`, or another game (not kept).
     pub game: String,
     pub name: String,
     /// Written for StepMania 3.9 or OpenITG (`.sprite`, `.model`, `.actor`
@@ -49,8 +49,35 @@ const ELEMENT_PREFIXES: &[&str] = &[
     "right ",
     "upleft ",
     "upright ",
+    "downleft ",
+    "downright ",
+    "center ",
     "fallback ",
 ];
+
+/// What a skin's element files say of its game: dance's buttons (Up,
+/// Down, Left, Right), or only pump's (UpLeft, UpRight, Center, DownLeft,
+/// DownRight; dance's solo has UpLeft and UpRight too, beside its own).
+#[derive(Clone, Copy, Debug, Default)]
+struct Buttons {
+    dance: bool,
+    pump: bool,
+}
+
+impl Buttons {
+    fn see(&mut self, element: &str) {
+        let word = element.split([' ', '_']).next().unwrap_or_default();
+        match word {
+            "up" | "down" | "left" | "right" => self.dance = true,
+            "center" | "downleft" | "downright" => self.pump = true,
+            _ => {}
+        }
+    }
+
+    fn pump(self) -> bool {
+        self.pump && !self.dance
+    }
+}
 
 /// The skin folders among `paths` (files, `/`-separated): a folder holding
 /// a `NoteSkin.lua`, or a `metrics.ini` with element files or parts
@@ -58,14 +85,15 @@ const ELEMENT_PREFIXES: &[&str] = &[
 /// on its parent for the rest) beside it or under a `NoteSkins` folder (a
 /// theme also has a `metrics.ini`). A skin's
 /// game is its parent folder's name when that is a game or `common`, else
-/// `dance`. Folders inside a skin (OutFox and ITGmania variants) and
+/// `pump` when its element files name only pump's buttons (a pump skin
+/// picked on its own), else `dance`. Folders inside a skin (OutFox and ITGmania variants) and
 /// anything under `Themes` are not skins of their own. StepMania 5 skins
 /// come first, so one wins over an older skin of the same name.
 pub fn find_skins(paths: &[String]) -> Vec<Found> {
     use std::collections::BTreeMap;
     // Folder → (has NoteSkin.lua, has metrics.ini, has element files, has
-    // StepMania 3.9 elements).
-    let mut dirs: BTreeMap<String, (bool, bool, bool, bool)> = BTreeMap::new();
+    // StepMania 3.9 elements, the buttons its files name).
+    let mut dirs: BTreeMap<String, (bool, bool, bool, bool, Buttons)> = BTreeMap::new();
     for p in paths {
         let (dir, file) = p.rsplit_once('/').unwrap_or(("", p));
         let lower = file.to_ascii_lowercase();
@@ -74,12 +102,13 @@ pub fn find_skins(paths: &[String]) -> Vec<Found> {
         e.1 |= lower == "metrics.ini";
         let element = lower.strip_prefix('_').unwrap_or(&lower);
         e.2 |= ELEMENT_PREFIXES.iter().any(|w| element.starts_with(w));
+        e.4.see(element);
         e.3 |= [".sprite", ".model", ".actor"]
             .iter()
             .any(|x| lower.ends_with(x));
     }
     let mut found: Vec<Found> = Vec::new();
-    for (dir, (script, metrics, elements, legacy)) in &dirs {
+    for (dir, (script, metrics, elements, legacy, buttons)) in &dirs {
         let parts: Vec<&str> = dir.split('/').collect();
         let lower: Vec<String> = parts.iter().map(|p| p.to_ascii_lowercase()).collect();
         if dir.is_empty() || lower.iter().any(|p| p == "themes") {
@@ -104,6 +133,7 @@ pub fn find_skins(paths: &[String]) -> Vec<Found> {
             _ if name.eq_ignore_ascii_case("common") => "common",
             Some("global") => "dance",
             Some(g) if GAMES.contains(&g) => g,
+            _ if buttons.pump() => "pump",
             _ => "dance",
         };
         found.push(Found {
@@ -118,10 +148,10 @@ pub fn find_skins(paths: &[String]) -> Vec<Found> {
 }
 
 /// Whether the import keeps a skin of `game`: dance skins (which draw
-/// Dancing☆Onigiri's layouts too) and
-/// the shared `common` ones.
+/// Dancing☆Onigiri's layouts too), pump skins (the pump layouts) and the
+/// shared `common` ones.
 pub fn kept_game(game: &str) -> bool {
-    game == "dance" || game == "common"
+    game == "dance" || game == "pump" || game == "common"
 }
 
 /// Whether a skin's file is kept as text with the skin's record: its
@@ -166,6 +196,13 @@ mod tests {
             "Songs/Pack/Song/song.sm",
             "Loose/metrics.ini",
             "common/NoteSkin.lua",
+            "Prime/metrics.ini",
+            "Prime/UpLeft Tap Note 3x2.png",
+            "Prime/Center Tap Note 3x2.png",
+            "Prime/_downleft hold body active.png",
+            "Solo/NoteSkin.lua",
+            "Solo/UpLeft Tap Note.png",
+            "Solo/Down Tap Note.png",
         ]));
         let got: Vec<(&str, &str, &str)> = found
             .iter()
@@ -183,10 +220,13 @@ mod tests {
                 ("NoteSkins/dance/Delta", "dance", "Delta"),
                 ("NoteSkins/global/broadhead", "dance", "broadhead"),
                 ("NoteSkins/pump/default", "pump", "default"),
+                ("Prime", "pump", "Prime"),
+                ("Solo", "dance", "Solo"),
                 ("Vivid", "dance", "Vivid"),
                 ("common", "common", "common"),
             ]
         );
-        assert!(kept_game("dance") && kept_game("common") && !kept_game("pump"));
+        assert!(kept_game("dance") && kept_game("common") && kept_game("pump"));
+        assert!(!kept_game("kb7"));
     }
 }

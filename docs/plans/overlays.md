@@ -152,6 +152,18 @@ tall screens the layers grow against the lanes. Cues before the music
 starts keep the importer's frame-to-time mapping (danoniplus clamps
 negative frames to 0).
 
+Lyrics (2026-10-16, decision 29) are drawn by the 2D pass on the same
+stage, fitted to the screen (its width on a portrait phone, so lines
+stay on it), with two adjustments of ours: a top line moves below our
+HUD's gauge and score, a bottom line narrows past the touch quit button.
+Not read yet: `bottomWordSet` (bottom lines under the step zone at
+`distY + 10` instead of 60 px up from the bottom), `playingWidth`,
+`playingX` and `playingY` (a playing area narrower than or moved within
+the stage, which places the labels and the layers): the lines and the
+layers keep the stage's own box. A text with commas loses the spaces
+after them, as danoniplus's `trimStr` trims every field before joining
+them again (`makeSpriteWordData`).
+
 ## Steps
 
 1. **Model** (`chart`): `back_data`/`mask_data` and their variants as the

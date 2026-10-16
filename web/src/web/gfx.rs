@@ -458,6 +458,21 @@ impl Gfx {
         }
     }
 
+    /// A float format the device renders into and blends (half floats),
+    /// for frames drawn offscreen in linear light (the options' field
+    /// preview, `ddi_render::field_preview`); `None` where it has none
+    /// (WebGL2 without `EXT_color_buffer_float`).
+    pub(crate) fn float_format(&self) -> Option<wgpu::TextureFormat> {
+        let half = wgpu::TextureFormat::Rgba16Float;
+        let features = self.adapter.get_texture_format_features(half);
+        let usages = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
+        (features.allowed_usages.contains(usages)
+            && features
+                .flags
+                .contains(wgpu::TextureFormatFeatureFlags::BLENDABLE))
+        .then_some(half)
+    }
+
     /// Reconfigures the surface when the canvas backing store changes size.
     pub(crate) fn resize(&self, width: u32, height: u32) {
         if self.is_lost() {

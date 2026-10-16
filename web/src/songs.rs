@@ -93,6 +93,48 @@ pub(crate) struct ImportedSong {
     /// once for all its songs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) work: Option<String>,
+    /// The picture taken from the song's opening movie (`crate::stills`):
+    /// `None` until it was looked at (songs imported before it was kept
+    /// get it when first played).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) still: Option<Still>,
+}
+
+/// What became of a song's opening still (`crate::stills`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub(crate) enum Still {
+    /// Stored as [`crate::stills::STILL_FILE`]: the frame of `movie` at
+    /// `position` (movie seconds), `width × height` pixels.
+    Taken {
+        movie: String,
+        position: f64,
+        width: u32,
+        height: u32,
+        /// It shows nothing (`ddi_platform::video::blank_picture`: a
+        /// black or white opening frame): the menus show the song's
+        /// `#BACKGROUND` instead, the prompt and the field keep it.
+        /// `None` in stills taken before this was kept: checked on the
+        /// next play.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blank: Option<bool>,
+    },
+    /// The song has no opening movie: its `#BACKGROUND` is its picture.
+    NoMovie,
+    /// The opening movie could not be decoded: its `#BACKGROUND` shows.
+    Failed { movie: String, reason: String },
+}
+
+impl ImportedSong {
+    /// The stored still's file for the menus' backdrops: when one was
+    /// taken and it shows something (not known blank).
+    pub(crate) fn still_file(&self) -> Option<String> {
+        matches!(
+            self.still,
+            Some(Still::Taken { blank, .. }) if blank != Some(true)
+        )
+        .then(|| file_key(&self.entry.id, crate::stills::STILL_FILE))
+    }
 }
 
 /// Where a song's files live.
@@ -357,10 +399,6 @@ async fn imported_blob(db: &Db, id: &str, file: &str) -> Result<Blob, String> {
         .ok_or_else(|| format!("{file} is missing from the stored song; import it again"))
 }
 
-/// Back and mask images kept per Dancing☆Onigiri song
-/// (`docs/plans/overlays.md`; the largest work at hand shows 99).
-pub(crate) const MAX_LAYER_IMAGES: usize = 128;
-
 /// Background-change images a song shows at most, its own and shared ones
 /// together (each is decoded and kept on the GPU during play).
 pub(crate) const MAX_BG_IMAGES: usize = 32;
@@ -431,6 +469,8 @@ pub(crate) async fn load_background(
             None => return Ok(None),
         },
         BgImage::File(path) | BgImage::Movie(path) => (format!("bg/{path}"), path.clone()),
+        // Not a file of the song's folder (`crate::stills`).
+        BgImage::Still => return Ok(None),
     };
     if is_imported_id(&entry.id) {
         let db = Db::open().await?;
@@ -465,6 +505,8 @@ pub(crate) struct LoadedSong {
     pub(crate) shared_bg: Vec<(String, String)>,
     /// Background-change movies found there, the same way.
     pub(crate) shared_videos: Vec<(String, String)>,
+    /// What became of the song's opening still (imported songs).
+    pub(crate) still: Option<Still>,
 }
 
 /// A song found by id: its entry, where it is from, and its stored
@@ -610,20 +652,16 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
             blob_bytes(&song_file(&db, song, &found.entry.music).await?).await?
         }
     };
-    let Found { entry, origin, .. } = found;
+    let Found {
+        entry,
+        origin,
+        record,
+    } = found;
+    let still = record.and_then(|r| r.still);
     // Images the song's folder lacks may be in a shared folder imported
     // before or after it; looked up now so the order does not matter.
     let (shared_bg, shared_videos) = match &origin {
-        Origin::Imported(pack) => {
-            let db = Db::open().await?;
-            let shared = shared_paths(&db).await.unwrap_or_default();
-            let found = ddi_library::backgrounds::shared_images(&entry.bg_shared, pack, &shared);
-            let (videos, mut images): (Vec<_>, Vec<_>) = found
-                .into_iter()
-                .partition(|(name, _)| ddi_library::video::is_movie(name));
-            images.truncate(MAX_BG_IMAGES.saturating_sub(entry.bg_images.len()));
-            (images, videos)
-        }
+        Origin::Imported(pack) => shared_found(&entry, pack).await?,
         Origin::Bundled => (Vec::new(), Vec::new()),
     };
     Ok(LoadedSong {
@@ -632,8 +670,26 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
         music_bytes,
         shared_bg,
         shared_videos,
+        still,
     })
 }
+
+/// The images and movies an imported song's background changes name that
+/// the library's shared folders hold, as `(name as the simfile writes it,
+/// shared path)`: images (within the song's budget), then movies.
+pub(crate) async fn shared_found(entry: &ManifestEntry, pack: &str) -> Result<SharedFound, String> {
+    let db = Db::open().await?;
+    let shared = shared_paths(&db).await.unwrap_or_default();
+    let found = ddi_library::backgrounds::shared_images(&entry.bg_shared, pack, &shared);
+    let (videos, mut images): (Vec<_>, Vec<_>) = found
+        .into_iter()
+        .partition(|(name, _)| ddi_library::video::is_movie(name));
+    images.truncate(MAX_BG_IMAGES.saturating_sub(entry.bg_images.len()));
+    Ok((images, videos))
+}
+
+/// [`shared_found`]'s images and movies.
+pub(crate) type SharedFound = (Vec<(String, String)>, Vec<(String, String)>);
 
 /// The song a stored Dancing☆Onigiri work file describes, with the work's
 /// fields read from where they are stored once for all its songs.

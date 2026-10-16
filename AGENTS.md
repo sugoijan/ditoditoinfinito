@@ -8,8 +8,9 @@ accurate: when a convention here changes, change this file in the same commit.
 A dance rhythm game that plays StepMania simfiles; in genre terms a 4K VSRG
 (four-key vertical scrolling rhythm game), which is the vocabulary to use when
 researching comparable games or writing public copy. Written in Rust and shipped
-as a static web app (wasm via Trunk, deployed to GitHub Pages). The gameplay
-core is platform-free so a desktop build can follow. `docs/PLAN.md` holds the
+as a static web app (wasm via Trunk, deployed to GitHub Pages) and as a
+desktop app (`cargo run`), the same game: what a play does is shared code
+both shells run. `docs/PLAN.md` holds the
 architecture, decisions and roadmap; `docs/research/` holds the sourced notes
 on formats, rules and the tech stack. Read those before changing the engine or
 the importers.
@@ -27,14 +28,26 @@ the browser are implementation details, not advertised features.
 - `render/` wgpu scene (procedural SDF arrows, glyphon text) and the 2D pass
   the menus move onto (`docs/plans/ui-core.md`): a draw list, its painter,
   the texture cache and the text atlas (runs measured and drawn by the
-  platform: the browser on the web, cosmic-text natively). No platform
+  platform: the browser on the web, cosmic-text natively; drawn over a
+  play too, through an sRGB surface where there is no plain view, for
+  Dancing☆Onigiri's lyrics, `render/src/lyrics.rs`), and Options'
+  field preview (`render/src/field_preview.rs`: the demo chart drawn as
+  play draws it into a texture the 2D pass shows). No platform
   code.
 - `platform/` traits and plain data the shells implement (audio clock, input,
-  device fingerprints), plus the Ogg Vorbis fallback decoder behind the
-  `decode` feature (Symphonia, MPL-2.0).
+  device fingerprints), plus the Ogg Vorbis and MP3 fallback decoder behind
+  the `decode` feature (Symphonia, MPL-2.0; MP3 as StepMania decodes it,
+  `platform/src/mp3.rs`) and, behind `decode-all` (the
+  desktop's), every format a simfile's music comes in: Opus through
+  `rusty-opus` (BSD-3-Clause), MP3 as StepMania 5.1 decodes it
+  (`platform/src/decode_all.rs`), resampling with rubato.
 - `library/` song library logic shared by the app and xtask: pack scanning
   (which file is the chart, music, banner), a sans-IO zip reader, the manifest
-  entry type. Pure, natively tested.
+  entry type, and the import's core (`scan.rs`: a song's entry, its files
+  and the report's warnings from its folder; `works.rs`: a
+  Dancing☆Onigiri work's songs, ids, music and layers; the web's import
+  runs them on `Blob`s, desktop's library on its folders). Pure,
+  natively tested.
 - `actor/` StepMania's actor model, shared by noteskins and later our
   screens (`docs/plans/ui-core.md`): actors, the tween queue, effects,
   sprite states, eases, commands as metrics write them, a model's meshes,
@@ -51,8 +64,12 @@ the browser are implementation details, not advertised features.
   screens with transitions, dialogs, messages to actors, the one-line text
   field (mirroring the web's hidden textarea, or editing itself on
   desktop), and a headless harness; the theme's screens
-  (`ui/src/screens/`: song select, results, options) with their sample
-  data; the state screens read (settings and
+  (`ui/src/screens/`: song select, results, options, the pages for
+  calibration's menu and the credits, the app's notices as the UI's
+  chrome, the play's start prompt, `prompt.rs`) with their sample
+  data, options' rows made from the settings and the shell every
+  platform shares (`options_model.rs`, `options_shell.rs`, the bind
+  flow in `ui/src/state/bind.rs`); the state screens read (settings and
   their migrations, the song list's place, library views; stored through
   `ddi_platform::storage`, which each shell installs) and the developer
   screen both shells run (`ui/src/dev.rs`). Pure, natively tested.
@@ -76,14 +93,32 @@ the browser are implementation details, not advertised features.
   and string limits, fuel and a deadline per call, StepMania's `cmd`
   keyword, Lua 5.1's globals and nothing that reaches outside.
   Platform-free, natively tested.
+- `session/` one play session for both shells (`ddi-session`,
+  `docs/plans/desktop.md` 7.1): the play (`play.rs`: the engine's
+  `Player`, bindings, the quit gesture, autoplay and `auto=pad`, the
+  fail's fade, a work's start and end fades, the facts a play is kept
+  with), calibration's modes, chart and click track, backgrounds' frame
+  and the automatic video setting's step, a work's layers' timeline;
+  generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
+  (`web/src/play.rs` is the web's). Platform-free, natively tested on a
+  fake clock.
 - `app/` the game (`ditoditoinfinito`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
   everywhere else; Trunk builds it for the browser (`index.html`),
   `cargo run` for desktop.
 - `web/` the web shell (`ddi-web`): the UI core's screens on the canvas
-  (song select at `#/`, `web/src/components/select_page.rs`; results on
-  the play route), Yew for the menus not moved yet (options, calibration,
-  credits), one wgpu canvas and
+  (song select at `#/`, `web/src/components/select_page.rs`; the start
+  prompt and the results on the play route,
+  `web/src/components/game_canvas.rs`; options at `#/options`,
+  `web/src/components/options_page.rs`; calibration's menu at
+  `#/calibrate` and the credits at `#/credits`,
+  `web/src/components/page_routes.rs`; the device notices over all of
+  them, `web/src/notices.rs`; a calibration's outcome a card on the
+  start prompt's screen; Dancing☆Onigiri's lyrics drawn over the play
+  by the 2D pass, `ddi_render::lyrics`), pages as components of our own
+  (`web/src/component.rs`: messages handled in a microtask, each page's
+  few DOM elements its own; no Yew; `#/video-check`, the crash page and
+  the no-GPU page are plain DOM), one wgpu canvas and
   device for the whole app (`web/src/web/screen.rs`: made at boot, moved
   into the page that draws, made again after a lost device), Web Audio
   clock, settings in `localStorage` (`web/src/web/kv.rs`), imported songs
@@ -91,23 +126,36 @@ the browser are implementation details, not advertised features.
   `plays` and `play_summaries`, `web/src/history.rs`,
   `docs/plans/play-history.md`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
-- `desktop/` the desktop shell (`ddi-desktop`, run by `app` natively:
-  `cargo run -- [--screen select|results|options | --dev | --widgets]
-  [--seconds N]`): a winit window drawing the UI
-  core through `render`'s painter with cosmic-text and system fonts,
-  settings in `storage.json` in the user's config folder (the play
-  history beside it, two files a play in `plays/`), file dialogs
-  (rfd), clipboard (arboard), banners and backgrounds decoded from
-  `assets/` (`image`). So far it runs the theme's screens on sample data
-  (song select by default, `--screen` for another) and the developer
-  screens (`--dev`, `--widgets`);
-  audio and play come with the rest of phase 9. Built and tested by `just
-  test`, `just core-check` and CI (it builds on Debian with no system
-  libraries: winit, rfd and arboard load theirs at run time).
-  `desktop/tests/offscreen.rs` draws the developer screen on the GPU and
-  compares pixels with the web's (`DDI_OFFSCREEN_PPM=<file>` keeps the
-  picture; skipped without an adapter); `theme_offscreen.rs` draws the
-  theme's song select the same way.
+- `desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
+  `docs/plans/desktop.md`): a winit window drawing the UI core with
+  `render`'s painter (cosmic-text, system fonts); sound through cpal with
+  our own mixer, the clock from CoreAudio's host time and latencies
+  (`audio/`, music decoded with `decode-all` on a thread); keys stamped
+  with the OS's time where it gives one (`keyboard.rs`, macOS's
+  `NSEvent`), controllers through gilrs on their own thread (`pads.rs`);
+  the library read in place (`library/`: the song folders Options lists,
+  StepMania roots, packs and zips, simfiles and Dancing☆Onigiri works,
+  with a cache; a first start offers other games' song folders,
+  `offer.rs`); plays through the shared session (`play/`: the UI core's
+  start prompt, noteskins with their Lua read on a thread, backgrounds,
+  movies (feature `video`, on by default: the web's FFmpeg module under
+  wasmtime, `video.rs`; movies in zips read in place or extracted once),
+  a work's layers and lyrics, the theme's results, the history in the
+  data folder); calibration's menu and tests (`calibrate.rs`); the
+  devices' fingerprints and notices (`devices.rs`). Settings in
+  `storage.json` in the config folder; `DDI_HOME` moves the config, data
+  and cache folders under it (`paths.rs`). Tested without a sound device
+  on a fake clock and offscreen (`desktop/tests/`; GPU tests skip without
+  an adapter or with `DDI_NO_GPU=1`, as in CI's `desktop` job on Linux,
+  macOS and Windows, with and without `video`). The video module is
+  found at `DDI_VIDEO_MODULE`, in `video/` beside the executable, or (an
+  executable built in the workspace) the workspace's `target/video/`,
+  and compiled once into the cache folder (`DDI_VIDEO_CACHE` moves it;
+  `cargo test -p ddi-desktop --test video` checks it on generated
+  clips). On Linux it builds
+  against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
+  from the system); winit, rfd and arboard load their libraries at run
+  time.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md`.
 - `video/` the software video decoder: a C shim over FFmpeg's video
   decoders (every format StepMania plays), built to
@@ -120,10 +168,23 @@ the browser are implementation details, not advertised features.
 
 ## Commands
 
-- `cargo run` opens the desktop window on our theme's song select
-  (sample data; `--release` for smooth frames; flags on
-  `ddi_desktop::run`). The same crate built for wasm is the web app,
-  which Trunk builds (`just dev`, `just build`).
+- `cargo run` opens the desktop app on our theme's song select
+  (`--profile desktop` for smooth frames: `release` is the wasm bundle's,
+  tuned for size and aborting on panics). Flags (`ddi_desktop::run`):
+  `--songs DIR` (a folder for this run), `--sample`, `--screen
+  select|results|options|calibration|credits`, `--dev`, `--widgets`,
+  `--play SONG [--chart N] [--auto | --auto=pad] [--start]`,
+  `--calibrate visual|audio|combined [--auto] [--bias MS] [--start]`,
+  `--fake-pad "1.0:13+,1.1:13-"`, `--silent` (no sound device: plays run
+  on the host clock), `--volume V`, `--seconds N` (quits, printing the
+  library, the clock's latency and jitter, the devices, the plays),
+  `--lose-device-after S`, `--video-check FILE [--reference REF.yuv]
+  [--frames]`. **Agents' and tests' runs set
+  `DDI_HOME=$PWD/target/scratch/<name>/home`** (never the maintainer's
+  folders), use `--volume 0.005` or `--silent`, and run under
+  `target/scratch/wd.sh`; prefer offscreen tests: a window takes the
+  Mac's focus. The same crate built for wasm is the web app, which Trunk
+  builds (`just dev`, `just build`).
 - `just dev` dev server (auto-reloads on every rebuild; unsuitable for long
   runtime tests). `just dev 0.0.0.0` serves the local network, but a LAN
   address over HTTP is not a secure context (no gamepads, no WebGPU); from
@@ -131,8 +192,26 @@ the browser are implementation details, not advertised features.
   then open `http://localhost:8080`).
 - `just build` release build with the production public URL.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
-- `just test` native tests (chart, engine, render, platform with `decode`,
-  library with `nfkd`, actor, ui, theme, noteskin, lua, desktop, xtask). The app crate has no native tests; verify it in a browser.
+- Windows from the Mac: `rustup target add x86_64-pc-windows-msvc`
+  (and `aarch64-pc-windows-msvc`), then `cargo clippy -p ddi-desktop
+  --target x86_64-pc-windows-msvc --all-targets` with and without
+  `--no-default-features` (no `video`; checking needs no linker; running needs Windows).
+  Linux: the CI job's commands in `catthehacker/ubuntu:act-latest`
+  through `container run` (`act` with `socktainer` gets as far as
+  `actions/checkout`, then cannot copy its step scripts into the
+  container).
+- `just test` native tests (chart, engine, render, session, platform with
+  `decode` and, through desktop, `decode-all` (its references against
+  the `ffmpeg` command where it is installed), library with `nfkd`,
+  actor, ui, theme, noteskin, lua, desktop, xtask), after writing the
+  bundled songs' and noteskins' indexes the desktop's tests read. The
+  app crate has no native tests; verify the web in a browser. Desktop's
+  local checks: `DDI_WEB_PLAYS=<file>` (`--test play -- --ignored`: the
+  judgements against the web's plays of the same charts),
+  `DDI_WORKS=<dir>` and `DDI_WEB_WORKS=<jsonl>` (`--test works --
+  --ignored`: local works against the web's import, autoplayed),
+  `DDI_MOVIE_SONGS`, `DDI_AUDIO_DEVICE_TESTS=1`, `DDI_OFFSCREEN_PPM=<dir>`
+  (keeps the offscreen pictures).
 - `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
   compares every `.sm` under a local folder against the two oracle parsers
   (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`;
@@ -190,7 +269,29 @@ a fake pad or taps at `window.__DDI_DEBUG.ui.rects`, read
 the preview), set files on the hidden `.import-panel input[type=file]`
 (the verify skill's "Song select"); `#/?gfx=gl` (and `auto`, `bias`,
 `slow`, given there or on `#/play?…`) stay for the session: every play
-Start opens and the way back to song select carry them.
+Start opens and the way back to song select carry them. Song select's
+autoplay switch (the header's `Autoplay` pill, `AutoIcon` on a phone;
+`ui.theme.autoplay`; off at first, never saved) sets `auto=1` the same
+way: its plays are flagged in the history, never counted, and their
+results say AUTOPLAY. On a phone the results are one scrolled column
+(`ui.theme.compact`, `scroll`; `ui.rects.ResultsClip`, `Back`).
+Options (`#/options`) is our theme's screen too, on the stored settings:
+drive it the same way (Up/Down rows, Left/Right change, Enter presses a
+row's button, Tab the next section, Escape back), read
+`__DDI_DEBUG.ui.theme` (`section`, `optionId`, `value`, `rows`,
+`notice`, `preview`) and `__DDI_DEBUG.options`, and the settings in
+`localStorage` (`ddi.settings.v1`); the bind dialog takes keys and a
+fake pad's presses as they are (the verify skill's "Options").
+Calibration's menu (`#/calibrate`) and the credits (`#/credits`) are
+pages on the canvas (`ui.theme.pageItems`, `pageFocus`; taps at
+`ui.rects.Item<k>`). The device notices ("First time here?", "New audio
+path: …") are drawn by our theme over every canvas page, read from
+`ui.theme.appNotice` / `appActions`, pressed at `ui.rects.AppNotice.<id>`
+(`later`, `defaults`, `calibrate`), reached by keys with F2 or Up past
+the screen's top (`ui.chromeFocus`); the screen lies below them while
+they show. A fresh profile shows the first-run one: seed
+`audio_profiles` and `display_profiles` in `ddi.settings.v1` (or tap
+`later`) when a test wants the screen without it.
 Useful URL parameters: `#/play?song=<id>&chart=<n>` (chart index as in the
 manifest; the play ends on the theme's results drawn on the canvas, what
 they show in `window.__DDI_DEBUG.results`), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
@@ -218,11 +319,13 @@ selection and preedit, last requests, frames, actor rectangles);
 `#/ui-dev?screen=widgets` (or the Widgets button) shows the widgets: a
 10,000-song list, search with suggestions, option rows, a toggle, a
 slider and results-like panels (`--widgets` in the desktop binary);
-`#/ui-dev?screen=select|results|options` runs the theme's screens on
-sample data (the bundled songs and made-up packs; `--screen select` and
+`#/ui-dev?screen=select|results|options|prompt` runs the theme's screens on
+sample data (the bundled songs and made-up packs; `--screen select --sample` and
 so on in the desktop binary), with their state in
 `__DDI_DEBUG.ui.theme` (screen, song, style, chart, greyed, search,
-popup, hints, pulse, compact, …); a window under 480 CSS pixels high
+popup, hints, pulse, compact, …; Options' field preview: where it
+shows in `__DDI_DEBUG.ui.fieldPreview`, what draws it in
+`fieldPreviewDrawn`, from the stored settings); a window under 480 CSS pixels high
 or 600 wide gets the compact layout, and `prefers-reduced-motion` (or the
 `reduced_motion` setting) stops the beat pulse.
 `window.__DDI_LOSE_DEVICE()` loses the device (a WebGL2 context too), to test recovery;
@@ -230,9 +333,13 @@ or 600 wide gets the compact layout, and `prefers-reduced-motion` (or the
 `pass2d` counters, and on every page `history` (the play history:
 `count`, `loaded`, `blocked`, `stale`, `unreadable`, `last` (the latest
 play's summary and `id`), and on the play route, once the chart is
-loaded, `song` and its charts' `bests`). Songs
+loaded, `song` and its charts' `bests`); on the play route `still`
+(the song's opening still is loaded), while the start prompt shows
+`prompt` (`step`, `notes`, `picture`, `frame`) and `prompt_backdrop`
+(`still`, `background` or `none`: the picture behind it), and `video` (the movies' counters, `update_ms`, `paused`,
+`guard`; `docs/plans/video-backgrounds.md`, step 8). Songs
 played to the end or failed are kept (autoplay flagged, never counted
-toward bests); the Options page's "export play history" downloads them as
+toward bests); Options' Data → Play history → Export downloads them as
 JSON lines. Imported songs have ids
 `u-<hash>` and play through the same route.
 
@@ -272,6 +379,17 @@ calibrated offset.
 - Calibration converges on the real gameplay path with a non-periodic chart;
   the measurable range is ±250 ms by design. Changing the chart pattern or the
   window must keep every gap wider than twice the window.
+- MP3s are heard where StepMania 5.1's reader has them (no delay trimmed, an
+  `Info` tag frame played as silence; PLAN.md decision 46): the web moves
+  each browser's decode to one of the lags the first frame allows, the one
+  a wasm decode of the song's start agrees on, else the one measured for
+  that browser (`ddi_platform::mp3::align`; `window.__DDI_MP3` says which
+  and by how much), kept as the buffer's lead; desktop decodes that way.
+  The shift is the song's audio start, never an offset. A
+  Dancing☆Onigiri work's music goes where Chrome's decode has it
+  instead (danoniplus plays the browser's own decode, and works are
+  synced in Chrome): the lead less Chrome's expected lag
+  (`mp3::Target::Chromium`, `ddi_session::music_target`).
 
 ## Licensing and attribution
 

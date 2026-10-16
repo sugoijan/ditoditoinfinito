@@ -32,6 +32,12 @@ const WIDE_DIM: f32 = 0.6;
 struct BlurParams {
     step: [f32; 2],
     brightness: f32,
+    /// 1: the target holds linear light (the brightness is applied to the
+    /// encoded values all the same).
+    linear: f32,
+    /// The field filter's band, as [`Params`] has it.
+    band: [f32; 2],
+    band_keep: f32,
     _pad: f32,
 }
 
@@ -46,7 +52,11 @@ struct Params {
     kb: f32,
     full_range: f32,
     linear_out: f32,
-    _pad: [f32; 2],
+    /// The field filter's band: its left and right edges (target pixels)
+    /// and the brightness kept inside it (1: no band).
+    band: [f32; 2],
+    band_keep: f32,
+    _pad: [f32; 3],
 }
 
 /// What to show behind the field in one frame. While `mix < 1` a crossfade
@@ -165,12 +175,12 @@ pub fn frame_rect(width: f32, height: f32, aspect: Option<f32>) -> Option<[f32; 
     (width - w >= 1.0 || height - h >= 1.0).then(|| [(width - w) / 2.0, (height - h) / 2.0, w, h])
 }
 
-/// Multiplier for a perceived brightness in `0..=1`. On an sRGB target the
-/// shader works in linear light, where 0.4 would look much brighter than
-/// 40 %; on a plain target the image's values pass through encoded.
-pub fn brightness_factor(perceived: f32, srgb_target: bool) -> f32 {
-    let p = perceived.clamp(0.0, 1.0);
-    if srgb_target { p.powf(2.2) } else { p }
+/// Multiplier for a perceived brightness in `0..=1`, applied to the
+/// encoded values on either target (on an sRGB one the shaders encode,
+/// multiply and decode: the same pixels as a plain target's, and as the
+/// 2D pass's tint draws the start prompt's picture).
+pub fn brightness_factor(perceived: f32) -> f32 {
+    perceived.clamp(0.0, 1.0)
 }
 
 /// What [`BackgroundPipeline::prepare`] set up for one frame.
@@ -720,6 +730,7 @@ impl BackgroundPipeline {
         brightness: f32,
         backdrop: Backdrop,
         frame: Option<f32>,
+        band: Option<([f32; 2], f32)>,
     ) -> Prepared {
         let mut prepared = Prepared {
             target: (width, height),
@@ -751,7 +762,9 @@ impl BackgroundPipeline {
                 .map_or((false, false), |v| (v.bt709, v.full_range));
             let (kr, kb) = weights(bt709);
             let (frame_scale, frame_offset) = cover_uv(fw, fh, image.width, image.height);
-            let params = |(uv_scale, uv_offset): ([f32; 2], [f32; 2]), brightness: f32| Params {
+            let params = |(uv_scale, uv_offset): ([f32; 2], [f32; 2]),
+                          brightness: f32,
+                          band: ([f32; 2], f32)| Params {
                 uv_scale,
                 uv_offset,
                 brightness,
@@ -760,11 +773,15 @@ impl BackgroundPipeline {
                 kb,
                 full_range: if full_range { 1.0 } else { 0.0 },
                 linear_out: if self.srgb { 1.0 } else { 0.0 },
-                _pad: [0.0; 2],
+                band: band.0,
+                band_keep: band.1,
+                _pad: [0.0; 3],
             };
+            let none = ([0.0, 0.0], 1.0);
             let framed = params(
                 (frame_scale, frame_offset),
-                brightness_factor(brightness, self.srgb),
+                brightness_factor(brightness),
+                band.unwrap_or(none),
             );
             queue.write_buffer(&image.params, 0, bytemuck::bytes_of(&framed));
             if let Some((ww, wh)) = wide {
@@ -775,7 +792,8 @@ impl BackgroundPipeline {
                     (frame_scale, frame_offset),
                     cover_uv(ww as f32, wh as f32, fw, fh),
                 );
-                let wide = params(uv, 1.0);
+                // The band is the composite's (in the target's pixels).
+                let wide = params(uv, 1.0, none);
                 queue.write_buffer(&image.params, self.stride, bytemuck::bytes_of(&wide));
             }
         }
@@ -783,17 +801,16 @@ impl BackgroundPipeline {
             let blur = [
                 [1.0 / ww as f32, 0.0, 0.0, 0.0],
                 [0.0, 1.0 / wh as f32, 0.0, 0.0],
-                [
-                    0.0,
-                    0.0,
-                    brightness_factor(brightness * WIDE_DIM, self.srgb),
-                    0.0,
-                ],
+                [0.0, 0.0, brightness_factor(brightness * WIDE_DIM), 0.0],
             ];
             for (buffer, [x, y, b, _]) in w.params.iter().zip(blur) {
+                let (band, band_keep) = band.unwrap_or(([0.0, 0.0], 1.0));
                 let p = BlurParams {
                     step: [x, y],
                     brightness: b,
+                    linear: if self.srgb { 1.0 } else { 0.0 },
+                    band,
+                    band_keep,
                     _pad: 0.0,
                 };
                 queue.write_buffer(buffer, 0, bytemuck::bytes_of(&p));
@@ -966,7 +983,7 @@ mod tests {
             .expect("WGSL validates");
         }
         // Params is laid out as the shader reads it.
-        assert_eq!(std::mem::size_of::<Params>(), 48);
+        assert_eq!(std::mem::size_of::<Params>(), 64);
     }
 
     /// The shader's conversion transcribed for the CPU gives the reference's
@@ -1010,13 +1027,10 @@ mod tests {
     }
 
     #[test]
-    fn brightness_is_perceptual_on_either_target() {
-        for srgb in [false, true] {
-            assert_eq!(brightness_factor(0.0, srgb), 0.0);
-            assert_eq!(brightness_factor(1.0, srgb), 1.0);
-            assert_eq!(brightness_factor(2.0, srgb), 1.0);
-        }
-        assert!((brightness_factor(0.5, true) - 0.5f32.powf(2.2)).abs() < 1e-6);
-        assert_eq!(brightness_factor(0.5, false), 0.5);
+    fn brightness_is_a_multiplier_of_encoded_values() {
+        assert_eq!(brightness_factor(0.0), 0.0);
+        assert_eq!(brightness_factor(1.0), 1.0);
+        assert_eq!(brightness_factor(2.0), 1.0);
+        assert_eq!(brightness_factor(0.5), 0.5);
     }
 }

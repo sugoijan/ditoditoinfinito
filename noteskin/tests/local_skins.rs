@@ -123,6 +123,26 @@ fn kind(r: &Resolved) -> &'static str {
     }
 }
 
+/// The skins played here: dance's and pump's.
+fn played(f: &Folder) -> bool {
+    f.game == "dance" || f.game == "pump"
+}
+
+/// A game's buttons, in the order of its single style's lanes.
+fn buttons(game: &str) -> &'static [Button] {
+    if game == "pump" {
+        &[
+            Button::DownLeft,
+            Button::UpLeft,
+            Button::Center,
+            Button::UpRight,
+            Button::DownRight,
+        ]
+    } else {
+        &Button::ALL
+    }
+}
+
 /// StepMania's and OutFox's other game folders.
 const GAMES: &[&str] = &[
     "pump",
@@ -205,7 +225,7 @@ fn local_skins() {
         }
         let folders: Vec<Folder> = paths.iter().map(|p| folder(p)).collect();
         for (path, f) in paths.iter().zip(&folders) {
-            if f.game != "dance" || f.name.eq_ignore_ascii_case("default") && folders.len() > 1 {
+            if !played(f) || f.name.eq_ignore_ascii_case("default") && folders.len() > 1 {
                 // Fallbacks, not skins of their own here.
                 continue;
             }
@@ -220,7 +240,7 @@ fn local_skins() {
             loaded += 1;
             let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
             let mut core = true;
-            for b in Button::ALL {
+            for &b in buttons(&f.game) {
                 for e in ENGINE_ELEMENTS
                     .iter()
                     .chain(EXPLOSION_PARTS)
@@ -240,7 +260,7 @@ fn local_skins() {
             let mut textures = Textures::default();
             let mut lua_commands = 0;
             for e in ["Explosion", "Tap Mine"] {
-                let built = build(&skin, Button::Down, e, &mut textures, &AnySize);
+                let built = build(&skin, buttons(&f.game)[1], e, &mut textures, &AnySize);
                 lua_commands += built
                     .notes
                     .iter()
@@ -318,7 +338,7 @@ fn local_skins_lua() {
         skins(&root, &mut paths);
         let folders: Vec<Folder> = paths.iter().map(|p| folder(p)).collect();
         for (path, f) in paths.iter().zip(&folders) {
-            if f.game != "dance" || f.name.eq_ignore_ascii_case("default") && folders.len() > 1 {
+            if !played(f) || f.name.eq_ignore_ascii_case("default") && folders.len() > 1 {
                 continue;
             }
             if only
@@ -337,6 +357,8 @@ fn local_skins_lua() {
                 skin.into_owned(),
                 Env {
                     trace_missing: std::env::var_os("DDI_NOTESKINS_WARNINGS").is_some(),
+                    game: f.game.clone(),
+                    columns: if f.game == "pump" { 5 } else { 4 },
                     ..Env::default()
                 },
                 ddi_lua::Settings::default(),
@@ -356,11 +378,12 @@ fn local_skins_lua() {
             // The trees of dance-single's lanes, for the play.
             let mut trees: Vec<(usize, &str, Box<ddi_actor::Actor>)> = Vec::new();
             if let Some(l) = &mut lua {
-                'all: for b in Button::ALL {
+                let lanes = buttons(&f.game);
+                'all: for &b in lanes {
                     for e in ENGINE_ELEMENTS {
                         match l.element(b, e, &mut textures, &AnySize) {
                             Ok(el) => {
-                                let lane = Button::ALL[..4].iter().position(|x| *x == b);
+                                let lane = lanes[..lanes.len().min(5)].iter().position(|x| *x == b);
                                 if let (Some(lane), Built::Actor(a)) = (lane, &el.built) {
                                     trees.push((lane, e, Box::new(a.clone())));
                                 }

@@ -253,6 +253,263 @@ fn glowing(color: [f32; 4], note: &NoteSprite) -> [f32; 4] {
     c
 }
 
+/// O.K. and N.G.: as StepMania 5.1's `_fallback` theme animates its
+/// `HoldJudgment` (`HoldJudgmentHeldCommand`, `HoldJudgmentLetGoCommand`,
+/// in its 480-line screen where an arrow is 64): kept, it pops from 1.25
+/// to its size in 0.3 s; dropped, it sinks 20 units over 0.8 s; both stay
+/// 0.5 s, then go in 0.1 s (StepMania squashes it to half its height and
+/// twice its width meanwhile; text here fades). The time it shows is the
+/// engine's ([`ddi_engine::frame::HELD_SECONDS`]).
+pub struct HoldLook {
+    pub size: f32,
+    /// Down the screen, in arrow sizes.
+    pub dy: f32,
+    pub alpha: f32,
+}
+
+impl HoldLook {
+    pub fn at(held: bool, age: f32) -> HoldLook {
+        let (settle, end) = if held { (0.3, 0.9) } else { (0.8, 1.4) };
+        let alpha = (1.0 - (age - (end - 0.1)).max(0.0) / 0.1).clamp(0.0, 1.0);
+        let t = (age / settle).clamp(0.0, 1.0);
+        if held {
+            HoldLook {
+                size: 1.25 - 0.25 * t,
+                dy: 0.0,
+                alpha,
+            }
+        } else {
+            HoldLook {
+                size: 1.0,
+                dy: (-10.0 + 20.0 * t) / 64.0,
+                alpha,
+            }
+        }
+    }
+}
+
+/// O.K.'s colour (a pale gold, `#ffd666`) and N.G.'s (a pale red,
+/// `#ff6e6e`).
+pub const HELD_COLOR: [f32; 4] = [1.0, 0.84, 0.4, 1.0];
+pub const LET_GO_COLOR: [f32; 4] = [1.0, 0.43, 0.43, 1.0];
+
+/// The holds' and shocks' outcomes, under the ruleset's names: over each
+/// lane, 54 units (of an arrow's 64) past the receptor towards the
+/// field's middle (`HoldJudgmentYStandard` −90 against the receptors'
+/// −144, and the same mirrored under Reverse), centred there and no wider
+/// than the lane; or Dancing☆Onigiri's freeze judgement, still, two
+/// arrows right of the tap judgement and 1.4 below it (`mainWindow.js`
+/// places it 100 px right and 70 px below in its 50 px arrows), as large.
+fn hold_judgements(
+    frame: &Frame,
+    layout: &Layout,
+    geo: &FieldGeometry,
+    names: &JudgeNames,
+    judgement: (f32, f32, f32),
+    text: &mut Vec<TextItem>,
+) {
+    use ddi_engine::frame::HoldPlace;
+    let a = geo.arrow;
+    for f in &frame.holds.flashes {
+        let label = if f.held { &names.held } else { &names.let_go };
+        if label.is_empty() {
+            continue;
+        }
+        let mut color = if f.held { HELD_COLOR } else { LET_GO_COLOR };
+        let (x, y, size) = match frame.holds.place {
+            HoldPlace::None => continue,
+            HoldPlace::Lanes => {
+                let Some(lane) = layout.lanes.get(usize::from(f.lane)) else {
+                    continue;
+                };
+                let look = HoldLook::at(f.held, f.age);
+                if look.alpha <= 0.0 {
+                    continue;
+                }
+                color[3] *= look.alpha;
+                let ry = geo.lane_receptor_y(lane.scroll_sign);
+                let inward = if ry < geo.height / 2.0 { 1.0 } else { -1.0 };
+                let y = ry + inward * a * 54.0 / 64.0 + look.dy * a;
+                // About the width of a lane (StepMania's graphic is 64 by
+                // 32), never wider, so neighbours never run together.
+                let rest = (a * 0.4).max(11.0).min(fit_width(label, a * 0.9));
+                (geo.lane_x(lane.column), y, popped(rest, rest * look.size))
+            }
+            HoldPlace::Centre => {
+                let (jx, jy, jsize) = judgement;
+                (jx + a * 2.0, jy + a * 1.4, jsize)
+            }
+        };
+        // `y` is the line's middle; a run is placed by its top, its line
+        // 1.2 times its size.
+        text.push(TextItem {
+            text: label.clone(),
+            x,
+            y: y - size * 0.6,
+            size,
+            color,
+            align: Align::Center,
+            bold: true,
+        });
+    }
+}
+
+/// The largest size `label` fits `width` at: the HUD's face is monospaced,
+/// half an em a character, wide ones (CJK) a whole em.
+fn fit_width(label: &str, width: f32) -> f32 {
+    let ems: f32 = label
+        .chars()
+        .map(|c| if (c as u32) < 0x1100 { 0.5 } else { 1.0 })
+        .sum();
+    if ems > 0.0 {
+        width / ems
+    } else {
+        f32::INFINITY
+    }
+}
+
+/// The touch screens' quit button (hold or double-tap it to quit, as
+/// Escape): its middle and radius in the target's pixels, `ratio` of them
+/// to a CSS pixel; 44 CSS pixels across, kept 8 in from the edges and the
+/// safe area (`inset`: top, right, bottom, left, CSS pixels). In the left
+/// margin beside the field when the field leaves room for it there, else
+/// at the left edge; at the end away from the receptors (the bottom in
+/// normal scroll, the top under Reverse; halfway down when the layout
+/// has receptors at both ends), so a finger at the receptors never meets
+/// it.
+pub fn quit_button(geo: &FieldGeometry, layout: &Layout, ratio: f32, inset: [f32; 4]) -> [f32; 3] {
+    let (r, m) = (22.0 * ratio, 8.0 * ratio);
+    let [top, _, bottom, left] = inset.map(|v| v.max(0.0) * ratio);
+    let mid = geo.height / 2.0;
+    let rows = |above: bool| {
+        layout
+            .lanes
+            .iter()
+            .any(|l| (geo.lane_receptor_y(l.scroll_sign) < mid) == above)
+    };
+    let (at_top, at_bottom) = (rows(true), rows(false));
+    let y = match (at_top, at_bottom) {
+        (true, false) => geo.height - bottom.max(m) - r,
+        (false, true) | (false, false) => top.max(m) + r,
+        (true, true) => mid,
+    };
+    // Beside the field when it leaves room, else at the edge.
+    let x = left.max(m) + r;
+    let x = if geo.left - m >= x + r {
+        (geo.left / 2.0).max(x)
+    } else {
+        x
+    };
+    [x, y, r]
+}
+
+/// Where the HUD draws over the top of the screen, `[left, top, right,
+/// bottom]` in the target's px: the life gauge and the score (as wide as
+/// its longest, "1000000"): what the lyrics keep clear of.
+pub fn hud_areas(geo: &FieldGeometry) -> Vec<[f32; 4]> {
+    let a = geo.arrow;
+    let bar_w = (geo.width * 0.3).min(a * 6.0);
+    let bar_h = (a * 0.22).max(8.0);
+    let bar_y = bar_h * 1.5;
+    let cx = geo.width / 2.0;
+    let size = (a * 0.5).max(14.0);
+    let right = geo.width - a * 0.5;
+    vec![
+        [
+            cx - bar_w / 2.0,
+            bar_y - bar_h / 2.0,
+            cx + bar_w / 2.0,
+            bar_y + bar_h / 2.0,
+        ],
+        [
+            right - 7.0 * 0.6 * size,
+            a * 0.35,
+            right,
+            a * 0.35 + size * 1.25,
+        ],
+    ]
+}
+
+/// The receptor rows and the lanes' approach near them, `[left, top,
+/// right, bottom]` in the target's px, across the field: each row's
+/// receptors (half an arrow either side of their middle, a little more)
+/// and an arrow's height of the approach on the side the notes come from:
+/// what lyrics never cover.
+pub fn receptor_areas(geo: &FieldGeometry, layout: &Layout) -> Vec<[f32; 4]> {
+    let a = geo.arrow;
+    let span = field_span(layout);
+    let (x0, x1) = (geo.left - a * 0.2, geo.left + a * span + a * 0.2);
+    let mut rows: Vec<f32> = Vec::new();
+    for l in &layout.lanes {
+        let y = geo.lane_receptor_y(l.scroll_sign);
+        if !rows.iter().any(|r| (r - y).abs() < 0.5) {
+            rows.push(y);
+        }
+    }
+    rows.into_iter()
+        .map(|y| {
+            if y < geo.height / 2.0 {
+                [x0, y - a * 0.6, x1, y + a]
+            } else {
+                [x0, y - a, x1, y + a * 0.6]
+            }
+        })
+        .collect()
+}
+
+/// Draws the quit button ([`quit_button`]) over everything else: a dark
+/// disc with a light rim and a ✕.
+pub fn add_quit_button(scene: &mut SceneOutput, [x, y, r]: [f32; 3]) {
+    let start = scene.instances.len() as u32;
+    scene.instances.push(Instance::new(
+        [x, y],
+        [r * 2.0, r * 2.0],
+        Shape::Circle,
+        [1.0, 1.0, 1.0, 0.3],
+    ));
+    let rim = (r / 22.0).max(1.0);
+    scene.instances.push(Instance::new(
+        [x, y],
+        [(r - rim) * 2.0, (r - rim) * 2.0],
+        Shape::Circle,
+        [0.0, 0.0, 0.0, 0.6],
+    ));
+    for angle in [std::f32::consts::FRAC_PI_4, -std::f32::consts::FRAC_PI_4] {
+        scene.instances.push(
+            Instance::new(
+                [x, y],
+                [r * 0.85, r * 0.13],
+                Shape::Rect,
+                [1.0, 1.0, 1.0, 0.95],
+            )
+            .params([0.5, 0.0, 0.0, 0.0])
+            .rotated(angle),
+        );
+    }
+    let end = scene.instances.len() as u32;
+    match scene.order.last_mut() {
+        Some(Segment::Sprites(range)) if range.end == start => range.end = end,
+        _ => scene.order.push(Segment::Sprites(start..end)),
+    }
+}
+
+/// The field filter's band for a field `span` lanes wide: its middle and
+/// its width, pixels across the target (a little wider than the lanes).
+/// The start prompt draws the same band (`ddi_ui::screens::prompt`).
+pub fn filter_band(geo: &FieldGeometry, span: f32) -> [f32; 2] {
+    let a = geo.arrow;
+    [geo.left + a * span / 2.0, a * (span + 0.3)]
+}
+
+/// The size a popping run is drawn at: `size` with its overshoot past
+/// `rest` in half pixels (a few sizes in all, each shaped and rasterised
+/// once and cached, where every frame of a pop asked for a new one; the
+/// resting size exactly). The text pipeline samples its glyphs pixel for
+/// pixel, so a pop drawn by scaling one raster would show its pixels.
+pub fn popped(rest: f32, size: f32) -> f32 {
+    rest + ((size - rest) * 2.0).round() / 2.0
+}
+
 /// Alpha of a black overlay that removes `amount` of perceived brightness.
 /// On an sRGB target blending happens in linear light, so the remaining
 /// brightness is converted; on a plain target values are already
@@ -359,11 +616,10 @@ pub fn build(
     let span = field_span(layout);
     // Field filter: a dark band behind the lanes, over the background.
     if opts.field_filter > 0.0 && !layout.lanes.is_empty() {
-        let lanes = span;
-        let w = a * (lanes + 0.3);
+        let [mid, w] = filter_band(geo, span);
         instances.push(
             Instance::new(
-                [geo.left + a * lanes / 2.0, geo.height / 2.0],
+                [mid, geo.height / 2.0],
                 [w, geo.height + 2.0],
                 Shape::Rect,
                 [0.0, 0.0, 0.0, filter_alpha(opts.field_filter, srgb_target)],
@@ -555,6 +811,13 @@ pub fn build(
             bold: true,
         });
     }
+    // The tap judgement's middle and resting size.
+    let judgement_size = (a * 0.55).max(16.0);
+    let judgement_at = (
+        field_center_x,
+        mid_y - a * 1.1 + judgement_size * 0.6,
+        judgement_size,
+    );
     if let Some(flash) = &frame.judgement {
         let fade = (1.0 - (flash.age - 0.5).max(0.0) / 0.3).clamp(0.0, 1.0);
         if fade > 0.0 {
@@ -567,7 +830,7 @@ pub fn build(
                     text: label.to_string(),
                     x: field_center_x,
                     y: mid_y - a * 1.1,
-                    size: (a * 0.55 * pop).max(16.0),
+                    size: popped(judgement_size, (a * 0.55 * pop).max(16.0)),
                     color,
                     align: Align::Center,
                     bold: true,
@@ -595,6 +858,8 @@ pub fn build(
             }
         }
     }
+
+    hold_judgements(frame, layout, geo, names, judgement_at, &mut text);
 
     if opts.cancel_progress > 0.0 {
         let p = opts.cancel_progress.clamp(0.0, 1.0);
@@ -801,6 +1066,7 @@ mod tests {
             ],
             notes,
             judgement: None,
+            holds: Default::default(),
             combo: 0,
             score: Default::default(),
             life: 0.5,
@@ -827,6 +1093,146 @@ mod tests {
             (&[], &[]),
         )
         .instances
+    }
+
+    #[test]
+    fn a_pop_is_drawn_at_a_few_sizes_and_rests_exactly() {
+        let rest = (50.0f32 * 0.55).max(16.0);
+        let mut sizes = Vec::new();
+        // A pop at 144 frames a second.
+        for f in 0..=20 {
+            let age = f as f32 / 144.0;
+            let pop = 1.0 + 0.15 * (1.0 - (age / 0.12).min(1.0));
+            let exact = rest * pop;
+            let size = popped(rest, exact);
+            assert!((size - exact).abs() <= 0.25, "{size} {exact}");
+            if !sizes.contains(&size.to_bits()) {
+                sizes.push(size.to_bits());
+            }
+        }
+        assert!(sizes.len() <= 10, "{}", sizes.len());
+        assert_eq!(popped(rest, rest), rest);
+        assert_eq!(popped(16.0, 16.0), 16.0);
+    }
+
+    /// O.K. and N.G. over every lane, then the frame's text.
+    fn hold_text(place: ddi_engine::frame::HoldPlace, names: &JudgeNames) -> Vec<TextItem> {
+        use ddi_engine::frame::{HoldFlash, HoldJudgements};
+        let mut f = frame(Vec::new(), Appearance::Visible);
+        f.holds = HoldJudgements {
+            place,
+            flashes: (0..4)
+                .map(|lane| HoldFlash {
+                    lane,
+                    held: lane % 2 == 0,
+                    age: 0.85,
+                })
+                .collect(),
+        };
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
+        build(
+            &f,
+            &Layout::dance_single(),
+            names,
+            &Skin::default(),
+            &geo,
+            RenderOptions::default(),
+            false,
+            None,
+            (&[], &[]),
+        )
+        .text
+    }
+
+    #[test]
+    fn hold_outcomes_are_centred_past_the_receptors_and_fit_their_lanes() {
+        use ddi_engine::frame::HoldPlace;
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
+        let a = geo.arrow;
+        let mut names = presets::itg().names;
+        // A long name must shrink to its lane, not run into the next.
+        names.let_go = "Dropped hold".into();
+        let text = hold_text(HoldPlace::Lanes, &names);
+        assert_eq!(text.len(), 4);
+        let middle = geo.lane_receptor_y(1) + a * 54.0 / 64.0;
+        for t in &text {
+            // N.G. has sunk its 20 units of 64 by now (from 10 above).
+            let sunk = if t.text == names.held {
+                0.0
+            } else {
+                a * 10.0 / 64.0
+            };
+            assert!((t.y + t.size * 0.6 - middle - sunk).abs() < 0.01, "{t:?}");
+            assert!(t.size / fit_width(&t.text, 1.0) <= a * 0.9 + 0.01, "{t:?}");
+        }
+    }
+
+    #[test]
+    fn the_freeze_judgement_sits_beside_the_tap_judgement() {
+        use ddi_engine::frame::HoldPlace;
+        let names = presets::danoni().names;
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
+        let a = geo.arrow;
+        let text = hold_text(HoldPlace::Centre, &names);
+        assert_eq!(text.len(), 4);
+        let size = (a * 0.55).max(16.0);
+        let tap_middle = geo.height / 2.0 - a * 1.1 + size * 0.6;
+        for t in &text {
+            assert_eq!(t.size, size);
+            assert!((t.y + t.size * 0.6 - (tap_middle + a * 1.4)).abs() < 0.01);
+            assert_eq!(t.color[3], 1.0);
+        }
+    }
+
+    #[test]
+    fn the_quit_button_sits_in_the_corner_over_everything() {
+        let single = Layout::dance_single();
+        // A phone upright at 2×: the field from 130 to 650 of 780 px, the
+        // receptors at the top; the button at the bottom, 8 in, in the
+        // middle of the margin left of the field.
+        let geo = FieldGeometry::new(780.0, 1688.0, 4.0, false);
+        let [x, y, r] = quit_button(&geo, &single, 2.0, [0.0; 4]);
+        assert_eq!(r, 44.0);
+        assert_eq!(y, 1688.0 - 16.0 - 44.0);
+        assert_eq!(x, 65.0);
+        assert!(x + r < geo.left);
+        // Under Reverse at the top, past a notch's inset.
+        let rev = FieldGeometry::new(780.0, 1688.0, 4.0, true);
+        let [_, y, _] = quit_button(&rev, &single, 2.0, [47.0, 0.0, 0.0, 0.0]);
+        assert_eq!(y, 94.0 + 44.0);
+        // Sideways, the field leaves room: halfway into the margin.
+        let wide = FieldGeometry::new(844.0, 390.0, 4.0, false);
+        let [x, ..] = quit_button(&wide, &single, 1.0, [0.0; 4]);
+        assert_eq!(x, wide.left / 2.0);
+        // Clear of every receptor and lane: wholly left of the field, or
+        // away from the receptors.
+        for g in [geo, wide] {
+            let [x, y, r] = quit_button(&g, &single, 1.0, [0.0; 4]);
+            let receptor = g.lane_receptor_y(1);
+            assert!(x + r <= g.left || (y - receptor).abs() > g.arrow * 3.0);
+        }
+        let f = frame(Vec::new(), Appearance::Visible);
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
+        let mut out = build(
+            &f,
+            &Layout::dance_single(),
+            &presets::itg().names,
+            &Skin::default(),
+            &geo,
+            RenderOptions::default(),
+            false,
+            None,
+            (&[], &[]),
+        );
+        let before = out.instances.len() as u32;
+        add_quit_button(&mut out, [30.0, 30.0, 22.0]);
+        let end = out.instances.len() as u32;
+        assert_eq!(end, before + 4);
+        // Drawn last.
+        let Some(Segment::Sprites(r)) = out.order.last() else {
+            panic!("{:?}", out.order)
+        };
+        assert_eq!(r.end, end);
     }
 
     #[test]

@@ -263,4 +263,20 @@ StepMania 3.9 and OpenITG skins (`docs/plans/legacy-skins.md`), a preview
 layouts (`docs/plans/danoni-skins.md`, `docs/plans/pump.md`). Left:
 
 - OutFox's `global/` skins and per-game extras.
-- Pump skins (`NoteSkins/pump/*`, `docs/plans/pump.md`).
+- Pump skins: done 2026-10-16 (`docs/plans/pump.md`, "Pump skins").
+- Fades and crops: done 2026-10-16. `cropleft`, `cropright`, `croptop`,
+  `cropbottom`, `fadeleft`, `faderight`, `fadetop`, `fadebottom` (and
+  `GetCrop*`) tween with the rest of the actor's state
+  (`ddi_actor::TweenState::crop`, `fade`) and are drawn as StepMania
+  5.1's `Sprite::DrawPrimitives` draws them: a crop cuts the quad and its
+  image, never past the sprite; a faded edge is a piece of its own around
+  the inside, transparent on its outer side, its inner side as opaque as
+  a crop leaves room for, the corners where two fades meet left out; the
+  glow is not faded. Both draw paths (the 2D pass, a skin in play) take
+  the pieces as quads. Our shapes (`cornerradius` and the rest) are of
+  a whole quad: a cut piece draws StepMania's plain one. In the corpus
+  pump/delta (StepMania 5.1's, ITGmania's, OutFox's) and the community
+  Bright14 use them; they load and play through their Lua with no
+  warning about them (`desktop/tests/actor_cuts_offscreen.rs` draws each
+  direction and a tween on the GPU; the 84 skin previews of the bundled
+  skins are identical).

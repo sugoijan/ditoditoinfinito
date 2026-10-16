@@ -1,7 +1,6 @@
 //! A noteskin's elements alone on a canvas, as a play draws them: the
 //! page `#/skin-preview` (checking a skin against the renders its author
-//! published) and the preview under the Arrows choice in Options, both a
-//! [`PreviewCanvas`].
+//! published), a [`PreviewCanvas`].
 //!
 //! The page's parameters: `skin` (the setting's key, `bundled:dance/cf_chrome`
 //! or an import's `dance/<name>`; `builtin` for the built-in arrows),
@@ -19,6 +18,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use crate::component::{Component, Context, Mounted, NodeRef};
 use ddi_chart::{Layout, Quantization};
 use ddi_engine::appearance::Appearance;
 use ddi_engine::demo::Demo;
@@ -29,7 +29,6 @@ use ddi_render::{ColorScheme, FieldGeometry, Preview, RenderOptions, Renderer, f
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
-use yew::prelude::*;
 
 use crate::web::gfx::{Gfx, SurfaceMode};
 
@@ -176,23 +175,47 @@ impl PreviewOptions {
     }
 }
 
-/// The page.
-#[derive(Properties, PartialEq)]
-pub(crate) struct Props {
-    pub(crate) params: Vec<(String, String)>,
-}
+/// The animation frame callback, kept alive between frames.
+type Tick = Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>;
 
-#[function_component(SkinPreview)]
-pub(crate) fn skin_preview(props: &Props) -> Html {
-    let options = PreviewOptions::parse(&props.params);
-    html! {
-        <main class="skin-preview">
-            <PreviewCanvas {options} />
-        </main>
+/// The page: the preview in a `main.skin-preview` at the end of
+/// `parent`, until the handle is dropped.
+pub(crate) fn mount(parent: &web_sys::Element, params: &[(String, String)]) -> SkinPreview {
+    let main = crate::component::element(parent, "main", "skin-preview");
+    let options = PreviewOptions::parse(params);
+    SkinPreview {
+        canvas: Some(crate::component::mount(
+            &main,
+            "div",
+            CanvasProps { options },
+        )),
+        main,
     }
 }
 
-#[derive(Properties, PartialEq)]
+/// The page while it shows.
+pub(crate) struct SkinPreview {
+    canvas: Option<Mounted<PreviewCanvas>>,
+    main: web_sys::HtmlElement,
+}
+
+impl SkinPreview {
+    /// The address's parameters changed: the preview shows them.
+    pub(crate) fn set_params(&self, params: &[(String, String)]) {
+        if let Some(c) = &self.canvas {
+            c.scope()
+                .send_message(Msg::Options(PreviewOptions::parse(params)));
+        }
+    }
+}
+
+impl Drop for SkinPreview {
+    fn drop(&mut self) {
+        self.canvas.take();
+        self.main.remove();
+    }
+}
+
 pub(crate) struct CanvasProps {
     pub(crate) options: PreviewOptions,
 }
@@ -207,6 +230,9 @@ struct Device {
 /// What is shown.
 struct Shown {
     play: Option<NoteskinPlay>,
+    /// Images copied to the device and not yet closed: closed after the
+    /// next frame's submit (WebGL2 copies then), with those of a skin
+    /// shown before that frame.
     images: Vec<web_sys::ImageBitmap>,
     options: PreviewOptions,
     layout: Layout,
@@ -251,7 +277,7 @@ pub(crate) struct PreviewCanvas {
     slot: NodeRef,
     state: Rc<RefCell<State>>,
     /// The animation frame callback, kept alive.
-    tick: Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>,
+    tick: Tick,
     /// The pending animation frame request, cancelled before the callback
     /// is dropped.
     frame: Rc<Cell<i32>>,
@@ -259,6 +285,8 @@ pub(crate) struct PreviewCanvas {
 
 pub(crate) enum Msg {
     Status,
+    /// The address asks for other options.
+    Options(PreviewOptions),
 }
 
 impl Component for PreviewCanvas {
@@ -279,13 +307,31 @@ impl Component for PreviewCanvas {
         }
     }
 
-    fn update(&mut self, _ctx: &Context<Self>, _msg: Msg) -> bool {
-        true
+    fn update(&mut self, ctx: &Context<Self>, msg: Msg) -> bool {
+        match msg {
+            Msg::Status => true,
+            Msg::Options(options) => self.changed(ctx, options),
+        }
     }
 
-    fn changed(&mut self, ctx: &Context<Self>, old: &CanvasProps) -> bool {
-        let options = ctx.props().options.clone();
-        if options == old.options {
+    fn rendered(&mut self, ctx: &Context<Self>, first_render: bool) {
+        self.first_rendered(ctx, first_render);
+    }
+
+    fn destroy(&mut self, _ctx: &Context<Self>) {
+        self.close();
+    }
+
+    fn view(&self, ctx: &Context<Self>) {
+        self.show(ctx);
+    }
+}
+
+impl PreviewCanvas {
+    /// Shows `options` now (the address changed): the skin is loaded
+    /// again on the same device.
+    fn changed(&mut self, ctx: &Context<Self>, options: PreviewOptions) -> bool {
+        if self.state.borrow().wanted.as_ref() == Some(&options) {
             return false;
         }
         let generation = {
@@ -307,7 +353,7 @@ impl Component for PreviewCanvas {
         true
     }
 
-    fn rendered(&mut self, ctx: &Context<Self>, first_render: bool) {
+    fn first_rendered(&mut self, ctx: &Context<Self>, first_render: bool) {
         if !first_render {
             return;
         }
@@ -353,7 +399,7 @@ impl Component for PreviewCanvas {
         });
     }
 
-    fn destroy(&mut self, _ctx: &Context<Self>) {
+    fn close(&mut self) {
         let mut st = self.state.borrow_mut();
         st.closed = true;
         if let Some(w) = web_sys::window() {
@@ -370,13 +416,22 @@ impl Component for PreviewCanvas {
         st.attachment = None;
     }
 
-    fn view(&self, _ctx: &Context<Self>) -> Html {
+    fn show(&self, ctx: &Context<Self>) {
         let status = self.state.borrow().status.clone();
-        html! {
-            <div class="skin-preview-canvas">
-                <div class="skin-preview-slot" ref={self.slot.clone()} role="img" aria-label={format!("noteskin preview: {status}")}></div>
-                <p class="skin-preview-status" aria-hidden="true">{ status }</p>
-            </div>
+        let root = ctx.root();
+        if self.slot.get().is_none() {
+            root.set_class_name("skin-preview-canvas");
+            let slot = crate::component::element(root, "div", "skin-preview-slot");
+            let _ = slot.set_attribute("role", "img");
+            self.slot.set(&slot);
+            let p = crate::component::element(root, "p", "skin-preview-status");
+            let _ = p.set_attribute("aria-hidden", "true");
+        }
+        if let Some(slot) = self.slot.get() {
+            let _ = slot.set_attribute("aria-label", &format!("noteskin preview: {status}"));
+        }
+        if let Ok(Some(p)) = root.query_selector(".skin-preview-status") {
+            p.set_text_content(Some(&status));
         }
     }
 }
@@ -384,7 +439,10 @@ impl Component for PreviewCanvas {
 /// Takes up the app's device (at the start, and after a loss): a renderer
 /// on it, the canvas made with it. `false` when there is none or the
 /// preview closed.
-async fn take_device(state: &Rc<RefCell<State>>, link: &html::Scope<PreviewCanvas>) -> bool {
+async fn take_device(
+    state: &Rc<RefCell<State>>,
+    link: &crate::component::Scope<PreviewCanvas>,
+) -> bool {
     let gfx = match crate::web::screen::gfx().await {
         Ok(g) => g,
         Err(e) => {
@@ -441,7 +499,15 @@ async fn load(state: &Rc<RefCell<State>>, options: PreviewOptions, generation: u
     let prepared = if options.skin == crate::noteskins::BUILT_IN {
         None
     } else {
-        crate::noteskins::prepare(&options.skin, &layout, Default::default()).await
+        // Given up once newer options are asked for (a test stepping
+        // through skins).
+        let state = state.clone();
+        let wanted: crate::noteskins::Wanted = std::rc::Rc::new(move || {
+            state
+                .try_borrow()
+                .map_or(true, |st| !st.closed && st.generation == generation)
+        });
+        crate::noteskins::prepare_while(&options.skin, &layout, Default::default(), wanted).await
     };
     let mut st = state.borrow_mut();
     if st.closed || st.generation != generation {
@@ -458,9 +524,8 @@ async fn load(state: &Rc<RefCell<State>>, options: PreviewOptions, generation: u
         }
         return;
     };
-    if let Some(old) = st.shown.take() {
-        old.close();
-    }
+    // The last skin's images may wait for a submit still.
+    let mut images = st.shown.take().map(|s| s.images).unwrap_or_default();
     // The canvas takes the new size as the new skin shows.
     if let Some(canvas) = &st.canvas {
         size_canvas(canvas, &options);
@@ -472,20 +537,20 @@ async fn load(state: &Rc<RefCell<State>>, options: PreviewOptions, generation: u
     renderer.set_skins_drawn(&gfx.device, &gfx.queue, prepared.is_some());
     let [r, g, b] = options.background;
     renderer.skin.background = wgpu::Color { r, g, b, a: 1.0 };
-    let (play, images) = match prepared {
+    let play = match prepared {
         Some(p) => {
             let mut play = p.play;
             play.set_srgb(renderer.srgb() && !renderer.skins_blend_encoded());
-            let images = crate::game_loop::upload_noteskin(
+            images.extend(crate::game_loop::upload_noteskin(
                 renderer,
                 &gfx.device,
                 &gfx.queue,
                 &mut play,
                 &p.images,
-            );
-            (Some(play), images)
+            ));
+            Some(play)
         }
-        None => (None, Vec::new()),
+        None => None,
     };
     st.status = match &play {
         Some(p) => format!("{} on {}", p.name, gfx.backend_name()),
@@ -513,9 +578,9 @@ async fn load(state: &Rc<RefCell<State>>, options: PreviewOptions, generation: u
 /// Draws a frame on every animation frame while the canvas is shown.
 fn start(
     state: Rc<RefCell<State>>,
-    tick: Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>,
+    tick: Tick,
     frame: Rc<Cell<i32>>,
-    link: html::Scope<PreviewCanvas>,
+    link: crate::component::Scope<PreviewCanvas>,
 ) {
     let again = tick.clone();
     let next = frame.clone();
@@ -625,6 +690,7 @@ fn still_frame(o: &PreviewOptions, layout: &Layout, beat: f64) -> Frame {
         ],
         notes,
         judgement: None,
+        holds: Default::default(),
         combo: 0,
         score: Default::default(),
         life: 0.5,
@@ -722,6 +788,9 @@ fn draw(device: &mut Device, shown: &mut Shown, time_ms: f64) {
             .map(|p| p as &mut dyn ddi_render::noteskin::NoteLayer),
     );
     gfx.queue.submit(Some(encoder.finish()));
+    for image in shown.images.drain(..) {
+        image.close();
+    }
     gfx.queue.present(surface);
     if let Some(w) = web_sys::window() {
         let _ = js_sys::Reflect::set(&w, &"__DDI_PREVIEW_DRAWN".into(), &beat.into());

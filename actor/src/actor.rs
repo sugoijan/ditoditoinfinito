@@ -17,6 +17,12 @@ pub struct TweenState {
     /// lower right.
     pub diffuse: [Rgba; 4],
     pub glow: Rgba,
+    /// A sprite's crop, fractions of its size cut away: left, top, right,
+    /// bottom (`TweenState::crop`, `cropleft` and the rest).
+    pub crop: [f32; 4],
+    /// A sprite's faded edges, fractions of its size: left, top, right,
+    /// bottom (`TweenState::fade`, `fadeleft` and the rest).
+    pub fade: [f32; 4],
 }
 
 impl Default for TweenState {
@@ -28,6 +34,8 @@ impl Default for TweenState {
             scale: [1.0; 3],
             diffuse: [[1.0; 4]; 4],
             glow: [1.0, 1.0, 1.0, 0.0],
+            crop: [0.0; 4],
+            fade: [0.0; 4],
         }
     }
 }
@@ -49,6 +57,8 @@ impl TweenState {
             scale: lerp_n(t, a.scale, b.scale),
             diffuse: std::array::from_fn(|i| lerp_n(t, a.diffuse[i], b.diffuse[i])),
             glow: lerp_n(t, a.glow, b.glow),
+            crop: lerp_n(t, a.crop, b.crop),
+            fade: lerp_n(t, a.fade, b.fade),
         }
     }
 
@@ -949,6 +959,10 @@ pub const METHODS: &[&str] = &[
     "bounceend",
     "clearzbuffer",
     "cornerradius",
+    "cropbottom",
+    "cropleft",
+    "cropright",
+    "croptop",
     "cullmode",
     "customtexturerect",
     "decelerate",
@@ -976,6 +990,10 @@ pub const METHODS: &[&str] = &[
     "effectoffset",
     "effectperiod",
     "effecttiming",
+    "fadebottom",
+    "fadeleft",
+    "faderight",
+    "fadetop",
     "finishtweening",
     "ellipsis",
     "fov",
@@ -1867,6 +1885,16 @@ impl Actor {
                     d.scale[1] = h / size[1];
                 }
             }
+            // Crops and faded edges (`Actor.h:448-456`): left, top,
+            // right, bottom.
+            "cropleft" => self.dest().crop[0] = num(0)?,
+            "croptop" => self.dest().crop[1] = num(0)?,
+            "cropright" => self.dest().crop[2] = num(0)?,
+            "cropbottom" => self.dest().crop[3] = num(0)?,
+            "fadeleft" => self.dest().fade[0] = num(0)?,
+            "fadetop" => self.dest().fade[1] = num(0)?,
+            "faderight" => self.dest().fade[2] = num(0)?,
+            "fadebottom" => self.dest().fade[3] = num(0)?,
             "rotationx" => self.dest().rotation[0] = num(0)?,
             "rotationy" => self.dest().rotation[1] = num(0)?,
             "rotationz" => self.dest().rotation[2] = num(0)?,
@@ -2333,6 +2361,10 @@ impl Actor {
             "GetZoomZ" => Value::Num(d.scale[2]),
             "GetRotationX" => Value::Num(d.rotation[0]),
             "GetRotationY" => Value::Num(d.rotation[1]),
+            "GetCropLeft" => Value::Num(d.crop[0]),
+            "GetCropTop" => Value::Num(d.crop[1]),
+            "GetCropRight" => Value::Num(d.crop[2]),
+            "GetCropBottom" => Value::Num(d.crop[3]),
             "GetRotationZ" => Value::Num(d.rotation[2]),
             "GetBaseZoomX" => Value::Num(self.base_scale[0]),
             "GetBaseZoomY" => Value::Num(self.base_scale[1]),
@@ -2497,7 +2529,14 @@ impl Actor {
             Kind::Sprite(sprite) => {
                 let sized = mul(&m, &[size[0], 0.0, 0.0, size[1], 0.0, 0.0]);
                 let sized3 = mul4(&m3, &scale4([size[0], size[1], 1.0]));
-                let quad = |transform: Mat, transform3: &Mat4, diffuse, glow| {
+                let uv_of =
+                    |sprite: &Sprite| sprite.custom.unwrap_or(sprite.states[sprite.current].rect);
+                let quad = |transform: Mat,
+                            transform3: &Mat4,
+                            diffuse,
+                            glow,
+                            uv: [f32; 4],
+                            whole: bool| {
                     let projected = match &camera {
                         Some(c) => Some(Projected::of(c, transform3)?),
                         None => None,
@@ -2505,29 +2544,50 @@ impl Actor {
                     Some(Drawn::Quad(Quad {
                         transform,
                         texture: sprite.texture,
-                        uv: sprite.custom.unwrap_or(sprite.states[sprite.current].rect),
+                        uv,
                         texcoord_offset: sprite.texcoord_offset,
                         diffuse,
                         glow,
                         blend,
                         depth: depth_state,
                         projected,
-                        shape: sprite.shape,
+                        // Our shapes are of the whole quad: a piece is
+                        // StepMania's plain one.
+                        shape: if whole {
+                            sprite.shape
+                        } else {
+                            Shape::default()
+                        },
                         size,
                         blur,
                     }))
                 };
-                // Any corner seen draws the diffuse pass and the shadow
-                // (`DrawTexture`).
-                if opaque && let Some((by, c)) = shadow(s.diffuse[0][3]) {
-                    out.extend(quad(
-                        shifted(&sized, by),
-                        &shifted4(&sized3, by),
-                        [c; 4],
-                        [0.0; 4],
-                    ));
+                // `Sprite::DrawPrimitives`: the sprite as it is, or cropped,
+                // or its faded edges as pieces of their own around the
+                // inside (each drawn as `DrawTexture` draws it).
+                for piece in pieces(&s) {
+                    let Some((sub, uv)) = piece.cut(&sized, &sized3, uv_of(sprite)) else {
+                        continue;
+                    };
+                    let seen = piece.diffuse.iter().any(|c| c[3] > 0.0);
+                    if !seen && s.glow[3] <= 0.0 {
+                        continue;
+                    }
+                    // Any corner seen draws the diffuse pass and the
+                    // shadow (`DrawTexture`).
+                    if seen && let Some((by, c)) = shadow(piece.diffuse[0][3]) {
+                        out.extend(quad(
+                            shifted(&sub.0, by),
+                            &shifted4(&sub.1, by),
+                            [c; 4],
+                            [0.0; 4],
+                            uv,
+                            piece.whole,
+                        ));
+                    }
+                    let diffuse = if seen { piece.diffuse } else { [[0.0; 4]; 4] };
+                    out.extend(quad(sub.0, &sub.1, diffuse, s.glow, uv, piece.whole));
                 }
-                out.extend(quad(sized, &sized3, s.diffuse, s.glow));
             }
             Kind::Model(model) => {
                 // MilkShape's y is up (`Model::DrawPrimitives` scales y by
@@ -2737,6 +2797,168 @@ impl Actor {
             };
         own || self.children().iter().any(Actor::in_motion)
     }
+}
+
+/// A part of a sprite as `Sprite::DrawPrimitives` draws it: the cut away
+/// (left, top, right, bottom, fractions of the sprite) and its corners'
+/// colours.
+struct Piece {
+    crop: [f32; 4],
+    diffuse: [Rgba; 4],
+    /// The sprite whole, uncut.
+    whole: bool,
+}
+
+impl Piece {
+    /// The piece's quad, from the sprite's (`sized`: the unit square on
+    /// the target, in 2D and 3D) and its image `uv`; `None` when nothing is
+    /// left of it (`DrawTexture` bails when cropped all the way).
+    #[allow(clippy::type_complexity)]
+    fn cut(&self, sized: &Mat, sized3: &Mat4, uv: [f32; 4]) -> Option<((Mat, Mat4), [f32; 4])> {
+        if self.whole {
+            return Some(((*sized, *sized3), uv));
+        }
+        let [l, t, r, b] = self.crop;
+        if l + r >= 1.0 || t + b >= 1.0 {
+            return None;
+        }
+        // The vertices' crop is clamped (a negative crop draws no more).
+        let [l, t, r, b] = [l, t, r, b].map(|v| v.clamp(0.0, 1.0));
+        let (x0, x1, y0, y1) = (-0.5 + l, 0.5 - r, -0.5 + t, 0.5 - b);
+        let sub: Mat = [x1 - x0, 0.0, 0.0, y1 - y0, (x0 + x1) / 2.0, (y0 + y1) / 2.0];
+        let sub3: Mat4 = [
+            sub[0], 0.0, 0.0, 0.0, 0.0, sub[3], 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, sub[4], sub[5], 0.0,
+            1.0,
+        ];
+        let at = |f: f32, a: f32, b: f32| a + (b - a) * f;
+        let uv = [
+            at(l, uv[0], uv[2]),
+            at(t, uv[1], uv[3]),
+            at(1.0 - r, uv[0], uv[2]),
+            at(1.0 - b, uv[1], uv[3]),
+        ];
+        Some(((mul(sized, &sub), mul4(sized3, &sub3)), uv))
+    }
+}
+
+/// `Sprite::DrawPrimitives`: the sprite whole; cropped; or, with faded
+/// edges, the inside and each faded edge as a piece of its own, its outer
+/// side transparent (the corners where two fades meet are left out, as
+/// StepMania lops them off).
+fn pieces(s: &TweenState) -> Vec<Piece> {
+    let (crop, fade, d) = (s.crop, s.fade, s.diffuse);
+    if fade.iter().all(|f| *f <= 0.0) {
+        return vec![Piece {
+            crop,
+            diffuse: d,
+            whole: crop == [0.0; 4],
+        }];
+    }
+    let [fl, ft, fr, fb] = fade;
+    let mut size = fade;
+    // A crop leaving less than the fades: the fades share what is left.
+    let horiz = 1.0 - (crop[0] + crop[2]);
+    if fl + fr > 0.0 && horiz < fl + fr {
+        let left = fl / (fl + fr);
+        size[0] = left * horiz;
+        size[2] = (1.0 - left) * horiz;
+    }
+    let vert = 1.0 - (crop[1] + crop[3]);
+    if ft + fb > 0.0 && vert < ft + fb {
+        let top = ft / (ft + fb);
+        size[1] = top * vert;
+        size[3] = (1.0 - top) * vert;
+    }
+    // The alpha of each fade's inner side: `SCALE(size, dist, 0, 1, 0)`.
+    let inner = |size: f32, dist: f32| {
+        if dist == 0.0 { 1.0 } else { size / dist }
+    };
+    let [la, ta, ra, ba] = [
+        inner(size[0], fl),
+        inner(size[1], ft),
+        inner(size[2], fr),
+        inner(size[3], fb),
+    ];
+    // Corners: upper left, upper right, lower left, lower right.
+    let (ul, ur, ll, lr) = (0, 1, 2, 3);
+    let alpha = |mut c: Rgba, k: f32| {
+        c[3] *= k;
+        c
+    };
+    let mut out = vec![Piece {
+        crop: [crop[0] + fl, crop[1] + ft, crop[2] + fr, crop[3] + fb],
+        diffuse: d,
+        whole: false,
+    }];
+    if size[0] > 0.001 {
+        out.push(Piece {
+            crop: [
+                crop[0],
+                crop[1] + ft,
+                1.0 - (crop[0] + size[0]),
+                crop[3] + fb,
+            ],
+            diffuse: [
+                alpha(d[ul], 0.0),
+                alpha(d[ul], la),
+                alpha(d[ll], 0.0),
+                alpha(d[ll], la),
+            ],
+            whole: false,
+        });
+    }
+    if size[2] > 0.001 {
+        out.push(Piece {
+            crop: [
+                1.0 - (crop[2] + size[2]),
+                crop[1] + ft,
+                crop[2],
+                crop[3] + fb,
+            ],
+            diffuse: [
+                alpha(d[ur], ra),
+                alpha(d[ur], 0.0),
+                alpha(d[lr], ra),
+                alpha(d[lr], 0.0),
+            ],
+            whole: false,
+        });
+    }
+    if size[1] > 0.001 {
+        out.push(Piece {
+            crop: [
+                crop[0] + fl,
+                crop[1],
+                crop[2] + fr,
+                1.0 - (crop[1] + size[1]),
+            ],
+            diffuse: [
+                alpha(d[ul], 0.0),
+                alpha(d[ur], 0.0),
+                alpha(d[ul], ta),
+                alpha(d[ur], ta),
+            ],
+            whole: false,
+        });
+    }
+    if size[3] > 0.001 {
+        out.push(Piece {
+            crop: [
+                crop[0] + fl,
+                1.0 - (crop[3] + size[3]),
+                crop[2] + fr,
+                crop[3],
+            ],
+            diffuse: [
+                alpha(d[ll], ba),
+                alpha(d[lr], ba),
+                alpha(d[ll], 0.0),
+                alpha(d[lr], 0.0),
+            ],
+            whole: false,
+        });
+    }
+    out
 }
 
 /// An actor's placement in its parent ([`Actor::placement`]).
@@ -3308,6 +3530,106 @@ mod tests {
         // x: (cZ·cY, sZ·cX) = (0, 1); y: (−sZ·cY, cZ·cX) = (1, 0).
         assert!(close(m[0], 0.0) && close(m[1], 1.0));
         assert!(close(m[2], 1.0) && close(m[3], 0.0));
+    }
+
+    /// A 100 by 100 sprite's quads after `commands`: each one's left,
+    /// top, right, bottom on the target, its image's, and its corners'
+    /// alphas.
+    fn cut(commands: &str) -> Vec<([f32; 4], [f32; 4], [f32; 4])> {
+        let mut a = Actor::new(Kind::Sprite(Sprite::new(
+            7,
+            vec![State {
+                rect: [0.0, 0.0, 1.0, 0.5],
+                delay: 0.0,
+            }],
+            [100.0, 100.0],
+        )));
+        assert!(run(&mut a, commands).messages.is_empty());
+        draw_all(&mut a)
+            .iter()
+            .filter_map(|d| match d {
+                Drawn::Quad(q) => {
+                    let m = q.transform;
+                    let (x0, x1) = (m[4] - m[0] / 2.0, m[4] + m[0] / 2.0);
+                    let (y0, y1) = (m[5] - m[3] / 2.0, m[5] + m[3] / 2.0);
+                    Some((
+                        [x0, y0, x1, y1].map(|v| (v * 100.0).round() / 100.0),
+                        q.uv.map(|v| (v * 1000.0).round() / 1000.0),
+                        q.diffuse.map(|c| (c[3] * 100.0).round() / 100.0),
+                    ))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn crops_cut_the_quad_and_its_image() {
+        // The sprite spans -50..50 each way.
+        assert_eq!(
+            cut("cropleft,0.25"),
+            [([-25.0, -50.0, 50.0, 50.0], [0.25, 0.0, 1.0, 0.5], [1.0; 4])]
+        );
+        assert_eq!(
+            cut("cropright,0.25;croptop,0.5"),
+            [([-50.0, 0.0, 25.0, 50.0], [0.0, 0.25, 0.75, 0.5], [1.0; 4])]
+        );
+        assert_eq!(
+            cut("cropbottom,0.1"),
+            [([-50.0, -50.0, 50.0, 40.0], [0.0, 0.0, 1.0, 0.45], [1.0; 4])]
+        );
+        // Cropped all the way: nothing (`DrawTexture` bails).
+        assert!(cut("cropleft,0.5;cropright,0.5").is_empty());
+        // A negative crop draws no more than the sprite.
+        assert_eq!(cut("cropleft,-1")[0].0, [-50.0, -50.0, 50.0, 50.0]);
+    }
+
+    #[test]
+    fn fades_are_pieces_of_their_own_transparent_outside() {
+        // The inside, then the left edge: transparent on its left.
+        assert_eq!(
+            cut("fadeleft,0.2"),
+            [
+                ([-30.0, -50.0, 50.0, 50.0], [0.2, 0.0, 1.0, 0.5], [1.0; 4]),
+                (
+                    [-50.0, -50.0, -30.0, 50.0],
+                    [0.0, 0.0, 0.2, 0.5],
+                    [0.0, 1.0, 0.0, 1.0]
+                ),
+            ]
+        );
+        assert_eq!(cut("faderight,0.2")[1].2, [1.0, 0.0, 1.0, 0.0]);
+        assert_eq!(cut("fadetop,0.2")[1].2, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(cut("fadebottom,0.2")[1].2, [1.0, 1.0, 0.0, 0.0]);
+        // Fading both ways leaves the corners out.
+        let both = cut("fadeleft,0.2;fadetop,0.2");
+        assert_eq!(both[0].0, [-30.0, -30.0, 50.0, 50.0]);
+        assert_eq!(both[1].0, [-50.0, -30.0, -30.0, 50.0]);
+        assert_eq!(both[2].0, [-30.0, -50.0, 50.0, -30.0]);
+        // A crop leaving less than the fade: the fade's inner side is as
+        // opaque as the fade got.
+        // (Nothing is left inside.)
+        let cropped = cut("fadeleft,0.5;cropright,0.75");
+        assert_eq!(cropped.len(), 1);
+        assert_eq!(cropped[0].0, [-50.0, -50.0, -25.0, 50.0]);
+        assert_eq!(cropped[0].2, [0.0, 0.5, 0.0, 0.5]);
+        // The diffuse's own alpha carries through.
+        assert_eq!(
+            cut("diffusealpha,0.5;fadeleft,0.2")[1].2,
+            [0.0, 0.5, 0.0, 0.5]
+        );
+    }
+
+    #[test]
+    fn crops_and_fades_tween() {
+        let mut a = Actor::new(Kind::Sprite(Sprite::quad([100.0, 100.0])));
+        run(&mut a, "linear,1;cropleft,0.5;fadetop,0.4");
+        let mut p = Problems::default();
+        a.update(0.5, &Clocks::default(), &mut p);
+        assert!(close(a.current().crop[0], 0.25));
+        assert!(close(a.current().fade[1], 0.2));
+        a.update(0.5, &Clocks::default(), &mut p);
+        assert_eq!(a.current().crop, [0.5, 0.0, 0.0, 0.0]);
     }
 
     #[test]

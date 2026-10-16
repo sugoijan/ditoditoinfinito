@@ -5,8 +5,9 @@ StepMania and DWI simfiles: a few bundled songs, plus any packs you import
 (folder, zip or drag and drop; they stay in your browser). Live at
 `https://sugoijan.dev/ditoditoinfinito/`.
 
-Implementation notes: written in Rust; the web build is wasm (Trunk, GitHub
-Pages) and the gameplay core is platform-free so a desktop build can follow.
+Implementation notes: written in Rust; the same game runs in the browser (wasm
+through Trunk, on GitHub Pages) and as a desktop app (`cargo run`), which reads
+your song folders and zips where they are.
 
 Status: early development. See [`docs/PLAN.md`](docs/PLAN.md) for the
 architecture, MVP scope and roadmap, and [`docs/research/`](docs/research/)
@@ -27,17 +28,25 @@ Tasks (`just --list` shows them all):
 - `just build` — release build with the production public URL; output in `dist/`
 - `just check` — native + wasm checks, SEO regen, REUSE lint
 - `just test` — native unit tests
+- `cargo run` — the desktop app (`--profile desktop` for a fast build; add
+  song folders under Options; on Linux it builds against ALSA and udev:
+  `libasound2-dev`, `libudev-dev`)
 
 Generated files: `cargo run -p xtask -- gen-songs` writes `target/songs/index.json`
-from `assets/songs/*/PROVENANCE.toml`; `gen-credits` writes `CREDITS.md` (checked
-in, CI verifies it) and `target/credits/credits.json`. Trunk runs both before every
-build. Gameplay URLs: `#/play?song=<id>&chart=<n>` plus `&auto=1` for autoplay and
+from `assets/songs/*/PROVENANCE.toml`; `gen-noteskins` writes the bundled
+noteskins' index; `gen-credits` writes `CREDITS.md` (checked in, CI verifies it)
+and `target/credits/credits.json`. Trunk runs them before every build, `just
+test` the first two. Gameplay URLs: `#/play?song=<id>&chart=<n>` plus `&auto=1` for autoplay and
 `&gfx=gl` to force WebGL2.
 
 Workspace layout: `chart/` (chart model and importers), `engine/` (deterministic
-gameplay core), `render/` (wgpu scene), `platform/` (platform traits), `app/`
-(the game: the web shell on wasm, the desktop shell natively), `web/` (Yew
-web shell), `desktop/` (desktop shell), `xtask/` (SEO fragments, song manifest, credits).
+gameplay core), `session/` (a play, for both shells), `library/` (packs, zips,
+the import's core), `render/` (wgpu scene), `actor/`, `ui/` and `theme/` (the
+screens), `noteskin/` and `lua/` (StepMania noteskins), `platform/` (platform
+traits, decoders), `app/` (the game: the web shell on wasm, the desktop shell
+natively), `web/` (web shell), `desktop/` (desktop shell), `video/` (the movie
+decoder module), `xtask/` (SEO fragments, song manifest, credits). `AGENTS.md`
+has more.
 
 ## Bundled songs
 

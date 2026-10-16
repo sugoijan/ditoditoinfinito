@@ -1,119 +1,174 @@
-//! Root component: hash routing between the home page and the gameplay
-//! canvas. Real screens (song select, options, calibration, results) arrive in
-//! phase 3.
+//! The app's root: hash routing between the pages (song select, options,
+//! the pages, the play route, the developer routes), each a component
+//! (`crate::component`) made when its route is shown and taken down when
+//! another is, and the device watcher over all of them.
+
+use std::any::Any;
+use std::cell::RefCell;
+use std::rc::{Rc, Weak};
 
 use gloo::events::EventListener;
-use yew::prelude::*;
+use web_sys::Element;
 
-use crate::components::calibrate::Calibrate;
-use crate::components::credits::CreditsScreen;
-use crate::components::device_watcher::DeviceWatcher;
-use crate::components::game_canvas::{GameCanvas, SongSource};
-use crate::components::options::Options;
+use crate::component::{Callback, Mounted, element, mount};
+use crate::components::device_watcher::{self, DeviceWatcher};
+use crate::components::game_canvas::{self, GameCanvas, SongSource};
+use crate::components::options_page::OptionsPage;
+use crate::components::page_routes::{self, PagePage, Which};
 use crate::components::select_page::SelectPage;
-use crate::components::skin_preview::SkinPreview;
-use crate::components::ui_dev::UiDev;
-use crate::components::ui_test::UiTest;
-use crate::components::video_check::VideoCheck;
+use crate::components::ui_dev::{self, UiDev};
+use crate::components::ui_test::{self, UiTest};
+use crate::components::video_check::{self, VideoCheck};
 use crate::router::Route;
 use crate::web::gfx::BackendPreference;
 
-pub(crate) enum Msg {
-    RouteChanged,
-    /// The app's device was lost and made again.
-    DeviceLost,
-    /// The play screen starts over (its device was lost).
-    Remount,
-}
-
 pub(crate) struct App {
+    weak: Weak<RefCell<App>>,
+    root: Element,
     route: Route,
-    _hash_listener: Option<EventListener>,
-    _lost: crate::web::screen::Listener,
+    /// The page shown, and what it was made for (a new key makes it
+    /// again).
+    page: Option<Box<dyn Any>>,
+    key: String,
+    watcher: Mounted<DeviceWatcher>,
     /// Bumped when the play screen asks to start over: part of its key.
     play_mounts: u32,
+    _hash: Option<EventListener>,
+    _lost: crate::web::screen::Listener,
 }
 
-impl Component for App {
-    type Message = Msg;
-    type Properties = ();
+/// A page that is plain DOM (no route by that name).
+struct Plain(web_sys::HtmlElement);
 
-    fn create(ctx: &Context<Self>) -> Self {
-        let link = ctx.link().clone();
-        let listener = web_sys::window().map(|w| {
-            EventListener::new(&w, "hashchange", move |_| {
-                link.send_message(Msg::RouteChanged)
-            })
+impl Drop for Plain {
+    fn drop(&mut self) {
+        self.0.remove();
+    }
+}
+
+/// Starts the app in `root`; it lives as long as the page.
+pub(crate) fn start(root: Element) {
+    let watcher = mount::<DeviceWatcher>(
+        &root,
+        "div",
+        device_watcher::Props {
+            suppressed: suppressed(&Route::current()),
+        },
+    );
+    let app = Rc::new_cyclic(|weak: &Weak<RefCell<App>>| {
+        let hash = web_sys::window().map(|w| {
+            let weak = weak.clone();
+            EventListener::new(&w, "hashchange", move |_| later(&weak, |a| a.show()))
         });
-        let link = ctx.link().clone();
-        App {
-            route: Route::current(),
-            _hash_listener: listener,
-            _lost: crate::web::screen::on_lost(move || link.send_message(Msg::DeviceLost)),
-            play_mounts: 0,
-        }
-    }
-
-    fn rendered(&mut self, _ctx: &Context<Self>, first_render: bool) {
-        if first_render {
-            // The boot shell stays until the device is there (or known
-            // not to be): the first paint has what it draws with.
-            wasm_bindgen_futures::spawn_local(async {
-                let _ = crate::web::screen::gfx().await;
-                crate::boot::ready();
-            });
-            // Never longer than this, should the adapter not answer.
-            gloo::timers::callback::Timeout::new(4000, crate::boot::ready).forget();
-        }
-    }
-
-    fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
-        match msg {
+        let lost = {
+            let weak = weak.clone();
             // A screen on the device starts over on the new one.
-            Msg::DeviceLost => true,
-            Msg::Remount => {
-                self.play_mounts += 1;
-                true
-            }
-            Msg::RouteChanged => {
-                let route = Route::current();
-                if route != self.route {
-                    self.route = route;
-                    true
-                } else {
-                    false
-                }
-            }
-        }
-    }
+            crate::web::screen::on_lost(move || later(&weak, |a| a.show()))
+        };
+        RefCell::new(App {
+            weak: weak.clone(),
+            root,
+            route: Route::current(),
+            page: None,
+            key: String::new(),
+            watcher,
+            play_mounts: 0,
+            _hash: hash,
+            _lost: lost,
+        })
+    });
+    app.borrow_mut().show();
+    // The boot shell stays until the device is there (or known not to
+    // be): the first paint has what it draws with.
+    wasm_bindgen_futures::spawn_local(async {
+        let _ = crate::web::screen::gfx().await;
+        crate::boot::ready();
+    });
+    // Never longer than this, should the adapter not answer.
+    gloo::timers::callback::Timeout::new(4000, crate::boot::ready).forget();
+    // The page's for good.
+    std::mem::forget(app);
+}
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let suppressed = matches!(
-            self.route,
-            Route::Play { .. }
-                | Route::CalibrateRun { .. }
-                | Route::Calibrate
-                | Route::UiTest { .. }
-                | Route::UiDev { .. }
-        );
-        let screen = self.screen(ctx);
-        html! {
-            <>
-                <DeviceWatcher suppressed={suppressed} route={self.route.to_hash()} />
-                { screen }
-            </>
+/// Runs `f` on the app after the code running now (an event's handler, a
+/// page's message): a page is never taken down from inside its own call.
+fn later(weak: &Weak<RefCell<App>>, f: impl FnOnce(&mut App) + 'static) {
+    let weak = weak.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Some(app) = weak.upgrade() {
+            f(&mut app.borrow_mut());
         }
-    }
+    });
+}
+
+/// Banners wait while a song or calibration plays, and are redundant on
+/// calibration's pages and the developer routes.
+fn suppressed(route: &Route) -> bool {
+    matches!(
+        route,
+        Route::Play { .. }
+            | Route::CalibrateRun { .. }
+            | Route::Calibrate
+            | Route::UiTest { .. }
+            | Route::UiDev { .. }
+    )
 }
 
 impl App {
-    fn screen(&self, ctx: &Context<Self>) -> Html {
+    /// The page for the address now: made again when its key changed (a
+    /// new route, a lost device for the pages keyed by it, the play
+    /// starting over).
+    fn show(&mut self) {
+        self.route = Route::current();
+        let losses = crate::web::screen::losses();
+        let key = match &self.route {
+            Route::Play { .. } | Route::CalibrateRun { .. } => {
+                format!("{}#{}", self.route.to_hash(), self.play_mounts)
+            }
+            Route::Home | Route::UiTest { .. } | Route::UiDev { .. } => {
+                format!("{}#lost{losses}", self.route.to_hash())
+            }
+            // Drawn on the new device as they are (the section, the row,
+            // a dialog open): their host follows the loss itself
+            // (`ui_dev::device_lost`).
+            Route::Options | Route::Credits | Route::Calibrate => self.route.to_hash(),
+            // The preview takes new parameters as they come.
+            Route::SkinPreview { .. } => "skin-preview".into(),
+            _ => self.route.to_hash(),
+        };
+        self.watcher
+            .scope()
+            .send_message(device_watcher::Msg::Route {
+                suppressed: suppressed(&self.route),
+            });
+        if key == self.key {
+            if let (Route::SkinPreview { params }, Some(page)) = (&self.route, &self.page)
+                && let Some(p) = page.downcast_ref::<crate::components::skin_preview::SkinPreview>()
+            {
+                p.set_params(params);
+            }
+            return;
+        }
+        self.key = key;
+        // The page leaves first: it hands the canvas back.
+        self.page = None;
+        self.page = Some(self.make());
+    }
+
+    fn make(&self) -> Box<dyn Any> {
+        let root = &self.root;
+        let restart: Callback<()> = {
+            let weak = self.weak.clone();
+            Callback::from(move |()| {
+                later(&weak, |a| {
+                    a.play_mounts += 1;
+                    a.show();
+                })
+            })
+        };
         match &self.route {
-            // Song select, our theme's screen on the canvas (step 6.2);
-            // keyed by the device, made again after a lost one.
-            Route::Home => html! {
-                <SelectPage key={crate::web::screen::losses()} />
-            },
+            // Song select, our theme's screen on the canvas (step 6.2).
+            Route::Home => Box::new(mount::<SelectPage>(root, "main", ())),
             Route::Play {
                 song,
                 chart,
@@ -122,57 +177,96 @@ impl App {
                 auto_pad,
                 bias_ms,
                 slow,
-            } => html! {
-                <GameCanvas
-                    key={format!("{song}/{chart}/{}", self.play_mounts)}
-                    restart={ctx.link().callback(|()| Msg::Remount)}
-                    source={SongSource::Song { id: song.clone(), chart: *chart }}
-                    auto={*auto}
-                    auto_pad={*auto_pad}
-                    auto_bias={*bias_ms as f64 / 1000.0}
-                    slow={*slow}
-                    backend={if *force_gl { BackendPreference::WebGl2 } else { BackendPreference::Auto }}
-                />
-            },
+            } => Box::new(mount::<GameCanvas>(
+                root,
+                "div",
+                game_canvas::Props {
+                    restart,
+                    source: SongSource::Song {
+                        id: song.clone(),
+                        chart: *chart,
+                    },
+                    auto: *auto,
+                    auto_pad: *auto_pad,
+                    auto_bias: *bias_ms as f64 / 1000.0,
+                    slow: *slow,
+                    backend: if *force_gl {
+                        BackendPreference::WebGl2
+                    } else {
+                        BackendPreference::Auto
+                    },
+                },
+            )),
             Route::CalibrateRun {
                 mode,
                 auto,
                 bias_ms,
-            } => html! {
-                <GameCanvas
-                    key={format!("calibrate/{mode}/{}", self.play_mounts)}
-                    restart={ctx.link().callback(|()| Msg::Remount)}
-                    source={SongSource::Calibration(crate::calibration::CalMode::parse(mode))}
-                    auto={*auto}
-                    auto_bias={*bias_ms as f64 / 1000.0}
-                />
-            },
-            Route::Credits => html! {
-                <>
-                    <CreditsScreen />
-                    <p class="shell"><a href={Route::Home.to_hash()}>{ "← back" }</a></p>
-                </>
-            },
-            Route::Options => html! { <Options /> },
-            Route::VideoCheck { sources, decoder } => {
-                html! { <VideoCheck sources={sources.clone()} decoder={decoder.clone()} /> }
+            } => Box::new(mount::<GameCanvas>(
+                root,
+                "div",
+                game_canvas::Props {
+                    restart,
+                    source: SongSource::Calibration(crate::calibration::CalMode::parse(mode)),
+                    auto: *auto,
+                    auto_pad: false,
+                    auto_bias: *bias_ms as f64 / 1000.0,
+                    slow: false,
+                    backend: BackendPreference::Auto,
+                },
+            )),
+            // Credits and calibration's menu, our theme's pages on the
+            // canvas (step 6.4).
+            Route::Credits => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props {
+                    which: Which::Credits,
+                },
+            )),
+            Route::Calibrate => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props {
+                    which: Which::Calibration,
+                },
+            )),
+            // Options, our theme's screen on the canvas (step 6.3).
+            Route::Options => Box::new(mount::<OptionsPage>(root, "main", ())),
+            Route::VideoCheck { sources, decoder } => Box::new(mount::<VideoCheck>(
+                root,
+                "main",
+                video_check::Props {
+                    sources: sources.clone(),
+                    decoder: decoder.clone(),
+                },
+            )),
+            Route::SkinPreview { params } => {
+                Box::new(crate::components::skin_preview::mount(root, params))
             }
-            Route::Calibrate => html! { <Calibrate /> },
-            Route::SkinPreview { params } => html! { <SkinPreview params={params.clone()} /> },
-            Route::UiTest { params } => html! {
-                <UiTest key={crate::web::screen::losses()} params={params.clone()} />
-            },
-            Route::UiDev { screen } => html! {
-                // Keyed by the screen too: a new `screen` in the address
-                // starts the page over on that screen.
-                <UiDev key={format!("{}-{screen}", crate::web::screen::losses())} screen={screen.clone()} />
-            },
-            Route::NotFound(p) => html! {
-                <main class="shell">
-                    <p>{ format!("no route `{p}`") }</p>
-                    <a href={Route::Home.to_hash()}>{ "← home" }</a>
-                </main>
-            },
+            Route::UiTest { params } => Box::new(mount::<UiTest>(
+                root,
+                "main",
+                ui_test::Props {
+                    params: params.clone(),
+                },
+            )),
+            // Keyed by the screen too: a new `screen` in the address starts
+            // the page over on that screen.
+            Route::UiDev { screen } => Box::new(mount::<UiDev>(
+                root,
+                "main",
+                ui_dev::Props {
+                    screen: screen.clone(),
+                },
+            )),
+            Route::NotFound(p) => {
+                let main = element(root, "main", "shell");
+                element(&main, "p", "").set_text_content(Some(&format!("no route `{p}`")));
+                let a = element(&main, "a", "");
+                let _ = a.set_attribute("href", &Route::Home.to_hash());
+                a.set_text_content(Some("← home"));
+                Box::new(Plain(main))
+            }
         }
     }
 }

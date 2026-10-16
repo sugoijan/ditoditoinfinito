@@ -279,6 +279,29 @@ pub fn local_point(
     Some(apply(&invert(&m)?, point))
 }
 
+/// What of the actor at `path` (its box, or its children's) is on view:
+/// cut by the clipping frames around it; `None` when it is hidden or
+/// clipped away.
+pub fn visible_rect(root: &Actor, transform: &Affine, path: &[usize]) -> Option<[f32; 4]> {
+    if !shown(root, path) {
+        return None;
+    }
+    let mut r = bounds_deep(root, transform, path)?;
+    for d in 0..path.len() {
+        if actor_at(root, &path[..d]).is_some_and(|a| a.clip.is_some())
+            && let Some(c) = bounds(root, transform, &path[..d])
+        {
+            r = [
+                r[0].max(c[0]),
+                r[1].max(c[1]),
+                r[2].min(c[2]),
+                r[3].min(c[3]),
+            ];
+        }
+    }
+    (r[2] > r[0] && r[3] > r[1]).then_some(r)
+}
+
 /// Whether the actor at `path` and everything above it is shown.
 pub fn shown(root: &Actor, path: &[usize]) -> bool {
     let mut a = root;

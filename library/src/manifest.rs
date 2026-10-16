@@ -126,7 +126,8 @@ pub struct ChartInfo {
     pub digest: Option<ddi_chart::ChartDigest>,
     /// A Dancing☆Onigiri chart's own excessive setting (its headers'
     /// `excessiveJdgUse`, `excessiveUse`): part of the key its bests are
-    /// kept under. Filled where the engine is at hand (the web import).
+    /// kept under. Filled by the import's core (`crate::scan`), and for
+    /// older imports when their chart is next read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub excessive: Option<bool>,
 }

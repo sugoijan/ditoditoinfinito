@@ -847,9 +847,13 @@ const MAX_WORK_WORD_BYTES: usize = 4 << 20;
 /// in the fields after it up to the next number, or a single
 /// `frame,depth,command,fadeFrames`; a depth of `-` ends the line. Each cue
 /// is `(frame, [depth, text, fade frames])`, its text plain (see
-/// [`lyric_text`]).
+/// [`lyric_text`]). A chart without its own (`word2_data`) takes the
+/// work's (`word_data`), as `getPriorityVal` orders them.
 fn words(dos: &Dos, suffix: &str) -> Vec<(i64, Vec<String>)> {
-    let Some(data) = ref_data(dos, "word", &format!("{suffix}_data")) else {
+    let Some(data) = [format!("{suffix}_data"), "_data".to_string()]
+        .iter()
+        .find_map(|name| ref_data(dos, "word", name))
+    else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -1402,6 +1406,23 @@ mod tests {
         // Lyrics are timed in seconds of their chart.
         let i = import_text("|difData=5,N|blankFrame=140|left_data=300|word_data=200,0,hello|");
         assert_eq!(i.songs[0].effects[0].at, EffectTime::Seconds(1.0));
+        // A chart without lyrics of its own takes the work's
+        // (`getPriorityVal`); one with its own keeps them.
+        let i = import_text(
+            "|difData=5,N$5,H$5,X|blankFrame=140|left_data=300|left2_data=300|\
+             left3_data=300|word_data=200,0,shared|word3_data=200,0,own|",
+        );
+        let lyric = |chart: u8| -> Vec<String> {
+            i.songs[0]
+                .effects
+                .iter()
+                .filter(|e| e.kind == "danoni:lyric" && e.layer == chart)
+                .map(|e| e.fields[1].clone())
+                .collect()
+        };
+        assert_eq!(lyric(0), ["shared"]);
+        assert_eq!(lyric(1), ["shared"]);
+        assert_eq!(lyric(2), ["own"]);
         // Several cues on a line, commas in a text, commands with a fade,
         // markup and escapes.
         let i = import_text(

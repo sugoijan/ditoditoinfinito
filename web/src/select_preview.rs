@@ -3,8 +3,14 @@
 //!
 //! One audio context for the page, made (or resumed) inside the first user
 //! gesture and every one after (a key, a click, a tap: listeners the page
-//! adds), never later: Safari starts audio only within a gesture, and a
-//! context that runs keeps running. A selection starts its preview a
+//! adds): Safari starts audio only within a gesture, and a context that
+//! runs keeps running. It is kept, suspended, when song select goes (a
+//! play, options: no second live output beside the play's) and resumed
+//! when the player comes back (from the results by Enter, a wheel then
+//! changing songs), which the browsers allow once the page has had input
+//! (its sticky activation: Chrome, Firefox; Safari is the maintainer's
+//! check). Coming back with none (the session began on a play's
+//! address), one is made at once where the page has had input. A selection starts its preview a
 //! moment later, once the wheel has settled; the song's music and its
 //! chart (for the beat) are read then. The beat pulse follows the music
 //! as heard ([`beat`]).
@@ -137,16 +143,51 @@ pub(crate) fn stop() {
     });
 }
 
-/// The page went: nothing plays, the context closes.
+/// The page went: nothing plays; the context is kept, suspended, for the
+/// next time song select shows ([`arrive`]).
 pub(crate) fn close() {
     stop();
     STATE.with(|s| {
         let mut s = s.borrow_mut();
         s.wanted = None;
         s.buffer = None;
-        // Dropped: its context closes.
-        s.audio = None;
+        if let Some(a) = &s.audio {
+            a.suspend_now();
+        }
     });
+}
+
+/// Song select shows: without a context yet, one is made now where the
+/// page has had the player's input before (the results' Enter that came
+/// here), so the selected song's preview plays without another.
+pub(crate) fn arrive() {
+    let none = STATE.with(|s| s.borrow().audio.is_none());
+    if none && sticky_activation() {
+        gesture();
+        return;
+    }
+    // The context kept from before, suspended when song select went: on
+    // again (a browser that wants a fresh gesture for it gets the next
+    // one, [`gesture`]).
+    STATE.with(|s| {
+        if let Some(a) = &s.borrow().audio {
+            a.resume_now();
+        }
+    });
+}
+
+/// Whether the page has had a user gesture (`navigator.userActivation
+/// .hasBeenActive`; `false` where the browser does not say).
+fn sticky_activation() -> bool {
+    let Some(nav) = web_sys::window().map(|w| w.navigator()) else {
+        return false;
+    };
+    js_sys::Reflect::get(&nav, &"userActivation".into())
+        .ok()
+        .filter(|u| u.is_object())
+        .and_then(|u| js_sys::Reflect::get(&u, &"hasBeenActive".into()).ok())
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 async fn fetch(entry: ManifestEntry, load: u64) {
@@ -167,9 +208,22 @@ async fn fetch(entry: ManifestEntry, load: u64) {
             return;
         }
     };
+    // A work's MP3 where Chrome's decode has it (by its stored chart's
+    // extension when the chart did not load).
+    let target = chart.as_ref().map_or_else(
+        |_| {
+            if entry.chart.ends_with(ddi_library::danoni::STORED_EXT) {
+                ddi_platform::mp3::Target::Chromium
+            } else {
+                ddi_platform::mp3::Target::StepMania
+            }
+        },
+        ddi_session::music_target,
+    );
     let timing = chart.ok().map(|song| Rc::new(song.timing));
     decoder.resume().await;
-    let buffer = match decoder.decode(&bytes).await {
+    // The MP3 alignment stops when the player moved on.
+    let buffer = match decoder.decode_while(&bytes, target, current).await {
         Ok(b) => b,
         Err(e) => {
             web_sys::console::warn_1(&format!("preview: {e}").into());

@@ -13,16 +13,15 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use ddi_chart::formats::sm::parse_simfile;
+use crate::component::Callback;
 use ddi_library::image::{IMAGE_HEADER_LEN, image_size};
-use ddi_library::manifest::{EntryMeta, simfile_names, summarize};
-use ddi_library::pack::{self, SongCandidate};
+use ddi_library::pack::{self, LOOSE_PACK, SongCandidate};
+use ddi_library::scan::{self, Movie, Naming};
 use ddi_library::zip::{self, Locate, Method, ZipEntry};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{Blob, File};
-use yew::Callback;
 
-use crate::songs::{ImportedSong, MAX_BG_IMAGES, file_key};
+use crate::songs::{ImportedSong, file_key};
 use crate::web::files::{PickedFile, blob_bytes, bytes_blob};
 use crate::web::idb::{self, Db, Write};
 use crate::web::js_err;
@@ -79,8 +78,11 @@ struct Shared {
     /// Progress text while an import runs.
     running: Option<String>,
     report: Option<ImportReport>,
-    /// Incremented when an import finishes.
+    /// Incremented when an import finishes (and when the stills it queued
+    /// are taken).
     generation: u64,
+    /// The opening stills' progress, taken after the import.
+    stills: Option<String>,
     watcher: Option<Callback<()>>,
 }
 
@@ -159,12 +161,10 @@ fn start_with(files: Vec<PickedFile>, origin: Option<Origin>) -> bool {
             s.report = Some(report);
             s.generation += 1;
         });
+        take_stills();
     });
     true
 }
-
-/// Pack name for songs picked without a surrounding folder.
-const LOOSE_PACK: &str = "Imported";
 
 /// One file of the import, wherever its bytes live.
 enum Source {
@@ -244,11 +244,12 @@ pub(crate) async fn zip_entry_blob(archive: &File, name: &str) -> Result<Blob, S
             e
         }
     };
-    // The import kept the last of two entries with one name.
+    // The import kept the last of two entries with one name (encrypted
+    // ones never listed).
     let entry = entries
         .iter()
         .rev()
-        .find(|e| e.name == name)
+        .find(|e| e.name == name && !e.encrypted)
         .cloned()
         .ok_or_else(|| format!("{name} is no longer in {}", archive.name()))?;
     let source = Source::Zip {
@@ -287,6 +288,12 @@ async fn run(
                 let root = f.path[..f.path.len() - ".zip".len()].to_string();
                 for entry in entries.into_iter().filter(|e| !e.is_dir) {
                     let path = format!("{root}/{}", entry.name);
+                    // Not read, as on desktop: said so, not listed (an
+                    // earlier entry of the name stays).
+                    if entry.encrypted {
+                        report.skipped.push((path, "encrypted; not read".into()));
+                        continue;
+                    }
                     sources.insert(
                         path,
                         Source::Zip {
@@ -374,22 +381,19 @@ async fn run(
     shared.extend(crate::songs::shared_paths(&db).await.unwrap_or_default());
     let n = candidates.len();
     // Two folders with the same pack and song folder names share an id.
-    let mut seen: HashMap<String, String> = HashMap::new();
+    let mut seen = scan::Duplicates::default();
     for (i, c) in candidates.iter().enumerate() {
-        let (id, name) = identity(c);
+        let (id, name) = c.identity();
         let label = if c.dir.is_empty() {
             c.chart.clone()
         } else {
             c.dir.clone()
         };
         progress.emit(format!("importing {}/{n}: {name}", i + 1));
-        if let Some(first) = seen.get(&id) {
-            report
-                .skipped
-                .push((label, format!("same pack and folder name as {first}")));
+        if let Some(why) = seen.check(c) {
+            report.skipped.push((label, why));
             continue;
         }
-        seen.insert(id.clone(), label.clone());
         let inputs = Inputs {
             sources: &sources,
             paths: &paths,
@@ -398,8 +402,11 @@ async fn run(
             link: origin.as_ref().is_some_and(|o| o.link),
             keep_videos,
         };
-        match import_song(&db, c, &id, &name, &inputs).await {
+        match import_song(&db, c, &inputs).await {
             Ok(song) => {
+                if song.still {
+                    STILLS.with(|q| q.borrow_mut().push_back((id.clone(), label.clone())));
+                }
                 report.imported.push(song.title);
                 report.videos += song.videos;
                 report.videos_left_out += song.videos_left_out;
@@ -451,12 +458,70 @@ async fn run(
     report
 }
 
+thread_local! {
+    /// Songs whose opening still is still to take: `(id, label)`, queued
+    /// by imports, taken after them (`take_stills`).
+    static STILLS: RefCell<std::collections::VecDeque<(String, String)>> = RefCell::default();
+    static STILLS_RUNNING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Takes the opening stills of the songs imports stored (`crate::stills`),
+/// one after another, after the import has finished: its report and its
+/// songs show at once, the stills fill in ("taking pictures… N of M"), and
+/// the next import never waits for them. What could not be taken is a line
+/// in the last report's details (the song keeps its background image); the
+/// song list reloads when they are done.
+fn take_stills() {
+    if STILLS_RUNNING.with(|r| r.replace(true)) {
+        return;
+    }
+    spawn_local(async {
+        let mut taker = crate::stills::Taker::default();
+        let mut done = 0;
+        while let Some((id, label)) = STILLS.with(|q| q.borrow_mut().pop_front()) {
+            done += 1;
+            let left = STILLS.with(|q| q.borrow().len());
+            notify(|s| {
+                s.stills = Some(format!(
+                    "taking pictures from the songs' videos… {done} of {}",
+                    done + left
+                ))
+            });
+            let note = match crate::stills::fill(&id, &mut taker).await {
+                crate::stills::Filled::Failed { movie, reason } => Some(format!(
+                    "the background video {movie} could not be decoded for the song's picture ({reason}); its background image shows instead"
+                )),
+                crate::stills::Filled::Later(reason) => Some(format!(
+                    "the song's picture could not be taken from its background video now ({reason}); it is taken when the song is first played"
+                )),
+                _ => None,
+            };
+            if let Some(note) = note {
+                notify(|s| {
+                    if let Some(r) = s.report.as_mut() {
+                        r.notes.push((label.clone(), note));
+                    }
+                });
+            }
+        }
+        STILLS_RUNNING.with(|r| r.set(false));
+        // The song list reads the stills again.
+        notify(|s| {
+            s.stills = None;
+            s.generation += 1;
+        });
+    });
+}
+
+/// The opening stills' progress while they are taken after an import.
+pub(crate) fn stills_status() -> Option<String> {
+    SHARED.with(|s| s.borrow().stills.clone())
+}
+
 const NOTHING_FOUND: &str =
     "No .sm, .ssc or .dwi files, Dancing☆Onigiri works or noteskins were found in what was picked.";
 
-/// Stores the noteskins found among the import's files (dance and common
-/// ones; other games' are reported as skipped), then sums up what of each
-/// draws.
+/// "1 noteskin", "3 noteskins".
 fn plural_skins(n: usize) -> String {
     if n == 1 {
         "1 noteskin".into()
@@ -473,6 +538,9 @@ fn source_size(source: &Source) -> u64 {
     }
 }
 
+/// Stores the noteskins found among the import's files (dance, pump and
+/// common ones; other games' are reported as skipped), then sums up what
+/// of each draws.
 async fn store_noteskins(
     db: &Db,
     skins: &[ddi_noteskin::import::Found],
@@ -497,20 +565,21 @@ async fn store_noteskins(
         games.dedup();
         report.skipped.push((
             plural_skins(other.len()),
-            format!("for other games ({}), not dance", games.join(", ")),
+            format!("for other games ({}), not dance or pump", games.join(", ")),
         ));
     }
-    let dance: Vec<&ddi_noteskin::import::Found> = skins
+    // Dance and pump skins, and the shared `common` ones.
+    let kept: Vec<&ddi_noteskin::import::Found> = skins
         .iter()
         .filter(|f| ddi_noteskin::import::kept_game(&f.game))
         .collect();
-    if dance.len() > MAX_SKINS {
+    if kept.len() > MAX_SKINS {
         report.warnings.push((
-            plural_skins(dance.len()),
+            plural_skins(kept.len()),
             format!("only the first {MAX_SKINS} were imported"),
         ));
     }
-    for found in dance.into_iter().take(MAX_SKINS) {
+    for found in kept.into_iter().take(MAX_SKINS) {
         let key = crate::noteskins::skin_key(&found.game, &found.name);
         if imported.iter().any(|s| s.key() == key) {
             report.skipped.push((
@@ -622,12 +691,10 @@ async fn store_noteskins(
         })
         .collect();
     for skin in imported {
-        let line = if skin.game == "dance" {
+        if skin.game != "common" {
             progress.emit(format!("running the noteskin {}'s Lua…", skin.name));
-            crate::noteskins::summary(&folders, &skin.game, &skin.name).await
-        } else {
-            "shared files for other skins".to_string()
-        };
+        }
+        let line = crate::noteskins::summary(&folders, &skin.game, &skin.name).await;
         report.noteskins.push((skin.name, line));
     }
 }
@@ -657,17 +724,6 @@ fn report_music_without_simfile(
     }
 }
 
-/// Id and fallback name of a song. Loose files picked without a folder all
-/// sit at the root, so they are told apart by the simfile's name instead.
-fn identity(c: &SongCandidate) -> (String, String) {
-    if c.dir.is_empty() {
-        let name = stem(&c.chart);
-        (pack::song_id(&c.pack, name), name.to_string())
-    } else {
-        (c.id(), c.dir_name().to_string())
-    }
-}
-
 /// What an import reads songs from.
 struct Inputs<'a> {
     sources: &'a HashMap<String, Source>,
@@ -686,6 +742,9 @@ struct Inputs<'a> {
 /// What importing one song gave, for the report.
 struct Imported {
     title: String,
+    /// The song may have an opening movie, whose still is taken once the
+    /// songs are stored (`crate::stills`).
+    still: bool,
     warnings: Vec<String>,
     notes: Vec<String>,
     /// Background-change movies that will play.
@@ -694,13 +753,10 @@ struct Imported {
     videos_left_out: usize,
 }
 
-async fn import_song(
-    db: &Db,
-    c: &SongCandidate,
-    id: &str,
-    name: &str,
-    inputs: &Inputs<'_>,
-) -> Result<Imported, String> {
+/// Imports one song: the library's import core (`ddi_library::scan`, as
+/// desktop lists songs) on the files read here from `Blob`s, then its
+/// files copied into storage or linked in their kept folder.
+async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<Imported, String> {
     let Inputs {
         sources,
         paths,
@@ -710,203 +766,60 @@ async fn import_song(
         keep_videos,
     } = *inputs;
     let linked = link && folder.is_some();
-    let mut warnings = Vec::new();
-    let mut notes = Vec::new();
     let chart_bytes = read_bytes(source(sources, &c.chart)?).await?;
-    let text = pack::decode_text_with(&chart_bytes, shift_jis);
+    let mut reading = scan::read_song(c, &chart_bytes, paths, &shift_jis)?;
     drop(chart_bytes);
-    let song = parse_simfile(&text, c.format.extension()).map_err(|e| e.to_string())?;
-    let mut unplayed: Vec<&str> = song
-        .charts
-        .iter()
-        .filter(|ch| song.layout_of(ch).is_none())
-        .map(|ch| ch.layout.as_str())
-        .collect();
-    unplayed.sort_unstable();
-    unplayed.dedup();
-    if song.playable_charts().next().is_none() {
-        return Err(if unplayed.is_empty() {
-            "the simfile has no charts".into()
-        } else {
-            format!(
-                "no charts in a layout this game plays; found {}",
-                unplayed.join(", ")
-            )
-        });
-    }
-    if !unplayed.is_empty() {
-        notes.push(format!(
-            "charts in layouts this game does not play were left out: {}",
-            unplayed.join(", ")
-        ));
-    }
-    let mut assets = pack::resolve_assets(&song, &c.dir, paths);
-    if (assets.banner.is_none() || assets.background.is_none()) && !assets.unclassified.is_empty() {
+    if !reading.images_to_size().is_empty() {
         // StepMania's last resort: tell banners from backgrounds by size.
         let mut sizes = Vec::new();
-        for path in &assets.unclassified {
-            let Ok(src) = source(sources, path) else {
+        for path in reading.images_to_size().to_vec() {
+            let Ok(src) = source(sources, &path) else {
                 continue;
             };
             if let Ok(head) = read_head(src, IMAGE_HEADER_LEN as u64).await
                 && let Some(size) = image_size(&head)
             {
-                sizes.push((path.clone(), size));
+                sizes.push((path, size));
             }
         }
-        pack::classify_images(&mut assets, &sizes);
-    }
-    let music = assets
-        .music
-        .ok_or("no audio file found next to the simfile")?;
-    // A file the simfile names but the folder lacks is only worth a warning
-    // when nothing stands in for it: StepMania quietly uses the folder's
-    // audio or images instead (`Song::TidyUpData`), and packs often rename
-    // files without updating the simfile. Missing music with no stand-in
-    // already stops the import above.
-    for (tag, reference) in &assets.missing {
-        let stand_in = match *tag {
-            "#BANNER" => assets.banner.is_some(),
-            "#BACKGROUND" => assets.background.is_some(),
-            _ => true,
-        };
-        if !stand_in {
-            warnings.push(format!(
-                "{tag} names {reference}, which is missing; the song has no {}",
-                tag.trim_start_matches('#').to_lowercase()
-            ));
-        } else {
-            let used = match *tag {
-                "#MUSIC" => Some(&music),
-                "#BANNER" => assets.banner.as_ref(),
-                _ => assets.background.as_ref(),
-            };
-            if let Some(used) = used {
-                notes.push(format!(
-                    "{tag} names {reference}, which is missing; {} is used instead",
-                    file_name(used)
-                ));
-            }
-        }
-    }
-    let id = id.to_string();
-    let (title, artist) = simfile_names(&song, name);
-    let named = |role: &str, path: &str| match extension(path) {
-        Some(ext) => format!("{role}.{ext}"),
-        None => role.to_string(),
-    };
-    let chart_name = format!("chart.{}", c.format.extension());
-    let music_name = named("music", &music);
-    let banner = assets.banner.map(|p| (named("banner", &p), p));
-    let background = assets.background.map(|p| (named("background", &p), p));
-    // Images shown by background changes, stored under `bg/<path>`.
-    let mut bg_images = ddi_library::backgrounds::referenced_images(
-        &song,
-        &c.dir,
-        paths,
-        background.as_ref().map(|(_, path)| path.as_str()),
-    );
-    if bg_images.len() > MAX_BG_IMAGES {
-        warnings.push(format!(
-            "{} background-change images; only the first {MAX_BG_IMAGES} are kept",
-            bg_images.len()
-        ));
-        bg_images.truncate(MAX_BG_IMAGES);
+        reading.sized(&sizes);
     }
     // Movies: what each is; kept when linked, or copied with "also store
     // background videos"; never when the game cannot play them.
-    let mut bg_videos = Vec::new();
-    let mut video_files = Vec::new();
-    let mut unplayable = Vec::new();
-    let mut left_out = Vec::new();
-    for (relative, path) in ddi_library::backgrounds::referenced_movies(&song, &c.dir, paths) {
+    let mut movies = Vec::new();
+    for (relative, path) in reading.movies(paths) {
         let src = source(sources, &path)?;
         let format = sniff_movie(src).await;
-        let playable = format.playable();
         let linkable = src.link(&path).filter(|_| linked).is_some();
-        let stored = playable && (linkable || keep_videos);
-        if !playable {
-            unplayable.push(format!("{relative} ({})", format.describe()));
-        } else if !stored {
-            left_out.push(relative.clone());
-        }
-        if stored {
-            video_files.push((format!("bg/{relative}"), path));
-        }
-        bg_videos.push(ddi_library::manifest::VideoRef {
-            name: relative,
+        movies.push(Movie {
+            kept: linkable || keep_videos,
+            relative,
+            path,
             format,
-            stored,
         });
     }
-    let videos = bg_videos.iter().filter(|v| v.plays()).count();
-    if !unplayable.is_empty() {
-        warnings.push(format!(
-            "background videos in a format the game cannot play (the song background shows instead): {}",
-            unplayable.join(", ")
-        ));
-    }
-    if !left_out.is_empty() {
-        notes.push(format!(
-            "background videos not stored (\"also store background videos\" is off): {}",
-            left_out.join(", ")
-        ));
-    }
-    let missing = ddi_library::backgrounds::missing_files(&song, &c.dir, paths, &c.pack, shared);
-    let unshown = ddi_library::backgrounds::unshown_files(&song, &c.dir, paths, &c.pack, shared);
-    let (present, absent): (Vec<_>, Vec<_>) = unshown.into_iter().partition(|(_, exists)| *exists);
-    let names = |list: Vec<(String, bool)>| {
-        list.into_iter()
-            .map(|(n, _)| n)
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    if !present.is_empty() {
-        notes.push(format!(
-            "background changes use scripted animations, which are not played (the song background shows instead): {}",
-            names(present)
-        ));
-    }
-    if !absent.is_empty() {
-        notes.push(format!(
-            "background changes name scripted animations that are missing (they would not be played anyway): {}",
-            names(absent)
-        ));
-    }
-    if !missing.is_empty() {
-        warnings.push(format!(
-            "background changes name images or videos that were not found (the song background shows instead): {}",
-            missing.join(", ")
-        ));
-    }
-    let mut entry = summarize(
-        EntryMeta {
-            id: id.clone(),
-            title: title.clone(),
-            artist,
-            chart: chart_name.clone(),
-            music: music_name.clone(),
-            banner: banner.as_ref().map(|(n, _)| n.clone()),
-            background: background.as_ref().map(|(n, _)| n.clone()),
-            bg_images: bg_images.iter().map(|(r, _)| r.clone()).collect(),
-            bg_videos,
-            bg_shared: ddi_library::backgrounds::absent_files(&song, &c.dir, paths),
-            credit: song.credit.trim().to_string(),
-        },
-        &song,
-    );
-    // The keys the song list finds its charts' bests by.
+    let built = reading.finish(paths, shared, movies, Naming::Stored)?;
+    let scan::Built {
+        scanned,
+        song,
+        text,
+        music,
+        banner,
+        background,
+        bg_images,
+        videos: video_paths,
+        videos_playing,
+        videos_left_out,
+    } = built;
+    let mut entry = scanned.entry;
+    let id = entry.id.clone();
+    let title = entry.title.clone();
+    // The keys the song list finds its charts' bests by, and which
+    // charts are excessive.
     crate::select_data::fill_chart_keys(&mut entry, &song);
-    // serde_json writes a non-finite float as `null`, which would not read
-    // back and would hide the song (`#SAMPLESTART:1e999` parses to inf).
-    for v in [&mut entry.preview_start, &mut entry.preview_length] {
-        if !v.is_finite() {
-            *v = 0.0;
-        }
-    }
     // Charts are stored as decoded UTF-8 so loading never guesses again.
     let mut files: Vec<(String, Blob)> = vec![(
-        chart_name,
+        entry.chart.clone(),
         bytes_blob(text.as_bytes(), "text/plain;charset=utf-8")?,
     )];
     // Linked: music and backgrounds stay in the folder (the banner is
@@ -915,14 +828,17 @@ async fn import_song(
     let music_source = source(sources, &music)?;
     match music_source.link(&music).filter(|_| linked) {
         Some(l) => {
-            links.insert(music_name, l);
+            links.insert(entry.music.clone(), l);
         }
         None => files.push((
-            music_name,
+            entry.music.clone(),
             read_blob(music_source, mime_type(&music)).await?,
         )),
     }
     let bg_files = bg_images
+        .into_iter()
+        .map(|(relative, path)| (format!("bg/{relative}"), path));
+    let video_files = video_paths
         .into_iter()
         .map(|(relative, path)| (format!("bg/{relative}"), path));
     for (name, path) in banner.into_iter() {
@@ -946,13 +862,14 @@ async fn import_song(
     }
     let record = ImportedSong {
         entry,
-        pack: c.pack.clone(),
-        dir: c.dir.clone(),
+        pack: scanned.pack,
+        dir: scanned.dir,
         imported: js_sys::Date::now(),
         bytes: files.iter().map(|(_, b)| b.size()).sum(),
         work: None,
         folder: folder.map(str::to_string),
         links,
+        still: None,
     };
     let json = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     let mut writes = vec![Write::DeletePrefix {
@@ -972,10 +889,11 @@ async fn import_song(
     db.write(writes).await?;
     Ok(Imported {
         title,
-        warnings,
-        notes,
-        videos,
-        videos_left_out: left_out.len(),
+        still: crate::stills::may_have(&record.entry),
+        warnings: scanned.warnings,
+        notes: scanned.notes,
+        videos: videos_playing,
+        videos_left_out,
     })
 }
 

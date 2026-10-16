@@ -38,6 +38,8 @@ pub struct PlayInfo<'a> {
     pub offset: Option<(f64, f64)>,
     /// The panel set the player chose last.
     pub panels: String,
+    /// Autoplayed (`&auto=1`, the song list's switch): never counted.
+    pub autoplay: bool,
 }
 
 /// The colour names of the tiers, best first.
@@ -179,6 +181,9 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         })
         .collect();
     let mut notes = Vec::new();
+    if p.autoplay {
+        notes.push("Autoplay: this play does not count toward your bests.".to_string());
+    }
     if p.device_changed {
         notes.push("An audio device or the display changed during play.".to_string());
     }
@@ -196,7 +201,11 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         .position(|s| s.name == p.panels)
         .unwrap_or(0);
     ResultsData {
-        line: format!("{} · {}", p.chart, p.ruleset.name),
+        line: if p.autoplay {
+            format!("{} · {} · AUTOPLAY", p.chart, p.ruleset.name)
+        } else {
+            format!("{} · {}", p.chart, p.ruleset.name)
+        },
         mods: mods.join(" · "),
         grade: r.grade.clone(),
         score: score_text(r),
@@ -205,7 +214,12 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
             _ => None,
         },
         failed: r.failed,
-        lamp: lamp(r),
+        // The autoplayer's lamp would mean nothing: it says it played.
+        lamp: if p.autoplay {
+            Some("AUTOPLAY".into())
+        } else {
+            lamp(r)
+        },
         judgements,
         stats,
         notes,
@@ -392,6 +406,7 @@ mod tests {
             video_notes: Vec::new(),
             offset: Some((0.0, 0.0)),
             panels: "Timing".into(),
+            autoplay: false,
         }
     }
 
@@ -563,5 +578,18 @@ mod tests {
         let mut close = r.clone();
         close.mean_delta = 0.001;
         assert_eq!(suggested_offset(&close, 0.0), None);
+    }
+
+    #[test]
+    fn an_autoplayed_play_says_so() {
+        let rules = ddi_engine::rules::presets::itg();
+        let layout = single();
+        let r = results([10, 0, 0, 0, 0, 0]);
+        let mut p = info(&r, &rules, &layout);
+        p.autoplay = true;
+        let d = results_data(&p);
+        assert_eq!(d.lamp.as_deref(), Some("AUTOPLAY"));
+        assert!(d.line.ends_with("· AUTOPLAY"), "{}", d.line);
+        assert!(d.notes[0].starts_with("Autoplay"));
     }
 }

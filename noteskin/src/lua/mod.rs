@@ -71,9 +71,9 @@ pub const MAX_ACTORS: usize = 16384;
 /// (`GAMESTATE`, `PREFSMAN`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Env {
-    /// The skin's game: `dance`, or `pump` for a pump skin (not imported
-    /// yet). A dance skin is told `dance` on every layout: StepMania never
-    /// loads one for another game, and skins that read the name switch to
+    /// The skin's game: `dance`, or `pump` for a pump skin. A dance skin
+    /// is told `dance` on every layout: StepMania never loads one for
+    /// another game, and skins that read the name switch to
     /// tables for that game's buttons (Dake), while the play passes dance
     /// buttons ([`dance_style`]).
     pub game: String,
@@ -123,6 +123,21 @@ pub fn dance_style(layout: &ddi_chart::Layout) -> &'static str {
         "dance-solo" => "solo",
         _ if layout.pads() > 1 => "double",
         _ => "single",
+    }
+}
+
+/// The style a skin of `game` is told a layout is: a pump skin the pump
+/// style of a pump layout (`single`, `halfdouble`, `double`), a dance
+/// skin [`dance_style`].
+pub fn style_for(game: &str, layout: &ddi_chart::Layout) -> &'static str {
+    if game.eq_ignore_ascii_case("pump") {
+        match layout.id.as_str() {
+            "pump-halfdouble" => "halfdouble",
+            "pump-double" => "double",
+            _ => "single",
+        }
+    } else {
+        dance_style(layout)
     }
 }
 

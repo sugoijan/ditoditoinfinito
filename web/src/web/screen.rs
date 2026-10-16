@@ -385,7 +385,7 @@ pub(crate) fn attach(host: &Element, class: &str) -> Option<Attachment> {
 }
 
 /// Shows the canvas behind the page, filling the window (the 2D pass
-/// while Yew's pages last).
+/// under a page of the DOM's).
 pub(crate) fn attach_backdrop() -> Option<Attachment> {
     with(|s| {
         let token = take(s, "screen-canvas");
@@ -486,6 +486,17 @@ pub(crate) fn with_painter<R>(gfx: &Gfx, f: impl FnOnce(&mut Painter) -> R) -> O
     })
 }
 
+/// Lets go of the 2D pass's textures of `name` and its parts
+/// (`<name>:<part>`): a file the shell no longer keeps.
+pub(crate) fn forget_textures(name: &str) {
+    let parts = format!("{name}:");
+    with(|s| {
+        if let Some((_, p)) = &mut s.painter {
+            p.forget_textures(|source| source == name || source.starts_with(&parts));
+        }
+    });
+}
+
 /// Before a frame of the 2D pass: asks the platform for the textures
 /// drawn and not loaded, and puts those decoded since on the device.
 pub(crate) fn prepare_textures(gfx: &Gfx) {
@@ -546,6 +557,22 @@ pub(crate) fn prepare_textures(gfx: &Gfx) {
     with(|s| s.to_close.extend(copied));
     for (id, key) in requests {
         super::textures::load(id, key, limit);
+    }
+}
+
+/// Images a page copied to the device (`copy_external_image_to_texture`):
+/// closed after the next frame's submit ([`after_submit`]), since WebGL2
+/// copies only then and a closed image is detached by then.
+pub(crate) fn close_after_submit(images: impl IntoIterator<Item = ImageBitmap>) {
+    let images: Vec<ImageBitmap> = images.into_iter().collect();
+    if images.is_empty() {
+        return;
+    }
+    // Without the canvas no frame comes: they are closed at once.
+    let mut left = Some(images);
+    with(|s| s.to_close.extend(left.take().into_iter().flatten()));
+    for image in left.into_iter().flatten() {
+        image.close();
     }
 }
 
@@ -624,6 +651,7 @@ pub(crate) fn debug_into(obj: &js_sys::Object) {
             set(&pass, "instances", (stats.instances as f64).into());
             set(&pass, "draws", (stats.draws as f64).into());
             set(&pass, "passes", (stats.passes as f64).into());
+            set(&pass, "externals", (stats.externals as f64).into());
             set(obj, "pass2d", pass.into());
         }
     });

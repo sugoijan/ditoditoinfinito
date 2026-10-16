@@ -16,9 +16,12 @@
 //! the first is a step (`LaneInput` drops a press of a control already
 //! down).
 //!
-//! A press on the `.touch-quit` button (any pointer type) is the `cancel`
-//! control instead, which the play session treats like Escape (hold or
-//! double tap to quit). Touch is not a sync-accuracy target: event
+//! A press on the quit button (any pointer type; drawn by the scene at
+//! the left edge, away from the receptors, while a touch screen plays,
+//! [`set_quit_shown`],
+//! `ddi_render::scene::quit_button`) is the `cancel` control instead,
+//! which the play session treats like Escape (hold or double tap to
+//! quit). Touch is not a sync-accuracy target: event
 //! timestamps are as good as the browser's touch pipeline.
 
 use std::cell::RefCell;
@@ -34,8 +37,51 @@ use super::clock::PerformanceClock;
 
 /// Control emitted by the quit button.
 pub(crate) const CANCEL_CONTROL: &str = "cancel";
-/// Class of the on-screen quit button.
-const QUIT_SELECTOR: &str = ".touch-quit";
+/// The safe area's insets, and the canvas's size (CSS pixels) they were
+/// read at.
+type Insets = ((u32, u32), [f32; 4]);
+
+thread_local! {
+    /// The quit button shows (a touch screen plays).
+    static QUIT_SHOWN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Where it is drawn now (CSS pixels of the canvas: middle and radius).
+    static QUIT_AT: std::cell::Cell<Option<[f32; 3]>> = const { std::cell::Cell::new(None) };
+    /// The safe area's insets (top, right, bottom, left, CSS pixels), read
+    /// again when the canvas's size changes (a rotation).
+    static INSETS: std::cell::Cell<Option<Insets>> = const { std::cell::Cell::new(None) };
+}
+
+/// Shows the quit button over the play (or not).
+pub(crate) fn set_quit_shown(shown: bool) {
+    QUIT_SHOWN.with(|q| q.set(shown));
+    if !shown {
+        QUIT_AT.with(|q| q.set(None));
+    }
+}
+
+pub(crate) fn quit_shown() -> bool {
+    QUIT_SHOWN.with(|q| q.get())
+}
+
+/// The safe area's insets for a canvas of `css` size, read again when
+/// it changes.
+pub(crate) fn safe_insets(css: (f64, f64)) -> [f32; 4] {
+    let key = (css.0.round() as u32, css.1.round() as u32);
+    INSETS.with(|c| match c.get() {
+        Some((k, v)) if k == key => v,
+        _ => {
+            let v = crate::components::ui_dev::safe_insets().map(|v| v as f32);
+            c.set(Some((key, v)));
+            v
+        }
+    })
+}
+
+/// Where the play drew the quit button this frame (CSS pixels), for the
+/// presses on it.
+pub(crate) fn set_quit_at(at: Option<[f32; 3]>) {
+    QUIT_AT.with(|q| q.set(at));
+}
 
 /// What a tracked pointer is holding.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -66,8 +112,8 @@ pub(crate) struct TouchLanes {
 }
 
 impl TouchLanes {
-    /// Listens on the play screen's host (`.game-canvas-host`, which also
-    /// holds the quit button; the app's canvas sits in a slot within it),
+    /// Listens on the play screen's host (`.game-canvas-host`; the app's
+    /// canvas, which draws the quit button, sits in a slot within it),
     /// falling back to the canvas' parent, then the canvas itself. `lanes` are the
     /// layout lanes' `(column, scroll sign)`.
     pub(crate) fn new(
@@ -115,7 +161,13 @@ impl TouchLanes {
                             .is_some()
                     };
                     let mut s = shared.borrow_mut();
-                    let hold = if within(QUIT_SELECTOR) {
+                    let on_quit = QUIT_AT.with(|q| q.get()).is_some_and(|[x, y, r]| {
+                        let rect = s.canvas.get_bounding_client_rect();
+                        let dx = event.client_x() as f64 - rect.left() - f64::from(x);
+                        let dy = event.client_y() as f64 - rect.top() - f64::from(y);
+                        dx * dx + dy * dy <= f64::from(r * r)
+                    });
+                    let hold = if on_quit {
                         if event.button() != 0 {
                             return;
                         }
