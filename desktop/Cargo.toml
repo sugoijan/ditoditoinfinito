@@ -73,9 +73,10 @@ video = ["dep:wasmtime"]
 # already a dependency of cpal's.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-audio = { version = "0.3.2", default-features = false, features = ["std", "AudioHardware"] }
-# Keys' own times (`src/keyboard.rs`): an `NSEvent` local monitor.
+# Keys' own times (`src/keyboard.rs`): an `NSEvent` local monitor; the
+# pointer hidden until the mouse moves (`NSCursor`, `src/shell.rs`).
 objc2 = "0.6.5"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSEvent", "block2"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSCursor", "NSEvent", "block2"] }
 block2 = "0.6.2"
 
 [dev-dependencies]
