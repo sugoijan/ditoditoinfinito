@@ -409,6 +409,8 @@
       }
     </style>
     <link data-trunk rel="rust" href="app/Cargo.toml" data-initializer="boot-init.js" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
+    <!-- The Ogg Opus fallback decoder, a worker fetched only when the browser cannot decode Opus (PLAN.md decision 9); `xtask stage-opus` names its files by their hash. -->
+    <link data-trunk rel="rust" href="opus-worker/Cargo.toml" data-bin="opus-worker" data-type="worker" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
     <link data-trunk rel="css" href="styles.css" />
     <link data-trunk rel="copy-file" href="seo/favicon.svg" />
     <link data-trunk rel="copy-dir" href="assets/songs" data-target-path="songs" />

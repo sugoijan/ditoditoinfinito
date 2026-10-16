@@ -37,8 +37,9 @@ under it in section 7:
 
 **Left to do:**
 
-- Frame pacing with `WaitUntil` ahead of the display (frames now wait in
-  `get_current_texture` under Fifo), if a measurement shows a gain.
+- Frame pacing: late pacing is built (`--pacing late`, section 3's
+  "Frame pacing"), simulated and tested; block stays the default until
+  the maintainer's `--pacing-report` on the Mac shows the gain (check 9).
 - Packaging and signing (an `.app`, an installer, the video module and
   the licences beside the executable), in their own plan.
 - Windows: the gilrs change (8 ms polling, stamps from the reading) needs
@@ -64,6 +65,15 @@ under it in section 7:
 7. **IME** on song select's search (macOS).
 8. **Linux and Windows hardware:** the window, sound, IME and a
    controller on a real Linux desktop (a UTM VM will do) and on Windows.
+9. **Frame pacing** (section 3, "Frame pacing"): `DDI_HOME=<scratch>
+   cargo run --profile desktop -- --play beatucada --chart 0 --auto
+   --start --pacing-report --volume 0.005`, the window left alone in
+   front until the results, at 60 Hz and at 120 Hz (ProMotion), and in
+   fullscreen; the printed report's late column against block's: a
+   locked grid near 100 %, no more repeated refreshes or missed
+   refreshes, frame start → shown and input read → shown lower, the
+   refresh "measured", and by eye no stutter in the late stretches
+   (every other five seconds).
 
 ## Goals
 
@@ -418,7 +428,7 @@ start, as on the web.
   with `WaitUntil(next_vblank − margin)`, the refresh rate from winit's
   `MonitorHandle::refresh_rate_millihertz` checked against frames
   measured (the web's `FpsMeter`). An option "lowest latency (may tear)"
-  uses Immediate.
+  uses Immediate. As built: "Frame pacing" below.
 - **Predicted presentation** = the frame's start plus the frame interval
   times the frames in flight; wgpu gives no present timestamps, and the
   visual offset (calibrated per display profile) absorbs the constant.
@@ -437,6 +447,175 @@ start, as on the web.
   step 1), so frame pacing only moves stamps and drawing. Edges must
   reach the engine within `JUDGE_LAG` (30 ms) or they count as
   `late_edges`, published in the debug state.
+
+### Frame pacing (2026-10-16)
+
+`desktop/src/pacing/` (pure, tested on a fake clock), driven by the
+shell's loop; `--pacing block|late`, `--pacing-report`.
+
+**What play did (block, still the default).** The loop polls; each
+frame waits in `get_current_texture` until the frame before is shown
+(Fifo with one frame in flight: on Metal `maximumDrawableCount` 2, from
+`desired_maximum_frame_latency` 1, so `nextDrawable` returns when the
+refresh releases the older drawable), then reads the clock and input,
+draws and presents, and is shown at the next refresh. Between the play
+reading its input and the picture showing it lies a whole refresh
+(16.7 ms at 60 Hz, 8.3 at 120), and the main thread spends most of each
+frame blocked. Judging does not suffer (keys carry the OS's stamps on
+macOS, pads gilrs's, D4), but on Windows and Linux keys are stamped on
+receipt, which a blocked loop delays (D6), and what the player sees of
+their press (the receptor, the judgement) is a refresh older than it
+could be.
+
+**Late pacing (`--pacing late`).** Each frame starts as late before the
+refresh it is for as its cost allows, the loop asleep in
+`ControlFlow::WaitUntil` until then (events are still read as they
+come), so it never waits in the acquire:
+
+- **Present mode:** Fifo, one frame in flight, whatever the surface
+  offers. The waits are how the refreshes are found (below); Mailbox
+  never waits, so it says nothing of them, and drawing as fast as it
+  takes frames spends a core (Metal has no Mailbox anyway). Immediate
+  tears; not considered. Where blocking frames use Mailbox (DX12 and
+  Vulkan surfaces that offer it), a frame is shown up to a refresh
+  sooner than under Fifo, so the session's prediction, and the notes,
+  sit about half a period apart between the two modes there: a visual
+  offset calibrated in one is off by that much in the other. On Metal
+  both are Fifo and agree.
+- **The refreshes (`Grid`).** wgpu 30 gives no present timestamps (the
+  Metal hal keeps the `CAMetalDrawable` private, so `presentedTime` and
+  `addPresentedHandler` are out of reach without a fork). What the
+  surface does tell: an acquire that waited (over 1 ms) returned when
+  the frame before was shown. The period starts as the OS's rate
+  (`refresh_rate_millihertz`), is seeded from the median of consecutive
+  returns when that is more than 10 % off (a wrong rate, none), and
+  refined by the slope of the returns against their refresh count; the
+  phase is the median residual, returns more than 2 ms (or a quarter
+  period) off left out. Returns that do not fit a grid (under 70 % of
+  them, or a spread over 1 ms: a compositor that releases at no fixed
+  time, a variable rate with no cadence) are no grid, and with no grid,
+  or none seen for 2 s, frames block as before. Robust to the odd acquire
+  held up for another reason (tested with 10 % strays).
+- **Locking and probes.** A play's first frames block, as before, until
+  six returns fit. Then every half second one frame (a probe) starts
+  right after the one before: its acquire waits for the refresh (one
+  more return, the grid kept locked and its period refined), and it is
+  still shown at the next refresh, so no refresh is lost; only that
+  frame has the old latency (2 frames a second). Every 4 s a burst of
+  four such frames looks for a faster refresh: returns closer together
+  than three quarters of the period (a display gone from 60 to 120 Hz
+  while the OS's rate was not read again) start the grid again on their
+  spacing (simulated: found within one burst, 120 frames a second after,
+  no repeats).
+- **The schedule.** The next frame starts at the last frame's refresh
+  plus a period, minus the budget: the 95th percentile of the last 120
+  frames' costs plus a margin. A frame's cost runs from its planned
+  start to its present's return with the waits left out, so it holds
+  the timer's lateness, the loop's turn, the UI's update, the play's
+  tick and drawing and the present call. On macOS winit's `WaitUntil`
+  is a `CFRunLoopTimer`; when it fires, `about_to_wait` asks for the
+  redraw, `request_redraw` wakes the run loop and `RedrawRequested`
+  comes in the next turn (microseconds), all counted in the cost.
+- **The margin** covers what the CPU does not see: the GPU's work after
+  the present and a compositor's deadline before the refresh. It starts
+  at 2 ms. A missed refresh shows as an acquire that waits when the
+  drawable should have been free (the frame before is still queued), or
+  a probe's wait that ends a refresh late: the margin grows 1.5 ms and
+  falls back to its floor over 5 s. The floor rises 0.5 ms (at most to
+  half a period) only for a deadline: when no late frame of the last
+  30 s made its refresh with less time to spare than the one that
+  missed. A miss with more to spare than frames that made it is a
+  hiccup (a compositor's stall), which a higher floor would not prevent:
+  only the margin moves. The floor comes down 0.5 ms a minute without
+  misses, and each play starts from 2 ms. Simulated: a 3 ms deadline it
+  is not told costs three misses and is then kept (floor 3.5 ms); one
+  5 ms hiccup every 20 s for ten minutes leaves the floor at 2 ms and
+  latency 4.8 → 4.9 ms (it rose to 7.9 ms when every miss raised the
+  floor from the margin and the floor outlived the play). A frame that
+  costs more than its budget (an overrun) is shown a refresh late, as a
+  blocking one would be; the costs learn it, the margin does not
+  move.
+- **The predicted presentation** is the refresh the frame is for, on
+  the grid (the first after the acquire's return plus a typical, median,
+  build), handed to the play (`Host::present_at` → `View::present_at`)
+  instead of the session's "now plus the frame interval" (which, read
+  well before the refresh, would draw a frame's notes up to a refresh
+  ahead). Blocking frames keep the session's: read just after a refresh,
+  plus a period, it lands on the same grid (both are anchored to the
+  acquires' returns), so a calibrated visual offset holds in both modes
+  (the simulation: the same to 0.01 ms).
+- **A variable refresh rate** at its top rate (the rate the OS gives):
+  a frame presented before the shortest period has passed is shown when
+  it does, so the grid holds as on a fixed display; slower frames are
+  shown on arrival, early by at most the margin.
+- **Menus** are unchanged: on demand (`Wait`), AutoVsync, two frames in
+  flight; nothing paced, nothing polled.
+- **Judging** is unchanged: the audio clock is the play's, input keeps
+  its stamps, and only when the frame reads them and what it draws
+  move.
+
+**What cannot be known here.** Whether macOS releases a windowed
+`CAMetalLayer`'s drawables at the refresh (through WindowServer) closely
+enough for the grid to lock, how early its deadline is, and how late
+`WaitUntil` wakes: the report says all three ("on a locked grid",
+"missed refreshes" and the margin, "woke late"). If the returns prove
+noisy, a display link (`CVDisplayLink`, or `NSView.displayLink` on
+macOS 14) can give the refreshes instead, as a source for the same grid.
+On Vulkan and DX12, Fifo waits in the acquire, the present or the GPU
+depending on the driver; the report says which.
+
+**Why block stays the default.** The simulation (`pacing::sim`: a Fifo
+swapchain and a fixed or variable display, frames 1.5 ms ± 0.3 ms, a
+timer up to 0.3 ms late) gives late pacing a clear gain with no repeated
+refresh: input read → shown 16.6 → 4.4 ms at 60 Hz, 8.2 → 4.1 at 120,
+6.8 → 4.0 at 144 (and on a 48–144 Hz variable display), time blocked
+89 % → 0.4 %. But it is a model of the Mac, not the Mac; the default
+moves to late once the maintainer's report shows it on the hardware: no
+more repeated refreshes than block, a locked grid, lower latency.
+
+**Measuring (`--pacing-report`).** A play alternates the two every five
+seconds (block first; half a second after each switch left out), both
+on Fifo (so the columns differ in pacing only and the surface is not
+configured again at each switch; where block alone would use Mailbox
+the title says so), and prints, when it ends (or the window closes), a
+column for each: frames, the refresh and where it came from (measured,
+the OS's or assumed), the share on a locked grid, present-to-present
+intervals, time in the acquire, the present call, the build (acquire's
+return to present), how late the timer woke, input read → shown and
+frame start → shown (to the refresh the grid gives the frame),
+repeated refreshes (gaps between frames' refreshes), frames that
+overran or came early (shown at another refresh than drawn for) and
+missed refreshes, probes and the margin. Keys and pads reach the play
+when the loop polls them, just before a frame starts; a blocking frame
+then waits in the acquire, so "input read → shown" (from the clock
+read after the acquire) understates what a press waits for under block,
+and "frame start → shown" is the closer figure: late's gain for keys
+and pads is the larger of the two. The probes and bursts make late's
+present-to-present intervals uneven (they start right after the frame
+before); what is shown stays one frame a refresh, which "repeated
+refreshes" checks.
+
+**The harness.** `pacing::sim::Surface` is a Fifo swapchain on a fake
+clock (drawables, a compositor's deadline, the release after a refresh)
+over a fixed or variable display; `sim::run` and `sim::Loop` drive a
+`Pacer` as the shell's loop does and say when each frame was really
+shown. It is built for tests only (`cfg(test)`, and the `sim` feature
+the integration tests turn on through ddi-desktop's dev-dependency on
+itself), not into the shipped binary. Tests
+(`desktop/src/pacing/tests.rs`): the grid (a 119.88 Hz display called
+120, a wrong rate, strays, no grid), block never sleeps, late at 60, 120
+and 144 Hz (latency, the same drawn-for time as block, no repeats, one
+frame a refresh), one overrun costs one repeat and no more, a 3 ms
+deadline it is not told is learned, hiccups every 20 s for ten minutes
+leave the floor where it was, the floor comes down without misses and
+each play starts afresh, a faster refresh found with a stale OS rate, a
+timer up to 2 ms late, a variable refresh rate, a new play locks again,
+the report over one alternating run. A review's simulation (phase
+shifts, 60 ↔ 120 Hz, a 3 s stall, late releases) ran on it too. `desktop/tests/pacing.rs`: every bundled chart autoplayed with its
+frames at the times late pacing gives them (60 Hz, 144 Hz, a 48–144 Hz
+variable display, a missed refresh, a late timer) judged as at a steady
+60: the same tally, the same log (so the same replay), every hit at the
+same offset.
 
 ### What a play draws and plays
 
@@ -804,6 +983,9 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
 - **D3 changed (crate only):** `rusty-opus` instead of `opus-decoder`,
   which is too slow and decodes through 16-bit. Decision 9's question
   for the web (a pure-Rust Opus decoder now matches libopus) stays open.
+  Settled 2026-10-16: the web's fallback decodes Opus with the same code
+  (`platform/src/opus.rs`, which `decode_all` now goes through), in a
+  worker fetched only when needed (PLAN.md decision 9).
 
 ### 7.1 One session for both shells
 
@@ -1441,7 +1623,8 @@ After the maintainer's first look:
   back when the mouse moves.
 
 Not done here: the pacing by `WaitUntil` ahead of the display (frames
-wait in `get_current_texture` under Fifo; not measured yet), WebKit
+wait in `get_current_texture` under Fifo; not measured yet; since built
+behind `--pacing late`, section 3's "Frame pacing"), WebKit
 comparisons. Dancing☆Onigiri works: 7.5b.
 
 Then, after its review (2026-10-16): play mode now ends with the play

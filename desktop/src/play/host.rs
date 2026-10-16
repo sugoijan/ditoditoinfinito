@@ -90,10 +90,12 @@ enum Stage {
 }
 
 /// What the results' buttons asked for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum After {
     Retry,
     Leave,
+    /// Watch kept play `id`'s replay.
+    Watch(String),
 }
 
 /// A calibration test's outcome on the prompt's card, until it is left.
@@ -153,6 +155,9 @@ pub struct Host {
     pub log: Vec<String>,
     /// The graphics backend's name, for the records.
     pub graphics: String,
+    /// The refresh the next frame is for, when the shell's pacing knows
+    /// it (`crate::pacing`, late pacing); else the play predicts it.
+    pub present_at: Option<HostTime>,
     /// Plays on no device with this clock (tests): `None` opens the
     /// output (or none under `--silent`).
     pub test_clock: Option<crate::audio::HostClock>,
@@ -183,6 +188,7 @@ impl Default for Host {
             menu: None,
             log: Vec::new(),
             graphics: String::new(),
+            present_at: None,
             test_clock: None,
             master: None,
             start_when_ready: false,
@@ -205,7 +211,9 @@ impl Host {
 /// What the prompt names before the song is read: a test's title and
 /// hint, or the song's title and artist from the library.
 fn first_info(request: &Request) -> PromptInfo {
-    let badge = if request.auto {
+    let badge = if request.replay.is_some() || request.refused.is_some() {
+        "REPLAY".to_string()
+    } else if request.auto {
         "AUTOPLAY".to_string()
     } else {
         String::new()
@@ -346,8 +354,10 @@ impl Host {
         *self.choice.borrow_mut() = None;
         let (choice, state, devices) =
             (self.choice.clone(), r.prompt.clone(), self.devices.clone());
-        // A test or an autoplay starts without asking about devices.
-        let ask_devices = r.request.calibration.is_none() && !r.request.auto;
+        // A test, an autoplay or a replay starts without asking about
+        // devices.
+        let ask_devices =
+            r.request.calibration.is_none() && !r.request.auto && r.request.replay.is_none();
         let act: PromptFn = Rc::new(move |c, cx| {
             let step = state.borrow().step.clone();
             match &c {
@@ -396,7 +406,10 @@ impl Host {
         {
             let prompt: SharedPrompt = Rc::new(RefCell::new(PromptState {
                 info: first_info(&r),
-                step: PromptStep::Loading("loading…".into()),
+                step: match &r.refused {
+                    Some(why) => PromptStep::Error(format!("This replay cannot be watched. {why}")),
+                    None => PromptStep::Loading("loading…".into()),
+                },
                 ..PromptState::default()
             }));
             let readied = Readied {
@@ -420,8 +433,13 @@ impl Host {
                 stage: None,
                 view_made: None,
             };
-            self.push_prompt(ui, env, &readied);
-            self.stage = Stage::Prompt(Box::new(readied));
+            // A kept play's results: at once, judged again from its log.
+            if readied.request.view_results && readied.request.refused.is_none() {
+                self.stage = self.show_kept_results(readied, ui, env);
+            } else {
+                self.push_prompt(ui, env, &readied);
+                self.stage = Stage::Prompt(Box::new(readied));
+            }
         }
         let stage = std::mem::replace(&mut self.stage, Stage::Idle);
         self.stage = match stage {
@@ -484,6 +502,13 @@ impl Host {
                 }
             }
             Stage::Results(r) => match self.after.take() {
+                Some(After::Watch(id)) => {
+                    if let Some(plays) = &self.plays {
+                        *self.requested.borrow_mut() =
+                            Some(super::replays::request(plays, &id, false));
+                    }
+                    Stage::Idle
+                }
                 Some(After::Retry) => {
                     let mut r = r;
                     // A skin whose Lua stopped is readied again (its Lua
@@ -491,7 +516,7 @@ impl Host {
                     if let (Some(v), Some(loaded)) = (r.view.as_ref(), r.loaded.clone())
                         && v.noteskin().is_some_and(|n| n.lua_failure().is_some())
                     {
-                        let settings = Settings::load();
+                        let settings = r.request.settings();
                         r.skin = read_skin(&loaded, r.request.chart, &settings, self.wake.clone());
                     }
                     // The sound opens again; Start once it runs.
@@ -590,13 +615,17 @@ impl Host {
     /// taken in as they come, its sound opened; the prompt says where it
     /// is, and offers Start once all is ready.
     fn ready(&mut self, r: &mut Readied, dev: Option<Device<'_>>, ui: &Ui) {
+        // A replay refused: the prompt says why, nothing loads.
+        if r.request.refused.is_some() {
+            return;
+        }
         if r.loading.is_none() && r.loaded.is_none() && r.error.is_none() {
             let known = r.bundled || crate::library::song(&r.request.song).is_some();
             if let Some(mode) = r.request.calibration {
                 r.loaded = Some(Rc::new(super::load::calibration(mode, r.rate)));
             } else if known || r.asked.elapsed().as_secs() >= 30 {
                 // A song never listed fails its load after a while.
-                let s = Settings::load();
+                let s = r.request.settings();
                 let movies = cfg!(feature = "video")
                     && s.bg_brightness > 0.0
                     && s.video != ddi_ui::state::settings::VideoMode::Off;
@@ -632,7 +661,7 @@ impl Host {
         let (Some(loaded), Some(dev)) = (r.loaded.clone(), dev) else {
             return;
         };
-        let settings = Settings::load();
+        let settings = r.request.settings();
         if r.view.is_none() {
             let mut view = View::new(dev.device, dev.queue, dev.formats);
             view.set_song(&loaded, &settings);
@@ -739,7 +768,7 @@ impl Host {
             return Stage::Idle;
         };
         let loaded_song = loaded.song.clone();
-        let settings = Settings::load();
+        let settings = r.request.settings();
         let audio = match r.audio.take() {
             Some((a, _)) => a,
             None => self.open_audio(),
@@ -756,8 +785,12 @@ impl Host {
             .and_then(|v| v.fps.refresh_estimate())
             .or(self.refresh_hint)
             .unwrap_or(60.0);
+        let mut request = r.request.clone();
+        if settings.ghost && request.replay.is_none() && request.calibration.is_none() {
+            request.ghost = self.ghost(&loaded, &request, &settings).map(Rc::new);
+        }
         match Play::start(
-            r.request.clone(),
+            request,
             loaded,
             &settings,
             audio,
@@ -776,7 +809,10 @@ impl Host {
                 if let Some(v) = r.view.as_mut()
                     && r.request.calibration.is_none()
                 {
-                    let shift = settings.song_offset(&r.request.song);
+                    let shift = match &r.request.replay {
+                        Some(replay) => replay.record.song_offset,
+                        None => settings.song_offset(&r.request.song),
+                    };
                     let mut song = loaded_song;
                     if shift != 0.0 {
                         song.shift_notes(shift);
@@ -834,8 +870,17 @@ impl Host {
             return;
         };
         let ended = play.tick(now, self.plays.as_ref());
+        render.ghost = play.session.ghost_delta().map(|d| match d {
+            ddi_ui::state::history::GhostDelta::Percent(p) => {
+                ddi_render::ScoreDelta::Percent(p as f32)
+            }
+            ddi_ui::state::history::GhostDelta::Points(p) => {
+                ddi_render::ScoreDelta::Points(p.round() as i64)
+            }
+        });
         if let Some(v) = r.view.as_mut() {
             v.scale = self.scale;
+            v.present_at = self.present_at.take();
             v.draw(
                 dev.device, dev.queue, encoder, view, plain, size, play, *render, now,
             );
@@ -974,7 +1019,33 @@ impl Host {
         if let Some(Err(e)) = play.saved.borrow().as_ref() {
             notes.push(format!("This play could not be saved: {e}."));
         }
-        let data = results_data(&PlayInfo {
+        // A replay: its results against the log judged at once and the
+        // play's kept ones (`Replay::check`).
+        let replay = play.request.replay.clone();
+        if let Some(rp) = &replay {
+            let check = match rp.results(&play.loaded.song) {
+                Ok(offline) => rp.check(results, &offline),
+                Err(e) => ddi_ui::state::history::ReplayCheck {
+                    problems: vec![e],
+                    ..Default::default()
+                },
+            };
+            self.log.push(format!(
+                "replay {}: {}",
+                rp.id,
+                if check.matches {
+                    "the play's results".to_string()
+                } else {
+                    format!("differs: {}", check.problems.join("; "))
+                }
+            ));
+            if let Some(note) = check.note() {
+                eprintln!("{note}");
+                notes.push(note);
+            }
+            notes.extend(rp.older_judge_note());
+        }
+        let mut data = results_data(&PlayInfo {
             results,
             ruleset: &session.rules,
             layout: &session.layout,
@@ -985,8 +1056,34 @@ impl Host {
             video_notes: notes,
             offset: Some((play.played_offset, settings.song_offset(&id))),
             panels: settings.results_panels.clone(),
-            autoplay: play.request.auto,
+            autoplay: match &replay {
+                Some(rp) => rp.record.autoplay.is_some(),
+                None => play.request.auto,
+            },
         });
+        if let Some(rp) = &replay {
+            ddi_ui::screens::play::mark_replay(
+                &mut data,
+                ddi_ui::screens::data::ResultsKind::Replay,
+                &rp.when_line(&super::replays::tz_minutes),
+            );
+        }
+        // The play just kept: its replay.
+        let watch: Option<ActionFn> = play
+            .play_id
+            .clone()
+            // Kept: its replay can be read.
+            .filter(|_| replay.is_none() && matches!(*play.saved.borrow(), Some(Ok(()))))
+            .map(|play_id| {
+                let after = self.after.clone();
+                Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
+                    after.set(Some(After::Watch(play_id.clone())));
+                    let mut st = env.state.borrow_mut();
+                    st.over = st.over.saturating_sub(1);
+                    drop(st);
+                    cx.close(true);
+                }) as ActionFn
+            });
         let after = self.after.clone();
         let retry: ActionFn = Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
             after.set(Some(After::Retry));
@@ -1021,8 +1118,152 @@ impl Host {
                 song_list: Some(song_list),
                 offset: Some(offset),
                 panels: Some(panels),
+                replay: watch,
             },
         ));
+    }
+
+    /// The chart's best play's ghost under the rules it is played by
+    /// (`Settings::ghost`), when there is one.
+    fn ghost(
+        &self,
+        loaded: &Loaded,
+        request: &Request,
+        settings: &Settings,
+    ) -> Option<ddi_ui::state::history::Ghost> {
+        let plays = self.plays.as_ref()?;
+        let c = loaded.song.charts.get(request.chart)?;
+        let best = plays.history().best(
+            loaded.song.chart_digest(request.chart),
+            &settings.ruleset_for(c).key(),
+            settings.transform.is_assist(),
+        )?;
+        let got: Rc<RefCell<Option<_>>> = Rc::default();
+        let g = got.clone();
+        plays.entry(&best.score_play, move |e| *g.borrow_mut() = Some(e));
+        let entry = got.borrow_mut().take()?.ok()?;
+        let replay = ddi_ui::state::history::Replay::from_entry(&entry).ok()?;
+        ddi_ui::state::history::Ghost::of(&replay, &loaded.song).ok()
+    }
+
+    /// A kept play's results (`--replay ID --results`, song select's
+    /// plays list): judged again from its log on its chart, read now; its
+    /// replay offered.
+    fn show_kept_results(&mut self, r: Readied, ui: &mut Ui, env: &Env) -> Stage {
+        let Some(rp) = r.request.replay.clone() else {
+            return Stage::Idle;
+        };
+        let read = super::load::read_chart(&r.request.song).and_then(|song| {
+            let results = rp.results(&song)?;
+            Ok((song, results))
+        });
+        let (song, results) = match read {
+            Ok(x) => x,
+            Err(e) => {
+                r.prompt.borrow_mut().set_step(PromptStep::Error(format!(
+                    "This play's results cannot be shown. {e}"
+                )));
+                self.push_prompt(ui, env, &r);
+                return Stage::Prompt(Box::new(r));
+            }
+        };
+        let chart = r.request.chart;
+        let (Some(c), Some(layout)) = (
+            song.charts.get(chart),
+            song.charts.get(chart).and_then(|c| song.layout_of(c)),
+        ) else {
+            return Stage::Idle;
+        };
+        let rules = rp.record.ruleset.build(c);
+        let settings = Settings::load();
+        let entry = crate::library::song(&r.request.song)
+            .map(|s| s.entry)
+            .or_else(|| {
+                crate::library::bundled()
+                    .into_iter()
+                    .find(|e| e.id == r.request.song)
+            });
+        let files = super::load::Files::of(&r.request.song).map(|(f, _)| f);
+        let song_entry = SongEntry {
+            id: r.request.song.clone(),
+            title: entry.as_ref().map_or(String::new(), |e| e.title.clone()),
+            artist: entry.as_ref().map_or(String::new(), |e| e.artist.clone()),
+            bpm: entry
+                .as_ref()
+                .and_then(|e| e.bpm.parse().ok())
+                .unwrap_or(0.0),
+            bpm_text: entry.as_ref().map_or(String::new(), |e| e.bpm.clone()),
+            length: entry.as_ref().map_or(0.0, |e| e.length as f32),
+            banner: entry
+                .as_ref()
+                .and_then(|e| e.banner.as_deref())
+                .zip(files.as_ref())
+                .map(|(b, f)| f.source(b)),
+            background: entry
+                .as_ref()
+                .and_then(|e| e.background.as_deref())
+                .zip(files.as_ref())
+                .map(|(b, f)| f.source(b)),
+            ..SongEntry::default()
+        };
+        let mut data = results_data(&PlayInfo {
+            results: &results,
+            ruleset: &rules,
+            layout: &layout,
+            song: song_entry,
+            chart: chart_line(c.difficulty, c.meter, &layout.name),
+            mods: Vec::new(),
+            device_changed: false,
+            video_notes: rp.older_judge_note().into_iter().collect(),
+            offset: None,
+            panels: settings.results_panels.clone(),
+            autoplay: rp.record.autoplay.is_some(),
+        });
+        ddi_ui::screens::play::mark_replay(
+            &mut data,
+            ddi_ui::screens::data::ResultsKind::Kept,
+            &rp.when_line(&super::replays::tz_minutes),
+        );
+        self.log.push(format!(
+            "kept play {}: {:?} · {}",
+            rp.id,
+            results.tally.taps,
+            ddi_ui::screens::play::score_text(&results)
+        ));
+        let after = self.after.clone();
+        let song_list: ActionFn = Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
+            after.set(Some(After::Leave));
+            let mut st = env.state.borrow_mut();
+            st.over = st.over.saturating_sub(1);
+            drop(st);
+            cx.close(true);
+        });
+        let after = self.after.clone();
+        let id = rp.id.clone();
+        let watch: ActionFn = Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
+            after.set(Some(After::Watch(id.clone())));
+            let mut st = env.state.borrow_mut();
+            st.over = st.over.saturating_sub(1);
+            drop(st);
+            cx.close(true);
+        });
+        let panels: PanelsFn = Rc::new(|name| {
+            let mut s = Settings::load();
+            s.results_panels = name.to_string();
+            s.save();
+        });
+        ui.push(ResultsScreen::new(
+            env.clone(),
+            data,
+            ResultsActions {
+                retry: None,
+                song_list: Some(song_list),
+                offset: None,
+                panels: Some(panels),
+                replay: Some(watch),
+            },
+        ));
+        Stage::Results(Box::new(r))
     }
 }
 

@@ -86,7 +86,16 @@ pub enum SelectCall {
     Notice(String),
     /// Autoplay switched on or off (for the session).
     Autoplay(bool),
+    /// A kept play (by id): watch its replay, show its results, or
+    /// forget it (`docs/plans/play-history.md`, Replays).
+    WatchPlay(String),
+    ShowPlay(String),
+    RemovePlay(String),
 }
+
+/// The plays kept of a song's chart, as the plays list shows them (the
+/// shell's history; none on the developer routes).
+pub type PlaysFn = Rc<dyn Fn(&SongEntry, &ChartEntry) -> Vec<super::data::PlayRow>>;
 
 /// The shell's part of song select (none on the developer routes).
 pub type ShellFn = Rc<dyn Fn(SelectCall, &mut Cx)>;
@@ -494,6 +503,8 @@ pub struct SelectScreen {
     options: OpenFn,
     shell: Option<ShellFn>,
     feed: Option<SharedFeed>,
+    /// The kept plays of a chart (the plays list).
+    plays: Option<PlaysFn>,
     /// The import's state, shared with its dialog.
     import: Rc<RefCell<ImportView>>,
     notices: Vec<Notice>,
@@ -571,6 +582,7 @@ impl SelectScreen {
             options,
             shell: None,
             feed: None,
+            plays: None,
             import,
             notices,
             notices_dirty: true,
@@ -626,6 +638,51 @@ impl SelectScreen {
         self.shell = Some(shell);
         self.feed = Some(feed);
         self
+    }
+
+    /// Where the plays list finds a chart's kept plays.
+    pub fn with_plays(mut self, plays: PlaysFn) -> SelectScreen {
+        self.plays = Some(plays);
+        self
+    }
+
+    /// The plays list of the chart shown, over song select.
+    fn open_plays(&mut self, cx: &mut Cx) {
+        let Some(f) = self.plays.clone() else {
+            return;
+        };
+        let (charts, pick) = self.charts();
+        let (Some(song), Some(chart)) = (self.song(), pick.map(|p| charts[p])) else {
+            return;
+        };
+        let title = format!("{} {}", chart.label(), chart.meter_text())
+            .trim_end()
+            .to_string();
+        let rows = f(song, chart);
+        cx.focus("Wheel");
+        cx.overlay(
+            super::select_dialogs::PlaysDialog::new(
+                self.env.clone(),
+                &title,
+                rows,
+                self.shell.clone(),
+            ),
+            true,
+        );
+        self.status("plays".into());
+    }
+
+    /// The chart shown's best play's replay.
+    fn watch_best(&mut self, cx: &mut Cx) {
+        let (charts, pick) = self.charts();
+        let Some(id) = pick
+            .and_then(|p| charts[p].best.as_ref())
+            .map(|b| b.play.clone())
+            .filter(|id| !id.is_empty())
+        else {
+            return;
+        };
+        self.call(SelectCall::WatchPlay(id), cx);
     }
 
     /// The chart to show first for the start song (the last one started).
@@ -1522,6 +1579,9 @@ impl SelectScreen {
             "Close pack"
         };
         let mut links: Vec<(&str, &str)> = Vec::new();
+        if self.plays.is_some() && now == Hints::Song {
+            links.push(("Link.Plays", "Plays…"));
+        }
         if manage {
             links.push(("Link.Manage", "Manage…"));
         }
@@ -1583,6 +1643,9 @@ impl SelectScreen {
         let mut hints: Vec<(&[&str], &str)> = hints.to_vec();
         if manage && now != Hints::Typing {
             hints.push((&["DEL"], "Manage"));
+        }
+        if self.plays.is_some() && now == Hints::Song {
+            hints.push((&["P"], "Plays"));
         }
         let note = if note.is_empty() {
             found.as_str()
@@ -2332,6 +2395,7 @@ impl Screen for SelectScreen {
         } else {
             v.push(along("Autoplay"));
             for n in [
+                "Link.Plays",
                 "Link.Manage",
                 "Link.Add",
                 "Link.Options",
@@ -2624,6 +2688,42 @@ impl SelectScreen {
                 }
                 return Handled::Yes;
             }
+            // A long press on a chart (a phone has no keys, no footer):
+            // its plays.
+            Input::Pointer {
+                target: Some(t),
+                gesture: crate::Gesture::LongPress,
+                ..
+            } if self.plays.is_some()
+                && let Some(k) = t.chain.iter().find_map(|n| {
+                    n.strip_prefix("Chart")
+                        .or_else(|| n.strip_prefix("Ladder.Row"))
+                        .and_then(|n| n.parse::<usize>().ok())
+                }) =>
+            {
+                self.pick_chart(k, root, cx);
+                self.open_plays(cx);
+                self.publish();
+                return Handled::Yes;
+            }
+            // The chart's plays (P), its best's replay (W).
+            Input::Key(k)
+                if k.down
+                    && !k.repeat
+                    && !k.composing
+                    && !self.typing
+                    && !k.modifiers.any_but_shift()
+                    && self.plays.is_some()
+                    && (k.key.eq_ignore_ascii_case("p") || k.key.eq_ignore_ascii_case("w")) =>
+            {
+                if k.key.eq_ignore_ascii_case("p") {
+                    self.open_plays(cx);
+                } else {
+                    self.watch_best(cx);
+                }
+                self.publish();
+                return Handled::Yes;
+            }
             Input::Key(k)
                 if k.down && self.typing && (k.key == "ArrowUp" || k.key == "ArrowDown") =>
             {
@@ -2815,6 +2915,10 @@ impl SelectScreen {
                     true,
                 );
                 self.status("add songs".into());
+                return Handled::Yes;
+            }
+            "Link.Plays" => {
+                self.open_plays(cx);
                 return Handled::Yes;
             }
             "Link.Manage" => {

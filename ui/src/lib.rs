@@ -20,6 +20,7 @@
 //! - [`testing`]: a headless harness that scripts events and frames.
 //! - [`dev`]: the developer screen both shells run.
 
+pub mod back_stack;
 pub mod dev;
 pub mod dev_widgets;
 pub mod event;

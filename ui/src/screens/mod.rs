@@ -212,6 +212,11 @@ pub struct ThemeState {
     pub autoplay: bool,
     pub page_focus: i32,
     pub page_height: f32,
+    /// Song select's plays list, while it is open: its rows (`id`,
+    /// `when`, `grade score lamp`, `mods`, a row a line, `|` between),
+    /// and the chosen row's id.
+    pub plays: Vec<String>,
+    pub plays_selected: Option<String>,
 }
 
 pub type SharedTheme = Rc<RefCell<ThemeState>>;

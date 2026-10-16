@@ -5,10 +5,10 @@
 //! (feature `video`), the start prompt's picture. As the web's
 //! `game_loop.rs` draws it, the same `ddi_render` code.
 
-use ddi_library::backgrounds::{self, BgImage, BgSegment};
+use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_platform::HostTime;
 use ddi_render::noteskin::{NoteLayer, NoteskinPlay};
-use ddi_render::{Backdrop, ColorScheme, RenderOptions, Renderer, SkinBlending};
+use ddi_render::{Backdrop, ColorScheme, RenderOptions, Renderer, SecondLayer, SkinBlending};
 use ddi_session::backgrounds::{FpsMeter, FrameShape, MovieGuard};
 use ddi_ui::state::settings::{NoteColors, Settings, VideoMode};
 
@@ -50,6 +50,8 @@ pub fn render_options(settings: &Settings) -> RenderOptions {
         frame_aspect: None,
         field_filter: settings.field_filter,
         preview: None,
+        // Set each frame by the play (`play::host`).
+        ghost: None,
     }
 }
 
@@ -106,7 +108,8 @@ pub struct View {
     backgrounds: Vec<(BgImage, usize)>,
     /// Decoded images waiting for the GPU.
     pending: Vec<(BgImage, Rgba)>,
-    schedule: Vec<BgSegment>,
+    /// The background changes, a schedule per layer.
+    schedule: [Vec<BgSegment>; LAYERS],
     frame_shape: FrameShape,
     pub fps: FpsMeter,
     /// A work's back and mask layers.
@@ -135,6 +138,9 @@ pub struct View {
     pub frames: u64,
     /// The window's scale factor (device pixels per point).
     pub scale: f32,
+    /// The refresh the next frame is for, when the shell's pacing knows
+    /// it (`crate::pacing`); else the session predicts it.
+    pub present_at: Option<HostTime>,
 }
 
 impl View {
@@ -147,7 +153,7 @@ impl View {
             lua_stop_said: false,
             backgrounds: Vec::new(),
             pending: Vec::new(),
-            schedule: Vec::new(),
+            schedule: Default::default(),
             frame_shape: FrameShape::default(),
             fps: FpsMeter::new(),
             stage: Default::default(),
@@ -165,6 +171,7 @@ impl View {
             movies: Default::default(),
             frames: 0,
             scale: 1.0,
+            present_at: None,
         }
     }
 
@@ -185,15 +192,40 @@ impl View {
             .filter(|v| v.plays())
             .map(|v| v.name.clone())
             .collect();
-        self.schedule =
-            backgrounds::schedule(&loaded.song, &e.bg_images, &movies, e.background.is_some());
+        // Movies found but that do not play: the second layer shows
+        // nothing for them.
+        let unshowable: Vec<&str> = e
+            .bg_videos
+            .iter()
+            .filter(|v| !v.plays())
+            .map(|v| v.name.as_str())
+            .chain(e.bg_scripted.iter().map(String::as_str))
+            .collect();
+        self.schedule = [
+            backgrounds::schedule(&loaded.song, &e.bg_images, &movies, e.background.is_some()),
+            backgrounds::second_layer(
+                &loaded.song,
+                &e.bg_images,
+                &movies,
+                &unshowable,
+                e.background.is_some(),
+            ),
+        ];
         self.frame_shape = FrameShape::new(settings.background_frame);
         self.video = settings.video;
         #[cfg(feature = "video")]
         {
             self.movies.reset();
             if settings.bg_brightness > 0.0 && settings.video != VideoMode::Off {
-                for (name, at) in &loaded.movies {
+                // The first layer's first movie first: it is the one probed
+                // for the background frame.
+                let first = self.schedule[0].iter().find_map(|s| match &s.image {
+                    BgImage::Movie(name) => Some(name.as_str()),
+                    _ => None,
+                });
+                let mut movies: Vec<_> = loaded.movies.iter().collect();
+                movies.sort_by_key(|(name, _)| Some(name.as_str()) != first);
+                for (name, at) in movies {
                     self.movies.add(name, at.clone());
                 }
             }
@@ -241,7 +273,11 @@ impl View {
         let count = match at {
             None => self.pending.len(),
             Some(t) => {
-                let next = self.schedule.iter().map(|s| s.seconds).find(|&s| s > t);
+                let next = self
+                    .schedule
+                    .iter()
+                    .filter_map(|l| l.iter().map(|s| s.seconds).find(|&s| s > t))
+                    .reduce(f64::min);
                 usize::from(next.is_none_or(|s| s - t >= 1.0))
             }
         };
@@ -357,7 +393,11 @@ impl View {
             .fps
             .tick(now.0 * 1000.0)
             .map(|fps| self.fps.second(fps));
-        let mut frame = session.player.frame(session.predicted_present(now));
+        let present = self
+            .present_at
+            .take()
+            .unwrap_or_else(|| session.predicted_present(now));
+        let mut frame = session.player.frame(present);
         let v = session.view;
         if v.hide_notes {
             frame.beat = 0.0;
@@ -613,21 +653,30 @@ impl View {
         self.stage_drawn
     }
 
-    /// What shows behind the field at song second `t`.
+    /// What shows behind the field at song second `t`: both layers.
     fn backdrop(&self, t: f64) -> Backdrop {
+        let [first, second] = &self.schedule;
         #[cfg(feature = "video")]
-        let shown = {
+        let (mut all, opening) = {
             let mut all = self.backgrounds.clone();
             all.extend(self.movies.shown_ids());
-            let opening = self.movies.opening_plays(&self.schedule);
-            backgrounds::shown(&self.schedule, t, &all, opening)
+            (all, self.movies.opening_plays(first))
         };
         #[cfg(not(feature = "video"))]
-        let shown = backgrounds::shown(&self.schedule, t, &self.backgrounds, false);
+        let (mut all, opening) = (self.backgrounds.clone(), false);
+        // The second layer's opaque stand-in for a missing song background.
+        all.push((BgImage::Plain, ddi_render::PLAIN));
+        let shown = backgrounds::shown(first, t, &all, opening);
+        let over = backgrounds::shown_over(second, t, &all);
         Backdrop {
             current: shown.current,
             previous: shown.previous,
             mix: shown.mix,
+            second: SecondLayer {
+                current: over.current,
+                previous: over.previous,
+                mix: over.mix,
+            },
         }
     }
 }

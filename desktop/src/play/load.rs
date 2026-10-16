@@ -353,6 +353,22 @@ pub fn load_with(
     })
 }
 
+/// Song `id`'s chart alone, no music (a replay's chart looked for).
+pub fn read_chart(id: &str) -> Result<Song, String> {
+    let (files, entry) = Files::of(id).ok_or_else(|| format!("no song {id}"))?;
+    if let Some(w) = crate::library::song(id).and_then(|s| s.work) {
+        return read_work(&files, &w);
+    }
+    let bytes = files.read(&entry.chart)?;
+    let text = ddi_library::pack::decode_text_with(&bytes, crate::library::shift_jis);
+    let ext = entry
+        .chart
+        .rsplit_once('.')
+        .map_or("sm", |(_, e)| e)
+        .to_ascii_lowercase();
+    ddi_chart::formats::sm::parse_simfile(&text, &ext).map_err(|e| e.to_string())
+}
+
 /// A work's song read again from where the library found it: its page
 /// and external dos, or its dump's effective dos.
 pub fn read_work(files: &Files, w: &crate::library::WorkRef) -> Result<Song, String> {
@@ -507,6 +523,7 @@ pub fn calibration(mode: ddi_session::calibration::CalMode, rate: u32) -> Loaded
         bg_images: Vec::new(),
         bg_videos: Vec::new(),
         bg_shared: Vec::new(),
+        bg_scripted: Vec::new(),
         layer_images: Vec::new(),
         credit: String::new(),
         bpm: format!("{}", ddi_session::calibration::BPM),

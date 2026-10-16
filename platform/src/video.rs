@@ -389,6 +389,12 @@ pub const LATE_SECONDS: f64 = 0.5;
 /// are shown as they come, counted late.
 pub const SEEK_GAP_SECONDS: f64 = 2.0;
 
+/// When the position goes back this far within a lap (a change that
+/// starts the movie over while it plays, such as one on the other
+/// background layer sharing its clock), the track seeks back to it: the
+/// frames it holds are ahead. Less than this is the clock's jitter.
+pub const SEEK_BACK_SECONDS: f64 = 0.1;
+
 /// A run from a movie's start keeps its frames up to this many bytes; when
 /// it reaches the end within them, every later lap plays from memory, as
 /// StepMania loops without seeking (a seek per lap would be slower than a
@@ -630,8 +636,11 @@ impl MovieTrack {
                 let jumped = self
                     .previous
                     .is_some_and(|p| local - p > SEEK_GAP_SECONDS && lap == self.lap);
+                let back = self
+                    .previous
+                    .is_some_and(|p| p - local > SEEK_BACK_SECONDS && lap == self.lap);
                 let before = local + 1e-6 < self.origin;
-                if (jumped && !self.ended) || before {
+                if (jumped && !self.ended) || before || back {
                     self.seek(decoder, local, lap);
                 }
             }
@@ -1233,6 +1242,25 @@ mod tests {
         play(&mut track, &mut slow, &display_frames(0.0, 1.5));
         assert!(track.stats.late > 0);
         assert!(track.stats.dropped > 0);
+    }
+
+    #[test]
+    fn a_track_seeks_back_when_its_movie_starts_over() {
+        // Started at 0, played to 5 s, then the shared clock starts it over
+        // (a restarting change on the other layer): 0.5 s.
+        let mut d = FakeDecoder::new(600, 0, 0);
+        let mut track = MovieTrack::new(true, 3, None);
+        track.start(&mut d, 0.0);
+        play(&mut track, &mut d, &display_frames(0.0, 5.0));
+        let shown = play(&mut track, &mut d, &display_frames(0.5, 1.0));
+        assert_eq!(d.seeks.last().copied(), Some(0.5));
+        // Frames come again from 0.5 s (frame 15) on.
+        assert_eq!(shown.iter().flatten().next(), Some(&15));
+        assert!(shown.iter().flatten().count() >= 14, "{shown:?}");
+        // A small step back (the clock's jitter) does not seek.
+        let seeks = d.seeks.len();
+        play(&mut track, &mut d, &[0.95, 1.0]);
+        assert_eq!(d.seeks.len(), seeks);
     }
 
     #[test]

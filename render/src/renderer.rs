@@ -383,6 +383,11 @@ impl Renderer {
         }
         // Text colours go as written: glyphon turns them into linear light
         // where the target holds it (`text::color_mode`).
+        // The plain backdrop (`background::PLAIN`) is the field's colour.
+        let c = self.skin.background;
+        let byte = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        self.background
+            .set_plain_color([byte(c.r), byte(c.g), byte(c.b), 255]);
         let background = self.background.prepare(
             device,
             queue,

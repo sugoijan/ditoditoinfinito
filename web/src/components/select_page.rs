@@ -486,7 +486,12 @@ impl SelectPage {
             .clone()
             .or_else(|| place.chart.as_ref().map(|(s, _)| s.clone()));
         let mut screen = SelectScreen::new(env2, data, start_song.as_deref(), play, options)
-            .with_shell(shell, self.shared.feed.clone());
+            .with_shell(shell, self.shared.feed.clone())
+            // A chart's kept plays (`docs/plans/play-history.md`, Replays).
+            .with_plays(ddi_ui::state::history::plays_list(
+                crate::history::plays(),
+                Rc::new(crate::history::tz_minutes),
+            ));
         if let Some((song, chart)) = &place.chart
             && start_song.as_deref() == Some(song.as_str())
         {
@@ -718,6 +723,22 @@ fn play_hash(song: &str, chart: usize) -> String {
     hash
 }
 
+/// The play route for a kept play: its replay, or its results; with the
+/// testing parameters kept that mean something there (`gfx`, `slow`).
+fn replay_hash(id: &str, results: bool) -> String {
+    let mut hash = format!("#/play?replay={}", js_sys::encode_uri_component(id));
+    if results {
+        hash.push_str("&view=results");
+    }
+    for kv in crate::router::testing().split('&') {
+        if matches!(kv.split('=').next(), Some("gfx" | "slow")) {
+            hash.push('&');
+            hash.push_str(kv);
+        }
+    }
+    hash
+}
+
 /// Asks for a linked song's kept folder (inside the gesture).
 fn ask_folder(shared: &Shared, id: &str) {
     let library = shared.library.borrow();
@@ -790,6 +811,9 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
                 settings.save();
             }
         }
+        SelectCall::WatchPlay(id) => cx.request(UiRequest::Navigate(replay_hash(&id, false))),
+        SelectCall::ShowPlay(id) => cx.request(UiRequest::Navigate(replay_hash(&id, true))),
+        SelectCall::RemovePlay(id) => crate::history::remove_play(&id),
         SelectCall::Open(what) => match what.as_str() {
             "calibrate" => cx.request(UiRequest::Navigate(
                 crate::router::Route::Calibrate.to_hash(),
@@ -957,10 +981,15 @@ fn page_listeners(ctx: &Context<SelectPage>) -> Vec<EventListener> {
             name,
             capture,
             |e| {
-                // A key held repeating is not a gesture.
+                // A key held repeating is not a gesture, nor is a
+                // modifier or Escape alone (no user activation: a context
+                // asked to start then is refused, and Firefox says so).
                 if let Some(k) = e.dyn_ref::<web_sys::KeyboardEvent>()
                     && k.repeat()
                 {
+                    return;
+                }
+                if !crate::web::autoplay::activated(e) {
                     return;
                 }
                 crate::select_preview::gesture();

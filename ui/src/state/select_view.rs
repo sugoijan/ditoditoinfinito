@@ -87,7 +87,7 @@ pub fn lamp_names(l: Lamp) -> (&'static str, &'static str) {
 }
 
 /// A best's score as the ruleset scores: money, a percentage, EX.
-fn score_text(v: &ddi_engine::rules::ScoreView) -> String {
+pub fn score_text(v: &ddi_engine::rules::ScoreView) -> String {
     match (v.money, v.percent, v.ex) {
         (Some(m), _, _) => m.to_string(),
         (None, Some(p), _) => format!("{:.2}%", p * 100.0),
@@ -120,6 +120,7 @@ fn best_of(
         lamp_text: lamp_text.into(),
         pending: b.pending,
         plays: b.plays,
+        play: b.score_play.clone(),
     })
 }
 
@@ -159,6 +160,7 @@ fn song_entry(
                 index: c.index,
                 name: c.name.clone(),
                 best: best_of(entry, c, settings, bests),
+                digest: c.digest,
             })
             .collect(),
         removable: s.removable,

@@ -14,7 +14,8 @@
 //! - [`images`]: banners and backgrounds for the texture cache.
 //! - [`os`]: links, file dialogs, the clipboard.
 //! - [`plays`]: the play history, a file a play.
-//! - [`shell`]: the window and its events.
+//! - [`shell`]: the window and its events; [`pacing`]: when a play's
+//!   frames start.
 //! - [`audio`]: sound (cpal, our mixer, the clock, the decoder thread);
 //!   [`clock`]: the host clock everything stamps against; [`preview`]:
 //!   song select's previews.
@@ -33,6 +34,7 @@ pub mod keys;
 pub mod library;
 pub mod options;
 pub mod os;
+pub mod pacing;
 pub mod pads;
 pub mod paths;
 pub mod play;
@@ -117,7 +119,11 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// `--calibrate visual|audio|combined` opens that calibration test's
 /// prompt (`--auto` autoplays it following the cue, `--bias MS` that
 /// late; leaving it opens calibration's menu); `--silent` opens no sound device at all
-/// (plays run on the host clock, silent).
+/// (plays run on the host clock, silent). `--pacing block|late` paces a
+/// play's frames one after another (the default) or each as late before
+/// its refresh as it can start (`pacing`); `--pacing-report` alternates
+/// the two every five seconds and prints what each did when the play
+/// ends.
 pub fn run() {
     clock::epoch();
     store::install();
@@ -140,6 +146,16 @@ pub fn run() {
         eprintln!("--bias takes milliseconds (a number)");
         std::process::exit(2);
     }
+    let pacing = match args.iter().position(|a| a == "--pacing") {
+        Some(i) => match args.get(i + 1).and_then(|m| pacing::Mode::parse(m)) {
+            Some(m) => Some(m),
+            None => {
+                eprintln!("--pacing takes block or late");
+                std::process::exit(2);
+            }
+        },
+        None => None,
+    };
     if let Some(i) = args.iter().position(|a| a == "--video-check") {
         std::process::exit(video_check(&args, i));
     }
@@ -174,7 +190,9 @@ pub fn run() {
     });
     // A play or a test opened from here: no first start's offer over it.
     if let Some(s) = &songs
-        && args.iter().any(|a| a == "--play" || a == "--calibrate")
+        && args
+            .iter()
+            .any(|a| a == "--play" || a == "--calibrate" || a == "--replay")
     {
         s.skip_offer();
     }
@@ -215,6 +233,17 @@ pub fn run() {
         r.bias = bias;
         *shell.play.requested.borrow_mut() = Some(r);
     }
+    // `--replay <play id> [--results]`: a kept play's replay (its
+    // prompt at once), or its results (`docs/plans/play-history.md`).
+    if let Some(id) = args
+        .iter()
+        .position(|a| a == "--replay")
+        .and_then(|i| args.get(i + 1))
+        && let Some(plays) = shell.play.plays.clone()
+    {
+        let results = args.iter().any(|a| a == "--results");
+        *shell.play.requested.borrow_mut() = Some(play::replays::request(&plays, id, results));
+    }
     // `--calibrate visual|audio|combined [--auto [--bias MS]]`: that
     // test's prompt at once (leaving it opens calibration's menu).
     if let Some(mode) = args
@@ -234,6 +263,15 @@ pub fn run() {
         .iter()
         .position(|a| a == "--lose-device-after")
         .and_then(|i| args.get(i + 1)?.parse().ok());
+    // `--pacing block|late`: how a play's frames are paced
+    // (`pacing`); `--pacing-report`: both, alternating every five
+    // seconds, what each did printed when the play ends.
+    if let Some(m) = pacing {
+        shell.pacer.set_mode(m);
+    }
+    if args.iter().any(|a| a == "--pacing-report") {
+        shell.pacing_report = Some(pacing::Report::alternating(5.0));
+    }
     if let Some(i) = args.iter().position(|a| a == "--seconds") {
         shell.quit_after = args.get(i + 1).and_then(|s| s.parse().ok());
     }
@@ -298,6 +336,10 @@ pub fn run() {
     if let Some(e) = &shell.error {
         eprintln!("{e}");
         std::process::exit(1);
+    }
+    // A play still running when the window closed.
+    if let Some(text) = shell.pacing_text() {
+        println!("{text}");
     }
     println!(
         "frames {} · redraws asked {} · skipped while occluded {} · devices lost {} · status {:?}",

@@ -68,6 +68,9 @@ wasmtime = { version = "49.0.3", optional = true, default-features = false, feat
 # default; `--no-default-features` builds without wasmtime.
 default = ["video"]
 video = ["dep:wasmtime"]
+# The pacing's simulated display (`src/pacing/sim.rs`), for tests only:
+# not in the shipped binary.
+sim = []
 
 # The output device's latencies, read from CoreAudio's HAL (`src/audio/hal.rs`);
 # already a dependency of cpal's.
@@ -79,7 +82,14 @@ objc2 = "0.6.5"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSCursor", "NSEvent", "block2"] }
 block2 = "0.6.2"
 
+# The player's time zone for the plays list's dates (`localtime_r`,
+# `src/play/replays.rs`); already in the build through others.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
+
 [dev-dependencies]
+# This crate with its test-only parts (`sim`), for the integration tests.
+ddi-desktop = { path = ".", default-features = false, features = ["sim"] }
 # The video host's tests (`src/video/tests.rs`): small modules written as
 # text that trap, spin, flood and try to escape.
 wat = { version = "1.262.0", default-features = false }

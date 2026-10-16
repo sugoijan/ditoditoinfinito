@@ -645,6 +645,7 @@ fn results_ask_the_shell_and_keep_what_they_show() {
         panels: Some(Rc::new(move |n| {
             panels.borrow_mut().push(format!("panels {n}"))
         })),
+        replay: None,
     };
     let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
     h.push(ResultsScreen::new(env, sample::results(), actions));
@@ -716,6 +717,92 @@ fn results_ask_the_shell_and_keep_what_they_show() {
     assert_eq!(state.borrow().panels, "Song");
     assert!(h.ui.bounds("Panel.Life").is_some());
     assert!(h.ui.bounds("Panel.Timing").is_none());
+}
+
+#[test]
+fn results_offer_the_replay_and_a_replays_results_watch_again() {
+    use super::data::ResultsKind;
+    use super::results::{ResultsActions, ResultsScreen};
+    use std::cell::RefCell;
+    let log: Rc<RefCell<Vec<String>>> = Rc::default();
+    let l = |what: &'static str| {
+        let log = log.clone();
+        Rc::new(move |_: &Env, _: &mut crate::Cx| log.borrow_mut().push(what.into()))
+            as super::results::ActionFn
+    };
+    let actions = || ResultsActions {
+        retry: Some(l("retry")),
+        song_list: Some(l("song list")),
+        replay: Some(l("replay")),
+        ..ResultsActions::default()
+    };
+    for (size, compact) in [
+        ([1280.0, 720.0], false),
+        ([390.0, 844.0], true),
+        ([844.0, 390.0], true),
+    ] {
+        // A play: Watch replay by W or its button (on top beside the
+        // offset editor; in the bar on an upright phone).
+        let e = env();
+        let state = e.state.clone();
+        let mut h = Harness::new(super::design_for(&Plain, size), size, 1.0, TextMode::Mirror);
+        h.push(ResultsScreen::new(e, sample::results(), actions()));
+        h.run(1.0);
+        assert_eq!(state.borrow().compact, compact, "{size:?}");
+        assert!(h.ui.bounds("WatchReplay").is_some(), "{size:?}");
+        assert!(h.ui.bounds("Retry").is_some());
+        // Nothing overlaps the buttons.
+        let r = h.ui.bounds("WatchReplay").unwrap();
+        for other in [
+            "Retry",
+            "SongList",
+            "OffsetDown",
+            "OffsetUp",
+            "UseMean",
+            "ResetOffset",
+            "Back",
+            "PanelSet0",
+            "PanelSet1",
+            "PanelSet2",
+        ] {
+            if let Some(o) = h.ui.bounds(other) {
+                // Corners: `[x0, y0, x1, y1]`.
+                let apart = r[2] <= o[0] || o[2] <= r[0] || r[3] <= o[1] || o[3] <= r[1];
+                assert!(apart, "{size:?}: WatchReplay {r:?} over {other} {o:?}");
+            }
+        }
+        h.key("KeyW", "w");
+        h.tap(PointerKind::Mouse, "WatchReplay");
+        assert_eq!(*log.borrow(), ["replay", "replay"], "{size:?}");
+        log.borrow_mut().clear();
+    }
+    // A replay's results: marked, Watch again, no editor, no W.
+    let mut data = sample::results();
+    super::play::mark_replay(&mut data, ResultsKind::Replay, "Played 2026-10-16 14:03");
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(ResultsScreen::new(env(), data, actions()));
+    h.run(1.0);
+    assert!(h.ui.bounds("WatchReplay").is_none());
+    assert!(h.ui.bounds("OffsetUp").is_none());
+    assert!(h.ui.bounds("Replay").is_some());
+    h.key("KeyW", "w");
+    h.key("KeyR", "r");
+    h.tap(PointerKind::Mouse, "Retry");
+    assert_eq!(*log.borrow(), ["retry", "retry"]);
+    log.borrow_mut().clear();
+    // A kept play's: its replay, no Retry; R does nothing, Select watches.
+    let mut data = sample::results();
+    super::play::mark_replay(&mut data, ResultsKind::Kept, "");
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(ResultsScreen::new(env(), data, actions()));
+    h.run(1.0);
+    assert!(h.ui.bounds("Retry").is_none());
+    h.key("KeyR", "r");
+    h.key("KeyW", "w");
+    h.pad(crate::MenuAction::Select, true);
+    h.pad(crate::MenuAction::Select, false);
+    h.key("Escape", "Escape");
+    assert_eq!(*log.borrow(), ["replay", "replay", "song list"]);
 }
 
 // Song select on a shell (step 6.2): what it asks, what it is sent.
@@ -910,6 +997,7 @@ fn bests_show_on_the_ladder_and_the_wheel() {
             lamp_text: "CLEAR".into(),
             pending: true,
             plays: 1,
+            play: String::new(),
         });
     }
     let id = d.songs[2].id.clone();
@@ -1562,4 +1650,163 @@ fn the_devices_line_lets_taps_through_to_the_footer() {
         "{:?}",
         calls.borrow()
     );
+}
+
+#[test]
+fn song_selects_plays_list_watches_opens_and_removes() {
+    use super::data::PlayRow;
+    use super::select::PlaysFn;
+    let mut d = library();
+    for c in &mut d
+        .songs
+        .iter_mut()
+        .find(|s| s.id == "sweeteners")
+        .unwrap()
+        .charts
+    {
+        c.best = Some(Best {
+            grade: "A".into(),
+            score: "90.00%".into(),
+            lamp: "Clear".into(),
+            lamp_text: "CLEAR".into(),
+            plays: 2,
+            play: "p2".into(),
+            ..Default::default()
+        });
+    }
+    let row = |id: &str, best: bool| PlayRow {
+        id: id.into(),
+        when: format!("2026-10-1{} 10:00", &id[1..]),
+        grade: "A".into(),
+        score: "90.00%".into(),
+        lamp: "Clear".into(),
+        lamp_text: "CLEAR".into(),
+        ruleset: "ITG".into(),
+        mods: "×2".into(),
+        best,
+        ..Default::default()
+    };
+    let asked: Rc<RefCell<Vec<String>>> = Rc::default();
+    let a = asked.clone();
+    let plays: PlaysFn = Rc::new(move |song, chart| {
+        a.borrow_mut().push(format!("{} {}", song.id, chart.index));
+        vec![row("p3", false), row("p2", true), row("p1", false)]
+    });
+    let e = env();
+    let state = e.state.clone();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    let play: PlayFn = Rc::new(|_, _, _: &Env, _| {});
+    let open: OpenFn = Rc::new(|_: &Env, _| {});
+    let calls: Calls = Rc::default();
+    let c = calls.clone();
+    let shell: ShellFn = Rc::new(move |call, _| c.borrow_mut().push(call));
+    let feed: SharedFeed = Rc::new(RefCell::new(Feed::default()));
+    h.push(
+        SelectScreen::new(e, d, Some("sweeteners"), play, open)
+            .with_shell(shell, feed)
+            .with_plays(plays),
+    );
+    h.run(0.5);
+    assert!(state.borrow().hints.iter().any(|t| t.contains("Plays")));
+    let watched = |calls: &Calls| {
+        calls
+            .borrow()
+            .iter()
+            .filter_map(|c| match c {
+                SelectCall::WatchPlay(id) => Some(format!("watch {id}")),
+                SelectCall::ShowPlay(id) => Some(format!("show {id}")),
+                SelectCall::RemovePlay(id) => Some(format!("remove {id}")),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    // P: the chart's plays, the best chosen, Start watches it.
+    h.key("KeyP", "p");
+    h.run(0.3);
+    assert_eq!(state.borrow().plays.len(), 3);
+    assert_eq!(state.borrow().plays_selected.as_deref(), Some("p2"));
+    assert!(state.borrow().plays[0].starts_with("p3|2026-10-13 10:00|A 90.00% CLEAR|×2"));
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(watched(&calls), ["watch p2"]);
+    assert!(state.borrow().plays.is_empty(), "closed");
+    // A row tapped is chosen; Results opens it.
+    h.key("KeyP", "p");
+    h.run(0.3);
+    h.tap(PointerKind::Mouse, "Row0");
+    h.run(0.2);
+    assert_eq!(state.borrow().plays_selected.as_deref(), Some("p3"));
+    h.tap(PointerKind::Mouse, "Open");
+    h.run(0.3);
+    assert_eq!(watched(&calls), ["watch p2", "show p3"]);
+    // Remove takes two presses; the list goes on without it.
+    h.key("KeyP", "p");
+    h.run(0.3);
+    h.tap(PointerKind::Mouse, "Row2");
+    h.run(0.2);
+    h.tap(PointerKind::Mouse, "Remove");
+    h.run(0.2);
+    assert_eq!(watched(&calls).len(), 2);
+    // Armed, then focus moved away by keys: disarmed.
+    h.key("ArrowLeft", "ArrowLeft");
+    h.run(0.2);
+    h.tap(PointerKind::Mouse, "Remove");
+    h.run(0.2);
+    assert_eq!(
+        watched(&calls).len(),
+        2,
+        "one press after the move only arms it"
+    );
+    h.tap(PointerKind::Mouse, "Remove");
+    h.run(0.2);
+    assert_eq!(watched(&calls), ["watch p2", "show p3", "remove p1"]);
+    assert_eq!(state.borrow().plays.len(), 2);
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert!(state.borrow().plays.is_empty());
+    // W: the best's replay at once.
+    h.key("KeyW", "w");
+    assert_eq!(watched(&calls).len(), 4);
+    assert_eq!(watched(&calls).last().map(String::as_str), Some("watch p2"));
+    // The footer's link opens the list too.
+    h.tap(PointerKind::Mouse, "Link.Plays");
+    h.run(0.3);
+    assert_eq!(state.borrow().plays.len(), 3);
+    assert!(asked.borrow().iter().all(|a| a.starts_with("sweeteners ")));
+}
+
+#[test]
+fn a_long_press_on_a_phones_chart_opens_its_plays() {
+    use super::data::PlayRow;
+    use super::select::PlaysFn;
+    let plays: PlaysFn = Rc::new(|_, chart| {
+        vec![PlayRow {
+            id: format!("p{}", chart.index),
+            when: "2026-10-16 10:00".into(),
+            ..Default::default()
+        }]
+    });
+    let e = env();
+    let state = e.state.clone();
+    let mut h = Harness::new(COMPACT, [844.0, 390.0], 1.0, TextMode::Mirror);
+    let play: PlayFn = Rc::new(|_, _, _: &Env, _| {});
+    let open: OpenFn = Rc::new(|_: &Env, _| {});
+    let shell: ShellFn = Rc::new(|_, _| {});
+    let feed: SharedFeed = Rc::new(RefCell::new(Feed::default()));
+    h.push(
+        SelectScreen::new(e, library(), Some("sweeteners"), play, open)
+            .with_shell(shell, feed)
+            .with_plays(plays),
+    );
+    h.run(0.5);
+    assert!(state.borrow().compact);
+    let at = h.centre("Chart1");
+    h.pointer(1, PointerKind::Touch, crate::PointerPhase::Down, at);
+    h.run(1.0);
+    h.pointer(1, PointerKind::Touch, crate::PointerPhase::Up, at);
+    h.run(0.3);
+    assert_eq!(state.borrow().plays.len(), 1, "{:?}", state.borrow().status);
+    // The chart pressed is the one chosen, and its plays the list's.
+    let chart = state.borrow().chart.clone().unwrap();
+    assert!(state.borrow().plays[0].starts_with('p'), "{chart}");
 }

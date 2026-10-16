@@ -14,11 +14,11 @@ build public_url="/ditoditoinfinito/":
 
 # Check the web app for wasm32
 app-check:
-    @cargo check -p ditoditoinfinito --target wasm32-unknown-unknown
+    @cargo check -p ditoditoinfinito -p ddi-opus-worker --target wasm32-unknown-unknown
 
 # Check the platform-independent crates natively
 core-check:
-    @cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-desktop -p ditoditoinfinito -p xtask
+    @cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-opus-worker -p ddi-desktop -p ditoditoinfinito -p xtask
 
 # Run all checks
 check: core-check app-check regen-seo reuse-lint

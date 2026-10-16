@@ -227,6 +227,45 @@ pub struct RenderOptions {
     /// noteskin's, or the built-in arrows where it has none), as placed by
     /// this geometry, over the clear colour (a skin's preview).
     pub preview: Option<Preview>,
+    /// The ghost: how far the score is ahead of (or behind) the chart's
+    /// best play at the same point, drawn under the score.
+    pub ghost: Option<ScoreDelta>,
+}
+
+/// A score's lead over another ([`RenderOptions::ghost`]), as the
+/// ruleset scores: percentage points (0.42 is "+0.42%"), or points
+/// (money, EX).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ScoreDelta {
+    Percent(f32),
+    Points(i64),
+}
+
+impl ScoreDelta {
+    /// "+0.42%", "-1230", "+0.00%" (ASCII signs: the HUD's font is a
+    /// subset).
+    pub fn text(self) -> String {
+        let (v, s) = match self {
+            ScoreDelta::Percent(p) => (p as f64, format!("{:.2}%", p.abs())),
+            ScoreDelta::Points(n) => (n as f64, n.unsigned_abs().to_string()),
+        };
+        let zero = s
+            .trim_end_matches('%')
+            .chars()
+            .all(|c| c == '0' || c == '.');
+        if v < 0.0 && !zero {
+            format!("-{s}")
+        } else {
+            format!("+{s}")
+        }
+    }
+
+    fn behind(self) -> bool {
+        match self {
+            ScoreDelta::Percent(p) => p < -0.005,
+            ScoreDelta::Points(n) => n < 0,
+        }
+    }
 }
 
 /// [`RenderOptions::preview`].
@@ -795,6 +834,22 @@ pub fn build(
             y: a * 0.35,
             size: (a * 0.5).max(14.0),
             color: [1.0, 1.0, 1.0, 0.9],
+            align: Align::Right,
+            bold: true,
+        });
+    }
+    // The ghost: the lead over the best play, under the score.
+    if let Some(d) = opts.ghost {
+        text.push(TextItem {
+            text: d.text(),
+            x: geo.width - a * 0.5,
+            y: a * 0.35 + (a * 0.5).max(14.0) * 0.95,
+            size: (a * 0.3).max(11.0),
+            color: if d.behind() {
+                [1.0, 0.45, 0.45, 0.9]
+            } else {
+                [0.55, 0.95, 0.6, 0.9]
+            },
             align: Align::Right,
             bold: true,
         });
@@ -1369,6 +1424,45 @@ mod tests {
             panic!("rainbow flows");
         };
         assert_eq!(arrow.params, [to[0], to[1], to[2], phase]);
+    }
+
+    #[test]
+    fn the_ghost_shows_under_the_score() {
+        assert_eq!(ScoreDelta::Percent(0.4199).text(), "+0.42%");
+        assert_eq!(ScoreDelta::Percent(-1.5).text(), "-1.50%");
+        assert_eq!(ScoreDelta::Percent(-0.001).text(), "+0.00%");
+        assert_eq!(ScoreDelta::Points(-1230).text(), "-1230");
+        assert_eq!(ScoreDelta::Points(0).text(), "+0");
+        let mut f = frame(Vec::new(), Appearance::Visible);
+        f.score.percent = Some(0.5);
+        let layout = Layout::dance_single();
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
+        let texts = |ghost| {
+            build(
+                &f,
+                &layout,
+                &presets::itg().names,
+                &Skin::default(),
+                &geo,
+                RenderOptions {
+                    ghost,
+                    ..RenderOptions::default()
+                },
+                false,
+                None,
+                (&[], &[]),
+            )
+            .text
+            .into_iter()
+            .map(|t| t.text)
+            .collect::<Vec<_>>()
+        };
+        assert!(
+            !texts(None)
+                .iter()
+                .any(|t| t.ends_with('%') && t != "50.00%")
+        );
+        assert!(texts(Some(ScoreDelta::Percent(-2.0))).contains(&"-2.00%".to_string()));
     }
 
     #[test]

@@ -58,6 +58,8 @@ impl SessionConfig {
                 frame_aspect: None,
                 field_filter: settings.field_filter,
                 preview: None,
+                // Set each frame from the session (`PlaySession::tick`).
+                ghost: None,
             },
             gamepads: None,
             touch_canvas: None,
@@ -133,6 +135,14 @@ impl PlaySession {
         self.render.hide_notes = view.hide_notes;
         self.render.cancel_progress = view.cancel_progress;
         self.render.cancel_hint = view.cancel_hint;
+        self.render.ghost = self.core.ghost_delta().map(|d| match d {
+            ddi_ui::state::history::GhostDelta::Percent(p) => {
+                ddi_render::ScoreDelta::Percent(p as f32)
+            }
+            ddi_ui::state::history::GhostDelta::Points(p) => {
+                ddi_render::ScoreDelta::Points(p.round() as i64)
+            }
+        });
         out
     }
 

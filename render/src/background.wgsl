@@ -1,5 +1,5 @@
 // A background image or movie frame, cover-fit to the target, dimmed and
-// faded. Images are RGBA textures (`fs_main`); movie frames are three
+// faded (and, an image, blended by its own alpha). Images are RGBA textures (`fs_main`); movie frames are three
 // planes, Y, U and V, converted here (`fs_yuv`), as
 // `ddi_platform::video::yuv_to_rgb` does.
 
@@ -65,11 +65,14 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureSample(image, image_sampler, in.uv);
     let b = dim_at(in.position.x);
+    // The image's own transparency too: StepMania draws backgrounds as
+    // sprites, blended, so the first layer shows through the second's.
+    let a = c.a * params.alpha;
     if (params.linear_out > 0.5) {
         // Sampled as linear light from an sRGB texture.
-        return vec4<f32>(srgb_to_linear(linear_to_srgb(c.rgb) * b), params.alpha);
+        return vec4<f32>(srgb_to_linear(linear_to_srgb(c.rgb) * b), a);
     }
-    return vec4<f32>(c.rgb * b, params.alpha);
+    return vec4<f32>(c.rgb * b, a);
 }
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {

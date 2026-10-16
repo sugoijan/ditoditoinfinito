@@ -81,6 +81,14 @@ use crate::web::screen;
 const KEPT_REQUESTS: usize = 24;
 /// The theme screens' actors whose places the debug view gives.
 const THEME_NAMED: &[&str] = &[
+    // Replays: the results' button, song select's plays list.
+    "WatchReplay",
+    "Link.Plays",
+    "Watch",
+    "Open",
+    "Remove",
+    "Newer",
+    "Older",
     "Link.Manage",
     "Link.Calibrate",
     "Link.Credits",
@@ -228,6 +236,10 @@ pub(crate) struct Host {
     /// ours to ignore.
     depth: usize,
     ignore_pops: u32,
+    /// A navigation asked for while our own entries are popped (a dialog
+    /// closing as it navigates): done once they are, or the pop, which
+    /// Firefox carries out later, would undo it.
+    navigate_after_pops: Option<String>,
     files_picked: u32,
     last_consumed: bool,
     /// The mouse pointer hidden after a key or a pad's press (until the
@@ -721,6 +733,7 @@ fn new_host(
         pad_gesture: !is_webkit(),
         depth: 0,
         ignore_pops: 0,
+        navigate_after_pops: None,
         files_picked: 0,
         last_consumed: false,
         pointer_hidden: false,
@@ -1268,6 +1281,7 @@ fn listen(
                 };
                 if h.ignore_pops > 0 {
                     h.ignore_pops -= 1;
+                    h.navigate_now();
                     return;
                 }
                 // Back only when the pop leaves a dialog's own entry (the
@@ -1279,7 +1293,8 @@ fn listen(
                         && let Some(history) = web_sys::window().and_then(|w| w.history().ok())
                     {
                         let n = reached - h.depth;
-                        h.ignore_pops += n as u32;
+                        // One `go`, one `popstate`.
+                        h.ignore_pops += 1;
                         let _ = history.go_with_delta(-(n as i32));
                     }
                     return;
@@ -1459,6 +1474,7 @@ fn dispatch(weak: &Weak<RefCell<Host>>, event: UiEvent) -> bool {
         h.last_consumed = out.consumed;
         h.run(out.requests);
         h.sync_history();
+        h.navigate_now();
         publish(&h);
         out.consumed
     };
@@ -1662,16 +1678,8 @@ impl Host {
                         let _ = w.open_with_url_and_target_and_features(&url, "_blank", "noopener");
                     }
                 }
-                // Out of the handler that asked: setting the hash fires
-                // `popstate` at once in Firefox, into this host's listener.
-                UiRequest::Navigate(route) => {
-                    gloo::timers::callback::Timeout::new(0, move || {
-                        if let Some(w) = web_sys::window() {
-                            let _ = w.location().set_hash(&route);
-                        }
-                    })
-                    .forget();
-                }
+                // After our own entries' pops (`navigate_now`).
+                UiRequest::Navigate(route) => self.navigate_after_pops = Some(route),
                 UiRequest::StartAudio => self.beep(),
                 UiRequest::PlayPreview { .. } | UiRequest::StopPreview => {}
                 UiRequest::Redraw => {}
@@ -1771,6 +1779,23 @@ impl Host {
         let _ = style.set_property("height", &format!("{}px", h.max(16.0)));
     }
 
+    /// The navigation asked for, once no pop of ours is under way: out of
+    /// the handler that asked (setting the hash fires `popstate` at once
+    /// in Firefox, into this host's listener).
+    fn navigate_now(&mut self) {
+        if self.ignore_pops > 0 {
+            return;
+        }
+        if let Some(route) = self.navigate_after_pops.take() {
+            gloo::timers::callback::Timeout::new(0, move || {
+                if let Some(w) = web_sys::window() {
+                    let _ = w.location().set_hash(&route);
+                }
+            })
+            .forget();
+        }
+    }
+
     /// A history entry for each layer over the first, so Back closes it;
     /// entries of layers closed otherwise go back quietly.
     fn sync_history(&mut self) {
@@ -1781,31 +1806,21 @@ impl Host {
         let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else {
             return;
         };
-        // Screens and dialogs shown (Back does nothing for a popup; one
-        // leaving has had its Back).
-        let depth = self
-            .ui
-            .layers()
-            .iter()
-            .filter(|l| (l.modal || !l.overlay) && l.phase != "out")
-            .count()
-            .saturating_sub(1);
-        while self.depth < depth {
+        // Screens and dialogs shown (`ddi_ui::back_stack`).
+        let depth = ddi_ui::back_stack::depth(&self.ui.layers());
+        let step = ddi_ui::back_stack::step(self.depth, depth);
+        for mark in step.push {
             let marker = js_sys::Object::new();
-            let _ = js_sys::Reflect::set(
-                &marker,
-                &HISTORY_MARK.into(),
-                &JsValue::from(self.depth as f64 + 1.0),
-            );
+            let _ =
+                js_sys::Reflect::set(&marker, &HISTORY_MARK.into(), &JsValue::from(mark as f64));
             let _ = history.push_state(&marker, "");
-            self.depth += 1;
         }
-        if self.depth > depth {
-            let n = self.depth - depth;
-            self.ignore_pops += n as u32;
+        if let Some(n) = step.back {
+            // One `go`, one `popstate`, however far.
+            self.ignore_pops += step.ignore_pops;
             let _ = history.go_with_delta(-(n as i32));
-            self.depth = depth;
         }
+        self.depth = depth;
     }
 
     fn frame(&mut self, time_ms: f64) {
@@ -1839,6 +1854,7 @@ impl Host {
         let frame_requests = self.ui.take_requests();
         self.run(frame_requests);
         self.sync_history();
+        self.navigate_now();
 
         let canvas = &self.canvas;
         let vp = *self.ui.viewport();
@@ -2199,6 +2215,8 @@ fn publish(h: &Host) {
         let st = t.env.state.borrow();
         names.extend(st.app_actions.iter().map(|a| format!("AppNotice.{a}")));
         names.push("AppNotice".into());
+        // The plays list's rows (by their place in the list).
+        names.extend((0..st.plays.len()).map(|i| format!("Row{i}")));
         if st.screen == "prompt" {
             // The start prompt's buttons, by name (`Start`, `Device.defaults`).
             names.extend(st.page_items.iter().cloned());
@@ -2347,6 +2365,15 @@ fn publish(h: &Host) {
         set(&o, "pageItems", strings(&st.page_items));
         set(&o, "autoplay", st.autoplay.into());
         set(&o, "pageFocus", st.page_focus.into());
+        // Song select's plays list: its rows and the chosen one.
+        set(&o, "plays", strings(&st.plays));
+        set(
+            &o,
+            "playsSelected",
+            st.plays_selected
+                .as_deref()
+                .map_or(JsValue::NULL, |s| s.into()),
+        );
         set(&o, "pageHeight", st.page_height.into());
         set(
             &o,

@@ -410,22 +410,23 @@ fn rework(id: String, song: Rc<Song>, next: u32) {
 }
 
 /// Keeps a play that ended (finished or failed); `done` hears whether it
-/// was kept (a play the library could not keep is not kept in memory
-/// either).
+/// was kept, with its id (a play the library could not keep is not kept
+/// in memory either).
 pub(crate) fn record(
     record: &ddi_ui::state::history::PlayRecord,
     log: &ddi_ui::state::history::PlayLog,
     results: &ddi_engine::Results,
-    done: impl FnOnce(Result<(), String>) + 'static,
+    done: impl FnOnce(Result<String, String>) + 'static,
 ) {
     let random = (js_sys::Math::random() * 4_294_967_296.0) as u32;
     let id = ddi_platform::history::play_id(record.time, random);
+    let kept = id.clone();
     let r = plays().record(id, record, log, results, move |r| {
         if let Err(e) = &r {
             web_sys::console::warn_1(&format!("play history: keeping the play: {e}").into());
         }
         publish();
-        done(r)
+        done(r.map(|()| kept))
     });
     if let Err(e) = r {
         web_sys::console::warn_1(&format!("play history: {e}").into());
@@ -481,6 +482,30 @@ pub(crate) fn export(done: impl FnOnce(Result<usize, String>) + 'static) {
             done(r)
         },
     );
+}
+
+/// A kept play as stored (its replay); `done` hears it, or why not.
+pub(crate) fn entry(
+    id: &str,
+    done: impl FnOnce(Result<ddi_platform::history::PlayEntry, String>) + 'static,
+) {
+    plays().entry(id, done);
+}
+
+/// Forgets one play (song select's plays list).
+pub(crate) fn remove_play(id: &str) {
+    plays().remove_play(id, |r| {
+        if let Err(e) = r {
+            web_sys::console::warn_1(&format!("play history: removing a play: {e}").into());
+        }
+        publish();
+    });
+}
+
+/// Minutes east of UTC at a time (ms since the epoch), as this browser
+/// keeps the player's time.
+pub(crate) fn tz_minutes(ms: f64) -> i32 {
+    -(js_sys::Date::new(&ms.into()).get_timezone_offset() as i32)
 }
 
 /// Forgets every play (Options' Data → Play history → Reset); a chart's

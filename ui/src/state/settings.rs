@@ -119,6 +119,9 @@ pub struct Settings {
     pub graphics: Graphics,
     /// Show the signed timing error of each hit under the judgement.
     pub show_deltas: bool,
+    /// Show how far ahead of the chart's best play (or behind it) a play
+    /// is, under the score (`docs/plans/play-history.md`, Replays).
+    pub ghost: bool,
     /// Draw a note exactly on the receptor in the closest frame.
     pub receptor_snap: bool,
     /// Per-audio-path calibrated offsets, keyed by fingerprint id.
@@ -281,6 +284,7 @@ impl Default for Settings {
             debug: false,
             graphics: Graphics::Auto,
             show_deltas: false,
+            ghost: false,
             receptor_snap: true,
             audio_profiles: Vec::new(),
             display_profiles: Vec::new(),
@@ -330,7 +334,7 @@ impl Settings {
     /// Clamps stored values to the ranges the options screen allows and
     /// normalises the key table (one row per lane, a key on one lane only),
     /// so a hand-edited or stale `localStorage` entry cannot misbehave.
-    fn sanitize(&mut self) {
+    pub(crate) fn sanitize(&mut self) {
         let defaults = Settings::default();
         // Only a pump skin draws the pump layouts.
         if self

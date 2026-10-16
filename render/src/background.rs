@@ -17,9 +17,19 @@
 
 use bytemuck::{Pod, Zeroable};
 
+/// Draws a frame can make: a black base under the first layer, the first
+/// layer's two, then the second's.
+const DRAWS: usize = 5;
+
+/// The id a [`Backdrop`] shows the plain backdrop by: the colour given to
+/// [`BackgroundPipeline::set_plain_color`] (the field's), opaque.
+pub const PLAIN: usize = usize::MAX;
+/// The black base under the first layer.
+const BLACK: usize = usize::MAX - 1;
 /// Uniform slots per image: its draw in the frame and the one into the
-/// extension.
-const SLOTS: u64 = 2;
+/// extension, for each place it may be drawn in (an image can show on
+/// both layers at once).
+const SLOTS: u64 = 2 * DRAWS as u64;
 /// The extension is drawn at this share of the screen's size, at most
 /// [`WIDE_MAX`] pixels on its long side, then blurred and stretched.
 const WIDE_SCALE: f32 = 1.0 / 12.0;
@@ -62,12 +72,38 @@ struct Params {
 /// What to show behind the field in one frame. While `mix < 1` a crossfade
 /// is running from `previous` to `current` (`mix` = how far, 1 = only
 /// `current`). Ids are from [`BackgroundPipeline::add_texture`]; `None` is
-/// no image, the plain field colour.
+/// no image, the plain field colour. `second` is drawn over them.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Backdrop {
     pub current: Option<usize>,
     pub previous: Option<usize>,
     pub mix: f32,
+    /// The second background layer (`#BGCHANGES2`).
+    pub second: SecondLayer,
+}
+
+/// The second background layer, drawn over the first as StepMania draws a
+/// layer: `current` fully shown, and while `mix < 1` `previous` over it,
+/// fading out (`BackgroundImpl::DrawPrimitives`; a transition fades the
+/// background that leaves). Images keep their own transparency, so the
+/// first layer shows through where they have none.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SecondLayer {
+    pub current: Option<usize>,
+    pub previous: Option<usize>,
+    pub mix: f32,
+}
+
+impl SecondLayer {
+    /// The draws, back to front: `(id, opacity)`.
+    pub fn layers(&self) -> [Option<(usize, f32)>; 2] {
+        let mix = self.mix.clamp(0.0, 1.0);
+        let current = self.current.map(|c| (c, 1.0));
+        match self.previous {
+            Some(p) if mix < 1.0 => [current, Some((p, 1.0 - mix))],
+            _ => [current, None],
+        }
+    }
 }
 
 impl Backdrop {
@@ -77,21 +113,36 @@ impl Backdrop {
             current: Some(id),
             previous: None,
             mix: 1.0,
+            second: SecondLayer::default(),
         }
     }
 
-    /// The draws, back to front: `(id, opacity)`.
+    /// The first layer's draws, back to front: `(id, opacity)`. As
+    /// StepMania draws a layer: the incoming one, then the outgoing one
+    /// over it fading out (`BackgroundImpl::DrawPrimitives`,
+    /// `BackgroundTransitions/CrossFade.xml`), over black (no image
+    /// either way: the black base shows).
     pub fn layers(&self) -> [Option<(usize, f32)>; 2] {
         let mix = self.mix.clamp(0.0, 1.0);
         if mix >= 1.0 || self.previous == self.current {
             return [self.current.map(|c| (c, 1.0)), None];
         }
         match (self.previous, self.current) {
-            (Some(p), Some(c)) => [Some((p, 1.0)), Some((c, mix))],
+            (Some(p), Some(c)) => [Some((c, 1.0)), Some((p, 1.0 - mix))],
             (None, Some(c)) => [Some((c, mix)), None],
             (Some(p), None) => [Some((p, 1.0 - mix)), None],
             (None, None) => [None, None],
         }
+    }
+
+    /// Every draw, back to front: black under the first layer when it
+    /// draws (StepMania's screen is black under its backgrounds, so a
+    /// transparent image shows black), the first layer's, the second's.
+    pub fn draws(&self) -> [Option<(usize, f32)>; DRAWS] {
+        let [a, b] = self.layers();
+        let [c, d] = self.second.layers();
+        let base = (a.is_some() || b.is_some()).then_some((BLACK, 1.0));
+        [base, a, b, c, d]
     }
 }
 
@@ -104,6 +155,15 @@ struct Image {
     height: f32,
     /// A movie: its planes and the current frame's colour tags.
     video: Option<Video>,
+}
+
+/// One-pixel images of a colour: the black base and the plain backdrop.
+struct Solids {
+    black: Image,
+    plain: Image,
+    plain_texture: wgpu::Texture,
+    /// The colour written into `plain_texture`.
+    plain_written: [u8; 4],
 }
 
 struct Video {
@@ -186,7 +246,8 @@ pub fn brightness_factor(perceived: f32) -> f32 {
 /// What [`BackgroundPipeline::prepare`] set up for one frame.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Prepared {
-    layers: [Option<(usize, f32)>; 2],
+    /// `(id, opacity)` of each draw ([`Backdrop::draws`]).
+    layers: [Option<(usize, f32)>; DRAWS],
     /// The frame, when it is not the whole target (the extension is drawn).
     frame: Option<[f32; 4]>,
     target: (f32, f32),
@@ -215,6 +276,10 @@ pub struct BackgroundPipeline {
     blur_shader: wgpu::ShaderModule,
     sampler: wgpu::Sampler,
     images: Vec<Image>,
+    /// The black base and the plain backdrop, made when first drawn.
+    solids: Option<Solids>,
+    /// The plain backdrop's colour (sRGB-encoded RGBA).
+    plain: [u8; 4],
     wide: Option<Wide>,
     format: wgpu::TextureFormat,
     /// Bytes between an image's parameter slots.
@@ -315,6 +380,8 @@ impl BackgroundPipeline {
             blur_shader,
             sampler,
             images: Vec::new(),
+            solids: None,
+            plain: [0, 0, 0, 255],
             wide: None,
             format,
             stride,
@@ -615,6 +682,52 @@ impl BackgroundPipeline {
     /// Registers a filled texture (from
     /// [`BackgroundPipeline::create_texture`]); returns its id.
     pub fn add_texture(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) -> usize {
+        let image = self.make_image(device, texture);
+        self.images.push(image);
+        self.images.len() - 1
+    }
+
+    /// The colour of [`PLAIN`] (sRGB-encoded RGBA; opaque however given).
+    pub fn set_plain_color(&mut self, rgba: [u8; 4]) {
+        self.plain = [rgba[0], rgba[1], rgba[2], 255];
+    }
+
+    /// The image `id` shows ([`PLAIN`] and the black base once made).
+    fn image(&self, id: usize) -> Option<&Image> {
+        match id {
+            PLAIN => self.solids.as_ref().map(|s| &s.plain),
+            BLACK => self.solids.as_ref().map(|s| &s.black),
+            _ => self.images.get(id),
+        }
+    }
+
+    /// Makes the one-pixel images, and gives the plain one its colour.
+    fn solids(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let pixel = |rgba: [u8; 4]| {
+            let texture = self.create_texture(device, 1, 1);
+            write_pixel(queue, &texture, rgba);
+            texture
+        };
+        if self.solids.is_none() {
+            let black = pixel([0, 0, 0, 255]);
+            let plain_texture = pixel(self.plain);
+            self.solids = Some(Solids {
+                black: self.make_image(device, &black),
+                plain: self.make_image(device, &plain_texture),
+                plain_texture,
+                plain_written: self.plain,
+            });
+        }
+        let plain = self.plain;
+        if let Some(s) = self.solids.as_mut()
+            && s.plain_written != plain
+        {
+            write_pixel(queue, &s.plain_texture, plain);
+            s.plain_written = plain;
+        }
+    }
+
+    fn make_image(&self, device: &wgpu::Device, texture: &wgpu::Texture) -> Image {
         let params = self.params_buffer(device);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -636,14 +749,13 @@ impl BackgroundPipeline {
             ],
         });
         let size = texture.size();
-        self.images.push(Image {
+        Image {
             group,
             params,
             width: size.width as f32,
             height: size.height as f32,
             video: None,
-        });
-        self.images.len() - 1
+        }
     }
 
     /// The extension's targets for a `width × height` screen, made or
@@ -739,9 +851,16 @@ impl BackgroundPipeline {
         if brightness <= 0.0 {
             return prepared;
         }
-        let mut layers = backdrop.layers();
+        let mut layers = backdrop.draws();
+        if layers
+            .iter()
+            .flatten()
+            .any(|&(id, _)| id == PLAIN || id == BLACK)
+        {
+            self.solids(device, queue);
+        }
         for layer in &mut layers {
-            if !layer.is_some_and(|(id, alpha)| alpha > 0.0 && id < self.images.len()) {
+            if !layer.is_some_and(|(id, alpha)| alpha > 0.0 && self.image(id).is_some()) {
                 *layer = None;
             }
         }
@@ -754,8 +873,12 @@ impl BackgroundPipeline {
         let [fw, fh] = prepared
             .frame
             .map_or([width, height], |[_, _, w, h]| [w, h]);
-        for (id, alpha) in layers.into_iter().flatten() {
-            let image = &self.images[id];
+        for (k, (id, alpha)) in layers
+            .into_iter()
+            .enumerate()
+            .filter_map(|(k, l)| l.map(|l| (k as u64, l)))
+        {
+            let image = self.image(id).expect("checked above");
             let (bt709, full_range) = image
                 .video
                 .as_ref()
@@ -783,7 +906,11 @@ impl BackgroundPipeline {
                 brightness_factor(brightness),
                 band.unwrap_or(none),
             );
-            queue.write_buffer(&image.params, 0, bytemuck::bytes_of(&framed));
+            queue.write_buffer(
+                &image.params,
+                2 * k * self.stride,
+                bytemuck::bytes_of(&framed),
+            );
             if let Some((ww, wh)) = wide {
                 // What the frame shows, enlarged to cover the screen (not
                 // the whole image: a movie's own bars stay out); undimmed
@@ -794,7 +921,11 @@ impl BackgroundPipeline {
                 );
                 // The band is the composite's (in the target's pixels).
                 let wide = params(uv, 1.0, none);
-                queue.write_buffer(&image.params, self.stride, bytemuck::bytes_of(&wide));
+                queue.write_buffer(
+                    &image.params,
+                    (2 * k + 1) * self.stride,
+                    bytemuck::bytes_of(&wide),
+                );
             }
         }
         if let (Some(w), Some((ww, wh))) = (&self.wide, wide) {
@@ -820,8 +951,12 @@ impl BackgroundPipeline {
     }
 
     fn draw_layers(&self, pass: &mut wgpu::RenderPass<'_>, prepared: &Prepared, slot: u64) {
-        for (id, _) in prepared.layers.into_iter().flatten() {
-            if let Some(image) = self.images.get(id) {
+        for (k, layer) in prepared.layers.into_iter().enumerate() {
+            let Some((id, _)) = layer else {
+                continue;
+            };
+            let slot = 2 * k as u64 + slot;
+            if let Some(image) = self.image(id) {
                 pass.set_pipeline(if image.video.is_some() {
                     &self.yuv_pipeline
                 } else {
@@ -893,6 +1028,24 @@ fn wide_pass<'e>(
     })
 }
 
+/// Fills a one-pixel texture.
+fn write_pixel(queue: &wgpu::Queue, texture: &wgpu::Texture, rgba: [u8; 4]) {
+    queue.write_texture(
+        texture.as_image_copy(),
+        &rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: Some(1),
+        },
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -957,18 +1110,63 @@ mod tests {
             current,
             previous,
             mix,
+            ..Backdrop::default()
         };
-        // Image to image: the old one underneath, the new one fading in.
+        // Image to image, as StepMania draws it: the new one underneath,
+        // the old one over it fading out.
         assert_eq!(
             fade(Some(0), Some(1), 0.25).layers(),
-            [Some((0, 1.0)), Some((1, 0.25))]
+            [Some((1, 1.0)), Some((0, 0.75))]
         );
-        // From no image, or to no image, over the field colour.
+        // From no image, or to no image, over the black base.
         assert_eq!(fade(None, Some(1), 0.25).layers(), [Some((1, 0.25)), None]);
         assert_eq!(fade(Some(0), None, 0.25).layers(), [Some((0, 0.75)), None]);
         // Done, or nothing to fade.
         assert_eq!(fade(Some(0), Some(1), 1.0).layers(), [Some((1, 1.0)), None]);
         assert_eq!(fade(Some(1), Some(1), 0.5).layers(), [Some((1, 1.0)), None]);
+    }
+
+    #[test]
+    fn the_second_layer_draws_over_the_first() {
+        let second = |previous, current, mix| SecondLayer {
+            current,
+            previous,
+            mix,
+        };
+        // Its current fully shown, the one leaving over it, fading out.
+        assert_eq!(
+            second(Some(3), Some(4), 0.25).layers(),
+            [Some((4, 1.0)), Some((3, 0.75))]
+        );
+        assert_eq!(second(None, Some(4), 1.0).layers(), [Some((4, 1.0)), None]);
+        assert_eq!(second(Some(3), None, 0.5).layers(), [None, Some((3, 0.5))]);
+        assert_eq!(SecondLayer::default().layers(), [None, None]);
+        // After the first layer's draws, in their places.
+        let backdrop = Backdrop {
+            current: Some(1),
+            previous: Some(0),
+            mix: 0.5,
+            second: second(Some(1), Some(2), 0.5),
+        };
+        assert_eq!(
+            backdrop.draws(),
+            [
+                Some((BLACK, 1.0)),
+                Some((1, 1.0)),
+                Some((0, 0.5)),
+                Some((2, 1.0)),
+                Some((1, 0.5))
+            ]
+        );
+        // No black base without a first layer to draw.
+        let only_second = Backdrop {
+            second: second(None, Some(PLAIN), 1.0),
+            ..Backdrop::default()
+        };
+        assert_eq!(
+            only_second.draws(),
+            [None, None, None, Some((PLAIN, 1.0)), None]
+        );
     }
 
     #[test]
