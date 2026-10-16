@@ -17,11 +17,14 @@ The maintainer chose:
   (P4). Numbers keep the HUD's Iosevka ExtraBold. The maintainer is not
   yet sure about the face, so it stays one tunable.
 - **Today's pink accent**, `#ff6ea0`.
-- **The selected song's background, blurred, behind the menus.** How
-  the background is chosen is to be settled later. One idea from the
-  maintainer: when a chart starts on a background video, take the
-  video's first frame as the song's first background, and use that frame
-  in the menus too.
+- **The selected song's background, blurred, behind the menus.** Which
+  picture that is was settled by the maintainer on 2026-10-16: when the
+  first background change is a movie at or before the first note, the
+  movie's frame at that point is the song's background everywhere (song
+  select's backdrop, the start prompt, the field before the first
+  change), kept as a still taken at import (and lazily for songs
+  imported before), so the menus never load the video decoder for it;
+  otherwise the song's `#BACKGROUND`, as StepMania shows it.
 - **The beat pulse.**
 - **The style selector moves next to the chart ladder.** The song list
   then shows every song whatever the style:
