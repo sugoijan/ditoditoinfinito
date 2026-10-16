@@ -343,6 +343,7 @@ pub enum FullCombo {
 
 /// Counts of every judged event in a play.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Tally {
     /// Per tier, indexed by [`Judgement::index`].
     pub taps: [u32; 6],
@@ -546,6 +547,7 @@ pub struct ScoreCtx {
 
 /// Score as the HUD shows it. Fields a scoring system does not produce are `None`.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ScoreView {
     /// DDR-style money score (max 1,000,000).
     pub money: Option<u64>,
@@ -610,9 +612,90 @@ pub struct Ruleset {
     pub fail: FailPolicy,
     pub grades: GradeTable,
     pub names: JudgeNames,
+    /// The player's Dancing☆Onigiri options it was built with for a chart
+    /// ([`danoni::ruleset`]); `None` for the StepMania presets and for
+    /// Dancing☆Onigiri's rules built for no chart.
+    pub danoni: Option<danoni::DanoniOptions>,
+}
+
+/// What builds the same [`Ruleset`] again for a chart (a play's record,
+/// `docs/plans/play-history.md`): its id, and what varies under one id
+/// as the player chose it. Tunings a ruleset can be given beyond the
+/// players' choices (its windows, a judge offset) are not in it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RulesetKey {
+    /// `itg`, `sm5`, `ddr-a`, `danoni`, `calibration`.
+    pub id: String,
+    /// The StepMania presets' holds as played: [`presets::HoldStyle::Dance`]
+    /// or [`presets::HoldStyle::Ticked`] (never `ByGame`: resolved for
+    /// the chart). `Dance` under Dancing☆Onigiri, which keeps its own.
+    #[serde(default)]
+    pub holds: presets::HoldStyle,
+    /// Dancing☆Onigiri's options: the gauge chosen, the judge range and
+    /// the excessive setting. `None` under `danoni`: the rules built for
+    /// no chart ([`presets::danoni`]), whatever the chart.
+    #[serde(default)]
+    pub danoni: Option<danoni::DanoniOptions>,
+}
+
+impl RulesetKey {
+    /// The ruleset this key was taken from, for `chart`.
+    pub fn build(&self, chart: &ddi_chart::Chart) -> Ruleset {
+        match self.id.as_str() {
+            "danoni" => match &self.danoni {
+                Some(options) => danoni::ruleset(Some(chart), options),
+                None => presets::danoni(),
+            },
+            "calibration" => presets::calibration(),
+            id => {
+                let mut ruleset = presets::by_id(id).unwrap_or_else(presets::itg);
+                if self.holds.ticks(chart) {
+                    ruleset.judge.hold = HoldRules::Ticked {
+                        checkpoint_window: HoldRules::CHECKPOINT_WINDOW,
+                    };
+                }
+                ruleset
+            }
+        }
+    }
+
+    /// The key bests are kept under: without Dancing☆Onigiri's gauge
+    /// choice, which changes the life bar and whether the play fails but
+    /// not how notes are judged and scored (a best from any gauge counts).
+    pub fn best_key(&self) -> RulesetKey {
+        RulesetKey {
+            danoni: self
+                .danoni
+                .clone()
+                .map(|d| danoni::DanoniOptions { gauge: None, ..d }),
+            ..self.clone()
+        }
+    }
 }
 
 impl Ruleset {
+    /// What builds this ruleset again ([`RulesetKey::build`]). The
+    /// Dancing☆Onigiri excessive setting is the one in effect (the
+    /// chart's when the player left it to the chart), so one rule has one
+    /// key.
+    pub fn key(&self) -> RulesetKey {
+        RulesetKey {
+            id: self.id.clone(),
+            holds: if self.judge.hold.is_ticked() {
+                presets::HoldStyle::Ticked
+            } else {
+                presets::HoldStyle::Dance
+            },
+            danoni: self.danoni.clone().map(|d| danoni::DanoniOptions {
+                excessive: Some(matches!(
+                    self.judge.empty_press,
+                    EmptyPress::ExcessiveEarly { .. }
+                )),
+                ..d
+            }),
+        }
+    }
+
     /// A copy with fresh score and gauge state, for a new play.
     pub fn fresh(&self) -> Ruleset {
         Ruleset {
@@ -626,6 +709,7 @@ impl Ruleset {
             fail: self.fail,
             grades: self.grades.clone(),
             names: self.names.clone(),
+            danoni: self.danoni.clone(),
         }
     }
 }

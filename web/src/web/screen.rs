@@ -577,8 +577,10 @@ pub(crate) fn texture_decoded(id: TextureId, result: Result<ImageBitmap, String>
 
 /// The screen's part of `window.__DDI_DEBUG`: `screen` (backend,
 /// generation, losses, surface mode), `textures` and `text` (the 2D
-/// pass's caches).
+/// pass's caches); and `history` (`crate::history::debug_into`).
 pub(crate) fn debug_into(obj: &js_sys::Object) {
+    // Every page's debug state carries the play history's.
+    crate::history::debug_into(obj);
     let set = |o: &js_sys::Object, k: &str, v: JsValue| {
         let _ = js_sys::Reflect::set(o, &JsValue::from_str(k), &v);
     };

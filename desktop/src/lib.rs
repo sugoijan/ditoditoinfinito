@@ -13,12 +13,14 @@
 //!   the bundled faces (the HUD's, the theme's) and the system's.
 //! - [`images`]: banners and backgrounds for the texture cache.
 //! - [`os`]: links, file dialogs, the clipboard.
+//! - [`plays`]: the play history, a file a play.
 //! - [`shell`]: the window and its events.
 
 pub mod gpu;
 pub mod images;
 pub mod keys;
 pub mod os;
+pub mod plays;
 pub mod shell;
 pub mod store;
 

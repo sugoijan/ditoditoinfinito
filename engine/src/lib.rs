@@ -18,6 +18,8 @@
 //! - [`demo`]: a looping autoplayed chart for skin previews.
 //! - [`frame`]: the render snapshot.
 //! - [`player`]: the orchestrator.
+//! - [`history`]: a play's input log, its replay, and its judgements as
+//!   a record keeps them.
 //!
 //! See `docs/PLAN.md` §3.3.
 
@@ -28,6 +30,7 @@ pub mod calibration;
 pub mod clock;
 pub mod demo;
 pub mod frame;
+pub mod history;
 pub mod input;
 pub mod judge;
 pub mod lyrics;
@@ -39,6 +42,12 @@ pub mod transform;
 
 pub use ddi_chart;
 pub use ddi_platform;
+
+/// The version of how plays are judged: raised whenever judging, scoring,
+/// grading or a gauge changes what a play shows, so that a record judged
+/// by an older version is judged again from its log
+/// (`docs/plans/play-history.md`).
+pub const JUDGE_VERSION: u32 = 1;
 
 pub use appearance::Appearance;
 pub use bindings::{ConnectedPad, ControlBindings, LaneTable, MenuInput, PadBindings, PadUse};
@@ -52,7 +61,8 @@ pub use judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
 pub use player::{PlayOptions, Player, Results};
 pub use rules::{
     ComboRules, EmptyPress, FailPolicy, FullCombo, GaugeRules, GradeBasis, GradeTable, JudgeNames,
-    JudgeTable, Judgement, Ruleset, ScoreCtx, ScoreRules, ScoreView, Tally, Window, presets,
+    JudgeTable, Judgement, Ruleset, RulesetKey, ScoreCtx, ScoreRules, ScoreView, Tally, Window,
+    presets,
 };
 pub use scroll::{ScrollAction, ScrollOptions, ScrollState, SpeedMod, note_y};
 pub use transform::{TimingCut, TransformOptions, Turn};

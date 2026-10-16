@@ -8,7 +8,9 @@
 //! must end with every step at the top judgement, 100 %, the full EX score
 //! and DDR A's 1,000,000: whatever is left over (a mine under a hold, a
 //! note the judge never reaches, a roll the taps cannot keep) is a bug in
-//! the importer, the judge or the script. `DDI_AUTOPLAY_FILTER=<text>`
+//! the importer, the judge or the script. Each play is also judged again
+//! from its input log ([`ddi_engine::history::replay`]) to the same
+//! results. `DDI_AUTOPLAY_FILTER=<text>`
 //! plays only files whose path contains it; `DDI_AUTOPLAY_VERBOSE=1`
 //! prints every judgement short of the top one, with the lane's notes. Third-party songs used this
 //! way stay local.
@@ -171,7 +173,18 @@ fn play(song: &Song, index: usize, preset: &str) -> Option<(Results, u32)> {
         }
         frame += 1;
     }
-    Some((player.results(), player.score_ctx().shocks))
+    // Judged again from its log, the same results
+    // (`docs/plans/play-history.md`).
+    let results = player.results();
+    let again = ddi_engine::history::replay(
+        song,
+        index,
+        &player.ruleset().key(),
+        player.options(),
+        player.log(),
+    );
+    assert_eq!(again, results, "{preset}: the replay differs");
+    Some((results, player.score_ctx().shocks))
 }
 
 /// What falls short of a perfect play.

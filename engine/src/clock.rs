@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 /// User-facing clock settings.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ClockOptions {
     /// Calibration in seconds, added to the estimated output latency:
     /// positive means the player hears (and so hits) later than the audio

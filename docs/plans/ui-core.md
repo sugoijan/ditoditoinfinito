@@ -774,8 +774,8 @@ Firefox.
      version on each record). On the web in IndexedDB, on desktop in
      files, behind a `platform` store; a few kilobytes a play, with an
      export. It feeds the best scores on song select and, later,
-     replays (phase 10). A plan of its own first
-     (`docs/plans/play-history.md`, to write).
+     replays (phase 10). Planned in `docs/plans/play-history.md`
+     (2026-10-16).
 
    From the maintainer's try of step 5 (2026-10-15):
    - **The selected row's ring is cut on its left edge** (the pink

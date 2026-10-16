@@ -366,6 +366,7 @@ mod tests {
             fast: 4,
             slow: 5,
             hits: 30,
+            late_edges: 0,
             mean_delta: -0.0021,
             stddev_delta: 0.0098,
             transform: Default::default(),

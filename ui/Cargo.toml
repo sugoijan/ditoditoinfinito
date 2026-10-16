@@ -15,6 +15,7 @@ ddi-engine.workspace = true
 ddi-library.workspace = true
 ddi-platform.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 unicode-segmentation.workspace = true
 # Layout frames (P8), optional.
 taffy = { workspace = true, optional = true }

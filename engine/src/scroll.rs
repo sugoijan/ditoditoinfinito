@@ -69,6 +69,7 @@ impl ScrollAction {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ScrollOptions {
     pub speed: SpeedMod,
     /// Receptor at the top, arrows scroll downwards. The renderer applies

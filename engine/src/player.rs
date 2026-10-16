@@ -12,6 +12,7 @@ use crate::frame::{
     Frame, HoldKind, JudgementFlash, NoteSprite, ReceptorState, SkinEvent, SkinEventKind,
     SpriteKind,
 };
+use crate::history::{LoggedInput, PlayLog};
 use crate::input::InputEvent;
 use crate::judge::{Judge, JudgeEvent, JudgeEventKind, NoteState};
 use crate::rules::{FailPolicy, FullCombo, Judgement, Ruleset, ScoreCtx, ScoreView, Tally};
@@ -26,6 +27,19 @@ const FLASH_SECONDS: f32 = 1.0;
 
 /// Silence after the last note before the play finishes.
 const END_MARGIN: f64 = 1.0;
+/// Seconds what is judged by time alone (misses, mines passed, holds kept
+/// or dropped) lags the clock in a live play ([`Player::update`]). Edges
+/// reach the player late: a key or touch carries the time it happened,
+/// while a frame updates at the time the frame began, and the browser
+/// hands over an edge that happened during the last frame's work after
+/// that frame's update (a frame or less, 7–17 ms); an output latency the
+/// audio clock reports anew moves the heard time back by its step (8 ms
+/// seen). An edge up to this late is judged at its own time, before the
+/// time-judged events after it; only those events (a miss, a hold kept)
+/// are reported this much later. Later edges count as happening at the
+/// time judged ([`Results::late_edges`]). Replays feed judged times and
+/// do not depend on it.
+pub const JUDGE_LAG: f64 = 0.03;
 /// Skin events kept for the renderer to catch up on.
 const SKIN_EVENTS: usize = 256;
 /// `[Player] BrightGhostComboThreshold` (`Themes/_fallback/metrics.ini`):
@@ -91,6 +105,10 @@ pub struct Results {
     /// neither).
     #[serde(default)]
     pub hits: u32,
+    /// Edges that reached the play later than it had judged by time
+    /// ([`JUDGE_LAG`]) and were judged at that later time: should stay 0.
+    #[serde(default)]
+    pub late_edges: u32,
     /// Mean of hit deltas in seconds (0 when nothing was hit).
     pub mean_delta: f64,
     /// Population standard deviation of hit deltas.
@@ -116,7 +134,8 @@ pub struct Results {
     pub life: Vec<[f32; 2]>,
 }
 
-/// One judgement of a play ([`Results::timeline`]).
+/// One judgement of a play ([`Results::timeline`]); a tap's offset to
+/// the microsecond.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Judged {
     /// Song second it happened at.
@@ -162,7 +181,8 @@ pub struct Player {
     ctx: ScoreCtx,
     started: bool,
     song_offset: f64,
-    last_judge_time: Option<f64>,
+    /// Edges judged later than they happened ([`Results::late_edges`]).
+    late_edges: u32,
     combo: u32,
     max_combo: u32,
     tally: Tally,
@@ -185,6 +205,8 @@ pub struct Player {
     lane_flash: Vec<Option<(Judgement, f64)>>,
     failed: bool,
     finished: bool,
+    /// Every press and release judged, at its judged time ([`Player::log`]).
+    log: PlayLog,
     /// [`Results::timeline`] and [`Results::life`] as they grow.
     timeline: Vec<Judged>,
     life: Vec<[f32; 2]>,
@@ -246,7 +268,7 @@ impl Player {
             ctx: ScoreCtx::default(),
             started: false,
             song_offset: 0.0,
-            last_judge_time: None,
+            late_edges: 0,
             combo: 0,
             max_combo: 0,
             tally: Tally::default(),
@@ -262,6 +284,7 @@ impl Player {
             lane_flash: vec![None; usize::from(lanes)],
             failed: false,
             finished: false,
+            log: PlayLog::default(),
             timeline: Vec::new(),
             life: Vec::new(),
             frame_interval: 1.0 / 60.0,
@@ -323,6 +346,10 @@ impl Player {
         self.clock.start(start_context_time, song_offset);
         self.started = true;
         self.song_offset = song_offset;
+        self.log = PlayLog {
+            start: song_offset,
+            inputs: Vec::new(),
+        };
         if song_offset > 0.0 {
             self.judge.skip_before(song_offset);
             self.reset_counts();
@@ -424,12 +451,59 @@ impl Player {
         self.judged_lane = lane.filter(|&l| usize::from(l) < self.held.len());
     }
 
+    /// The presses and releases judged so far, at the song time each was
+    /// judged at ([`Player::input`]), and where the play started: what
+    /// [`crate::history::replay`] judges again. Every edge that reached a
+    /// started play before it ended is there, also those it ignored (a
+    /// lane it does not have, a key already down). Not under
+    /// [`Player::judge_all_in`], which a replay does not know.
+    pub fn log(&self) -> &PlayLog {
+        &self.log
+    }
+
     /// Feeds a lane edge. Returns the per-note judge events it caused.
+    ///
+    /// It is judged at its heard song time, to the microsecond (what the
+    /// log keeps exactly), and never before the time the play was last
+    /// judged at: judging only moves forward ([`Judge::update`]). Updates
+    /// judge [`JUDGE_LAG`] behind the clock, so an edge that reaches the
+    /// player up to that late is judged at its own time; a later one
+    /// counts as happening at the time judged ([`Results::late_edges`]).
     pub fn input(&mut self, ev: InputEvent) -> Vec<JudgeEvent> {
-        if !self.started || self.finished || usize::from(ev.lane) >= self.held.len() {
+        if !self.started || self.finished {
             return Vec::new();
         }
         let t = self.judge_time(ev.host_time);
+        self.input_at(ev.lane, ev.pressed, t)
+    }
+
+    /// [`Player::input`] at a judged song time (already after the clock,
+    /// the latency and the offsets): what a replay feeds.
+    pub fn input_at(&mut self, lane: u8, pressed: bool, song_time: f64) -> Vec<JudgeEvent> {
+        if !self.started || self.finished || !song_time.is_finite() {
+            return Vec::new();
+        }
+        let at = to_microsecond(song_time);
+        let judged = self.judge.last_time().unwrap_or(f64::NEG_INFINITY);
+        if at < judged {
+            self.late_edges += 1;
+        }
+        let t = at.max(judged);
+        if self.judged_lane.is_none() {
+            self.log.inputs.push(LoggedInput {
+                time: t,
+                lane,
+                pressed,
+            });
+        }
+        if usize::from(lane) >= self.held.len() {
+            return Vec::new();
+        }
+        let ev = InputEvent {
+            lane,
+            pressed,
+            host_time: HostTime(0.0),
+        };
         self.held[usize::from(ev.lane)] = ev.pressed;
         let lane = self.judged_lane.unwrap_or(ev.lane);
         let events = if ev.pressed {
@@ -462,7 +536,8 @@ impl Player {
             self.skin_event(ev.lane, SkinEventKind::Lift, t);
         }
         self.pressing = self.judged_lane.map(|_| ev.lane);
-        self.apply(&events);
+        let mut events = events;
+        self.apply(&mut events);
         self.pressing = None;
         events
     }
@@ -490,23 +565,27 @@ impl Player {
         self.combo > BRIGHT_COMBO
     }
 
-    /// Advances to `host_now`: misses, hold life, fail and finish checks.
+    /// Advances to `host_now`: misses, hold life, fail and finish checks,
+    /// judged [`JUDGE_LAG`] behind it. What is judged does not depend on
+    /// how often this is called ([`Judge::update`]).
     pub fn update(&mut self, host_now: HostTime) -> Vec<JudgeEvent> {
         if !self.started || self.finished {
             return Vec::new();
         }
         let t = self.judge_time(host_now);
-        self.last_judge_time = Some(t);
-        let events = match self.judged_lane {
-            None => self.judge.update(t, &self.held),
-            // With `judge_all_in`, its lane is down while any is.
-            Some(lane) => {
-                let mut held = vec![false; self.held.len()];
-                held[usize::from(lane)] = self.held.iter().any(|&h| h);
-                self.judge.update(t, &held)
-            }
-        };
-        self.apply(&events);
+        self.update_at(t)
+    }
+
+    /// [`Player::update`] to a judged song time: what a replay calls (it
+    /// too judges [`JUDGE_LAG`] behind; the play finishes once `song_time`
+    /// passes [`Player::song_end_time`], every note judged).
+    pub fn update_at(&mut self, song_time: f64) -> Vec<JudgeEvent> {
+        if !self.started || self.finished || !song_time.is_finite() {
+            return Vec::new();
+        }
+        let t = to_microsecond(song_time);
+        let mut events = self.judge.update(to_microsecond(t - JUDGE_LAG), &self.held);
+        self.apply(&mut events);
         if !self.finished && t >= self.song_end_time() && self.judge.all_resolved() {
             self.finish();
         }
@@ -524,15 +603,24 @@ impl Player {
     }
 
     /// Routes raw judge events through row grouping into combo/score/gauge.
-    fn apply(&mut self, events: &[JudgeEvent]) {
-        for ev in events {
+    /// Those after the play ended (an immediate fail) are not judged, and
+    /// are dropped from `events`.
+    fn apply(&mut self, events: &mut Vec<JudgeEvent>) {
+        for (i, ev) in events.iter().enumerate() {
             if self.finished {
-                break;
+                events.truncate(i);
+                return;
             }
+            // The offset to the microsecond, as a record keeps it
+            // ([`crate::history::PlayTiming`]).
+            let kind = match ev.kind {
+                JudgeEventKind::Tap(j, delta) => JudgeEventKind::Tap(j, to_microsecond(delta)),
+                other => other,
+            };
             self.timeline.push(Judged {
                 time: ev.song_time as f32,
                 lane: ev.lane,
-                kind: ev.kind,
+                kind,
             });
             if let JudgeEventKind::Tap(j, delta) = ev.kind
                 && j != Judgement::Miss
@@ -939,6 +1027,7 @@ impl Player {
             fast: self.fast,
             slow: self.slow,
             hits: self.delta_count,
+            late_edges: self.late_edges,
             mean_delta,
             stddev_delta: variance.sqrt(),
             transform: self.options.transform,
@@ -980,5 +1069,15 @@ fn shock_rows(notes: &mut [Note], lanes: usize) {
             }
         }
         start = end;
+    }
+}
+
+/// `seconds` to the nearest microsecond, as the input log keeps it
+/// ([`crate::history::PlayLog::encode`]).
+pub(crate) fn to_microsecond(seconds: f64) -> f64 {
+    if seconds.is_finite() {
+        (seconds * 1e6).round() / 1e6
+    } else {
+        seconds
     }
 }

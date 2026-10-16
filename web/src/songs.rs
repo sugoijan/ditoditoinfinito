@@ -510,17 +510,26 @@ pub(crate) struct LoadedSong {
     pub(crate) shared_videos: Vec<(String, String)>,
 }
 
-/// Finds a song by id among bundled and imported songs and loads it.
-pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
+/// A song found by id: its entry, where it is from, and its stored
+/// record when imported.
+struct Found {
+    entry: ManifestEntry,
+    origin: Origin,
+    record: Option<ImportedSong>,
+}
+
+/// Finds a song by id among bundled and imported songs.
+async fn find_song(id: &str) -> Result<Found, LoadError> {
     // Bundled songs never wait on IndexedDB (which can be unavailable or
     // blocked by another tab).
-    let mut record = None;
-    let (entry, origin) = if is_imported_id(id) {
+    if is_imported_id(id) {
         let db = Db::open().await?;
         let song = imported_record(&db, id).await?;
-        let found = (song.entry.clone(), Origin::Imported(song.pack.clone()));
-        record = Some(song);
-        found
+        Ok(Found {
+            entry: song.entry.clone(),
+            origin: Origin::Imported(song.pack.clone()),
+            record: Some(song),
+        })
     } else {
         let entry = load_manifest()
             .await?
@@ -528,21 +537,29 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
             .into_iter()
             .find(|e| e.id == id)
             .ok_or_else(|| format!("unknown song `{id}`"))?;
-        (entry, Origin::Bundled)
-    };
-    let (chart_text, music_bytes) = match &origin {
-        Origin::Bundled => {
-            let chart_text = fetch_text(&format!("songs/{}/{}", entry.id, entry.chart)).await?;
-            let music = fetch_bytes(&format!("songs/{}/{}", entry.id, entry.music)).await?;
-            (chart_text, music)
-        }
+        Ok(Found {
+            entry,
+            origin: Origin::Bundled,
+            record: None,
+        })
+    }
+}
+
+/// The found song's charts, parsed (a stored Dancing☆Onigiri work's
+/// too); the music is not read.
+async fn parse_found(found: &Found) -> Result<Song, LoadError> {
+    let entry = &found.entry;
+    let chart_text = match &found.origin {
+        Origin::Bundled => fetch_text(&format!("songs/{}/{}", entry.id, entry.chart)).await?,
         Origin::Imported(_) => {
-            let song = record.as_ref().ok_or("the stored song went missing")?;
+            let song = found
+                .record
+                .as_ref()
+                .ok_or("the stored song went missing")?;
             let db = Db::open().await?;
             let chart = blob_bytes(&song_file(&db, song, &entry.chart).await?).await?;
-            let music = blob_bytes(&song_file(&db, song, &entry.music).await?).await?;
             // Stored chart bytes are already UTF-8 (decoded at import).
-            (String::from_utf8_lossy(&chart).into_owned(), music)
+            String::from_utf8_lossy(&chart).into_owned()
         }
     };
     let ext = entry.chart.rsplit('.').next().unwrap_or("sm");
@@ -552,6 +569,81 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
         parse_simfile(&chart_text, ext).map_err(|e| e.to_string())
     }
     .map_err(|e| format!("{}: {e}", entry.chart))?;
+    fill_digests(found, &song).await;
+    Ok(song)
+}
+
+/// Songs imported before the manifest kept their charts' digests get them
+/// when their chart is next read (the history's bests are kept by them).
+async fn fill_digests(found: &Found, song: &Song) {
+    let Some(record) = &found.record else {
+        return;
+    };
+    if record.entry.charts.iter().all(|c| c.digest.is_some()) {
+        return;
+    }
+    let mut record = record.clone();
+    for c in &mut record.entry.charts {
+        if c.index < song.charts.len() {
+            c.digest = Some(song.chart_digest(c.index));
+        }
+    }
+    let Ok(json) = serde_json::to_string(&record) else {
+        return;
+    };
+    if let Ok(db) = Db::open().await {
+        let _ = db
+            .write(vec![Write::Put {
+                store: idb::SONGS,
+                key: record.entry.id.clone(),
+                value: JsValue::from_str(&json),
+            }])
+            .await;
+    }
+}
+
+/// A song in the library with a chart of one of these contents (by the
+/// digests the song list keeps): where plays of a song id that is gone (a
+/// pack imported again from another folder) find their chart.
+pub(crate) async fn find_by_digest(digests: &[ddi_chart::ChartDigest]) -> Option<String> {
+    let library = Library::load().await.ok()?;
+    library
+        .bundled
+        .iter()
+        .chain(library.imported.iter().map(|s| &s.entry))
+        .find(|e| {
+            e.charts
+                .iter()
+                .any(|c| c.digest.is_some_and(|d| digests.contains(&d)))
+        })
+        .map(|e| e.id.clone())
+}
+
+/// A song's charts alone, without its music or art (judging a stored
+/// play again, `crate::history`).
+pub(crate) async fn load_chart(id: &str) -> Result<Song, LoadError> {
+    parse_found(&find_song(id).await?).await
+}
+
+/// Finds a song by id among bundled and imported songs and loads it.
+pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
+    let found = find_song(id).await?;
+    let song = parse_found(&found).await?;
+    let music_bytes = match &found.origin {
+        Origin::Bundled => {
+            let entry = &found.entry;
+            fetch_bytes(&format!("songs/{}/{}", entry.id, entry.music)).await?
+        }
+        Origin::Imported(_) => {
+            let song = found
+                .record
+                .as_ref()
+                .ok_or("the stored song went missing")?;
+            let db = Db::open().await?;
+            blob_bytes(&song_file(&db, song, &found.entry.music).await?).await?
+        }
+    };
+    let Found { entry, origin, .. } = found;
     // Images the song's folder lacks may be in a shared folder imported
     // before or after it; looked up now so the order does not matter.
     let (shared_bg, shared_videos) = match &origin {
