@@ -14,6 +14,7 @@ pub mod host;
 pub mod load;
 #[cfg(feature = "video")]
 pub mod movies;
+pub mod replays;
 pub mod skins;
 pub mod stage;
 pub mod view;
@@ -48,6 +49,14 @@ pub struct Request {
     /// Autoplay presses this many seconds late (negative: early); a
     /// testing aid (`--bias MS`).
     pub bias: f64,
+    /// A kept play replayed (`replays`), or its results shown.
+    pub replay: Option<Rc<ddi_ui::state::history::Replay>>,
+    pub view_results: bool,
+    /// Why the play asked for cannot be: the prompt says so.
+    pub refused: Option<String>,
+    /// The chart's best play's ghost beside the play (`Settings::ghost`;
+    /// lined up by the song offsets when the play starts).
+    pub ghost: Option<Rc<ddi_ui::state::history::Ghost>>,
 }
 
 impl Request {
@@ -60,6 +69,10 @@ impl Request {
             auto_pad: false,
             calibration: None,
             bias: 0.0,
+            replay: None,
+            view_results: false,
+            refused: None,
+            ghost: None,
         }
     }
 
@@ -72,6 +85,20 @@ impl Request {
             auto_pad: false,
             calibration: Some(mode),
             bias: 0.0,
+            replay: None,
+            view_results: false,
+            refused: None,
+            ghost: None,
+        }
+    }
+
+    /// The settings the play runs with: the stored ones, or a replay's
+    /// over them (`Replay::settings`).
+    pub fn settings(&self) -> Settings {
+        let here = Settings::load();
+        match &self.replay {
+            Some(r) => r.settings(&here),
+            None => here,
         }
     }
 }
@@ -225,6 +252,8 @@ pub struct Play {
     pub saved: Rc<RefCell<Option<Result<(), String>>>>,
     /// The graphics backend, for the record.
     pub graphics: String,
+    /// The play's id once kept (its replay).
+    pub play_id: Option<String>,
 }
 
 /// A seed for the Shuffle turn.
@@ -266,11 +295,22 @@ impl Play {
         if let Some(mode) = request.calibration {
             config.calibrate(mode);
         }
-        let shift = if request.calibration.is_some() {
-            0.0
-        } else {
-            settings.song_offset(&request.song)
+        // A replay: its log on the lanes, its options and rules, the
+        // offsets this device needs.
+        if let Some(r) = &request.replay {
+            config.replay = Some(r.replaying(config.devices.as_ref(), config.options.clock));
+            config.auto = false;
+        }
+        let shift = match (&request.replay, request.calibration) {
+            (_, Some(_)) => 0.0,
+            (Some(r), None) => r.record.song_offset,
+            (None, None) => settings.song_offset(&request.song),
         };
+        config.ghost = request
+            .ghost
+            .as_deref()
+            .filter(|_| request.replay.is_none() && request.calibration.is_none())
+            .map(|g| g.clone().for_play(shift));
         let shifted;
         let song = if shift == 0.0 {
             &loaded.song
@@ -302,6 +342,7 @@ impl Play {
             recorded: false,
             saved: Rc::default(),
             graphics: String::new(),
+            play_id: None,
         })
     }
 
@@ -352,8 +393,11 @@ impl Play {
 
     /// Keeps the play in the history, once.
     fn record(&mut self, results: &Results, facts: &PlayFacts, plays: Option<&Rc<Plays>>) {
-        // A calibration test is not a play.
-        if std::mem::replace(&mut self.recorded, true) || self.request.calibration.is_some() {
+        // A calibration test is not a play, nor a replay.
+        if std::mem::replace(&mut self.recorded, true)
+            || self.request.calibration.is_some()
+            || self.request.replay.is_some()
+        {
             return;
         }
         let Some(plays) = plays else {
@@ -387,6 +431,7 @@ impl Play {
             return;
         };
         let id = ddi_platform::history::play_id(time, random_seed() as u32);
+        self.play_id = Some(id.clone());
         let saved = self.saved.clone();
         let r = plays.record(id, &record, &facts.log, results, move |r| {
             if let Err(e) = &r {

@@ -5,9 +5,10 @@ ignore = [
   "dist-test",
   "docs",
   "xtask",
-  # Output of the gen-credits pre_build hook; ignored so regenerating it
+  # Output of the gen-credits pre_build hook; ignored so regenerating them
   # does not immediately trigger another rebuild.
   "CREDITS.md",
+  "THIRD_PARTY_RUST.md",
 ]
 
 # Regenerates target/seo/ from seo/metadata.toml so the fragments inlined by
@@ -43,3 +44,10 @@ command_arguments = ["run", "-p", "xtask", "--", "gen-credits"]
 stage = "post_build"
 command = "cargo"
 command_arguments = ["run", "-p", "xtask", "--", "stage-video"]
+
+# The Opus worker's files named by their hash, and index.html told
+# (web/src/web/opus.rs reads it).
+[[hooks]]
+stage = "post_build"
+command = "cargo"
+command_arguments = ["run", "-p", "xtask", "--", "stage-opus"]

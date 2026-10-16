@@ -120,5 +120,6 @@ pub fn play_record(p: &Played, results: &Results, facts: &PlayFacts) -> Option<P
         autoplay: p.autoplay,
         time: p.time,
         app_version: p.app_version.to_string(),
+        judge_version: ddi_engine::JUDGE_VERSION,
     })
 }

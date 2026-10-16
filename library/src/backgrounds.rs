@@ -1,11 +1,14 @@
-//! Background changes (`#BGCHANGES`) as a timed schedule of still images
-//! and movies.
+//! Background changes (`#BGCHANGES`, `#BGCHANGES2`) as timed schedules of
+//! still images and movies.
 //!
 //! Follows StepMania 5.1 (`src/Background.cpp`, `src/NotesLoaderSM.cpp` at
 //! `825467b`) for what the game can show, which is still images and movies:
 //!
-//! - Only the first layer is played (`#BGCHANGES`; `#BGCHANGES2` and
-//!   `#FGCHANGES` overlays are not).
+//! - Both of StepMania's layers play: the first ([`schedule`]) and the
+//!   second, drawn over it ([`second_layer`], whose own rules are listed
+//!   there). `#FGCHANGES` overlays do not.
+//! - A change naming a `.ini` or `.xml` file (field 2 or 8) is dropped at
+//!   load (`SMLoader::LoadFromBGChangesVector`, outside quirks mode).
 //! - Before the first change the song's background is shown: StepMania
 //!   inserts it at beat −10000.
 //! - `-nosongbg-` is not an image but a marker (`SMLoader::TidyUpData`):
@@ -71,6 +74,13 @@ pub enum BgImage {
     /// change in place of the song's background, and in place of that
     /// movie while it has no frame ([`shown`]). Never in a schedule.
     Still,
+    /// Nothing: the second layer before its first change, and where it
+    /// would play what the game cannot show ([`second_layer`]).
+    Clear,
+    /// The plain backdrop, opaque: the second layer's `songbackground`
+    /// for a song without a background, where StepMania shows its theme's
+    /// fallback graphic ([`second_layer`]). The shell gives it an id.
+    Plain,
 }
 
 /// A song whose first background change is a movie at or before its first
@@ -207,15 +217,51 @@ const NO_SONG_BG: &str = "-nosongbg-";
 /// StepMania's `SONG_BACKGROUND_FILE`.
 const SONG_BACKGROUND: &str = "songbackground";
 
-/// Layer-1 change events of `song`: `(beat tick, fields)`, in file order.
-fn layer_one(song: &Song) -> impl Iterator<Item = (Tick, &[String])> {
+/// StepMania's `RANDOM_BACKGROUND_FILE`.
+const RANDOM_BACKGROUND: &str = "-random-";
+
+/// Background layers StepMania has (`NUM_BackgroundLayer`, `Song.h`).
+pub const LAYERS: usize = 2;
+
+/// Whether `SMLoader::LoadFromBGChangesVector` keeps a change: it drops
+/// one whose file (field 2) or second file (field 8) names a `.ini` or
+/// `.xml` file (outside quirks mode).
+fn loaded(fields: &[String]) -> bool {
+    let bad = |f: Option<&String>| {
+        f.is_some_and(|f| {
+            let f = f.to_lowercase();
+            f.contains(".ini") || f.contains(".xml")
+        })
+    };
+    !bad(fields.get(1)) && !bad(fields.get(7))
+}
+
+/// Change events of `layer` (0: `#BGCHANGES`, 1: `#BGCHANGES2`):
+/// `(beat tick, fields)`, in file order, those StepMania loads.
+fn layer_changes(song: &Song, layer: u8) -> impl Iterator<Item = (Tick, &[String])> {
     song.effects
         .iter()
-        .filter(|e| e.kind == "bgchange" && e.layer == 0 && e.fields.len() >= 2)
+        .filter(move |e| e.kind == "bgchange" && e.layer == layer && e.fields.len() >= 2)
+        .filter(|e| loaded(&e.fields))
         .filter_map(|e| match e.at {
             EffectTime::Beat(t) => Some((t, e.fields.as_slice())),
             EffectTime::Seconds(_) => None,
         })
+}
+
+/// Layer-1 change events of `song`.
+fn layer_one(song: &Song) -> impl Iterator<Item = (Tick, &[String])> {
+    layer_changes(song, 0)
+}
+
+/// Both layers' change events, by beat (the first layer's before the
+/// second's on one beat): what the song's files are listed by.
+fn all_changes(song: &Song) -> Vec<(Tick, &[String])> {
+    let mut changes: Vec<(Tick, &[String])> = (0..LAYERS as u8)
+        .flat_map(|layer| layer_changes(song, layer))
+        .collect();
+    changes.sort_by_key(|(t, _)| *t);
+    changes
 }
 
 fn is_image(path: &str) -> bool {
@@ -274,9 +320,9 @@ fn leading_int(s: &str) -> i64 {
     s[..end].parse().unwrap_or(0)
 }
 
-/// The images `song`'s background changes refer to that exist in the
-/// import, as `(path relative to dir, path in the import)`: the first with
-/// `../` where it leaves `dir`, both in the files' own case. In order of
+/// The images `song`'s background changes (on either layer) refer to that
+/// exist in the import, as `(path relative to dir, path in the import)`:
+/// the first with `../` where it leaves `dir`, both in the files' own case. In order of
 /// first use, without duplicates, so a caller keeping only some keeps the
 /// earliest. `all_paths` are relative to the import root, `dir` is the song
 /// folder; `background` (a path in the import) is the song's own background,
@@ -306,9 +352,7 @@ pub fn referenced_movies<S: AsRef<str>>(
 
 /// StepMania's `Song::HasBGChanges`: a change on either background layer.
 fn has_changes(song: &Song) -> bool {
-    song.effects
-        .iter()
-        .any(|e| e.kind == "bgchange" && e.fields.len() >= 2)
+    (0..LAYERS as u8).any(|layer| layer_changes(song, layer).next().is_some())
 }
 
 /// The movie StepMania plays for a song without background changes: the
@@ -347,10 +391,8 @@ fn referenced<S: AsRef<str>>(
     wanted_kind: fn(&str) -> bool,
 ) -> Vec<(String, String)> {
     let background = background.map(str::to_lowercase);
-    let mut changes: Vec<(Tick, &[String])> = layer_one(song).collect();
-    changes.sort_by_key(|(t, _)| *t);
     let mut out: Vec<(String, String)> = Vec::new();
-    for (_, f) in changes {
+    for (_, f) in all_changes(song) {
         let Some(wanted) = join_relative(dir, &f[1]).map(|p| p.to_lowercase()) else {
             continue;
         };
@@ -374,18 +416,17 @@ fn referenced<S: AsRef<str>>(
 /// Names StepMania gives a meaning instead of looking up a file.
 fn is_special(name: &str) -> bool {
     let name = name.trim();
-    [NO_SONG_BG, SONG_BACKGROUND, "-random-"]
+    [NO_SONG_BG, SONG_BACKGROUND, RANDOM_BACKGROUND]
         .iter()
         .any(|s| name.eq_ignore_ascii_case(s))
 }
 
-/// The files `song`'s background changes name, as written (trimmed), in
-/// order of first use, without duplicates or StepMania's special names.
+/// The files `song`'s background changes name on either layer, as written
+/// (trimmed), in order of first use, without duplicates or StepMania's
+/// special names.
 fn change_files(song: &Song) -> Vec<String> {
-    let mut changes: Vec<(Tick, &[String])> = layer_one(song).collect();
-    changes.sort_by_key(|(t, _)| *t);
     let mut out: Vec<String> = Vec::new();
-    for (_, f) in changes {
+    for (_, f) in all_changes(song) {
         let name = f[1].trim();
         if name.is_empty() || is_special(name) {
             continue;
@@ -638,58 +679,200 @@ pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
                         }
                     }
                 };
-                let fade = match f.get(8).map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                    Some(transition) => transition_seconds(transition).unwrap_or(0.0),
-                    None if f.get(3).is_some_and(|s| leading_int(s) != 0) => 1.0,
-                    None => 0.0,
-                };
-                // Only movies have a rate and an effect that matter. Below 0
-                // StepMania stops on an assertion (`Actor::Update` with a
-                // negative delta); here the movie stays still. Above 1000 it
-                // is held at 1000, so the clock stays finite.
-                let (rate, effect) = match image {
-                    BgImage::Movie(_) => (
-                        f.get(2).map_or(1.0, |r| {
-                            let r = leading_float(r);
-                            if r.is_finite() {
-                                r.clamp(0.0, 1000.0)
-                            } else {
-                                0.0
-                            }
-                        }),
-                        MovieEffect::of(f),
-                    ),
-                    _ => (1.0, MovieEffect::Normal),
-                };
+                let (fade, rate, effect) = change_look(f, &image);
                 (image, fade, rate, effect)
             }
         };
-        // The song reaches the beat at the start of a delay on it.
-        let seconds = song.timing.seconds_at(tick) - song.timing.delay_at(tick);
+        let seconds = change_seconds(song, tick);
         // Of changes at the same moment, the last wins.
         if segments.len() > 1 && segments.last().is_some_and(|s| s.seconds == seconds) {
             segments.pop();
         }
-        let same = segments.last().is_some_and(|s| {
-            s.image == image
-                && !(matches!(image, BgImage::Movie(_)) && (effect.restarts() || s.rate != rate))
-        });
-        if same {
+        push_change(&mut segments, seconds, image, fade, rate, effect);
+    }
+    segments
+}
+
+/// Song second at which a change on beat `tick` shows: the song reaches
+/// the beat at the start of a delay on it.
+fn change_seconds(song: &Song, tick: Tick) -> f64 {
+    song.timing.seconds_at(tick) - song.timing.delay_at(tick)
+}
+
+/// A change's transition (seconds of fade, 0 for a cut), and the rate and
+/// effect it plays `image` with.
+fn change_look(f: &[String], image: &BgImage) -> (f64, f64, MovieEffect) {
+    let fade = match f.get(8).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        Some(transition) => transition_seconds(transition).unwrap_or(0.0),
+        None if f.get(3).is_some_and(|s| leading_int(s) != 0) => 1.0,
+        None => 0.0,
+    };
+    // Only movies have a rate and an effect that matter. Below 0 StepMania
+    // stops on an assertion (`Actor::Update` with a negative delta); here
+    // the movie stays still. Above 1000 it is held at 1000, so the clock
+    // stays finite.
+    let (rate, effect) = match image {
+        BgImage::Movie(_) => (
+            f.get(2).map_or(1.0, |r| {
+                let r = leading_float(r);
+                if r.is_finite() {
+                    r.clamp(0.0, 1000.0)
+                } else {
+                    0.0
+                }
+            }),
+            MovieEffect::of(f),
+        ),
+        _ => (1.0, MovieEffect::Normal),
+    };
+    (fade, rate, effect)
+}
+
+/// Adds a change to `segments` as `BackgroundImpl::Layer::UpdateCurBGChange`
+/// switches: a change to what is already shown is none (unless a movie
+/// starts over or changes rate: then it has no transition).
+fn push_change(
+    segments: &mut Vec<BgSegment>,
+    seconds: f64,
+    image: BgImage,
+    fade: f64,
+    rate: f64,
+    effect: MovieEffect,
+) {
+    let same = segments.last().is_some_and(|s| {
+        s.image == image
+            && !(matches!(image, BgImage::Movie(_)) && (effect.restarts() || s.rate != rate))
+    });
+    if same {
+        // The one fading in again: the one fading out is dropped
+        // (`m_pFadingBGA == m_pCurrentBGA`).
+        cut_fade(segments, seconds);
+        return;
+    }
+    // To the same thing (a movie started over): no transition.
+    let fade = if segments.last().is_some_and(|s| s.image == image) {
+        0.0
+    } else {
+        fade
+    };
+    segments.push(BgSegment {
+        seconds,
+        image,
+        fade,
+        rate,
+        effect,
+    });
+}
+
+/// Ends a fade running at `seconds` there, as StepMania does when a
+/// layer's current background becomes its fading one too (a change to it,
+/// or to one never loaded): what fades out is dropped and what fades in
+/// shows alone, playing on (a movie neither starts over nor stops).
+fn cut_fade(segments: &mut Vec<BgSegment>, seconds: f64) {
+    let Some(last) = segments.last() else {
+        return;
+    };
+    if segments.len() > 1 && last.fade > 0.0 && seconds < last.seconds + last.fade {
+        let cut = BgSegment {
+            seconds,
+            fade: 0.0,
+            effect: MovieEffect::Normal,
+            ..last.clone()
+        };
+        segments.push(cut);
+    }
+}
+
+/// The schedule of `song`'s second background layer (`#BGCHANGES2`), drawn
+/// over the first ([`schedule`]) as StepMania 5.1 draws it
+/// (`BackgroundImpl::LoadFromSong`, `UpdateCurBGChange`, `DrawPrimitives`):
+///
+/// - It shows nothing ([`BgImage::Clear`]) until its first change: the
+///   song background is put at beat −10000 on the first layer only, and
+///   that first change cuts in (there is nothing to fade from).
+/// - Its changes are timed, matched and played as the first layer's
+///   (transitions, rates, movie effects, the last of a beat winning).
+/// - A file StepMania never loads leaves the layer as it is, cutting a
+///   fade that is running (`Tried to switch to a background that was never
+///   loaded`: the faded-out one is dropped): a missing image or movie,
+///   and `-nosongbg-` and `-random-`, which mean nothing here
+///   (`SMLoader::TidyUpData` and the random backgrounds only look at the
+///   first layer). Nothing is put in their place, and nothing returns at
+///   the last beat. A change naming no file is not there at all.
+/// - `songbackground` (as written: StepMania compares it exactly) and the
+///   song's own `#BACKGROUND` file show the song's background;
+///   `songbackground` in a song without one (`has_background` false) the
+///   plain backdrop ([`BgImage::Plain`]), opaque, where StepMania shows
+///   its theme's fallback graphic (`CreateBackground`).
+/// - What StepMania would play but the game cannot show (`unshowable`:
+///   movies that cannot play, scripted animations that exist) shows
+///   nothing on this layer, so the first shows through, as the first
+///   layer shows its song background for them. Any other name that is
+///   neither an image nor a movie is a BGAnimation found nowhere: never
+///   loaded, as above.
+///
+/// `images` and `movies` are as for [`schedule`] (images and movies of
+/// either layer).
+pub fn second_layer<S: AsRef<str>, T: AsRef<str>, U: AsRef<str>>(
+    song: &Song,
+    images: &[S],
+    movies: &[T],
+    unshowable: &[U],
+    has_background: bool,
+) -> Vec<BgSegment> {
+    let mut changes: Vec<(Tick, &[String])> = layer_changes(song, 1).collect();
+    changes.sort_by_key(|(t, _)| *t);
+    let mut segments = vec![BgSegment {
+        seconds: f64::NEG_INFINITY,
+        image: BgImage::Clear,
+        fade: 0.0,
+        rate: 1.0,
+        effect: MovieEffect::Normal,
+    }];
+    let song_background = song.background.as_deref().and_then(key);
+    for (tick, f) in changes {
+        // No file at all: not even added (`LoadFromSong` keeps a change of
+        // this layer only when its definition names a file).
+        if f[1].is_empty() && f.get(7).is_none_or(|f2| f2.is_empty()) {
             continue;
         }
-        // To the same thing (a movie started over): no transition.
-        let fade = if segments.last().is_some_and(|s| s.image == image) {
-            0.0
+        let name = f[1].trim();
+        let wanted = key(name);
+        let matching = |i: &&str| key(i) == wanted;
+        let image = if name == SONG_BACKGROUND && !has_background {
+            Some(BgImage::Plain)
+        } else if name == SONG_BACKGROUND
+            || (has_background && wanted.is_some() && wanted == song_background)
+        {
+            Some(BgImage::Song)
+        } else if name.is_empty() || is_special(name) || wanted.is_none() {
+            None
+        } else if let Some(i) = images.iter().map(AsRef::as_ref).find(matching) {
+            Some(BgImage::File(i.to_string()))
+        } else if let Some(m) = movies.iter().map(AsRef::as_ref).find(matching) {
+            Some(BgImage::Movie(m.to_string()))
+        } else if unshowable
+            .iter()
+            .map(AsRef::as_ref)
+            .any(|u| key(u) == wanted)
+        {
+            Some(BgImage::Clear)
         } else {
-            fade
+            None
         };
-        segments.push(BgSegment {
-            seconds,
-            image,
-            fade,
-            rate,
-            effect,
-        });
+        let seconds = change_seconds(song, tick);
+        if segments.len() > 1 && segments.last().is_some_and(|s| s.seconds == seconds) {
+            segments.pop();
+        }
+        let Some(image) = image else {
+            // Never loaded: the layer stays as it is, a fade cut short.
+            cut_fade(&mut segments, seconds);
+            continue;
+        };
+        let (fade, rate, effect) = change_look(f, &image);
+        // The first change has nothing to fade from.
+        let fade = if segments.len() == 1 { 0.0 } else { fade };
+        push_change(&mut segments, seconds, image, fade, rate, effect);
     }
     segments
 }
@@ -699,43 +882,154 @@ pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
 /// last started over (the earlier segments naming it, each for as long as
 /// it was current, at its rate; a restarting one starts the count again)
 /// plus the time into this segment at its rate. 0 before the segment
-/// starts; for a segment that is not a movie, 0.
+/// starts; for a segment that is not a movie, 0. One layer's schedule:
+/// [`movie_position_in`] for both.
 pub fn movie_position(segments: &[BgSegment], index: usize, t: f64) -> f64 {
-    let Some(seg) = segments.get(index) else {
+    movie_position_in(&[segments], 0, index, t)
+}
+
+/// [`movie_position`] of segment `index` of layer `layer` among `layers`
+/// (the first layer's schedule, then the second's). Both layers' changes
+/// naming a file share one movie texture (`RageTextureManager`), whose
+/// clock each current one advances (`Sprite::Update`): the movie plays on
+/// either layer's segments, twice as fast while both show it, and starts
+/// over at a restarting change on either. On its own layer the segments up
+/// to `index` count, on the others those that start before `t` (or, before
+/// the segment starts, before it).
+pub fn movie_position_in<L: AsRef<[BgSegment]>>(
+    layers: &[L],
+    layer: usize,
+    index: usize,
+    t: f64,
+) -> f64 {
+    let Some(seg) = layers.get(layer).and_then(|l| l.as_ref().get(index)) else {
         return 0.0;
     };
     if !matches!(seg.image, BgImage::Movie(_)) {
         return 0.0;
     }
-    let mut played = 0.0;
-    for (j, s) in segments[..=index].iter().enumerate() {
-        if s.image != seg.image {
-            continue;
-        }
-        if s.effect.restarts() {
-            played = 0.0;
-        }
-        if j < index {
-            // Current until the next segment starts (a crossfade pauses the
-            // movie that fades out).
-            let end = segments.get(j + 1).map_or(s.seconds, |n| n.seconds);
-            played += (end - s.seconds).max(0.0) * s.rate;
+    let until = t.max(seg.seconds);
+    // When the file plays: (from, to, rate), and when it last started over.
+    let mut runs = Vec::new();
+    let mut restart = f64::NEG_INFINITY;
+    for (l, segments) in layers.iter().enumerate() {
+        let segments = segments.as_ref();
+        for (j, s) in segments.iter().enumerate() {
+            if (l == layer && j > index) || (l != layer && s.seconds > until) {
+                break;
+            }
+            if s.image != seg.image {
+                continue;
+            }
+            if s.effect.restarts() {
+                restart = restart.max(s.seconds);
+            }
+            // Current until the next segment of its layer starts (a
+            // crossfade pauses the movie that fades out).
+            let end = if l == layer && j == index {
+                until
+            } else {
+                segments.get(j + 1).map_or(until, |n| n.seconds.min(until))
+            };
+            runs.push((s.seconds, end, s.rate));
         }
     }
-    let position = played + (t - seg.seconds).max(0.0) * seg.rate;
+    let position: f64 = runs
+        .into_iter()
+        .map(|(from, to, rate)| (to - from.max(restart)).max(0.0) * rate)
+        .sum();
     if position.is_finite() { position } else { 0.0 }
 }
 
 /// Whether the movie of segment `index` loops at its end: not once a change
 /// naming its file (this one or an earlier one) stopped it looping, as the
-/// texture they share keeps `loop(false)`.
+/// texture they share keeps `loop(false)`. One layer's schedule:
+/// [`movie_loops_in`] for both.
 pub fn movie_loops(segments: &[BgSegment], index: usize) -> bool {
-    let Some(seg) = segments.get(index) else {
+    movie_loops_in(&[segments], 0, index, f64::NEG_INFINITY)
+}
+
+/// [`movie_loops`] of segment `index` of layer `layer` among `layers` at
+/// song second `t`: changes on another layer that started by then (or by
+/// the time this one starts) count too, as they set `loop(false)` on the
+/// texture this segment shows, mid-segment as well.
+pub fn movie_loops_in<L: AsRef<[BgSegment]>>(
+    layers: &[L],
+    layer: usize,
+    index: usize,
+    t: f64,
+) -> bool {
+    let Some(seg) = layers.get(layer).and_then(|l| l.as_ref().get(index)) else {
         return true;
     };
-    !segments[..=index]
-        .iter()
-        .any(|s| s.image == seg.image && !s.effect.loops())
+    let until = t.max(seg.seconds);
+    !layers.iter().enumerate().any(|(l, segments)| {
+        segments
+            .as_ref()
+            .iter()
+            .enumerate()
+            .take_while(|&(j, s)| {
+                if l == layer {
+                    j <= index
+                } else {
+                    s.seconds <= until
+                }
+            })
+            .any(|(_, s)| s.image == seg.image && !s.effect.loops())
+    })
+}
+
+/// The movie segments a player keeps decoders for at song second `t`
+/// ([`movie_segments_at`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MovieSegments {
+    /// Each layer's current segment (`None` for an empty schedule).
+    pub currents: [Option<usize>; LAYERS],
+    /// `(layer, segment)`: each layer's current segment and its next one
+    /// starting within `lead` seconds, when they are movies. A file current
+    /// on both layers is decoded once (one texture, one clock, as
+    /// StepMania keeps one texture per file): by the segment that started
+    /// last (whose decoder was readied for its start), the first layer's
+    /// on a tie.
+    pub wanted: Vec<(usize, usize)>,
+}
+
+/// [`MovieSegments`] of `layers` at song second `t`.
+pub fn movie_segments_at<L: AsRef<[BgSegment]>>(layers: &[L], t: f64, lead: f64) -> MovieSegments {
+    let mut out = MovieSegments::default();
+    let mut nexts = Vec::new();
+    for (layer, schedule) in layers.iter().enumerate().take(LAYERS) {
+        let schedule = schedule.as_ref();
+        if schedule.is_empty() {
+            continue;
+        }
+        let current = state_at(schedule, t).current;
+        out.currents[layer] = Some(current);
+        if matches!(schedule[current].image, BgImage::Movie(_)) {
+            out.wanted.push((layer, current));
+        }
+        let next = schedule
+            .iter()
+            .enumerate()
+            .skip(current + 1)
+            .take_while(|(_, s)| s.seconds - t < lead)
+            .find(|(_, s)| matches!(s.image, BgImage::Movie(_)))
+            .map(|(i, _)| i);
+        nexts.extend(next.map(|i| (layer, i)));
+    }
+    let seg = |(l, i): (usize, usize)| &layers[l].as_ref()[i];
+    if let [a, b] = out.wanted[..]
+        && seg(a).image == seg(b).image
+    {
+        let keep = if seg(b).seconds > seg(a).seconds {
+            b
+        } else {
+            a
+        };
+        out.wanted = vec![keep];
+    }
+    out.wanted.extend(nexts);
+    out
 }
 
 /// What `segments` show at song second `t`.
@@ -781,6 +1075,7 @@ pub fn shown(
     let id = |index: usize| match &segments[index].image {
         BgImage::Song if index == 0 => song(),
         BgImage::Song | BgImage::Still => find(&BgImage::Song),
+        BgImage::Clear | BgImage::Plain => None,
         movie @ BgImage::Movie(_) if index == 1 && opening_plays => find(movie).or_else(song),
         file => find(file).or_else(|| find(&BgImage::Song)),
     };
@@ -791,6 +1086,33 @@ pub fn shown(
             mix: 1.0,
         };
     }
+    let state = state_at(segments, t);
+    Shown {
+        current: id(state.current),
+        previous: state.previous.and_then(id),
+        mix: state.mix,
+    }
+}
+
+/// What the second layer ([`second_layer`]) draws at song second `t`, given
+/// the images and movie frames loaded so far as `(image, id)`: `current`
+/// fully shown, and while `mix < 1` `previous` drawn over it fading out
+/// (StepMania draws a layer's fading background after its current one and
+/// fades it out: `BackgroundTransitions/CrossFade.xml`). What is not loaded
+/// (an image being decoded, a movie before its first frame or that does
+/// not play) shows nothing, nor does [`BgImage::Clear`]; the shell gives
+/// [`BgImage::Plain`] an id among `loaded`.
+pub fn shown_over(segments: &[BgSegment], t: f64, loaded: &[(BgImage, usize)]) -> Shown {
+    if segments.is_empty() {
+        return Shown {
+            mix: 1.0,
+            ..Shown::default()
+        };
+    }
+    let id = |index: usize| match &segments[index].image {
+        BgImage::Clear | BgImage::Still => None,
+        what => loaded.iter().find(|(k, _)| k == what).map(|(_, id)| *id),
+    };
     let state = state_at(segments, t);
     Shown {
         current: id(state.current),
@@ -1329,6 +1651,353 @@ mod tests {
         assert!(!movie_loops(&seg, 1));
         // Without a playable movie, just the background.
         assert_eq!(schedule(&s, &[] as &[&str], NO_MOVIES, true).len(), 1);
+    }
+
+    /// `(seconds, image, fade)` of a schedule, for the second layer.
+    fn layer2(tags: &str, images: &[&str], movies: &[&str], unshowable: &[&str]) -> Vec<BgSegment> {
+        second_layer(&song(tags), images, movies, unshowable, true)
+    }
+
+    #[test]
+    fn the_second_layer_starts_empty_and_cuts_in() {
+        // Field 4 = 1 asks for a crossfade, but the layer has nothing to
+        // fade from (`m_pCurrentBGA` is null: no transition runs).
+        let seg = layer2(
+            "#BGCHANGES2:4=a.png=1=1=0=0,8=bgs/b.jpg=1=1=0=0;",
+            &["A.png", "bgs/b.JPG"],
+            &[],
+            &[],
+        );
+        assert_eq!(
+            shown_images(&seg),
+            vec![
+                (f64::NEG_INFINITY, BgImage::Clear, 0.0),
+                (2.0, BgImage::File("A.png".into()), 0.0),
+                (4.0, BgImage::File("bgs/b.JPG".into()), 1.0),
+            ]
+        );
+        let loaded = [
+            (BgImage::Song, 0),
+            (BgImage::File("A.png".into()), 1),
+            (BgImage::File("bgs/b.JPG".into()), 2),
+        ];
+        // Nothing before the first change (not the song background: that
+        // is the first layer's at beat −10000).
+        let nothing = Shown {
+            current: None,
+            previous: None,
+            mix: 1.0,
+        };
+        assert_eq!(shown_over(&seg, 1.0, &loaded), nothing);
+        assert_eq!(shown_over(&seg, 2.0, &loaded).current, Some(1));
+        // Halfway through the crossfade: B shown, A over it fading out.
+        assert_eq!(
+            shown_over(&seg, 4.5, &loaded),
+            Shown {
+                current: Some(2),
+                previous: Some(1),
+                mix: 0.5
+            }
+        );
+        // An image not decoded yet shows nothing on this layer.
+        assert_eq!(shown_over(&seg, 5.0, &loaded[..2]).current, None);
+        // No schedule (calibration): nothing.
+        assert_eq!(shown_over(&[], 5.0, &loaded), nothing);
+    }
+
+    #[test]
+    fn the_second_layer_ignores_what_stepmania_never_loads() {
+        // A missing image, `-nosongbg-`, `-random-`, a missing movie:
+        // StepMania reports "Tried to switch to a background that was never
+        // loaded" and the layer keeps what it shows; an empty name is not
+        // even added; no song background is put at the last beat (32).
+        let seg = layer2(
+            "#BGCHANGES2:4=a.png=1=0=0=0,6=gone.png=1=0=0=0,8=-nosongbg-=1=0=0=0,\
+             10=-random-=1=0=0=0,12==1=0=0=0,14=gone.avi=1=0=0=0;",
+            &["A.png"],
+            &[],
+            &[],
+        );
+        assert_eq!(
+            shown_images(&seg),
+            vec![
+                (f64::NEG_INFINITY, BgImage::Clear, 0.0),
+                (2.0, BgImage::File("A.png".into()), 0.0),
+            ]
+        );
+        // The marker on the second layer means nothing to the first: it
+        // still returns to the song background at the last beat.
+        let s = song("#BGCHANGES:4=a.png=1=0=0=0;#BGCHANGES2:8=-nosongbg-=1=0=0=0;");
+        let first = schedule(&s, &["A.png"], NO_MOVIES, true);
+        assert_eq!(
+            first.last().map(|s| (s.seconds, &s.image)),
+            Some((16.0, &BgImage::Song))
+        );
+        // Of changes on one beat the last wins, even one never loaded: the
+        // layer then stays as it was before that beat.
+        let seg = layer2(
+            "#BGCHANGES2:4=a.png=1=0=0=0,8=bgs/b.jpg=1=0=0=0,8=gone.png=1=0=0=0;",
+            &["A.png", "bgs/b.JPG"],
+            &[],
+            &[],
+        );
+        assert_eq!(seg.len(), 2);
+        assert_eq!(seg[1].image, BgImage::File("A.png".into()));
+        // A change without a file is not there: it does not take its
+        // beat from the one before it.
+        let seg = layer2(
+            "#BGCHANGES2:4=a.png=1=0=0=0,4==1=0=0=0;",
+            &["A.png"],
+            &[],
+            &[],
+        );
+        assert_eq!(seg.len(), 2);
+    }
+
+    #[test]
+    fn a_change_never_loaded_cuts_a_running_fade() {
+        // B crossfades in over 1 s from 4 s; a missing file at 4.5 s drops
+        // the faded-out A (`m_pFadingBGA = m_pCurrentBGA`): B alone from
+        // then on. One at 6 s, after the fade, changes nothing.
+        let seg = layer2(
+            "#BGCHANGES2:4=a.png=1=0=0=0,8=bgs/b.jpg=1=1=0=0,9=gone.png=1=0=0=0,\
+             12=gone.png=1=0=0=0;",
+            &["A.png", "bgs/b.JPG"],
+            &[],
+            &[],
+        );
+        assert_eq!(
+            shown_images(&seg),
+            vec![
+                (f64::NEG_INFINITY, BgImage::Clear, 0.0),
+                (2.0, BgImage::File("A.png".into()), 0.0),
+                (4.0, BgImage::File("bgs/b.JPG".into()), 1.0),
+                (4.5, BgImage::File("bgs/b.JPG".into()), 0.0),
+            ]
+        );
+        let loaded = [
+            (BgImage::File("A.png".into()), 1),
+            (BgImage::File("bgs/b.JPG".into()), 2),
+        ];
+        assert_eq!(shown_over(&seg, 4.25, &loaded).previous, Some(1));
+        assert_eq!(
+            shown_over(&seg, 4.75, &loaded),
+            Shown {
+                current: Some(2),
+                previous: None,
+                mix: 1.0
+            }
+        );
+        // A movie cut that way plays on: it neither starts over nor stops.
+        let seg = layer2(
+            "#BGCHANGES2:4=a.png=1=0=0=0,8=movie.avi=1=1=1=0,9=gone.png=1=0=0=0;",
+            &["A.png"],
+            &["movie.avi"],
+            &[],
+        );
+        assert_eq!(seg.len(), 4);
+        assert_eq!(movie_position(&seg, 3, 5.0), 1.0);
+        assert!(!movie_loops(&seg, 3), "it still does not loop");
+    }
+
+    #[test]
+    fn the_second_layer_shows_the_song_background_and_clears_for_the_unshowable() {
+        let seg = layer2(
+            "#BGCHANGES2:2=a.png=1=0=0=0,4=songbackground=1=0=0=0,6=a.png=1=0=0=0,\
+             8=BG.png=1=0=0=0,10=a.png=1=0=0=0,12=SongBackground=1=0=0=0,\
+             14=anim=1=0=0=0,16=a.png=1=0=0=0,18=bad.mkv=1=0=0=0,20=a.png=1=0=0=0,\
+             22=movie.avi=2=0=1=1,24=nowhere=1=0=0=0;",
+            &["A.png"],
+            &["movie.avi"],
+            &["bad.mkv", "anim"],
+        );
+        assert_eq!(
+            shown_images(&seg),
+            vec![
+                (f64::NEG_INFINITY, BgImage::Clear, 0.0),
+                (1.0, BgImage::File("A.png".into()), 0.0),
+                // `songbackground`, and the song's `#BACKGROUND` by name.
+                (2.0, BgImage::Song, 0.0),
+                (3.0, BgImage::File("A.png".into()), 0.0),
+                (4.0, BgImage::Song, 0.0),
+                (5.0, BgImage::File("A.png".into()), 0.0),
+                // Compared exactly: `SongBackground` is a missing file.
+                // A scripted animation that exists and a movie that cannot
+                // play: the layer clears. A BGAnimation found nowhere
+                // (`nowhere`, at 12 s) is never loaded: nothing changes.
+                (7.0, BgImage::Clear, 0.0),
+                (8.0, BgImage::File("A.png".into()), 0.0),
+                (9.0, BgImage::Clear, 0.0),
+                (10.0, BgImage::File("A.png".into()), 0.0),
+                (11.0, BgImage::Movie("movie.avi".into()), 0.0),
+            ]
+        );
+        assert_eq!((seg[10].rate, seg[10].effect), (2.0, MovieEffect::Rewind));
+        let loaded = [(BgImage::Song, 0), (BgImage::File("A.png".into()), 1)];
+        assert_eq!(shown_over(&seg, 2.5, &loaded).current, Some(0));
+        assert_eq!(shown_over(&seg, 7.5, &loaded).current, None);
+        // Before its first frame the movie shows nothing.
+        assert_eq!(shown_over(&seg, 11.5, &loaded).current, None);
+        let playing = [&loaded[..], &[(BgImage::Movie("movie.avi".into()), 5)]].concat();
+        assert_eq!(shown_over(&seg, 11.5, &playing).current, Some(5));
+        // A song without a background: `songbackground` is the plain
+        // backdrop (StepMania's fallback graphic), its file a missing one.
+        let s = song(
+            "#BGCHANGES2:2=a.png=1=0=0=0,4=songbackground=1=0=0=0,6=a.png=1=0=0=0,8=bg.png=1=0=0=0;",
+        );
+        let seg = second_layer(&s, &["A.png"], NO_MOVIES, NO_MOVIES, false);
+        assert_eq!(seg[2].image, BgImage::Plain);
+        let plain = [(BgImage::Plain, 9), (BgImage::File("A.png".into()), 1)];
+        assert_eq!(shown_over(&seg, 2.5, &plain).current, Some(9));
+        assert_eq!(seg.len(), 4);
+    }
+
+    #[test]
+    fn a_change_to_what_fades_in_cuts_the_fade() {
+        // B fades in over A from 4 s; B again at 4.5 s: StepMania's fading
+        // background becomes its current one and is dropped, so A goes
+        // (`m_pFadingBGA == m_pCurrentBGA`), on either layer.
+        let tags = "#BGCHANGES:4=a.png=1=0=0=0,8=bgs/b.jpg=1=1=0=0,9=bgs/b.jpg=1=0=0=0,\
+                    12=bgs/b.jpg=1=0=0=0,99999=-nosongbg-;\
+                    #BGCHANGES2:4=a.png=1=0=0=0,8=bgs/b.jpg=1=1=0=0,9=bgs/b.jpg=1=0=0=0;";
+        let s = song(tags);
+        let images = ["A.png", "bgs/b.JPG"];
+        let want = |seg: &[BgSegment]| {
+            assert_eq!(
+                shown_images(&seg[1..]),
+                vec![
+                    (2.0, BgImage::File("A.png".into()), 0.0),
+                    (4.0, BgImage::File("bgs/b.JPG".into()), 1.0),
+                    (4.5, BgImage::File("bgs/b.JPG".into()), 0.0),
+                ]
+            );
+            assert_eq!(state_at(seg, 4.75).previous, None);
+        };
+        want(&schedule(&s, &images, NO_MOVIES, true));
+        want(&second_layer(&s, &images, NO_MOVIES, NO_MOVIES, true));
+    }
+
+    #[test]
+    fn ini_and_xml_changes_are_dropped_at_load() {
+        // `LoadFromBGChangesVector` returns false for them: the change is
+        // not there at all, on either layer (the image before stays).
+        let tags = "#BGCHANGES:4=a.png=1=0=0=0,8=anim.xml=1=0=0=0,10=a.png=1=0=0=0=StretchNormal=b.INI,\
+                    99999=-nosongbg-;#BGCHANGES2:4=a.png=1=0=0=0,8=Foo.XML/x=1=0=0=0;";
+        let s = song(tags);
+        let first = schedule(&s, &["A.png"], NO_MOVIES, true);
+        assert_eq!(first.len(), 2);
+        let second = second_layer(&s, &["A.png"], NO_MOVIES, NO_MOVIES, true);
+        assert_eq!(second.len(), 2);
+        let all = ["P/S/s.sm", "P/S/a.png", "P/S/anim.xml"];
+        assert!(unshown_files(&s, "P/S", &all, "P", NO_MOVIES).is_empty());
+        // A song whose only change is dropped has none (`HasBGChanges`):
+        // its one movie plays.
+        let only = song("#BGCHANGES:4=anim.xml=1=0=0=0;");
+        let files = ["P/S/s.sm", "P/S/song.avi"];
+        assert!(implicit_movie(&only, "P/S", &files).is_some());
+    }
+
+    #[test]
+    fn the_second_layers_files_are_listed_with_the_first() {
+        // A song whose only changes are on the second layer: its files are
+        // stored and looked up like the first layer's, in order of first
+        // use across both; the first layer shows the song background
+        // throughout (no implicit movie: `HasBGChanges` counts both).
+        let s = song(
+            "#BGCHANGES2:2=bgs/b.jpg=1=0=0=0,6=movie.avi=1=0=0=0,8=robot.png=1=0=0=0;\
+             #BGCHANGES:4=a.png=1=0=0=0,99999=-nosongbg-;",
+        );
+        let relative = |v: Vec<(String, String)>| v.into_iter().map(|(r, _)| r).collect::<Vec<_>>();
+        assert_eq!(
+            relative(referenced_images(&s, "Pack/Song", &FILES, None)),
+            vec!["bgs/b.JPG", "A.png"]
+        );
+        assert_eq!(
+            relative(referenced_movies(&s, "Pack/Song", &FILES)),
+            vec!["movie.avi"]
+        );
+        assert_eq!(absent_files(&s, "Pack/Song", &FILES), vec!["robot.png"]);
+        let only2 = song("#BGCHANGES2:2=bgs/b.jpg=1=0=0=0;");
+        let first = schedule(&only2, &["bgs/b.JPG"], &["movie.avi"], true);
+        assert_eq!(
+            shown_images(&first),
+            vec![(f64::NEG_INFINITY, BgImage::Song, 0.0)]
+        );
+        assert!(referenced_movies(&only2, "Pack/Song", &FILES).is_empty());
+    }
+
+    #[test]
+    fn a_movie_on_both_layers_shares_one_clock() {
+        // bg.avi on the first layer from 0 s (normal); on the second from
+        // 2 s to 4 s: both advance the shared texture, so it plays twice
+        // as fast meanwhile. A rewinding change on the second layer at
+        // 6 s starts it over for the first layer too.
+        let s = song(
+            "#BGCHANGES:0=bg.avi=1=0=0=1,99999=-nosongbg-;\
+             #BGCHANGES2:4=bg.avi=1=0=0=1,8=a.png=1=0=0=0,12=bg.avi=1=0=1=1,14=a.png=1=0=0=0;",
+        );
+        let movies = ["bg.avi"];
+        let layers = [
+            schedule(&s, &["A.png"], &movies, true),
+            second_layer(&s, &["A.png"], &movies, NO_MOVIES, true),
+        ];
+        assert_eq!(layers[0].len(), 2);
+        assert_eq!(layers[1].len(), 5);
+        let first = |t: f64| movie_position_in(&layers, 0, 1, t);
+        assert_eq!(first(1.0), 1.0);
+        assert_eq!(first(3.0), 4.0);
+        assert_eq!(first(5.0), 7.0);
+        // The second layer's segment sees the same clock.
+        assert_eq!(movie_position_in(&layers, 1, 1, 3.0), 4.0);
+        // Started over at 6 s by the second layer.
+        assert_eq!(first(6.5), 1.0);
+        assert_eq!(movie_position_in(&layers, 1, 3, 6.5), 1.0);
+        // Before the second layer's segment starts: where it will be then.
+        assert_eq!(movie_position_in(&layers, 1, 1, 1.0), 2.0);
+        // On one layer alone, as before.
+        assert_eq!(movie_position(&layers[0], 1, 5.0), 5.0);
+        // A change that stops it looping on one layer stops it on the
+        // other from then on.
+        let s = song(
+            "#BGCHANGES:0=bg.avi=1=0=0=1,8=a.png=1=0=0=0,12=bg.avi=1=0=0=1,99999=-nosongbg-;\
+             #BGCHANGES2:4=bg.avi=1=0=0=0;",
+        );
+        let layers = [
+            schedule(&s, &["A.png"], &movies, true),
+            second_layer(&s, &["A.png"], &movies, NO_MOVIES, true),
+        ];
+        // Layer 1's run loops until layer 2's no-loop change at 2 s sets
+        // `loop(false)` on the texture it shows, mid-segment.
+        assert!(movie_loops_in(&layers, 0, 1, 0.0));
+        assert!(movie_loops_in(&layers, 0, 1, 1.9));
+        assert!(!movie_loops_in(&layers, 0, 1, 2.0));
+        assert!(!movie_loops_in(&layers, 1, 1, 2.0));
+        assert!(!movie_loops_in(&layers, 0, 3, 6.0));
+    }
+
+    #[test]
+    fn a_file_current_on_both_layers_is_decoded_once() {
+        // bg.avi on the first layer from 0 s; on the second from 2 s, and
+        // a rewinding change to it at 6 s; other.avi next on the first.
+        let s = song(
+            "#BGCHANGES:0=bg.avi=1=0=0=1,16=other.avi=1=0=0=1,99999=-nosongbg-;\
+             #BGCHANGES2:4=bg.avi=1=0=0=1,8=a.png=1=0=0=0,12=bg.avi=1=0=1=1;",
+        );
+        let movies = ["bg.avi", "other.avi"];
+        let layers = [
+            schedule(&s, &["A.png"], &movies, true),
+            second_layer(&s, &["A.png"], &movies, NO_MOVIES, true),
+        ];
+        let at = |t: f64| movie_segments_at(&layers, t, 2.0);
+        // Before the second layer's: the first's, and the second's readied.
+        assert_eq!(at(1.0).wanted, vec![(0, 1), (1, 1)]);
+        // Both current: once, by the one that started last.
+        assert_eq!(at(3.0).wanted, vec![(1, 1)]);
+        assert_eq!(at(3.0).currents, [Some(1), Some(1)]);
+        // The second layer shows a.png: the first's again, the restart
+        // readied; then the restart decodes it for both, other.avi readied.
+        assert_eq!(at(4.5).wanted, vec![(0, 1), (1, 3)]);
+        assert_eq!(at(6.5).wanted, vec![(1, 3), (0, 2)]);
     }
 
     #[test]

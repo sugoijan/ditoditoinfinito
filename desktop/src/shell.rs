@@ -11,6 +11,12 @@
 //! a key's text is committed while no composition shows. Typing ends with
 //! the window's focus or the screen's stop, never at `Ime::Disabled`.
 //! Gestures are not required: every request is answered at once.
+//!
+//! A play's frames run continuously, paced by [`crate::pacing`]: one
+//! after another, each waiting for the display in the surface's acquire
+//! (the default), or with `--pacing late` each started as late before its
+//! refresh as its cost allows, the loop sleeping in `WaitUntil` until
+//! then; `--pacing-report` alternates the two and prints what each did.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -36,6 +42,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::window::{CursorIcon, Window, WindowId};
 
 use crate::gpu::{self, Gpu};
+use crate::pacing::{self, Next, Pacer};
 use crate::preview::{Player, SharedPlayer};
 use std::cell::RefCell;
 
@@ -115,6 +122,10 @@ pub struct Shell {
     pub devices_lost: u32,
     /// Lose the device this long after the start (`--lose-device-after`).
     pub lose_device_after: Option<f64>,
+    /// When a play's frames start (`--pacing`).
+    pub pacer: Pacer,
+    /// `--pacing-report`: what a play's frames did under each pacing.
+    pub pacing_report: Option<pacing::Report>,
 }
 
 impl Shell {
@@ -248,6 +259,8 @@ impl Shell {
             lost: Arc::default(),
             devices_lost: 0,
             lose_device_after: None,
+            pacer: Pacer::default(),
+            pacing_report: None,
             sound,
             input,
             songs,
@@ -315,6 +328,7 @@ impl Shell {
         self.scale = window.scale_factor();
         self.play.display = display_fingerprint(&window);
         self.play.refresh_hint = refresh_rate(&window);
+        self.pacer.set_refresh_hint(self.play.refresh_hint);
         self.play.graphics = format!("{:?}", adapter.get_info().backend);
         self.surface = Some(Surface {
             window,
@@ -523,6 +537,10 @@ impl Shell {
         if self.occluded || self.pending || !(self.ui.needs_redraw() || self.loaded || field) {
             return;
         }
+        // A paced play's frame waits for its start.
+        if self.play.playing() && matches!(self.pace(), Next::At(_)) {
+            return;
+        }
         match self.retry_at {
             Some(at) if Instant::now() < at => return,
             Some(_) => self.retry_at = None,
@@ -542,6 +560,12 @@ impl Shell {
             return;
         }
         let now = Instant::now();
+        // A play's frame is paced (`crate::pacing`): its start, its
+        // acquire and its present are timed.
+        let paced = self.play.playing();
+        if paced {
+            self.pacer.begin(crate::clock::now().0);
+        }
         let dt = self
             .last
             .map_or(1.0 / 60.0, |l| (now - l).as_secs_f32().min(0.25));
@@ -550,6 +574,7 @@ impl Shell {
         let r = self.ui.take_requests();
         self.run(r);
         let Some(s) = &mut self.surface else { return };
+        let acquire = crate::clock::now().0;
         let frame = match s.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) => f,
             wgpu::CurrentSurfaceTexture::Suboptimal(f) => {
@@ -572,6 +597,10 @@ impl Shell {
             }
         };
         self.surface_failures = 0;
+        let present_at = paced
+            .then(|| self.pacer.acquired(acquire, crate::clock::now().0))
+            .flatten();
+        let mut sample = None;
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -600,13 +629,18 @@ impl Shell {
                         label: Some("play"),
                     });
             self.play.scale = self.scale as f32;
+            // Late pacing says which refresh the frame is for; else the
+            // play predicts it.
+            self.play.present_at = present_at.map(ddi_platform::HostTime);
+            let now = crate::clock::now();
+            sample = Some(now.0);
             self.play.draw_play(
                 &dev,
                 &mut encoder,
                 &scene_view,
                 plain,
                 size,
-                crate::clock::now(),
+                now,
                 &mut self.ui,
                 env,
             );
@@ -616,7 +650,14 @@ impl Shell {
         }
         self.loaded = s.gpu.images_ready();
         s.window.pre_present_notify();
+        let present = crate::clock::now().0;
         s.gpu.queue.present(frame);
+        if paced && let Some(sample) = sample {
+            let record = self.pacer.presented(sample, present, crate::clock::now().0);
+            if let Some(r) = &mut self.pacing_report {
+                r.push(record);
+            }
+        }
         self.frames += 1;
         // A play that ended in this frame: menus again.
         self.sync_play_mode();
@@ -689,6 +730,7 @@ impl Shell {
             }
             if let Some(s) = &self.surface {
                 self.play.refresh_hint = refresh_rate(&s.window);
+                self.pacer.set_refresh_hint(self.play.refresh_hint);
             }
             if self.play.watcher.probe(audio, display) && self.play.playing() {
                 self.play.feed.borrow_mut().device_changed = true;
@@ -751,19 +793,81 @@ impl Shell {
         if on {
             self.sound.borrow_mut().pause();
         }
-        let Some(s) = &mut self.surface else { return };
         if on {
-            s.config.present_mode = if s.modes.contains(&wgpu::PresentMode::Mailbox) {
-                wgpu::PresentMode::Mailbox
-            } else {
-                wgpu::PresentMode::Fifo
-            };
-            s.config.desired_maximum_frame_latency = 1;
-        } else {
-            s.config.present_mode = wgpu::PresentMode::AutoVsync;
-            s.config.desired_maximum_frame_latency = 2;
+            self.pacer.restart();
+            if let Some(r) = &mut self.pacing_report {
+                r.hint = self.play.refresh_hint;
+            }
+        } else if let Some(text) = self.pacing_text() {
+            println!("{text}");
+            if let Some(r) = &mut self.pacing_report {
+                *r = r.fresh();
+            }
         }
+        self.present_mode(on);
+    }
+
+    /// The surface's present mode: in play, the least latency the
+    /// surface has with blocking frames (D6: Mailbox where there is one,
+    /// else Fifo), Fifo with late pacing (it paces against the
+    /// refreshes), one frame in flight; in menus AutoVsync, two.
+    ///
+    /// `--pacing-report` keeps Fifo for both, so the two columns differ
+    /// only in pacing and the surface is not configured again at each
+    /// switch (Mailbox shows a frame up to a refresh sooner, which moves
+    /// the notes about half a period against Fifo's).
+    fn present_mode(&mut self, play: bool) {
+        let fifo = self.pacer.mode() == pacing::Mode::Late || self.pacing_report.is_some();
+        let Some(s) = &mut self.surface else { return };
+        let (mode, latency) = if !play {
+            (wgpu::PresentMode::AutoVsync, 2)
+        } else if !fifo && s.modes.contains(&wgpu::PresentMode::Mailbox) {
+            (wgpu::PresentMode::Mailbox, 1)
+        } else {
+            (wgpu::PresentMode::Fifo, 1)
+        };
+        if (
+            s.config.present_mode,
+            s.config.desired_maximum_frame_latency,
+        ) == (mode, latency)
+        {
+            return;
+        }
+        s.config.present_mode = mode;
+        s.config.desired_maximum_frame_latency = latency;
         s.surface.configure(&s.gpu.device, &s.config);
+    }
+
+    /// When the play's next frame starts: `--pacing-report` sets the
+    /// pacing this moment runs in first.
+    fn pace(&mut self) -> Next {
+        let now = crate::clock::now().0;
+        if let Some(r) = &mut self.pacing_report
+            && r.choose(now, &mut self.pacer)
+        {
+            self.present_mode(true);
+        }
+        self.pacer.next(now)
+    }
+
+    /// `--pacing-report`'s text for the play so far, if it drew frames.
+    pub fn pacing_text(&self) -> Option<String> {
+        let r = self.pacing_report.as_ref().filter(|r| !r.is_empty())?;
+        let modes = self.surface.as_ref().map_or(String::new(), |s| {
+            let mailbox = if s.modes.contains(&wgpu::PresentMode::Mailbox) {
+                " (block alone uses Mailbox here)"
+            } else {
+                ""
+            };
+            format!(" · {} · both on Fifo{mailbox}", self.play.graphics)
+        });
+        let every = r
+            .alternate
+            .map_or(String::new(), |e| format!(" · alternating every {e} s"));
+        Some(r.text(&format!(
+            "{}{modes}{every}",
+            self.play.log.last().map_or("a play", |l| l.as_str())
+        )))
     }
 }
 
@@ -1076,10 +1180,23 @@ impl ApplicationHandler for Shell {
         }
         let field =
             self.surface.as_ref().is_some_and(|s| s.gpu.field.shown()) || self.play.animating();
-        if self.play.animating() && !self.occluded && self.quit_after.is_none() {
-            // A play's frames come one after another (each waits for the
-            // display in `get_current_texture`).
-            event_loop.set_control_flow(ControlFlow::Poll);
+        if self.play.animating() && !self.occluded {
+            match self.pace() {
+                // Blocking frames come one after another (each waits for
+                // the display in `get_current_texture`).
+                Next::Now if self.quit_after.is_none() => {
+                    event_loop.set_control_flow(ControlFlow::Poll);
+                }
+                Next::Now => {}
+                // Late pacing sleeps until the frame's start.
+                Next::At(t) => {
+                    let at = crate::clock::epoch() + std::time::Duration::from_secs_f64(t);
+                    match event_loop.control_flow() {
+                        ControlFlow::WaitUntil(w) if w <= at => {}
+                        _ => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
+                    }
+                }
+            }
         }
         if self.occluded || !(self.ui.needs_redraw() || self.loaded || field) {
             // Idle: the next frame starts its clock afresh.
@@ -1131,9 +1248,10 @@ pub fn theme_ui_with(
     match first {
         "results" => ui.push(sample::results_screen(&env)),
         "options" => ui.push(sample::options_screen(&env, Some(changed))),
-        // The generated credits when they are there (`xtask gen-credits`).
+        // The generated credits when they are there (`xtask gen-credits`:
+        // the desktop's, with its own Rust libraries).
         "credits" => {
-            let credits = std::fs::read_to_string("target/credits/credits.json")
+            let credits = std::fs::read_to_string("target/credits/credits-desktop.json")
                 .ok()
                 .and_then(|t| theme_screens::credits::parse(&t).ok())
                 .unwrap_or_else(theme_screens::credits::sample);

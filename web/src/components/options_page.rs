@@ -408,7 +408,7 @@ fn stop_sample(shared: &Rc<Shared>) {
 struct Web(Rc<Shared>);
 
 impl OptionsPlatform for Web {
-    fn sample(&self, play: bool, _volume: f32, _cx: &mut Cx) -> bool {
+    fn sample(&self, play: bool, _volume: f32, cx: &mut Cx) -> bool {
         let shared = &self.0;
         if !play {
             shared.sample.borrow_mut().take();
@@ -417,6 +417,12 @@ impl OptionsPlatform for Web {
         let Some(song) = shared.sample_song.borrow().clone() else {
             return false;
         };
+        // A pad's press on a page with no activation yet: a context made
+        // now could not start (the browser would say so); the next key,
+        // click or tap plays it.
+        if (!cx.in_gesture() || cx.menu_from_pad()) && !crate::web::autoplay::may_start() {
+            return false;
+        }
         // Inside the press itself (Safari).
         match Preview::start(&song) {
             Ok(p) => {
@@ -508,6 +514,8 @@ impl OptionsPlatform for Web {
                 auto_pad: false,
                 bias_ms: 0,
                 slow: false,
+                replay: None,
+                view_results: false,
             },
         };
         cx.request(UiRequest::Navigate(route.to_hash()));

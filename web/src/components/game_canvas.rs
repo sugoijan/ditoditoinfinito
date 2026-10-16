@@ -144,8 +144,8 @@ fn release_play_background() {
 
 pub(crate) enum Msg {
     GfxReady(Result<Box<GameLoop>, String>),
-    /// The history kept the play, or why it could not.
-    PlaySaved(Result<(), String>),
+    /// The history kept the play (its id), or why it could not.
+    PlaySaved(Result<String, String>),
     /// The results waited long enough for the play to be kept.
     SaveWaited,
     /// The app's device was lost and made again.
@@ -198,6 +198,11 @@ pub(crate) enum Msg {
     /// The chosen noteskin, readied for the chart's layout (`None`: the
     /// built-in arrows).
     NoteskinLoaded(Option<Box<crate::noteskins::Prepared>>),
+    /// The chart's best play, read for its ghost (`Settings::ghost`).
+    GhostLoaded(Result<ddi_platform::history::PlayEntry, String>),
+    /// A replay's skin looked for once its song was read (its folder
+    /// waited for access): why it cannot be drawn, if it cannot.
+    ReplaySkin(Option<String>),
 }
 
 #[derive(Clone, PartialEq)]
@@ -214,6 +219,8 @@ pub(crate) struct Props {
     pub(crate) slow: bool,
     /// Asks the app to mount the screen again (a lost device).
     pub(crate) restart: Callback<()>,
+    /// A kept play replayed, or its results shown (`crate::replay`).
+    pub(crate) replay: Option<Rc<crate::replay::ReplayProp>>,
 }
 
 /// The page's few DOM elements around the canvas.
@@ -255,6 +262,9 @@ pub(crate) struct GameCanvas {
     gamepads: Option<Gamepads>,
     /// A pad start left the audio suspended; the prompt asks for a gesture.
     needs_gesture: bool,
+    /// Whether the page is still shown: a decode for it stops when not
+    /// (an Opus worker ends with it).
+    alive: Rc<std::cell::Cell<bool>>,
     /// Touch screen: show the quit button and touch hints.
     touch: bool,
     /// Decoded background images until they are copied to the GPU (which
@@ -302,6 +312,15 @@ pub(crate) struct GameCanvas {
     /// for it), or done (why it failed, if it did).
     save: Save,
     _save_wait: Option<gloo::timers::callback::Timeout>,
+    /// The play just kept (its replay).
+    play_id: Option<String>,
+    /// A replay (`crate::replay`): what it replays; why it cannot be.
+    replay: Option<Rc<crate::replay::ReplayProp>>,
+    refused: Option<String>,
+    /// A replay's results compared with the play's.
+    replay_check: Option<ddi_ui::state::history::ReplayCheck>,
+    /// The chart's best play's ghost, once read (`Settings::ghost`).
+    ghost: Option<ddi_ui::state::history::Ghost>,
 }
 
 /// Where keeping the play in the history is.
@@ -349,12 +368,20 @@ impl PromptShell {
                 if self.state.borrow().step != PromptStep::Ready {
                     return;
                 }
-                // Made and asked to start here, inside the gesture (no
-                // `await` before; `AGENTS.md`).
-                let audio = WebAudio::new();
                 // A pad's press: the context is watched until it starts
                 // (it may stay suspended), not awaited.
                 let from_pad = !cx.in_gesture() || cx.menu_from_pad();
+                // A press the browser does not count as an activation, on a
+                // page that has had none: a context made now could not
+                // start (Firefox and Chrome would say so), so the prompt
+                // asks for a gesture at once, as when one stays suspended.
+                if from_pad && !crate::web::autoplay::may_start() {
+                    send(Msg::NeedsGesture);
+                    return;
+                }
+                // Made and asked to start here, inside the gesture (no
+                // `await` before; `AGENTS.md`).
+                let audio = WebAudio::new();
                 if let Ok(a) = &audio {
                     a.resume_now();
                     if from_pad {
@@ -428,10 +455,19 @@ impl Component for GameCanvas {
     type Properties = Props;
 
     fn create(ctx: &Context<Self>) -> Self {
+        let replay = ctx.props().replay.clone();
+        let refused = replay.as_ref().and_then(|r| r.refused.clone());
+        // A replay is drawn with its own settings (`Replay::settings`).
+        let play_settings = match &replay {
+            Some(r) => r.settings(),
+            None => Settings::load(),
+        };
         match ctx.props().source.clone() {
+            // Refused: nothing to load, the prompt says why.
+            SongSource::Song { .. } if refused.is_some() => {}
             SongSource::Song { id, chart } => {
                 crate::history::set_current(Some(&id));
-                load(ctx, id, chart)
+                load(ctx, id, chart, play_settings.clone())
             }
             SongSource::Calibration(mode) => {
                 let song = calibration::song(mode);
@@ -535,11 +571,12 @@ impl Component for GameCanvas {
             game: Rc::new(RefCell::new(None)),
             names: None,
             layout: None,
-            settings: Settings::load(),
+            settings: play_settings,
             devices: None,
             played_offset: 0.0,
             gamepads,
             needs_gesture: false,
+            alive: Rc::new(std::cell::Cell::new(true)),
             touch: coarse_pointer(),
             backgrounds: Vec::new(),
             stage_contents: Vec::new(),
@@ -562,6 +599,11 @@ impl Component for GameCanvas {
             start_refresh: 0.0,
             save: Save::NotAsked,
             _save_wait: None,
+            play_id: None,
+            replay,
+            refused,
+            replay_check: None,
+            ghost: None,
         }
     }
 
@@ -624,6 +666,7 @@ impl Component for GameCanvas {
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
+        self.alive.set(false);
         self.teardown();
     }
 }
@@ -665,8 +708,57 @@ impl GameCanvas {
                 if let SongSource::Song { id, .. } = &ctx.props().source {
                     crate::history::chart_loaded(id, &song.song);
                 }
+                // A replay's chart is the one played (by its content).
+                if let (Some(r), SongSource::Song { chart, .. }) =
+                    (self.kept(), &ctx.props().source)
+                    && r.chart(&song.song) != Ok(*chart)
+                {
+                    self.refused = Some(r.chart(&song.song).err().unwrap_or_else(|| {
+                        "This chart changed since the play: its replay would be wrong.".into()
+                    }));
+                }
                 self.song = Status::Ready(song);
+                if self.refused.is_none() && self.replay.as_ref().is_some_and(|r| r.view_results) {
+                    self.show_kept_results(ctx);
+                }
+                self.read_ghost(ctx);
+                // Its skin, when the loader could not look (the folder
+                // waited for access).
+                if let (Some(r), Status::Ready(song), SongSource::Song { chart, .. }) = (
+                    self.replay
+                        .as_ref()
+                        .filter(|r| !r.skin_checked && r.refused.is_none()),
+                    &self.song,
+                    &ctx.props().source,
+                ) && self.refused.is_none()
+                    && let (Some(replay), Some(c)) =
+                        (r.replay.clone(), song.song.charts.get(*chart))
+                {
+                    let layout = c.layout.clone();
+                    ctx.link().send_future(async move {
+                        Msg::ReplaySkin(crate::replay::missing_skin(&replay, &layout).await)
+                    });
+                }
                 true
+            }
+            Msg::ReplaySkin(why) => {
+                // Refused before it plays (never mid-play).
+                if why.is_some() && matches!(self.stage, Stage::Idle) {
+                    self.refused = why;
+                    return true;
+                }
+                false
+            }
+            Msg::GhostLoaded(entry) => {
+                let Status::Ready(song) = &self.song else {
+                    return false;
+                };
+                self.ghost = entry
+                    .and_then(|e| ddi_ui::state::history::Replay::from_entry(&e))
+                    .and_then(|r| ddi_ui::state::history::Ghost::of(&r, &song.song))
+                    .map_err(|e| web_sys::console::warn_1(&format!("ghost: {e}").into()))
+                    .ok();
+                false
             }
             Msg::BackgroundLoaded(what, image) => {
                 if let Some(image) = image {
@@ -757,7 +849,7 @@ impl GameCanvas {
                 self.access = None;
                 self.shell.access.borrow_mut().take();
                 if let SongSource::Song { id, chart } = ctx.props().source.clone() {
-                    load(ctx, id, chart);
+                    load(ctx, id, chart, self.settings.clone());
                 }
                 true
             }
@@ -825,12 +917,16 @@ impl GameCanvas {
                     audio: audio.fingerprint(),
                     display: crate::web::display::fingerprint(refresh),
                 };
-                self.settings = Settings::load();
+                self.settings = self.play_settings();
                 let new_audio = self.settings.audio_profile(&profile.audio.id).is_none();
                 let new_display = self.settings.display_profile(&profile.display.id).is_none();
                 self.devices = Some(profile);
                 let is_calibration = matches!(ctx.props().source, SongSource::Calibration(_));
-                if (new_audio || new_display) && !is_calibration && !ctx.props().auto {
+                if (new_audio || new_display)
+                    && !is_calibration
+                    && !ctx.props().auto
+                    && self.replay.is_none()
+                {
                     self.stage = Stage::NewDevice {
                         audio,
                         buffer,
@@ -839,7 +935,10 @@ impl GameCanvas {
                     };
                     return true;
                 }
-                self.register_devices(None, None);
+                // A replay changes no setting (no profile made or touched).
+                if self.replay.is_none() {
+                    self.register_devices(None, None);
+                }
                 self.begin_session(ctx, audio, buffer);
                 true
             }
@@ -881,12 +980,14 @@ impl GameCanvas {
             }) => {
                 crate::history::set_playing(false);
                 // A song's play is kept (a failed one already was, when it
-                // failed); a calibration's is not.
+                // failed); a calibration's is not, nor a replay.
                 if let SongSource::Song { id, chart } = &ctx.props().source
                     && self.save == Save::NotAsked
+                    && self.replay.is_none()
                 {
                     self.record_play(ctx, id, *chart, &results, *facts);
                 }
+                self.check_replay(&results);
                 let (video_stopped, video_trouble) = self
                     .game
                     .try_borrow()
@@ -920,15 +1021,17 @@ impl GameCanvas {
             }
             Msg::Session(SessionEvent::Failed { results, facts }) => {
                 // Final now: kept even if a quit or an interruption cuts
-                // the fail's hold short.
+                // the fail's hold short (never a replay's).
                 if let SongSource::Song { id, chart } = &ctx.props().source
                     && self.save == Save::NotAsked
+                    && self.replay.is_none()
                 {
                     self.record_play(ctx, id, *chart, &results, *facts);
                 }
                 false
             }
             Msg::PlaySaved(r) => {
+                self.play_id = r.as_ref().ok().cloned();
                 self.save = Save::Done(r.err());
                 self.show_waiting_results(ctx)
             }
@@ -1148,6 +1251,7 @@ impl GameCanvas {
         };
         self.stage = Stage::Decoding;
         let song = song.clone();
+        let alive = Rc::clone(&self.alive);
         ctx.link().send_future(async move {
             if from_pad {
                 // `resume()` may never settle without a gesture; poll the
@@ -1167,7 +1271,8 @@ impl GameCanvas {
             let r = match &song.music_bytes {
                 Some(bytes) => {
                     audio
-                        .decode(bytes, ddi_session::music_target(&song.song))
+                        .decoder()
+                        .decode_while(bytes, ddi_session::music_target(&song.song), || alive.get())
                         .await
                 }
                 None => calibration::click_track(&audio, &song.song)
@@ -1221,7 +1326,71 @@ impl GameCanvas {
             }
         }
         settings.save();
-        self.settings = settings;
+        self.settings = self.play_settings();
+    }
+
+    /// The settings the play runs with: the stored ones, or a replay's
+    /// over them (`Replay::settings`).
+    fn play_settings(&self) -> Settings {
+        match &self.replay {
+            Some(r) => r.settings(),
+            None => Settings::load(),
+        }
+    }
+
+    /// The chart's best play under the rules it is played by, read for
+    /// its ghost when the setting asks (not for a replay or a test).
+    fn read_ghost(&mut self, ctx: &Context<Self>) {
+        let (Status::Ready(song), SongSource::Song { chart, .. }) =
+            (&self.song, &ctx.props().source)
+        else {
+            return;
+        };
+        if !self.settings.ghost || self.replay.is_some() {
+            return;
+        }
+        let Some(c) = song.song.charts.get(*chart) else {
+            return;
+        };
+        let key = self.settings.ruleset_for(c).key();
+        let assist = self.settings.transform.is_assist();
+        let best =
+            crate::history::plays()
+                .history()
+                .best(song.song.chart_digest(*chart), &key, assist);
+        if let Some(b) = best {
+            let link = ctx.link().clone();
+            crate::history::entry(&b.score_play, move |e| {
+                link.send_message(Msg::GhostLoaded(e))
+            });
+        }
+    }
+
+    /// The kept play replayed, unless refused.
+    fn kept(&self) -> Option<&ddi_ui::state::history::Replay> {
+        self.replay.as_ref()?.replay.as_ref()
+    }
+
+    /// A replay ended: its results against the log judged at once and the
+    /// play's kept ones (`Replay::check`); said on the results and in
+    /// `__DDI_DEBUG.replay`.
+    fn check_replay(&mut self, results: &Results) {
+        let (Some(r), Status::Ready(song)) = (self.kept(), &self.song) else {
+            return;
+        };
+        let check = match r.results(&song.song) {
+            Ok(offline) => r.check(results, &offline),
+            Err(e) => ddi_ui::state::history::ReplayCheck {
+                matches: false,
+                with_record: false,
+                problems: vec![e],
+            },
+        };
+        if !check.matches {
+            web_sys::console::error_1(&format!("replay {}: {:?}", r.id, check.problems).into());
+        }
+        crate::replay::publish(&r.id, "ended", None, Some(&check));
+        self.replay_check = Some(check);
     }
 
     /// Hands decoded backgrounds to the game loop once it exists; it
@@ -1276,10 +1445,23 @@ impl GameCanvas {
         config.session.auto_pad = ctx.props().auto_pad;
         config.gamepads = self.gamepads.clone();
         config.touch_canvas = crate::web::screen::canvas();
-        let shift = match &ctx.props().source {
-            SongSource::Song { id, .. } => self.settings.song_offset(id),
-            SongSource::Calibration(_) => 0.0,
+        // A replay: its log on the lanes, its options and rules, the
+        // offsets this device needs (`Replay::replaying`).
+        if let Some(r) = self.kept() {
+            config.session.replay =
+                Some(r.replaying(self.devices.as_ref(), config.session.options.clock));
+            config.session.auto = false;
+            crate::replay::publish(&r.id, "playing", None, None);
+        }
+        let shift = match (&ctx.props().source, self.kept()) {
+            (SongSource::Song { .. }, Some(r)) => r.record.song_offset,
+            (SongSource::Song { id, .. }, None) => self.settings.song_offset(id),
+            (SongSource::Calibration(_), _) => 0.0,
         };
+        // The best play's ghost beside it, lined up by the song offsets.
+        if self.settings.ghost && self.replay.is_none() {
+            config.session.ghost = self.ghost.clone().map(|g| g.for_play(shift));
+        }
         self.played_offset = shift;
         let shifted;
         let play_song = if shift == 0.0 {
@@ -1292,13 +1474,38 @@ impl GameCanvas {
         };
         // On the song's timing as played, so the song offset moves them too.
         let schedule = match &ctx.props().source {
-            SongSource::Song { .. } => backgrounds::schedule(
-                play_song,
-                &song.bg_images,
-                &song.bg_videos,
-                song.has_background,
-            ),
-            SongSource::Calibration(_) => Vec::new(),
+            SongSource::Song { .. } => {
+                // Movies the import found but that do not play, scripted
+                // animations that exist: the second layer shows nothing for
+                // them.
+                let unshowable: Vec<&str> = song
+                    .entry
+                    .iter()
+                    .flat_map(|e| {
+                        e.bg_videos
+                            .iter()
+                            .filter(|v| !v.plays())
+                            .map(|v| v.name.as_str())
+                            .chain(e.bg_scripted.iter().map(String::as_str))
+                    })
+                    .collect();
+                [
+                    backgrounds::schedule(
+                        play_song,
+                        &song.bg_images,
+                        &song.bg_videos,
+                        song.has_background,
+                    ),
+                    backgrounds::second_layer(
+                        play_song,
+                        &song.bg_images,
+                        &song.bg_videos,
+                        &unshowable,
+                        song.has_background,
+                    ),
+                ]
+            }
+            SongSource::Calibration(_) => Default::default(),
         };
         match PlaySession::start(play_song, chart, &self.settings, config, audio, buffer) {
             Ok(session) => {
@@ -1318,6 +1525,7 @@ impl GameCanvas {
                     .filter(|t| !t.is_empty());
                 self.start_refresh = self.refresh_hz();
                 self.save = Save::NotAsked;
+                self.replay_check = None;
                 crate::history::set_playing(true);
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.set_video(
@@ -1413,6 +1621,9 @@ impl GameCanvas {
                 folder: name.clone(),
                 refused: refused.clone(),
             };
+        }
+        if let Some(why) = &self.refused {
+            return PromptStep::Error(format!("This replay cannot be watched. {why}"));
         }
         match (&self.song, &self.stage) {
             (Status::Failed(e), _) => PromptStep::Error(format!("The song failed to load: {e}")),
@@ -1513,7 +1724,9 @@ impl GameCanvas {
                         .map(|c| ddi_ui::screens::data::difficulty_name(c.difficulty).to_string())
                         .unwrap_or_default(),
                     mods: mods_line(&self.settings),
-                    badge: if props.auto {
+                    badge: if self.replay.is_some() {
+                        "REPLAY".into()
+                    } else if props.auto {
                         "AUTOPLAY".into()
                     } else {
                         String::new()
@@ -1742,6 +1955,7 @@ impl GameCanvas {
             return;
         };
         self.save = Save::Pending;
+        self.play_id = None;
         let link = ctx.link().clone();
         crate::history::record(&record, &facts.log, results, move |r| {
             link.send_message(Msg::PlaySaved(r))
@@ -1836,7 +2050,14 @@ impl GameCanvas {
         if let Save::Done(Some(e)) = &self.save {
             video_notes.push(format!("This play could not be saved: {e}."));
         }
-        let data = results_data(&PlayInfo {
+        if let Some(note) = self.replay_check.as_ref().and_then(|c| c.note()) {
+            video_notes.push(note);
+        }
+        if let Some(note) = self.kept().and_then(|r| r.older_judge_note()) {
+            video_notes.push(note);
+        }
+        let kept = self.kept().cloned();
+        let mut data = results_data(&PlayInfo {
             results,
             ruleset: rules,
             layout,
@@ -1847,7 +2068,47 @@ impl GameCanvas {
             video_notes,
             offset: Some((self.played_offset, settings.song_offset(&id))),
             panels: settings.results_panels.clone(),
-            autoplay: ctx.props().auto,
+            autoplay: match &kept {
+                Some(r) => r.record.autoplay.is_some(),
+                None => ctx.props().auto,
+            },
+        });
+        // A replay's, or a kept play's: marked, when it was played.
+        let view_results = self.replay.as_ref().is_some_and(|r| r.view_results);
+        if let Some(r) = &kept {
+            let kind = if view_results {
+                ddi_ui::screens::data::ResultsKind::Kept
+            } else {
+                ddi_ui::screens::data::ResultsKind::Replay
+            };
+            ddi_ui::screens::play::mark_replay(
+                &mut data,
+                kind,
+                &r.when_line(&crate::history::tz_minutes),
+            );
+        }
+        // Its replay: the play just kept's, or the kept play's.
+        let replay_id = match &kept {
+            Some(r) if view_results => Some(r.id.clone()),
+            Some(_) => None,
+            None => self.play_id.clone(),
+        };
+        let replay: Option<ActionFn> = replay_id.map(|play| {
+            let route = Route::Play {
+                song: String::new(),
+                chart: 0,
+                force_gl: ctx.props().backend == BackendPreference::WebGl2,
+                auto: false,
+                auto_pad: false,
+                bias_ms: 0,
+                slow: ctx.props().slow,
+                replay: Some(play),
+                view_results: false,
+            };
+            Rc::new(move |_: &ddi_ui::screens::Env, _: &mut ddi_ui::Cx| {
+                let route = route.clone();
+                spawn_local(async move { route.navigate() });
+            }) as ActionFn
         });
         // What the buttons do: after the screen's call returns (they
         // change this page).
@@ -1882,10 +2143,11 @@ impl GameCanvas {
             env.clone(),
             data.clone(),
             ResultsActions {
-                retry: Some(retry),
+                retry: (!view_results).then_some(retry),
                 song_list: Some(song_list),
                 offset: Some(offset),
                 panels: Some(panels),
+                replay,
             },
         ));
         // What tests read: `__DDI_DEBUG.results`.
@@ -1906,6 +2168,42 @@ impl GameCanvas {
                 self.results_failed = true;
             }
         }
+    }
+
+    /// A kept play's results (`view=results`): judged again from its log
+    /// on the chart just read, shown as a play's are, with its replay.
+    fn show_kept_results(&mut self, ctx: &Context<Self>) {
+        let (Some(r), Status::Ready(song), SongSource::Song { chart, .. }) =
+            (self.kept().cloned(), &self.song, &ctx.props().source)
+        else {
+            return;
+        };
+        let chart = *chart;
+        let results = match r.results(&song.song) {
+            Ok(results) => results,
+            Err(e) => {
+                self.refused = Some(e);
+                return;
+            }
+        };
+        let Some(c) = song.song.charts.get(chart) else {
+            return;
+        };
+        let ruleset = r.record.ruleset.build(c);
+        self.names = Some(ruleset.names.clone());
+        self.layout = song.song.layout_of(c);
+        self.rules = Some(ruleset);
+        self.song_length = song.entry.as_ref().map_or(0.0, |e| e.length);
+        self.played_offset = r.record.song_offset;
+        crate::replay::publish(&r.id, "results", None, None);
+        self.stage = Stage::Finished {
+            results: Box::new(results),
+            calibration: None,
+            device_changed: false,
+            video_stopped: None,
+            video_trouble: None,
+        };
+        self.show_results(ctx);
     }
 
     /// Takes the results' screen down (and what it said in
@@ -2150,10 +2448,10 @@ const TEXT_SCALE: f64 = 3.0;
 
 /// Loads the song and its background images, and readies the chosen
 /// noteskin for the chart's layout; the song arrives as [`Msg::SongLoaded`].
-fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
+/// `settings`: those the play runs with (a replay's own).
+fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings) {
     let link = ctx.link().clone();
     let background_name = new_play_background(&id);
-    let settings = Settings::load();
     let show_background = settings.bg_brightness > 0.0;
     // Off: no movie file is read and the decoder is never fetched.
     let play_videos = show_background && settings.video != VideoMode::Off;
@@ -2352,9 +2650,11 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize) {
                                     BgImage::Song => MAX_BACKGROUND_SIDE,
                                     // Movies are not loaded here (only images
                                     // are listed above).
-                                    BgImage::File(_) | BgImage::Movie(_) | BgImage::Still => {
-                                        MAX_CHANGE_SIDE
-                                    }
+                                    BgImage::File(_)
+                                    | BgImage::Movie(_)
+                                    | BgImage::Still
+                                    | BgImage::Clear
+                                    | BgImage::Plain => MAX_CHANGE_SIDE,
                                 };
                                 crate::web::image::decode(&blob, side)
                                     .await

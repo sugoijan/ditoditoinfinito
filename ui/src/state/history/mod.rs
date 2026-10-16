@@ -10,6 +10,7 @@
 //! shells.
 
 mod plays;
+mod replay;
 #[cfg(test)]
 mod tests;
 
@@ -27,6 +28,9 @@ pub use ddi_engine::JUDGE_VERSION;
 pub use ddi_engine::history::{LogError, LoggedInput, PlayLog, PlayTiming, replay};
 pub use ddi_engine::rules::RulesetKey;
 pub use plays::{Plays, export_lines};
+pub use replay::{
+    Ghost, GhostDelta, GhostRun, Replay, ReplayCheck, Replaying, local_time, play_rows, plays_list,
+};
 
 /// The version of [`PlayRecord`]'s and [`PlaySummary`]'s format. The
 /// reader keeps reading every past one.
@@ -170,6 +174,15 @@ pub struct PlayRecord {
     pub time: f64,
     #[serde(default)]
     pub app_version: String,
+    /// The judge that judged it ([`JUDGE_VERSION`] then; 1 in records
+    /// kept before it was written down, when there was no other): its
+    /// timing is that judge's.
+    #[serde(default = "first_judge")]
+    pub judge_version: u32,
+}
+
+fn first_judge() -> u32 {
+    1
 }
 
 /// The lamp a play earns: failed, cleared, or a full combo's kind,
@@ -282,6 +295,17 @@ pub struct PlaySummary {
     pub ended: Ending,
     #[serde(default, deserialize_with = "lenient_worked")]
     pub worked: Option<Worked>,
+    /// The options as played (the plays list shows them; none in
+    /// summaries kept before they were, or that do not read).
+    #[serde(default, deserialize_with = "lenient_options")]
+    pub options: Option<PlayOptions>,
+}
+
+fn lenient_options<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<PlayOptions>, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).ok())
 }
 
 impl PlaySummary {
@@ -308,6 +332,8 @@ impl PlaySummary {
             ended: Ending,
             #[serde(default)]
             autoplay: Option<serde_json::Value>,
+            #[serde(default)]
+            options: Option<serde_json::Value>,
         }
         let k: Keys = serde_json::from_str(record).map_err(|e| e.to_string())?;
         Ok(PlaySummary {
@@ -318,6 +344,7 @@ impl PlaySummary {
             autoplay: k.autoplay.is_some_and(|a| !a.is_null()),
             ended: k.ended,
             worked: None,
+            options: k.options.and_then(|o| serde_json::from_value(o).ok()),
         })
     }
 }
@@ -337,6 +364,7 @@ pub fn new_entry(
         autoplay: record.autoplay.is_some(),
         ended: record.ended,
         worked: Some(Worked::from_results(results)),
+        options: Some(record.options),
     };
     let entry = PlayEntry {
         id,

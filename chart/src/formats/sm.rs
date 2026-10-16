@@ -859,6 +859,31 @@ fn parse_display_bpm(tag: &MsdTag) -> Option<DisplayBpm> {
     })
 }
 
+/// Background layers StepMania has (`NUM_BackgroundLayer`, `Song.h`).
+const BG_LAYERS: i64 = 2;
+
+/// The layer (0-based) of a `#BGCHANGES…` tag named `raw` (as written:
+/// `SMSetBGChanges` hands `SMLoader::ProcessBGChanges` the tag's own name,
+/// not the upper-cased one the tag was matched by), read as
+/// `sscanf("BGCHANGES%d")` reads it: a name not starting with `BGCHANGES`
+/// in capitals, or without a number (after optional white space), is the
+/// first layer, `n` is layer `n - 1`, and `None` for a layer StepMania
+/// does not have.
+fn bg_changes_layer(raw: &str) -> Option<u8> {
+    let Some(suffix) = raw.strip_prefix("BGCHANGES") else {
+        return Some(0);
+    };
+    let s = suffix.trim_start_matches([' ', '\t', '\n', '\x0b', '\x0c', '\r']);
+    let b = s.as_bytes();
+    let sign = usize::from(matches!(b.first(), Some(b'+' | b'-')));
+    let digits = b[sign..].iter().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 0 {
+        return Some(0);
+    }
+    let n: i64 = s[..sign + digits].parse().unwrap_or(i64::MAX);
+    (1..=BG_LAYERS).contains(&n).then(|| (n - 1) as u8)
+}
+
 /// `#BGCHANGES`/`#FGCHANGES`/`#ANIMATIONS` value → effect events.
 fn parse_bg_changes(value: &str, kind: &str, layer: u8, out: &mut Vec<EffectEvent>) {
     let joined: String = value.chars().filter(|c| *c != '\r' && *c != '\n').collect();
@@ -1175,13 +1200,16 @@ fn parse(text: &str, flavor: Flavor) -> Result<Song, ParseError> {
                 song.charts.push(built);
             }
             _ if name.starts_with("BGCHANGES") => {
-                let layer_no = sm_int(&name["BGCHANGES".len()..]);
-                let layer = if name.len() == "BGCHANGES".len() {
-                    0
-                } else {
-                    (layer_no - 1).clamp(0, u8::MAX as i64) as u8
-                };
-                parse_bg_changes(value, "bgchange", layer, &mut song.effects);
+                // `SMLoader::ProcessBGChanges`: `sscanf("BGCHANGES%d")`; no
+                // number is the first layer, `#BGCHANGES2` the second, and
+                // a number past StepMania's two layers is dropped (logged).
+                match bg_changes_layer(&tag.name) {
+                    Some(layer) => parse_bg_changes(value, "bgchange", layer, &mut song.effects),
+                    None => song
+                        .source
+                        .unknown_tags
+                        .push((name.clone(), tag.raw_value())),
+                }
             }
             _ if song_timing.apply(&name, value, flavor, version) => {}
             _ if is_ignored_tag(&name) => {}
@@ -1236,6 +1264,62 @@ mod tests {
         assert_eq!(sm_int("-3"), -3);
         assert_eq!(sm_int(""), 0);
         assert!(approx(row_to_beat("96r"), 2.0));
+    }
+
+    #[test]
+    fn bgchanges_layers_as_stepmania_numbers_them() {
+        // `sscanf("BGCHANGES%d")` on the name as written: no number is the
+        // first layer, 1 too, 2 the second; 0, 3 and below are out of
+        // range and dropped; a name in other capitals never matches the
+        // format, so it is the first layer whatever its number.
+        assert_eq!(bg_changes_layer("BGCHANGES"), Some(0));
+        assert_eq!(bg_changes_layer("BGCHANGESX"), Some(0));
+        assert_eq!(bg_changes_layer("BGCHANGES1"), Some(0));
+        assert_eq!(bg_changes_layer("BGCHANGES2"), Some(1));
+        assert_eq!(bg_changes_layer("BGCHANGES +2"), Some(1));
+        assert_eq!(bg_changes_layer("BGCHANGES2X"), Some(1));
+        assert_eq!(bg_changes_layer("BGCHANGES0"), None);
+        assert_eq!(bg_changes_layer("BGCHANGES3"), None);
+        assert_eq!(bg_changes_layer("BGCHANGES-1"), None);
+        assert_eq!(bg_changes_layer("BGCHANGES99999999999999999999"), None);
+        assert_eq!(bg_changes_layer("bgchanges2"), Some(0));
+        assert_eq!(bg_changes_layer("BGChanges3"), Some(0));
+        let layers = |text: &str, ext: &str| -> Vec<(u8, String)> {
+            parse_simfile(text, ext)
+                .unwrap()
+                .effects
+                .iter()
+                .filter(|e| e.kind == "bgchange")
+                .map(|e| (e.layer, e.fields[1].clone()))
+                .collect()
+        };
+        let tags = "#BGCHANGES2:2=b.png=1=0=0=0;#BGCHANGES:0=a.png=1=0=0=0;\
+                    #BGCHANGES1:1=c.png=1=0=0=0;#BGCHANGES3:3=d.png=1=0=0=0;\
+                    #ANIMATIONS:4=e.png=1=0=0=0;#bgchanges2:5=g.png=1=0=0=0;\
+                    #bgchanges3:6=h.png=1=0=0=0;";
+        let want = vec![
+            (1, "b.png".to_string()),
+            (0, "a.png".to_string()),
+            (0, "c.png".to_string()),
+            (0, "e.png".to_string()),
+            (0, "g.png".to_string()),
+            (0, "h.png".to_string()),
+        ];
+        assert_eq!(layers(&format!("#TITLE:t;{tags}"), "sm"), want);
+        // `.ssc` reads them among the song's tags (`NotesLoaderSSC.cpp`);
+        // inside a chart's block they are not the song's.
+        let ssc = format!(
+            "#VERSION:0.83;#TITLE:t;{tags}#NOTEDATA:;#STEPSTYPE:dance-single;\
+             #DIFFICULTY:Easy;#METER:1;#BGCHANGES2:8=f.png=1=0=0=0;#NOTES:0000\n;"
+        );
+        assert_eq!(layers(&ssc, "ssc"), want);
+        let song = parse_simfile(&format!("#TITLE:t;{tags}"), "sm").unwrap();
+        assert!(
+            song.source
+                .unknown_tags
+                .iter()
+                .any(|(n, _)| n == "BGCHANGES3")
+        );
     }
 
     #[test]

@@ -169,6 +169,28 @@ impl App {
         match &self.route {
             // Song select, our theme's screen on the canvas (step 6.2).
             Route::Home => Box::new(mount::<SelectPage>(root, "main", ())),
+            // A kept play watched again (or its results): read first.
+            Route::Play {
+                replay: Some(id),
+                view_results,
+                force_gl,
+                slow,
+                ..
+            } => Box::new(mount::<crate::replay::ReplayLoader>(
+                root,
+                "div",
+                crate::replay::Props {
+                    id: id.clone(),
+                    view_results: *view_results,
+                    backend: if *force_gl {
+                        BackendPreference::WebGl2
+                    } else {
+                        BackendPreference::Auto
+                    },
+                    slow: *slow,
+                    restart,
+                },
+            )),
             Route::Play {
                 song,
                 chart,
@@ -177,6 +199,7 @@ impl App {
                 auto_pad,
                 bias_ms,
                 slow,
+                ..
             } => Box::new(mount::<GameCanvas>(
                 root,
                 "div",
@@ -195,6 +218,7 @@ impl App {
                     } else {
                         BackendPreference::Auto
                     },
+                    replay: None,
                 },
             )),
             Route::CalibrateRun {
@@ -212,6 +236,7 @@ impl App {
                     auto_bias: *bias_ms as f64 / 1000.0,
                     slow: false,
                     backend: BackendPreference::Auto,
+                    replay: None,
                 },
             )),
             // Credits and calibration's menu, our theme's pages on the

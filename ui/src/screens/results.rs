@@ -25,12 +25,17 @@
 //!
 //! What the buttons do is the shell's ([`ResultsActions`]); without them
 //! (the developer route) Song list leaves the screen.
+//!
+//! Replays (`docs/plans/play-history.md`): "Watch replay" (W) where the
+//! shell offers it; a replay's results ([`ResultsKind::Replay`]) offer
+//! "Watch again" for Retry, a kept play's ([`ResultsKind::Kept`]) its
+//! replay and no Retry; both are marked REPLAY.
 
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind, Sprite};
 
-use super::data::{PanelKind, ResultsData};
+use super::data::{PanelKind, ResultsData, ResultsKind};
 use super::{Backdrop, Env, fit, fit_root, footer, frame, ground, header, left, right};
 use crate::graph;
 use crate::hit;
@@ -52,21 +57,14 @@ pub type PanelsFn = Rc<dyn Fn(&str)>;
 pub struct ResultsActions {
     pub retry: Option<ActionFn>,
     pub song_list: Option<ActionFn>,
+    /// Watch the play's replay (offered once the play is kept).
+    pub replay: Option<ActionFn>,
     pub offset: Option<OffsetFn>,
     pub panels: Option<PanelsFn>,
 }
 
-/// The buttons focus moves through, in order: Song list first, so Start
-/// goes back to the songs (the mockup's and StepMania's evaluation
-/// screen's).
-const BUTTONS: [&str; 6] = [
-    "SongList",
-    "Retry",
-    "OffsetDown",
-    "OffsetUp",
-    "UseMean",
-    "ResetOffset",
-];
+/// The offset editor's buttons focus moves through after the bar's.
+const OFFSET_BUTTONS: [&str; 4] = ["OffsetDown", "OffsetUp", "UseMean", "ResetOffset"];
 
 /// Menu input in the first this many seconds is let go: keys and pads
 /// still held or mashed as the song ends must not leave or retry.
@@ -192,6 +190,9 @@ impl ResultsScreen {
             top / 2.0,
         ));
         children.push(self.panel_pills(screen));
+        if let Some(b) = self.top_replay([m + 150.0, top / 2.0]) {
+            children.push(b);
+        }
         children.push(self.bottom_bar([m, h - bottom, w - 2.0 * m, bottom]));
         env.state.borrow_mut().hints = Vec::new();
         let mut root = Actor::new(Kind::Frame(children));
@@ -312,6 +313,9 @@ impl ResultsScreen {
         children.push(self.bottom_bar([panels[0], bar_y, panels[2], 76.0]));
         children.push(header(&env, screen[0], "RESULTS"));
         children.push(self.panel_pills(screen));
+        if let Some(b) = self.top_replay([panels[0], 32.0]) {
+            children.push(b);
+        }
         let mut note = self.data.notes.join(" · ");
         if !self.data.note.is_empty() {
             if !note.is_empty() {
@@ -319,17 +323,17 @@ impl ResultsScreen {
             }
             note.push_str(&self.data.note);
         }
-        let (f, texts) = footer(
-            &env,
-            screen,
-            &[
-                (&["ENTER"], "Song list"),
-                (&["R"], "Retry"),
-                (&["←→"], "Panels"),
-            ],
-            &note,
-            &[],
-        );
+        let mut hints: Vec<(&[&str], &str)> = vec![(&["ENTER"], "Song list")];
+        match self.data.kind {
+            ResultsKind::Play => hints.push((&["R"], "Retry")),
+            ResultsKind::Replay => hints.push((&["R"], "Watch again")),
+            ResultsKind::Kept => {}
+        }
+        if self.actions.replay.is_some() && self.data.kind != ResultsKind::Replay {
+            hints.push((&["W"], "Watch replay"));
+        }
+        hints.push((&["←→"], "Panels"));
+        let (f, texts) = footer(&env, screen, &hints, &note, &[]);
         env.state.borrow_mut().hints = texts;
         children.push(f);
         let mut root = Actor::new(Kind::Frame(children));
@@ -462,6 +466,9 @@ impl ResultsScreen {
         ty += 66.0 + 10.0;
         // The lamp, FAILED.
         let mut marks = Vec::new();
+        if d.kind != ResultsKind::Play {
+            marks.push(("Replay", "REPLAY".to_string(), "Accent"));
+        }
         if d.failed {
             marks.push(("Failed", "FAILED".to_string(), "Danger"));
         }
@@ -927,22 +934,19 @@ impl ResultsScreen {
             (h / 2.0, h / 2.0)
         };
         let mut c = Vec::new();
-        let retry_w = 112.0;
-        let list_w = 128.0;
-        c.push(env.component(
-            "PlayButton",
-            "Button",
-            &Spec::new([retry_w, 48.0], "Retry"),
-            "Retry",
-            [w - retry_w / 2.0, mid],
-        ));
-        c.push(env.component(
-            "Button",
-            "Button",
-            &Spec::new([list_w, 48.0], "Song list"),
-            "SongList",
-            [w - retry_w - 12.0 - list_w / 2.0, mid],
-        ));
+        // Right to left: the main button, then the others.
+        let mut right_edge = w;
+        for (name, label, kind) in self.bar_buttons().into_iter().rev() {
+            let bw = (look::mono_width(label, 15.0) + 40.0).max(112.0);
+            c.push(env.component(
+                kind,
+                "Button",
+                &Spec::new([bw, 48.0], label),
+                name,
+                [right_edge - bw / 2.0, mid],
+            ));
+            right_edge -= bw + 12.0;
+        }
         if let Some(o) = &self.data.offset {
             c.push(left(
                 env.text(
@@ -1011,6 +1015,50 @@ impl ResultsScreen {
         let mut f = frame("Bottom", c);
         call(&mut f, "xy", &[x, y]);
         f
+    }
+
+    /// A play's "Watch replay" goes in the bar only on an upright phone
+    /// (its own row): elsewhere the offset editor needs the bar's room,
+    /// and it goes on top, by the title ([`Self::top_replay`]).
+    fn replay_in_bar(&self) -> bool {
+        self.data.kind != ResultsKind::Play || (self.compact && self.screen[0] < self.screen[1])
+    }
+
+    /// A play's "Watch replay" on top, where the bar has no room for it.
+    fn top_replay(&self, at: [f32; 2]) -> Option<Actor> {
+        if self.replay_in_bar() || self.actions.replay.is_none() {
+            return None;
+        }
+        let label = "Watch replay";
+        let bw = look::mono_width(label, 15.0) + 40.0;
+        Some(self.env.component(
+            "Button",
+            "Button",
+            &Spec::new([bw, 40.0], label),
+            "WatchReplay",
+            [at[0] + bw / 2.0, at[1]],
+        ))
+    }
+
+    /// The bar's buttons, left to right: name, label, component.
+    fn bar_buttons(&self) -> Vec<(&'static str, &'static str, &'static str)> {
+        let mut v = vec![("SongList", "Song list", "Button")];
+        let replay = self.actions.replay.is_some();
+        match self.data.kind {
+            ResultsKind::Play => {
+                if replay && self.replay_in_bar() {
+                    v.push(("WatchReplay", "Watch replay", "Button"));
+                }
+                v.push(("Retry", "Retry", "PlayButton"));
+            }
+            ResultsKind::Replay => v.push(("Retry", "Watch again", "PlayButton")),
+            ResultsKind::Kept => {
+                if replay {
+                    v.push(("WatchReplay", "Watch replay", "PlayButton"));
+                }
+            }
+        }
+        v
     }
 
     fn panel_pills(&self, screen: [f32; 2]) -> Actor {
@@ -1138,8 +1186,20 @@ impl ResultsScreen {
     }
 
     fn retry(&mut self, cx: &mut Cx) {
+        // A kept play has no Retry: Start or Select there is its replay.
+        if self.data.kind == ResultsKind::Kept {
+            return self.watch_replay(cx);
+        }
         self.env.state.borrow_mut().status = "retry".into();
         if let Some(r) = self.actions.retry.clone() {
+            let env = self.env.clone();
+            r(&env, cx);
+        }
+    }
+
+    fn watch_replay(&mut self, cx: &mut Cx) {
+        if let Some(r) = self.actions.replay.clone() {
+            self.env.state.borrow_mut().status = "watch replay".into();
             let env = self.env.clone();
             r(&env, cx);
         }
@@ -1189,7 +1249,15 @@ impl Screen for ResultsScreen {
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        let mut v: Vec<Focusable> = BUTTONS.into_iter().map(Focusable::new).collect();
+        let mut v: Vec<Focusable> = self
+            .bar_buttons()
+            .into_iter()
+            .map(|(name, _, _)| Focusable::new(name))
+            .chain(OFFSET_BUTTONS.into_iter().map(Focusable::new))
+            .collect();
+        if !self.replay_in_bar() && self.actions.replay.is_some() {
+            v.insert(1, Focusable::new("WatchReplay"));
+        }
         if self.compact {
             v.push(Focusable::new("Back"));
         }
@@ -1291,8 +1359,17 @@ impl Screen for ResultsScreen {
                 _ => Handled::No,
             },
             Input::Key(k) if k.down && !k.repeat && !k.composing => {
-                if k.key.eq_ignore_ascii_case("r") && !k.modifiers.command() {
+                if k.key.eq_ignore_ascii_case("r")
+                    && !k.modifiers.command()
+                    && self.data.kind != ResultsKind::Kept
+                {
                     self.retry(cx);
+                    Handled::Yes
+                } else if k.key.eq_ignore_ascii_case("w")
+                    && !k.modifiers.command()
+                    && self.data.kind != ResultsKind::Replay
+                {
+                    self.watch_replay(cx);
                     Handled::Yes
                 } else if k.key == "Backspace" {
                     self.song_list(cx);
@@ -1306,6 +1383,7 @@ impl Screen for ResultsScreen {
                 match name.as_str() {
                     "SongList" | "Back" => self.song_list(cx),
                     "Retry" => self.retry(cx),
+                    "WatchReplay" => self.watch_replay(cx),
                     "OffsetDown" => self.set_offset(current - 0.001, root, cx),
                     "OffsetUp" => self.set_offset(current + 0.001, root, cx),
                     "UseMean" => {

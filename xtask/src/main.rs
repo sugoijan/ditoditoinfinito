@@ -10,6 +10,7 @@ use serde::Deserialize;
 mod credits;
 mod dito;
 mod noteskins;
+mod rust_credits;
 mod songs;
 
 #[derive(Parser)]
@@ -62,6 +63,16 @@ enum Commands {
     /// set.
     #[command(name = "stage-video")]
     StageVideo {
+        /// The site's folder (default: $TRUNK_STAGING_DIR).
+        #[arg(long)]
+        dest: Option<PathBuf>,
+    },
+    /// Name the Opus worker's files (Trunk writes `opus-worker.js` and
+    /// `opus-worker_bg.wasm`) by their content's hash and tell the page
+    /// in index.html, as Trunk names the app's: a page never mixes two
+    /// builds' files. Trunk runs this after a build.
+    #[command(name = "stage-opus")]
+    StageOpus {
         /// The site's folder (default: $TRUNK_STAGING_DIR).
         #[arg(long)]
         dest: Option<PathBuf>,
@@ -441,7 +452,47 @@ fn main() -> Result<()> {
         Commands::GenNoteskins { check } => noteskins::gen_noteskins(check),
         Commands::GenCredits { check } => credits::gen_credits(check),
         Commands::StageVideo { dest } => stage_video(dest),
+        Commands::StageOpus { dest } => stage_opus(dest),
     }
+}
+
+/// `stage-opus`: `opus-worker.js` and `opus-worker_bg.wasm` renamed to
+/// `opus-worker-<hash>.js` and `opus-worker-<hash>_bg.wasm` (FNV-1a of
+/// both), and `<meta name="ddi-opus-worker" content="opus-worker-<hash>">`
+/// in index.html, which `web/src/web/opus.rs` reads.
+fn stage_opus(dest: Option<PathBuf>) -> Result<()> {
+    let dest = match dest {
+        Some(d) => d,
+        None => PathBuf::from(
+            std::env::var_os("TRUNK_STAGING_DIR")
+                .context("stage-opus needs --dest or TRUNK_STAGING_DIR")?,
+        ),
+    };
+    let js = dest.join("opus-worker.js");
+    let wasm = dest.join("opus-worker_bg.wasm");
+    let (Ok(js_bytes), Ok(wasm_bytes)) = (fs::read(&js), fs::read(&wasm)) else {
+        bail!(
+            "stage-opus: {} has no opus-worker.js and opus-worker_bg.wasm (index.html's opus-worker link)",
+            dest.display()
+        );
+    };
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in js_bytes.iter().chain(&wasm_bytes) {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x100_0000_01b3);
+    }
+    let stem = format!("opus-worker-{h:016x}");
+    fs::rename(&js, dest.join(format!("{stem}.js")))?;
+    fs::rename(&wasm, dest.join(format!("{stem}_bg.wasm")))?;
+    let index = dest.join("index.html");
+    let html = fs::read_to_string(&index).context("reading the staged index.html")?;
+    let meta = format!("<meta name=\"ddi-opus-worker\" content=\"{stem}\">");
+    let Some(at) = html.find("</head>") else {
+        bail!("stage-opus: index.html has no </head>");
+    };
+    fs::write(&index, format!("{}{meta}\n{}", &html[..at], &html[at..]))?;
+    eprintln!("stage-opus: the Opus worker is {stem}");
+    Ok(())
 }
 
 /// The module, its description and its licence, served from `video/`.

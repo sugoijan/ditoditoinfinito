@@ -1,9 +1,16 @@
 //! Image decoding by the browser (`createImageBitmap`), so no image decoder
 //! is compiled into the wasm.
+//!
+//! Every bitmap here keeps its colours unmultiplied by its alpha
+//! (`premultiplyAlpha: "none"`): the textures are filled with
+//! `premultiplied_alpha: false`, which WebGPU honours whatever the bitmap,
+//! but WebGL2 takes an `ImageBitmap` as it is, so a premultiplied one
+//! darkened every half-transparent edge there (alpha arrows' by up to 31
+//! levels). A browser that refuses the option gets the default.
 
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{Blob, ImageBitmap, ImageBitmapOptions, ResizeQuality};
+use web_sys::{Blob, ImageBitmap, ImageBitmapOptions, PremultiplyAlpha, ResizeQuality};
 
 use super::js_err;
 
@@ -19,14 +26,11 @@ pub(crate) async fn decode_sized(
     max_side: u32,
 ) -> Result<(ImageBitmap, (u32, u32)), String> {
     let window = web_sys::window().ok_or("no window")?;
-    let promise = window
-        .create_image_bitmap_with_blob(blob)
-        .map_err(|e| js_err("createImageBitmap", e))?;
-    let full: ImageBitmap = JsFuture::from(promise)
-        .await
-        .map_err(|e| js_err("decode image", e))?
-        .dyn_into()
-        .map_err(|e| js_err("decode image", e))?;
+    let full = bitmap("decode image", |options| match options {
+        Some(o) => window.create_image_bitmap_with_blob_and_image_bitmap_options(blob, o),
+        None => window.create_image_bitmap_with_blob(blob),
+    })
+    .await?;
     let (w, h) = (full.width(), full.height());
     if w == 0 || h == 0 {
         return Err("empty image".into());
@@ -35,20 +39,50 @@ pub(crate) async fn decode_sized(
         return Ok((full, (w, h)));
     }
     let scale = f64::from(max_side) / f64::from(w.max(h));
-    let options = ImageBitmapOptions::new();
-    options.set_resize_width(((f64::from(w) * scale).round() as u32).max(1));
-    options.set_resize_height(((f64::from(h) * scale).round() as u32).max(1));
-    options.set_resize_quality(ResizeQuality::High);
-    let promise = window
-        .create_image_bitmap_with_image_bitmap_and_image_bitmap_options(&full, &options)
-        .map_err(|e| js_err("createImageBitmap", e))?;
-    let scaled = JsFuture::from(promise)
-        .await
-        .map_err(|e| js_err("resize image", e))?
-        .dyn_into()
-        .map_err(|e| js_err("resize image", e));
+    let resize = |o: &ImageBitmapOptions| {
+        o.set_resize_width(((f64::from(w) * scale).round() as u32).max(1));
+        o.set_resize_height(((f64::from(h) * scale).round() as u32).max(1));
+        o.set_resize_quality(ResizeQuality::High);
+    };
+    let scaled = bitmap("resize image", |options| {
+        let fallback = ImageBitmapOptions::new();
+        let o = options.unwrap_or(&fallback);
+        resize(o);
+        window.create_image_bitmap_with_image_bitmap_and_image_bitmap_options(&full, o)
+    })
+    .await;
     full.close();
     scaled.map(|s| (s, (w, h)))
+}
+
+/// A bitmap from `make`, given options asking for unmultiplied colours
+/// (`Some`), else, when the browser refuses that, the default (`None`).
+async fn bitmap(
+    what: &str,
+    make: impl Fn(Option<&ImageBitmapOptions>) -> Result<js_sys::Promise, wasm_bindgen::JsValue>,
+) -> Result<ImageBitmap, String> {
+    let straight = ImageBitmapOptions::new();
+    straight.set_premultiply_alpha(PremultiplyAlpha::None);
+    let got = match make(Some(&straight)) {
+        Ok(promise) => JsFuture::from(promise).await,
+        Err(e) => Err(e),
+    };
+    let got = match got {
+        Ok(b) => Ok(b),
+        Err(e) => {
+            web_sys::console::warn_1(
+                &format!(
+                    "{what}: {}; decoded with the defaults",
+                    js_err("createImageBitmap", e)
+                )
+                .into(),
+            );
+            JsFuture::from(make(None).map_err(|e| js_err("createImageBitmap", e))?).await
+        }
+    };
+    got.map_err(|e| js_err(what, e))?
+        .dyn_into()
+        .map_err(|e| js_err(what, e))
 }
 
 /// Rasterises an SVG (already checked, `ddi_noteskin::svg`) of `size`
@@ -103,14 +137,13 @@ pub(crate) async fn rasterise_svg(
             f64::from(h),
         )
         .map_err(|e| js_err("draw SVG", e))?;
-    let promise = window
-        .create_image_bitmap_with_html_canvas_element(&canvas)
-        .map_err(|e| js_err("createImageBitmap", e))?;
-    JsFuture::from(promise)
-        .await
-        .map_err(|e| js_err("rasterise SVG", e))?
-        .dyn_into()
-        .map_err(|e| js_err("rasterise SVG", e))
+    bitmap("rasterise SVG", |options| match options {
+        Some(o) => {
+            window.create_image_bitmap_with_html_canvas_element_and_image_bitmap_options(&canvas, o)
+        }
+        None => window.create_image_bitmap_with_html_canvas_element(&canvas),
+    })
+    .await
 }
 
 /// Draws text as a back or mask layer shows it (danoniplus's `<span>`:
@@ -174,14 +207,13 @@ pub(crate) async fn text_bitmap(
     for (i, l) in lines.iter().enumerate() {
         let _ = ctx.fill_text(l, 0.0, line * i as f64 + (line - px) / 2.0);
     }
-    let promise = window
-        .create_image_bitmap_with_html_canvas_element(&canvas)
-        .map_err(|e| js_err("createImageBitmap", e))?;
-    let bitmap: ImageBitmap = JsFuture::from(promise)
-        .await
-        .map_err(|e| js_err("draw text", e))?
-        .dyn_into()
-        .map_err(|e| js_err("draw text", e))?;
+    let bitmap = bitmap("draw text", |options| match options {
+        Some(o) => {
+            window.create_image_bitmap_with_html_canvas_element_and_image_bitmap_options(&canvas, o)
+        }
+        None => window.create_image_bitmap_with_html_canvas_element(&canvas),
+    })
+    .await?;
     Ok((
         bitmap,
         ((f64::from(w) / scale) as f32, (f64::from(h) / scale) as f32),

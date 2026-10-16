@@ -35,11 +35,11 @@ pub mod text_atlas;
 pub mod texture_cache;
 pub mod textured;
 
-pub use background::{Backdrop, BackgroundPipeline};
+pub use background::{Backdrop, BackgroundPipeline, PLAIN, SecondLayer};
 pub use draw2d::{Affine, Blend, Command, DrawList, Quad, TextRun};
 pub use painter::{Painter, PainterStats};
 pub use renderer::{Renderer, SkinBlending};
-pub use scene::{ColorScheme, FieldGeometry, Preview, RenderOptions, Skin, field_span};
+pub use scene::{ColorScheme, FieldGeometry, Preview, RenderOptions, ScoreDelta, Skin, field_span};
 pub use sprite::{Instance, Shape, SpritePipeline, Symbol, SymbolMode};
 pub use text::{Align, TextItem, TextPipeline};
 pub use text_atlas::RunRasterizer;

@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
 
-use super::data::{ImportView, Notice, PackEntry, Platform};
+use super::data::{ImportView, Notice, PackEntry, Platform, PlayRow};
 use super::select::NOTICE_LINK;
 use super::select::{IMPORT_CHANGED, SelectCall, ShellFn};
 use super::{Env, left};
@@ -917,5 +917,385 @@ impl Screen for NoticesDialog {
             }
             _ => Handled::No,
         }
+    }
+}
+
+/// A chart's kept plays (`docs/plans/play-history.md`, Replays): newest
+/// first, a page at a time, the best marked; the chosen one watched,
+/// opened on the results screen, or removed (pressed twice). A row is
+/// chosen by a tap or Start on it (Start then on Watch watches it).
+pub struct PlaysDialog {
+    env: Env,
+    title: String,
+    rows: Vec<PlayRow>,
+    /// The chosen row's index.
+    chosen: usize,
+    /// The page's first row.
+    first: usize,
+    /// Remove was pressed once for the chosen row.
+    arming: bool,
+    shell: Option<ShellFn>,
+    screen: [f32; 2],
+    /// Built once: Watch (or Close) took focus.
+    focused: bool,
+}
+
+/// A row's height in the plays list.
+const PLAY_ROW: f32 = 46.0;
+
+impl PlaysDialog {
+    /// The plays `rows` of the chart `title` names ("Hard 9"); the best
+    /// chosen first, else the newest.
+    pub fn new(env: Env, title: &str, rows: Vec<PlayRow>, shell: Option<ShellFn>) -> PlaysDialog {
+        let chosen = rows.iter().position(|r| r.best).unwrap_or(0);
+        PlaysDialog {
+            env,
+            title: format!("PLAYS · {title}"),
+            rows,
+            chosen,
+            first: 0,
+            arming: false,
+            shell,
+            screen: super::DESIGN,
+            focused: false,
+        }
+    }
+
+    /// Rows a page: as many as fit, 3 to 8.
+    fn per_page(&self) -> usize {
+        let room = self.screen[1] - 16.0 - 70.0 - 2.0 * 50.0 - 40.0;
+        ((room / (PLAY_ROW + 6.0)).floor() as usize).clamp(3, 8)
+    }
+
+    /// The page holding the chosen row.
+    fn settle_page(&mut self) {
+        let n = self.per_page();
+        if self.chosen < self.first || self.chosen >= self.first + n {
+            self.first = self.chosen / n * n;
+        }
+    }
+
+    /// The buttons now, `(name, label, kind)`.
+    fn buttons(&self) -> Vec<(&'static str, String, &'static str)> {
+        let mut v = Vec::new();
+        if !self.rows.is_empty() {
+            v.push(("Watch", "Watch".to_string(), "PlayButton"));
+            v.push(("Open", "Results".to_string(), "Button"));
+            v.push(if self.arming {
+                ("Remove", "Sure? Remove".to_string(), "DangerButton")
+            } else {
+                ("Remove", "Remove".to_string(), "Button")
+            });
+        }
+        if self.first > 0 {
+            v.push(("Newer", "‹ Newer".to_string(), "Button"));
+        }
+        if self.first + self.per_page() < self.rows.len() {
+            v.push(("Older", "Older ›".to_string(), "Button"));
+        }
+        v.push(("Close", "Close".to_string(), "Button"));
+        v
+    }
+
+    fn call(&self, c: SelectCall, cx: &mut Cx) {
+        if let Some(s) = &self.shell {
+            s(c, cx);
+        }
+    }
+
+    fn publish(&self) {
+        let mut st = self.env.state.borrow_mut();
+        st.plays = self
+            .rows
+            .iter()
+            .map(|r| {
+                format!(
+                    "{}|{}|{} {} {}|{}",
+                    r.id, r.when, r.grade, r.score, r.lamp_text, r.mods
+                )
+            })
+            .collect();
+        st.plays_selected = self.rows.get(self.chosen).map(|r| r.id.clone());
+    }
+
+    fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx, focus: &str) {
+        *root = self.build(cx);
+        root.finish_tweening();
+        cx.focus(focus);
+    }
+
+    fn row(&self, i: usize, r: &PlayRow, [x, y, w]: [f32; 3]) -> Vec<Actor> {
+        let env = &self.env;
+        let chosen = i == self.chosen;
+        let mut plate = look::component_or(
+            &*env.look,
+            "Button",
+            "Button",
+            &Spec::new([w, PLAY_ROW], ""),
+        );
+        plate.name = format!("Row{i}");
+        call(&mut plate, "xy", &[x + w / 2.0, y + PLAY_ROW / 2.0]);
+        // The chosen one ringed in the accent.
+        let mut ring = Vec::new();
+        if chosen {
+            let c = env.color("Accent");
+            for (size, at) in [
+                ([w + 6.0, 2.0], [x + w / 2.0, y - 2.0]),
+                ([w + 6.0, 2.0], [x + w / 2.0, y + PLAY_ROW + 2.0]),
+                ([2.0, PLAY_ROW + 6.0], [x - 2.0, y + PLAY_ROW / 2.0]),
+                ([2.0, PLAY_ROW + 6.0], [x + w + 2.0, y + PLAY_ROW / 2.0]),
+            ] {
+                let mut q = quad("", size, c);
+                call(&mut q, "xy", &at);
+                ring.push(q);
+            }
+        }
+        let mut first = vec![r.when.clone(), r.ruleset.clone()];
+        if r.autoplay {
+            first.push("AUTOPLAY".into());
+        }
+        if r.best {
+            first.push("★ best".into());
+        }
+        let text = if chosen { "Text" } else { "Secondary" };
+        let mut a = env.text("", &first.join(" · "), 13.0, 600, text);
+        wrap(&mut a, w - 190.0);
+        let mut b = env.text(
+            "",
+            if r.mods.is_empty() { "—" } else { &r.mods },
+            12.0,
+            400,
+            "Muted",
+        );
+        wrap(&mut b, w - 190.0);
+        let score = if r.pending {
+            format!("{} {} …", r.grade, r.score)
+        } else {
+            format!("{} {}", r.grade, r.score)
+        };
+        let c = env.numbers("", score.trim(), 15.0, "Text");
+        let d = look::tracked(env.text("", &r.lamp_text, 11.0, 700, "Gold"), 80);
+        let mut out = ring;
+        out.extend([
+            plate,
+            left(a, x + 14.0, y + 15.0),
+            left(b, x + 14.0, y + 32.0),
+            super::right(c, x + w - 14.0, y + 15.0),
+            super::right(d, x + w - 14.0, y + 32.0),
+        ]);
+        out
+    }
+}
+
+impl Screen for PlaysDialog {
+    fn name(&self) -> &str {
+        "plays"
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        self.screen = [vp.width, vp.height];
+        self.settle_page();
+        let env = self.env.clone();
+        let w = 760.0_f32.min(self.screen[0] - 32.0);
+        let page: Vec<(usize, &PlayRow)> = self
+            .rows
+            .iter()
+            .enumerate()
+            .skip(self.first)
+            .take(self.per_page())
+            .collect();
+        let buttons = self.buttons();
+        let room = w - 48.0;
+        let widths: Vec<f32> = buttons
+            .iter()
+            .map(|(_, l, _)| look::mono_width(l, 15.0) + 32.0)
+            .collect();
+        // Rows of buttons that fit.
+        let mut lines: Vec<Vec<usize>> = vec![Vec::new()];
+        let mut used = 0.0;
+        for (i, bw) in widths.iter().enumerate() {
+            let line = lines.last_mut().expect("a line");
+            if !line.is_empty() && used + 10.0 + bw > room {
+                lines.push(vec![i]);
+                used = *bw;
+            } else {
+                used += if line.is_empty() { *bw } else { 10.0 + bw };
+                lines.last_mut().expect("a line").push(i);
+            }
+        }
+        let body = if self.rows.is_empty() {
+            30.0
+        } else {
+            page.len() as f32 * (PLAY_ROW + 6.0)
+        };
+        let h = (70.0 + body + 20.0 + lines.len() as f32 * 50.0 + 6.0).min(self.screen[1] - 16.0);
+        let (mut children, [x, y]) = shell(&env, self.screen, [w, h], &self.title);
+        if self.rows.is_empty() {
+            children.push(left(
+                env.text(
+                    "Empty",
+                    "No play of this chart is kept yet.",
+                    14.0,
+                    400,
+                    "Muted",
+                ),
+                x + 24.0,
+                y + 76.0,
+            ));
+        }
+        for (k, (i, r)) in page.iter().enumerate() {
+            children.extend(self.row(
+                *i,
+                r,
+                [x + 24.0, y + 60.0 + k as f32 * (PLAY_ROW + 6.0), room],
+            ));
+        }
+        if self.rows.len() > page.len() {
+            let t = env.text(
+                "Page",
+                &format!(
+                    "{}–{} of {}",
+                    self.first + 1,
+                    self.first + page.len(),
+                    self.rows.len()
+                ),
+                12.0,
+                400,
+                "Faint",
+            );
+            children.push(super::right(t, x + w - 24.0, y + 30.0));
+        }
+        for (l, line) in lines.iter().enumerate() {
+            let by = y + h - 30.0 - (lines.len() - 1 - l) as f32 * 50.0;
+            let mut bx = x + 24.0;
+            for &i in line {
+                let (name, label, kind) = &buttons[i];
+                children.push(button(
+                    &env,
+                    name,
+                    label,
+                    [bx + widths[i] / 2.0, by],
+                    widths[i],
+                    kind,
+                ));
+                bx += widths[i] + 10.0;
+            }
+        }
+        self.publish();
+        // At first Start watches the chosen play.
+        if !std::mem::replace(&mut self.focused, true) {
+            cx.focus(if self.rows.is_empty() {
+                "Close"
+            } else {
+                "Watch"
+            });
+        }
+        dialog_root(children)
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        let n = self.per_page();
+        (self.first..(self.first + n).min(self.rows.len()))
+            .map(|i| Focusable::new(format!("Row{i}")))
+            .chain(
+                self.buttons()
+                    .into_iter()
+                    .map(|(n, _, _)| Focusable::new(n)),
+            )
+            .collect()
+    }
+
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        // Focus moving away from an armed Remove disarms it (the move
+        // itself is the menu's).
+        if self.arming
+            && let Input::Menu { action, .. } = input
+            && matches!(
+                action,
+                MenuAction::Up | MenuAction::Down | MenuAction::Left | MenuAction::Right
+            )
+        {
+            self.arming = false;
+            *root = self.build(cx);
+            root.finish_tweening();
+            return Handled::No;
+        }
+        match input {
+            Input::Activate { name } => {
+                if let Some(i) = name
+                    .strip_prefix("Row")
+                    .and_then(|n| n.parse::<usize>().ok())
+                {
+                    if i < self.rows.len() {
+                        self.chosen = i;
+                        self.arming = false;
+                        self.rebuild(root, cx, "Watch");
+                    }
+                    return Handled::Yes;
+                }
+                let id = self.rows.get(self.chosen).map(|r| r.id.clone());
+                match (name.as_str(), id) {
+                    // The call first: a closed layer's requests go nowhere
+                    // (it goes at once under reduced motion).
+                    ("Watch", Some(id)) => {
+                        self.call(SelectCall::WatchPlay(id), cx);
+                        cx.close(false);
+                    }
+                    ("Open", Some(id)) => {
+                        self.call(SelectCall::ShowPlay(id), cx);
+                        cx.close(false);
+                    }
+                    ("Remove", Some(id)) => {
+                        if self.arming {
+                            self.arming = false;
+                            self.call(SelectCall::RemovePlay(id), cx);
+                            self.rows.remove(self.chosen);
+                            self.chosen = self.chosen.min(self.rows.len().saturating_sub(1));
+                            let focus = if self.rows.is_empty() {
+                                "Close"
+                            } else {
+                                "Remove"
+                            };
+                            self.rebuild(root, cx, focus);
+                        } else {
+                            self.arming = true;
+                            self.rebuild(root, cx, "Remove");
+                        }
+                    }
+                    ("Newer", _) => {
+                        let n = self.per_page();
+                        self.first = self.first.saturating_sub(n);
+                        self.chosen = self.first;
+                        self.arming = false;
+                        self.rebuild(root, cx, if self.first > 0 { "Newer" } else { "Older" });
+                    }
+                    ("Older", _) => {
+                        let n = self.per_page();
+                        self.first += n;
+                        self.chosen = self.first;
+                        self.arming = false;
+                        let more = self.first + n < self.rows.len();
+                        self.rebuild(root, cx, if more { "Older" } else { "Newer" });
+                    }
+                    ("Close", _) => cx.close(true),
+                    _ => return Handled::No,
+                }
+                Handled::Yes
+            }
+            Input::Outside => {
+                cx.close(true);
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
+    }
+}
+
+impl Drop for PlaysDialog {
+    fn drop(&mut self) {
+        let mut st = self.env.state.borrow_mut();
+        st.plays.clear();
+        st.plays_selected = None;
     }
 }

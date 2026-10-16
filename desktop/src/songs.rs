@@ -437,6 +437,24 @@ impl Songs {
             }
             // Plays from now on autoplayed (never counted).
             SelectCall::Autoplay(on) => self.autoplay.set(on),
+            // A kept play (`docs/plans/play-history.md`, Replays): its
+            // replay or its results through the play's host; forgotten.
+            SelectCall::WatchPlay(ref id) | SelectCall::ShowPlay(ref id) => {
+                let results = matches!(call, SelectCall::ShowPlay(_));
+                if let Some(plays) = &self.plays {
+                    *self.play.borrow_mut() =
+                        Some(crate::play::replays::request(plays, id, results));
+                }
+            }
+            SelectCall::RemovePlay(id) => {
+                if let Some(plays) = &self.plays {
+                    plays.remove_play(&id, |r| {
+                        if let Err(e) = r {
+                            eprintln!("play history: removing a play: {e}");
+                        }
+                    });
+                }
+            }
             SelectCall::Open(_) | SelectCall::ImportOption(..) | SelectCall::Notice(_) => {}
         }
     }
@@ -483,6 +501,14 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
             }
         })
     };
-    SelectScreen::new(env.clone(), songs.data(), None, play, open)
-        .with_shell(calls, songs.feed.clone())
+    let mut screen = SelectScreen::new(env.clone(), songs.data(), None, play, open)
+        .with_shell(calls, songs.feed.clone());
+    // A chart's kept plays (`docs/plans/play-history.md`, Replays).
+    if let Some(plays) = &songs.plays {
+        screen = screen.with_plays(ddi_ui::state::history::plays_list(
+            plays.clone(),
+            Rc::new(crate::play::replays::tz_minutes),
+        ));
+    }
+    screen
 }

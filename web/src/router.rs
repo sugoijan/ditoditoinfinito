@@ -23,6 +23,11 @@ pub(crate) enum Route {
         /// `slow=1` makes each frame 40 ms longer while a background movie
         /// is drawn, to test the automatic video setting.
         slow: bool,
+        /// `replay=<play id>`: a kept play watched again (its song and
+        /// chart are the record's; `auto` and `bias` mean nothing then).
+        replay: Option<String>,
+        /// `view=results`: the kept play's results, not its replay.
+        view_results: bool,
     },
     Options,
     Calibrate,
@@ -92,6 +97,8 @@ impl Route {
                 auto_pad: params.get("auto").is_some_and(|a| a == "pad"),
                 bias_ms: parse_bias(&params),
                 slow: params.get("slow").is_some_and(|v| v == "1"),
+                replay: params.get("replay").filter(|r| !r.is_empty()).cloned(),
+                view_results: params.get("view").is_some_and(|v| v == "results"),
             },
             "options" => Route::Options,
             "calibrate" => Route::Calibrate,
@@ -152,9 +159,15 @@ impl Route {
                 auto_pad,
                 bias_ms,
                 slow,
+                replay,
+                view_results,
             } => {
                 let gl = if *force_gl { "&gfx=gl" } else { "" };
                 let slow = if *slow { "&slow=1" } else { "" };
+                if let Some(id) = replay {
+                    let view = if *view_results { "&view=results" } else { "" };
+                    return format!("#/play?replay={}{view}{gl}{slow}", percent_encode(id));
+                }
                 let auto = match (*auto, *auto_pad) {
                     (_, true) => "&auto=pad",
                     (true, false) => "&auto=1",
@@ -440,8 +453,16 @@ mod tests {
                 auto_pad: false,
                 bias_ms: 0,
                 slow: true,
+                replay: None,
+                view_results: false,
             }
         );
+        let r = Route::parse("#/play?replay=000001760000000-0a1b2c3d&view=results");
+        assert!(matches!(
+            &r,
+            Route::Play { replay: Some(id), view_results: true, .. } if id == "000001760000000-0a1b2c3d"
+        ));
+        assert_eq!(Route::parse(&r.to_hash()), r);
         assert_eq!(Route::parse(""), Route::Home);
         assert_eq!(Route::parse("#/"), Route::Home);
         assert_eq!(Route::parse("#/nope"), Route::NotFound("nope".into()));

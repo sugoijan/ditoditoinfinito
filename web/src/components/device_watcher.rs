@@ -64,6 +64,9 @@ pub(crate) struct DeviceWatcher {
     /// The devices (audio and display ids) "later" was said for.
     dismissed_for: Option<(String, String)>,
     probing: bool,
+    /// A probe waits for a gesture (its context held back, and the
+    /// browser not letting it start before one).
+    probe_pending: bool,
     _gesture: Vec<EventListener>,
     _devicechange: Option<EventListener>,
     _dpr: Option<(web_sys::MediaQueryList, EventListener)>,
@@ -87,8 +90,13 @@ impl Component for DeviceWatcher {
         if let Some(document) = web_sys::window().and_then(|w| w.document()) {
             for ev in ["click", "keydown"] {
                 let l = link.clone();
-                gesture.push(EventListener::new(&document, ev, move |_| {
-                    l.send_message(Msg::Gesture)
+                gesture.push(EventListener::new(&document, ev, move |e| {
+                    // Only a user activation (not a modifier or Escape
+                    // alone): a context asked to start outside one is
+                    // refused, and Firefox says so.
+                    if crate::web::autoplay::activated(e) {
+                        l.send_message(Msg::Gesture)
+                    }
                 }));
             }
         }
@@ -123,6 +131,7 @@ impl Component for DeviceWatcher {
             dismissed: later::load().is_some(),
             dismissed_for: later::load().flatten(),
             probing: false,
+            probe_pending: false,
             _gesture: gesture,
             _devicechange: devicechange,
             _dpr: dpr,
@@ -143,6 +152,9 @@ impl Component for DeviceWatcher {
                     // (a browser that wants a gesture for that): now.
                     if !self.suppressed && !a.running() {
                         a.resume_now();
+                    }
+                    if std::mem::take(&mut self.probe_pending) {
+                        self.probe(ctx);
                     }
                     return false;
                 }
@@ -263,7 +275,7 @@ impl Component for DeviceWatcher {
                 {
                     if suppressed {
                         a.suspend_now();
-                    } else {
+                    } else if crate::web::autoplay::may_start() {
                         a.resume_now();
                     }
                 }
@@ -301,6 +313,12 @@ impl DeviceWatcher {
             return;
         };
         if self.probing {
+            return;
+        }
+        // Held back (a play's, or before any input) and not allowed to
+        // start now: at the next gesture.
+        if !audio.running() && !crate::web::autoplay::may_start() {
+            self.probe_pending = true;
             return;
         }
         self.probing = true;

@@ -3,10 +3,11 @@
 //! [`MovieTrack`] per open one setting its queue's depth and its seeks,
 //! frames shown through `Renderer::add_video`. The web's `movies.rs`
 //! without its browser path: the same schedule rules
-//! (`ddi_library::backgrounds`), lead time and queue depth, so a movie
-//! changes, loops and stops where the web's does.
+//! (`ddi_library::backgrounds`, both layers on the one clock a movie
+//! has), lead time and queue depth, so a movie changes, loops and stops
+//! where the web's does.
 
-use ddi_library::backgrounds::{self, BgImage, BgSegment};
+use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_platform::video::{
     MovieStats, MovieTrack, StopReason, VideoBackend, VideoCodec, VideoContainer, VideoFormat,
     VideoFrame,
@@ -20,8 +21,17 @@ const LEAD_SECONDS: f64 = 2.0;
 /// Frames decoded ahead (the web's).
 const AHEAD: u32 = 3;
 
+/// A decoder moving to another segment of its movie seeks unless the
+/// movie runs on from where it was, within this (a segment following
+/// another of the same file, a cut fade, the other layer taking it over).
+const CONTINUOUS_SECONDS: f64 = 0.1;
+
 struct Open {
+    /// The background layer and the segment of its schedule it plays.
+    layer: usize,
     segment: usize,
+    /// The movie position it was last given.
+    position: f64,
     name: String,
     decoder: DesktopVideo,
     track: MovieTrack,
@@ -51,7 +61,10 @@ pub struct Movies {
     textures: Vec<Texture>,
     ends: Vec<(String, f64)>,
     failed: Vec<(String, String)>,
-    current: Option<usize>,
+    /// Each layer's current segment at the last update.
+    current: [Option<usize>; LAYERS],
+    /// The drawn movie the automatic rule watches, `(layer, segment)`.
+    guard_key: std::cell::Cell<Option<(usize, usize)>>,
     closed: MovieStats,
     /// The first movie's picture probe, and its answer.
     probe: Option<Probe>,
@@ -120,15 +133,32 @@ impl Movies {
         self.host.as_ref().map(VideoHost::status)
     }
 
-    /// The movie segment drawn now (its texture holds a frame of this run).
-    pub fn drawing(&self, schedule: &[BgSegment]) -> Option<usize> {
-        let current = self.current?;
-        let BgImage::Movie(name) = &schedule.get(current)?.image else {
-            return None;
-        };
-        self.shown_ids()
-            .any(|(what, _)| what == BgImage::Movie(name.clone()))
-            .then_some(current)
+    /// The movie being drawn now (its texture holds a frame of this run),
+    /// for the automatic setting's rule, as `segment * LAYERS + layer`:
+    /// while the one it named is still drawn it stays, so a change on the
+    /// other layer does not start the rule's warm-up again.
+    pub fn drawing(&self, layers: &[Vec<BgSegment>]) -> Option<usize> {
+        let drawing: Vec<(usize, usize)> = self
+            .current
+            .iter()
+            .enumerate()
+            .filter_map(|(layer, current)| {
+                let current = (*current)?;
+                let BgImage::Movie(name) = &layers.get(layer)?.get(current)?.image else {
+                    return None;
+                };
+                self.shown_ids()
+                    .any(|(what, _)| what == BgImage::Movie(name.clone()))
+                    .then_some((layer, current))
+            })
+            .collect();
+        let key = self
+            .guard_key
+            .get()
+            .filter(|k| drawing.contains(k))
+            .or_else(|| drawing.first().copied());
+        self.guard_key.set(key);
+        key.map(|(layer, segment)| segment * LAYERS + layer)
     }
 
     pub fn turn_off(&mut self, reason: StopReason) {
@@ -195,7 +225,8 @@ impl Movies {
             t.fresh = false;
         }
         self.failed.clear();
-        self.current = None;
+        self.current = [None; LAYERS];
+        self.guard_key.set(None);
         self.paused = false;
         if self
             .host
@@ -235,89 +266,111 @@ impl Movies {
     }
 
     /// Opens, feeds and closes decoders for song second `t`, and shows
-    /// the frame due.
+    /// the frames due; `layers` the background layers' schedules.
     pub fn update(
         &mut self,
-        schedule: &[BgSegment],
+        layers: &[Vec<BgSegment>],
         t: f64,
         renderer: &mut Renderer,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        if schedule.is_empty() || self.sources.is_empty() || self.off.is_some() || self.paused {
+        if layers.iter().all(Vec::is_empty)
+            || self.sources.is_empty()
+            || self.off.is_some()
+            || self.paused
+        {
             return;
         }
-        let current = backgrounds::state_at(schedule, t).current;
-        if self.current != Some(current) {
-            self.current = Some(current);
-            if let BgImage::Movie(name) = &schedule[current].image
-                && schedule[current].effect.restarts()
-            {
-                self.set_fresh(name, false);
+        // Each layer's current segment, and the movie segments to decode
+        // (a file current on both layers once).
+        let movies = backgrounds::movie_segments_at(layers, t, LEAD_SECONDS);
+        let currents = movies.currents;
+        let wanted = movies.wanted;
+        for (layer, current) in currents.iter().enumerate() {
+            let Some(current) = *current else {
+                continue;
+            };
+            if self.current[layer] != Some(current) {
+                self.current[layer] = Some(current);
+                // A movie that starts over shows nothing old meanwhile.
+                let seg = &layers[layer][current];
+                if let BgImage::Movie(name) = &seg.image
+                    && seg.effect.restarts()
+                {
+                    self.set_fresh(name, false);
+                }
             }
         }
-        let next = schedule
-            .iter()
-            .enumerate()
-            .skip(current + 1)
-            .take_while(|(_, s)| s.seconds - t < LEAD_SECONDS)
-            .find(|(_, s)| matches!(s.image, BgImage::Movie(_)))
-            .map(|(i, _)| i);
-        let wanted: Vec<usize> = [Some(current), next]
-            .into_iter()
-            .flatten()
-            .filter(|&i| matches!(schedule[i].image, BgImage::Movie(_)))
-            .collect();
-        for &segment in &wanted {
-            if self.open.iter().any(|o| o.segment == segment) {
+        // A decoder whose segment is no longer wanted moves to its movie's
+        // wanted segment (seeking only where the movie does not run on from
+        // where it was); the others close (a movie fading out stays on its
+        // last frame in its texture).
+        for &(layer, segment) in &wanted {
+            if self
+                .open
+                .iter()
+                .any(|o| (o.layer, o.segment) == (layer, segment))
+            {
                 continue;
             }
-            let BgImage::Movie(name) = &schedule[segment].image else {
+            let BgImage::Movie(name) = &layers[layer][segment].image else {
                 continue;
             };
             if let Some(open) = self
                 .open
                 .iter_mut()
-                .find(|o| o.name == *name && !wanted.contains(&o.segment))
+                .find(|o| o.name == *name && !wanted.contains(&(o.layer, o.segment)))
             {
+                open.layer = layer;
                 open.segment = segment;
-                open.held = None;
-                open.track
-                    .set_looping(backgrounds::movie_loops(schedule, segment));
-                let at = t.max(schedule[segment].seconds);
-                open.track.start(
-                    &mut open.decoder,
-                    backgrounds::movie_position(schedule, segment, at),
-                );
+                let at = t.max(layers[layer][segment].seconds);
+                let position = backgrounds::movie_position_in(layers, layer, segment, at);
+                if (position - open.position).abs() > CONTINUOUS_SECONDS {
+                    open.held = None;
+                    open.track.start(&mut open.decoder, position);
+                }
             }
         }
         let mut i = 0;
         while i < self.open.len() {
-            if wanted.contains(&self.open[i].segment) {
+            if wanted.contains(&(self.open[i].layer, self.open[i].segment)) {
                 i += 1;
             } else {
                 let open = self.open.remove(i);
                 self.close(open);
             }
         }
-        for &segment in &wanted {
-            if !self.open.iter().any(|o| o.segment == segment) {
-                self.open_segment(schedule, segment, t);
+        for &(layer, segment) in &wanted {
+            if !self
+                .open
+                .iter()
+                .any(|o| (o.layer, o.segment) == (layer, segment))
+            {
+                self.open_segment(layers, layer, segment, t);
             }
         }
-        let mut upload = None;
+        let mut uploads = Vec::new();
         let mut early = Vec::new();
         let mut errors = Vec::new();
         for open in &mut self.open {
-            let position = backgrounds::movie_position(schedule, open.segment, t);
+            let position = backgrounds::movie_position_in(layers, open.layer, open.segment, t);
+            // A change on either layer may stop it looping mid-run.
+            open.track.set_looping(backgrounds::movie_loops_in(
+                layers,
+                open.layer,
+                open.segment,
+                t,
+            ));
+            open.position = position;
             let frame = open.track.update(&mut open.decoder, position);
             if let Some(e) = open.track.error() {
                 errors.push((open.name.clone(), e.to_string()));
                 continue;
             }
-            if open.segment == current {
+            if currents[open.layer] == Some(open.segment) {
                 if let Some(frame) = frame.or_else(|| open.held.take()) {
-                    upload = Some((open.name.clone(), frame));
+                    uploads.push((open.name.clone(), frame));
                 }
             } else if let Some(frame) = frame {
                 early.push((open.name.clone(), frame.width, frame.height));
@@ -341,7 +394,7 @@ impl Movies {
         for (name, w, h) in early {
             self.texture(&name, w, h, renderer, device);
         }
-        if let Some((name, frame)) = upload {
+        for (name, frame) in uploads {
             self.upload(&name, &frame, renderer, device, queue);
             self_recycle(&self.host, frame);
         }
@@ -374,7 +427,8 @@ impl Movies {
         }
     }
 
-    fn open_segment(&mut self, schedule: &[BgSegment], segment: usize, t: f64) {
+    fn open_segment(&mut self, layers: &[Vec<BgSegment>], layer: usize, segment: usize, t: f64) {
+        let schedule = &layers[layer];
         let BgImage::Movie(name) = &schedule[segment].image else {
             return;
         };
@@ -402,14 +456,17 @@ impl Movies {
         };
         let mut decoder = self.host().open(path, &name, &format);
         let end = self.ends.iter().find(|(n, _)| *n == name).map(|(_, e)| *e);
-        let mut track = MovieTrack::new(backgrounds::movie_loops(schedule, segment), AHEAD, end);
         let at = t.max(schedule[segment].seconds);
+        let looping = backgrounds::movie_loops_in(layers, layer, segment, at);
+        let mut track = MovieTrack::new(looping, AHEAD, end);
         track.start(
             &mut decoder,
-            backgrounds::movie_position(schedule, segment, at),
+            backgrounds::movie_position_in(layers, layer, segment, at),
         );
         self.open.push(Open {
+            layer,
             segment,
+            position: backgrounds::movie_position_in(layers, layer, segment, at),
             name,
             decoder,
             track,

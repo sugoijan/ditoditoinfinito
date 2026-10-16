@@ -873,6 +873,32 @@ Apple!! "a bit laggy" and once turned it off. What was measured:
   costs them. `__DDI_DEBUG.video` adds `update_ms`, `update_ms_max`,
   `paused` and `guard` (`watching`, `trial`, `excused`).
 
+## Step 9. Movies on the second layer (2026-10-16)
+
+`#BGCHANGES2` plays (PLAN.md decision 48), its movies too. The decks
+(`web/src/movies.rs`, `desktop/src/play/movies.rs`) take both layers'
+schedules and decode what `backgrounds::movie_segments_at` names: each
+layer's current and next movie segment, a file current on both layers
+once (by the segment that started last, whose decoder was readied for its
+start), so one texture per file, as StepMania's texture manager keeps one
+per file. A decoder handed to another segment of its file seeks only when
+the movie does not run on from where it was. Positions come from
+`backgrounds::movie_position_in`: a file shown on both layers advances
+once per layer showing it (StepMania's two sprites each update the shared
+texture's clock), a restarting change on either layer starts it over for
+both (a `MovieTrack` whose position goes back more than
+`SEEK_BACK_SECONDS` within a lap seeks there; it used to hold its frame
+until the position caught up), and a no-loop change on either stops it
+looping from then on, mid-segment too (`movie_loops_in`, set each frame).
+The automatic rule watches one drawn movie and keeps it while it is drawn,
+so a change on the other layer does not start its warm-up again; it pauses
+or turns off both layers' movies. `__DDI_DEBUG.video.layers` gives each
+open decoder's layer (1 or 2). The probe that sets the background frame
+stays the first layer's first movie. The opening still is the first
+layer's only (step 8): a second-layer movie is never the song's picture,
+and shows nothing until its first frame (the first layer shows through),
+where the first layer's would show the song background.
+
 ## Without the module
 
 The app must keep working when `target/video/ddivideo.wasm` is absent

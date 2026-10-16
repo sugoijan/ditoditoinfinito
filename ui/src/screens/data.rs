@@ -55,6 +55,8 @@ pub struct ChartEntry {
     pub name: String,
     /// The player's best on it under the rules in effect, if any.
     pub best: Option<Best>,
+    /// Its content's digest, when known (its kept plays).
+    pub digest: Option<ddi_chart::ChartDigest>,
 }
 
 impl Default for ChartEntry {
@@ -68,6 +70,7 @@ impl Default for ChartEntry {
             index: 0,
             name: String::new(),
             best: None,
+            digest: None,
         }
     }
 }
@@ -116,6 +119,34 @@ pub struct Best {
     /// are the old ones.
     pub pending: bool,
     pub plays: u32,
+    /// The play the score is from (its replay).
+    pub play: String,
+}
+
+/// A kept play of a chart, as song select's plays list shows it
+/// (`docs/plans/play-history.md`, Replays).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PlayRow {
+    /// The play's id (its replay, its results).
+    pub id: String,
+    /// When, in the player's time ("2026-10-16 14:03").
+    pub when: String,
+    pub grade: String,
+    /// As the ruleset scores ("96.77%", "987650").
+    pub score: String,
+    /// The lamp's name and short text ([`Best::lamp`]).
+    pub lamp: String,
+    pub lamp_text: String,
+    /// The rules it was played by ("ITG").
+    pub ruleset: String,
+    /// The options as played ("×2 · reverse · mirror"); empty when not
+    /// known (a play kept before summaries kept them).
+    pub mods: String,
+    pub autoplay: bool,
+    /// The chart's best under the rules chosen now.
+    pub best: bool,
+    /// Waits to be worked out again by today's judge.
+    pub pending: bool,
 }
 
 /// A pack of the song list and what can be done to it.
@@ -397,6 +428,20 @@ pub struct ResultsData {
     pub panel_set: usize,
     /// A note under the footer ("Sample play: …").
     pub note: String,
+    /// A play just played, a replay just watched, or a kept play opened.
+    pub kind: ResultsKind,
+}
+
+/// What a results screen is of (`docs/plans/play-history.md`, Replays).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ResultsKind {
+    /// A play just played: Retry, and its replay once it is kept.
+    #[default]
+    Play,
+    /// A replay just watched: "Watch again".
+    Replay,
+    /// A kept play opened from its list: its replay.
+    Kept,
 }
 
 impl ResultsData {
