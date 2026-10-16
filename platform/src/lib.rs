@@ -122,5 +122,6 @@ pub struct DeviceProfile {
 #[cfg(feature = "decode")]
 pub mod decode;
 pub mod gamepad;
+pub mod history;
 pub mod storage;
 pub mod video;

@@ -22,7 +22,7 @@ use web_sys::{
 };
 
 const NAME: &str = "ddi-library";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// Song records (JSON strings) keyed by song id.
 pub(crate) const SONGS: &str = "songs";
@@ -31,6 +31,13 @@ pub(crate) const SONGS: &str = "songs";
 pub(crate) const FILES: &str = "files";
 /// Imported noteskins (JSON strings) keyed by `<game>/<name>` (version 2).
 pub(crate) const NOTESKINS: &str = "noteskins";
+/// Plays, whole (version 3): keyed by the play's id, an object with the
+/// record (JSON string) and the log and the timing (bytes)
+/// (`crate::history`).
+pub(crate) const PLAYS: &str = "plays";
+/// The plays' summaries (JSON strings) by the same ids, read at start
+/// without the logs (version 3).
+pub(crate) const PLAY_SUMMARIES: &str = "play_summaries";
 
 pub(crate) struct Db(IdbDatabase);
 
@@ -80,19 +87,18 @@ async fn request(req: &IdbRequest) -> Result<JsValue, JsValue> {
             let _ = resolve.call1(&JsValue::NULL, &r.result().unwrap_or(JsValue::UNDEFINED));
         }));
         let r = req.clone();
-        let fail = reject.clone();
         listeners.push(EventListener::once(req, "error", move |_| {
             let e = r.error().ok().flatten().map(JsValue::from);
-            let _ = fail.call1(&JsValue::NULL, &e.unwrap_or(JsValue::UNDEFINED));
+            let _ = reject.call1(&JsValue::NULL, &e.unwrap_or(JsValue::UNDEFINED));
         }));
         // Only open requests fire this: another tab holds an older version
-        // open and has not closed it.
+        // open and has not closed it yet. The open waits for it (the game
+        // closes its connection when a newer version asks); meanwhile the
+        // library says so (`blocked`).
         listeners.push(EventListener::once(req, "blocked", move |_| {
-            let _ = reject.call1(
-                &JsValue::NULL,
-                &JsValue::from_str(
-                    "blocked by another tab with the game open; close it and reload",
-                ),
+            BLOCKED.with(|b| b.set(true));
+            web_sys::console::warn_1(
+                &"the song library waits for another tab with the game open to let go of it".into(),
             );
         }));
     });
@@ -141,15 +147,47 @@ struct Connection {
 
 thread_local! {
     static CONNECTION: RefCell<Option<Connection>> = const { RefCell::new(None) };
+    /// The open under way, which every caller meanwhile waits for (one
+    /// request, one connection).
+    static OPENING: RefCell<Option<Promise>> = const { RefCell::new(None) };
+    /// An open waited for another tab (see [`blocked`]).
+    static BLOCKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether opening the library is waiting for another tab to close its
+/// older connection (it goes on once that tab lets go).
+pub(crate) fn blocked() -> bool {
+    BLOCKED.with(std::cell::Cell::get) && CONNECTION.with(|c| c.borrow().is_none())
 }
 
 impl Db {
-    /// The shared connection, opened on first use.
+    /// The shared connection, opened on first use; callers meanwhile wait
+    /// for the same open.
     pub(crate) async fn open() -> Result<Db, String> {
         if let Some(db) = CONNECTION.with(|c| c.borrow().as_ref().map(|c| c.db.clone())) {
             return Ok(Db(db));
         }
+        let promise = OPENING.with(|o| {
+            o.borrow_mut()
+                .get_or_insert_with(|| {
+                    wasm_bindgen_futures::future_to_promise(async {
+                        let r = Self::open_shared().await;
+                        OPENING.with(|o| o.borrow_mut().take());
+                        r.map(JsValue::from).map_err(|e| JsValue::from_str(&e))
+                    })
+                })
+                .clone()
+        });
+        JsFuture::from(promise)
+            .await
+            .map(|db| Db(db.unchecked_into()))
+            .map_err(|e| e.as_string().unwrap_or_else(|| format!("{e:?}")))
+    }
+
+    /// Opens the connection and keeps it as the shared one.
+    async fn open_shared() -> Result<IdbDatabase, String> {
         let db = Self::open_new().await?;
+        BLOCKED.with(|b| b.set(false));
         // A newer version opened elsewhere (another tab after an update)
         // waits until every old connection closes: close ours right away.
         // `close` fires when the browser drops the connection itself.
@@ -167,7 +205,7 @@ impl Db {
                 _listeners: [on_version, on_close],
             })
         });
-        Ok(Db(db))
+        Ok(db)
     }
 
     async fn open_new() -> Result<IdbDatabase, String> {
@@ -185,7 +223,9 @@ impl Db {
                 return;
             };
             let names = db.object_store_names();
-            for store in [SONGS, FILES, NOTESKINS] {
+            // Only what is missing is created: an upgrade keeps every
+            // store there.
+            for store in [SONGS, FILES, NOTESKINS, PLAYS, PLAY_SUMMARIES] {
                 if !names.contains(store) {
                     let _ = db.create_object_store(store);
                 }
@@ -273,6 +313,47 @@ impl Db {
             .unwrap_or_default()
             .into_iter()
             .filter_map(|k| k.as_string())
+            .collect())
+    }
+
+    /// Up to `limit` (key, value) pairs of a store in key order, after
+    /// `after` (from the first with none): a store read a batch at a time.
+    pub(crate) async fn entries_after(
+        &self,
+        store: &str,
+        after: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<(String, JsValue)>, String> {
+        let tx = self.transaction(&[store], IdbTransactionMode::Readonly)?;
+        let range: JsValue = match after {
+            Some(k) => IdbKeyRange::lower_bound_with_open(&JsValue::from_str(k), true)
+                .map_err(|e| err("range", e))?
+                .into(),
+            None => JsValue::UNDEFINED,
+        };
+        let (keys, values) = tx
+            .object_store(store)
+            .and_then(|s| {
+                Ok((
+                    s.get_all_keys_with_key_and_limit(&range, limit)?,
+                    s.get_all_with_key_and_limit(&range, limit)?,
+                ))
+            })
+            .map_err(|e| err("getAll", e))?;
+        complete(&tx)
+            .await
+            .map_err(|e| err(&format!("reading {store}"), e))?;
+        let array = |r: &IdbRequest| {
+            r.result()
+                .ok()
+                .and_then(|v| v.dyn_into::<Array>().ok())
+                .map(|a| a.to_vec())
+                .unwrap_or_default()
+        };
+        Ok(array(&keys)
+            .into_iter()
+            .zip(array(&values))
+            .filter_map(|(k, v)| Some((k.as_string()?, v)))
             .collect())
     }
 

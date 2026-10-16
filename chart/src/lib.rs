@@ -8,12 +8,14 @@
 //!
 //! See `docs/PLAN.md` §3.2.
 
+pub mod digest;
 pub mod formats;
 pub mod layout;
 pub mod model;
 pub mod song_ext;
 pub mod timing;
 
+pub use digest::ChartDigest;
 pub use layout::{BUILTIN_LAYOUTS, Glyph, Lane, Layout, LayoutFamily, PLAYED_DANONI_MODES};
 pub use model::{
     Chart, Color, DanoniChart, Difficulty, DisplayBpm, EffectEvent, EffectTime, Note, NoteKind,

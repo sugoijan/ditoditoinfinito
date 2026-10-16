@@ -120,6 +120,10 @@ fn release_play_background() {
 
 pub(crate) enum Msg {
     GfxReady(Result<Box<GameLoop>, String>),
+    /// The history kept the play, or why it could not.
+    PlaySaved(Result<(), String>),
+    /// The results waited long enough for the play to be kept.
+    SaveWaited,
     /// The app's device was lost and made again.
     DeviceLost,
     /// Escape/Backspace outside of play: leave the screen.
@@ -254,7 +258,25 @@ pub(crate) struct GameCanvas {
     /// When the results' Retry brought the start prompt back (ms, the
     /// page's clock): a click right after it is the tap's, not a start.
     retried_at: f64,
+    /// The display's refresh rate as the play started (for the history).
+    start_refresh: f64,
+    /// Keeping the play: not asked, under way (the results wait a moment
+    /// for it), or done (why it failed, if it did).
+    save: Save,
+    _save_wait: Option<gloo::timers::callback::Timeout>,
 }
+
+/// Where keeping the play in the history is.
+#[derive(Clone, Debug, PartialEq)]
+enum Save {
+    NotAsked,
+    Pending,
+    Done(Option<String>),
+}
+
+/// How long the results wait for the play to be kept, ms (it takes a few;
+/// a library waiting for another tab would take longer).
+const SAVE_WAIT_MS: u32 = 1000;
 
 enum Status<T> {
     Pending,
@@ -297,7 +319,10 @@ impl Component for GameCanvas {
 
     fn create(ctx: &Context<Self>) -> Self {
         match ctx.props().source.clone() {
-            SongSource::Song { id, chart } => load(ctx, id, chart),
+            SongSource::Song { id, chart } => {
+                crate::history::set_current(Some(&id));
+                load(ctx, id, chart)
+            }
             SongSource::Calibration(mode) => {
                 let song = calibration::song(mode);
                 // Drawn with the chosen arrows, as a song is, readied
@@ -407,6 +432,9 @@ impl Component for GameCanvas {
             rules: None,
             song_length: 0.0,
             retried_at: f64::NEG_INFINITY,
+            start_refresh: 0.0,
+            save: Save::NotAsked,
+            _save_wait: None,
         }
     }
 
@@ -501,6 +529,10 @@ impl Component for GameCanvas {
                 true
             }
             Msg::SongLoaded(Ok(song)) => {
+                // The chart is at hand: its stale plays are judged again.
+                if let SongSource::Song { id, .. } = &ctx.props().source {
+                    crate::history::chart_loaded(id, &song.song);
+                }
                 self.song = Status::Ready(song);
                 true
             }
@@ -718,9 +750,18 @@ impl Component for GameCanvas {
             }
             Msg::Session(SessionEvent::Finished {
                 results,
+                facts,
                 calibration,
                 device_changed,
             }) => {
+                crate::history::set_playing(false);
+                // A song's play is kept (a failed one already was, when it
+                // failed); a calibration's is not.
+                if let SongSource::Song { id, chart } = &ctx.props().source
+                    && self.save == Save::NotAsked
+                {
+                    self.record_play(ctx, id, *chart, &results, *facts);
+                }
                 let (video_stopped, video_trouble) = self
                     .game
                     .try_borrow()
@@ -738,11 +779,38 @@ impl Component for GameCanvas {
                     video_trouble,
                 };
                 if matches!(ctx.props().source, SongSource::Song { .. }) {
-                    self.show_results(ctx);
+                    if self.save == Save::Pending {
+                        // A moment for the play to be kept, so the results
+                        // can say when it could not.
+                        let link = ctx.link().clone();
+                        self._save_wait = Some(gloo::timers::callback::Timeout::new(
+                            SAVE_WAIT_MS,
+                            move || link.send_message(Msg::SaveWaited),
+                        ));
+                    } else {
+                        self.show_results(ctx);
+                    }
                 }
                 true
             }
+            Msg::Session(SessionEvent::Failed { results, facts }) => {
+                // Final now: kept even if a quit or an interruption cuts
+                // the fail's hold short.
+                if let SongSource::Song { id, chart } = &ctx.props().source
+                    && self.save == Save::NotAsked
+                {
+                    self.record_play(ctx, id, *chart, &results, *facts);
+                }
+                false
+            }
+            Msg::PlaySaved(r) => {
+                self.save = Save::Done(r.err());
+                self.show_waiting_results(ctx)
+            }
+            Msg::SaveWaited => self.show_waiting_results(ctx),
             Msg::Session(SessionEvent::Aborted) => {
+                // A quit is not a play (not kept).
+                crate::history::set_playing(false);
                 self.stage = Stage::Aborted;
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
@@ -754,6 +822,7 @@ impl Component for GameCanvas {
                 true
             }
             Msg::Session(SessionEvent::Interrupted) => {
+                crate::history::set_playing(false);
                 self.stage = Stage::Interrupted;
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
@@ -896,9 +965,14 @@ impl Component for GameCanvas {
                     *device_changed,
                     link,
                 ),
-                // The theme's results on the canvas; a plain card only
-                // should it not start.
-                (SongSource::Song { .. }, _) if self.results.is_some() => html! {},
+                // The theme's results on the canvas (or a moment's wait
+                // for the play to be kept); a plain card only should it
+                // not start.
+                (SongSource::Song { .. }, _)
+                    if self.results.is_some() || self._save_wait.is_some() =>
+                {
+                    html! {}
+                }
                 (SongSource::Song { .. }, _) => html! {
                     <div class="canvas-overlay results">
                         <div class="results-card">
@@ -965,6 +1039,8 @@ impl Component for GameCanvas {
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
+        crate::history::set_playing(false);
+        crate::history::set_current(None);
         self.close_results();
         release_play_background();
         for (_, image) in self.backgrounds.drain(..) {
@@ -1174,6 +1250,9 @@ impl GameCanvas {
                     .filter(|t| !t.is_empty())
                     .zip(self.lyrics.cast::<HtmlElement>())
                     .map(|(track, el)| LyricsView::new(track, el));
+                self.start_refresh = self.refresh_hz();
+                self.save = Save::NotAsked;
+                crate::history::set_playing(true);
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.set_video(
                         self.settings.video,
@@ -1259,7 +1338,132 @@ impl GameCanvas {
     }
 }
 
+/// A setting's name as stored (`"quantized"`).
+fn setting_name(v: &impl serde::Serialize) -> String {
+    match serde_json::to_value(v) {
+        Ok(serde_json::Value::String(s)) => s,
+        Ok(other) => other.to_string(),
+        Err(_) => String::new(),
+    }
+}
+
 impl GameCanvas {
+    /// Keeps the play just ended in the history (`crate::history`): what
+    /// it was of, every parameter it ran with, its log and its timing.
+    fn record_play(
+        &mut self,
+        ctx: &Context<Self>,
+        id: &str,
+        chart: usize,
+        results: &Results,
+        facts: crate::play::PlayFacts,
+    ) {
+        use ddi_ui::state::history::{
+            Autoplay, ChartKey, ClockSetup, Device, DrawSetup, Ending, OffsetSource, PlayRecord,
+            PlaySetup, RECORD_VERSION,
+        };
+        let Status::Ready(song) = &self.song else {
+            return;
+        };
+        // The chart as stored (the song offset is kept apart).
+        if chart >= song.song.charts.len() {
+            return;
+        }
+        let digest = song.song.chart_digest(chart);
+        let settings = &self.settings;
+        let source = |p: Option<&crate::settings::OffsetProfile>| match p {
+            Some(p) if p.calibrated => OffsetSource::Calibrated,
+            Some(_) => OffsetSource::Profile,
+            None => OffsetSource::Default,
+        };
+        let devices = self.devices.as_ref();
+        let clock = ClockSetup {
+            audio_offset: facts.options.clock.audio_offset,
+            audio_source: source(devices.and_then(|d| settings.audio_profile(&d.audio.id))),
+            visual_offset: facts.options.clock.visual_offset,
+            visual_source: source(devices.and_then(|d| settings.display_profile(&d.display.id))),
+            audio: devices.map(|d| Device {
+                id: d.audio.id.clone(),
+                label: d.audio.label.clone(),
+            }),
+            display: devices.map(|d| Device {
+                id: d.display.id.clone(),
+                label: d.display.label.clone(),
+            }),
+            output_latency: facts.output_latency,
+            sample_rate: facts.sample_rate,
+            refresh_hz: self.start_refresh,
+            latency_min: facts.latency_min,
+            latency_max: facts.latency_max,
+        };
+        let drawn = DrawSetup {
+            noteskin: settings.noteskin.clone(),
+            note_colors: setting_name(&settings.note_colors),
+            chart_colors: settings.chart_colors,
+            field_filter: settings.field_filter,
+            bg_brightness: settings.bg_brightness,
+            background_frame: setting_name(&settings.background_frame),
+            video: setting_name(&settings.video),
+            show_deltas: settings.show_deltas,
+            graphics: crate::web::screen::current()
+                .map(|g| g.backend_name().to_string())
+                .unwrap_or_default(),
+        };
+        let props = ctx.props();
+        let record = PlayRecord {
+            version: RECORD_VERSION,
+            chart: ChartKey {
+                song: id.to_string(),
+                digest,
+                index: chart as u32,
+            },
+            ruleset: facts.ruleset,
+            options: facts.options,
+            song_offset: self.played_offset,
+            setup: PlaySetup {
+                clock,
+                drawn,
+                inputs: facts.inputs,
+            },
+            // As stored, so fields this version does not know are kept.
+            settings: ddi_platform::storage::get(
+                ddi_platform::storage::Area::Local,
+                ddi_ui::state::settings::KEY,
+            )
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| serde_json::to_value(settings).unwrap_or_default()),
+            ended: if results.failed {
+                Ending::Failed
+            } else {
+                Ending::Finished
+            },
+            autoplay: props.auto.then_some(Autoplay {
+                pad: props.auto_pad,
+                bias: props.auto_bias,
+            }),
+            time: js_sys::Date::now(),
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
+        };
+        self.save = Save::Pending;
+        let link = ctx.link().clone();
+        crate::history::record(&record, &facts.log, results, move |r| {
+            link.send_message(Msg::PlaySaved(r))
+        });
+    }
+
+    /// The results that waited for the play to be kept, if they did.
+    fn show_waiting_results(&mut self, ctx: &Context<Self>) -> bool {
+        if self._save_wait.take().is_none() || self.results.is_some() {
+            return false;
+        }
+        if !matches!(self.stage, Stage::Finished { .. }) {
+            return false;
+        }
+        self.show_results(ctx);
+        // The page drops what the play showed over the canvas.
+        true
+    }
+
     /// The theme's results for the song just played, on the canvas
     /// (`ddi_ui::screens::results`): the play's frames stop, the screen
     /// takes the canvas, the keys and the pads until Retry or Song list.
@@ -1330,6 +1534,9 @@ impl GameCanvas {
         }
         if let Some(why) = video_trouble {
             video_notes.push(format!("{why}; the song background showed."));
+        }
+        if let Save::Done(Some(e)) = &self.save {
+            video_notes.push(format!("This play could not be saved: {e}."));
         }
         let data = results_data(&PlayInfo {
             results,

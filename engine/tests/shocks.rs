@@ -126,6 +126,7 @@ fn play(
         at(now, &player);
     }
     assert!(player.finished());
+    replays_alike(&song, &player);
     (player, events.into_iter().map(|e| e.kind).collect())
 }
 
@@ -242,4 +243,20 @@ fn on_double_a_shock_is_all_eight_lanes() {
         (player.score_ctx().shocks, player.score_ctx().mines),
         (0, 12)
     );
+}
+
+/// The play judged again from its log ([`ddi_engine::history`]) gives
+/// the same results, under its ruleset and, when the ruleset is one a key
+/// builds (not tuned by the test), under its key.
+fn replays_alike(song: &Song, player: &Player) {
+    use ddi_engine::history::{replay, replay_with};
+    assert!(player.finished());
+    let ruleset = player.ruleset();
+    let again = replay_with(song, 0, ruleset.fresh(), player.options(), player.log());
+    assert_eq!(again, player.results());
+    let built = ruleset.key().build(&song.charts[0]);
+    if format!("{built:?}") == format!("{ruleset:?}") && built.fail == ruleset.fail {
+        let again = replay(song, 0, &ruleset.key(), player.options(), player.log());
+        assert_eq!(again, player.results());
+    }
 }

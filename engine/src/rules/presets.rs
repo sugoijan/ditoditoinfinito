@@ -110,6 +110,7 @@ pub fn itg() -> Ruleset {
             "Held",
             "Let Go",
         ),
+        danoni: None,
     }
 }
 
@@ -169,6 +170,7 @@ pub fn calibration() -> Ruleset {
         fail: FailPolicy::Off,
         grades: grades(GradeBasis::Percent, &[("", 0.0)]),
         names: JudgeNames::new(["hit", "", "", "", "", "miss"], "", ""),
+        danoni: None,
     }
 }
 
@@ -241,6 +243,7 @@ pub fn sm5() -> Ruleset {
             "OK",
             "NG",
         ),
+        danoni: None,
     }
 }
 
@@ -317,6 +320,7 @@ pub fn ddr_a() -> Ruleset {
             "O.K.",
             "N.G.",
         ),
+        danoni: None,
     }
 }
 
@@ -353,7 +357,7 @@ impl RulesetMode {
 }
 
 /// How the StepMania presets keep holds (`docs/plans/pump.md`).
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HoldStyle {
     /// Ticked on pump charts (StepMania's pump game), dance-style on the
     /// rest.

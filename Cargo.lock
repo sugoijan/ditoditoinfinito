@@ -689,6 +689,7 @@ dependencies = [
  "ddi-library",
  "ddi-platform",
  "serde",
+ "serde_json",
  "taffy",
  "unicode-segmentation",
 ]

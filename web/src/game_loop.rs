@@ -590,6 +590,10 @@ impl GameLoop {
             && !self.done
         {
             let (_events, event) = session.tick(host_now);
+            // A fail is told at once (the play goes on to its end).
+            if let Some(failed) = session.take_fail_report() {
+                self.on_event.emit(failed);
+            }
             outcome = event;
         }
 

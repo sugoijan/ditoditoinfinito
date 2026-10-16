@@ -12,6 +12,7 @@ mod calibration;
 mod components;
 mod crash;
 mod game_loop;
+mod history;
 mod import;
 mod lyrics;
 mod menu;
@@ -33,6 +34,8 @@ pub fn start() {
     web::kv::install();
     // The app's canvas and device, made once for every route.
     web::screen::boot();
+    // The play history's summaries, and stale ones worked out again.
+    history::start();
     let document = web_sys::window()
         .and_then(|window| window.document())
         .expect("document must exist");

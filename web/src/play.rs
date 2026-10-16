@@ -158,6 +158,12 @@ pub(crate) struct PlaySession {
     _device_listeners: Vec<EventListener>,
     _dpr_query: Option<web_sys::MediaQueryList>,
     pub(crate) devices: Option<DeviceProfile>,
+    /// The devices whose presses reached a lane.
+    inputs: Vec<ddi_ui::state::history::InputDevice>,
+    /// The output latency at the start, and its range over the play.
+    latency: (f64, f64, f64),
+    /// The fail's report, until the game loop takes it.
+    fail_report: Option<SessionEvent>,
 }
 
 /// Which cue a simulated player follows. In calibration it plays as a
@@ -220,12 +226,39 @@ fn schedule_fake_pad(host: HostTime, control: &str, pressed: bool) {
     }
 }
 
+/// What the play history keeps of a play beyond its results
+/// (`crate::history`).
+pub(crate) struct PlayFacts {
+    /// Every press and release as judged.
+    pub(crate) log: ddi_ui::state::history::PlayLog,
+    /// The options as played (the seed and the speed included).
+    pub(crate) options: PlayOptions,
+    pub(crate) ruleset: ddi_ui::state::history::RulesetKey,
+    /// The devices whose presses reached a lane.
+    pub(crate) inputs: Vec<ddi_ui::state::history::InputDevice>,
+    /// The output latency as the play started, and its range over the
+    /// play, seconds.
+    pub(crate) output_latency: f64,
+    pub(crate) latency_min: f64,
+    pub(crate) latency_max: f64,
+    pub(crate) sample_rate: f64,
+}
+
 pub(crate) enum SessionEvent {
     Finished {
         results: Box<Results>,
+        facts: Box<PlayFacts>,
         calibration: Option<Outcome>,
         /// An audio device or the display changed during the play.
         device_changed: bool,
+    },
+    /// The play failed (immediate fail): its results are final, the
+    /// session goes on to show it (`Finished` follows after the hold,
+    /// unless a quit or an interruption comes first). The history keeps
+    /// the play now.
+    Failed {
+        results: Box<Results>,
+        facts: Box<PlayFacts>,
     },
     /// The player pressed Escape.
     Aborted,
@@ -371,6 +404,11 @@ impl PlaySession {
             via_pad,
         });
         let sample = audio.now();
+        let latency = (
+            sample.output_latency,
+            sample.output_latency,
+            sample.output_latency,
+        );
         player.clock_sample(sample);
         let start_ctx = sample.context_time + START_LOOKAHEAD;
         // A work may start part-way into its music (`startFrame`) and end
@@ -482,6 +520,9 @@ impl PlaySession {
             _device_listeners: device_listeners,
             _dpr_query: dpr_query,
             devices: config.devices,
+            inputs: Vec::new(),
+            latency,
+            fail_report: None,
         })
     }
 
@@ -518,7 +559,10 @@ impl PlaySession {
         self.last_frame_host = Some(host_now.0);
         self.player.set_frame_interval(self.frame_interval);
 
-        self.player.clock_sample(self.audio.now());
+        let sample = self.audio.now();
+        self.latency.1 = self.latency.1.min(sample.output_latency);
+        self.latency.2 = self.latency.2.max(sample.output_latency);
+        self.player.clock_sample(sample);
 
         self.raw.clear();
         if let Some(kb) = self.keyboard.as_mut() {
@@ -578,6 +622,7 @@ impl PlaySession {
                 continue;
             }
             if let Some(ev) = self.input.feed(&raw) {
+                self.note_device(&raw.device);
                 self.apply(ev, &mut events);
             }
         }
@@ -673,6 +718,13 @@ impl PlaySession {
         // blank; fade the music and hold the FAILED banner before the results.
         if self.player.failed() && self.failed_at.is_none() {
             self.failed_at = Some(host_now.0);
+            // Final now: kept even if the hold is cut short.
+            if self.calibration.is_none() {
+                self.fail_report = Some(SessionEvent::Failed {
+                    results: Box::new(self.player.results()),
+                    facts: Box::new(self.facts()),
+                });
+            }
             self.audio.fade_out(FAIL_FADE);
             self.keyboard = None;
             self.touch = None;
@@ -689,6 +741,7 @@ impl PlaySession {
                 self.audio_stop();
                 SessionEvent::Finished {
                     results: Box::new(self.player.results()),
+                    facts: Box::new(self.facts()),
                     calibration: None,
                     device_changed: self.device_changed.get(),
                 }
@@ -719,9 +772,44 @@ impl PlaySession {
         (events, outcome)
     }
 
+    /// The play's fail, once, when it happened ([`SessionEvent::Failed`]).
+    pub(crate) fn take_fail_report(&mut self) -> Option<SessionEvent> {
+        self.fail_report.take()
+    }
+
+    /// What the history keeps of the play.
+    fn facts(&self) -> PlayFacts {
+        PlayFacts {
+            log: self.player.log().clone(),
+            options: *self.player.options(),
+            ruleset: self.rules.key(),
+            inputs: self.inputs.clone(),
+            output_latency: self.latency.0,
+            latency_min: self.latency.1,
+            latency_max: self.latency.2,
+            sample_rate: f64::from(self.audio.context().sample_rate()),
+        }
+    }
+
+    fn note_device(&mut self, device: &DeviceId) {
+        use ddi_ui::state::history::InputDevice;
+        let d = match device {
+            DeviceId::Keyboard => InputDevice::Keyboard,
+            DeviceId::Touch => InputDevice::Touch,
+            DeviceId::Gamepad(model) => InputDevice::Pad {
+                model: model.clone(),
+            },
+            DeviceId::Other(name) => InputDevice::Other { name: name.clone() },
+        };
+        if !self.inputs.contains(&d) {
+            self.inputs.push(d);
+        }
+    }
+
     fn finished_event(&self) -> SessionEvent {
         SessionEvent::Finished {
             results: Box::new(self.player.results()),
+            facts: Box::new(self.facts()),
             calibration: self.calibration_outcome(),
             device_changed: self.device_changed.get(),
         }

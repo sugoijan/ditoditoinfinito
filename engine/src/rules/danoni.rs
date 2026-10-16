@@ -36,7 +36,7 @@ const EXCESSIVE_FACTOR: f64 = 0.25;
 
 /// danoniplus's selectable judge ranges (`g_judgRanges`,
 /// `danoni_constants.js` 1149–1154).
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum JudgeRange {
     #[default]
     Normal,
@@ -92,7 +92,7 @@ fn frames(k: u32) -> Window {
 }
 
 /// The player's Dancing☆Onigiri options.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DanoniOptions {
     /// Gauge name (`Original`, `Normal`, a chart's custom one); `None`, or
@@ -809,6 +809,9 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
             "O.K.",
             "N.G.",
         ),
+        // Without a chart: danoniplus's defaults for none in particular
+        // ([`super::presets::danoni`]), which a key builds again so.
+        danoni: chart.map(|_| options.clone()),
     }
 }
 

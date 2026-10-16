@@ -209,6 +209,9 @@ fn run_script(
             next += 1;
         }
     }
+    if player.finished() {
+        replays_alike(song, &player);
+    }
     Run { events, player }
 }
 
@@ -1493,7 +1496,14 @@ fn results_keep_every_judgement_and_the_life() {
         let r = run.player.results();
         assert_eq!(r.timeline.len(), run.events.len(), "{name}");
         for (j, e) in r.timeline.iter().zip(&run.events) {
-            assert_eq!((j.lane, j.kind), (e.lane, e.kind), "{name}");
+            // A tap's offset kept to the microsecond.
+            let same = match (j.kind, e.kind) {
+                (JudgeEventKind::Tap(a, da), JudgeEventKind::Tap(b, db)) => {
+                    a == b && (da - db).abs() <= 0.5e-6
+                }
+                (a, b) => a == b,
+            };
+            assert!(j.lane == e.lane && same, "{name}: {j:?} {e:?}");
             assert!(close(f64::from(j.time), e.song_time, 1e-4), "{name}");
         }
         // Per lane, the tiers add up to the tally; a per-row ruleset
@@ -1547,11 +1557,11 @@ fn results_keep_every_judgement_and_the_life() {
     );
 }
 
-/// A press judged before an update that then declares an earlier note
-/// missed, stamped before the press: the life over the song stays in time
-/// order.
+/// A press after an earlier note's late window, before any update that
+/// would see it: the press first judges what happened by its time (the
+/// miss), so the events and the life over the song stay in time order.
 #[test]
-fn life_stays_in_time_order_when_a_miss_is_declared_after_a_press() {
+fn a_press_judges_the_misses_before_it_first() {
     // 240 BPM: a beat is 0.25 s; notes at 1.0 s (lane 0, left alone) and
     // 1.25 s (lane 1).
     let song = song(
@@ -1569,14 +1579,26 @@ fn life_stays_in_time_order_when_a_miss_is_declared_after_a_press() {
     });
     player.start(0.0, 0.0);
     let mut events = player.update(HostTime(1.15));
-    // The second note pressed at 1.2 s (judged now)…
+    // The second note pressed at 1.2 s: the first is missed on the way,
+    // at its late window (about 1.18 s), before the press.
     events.extend(player.input(InputEvent {
         lane: 1,
         pressed: true,
         host_time: HostTime(1.2),
     }));
-    // …then the update declares the first missed, stamped at its late
-    // window (about 1.18 s).
+    assert!(matches!(
+        events.as_slice(),
+        [
+            JudgeEvent {
+                kind: JudgeEventKind::Tap(Judgement::Miss, _),
+                ..
+            },
+            JudgeEvent {
+                kind: JudgeEventKind::Tap(Judgement::W3, _),
+                ..
+            }
+        ]
+    ));
     events.extend(player.update(HostTime(1.3)));
     let kinds: Vec<_> = events.iter().map(|e| (e.song_time, e.kind)).collect();
     assert!(
@@ -1587,10 +1609,26 @@ fn life_stays_in_time_order_when_a_miss_is_declared_after_a_press() {
         "{kinds:?}"
     );
     let r = player.results();
-    assert!(r.life.len() >= 3, "{:?}", r.life);
+    assert!(r.life.len() >= 2, "{:?}", r.life);
     assert!(
         r.life.windows(2).all(|w| w[0][0] <= w[1][0]),
         "{:?}",
         r.life
     );
+}
+
+/// The play judged again from its log ([`ddi_engine::history`]) gives
+/// the same results, under its ruleset and, when the ruleset is one a key
+/// builds (not tuned by the test), under its key.
+fn replays_alike(song: &Song, player: &Player) {
+    use ddi_engine::history::{replay, replay_with};
+    assert!(player.finished());
+    let ruleset = player.ruleset();
+    let again = replay_with(song, 0, ruleset.fresh(), player.options(), player.log());
+    assert_eq!(again, player.results());
+    let built = ruleset.key().build(&song.charts[0]);
+    if format!("{built:?}") == format!("{ruleset:?}") && built.fail == ruleset.fail {
+        let again = replay(song, 0, &ruleset.key(), player.options(), player.log());
+        assert_eq!(again, player.results());
+    }
 }

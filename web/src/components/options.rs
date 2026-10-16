@@ -107,6 +107,9 @@ pub(crate) enum Msg {
     AskReset(Reset),
     Reset(Reset),
     ResetDone(Reset, Result<(), String>),
+    /// Download the play history (`crate::history::export`).
+    ExportPlays,
+    PlaysExported(Result<usize, String>),
 }
 
 /// What a reset button clears.
@@ -140,6 +143,8 @@ pub(crate) struct Options {
     confirm: Option<Reset>,
     /// Result of the last reset.
     notice: Option<String>,
+    /// Result of the last export of the play history.
+    plays_notice: Option<String>,
     gamepads: Option<Gamepads>,
     /// Connected controllers `(id, standard mapping, count)`; identical
     /// controllers share an id and their bindings.
@@ -211,6 +216,7 @@ impl Component for Options {
             preview_layout: "dance-single".into(),
             confirm: None,
             notice: None,
+            plays_notice: None,
             gamepads,
             connected: Vec::new(),
             connected_pads: Vec::new(),
@@ -295,6 +301,19 @@ impl Component for Options {
                     ctx.link()
                         .send_future(async move { Msg::ResetDone(r, clear_imported().await) });
                 }
+                return true;
+            }
+            Msg::ExportPlays => {
+                let link = ctx.link().clone();
+                crate::history::export(move |r| link.send_message(Msg::PlaysExported(r)));
+                return false;
+            }
+            Msg::PlaysExported(r) => {
+                self.plays_notice = Some(match r {
+                    Ok(1) => "1 play exported.".into(),
+                    Ok(n) => format!("{n} plays exported."),
+                    Err(e) => format!("Could not export the plays: {e}"),
+                });
                 return true;
             }
             Msg::ResetDone(r, result) => {
@@ -641,6 +660,7 @@ impl Component for Options {
                     </p>
                 </section>
                 { self.controls_section(link) }
+                { self.history_section(link) }
                 { self.reset_section(link) }
                 <p><a href={Route::Home.to_hash()}>{ "← back" }</a></p>
                 { for self.binding.clone().map(|device| html! {
@@ -1096,6 +1116,24 @@ impl Options {
                 <span class="muted">{ db }</span>
                 { sample }
             </div>
+        }
+    }
+
+    /// The play history: how many plays are kept, and the export.
+    fn history_section(&self, link: &html::Scope<Self>) -> Html {
+        let count = crate::history::plays().history().len();
+        let kept = match count {
+            0 => "No plays kept yet.".to_string(),
+            1 => "1 play kept in this browser.".to_string(),
+            n => format!("{n} plays kept in this browser."),
+        };
+        html! {
+            <section>
+                <h2>{ "Play history" }</h2>
+                <p class="muted">{ kept }{ " Every song played to the end or failed is kept, with what it was played with and every press, so its score can be worked out again." }</p>
+                <button class="export-plays" onclick={link.callback(|_| Msg::ExportPlays)}>{ "export play history" }</button>
+                { for self.plays_notice.as_ref().map(|n| html! { <p>{ n }</p> }) }
+            </section>
         }
     }
 

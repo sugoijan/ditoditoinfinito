@@ -84,13 +84,16 @@ the browser are implementation details, not advertised features.
   device for the whole app (`web/src/web/screen.rs`: made at boot, moved
   into the page that draws, made again after a lost device), Web Audio
   clock, settings in `localStorage` (`web/src/web/kv.rs`), imported songs
-  in IndexedDB. Compiles for `wasm32-unknown-unknown` only (empty when
+  and the play history in IndexedDB (`ddi-library` version 3; the plays in
+  `plays` and `play_summaries`, `web/src/history.rs`,
+  `docs/plans/play-history.md`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
 - `desktop/` the desktop shell (`ddi-desktop`, run by `app` natively:
   `cargo run -- [--screen select|results|options | --dev | --widgets]
   [--seconds N]`): a winit window drawing the UI
   core through `render`'s painter with cosmic-text and system fonts,
-  settings in `storage.json` in the user's config folder, file dialogs
+  settings in `storage.json` in the user's config folder (the play
+  history beside it, two files a play in `plays/`), file dialogs
   (rfd), clipboard (arboard), banners and backgrounds decoded from
   `assets/` (`image`). So far it runs the theme's screens on sample data
   (song select by default, `--screen` for another) and the developer
@@ -129,11 +132,13 @@ the browser are implementation details, not advertised features.
   library with `nfkd`, actor, ui, theme, noteskin, lua, desktop, xtask). The app crate has no native tests; verify it in a browser.
 - `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
   compares every `.sm` under a local folder against the two oracle parsers
-  (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`).
+  (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`;
+  `--test digest local_corpus_digests` checks the chart digests over it).
   Third-party songs used this way stay local.
 - `DDI_AUTOPLAY_CORPUS=<dir>[:<dir>…] cargo test --release -p ddi-engine --test local_autoplay -- --nocapture`
   autoplays every chart under local folders on ITG, SM5 and DDR A and
-  expects a perfect play (`DDI_AUTOPLAY_FILTER=<text>`,
+  expects a perfect play, judged again from its input log to the same
+  results (`DDI_AUTOPLAY_FILTER=<text>`,
   `DDI_AUTOPLAY_VERBOSE=1` to see what fell short).
 - `DDI_NOTESKINS=<dir>[:<dir>…] cargo test -p ddi-noteskin --test local_skins -- --nocapture`
   resolves every element of every skin under local `NoteSkins` folders
@@ -209,7 +214,13 @@ gets the compact layout, and `prefers-reduced-motion` (or the
 `reduced_motion` setting) stops the beat pulse.
 `window.__DDI_LOSE_DEVICE()` loses the device (a WebGL2 context too), to test recovery;
 `__DDI_DEBUG` carries the canvas's `screen`, `textures`, `text` and
-`pass2d` counters. Imported songs have ids
+`pass2d` counters, and on every page `history` (the play history:
+`count`, `loaded`, `blocked`, `stale`, `unreadable`, `last` (the latest
+play's summary and `id`), and on the play route, once the chart is
+loaded, `song` and its charts' `bests`). Songs
+played to the end or failed are kept (autoplay flagged, never counted
+toward bests); the Options page's "export play history" downloads them as
+JSON lines. Imported songs have ids
 `u-<hash>` and play through the same route.
 
 Import is tested by setting files on the import panel's inputs (folder or zip)

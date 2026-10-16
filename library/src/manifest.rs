@@ -113,6 +113,12 @@ pub struct ChartInfo {
     /// Judged notes ([`ddi_chart::Chart::judged_note_count`]).
     #[serde(default)]
     pub notes: usize,
+    /// The chart's content ([`ddi_chart::Song::chart_digest`]): what the
+    /// play history keeps its bests by, so a song list shows them without
+    /// reading the chart. Missing in songs imported before it was kept
+    /// (filled when the song's chart is next read).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<ddi_chart::ChartDigest>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -195,6 +201,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
             name: c.name.clone(),
             credit: c.credit.clone(),
             notes: c.judged_note_count(),
+            digest: Some(song.chart_digest(index)),
         })
         .collect();
     ManifestEntry {
@@ -283,6 +290,19 @@ mod tests {
         // pump-couple (two players) has no built-in layout; Easy sorts
         // before Hard.
         assert_eq!(order, [(2, "Easy", 2), (0, "Hard", 4)]);
+        // Each with its content's digest, written as hex and read back.
+        for c in &entry.charts {
+            assert_eq!(c.digest, Some(song.chart_digest(c.index)));
+        }
+        let json = serde_json::to_string(&entry.charts[0]).unwrap();
+        assert!(json.contains(&format!("\"digest\":\"{}\"", song.chart_digest(2))));
+        let back: ChartInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, entry.charts[0]);
+        // Entries from before: none.
+        let old: ChartInfo =
+            serde_json::from_str(r#"{"index":0,"layout":"x","difficulty":"Hard","meter":1}"#)
+                .unwrap();
+        assert_eq!(old.digest, None);
     }
 
     #[test]
