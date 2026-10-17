@@ -31,7 +31,7 @@ under it in section 7:
 | 7.5 Play | done, and its review's fixes |
 | 7.5b Works | done: Dancing☆Onigiri works, layers, lyrics |
 | 7.6 Calibration | done, and its review's fixes |
-| 7.7 Video | done: module under wasmtime; macOS hardware VideoToolbox for checked H.264 AVI, copied planes and module fallback |
+| 7.7 Video | done: module under wasmtime; macOS hardware VideoToolbox for checked H.264 AVI/MP4/Matroska, copied planes and module fallback |
 | 7.8 Windows and Linux | CI on all three; Windows checked from the Mac; the gilrs change waits |
 | 7.9 Docs | done |
 
@@ -43,10 +43,10 @@ under it in section 7:
   misses in late·2 and 4.20 ms mean frame start to estimated shown.
   The report now distinguishes target gaps from observed repeats.
   Fullscreen and direct presentation measurements remain to be checked.
-- OS video: the first macOS slice is implemented (checked H.264 AVI,
-  copied planes, exact seeks and module fallback). Bounded module packet
-  exports and their checked reader are implemented. Next: native use for
-  other containers, then more macOS codecs and Windows.
+- OS video: checked H.264 AVI/MP4/Matroska now use hardware VideoToolbox,
+  with copied planes, exact seeks and module fallback. MP4/Matroska packets
+  come from a bounded private wasm demuxer. Next: streaming HEVC/VP9,
+  then Windows.
   `native-video.md` records the gate and validation (decision 50).
 - Packaging and signing (an `.app`, an installer, the video module and
   the licences beside the executable), in their own plan.

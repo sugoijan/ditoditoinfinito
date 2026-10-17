@@ -189,8 +189,8 @@ fn native_avi_matches_the_module_and_falls_back_without_changing_position() {
         }
     }
     let mut auto = VideoHost::with_backend(Some(module.clone()), Backend::Auto);
-    // Auto must fall back on containers outside the gate.
-    let mp4 = encode(&dir, "fallback.mp4", &[]).unwrap();
+    // Auto must fall back on streams outside the gate.
+    let mp4 = encode(&dir, "fallback.mp4", &["-pix_fmt", "yuv420p10le"]).unwrap();
     let expected = video::check(&mut wasm, &mp4, None);
     let got = video::check(&mut auto, &mp4, None);
     assert!(got.failures.is_empty(), "{:?}", got.failures);

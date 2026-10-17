@@ -150,7 +150,7 @@ the browser are implementation details, not advertised features.
   with a cache; a first start offers other games' song folders,
   `offer.rs`); plays through the shared session (`play/`: the UI core's
   start prompt, noteskins with their Lua read on a thread, backgrounds,
-  movies (feature `video`, on by default: checked H.264 AVIs through
+  movies (feature `video`, on by default: checked H.264 AVI/MP4/Matroska through
   hardware VideoToolbox on macOS, the web's sandboxed FFmpeg module
   under wasmtime for the rest and on failure, `video.rs`, `video/`;
   movies in zips read in place or extracted once),
@@ -186,7 +186,8 @@ the browser are implementation details, not advertised features.
   `target/video/ddivideo.wasm` with wasi-sdk (LGPL module, never
   committed); `docs/plans/video-backgrounds.md`; additive bounded demux exports in
   `video/packets.c` (`video/packets.md`), read on desktop by
-  `desktop/src/video/packets.rs` for the next native decoder paths.
+  `desktop/src/video/packets.rs` for native H.264 MP4/Matroska (`media.rs`,
+  shared validation in `h264_format.rs`).
 - `assets/songs/<id>/` bundled songs with a `PROVENANCE.toml` each;
   `assets/noteskins/<game>/<name>/` bundled noteskins, the same way
   (`docs/plans/bundled-skins.md`); `assets/fonts/` the embedded HUD font

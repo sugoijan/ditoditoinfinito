@@ -4,12 +4,13 @@
 //! at most four workers can exist, including any abandoned worker.
 
 use super::{
-    Backend, DecoderStatus, Event, Frame, Machine, MovieFile, Msg, avi::Media, vt::Session,
+    Backend, DecoderStatus, Event, Frame, Machine, MovieFile, Msg, media::Media, vt::Session,
 };
-use ddi_library::h264::{self, ExactSeek, Offer, OutputOrder, PictureOrder};
+use ddi_library::h264::{ExactSeek, Offer, OutputOrder, PictureOrder};
 use ddi_platform::video::{VideoInfo, YuvMatrix};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{self, Receiver, SyncSender},
@@ -58,7 +59,12 @@ struct Worker {
     deadline: Duration,
 }
 impl Worker {
-    fn open(path: MovieFile, deadline: Duration) -> Result<(Self, VideoInfo), String> {
+    fn open(
+        path: MovieFile,
+        name: String,
+        module: Option<PathBuf>,
+        deadline: Duration,
+    ) -> Result<(Self, VideoInfo), String> {
         let permit = Permit::take()?;
         let (tx, input) = mpsc::sync_channel(1);
         let (output, rx) = mpsc::sync_channel(1);
@@ -67,7 +73,7 @@ impl Worker {
             .spawn(move || {
                 let _permit = permit;
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let mut decoder = Decoder::open(&path)?;
+                    let mut decoder = Decoder::open(&path, &name, module)?;
                     output
                         .send(Ok(Reply::Open(decoder.info())))
                         .map_err(|_| "movie closed")?;
@@ -140,7 +146,12 @@ impl Hub {
     pub fn handle(&mut self, machine: &mut Machine, msg: Msg) -> Option<Msg> {
         match msg {
             Msg::Open { id, path, name } if self.backend != Backend::Module => {
-                match Worker::open(path.clone(), self.deadline) {
+                match Worker::open(
+                    path.clone(),
+                    name.clone(),
+                    machine.module_path.clone(),
+                    self.deadline,
+                ) {
                     Ok((worker, info)) => {
                         machine.decoder_status(
                             id,
@@ -296,24 +307,26 @@ struct Decoder {
     order: OutputOrder,
     sequence: VecDeque<(usize, f64)>,
     decoded: HashMap<usize, Vec<u8>>,
-    received: Vec<bool>,
+    submitted: HashSet<usize>,
+    durations: HashMap<usize, Option<f64>>,
+    timeline: Option<f64>,
+    last_dts: Option<f64>,
+    last_length: f64,
     ready: VecDeque<(Vec<u8>, f64)>,
     exact: ExactSeek<Vec<u8>>,
     index: usize,
-    start: usize,
     target: Option<f64>,
-    retries: u32,
     generation: u32,
     flushed: bool,
     last: Option<f64>,
 }
 impl Decoder {
-    fn open(path: &MovieFile) -> Result<Self, String> {
-        let media = Media::open(path)?;
+    fn open(path: &MovieFile, name: &str, module: Option<PathBuf>) -> Result<Self, String> {
+        let media = Media::open(path, name, module)?;
         let session = Self::session(&media, 0)?;
-        let pictures = PictureOrder::new(&media.stream);
-        let order = OutputOrder::new(media.delay);
-        let received = vec![false; media.chunks.len()];
+        let pictures = PictureOrder::new(&media.format.stream);
+        let order = OutputOrder::new(media.format.delay);
+        let last_length = media.period;
         Ok(Self {
             media,
             session,
@@ -321,13 +334,15 @@ impl Decoder {
             order,
             sequence: VecDeque::new(),
             decoded: HashMap::new(),
-            received,
+            submitted: HashSet::new(),
+            durations: HashMap::new(),
+            timeline: None,
+            last_dts: None,
+            last_length,
             ready: VecDeque::new(),
             exact: ExactSeek::new(None, false),
             index: 0,
-            start: 0,
             target: None,
-            retries: 0,
             generation: 0,
             flushed: false,
             last: None,
@@ -335,57 +350,60 @@ impl Decoder {
     }
     fn session(m: &Media, generation: u32) -> Result<Session, String> {
         Session::new(
-            &m.sets,
-            m.stream.sps.width,
-            m.stream.sps.height,
+            &m.format.sets,
+            m.format.stream.sps.width,
+            m.format.stream.sps.height,
             generation,
-            m.stream.sps.full_range,
+            m.format.stream.sps.full_range,
         )
     }
     fn info(&self) -> VideoInfo {
-        VideoInfo {
-            width: self.media.stream.sps.width,
-            height: self.media.stream.sps.height,
-            duration: self.media.chunks.last().map(|c| {
-                (u64::from(c.frame) + 1 - u64::from(self.media.avi.start)) as f64 * self.period()
-            }),
-            codec: "h264".into(),
-        }
+        self.media.info()
     }
     fn period(&self) -> f64 {
-        f64::from(self.media.avi.scale) / f64::from(self.media.avi.rate)
+        self.media.period
     }
-    fn reset(&mut self, start: usize, target: Option<f64>, may_retry: bool) -> Result<(), String> {
+    fn reset(&mut self) -> Result<(), String> {
         self.session = Self::session(&self.media, self.generation)?;
-        self.pictures = PictureOrder::new(&self.media.stream);
-        self.order = OutputOrder::new(self.media.delay);
+        self.pictures = PictureOrder::new(&self.media.format.stream);
+        self.order = OutputOrder::new(self.media.format.delay);
         self.sequence.clear();
         self.decoded.clear();
-        self.received.fill(false);
+        self.submitted.clear();
+        self.durations.clear();
         self.ready.clear();
-        self.exact = ExactSeek::new(target, may_retry);
-        self.index = start;
-        self.start = start;
+        self.exact = ExactSeek::new(self.target, self.media.may_retry);
+        self.index = 0;
+        self.timeline = None;
+        self.last_dts = None;
+        self.last_length = self.period();
         self.flushed = false;
         self.last = None;
         Ok(())
     }
     fn seek(&mut self, t: f64, generation: u32) -> Result<(), String> {
         self.generation = generation;
-        self.target = Some(if t.is_finite() { t.max(0.0) } else { 0.0 });
-        self.retries = 0;
-        let start = h264::seek_start(
-            &self.media.chunks,
-            self.target.unwrap() / self.period(),
-            self.media.delay,
-        );
-        self.reset(start.unwrap_or(0), self.target, start.is_some())
+        let t = if t.is_finite() { t.max(0.0) } else { 0.0 };
+        self.target = Some(t);
+        self.media.seek(t)?;
+        self.reset()
+    }
+    fn missing_time(&self) -> f64 {
+        let before = self
+            .timeline
+            .unwrap_or(-1.0)
+            .max(self.last_dts.unwrap_or(-1.0));
+        if before < 0.0 {
+            0.0
+        } else {
+            before + self.period()
+        }
     }
     fn next(&mut self) -> Result<Option<Frame>, String> {
         let began = Instant::now();
         loop {
             if let Some((planes, pts)) = self.ready.pop_front() {
-                let s = &self.media.stream.sps;
+                let s = &self.media.format.stream.sps;
                 return Ok(Some(Frame {
                     pts,
                     width: s.width,
@@ -406,17 +424,16 @@ impl Decoder {
                 self.sequence.pop_front();
                 let t = stamp;
                 self.last = Some(t);
+                self.last_length = self
+                    .durations
+                    .remove(&id)
+                    .flatten()
+                    .unwrap_or(self.period());
                 match self.exact.offer(planes, t) {
                     Offer::Show(frames) => self.ready.extend(frames),
                     Offer::Retry => {
-                        let start = h264::seek_back(
-                            &self.media.chunks,
-                            self.media.chunks[self.start].frame,
-                            self.retries,
-                            1.0 / self.period(),
-                        );
-                        self.retries += 1;
-                        self.reset(start.unwrap_or(0), self.target, start.is_some())?;
+                        self.media.retry()?;
+                        self.reset()?;
                     }
                 }
                 continue;
@@ -425,54 +442,74 @@ impl Decoder {
                 if !self.sequence.is_empty() {
                     return Err("VideoToolbox omitted an expected frame".into());
                 }
-                if let Some(frame) = self.exact.end(self.period()) {
+                if self.last.is_none() && self.media.may_retry {
+                    self.media.reopen()?;
+                    self.reset()?;
+                    continue;
+                }
+                if let Some(frame) = self.exact.end(self.last_length) {
                     self.ready.push_back(frame);
                     continue;
                 }
                 return Ok(None);
             }
-            if self.decoded.len() >= REORDER_FRAMES
+            if self.submitted.len() >= REORDER_FRAMES
+                || self.durations.len() >= REORDER_FRAMES
+                || self.decoded.len() >= REORDER_FRAMES
                 || self.sequence.len() >= REORDER_FRAMES
                 || self.decoded.values().map(Vec::len).sum::<usize>() > REORDER_BYTES
             {
                 return Err("VideoToolbox reorder queue exceeded its bound".into());
             }
-            if self.index < self.media.chunks.len() {
+            if let Some(packet) = self.media.next()? {
                 let i = self.index;
-                let bytes = self.media.packet(i)?;
+                if i >= 1_000_000 {
+                    return Err("native H.264 packet count exceeds its bound".into());
+                }
+                if self.media.packet_path() {
+                    super::media::checked_picture(&packet.bytes, self.media.format.stream.framing)?;
+                }
                 let picture = self
                     .pictures
-                    .picture(&bytes, self.media.stream.framing, &self.media.stream.sps)
+                    .picture(
+                        &packet.bytes,
+                        self.media.format.stream.framing,
+                        &self.media.format.stream.sps,
+                    )
                     .ok_or("H.264 packet has no supported picture")?;
-                if i == self.start && !picture.idr {
+                if i == 0 && !picture.idr {
                     return Err("H.264 seek did not land on an IDR".into());
                 }
-                let released = self.order.push(i, picture, self.media.chunks[i].frame);
+                if picture.b && self.media.format.delay == 0 {
+                    return Err("H.264 B picture violates the fixed reorder delay".into());
+                }
+                // OutputOrder chooses identities from POC; stream timestamps
+                // belong to the packet that releases that identity, not its PTS.
+                let released = self.order.push(i, picture, i as u32);
                 if released.dropped.is_some() {
                     return Err("H.264 output order dropped a picture".into());
                 }
-                if let Some(frame) = released.out {
-                    self.sequence
-                        .push_back((frame.0, frame.1 as f64 * self.period()));
+                if let Some(stamp) = packet.stamp {
+                    self.last_dts = Some(stamp);
                 }
-                self.session.decode(&self.media.sample(&bytes)?, i)?;
+                if let Some((id, _)) = released.out {
+                    let stamp = packet
+                        .stamp
+                        .map(|t| t.max(0.0))
+                        .unwrap_or_else(|| self.missing_time());
+                    self.timeline = Some(stamp);
+                    self.sequence.push_back((id, stamp));
+                }
+                let sample = self.media.format.sample(&packet.bytes)?;
+                self.submitted.insert(i);
+                self.durations.insert(i, packet.duration);
+                self.session.decode(&sample, i)?;
                 self.index += 1;
             } else {
-                let mut last = self
-                    .sequence
-                    .back()
-                    .map(|f| f.1)
-                    .or(self.last)
-                    .unwrap_or(-1.0)
-                    .max(
-                        self.media
-                            .chunks
-                            .last()
-                            .map_or(-1.0, |c| f64::from(c.frame) * self.period()),
-                    );
                 for (id, _) in self.order.drain() {
-                    last += self.period();
-                    self.sequence.push_back((id, last));
+                    let stamp = self.missing_time();
+                    self.timeline = Some(stamp);
+                    self.sequence.push_back((id, stamp));
                 }
                 self.session.finish()?;
                 self.flushed = true;
@@ -481,8 +518,7 @@ impl Decoder {
                 if output.generation != self.generation {
                     continue;
                 }
-                if output.id >= self.index || std::mem::replace(&mut self.received[output.id], true)
-                {
+                if !self.submitted.remove(&output.id) {
                     return Err("invalid or duplicate VideoToolbox frame identity".into());
                 }
                 if self.decoded.len() >= REORDER_FRAMES

@@ -38,11 +38,15 @@ const SM: &str = "#TITLE:Movie;#ARTIST:Test;#MUSIC:music.wav;#OFFSET:0;#BPMS:0=1
 1000\n0100\n0010\n0001\n,1000\n0100\n0010\n0001\n,1000\n0100\n0010\n0001\n,\
 1000\n0100\n0010\n0001\n,1000\n0100\n0010\n0001\n;";
 
-fn song(dir: &Path, codec: &str) -> Option<()> {
+fn song(dir: &Path, codec: &str, extension: &str) -> Option<()> {
     let song = dir.join("Pack/Movie");
     std::fs::create_dir_all(&song).ok()?;
-    std::fs::write(song.join("song.sm"), SM).ok()?;
-    let clip = song.join("clip.avi");
+    std::fs::write(
+        song.join("song.sm"),
+        SM.replace("clip.avi", &format!("clip.{extension}")),
+    )
+    .ok()?;
+    let clip = song.join(format!("clip.{extension}"));
     let music = song.join("music.wav");
     (ffmpeg(&[
         "-f",
@@ -83,11 +87,18 @@ fn a_movie_plays_behind_the_field() {
         // test here).
         unsafe { std::env::set_var("DDI_VIDEO_MODULE", &dev_module) };
     }
-    for codec in ["mpeg4", "libx264"] {
-        let dir =
-            std::env::temp_dir().join(format!("ddi-play-movie-{}-{codec}", std::process::id()));
+    for (codec, extension) in [
+        ("mpeg4", "avi"),
+        ("libx264", "avi"),
+        ("libx264", "mp4"),
+        ("libx264", "mkv"),
+    ] {
+        let dir = std::env::temp_dir().join(format!(
+            "ddi-play-movie-{}-{codec}-{extension}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
-        if song(&dir, codec).is_none() {
+        if song(&dir, codec, extension).is_none() {
             eprintln!("no ffmpeg with {codec}: skipped");
             continue;
         }

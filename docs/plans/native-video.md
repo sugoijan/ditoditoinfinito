@@ -525,9 +525,9 @@ tests cover the deadline/disable behaviour, range bounds, alternate
 configurations and malformed avcC.
 `play_movie` also renders MPEG-4 and H.264 through the real offscreen play.
 
-This completes the AVI part of steps 1–2. Bounded packet/configuration/index
-exports from the module for MP4/WebM and other containers remain next,
-followed by streaming HEVC/VP9, Windows, and GPU interop. The finite HEVC/VP9
+This completes the AVI part of steps 1–2. Sections 4c–4d add bounded packet
+exports and the native H.264 consumer for MP4/Matroska; streaming HEVC/VP9,
+Windows and GPU interop remain. The finite HEVC/VP9
 spike does not broaden this production gate.
 
 ## 4c. Bounded sandboxed packets (2026-10-17)
@@ -563,10 +563,50 @@ existing codec/reference suite passed (Theora skipped: local encoder absent),
 and fresh headless Chrome and Firefox each passed 150 frames and 188 exact
 seeks through the module. This does not widen the playback capability gate.
 
-Next: connect these packets to the native worker for checked H.264 in other
-containers, then implement streaming HEVC/VP9 output ordering and exact seeks.
-Each supported class still needs full frame/timestamp/seek fidelity before
-Auto selects it; packet agreement alone is insufficient.
+Section 4d connects these packets to the native worker for checked H.264 in
+MP4/Matroska. Streaming HEVC/VP9 still needs codec output ordering and exact
+seeks; packet agreement alone is insufficient.
+
+## 4d. Streaming H.264 MP4/Matroska (2026-10-17)
+
+The native worker now uses `media.rs` for both the checked AVI reader and a
+private `PacketReader` for MP4/Matroska. `h264_format.rs` holds the shared
+SPS/PPS validation and sample framing. The new container class requires avcC,
+a reliable container duration, the same bounded progressive 8-bit 4:2:0
+POC 0/2 stream with a fixed reorder delay at most 16, and one supported slice
+per packet. Dimensions, range, matrix, field order and delay from the container
+must agree with the checked SPS. Corrupt/discard flags, packet side data,
+changed parameter sets, unsupported NALs or framing, and more than 256 NALs
+in a packet cause module fallback. Known other codecs/containers skip the
+native probe. Automatic selection is limited by these checks, not file suffix.
+
+The demuxer is capped at 256 MiB and two seconds per call, inside the existing
+four-second worker deadline and four-worker limit. Reopening destroys the
+old wasm heap before creating another. Compressed bytes stay on disk; no
+whole-movie packet or frame index is built for this path. Identity, duration
+and output queues are bounded at 32 frames; decoded planes retain the existing
+128 MiB bound. One million sequential packets per generation is a refusal
+limit. The controller never joins an OS teardown or timed-out worker.
+
+POC selects the output identity; the packet that releases it supplies its
+normalized DTS. Missing DTS and EOF use the baseline's incremental additions.
+The original packet duration is kept for a held frame's final display span.
+Seeks reproduce the module's timestamp backoff, then back up from the first
+landed DTS with bounded exponential retries; failed/empty seeks reopen from
+the start. A non-IDR seek is refused and recovered in the module at the same
+requested time. Generation tagging and exact-position fallback are unchanged.
+
+Generated MP4/Matroska tests compare every plane CRC, exact timestamp, stream
+metadata and seek against the module, on hardware VideoToolbox and Auto.
+They cover B/no-B streams, fractional rates, nonzero starts, VFR gaps, long
+GOPs, 720p, full-range BT.709, interleaved audio, range-relative members,
+simultaneous readers and rapid seeks. Edge cases cover multi-slice/10-bit
+refusal, later SPS changes, open-GOP seeks, malformed files and bad ranges.
+The existing AVI suite remains a regression check. No native FFmpeg is linked.
+
+Next: streaming HEVC/VP9 with codec-specific output order and the same fidelity
+requirements, then Windows Media Foundation. These H.264 checks do not select
+other codecs.
 
 ## 5. Safety
 
@@ -670,7 +710,7 @@ StepMania plays", and H.264 alone has had such bugs.
 ## 7. Implementation order (decision 50)
 
 The module remains the baseline decoder and fallback throughout this work.
-The verified macOS H.264 AVI subset now selects VideoToolbox automatically;
+The verified macOS H.264 AVI and MP4/Matroska subsets select VideoToolbox automatically;
 `DDI_VIDEO_DECODER=module` forces the module for play.
 An OS path is selected for a movie only after its supported stream class
 passes the checks; absence, refusal, bad output or a stalled session moves
@@ -683,8 +723,8 @@ backend and fallback reason in `--video-check` and diagnostics. Preserve
 1. **Packet and fidelity harness.** Separate demux from decode as on the
    web. Start with our checked H.264 AVI reader and shared output-order /
    exact-seek logic. Bounded packet/configuration/index exports and a
-   checked host reader now cover other containers; connect them to native
-   decode while retaining StepMania's DTS rules.
+   checked host reader now feed native H.264 MP4/Matroska while retaining
+   StepMania's DTS rules; wider codecs still need their own output models.
    Extend `--video-check` to choose and compare backends: every timestamp
    and seek must match, bit-exact codecs' planes must match, IDCT codecs
    must meet at least 60 dB per plane. Include long GOPs, nonzero starts,
