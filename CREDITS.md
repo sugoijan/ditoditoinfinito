@@ -419,4 +419,4 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## Rust libraries
 
-The game is built on open-source Rust libraries (crates): 132 in the web build (the app and the Opus worker) and 333 in the desktop app (Linux, macOS and Windows). Their names, versions and licences, and the 159 licence notices they ask to ship, are in [THIRD_PARTY_RUST.md](THIRD_PARTY_RUST.md) and on the Credits screen.
+The game is built on open-source Rust libraries (crates): 132 in the web build (the app and the Opus worker) and 336 in the desktop app (Linux, macOS and Windows). Their names, versions and licences, and the 159 licence notices they ask to ship, are in [THIRD_PARTY_RUST.md](THIRD_PARTY_RUST.md) and on the Credits screen.

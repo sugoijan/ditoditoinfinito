@@ -1,10 +1,16 @@
-//! Background movies on desktop (`docs/plans/desktop.md`, D8 and step
-//! 7.7; feature `video`): the web's FFmpeg module
-//! (`target/video/ddivideo.wasm`, built by `video/build.sh`) under
-//! wasmtime, on a decoder thread of its own. It mirrors the web's worker
-//! (`web/src/web/video_worker.js`) and its page side
-//! (`web/src/web/video.rs`) call for call, so movies decode to the same
-//! frames at the same times, with the same exact seeks:
+//! Background movies on desktop (feature `video`): on macOS, checked
+//! progressive 8-bit H.264 AVIs through hardware VideoToolbox; every other
+//! movie through the sandboxed FFmpeg module under wasmtime. The OS path
+//! reuses `ddi_library::avi` and `h264` as WebCodecs does, with bounded
+//! reads, callbacks and reorder queues, copied I420 planes, exact seeks,
+//! and per-generation output. A separate worker owns each native session;
+//! a deadline abandons a stuck one and disables native opens for the process.
+//! Refusal, failure or timeout resumes that movie in the module at the
+//! requested position, omitting frames already delivered. `Backend` can
+//! force either path; `DesktopVideo::decoder_status` reports the selection.
+//!
+//! The module (`target/video/ddivideo.wasm`, `video/build.sh`) runs on
+//! the shared decoder thread. It mirrors the web worker call for call:
 //!
 //! - the module is a WASI reactor; its 20 imported calls are implemented
 //!   here over the movie files, as the worker implements them over
@@ -48,6 +54,40 @@ use wasmtime::{
     Caller, Config, Engine, Instance, Linker, Memory, Module, OptLevel, Store, StoreLimits,
     StoreLimitsBuilder, Trap, TypedFunc, WasmParams, WasmResults,
 };
+
+#[cfg(target_os = "macos")]
+mod avi;
+#[cfg(target_os = "macos")]
+mod native;
+#[cfg(target_os = "macos")]
+mod vt;
+
+/// Selects a decoder for tests and diagnostics. Auto tries the checked OS
+/// subset, falling back to the module; VideoToolbox reports refusals.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Backend {
+    #[default]
+    Auto,
+    Module,
+    VideoToolbox,
+}
+impl Backend {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(Self::Auto),
+            "module" => Some(Self::Module),
+            "videotoolbox" => Some(Self::VideoToolbox),
+            _ => None,
+        }
+    }
+}
+
+/// What actually decodes one movie, and why the OS path was left.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecoderStatus {
+    pub backend: String,
+    pub fallback: Option<String>,
+}
 
 /// What a missing module says, as on the web.
 pub const NOT_INCLUDED: &str = "the video decoder is not included in this build";
@@ -269,6 +309,7 @@ impl Event {
 }
 
 struct Movie {
+    decoder: DecoderStatus,
     /// Seeks so far; frames tagged with an older one are dropped.
     generation: u32,
     events: Vec<Event>,
@@ -325,6 +366,18 @@ impl VideoHost {
     /// [`VideoHost::with_module`], calls into the module limited to
     /// `deadline` each.
     pub fn with_deadline(module: Option<PathBuf>, deadline: Duration) -> VideoHost {
+        Self::with_backend_deadline(module, Backend::Module, deadline)
+    }
+
+    pub fn with_backend(module: Option<PathBuf>, backend: Backend) -> VideoHost {
+        Self::with_backend_deadline(module, backend, CALL_DEADLINE)
+    }
+
+    fn with_backend_deadline(
+        module: Option<PathBuf>,
+        backend: Backend,
+        deadline: Duration,
+    ) -> VideoHost {
         let (tx, rx) = mpsc::channel();
         let shared = Arc::new(Mutex::new(Shared {
             status: ModuleStatus::Idle,
@@ -334,7 +387,7 @@ impl VideoHost {
         let thread_shared = Arc::clone(&shared);
         std::thread::Builder::new()
             .name("ddi-video".into())
-            .spawn(move || run(rx, thread_shared, module, deadline))
+            .spawn(move || run(rx, thread_shared, module, deadline, backend))
             .expect("video thread");
         VideoHost(Arc::new(Inner {
             tx: Mutex::new(tx),
@@ -354,7 +407,11 @@ impl VideoHost {
                 return host;
             }
         }
-        let host = VideoHost::with_module(module_path());
+        let backend = std::env::var("DDI_VIDEO_DECODER")
+            .ok()
+            .and_then(|s| Backend::parse(&s))
+            .unwrap_or_default();
+        let host = VideoHost::with_backend(module_path(), backend);
         *slot = Arc::downgrade(&host.0);
         host
     }
@@ -431,6 +488,10 @@ impl VideoBackend for VideoHost {
             .insert(
                 id,
                 Movie {
+                    decoder: DecoderStatus {
+                        backend: "module".into(),
+                        fallback: None,
+                    },
                     generation: 0,
                     events: Vec::new(),
                 },
@@ -456,6 +517,19 @@ pub struct DesktopVideo {
     /// Frames asked for in this generation and not polled yet.
     pending: u32,
     host: VideoHost,
+}
+
+impl DesktopVideo {
+    pub fn decoder_status(&self) -> Option<DecoderStatus> {
+        self.host
+            .0
+            .shared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .movies
+            .get(&self.id)
+            .map(|m| m.decoder.clone())
+    }
 }
 
 impl VideoDecoder for DesktopVideo {
@@ -556,6 +630,7 @@ pub struct CheckReport {
     /// Opening (from the request to `Opened`), and the module's load.
     pub open_ms: f64,
     pub status: Option<ModuleStatus>,
+    pub decoder: Option<DecoderStatus>,
     /// Worst PSNR of Y, U, V against a raw YUV 4:2:0 reference (dB;
     /// infinite when equal), and the reference's frames.
     pub psnr: Option<([f64; 3], usize)>,
@@ -609,6 +684,7 @@ pub fn check(host: &mut VideoHost, path: &Path, reference: Option<&Path>) -> Che
         Some(VideoEvent::Error(e)) => {
             r.failures.push(e);
             r.status = Some(host.status());
+            r.decoder = v.decoder_status();
             return r;
         }
         other => {
@@ -616,6 +692,7 @@ pub fn check(host: &mut VideoHost, path: &Path, reference: Option<&Path>) -> Che
             return r;
         }
     }
+    r.decoder = v.decoder_status();
     r.open_ms = start.elapsed().as_secs_f64() * 1e3;
     r.status = Some(host.status());
     let mut reference = reference.and_then(|p| std::fs::File::open(p).ok());
@@ -678,6 +755,7 @@ pub fn check(host: &mut VideoHost, path: &Path, reference: Option<&Path>) -> Che
     let n = r.frames.len();
     if n == 0 {
         r.failures.push("no frame decoded".into());
+        r.decoder = v.decoder_status();
         return r;
     }
     r.slowest = ms
@@ -741,6 +819,7 @@ pub fn check(host: &mut VideoHost, path: &Path, reference: Option<&Path>) -> Che
             )),
         }
     }
+    r.decoder = v.decoder_status();
     r
 }
 
@@ -748,6 +827,15 @@ impl CheckReport {
     /// The report as `video/check.mjs` words it.
     pub fn lines(&self, name: &str) -> Vec<String> {
         let mut out = Vec::new();
+        if let Some(d) = &self.decoder {
+            out.push(format!(
+                "decoder: {}{}",
+                d.backend,
+                d.fallback
+                    .as_ref()
+                    .map_or(String::new(), |why| format!(" (fallback: {why})"))
+            ));
+        }
         let status = match &self.status {
             Some(ModuleStatus::Ready { load_ms, cached }) => format!(
                 "module {} in {load_ms:.0} ms",
@@ -855,18 +943,39 @@ pub fn crc32(bytes: &[u8]) -> u32 {
 /// gone. A panic while handling one (a bug of ours, met by what the
 /// module did) counts as a crash of the decoder, so the thread lives on
 /// and later movies get a fresh instance.
-fn run(rx: Receiver<Msg>, shared: Arc<Mutex<Shared>>, module: Option<PathBuf>, deadline: Duration) {
+fn run(
+    rx: Receiver<Msg>,
+    shared: Arc<Mutex<Shared>>,
+    module: Option<PathBuf>,
+    deadline: Duration,
+    backend: Backend,
+) {
     let mut machine = Machine::new(module, Arc::clone(&shared), deadline);
+    #[cfg(target_os = "macos")]
+    let mut native = native::Hub::new(backend, deadline);
+    #[cfg(not(target_os = "macos"))]
+    {
+        machine.backend = backend;
+    }
     while let Ok(msg) = rx.recv() {
         let id = msg.id();
-        let handled =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| machine.handle(msg)));
+        let handled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            #[cfg(target_os = "macos")]
+            let msg = native.handle(&mut machine, msg);
+            #[cfg(not(target_os = "macos"))]
+            let msg = Some(msg);
+            if let Some(msg) = msg {
+                machine.handle(msg);
+            }
+        }));
         if let Err(panic) = handled {
             let what = panic
                 .downcast_ref::<&str>()
                 .map(|s| s.to_string())
                 .or_else(|| panic.downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "a panic".into());
+            #[cfg(target_os = "macos")]
+            native.crashed(&mut machine, &what);
             machine.crashed(&format!("the host failed ({what})"), id);
         }
     }
@@ -949,6 +1058,7 @@ struct Running {
 
 /// One open movie on the thread.
 struct Video {
+    skip_through: Option<f64>,
     ptr: i32,
     file_name: String,
     epoch: u32,
@@ -958,6 +1068,8 @@ struct Video {
 }
 
 struct Machine {
+    #[cfg(not(target_os = "macos"))]
+    backend: Backend,
     module_path: Option<PathBuf>,
     /// Each call's deadline, in ticks.
     deadline_ticks: u64,
@@ -989,6 +1101,8 @@ impl Machine {
         deadline: Duration,
     ) -> Machine {
         Machine {
+            #[cfg(not(target_os = "macos"))]
+            backend: Backend::Module,
             module_path,
             deadline_ticks: (deadline.as_secs_f64() / TICK.as_secs_f64())
                 .ceil()
@@ -1016,6 +1130,20 @@ impl Machine {
         }
     }
 
+    fn decoder_status(&self, id: u32, status: DecoderStatus) {
+        eprintln!(
+            "[video] movie {id}: {}{}",
+            status.backend,
+            status
+                .fallback
+                .as_ref()
+                .map_or(String::new(), |e| format!(" ({e})"))
+        );
+        if let Some(movie) = self.shared().movies.get_mut(&id) {
+            movie.decoder = status;
+        }
+    }
+
     fn keep_spare(&mut self, planes: Vec<u8>) {
         if planes.capacity() == 0 {
             return;
@@ -1028,6 +1156,24 @@ impl Machine {
     }
 
     fn handle(&mut self, msg: Msg) {
+        #[cfg(not(target_os = "macos"))]
+        if self.backend != Backend::Module
+            && let Msg::Open { id, .. } = &msg
+        {
+            let why = "VideoToolbox is unavailable on this platform".to_string();
+            self.decoder_status(
+                *id,
+                DecoderStatus {
+                    backend: "module".into(),
+                    fallback: Some(why.clone()),
+                },
+            );
+            if self.backend == Backend::VideoToolbox {
+                self.post(*id, None, Event::Error(why));
+                return;
+            }
+        }
+
         let id = msg.id();
         // A movie whose open failed has no state; later messages are
         // dropped.
@@ -1191,6 +1337,16 @@ impl Machine {
     }
 
     fn open(&mut self, id: u32, path: MovieFile, name: &str) -> Result<(), Crash> {
+        self.open_announced(id, path, name, true)
+    }
+
+    fn open_announced(
+        &mut self,
+        id: u32,
+        path: MovieFile,
+        name: &str,
+        announce: bool,
+    ) -> Result<(), Crash> {
         if !self.ready(Some(id)) {
             return Ok(());
         }
@@ -1209,6 +1365,7 @@ impl Machine {
         self.videos.insert(
             id,
             Video {
+                skip_through: None,
                 ptr,
                 file_name,
                 epoch: 0,
@@ -1228,7 +1385,9 @@ impl Machine {
                 c_string(r, at)
             },
         };
-        self.post(id, None, Event::Opened(info));
+        if announce {
+            self.post(id, None, Event::Opened(info));
+        }
         Ok(())
     }
 
@@ -1279,6 +1438,15 @@ impl Machine {
                 }
                 continue;
             }
+            if self
+                .videos
+                .get(&id)
+                .and_then(|v| v.skip_through)
+                .is_some_and(|t| pts <= t + 1e-6)
+            {
+                self.videos.get_mut(&id).unwrap().last = pts;
+                continue;
+            }
             let frame = self.frame(ptr, pts, ms)?;
             let video = self.videos.get_mut(&id).expect("video");
             video.bad = 0;
@@ -1327,6 +1495,7 @@ impl Machine {
             return Ok(());
         };
         video.epoch = epoch;
+        video.skip_through = None;
         video.last = -1.0;
         video.bad = 0;
         video.ended = false;

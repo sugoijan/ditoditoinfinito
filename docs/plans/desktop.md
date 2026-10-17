@@ -31,7 +31,7 @@ under it in section 7:
 | 7.5 Play | done, and its review's fixes |
 | 7.5b Works | done: Dancing☆Onigiri works, layers, lyrics |
 | 7.6 Calibration | done, and its review's fixes |
-| 7.7 Video | done: the module under wasmtime, wired in 7.5, on by default |
+| 7.7 Video | done: module under wasmtime; macOS hardware VideoToolbox for checked H.264 AVI, copied planes and module fallback |
 | 7.8 Windows and Linux | CI on all three; Windows checked from the Mac; the gilrs change waits |
 | 7.9 Docs | done |
 
@@ -43,9 +43,10 @@ under it in section 7:
   misses in late·2 and 4.20 ms mean frame start to estimated shown.
   The report now distinguishes target gaps from observed repeats.
   Fullscreen and direct presentation measurements remain to be checked.
-- OS video decoders are the next video work, macOS then Windows; the
-  module remains the shipped decoder and fallback. The VT spike and
-  later sandboxed native helper are in `native-video.md` (decision 50).
+- OS video: the first macOS slice is implemented (checked H.264 AVI,
+  copied planes, exact seeks and module fallback). Next: bounded module
+  packet exports for other containers, then more macOS codecs and Windows.
+  `native-video.md` records the gate and validation (decision 50).
 - Packaging and signing (an `.app`, an installer, the video module and
   the licences beside the executable), in their own plan.
 - Windows: the gilrs change (8 ms polling, stamps from the reading) needs
