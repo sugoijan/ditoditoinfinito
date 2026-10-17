@@ -60,7 +60,10 @@ fn first(host: &mut VideoHost, source: MovieFile, name: &str) -> (f64, Vec<u8>) 
     assert!(matches!(events(&mut v)[0], VideoEvent::Opened(_)));
     v.want(1);
     match events(&mut v).remove(0) {
-        VideoEvent::Frame(f) => (f.pts, f.planes),
+        VideoEvent::Frame(f) => {
+            let f = video::copy_to_cpu(f).unwrap();
+            (f.pts, f.planes)
+        }
         other => panic!("{other:?}"),
     }
 }
@@ -251,7 +254,10 @@ fn streaming_h264_has_the_modules_frames_and_exact_seeks() {
     b.want(1);
     for (v, expected) in [(&mut a, expected_a), (&mut b, expected_b)] {
         match events(v).remove(0) {
-            VideoEvent::Frame(f) => assert_eq!((f.pts, f.planes), expected),
+            VideoEvent::Frame(f) => {
+                let f = video::copy_to_cpu(f).unwrap();
+                assert_eq!((f.pts, f.planes), expected);
+            }
             other => panic!("{other:?}"),
         }
     }

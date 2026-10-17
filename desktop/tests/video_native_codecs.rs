@@ -412,7 +412,10 @@ fn read_frame(v: &mut impl VideoDecoder) -> (f64, Vec<u8>) {
     let mut out = events(v);
     assert_eq!(out.len(), 1);
     match out.remove(0) {
-        VideoEvent::Frame(f) => (f.pts, f.planes),
+        VideoEvent::Frame(f) => {
+            let f = video::copy_to_cpu(f).unwrap();
+            (f.pts, f.planes)
+        }
         other => panic!("{other:?}"),
     }
 }

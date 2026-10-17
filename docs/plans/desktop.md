@@ -31,7 +31,7 @@ under it in section 7:
 | 7.5 Play | done, and its review's fixes |
 | 7.5b Works | done: Dancing☆Onigiri works, layers, lyrics |
 | 7.6 Calibration | done, and its review's fixes |
-| 7.7 Video | done: module and macOS checked H.264/HEVC/VP9; Windows MF/D3D11 experimental opt-in, runtime validation pending |
+| 7.7 Video | done: module and macOS checked H.264/HEVC/VP9 with opt-in Metal planes; Windows MF/D3D11 experimental opt-in, runtime validation pending |
 | 7.8 Windows and Linux | CI on all three; Windows checked from the Mac; the gilrs change waits |
 | 7.9 Docs | done |
 
@@ -50,7 +50,11 @@ under it in section 7:
   single visible pictures. Windows Media Foundation/D3D11 is implemented as
   an experimental opt-in, with a deferred-host check runner; Windows Auto
   remains the module until runtime validation. See `native-video.md` section 7.
-  `native-video.md` records the gate and validation (decision 50).
+  macOS `video-metal` plus `DDI_VIDEO_PLANES=metal` opts into shared NV12
+  planes; copied planes remain the default. Rendered fidelity, real
+  offscreen play and bounded GPU-lifetime/fallback tests pass locally;
+  other Macs, physical GPU loss and manual play remain to be checked.
+  `native-video.md` sections 4f/7 record the gates and validation (decision 50).
 - Packaging and signing (an `.app`, an installer, the video module and
   the licences beside the executable), in their own plan.
 - Windows: the gilrs change (8 ms polling, stamps from the reading) needs

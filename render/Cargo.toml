@@ -20,3 +20,8 @@ bytemuck.workspace = true
 
 [dev-dependencies]
 ddi-platform.workspace = true
+
+[features]
+# Explicit offscreen native-video experiment; no platform handles here.
+video-planes = []
+video-bench = ["video-planes"]

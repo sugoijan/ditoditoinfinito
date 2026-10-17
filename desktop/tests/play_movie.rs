@@ -123,6 +123,19 @@ fn a_movie_plays_behind_the_field() {
         assert!(trouble.is_none(), "{codec}: {trouble:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
+    #[cfg(all(target_os = "macos", feature = "video-metal"))]
+    if std::env::var_os("DDI_VIDEO_PLANES").is_some_and(|v| v == "metal") {
+        let stats = ddi_desktop::video::metal_stats();
+        eprintln!("Metal video: {stats:?}");
+        assert!(
+            stats.imported > 30,
+            "the real play path used imported planes"
+        );
+        assert!(
+            !stats.disabled,
+            "healthy playback never quarantines GPU owners"
+        );
+    }
 }
 
 /// The first song with a movie under `root` (scanned as the library

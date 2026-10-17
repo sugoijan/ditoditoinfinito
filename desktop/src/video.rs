@@ -5,7 +5,9 @@
 //! wasmtime. The OS path reuses `ddi_library::avi` and `h264` as WebCodecs does; MP4/Matroska
 //! packets come from a bounded private wasm demuxer. Both paths have bounded
 //! reads, callbacks and reorder queues, copied I420 planes, exact seeks,
-//! and per-generation output. A separate worker owns each native session;
+//! and per-generation output. Optional `video-metal` plus DDI_VIDEO_PLANES=metal
+//! keeps checked macOS NV12 surfaces for the GPU instead of copying I420.
+//! A separate worker owns each native session;
 //! a deadline abandons a stuck one and disables native opens for the process.
 //! Refusal, failure or timeout resumes that movie in the module at the
 //! requested position, omitting frames already delivered. `Backend` can
@@ -81,7 +83,11 @@ mod mf;
 #[cfg(any(target_os = "windows", test))]
 mod mf_core;
 
+#[cfg(all(target_os = "macos", feature = "video-metal"))]
+mod metal;
 pub mod packets;
+#[cfg(all(target_os = "macos", feature = "video-metal"))]
+pub use metal::{MetalStats, stats as metal_stats};
 
 /// Selects a decoder for tests and diagnostics. Auto tries the checked OS
 /// subset on macOS. Windows stays on the module unless explicitly opted in.
@@ -234,6 +240,10 @@ pub fn show(
     id: usize,
     frame: &VideoFrame,
 ) -> bool {
+    #[cfg(all(target_os = "macos", feature = "video-metal"))]
+    if frame.external.is_some() {
+        return metal::show(renderer, device, queue, id, frame);
+    }
     renderer.set_video_frame(
         device,
         queue,
@@ -244,6 +254,39 @@ pub fn show(
         frame.matrix == YuvMatrix::Bt709,
         frame.full_range,
     )
+}
+
+/// Materializes this shell's retained native surface for diagnostics or a
+/// copied-plane consumer. Normal I420 frames pass through without a copy.
+pub fn copy_to_cpu(frame: VideoFrame) -> Result<VideoFrame, String> {
+    if frame.external.is_some() {
+        #[cfg(all(target_os = "macos", feature = "video-metal"))]
+        if let Some(surface) = frame
+            .external
+            .as_ref()
+            .and_then(|e| e.0.downcast_ref::<metal::Surface>())
+        {
+            let started = Instant::now();
+            let planes = surface.copy()?;
+            let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+            let mut frame = frame;
+            frame.decode_ms += elapsed;
+            frame.planes = planes;
+            frame.external = None;
+            return Ok(frame);
+        }
+        return Err("unknown external desktop video frame".into());
+    }
+    Ok(frame)
+}
+
+/// Called while encoding every play frame, even when its movie is paused.
+/// Its GPU completion lease also covers cached pictures used again later.
+pub fn protect_external_frames(device: &wgpu::Device, encoder: &wgpu::CommandEncoder) {
+    #[cfg(all(target_os = "macos", feature = "video-metal"))]
+    metal::protect(device, encoder);
+    #[cfg(not(all(target_os = "macos", feature = "video-metal")))]
+    let _ = (device, encoder);
 }
 
 // --- The host: the game's side -------------------------------------------
@@ -316,8 +359,8 @@ impl Msg {
     }
 }
 
-/// A frame as the thread hands it over (`VideoFrame` without the
-/// platform's own kind, which may not cross threads).
+/// A sendable frame from the decoder, optionally owning an immutable
+/// completed native image. The consumer wraps that image in ExternalFrame.
 struct Frame {
     pts: f64,
     width: u32,
@@ -326,6 +369,8 @@ struct Frame {
     full_range: bool,
     planes: Vec<u8>,
     decode_ms: f64,
+    #[cfg(all(target_os = "macos", feature = "video-metal"))]
+    surface: Option<metal::Surface>,
 }
 
 /// What the thread tells a movie (`VideoEvent`, sendable).
@@ -348,7 +393,17 @@ impl Event {
                 full_range: f.full_range,
                 planes: f.planes,
                 decode_ms: f.decode_ms,
-                external: None,
+                external: {
+                    #[cfg(all(target_os = "macos", feature = "video-metal"))]
+                    {
+                        f.surface
+                            .map(|s| ddi_platform::video::ExternalFrame(std::rc::Rc::new(s)))
+                    }
+                    #[cfg(not(all(target_os = "macos", feature = "video-metal")))]
+                    {
+                        None
+                    }
+                },
             }),
             Event::End { last_pts } => VideoEvent::End { last_pts },
             Event::Error(e) => VideoEvent::Error(e),
@@ -757,6 +812,13 @@ pub fn check(host: &mut VideoHost, path: &Path, reference: Option<&Path>) -> Che
         for _ in 0..8 {
             match next(&mut v, &mut events) {
                 Some(VideoEvent::Frame(f)) => {
+                    let f = match copy_to_cpu(f) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            r.failures.push(e);
+                            break 'decode;
+                        }
+                    };
                     if let Some((last, _)) = r.frames.last()
                         && f.pts < *last
                     {
@@ -854,6 +916,13 @@ pub fn check(host: &mut VideoHost, path: &Path, reference: Option<&Path>) -> Che
         r.seeks += 1;
         match (got, expect) {
             (Some(VideoEvent::Frame(f)), Some(i)) => {
+                let f = match copy_to_cpu(f) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        r.failures.push(e);
+                        continue;
+                    }
+                };
                 if (f.pts - pts[i]).abs() > 1e-6 {
                     r.failures.push(format!(
                         "seek to {t:.4} s gave the frame at {:.4} s, expected frame {i} at {:.4} s",
@@ -1572,6 +1641,8 @@ impl Machine {
             full_range,
             planes,
             decode_ms,
+            #[cfg(all(target_os = "macos", feature = "video-metal"))]
+            surface: None,
         })
     }
 

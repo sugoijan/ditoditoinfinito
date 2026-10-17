@@ -93,6 +93,17 @@ fn fs_yuv(in: VsOut) -> @location(0) vec4<f32> {
     let y = textureSample(image, image_sampler, in.uv).r * 255.0;
     let u = textureSample(plane_u, image_sampler, in.uv).r * 255.0 - 128.0;
     let v = textureSample(plane_v, image_sampler, in.uv).r * 255.0 - 128.0;
+    return convert_yuv(in, y, u, v);
+}
+
+@fragment
+fn fs_nv12(in: VsOut) -> @location(0) vec4<f32> {
+    let y = textureSample(image, image_sampler, in.uv).r * 255.0;
+    let uv = textureSample(plane_u, image_sampler, in.uv).rg * 255.0 - vec2<f32>(128.0);
+    return convert_yuv(in, y, uv.r, uv.g);
+}
+
+fn convert_yuv(in: VsOut, y: f32, u: f32, v: f32) -> vec4<f32> {
     var luma: f32;
     var cb: f32;
     var cr: f32;
