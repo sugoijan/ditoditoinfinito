@@ -44,8 +44,9 @@ under it in section 7:
   The report now distinguishes target gaps from observed repeats.
   Fullscreen and direct presentation measurements remain to be checked.
 - OS video: the first macOS slice is implemented (checked H.264 AVI,
-  copied planes, exact seeks and module fallback). Next: bounded module
-  packet exports for other containers, then more macOS codecs and Windows.
+  copied planes, exact seeks and module fallback). Bounded module packet
+  exports and their checked reader are implemented. Next: native use for
+  other containers, then more macOS codecs and Windows.
   `native-video.md` records the gate and validation (decision 50).
 - Packaging and signing (an `.app`, an installer, the video module and
   the licences beside the executable), in their own plan.

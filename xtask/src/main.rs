@@ -577,7 +577,12 @@ fn video_out_of_date(root: &Path, built: &Path) -> Option<&'static str> {
         oldest = Some(oldest.map_or(time, |t: std::time::SystemTime| t.min(time)));
     }
     let oldest = oldest?;
-    let sources = ["video/build.sh", "video/FFMPEG.toml", "video/ddivideo.c"];
+    let sources = [
+        "video/build.sh",
+        "video/FFMPEG.toml",
+        "video/ddivideo.c",
+        "video/packets.c",
+    ];
     sources
         .iter()
         .filter_map(|source| modified(&root.join(source)))

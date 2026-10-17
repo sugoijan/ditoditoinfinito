@@ -62,6 +62,8 @@ mod native;
 #[cfg(target_os = "macos")]
 mod vt;
 
+pub mod packets;
+
 /// Selects a decoder for tests and diagnostics. Auto tries the checked OS
 /// subset, falling back to the module; VideoToolbox reports refusals.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1052,6 +1054,7 @@ struct Exports {
 
 /// A running instance.
 struct Running {
+    instance: Instance,
     store: Store<Wasi>,
     x: Exports,
 }
@@ -1293,7 +1296,7 @@ impl Machine {
             call(&mut store, &init, ())
                 .map_err(|Crash(e)| format!("the video decoder does not start: {e}"))?;
         }
-        self.running = Some(Running { store, x });
+        self.running = Some(Running { instance, store, x });
         Ok(())
     }
 
@@ -1319,16 +1322,31 @@ impl Machine {
         self.running = None;
     }
 
-    /// Opens `path` in the module as `/v/<file_name>`: the movie, or 0.
+    /// Opens `path` with the existing decode ABI.
     fn open_file(&mut self, file_name: &str, path: MovieFile) -> Result<i32, Crash> {
+        let open = self.running.as_ref().expect("instance").x.open.clone();
+        self.open_file_using(file_name, path, open)
+    }
+
+    /// The file/range sandbox and path allocation are shared by decode and
+    /// demux. A trap leaves cleanup to the caller's instance disposal.
+    fn open_file_using(
+        &mut self,
+        file_name: &str,
+        path: MovieFile,
+        open: TypedFunc<i32, i32>,
+    ) -> Result<i32, Crash> {
         let r = self.running.as_mut().expect("instance");
         r.store.data_mut().files.insert(file_name.to_string(), path);
         let c = format!("/v/{file_name}\0");
         let p = call(&mut r.store, &r.x.malloc, c.len() as i32)?;
+        if p == 0 {
+            return Err(Crash("cannot allocate the movie's path".into()));
+        }
         r.x.memory
-            .write(&mut r.store, p as usize, c.as_bytes())
+            .write(&mut r.store, p as u32 as usize, c.as_bytes())
             .map_err(|e| Crash(e.to_string()))?;
-        let ptr = call(&mut r.store, &r.x.open, p)?;
+        let ptr = call(&mut r.store, &open, p)?;
         call(&mut r.store, &r.x.free, p)?;
         if ptr == 0 {
             r.store.data_mut().files.remove(file_name);

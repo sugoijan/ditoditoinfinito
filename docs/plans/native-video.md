@@ -530,6 +530,44 @@ exports from the module for MP4/WebM and other containers remain next,
 followed by streaming HEVC/VP9, Windows, and GPU interop. The finite HEVC/VP9
 spike does not broaden this production gate.
 
+## 4c. Bounded sandboxed packets (2026-10-17)
+
+`video/packets.c` now supplies additive ABI v1 exports for container metadata,
+raw codec configuration, compressed video packets, side data and paged seek
+hints. The old decode interface stays compatible. The checked Rust reader
+(`desktop/src/video/packets.rs`) owns a private wasmtime instance, uses the
+existing file/range sandbox, memory cap, cache and call deadlines, and checks
+all exported lengths, ranges, flags and generations before copying. Errors
+poison the reader; no later close enters a trapped instance. No native FFmpeg
+is loaded. The full contract and inspection command are in
+[`video/packets.md`](../../video/packets.md).
+
+Packets retain exact signed PTS/DTS ticks, including negative/unknown values;
+seeks increment an epoch. Configuration side data is preserved and changes
+are signaled explicitly. Initial extradata is not synthesized from in-band
+headers. Backward key-packet seeks and FFmpeg's potentially incomplete index
+are primitives, not exact presentation seeks. Consumers must still validate
+in-band changes, reconstruct codec output order and preserve the baseline's
+DTS/EOF rules. Seeking restores header configuration; changing streams need
+reopen/preroll or fallback.
+
+Generated H.264 MP4/AVI/Matroska, nonzero-start MP4, variable-rate Matroska,
+HEVC MP4, VP9 WebM and AV1 Matroska are checked against ffprobe for packet
+bytes, exact ticks, positions, flags and available configuration. The reader
+also checks key seeks after EOF, range-relative files and interleaved
+instances; synthetic hostile exports check limits, malformed records,
+configuration generations and trap recovery. AV1 demux works even though the
+module has no AV1 decoder. The old and new modules gave identical planes and
+frame times for 1,730 frames and 174 seeks across 29 generated clips. The
+existing codec/reference suite passed (Theora skipped: local encoder absent),
+and fresh headless Chrome and Firefox each passed 150 frames and 188 exact
+seeks through the module. This does not widen the playback capability gate.
+
+Next: connect these packets to the native worker for checked H.264 in other
+containers, then implement streaming HEVC/VP9 output ordering and exact seeks.
+Each supported class still needs full frame/timestamp/seek fidelity before
+Auto selects it; packet agreement alone is insufficient.
+
 ## 5. Safety
 
 **The risk.** The module decodes with 264 decoders and every demuxer:
@@ -644,8 +682,9 @@ backend and fallback reason in `--video-check` and diagnostics. Preserve
 
 1. **Packet and fidelity harness.** Separate demux from decode as on the
    web. Start with our checked H.264 AVI reader and shared output-order /
-   exact-seek logic. Add bounded packet/configuration/index exports to the
-   sandboxed module for other containers, retaining StepMania's DTS rules.
+   exact-seek logic. Bounded packet/configuration/index exports and a
+   checked host reader now cover other containers; connect them to native
+   decode while retaining StepMania's DTS rules.
    Extend `--video-check` to choose and compare backends: every timestamp
    and seek must match, bit-exact codecs' planes must match, IDCT codecs
    must meet at least 60 dB per plane. Include long GOPs, nonzero starts,

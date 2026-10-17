@@ -548,7 +548,7 @@ fn render_markdown(c: &CreditsJson) -> String {
     md.push_str("## Video decoder\n\n");
     let _ = writeln!(
         md,
-        "Background videos the browser cannot decode play through a separate module, `video/ddivideo.wasm`, fetched only when a song needs it. It uses code of [{} {}]({}) licensed under the [{}]({}); its source, unmodified, is served next to the module: [`{}`]({}{}) (SHA-256 `{}`; the [release]({}) at FFmpeg, tag: {}). It is built by `video/build.sh` with the configure flags below and linked with `video/ddivideo.c` (this repository's code, MIT); the build script rebuilds it, also against a modified {}.\n",
+        "Background videos the browser cannot decode play through a separate module, `video/ddivideo.wasm`, fetched only when a song needs it. It uses code of [{} {}]({}) licensed under the [{}]({}); its source, unmodified, is served next to the module: [`{}`]({}{}) (SHA-256 `{}`; the [release]({}) at FFmpeg, tag: {}). It is built by `video/build.sh` with the configure flags below and linked with `video/ddivideo.c` and `video/packets.c` (this repository's code, MIT); the build script rebuilds it, also against a modified {}.\n",
         v.name,
         v.version,
         v.homepage,
