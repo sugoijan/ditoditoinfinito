@@ -18,11 +18,7 @@ use std::{
 const OUTPUTS: usize = 32;
 const OUTPUT_BYTES: usize = 128 * 1024 * 1024;
 
-pub(super) struct Output {
-    pub id: usize,
-    pub generation: u32,
-    pub planes: Vec<u8>,
-}
+use super::native::Output;
 struct Queue {
     frames: VecDeque<Output>,
     bytes: usize,
@@ -95,7 +91,11 @@ fn parameter_format(
 }
 
 impl Session {
-    pub fn new(codec: &super::codec::Format, generation: u32) -> Result<Self, String> {
+    pub fn new(
+        codec: &super::codec::Format,
+        generation: u32,
+        _period: f64,
+    ) -> Result<Self, String> {
         let (width, height, full_range) = (codec.width(), codec.height(), codec.full_range());
         let mut raw = ptr::null();
         match codec {
@@ -204,7 +204,12 @@ impl Session {
         Ok(s)
     }
 
-    pub fn decode(&self, bytes: &[u8], id: usize) -> Result<(), String> {
+    pub fn decode(
+        &self,
+        bytes: &[u8],
+        id: usize,
+        _presentation: Option<f64>,
+    ) -> Result<(), String> {
         let mut raw = ptr::null_mut();
         // SAFETY: CoreMedia allocates its own data block. Bytes are copied
         // into it before the sample is submitted; VT never borrows Rust data.

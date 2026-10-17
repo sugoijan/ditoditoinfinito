@@ -22,6 +22,8 @@ pub(super) struct Compressed {
     /// Normalized DTS, including negative values before frame clamping.
     pub stamp: Option<f64>,
     pub duration: Option<f64>,
+    /// Container PTS is only a token for matching MF outputs to input ids.
+    pub presentation: Option<f64>,
 }
 enum Input {
     Avi {
@@ -120,6 +122,7 @@ impl Media {
                     bytes,
                     stamp,
                     duration: None,
+                    presentation: None,
                 }))
             }
             Input::Packets(p) => p.next(),
@@ -371,6 +374,14 @@ impl Packets {
             bytes: packet.data,
             stamp,
             duration,
+            presentation: packet
+                .pts
+                .map(|p| {
+                    p.checked_sub(self.start)
+                        .ok_or("native PTS overflow")
+                        .map(|p| p as f64 * self.time_base)
+                })
+                .transpose()?,
         }))
     }
 }

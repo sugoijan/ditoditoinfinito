@@ -1,6 +1,7 @@
 //! Background movies on desktop (feature `video`): on macOS, checked
 //! progressive 8-bit H.264, HEVC and VP9 subsets through hardware
-//! VideoToolbox; other movies through the sandboxed FFmpeg module under
+//! VideoToolbox; an explicit Windows experimental opt-in uses Media
+//! Foundation/D3D11. Windows Auto and other movies use the sandboxed FFmpeg module under
 //! wasmtime. The OS path reuses `ddi_library::avi` and `h264` as WebCodecs does; MP4/Matroska
 //! packets come from a bounded private wasm demuxer. Both paths have bounded
 //! reads, callbacks and reorder queues, copied I420 planes, exact seeks,
@@ -56,35 +57,45 @@ use wasmtime::{
     StoreLimitsBuilder, Trap, TypedFunc, WasmParams, WasmResults,
 };
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod avi;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod bits;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod codec;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod h264_format;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod hevc;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod media;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod native;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod vp9;
 #[cfg(target_os = "macos")]
 mod vt;
 
+#[cfg(target_os = "windows")]
+mod mf;
+#[cfg(any(target_os = "windows", test))]
+mod mf_core;
+
 pub mod packets;
 
 /// Selects a decoder for tests and diagnostics. Auto tries the checked OS
-/// subset, falling back to the module; VideoToolbox reports refusals.
+/// subset on macOS. Windows stays on the module unless explicitly opted in.
+/// Strict OS selections report refusals; the opt-in Auto selection recovers.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Backend {
     #[default]
     Auto,
     Module,
     VideoToolbox,
+    /// Experimental Windows decoder, reports refusals.
+    MediaFoundation,
+    /// Explicit Windows opt-in with module recovery; Auto stays the module.
+    MediaFoundationAuto,
 }
 impl Backend {
     pub fn parse(value: &str) -> Option<Self> {
@@ -92,7 +103,29 @@ impl Backend {
             "auto" => Some(Self::Auto),
             "module" => Some(Self::Module),
             "videotoolbox" => Some(Self::VideoToolbox),
+            "mediafoundation" => Some(Self::MediaFoundation),
+            "mediafoundation-auto" => Some(Self::MediaFoundationAuto),
             _ => None,
+        }
+    }
+    fn native_on(self, os: &str) -> bool {
+        match os {
+            "macos" => matches!(self, Self::Auto | Self::VideoToolbox),
+            "windows" => matches!(self, Self::MediaFoundation | Self::MediaFoundationAuto),
+            _ => false,
+        }
+    }
+    fn strict(self) -> bool {
+        matches!(self, Self::VideoToolbox | Self::MediaFoundation)
+    }
+    fn unavailable_on(self, os: &str) -> bool {
+        !matches!(self, Self::Auto | Self::Module) && !self.native_on(os)
+    }
+    pub fn diagnostic_native() -> Self {
+        if cfg!(target_os = "windows") {
+            Self::MediaFoundation
+        } else {
+            Self::VideoToolbox
         }
     }
 }
@@ -974,18 +1007,15 @@ fn run(
     backend: Backend,
 ) {
     let mut machine = Machine::new(module, Arc::clone(&shared), deadline);
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let mut native = native::Hub::new(backend, deadline);
-    #[cfg(not(target_os = "macos"))]
-    {
-        machine.backend = backend;
-    }
+    machine.backend = backend;
     while let Ok(msg) = rx.recv() {
         let id = msg.id();
         let handled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             let msg = native.handle(&mut machine, msg);
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             let msg = Some(msg);
             if let Some(msg) = msg {
                 machine.handle(msg);
@@ -997,7 +1027,7 @@ fn run(
                 .map(|s| s.to_string())
                 .or_else(|| panic.downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "a panic".into());
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             native.crashed(&mut machine, &what);
             machine.crashed(&format!("the host failed ({what})"), id);
         }
@@ -1112,7 +1142,6 @@ struct Video {
 }
 
 struct Machine {
-    #[cfg(not(target_os = "macos"))]
     backend: Backend,
     module_path: Option<PathBuf>,
     /// Each call's deadline, in ticks.
@@ -1146,7 +1175,6 @@ impl Machine {
         deadline: Duration,
     ) -> Machine {
         Machine {
-            #[cfg(not(target_os = "macos"))]
             backend: Backend::Module,
             module_path,
             deadline_ticks: (deadline.as_secs_f64() / TICK.as_secs_f64())
@@ -1202,11 +1230,10 @@ impl Machine {
     }
 
     fn handle(&mut self, msg: Msg) {
-        #[cfg(not(target_os = "macos"))]
-        if self.backend != Backend::Module
+        if self.backend.unavailable_on(std::env::consts::OS)
             && let Msg::Open { id, .. } = &msg
         {
-            let why = "VideoToolbox is unavailable on this platform".to_string();
+            let why = "the requested native decoder is unavailable on this platform".to_string();
             self.decoder_status(
                 *id,
                 DecoderStatus {
@@ -1214,7 +1241,7 @@ impl Machine {
                     fallback: Some(why.clone()),
                 },
             );
-            if self.backend == Backend::VideoToolbox {
+            if self.backend.strict() {
                 self.post(*id, None, Event::Error(why));
                 return;
             }

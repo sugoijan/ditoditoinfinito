@@ -984,6 +984,7 @@ dependencies = [
  "wasmtime",
  "wat",
  "wgpu",
+ "windows",
  "winit",
 ]
 

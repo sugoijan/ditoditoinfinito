@@ -5,7 +5,6 @@
 
 use super::{
     Backend, DecoderStatus, Event, Frame, Machine, MovieFile, Msg, codec::Order, media::Media,
-    vt::Session,
 };
 use ddi_library::h264::{ExactSeek, Offer};
 use ddi_platform::video::VideoInfo;
@@ -19,6 +18,25 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(target_os = "windows")]
+use super::mf::Session;
+#[cfg(target_os = "macos")]
+use super::vt::Session;
+#[cfg(target_os = "macos")]
+const NAME: &str = "VideoToolbox";
+#[cfg(target_os = "windows")]
+const NAME: &str = "Media Foundation";
+#[cfg(target_os = "macos")]
+const SELECTED: &str = "VideoToolbox (hardware)";
+#[cfg(target_os = "windows")]
+const SELECTED: &str = "Media Foundation (D3D11; experimental)";
+
+pub(super) struct Output {
+    pub id: usize,
+    pub generation: u32,
+    pub planes: Vec<u8>,
+}
+
 const DEADLINE: Duration = Duration::from_secs(4);
 const MAX_WORKERS: usize = 4;
 const REORDER_FRAMES: usize = 32;
@@ -29,13 +47,13 @@ struct Permit;
 impl Permit {
     fn take() -> Result<Self, String> {
         if STALLED.load(Ordering::Relaxed) {
-            return Err("VideoToolbox disabled after a stalled session".into());
+            return Err(format!("{NAME} disabled after a stalled session"));
         }
         WORKERS
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                 (n < MAX_WORKERS).then_some(n + 1)
             })
-            .map_err(|_| "VideoToolbox worker limit")?;
+            .map_err(|_| "native video worker limit")?;
         Ok(Self)
     }
 }
@@ -70,7 +88,7 @@ impl Worker {
         let (tx, input) = mpsc::sync_channel(1);
         let (output, rx) = mpsc::sync_channel(1);
         std::thread::Builder::new()
-            .name("ddi-videotoolbox".into())
+            .name("ddi-native-video".into())
             .spawn(move || {
                 let _permit = permit;
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -90,7 +108,7 @@ impl Worker {
                     }
                     Ok::<_, String>(())
                 }))
-                .unwrap_or_else(|_| Err("VideoToolbox worker panicked".into()));
+                .unwrap_or_else(|_| Err("native video worker panicked".into()));
                 if let Err(e) = result {
                     let _ = output.send(Err(e));
                 }
@@ -107,15 +125,15 @@ impl Worker {
             Ok(r) => r,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 STALLED.store(true, Ordering::Relaxed);
-                Err("VideoToolbox session stalled; disabled for this process".into())
+                Err(format!("{NAME} session stalled; disabled for this process"))
             }
-            Err(_) => Err("VideoToolbox worker stopped".into()),
+            Err(_) => Err("native video worker stopped".into()),
         }
     }
     fn request(&self, command: Command) -> Result<Reply, String> {
         self.tx
             .try_send(command)
-            .map_err(|_| "VideoToolbox worker unavailable")?;
+            .map_err(|_| "native video worker unavailable")?;
         self.receive()
     }
 }
@@ -147,7 +165,7 @@ impl Hub {
     /// None: handled here; Some: the module handles the original message.
     pub fn handle(&mut self, machine: &mut Machine, msg: Msg) -> Option<Msg> {
         match msg {
-            Msg::Open { id, path, name } if self.backend != Backend::Module => {
+            Msg::Open { id, path, name } if self.backend.native_on(std::env::consts::OS) => {
                 match Worker::open(
                     path.clone(),
                     name.clone(),
@@ -158,7 +176,7 @@ impl Hub {
                         machine.decoder_status(
                             id,
                             DecoderStatus {
-                                backend: "VideoToolbox (hardware)".into(),
+                                backend: SELECTED.into(),
                                 fallback: None,
                             },
                         );
@@ -182,7 +200,7 @@ impl Hub {
                         machine.decoder_status(
                             id,
                             DecoderStatus {
-                                backend: if self.backend == Backend::VideoToolbox {
+                                backend: if self.backend.strict() {
                                     "unavailable"
                                 } else {
                                     "module"
@@ -191,7 +209,7 @@ impl Hub {
                                 fallback: Some(why.clone()),
                             },
                         );
-                        if self.backend == Backend::VideoToolbox {
+                        if self.backend.strict() {
                             machine.post(id, None, Event::Error(why));
                             None
                         } else {
@@ -279,7 +297,7 @@ impl Hub {
 
     fn fallback(&mut self, m: &mut Machine, id: u32, why: String) {
         let v = self.movies.remove(&id).unwrap();
-        if self.backend == Backend::VideoToolbox {
+        if self.backend.strict() {
             m.post(id, Some(v.epoch), Event::Error(why));
             return;
         }
@@ -290,7 +308,7 @@ impl Hub {
                 fallback: Some(why.clone()),
             },
         );
-        eprintln!("[video] {}: VideoToolbox → module: {why}", v.name);
+        eprintln!("[video] {}: {NAME} → module: {why}", v.name);
         let result = m.open_announced(id, v.path, &v.name, false).and_then(|()| {
             if let Some(last) = v.last {
                 let coalesced = v.seek.is_some_and(|t| last <= t + 1e-6);
@@ -344,6 +362,12 @@ struct Decoder {
 impl Decoder {
     fn open(path: &MovieFile, name: &str, module: Option<PathBuf>) -> Result<Self, String> {
         let media = Media::open(path, name, module)?;
+        #[cfg(target_os = "windows")]
+        if !media.packet_path() {
+            return Err(
+                "experimental Media Foundation requires MP4/Matroska/WebM packet PTS".into(),
+            );
+        }
         let session = Self::session(&media, 0)?;
         let order = media.format.order();
         let last_length = media.period;
@@ -368,7 +392,7 @@ impl Decoder {
         })
     }
     fn session(m: &Media, generation: u32) -> Result<Session, String> {
-        Session::new(&m.format, generation)
+        Session::new(&m.format, generation, m.period)
     }
     fn info(&self) -> VideoInfo {
         self.media.info()
@@ -447,7 +471,7 @@ impl Decoder {
             }
             if self.flushed {
                 if !self.sequence.is_empty() {
-                    return Err("VideoToolbox omitted an expected frame".into());
+                    return Err("native decoder omitted an expected frame".into());
                 }
                 if self.last.is_none() && self.media.may_retry {
                     self.media.reopen()?;
@@ -466,7 +490,7 @@ impl Decoder {
                 || self.sequence.len() >= REORDER_FRAMES
                 || self.decoded.values().map(Vec::len).sum::<usize>() > REORDER_BYTES
             {
-                return Err("VideoToolbox reorder queue exceeded its bound".into());
+                return Err("native decoder reorder queue exceeded its bound".into());
             }
             if let Some(packet) = self.media.next()? {
                 let i = self.index;
@@ -492,7 +516,7 @@ impl Decoder {
                 }
                 self.submitted.insert(i);
                 self.durations.insert(i, packet.duration);
-                self.session.decode(&sample, i)?;
+                self.session.decode(&sample, i, packet.presentation)?;
                 self.index += 1;
             } else {
                 for id in self.order.drain() {
@@ -508,13 +532,13 @@ impl Decoder {
                     continue;
                 }
                 if !self.submitted.remove(&output.id) {
-                    return Err("invalid or duplicate VideoToolbox frame identity".into());
+                    return Err("invalid or duplicate native frame identity".into());
                 }
                 if self.decoded.len() >= REORDER_FRAMES
                     || self.decoded.values().map(Vec::len).sum::<usize>() + output.planes.len()
                         > REORDER_BYTES
                 {
-                    return Err("VideoToolbox reorder queue exceeded its bound".into());
+                    return Err("native decoder reorder queue exceeded its bound".into());
                 }
                 self.decoded.insert(output.id, output.planes);
             }

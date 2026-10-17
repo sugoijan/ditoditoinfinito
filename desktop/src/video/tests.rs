@@ -436,3 +436,26 @@ fn recovery_keeps_the_undelivered_part_of_a_shared_timestamp() {
     assert!(!r.skip(1.0 + 5e-7));
     assert!(!r.skip(1.1));
 }
+
+#[test]
+fn native_selection_requires_an_explicit_windows_opt_in() {
+    for os in ["macos", "windows", "linux"] {
+        assert!(!Backend::Module.native_on(os));
+        assert_eq!(Backend::Auto.native_on(os), os == "macos");
+        assert_eq!(Backend::VideoToolbox.native_on(os), os == "macos");
+        for backend in [Backend::MediaFoundation, Backend::MediaFoundationAuto] {
+            assert_eq!(backend.native_on(os), os == "windows");
+            assert_eq!(backend.unavailable_on(os), os != "windows");
+        }
+    }
+    assert!(Backend::MediaFoundation.strict());
+    assert!(!Backend::MediaFoundationAuto.strict());
+    assert_eq!(
+        Backend::parse("mediafoundation"),
+        Some(Backend::MediaFoundation)
+    );
+    assert_eq!(
+        Backend::parse("mediafoundation-auto"),
+        Some(Backend::MediaFoundationAuto)
+    );
+}

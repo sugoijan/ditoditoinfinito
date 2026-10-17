@@ -151,7 +151,8 @@ the browser are implementation details, not advertised features.
   `offer.rs`); plays through the shared session (`play/`: the UI core's
   start prompt, noteskins with their Lua read on a thread, backgrounds,
   movies (feature `video`, on by default: checked 8-bit H.264, HEVC and VP9 subsets through
-  hardware VideoToolbox on macOS, the web's sandboxed FFmpeg module
+  hardware VideoToolbox on macOS, experimental opt-in Media Foundation/D3D11
+  on Windows (`mf.rs`, `mf_core.rs`; Windows Auto remains the module), the web's sandboxed FFmpeg module
   under wasmtime for the rest and on failure, `video.rs`, `video/`;
   movies in zips read in place or extracted once),
   a work's layers and lyrics, the theme's results, the history in the
@@ -174,8 +175,11 @@ the browser are implementation details, not advertised features.
   executable built in the workspace) the workspace's `target/video/`,
   and compiled once into the cache folder (`DDI_VIDEO_CACHE` moves it;
   `cargo test -p ddi-desktop --test video` checks it on generated
-  clips; `--decoder both` compares the checked OS subset against it,
-  `DDI_VIDEO_DECODER=module` forces the module for play). On Linux it builds
+  clips; `--decoder both` compares the platform's strict OS subset against it,
+  `DDI_VIDEO_DECODER=module` forces the module for play; Windows experiments
+  use `mediafoundation-auto` for module recovery, `mediafoundation` for strict
+  refusal; `video/check-windows.ps1 -Module PATH` records the deferred-host
+  fidelity run, without a window or sound). On Linux it builds
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
   from the system); winit, rfd and arboard load their libraries at run
   time.
@@ -209,7 +213,7 @@ the browser are implementation details, not advertised features.
   on the host clock), `--volume V`, `--seconds N` (quits, printing the
   library, the clock's latency and jitter, the devices, the plays),
   `--lose-device-after S`, `--video-check FILE [--reference REF.yuv]
-  [--frames] [--decoder auto|module|videotoolbox|both]`, `--pacing block|late` (a play's frame pacing),
+  [--frames] [--decoder auto|module|videotoolbox|mediafoundation|mediafoundation-auto|both]`, `--pacing block|late` (a play's frame pacing),
   `--in-flight 1|2` (defaults: late with two when a display link is
   available, block with one elsewhere), `--pacing-report` (block and late with one and two in
   flight, 4 s each in turn on Fifo, a table of each printed when the

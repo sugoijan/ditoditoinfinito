@@ -120,3 +120,11 @@ The interface deliberately makes no promise of a whole-file scan.
 
 The pinned upstream contracts are FFmpeg's `AVPacket`, packet side data and
 `AVIndexEntry`; see [FFmpeg's API documentation](https://www.ffmpeg.org/doxygen/9.0/avformat_8h.html).
+
+Windows' experimental Media Foundation consumer uses these same bounded
+packets (`desktop/src/video/mf.rs`). It requires unique usable packet PTS
+only to correlate transform output with input pictures, while the checked
+codec models keep DTS-based game timing. AVI has no such packet identity
+source and is refused by this initial Windows class. Auto on Windows
+remains the module; `docs/plans/native-video.md` records the deferred-host
+verification and explicit opt-in modes.
