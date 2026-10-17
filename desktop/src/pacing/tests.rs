@@ -389,8 +389,8 @@ fn the_report_compares_both_modes_in_one_run() {
     eprintln!("{text}");
     assert!(b.frames > 800 && l.frames > 800, "{b:?} {l:?}");
     assert!(l.latency[0] < b.latency[0] - 2.0, "{b:?} {l:?}");
-    assert_eq!(l.repeats, 0, "{l:?}");
-    assert_eq!(b.repeats, 0, "{b:?}");
+    assert_eq!(l.target_gaps, 0, "{l:?}");
+    assert_eq!(b.target_gaps, 0, "{b:?}");
     assert!(l.blocked_share < 0.05 && b.blocked_share > 0.5);
     assert!(text.contains("input read → shown"));
 }
@@ -563,18 +563,18 @@ fn a_compositor_that_keeps_drawables_needs_two_in_flight() {
     );
     let f = |m, n| report.figures(Column::new(m, n));
     let (b1, b2, l2) = (f(Mode::Block, 1), f(Mode::Block, 2), f(Mode::Late, 2));
-    assert!(b1.repeats > 100, "{b1:?}");
+    assert!(b1.target_gaps > 100, "{b1:?}");
     // (a few at the switches into it, where the queue fills)
-    assert!(b2.repeats <= 5, "{b2:?}");
-    assert!(l2.repeats <= 2, "{l2:?}");
+    assert!(b2.target_gaps <= 5, "{b2:?}");
+    assert!(l2.target_gaps <= 2, "{l2:?}");
     assert!(l2.polled[0] < b2.polled[0] - 4.0, "{l2:?} {b2:?}");
     assert!(l2.from_link > 0.99);
     // Released promptly, one in flight is enough for late pacing too.
     let report = promotion(0.000_1, 0.001, true, 24.0);
     let l1 = report.figures(Column::new(Mode::Late, 1));
     let b1 = report.figures(Column::new(Mode::Block, 1));
-    assert!(l1.repeats <= 2, "{l1:?}");
-    assert_eq!(b1.repeats, 0, "{b1:?}");
+    assert!(l1.target_gaps <= 2, "{l1:?}");
+    assert_eq!(b1.target_gaps, 0, "{b1:?}");
 }
 
 /// The maintainer's M1 Max as the 2026-10-17 report has it: 120 Hz on a
@@ -775,4 +775,55 @@ fn the_shown_estimate_agrees_with_the_glass_on_the_macs_parameters() {
             assert!((est - glass).abs() < 4.2, "{}: {est} {glass}", c.name());
         }
     }
+}
+
+/// CPU presents just either side of each display tick. No surface model is
+/// involved: these observations cannot establish which frame was displayed.
+fn report_at_refresh_boundaries(jitter: bool, stalled_periods: u32) -> Report {
+    let period = 1.0 / 120.0;
+    let mut pacer = Pacer::new(Mode::Block);
+    let mut report = Report::default();
+    let mut previous = 0.0;
+    for i in 0..121 {
+        let skipped = if i >= 60 { stalled_periods } else { 0 };
+        let refresh = f64::from(i + skipped + 1) * period;
+        pacer.grid.tick(refresh - period, refresh);
+        pacer.begin(previous + 0.000_01);
+        let sample = refresh - 0.000_3;
+        pacer.acquired(previous + 0.000_01, sample);
+        let present = refresh
+            + if jitter && i % 2 == 1 {
+                0.000_1
+            } else {
+                -0.000_1
+            };
+        report.push(pacer.presented(sample, present, present));
+        previous = present;
+    }
+    report
+}
+
+#[test]
+fn steady_presents_can_have_both_target_gaps_and_collisions() {
+    let report = report_at_refresh_boundaries(true, 0);
+    let f = report.figures(Column::new(Mode::Block, 1));
+    assert!((f.interval[0] - 1000.0 / 120.0).abs() < 0.001);
+    assert!(f.interval[2] < 8.54);
+    assert_eq!(f.target_gaps, 60);
+    assert_eq!(f.target_collisions, 60);
+    let text = report.text("boundary jitter");
+    assert!(text.contains("inferred target gaps · collisions"));
+    assert!(text.contains("Target gaps are not observed repeats"));
+    assert!(!text.contains("estimated repeated refreshes"));
+    let misses = text.lines().find(|l| l.contains("acquire misses")).unwrap();
+    assert!(misses.ends_with(" · -"), "{misses}");
+}
+
+#[test]
+fn a_present_stall_has_target_gaps_without_collisions() {
+    let report = report_at_refresh_boundaries(false, 3);
+    let f = report.figures(Column::new(Mode::Block, 1));
+    assert!((f.interval[2] - 4000.0 / 120.0).abs() < 0.001);
+    assert_eq!(f.target_gaps, 3);
+    assert_eq!(f.target_collisions, 0);
 }

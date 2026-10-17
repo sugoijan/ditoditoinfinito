@@ -110,14 +110,17 @@ pub struct Figures {
     pub build: [f64; 3],
     /// Late pacing's wake after its planned start (ms): p50, p95, max.
     pub late: [f64; 3],
-    /// The clock and input read to the refresh the frame is shown at
-    /// (ms, as the grid has it): mean, p50, p95.
+    /// The clock and input read to the inferred refresh target
+    /// (ms): mean, p50, p95. Not observed presentation latency.
     pub latency: [f64; 3],
     /// The frame's start (the keys and pads polled just before it) to
-    /// the refresh it is shown at (ms): mean, p50, p95.
+    /// the inferred refresh target (ms): mean, p50, p95.
     pub polled: [f64; 3],
-    /// Refreshes that showed the frame before again.
-    pub repeats: u64,
+    /// Refresh slots skipped between inferred targets, not observed repeats.
+    pub target_gaps: u64,
+    /// Consecutive frames assigned to the same or an earlier target.
+    /// Boundary jitter can pair these with gaps at a steady present cadence.
+    pub target_collisions: usize,
     pub overruns: usize,
     pub early: usize,
     pub latch_misses: usize,
@@ -265,7 +268,8 @@ impl Report {
             return f;
         }
         let mut intervals = Vec::new();
-        let mut repeats = 0;
+        let mut target_gaps = 0;
+        let mut target_collisions = 0;
         for w in rs.windows(2) {
             let ((a, _), (b, follows)) = (w[0], w[1]);
             if !follows {
@@ -273,7 +277,8 @@ impl Report {
             }
             intervals.push(b.end - a.end);
             let gap = ((b.target - a.target) / b.period).round();
-            repeats += (gap - 1.0).max(0.0) as u64;
+            target_gaps += (gap - 1.0).max(0.0) as u64;
+            target_collisions += usize::from(gap <= 0.0);
         }
         f.seconds = intervals.iter().sum();
         let s = summary(intervals);
@@ -301,7 +306,8 @@ impl Report {
         f.latency = [s.mean, s.p50, s.p95];
         let s = summary(rs.iter().map(|(r, _)| r.target - r.begin).collect());
         f.polled = [s.mean, s.p50, s.p95];
-        f.repeats = repeats;
+        f.target_gaps = target_gaps;
+        f.target_collisions = target_collisions;
         f.probes = rs.iter().filter(|(r, _)| r.probe).count();
         f.overruns = rs.iter().filter(|(r, _)| r.overrun).count();
         f.early = rs.iter().filter(|(r, _)| r.early).count();
@@ -422,12 +428,28 @@ impl Report {
             "frame start → estimated shown ms (mean/p50/p95)",
             &|f| ms3(f.polled),
         );
-        row(&mut out, "estimated repeated refreshes", &|f| {
-            f.repeats.to_string()
+        row(&mut out, "inferred target gaps · collisions", &|f| {
+            format!("{} · {}", f.target_gaps, f.target_collisions)
         });
-        row(&mut out, "overran · early · missed refreshes", &|f| {
-            format!("{} · {} · {}", f.overruns, f.early, f.latch_misses)
-        });
+        head(
+            &mut out,
+            "target later · earlier · acquire misses",
+            columns
+                .iter()
+                .zip(&figures)
+                .map(|(c, f)| {
+                    if f.frames == 0 {
+                        return "-".into();
+                    }
+                    let misses = if c.mode == Mode::Late {
+                        f.latch_misses.to_string()
+                    } else {
+                        "-".into()
+                    };
+                    format!("{} · {} · {misses}", f.overruns, f.early)
+                })
+                .collect(),
+        );
         row(&mut out, "missed: spare · woke late ms (p50)", &|f| {
             if f.latch_misses == 0 || f.miss_spare.is_nan() {
                 "-".into()
@@ -442,6 +464,10 @@ impl Report {
             "  notes: \"shown\" is the refresh the grid gives the frame (no present timestamps):\n\
              \x20        bounded by the configured queue depth; block assumes a full queue.\n\
              \x20        Display-link ticks locate refreshes, not individual frame presentations.\n\
+             \x20        Target gaps are not observed repeats: boundary jitter can pair gaps\n\
+             \x20        with collisions (two frames assigned the same or an earlier refresh).\n\
+             \x20        Later/earlier compare targets before/after building; acquire misses\n\
+             \x20        are inferred from late pacing's acquire waits, unavailable for block.\n\
              \x20        Keys and pads are polled just before a frame starts, and a blocking\n\
              \x20        frame then waits in the acquire: \"frame start → shown\" is closer to\n\
              \x20        what a press waits for than \"input read → shown\", which flatters block.\n\

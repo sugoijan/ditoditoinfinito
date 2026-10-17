@@ -39,9 +39,10 @@ under it in section 7:
 
 - Frame pacing: late with two frames in flight is the default when a
   macOS display link is available, block with one elsewhere. The link
-  held 120 Hz in the maintainer's run; margin learning and the report's
-  queue estimate are now corrected and simulated. Check 9 still needs
-  the next windowed run: simulation does not prove compositor behaviour.
+  held 120 Hz in the maintainer's follow-up run, with no inferred
+  misses in late·2 and 4.20 ms mean frame start to estimated shown.
+  The report now distinguishes target gaps from observed repeats.
+  Fullscreen and direct presentation measurements remain to be checked.
 - OS video decoders are the next video work, macOS then Windows; the
   module remains the shipped decoder and fallback. The VT spike and
   later sandboxed native helper are in `native-video.md` (decision 50).
@@ -77,9 +78,10 @@ under it in section 7:
    fullscreen; the printed report's four columns (block·1, block·2,
    late·1, late·2, four seconds each in turn): "display link:
    CADisplayLink" in the title, refresh times 100 % link, the link's
-   period 8.333 ms with a small spread, then which columns repeat no
-   refreshes and, of those, which has the lowest frame start → estimated shown. These are
-   model estimates, not measured presentation latency.
+   period 8.333 ms with a small spread, present cadence, inferred target
+   gaps and collisions, acquire misses, and frame start → estimated shown.
+   These are model estimates, not measured presentation latency or repeats.
+   The follow-up run below supports late·2; fullscreen remains unchecked.
    Expected from the simulation: block·2 smooth at a refresh more than
    late·2, late·2 with few repeats and lowest; block·1 and late·1 repeating as
    before if the compositor keeps drawables long.
@@ -562,12 +564,13 @@ come), so it never waits in the acquire:
 runs on the maintainer's M1 Max (ProMotion, the OS says 120 Hz),
 windowed. The grid from the acquires' returns locked for 0–13 % of the
 frames, so late pacing ran as blocking frames; the returns came at no
-fixed time. Block itself repeated refreshes (300 and 743 in about
-44 s), its present-to-present 9–10 ms ± 2.7–3.4 ms with builds of
+fixed time. The report counted 300 and 743 inferred target gaps for
+block in about 44 s (then labelled repeats), its present-to-present
+9–10 ms ± 2.7–3.4 ms with builds of
 1.3–2.3 ms, waiting 7–7.5 ms a frame in the acquire; the rate measured
 111–117 Hz. Nobody felt a difference.
 
-Reading it: with one frame in flight the layer has two drawables
+A possible explanation: with one frame in flight the layer has two drawables
 (`maximumDrawableCount` = `desired_maximum_frame_latency` + 1 in
 wgpu's Metal backend; Apple allows 2 or 3, 3 by default). The frame
 after a present waits until the compositor lets go of the drawable it
@@ -585,8 +588,8 @@ the compositor's, which ProMotion lowers when content does not keep up
 or does not ask for more. `CADisableMinimumFrameDurationOnPhone` is an
 iPhone key; a Mac asks through the display link's
 `preferredFrameRateRange`. `presentsWithTransaction` stays off (wgpu's
-default) and `displaySyncEnabled` on for Fifo. The simulation
-reproduces the report with a compositor that keeps a replaced drawable
+default) and `displaySyncEnabled` on for Fifo. A simulation
+produces similar gaps with a compositor that keeps a replaced drawable
 6 ms and wants frames 1 ms before the refresh: blocking frames with one
 in flight repeat a third of the refreshes, with two in flight none
 (`a_compositor_that_keeps_drawables_needs_two_in_flight`).
@@ -632,13 +635,13 @@ depending on the driver; the report says which.
 
 **The linked run and the next default (2026-10-17).** The maintainer's
 M1 Max run held 120.00 Hz in all four columns (link period 8.333 ms,
-sd 0–0.005 ms, grid locked 100%). Block·1 repeated 40 refreshes in
-25 s, block·2 none; late·1 repeated 60 in 21 s, late·2 23 in 21 s
+sd 0–0.005 ms, grid locked 100%). The report inferred 40 target gaps
+for block·1 in 25 s, none for block·2; 60 for late·1 and 23 for late·2 in 21 s
 (46 and 18 inferred misses). Builds averaged 0.9–1.3 ms and wake
 lateness p95 was about 1.5 ms; late's margin had reached its old
 4.17 ms ceiling. No difference was felt by hand without calibration.
 Late·2 is now the default with a link; block·1 stays the fallback
-without one. The larger margin and persistent floor need check 9.
+without one. The follow-up below checks the revised default on hardware.
 
 The old block latency figures, 29.8/51.4 ms mean/p95 for one frame in
 flight and 76.4/125.5 for two, **do not establish those latencies**.
@@ -657,6 +660,39 @@ A separate ten-minute late·2 run repeats 18 of 71,923 frames, nine in
 the first minute, then 0/3/0/2/1/2/0/1/0 each minute; mean 8.61 ms,
 p95 9.51, final margin 6.50 ms. This is near-zero in the model after
 learning, not a claim about the next hardware run.
+
+**Follow-up hardware run (2026-10-17).** Beatucada chart 0 autoplayed
+perfectly (276 judgements), with no lost devices, occluded frames or audio
+xruns. CADisplayLink held 120.00 Hz in every column, period 8.333 ms with
+reported sd 0.000; every frame had a locked grid. This supports keeping
+late·2 as the default, without another margin change from this run.
+
+| Figure | block·1 | block·2 | late·1 | late·2 |
+|---|---:|---:|---:|---:|
+| Frames (seconds) | 2940 (24.4) | 2868 (23.9) | 2519 (21.0) | 2520 (20.9) |
+| Present interval mean / sd / max (ms) | 8.33 / 0.17 / 10.73 | 8.35 / 0.60 / 38.36 | 8.34 / 0.36 / 13.13 | 8.33 / 0.32 / 9.76 |
+| Acquire mean / p95 (ms) | 7.91 / 8.09 | 7.91 / 8.11 | 0.03 / 0.04 | 0.03 / 0.05 |
+| Frame start → estimated shown mean / p95 (ms) | 11.43 / 16.64 | 19.71 / 24.98 | 4.35 / 5.31 | 4.20 / 5.07 |
+| Target gaps (then labelled estimated repeats) | 643 | 639 | 1 | 0 |
+| Acquire-inferred misses (late only) | — | — | 1 | 0 |
+
+Late·2's wake lateness was 0.46 / 0.99 / 1.27 ms (median / p95 / max),
+its build 0.35 / 0.55 / 1.12 ms (mean / p95 / max); margin 4.00 ms.
+Block·2 had one large build maximum, 30.29 ms. These CPU observations
+do not establish actual presentation latency or an absence of stutter.
+
+The hundreds of block target gaps **do not establish repeated refreshes**.
+`target_after` rounds each present up to a refresh and assumes a full
+queue. Small jitter across a refresh boundary can assign consecutive
+frames targets two refreshes apart, then assign two frames the same
+target; the report counted the positive gap only. A regression with
+120 Hz presents alternating ±0.1 ms around ticks reproduces 60 gaps and
+60 collisions over 120 intervals, none longer than 8.54 ms. That is a
+plausible explanation for the block counts, not proof from this report:
+the old output did not count collisions or retain individual presents.
+The revised report names target gaps and collisions explicitly, and
+calls the other counts target later/earlier and acquire misses. None
+are direct display observations. Pacing and margin learning are unchanged.
 
 To measure directly on Metal, retain each `CAMetalDrawable` and attach
 [`addPresentedHandler`](https://developer.apple.com/documentation/metal/mtldrawable/addpresentedhandler(_:)),
@@ -679,10 +715,12 @@ the link's period (mean and sd), the share on a locked grid, present-to-present
 intervals, time in the acquire, the present call, the build (acquire's
 return to present), how late the timer woke, input read → estimated shown and
 frame start → estimated shown (to the refresh the grid gives the frame),
-estimated repeated refreshes (gaps between inferred refreshes), frames that
-overran or came early (shown at another refresh than drawn for) and
-missed refreshes, probes and the margin. Keys and pads reach the play
-when the loop polls them, just before a frame starts; a blocking frame
+inferred target gaps and collisions (consecutive frames assigned the same
+or an earlier refresh), targets later or earlier than predicted before
+building, acquire-inferred misses (late only), probes and the margin.
+Boundary jitter can pair target gaps with collisions at a steady present
+cadence; these counts cannot establish repeated refreshes. Keys and pads
+reach the play when the loop polls them, just before a frame starts; a blocking frame
 then waits in the acquire, so "input read → estimated shown" (from the clock
 read after the acquire) understates what a press waits for under block,
 and "frame start → estimated shown" is the closer figure: late's gain for keys
