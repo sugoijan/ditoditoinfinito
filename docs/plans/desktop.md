@@ -42,6 +42,9 @@ under it in section 7:
   held 120 Hz in the maintainer's run; margin learning and the report's
   queue estimate are now corrected and simulated. Check 9 still needs
   the next windowed run: simulation does not prove compositor behaviour.
+- OS video decoders are the next video work, macOS then Windows; the
+  module remains the shipped decoder and fallback. The VT spike and
+  later sandboxed native helper are in `native-video.md` (decision 50).
 - Packaging and signing (an `.app`, an installer, the video module and
   the licences beside the executable), in their own plan.
 - Windows: the gilrs change (8 ms polling, stamps from the reading) needs

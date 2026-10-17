@@ -1,4 +1,4 @@
-# Plan: native video decoding on desktop (2026-10-16)
+# Plan: OS and native video decoding on desktop (2026-10-17)
 
 The maintainer asked whether desktop could decode background movies
 natively instead of running the web's FFmpeg module under wasmtime
@@ -8,15 +8,19 @@ of `video/ddivideo.c`, built as a `cdylib` for wasm (the web unchanged)
 and used natively through a safe Rust API. This document surveys the
 candidates, tries that design, measures native FFmpeg against the
 module on this machine, and proposes what to do. Nothing in the
-repository changed: the spike lives outside it, in
-`/home/user/.claude/jobs/2f6f2abd/tmp/spike-native-video/`.
+production decoder changed: the native spike is in
+`/home/user/.claude/jobs/2f6f2abd/tmp/spike-native-video/`. The 2026-10-17
+VideoToolbox continuation is in the `next` worktree
+(`/home/user/sugoijan/ditoditoinfinito-next/target/scratch/vt/`); its
+source and measurement logs are also handed over in the main checkout
+as `target/scratch/video-spike-2026-10-17.tar.gz`, without movie files.
 
 Read first: `docs/plans/video-backgrounds.md` (why the module exists,
 its exact seeks, StepMania's frame times), `docs/plans/desktop.md` (D8,
 7.0's and 7.7's numbers and hardening), `video/FFMPEG.toml`,
 `video/ddivideo.c`, `desktop/src/video.rs`.
 
-## In short
+## Direction
 
 - **Native FFmpeg is about 3× faster than the module under wasmtime,
   frame for frame, on one thread.** With four decoder threads it is
@@ -49,12 +53,13 @@ its exact seeks, StepMania's frame times), `docs/plans/desktop.md` (D8,
   a deadline. Native FFmpeg in the game's process would give such a
   bug the user's account. 2025 alone brought heap overflows in two
   decoders we enable (SANM, JPEG 2000).
-- **Proposed:** keep the module under wasmtime as desktop's decoder
-  (D8 stands) and keep `ddivideo.c` as the one shim. Offer native
-  decoding later, opt-in and isolated: the same shim and FFmpeg built
-  natively into one shared library with the module's `ddi_*` ABI,
-  loaded at run time in a decoder process with a sandbox, frames over
-  shared memory. Do macOS first. Section 7 has the steps.
+- **Decision 50: OS decoders first.** Keep the module as the shipped
+  default and fallback. Add VideoToolbox, then Media Foundation, for
+  streams whose pixels, timestamps and seeks pass the same checks. The
+  M1 Max spike hardware-decodes H.264, HEVC and VP9 at much less CPU
+  cost than the module; codec names alone do not establish support for
+  every stream. A sandboxed native FFmpeg child comes later for the
+  remaining formats. Keep `ddivideo.c` as the shared FFmpeg shim.
 
 ## 1. What the decoder must do (unchanged)
 
@@ -105,7 +110,7 @@ its exact seeks, StepMania's frame times), `docs/plans/desktop.md` (D8,
 | oxideav (`oxideav-h264` 0.1.9, `-mpeg4video` 0.1.8, `-mpeg12video` 0.0.13, `-msmpeg4` 0.0.10, `-avi` 0.0.10) | 2026-04 to 2026-10 | MIT | claims nearly all of ours | Six months old, self-reported conformance, almost no users. Worth a conformance run in a year, not a dependency now |
 | `openh264` | 0.9.9 (2026-10-15) | BSD-2-Clause (Cisco's binary has its own patent licence) | H.264 only; Main/High not conformant | No |
 | macOS VideoToolbox (`objc2-video-toolbox` 0.3.2) | 2025-10-04 | Zlib OR Apache-2.0 OR MIT | H.264 and HEVC in hardware; MPEG-4 Part 2 and MPEG-2 unverified on Apple Silicon; no DivX 3, WMV, VP6; AVFoundation does not open AVI | Possible for H.264 only, fed by `library/src/avi.rs` as WebCodecs is on the web |
-| Windows Media Foundation (`windows` 0.62.2) | 2025-10-06 | MIT OR Apache-2.0 | H.264, MPEG-4 Part 2, DivX 3 (Vista+), WMV, AVI source; MPEG-2 sometimes a Store extension; N editions have none of it | Covers most packs on Windows only; different pixels per driver |
+| Windows Media Foundation (`windows` 0.62.2) | 2025-10-06 | MIT OR Apache-2.0 | H.264, MPEG-4 Part 2 and WMV candidates; other codecs depend on installed extensions, edition and hardware | Runtime probing and fidelity checks required; section 7 |
 | Linux | | | hardware APIs only (VA-API, V4L2) | No software fallback |
 | GStreamer (`gstreamer` 0.25.4) | 2026-09-21 | bindings MIT/Apache; GStreamer LGPL | old codecs come from gst-libav, which is FFmpeg | A large runtime to ship for no codec gain |
 | libmpv (`libmpv2` 6.0.0), libVLC | | LGPL / GPL | players, not frame sources | No |
@@ -331,6 +336,136 @@ absorb today (7.7 saw the same).
 - **Opening a movie:** 1–15 ms natively, against 3–21 ms for the module
   once compiled. The module's first compilation (0.85 s) is cached.
 
+## 4a. VideoToolbox spike (2026-10-17)
+
+**Scope and packet source.** A small Rust driver feeds compressed samples
+into `VTDecompressionSession`, retaining each callback's `CVPixelBuffer`.
+H.264 AVI uses the game's own `library/src/avi.rs` index and packet reader,
+and `library/src/h264.rs` for picture order, DTS-based output times and
+`ExactSeek`, as the web's WebCodecs path does. The MP4/WebM/MPEG-PS
+experiments use the earlier spike's native libavformat **only as a test
+packet source**. This is not production demuxing: those containers need
+a bounded packet interface from the sandboxed module before integration.
+There is no new in-process FFmpeg path in the game.
+
+Test machine: M1 Max, macOS 27.0.1 (build 26A434). Generated clips from `video/clips.sh`
+and the earlier spike, no third-party movies published. Query hardware
+support, try the actual format description and session, then check
+`UsingHardwareAcceleratedVideoDecoder`; the query alone is insufficient.
+
+| Codec / fixture | Observed VT result | Agreement and disposition |
+|---|---|---|
+| H.264, progressive 8-bit 4:2:0, 360p AVI and 720p/1080p MP4, 600 frames each | hardware, NV12 | all 1,800 frame timestamps and I420 CRCs equal the wasm module; first 60 frames of each byte-identical to native FFmpeg; exact-seek trials below |
+| HEVC, 320×240 MP4, 60 frames | hardware, NV12 | all timestamps/CRCs equal the module; raw-plane PSNR against the module exact on Y/U/V |
+| VP9, 320×240 WebM, 60 frames | hardware after supplemental decoder registration, NV12 | all timestamps/CRCs equal the module; raw-plane PSNR against the module exact on Y/U/V |
+| AV1, generated 320×180 MP4 with av1C | hardware query false; session refused −12906 | unavailable on this machine; capability-test other devices, no general support claim |
+| MPEG-2, 320×240 MPEG-PS, 60 frames | session accepted; hardware query false, hardware property absent; service uses CPU | worst PSNR against the module: Y 58.2, U 33.2, V 30.9 dB (36.7 dB combined against native FFmpeg), below the 60 dB acceptance bound; rejected for integration |
+| MPEG-4 Part 2, MOV with VOL in esds (AVI also tried) | hardware query false; session refused −8969 | fallback; a rejected fixture does not prove every profile unavailable |
+
+H.264's 124 seek targets per clip include exact frame times, mid-frame
+times, EOF and rewind. Seeking uses our streaming picture-order and
+retry logic; all 124 targets per clip passed (360p median/max 23.8/56.9 ms,
+720p 35.5/123.8, 1080p 53.3/130.7). Every returned timestamp/CRC must equal the sequential
+module frame showing at that time. HEVC and VP9 each passed 122 targets
+(0 wrong), with median/max 21.3/25.2 ms and 26.0/57.9 ms respectively.
+Those two are **finite indexed fixture trials**: container PTS sorts
+outputs, codec metadata supplies delay, and the full packet index maps
+frame times. They prove the tested seeks, not a bounded streaming
+implementation for arbitrary HEVC/VP9. Long GOPs, variable frame rate,
+missing DTS, profile changes, 10-bit and interlacing remain acceptance
+work; unsupported timing must fall back, never silently change the clock.
+
+**CPU measurements.** The H.264 runs decode 600 frames. Default scheduling
+placed 89–99% of the measured VT caller CPU on performance cores
+(the module process 92–100%, sampled with `RUSAGE_INFO_V6`);
+`taskpolicy -c background` placed effectively all on efficiency cores
+(0–0.2% P-core CPU on the measured VT caller; under 0.1% on
+the module process in the three H.264 runs). It is a scheduling proxy,
+not an affinity promise for the XPC service. VT CPU is caller `getrusage`
+plus the newly created service's `proc_pid_rusage` delta, excluding open
+and seeks. It includes callback handling, I420 allocation/copy and CRCs.
+The module figure is `CLOCK_THREAD_CPUTIME_ID` around each decoder call
+in the earlier spike's driver; it excludes host upload and CRC work.
+No GPU rendering is timed. These are CPU costs, not playback throughput
+or battery measurements; background QoS also greatly increases wall time.
+
+| H.264 fixture | Scheduling | VT copied I420, caller + service CPU ms/frame | VT Metal import, caller + service CPU ms/frame | wasm decoder CPU ms/frame (p99) |
+|---|---|---:|---:|---:|
+| 640×360 AVI | default, mainly P cores | 0.385 | 0.348 | 1.15 (1.45) |
+| 1280×720 MP4 | default, mainly P cores | 0.520 | 0.358 | 4.35 (5.24) |
+| 1920×1080 MP4 | default, mainly P cores | 0.886 | 0.452 | 9.78 (13.23) |
+| 640×360 AVI | background, E cores | 1.024 | 0.859 | 3.68 (6.22) |
+| 1280×720 MP4 | background, E cores | 1.440 | 0.884 | 13.39 (21.04) |
+| 1920×1080 MP4 | background, E cores | 2.207 | 1.089 | 28.02 (38.27) |
+
+Every frame time/CRC also matches the module under background scheduling.
+The 1080p default run had more E-core time than the lower-resolution runs;
+these are measured scheduling policies, not pinned-core microbenchmarks.
+The earlier default run (`measure/`, before the final CPU-only pass) was
+99.9% P-core in the VT caller and gave 0.659 ms/frame with copies,
+0.312 with Metal import; this spread is why the report keeps the raw logs.
+The final pass disables repeated seeks for the CPU comparison, through a
+scratch-only `DDI_SPIKE_NO_SEEKS` switch; full seek evidence is separate.
+
+The 60-frame HEVC/VP9 probes also ran under both policies. These
+measure synchronous VT decode and its service CPU before copying planes,
+so they are not directly comparable to the H.264 pipeline totals:
+
+| Fixture, 320×240 | VT default CPU ms/frame | VT background CPU ms/frame | wasm default / background CPU ms/frame |
+|---|---:|---:|---:|
+| HEVC MP4 | 0.41 (0.10 caller + 0.31 service) | 1.64 (0.39 + 1.25) | 0.60 / 1.84 |
+| VP9 WebM | 0.42 (0.10 + 0.32) | 1.29 (0.29 + 1.00) | 0.50 / 1.41 |
+
+At these small sizes the VT submission/service overhead consumes much
+of the gain. Hardware decoding is not automatically faster for every
+movie; benchmark larger clips before expanding the production gates.
+
+**Plane copies and Metal.** NV12 is what VT returned. The copy path locks
+the pixel buffer, copies Y and splits interleaved UV into the renderer's
+three I420 planes. At default QoS, that costs 0.024 / 0.077 / 0.229 ms
+per frame at 360p / 720p / 1080p. The alternative requests IOSurface-backed
+buffers and wraps Y as R8 and UV as RG8 with
+[`CVMetalTextureCacheCreateTextureFromImage`](https://developer.apple.com/documentation/corevideo/cvmetaltexturecachecreatetexturefromimage(_:_:_:_:_:_:_:_:_:));
+import/release costs 0.010 / 0.009 / 0.015 ms, with no CPU plane copy.
+Total caller + service CPU is in the table above. Under background
+QoS, plane copying costs 0.078 / 0.346 / 0.694 ms per frame; Metal
+import/release costs 0.049 / 0.027 / 0.039 ms. CRC work also disappears from
+this path, so the total difference is not solely the memcpy saved.
+The spike imports and releases views; it does not submit a GPU draw.
+
+Integration is feasible but backend-specific: create the texture cache
+on wgpu's actual Metal device, wrap the retained `MTLTexture`s using
+wgpu-hal 30's `Device::texture_from_raw`, then
+`wgpu::Device::create_texture_from_hal`. The renderer needs an NV12
+plane/shader variant beside I420, preserving range, matrix and colour
+conversion. Retain the CVPixelBuffer and CVMetalTexture views until GPU
+completion, handle device loss and seek generations, and never recycle a
+surface still sampled. First ship the simpler copied-plane path; measure
+upload costs before adding this interop. Apple's
+[VT/Metal session](https://developer.apple.com/videos/play/wwdc2020/10090/)
+describes both IOSurface sharing and keeping the views alive during GPU work.
+
+**Process isolation observed.** Session creation spawned a new
+`VTDecoderXPCService`, measured separately from services already present;
+H.264/HEVC/VP9 sessions reported hardware acceleration and the service
+accounted for measurable CPU. This agrees with Apple's description of
+sandboxed decoding and IOSurface transfer in that session. It establishes
+the observed path, not a guarantee that every optional decoder or every
+future OS uses the same service. The caller still parses packet headers
+and owns the FFI boundary; cap dimensions, packet sizes and queued outputs.
+
+**Reproduce locally.** `target/scratch/vt/measure.sh` interleaves copied
+VT planes, Metal import and the wasm module at default/background QoS;
+`cpu-final/*.txt` holds every timestamp/CRC and the final CPU summaries;
+`measure/*.txt` keeps the earlier runs (the redundant background 720p
+seek run was stopped, not used as a completed result).
+`h264-360.txt`, `hd-seeks.txt`, `generic-seeks.txt`, `codecs-final.txt`,
+`av1.txt` and `core-observations.txt` retain the other evidence. Build the
+standalone scratch crate with `FFMPEG_DIR` pointing to the earlier spike's
+`ffmpeg-native/fast`; the only Objective-C helper is texture wrapping and
+core-accounting. Run binaries under the scratch watchdog, never in a
+window. The earlier FFmpeg spike and its builds are retained.
+
 ## 5. Safety
 
 **The risk.** The module decodes with 264 decoders and every demuxer:
@@ -369,7 +504,7 @@ StepMania plays", and H.264 alone has had such bugs.
 | B. Native, in process | nothing | none; **not acceptable** for third-party movies |
 | C. Native in a decoder process, no OS sandbox | the game's memory; a crash or hang kills only the child | a helper executable to build, sign and ship; IPC; frames over shared memory (1080p 4:2:0 is 3.1 MB, a memcpy of about 0.3 ms); one process for all movies, as one decoder thread today. A compromised child still has the user's rights |
 | D. C plus an OS sandbox | as A, if the sandbox holds | per-OS sandbox code, reviewed and tested on each OS (below) |
-| E. VideoToolbox / Media Foundation for H.264 only, the rest on the module | H.264 is decoded by the OS (on macOS in `VTDecoderXPCService`, out of process) | a second decode path per OS, like WebCodecs on the web: our AVI demuxer (`library/src/avi.rs`) and output-order replay; pixels per GPU driver; macOS lacks DivX 3 and AVI |
+| E. OS decoders for verified streams, module for the rest (next) | VT used its decoder service in this spike; Media Foundation/VA-API isolation must be assessed separately | packet demux and output-order replay, per-OS decode API, optional GPU interop; the fallback preserves format coverage |
 
 **The sandbox for D, per OS:**
 
@@ -407,8 +542,8 @@ StepMania plays", and H.264 alone has had such bugs.
   game would oblige us to ship object files for relinking, so we do
   not do it.
 - **One shared library** (`libddivideo.dylib`, `ddivideo.dll`,
-  `libddivideo.so`) holds FFmpeg and the shim. The shim is MIT, and so
-  is the combined library's source. It is distributed under the LGPL,
+  `libddivideo.so`) holds FFmpeg and the shim. The shim is MIT; FFmpeg retains its LGPL licence. The combined
+  library is distributed under the LGPL,
   with:
   - FFmpeg's tarball, or an offer valid three years;
   - the shim and the build script, so the user can rebuild and
@@ -420,159 +555,188 @@ StepMania plays", and H.264 alone has had such bugs.
   one line, as a build without the module does.
 - **Code signing:**
   - **macOS:** with the hardened runtime and library validation, a
-    replaced dylib with another signature is refused. LGPL-2.1 (which
-    FFmpeg's "or later" lets us choose) has no installation-information
-    clause, unlike LGPL-3.0, so that is compliant. A user who rebuilds
-    can re-sign ad hoc and use the unsigned path.
+    replaced dylib with another signature can be refused. Packaging must
+    document and test a working replacement/rebuild route, including
+    ad-hoc re-signing where needed; do not infer compliance merely from
+    keeping the library in a separate file.
   - **Windows:** Authenticode-sign the DLL beside the executable.
   - **Linux:** the `.so` beside the binary, found through `$ORIGIN`.
 - **The wasm module needs none of this:** it is data, read and checked
   by its hash. Replacing it needs no re-signing, which is one more
   thing in A's favour.
 
-## 7. Proposal
+## 7. Implementation order (decision 50)
 
-### Decisions (proposed)
+The module remains the shipped default and fallback throughout this work.
+An OS path is selected for a movie only after its supported stream class
+passes the checks; absence, refusal, bad output or a stalled session moves
+that movie to the module at the same requested time. If the module also
+cannot decode it (AV1 on today's build, for example), keep the existing
+still-background fallback and notice. Report the selected
+backend and fallback reason in `--video-check` and diagnostics. Preserve
+`VideoBackend`/`VideoDecoder`, `MovieTrack`'s queues and automatic video rule.
 
-- **N1. The module under wasmtime stays desktop's decoder** (D8 is
-  confirmed, not changed). It plays every pack movie in budget, it is
-  the web's decoder byte for byte, and it is sandboxed by
-  construction. Native is an addition, never a replacement.
-- **N2. `ddivideo.c` stays the one shim** for every target. The Rust
-  port works (section 3), but it adds libclang and a second libc to
-  the web's build and makes nothing safer. Revisit it if the shim
-  grows.
-- **N3. Native decoding, when built, is "the module, natively":**
-  - one shared library per platform, built by `video/build.sh
-    --native` from the same tarball, decoder list and shim, exporting
-    the same 16 `ddi_*` functions;
-  - loaded at run time, so the host's code is the same against both
-    (the wasmtime calls become function pointers);
-  - FFmpeg's assembly on and the shim unchanged (`FF_IDCT_AUTO`).
-    Frame times and seeks compare exactly against the module. Pixels
-    compare exactly for the bit-exact codecs (H.264, HEVC, VP8/9,
-    lossless) and within 60 dB PSNR for the IDCT codecs. Native x86-64
-    and arm64 also differ from each other there, so CI needs the bound
-    anyway;
-  - threads: `thread_count` 2–4 natively (frame threading, same
-    frames).
-- **N4. Native only in a decoder process** (option C), with the OS
-  sandbox (D) before it is on by default anywhere. Until a platform has
-  its sandbox, native is an opt-in setting ("Fast video decoder
-  (experimental)") with the module as the default and the fallback.
-  Never in the game's process (B).
-- **N5. Not now:** `rsmpeg` (stale), `ffmpreg` (no video), pure-Rust
-  decoders (none complete; oxideav to re-check in 2027), GStreamer,
-  libmpv. VideoToolbox/Media Foundation for H.264 (E) is a separate,
-  later question, worth asking only if 1080p packs become common.
+1. **Packet and fidelity harness.** Separate demux from decode as on the
+   web. Start with our checked H.264 AVI reader and shared output-order /
+   exact-seek logic. Add bounded packet/configuration/index exports to the
+   sandboxed module for other containers, retaining StepMania's DTS rules.
+   Extend `--video-check` to choose and compare backends: every timestamp
+   and seek must match, bit-exact codecs' planes must match, IDCT codecs
+   must meet at least 60 dB per plane. Include long GOPs, nonzero starts,
+   dropped frames, EOF, rapid seeks, variable frame rate and malformed
+   input. Fixture success alone never broadens a capability gate.
+2. **macOS copied-plane decoder.** VideoToolbox behind the existing video
+   feature, initially the proven H.264 subset. Bound the callback queue;
+   retain/release pixel buffers explicitly; drain/flush on seek; tag
+   callbacks with generations so old results cannot enter a new movie.
+   Probe actual hardware sessions, preserving software/module fallback.
+   Then implement and verify streaming HEVC/VP9 ordering; AV1 and other
+   codecs only where capability and fidelity checks pass. A watchdog
+   abandons a stuck session and its outputs without blocking the game.
+3. **Windows copied-plane decoder.** Media Foundation with D3D11, below.
+   Test real Windows hardware, plus software-only/refusal cases. Cross
+   compilation cannot verify codec availability or GPU output.
+4. **GPU planes where they pay.** IOSurface/Metal first, D3D11/DX12 next.
+   Measure full decode → draw cost and GPU completion, not just import.
+   Add renderer plane formats through a platform-neutral interface; keep
+   unsafe native handles in the shell. Preserve the copied-plane route
+   on other backends, device loss and unsupported texture sharing.
+5. **Linux capability spike.** VA-API, below, if it benefits the remaining
+   hardware. The module continues to cover Linux without it.
+6. **Sandboxed native FFmpeg child, later.** Build the same pinned tarball,
+   decoder list and `ddivideo.c` as a replaceable shared library, assembly
+   on, `FF_IDCT_AUTO`, 2–4 decoder threads. Load it only in the helper,
+   never the game. Reuse the fidelity harness and require a working OS
+   sandbox before offering this backend to players; an unsandboxed
+   experimental toggle is not part of this plan. Mac first, then Windows
+   and Linux with their own tested restrictions. Ship the module too.
 
-### Steps (each a commit the maintainer makes)
+### Windows: Media Foundation with D3D11
 
-Nothing here blocks anything: every movie plays today. In order of
-value:
+Use the existing `windows` bindings (enable MediaFoundation, COM, D3D11
+and DXGI features when implementing), no FFmpeg bindings in the game.
+Start COM and MF on the decoder thread. Enumerate video decoders with
+[`MFTEnumEx`](https://learn.microsoft.com/en-us/windows/win32/api/mfapi/nf-mfapi-mftenumex),
+filter by compressed input and NV12/P010 output, prefer hardware, then
+try approved OS software transforms or the module. Feed our compressed
+samples to `IMFTransform::ProcessInput`; consume `ProcessOutput`, handle
+stream changes, drain and flush explicitly. Hardware MFTs can be
+asynchronous: use their event protocol and unlock async operation rather
+than polling them as synchronous transforms.
+[Microsoft's hardware MFT contract](https://learn.microsoft.com/en-us/windows/win32/medfound/hardware-mfts)
+is the starting point; decoded sample timestamps do not override our
+module-compatible timeline.
 
-**Step 1. A native driver for the checks.** `video/check` grows a native
-twin of `check.mjs`. It takes the same options and runs the same
-checks: frame times and seeks exact, pixels exact or within a PSNR
-bound per codec (`clips.sh` already carries these bounds). With it, the
-native library is checked by the same clips as the module. It is
-small, and the other steps need it.
+H.264 is the first target. Probe HEVC, VP9, AV1, MPEG-2 and MPEG-4 Part 2
+(including supported DivX/Xvid profiles) at runtime. Microsoft's
+[codec inventory](https://learn.microsoft.com/en-us/windows/win32/medfound/codecobjects)
+and [supported codec table](https://github.com/MicrosoftDocs/windows-dev-docs/blob/docs/hub/apps/develop/media-authoring-processing/supported-codecs.md)
+describe the candidates; installed extensions, Windows edition, hardware,
+profile and bit depth affect availability. Do not require the user to
+install a codec pack, and do not promise DivX 3 or all MPEG-4 variants.
+There is no Windows hardware evidence from this Mac spike.
 
-**Step 2. The native library's build.** `video/build.sh --native [--small]`:
-- `FFMPEG.toml`'s configure with the native changes from section 4
-  (`--enable-static --enable-pic`, assembly on, pthreads, no
-  cross-compile);
-- then the four static libraries and `ddivideo.c` linked into one
-  library exporting `ddi_*` only:
-  - macOS: `-dead_strip -exported_symbols_list`, `install_name
-    @rpath/…`;
-  - Linux: `-Wl,--gc-sections`, a version script;
-  - Windows: a `.def` file;
-- the notice file and `ddivideo.json` as for the module.
-- Checked by `video/clips.sh` through step 1's driver.
-- **CI, a `video-native` job on three OSes:**
-  - macOS 14 arm64, plus x86_64 cross (`--arch=x86_64 --cc="clang
-    -arch x86_64"`), merged with `lipo`;
-  - Ubuntu 22.04 for an old enough glibc;
-  - Windows through MSYS2 with clang, or cross-compiled on Linux with
-    llvm-mingw. Plain C ABI, no CRT objects crossing it (`ddi_free`
-    frees what the library allocates), so a mingw DLL is fine beside
-    an MSVC game.
-  - Outputs cached and keyed like the module's.
-  - Cost: about 3–5 minutes a platform on a cold cache.
+Create a D3D11 device and `IMFDXGIDeviceManager`, hand it to a D3D11-aware
+transform via `MFT_MESSAGE_SET_D3D_MANAGER`, and obtain output surfaces
+through `IMFDXGIBuffer`. This is the documented
+[D3D11/MF sharing path](https://learn.microsoft.com/en-us/windows/win32/medfound/supporting-direct3d-11-video-decoding-in-media-foundation).
+First read back/convert to our planes and measure that cost. wgpu renders
+through DX12, so a D3D11 texture is not directly a wgpu texture: zero-copy
+needs compatible shared resources on the same adapter, DX12 import and
+cross-device fences, with sample lifetime held through GPU completion.
+Keep CPU copies when a transform's texture cannot be shared. Also test
+device removal, adapter switches, row pitch and limited/full range.
+Media Foundation is not inherently a sandbox: assess each chosen MFT's
+process boundary; do not infer VT's isolation from the fact that it is
+an OS API.
 
-**Step 3. The decoder process.** `ddi-video-helper`, a small binary in the
-workspace:
-- it loads the library and speaks `VideoHost`'s messages (open, seek,
-  want, close, probe, recycle) over a pipe, with frames in a
-  shared-memory ring;
-- the game serves its file reads, so the child opens nothing;
-- `desktop/src/video.rs` gets a second backend behind the same
-  `VideoBackend`/`VideoDecoder` traits;
-- a child that dies or misses the 10 s deadline counts as a trap does
-  today: open movies fail, the next open starts a new child, the module
-  takes over.
-- Tests: `desktop/tests/video.rs` through both backends; the hostile
-  cases of 7.7 (a spinning decoder, 64 MiB of messages, a huge
-  picture) against the child.
+### Linux: VA-API
 
-**Step 4. The sandbox, macOS first.**
-- The helper signed with the App Sandbox entitlement (no files, no
-  network) or `sandbox_init`, plus a test that the child cannot open a
-  file or a socket. Then Linux (seccomp + landlock), then Windows
-  (AppContainer or a restricted token).
-- Native becomes the default on a platform once its sandbox test is
-  green in CI. Until then it is the setting under Options, Graphics.
+Use [libva's capability queries](https://intel.github.io/libva/group__api__core.html)
+(`vaQueryConfigProfiles`, entrypoints and surface attributes) on the
+selected render node. H.264/HEVC/VP9/AV1/MPEG-2 support depends on GPU and
+driver; MPEG-4 Part 2 is not a reliable baseline. VA-API exposes codec
+picture/slice buffers, not an MF-style generic compressed-sample decoder:
+our parser must construct those, or a later sandboxed FFmpeg helper must
+own that path. This is substantially more work than the VT binding.
+Start with mapped planes; `vaExportSurfaceHandle` can expose DMA-BUFs for
+a later Vulkan import, subject to modifiers, plane formats, adapter and
+fence compatibility. Driver code executes in the client process; VA-API
+alone does not provide the module's memory isolation. Capability failures
+and unsupported drivers use the module; no dependency is added now.
 
-**Step 5. Packaging,** with desktop's packaging plan:
-- the library and the helper in the bundle (`Contents/Frameworks`,
-  `Contents/MacOS`), both signed and notarised;
-- on Windows, the DLL and the helper beside the executable,
-  Authenticode-signed;
-- FFmpeg's tarball or the offer, `ddivideo.LICENSE.txt`, and the
-  credits line (`xtask gen-credits` already reads `FFMPEG.toml`);
-- the module stays shipped too, as the fallback.
+### Later helper: IPC and ownership
 
-**Kept from today:**
+One helper process serves movies on a worker, matching today's host.
+Use a versioned, length-prefixed binary pipe protocol with bounded payloads;
+requests carry request id, movie id and seek generation. Messages are
+`Open`, `Seek`, `Want`, `Close`, `Probe`, `Recycle`, with replies for metadata,
+frame readiness, EOF and errors. Never send Rust structs as ABI bytes.
+The helper requests `ReadAt(movie, offset, length)`; the parent validates
+checked offset arithmetic and length (at most the existing 64 KiB read
+window), then serves only that movie. No paths, arbitrary descriptors or
+network access cross the boundary. Cap outstanding requests and log bytes.
 
-- **One shim, one decoder list, one tarball:** `video/ddivideo.c`,
-  `FFMPEG.toml` and the pinned FFmpeg release.
-- **The host:** `VideoHost`'s thread, its message protocol, frame
-  recycling, the probe, the deadline and the crash rules.
-- **The fallbacks:** the module for the web and as desktop's default
-  and fallback; the no-decoder fallback (the song background and the
-  results' line).
-- **The checks:** `clips.sh`, `--video-check` and
-  `desktop/tests/video.rs`, which keep comparing exact frames.
+The parent allocates a fixed-capacity shared frame ring (start with three
+slots per movie, a global memory ceiling). Negotiate dimensions/strides
+within today's image limits, validate all lengths/offsets with checked
+arithmetic, and keep authoritative allocation metadata privately in the
+parent. Treat shared headers as untrusted; a compromised helper can mutate
+them after a check. Copy validated metadata once and derive plane slices
+from parent-owned bounds. The helper publishes a slot only after writing
+its planes; the parent acknowledges `Recycle` only when upload/sampling
+no longer needs them. Seek increments the generation, drops stale frames,
+and drains outstanding slot ownership before reuse. A malicious child
+may corrupt pixels, but never controls a host pointer or allocation size.
 
-## 8. Dependencies (only if steps 3–4 are built)
+A child crash, malformed reply or missed 10 s deadline kills that helper,
+invalidates all its outstanding movies/generations and reopens needed
+movies in the module at their requested positions; a later open may start
+a fresh helper. Test process death, blocked pipes, a spinning decoder,
+message floods, oversized pictures, stale generations and ring exhaustion.
+OS sandbox tests must demonstrate denied file and socket access, alongside
+working inherited pipes/shared memory, before packaging enables the child.
 
-| Crate | Version | Licence | Where | Note |
-|---|---|---|---|---|
-| libloading | 0.8.x | ISC | desktop | loads the native library in the helper |
-| memmap2 | 0.9.11 | MIT OR Apache-2.0 | desktop, helper | the frame ring |
-| seccompiler | 0.5.0 | Apache-2.0 OR BSD-3-Clause | helper (Linux) | |
-| landlock | 0.4.7 | MIT OR Apache-2.0 | helper (Linux) | |
-| rappct | 0.13.3 | MIT | helper (Windows) | or the `windows` crate directly |
-| FFmpeg | 9.0.2 | LGPL-2.1-or-later | the native library | as the module; a separate file |
-| zlib | system (macOS, Linux) or 1.3.2 | Zlib | the native library | |
+Costs: a 1080p I420 frame is 3,110,400 bytes, three slots 9.3 MB per
+movie; four simultaneous movies need about 37 MB just for rings. At
+60 fps a full plane copy is 187 MB/s per movie, before GPU upload. Shared
+memory avoids sending those bytes through pipes but may still need a
+copy from FFmpeg's strided buffers; benchmark it. Control messages and
+64 KiB file reads add IPC/wakeups; the helper also adds startup, decoder
+state, another build and per-OS signing/sandbox maintenance. Section 4's
+native speedups exclude all those costs. The earlier unsandboxed helper
+line-count estimate is not an implementation budget.
 
-Not needed by the proposal, only by the Rust-shim variant:
-`ffmpeg-sys-the-third` 6.0.0+ffmpeg-9.0 (WTFPL; bindgen 0.72 and
-`clang` 2.0, BSD-3-Clause and Apache-2.0, at build time).
+## 8. Dependencies and packaging
 
-## 9. Risks and open questions
+No production video dependency is added by this spike. For macOS, use
+objc2 framework bindings for VideoToolbox/CoreMedia/CoreVideo/Metal alongside
+the existing objc2 family; the experiment's raw FFI is not the production
+wrapper. On Windows use the existing `windows` crate with explicit features.
+Verify current releases and licences when adding either. Linux needs a
+libva binding only when that step is built.
 
-- **Windows' native build** was not tried. It is the riskiest platform
-  for FFmpeg's toolchain, so mingw cross-builds from Linux are the
-  plan's default.
-- **Measurements under load.** CPU time per thread is robust to load,
-  but the M1's efficiency cores run slower per instruction. All
-  decoders ran interleaved under the same load and default QoS. Repeat
-  on a quiet machine before quoting absolute wall times.
-- **The opt-in (N4) needs a reason to exist.** If nobody's machine
-  struggles with the module, step 3 onwards can wait indefinitely.
-  The trigger: a player's report of late movie frames, or 1080p60
-  packs.
-- **Battery:** native at about a third of the CPU is real on laptops.
-  Not measured.
+The later helper can use `libloading` (ISC), `memmap2` (MIT OR Apache-2.0)
+and per-OS sandbox APIs. Section 5's sandbox crates are candidates from the
+first survey, not frozen versions. Keep the C shim: the successful Rust
+port added bindgen/libclang without isolating FFmpeg. The native build
+uses the same pinned FFmpeg and notices as the wasm module; one library
+per platform, with macOS arm64/x86_64 as needed, tested through the shared
+harness. Package helper and library together, with the exact source and
+rebuild instructions; follow [FFmpeg's distribution checklist](https://www.ffmpeg.org/legal.html).
+Signing, library replacement and sandbox entitlements need an explicit
+packaging test. Keep the earlier builds until the maintainer chooses to
+remove them.
+
+## 9. Remaining validation
+
+- The new desktop code still decodes through the module. This document
+  approves an implementation order, not an untested automatic VT switch.
+- A new packet interface for non-AVI containers and bounded streaming
+  HEVC/VP9 reordering remain work, despite the fixture successes.
+- The zero-copy spike does not measure a rendered frame; full GPU lifetime,
+  colour, upload and device-loss tests are required before adopting it.
+- Default vs background QoS is a useful weak-CPU proxy, not a general
+  prediction for older Intel machines, Windows GPUs or laptop battery life.
+- Windows and Linux APIs were researched, not run. Each requires hardware
+  capability/fidelity tests and fallback tests on its own platform.
