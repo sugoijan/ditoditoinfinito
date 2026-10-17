@@ -154,10 +154,13 @@ the browser are implementation details, not advertised features.
   wasmtime, `video.rs`; movies in zips read in place or extracted once),
   a work's layers and lyrics, the theme's results, the history in the
   data folder, replays, `play/replays.rs`); a play's frames paced (`pacing/`: blocking in the
-  acquire by default, or each started as late before its refresh as its
-  cost allows; pure, with a simulated display in `pacing/sim.rs`, built
+  acquire, or each started as late before its refresh as its
+  cost allows (late with two frames in flight by default when a display
+  link is available, block with one elsewhere); pure, with a simulated display in `pacing/sim.rs`, built
   for tests only: feature `sim`, which the crate's dev-dependency on
-  itself turns on);
+  itself turns on; the refreshes from a display link on macOS,
+  `display_link.rs`: the view's `CADisplayLink` from macOS 14, else a
+  `CVDisplayLink`);
   calibration's menu and tests (`calibrate.rs`); the
   devices' fingerprints and notices (`devices.rs`). Settings in
   `storage.json` in the config folder; `DDI_HOME` moves the config, data
@@ -199,10 +202,11 @@ the browser are implementation details, not advertised features.
   on the host clock), `--volume V`, `--seconds N` (quits, printing the
   library, the clock's latency and jitter, the devices, the plays),
   `--lose-device-after S`, `--video-check FILE [--reference REF.yuv]
-  [--frames]`, `--pacing block|late` (a play's frame pacing; block is
-  the default), `--pacing-report` (both alternating every 5 s on Fifo, a
-  table of each printed when the play ends; `docs/plans/desktop.md`,
-  "Frame pacing"). **Agents' and tests' runs set
+  [--frames]`, `--pacing block|late` (a play's frame pacing),
+  `--in-flight 1|2` (defaults: late with two when a display link is
+  available, block with one elsewhere), `--pacing-report` (block and late with one and two in
+  flight, 4 s each in turn on Fifo, a table of each printed when the
+  play ends; `docs/plans/desktop.md`, "Frame pacing"). **Agents' and tests' runs set
   `DDI_HOME=$PWD/target/scratch/<name>/home`** (never the maintainer's
   folders), use `--volume 0.005` or `--silent`, and run under
   `target/scratch/wd.sh`; prefer offscreen tests: a window takes the
@@ -474,7 +478,6 @@ dependency's licence before adding it.
 ## Conventions
 
 - Logical file paths use `ddi_library::path::{RelPath, RelPathBuf}`; convert to OS paths only with `to_path(base)`, never by joining their text onto a `PathBuf`.
-
 - Commit messages: imperative summary line, body explaining why.
 - Keep `docs/PLAN.md` status and decisions current when scope changes.
 - UI text avoids jargon from specific games except where naming a ruleset

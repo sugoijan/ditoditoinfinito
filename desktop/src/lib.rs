@@ -24,6 +24,7 @@ pub mod audio;
 pub mod calibrate;
 pub mod clock;
 pub mod devices;
+pub mod display_link;
 pub mod field_preview;
 pub mod gpu;
 pub mod history;
@@ -120,10 +121,12 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// prompt (`--auto` autoplays it following the cue, `--bias MS` that
 /// late; leaving it opens calibration's menu); `--silent` opens no sound device at all
 /// (plays run on the host clock, silent). `--pacing block|late` paces a
-/// play's frames one after another (the default) or each as late before
-/// its refresh as it can start (`pacing`); `--pacing-report` alternates
-/// the two every five seconds and prints what each did when the play
-/// ends.
+/// play's frames one after another or each as late before its refresh as
+/// it can start (`pacing`), `--in-flight 1|2` with that many frames in
+/// flight (by default late with two where a display link runs, macOS,
+/// else block with one); `--pacing-report` alternates
+/// block and late with one and two in flight, four seconds each, and
+/// prints what each did when the play ends.
 pub fn run() {
     clock::epoch();
     store::install();
@@ -151,6 +154,17 @@ pub fn run() {
             Some(m) => Some(m),
             None => {
                 eprintln!("--pacing takes block or late");
+                std::process::exit(2);
+            }
+        },
+        None => None,
+    };
+    let in_flight = match args.iter().position(|a| a == "--in-flight") {
+        Some(i) => match args.get(i + 1).map(String::as_str) {
+            Some("1") => Some(1),
+            Some("2") => Some(2),
+            _ => {
+                eprintln!("--in-flight takes 1 or 2");
                 std::process::exit(2);
             }
         },
@@ -263,14 +277,15 @@ pub fn run() {
         .iter()
         .position(|a| a == "--lose-device-after")
         .and_then(|i| args.get(i + 1)?.parse().ok());
-    // `--pacing block|late`: how a play's frames are paced
-    // (`pacing`); `--pacing-report`: both, alternating every five
-    // seconds, what each did printed when the play ends.
-    if let Some(m) = pacing {
-        shell.pacer.set_mode(m);
-    }
+    // `--pacing block|late`, `--in-flight 1|2`: how a play's frames
+    // are paced (`pacing`; the defaults follow the display link, set
+    // once the window is open); `--pacing-report`: block and late with one
+    // and two in flight, four seconds each in turn, what each did
+    // printed when the play ends.
+    shell.pacing_flag = pacing;
+    shell.in_flight_flag = in_flight;
     if args.iter().any(|a| a == "--pacing-report") {
-        shell.pacing_report = Some(pacing::Report::alternating(5.0));
+        shell.pacing_report = Some(pacing::Report::alternating(4.0, &pacing::COLUMNS));
     }
     if let Some(i) = args.iter().position(|a| a == "--seconds") {
         shell.quit_after = args.get(i + 1).and_then(|s| s.parse().ok());

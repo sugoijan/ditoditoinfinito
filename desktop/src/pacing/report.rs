@@ -1,34 +1,63 @@
-//! `--pacing-report`: what a play's frames did under each pacing, the
-//! two alternating in blocks of a few seconds in one play so they meet
-//! the same song, the same display and the same machine; printed when
-//! the play ends.
+//! `--pacing-report`: what a play's frames did under each pacing and
+//! number of frames in flight, the columns alternating in blocks of a few
+//! seconds in one play so they meet the same song, the same display and
+//! the same machine; printed when the play ends.
 
-use super::{Mode, Pacer, Record};
+use super::{Mode, Pacer, Record, Source};
 
 /// Records this long (s) after a switch are left out: the other
-/// mode's frames are still leaving the queue.
+/// column's frames are still leaving the queue.
 const SETTLE: f64 = 0.5;
 
-/// The frames of one play, by pacing.
+/// A way of running a play's frames: the pacing and the frames in
+/// flight (the swapchain's drawables less one).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Column {
+    pub mode: Mode,
+    pub in_flight: u32,
+}
+
+impl Column {
+    pub const fn new(mode: Mode, in_flight: u32) -> Column {
+        Column { mode, in_flight }
+    }
+
+    /// `block·1`, `late·2`.
+    pub fn name(self) -> String {
+        format!("{}·{}", self.mode.name(), self.in_flight)
+    }
+
+    fn of(r: &Record) -> Column {
+        Column::new(r.mode, r.in_flight)
+    }
+}
+
+/// What `--pacing-report` compares: blocking frames as play runs them
+/// (one in flight) and with two, late pacing with one and with two.
+pub const COLUMNS: [Column; 4] = [
+    Column::new(Mode::Block, 1),
+    Column::new(Mode::Block, 2),
+    Column::new(Mode::Late, 1),
+    Column::new(Mode::Late, 2),
+];
+
+/// The frames of one play, by column.
 #[derive(Clone, Debug, Default)]
 pub struct Report {
-    /// Switch every this many seconds (else the pacer's mode only).
+    /// Switch every this many seconds (else the pacer's own column).
     pub alternate: Option<f64>,
+    /// The columns alternated, in turn.
+    pub columns: Vec<Column>,
     start: Option<f64>,
     switched: f64,
     /// Each record, and whether the record before it is its frame's
-    /// predecessor (same mode, none left out between).
-    records: [Vec<(Record, bool)>; 2],
-    last_kept: Option<Mode>,
+    /// predecessor (same column, none left out between).
+    records: Vec<(Record, bool)>,
+    last_kept: Option<Column>,
     /// The OS's refresh rate (Hz).
     pub hint: Option<f64>,
-}
-
-fn slot(m: Mode) -> usize {
-    match m {
-        Mode::Block => 0,
-        Mode::Late => 1,
-    }
+    /// The display link the shell runs, if any (`CADisplayLink`, …).
+    pub link: Option<&'static str>,
 }
 
 /// Mean, sd, percentiles and the largest of some values (ms).
@@ -64,7 +93,7 @@ fn summary(mut v: Vec<f64>) -> Summary {
     }
 }
 
-/// One mode's figures.
+/// One column's figures.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Figures {
     pub frames: usize,
@@ -92,8 +121,18 @@ pub struct Figures {
     pub overruns: usize,
     pub early: usize,
     pub latch_misses: usize,
+    /// The missed frames' time to spare at their present and how late
+    /// they woke (ms, medians).
+    pub miss_spare: f64,
+    pub miss_late: f64,
     /// Frames on a locked grid (share).
     pub locked: f64,
+    /// Frames whose refresh times came from a display link, from the
+    /// acquires' returns (shares).
+    pub from_link: f64,
+    pub from_returns: f64,
+    /// The display link's refresh period over the column (ms): mean, sd.
+    pub link_period: [f64; 2],
     /// At the end: the period (ms), whether it was measured, and the
     /// margin (ms).
     pub period: f64,
@@ -102,82 +141,122 @@ pub struct Figures {
 }
 
 impl Report {
-    /// A report that alternates the modes every `every` seconds.
-    pub fn alternating(every: f64) -> Report {
+    /// A report that runs `columns` in turn, `every` seconds each.
+    pub fn alternating(every: f64, columns: &[Column]) -> Report {
         Report {
             alternate: Some(every),
+            columns: columns.to_vec(),
             ..Report::default()
         }
     }
 
-    /// A report like this one (alternating as it does, the same rate)
-    /// with nothing recorded: the next play's.
+    /// A report like this one (alternating as it does, the same rate and
+    /// link) with nothing recorded: the next play's.
     pub fn fresh(&self) -> Report {
         Report {
             alternate: self.alternate,
+            columns: self.columns.clone(),
             hint: self.hint,
+            link: self.link,
             ..Report::default()
         }
     }
 
-    /// The mode a frame starting at `now` runs in (`current` when not
-    /// alternating). Block first.
-    pub fn mode_at(&mut self, now: f64, current: Mode) -> Mode {
-        let start = *self.start.get_or_insert(now);
+    /// The column a frame starting at `now` runs in (`current` when not
+    /// alternating).
+    /// The turns count from the first frame presented (a window that
+    /// is not visible yet presents none), the first column until then.
+    pub fn column_at(&mut self, now: f64, current: Column) -> Column {
         match self.alternate {
-            Some(e) if e > 0.0 => {
-                if ((now - start) / e).floor() as i64 % 2 == 0 {
-                    Mode::Block
-                } else {
-                    Mode::Late
-                }
+            Some(e) if e > 0.0 && !self.columns.is_empty() => {
+                let Some(start) = self.start else {
+                    return self.columns[0];
+                };
+                let k = ((now - start).max(0.0) / e).floor() as usize;
+                self.columns[k % self.columns.len()]
             }
             _ => current,
         }
     }
 
-    /// The mode changed at `now`.
+    /// The column changed at `now`.
     pub fn switched(&mut self, now: f64) {
         self.switched = now;
         self.last_kept = None;
     }
 
-    /// Before a frame is asked for at `now`: `pacer` set to the mode
-    /// this time runs in. Whether it changed.
+    /// Before a frame is asked for at `now`: `pacer` set to the column
+    /// this time runs in. Whether it changed (the shell then configures
+    /// the surface for its frames in flight).
     pub fn choose(&mut self, now: f64, pacer: &mut Pacer) -> bool {
-        let mode = self.mode_at(now, pacer.mode());
-        if mode == pacer.mode() {
+        let current = Column::new(pacer.mode(), pacer.in_flight());
+        let column = self.column_at(now, current);
+        if column == current {
             return false;
         }
-        pacer.set_mode(mode);
+        pacer.set_mode(column.mode);
+        pacer.set_in_flight(column.in_flight);
         self.switched(now);
         true
     }
 
     /// A frame done.
     pub fn push(&mut self, r: Record) {
-        self.start.get_or_insert(r.begin);
+        // The first frame presented starts the turns, and settles like a
+        // switch (a window just shown, its first frames' pipelines).
+        if self.start.is_none() {
+            self.start = Some(r.begin);
+            self.switched = r.begin;
+            self.last_kept = None;
+        }
         if self.alternate.is_some() && r.begin - self.switched < SETTLE {
             self.last_kept = None;
             return;
         }
-        let follows = self.last_kept == Some(r.mode);
-        self.records[slot(r.mode)].push((r, follows));
-        self.last_kept = Some(r.mode);
+        let c = Column::of(&r);
+        let follows = self.last_kept == Some(c);
+        self.records.push((r, follows));
+        self.last_kept = Some(c);
     }
 
     /// Frames kept.
     pub fn len(&self) -> usize {
-        self.records[0].len() + self.records[1].len()
+        self.records.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.records.is_empty()
     }
 
-    /// One mode's figures.
-    pub fn figures(&self, mode: Mode) -> Figures {
-        let rs = &self.records[slot(mode)];
+    /// When frames said a refresh was missed (host s).
+    pub fn misses(&self) -> Vec<f64> {
+        self.records
+            .iter()
+            .filter(|(r, _)| r.latch_miss)
+            .map(|(r, _)| r.begin)
+            .collect()
+    }
+
+    /// The columns shown: the report's, then any other with frames.
+    pub fn shown(&self) -> Vec<Column> {
+        let mut cs: Vec<Column> = self.columns.clone();
+        for (r, _) in &self.records {
+            let c = Column::of(r);
+            if !cs.contains(&c) {
+                cs.push(c);
+            }
+        }
+        cs
+    }
+
+    /// One column's figures.
+    pub fn figures(&self, column: Column) -> Figures {
+        let rs: Vec<(Record, bool)> = self
+            .records
+            .iter()
+            .filter(|(r, _)| Column::of(r) == column)
+            .copied()
+            .collect();
         let mut f = Figures {
             frames: rs.len(),
             ..Figures::default()
@@ -227,7 +306,20 @@ impl Report {
         f.overruns = rs.iter().filter(|(r, _)| r.overrun).count();
         f.early = rs.iter().filter(|(r, _)| r.early).count();
         f.latch_misses = rs.iter().filter(|(r, _)| r.latch_miss).count();
-        f.locked = rs.iter().filter(|(r, _)| r.locked).count() as f64 / rs.len() as f64;
+        f.miss_spare = summary(rs.iter().filter_map(|(r, _)| r.miss_spare).collect()).p50;
+        f.miss_late = summary(rs.iter().filter_map(|(r, _)| r.miss_late).collect()).p50;
+        let n = rs.len() as f64;
+        let share = |s: Source| rs.iter().filter(|(r, _)| r.source == s).count() as f64 / n;
+        f.locked = rs.iter().filter(|(r, _)| r.locked).count() as f64 / n;
+        f.from_link = share(Source::Link);
+        f.from_returns = share(Source::Returns);
+        let s = summary(
+            rs.iter()
+                .filter(|(r, _)| r.source == Source::Link)
+                .map(|(r, _)| r.period)
+                .collect(),
+        );
+        f.link_period = [s.mean, s.sd];
         let last = rs[rs.len() - 1].0;
         f.period = last.period * 1000.0;
         f.measured = last.measured;
@@ -235,123 +327,125 @@ impl Report {
         f
     }
 
-    /// The report as text: a line a figure, a column a mode.
+    /// The report as text: a line a figure, a column a column.
     pub fn text(&self, title: &str) -> String {
-        let b = self.figures(Mode::Block);
-        let l = self.figures(Mode::Late);
+        let columns = self.shown();
+        let figures: Vec<Figures> = columns.iter().map(|c| self.figures(*c)).collect();
         let mut out = format!(
-            "pacing report: {title}{}\n",
+            "pacing report: {title}{} · display link: {}\n",
             self.hint
-                .map_or(String::new(), |h| format!(" · the OS says {h:.2} Hz"))
+                .map_or(String::new(), |h| format!(" · the OS says {h:.2} Hz")),
+            self.link.unwrap_or("no"),
         );
-        out.push_str(&format!("  {:<38} {:>22} {:>22}\n", "", "block", "late"));
-        // A mode with no frames shows dashes.
-        let (none_b, none_l) = (b.frames == 0, l.frames == 0);
-        let row = |out: &mut String, name: &str, a: String, c: String| {
-            let a = if none_b { "-".into() } else { a };
-            let c = if none_l { "-".into() } else { c };
-            out.push_str(&format!("  {name:<38} {a:>22} {c:>22}\n"));
+        let head = |out: &mut String, name: &str, cells: Vec<String>| {
+            out.push_str(&format!("  {name:<46}"));
+            for c in cells {
+                out.push_str(&format!(" {c:>22}"));
+            }
+            out.push('\n');
+        };
+        // A column with no frames shows dashes.
+        let row = |out: &mut String, name: &str, cell: &dyn Fn(&Figures) -> String| {
+            let cells = figures
+                .iter()
+                .map(|f| if f.frames == 0 { "-".into() } else { cell(f) })
+                .collect();
+            head(out, name, cells);
         };
         let ms3 = |v: [f64; 3]| format!("{:.2} / {:.2} / {:.2}", v[0], v[1], v[2]);
-        out.push_str(&format!(
-            "  {:<38} {:>22} {:>22}\n",
+        head(&mut out, "", columns.iter().map(|c| c.name()).collect());
+        head(
+            &mut out,
             "frames (seconds)",
-            format!("{} ({:.1})", b.frames, b.seconds),
-            format!("{} ({:.1})", l.frames, l.seconds),
-        ));
-        let source = |f: &Figures| {
-            if f.measured {
+            figures
+                .iter()
+                .map(|f| format!("{} ({:.1})", f.frames, f.seconds))
+                .collect(),
+        );
+        let hint = self.hint.is_some();
+        row(&mut out, "refresh (Hz, where from)", &|f| {
+            let from = if f.from_link > 0.5 {
+                "link"
+            } else if f.measured {
                 "measured"
-            } else if self.hint.is_some() {
+            } else if hint {
                 "OS"
             } else {
                 "assumed"
+            };
+            format!("{:.2} {from}", 1000.0 / f.period)
+        });
+        row(&mut out, "refresh times: link · returns", &|f| {
+            format!(
+                "{:.0} % · {:.0} %",
+                f.from_link * 100.0,
+                f.from_returns * 100.0
+            )
+        });
+        row(&mut out, "display link period ms (mean / sd)", &|f| {
+            if f.from_link > 0.0 {
+                format!("{:.3} / {:.3}", f.link_period[0], f.link_period[1])
+            } else {
+                "-".into()
             }
-        };
+        });
+        row(&mut out, "on a locked grid", &|f| {
+            format!("{:.0} %", f.locked * 100.0)
+        });
+        row(&mut out, "present to present ms (mean/sd/max)", &|f| {
+            ms3(f.interval)
+        });
+        row(&mut out, "blocked in acquire ms (mean/p95/max)", &|f| {
+            ms3(f.blocked)
+        });
+        row(&mut out, "time blocked", &|f| {
+            format!("{:.0} %", f.blocked_share * 100.0)
+        });
+        row(&mut out, "present call ms (mean / max)", &|f| {
+            format!("{:.2} / {:.2}", f.present[0], f.present[1])
+        });
+        row(&mut out, "build ms (mean / p95 / max)", &|f| ms3(f.build));
+        row(&mut out, "woke late ms (p50 / p95 / max)", &|f| {
+            if f.late[0].is_nan() {
+                "-".into()
+            } else {
+                ms3(f.late)
+            }
+        });
         row(
             &mut out,
-            "refresh (Hz, where from)",
-            format!("{:.2} {}", 1000.0 / b.period, source(&b)),
-            format!("{:.2} {}", 1000.0 / l.period, source(&l)),
+            "input read → estimated shown ms (mean/p50/p95)",
+            &|f| ms3(f.latency),
         );
         row(
             &mut out,
-            "on a locked grid",
-            format!("{:.0} %", b.locked * 100.0),
-            format!("{:.0} %", l.locked * 100.0),
+            "frame start → estimated shown ms (mean/p50/p95)",
+            &|f| ms3(f.polled),
         );
-        row(
-            &mut out,
-            "present to present ms (mean/sd/max)",
-            ms3(b.interval),
-            ms3(l.interval),
-        );
-        row(
-            &mut out,
-            "blocked in acquire ms (mean/p95/max)",
-            ms3(b.blocked),
-            ms3(l.blocked),
-        );
-        row(
-            &mut out,
-            "time blocked",
-            format!("{:.0} %", b.blocked_share * 100.0),
-            format!("{:.0} %", l.blocked_share * 100.0),
-        );
-        row(
-            &mut out,
-            "present call ms (mean / max)",
-            format!("{:.2} / {:.2}", b.present[0], b.present[1]),
-            format!("{:.2} / {:.2}", l.present[0], l.present[1]),
-        );
-        row(
-            &mut out,
-            "build ms (mean / p95 / max)",
-            ms3(b.build),
-            ms3(l.build),
-        );
-        row(
-            &mut out,
-            "woke late ms (p50 / p95 / max)",
-            "-".into(),
-            ms3(l.late),
-        );
-        row(
-            &mut out,
-            "input read → shown ms (mean/p50/p95)",
-            ms3(b.latency),
-            ms3(l.latency),
-        );
-        row(
-            &mut out,
-            "frame start → shown ms (mean/p50/p95)",
-            ms3(b.polled),
-            ms3(l.polled),
-        );
-        row(
-            &mut out,
-            "repeated refreshes",
-            b.repeats.to_string(),
-            l.repeats.to_string(),
-        );
-        row(
-            &mut out,
-            "overran · early · missed refreshes",
-            format!("{} · {} · {}", b.overruns, b.early, b.latch_misses),
-            format!("{} · {} · {}", l.overruns, l.early, l.latch_misses),
-        );
-        row(
-            &mut out,
-            "probes · margin ms",
-            "-".into(),
-            format!("{} · {:.2}", l.probes, l.margin),
-        );
+        row(&mut out, "estimated repeated refreshes", &|f| {
+            f.repeats.to_string()
+        });
+        row(&mut out, "overran · early · missed refreshes", &|f| {
+            format!("{} · {} · {}", f.overruns, f.early, f.latch_misses)
+        });
+        row(&mut out, "missed: spare · woke late ms (p50)", &|f| {
+            if f.latch_misses == 0 || f.miss_spare.is_nan() {
+                "-".into()
+            } else {
+                format!("{:.2} · {:.2}", f.miss_spare, f.miss_late)
+            }
+        });
+        row(&mut out, "probes · margin ms", &|f| {
+            format!("{} · {:.2}", f.probes, f.margin)
+        });
         out.push_str(
-            "  notes: \"shown\" is the refresh the grid gives the frame (no present timestamps).\n\
+            "  notes: \"shown\" is the refresh the grid gives the frame (no present timestamps):\n\
+             \x20        bounded by the configured queue depth; block assumes a full queue.\n\
+             \x20        Display-link ticks locate refreshes, not individual frame presentations.\n\
              \x20        Keys and pads are polled just before a frame starts, and a blocking\n\
              \x20        frame then waits in the acquire: \"frame start → shown\" is closer to\n\
              \x20        what a press waits for than \"input read → shown\", which flatters block.\n\
-             \x20        Probes and bursts (late) start right after the frame before.\n",
+             \x20        Probes and bursts (late, no display link) start right after the frame before.\n",
         );
         out
     }
