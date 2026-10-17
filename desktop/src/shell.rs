@@ -46,6 +46,10 @@ use crate::pacing::{self, Next, Pacer};
 use crate::preview::{Player, SharedPlayer};
 use std::cell::RefCell;
 
+/// How long to wait before asking a surface whose window is not visible
+/// yet for a frame again.
+const OCCLUDED_RETRY: std::time::Duration = std::time::Duration::from_millis(50);
+
 /// How long to wait before asking the surface for a frame again.
 const RETRY: std::time::Duration = std::time::Duration::from_millis(250);
 
@@ -62,6 +66,9 @@ struct Surface {
     formats: crate::play::view::Formats,
     /// Present modes the surface has (play prefers Mailbox).
     modes: Vec<wgpu::PresentMode>,
+    /// The display's refreshes as the OS tells them (macOS), for the
+    /// pacing; running while a play does.
+    link: Option<crate::display_link::DisplayLink>,
 }
 
 pub struct Shell {
@@ -122,8 +129,12 @@ pub struct Shell {
     pub devices_lost: u32,
     /// Lose the device this long after the start (`--lose-device-after`).
     pub lose_device_after: Option<f64>,
-    /// When a play's frames start (`--pacing`).
+    /// When a play's frames start.
     pub pacer: Pacer,
+    /// `--pacing` and `--in-flight`, over the defaults
+    /// (`pacing::default_for`: late with two in flight on a display link).
+    pub pacing_flag: Option<pacing::Mode>,
+    pub in_flight_flag: Option<u32>,
     /// `--pacing-report`: what a play's frames did under each pacing.
     pub pacing_report: Option<pacing::Report>,
 }
@@ -260,6 +271,8 @@ impl Shell {
             devices_lost: 0,
             lose_device_after: None,
             pacer: Pacer::default(),
+            pacing_flag: None,
+            in_flight_flag: None,
             pacing_report: None,
             sound,
             input,
@@ -330,7 +343,16 @@ impl Shell {
         self.play.refresh_hint = refresh_rate(&window);
         self.pacer.set_refresh_hint(self.play.refresh_hint);
         self.play.graphics = format!("{:?}", adapter.get_info().backend);
+        let link = crate::display_link::DisplayLink::new(&window, self.play.refresh_hint);
+        if let Some(l) = &link {
+            l.run(self.play_on);
+        }
+        let (mode, in_flight) = pacing::default_for(link.is_some());
+        self.pacer.set_mode(self.pacing_flag.unwrap_or(mode));
+        self.pacer
+            .set_in_flight(self.in_flight_flag.unwrap_or(in_flight));
         self.surface = Some(Surface {
+            link,
             window,
             surface,
             config,
@@ -564,6 +586,7 @@ impl Shell {
         // acquire and its present are timed.
         let paced = self.play.playing();
         if paced {
+            self.feed_link();
             self.pacer.begin(crate::clock::now().0);
         }
         let dt = self
@@ -584,14 +607,20 @@ impl Shell {
             // Hidden (minimized, a locked screen), or no frame in time:
             // tried again shortly (only winit's `Occluded` stops frames, as
             // its `Occluded(false)` will start them again).
+            // wgpu's `Occluded` is the window not visible yet (a window
+            // just opened, before AppKit shows it) or hidden: no failure,
+            // looked at again soon; the pacing's report starts with the
+            // first frame presented.
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                self.retry_at = Some(Instant::now() + OCCLUDED_RETRY);
+                return;
+            }
             other => {
                 self.surface_failures += 1;
                 if self.surface_failures <= 3 {
                     eprintln!("no frame from the surface: {other:?}");
                 }
-                if !matches!(other, wgpu::CurrentSurfaceTexture::Occluded) {
-                    s.surface.configure(&s.gpu.device, &s.config);
-                }
+                s.surface.configure(&s.gpu.device, &s.config);
                 self.retry_at = Some(Instant::now() + RETRY);
                 return;
             }
@@ -793,10 +822,15 @@ impl Shell {
         if on {
             self.sound.borrow_mut().pause();
         }
+        let link = self.surface.as_ref().and_then(|s| s.link.as_ref());
+        if let Some(l) = link {
+            l.run(on);
+        }
         if on {
             self.pacer.restart();
             if let Some(r) = &mut self.pacing_report {
                 r.hint = self.play.refresh_hint;
+                r.link = link.map(|l| l.name());
             }
         } else if let Some(text) = self.pacing_text() {
             println!("{text}");
@@ -810,21 +844,23 @@ impl Shell {
     /// The surface's present mode: in play, the least latency the
     /// surface has with blocking frames (D6: Mailbox where there is one,
     /// else Fifo), Fifo with late pacing (it paces against the
-    /// refreshes), one frame in flight; in menus AutoVsync, two.
+    /// refreshes), the pacer's frames in flight (`--in-flight`, two with a
+    /// display link, one elsewhere); in menus AutoVsync, two.
     ///
-    /// `--pacing-report` keeps Fifo for both, so the two columns differ
-    /// only in pacing and the surface is not configured again at each
-    /// switch (Mailbox shows a frame up to a refresh sooner, which moves
-    /// the notes about half a period against Fifo's).
+    /// `--pacing-report` keeps Fifo for every column, so they differ only
+    /// in pacing and frames in flight (Mailbox shows a frame up to a
+    /// refresh sooner, which moves the notes about half a period against
+    /// Fifo's); a switch of frames in flight configures the surface again.
     fn present_mode(&mut self, play: bool) {
         let fifo = self.pacer.mode() == pacing::Mode::Late || self.pacing_report.is_some();
+        let in_flight = self.pacer.in_flight();
         let Some(s) = &mut self.surface else { return };
         let (mode, latency) = if !play {
             (wgpu::PresentMode::AutoVsync, 2)
         } else if !fifo && s.modes.contains(&wgpu::PresentMode::Mailbox) {
-            (wgpu::PresentMode::Mailbox, 1)
+            (wgpu::PresentMode::Mailbox, in_flight)
         } else {
-            (wgpu::PresentMode::Fifo, 1)
+            (wgpu::PresentMode::Fifo, in_flight)
         };
         if (
             s.config.present_mode,
@@ -841,6 +877,7 @@ impl Shell {
     /// When the play's next frame starts: `--pacing-report` sets the
     /// pacing this moment runs in first.
     fn pace(&mut self) -> Next {
+        self.feed_link();
         let now = crate::clock::now().0;
         if let Some(r) = &mut self.pacing_report
             && r.choose(now, &mut self.pacer)
@@ -848,6 +885,18 @@ impl Shell {
             self.present_mode(true);
         }
         self.pacer.next(now)
+    }
+
+    /// The display link's last refresh, to the pacer.
+    fn feed_link(&mut self) {
+        if let Some(t) = self
+            .surface
+            .as_ref()
+            .and_then(|s| s.link.as_ref())
+            .and_then(|l| l.latest())
+        {
+            self.pacer.refresh(t.at, t.target);
+        }
     }
 
     /// `--pacing-report`'s text for the play so far, if it drew frames.
@@ -859,7 +908,7 @@ impl Shell {
             } else {
                 ""
             };
-            format!(" · {} · both on Fifo{mailbox}", self.play.graphics)
+            format!(" · {} · every column on Fifo{mailbox}", self.play.graphics)
         });
         let every = r
             .alternate

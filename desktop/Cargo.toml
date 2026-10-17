@@ -79,8 +79,12 @@ objc2-core-audio = { version = "0.3.2", default-features = false, features = ["s
 # Keys' own times (`src/keyboard.rs`): an `NSEvent` local monitor; the
 # pointer hidden until the mouse moves (`NSCursor`, `src/shell.rs`).
 objc2 = "0.6.5"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSCursor", "NSEvent", "block2"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSCursor", "NSEvent", "NSResponder", "NSView", "block2", "objc2-quartz-core"] }
 block2 = "0.6.2"
+# The display's refreshes for the pacing (`src/display_link.rs`): the
+# window's view's `CADisplayLink` (macOS 14), on the main run loop.
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CABase", "CADisplayLink", "CAFrameRateRange", "objc2-core-foundation"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSObjCRuntime", "NSRunLoop", "NSString"] }
 
 # The player's time zone for the plays list's dates (`localtime_r`,
 # `src/play/replays.rs`); already in the build through others.

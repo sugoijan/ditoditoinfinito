@@ -2,7 +2,7 @@
 //! autoplayed with no device on a fake clock, their frames at the times
 //! late pacing gives them against a simulated display (60 and 144 Hz,
 //! jittery builds, a late timer, a missed refresh; a variable refresh
-//! rate), judged the same as at a steady 60 frames a second: the same
+//! rate; two frames in flight on a display link), judged the same as at a steady 60 frames a second: the same
 //! tally, the same presses and releases logged (so a replay of either is
 //! the other's), every hit at the same offset.
 
@@ -43,6 +43,41 @@ fn paced(display: Display, hz: f64, seconds: f64, seed: u64) -> Vec<f64> {
         |_| late.uniform() * 0.001,
         None,
     );
+    assert!(frames.iter().filter(|f| f.record.late.is_some()).count() > frames.len() / 2);
+    frames.iter().map(|f| f.record.sample).collect()
+}
+
+/// Frame times (s) from late pacing with two frames in flight on a
+/// display link at 120 Hz, the compositor keeping a replaced drawable
+/// 6 ms and wanting frames 1 ms before the refresh (the ProMotion case).
+fn paced_on_a_link(seconds: f64, seed: u64) -> Vec<f64> {
+    let hz = 120.0;
+    let mut pacer = Pacer::new(Mode::Late);
+    pacer.set_refresh_hint(Some(hz));
+    pacer.set_in_flight(2);
+    let mut surface = Surface::new(Display::Fixed {
+        period: 1.0 / hz,
+        phase: 0.002,
+    });
+    surface.images = 3;
+    surface.release = 0.006;
+    surface.latch = 0.001;
+    let mut l = sim::Loop {
+        link: true,
+        ..sim::Loop::default()
+    };
+    let mut cost = Noise::new(seed);
+    let mut late = Noise::new(seed + 1);
+    let mut cost = |i: usize| {
+        if i == 1000 {
+            1.5 / hz
+        } else {
+            (0.0015 + 0.0004 * cost.normal()).max(0.0003)
+        }
+    };
+    let mut late = |_: usize| late.uniform() * 0.001;
+    l.until(seconds, &mut pacer, &mut surface, &mut cost, &mut late);
+    let frames = l.finish(&mut surface);
     assert!(frames.iter().filter(|f| f.record.late.is_some()).count() > frames.len() / 2);
     frames.iter().map(|f| f.record.sample).collect()
 }
@@ -129,6 +164,10 @@ fn late_pacing_judges_as_steady_frames_do() {
                 seconds,
                 3,
             ),
+        ),
+        (
+            "late, two in flight, display link, 120 Hz",
+            paced_on_a_link(seconds, 4),
         ),
     ];
     let songs = ddi_desktop::library::bundled();

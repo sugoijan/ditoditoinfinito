@@ -1,5 +1,6 @@
 //! Late pacing on this machine's GPU, offscreen, against a simulated
-//! display (`ddi_desktop::pacing::sim`) on a fake clock: a play drawn
+//! display (`ddi_desktop::pacing::sim`, its refreshes told by a
+//! simulated display link) on a fake clock: a play drawn
 //! for the refresh the pacer gives (`View::present_at`) draws the same
 //! picture as the play's own prediction when the two agree, and moves its
 //! notes when they do not; then five seconds of the play paced late,
@@ -182,10 +183,19 @@ fn a_play_paced_late_draws_for_the_refresh_it_is_shown_at() {
     let mut drawn_for = Vec::new();
     let mut overrun = Vec::new();
     let mut late = 0;
+    // The refreshes from a display link, as on macOS.
+    let link = |pacer: &mut Pacer, surface: &Surface, t: f64| {
+        if let Some((at, target)) = surface.link_tick(t) {
+            pacer.refresh(at, target);
+        }
+    };
+    let mut linked = 0;
     for i in 0..300 {
+        link(&mut pacer, &surface, t);
         if let Next::At(w) = pacer.next(t) {
             t = t.max(w);
         }
+        link(&mut pacer, &surface, t);
         pacer.begin(t);
         let a = t;
         t = surface.acquire(t);
@@ -201,6 +211,7 @@ fn a_play_paced_late_draws_for_the_refresh_it_is_shown_at() {
         let p = t;
         t += 0.000_1;
         let record = pacer.presented(sample, p, t);
+        linked += usize::from(record.source == ddi_desktop::pacing::Source::Link);
         overrun.push(record.overrun || record.early);
         report.push(record);
         drawn_for.push(present_at);
@@ -209,6 +220,7 @@ fn a_play_paced_late_draws_for_the_refresh_it_is_shown_at() {
     surface.finish();
     eprintln!("{}", report.text("offscreen, simulated 60 Hz"));
     assert!(late > 200, "{late} of 300 frames paced late");
+    assert_eq!(linked, 300, "every frame on the display link's refreshes");
     // Each late frame was shown at the refresh it was drawn for, but for
     // those the pacer knows were not (a busy machine).
     let mut off = 0;

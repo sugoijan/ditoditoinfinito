@@ -35,8 +35,14 @@ pub struct Surface {
     /// (a compositor's deadline, the GPU's work).
     pub latch: f64,
     /// A replaced frame's drawable is released this long after the
-    /// refresh.
+    /// refresh, give or take `release_sd` (a normal spread).
     pub release: f64,
+    pub release_sd: f64,
+    /// The share of refreshes whose deadline is `hiccup_latch` instead
+    /// (a compositor's stall).
+    pub hiccups: f64,
+    pub hiccup_latch: f64,
+    noise: Noise,
     queue: VecDeque<(usize, f64)>,
     shown: Option<usize>,
     held: bool,
@@ -60,6 +66,10 @@ impl Surface {
             images: 2,
             latch: 0.0,
             release: 0.000_1,
+            release_sd: 0.0,
+            hiccups: 0.0,
+            hiccup_latch: 0.0,
+            noise: Noise::new(0x5eed),
             queue: VecDeque::new(),
             shown: None,
             held: false,
@@ -85,12 +95,22 @@ impl Surface {
 
     fn refresh(&mut self, g: f64) {
         let mut newly = None;
+        let latch = if self.hiccups > 0.0 && self.noise.uniform() < self.hiccups {
+            self.hiccup_latch
+        } else {
+            self.latch
+        };
         if let Some(&(id, t)) = self.queue.front()
-            && t <= g - self.latch + 1e-12
+            && t <= g - latch + 1e-12
         {
             self.queue.pop_front();
             if self.shown.replace(id).is_some() {
-                self.releases.push(g + self.release);
+                let spread = if self.release_sd > 0.0 {
+                    self.release_sd * self.noise.normal()
+                } else {
+                    0.0
+                };
+                self.releases.push(g + (self.release + spread).max(0.0));
             }
             if self.glass.len() <= id {
                 self.glass.resize(id + 1, None);
@@ -157,6 +177,17 @@ impl Surface {
         };
     }
 
+    /// The display link's last refresh at or before `t` and the next
+    /// (a fixed display only).
+    pub fn link_tick(&self, t: f64) -> Option<(f64, f64)> {
+        let Display::Fixed { period, phase } = self.display else {
+            return None;
+        };
+        let k = ((t - phase) / period).floor();
+        let at = phase + k * period;
+        Some((at, at + period))
+    }
+
     /// Runs on until everything presented is shown.
     pub fn finish(&mut self) {
         while let Some(&(_, t)) = self.queue.back() {
@@ -205,6 +236,8 @@ pub struct Loop {
     /// The fake clock (s).
     pub t: f64,
     pub records: Vec<Record>,
+    /// A display link gives the pacer the refreshes (a fixed display).
+    pub link: bool,
 }
 
 impl Loop {
@@ -219,12 +252,17 @@ impl Loop {
     ) {
         let i = self.records.len();
         let mut report = report;
-        if let Some(r) = report.as_deref_mut() {
-            r.choose(self.t, pacer);
+        if let Some(r) = report.as_deref_mut()
+            && r.choose(self.t, pacer)
+        {
+            // The surface configured for the column's frames in flight.
+            surface.images = pacer.in_flight() as usize + 1;
         }
+        self.tick(pacer, surface);
         if let Next::At(w) = pacer.next(self.t) {
             self.t = self.t.max(w + late(i));
         }
+        self.tick(pacer, surface);
         pacer.begin(self.t);
         self.t += BEFORE;
         let a = self.t;
@@ -241,6 +279,16 @@ impl Loop {
         }
         self.records.push(record);
         self.t += TURN;
+    }
+
+    /// The display link's news, as the shell reads it before asking for
+    /// a frame and before starting one.
+    fn tick(&self, pacer: &mut Pacer, surface: &Surface) {
+        if self.link
+            && let Some((at, target)) = surface.link_tick(self.t)
+        {
+            pacer.refresh(at, target);
+        }
     }
 
     /// Frames until the clock reaches `end`.
