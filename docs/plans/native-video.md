@@ -7,8 +7,8 @@ natively instead of running the web's FFmpeg module under wasmtime
 of `video/ddivideo.c`, built as a `cdylib` for wasm (the web unchanged)
 and used natively through a safe Rust API. This document surveys the
 candidates, tries that design, measures native FFmpeg against the
-module on this machine, and proposes what to do. Nothing in the
-production decoder changed: the native spike is in
+module on this machine, and proposes what to do. The original spike left the
+production decoder unchanged: the native spike is in
 `/home/user/.claude/jobs/2f6f2abd/tmp/spike-native-video/`. The 2026-10-17
 VideoToolbox continuation is in the `next` worktree
 (`/home/user/sugoijan/ditoditoinfinito-next/target/scratch/vt/`); its
@@ -54,7 +54,8 @@ its exact seeks, StepMania's frame times), `docs/plans/desktop.md` (D8,
   bug the user's account. 2025 alone brought heap overflows in two
   decoders we enable (SANM, JPEG 2000).
 - **Decision 50: OS decoders first.** Keep the module as the shipped
-  default and fallback. Add VideoToolbox, then Media Foundation, for
+  baseline and fallback. The first production VideoToolbox path covers
+  checked H.264 AVI (below); extend it, then add Media Foundation, for
   streams whose pixels, timestamps and seeks pass the same checks. The
   M1 Max spike hardware-decodes H.264, HEVC and VP9 at much less CPU
   cost than the module; codec names alone do not establish support for
@@ -466,6 +467,69 @@ standalone scratch crate with `FFMPEG_DIR` pointing to the earlier spike's
 core-accounting. Run binaries under the scratch watchdog, never in a
 window. The earlier FFmpeg spike and its builds are retained.
 
+## 4b. First production slice: H.264 AVI (2026-10-17)
+
+`desktop/src/video/avi.rs`, `vt.rs` and `native.rs` now integrate the first
+copied-plane path behind `video`. The default host tries VideoToolbox on
+macOS and the module on other platforms. Selection requires an actual
+hardware session for an indexed AVI with a single SPS/PPS configuration,
+progressive 8-bit 4:2:0 H.264,
+POC 0/2, a fixed reorder delay at most 16, and visible dimensions at most
+4096×2160. Every packet's header and range are checked; changed parameter
+sets, unsupported output layouts/ranges, dropped or duplicate callbacks,
+and missing expected outputs cause fallback. No native FFmpeg is linked.
+
+The file reader is relative to a `MovieFile` range, so a stored zip entry
+is read in place. Index bytes are capped at 32 MiB, entries at one million,
+packets/samples at 8 MiB. Compressed packets stay on disk. The callback
+retains its pixel buffer only during the validated NV12 → I420 copy,
+then releases it. Its queue is capped at 32 frames / 128 MiB, as is the
+reorder queue (before another packet is fed). Each session's callback state
+is separate; generation tags and the host's existing seek generations
+keep superseded frames out. Seeks recreate the session and use the shared
+`PictureOrder`, `OutputOrder`, `seek_start`, `seek_back` and `ExactSeek`.
+EOF timestamps use the module's incremental additions, including their
+rounding when the AVI stream starts at a nonzero frame.
+
+Each movie's worker owns all OS calls, including destruction. A bounded
+command/reply channel and a four-second deadline keep a stalled session
+from holding the game thread; the controller detaches rather than joining
+native teardown. One timeout disables new native sessions for the process;
+a global four-worker cap also bounds abandoned/closing workers. Refusal,
+bad output or a timeout moves that movie to the module. Recovery seeks to
+the last emitted frame (or the requested seek time before any was emitted),
+skips frames already delivered and continues the outstanding wants, without
+posting a second Opened event. Probe/black-bar sampling still uses the module.
+A movie can open through VT without the module; fallback then reports the
+existing missing-decoder error if needed.
+
+`DesktopVideo::decoder_status()` exposes the chosen backend and fallback
+reason; decoder selections are logged. `--video-check FILE --decoder
+module|videotoolbox|auto|both` selects a path; `videotoolbox` is strict, so a
+refusal is visible, and `both` compares every sequential timestamp and CRC
+while checking each backend's exact seeks. `with_module` remains an explicit
+module-only host for existing tests. The frame and track interfaces and the
+automatic video rule stay shared with the web.
+
+Validation on the M1 Max: `desktop/tests/video_native.rs` generates eight
+AVIs (B frames, no B frames, long GOP, dropped-frame gap, full-range BT.709,
+fractional frame rate, nonzero stream start, and 720p): 560 sequential frames
+and 906 seeks per backend. Every returned I420 CRC and timestamp and the
+stream metadata match the module, and each path passes the checker’s
+frame-time/mid-frame/EOF/rewind seeks. The same test covers stored-entry-like
+ranges, rapid superseding seeks, 10-bit and non-AVI fallback, a truncated
+index, and a later changed SPS: the module resumes with the same complete
+frame sequence. `DDI_REQUIRE_VT=1` makes absent hardware a failure for local
+verification; CI can skip only a genuine hardware-session refusal. Unit
+tests cover the deadline/disable behaviour, range bounds, alternate
+configurations and malformed avcC.
+`play_movie` also renders MPEG-4 and H.264 through the real offscreen play.
+
+This completes the AVI part of steps 1–2. Bounded packet/configuration/index
+exports from the module for MP4/WebM and other containers remain next,
+followed by streaming HEVC/VP9, Windows, and GPU interop. The finite HEVC/VP9
+spike does not broaden this production gate.
+
 ## 5. Safety
 
 **The risk.** The module decodes with 264 decoders and every demuxer:
@@ -567,7 +631,9 @@ StepMania plays", and H.264 alone has had such bugs.
 
 ## 7. Implementation order (decision 50)
 
-The module remains the shipped default and fallback throughout this work.
+The module remains the baseline decoder and fallback throughout this work.
+The verified macOS H.264 AVI subset now selects VideoToolbox automatically;
+`DDI_VIDEO_DECODER=module` forces the module for play.
 An OS path is selected for a movie only after its supported stream class
 passes the checks; absence, refusal, bad output or a stalled session moves
 that movie to the module at the same requested time. If the module also
@@ -730,8 +796,9 @@ remove them.
 
 ## 9. Remaining validation
 
-- The new desktop code still decodes through the module. This document
-  approves an implementation order, not an untested automatic VT switch.
+- The first checked H.264 AVI path in section 4b is implemented. Other containers
+  and codec classes still use the module; their automatic selection waits
+  for the bounded packet interface and the same fidelity checks.
 - A new packet interface for non-AVI containers and bounded streaming
   HEVC/VP9 reordering remain work, despite the fixture successes.
 - The zero-copy spike does not measure a rendered frame; full GPU lifetime,

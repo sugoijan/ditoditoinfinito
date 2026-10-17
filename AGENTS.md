@@ -150,8 +150,10 @@ the browser are implementation details, not advertised features.
   with a cache; a first start offers other games' song folders,
   `offer.rs`); plays through the shared session (`play/`: the UI core's
   start prompt, noteskins with their Lua read on a thread, backgrounds,
-  movies (feature `video`, on by default: the web's FFmpeg module under
-  wasmtime, `video.rs`; movies in zips read in place or extracted once),
+  movies (feature `video`, on by default: checked H.264 AVIs through
+  hardware VideoToolbox on macOS, the web's sandboxed FFmpeg module
+  under wasmtime for the rest and on failure, `video.rs`, `video/`;
+  movies in zips read in place or extracted once),
   a work's layers and lyrics, the theme's results, the history in the
   data folder, replays, `play/replays.rs`); a play's frames paced (`pacing/`: blocking in the
   acquire, or each started as late before its refresh as its
@@ -172,7 +174,8 @@ the browser are implementation details, not advertised features.
   executable built in the workspace) the workspace's `target/video/`,
   and compiled once into the cache folder (`DDI_VIDEO_CACHE` moves it;
   `cargo test -p ddi-desktop --test video` checks it on generated
-  clips). On Linux it builds
+  clips; `--decoder both` compares the checked OS subset against it,
+  `DDI_VIDEO_DECODER=module` forces the module for play). On Linux it builds
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
   from the system); winit, rfd and arboard load their libraries at run
   time.
@@ -202,7 +205,7 @@ the browser are implementation details, not advertised features.
   on the host clock), `--volume V`, `--seconds N` (quits, printing the
   library, the clock's latency and jitter, the devices, the plays),
   `--lose-device-after S`, `--video-check FILE [--reference REF.yuv]
-  [--frames]`, `--pacing block|late` (a play's frame pacing),
+  [--frames] [--decoder auto|module|videotoolbox|both]`, `--pacing block|late` (a play's frame pacing),
   `--in-flight 1|2` (defaults: late with two when a display link is
   available, block with one elsewhere), `--pacing-report` (block and late with one and two in
   flight, 4 s each in turn on Fifo, a table of each printed when the

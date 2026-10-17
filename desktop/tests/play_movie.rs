@@ -1,7 +1,8 @@
 //! A play's background movie on desktop (feature `video`): a song folder
 //! made here (a clip from FFmpeg's test pattern, its `#BGCHANGES` at the
 //! first beat), listed by the library's scan, played on a fake clock with
-//! no sound device; the movie opens on the FFmpeg module under wasmtime,
+//! no sound device; MPEG-4 opens on the module and H.264 uses the OS path
+//! where its capability gate and hardware session permit it;
 //! its frames reach the renderer and show behind the field. Skipped
 //! without a GPU adapter, the `ffmpeg` command or the module (`just
 //! video`).
@@ -37,7 +38,7 @@ const SM: &str = "#TITLE:Movie;#ARTIST:Test;#MUSIC:music.wav;#OFFSET:0;#BPMS:0=1
 1000\n0100\n0010\n0001\n,1000\n0100\n0010\n0001\n,1000\n0100\n0010\n0001\n,\
 1000\n0100\n0010\n0001\n,1000\n0100\n0010\n0001\n;";
 
-fn song(dir: &Path) -> Option<()> {
+fn song(dir: &Path, codec: &str) -> Option<()> {
     let song = dir.join("Pack/Movie");
     std::fs::create_dir_all(&song).ok()?;
     std::fs::write(song.join("song.sm"), SM).ok()?;
@@ -51,7 +52,7 @@ fn song(dir: &Path) -> Option<()> {
         "-t",
         "6",
         "-c:v",
-        "mpeg4",
+        codec,
         clip.to_str()?,
     ]) && ffmpeg(&[
         "-f",
@@ -82,19 +83,22 @@ fn a_movie_plays_behind_the_field() {
         // test here).
         unsafe { std::env::set_var("DDI_VIDEO_MODULE", &dev_module) };
     }
-    let dir = std::env::temp_dir().join(format!("ddi-play-movie-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    if song(&dir).is_none() {
-        eprintln!("no ffmpeg: skipped");
-        return;
+    for codec in ["mpeg4", "libx264"] {
+        let dir =
+            std::env::temp_dir().join(format!("ddi-play-movie-{}-{codec}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        if song(&dir, codec).is_none() {
+            eprintln!("no ffmpeg with {codec}: skipped");
+            continue;
+        }
+        // SAFETY: this binary's only non-ignored test; before its host starts.
+        unsafe { std::env::set_var("DDI_VIDEO_CACHE", dir.join("cache")) };
+        let (stats, shown, trouble, _) = play_movies(&adapter, &dir, 8.0);
+        assert!(shown, "{codec}: no movie frame shown: {stats:?}");
+        assert!(stats.shown > 30, "{codec}: {stats:?}");
+        assert!(trouble.is_none(), "{codec}: {trouble:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
-    // SAFETY: as above.
-    unsafe { std::env::set_var("DDI_VIDEO_CACHE", dir.join("cache")) };
-    let (stats, shown, trouble, _) = play_movies(&adapter, &dir, 8.0);
-    assert!(shown, "no movie frame shown: {stats:?}");
-    assert!(stats.shown > 30, "{stats:?}");
-    assert!(trouble.is_none(), "{trouble:?}");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The first song with a movie under `root` (scanned as the library

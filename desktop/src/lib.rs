@@ -47,7 +47,8 @@ pub mod store;
 #[cfg(feature = "video")]
 pub mod video;
 
-/// `--video-check FILE [--reference REF.yuv] [--frames]`: the exit code.
+/// `--video-check FILE [--reference REF.yuv] [--frames]
+/// [--decoder auto|module|videotoolbox|both]`: the exit code.
 fn video_check(args: &[String], at: usize) -> i32 {
     let Some(file) = args.get(at + 1) else {
         eprintln!("--video-check needs a file");
@@ -61,8 +62,37 @@ fn video_check(args: &[String], at: usize) -> i32 {
             .and_then(|i| args.get(i + 1))
             .map(std::path::PathBuf::from);
         let path = std::path::Path::new(file);
-        let mut host = video::VideoHost::shared();
-        let report = video::check(&mut host, path, reference.as_deref());
+        let decoder = args
+            .iter()
+            .position(|a| a == "--decoder")
+            .map(|i| args.get(i + 1).map(String::as_str).unwrap_or(""))
+            .unwrap_or("auto");
+        let both = decoder == "both";
+        let backend = if both {
+            video::Backend::VideoToolbox
+        } else if let Some(b) = video::Backend::parse(decoder) {
+            b
+        } else {
+            eprintln!("--decoder must be auto, module, videotoolbox or both");
+            return 2;
+        };
+        let mut host = video::VideoHost::with_backend(video::module_path(), backend);
+        let mut report = video::check(&mut host, path, reference.as_deref());
+        if both {
+            let mut module = video::VideoHost::with_module(video::module_path());
+            let expected = video::check(&mut module, path, reference.as_deref());
+            report
+                .failures
+                .extend(expected.failures.iter().map(|e| format!("module: {e}")));
+            if report.frames != expected.frames {
+                report
+                    .failures
+                    .push("VideoToolbox timestamps or pixels differ from the module".into());
+            }
+            for line in expected.lines("module reference") {
+                println!("{line}");
+            }
+        }
         let name = path
             .file_name()
             .map_or(file.clone(), |n| n.to_string_lossy().into_owned());

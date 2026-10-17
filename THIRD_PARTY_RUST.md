@@ -145,7 +145,7 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 
 ## Desktop app (Linux, macOS and Windows)
 
-333 crates.
+336 crates.
 
 | Crate | Version | Licence | Used under | Notices |
 |---|---|---|---|---|
@@ -302,12 +302,15 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | objc2-core-audio-types | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [11](#notice-11) |
 | objc2-core-foundation | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [11](#notice-11) |
 | objc2-core-graphics | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [11](#notice-11) |
+| objc2-core-media | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [11](#notice-11) |
+| objc2-core-video | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [11](#notice-11) |
 | objc2-encode | 4.1.0 | MIT | MIT | [67](#notice-67) |
 | objc2-foundation | 0.2.2 | MIT | MIT | [115](#notice-115) |
 | objc2-foundation | 0.3.2 | MIT | MIT | [115](#notice-115) |
 | objc2-io-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [11](#notice-11) |
 | objc2-metal | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [11](#notice-11) |
 | objc2-quartz-core | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [11](#notice-11) |
+| objc2-video-toolbox | 0.3.2 | Zlib OR Apache-2.0 OR MIT | Apache-2.0 | [11](#notice-11) |
 | object | 0.40.0 | Apache-2.0 OR MIT | MIT | [116](#notice-116) |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | option-ext | 0.2.0 | MPL-2.0 | MPL-2.0 | [117](#notice-117) |
@@ -785,7 +788,7 @@ DEALINGS IN THE SOFTWARE.
 
 <a id="notice-11"></a>
 
-### 11. Apache-2.0 — codespan-reporting 0.13.1, cpal 0.18.2, dasp_sample 0.11.0, dispatch2 0.3.1, gethostname 1.1.0, gilrs 0.11.2, gilrs-core 0.6.8, gloo-console 0.4.0, gloo-dialogs 0.3.0, gloo-events 0.3.0, gloo-file 0.4.0, gloo-history 0.3.0, gloo-net 0.7.0, gloo-render 0.3.0, gloo-storage 0.4.0, gloo-timers 0.4.0, gloo-utils 0.2.0, gloo-utils 0.3.0, gloo-worker 0.6.0, objc2-app-kit 0.3.2, objc2-audio-toolbox 0.3.2, objc2-core-audio 0.3.2, objc2-core-audio-types 0.3.2, objc2-core-foundation 0.3.2, objc2-core-graphics 0.3.2, objc2-io-kit 0.3.2, objc2-metal 0.3.2, objc2-quartz-core 0.3.2, profiling 1.0.18, self_cell 1.3.0, spirv 0.4.0+sdk-1.4.341.0, unicode-linebreak 0.1.5
+### 11. Apache-2.0 — codespan-reporting 0.13.1, cpal 0.18.2, dasp_sample 0.11.0, dispatch2 0.3.1, gethostname 1.1.0, gilrs 0.11.2, gilrs-core 0.6.8, gloo-console 0.4.0, gloo-dialogs 0.3.0, gloo-events 0.3.0, gloo-file 0.4.0, gloo-history 0.3.0, gloo-net 0.7.0, gloo-render 0.3.0, gloo-storage 0.4.0, gloo-timers 0.4.0, gloo-utils 0.2.0, gloo-utils 0.3.0, gloo-worker 0.6.0, objc2-app-kit 0.3.2, objc2-audio-toolbox 0.3.2, objc2-core-audio 0.3.2, objc2-core-audio-types 0.3.2, objc2-core-foundation 0.3.2, objc2-core-graphics 0.3.2, objc2-core-media 0.3.2, objc2-core-video 0.3.2, objc2-io-kit 0.3.2, objc2-metal 0.3.2, objc2-quartz-core 0.3.2, objc2-video-toolbox 0.3.2, profiling 1.0.18, self_cell 1.3.0, spirv 0.4.0+sdk-1.4.341.0, unicode-linebreak 0.1.5
 
 ```text
 Apache License

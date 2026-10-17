@@ -1,5 +1,5 @@
 //! A play's background movies on desktop (feature `video`): the FFmpeg
-//! module under wasmtime ([`crate::video`]) for every movie, a
+//! module under wasmtime or the checked OS path ([`crate::video`]), a
 //! [`MovieTrack`] per open one setting its queue's depth and its seeks,
 //! frames shown through `Renderer::add_video`. The web's `movies.rs`
 //! without its browser path: the same schedule rules
@@ -446,10 +446,6 @@ impl Movies {
                 return;
             }
         };
-        if let ModuleStatus::Failed(e) = self.host().status() {
-            self.fail(&name, e);
-            return;
-        }
         let format = VideoFormat {
             container: VideoContainer::Unknown,
             codec: VideoCodec::Unknown,
