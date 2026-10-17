@@ -402,3 +402,37 @@ fn the_module_is_found_from_a_workspace_build() {
     assert_eq!(module_near(&root.join("bin/ditoditoinfinito")), None);
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn coincident_frames_seek_to_the_last_picture_at_that_time() {
+    let times = [0.0, 0.0, 0.1, 0.2, 0.2, 0.2, 0.3];
+    for (target, expected) in [(0.0, 1), (0.05, 1), (0.1, 2), (0.2, 5), (0.25, 5), (0.3, 6)] {
+        assert_eq!(frame_showing_at(&times, target), expected);
+    }
+    assert_eq!(frame_showing_at(&[0.1, 0.2], 0.0), 0);
+}
+
+#[test]
+fn recovery_keeps_the_undelivered_part_of_a_shared_timestamp() {
+    let mut r = Resume {
+        time: 1.0,
+        remaining: 1,
+    };
+    assert!(r.skip(0.9));
+    assert!(r.skip(1.0));
+    assert!(!r.skip(1.0));
+    let mut r = Resume {
+        time: 0.0,
+        remaining: 2,
+    };
+    assert!(r.skip(0.0));
+    assert!(r.skip(0.0));
+    assert!(!r.skip(0.0));
+    let mut r = Resume {
+        time: 1.0,
+        remaining: 1,
+    };
+    assert!(r.skip(1.0));
+    assert!(!r.skip(1.0 + 5e-7));
+    assert!(!r.skip(1.1));
+}

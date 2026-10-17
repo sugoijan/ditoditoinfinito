@@ -1,7 +1,7 @@
 //! Background movies on desktop (feature `video`): on macOS, checked
-//! progressive 8-bit H.264 AVI, MP4 and Matroska through hardware VideoToolbox; other
-//! movie through the sandboxed FFmpeg module under wasmtime. The OS path
-//! reuses `ddi_library::avi` and `h264` as WebCodecs does; MP4/Matroska
+//! progressive 8-bit H.264, HEVC and VP9 subsets through hardware
+//! VideoToolbox; other movies through the sandboxed FFmpeg module under
+//! wasmtime. The OS path reuses `ddi_library::avi` and `h264` as WebCodecs does; MP4/Matroska
 //! packets come from a bounded private wasm demuxer. Both paths have bounded
 //! reads, callbacks and reorder queues, copied I420 planes, exact seeks,
 //! and per-generation output. A separate worker owns each native session;
@@ -59,11 +59,19 @@ use wasmtime::{
 #[cfg(target_os = "macos")]
 mod avi;
 #[cfg(target_os = "macos")]
+mod bits;
+#[cfg(target_os = "macos")]
+mod codec;
+#[cfg(target_os = "macos")]
 mod h264_format;
+#[cfg(target_os = "macos")]
+mod hevc;
 #[cfg(target_os = "macos")]
 mod media;
 #[cfg(target_os = "macos")]
 mod native;
+#[cfg(target_os = "macos")]
+mod vp9;
 #[cfg(target_os = "macos")]
 mod vt;
 
@@ -648,6 +656,10 @@ pub struct CheckReport {
     pub failures: Vec<String>,
 }
 
+fn frame_showing_at(pts: &[f64], t: f64) -> usize {
+    pts.partition_point(|p| *p <= t + 1e-6).saturating_sub(1)
+}
+
 /// Decodes `path` as a play would (through [`VideoHost`] and
 /// [`DesktopVideo`], a few frames asked for at a time), then seeks to
 /// each frame's time (about 60 of them), to the middle of each period
@@ -713,10 +725,10 @@ pub fn check(host: &mut VideoHost, path: &Path, reference: Option<&Path>) -> Che
             match next(&mut v, &mut events) {
                 Some(VideoEvent::Frame(f)) => {
                     if let Some((last, _)) = r.frames.last()
-                        && f.pts <= *last
+                        && f.pts < *last
                     {
                         r.failures.push(format!(
-                            "frame {} at {:.4} s is not after {:.4} s",
+                            "frame {} at {:.4} s is before {:.4} s",
                             r.frames.len(),
                             f.pts,
                             last
@@ -797,6 +809,10 @@ pub fn check(host: &mut VideoHost, path: &Path, reference: Option<&Path>) -> Che
     // A loop: back to the start after the end.
     targets.push((0.0, Some(0)));
     for (t, expect) in targets {
+        // A decoder can release several pictures at the same DTS (HEVC
+        // IDR/DPB drain), and negative opening DTS clamp to zero. ExactSeek
+        // holds the last picture at that time, as playback does.
+        let expect = expect.map(|_| frame_showing_at(&pts, t));
         let started = Instant::now();
         v.seek(t);
         v.want(1);
@@ -1064,9 +1080,29 @@ struct Running {
     x: Exports,
 }
 
+/// Recovery after native decode: skip only the delivered pictures in a
+/// group sharing one DTS. Exact seeks are restored to their original target,
+/// so the module coalesces the same initial pictures before this count starts.
+struct Resume {
+    time: f64,
+    remaining: usize,
+}
+impl Resume {
+    fn skip(&mut self, t: f64) -> bool {
+        if t < self.time {
+            return true;
+        }
+        if t > self.time || self.remaining == 0 {
+            return false;
+        }
+        self.remaining -= 1;
+        true
+    }
+}
+
 /// One open movie on the thread.
 struct Video {
-    skip_through: Option<f64>,
+    resume: Option<Resume>,
     ptr: i32,
     file_name: String,
     epoch: u32,
@@ -1390,7 +1426,7 @@ impl Machine {
         self.videos.insert(
             id,
             Video {
-                skip_through: None,
+                resume: None,
                 ptr,
                 file_name,
                 epoch: 0,
@@ -1463,15 +1499,12 @@ impl Machine {
                 }
                 continue;
             }
-            if self
-                .videos
-                .get(&id)
-                .and_then(|v| v.skip_through)
-                .is_some_and(|t| pts <= t + 1e-6)
-            {
-                self.videos.get_mut(&id).unwrap().last = pts;
+            let video = self.videos.get_mut(&id).expect("video");
+            if video.resume.as_mut().is_some_and(|r| r.skip(pts)) {
+                video.last = pts;
                 continue;
             }
+            video.resume = None;
             let frame = self.frame(ptr, pts, ms)?;
             let video = self.videos.get_mut(&id).expect("video");
             video.bad = 0;
@@ -1520,7 +1553,7 @@ impl Machine {
             return Ok(());
         };
         video.epoch = epoch;
-        video.skip_through = None;
+        video.resume = None;
         video.last = -1.0;
         video.bad = 0;
         video.ended = false;

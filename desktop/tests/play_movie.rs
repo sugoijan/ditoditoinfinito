@@ -48,7 +48,7 @@ fn song(dir: &Path, codec: &str, extension: &str) -> Option<()> {
     .ok()?;
     let clip = song.join(format!("clip.{extension}"));
     let music = song.join("music.wav");
-    (ffmpeg(&[
+    let mut args = vec![
         "-f",
         "lavfi",
         "-i",
@@ -57,16 +57,27 @@ fn song(dir: &Path, codec: &str, extension: &str) -> Option<()> {
         "6",
         "-c:v",
         codec,
-        clip.to_str()?,
-    ]) && ffmpeg(&[
-        "-f",
-        "lavfi",
-        "-i",
-        "anullsrc=r=44100:cl=stereo",
-        "-t",
-        "12",
-        music.to_str()?,
-    ]))
+    ];
+    if codec == "libx265" {
+        args.extend([
+            "-x265-params",
+            "pools=1:frame-threads=1:log-level=error:open-gop=0",
+        ]);
+    }
+    if codec == "libvpx-vp9" {
+        args.extend(["-cpu-used", "4", "-lag-in-frames", "0"]);
+    }
+    args.push(clip.to_str()?);
+    (ffmpeg(&args)
+        && ffmpeg(&[
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=44100:cl=stereo",
+            "-t",
+            "12",
+            music.to_str()?,
+        ]))
     .then_some(())
 }
 
@@ -92,6 +103,8 @@ fn a_movie_plays_behind_the_field() {
         ("libx264", "avi"),
         ("libx264", "mp4"),
         ("libx264", "mkv"),
+        ("libx265", "mp4"),
+        ("libvpx-vp9", "webm"),
     ] {
         let dir = std::env::temp_dir().join(format!(
             "ddi-play-movie-{}-{codec}-{extension}",
