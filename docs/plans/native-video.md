@@ -675,7 +675,111 @@ against that baseline, not native FFmpeg decoding.
 
 Windows now has an experimental opt-in implementation (section 7), awaiting
 Windows runtime evidence. Wider macOS stream classes require their own output
-models and fidelity evidence; GPU plane sharing remains later.
+models and fidelity evidence. The opt-in macOS plane-sharing path below keeps
+these same codec gates.
+
+## 4f. Rendered IOSurface/Metal planes (opt-in, 2026-10-17)
+
+The import-only experiment in 4a is now followed by an offscreen benchmark
+and an opt-in integration in real play. Defaults still copy I420 planes.
+Build `ddi-desktop` with `video-metal` and set `DDI_VIDEO_PLANES=metal` to
+request sharing for the same checked VideoToolbox streams; neither changes
+codec availability. Other platforms and builds retain their current routes.
+There is no menu option yet. Manual play on other Macs, physical GPU loss
+and presentation-latency measurements remain deferred.
+
+The completed, immutable `CVPixelBuffer` moves from the decoder worker to
+the drawing thread in the existing external-frame envelope. Only that
+restricted owned wrapper is `Send`, not `Sync`; no native handle enters the
+renderer or the platform trait. CVMetalTexture/cache objects stay on the
+drawing thread. The cache uses **wgpu's actual Metal device**, checks NV12
+plane geometry, upper-left origin and a full clean aperture, then wraps
+initialized R8/RG8 views through wgpu-hal. The renderer's NV12 fragment
+entry samples those planes and calls the same YUV conversion as copied
+I420: BT.601/709, full/limited range, dimming, alpha and plain/sRGB targets
+keep their existing arithmetic. Unsupported imports copy that very image;
+the hardware decoder can continue. CPU diagnostics materialize planes and
+charge that copy to decode time.
+
+Ownership has two independent retirement conditions: both HAL textures
+must be retired, and every command buffer that could read them must have
+completed. The shell attaches leases to the **actual drawing encoder**
+before rendering, including paused/repeated pictures. Discarding an encoder
+before submission drops its leases. The retained image and both Core Video
+views survive until both conditions hold, not merely until the next frame
+or a callback on earlier queue work. Old-device caches survive while their
+textures remain referenced. A process-wide budget permits at most four
+imported images and 128 MiB of accounted pixel storage (plane pitches and
+allocation size); ordinary pressure uses copies. Existing decoder/output
+queues keep their separate byte bounds, and external frames do not enter
+the movie-loop cache.
+
+Unconfirmed teardown is deliberately conservative: after a bounded wait,
+any surviving owners are quarantined and sharing is disabled for the
+process. The global budget bounds this retained storage even across device
+replacement. It is not evidence that a physically hung GPU completed. New
+frames use copies; new decoder sessions request copied output. Healthy
+retirement releases all owners and periodically flushes unused Core Video
+cache entries. No new native FFmpeg code is introduced.
+
+`desktop/src/video/vt/benchmark.rs` exercises the production importer,
+background pipeline and GPU-completion leases. Generated H.264 MP4/MKV,
+HEVC MP4 and VP9 WebM clips cover BT.601/709 and limited/full range, plain
+and sRGB output, one/three frames in flight, decoder teardown before GPU
+retirement, and seeks within/across a GOP. All **4,800 rendered frame
+identities and RGBA CRCs** match the copied path exactly. Separate tests
+cover private-device destruction/replacement, paused images, an abandoned
+encoder, budget fallback and deterministic unconfirmed completion. The
+fault test retains one bounded image and disables sharing intentionally.
+The real offscreen play test traversed the normal host, session, movie
+track and renderer for MPEG-4 fallback plus H.264 AVI/MP4/MKV, HEVC and VP9:
+**1,073 shared frames, no copy fallbacks, zero retained owners at the end**.
+Strict native decoder suites also materialize external frames to compare
+all timestamps, plane CRCs and exact seeks against the module.
+
+For performance, the optimized `desktop` profile keeps optimization level 3
+but disables LTO (`CARGO_PROFILE_DESKTOP_LTO=false`): the LTO compiler
+exceeded the local 2 GiB memory limit and was stopped. Each H.264 fixture
+has 600 frames at 60 Hz, tested in copied/shared/shared/copied order at
+360p, 720p and 1080p, with one and three frames in flight. Session opening,
+pipeline warm-up and CRC readback are outside timed runs. CPU is this
+process's user+system time, including its workers, **excluding the separate
+VideoToolbox service**. Wall time includes demux, decode, transfer, drawing
+and GPU completion; this is unpaced offscreen throughput, not display
+latency or a game-frame saving. The loop uses the production parsers,
+callback and importer but bypasses normal host message dispatch. Background
+QoS is a weak-CPU proxy, not pinned efficiency cores or measured battery
+use. Measurements and raw runs are saved with the pending snapshot.
+
+Means of the two runs per path on this M1 Max, with three frames in
+flight (one-frame runs and all samples are in the saved CSV):
+
+| Scheduling | Height | Copy/shared CPU ms/frame | Copy/shared wall ms/frame |
+|---|---|---|---|
+| default | 360p | 0.55 / 0.35 | 0.90 / 0.71 |
+| default | 720p | 1.11 / 0.37 | 1.71 / 0.95 |
+| default | 1080p | 2.00 / 0.48 | 2.88 / 1.38 |
+| background | 360p | 2.60 / 1.64 | 4.95 / 3.31 |
+| background | 720p | 4.30 / 1.71 | 8.36 / 4.01 |
+| background | 1080p | 7.33 / 2.08 | 16.31 / 4.72 |
+
+Run these separately, under the repository watchdog and a scratch
+`DDI_HOME` (the device-loss tests can disable sharing within their process):
+
+```sh
+cargo test -p ddi-desktop --features video-bench --lib rendered_metal_planes_match_copies -- --ignored --nocapture
+cargo test -p ddi-desktop --features video-bench --lib metal_device_loss_uses_fresh_resources -- --ignored --nocapture
+DDI_VIDEO_PLANES=metal cargo test -p ddi-desktop --features video-metal --lib retained_play_frames_obey_gpu_leases_and_fallback -- --ignored --nocapture
+CARGO_PROFILE_DESKTOP_LTO=false cargo test -p ddi-desktop --profile desktop --features video-bench --lib measure_video_gpu -- --ignored --nocapture --test-threads=1
+```
+
+Implementation: `desktop/src/video/metal.rs`, `vt.rs`, `native.rs`,
+`play/movies.rs` and `play/view.rs`; renderer plane bindings in
+`render/src/background/nv12.rs`. The optional objc2-metal/Core Video
+bindings are 0.3.2 (MIT OR Apache-2.0 OR Zlib); default builds do not gain
+a new rendering path. Core Video's SDK declarations define flipped origin
+and clean coordinates; wgpu's command-encoder completion callback and HAL
+texture drop guard provide the two retirement signals.
 
 ## 5. Safety
 
@@ -812,11 +916,11 @@ backend and fallback reason in `--video-check` and diagnostics. Preserve
    Auto stays on the module until real Windows fidelity, device-loss,
    performance and isolation evidence exists. Cross compilation cannot
    verify codec availability or GPU output.
-4. **GPU planes where they pay.** IOSurface/Metal first, D3D11/DX12 next.
-   Measure full decode → draw cost and GPU completion, not just import.
-   Add renderer plane formats through a platform-neutral interface; keep
-   unsafe native handles in the shell. Preserve the copied-plane route
-   on other backends, device loss and unsupported texture sharing.
+4. **GPU planes where they pay.** IOSurface/Metal now has a rendered
+   benchmark and an opt-in play path (4f), with copied fallback and bounded
+   lifetime protection. Validate on other Macs before changing defaults.
+   D3D11/DX12 sharing still needs compatible adapters, fences and Windows
+   runtime evidence; preserve the copied route.
 5. **Linux capability spike.** VA-API, below, if it benefits the remaining
    hardware. The module continues to cover Linux without it.
 6. **Sandboxed native FFmpeg child, later.** Build the same pinned tarball,
@@ -1014,9 +1118,12 @@ remove them.
   bounded packet interface. Wider profiles and output classes (including
   hidden/superframe VP9, HEVC long-term references and higher bit depths)
   remain with the module until their own fidelity checks pass.
-- The zero-copy spike does not measure a rendered frame; full GPU lifetime,
-  colour, upload and device-loss tests are required before adopting it.
+- Section 4f supersedes the import-only spike with rendered fidelity,
+  throughput and lifetime tests plus opt-in play. Other Macs, physical GPU
+  loss, real presentation latency and manual play remain unverified; the
+  copied path remains the default.
 - Default vs background QoS is a useful weak-CPU proxy, not a general
   prediction for older Intel machines, Windows GPUs or laptop battery life.
-- Windows and Linux APIs were researched, not run. Each requires hardware
+- Windows has a cross-compiled experimental implementation; Linux remains
+  researched only. Neither has run on a host here. Each requires hardware
   capability/fidelity tests and fallback tests on its own platform.

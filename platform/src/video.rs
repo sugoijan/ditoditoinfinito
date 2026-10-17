@@ -155,7 +155,8 @@ pub struct VideoFrame {
     /// Milliseconds the decoder spent on this frame (diagnostics).
     pub decode_ms: f64,
     /// The frame as the platform keeps it, when it is not in `planes`
-    /// (`width × height` is its size; matrix and range do not apply).
+    /// (`width × height` is its size). The shell determines its storage;
+    /// native YUV surfaces retain their matrix and range tags.
     pub external: Option<ExternalFrame>,
 }
 

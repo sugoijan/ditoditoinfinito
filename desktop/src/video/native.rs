@@ -34,7 +34,22 @@ const SELECTED: &str = "Media Foundation (D3D11; experimental)";
 pub(super) struct Output {
     pub id: usize,
     pub generation: u32,
-    pub planes: Vec<u8>,
+    pub pixels: Pixels,
+}
+
+pub(super) enum Pixels {
+    Planes(Vec<u8>),
+    #[cfg(all(target_os = "macos", feature = "video-metal"))]
+    Surface(super::metal::Surface),
+}
+impl Pixels {
+    fn len(&self) -> usize {
+        match self {
+            Self::Planes(p) => p.len(),
+            #[cfg(all(target_os = "macos", feature = "video-metal"))]
+            Self::Surface(p) => p.bytes(),
+        }
+    }
 }
 
 const DEADLINE: Duration = Duration::from_secs(4);
@@ -345,14 +360,14 @@ struct Decoder {
     session: Session,
     order: Order,
     sequence: VecDeque<(usize, f64)>,
-    decoded: HashMap<usize, Vec<u8>>,
+    decoded: HashMap<usize, Pixels>,
     submitted: HashSet<usize>,
     durations: HashMap<usize, Option<f64>>,
     timeline: Option<f64>,
     last_dts: Option<f64>,
     last_length: f64,
-    ready: VecDeque<(Vec<u8>, f64)>,
-    exact: ExactSeek<Vec<u8>>,
+    ready: VecDeque<(Pixels, f64)>,
+    exact: ExactSeek<Pixels>,
     index: usize,
     target: Option<f64>,
     generation: u32,
@@ -439,15 +454,23 @@ impl Decoder {
         let began = Instant::now();
         loop {
             if let Some((planes, pts)) = self.ready.pop_front() {
-                return Ok(Some(Frame {
+                let mut frame = Frame {
                     pts,
                     width: self.media.format.width(),
                     height: self.media.format.height(),
                     matrix: self.media.format.matrix(),
                     full_range: self.media.format.full_range(),
-                    planes,
+                    planes: Vec::new(),
+                    #[cfg(all(target_os = "macos", feature = "video-metal"))]
+                    surface: None,
                     decode_ms: began.elapsed().as_secs_f64() * 1000.0,
-                }));
+                };
+                match planes {
+                    Pixels::Planes(p) => frame.planes = p,
+                    #[cfg(all(target_os = "macos", feature = "video-metal"))]
+                    Pixels::Surface(p) => frame.surface = Some(p),
+                }
+                return Ok(Some(frame));
             }
             if let Some(&(id, stamp)) = self.sequence.front()
                 && let Some(planes) = self.decoded.remove(&id)
@@ -488,7 +511,7 @@ impl Decoder {
                 || self.durations.len() >= REORDER_FRAMES
                 || self.decoded.len() >= REORDER_FRAMES
                 || self.sequence.len() >= REORDER_FRAMES
-                || self.decoded.values().map(Vec::len).sum::<usize>() > REORDER_BYTES
+                || self.decoded.values().map(Pixels::len).sum::<usize>() > REORDER_BYTES
             {
                 return Err("native decoder reorder queue exceeded its bound".into());
             }
@@ -535,12 +558,12 @@ impl Decoder {
                     return Err("invalid or duplicate native frame identity".into());
                 }
                 if self.decoded.len() >= REORDER_FRAMES
-                    || self.decoded.values().map(Vec::len).sum::<usize>() + output.planes.len()
+                    || self.decoded.values().map(Pixels::len).sum::<usize>() + output.pixels.len()
                         > REORDER_BYTES
                 {
                     return Err("native decoder reorder queue exceeded its bound".into());
                 }
-                self.decoded.insert(output.id, output.planes);
+                self.decoded.insert(output.id, output.pixels);
             }
         }
     }

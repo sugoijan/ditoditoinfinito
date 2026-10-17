@@ -1,6 +1,6 @@
-//! VideoToolbox ownership and plane copies. All session calls run on the
-//! movie's worker, behind its deadline. Callback state outlives invalidate;
-//! callbacks copy into a bounded queue and never touch the game or renderer.
+//! VideoToolbox ownership, copied planes and opt-in immutable surfaces.
+//! Session calls stay on the bounded worker; callback state outlives
+//! invalidation. Callbacks publish a bounded queue, never touch the renderer.
 
 use objc2_core_foundation::{
     CFBoolean, CFData, CFDictionary, CFNumber, CFRetained, CFString, CFType,
@@ -23,6 +23,8 @@ struct Queue {
     frames: VecDeque<Output>,
     bytes: usize,
     error: Option<String>,
+    #[cfg(feature = "video-bench")]
+    surfaces: VecDeque<(usize, CFRetained<CVPixelBuffer>)>,
 }
 struct Callback {
     queue: Mutex<Queue>,
@@ -30,6 +32,17 @@ struct Callback {
     height: usize,
     generation: u32,
     full_range: bool,
+    #[cfg(feature = "video-metal")]
+    mode: Mode,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Planes,
+    #[cfg(feature = "video-metal")]
+    Metal,
+    #[cfg(feature = "video-bench")]
+    Benchmark,
 }
 
 pub(super) struct Session {
@@ -96,6 +109,30 @@ impl Session {
         generation: u32,
         _period: f64,
     ) -> Result<Self, String> {
+        #[cfg(feature = "video-metal")]
+        if super::metal::requested() {
+            return Self::new_mode(codec, generation, Mode::Metal);
+        }
+        Self::new_mode(codec, generation, Mode::Planes)
+    }
+    #[cfg(all(test, feature = "video-bench"))]
+    fn new_output(
+        codec: &super::codec::Format,
+        generation: u32,
+        surface_output: bool,
+    ) -> Result<Self, String> {
+        Self::new_mode(
+            codec,
+            generation,
+            if surface_output {
+                Mode::Benchmark
+            } else {
+                Mode::Planes
+            },
+        )
+    }
+    fn new_mode(codec: &super::codec::Format, generation: u32, mode: Mode) -> Result<Self, String> {
+        let _ = mode;
         let (width, height, full_range) = (codec.width(), codec.height(), codec.full_range());
         let mut raw = ptr::null();
         match codec {
@@ -135,11 +172,15 @@ impl Session {
                 frames: VecDeque::with_capacity(OUTPUTS),
                 bytes: 0,
                 error: None,
+                #[cfg(feature = "video-bench")]
+                surfaces: VecDeque::new(),
             }),
             width: width as usize,
             height: height as usize,
             generation,
             full_range,
+            #[cfg(feature = "video-metal")]
+            mode,
         });
         let rec = VTDecompressionOutputCallbackRecord {
             decompressionOutputCallback: Some(output),
@@ -159,7 +200,24 @@ impl Session {
             } else {
                 *b"420v"
             }));
-            let attrs = CFDictionary::from_slices(&[kCVPixelBufferPixelFormatTypeKey], &[&*pf]);
+            let values: [&CFType; 1] = [pf.as_ref()];
+            let attrs = CFDictionary::from_slices(&[kCVPixelBufferPixelFormatTypeKey], &values);
+            #[cfg(feature = "video-metal")]
+            let attrs = if mode != Mode::Planes {
+                let empty = CFDictionary::<CFType, CFType>::from_slices(&[], &[]);
+                let values: [&CFType; 3] =
+                    [pf.as_ref(), empty.as_ref(), CFBoolean::new(true).as_ref()];
+                CFDictionary::from_slices(
+                    &[
+                        kCVPixelBufferPixelFormatTypeKey,
+                        kCVPixelBufferIOSurfacePropertiesKey,
+                        kCVPixelBufferMetalCompatibilityKey,
+                    ],
+                    &values,
+                )
+            } else {
+                attrs
+            };
             status(
                 VTDecompressionSession::create(
                     None,
@@ -329,8 +387,8 @@ unsafe extern "C-unwind" fn output(
         }
         let image = NonNull::new(image).ok_or("VideoToolbox returned no pixel buffer")?;
         // SAFETY: the callback owns a live image reference for this call;
-        // retain while reading, release before returning. No native handles
-        // escape the callback or cross to the renderer.
+        // copied output releases it after reading; surface output transfers the
+        // retained immutable image into its bounded ownership queue.
         let image = unsafe { CFRetained::retain(image) };
         let mut q = state.queue.lock().unwrap_or_else(|p| p.into_inner());
         let size =
@@ -338,14 +396,43 @@ unsafe extern "C-unwind" fn output(
         if q.frames.len() >= OUTPUTS || q.bytes + size > OUTPUT_BYTES {
             return Err("VideoToolbox output queue exceeded its bound".into());
         }
-        let planes = copy(&image, state.width, state.height, state.full_range)?;
         let id = (frame as usize)
             .checked_sub(1)
             .ok_or("invalid frame identity")?;
+        #[cfg(feature = "video-bench")]
+        if state.mode == Mode::Benchmark {
+            if q.surfaces.len() >= OUTPUTS {
+                return Err("VideoToolbox surface queue bound".into());
+            }
+            checked_layout(&image, state.width, state.height, state.full_range)?;
+            q.surfaces.push_back((id, image));
+            q.bytes += size;
+            return Ok(());
+        }
+        #[cfg(feature = "video-metal")]
+        if state.mode == Mode::Metal {
+            // SAFETY: VT completed this image; after publication this shell
+            // never mutates its pixels or attachments. Retention prevents reuse.
+            let surface = unsafe {
+                super::metal::Surface::completed(image, state.width, state.height, state.full_range)
+            }?;
+            let bytes = surface.bytes();
+            if q.bytes.saturating_add(bytes) > OUTPUT_BYTES {
+                return Err("VideoToolbox retained surface byte bound".into());
+            }
+            q.frames.push_back(Output {
+                id,
+                generation: state.generation,
+                pixels: super::native::Pixels::Surface(surface),
+            });
+            q.bytes += bytes;
+            return Ok(());
+        }
+        let planes = copy(&image, state.width, state.height, state.full_range)?;
         q.frames.push_back(Output {
             id,
             generation: state.generation,
-            planes,
+            pixels: super::native::Pixels::Planes(planes),
         });
         q.bytes += size;
         Ok::<_, String>(())
@@ -363,12 +450,12 @@ unsafe extern "C-unwind" fn output(
 
 type RowWriter<'a> = dyn FnMut(&[u8], usize, &mut [u8]) + 'a;
 
-fn copy(
+pub(super) fn checked_layout(
     pb: &CVPixelBuffer,
     width: usize,
     height: usize,
     full_range: bool,
-) -> Result<Vec<u8>, String> {
+) -> Result<(), String> {
     // Refuse scaling/cropping and unexpected plane layouts. Matching dimensions
     // are required by this first capability gate, rather than guessing a rect.
     let pf = CVPixelBufferGetPixelFormatType(pb);
@@ -379,6 +466,16 @@ fn copy(
     {
         return Err("unsupported VideoToolbox pixel layout".into());
     }
+    Ok(())
+}
+
+pub(super) fn copy(
+    pb: &CVPixelBuffer,
+    width: usize,
+    height: usize,
+    full_range: bool,
+) -> Result<Vec<u8>, String> {
+    checked_layout(pb, width, height, full_range)?;
     // SAFETY: the buffer is retained. Base addresses are used only while
     // locked and after checking each plane's width, height and row stride.
     unsafe {
@@ -428,3 +525,6 @@ fn copy(
     })?;
     Ok(out)
 }
+
+#[cfg(all(test, feature = "video-bench"))]
+mod benchmark;

@@ -663,7 +663,7 @@ impl Session {
             self.ready.push_back(Output {
                 id,
                 generation: self.generation,
-                planes,
+                pixels: super::native::Pixels::Planes(planes),
             });
             return Ok(true);
         }

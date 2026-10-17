@@ -183,6 +183,21 @@ impl Renderer {
             .set_video_frame(device, queue, id, width, height, planes, bt709, full_range)
     }
 
+    /// Shows device-owned NV12 planes. The shell owns their external lifetime.
+    #[cfg(feature = "video-planes")]
+    pub fn set_video_nv12(
+        &mut self,
+        device: &wgpu::Device,
+        id: usize,
+        y: &wgpu::Texture,
+        uv: &wgpu::Texture,
+        bt709: bool,
+        full_range: bool,
+    ) {
+        self.background
+            .set_video_nv12(device, id, y, uv, bt709, full_range);
+    }
+
     /// A texture for a noteskin image ([`Renderer::add_noteskin_texture`]),
     /// filled by the shell with sRGB-encoded pixels.
     /// With `mipmaps` (a model's texture), every level, filled by

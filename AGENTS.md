@@ -230,6 +230,15 @@ the browser are implementation details, not advertised features.
   then open `http://localhost:8080`).
 - `just build` release build with the production public URL.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
+- macOS video planes remain copied by default. A build with
+  `--features ddi-desktop/video-metal` and `DDI_VIDEO_PLANES=metal` opts
+  into IOSurface/Metal planes for checked VideoToolbox streams; unsupported
+  imports copy the current image, and unconfirmed GPU teardown disables
+  sharing. `docs/plans/native-video.md` section 4f records ownership bounds,
+  measurements and ignored GPU tests. `video-bench` adds the offscreen
+  comparison/benchmark; run each ignored test separately under the watchdog
+  with a scratch home. Optimized benchmarks set
+  `CARGO_PROFILE_DESKTOP_LTO=false` to keep compilation under 2 GiB.
 - Windows from the Mac: `rustup target add x86_64-pc-windows-msvc`
   (and `aarch64-pc-windows-msvc`), then `cargo clippy -p ddi-desktop
   --target x86_64-pc-windows-msvc --all-targets` with and without

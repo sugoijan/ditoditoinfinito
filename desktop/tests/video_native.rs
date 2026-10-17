@@ -62,7 +62,10 @@ fn first(host: &mut VideoHost, file: MovieFile) -> (Vec<u8>, f64) {
     assert!(matches!(event(&mut v).first(), Some(VideoEvent::Opened(_))));
     v.want(1);
     match event(&mut v).remove(0) {
-        VideoEvent::Frame(f) => (f.planes, f.pts),
+        VideoEvent::Frame(f) => {
+            let f = video::copy_to_cpu(f).unwrap();
+            (f.planes, f.pts)
+        }
         e => panic!("{e:?}"),
     }
 }

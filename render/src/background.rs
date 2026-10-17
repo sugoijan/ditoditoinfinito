@@ -172,6 +172,7 @@ struct Video {
     /// BT.709 (else BT.601).
     bt709: bool,
     full_range: bool,
+    nv12: bool,
 }
 
 /// The YUV matrix's luma weights of red and blue.
@@ -268,6 +269,8 @@ pub struct BackgroundPipeline {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     yuv_pipeline: wgpu::RenderPipeline,
+    #[cfg(feature = "video-planes")]
+    nv12_pipeline: wgpu::RenderPipeline,
     yuv_layout: wgpu::BindGroupLayout,
     blur_pipeline: wgpu::RenderPipeline,
     composite_pipeline: wgpu::RenderPipeline,
@@ -372,6 +375,15 @@ impl BackgroundPipeline {
             pipeline,
             layout,
             yuv_pipeline,
+            #[cfg(feature = "video-planes")]
+            nv12_pipeline: Self::pipeline_for(
+                device,
+                format,
+                &yuv_layout,
+                &shader,
+                "fs_nv12",
+                Some(wgpu::BlendState::ALPHA_BLENDING),
+            ),
             yuv_layout,
             blur_pipeline,
             composite_pipeline,
@@ -403,6 +415,17 @@ impl BackgroundPipeline {
             [&self.layout, &self.yuv_layout, &self.blur_layout],
             [&self.shader, &self.blur_shader],
         );
+        #[cfg(feature = "video-planes")]
+        {
+            self.nv12_pipeline = Self::pipeline_for(
+                device,
+                format,
+                &self.yuv_layout,
+                &self.shader,
+                "fs_nv12",
+                Some(wgpu::BlendState::ALPHA_BLENDING),
+            );
+        }
         self.format = format;
         // The blur's textures are of the target's format.
         self.wide = None;
@@ -415,44 +438,8 @@ impl BackgroundPipeline {
         [layout, yuv_layout, blur_layout]: [&wgpu::BindGroupLayout; 3],
         [shader, blur_shader]: [&wgpu::ShaderModule; 2],
     ) -> [wgpu::RenderPipeline; 4] {
-        let pipeline_for = |layout: &wgpu::BindGroupLayout,
-                            shader: &wgpu::ShaderModule,
-                            fragment: &str,
-                            blend: Option<wgpu::BlendState>| {
-            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("ddi-background-layout"),
-                bind_group_layouts: &[Some(layout)],
-                immediate_size: 0,
-            });
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("ddi-background-pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: shader,
-                    entry_point: Some(fragment),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
+        let pipeline_for = |layout, shader, fragment, blend| {
+            Self::pipeline_for(device, format, layout, shader, fragment, blend)
         };
         let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
         [
@@ -507,6 +494,50 @@ impl BackgroundPipeline {
         })
     }
 
+    fn pipeline_for(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        layout: &wgpu::BindGroupLayout,
+        shader: &wgpu::ShaderModule,
+        fragment: &str,
+        blend: Option<wgpu::BlendState>,
+    ) -> wgpu::RenderPipeline {
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ddi-background-layout"),
+            bind_group_layouts: &[Some(layout)],
+            immediate_size: 0,
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ddi-background-pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: shader,
+                entry_point: Some(fragment),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        })
+    }
+
     /// One slot of an image's parameters, as its bind group binds it.
     fn params_binding(params: &wgpu::Buffer) -> wgpu::BindingResource<'_> {
         wgpu::BindingResource::Buffer(wgpu::BufferBinding {
@@ -531,6 +562,7 @@ impl BackgroundPipeline {
                 planes,
                 bt709: false,
                 full_range: false,
+                nv12: false,
             }),
         });
         self.images.len() - 1
@@ -629,7 +661,10 @@ impl BackgroundPipeline {
         if image.video.is_none() {
             return false;
         }
-        if image.width != width as f32 || image.height != height as f32 {
+        if image.width != width as f32
+            || image.height != height as f32
+            || image.video.as_ref().is_some_and(|v| v.nv12)
+        {
             let (textures, group) = self.video_planes(device, &image.params, width, height);
             let image = &mut self.images[id];
             image.group = group;
@@ -643,6 +678,7 @@ impl BackgroundPipeline {
         let Some(video) = image.video.as_mut() else {
             return false;
         };
+        video.nv12 = false;
         video.bt709 = bt709;
         video.full_range = full_range;
         let parts = [
@@ -957,6 +993,13 @@ impl BackgroundPipeline {
             };
             let slot = 2 * k as u64 + slot;
             if let Some(image) = self.image(id) {
+                #[cfg(feature = "video-planes")]
+                if image.video.as_ref().is_some_and(|v| v.nv12) {
+                    pass.set_pipeline(&self.nv12_pipeline);
+                    pass.set_bind_group(0, &image.group, &[(slot * self.stride) as u32]);
+                    pass.draw(0..6, 0..1);
+                    continue;
+                }
                 pass.set_pipeline(if image.video.is_some() {
                     &self.yuv_pipeline
                 } else {
@@ -1232,3 +1275,9 @@ mod tests {
         assert_eq!(brightness_factor(0.5), 0.5);
     }
 }
+
+#[cfg(feature = "video-bench")]
+mod benchmark;
+
+#[cfg(feature = "video-planes")]
+mod nv12;

@@ -71,6 +71,10 @@ video = ["dep:wasmtime", "dep:objc2-video-toolbox", "dep:objc2-core-media", "dep
 # The pacing's simulated display (`src/pacing/sim.rs`), for tests only:
 # not in the shipped binary.
 sim = []
+# Optional Metal planes: explicit DDI_VIDEO_PLANES=metal; copies remain default.
+video-metal = ["video", "ddi-render/video-planes", "dep:objc2-metal", "objc2-core-video/CVMetalTexture", "objc2-core-video/CVMetalTextureCache", "objc2-core-video/CVPixelBufferIOSurface", "objc2-core-video/objc2", "objc2-core-video/objc2-metal"]
+
+video-bench = ["video-metal", "ddi-render/video-bench"]
 
 # The output device's latencies, read from CoreAudio's HAL (`src/audio/hal.rs`);
 # already a dependency of cpal's.
@@ -85,6 +89,8 @@ block2 = "0.6.2"
 # window's view's `CADisplayLink` (macOS 14), on the main run loop.
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CABase", "CADisplayLink", "CAFrameRateRange", "objc2-core-foundation"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSObjCRuntime", "NSRunLoop", "NSString"] }
+
+objc2-metal = { version = "0.3.2", optional = true, default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLPixelFormat", "MTLResource"] }
 
 # OS video decoding, copied planes; only built with `video` on macOS.
 objc2-core-foundation = { version = "0.3.2", optional = true, default-features = false, features = ["std", "CFData", "CFDictionary", "CFNumber", "CFString"] }

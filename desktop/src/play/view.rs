@@ -487,6 +487,8 @@ impl View {
             self.stage_drawn = (back.len(), mask.len());
             self.renderer.set_stage_quads(back, mask);
         }
+        #[cfg(feature = "video")]
+        crate::video::protect_external_frames(device, encoder);
         self.renderer.render(
             device,
             queue,

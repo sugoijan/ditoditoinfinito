@@ -506,23 +506,14 @@ impl Movies {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        if frame.split().is_none() {
+        if frame.external.is_none() && frame.split().is_none() {
             self.fail(name, "a malformed frame".into());
             return;
         }
         let Some(id) = self.texture(name, frame.width, frame.height, renderer, device) else {
             return;
         };
-        if renderer.set_video_frame(
-            device,
-            queue,
-            id,
-            frame.width,
-            frame.height,
-            &frame.planes,
-            frame.matrix == ddi_platform::video::YuvMatrix::Bt709,
-            frame.full_range,
-        ) {
+        if crate::video::show(renderer, device, queue, id, frame) {
             self.shown_any = true;
             self.set_fresh(name, true);
         }
