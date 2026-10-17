@@ -3,6 +3,8 @@
 //! a simfile (`.ssc`, `.sm` or `.dwi`, preferred in that order, as for imported
 //! songs) and a `PROVENANCE.toml` naming the audio file.
 
+use ddi_library::path::RelPath;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -92,11 +94,14 @@ pub(crate) fn scan(root: &Path) -> Result<Vec<(String, Provenance, String)>> {
         let chart = ddi_library::pack::pick_chart(names.iter().map(String::as_str))
             .map(|(name, _)| name.to_string())
             .ok_or_else(|| anyhow::anyhow!("{id}: no .ssc/.sm/.dwi chart file"))?;
-        if !path.join(&prov.music).is_file() {
+        if !RelPath::new(&prov.music)
+            .to_path(&path)
+            .is_some_and(|p| p.is_file())
+        {
             bail!("{id}: music file `{}` missing", prov.music);
         }
         for f in [&prov.banner, &prov.background].into_iter().flatten() {
-            if !path.join(f).is_file() {
+            if !RelPath::new(f).to_path(&path).is_some_and(|p| p.is_file()) {
                 bail!("{id}: graphic `{f}` missing");
             }
         }
@@ -128,39 +133,51 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
     let songs = scan(&root)?;
     let mut entries = Vec::new();
     for (id, p, chart) in &songs {
-        let text = fs::read_to_string(root.join("assets/songs").join(id).join(chart))?;
+        let song_dir = root.join("assets/songs").join(id);
+        let chart_path = RelPath::new(chart)
+            .to_path(&song_dir)
+            .context("chart path leaves song")?;
+        let text = fs::read_to_string(chart_path)?;
         let ext = chart.rsplit('.').next().unwrap_or("sm");
         let song = parse_simfile(&text, ext).map_err(|e| anyhow::anyhow!("{id}/{chart}: {e}"))?;
-        let song_dir = root.join("assets/songs").join(id);
         let files: Vec<String> = fs::read_dir(&song_dir)?
             .filter_map(|e| e.ok())
             .map(|e| format!("{id}/{}", e.file_name().to_string_lossy()))
             .collect();
         let background = p.background.as_ref().map(|b| format!("{id}/{b}"));
-        let bg_images =
-            ddi_library::backgrounds::referenced_images(&song, id, &files, background.as_deref())
+        let bg_images = ddi_library::backgrounds::referenced_images(
+            &song,
+            RelPath::new(id),
+            &files,
+            background.as_deref().map(RelPath::new),
+        )
+        .into_iter()
+        .map(|(relative, _)| relative)
+        .collect();
+        let bg_videos =
+            ddi_library::backgrounds::referenced_movies(&song, RelPath::new(id), &files)
                 .into_iter()
-                .map(|(relative, _)| relative)
-                .collect();
-        let bg_videos = ddi_library::backgrounds::referenced_movies(&song, id, &files)
-            .into_iter()
-            .map(|(name, _)| {
-                Ok(ddi_library::manifest::VideoRef {
-                    format: sniff_file(&song_dir.join(&name))?,
-                    name,
-                    stored: true,
+                .map(|(name, _)| {
+                    Ok(ddi_library::manifest::VideoRef {
+                        format: sniff_file(
+                            &name
+                                .to_path(&song_dir)
+                                .ok_or_else(|| anyhow::anyhow!("invalid movie path: {name}"))?,
+                        )?,
+                        name,
+                        stored: true,
+                    })
                 })
-            })
-            .collect::<Result<_>>()?;
+                .collect::<Result<_>>()?;
         entries.push(summarize(
             EntryMeta {
                 id: id.clone(),
                 title: p.title.clone(),
                 artist: p.artist.clone(),
-                chart: chart.clone(),
-                music: p.music.clone(),
-                banner: p.banner.clone(),
-                background: p.background.clone(),
+                chart: chart.clone().into(),
+                music: p.music.clone().into(),
+                banner: p.banner.clone().map(Into::into),
+                background: p.background.clone().map(Into::into),
                 bg_images,
                 bg_videos,
                 // Bundled songs have no shared folders.

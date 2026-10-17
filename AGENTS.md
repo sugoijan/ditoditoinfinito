@@ -473,6 +473,8 @@ dependency's licence before adding it.
 
 ## Conventions
 
+- Logical file paths use `ddi_library::path::{RelPath, RelPathBuf}`; convert to OS paths only with `to_path(base)`, never by joining their text onto a `PathBuf`.
+
 - Commit messages: imperative summary line, body explaining why.
 - Keep `docs/PLAN.md` status and decisions current when scope changes.
 - UI text avoids jargon from specific games except where naming a ruleset

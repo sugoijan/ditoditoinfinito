@@ -49,7 +49,11 @@ impl Preview {
             let bytes = load_music(&entry).await?;
             decoder.resume().await;
             // A work's MP3 where Chrome's decode has it.
-            let target = if entry.chart.ends_with(ddi_library::danoni::STORED_EXT) {
+            let target = if entry
+                .chart
+                .as_str()
+                .ends_with(ddi_library::danoni::STORED_EXT)
+            {
                 ddi_platform::mp3::Target::Chromium
             } else {
                 ddi_platform::mp3::Target::StepMania

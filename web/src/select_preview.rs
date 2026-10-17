@@ -233,7 +233,11 @@ async fn fetch(entry: ManifestEntry, load: u64) {
     // extension when the chart did not load).
     let target = chart.as_ref().map_or_else(
         |_| {
-            if entry.chart.ends_with(ddi_library::danoni::STORED_EXT) {
+            if entry
+                .chart
+                .as_str()
+                .ends_with(ddi_library::danoni::STORED_EXT)
+            {
                 ddi_platform::mp3::Target::Chromium
             } else {
                 ddi_platform::mp3::Target::StepMania

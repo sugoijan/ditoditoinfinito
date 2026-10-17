@@ -111,7 +111,7 @@ fn song(dir: &Path, movie: bool) -> Option<()> {
 /// reads the pixel at (20, 180) (left of the field) at the first frame at
 /// or after each of `times` (song seconds): `(time drawn, [r, g, b])`.
 fn play(adapter: &wgpu::Adapter, root: &Path, times: &[f64]) -> Vec<(f64, [u8; 3])> {
-    let paths: Vec<String> = walk(root).listed.into_iter().map(|l| l.path).collect();
+    let paths: Vec<_> = walk(root).listed.into_iter().map(|l| l.path).collect();
     let reader = DirReader {
         root: root.to_path_buf(),
     };

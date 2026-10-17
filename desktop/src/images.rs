@@ -201,10 +201,10 @@ fn zip_entry(zip: &Path, entry: &str) -> Option<Vec<u8>> {
             }
         }
     };
-    if reader.size(entry)? > MAX_FILE {
+    if reader.size(ddi_library::path::RelPath::new(entry))? > MAX_FILE {
         return None;
     }
-    reader.read(entry).ok()
+    reader.read(ddi_library::path::RelPath::new(entry)).ok()
 }
 
 /// The image at `source`, its longest side at most `max_side` (0: as

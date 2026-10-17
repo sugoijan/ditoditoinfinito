@@ -1294,6 +1294,21 @@ Done, 7.3 (2026-10-16):
   then fails to read them). The web's import is not moved onto it yet
   (7.1), so the two copies must agree until then; the ids and digests
   below say they do.
+- **Logical paths** (2026-10-17): `ddi_library::path::{RelPath,
+  RelPathBuf}` carry manifest filenames, scan candidates and reader paths.
+  They preserve the original text, ordering, hashes and plain-string JSON;
+  only `to_path(base)` converts to an OS path, component by component,
+  rejecting lexical escape above the base. The local wrapper keeps those
+  exact string semantics and a fallible conversion without another
+  dependency; it has no `AsRef<Path>` or implicit string dereference.
+  This is lexical validation, not a symlink sandbox. The separator test
+  runs on every OS and Windows clippy checks the consumers. The existing
+  `every_layout_has_the_webs_ids` passes; a before/after scan of 26 local
+  songs in seven roots produced identical cache bytes and source listings.
+  A fresh Chrome import of the same scratch corpus produced identical
+  IndexedDB JSON strings (only import timestamps removed), ids, digests,
+  keys and 119 stored-file hashes. Firefox also imported the two synthetic
+  ZIP layouts. No cache or IndexedDB migration is needed.
 - **Folders** (`desktop/src/library/`): `ddi.desktop.folders.v1` in
   desktop's storage (the web's settings untouched); each is a StepMania
   root (`Songs/`, with `RandomMovies/` and `SongMovies/` as the shared

@@ -105,7 +105,10 @@ fn best_of(
     bests: &HashMap<BestKey, HistoryBest>,
 ) -> Option<Best> {
     let digest = chart.digest?;
-    let danoni = entry.chart.ends_with(ddi_library::danoni::STORED_EXT);
+    let danoni = entry
+        .chart
+        .as_str()
+        .ends_with(ddi_library::danoni::STORED_EXT);
     let key = BestKey {
         digest,
         ruleset: settings.best_key_for(&chart.layout, danoni, chart.excessive),

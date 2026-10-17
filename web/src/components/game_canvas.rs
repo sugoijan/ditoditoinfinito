@@ -1486,7 +1486,7 @@ impl GameCanvas {
                             .iter()
                             .filter(|v| !v.plays())
                             .map(|v| v.name.as_str())
-                            .chain(e.bg_scripted.iter().map(String::as_str))
+                            .chain(e.bg_scripted.iter().map(|p| p.as_str()))
                     })
                     .collect();
                 [
@@ -2463,15 +2463,15 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 .entry
                 .bg_images
                 .iter()
-                .chain(loaded.shared_bg.iter().map(|(name, _)| name))
-                .cloned()
+                .map(|p| p.to_string())
+                .chain(loaded.shared_bg.iter().map(|(name, _)| name.clone()))
                 .collect();
             let bg_videos: Vec<String> = loaded
                 .entry
                 .bg_videos
                 .iter()
                 .filter(|v| v.plays())
-                .map(|v| v.name.clone())
+                .map(|v| v.name.to_string())
                 .chain(loaded.shared_videos.iter().map(|(name, _)| name.clone()))
                 .collect();
             // The opening movie's still (`crate::stills`): the one taken,
@@ -2577,8 +2577,8 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                         .entry
                         .bg_images
                         .iter()
-                        .chain(loaded.shared_bg.iter().map(|(name, _)| name))
-                        .cloned()
+                        .map(|p| p.to_string())
+                        .chain(loaded.shared_bg.iter().map(|(name, _)| name.clone()))
                         .map(BgImage::File),
                 );
                 // A work's back and mask layers: their images (those the
@@ -2588,7 +2588,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                     .entry
                     .layer_images
                     .iter()
-                    .map(String::as_str)
+                    .map(|p| p.as_str())
                     .collect();
                 let mut sources = SpriteTrack::new(&loaded.song, chart, false).sources();
                 for s in SpriteTrack::new(&loaded.song, chart, true).sources() {
@@ -2685,7 +2685,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                     .bg_videos
                     .iter()
                     .filter(|v| v.plays())
-                    .map(|v| (v.name.clone(), v.format.clone()))
+                    .map(|v| (v.name.to_string(), v.format.clone()))
                     .chain(
                         loaded
                             .shared_videos

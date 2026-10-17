@@ -19,7 +19,8 @@ use ddi_platform::video::VideoFormat;
 
 use crate::image::{IMAGE_HEADER_LEN, image_size};
 use crate::manifest::{EntryMeta, ManifestEntry, VideoRef, simfile_names, summarize};
-use crate::pack::{self, SongCandidate, file_name};
+use crate::pack::{self, SongCandidate};
+use crate::path::{RelPath, RelPathBuf};
 
 /// The most background-change images a song keeps (the web's
 /// `songs::MAX_BG_IMAGES`).
@@ -28,9 +29,9 @@ pub const MAX_BG_IMAGES: usize = 32;
 /// Files of a folder or a zip, by paths relative to its root.
 pub trait Reader {
     /// The whole file.
-    fn read(&self, path: &str) -> Result<Vec<u8>, String>;
+    fn read(&self, path: &RelPath) -> Result<Vec<u8>, String>;
     /// `len` bytes at `at` (fewer at the end).
-    fn read_at(&self, path: &str, at: u64, len: usize) -> Result<Vec<u8>, String> {
+    fn read_at(&self, path: &RelPath, at: u64, len: usize) -> Result<Vec<u8>, String> {
         let all = self.read(path)?;
         let start = (at as usize).min(all.len());
         Ok(all[start..(start + len).min(all.len())].to_vec())
@@ -44,7 +45,7 @@ pub struct Scanned {
     pub entry: ManifestEntry,
     pub pack: String,
     /// The song folder relative to the root.
-    pub dir: String,
+    pub dir: RelPathBuf,
     /// What the player should know: a file missing with nothing in its
     /// place, movies the game cannot play.
     pub warnings: Vec<String>,
@@ -59,16 +60,16 @@ pub struct Scanned {
 /// files are named in place, every movie the game can play is kept.
 pub fn scan_song(
     files: &dyn Reader,
-    paths: &[String],
+    paths: &[RelPathBuf],
     c: &SongCandidate,
-    shared: &[String],
+    shared: &[RelPathBuf],
     shift_jis: &dyn Fn(&[u8]) -> Option<String>,
 ) -> Result<Scanned, String> {
     let bytes = files.read(&c.chart)?;
     let mut reading = read_song(c, &bytes, paths, shift_jis)?;
     drop(bytes);
     if !reading.images_to_size().is_empty() {
-        let sizes: Vec<(String, (u32, u32))> = reading
+        let sizes: Vec<(RelPathBuf, (u32, u32))> = reading
             .images_to_size()
             .iter()
             .filter_map(|path| {
@@ -117,9 +118,9 @@ pub struct Reading {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Movie {
     /// Its name relative to the song folder (as the entry lists it).
-    pub relative: String,
+    pub relative: RelPathBuf,
     /// Its path relative to the root.
-    pub path: String,
+    pub path: RelPathBuf,
     pub format: VideoFormat,
     /// Kept with the song: a movie the game can play, read in place, or
     /// linked or copied on the web (copied only with "also store
@@ -145,14 +146,14 @@ pub struct Built {
     pub song: ddi_chart::Song,
     /// The simfile as text.
     pub text: String,
-    pub music: String,
+    pub music: RelPathBuf,
     /// `(name in the entry, path)`.
-    pub banner: Option<(String, String)>,
-    pub background: Option<(String, String)>,
+    pub banner: Option<(RelPathBuf, RelPathBuf)>,
+    pub background: Option<(RelPathBuf, RelPathBuf)>,
     /// Background-change images, `(relative, path)`.
-    pub bg_images: Vec<(String, String)>,
+    pub bg_images: Vec<(RelPathBuf, RelPathBuf)>,
     /// The movies kept, `(relative, path)`.
-    pub videos: Vec<(String, String)>,
+    pub videos: Vec<(RelPathBuf, RelPathBuf)>,
     /// Background-change movies that will play.
     pub videos_playing: usize,
     /// Movies the game could play that were not kept.
@@ -165,7 +166,7 @@ pub struct Built {
 pub fn read_song(
     c: &SongCandidate,
     chart: &[u8],
-    paths: &[String],
+    paths: &[RelPathBuf],
     shift_jis: &dyn Fn(&[u8]) -> Option<String>,
 ) -> Result<Reading, String> {
     let mut notes = Vec::new();
@@ -210,7 +211,7 @@ impl Reading {
     /// The images whose pixel sizes would tell the banner from the
     /// background (StepMania's last resort), when one of them is still
     /// to find; empty otherwise.
-    pub fn images_to_size(&self) -> &[String] {
+    pub fn images_to_size(&self) -> &[RelPathBuf] {
         if self.assets.banner.is_none() || self.assets.background.is_none() {
             &self.assets.unclassified
         } else {
@@ -220,12 +221,12 @@ impl Reading {
 
     /// The sizes of (some of) [`Reading::images_to_size`]'s images, `(path,
     /// (width, height))`.
-    pub fn sized(&mut self, sizes: &[(String, (u32, u32))]) {
+    pub fn sized(&mut self, sizes: &[(RelPathBuf, (u32, u32))]) {
         pack::classify_images(&mut self.assets, sizes);
     }
 
     /// The movies the background changes name, `(relative, path)`.
-    pub fn movies(&self, paths: &[String]) -> Vec<(String, String)> {
+    pub fn movies(&self, paths: &[RelPathBuf]) -> Vec<(RelPathBuf, RelPathBuf)> {
         crate::backgrounds::referenced_movies(&self.song, &self.c.dir, paths)
     }
 
@@ -235,8 +236,8 @@ impl Reading {
     /// Fails when the song has no music.
     pub fn finish(
         self,
-        paths: &[String],
-        shared: &[String],
+        paths: &[RelPathBuf],
+        shared: &[RelPathBuf],
         movies: Vec<Movie>,
         naming: Naming,
     ) -> Result<Built, String> {
@@ -277,22 +278,24 @@ impl Reading {
             if let Some(used) = used {
                 notes.push(format!(
                     "{tag} names {reference}, which is missing; {} is used instead",
-                    file_name(used)
+                    used.file_name()
                 ));
             }
         }
         let (id, name) = c.identity();
         let (title, artist) = simfile_names(&song, &name);
-        let named = |role: &str, path: &str| match naming {
-            Naming::InPlace => pack::relative_path(&c.dir, path),
-            Naming::Stored => match extension(path) {
-                Some(ext) => format!("{role}.{ext}"),
-                None => role.to_string(),
-            },
+        let named = |role: &str, path: &RelPath| -> RelPathBuf {
+            match naming {
+                Naming::InPlace => path.relative_to(&c.dir),
+                Naming::Stored => match extension(path) {
+                    Some(ext) => format!("{role}.{ext}").into(),
+                    None => role.into(),
+                },
+            }
         };
         let chart = match naming {
-            Naming::InPlace => pack::relative_path(&c.dir, &c.chart),
-            Naming::Stored => format!("chart.{}", c.format.extension()),
+            Naming::InPlace => c.chart.relative_to(&c.dir),
+            Naming::Stored => format!("chart.{}", c.format.extension()).into(),
         };
         let music_name = named("music", &music);
         let banner = assets.banner.map(|p| (named("banner", &p), p));
@@ -301,7 +304,7 @@ impl Reading {
             &song,
             &c.dir,
             paths,
-            background.as_ref().map(|(_, p)| p.as_str()),
+            background.as_ref().map(|(_, p)| p.as_rel_path()),
         );
         if bg_images.len() > MAX_BG_IMAGES {
             warnings.push(format!(
@@ -341,14 +344,18 @@ impl Reading {
         if !left_out.is_empty() {
             notes.push(format!(
                 "background videos not stored (\"also store background videos\" is off): {}",
-                left_out.join(", ")
+                left_out
+                    .iter()
+                    .map(|p| p.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
         let missing = crate::backgrounds::missing_files(&song, &c.dir, paths, &c.pack, shared);
         let unshown = crate::backgrounds::unshown_files(&song, &c.dir, paths, &c.pack, shared);
         let (present, absent): (Vec<_>, Vec<_>) =
             unshown.into_iter().partition(|(_, exists)| *exists);
-        let scripted: Vec<String> = present.iter().map(|(n, _)| n.clone()).collect();
+        let scripted: Vec<RelPathBuf> = present.iter().map(|(n, _)| n.into()).collect();
         let names = |list: Vec<(String, bool)>| {
             list.into_iter()
                 .map(|(n, _)| n)
@@ -429,14 +436,14 @@ impl Reading {
 }
 
 /// Lowercase extension of a path's file name.
-fn extension(path: &str) -> Option<String> {
-    let (_, ext) = file_name(path).rsplit_once('.')?;
+fn extension(path: &RelPath) -> Option<String> {
+    let (_, ext) = path.file_name().rsplit_once('.')?;
     (!ext.is_empty()).then(|| ext.to_ascii_lowercase())
 }
 
 /// What a movie is ([`crate::video::sniff`], the MP4 index read where its
 /// head points).
-pub fn sniff_movie(files: &dyn Reader, path: &str) -> VideoFormat {
+pub fn sniff_movie(files: &dyn Reader, path: &RelPath) -> VideoFormat {
     use crate::video::{MP4_INDEX_LEN, SNIFF_LEN, mp4_index_at, mp4_index_codec, sniff};
     let head = files.read_at(path, 0, SNIFF_LEN).unwrap_or_default();
     let mut format = sniff(&head);
@@ -453,7 +460,7 @@ pub fn sniff_movie(files: &dyn Reader, path: &str) -> VideoFormat {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RootScan {
     pub songs: Vec<Scanned>,
-    pub failed: Vec<(String, String)>,
+    pub failed: Vec<(RelPathBuf, String)>,
 }
 
 /// Every song among `paths` (the root's files, sorted), packs named as
@@ -463,9 +470,9 @@ pub struct RootScan {
 /// does.
 pub fn scan_root(
     files: &dyn Reader,
-    paths: &[String],
+    paths: &[RelPathBuf],
     fallback_pack: &str,
-    shared: &[String],
+    shared: &[RelPathBuf],
     shift_jis: &dyn Fn(&[u8]) -> Option<String>,
 ) -> RootScan {
     let mut out = RootScan::default();
@@ -486,7 +493,7 @@ pub fn scan_root(
 
 /// The ids an import has seen, and where.
 #[derive(Default)]
-pub struct Duplicates(std::collections::HashMap<String, String>);
+pub struct Duplicates(std::collections::HashMap<String, RelPathBuf>);
 
 impl Duplicates {
     /// Why `c` is left out (its id was seen), or `None` (first seen now).
@@ -510,12 +517,12 @@ impl Duplicates {
 /// The paths a song's files may come from: its pack folder's (where a
 /// simfile's `../` reaches), out of the root's sorted `paths`, so a scan
 /// does not go through the whole library for each song.
-pub fn pack_paths<'a>(paths: &'a [String], c: &SongCandidate) -> &'a [String] {
+pub fn pack_paths<'a>(paths: &'a [RelPathBuf], c: &SongCandidate) -> &'a [RelPathBuf] {
     match c.pack_dir() {
         Some(dir) if !dir.is_empty() => {
             let prefix = format!("{dir}/");
             let start = paths.partition_point(|p| p.as_str() < prefix.as_str());
-            let len = paths[start..].partition_point(|p| p.starts_with(&prefix));
+            let len = paths[start..].partition_point(|p| p.as_str().starts_with(&prefix));
             &paths[start..start + len]
         }
         _ => paths,
@@ -531,8 +538,11 @@ mod tests {
     struct Files(BTreeMap<String, Vec<u8>>);
 
     impl Reader for Files {
-        fn read(&self, path: &str) -> Result<Vec<u8>, String> {
-            self.0.get(path).cloned().ok_or(format!("no {path}"))
+        fn read(&self, path: &RelPath) -> Result<Vec<u8>, String> {
+            self.0
+                .get(path.as_str())
+                .cloned()
+                .ok_or(format!("no {path}"))
         }
     }
 
@@ -559,7 +569,7 @@ mod tests {
         f.insert("Pack/Song A/bg-wide.png".into(), png(640, 480));
         f.insert("Pack/Song B/b.sm".into(), b"#TITLE:B;#BPMS:0=120;".to_vec());
         f.insert("Pack/notes.txt".into(), Vec::new());
-        let paths: Vec<String> = f.keys().cloned().collect();
+        let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
         let files = Files(f);
         let scan = scan_root(&files, &paths, "Fallback", &[], &|_| None);
         assert_eq!(scan.songs.len(), 1);
@@ -569,9 +579,15 @@ mod tests {
         assert_eq!(s.entry.title, "Song Sub");
         assert_eq!(s.entry.chart, "song.sm");
         assert_eq!(s.entry.music, "SONG.OGG");
-        assert_eq!(s.entry.banner.as_deref(), Some("BN.PNG"));
+        assert_eq!(
+            s.entry.banner.as_deref().map(RelPath::as_str),
+            Some("BN.PNG")
+        );
         // The other image, 4:3, is the background.
-        assert_eq!(s.entry.background.as_deref(), Some("bg-wide.png"));
+        assert_eq!(
+            s.entry.background.as_deref().map(RelPath::as_str),
+            Some("bg-wide.png")
+        );
         assert_eq!(s.entry.charts.len(), 1);
         assert!(s.entry.charts[0].digest.is_some());
         assert_eq!(s.entry.preview_start, 10.0);
@@ -589,7 +605,7 @@ mod tests {
             SM.replace("song.ogg", "gone.ogg").into_bytes(),
         );
         f.insert("S/other.mp3".into(), vec![0; 4]);
-        let paths: Vec<String> = f.keys().cloned().collect();
+        let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
         let scan = scan_root(&Files(f.clone()), &paths, "Mine", &[], &|_| None);
         let s = &scan.songs[0];
         assert_eq!(s.pack, "Mine");
@@ -606,7 +622,7 @@ mod tests {
             s.warnings
         );
         f.remove("S/other.mp3");
-        let paths: Vec<String> = f.keys().cloned().collect();
+        let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
         let scan = scan_root(&Files(f), &paths, "Mine", &[], &|_| None);
         assert!(scan.songs.is_empty());
         assert!(scan.failed[0].1.contains("no audio"));
@@ -622,7 +638,7 @@ mod tests {
         f.insert("P/S/song.ogg".into(), vec![0; 4]);
         f.insert("P/S/over.png".into(), png(64, 48));
         f.insert("P/S/spin/default.xml".into(), Vec::new());
-        let paths: Vec<String> = f.keys().cloned().collect();
+        let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
         let scan = scan_root(&Files(f), &paths, "Mine", &[], &|_| None);
         let e = &scan.songs[0].entry;
         assert_eq!(e.bg_images, vec!["over.png"]);

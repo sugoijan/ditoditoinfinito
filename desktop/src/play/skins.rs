@@ -112,7 +112,7 @@ fn folder(skin: &DiskSkin) -> Folder {
     let files: Vec<String> = crate::library::files::walk(&skin.dir)
         .listed
         .into_iter()
-        .map(|l| l.path)
+        .map(|l| l.path.into_string())
         .collect();
     let mut texts = Vec::new();
     let mut total = 0;
@@ -120,7 +120,9 @@ fn folder(skin: &DiskSkin) -> Folder {
         if !ddi_noteskin::import::kept_text(f) {
             continue;
         }
-        let path = skin.dir.join(f);
+        let Some(path) = ddi_library::path::RelPath::new(f).to_path(&skin.dir) else {
+            continue;
+        };
         let Ok(meta) = std::fs::metadata(&path) else {
             continue;
         };
@@ -434,7 +436,11 @@ impl Read {
                 eprintln!("noteskin {name}: {path} left out: its images are too large together");
                 continue;
             }
-            match decode_image(&dir.join(&path)) {
+            let Some(file) = ddi_library::path::RelPath::new(&path).to_path(dir) else {
+                eprintln!("noteskin {name}: {path}: path leaves its folder");
+                continue;
+            };
+            match decode_image(&file) {
                 Ok((rgba, size)) => {
                     self.pixels += u64::from(rgba.size[0]) * u64::from(rgba.size[1]);
                     self.sizes.sizes.insert((i, path.clone()), size);

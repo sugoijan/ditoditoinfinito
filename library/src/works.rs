@@ -333,8 +333,8 @@ pub fn entry(s: &WorkSong, chart: &str, music: &str) -> ManifestEntry {
             id: s.id.clone(),
             title: song.title.clone(),
             artist: song.artist.clone(),
-            chart: chart.to_string(),
-            music: music.to_string(),
+            chart: chart.into(),
+            music: music.into(),
             banner: None,
             background: None,
             bg_images: Vec::new(),
@@ -347,7 +347,11 @@ pub fn entry(s: &WorkSong, chart: &str, music: &str) -> ManifestEntry {
     fill_chart_keys(&mut entry, song);
     entry.preview_start = 0.0;
     entry.preview_length = 0.0;
-    entry.layer_images = s.layers.iter().map(|(name, _)| name.clone()).collect();
+    entry.layer_images = s
+        .layers
+        .iter()
+        .map(|(name, _)| name.clone().into())
+        .collect();
     entry
 }
 

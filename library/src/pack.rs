@@ -16,6 +16,8 @@ use std::collections::BTreeMap;
 
 use ddi_chart::Song;
 
+use crate::path::{RelPath, RelPathBuf};
+
 /// Simfile formats the importer reads, in order of preference: when a song
 /// directory holds several, StepMania loads `.ssc` before `.sm` before
 /// `.dwi` (`NotesLoader::LoadFromDir`; `.sma`, `.bms` and `.ksf`, which sit
@@ -52,9 +54,9 @@ impl ChartFormat {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SongCandidate {
     /// Song directory relative to the import root (`""` for the root itself).
-    pub dir: String,
+    pub dir: RelPathBuf,
     /// Full path of the chosen simfile.
-    pub chart: String,
+    pub chart: RelPathBuf,
     pub format: ChartFormat,
     /// Pack (group) name: the directory containing the song directory, or
     /// the caller's fallback when the song sits at or directly under the
@@ -67,7 +69,7 @@ impl SongCandidate {
     /// root (a zip holding one song's files directly). Used as the title
     /// fallback.
     pub fn dir_name(&self) -> &str {
-        match file_name(&self.dir) {
+        match self.dir.file_name() {
             "" => &self.pack,
             name => name,
         }
@@ -75,7 +77,7 @@ impl SongCandidate {
 
     /// [`song_id`] of this candidate.
     pub fn id(&self) -> String {
-        song_id(&self.pack, &self.dir)
+        song_id(&self.pack, self.dir.as_str())
     }
 
     /// The id and the fallback name (the title when the simfile has none)
@@ -86,7 +88,7 @@ impl SongCandidate {
     /// this in step 7.1).
     pub fn identity(&self) -> (String, String) {
         if self.dir.is_empty() {
-            let name = file_name(&self.chart);
+            let name = self.chart.file_name();
             let name = name.rsplit_once('.').map_or(name, |(s, _)| s);
             (song_id(&self.pack, name), name.to_string())
         } else {
@@ -96,8 +98,8 @@ impl SongCandidate {
 
     /// The pack's folder (`""` for the import root, as for a zip of one
     /// pack's song folders), or `None` for a song at the root itself.
-    pub fn pack_dir(&self) -> Option<&str> {
-        (!self.dir.is_empty()).then(|| parent(&self.dir))
+    pub fn pack_dir(&self) -> Option<&RelPath> {
+        (!self.dir.is_empty()).then(|| self.dir.parent())
     }
 }
 
@@ -107,7 +109,8 @@ impl SongCandidate {
 /// `gif` and `bmp` (then `webp`, which browsers also show), else an image
 /// beside the folder with the folder's name (`Packs/Foo.png` for
 /// `Packs/Foo/`). Case-insensitive, like StepMania's file lookups.
-pub fn pack_banner<S: AsRef<str>>(pack_dir: &str, paths: &[S]) -> Option<String> {
+pub fn pack_banner<S: AsRef<str>>(pack_dir: &RelPath, paths: &[S]) -> Option<RelPathBuf> {
+    let pack_dir = pack_dir.as_str();
     let ext_rank = |p: &str| {
         let ext = extension(p)?.to_ascii_lowercase();
         IMAGE_EXTENSIONS.iter().position(|e| *e == ext)
@@ -119,7 +122,7 @@ pub fn pack_banner<S: AsRef<str>>(pack_dir: &str, paths: &[S]) -> Option<String>
             .filter(|p| !is_ignored(p) && matches(p))
             .filter_map(|p| Some((ext_rank(p)?, p.to_ascii_lowercase(), p)))
             .min()
-            .map(|(_, _, p)| p.to_string())
+            .map(|(_, _, p)| RelPathBuf::from(p))
     };
     pick(&|p| parent(p).eq_ignore_ascii_case(pack_dir)).or_else(|| {
         if pack_dir.is_empty() {
@@ -187,8 +190,8 @@ pub fn find_songs<S: AsRef<str>>(paths: &[S], fallback_pack: &str) -> Vec<SongCa
                 name => name,
             };
             Some(SongCandidate {
-                dir: dir.to_string(),
-                chart: chart.to_string(),
+                dir: dir.into(),
+                chart: chart.into(),
                 format,
                 pack: pack.to_string(),
             })
@@ -208,14 +211,14 @@ pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "bmp", "web
 /// directory, since `../` references leave it).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ResolvedAssets {
-    pub music: Option<String>,
-    pub banner: Option<String>,
-    pub background: Option<String>,
+    pub music: Option<RelPathBuf>,
+    pub banner: Option<RelPathBuf>,
+    pub background: Option<RelPathBuf>,
     /// Images directly in the song directory that are neither the banner
     /// nor the background, nor recognisably another kind of song image (CD
     /// title, jacket, CD image, disc; see [`resolve_assets`]), sorted.
     /// Candidates for [`classify_images`].
-    pub unclassified: Vec<String>,
+    pub unclassified: Vec<RelPathBuf>,
     /// `(tag, reference)` for `#MUSIC`, `#BANNER` and `#BACKGROUND` values
     /// that name a file the import does not have (a fallback may still
     /// have been found).
@@ -249,7 +252,11 @@ pub struct ResolvedAssets {
 /// images whose names mark them as another kind (name without extension
 /// containing `cdtitle`, `jacket` or `albumart`, starting with `jk_`, or
 /// ending in `-cd`, ` disc` or ` title`).
-pub fn resolve_assets<S: AsRef<str>>(song: &Song, dir: &str, all_paths: &[S]) -> ResolvedAssets {
+pub fn resolve_assets<S: AsRef<str>>(
+    song: &Song,
+    dir: &RelPath,
+    all_paths: &[S],
+) -> ResolvedAssets {
     let mut lookup: BTreeMap<String, &str> = BTreeMap::new();
     let mut children: Vec<&str> = Vec::new();
     for p in all_paths {
@@ -264,9 +271,11 @@ pub fn resolve_assets<S: AsRef<str>>(song: &Song, dir: &str, all_paths: &[S]) ->
     }
     children.sort_unstable();
 
-    let find = |reference: Option<&str>| -> Option<String> {
-        let path = join_relative(dir, reference?)?;
-        lookup.get(&path.to_lowercase()).map(|p| p.to_string())
+    let find = |reference: Option<&str>| -> Option<RelPathBuf> {
+        let path = dir.resolve(reference?)?;
+        lookup
+            .get(&path.as_str().to_lowercase())
+            .map(|p| RelPathBuf::from(*p))
     };
     let with_ext = |exts: &[&str]| -> Vec<&str> {
         children
@@ -286,15 +295,15 @@ pub fn resolve_assets<S: AsRef<str>>(song: &Song, dir: &str, all_paths: &[S]) ->
         } else {
             first
         };
-        Some(pick.to_string())
+        Some(pick.into())
     });
 
     let images = with_ext(IMAGE_EXTENSIONS);
-    let guess = |taken: Option<&str>, matches: &dyn Fn(&str) -> bool| -> Option<String> {
+    let guess = |taken: Option<&RelPath>, matches: &dyn Fn(&str) -> bool| -> Option<RelPathBuf> {
         images
             .iter()
-            .find(|p| Some(**p) != taken && matches(&stem(p).to_lowercase()))
-            .map(|p| p.to_string())
+            .find(|p| Some(RelPath::new(**p)) != taken && matches(&stem(p).to_lowercase()))
+            .map(|p| RelPathBuf::from(*p))
     };
     let explicit_banner = find(song.banner.as_deref());
     let explicit_background = find(song.background.as_deref());
@@ -314,13 +323,13 @@ pub fn resolve_assets<S: AsRef<str>>(song: &Song, dir: &str, all_paths: &[S]) ->
     let unclassified = images
         .iter()
         .filter(|p| {
-            let p = Some(**p);
+            let p = Some(RelPath::new(**p));
             p != banner.as_deref()
                 && p != background.as_deref()
                 && !other_refs.iter().any(|r| r.as_deref() == p)
         })
         .filter(|p| !names_other_image(&stem(p).to_lowercase()))
-        .map(|p| p.to_string())
+        .map(|p| RelPathBuf::from(*p))
         .collect();
     let missing = [
         ("#MUSIC", song.music.as_deref()),
@@ -365,14 +374,14 @@ fn shared_kind(name: &str) -> Option<&'static str> {
 /// `RandomMovies/<rest>` or `SongMovies/<rest>`, using the innermost such
 /// folder (a `RandomMovies.zip` usually wraps a `RandomMovies/` folder).
 /// `None` outside them, or for the folder itself.
-pub fn shared_path(path: &str) -> Option<String> {
+pub fn shared_path(path: &str) -> Option<RelPathBuf> {
     let parts: Vec<&str> = path.split('/').filter(|c| !c.is_empty()).collect();
     let (i, kind) = parts[..parts.len().saturating_sub(1)]
         .iter()
         .enumerate()
         .rev()
         .find_map(|(i, part)| shared_kind(part).map(|k| (i, k)))?;
-    Some(format!("{kind}/{}", parts[i + 1..].join("/")))
+    Some(format!("{kind}/{}", parts[i + 1..].join("/")).into())
 }
 
 /// Folders of a StepMania installation that hold sounds but are not songs.
@@ -395,7 +404,7 @@ const INSTALL_FOLDERS: [&str; 12] = [
 /// folders whose simfile is missing. Not reported: folders with a simfile
 /// at or below them (a pack folder with a preview track), shared folders,
 /// and a StepMania installation's own folders (themes, note skins, …).
-pub fn folders_without_simfile<S: AsRef<str>>(paths: &[S]) -> Vec<(String, String)> {
+pub fn folders_without_simfile<S: AsRef<str>>(paths: &[S]) -> Vec<(RelPathBuf, RelPathBuf)> {
     let mut charts: Vec<&str> = Vec::new();
     let mut music: BTreeMap<&str, &str> = BTreeMap::new();
     for p in paths {
@@ -423,7 +432,7 @@ pub fn folders_without_simfile<S: AsRef<str>>(paths: &[S]) -> Vec<(String, Strin
         .filter(|(dir, _)| {
             !install(dir) && !charts.iter().any(|c| within(dir, c) || within(c, dir))
         })
-        .map(|(dir, file)| (dir.to_string(), file.to_string()))
+        .map(|(dir, file)| (dir.into(), file.into()))
         .collect()
 }
 
@@ -461,8 +470,8 @@ fn names_other_image(stem: &str) -> bool {
 /// image becomes banner or background, since every image is tested for
 /// those first, so they are not modelled. Unlike StepMania, candidates come
 /// in sorted order rather than file system listing order.
-pub fn classify_images(assets: &mut ResolvedAssets, sizes: &[(String, (u32, u32))]) {
-    let size_of = |path: &str| sizes.iter().find(|(p, _)| p == path).map(|&(_, size)| size);
+pub fn classify_images(assets: &mut ResolvedAssets, sizes: &[(RelPathBuf, (u32, u32))]) {
+    let size_of = |path: &RelPath| sizes.iter().find(|(p, _)| p == path).map(|&(_, size)| size);
     let mut remaining = Vec::with_capacity(assets.unclassified.len());
     for path in std::mem::take(&mut assets.unclassified) {
         let Some((w, h)) = size_of(&path).filter(|&(w, h)| w > 0 && h > 0) else {
@@ -482,36 +491,12 @@ pub fn classify_images(assets: &mut ResolvedAssets, sizes: &[(String, (u32, u32)
     assets.unclassified = remaining;
 }
 
-/// Joins a simfile reference onto the song directory, resolving `.` and
-/// `..`. `None` for an empty reference or one that climbs above the import
-/// root.
+/// [`RelPath::resolve`] as text: a simfile reference joined onto the song
+/// directory, `None` when empty or climbing above the import root.
 pub(crate) fn join_relative(dir: &str, reference: &str) -> Option<String> {
-    let reference = reference.trim().replace('\\', "/");
-    if reference.is_empty() {
-        return None;
-    }
-    let mut parts: Vec<&str> = dir.split('/').filter(|c| !c.is_empty()).collect();
-    for c in reference.split('/') {
-        match c {
-            "" | "." => {}
-            ".." => {
-                parts.pop()?;
-            }
-            c => parts.push(c),
-        }
-    }
-    (!parts.is_empty()).then(|| parts.join("/"))
-}
-
-/// `path` relative to `dir` (both relative to the import root), with `../`
-/// where it leaves `dir`: the form manifest entries store asset paths in.
-pub fn relative_path(dir: &str, path: &str) -> String {
-    let d: Vec<&str> = dir.split('/').filter(|c| !c.is_empty()).collect();
-    let p: Vec<&str> = path.split('/').filter(|c| !c.is_empty()).collect();
-    let common = d.iter().zip(&p).take_while(|(a, b)| a == b).count();
-    let mut out: Vec<&str> = vec![".."; d.len() - common];
-    out.extend(&p[common..]);
-    out.join("/")
+    RelPath::new(dir)
+        .resolve(reference)
+        .map(RelPathBuf::into_string)
 }
 
 /// Decodes simfile text: UTF-8 (BOM stripped) when valid, otherwise
@@ -670,36 +655,24 @@ pub(crate) fn fnv1a64(bytes: &[u8]) -> u64 {
     })
 }
 
-/// Directory part of a path (`""` at the root).
+/// Directory part of a path (`""` at the root): [`RelPath::parent`].
 pub(crate) fn parent(path: &str) -> &str {
-    path.trim_end_matches('/')
-        .rsplit_once('/')
-        .map_or("", |(dir, _)| dir)
+    RelPath::new(path).parent().as_str()
 }
 
-/// Last component of a path.
+/// Last component of a path: [`RelPath::file_name`].
 pub(crate) fn file_name(path: &str) -> &str {
-    let path = path.trim_end_matches('/');
-    path.rsplit_once('/').map_or(path, |(_, name)| name)
+    RelPath::new(path).file_name()
 }
 
-/// Extension of the last component, without the dot. A leading dot alone
-/// (`.ssc`) is not an extension.
+/// Extension of the last component: [`RelPath::extension`].
 pub(crate) fn extension(path: &str) -> Option<&str> {
-    let name = file_name(path);
-    match name.rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() => Some(ext),
-        _ => None,
-    }
+    RelPath::new(path).extension()
 }
 
-/// Last component without its extension.
+/// Last component without its extension: [`RelPath::file_stem`].
 fn stem(path: &str) -> &str {
-    let name = file_name(path);
-    match name.rsplit_once('.') {
-        Some((stem, _)) if !stem.is_empty() => stem,
-        _ => name,
-    }
+    RelPath::new(path).file_stem()
 }
 
 #[cfg(test)]
@@ -717,16 +690,22 @@ mod tests {
     #[test]
     fn shared_folders_are_recognised_by_name_prefix() {
         assert_eq!(
-            shared_path("StepMania/RandomMovies/MAX-EXTREME/Robot1.png").as_deref(),
+            shared_path("StepMania/RandomMovies/MAX-EXTREME/Robot1.png")
+                .as_deref()
+                .map(RelPath::as_str),
             Some("RandomMovies/MAX-EXTREME/Robot1.png")
         );
         // A picked zip imports as a folder named after it.
         assert_eq!(
-            shared_path("RandomMovies(low rez)/MAX-EXTREME/Robot1.png").as_deref(),
+            shared_path("RandomMovies(low rez)/MAX-EXTREME/Robot1.png")
+                .as_deref()
+                .map(RelPath::as_str),
             Some("RandomMovies/MAX-EXTREME/Robot1.png")
         );
         assert_eq!(
-            shared_path("songmovies/Pack/clip.png").as_deref(),
+            shared_path("songmovies/Pack/clip.png")
+                .as_deref()
+                .map(RelPath::as_str),
             Some("SongMovies/Pack/clip.png")
         );
         assert_eq!(shared_path("Songs/Pack/Song/bg.png"), None);
@@ -734,17 +713,23 @@ mod tests {
         assert_eq!(shared_path("Pack/RandomMovies.png"), None);
         // A zip wrapping its own folder: the innermost one counts.
         assert_eq!(
-            shared_path("RandomMovies/RandomMovies/A/b.png").as_deref(),
+            shared_path("RandomMovies/RandomMovies/A/b.png")
+                .as_deref()
+                .map(RelPath::as_str),
             Some("RandomMovies/A/b.png")
         );
         assert_eq!(
-            shared_path("RandomMovies (low rez)/RandomMovies/A/b.png").as_deref(),
+            shared_path("RandomMovies (low rez)/RandomMovies/A/b.png")
+                .as_deref()
+                .map(RelPath::as_str),
             Some("RandomMovies/A/b.png")
         );
         // A name that only starts with it is not a shared folder.
         assert_eq!(shared_path("Songs/RandomMoviesFan/Song/bg.png"), None);
         assert_eq!(
-            shared_path("RandomMovies-HD/x.png").as_deref(),
+            shared_path("RandomMovies-HD/x.png")
+                .as_deref()
+                .map(RelPath::as_str),
             Some("RandomMovies/x.png")
         );
     }
@@ -766,8 +751,8 @@ mod tests {
         assert_eq!(
             folders_without_simfile(&paths),
             vec![(
-                "Pack/Orphan".to_string(),
-                "Pack/Orphan/track.mp3".to_string()
+                RelPathBuf::from("Pack/Orphan"),
+                RelPathBuf::from("Pack/Orphan/track.mp3")
             )]
         );
     }
@@ -838,19 +823,34 @@ mod tests {
         let mut s = song("#BANNER:../Shared-BN.png;\n#BACKGROUND:./bg.jpg;");
         // Set directly: the MSD parser treats a backslash as an escape.
         s.music = Some(" audio\\song.ogg ".into());
-        let r = resolve_assets(&s, "P/S", &paths);
-        assert_eq!(r.music.as_deref(), Some("P/S/Audio/Song.OGG"));
-        assert_eq!(r.banner.as_deref(), Some("P/shared-bn.png"));
-        assert_eq!(r.background.as_deref(), Some("P/S/BG.JPG"));
-        assert_eq!(relative_path("P/S", "P/shared-bn.png"), "../shared-bn.png");
-        assert_eq!(relative_path("P/S", "P/S/Audio/Song.OGG"), "Audio/Song.OGG");
-        assert_eq!(relative_path("", "x.ogg"), "x.ogg");
+        let r = resolve_assets(&s, RelPath::new("P/S"), &paths);
+        assert_eq!(
+            r.music.as_deref().map(RelPath::as_str),
+            Some("P/S/Audio/Song.OGG")
+        );
+        assert_eq!(
+            r.banner.as_deref().map(RelPath::as_str),
+            Some("P/shared-bn.png")
+        );
+        assert_eq!(
+            r.background.as_deref().map(RelPath::as_str),
+            Some("P/S/BG.JPG")
+        );
+        assert_eq!(
+            RelPath::new("P/shared-bn.png").relative_to(RelPath::new("P/S")),
+            "../shared-bn.png"
+        );
+        assert_eq!(
+            RelPath::new("P/S/Audio/Song.OGG").relative_to(RelPath::new("P/S")),
+            "Audio/Song.OGG"
+        );
+        assert_eq!(RelPath::new("x.ogg").relative_to(RelPath::new("")), "x.ogg");
     }
 
     #[test]
     fn references_cannot_escape_the_root() {
         let s = song("#MUSIC:../../../etc/passwd;");
-        let r = resolve_assets(&s, "S", &["S/a.sm", "etc/passwd"]);
+        let r = resolve_assets(&s, RelPath::new("S"), &["S/a.sm", "etc/passwd"]);
         assert_eq!(r.music, None);
     }
 
@@ -868,32 +868,48 @@ mod tests {
             "S/._fake.ogg",
         ];
         let s = song("#MUSIC:missing.ogg;\n#BANNER:;");
-        let r = resolve_assets(&s, "S", &paths);
-        assert_eq!(r.music.as_deref(), Some("S/main.mp3"));
-        assert_eq!(r.banner.as_deref(), Some("S/song-bn.png"));
-        assert_eq!(r.background.as_deref(), Some("S/song-bg.png"));
+        let r = resolve_assets(&s, RelPath::new("S"), &paths);
+        assert_eq!(r.music.as_deref().map(RelPath::as_str), Some("S/main.mp3"));
+        assert_eq!(
+            r.banner.as_deref().map(RelPath::as_str),
+            Some("S/song-bn.png")
+        );
+        assert_eq!(
+            r.background.as_deref().map(RelPath::as_str),
+            Some("S/song-bg.png")
+        );
         // The missing `#MUSIC` is reported even though a fallback was found;
         // an empty `#BANNER` names nothing.
         assert_eq!(r.missing, vec![("#MUSIC", "missing.ogg".to_string())]);
 
         // A single intro-named file is still the music.
-        let r = resolve_assets(&song(""), "S", &["S/s.sm", "S/Intro.wav"]);
-        assert_eq!(r.music.as_deref(), Some("S/Intro.wav"));
+        let r = resolve_assets(&song(""), RelPath::new("S"), &["S/s.sm", "S/Intro.wav"]);
+        assert_eq!(r.music.as_deref().map(RelPath::as_str), Some("S/Intro.wav"));
 
         // Never the same image twice: "banner background.png" is the banner.
         let r = resolve_assets(
             &song(""),
-            "S",
+            RelPath::new("S"),
             &["S/s.sm", "S/banner background.png", "S/x background.jpg"],
         );
-        assert_eq!(r.banner.as_deref(), Some("S/banner background.png"));
-        assert_eq!(r.background.as_deref(), Some("S/x background.jpg"));
-        let r = resolve_assets(&song(""), "S", &["S/s.sm", "S/banner background.png"]);
+        assert_eq!(
+            r.banner.as_deref().map(RelPath::as_str),
+            Some("S/banner background.png")
+        );
+        assert_eq!(
+            r.background.as_deref().map(RelPath::as_str),
+            Some("S/x background.jpg")
+        );
+        let r = resolve_assets(
+            &song(""),
+            RelPath::new("S"),
+            &["S/s.sm", "S/banner background.png"],
+        );
         assert_eq!(r.background, None);
 
         // Nothing at all.
         assert_eq!(
-            resolve_assets(&song(""), "S", &["S/s.sm"]),
+            resolve_assets(&song(""), RelPath::new("S"), &["S/s.sm"]),
             ResolvedAssets::default()
         );
     }
@@ -904,7 +920,7 @@ mod tests {
         s.cd_title = Some("logo.gif".into());
         let r = resolve_assets(
             &s,
-            "S",
+            RelPath::new("S"),
             &[
                 "S/s.dwi",
                 "S/zeta.png",
@@ -920,14 +936,17 @@ mod tests {
             ],
         );
         assert_eq!(r.banner, None);
-        assert_eq!(r.background.as_deref(), Some("S/song-bg.png"));
+        assert_eq!(
+            r.background.as_deref().map(RelPath::as_str),
+            Some("S/song-bg.png")
+        );
         assert_eq!(r.unclassified, ["S/Song.png", "S/zeta.png"]);
     }
 
     #[test]
     fn classify_by_size() {
-        let sizes = |list: &[(&str, (u32, u32))]| -> Vec<(String, (u32, u32))> {
-            list.iter().map(|&(p, s)| (p.to_string(), s)).collect()
+        let sizes = |list: &[(&str, (u32, u32))]| -> Vec<(RelPathBuf, (u32, u32))> {
+            list.iter().map(|&(p, s)| (p.into(), s)).collect()
         };
         // The DWI case: `song.png` banner next to a named background.
         let mut r = ResolvedAssets {
@@ -936,13 +955,15 @@ mod tests {
             ..Default::default()
         };
         classify_images(&mut r, &sizes(&[("S/song.png", (256, 80))]));
-        assert_eq!(r.banner.as_deref(), Some("S/song.png"));
+        assert_eq!(r.banner.as_deref().map(RelPath::as_str), Some("S/song.png"));
         assert!(r.unclassified.is_empty());
 
         // Background first when large; overlarge 2:1+ banner; tiny CD
         // title, square jacket and unknown sizes stay unclassified.
         let mut r = ResolvedAssets {
-            unclassified: ["a", "b", "c", "d", "e", "f"].map(String::from).to_vec(),
+            unclassified: ["a", "b", "c", "d", "e", "f"]
+                .map(RelPathBuf::from)
+                .to_vec(),
             ..Default::default()
         };
         classify_images(
@@ -955,9 +976,9 @@ mod tests {
                 ("e", (0, 0)),
             ]),
         );
-        assert_eq!(r.background.as_deref(), Some("c"));
+        assert_eq!(r.background.as_deref().map(RelPath::as_str), Some("c"));
         // 1024×320 is ≥ 320×240, but the background is taken: banner by ratio.
-        assert_eq!(r.banner.as_deref(), Some("d"));
+        assert_eq!(r.banner.as_deref().map(RelPath::as_str), Some("d"));
         assert_eq!(r.unclassified, ["a", "b", "e", "f"]);
 
         // A wide image seen before any background becomes the background,
@@ -967,7 +988,7 @@ mod tests {
             ..Default::default()
         };
         classify_images(&mut r, &sizes(&[("wide", (1024, 320)), ("sq", (300, 300))]));
-        assert_eq!(r.background.as_deref(), Some("wide"));
+        assert_eq!(r.background.as_deref().map(RelPath::as_str), Some("wide"));
         assert_eq!(r.banner, None);
 
         // Banner-sized rule: 100–320 × 50–240 (not ratio-limited).
@@ -976,7 +997,7 @@ mod tests {
             ..Default::default()
         };
         classify_images(&mut r, &sizes(&[("b", (200, 200))]));
-        assert_eq!(r.banner.as_deref(), Some("b"));
+        assert_eq!(r.banner.as_deref().map(RelPath::as_str), Some("b"));
     }
 
     #[test]
@@ -991,20 +1012,26 @@ mod tests {
             "Songs/Other/Song/song.sm",
         ];
         assert_eq!(
-            pack_banner("Songs/Pack", &paths).as_deref(),
+            pack_banner(RelPath::new("Songs/Pack"), &paths)
+                .as_deref()
+                .map(RelPath::as_str),
             Some("Songs/Pack/A.PNG")
         );
         assert_eq!(
-            pack_banner("songs/other", &paths).as_deref(),
+            pack_banner(RelPath::new("songs/other"), &paths)
+                .as_deref()
+                .map(RelPath::as_str),
             Some("Songs/Other.jpg")
         );
         assert_eq!(
-            pack_banner("", &["Song/song.sm", "x.gif"]).as_deref(),
+            pack_banner(RelPath::new(""), &["Song/song.sm", "x.gif"])
+                .as_deref()
+                .map(RelPath::as_str),
             Some("x.gif")
         );
-        assert_eq!(pack_banner("Songs/None", &paths), None);
+        assert_eq!(pack_banner(RelPath::new("Songs/None"), &paths), None);
         let c = &find_songs(&paths, "Imported")[0];
-        assert_eq!(c.pack_dir(), Some("Songs/Other"));
+        assert_eq!(c.pack_dir().map(RelPath::as_str), Some("Songs/Other"));
     }
 
     fn shift_jis(bytes: &[u8]) -> Option<String> {

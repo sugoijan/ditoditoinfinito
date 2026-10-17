@@ -352,7 +352,12 @@ pub(crate) async fn imported_record(db: &Db, id: &str) -> Result<ImportedSong, S
 
 /// One of an imported song's files: copied into the browser, or read from
 /// its kept folder when linked.
-pub(crate) async fn song_file(db: &Db, song: &ImportedSong, file: &str) -> Result<Blob, LoadError> {
+pub(crate) async fn song_file(
+    db: &Db,
+    song: &ImportedSong,
+    file: impl AsRef<str>,
+) -> Result<Blob, LoadError> {
+    let file = file.as_ref();
     let Some(link) = song.links.get(file) else {
         return Ok(imported_blob(db, &song.entry.id, file).await?);
     };
@@ -388,7 +393,8 @@ async fn linked_file(db: &Db, key: &str, link: &Link) -> Result<Blob, LoadError>
 }
 
 /// Key of an imported song's file in the `files` store.
-pub(crate) fn file_key(id: &str, file: &str) -> String {
+pub(crate) fn file_key(id: &str, file: impl AsRef<str>) -> String {
+    let file = file.as_ref();
     format!("{id}/{file}")
 }
 
@@ -465,7 +471,7 @@ pub(crate) async fn load_background(
     }
     let (stored, bundled) = match what {
         BgImage::Song => match entry.background.as_ref() {
-            Some(file) => (file.clone(), file.clone()),
+            Some(file) => (file.to_string(), file.to_string()),
             None => return Ok(None),
         },
         BgImage::File(path) | BgImage::Movie(path) => (format!("bg/{path}"), path.clone()),
@@ -561,7 +567,7 @@ async fn parse_found(found: &Found) -> Result<Song, LoadError> {
             String::from_utf8_lossy(&chart).into_owned()
         }
     };
-    let ext = entry.chart.rsplit('.').next().unwrap_or("sm");
+    let ext = entry.chart.as_str().rsplit('.').next().unwrap_or("sm");
     let song = if ext == ddi_library::danoni::STORED_EXT {
         load_work_song(&chart_text).await
     } else {
@@ -582,6 +588,7 @@ async fn fill_digests(found: &Found, song: &Song) {
     let danoni = record
         .entry
         .chart
+        .as_str()
         .ends_with(ddi_library::danoni::STORED_EXT);
     if record
         .entry
@@ -683,6 +690,7 @@ pub(crate) async fn shared_found(entry: &ManifestEntry, pack: &str) -> Result<Sh
     let found = ddi_library::backgrounds::shared_images(&entry.bg_shared, pack, &shared);
     let (videos, mut images): (Vec<_>, Vec<_>) = found
         .into_iter()
+        .map(|(name, path)| (name.into_string(), path.into_string()))
         .partition(|(name, _)| ddi_library::video::is_movie(name));
     images.truncate(MAX_BG_IMAGES.saturating_sub(entry.bg_images.len()));
     Ok((images, videos))
