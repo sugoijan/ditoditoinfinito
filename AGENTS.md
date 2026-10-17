@@ -181,10 +181,12 @@ the browser are implementation details, not advertised features.
   time.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md` and
   `THIRD_PARTY_RUST.md`.
-- `video/` the software video decoder: a C shim over FFmpeg's video
+- `video/` the software video decoder: C shims over FFmpeg's video
   decoders (every format StepMania plays), built to
   `target/video/ddivideo.wasm` with wasi-sdk (LGPL module, never
-  committed); `docs/plans/video-backgrounds.md`.
+  committed); `docs/plans/video-backgrounds.md`; additive bounded demux exports in
+  `video/packets.c` (`video/packets.md`), read on desktop by
+  `desktop/src/video/packets.rs` for the next native decoder paths.
 - `assets/songs/<id>/` bundled songs with a `PROVENANCE.toml` each;
   `assets/noteskins/<game>/<name>/` bundled noteskins, the same way
   (`docs/plans/bundled-skins.md`); `assets/fonts/` the embedded HUD font

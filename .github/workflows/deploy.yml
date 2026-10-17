@@ -99,7 +99,7 @@ jobs:
             target/video/ddivideo.json
             target/video/ddivideo.LICENSE.txt
             target/video/downloads/ffmpeg-*.tar.xz
-          key: video-${{ hashFiles('video/build.sh', 'video/FFMPEG.toml', 'video/ddivideo.c') }}
+          key: video-${{ hashFiles('video/build.sh', 'video/FFMPEG.toml', 'video/ddivideo.c', 'video/packets.c') }}
       - name: Build the module
         if: steps.cache.outputs.cache-hit != 'true'
         run: video/build.sh

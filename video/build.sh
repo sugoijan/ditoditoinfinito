@@ -2,7 +2,7 @@
 # Builds the software video decoder (docs/plans/video-backgrounds.md, step 1):
 # downloads the wasi-sdk and FFmpeg release pinned in video/FFMPEG.toml into
 # target/video/, checks their SHA-256, configures and builds FFmpeg's
-# libraries and links video/ddivideo.c into target/video/ddivideo.wasm, with
+# libraries and links the decode/packet shims into target/video/ddivideo.wasm, with
 # target/video/ddivideo.json describing it. Each stage is skipped when its
 # output is current, so running it again is cheap.
 #
@@ -13,6 +13,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 toml="$root/video/FFMPEG.toml"
 shim="$root/video/ddivideo.c"
+packets="$root/video/packets.c"
 out="$root/target/video"
 
 # Include and library paths meant for the host (Homebrew sets these) would
@@ -188,10 +189,10 @@ wasm="$out/ddivideo.wasm"
 exports=()
 while IFS= read -r name; do
   exports+=("$name")
-done < <(sed -n 's/^EXPORT [^(]*[ *]\(ddi_[a-z_]*\)(.*/\1/p' "$shim")
+done < <(sed -n 's/^EXPORT [^(]*[ *]\(ddi_[a-z_]*\)(.*/\1/p' "$shim" "$packets")
 relink=0
 [ -f "$wasm" ] || relink=1
-for input in "$shim" "$root/video/build.sh" "$toml" "${libs[@]}"; do
+for input in "$shim" "$packets" "$root/video/build.sh" "$toml" "${libs[@]}"; do
   if [ "$input" -nt "$wasm" ]; then relink=1; fi
 done
 if [ "$relink" = 1 ]; then
@@ -202,7 +203,7 @@ if [ "$relink" = 1 ]; then
   # compare builds on different hosts.
   "$wasi/bin/clang" -v -Oz -msimd128 -mexec-model=reactor --no-wasm-opt \
     "-ffile-prefix-map=$root=ddi" -I"$build" -I"$src" \
-    -o "$wasm.linked" "$shim" "${libs[@]}" \
+    -o "$wasm.linked" "$shim" "$packets" "${libs[@]}" \
     "${export_flags[@]}" -Wl,--stack-first -Wl,-z,stack-size=1048576 \
     -Wl,--max-memory=1073741824 -Wl,--strip-all -Wl,--keep-section=target_features \
     2> "$build/link.out" || { cat "$build/link.out" >&2; die "linking failed"; }
@@ -235,7 +236,7 @@ the release at $ffmpeg_url
 (tag $ffmpeg_tag, $(value source_url)).
 The module is built from it by video/build.sh in the repository above,
 with the configure flags in video/FFMPEG.toml (also listed in
-ddivideo.json next to this file), and linked with video/ddivideo.c, the
+ddivideo.json next to this file), and linked with video/ddivideo.c and video/packets.c, the
 repository's own code (MIT). Running the build script rebuilds the module,
 also against a modified FFmpeg.
 
