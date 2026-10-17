@@ -48,7 +48,7 @@ pub mod store;
 pub mod video;
 
 /// `--video-check FILE [--reference REF.yuv] [--frames]
-/// [--decoder auto|module|videotoolbox|both]`: the exit code.
+/// [--decoder auto|module|videotoolbox|mediafoundation|mediafoundation-auto|both]`: the exit code.
 fn video_check(args: &[String], at: usize) -> i32 {
     let Some(file) = args.get(at + 1) else {
         eprintln!("--video-check needs a file");
@@ -69,11 +69,13 @@ fn video_check(args: &[String], at: usize) -> i32 {
             .unwrap_or("auto");
         let both = decoder == "both";
         let backend = if both {
-            video::Backend::VideoToolbox
+            video::Backend::diagnostic_native()
         } else if let Some(b) = video::Backend::parse(decoder) {
             b
         } else {
-            eprintln!("--decoder must be auto, module, videotoolbox or both");
+            eprintln!(
+                "--decoder must be auto, module, videotoolbox, mediafoundation, mediafoundation-auto or both"
+            );
             return 2;
         };
         let mut host = video::VideoHost::with_backend(video::module_path(), backend);
@@ -84,10 +86,15 @@ fn video_check(args: &[String], at: usize) -> i32 {
             report
                 .failures
                 .extend(expected.failures.iter().map(|e| format!("module: {e}")));
+            if report.info != expected.info {
+                report
+                    .failures
+                    .push("native decoder metadata differs from the module".into());
+            }
             if report.frames != expected.frames {
                 report
                     .failures
-                    .push("VideoToolbox timestamps or pixels differ from the module".into());
+                    .push("native decoder timestamps or pixels differ from the module".into());
             }
             for line in expected.lines("module reference") {
                 println!("{line}");

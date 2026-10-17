@@ -31,7 +31,7 @@ under it in section 7:
 | 7.5 Play | done, and its review's fixes |
 | 7.5b Works | done: Dancing☆Onigiri works, layers, lyrics |
 | 7.6 Calibration | done, and its review's fixes |
-| 7.7 Video | done: module under wasmtime; macOS hardware VideoToolbox for checked H.264/HEVC/VP9 subsets, copied planes and module fallback |
+| 7.7 Video | done: module and macOS checked H.264/HEVC/VP9; Windows MF/D3D11 experimental opt-in, runtime validation pending |
 | 7.8 Windows and Linux | CI on all three; Windows checked from the Mac; the gilrs change waits |
 | 7.9 Docs | done |
 
@@ -47,7 +47,9 @@ under it in section 7:
   VideoToolbox, with copied planes, exact seeks and module fallback.
   MP4/Matroska/WebM packets come from a bounded private wasm demuxer;
   streaming HEVC tracks POC and short-term DPB references, VP9 accepts
-  single visible pictures. Next: Windows Media Foundation.
+  single visible pictures. Windows Media Foundation/D3D11 is implemented as
+  an experimental opt-in, with a deferred-host check runner; Windows Auto
+  remains the module until runtime validation. See `native-video.md` section 7.
   `native-video.md` records the gate and validation (decision 50).
 - Packaging and signing (an `.app`, an installer, the video module and
   the licences beside the executable), in their own plan.

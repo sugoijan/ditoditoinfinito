@@ -673,8 +673,9 @@ and [ISO binding](https://www.webmproject.org/vp9/mp4/). The pinned FFmpeg
 DTS behaviour. These are independent Rust header/output models checked
 against that baseline, not native FFmpeg decoding.
 
-Next: Windows Media Foundation. Wider macOS stream classes require their
-own output models and fidelity evidence; GPU plane sharing remains later.
+Windows now has an experimental opt-in implementation (section 7), awaiting
+Windows runtime evidence. Wider macOS stream classes require their own output
+models and fidelity evidence; GPU plane sharing remains later.
 
 ## 5. Safety
 
@@ -806,9 +807,11 @@ backend and fallback reason in `--video-check` and diagnostics. Preserve
    Streaming HEVC/VP9 subsets are implemented (4e); wider profiles, AV1 and
    other codecs need their own capability and fidelity checks. A watchdog
    abandons a stuck session and its outputs without blocking the game.
-3. **Windows copied-plane decoder.** Media Foundation with D3D11, below.
-   Test real Windows hardware, plus software-only/refusal cases. Cross
-   compilation cannot verify codec availability or GPU output.
+3. **Windows copied-plane decoder.** Experimental Media Foundation/D3D11
+   implementation and a strict deferred-host test suite are in place, below.
+   Auto stays on the module until real Windows fidelity, device-loss,
+   performance and isolation evidence exists. Cross compilation cannot
+   verify codec availability or GPU output.
 4. **GPU planes where they pay.** IOSurface/Metal first, D3D11/DX12 next.
    Measure full decode → draw cost and GPU completion, not just import.
    Add renderer plane formats through a platform-neutral interface; keep
@@ -824,44 +827,108 @@ backend and fallback reason in `--video-check` and diagnostics. Preserve
    experimental toggle is not part of this plan. Mac first, then Windows
    and Linux with their own tested restrictions. Ship the module too.
 
-### Windows: Media Foundation with D3D11
+### Windows: Media Foundation with D3D11 (experimental, 2026-10-17)
 
-Use the existing `windows` bindings (enable MediaFoundation, COM, D3D11
-and DXGI features when implementing), no FFmpeg bindings in the game.
-Start COM and MF on the decoder thread. Enumerate video decoders with
+`desktop/src/video/mf.rs`, `mf/surface.rs` and the portable `mf_core.rs`
+implement the copied-plane path behind `video`, using `windows` 0.62.2
+(MIT OR Apache-2.0). This was written and cross-compiled on the Mac. **No
+Windows decoder, device or driver has been exercised here.** The maintainer's
+Windows verification is deferred; this is not a completed Windows rollout.
+
+`mf/api.rs` loads MF entry points only on opt-in, from System32, and keeps
+that DLL loaded through COM teardown. Missing MF libraries/exports return
+a refusal instead of adding an unconditional executable import (important
+for Windows N). Startup on a Windows N installation still needs validation.
+
+Windows **Auto remains the module**. Strict diagnostics use
+`--video-check FILE --decoder mediafoundation`; `--decoder both` compares
+the platform's strict native decoder with the module (MF on Windows, VT on
+macOS). For deliberate play experiments,
+`DDI_VIDEO_DECODER=mediafoundation-auto` opts into MF with module recovery;
+`mediafoundation` reports refusals instead. These settings are explicit and
+unsaved. Missing/failed transforms, unsupported streams, identity errors and
+worker deadlines recover through the existing exact-position module path
+only in the opt-in auto mode. No codec extension is installed automatically.
+
+The first class reuses the checked H.264/HEVC/VP9 header and output models
+from macOS, but requires MP4/Matroska/WebM packets with usable, distinct
+container PTS. AVI is declined. Actual PTS, rounded to MF's 100 ns units,
+correlates an output sample to its submitted picture; it never supplies the
+game's output time. The codec model still assigns each picture the normalized
+DTS of its releasing packet. Unknown, duplicated, missing or excessively
+reordered sample times refuse the path. The identity map has at most 32
+pending entries, 64 recent entries and an eviction watermark. Seek creates
+a fresh session and namespace. Input H.264/HEVC uses checked Annex B with
+parameter sets in the type and repeated before the first sample.
+
+COM/MF startup, transform negotiation, submission, drain and teardown live on
+the bounded movie worker. Enumeration tries at most 16 synchronous,
+asynchronous or hardware registrations that accept the codec and NV12. A
+transform must advertise D3D11 awareness, accept the hardware D3D11 device
+manager, and provide its own DXGI output samples. Async transforms are
+unlocked and polled through NeedInput/HaveOutput/DrainComplete credits; no
+callback borrows Rust state. Polling has a two-second deadline and bounded
+event bursts inside the existing four-second worker deadline. A timed-out
+worker is abandoned and further native opens disabled for the process, as
+on macOS; this cannot kill a driver call already stuck inside Windows.
+
+Output is progressive NV12 at the checked geometry, matrix and range. Only
+zero-origin display apertures are accepted. Decoder samples retain their
+surface while a D3D11 staging copy is mapped; checked pitch and full allocated
+luma height locate the UV plane, then visible pixels are copied to owned
+I420. Device removal, a different owning device, invalid texture layout,
+unsupported crop, format changes or incomplete drain fail the session.
+Output queues retain the shared 32-frame/128 MiB bounds. No renderer or DX12
+interop is introduced.
+
+The diagnostic label is `Media Foundation (D3D11; experimental)`. A hardware
+D3D11 device and DXGI output **do not prove hardware codec execution**, and
+Media Foundation is not inherently a sandbox. Some OS transforms wrap DXVA
+inside a synchronous MFT. Neither hardware use nor process isolation is
+claimed without Windows measurements. Further codecs (AV1, MPEG-2/MPEG-4,
+WMV), software/system-memory output and D3D11/DX12 sharing remain later.
+
+Deferred-host recipe (from a Windows checkout with Rust and FFmpeg's
+libx264/libx265/libvpx-vp9 encoders available):
+
+```powershell
+.\video\check-windows.ps1 -Module C:\path\to\ddivideo.wasm
+```
+
+The module may be the unchanged build from another host. The runner sets a
+scratch home/cache, restores environment afterwards, records OS/GPU driver,
+Rust/FFmpeg versions and module SHA-256, then runs the three ignored tests
+in `desktop/tests/video_media_foundation.rs`. It opens no window or sound
+device. Missing encoders/module, unavailable codecs and missing DXGI output
+**fail**, rather than turn the hardware suite into skipped successes. Each
+codec has a separate test so failures identify the unsupported class.
+Generated cases cover B/no-B pictures, both container families, fractional
+rates, nonzero starts, VFR gaps, long GOPs, 720p, full-range BT.709, VP9
+lossless, every harness exact seek/EOF/loop, stored members, simultaneous
+sessions and superseded seeks. Strict and recovery selections must match
+module metadata, frame timestamps and I420 CRCs; refusal cases include
+10-bit input, AVI without packet PTS, HEVC multiple slices and open-GOP seeks.
+Default Auto must select the module. Retain the timestamped report folder
+and generated clips on failure. This runner itself also awaits Windows use.
+
+Before broadening Auto: run that suite on real Windows hardware, test
+missing-codec/software-only systems and Windows N editions, exercise device
+removal/adapter switching, measure decode/readback and in-play frame pacing,
+and identify each selected transform's hardware/process boundary. Record
+those results here; cross-compilation and the portable state/layout tests
+cannot substitute for them. GPU sharing then needs compatible adapters,
+DX12 import, fences and sample lifetime through GPU completion.
+
+Primary API contracts:
 [`MFTEnumEx`](https://learn.microsoft.com/en-us/windows/win32/api/mfapi/nf-mfapi-mftenumex),
-filter by compressed input and NV12/P010 output, prefer hardware, then
-try approved OS software transforms or the module. Feed our compressed
-samples to `IMFTransform::ProcessInput`; consume `ProcessOutput`, handle
-stream changes, drain and flush explicitly. Hardware MFTs can be
-asynchronous: use their event protocol and unlock async operation rather
-than polling them as synchronous transforms.
-[Microsoft's hardware MFT contract](https://learn.microsoft.com/en-us/windows/win32/medfound/hardware-mfts)
-is the starting point; decoded sample timestamps do not override our
-module-compatible timeline.
-
-H.264 is the first target. Probe HEVC, VP9, AV1, MPEG-2 and MPEG-4 Part 2
-(including supported DivX/Xvid profiles) at runtime. Microsoft's
-[codec inventory](https://learn.microsoft.com/en-us/windows/win32/medfound/codecobjects)
-and [supported codec table](https://github.com/MicrosoftDocs/windows-dev-docs/blob/docs/hub/apps/develop/media-authoring-processing/supported-codecs.md)
-describe the candidates; installed extensions, Windows edition, hardware,
-profile and bit depth affect availability. Do not require the user to
-install a codec pack, and do not promise DivX 3 or all MPEG-4 variants.
-There is no Windows hardware evidence from this Mac spike.
-
-Create a D3D11 device and `IMFDXGIDeviceManager`, hand it to a D3D11-aware
-transform via `MFT_MESSAGE_SET_D3D_MANAGER`, and obtain output surfaces
-through `IMFDXGIBuffer`. This is the documented
-[D3D11/MF sharing path](https://learn.microsoft.com/en-us/windows/win32/medfound/supporting-direct3d-11-video-decoding-in-media-foundation).
-First read back/convert to our planes and measure that cost. wgpu renders
-through DX12, so a D3D11 texture is not directly a wgpu texture: zero-copy
-needs compatible shared resources on the same adapter, DX12 import and
-cross-device fences, with sample lifetime held through GPU completion.
-Keep CPU copies when a transform's texture cannot be shared. Also test
-device removal, adapter switches, row pitch and limited/full range.
-Media Foundation is not inherently a sandbox: assess each chosen MFT's
-process boundary; do not infer VT's isolation from the fact that it is
-an OS API.
+[asynchronous MFTs](https://learn.microsoft.com/en-us/windows/win32/medfound/asynchronous-mfts),
+[D3D11 video decoding](https://learn.microsoft.com/en-us/windows/win32/medfound/supporting-direct3d-11-video-decoding-in-media-foundation),
+[H.264 decoder](https://learn.microsoft.com/en-us/windows/win32/medfound/h-264-video-decoder),
+[System32-only loading](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibraryexw),
+[Windows N media features](https://support.microsoft.com/en-us/windows/experience/platform-variants/media-feature-pack-for-windows-n).
+Codec availability depends on installed extensions, edition, profile and
+GPU; the [codec inventory](https://learn.microsoft.com/en-us/windows/win32/medfound/codecobjects)
+is a list of candidates, not a capability promise.
 
 ### Linux: VA-API
 

@@ -76,6 +76,7 @@ impl Format {
         }
         Ok(())
     }
+    #[cfg(target_os = "macos")]
     pub fn configuration(&self) -> Vec<u8> {
         // ISO VP Codec Configuration Box payload, version 1, profile 0,
         // level 5.1, 8-bit 4:2:0. Actual headers remain authoritative.
