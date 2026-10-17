@@ -112,7 +112,7 @@ fn play_movies(
     Option<String>,
     Vec<u8>,
 ) {
-    let paths: Vec<String> = walk(root).listed.into_iter().map(|l| l.path).collect();
+    let paths: Vec<_> = walk(root).listed.into_iter().map(|l| l.path).collect();
     let reader = DirReader {
         root: root.to_path_buf(),
     };
@@ -130,6 +130,7 @@ fn play_movies(
     let ext = s
         .entry
         .chart
+        .as_str()
         .rsplit_once('.')
         .map_or("sm", |(_, e)| e)
         .to_ascii_lowercase();
@@ -137,6 +138,7 @@ fn play_movies(
     let music_ext = s
         .entry
         .music
+        .as_str()
         .rsplit_once('.')
         .map(|(_, e)| e.to_ascii_lowercase());
     let music = ddi_desktop::audio::decoder::sound(

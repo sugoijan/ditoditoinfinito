@@ -58,6 +58,7 @@
 use ddi_chart::{EffectTime, Song, Tick};
 
 use crate::pack::{IMAGE_EXTENSIONS, extension, join_relative};
+use crate::path::{RelPath, RelPathBuf};
 use crate::video::is_movie;
 
 /// What a segment shows.
@@ -329,10 +330,10 @@ fn leading_int(s: &str) -> i64 {
 /// which is left out because a change to it shows the song background.
 pub fn referenced_images<S: AsRef<str>>(
     song: &Song,
-    dir: &str,
+    dir: &RelPath,
     all_paths: &[S],
-    background: Option<&str>,
-) -> Vec<(String, String)> {
+    background: Option<&RelPath>,
+) -> Vec<(RelPathBuf, RelPathBuf)> {
     referenced(song, dir, all_paths, background, is_image)
 }
 
@@ -341,9 +342,9 @@ pub fn referenced_images<S: AsRef<str>>(
 /// changes, its [`implicit_movie`].
 pub fn referenced_movies<S: AsRef<str>>(
     song: &Song,
-    dir: &str,
+    dir: &RelPath,
     all_paths: &[S],
-) -> Vec<(String, String)> {
+) -> Vec<(RelPathBuf, RelPathBuf)> {
     if !has_changes(song) {
         return implicit_movie(song, dir, all_paths).into_iter().collect();
     }
@@ -361,9 +362,9 @@ fn has_changes(song: &Song) -> bool {
 /// or any change. [`schedule`] plays it from beat 0 without looping.
 pub fn implicit_movie<S: AsRef<str>>(
     song: &Song,
-    dir: &str,
+    dir: &RelPath,
     all_paths: &[S],
-) -> Option<(String, String)> {
+) -> Option<(RelPathBuf, RelPathBuf)> {
     if has_changes(song) {
         return None;
     }
@@ -380,20 +381,21 @@ pub fn implicit_movie<S: AsRef<str>>(
     if movies.next().is_some() {
         return None;
     }
-    Some((crate::pack::relative_path(dir, movie), movie.to_string()))
+    let movie = RelPath::new(movie);
+    Some((movie.relative_to(dir), movie.to_owned()))
 }
 
 fn referenced<S: AsRef<str>>(
     song: &Song,
-    dir: &str,
+    dir: &RelPath,
     all_paths: &[S],
-    background: Option<&str>,
+    background: Option<&RelPath>,
     wanted_kind: fn(&str) -> bool,
-) -> Vec<(String, String)> {
-    let background = background.map(str::to_lowercase);
-    let mut out: Vec<(String, String)> = Vec::new();
+) -> Vec<(RelPathBuf, RelPathBuf)> {
+    let background = background.map(|b| b.as_str().to_lowercase());
+    let mut out: Vec<(RelPathBuf, RelPathBuf)> = Vec::new();
     for (_, f) in all_changes(song) {
-        let Some(wanted) = join_relative(dir, &f[1]).map(|p| p.to_lowercase()) else {
+        let Some(wanted) = dir.resolve(&f[1]).map(|p| p.as_str().to_lowercase()) else {
             continue;
         };
         if background.as_deref() == Some(wanted.as_str()) {
@@ -407,7 +409,8 @@ fn referenced<S: AsRef<str>>(
             continue;
         };
         if !out.iter().any(|(_, p)| p == path) {
-            out.push((crate::pack::relative_path(dir, path), path.to_string()));
+            let path = RelPath::new(path);
+            out.push((path.relative_to(dir), path.to_owned()));
         }
     }
     out
@@ -462,16 +465,17 @@ pub fn shared_candidates(reference: &str, pack: &str) -> Vec<String> {
 /// song-folder file always wins, as in StepMania, even when it is not kept
 /// (the song's own background, images beyond what is stored, movies not
 /// copied).
-pub fn absent_files<S: AsRef<str>>(song: &Song, dir: &str, all_paths: &[S]) -> Vec<String> {
+pub fn absent_files<S: AsRef<str>>(song: &Song, dir: &RelPath, all_paths: &[S]) -> Vec<RelPathBuf> {
     change_files(song)
         .into_iter()
         .filter(|name| {
             is_media(name)
-                && !join_relative(dir, name).is_some_and(|w| {
-                    let w = w.to_lowercase();
+                && !dir.resolve(name).is_some_and(|w| {
+                    let w = w.as_str().to_lowercase();
                     all_paths.iter().any(|p| p.as_ref().to_lowercase() == w)
                 })
         })
+        .map(RelPathBuf::from)
         .collect()
 }
 
@@ -483,7 +487,7 @@ pub fn shared_images<S: AsRef<str>, T: AsRef<str>>(
     names: &[S],
     pack: &str,
     shared: &[T],
-) -> Vec<(String, String)> {
+) -> Vec<(RelPathBuf, RelPathBuf)> {
     names
         .iter()
         .map(AsRef::as_ref)
@@ -495,7 +499,7 @@ pub fn shared_images<S: AsRef<str>, T: AsRef<str>>(
                     .map(AsRef::as_ref)
                     .find(|s| s.to_lowercase() == c)
             })?;
-            Some((name.to_string(), found.to_string()))
+            Some((name.into(), found.into()))
         })
         .collect()
 }
@@ -507,7 +511,7 @@ pub fn shared_images<S: AsRef<str>, T: AsRef<str>>(
 /// shown, so whether they exist makes no difference.
 pub fn missing_files<S: AsRef<str>, T: AsRef<str>>(
     song: &Song,
-    dir: &str,
+    dir: &RelPath,
     all_paths: &[S],
     pack: &str,
     shared: &[T],
@@ -519,7 +523,9 @@ pub fn missing_files<S: AsRef<str>, T: AsRef<str>>(
         .into_iter()
         .filter(|name| is_media(name))
         .filter(|name| {
-            let local = join_relative(dir, name).is_some_and(|w| has(all_paths, &w.to_lowercase()));
+            let local = dir
+                .resolve(name)
+                .is_some_and(|w| has(all_paths, &w.as_str().to_lowercase()));
             let in_shared = shared_candidates(name, pack)
                 .iter()
                 .any(|c| has(shared, &c.to_lowercase()));
@@ -535,7 +541,7 @@ pub fn missing_files<S: AsRef<str>, T: AsRef<str>>(
 /// notes to pack authors.
 pub fn unshown_files<S: AsRef<str>, T: AsRef<str>>(
     song: &Song,
-    dir: &str,
+    dir: &RelPath,
     all_paths: &[S],
     pack: &str,
     shared: &[T],
@@ -552,8 +558,9 @@ pub fn unshown_files<S: AsRef<str>, T: AsRef<str>>(
         .into_iter()
         .filter(|name| !is_media(name))
         .map(|name| {
-            let local =
-                join_relative(dir, &name).is_some_and(|w| has(all_paths, &w.to_lowercase()));
+            let local = dir
+                .resolve(&name)
+                .is_some_and(|w| has(all_paths, &w.as_str().to_lowercase()));
             let in_shared = shared_candidates(&name, pack)
                 .iter()
                 .any(|c| has(shared, &c.to_lowercase()));
@@ -1161,7 +1168,12 @@ mod tests {
              12=movie.avi=1=0=0=0,20=missing.png=1=0=0=0,24=a.png=1=0=0=0,26=bg.png=1=0=0=0;\
              #BGCHANGES2:2=notes.txt=1=0=0=0;",
         );
-        let found = referenced_images(&s, "Pack/Song", &FILES, Some("Pack/Song/bg.png"));
+        let found = referenced_images(
+            &s,
+            RelPath::new("Pack/Song"),
+            &FILES,
+            Some(RelPath::new("Pack/Song/bg.png")),
+        );
         let relative: Vec<&str> = found.iter().map(|(r, _)| r.as_str()).collect();
         // In order of first use; the song's own background is left out.
         assert_eq!(relative, vec!["A.png", "bgs/b.JPG", "../shared.png"]);
@@ -1331,7 +1343,7 @@ mod tests {
             "RandomMovies/local.png",
         ];
         let all = ["Pack/S/s.sm", "Pack/S/local.png", "Pack/S/bg.png"];
-        let absent = absent_files(&s, "Pack/S", &all);
+        let absent = absent_files(&s, RelPath::new("Pack/S"), &all);
         // The movie is absent too: shared folders hold movies as well.
         assert_eq!(
             absent,
@@ -1342,13 +1354,13 @@ mod tests {
             vec![
                 // Case-insensitive, under RandomMovies.
                 (
-                    "MAX-EXTREME/robot1.png".to_string(),
-                    "RandomMovies/MAX-EXTREME/Robot1.png".to_string()
+                    RelPathBuf::from("MAX-EXTREME/robot1.png"),
+                    RelPathBuf::from("RandomMovies/MAX-EXTREME/Robot1.png")
                 ),
                 // The pack's own SongMovies folder comes first.
                 (
-                    "robot2.png".to_string(),
-                    "SongMovies/Pack/robot2.png".to_string()
+                    RelPathBuf::from("robot2.png"),
+                    RelPathBuf::from("SongMovies/Pack/robot2.png")
                 ),
                 // local.png is in the song folder: never looked up; the
                 // movie is in no shared folder.
@@ -1375,7 +1387,7 @@ mod tests {
         ];
         let shared = ["RandomMovies/MAX-EXTREME/Robot1.png"];
         assert_eq!(
-            missing_files(&s, "P/S", &all, "P", &shared),
+            missing_files(&s, RelPath::new("P/S"), &all, "P", &shared),
             // The scripted animation and `-random-` never count.
             vec!["gone.png", "gone.avi"]
         );
@@ -1395,7 +1407,7 @@ mod tests {
         ];
         let shared = ["RandomMovies/MAX-EXTREME/fire1.avi"];
         assert_eq!(
-            unshown_files(&s, "P/S", &all, "P", &shared),
+            unshown_files(&s, RelPath::new("P/S"), &all, "P", &shared),
             vec![("anim".to_string(), true)]
         );
     }
@@ -1408,7 +1420,7 @@ mod tests {
         );
         let found = referenced_movies(
             &s,
-            "Pack/Song",
+            RelPath::new("Pack/Song"),
             &[
                 "Pack/Song/song.sm",
                 "Pack/Song/movie.avi",
@@ -1628,16 +1640,16 @@ mod tests {
         ];
         // Only the folder's own files count.
         assert_eq!(
-            implicit_movie(&s, "P/S", &one),
-            Some(("Song.AVI".to_string(), "P/S/Song.AVI".to_string()))
+            implicit_movie(&s, RelPath::new("P/S"), &one),
+            Some(("Song.AVI".into(), "P/S/Song.AVI".into()))
         );
-        assert_eq!(referenced_movies(&s, "P/S", &one).len(), 1);
+        assert_eq!(referenced_movies(&s, RelPath::new("P/S"), &one).len(), 1);
         let two = ["P/S/s.sm", "P/S/a.avi", "P/S/b.mpg"];
-        assert_eq!(implicit_movie(&s, "P/S", &two), None);
+        assert_eq!(implicit_movie(&s, RelPath::new("P/S"), &two), None);
         // Any change, on either layer, turns the rule off.
         let layer2 = song("#BGCHANGES2:0=bg.png=1=0=0=0;");
-        assert_eq!(implicit_movie(&layer2, "P/S", &one), None);
-        assert!(referenced_movies(&layer2, "P/S", &one).is_empty());
+        assert_eq!(implicit_movie(&layer2, RelPath::new("P/S"), &one), None);
+        assert!(referenced_movies(&layer2, RelPath::new("P/S"), &one).is_empty());
         // From beat 0, without looping, and no return to the background.
         let seg = schedule(&s, &[] as &[&str], &["Song.AVI"], true);
         assert_eq!(
@@ -1889,12 +1901,12 @@ mod tests {
         let second = second_layer(&s, &["A.png"], NO_MOVIES, NO_MOVIES, true);
         assert_eq!(second.len(), 2);
         let all = ["P/S/s.sm", "P/S/a.png", "P/S/anim.xml"];
-        assert!(unshown_files(&s, "P/S", &all, "P", NO_MOVIES).is_empty());
+        assert!(unshown_files(&s, RelPath::new("P/S"), &all, "P", NO_MOVIES).is_empty());
         // A song whose only change is dropped has none (`HasBGChanges`):
         // its one movie plays.
         let only = song("#BGCHANGES:4=anim.xml=1=0=0=0;");
         let files = ["P/S/s.sm", "P/S/song.avi"];
-        assert!(implicit_movie(&only, "P/S", &files).is_some());
+        assert!(implicit_movie(&only, RelPath::new("P/S"), &files).is_some());
     }
 
     #[test]
@@ -1907,23 +1919,32 @@ mod tests {
             "#BGCHANGES2:2=bgs/b.jpg=1=0=0=0,6=movie.avi=1=0=0=0,8=robot.png=1=0=0=0;\
              #BGCHANGES:4=a.png=1=0=0=0,99999=-nosongbg-;",
         );
-        let relative = |v: Vec<(String, String)>| v.into_iter().map(|(r, _)| r).collect::<Vec<_>>();
+        let relative =
+            |v: Vec<(RelPathBuf, RelPathBuf)>| v.into_iter().map(|(r, _)| r).collect::<Vec<_>>();
         assert_eq!(
-            relative(referenced_images(&s, "Pack/Song", &FILES, None)),
+            relative(referenced_images(
+                &s,
+                RelPath::new("Pack/Song"),
+                &FILES,
+                None
+            )),
             vec!["bgs/b.JPG", "A.png"]
         );
         assert_eq!(
-            relative(referenced_movies(&s, "Pack/Song", &FILES)),
+            relative(referenced_movies(&s, RelPath::new("Pack/Song"), &FILES)),
             vec!["movie.avi"]
         );
-        assert_eq!(absent_files(&s, "Pack/Song", &FILES), vec!["robot.png"]);
+        assert_eq!(
+            absent_files(&s, RelPath::new("Pack/Song"), &FILES),
+            vec!["robot.png"]
+        );
         let only2 = song("#BGCHANGES2:2=bgs/b.jpg=1=0=0=0;");
         let first = schedule(&only2, &["bgs/b.JPG"], &["movie.avi"], true);
         assert_eq!(
             shown_images(&first),
             vec![(f64::NEG_INFINITY, BgImage::Song, 0.0)]
         );
-        assert!(referenced_movies(&only2, "Pack/Song", &FILES).is_empty());
+        assert!(referenced_movies(&only2, RelPath::new("Pack/Song"), &FILES).is_empty());
     }
 
     #[test]

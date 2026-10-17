@@ -9,6 +9,8 @@
 
 mod danoni;
 
+use ddi_library::path::RelPathBuf;
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -184,7 +186,8 @@ impl Source {
     /// `None` when the folder handle could not open it again: Chromium
     /// lists names containing `\` but refuses to open them, so such files
     /// are copied.
-    fn link(&self, path: &str) -> Option<crate::songs::Link> {
+    fn link(&self, path: impl AsRef<str>) -> Option<crate::songs::Link> {
+        let path = path.as_ref();
         let inside = |p: &str| p.split_once('/').map_or(p, |(_, rest)| rest).to_string();
         let link = match self {
             Source::File(_) => crate::songs::Link {
@@ -324,7 +327,7 @@ async fn run(
     let shared_files: Vec<(String, String)> = paths
         .iter()
         .filter(|p| !in_song(p))
-        .filter_map(|p| Some((pack::shared_path(p)?, p.clone())))
+        .filter_map(|p| Some((pack::shared_path(p)?.into_string(), p.clone())))
         .collect();
     let maybe_works = !ddi_library::danoni::work_sources(&paths).is_empty();
     let skins = ddi_noteskin::import::find_skins(&paths);
@@ -379,15 +382,17 @@ async fn run(
     // in the library.
     let mut shared: Vec<String> = shared_files.iter().map(|(s, _)| s.clone()).collect();
     shared.extend(crate::songs::shared_paths(&db).await.unwrap_or_default());
+    let scan_paths: Vec<RelPathBuf> = paths.iter().map(Into::into).collect();
+    let scan_shared: Vec<RelPathBuf> = shared.iter().map(Into::into).collect();
     let n = candidates.len();
     // Two folders with the same pack and song folder names share an id.
     let mut seen = scan::Duplicates::default();
     for (i, c) in candidates.iter().enumerate() {
         let (id, name) = c.identity();
         let label = if c.dir.is_empty() {
-            c.chart.clone()
+            c.chart.to_string()
         } else {
-            c.dir.clone()
+            c.dir.to_string()
         };
         progress.emit(format!("importing {}/{n}: {name}", i + 1));
         if let Some(why) = seen.check(c) {
@@ -396,8 +401,8 @@ async fn run(
         }
         let inputs = Inputs {
             sources: &sources,
-            paths: &paths,
-            shared: &shared,
+            paths: &scan_paths,
+            shared: &scan_shared,
             folder: origin.as_ref().map(|o| o.folder.as_str()),
             link: origin.as_ref().is_some_and(|o| o.link),
             keep_videos,
@@ -715,10 +720,10 @@ fn report_music_without_simfile(
             continue;
         }
         report.skipped.push((
-            dir,
+            dir.to_string(),
             format!(
                 "has music ({}) but no .sm, .ssc or .dwi simfile",
-                file_name(&music)
+                file_name(music.as_str())
             ),
         ));
     }
@@ -727,9 +732,9 @@ fn report_music_without_simfile(
 /// What an import reads songs from.
 struct Inputs<'a> {
     sources: &'a HashMap<String, Source>,
-    paths: &'a [String],
+    paths: &'a [RelPathBuf],
     /// Files in the library's shared background folders.
-    shared: &'a [String],
+    shared: &'a [RelPathBuf],
     /// The kept folder the files come from, recorded on each song (so it
     /// can be re-read).
     folder: Option<&'a str>,
@@ -819,7 +824,7 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
     crate::select_data::fill_chart_keys(&mut entry, &song);
     // Charts are stored as decoded UTF-8 so loading never guesses again.
     let mut files: Vec<(String, Blob)> = vec![(
-        entry.chart.clone(),
+        entry.chart.to_string(),
         bytes_blob(text.as_bytes(), "text/plain;charset=utf-8")?,
     )];
     // Linked: music and backgrounds stay in the folder (the banner is
@@ -828,34 +833,34 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
     let music_source = source(sources, &music)?;
     match music_source.link(&music).filter(|_| linked) {
         Some(l) => {
-            links.insert(entry.music.clone(), l);
+            links.insert(entry.music.to_string(), l);
         }
         None => files.push((
-            entry.music.clone(),
+            entry.music.to_string(),
             read_blob(music_source, mime_type(&music)).await?,
         )),
     }
     let bg_files = bg_images
         .into_iter()
-        .map(|(relative, path)| (format!("bg/{relative}"), path));
+        .map(|(relative, path)| (RelPathBuf::from(format!("bg/{relative}")), path));
     let video_files = video_paths
         .into_iter()
-        .map(|(relative, path)| (format!("bg/{relative}"), path));
+        .map(|(relative, path)| (RelPathBuf::from(format!("bg/{relative}")), path));
     for (name, path) in banner.into_iter() {
         // A broken image is not worth losing the song over.
         if let Ok(blob) = read_blob(source(sources, &path)?, mime_type(&path)).await {
-            files.push((name, blob));
+            files.push((name.to_string(), blob));
         }
     }
     for (name, path) in background.into_iter().chain(bg_files).chain(video_files) {
         let src = source(sources, &path)?;
         match src.link(&path).filter(|_| linked) {
             Some(l) => {
-                links.insert(name, l);
+                links.insert(name.to_string(), l);
             }
             None => {
                 if let Ok(blob) = read_blob(src, mime_type(&path)).await {
-                    files.push((name, blob));
+                    files.push((name.to_string(), blob));
                 }
             }
         }
@@ -863,7 +868,7 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
     let record = ImportedSong {
         entry,
         pack: scanned.pack,
-        dir: scanned.dir,
+        dir: scanned.dir.into_string(),
         imported: js_sys::Date::now(),
         bytes: files.iter().map(|(_, b)| b.size()).sum(),
         work: None,
@@ -1059,7 +1064,9 @@ async fn store_pack_art(
                 key: crate::songs::pack_art_key(&c.pack),
                 value: blob.into(),
             }),
-            Err(e) => report.warnings.push((path, format!("pack banner: {e}"))),
+            Err(e) => report
+                .warnings
+                .push((path.to_string(), format!("pack banner: {e}"))),
         }
     }
     if !writes.is_empty()
@@ -1081,7 +1088,8 @@ fn file_name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-fn source<'a>(sources: &'a HashMap<String, Source>, path: &str) -> Result<&'a Source, String> {
+fn source(sources: &HashMap<String, Source>, path: impl AsRef<str>) -> Result<&Source, String> {
+    let path = path.as_ref();
     sources
         .get(path)
         .ok_or_else(|| format!("{path} is missing"))
@@ -1266,7 +1274,8 @@ async fn read_blob(source: &Source, mime: &str) -> Result<Blob, String> {
 
 /// Content type for a stored file, so blob URLs (`<audio>` previews,
 /// banners) are served with one. Zip entries have none of their own.
-fn mime_type(path: &str) -> &'static str {
+fn mime_type(path: impl AsRef<str>) -> &'static str {
+    let path = path.as_ref();
     match extension(path).as_deref() {
         Some("ogg" | "oga" | "opus") => "audio/ogg",
         Some("mp3") => "audio/mpeg",

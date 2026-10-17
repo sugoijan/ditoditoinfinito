@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Receiver};
 
 use ddi_chart::Song;
 use ddi_library::manifest::ManifestEntry;
+use ddi_library::path::{RelPath, RelPathBuf};
 use ddi_library::scan::Reader;
 use ddi_platform::decode_all::Range;
 
@@ -20,12 +21,12 @@ use crate::library::files::{DirReader, ZipReader};
 #[derive(Clone)]
 pub enum Files {
     /// A folder: the song's own (a bundled song's, a song folder's).
-    Dir { root: PathBuf, dir: String },
+    Dir { root: PathBuf, dir: RelPathBuf },
     /// A zip read in place.
     Zip {
         zip: PathBuf,
         reader: Arc<ZipReader>,
-        dir: String,
+        dir: RelPathBuf,
     },
 }
 
@@ -40,7 +41,7 @@ impl Files {
         Some((
             Files::Dir {
                 root,
-                dir: String::new(),
+                dir: RelPathBuf::new(),
             },
             entry,
         ))
@@ -63,19 +64,17 @@ impl Files {
 
     /// One of the song's files (relative to its folder) relative to the
     /// root.
-    fn rooted(&self, file: &str) -> String {
+    fn rooted(&self, file: &str) -> RelPathBuf {
         let dir = match self {
             Files::Dir { dir, .. } | Files::Zip { dir, .. } => dir,
         };
-        if dir.is_empty() {
-            crate::library::files::normalize(file)
-        } else {
-            crate::library::files::normalize(&format!("{dir}/{file}"))
-        }
+        let path = dir.join(file);
+        path.normalize().unwrap_or(path)
     }
 
     /// A file of the song, whole.
-    pub fn read(&self, file: &str) -> Result<Vec<u8>, String> {
+    pub fn read(&self, file: impl AsRef<str>) -> Result<Vec<u8>, String> {
+        let file = file.as_ref();
         match self {
             Files::Dir { root, .. } => DirReader { root: root.clone() }.read(&self.rooted(file)),
             Files::Zip { reader, .. } => reader.read(&self.rooted(file)),
@@ -85,7 +84,8 @@ impl Files {
     /// Movie `name` of the song: a folder's file, a zip's stored entry
     /// read in place, a compressed one extracted once into the cache
     /// folder (`movies/`, kept to [`MOVIE_CACHE`] bytes).
-    pub fn movie(&self, name: &str) -> Result<MovieAt, String> {
+    pub fn movie(&self, name: impl AsRef<str>) -> Result<MovieAt, String> {
+        let name = name.as_ref();
         self.movie_unless(name, &std::sync::atomic::AtomicBool::new(false))
     }
 
@@ -93,11 +93,17 @@ impl Files {
     /// song's prompt went).
     pub fn movie_unless(
         &self,
-        name: &str,
+        name: impl AsRef<str>,
         cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<MovieAt, String> {
+        let name = name.as_ref();
         match self {
-            Files::Dir { root, .. } => Ok((root.join(self.rooted(name)), None)),
+            Files::Dir { root, .. } => Ok((
+                self.rooted(name)
+                    .to_path(root)
+                    .ok_or("path leaves its root")?,
+                None,
+            )),
             Files::Zip { zip, reader, .. } => {
                 let entry = self.rooted(name);
                 if let Some(range) = reader.stored_range(&entry)? {
@@ -109,9 +115,12 @@ impl Files {
                 let dir = crate::paths::cache_dir()
                     .ok_or("no cache folder")?
                     .join("movies");
-                let ext = entry.rsplit_once('.').map_or(String::new(), |(_, e)| {
-                    format!(".{}", e.to_ascii_lowercase())
-                });
+                let ext = entry
+                    .as_str()
+                    .rsplit_once('.')
+                    .map_or(String::new(), |(_, e)| {
+                        format!(".{}", e.to_ascii_lowercase())
+                    });
                 let key = format!("{}\0{entry}\0{crc:08x}\0{size}", zip.display());
                 let path = dir.join(format!("{:016x}{ext}", fnv1a64(key.as_bytes())));
                 if std::fs::metadata(&path).is_ok_and(|m| m.len() == size) {
@@ -160,27 +169,38 @@ impl Files {
 
     /// A file by its path relative to the root (a work's files are named
     /// so), whole.
-    pub fn read_at_root(&self, path: &str) -> Result<Vec<u8>, String> {
-        let path = crate::library::files::normalize(path);
+    pub fn read_at_root(&self, path: impl AsRef<str>) -> Result<Vec<u8>, String> {
+        let path = path.as_ref();
+        let path = RelPath::new(path);
         match self {
-            Files::Dir { root, .. } => DirReader { root: root.clone() }.read(&path),
-            Files::Zip { reader, .. } => reader.read(&path),
+            Files::Dir { root, .. } => DirReader { root: root.clone() }.read(path),
+            Files::Zip { reader, .. } => reader.read(path),
         }
     }
 
     /// A file by its path relative to the root, as a texture source.
-    pub fn source_at_root(&self, path: &str) -> String {
-        let path = crate::library::files::normalize(path);
+    pub fn source_at_root(&self, path: impl AsRef<str>) -> String {
+        let path = path.as_ref();
+        let path = RelPath::new(path);
+        let path = path.normalize().unwrap_or_else(|| path.to_owned());
         match self {
-            Files::Dir { root, .. } => root.join(path).display().to_string(),
+            Files::Dir { root, .. } => path
+                .to_path(root)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
             Files::Zip { zip, .. } => format!("zip:{}!{path}", zip.display()),
         }
     }
 
     /// A file of the song as a texture source (`crate::images::load`).
-    pub fn source(&self, file: &str) -> String {
+    pub fn source(&self, file: impl AsRef<str>) -> String {
+        let file = file.as_ref();
         match self {
-            Files::Dir { root, .. } => root.join(self.rooted(file)).display().to_string(),
+            Files::Dir { root, .. } => self
+                .rooted(file)
+                .to_path(root)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
             Files::Zip { zip, .. } => format!("zip:{}!{}", zip.display(), self.rooted(file)),
         }
     }
@@ -284,7 +304,7 @@ pub fn movies_unless(
         .bg_videos
         .iter()
         .filter(|v| v.plays())
-        .map(|v| (v.name.clone(), files.movie_unless(&v.name, cancel)))
+        .map(|v| (v.name.to_string(), files.movie_unless(&v.name, cancel)))
         .collect()
 }
 
@@ -322,6 +342,7 @@ pub fn load_with(
     let text = ddi_library::pack::decode_text_with(&bytes, crate::library::shift_jis);
     let ext = entry
         .chart
+        .as_str()
         .rsplit_once('.')
         .map_or("sm", |(_, e)| e)
         .to_ascii_lowercase();
@@ -329,6 +350,7 @@ pub fn load_with(
     let music = files.read(&entry.music)?;
     let music_ext = entry
         .music
+        .as_str()
         .rsplit_once('.')
         .map(|(_, e)| e.to_ascii_lowercase());
     // A Dancing☆Onigiri work's MP3 where Chrome's decode has it (its
@@ -363,6 +385,7 @@ pub fn read_chart(id: &str) -> Result<Song, String> {
     let text = ddi_library::pack::decode_text_with(&bytes, crate::library::shift_jis);
     let ext = entry
         .chart
+        .as_str()
         .rsplit_once('.')
         .map_or("sm", |(_, e)| e)
         .to_ascii_lowercase();
@@ -374,7 +397,7 @@ pub fn read_chart(id: &str) -> Result<Song, String> {
 pub fn read_work(files: &Files, w: &crate::library::WorkRef) -> Result<Song, String> {
     struct AtRoot<'a>(&'a Files);
     impl Reader for AtRoot<'_> {
-        fn read(&self, path: &str) -> Result<Vec<u8>, String> {
+        fn read(&self, path: &RelPath) -> Result<Vec<u8>, String> {
             self.0.read_at_root(path)
         }
     }
@@ -387,8 +410,8 @@ pub fn read_work(files: &Files, w: &crate::library::WorkRef) -> Result<Song, Str
             music: ddi_library::works::WorkMusic::Dump(Default::default()),
         }
     } else {
-        let paths: Vec<String> = w.dos.iter().map(|(p, _)| p.clone()).collect();
-        crate::library::read_page(&reader, &paths, &w.source)?
+        let paths: Vec<RelPathBuf> = w.dos.iter().map(|(p, _)| p.clone()).collect();
+        crate::library::read_page(&reader, &paths, w.source.as_str())?
             .ok_or("the page no longer holds a work")?
             .0
     };
@@ -407,7 +430,7 @@ fn load_work(
 ) -> Result<Loaded, String> {
     struct AtRoot<'a>(&'a Files);
     impl Reader for AtRoot<'_> {
-        fn read(&self, path: &str) -> Result<Vec<u8>, String> {
+        fn read(&self, path: &RelPath) -> Result<Vec<u8>, String> {
             self.0.read_at_root(path)
         }
     }
@@ -516,8 +539,8 @@ pub fn calibration(mode: ddi_session::calibration::CalMode, rate: u32) -> Loaded
         id: format!("calibration:{}", mode.id()),
         title: mode.title().into(),
         artist: String::new(),
-        chart: String::new(),
-        music: String::new(),
+        chart: RelPathBuf::new(),
+        music: RelPathBuf::new(),
         banner: None,
         background: None,
         bg_images: Vec::new(),
@@ -540,7 +563,7 @@ pub fn calibration(mode: ddi_session::calibration::CalMode, rate: u32) -> Loaded
         song,
         files: Files::Dir {
             root: PathBuf::new(),
-            dir: String::new(),
+            dir: RelPathBuf::new(),
         },
         music,
         movies: Vec::new(),

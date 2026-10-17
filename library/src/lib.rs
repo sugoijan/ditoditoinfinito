@@ -10,6 +10,8 @@
 //! - [`image`]: image dimensions from file headers, for the banner and
 //!   background guess by size.
 //! - [`manifest`]: the song list entry shared by bundled and imported songs.
+//! - [`path`]: logical paths (`/`-separated, relative to a root) and the
+//!   one way they become OS paths.
 //! - [`scan`]: a song's list entry from its folder, read in place.
 //! - [`backgrounds`]: `#BGCHANGES` as a timed schedule of still images.
 //! - [`h264`]: H.264 parameters and the FFmpeg module's frame times, for other decoders.
@@ -23,6 +25,7 @@ pub mod h264;
 pub mod image;
 pub mod manifest;
 pub mod pack;
+pub mod path;
 pub mod scan;
 pub mod search;
 pub mod suggest;

@@ -3,11 +3,14 @@
 //! import time), so the song select treats both the same way.
 //!
 //! The JSON field names and defaults are the wire format of the generated
-//! manifest; changing them changes `index.json`.
+//! manifest; changing them changes `index.json`. The files an entry names
+//! are logical paths ([`RelPathBuf`]), plain strings in the JSON.
 
 use ddi_chart::{DisplayBpm, Layout, Song, SourceFormat};
 use ddi_platform::video::VideoFormat;
 use serde::{Deserialize, Serialize};
+
+use crate::path::RelPathBuf;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ManifestEntry {
@@ -17,19 +20,19 @@ pub struct ManifestEntry {
     pub title: String,
     pub artist: String,
     /// Chart file (`.sm`, `.ssc` or `.dwi`) relative to the song directory.
-    pub chart: String,
+    pub chart: RelPathBuf,
     /// Audio file relative to the song directory.
-    pub music: String,
+    pub music: RelPathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub banner: Option<String>,
+    pub banner: Option<RelPathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub background: Option<String>,
+    pub background: Option<RelPathBuf>,
     /// Images the song's background changes show, relative to the song
     /// directory as the simfile names them
     /// ([`crate::backgrounds::referenced_images`]). Imported songs store
     /// each under `bg/<path>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub bg_images: Vec<String>,
+    pub bg_images: Vec<RelPathBuf>,
     /// Movies the song's background changes play, in order of first use
     /// ([`crate::backgrounds::referenced_movies`]), with what each is.
     /// Imported songs store or link each under `bg/<name>`.
@@ -40,7 +43,7 @@ pub struct ManifestEntry {
     /// ([`crate::backgrounds::absent_files`]): looked up in the library's
     /// shared folders when the song is played.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub bg_shared: Vec<String>,
+    pub bg_shared: Vec<RelPathBuf>,
     /// Scripted animations (neither images nor movies) the background
     /// changes name that exist, in the song's folder or the shared ones,
     /// as written ([`crate::backgrounds::unshown_files`]): StepMania plays
@@ -48,12 +51,12 @@ pub struct ManifestEntry {
     /// ([`crate::backgrounds::second_layer`]); one found nowhere leaves it
     /// as it is. Missing in songs imported before 2026-10-16.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub bg_scripted: Vec<String>,
+    pub bg_scripted: Vec<RelPathBuf>,
     /// Images a Dancing☆Onigiri work's back and mask layers show, by the
     /// names its data uses, stored as `layer/<name>`
     /// (`docs/plans/overlays.md`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub layer_images: Vec<String>,
+    pub layer_images: Vec<RelPathBuf>,
     /// Short credit line shown in the song list (full credits live in the
     /// Credits screen).
     #[serde(default)]
@@ -91,7 +94,7 @@ pub struct ManifestEntry {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VideoRef {
     /// Path relative to the song directory, as the schedule matches it.
-    pub name: String,
+    pub name: RelPathBuf,
     pub format: VideoFormat,
     /// Whether the import kept it (copied or linked). A copying import
     /// leaves movies out unless asked to keep them; the song background
@@ -154,13 +157,13 @@ pub struct EntryMeta {
     /// [`simfile_names`].
     pub title: String,
     pub artist: String,
-    pub chart: String,
-    pub music: String,
-    pub banner: Option<String>,
-    pub background: Option<String>,
-    pub bg_images: Vec<String>,
+    pub chart: RelPathBuf,
+    pub music: RelPathBuf,
+    pub banner: Option<RelPathBuf>,
+    pub background: Option<RelPathBuf>,
+    pub bg_images: Vec<RelPathBuf>,
     pub bg_videos: Vec<VideoRef>,
-    pub bg_shared: Vec<String>,
+    pub bg_shared: Vec<RelPathBuf>,
     pub credit: String,
 }
 

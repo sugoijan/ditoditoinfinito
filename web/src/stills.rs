@@ -72,7 +72,7 @@ pub(crate) fn may_have(entry: &ManifestEntry) -> bool {
         || entry
             .bg_shared
             .iter()
-            .any(|n| ddi_library::video::is_movie(n))
+            .any(|n| ddi_library::video::is_movie(n.as_str()))
 }
 
 /// Takes imported song `id`'s still, unless its record already says what
@@ -162,14 +162,14 @@ async fn opening(record: &ImportedSong) -> Result<Option<Opening>, String> {
     let image_names: Vec<String> = entry
         .bg_images
         .iter()
-        .cloned()
+        .map(|p| p.to_string())
         .chain(images.into_iter().map(|(name, _)| name))
         .collect();
     let movie_names: Vec<String> = entry
         .bg_videos
         .iter()
         .filter(|v| v.plays())
-        .map(|v| v.name.clone())
+        .map(|v| v.name.to_string())
         .chain(videos.iter().map(|(name, _)| name.clone()))
         .collect();
     let schedule = backgrounds::schedule(

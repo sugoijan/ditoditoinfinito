@@ -25,6 +25,8 @@ pub mod files;
 pub mod noteskins;
 pub mod offer;
 
+use ddi_library::path::{RelPath, RelPathBuf};
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -152,7 +154,7 @@ pub struct LibSong {
     pub root: PathBuf,
     pub zip: bool,
     /// Its folder, relative to the root.
-    pub dir: String,
+    pub dir: RelPathBuf,
     pub pack: String,
     /// Its files relative to its folder (`ddi_library::scan`).
     pub entry: ManifestEntry,
@@ -171,38 +173,36 @@ pub struct LibSong {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WorkRef {
     /// The page, or the dump's manifest.
-    pub source: String,
+    pub source: RelPathBuf,
     pub dump: bool,
     /// A page's external dos and its charset; a dump's effective dos.
-    pub dos: Option<(String, Option<String>)>,
+    pub dos: Option<(RelPathBuf, Option<String>)>,
     /// Its music number in the work.
     pub music_no: usize,
-    pub music: String,
+    pub music: RelPathBuf,
     /// The music is a script holding it as base64.
     pub encoded: bool,
     /// Its back and mask images: `(name as the data writes it, path)`.
-    pub layers: Vec<(String, String)>,
+    pub layers: Vec<(String, RelPathBuf)>,
 }
 
 impl LibSong {
     /// One of its files (relative to its folder) relative to the root.
-    pub fn rooted(&self, file: &str) -> String {
-        files::normalize(&format!("{}/{file}", self.dir))
+    pub fn rooted(&self, file: impl AsRef<str>) -> RelPathBuf {
+        let path = self.dir.join(file);
+        path.normalize().unwrap_or(path)
     }
 
     /// One of its files as a texture source: its path, or a zip's entry.
-    pub fn source(&self, file: &str) -> String {
+    pub fn source(&self, file: impl AsRef<str>) -> String {
+        let file = file.as_ref();
         if self.zip {
             format!("zip:{}!{}", self.root.display(), self.rooted(file))
         } else {
-            // Joined part by part, so the path uses the platform's
-            // separators (Windows' `\`) throughout.
-            let rooted = self.rooted(file);
-            let path = rooted
-                .split('/')
-                .filter(|part| !part.is_empty())
-                .fold(self.root.clone(), |path, part| path.join(part));
-            path.display().to_string()
+            self.rooted(file)
+                .to_path(&self.root)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default()
         }
     }
 }
@@ -238,13 +238,13 @@ struct Root {
     fallback: String,
     /// The shared folders' files (`RandomMovies/…`), as the songs name
     /// them.
-    shared: Vec<String>,
+    shared: Vec<RelPathBuf>,
 }
 
 impl Root {
     /// A path of the root's as the scan names it.
-    fn virtual_path(&self, path: &str) -> String {
-        format!("{}/{path}", self.prefix)
+    fn virtual_path(&self, path: impl AsRef<str>) -> RelPathBuf {
+        RelPath::new(&self.prefix).join(path)
     }
 
     /// A song folder as the scan names it, relative to the root.
@@ -316,7 +316,7 @@ fn roots_of(folder: &Path) -> Vec<Root> {
                         files::walk(&d)
                             .listed
                             .into_iter()
-                            .map(|l| format!("{name}/{}", l.path)),
+                            .map(|l| RelPath::new(name).join(&l.path)),
                     );
                 }
             }
@@ -357,7 +357,7 @@ fn roots_of(folder: &Path) -> Vec<Root> {
 fn listing_hash(listing: &[Listed], dir: &str) -> u64 {
     let prefix = format!("{dir}/");
     let start = listing.partition_point(|l| l.path.as_str() < prefix.as_str());
-    let len = listing[start..].partition_point(|l| l.path.starts_with(&prefix));
+    let len = listing[start..].partition_point(|l| l.path.as_str().starts_with(&prefix));
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     let mut eat = |bytes: &[u8]| {
         for &b in bytes {
@@ -365,7 +365,7 @@ fn listing_hash(listing: &[Listed], dir: &str) -> u64 {
         }
     };
     for l in &listing[start..start + len] {
-        eat(l.path.as_bytes());
+        eat(l.path.as_str().as_bytes());
         eat(&l.size.to_le_bytes());
         eat(&l.modified.to_le_bytes());
     }
@@ -483,7 +483,7 @@ fn scan_root(
                 return Ok(None);
             }
         };
-        let paths: Vec<String> = reader.names.iter().map(|n| root.virtual_path(n)).collect();
+        let paths: Vec<RelPathBuf> = reader.names.iter().map(|n| root.virtual_path(n)).collect();
         let files = files::Prefixed {
             inner: &reader,
             prefix: format!("{}/", root.prefix),
@@ -497,7 +497,7 @@ fn scan_root(
             failed: reader
                 .unread
                 .iter()
-                .map(|(name, why)| (root.virtual_path(name), why.clone(), 0))
+                .map(|(name, why)| (root.virtual_path(name).into_string(), why.clone(), 0))
                 .collect(),
         };
         scan_songs(root, &files, &paths, None, None, stale, &mut out, report)?;
@@ -518,7 +518,7 @@ fn scan_root(
             ..l
         })
         .collect();
-    let paths: Vec<String> = listing.iter().map(|l| l.path.clone()).collect();
+    let paths: Vec<RelPathBuf> = listing.iter().map(|l| l.path.clone()).collect();
     let reader = DirReader {
         root: root.path.clone(),
     };
@@ -535,7 +535,7 @@ fn scan_root(
         failed: walked
             .unread
             .into_iter()
-            .map(|(p, why)| (root.virtual_path(&p), why, 0))
+            .map(|(p, why)| (root.virtual_path(&p).into_string(), why, 0))
             .collect(),
     };
     scan_songs(
@@ -558,7 +558,7 @@ fn scan_root(
 fn scan_songs(
     root: &Root,
     files: &dyn Reader,
-    paths: &[String],
+    paths: &[RelPathBuf],
     listing: Option<&[Listed]>,
     cached: Option<(&CachedRoot, &Force)>,
     stale: &dyn Fn() -> bool,
@@ -585,12 +585,12 @@ fn scan_songs(
     let mut seen = scan::Duplicates::default();
     for c in pack::find_songs(paths, &root.fallback) {
         if let Some(why) = seen.check(&c) {
-            out.failed.push((c.dir.clone(), why, 0));
+            out.failed.push((c.dir.to_string(), why, 0));
             continue;
         }
-        let hash = listing.map_or(0, |l| listing_hash(l, &c.dir));
+        let hash = listing.map_or(0, |l| listing_hash(l, c.dir.as_str()));
         let forced = cached.is_some_and(|(_, f)| f.pack(&c.pack));
-        let real = root.real_dir(&c.dir);
+        let real = root.real_dir(c.dir.as_str());
         if listing.is_some() && !forced {
             if let Some(s) = reuse.get(real).filter(|s| s.listing == hash) {
                 report.reused += 1;
@@ -601,7 +601,7 @@ fn scan_songs(
                 .get(c.dir.as_str())
                 .filter(|(_, h)| *h == hash)
             {
-                out.failed.push((c.dir.clone(), (*e).clone(), hash));
+                out.failed.push((c.dir.to_string(), (*e).clone(), hash));
                 continue;
             }
         }
@@ -620,7 +620,7 @@ fn scan_songs(
                 listing: hash,
                 song: lib_song(root, s),
             }),
-            Err(e) => out.failed.push((c.dir.clone(), e, hash)),
+            Err(e) => out.failed.push((c.dir.to_string(), e, hash)),
         }
     }
     // Dancing☆Onigiri works, reused from the cache while their folder's
@@ -644,7 +644,7 @@ fn scan_songs(
 fn scan_works(
     root: &Root,
     files: &dyn Reader,
-    paths: &[String],
+    paths: &[RelPathBuf],
     listing: Option<&[Listed]>,
     cached: Option<(&CachedRoot, &Force)>,
     out: &mut CachedRoot,
@@ -721,22 +721,22 @@ fn scan_works(
                 song: LibSong {
                     root: root.path.clone(),
                     zip: root.zip,
-                    dir: dir.clone(),
+                    dir: dir.clone().into(),
                     pack: s.pack.clone(),
                     entry,
                     warnings,
                     notes: Vec::new(),
                     work: Some(WorkRef {
-                        source: real(&label),
+                        source: real(&label).into(),
                         dump: matches!(ws, ddi_library::danoni::WorkSource::Dump(_)),
-                        dos: dos.as_ref().map(|(p, c)| (real(p), c.clone())),
+                        dos: dos.as_ref().map(|(p, c)| (real(p).into(), c.clone())),
                         music_no: s.music_no,
-                        music: real(&s.music),
+                        music: real(&s.music).into(),
                         encoded: s.encoded,
                         layers: s
                             .layers
                             .iter()
-                            .map(|(name, path)| (name.clone(), real(path)))
+                            .map(|(name, path)| (name.clone(), real(path).into()))
                             .collect(),
                     }),
                 },
@@ -754,12 +754,12 @@ type ReadWork = (ddi_library::works::Work, Option<(String, Option<String>)>);
 /// A page read as a work: `None` for a page with no dos.
 pub fn read_page(
     files: &dyn Reader,
-    paths: &[String],
+    paths: &[RelPathBuf],
     page: &str,
 ) -> Result<Option<ReadWork>, String> {
     // A page larger than this holds no work (its dos would be a few
     // hundred kilobytes at most): not read whole.
-    let bytes = files.read_at(page, 0, MAX_PAGE + 1)?;
+    let bytes = files.read_at(RelPath::new(page), 0, MAX_PAGE + 1)?;
     if bytes.len() > MAX_PAGE {
         return Ok(None);
     }
@@ -770,7 +770,10 @@ pub fn read_page(
     };
     let external = read.external.clone();
     let text = match &external {
-        Some((path, charset)) => Some(decode_with(&files.read(path)?, charset.as_deref())),
+        Some((path, charset)) => Some(decode_with(
+            &files.read(RelPath::new(path))?,
+            charset.as_deref(),
+        )),
         None => None,
     };
     Ok(Some((read.finish(text.as_deref())?, external)))
@@ -779,10 +782,10 @@ pub fn read_page(
 /// A dump read as a work: `None` for another `manifest.json`.
 pub fn read_dump(
     files: &dyn Reader,
-    paths: &[String],
+    paths: &[RelPathBuf],
     manifest: &str,
 ) -> Result<Option<ReadWork>, String> {
-    let bytes = files.read_at(manifest, 0, MAX_PAGE + 1)?;
+    let bytes = files.read_at(RelPath::new(manifest), 0, MAX_PAGE + 1)?;
     if bytes.len() > MAX_PAGE {
         return Ok(None);
     }
@@ -791,7 +794,7 @@ pub fn read_dump(
         return Ok(None);
     };
     let effective = plan.effective.clone();
-    let eff = pack::decode_text(&files.read(&effective)?);
+    let eff = pack::decode_text(&files.read(RelPath::new(&effective))?);
     Ok(Some((
         ddi_library::works::dump_work(plan, &eff)?,
         Some((effective, None)),
@@ -854,7 +857,7 @@ fn lib_song(root: &Root, s: scan::Scanned) -> LibSong {
     LibSong {
         root: root.path.clone(),
         zip: root.zip,
-        dir: root.real_dir(&s.dir).to_string(),
+        dir: root.real_dir(s.dir.as_str()).into(),
         pack: s.pack,
         entry: s.entry,
         warnings: s.warnings,
@@ -1280,10 +1283,7 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
     }
     let music = if s.zip {
         let dir = cache_dir()?.join("previews");
-        let ext = Path::new(&s.entry.music)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("ogg");
+        let ext = s.entry.music.extension().unwrap_or("ogg");
         let stamp = zip_stamp(&s.root)?.replace(':', "-");
         let key = format!("{}-", s.entry.id);
         let out = dir.join(format!("{key}{stamp}.{ext}"));
@@ -1298,7 +1298,7 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
         }
         out
     } else {
-        s.root.join(s.rooted(&s.entry.music))
+        s.rooted(&s.entry.music).to_path(&s.root)?
     };
     // The timing for the beat pulse, from the simfile as it is now.
     let reader: Box<dyn Reader> = if s.zip {
@@ -1309,9 +1309,10 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
         })
     };
     let text = pack::decode_text_with(&reader.read(&s.rooted(&s.entry.chart)).ok()?, shift_jis);
-    let ext = Path::new(&s.entry.chart)
+    let ext = s
+        .entry
+        .chart
         .extension()
-        .and_then(|e| e.to_str())
         .unwrap_or("sm")
         .to_ascii_lowercase();
     let parsed = ddi_chart::formats::sm::parse_simfile(&text, &ext).ok()?;
@@ -1340,7 +1341,7 @@ fn prepare_work_preview(s: &LibSong, w: &WorkRef) -> Option<Prepared> {
         let stamp = if s.zip {
             zip_stamp(&s.root)?.replace(':', "-")
         } else {
-            let meta = std::fs::metadata(s.root.join(&w.music)).ok()?;
+            let meta = std::fs::metadata(w.music.to_path(&s.root)?).ok()?;
             format!("{}-{}", meta.len(), files::modified(&meta))
         };
         let key = format!("{}-", s.entry.id);
@@ -1354,7 +1355,7 @@ fn prepare_work_preview(s: &LibSong, w: &WorkRef) -> Option<Prepared> {
         }
         out
     } else {
-        s.root.join(files::normalize(&w.music))
+        w.music.to_path(&s.root)?
     };
     Some(Prepared {
         music,

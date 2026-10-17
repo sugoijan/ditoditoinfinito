@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use ddi_library::pack;
+use ddi_library::path::{RelPath, RelPathBuf};
 use ddi_library::scan::Reader;
 use ddi_library::zip::{self, Locate, ZipEntry};
 
@@ -23,7 +24,7 @@ const MAX_DEPTH: usize = 6;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Listed {
     /// Relative to the root, '/'-separated.
-    pub path: String,
+    pub path: RelPathBuf,
     pub size: u64,
     /// Modification time, nanoseconds since the epoch (0: unknown).
     pub modified: u64,
@@ -135,7 +136,7 @@ impl Walk {
                 }
             } else if meta.is_file() {
                 self.out.listed.push(Listed {
-                    path,
+                    path: path.into(),
                     size: meta.len(),
                     modified: modified(&meta),
                 });
@@ -161,19 +162,26 @@ pub struct Prefixed<'a> {
 }
 
 impl Prefixed<'_> {
-    fn strip<'p>(&self, path: &'p str) -> Result<&'p str, String> {
-        path.strip_prefix(self.prefix.as_str())
+    fn strip<'p>(&self, path: &'p RelPath) -> Result<&'p RelPath, String> {
+        path.as_str()
+            .strip_prefix(self.prefix.as_str())
+            .map(RelPath::new)
             .ok_or_else(|| format!("{path}: not in the folder"))
     }
 }
 
 impl Reader for Prefixed<'_> {
-    fn read(&self, path: &str) -> Result<Vec<u8>, String> {
-        self.inner.read(self.strip(&normalize(path))?)
+    fn read(&self, path: &RelPath) -> Result<Vec<u8>, String> {
+        self.inner
+            .read(self.strip(&path.normalize().ok_or("path leaves its root")?)?)
     }
 
-    fn read_at(&self, path: &str, at: u64, len: usize) -> Result<Vec<u8>, String> {
-        self.inner.read_at(self.strip(&normalize(path))?, at, len)
+    fn read_at(&self, path: &RelPath, at: u64, len: usize) -> Result<Vec<u8>, String> {
+        self.inner.read_at(
+            self.strip(&path.normalize().ok_or("path leaves its root")?)?,
+            at,
+            len,
+        )
     }
 }
 
@@ -183,22 +191,21 @@ pub struct DirReader {
 }
 
 impl DirReader {
-    fn path(&self, path: &str) -> Result<PathBuf, String> {
-        // Only the root's own files: `..` within it (a simfile reaching
-        // its pack's other folders), never out of it.
-        if Path::new(path).is_absolute() {
+    fn path(&self, path: &RelPath) -> Result<PathBuf, String> {
+        if path.as_str().starts_with('/') {
             return Err(format!("{path}: not in the folder"));
         }
-        Ok(self.root.join(normalize(path)))
+        path.to_path(&self.root)
+            .ok_or_else(|| format!("{path}: not in the folder"))
     }
 }
 
 impl Reader for DirReader {
-    fn read(&self, path: &str) -> Result<Vec<u8>, String> {
+    fn read(&self, path: &RelPath) -> Result<Vec<u8>, String> {
         std::fs::read(self.path(path)?).map_err(|e| format!("{path}: {e}"))
     }
 
-    fn read_at(&self, path: &str, at: u64, len: usize) -> Result<Vec<u8>, String> {
+    fn read_at(&self, path: &RelPath, at: u64, len: usize) -> Result<Vec<u8>, String> {
         let mut f = File::open(self.path(path)?).map_err(|e| format!("{path}: {e}"))?;
         f.seek(SeekFrom::Start(at)).map_err(|e| e.to_string())?;
         let mut out = Vec::with_capacity(len.min(1 << 20));
@@ -214,7 +221,7 @@ pub struct ZipReader {
     pub path: PathBuf,
     entries: HashMap<String, ZipEntry>,
     /// The entries' names, sorted (as the web sorts an import's paths).
-    pub names: Vec<String>,
+    pub names: Vec<RelPathBuf>,
     /// `(name, why)`: entries that cannot be read (encrypted).
     pub unread: Vec<(String, String)>,
 }
@@ -276,7 +283,7 @@ impl ZipReader {
             // Two entries of one name: the last, as the web keeps it.
             entries.insert(e.name.clone(), e);
         }
-        let mut names: Vec<String> = entries.keys().cloned().collect();
+        let mut names: Vec<RelPathBuf> = entries.keys().map(RelPathBuf::from).collect();
         names.sort();
         Ok(ZipReader {
             path: path.to_path_buf(),
@@ -287,23 +294,23 @@ impl ZipReader {
     }
 
     /// An entry's uncompressed size.
-    pub fn size(&self, name: &str) -> Option<u64> {
+    pub fn size(&self, name: &RelPath) -> Option<u64> {
         self.entries
-            .get(&normalize(name))
+            .get(name.normalize()?.as_str())
             .map(|e| e.uncompressed_size)
     }
 }
 
 impl ZipReader {
-    fn entry(&self, path: &str) -> Result<&ZipEntry, String> {
+    fn entry(&self, path: &RelPath) -> Result<&ZipEntry, String> {
         self.entries
-            .get(&normalize(path))
+            .get(path.normalize().ok_or("path leaves its root")?.as_str())
             .ok_or_else(|| format!("{path}: not in the zip"))
     }
 
     /// A stored entry's bytes as a range of the zip, `(offset, length)`
     /// (`None`: it is compressed).
-    pub fn stored_range(&self, path: &str) -> Result<Option<(u64, u64)>, String> {
+    pub fn stored_range(&self, path: &RelPath) -> Result<Option<(u64, u64)>, String> {
         let e = self.entry(path)?;
         if e.method != zip::Method::Stored {
             return Ok(None);
@@ -313,13 +320,13 @@ impl ZipReader {
     }
 
     /// What tells an entry's content apart: its CRC-32 and size.
-    pub fn content_id(&self, path: &str) -> Option<(u32, u64)> {
+    pub fn content_id(&self, path: &RelPath) -> Option<(u32, u64)> {
         let e = self.entry(path).ok()?;
         Some((e.crc32, e.uncompressed_size))
     }
 
     /// An entry decompressed into `out` in pieces (a movie: not held).
-    pub fn extract_to(&self, path: &str, out: &mut impl std::io::Write) -> Result<(), String> {
+    pub fn extract_to(&self, path: &RelPath, out: &mut impl std::io::Write) -> Result<(), String> {
         let e = self.entry(path)?;
         let (mut f, at) = self.data_at(e)?;
         f.seek(SeekFrom::Start(at)).map_err(|e| e.to_string())?;
@@ -337,7 +344,7 @@ impl ZipReader {
 }
 
 impl Reader for ZipReader {
-    fn read(&self, path: &str) -> Result<Vec<u8>, String> {
+    fn read(&self, path: &RelPath) -> Result<Vec<u8>, String> {
         let e = self.entry(path)?;
         let (mut f, at) = self.data_at(e)?;
         let data = read_range(&mut f, at, e.compressed_size)?;
@@ -346,7 +353,7 @@ impl Reader for ZipReader {
 
     /// A stored entry's range by a seek; a deflated one's by inflating
     /// only as far as the range (a movie's header, not the movie).
-    fn read_at(&self, path: &str, at: u64, len: usize) -> Result<Vec<u8>, String> {
+    fn read_at(&self, path: &RelPath, at: u64, len: usize) -> Result<Vec<u8>, String> {
         let e = self.entry(path)?;
         let end = (at + len as u64).min(e.uncompressed_size);
         if at >= end {
@@ -375,21 +382,6 @@ impl Reader for ZipReader {
     }
 }
 
-/// `a/b/../c` as `a/c`: zip entries have no folders to walk through.
-pub fn normalize(path: &str) -> String {
-    let mut parts: Vec<&str> = Vec::new();
-    for c in path.split('/') {
-        match c {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            c => parts.push(c),
-        }
-    }
-    parts.join("/")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -416,12 +408,15 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, b"x").unwrap();
         }
-        let got: Vec<String> = walk(&root).listed.into_iter().map(|l| l.path).collect();
+        let got: Vec<RelPathBuf> = walk(&root).listed.into_iter().map(|l| l.path).collect();
         assert_eq!(got, vec!["Pack/Song/m.ogg", "Pack/Song/s.sm"]);
         let r = DirReader { root: root.clone() };
-        assert_eq!(r.read("Pack/Song/s.sm").unwrap(), b"x");
-        assert_eq!(r.read("Pack/Song/../Song/m.ogg").unwrap(), b"x");
-        assert!(r.read("/etc/hosts").is_err());
-        assert_eq!(normalize("a/b/../c/./d"), "a/c/d");
+        assert_eq!(r.read(RelPath::new("Pack/Song/s.sm")).unwrap(), b"x");
+        assert_eq!(
+            r.read(RelPath::new("Pack/Song/../Song/m.ogg")).unwrap(),
+            b"x"
+        );
+        assert!(r.read(RelPath::new("/etc/hosts")).is_err());
+        assert!(r.read(RelPath::new("../outside")).is_err());
     }
 }

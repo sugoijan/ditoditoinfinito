@@ -190,7 +190,7 @@ impl View {
             .bg_videos
             .iter()
             .filter(|v| v.plays())
-            .map(|v| v.name.clone())
+            .map(|v| v.name.to_string())
             .collect();
         // Movies found but that do not play: the second layer shows
         // nothing for them.
@@ -199,7 +199,7 @@ impl View {
             .iter()
             .filter(|v| !v.plays())
             .map(|v| v.name.as_str())
-            .chain(e.bg_scripted.iter().map(String::as_str))
+            .chain(e.bg_scripted.iter().map(|p| p.as_str()))
             .collect();
         self.schedule = [
             backgrounds::schedule(&loaded.song, &e.bg_images, &movies, e.background.is_some()),
@@ -245,7 +245,7 @@ impl View {
         }
         for name in &e.bg_images {
             out.push((
-                BgImage::File(name.clone()),
+                BgImage::File(name.to_string()),
                 loaded.files.source(name),
                 MAX_CHANGE_SIDE,
             ));
