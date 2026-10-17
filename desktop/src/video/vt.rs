@@ -2,7 +2,9 @@
 //! movie's worker, behind its deadline. Callback state outlives invalidate;
 //! callbacks copy into a bounded queue and never touch the game or renderer.
 
-use objc2_core_foundation::{CFBoolean, CFDictionary, CFNumber, CFRetained, CFType};
+use objc2_core_foundation::{
+    CFBoolean, CFData, CFDictionary, CFNumber, CFRetained, CFString, CFType,
+};
 use objc2_core_media::*;
 use objc2_core_video::*;
 use objc2_video_toolbox::*;
@@ -48,37 +50,82 @@ fn status(code: i32, what: &str) -> Result<(), String> {
     }
 }
 
-impl Session {
-    pub fn new(
-        sets: &[Vec<u8>],
-        width: u32,
-        height: u32,
-        generation: u32,
-        full_range: bool,
-    ) -> Result<Self, String> {
-        let mut pointers: Vec<NonNull<u8>> = sets
-            .iter()
-            .map(|s| NonNull::new(s.as_ptr().cast_mut()).ok_or("empty parameter set"))
-            .collect::<Result<_, _>>()?;
-        let mut sizes: Vec<usize> = sets.iter().map(Vec::len).collect();
-        if pointers.is_empty() || sizes.contains(&0) {
-            return Err("empty parameter sets".into());
-        }
-        let mut raw = ptr::null();
-        // SAFETY: the pointer/length arrays and NALs stay alive throughout
-        // this call; CoreMedia copies the sets into its format description.
-        unsafe {
-            status(
+fn parameter_format(
+    sets: &[Vec<u8>],
+    hevc: bool,
+    raw: &mut *const CMFormatDescription,
+) -> Result<(), String> {
+    let mut pointers: Vec<NonNull<u8>> = sets
+        .iter()
+        .map(|s| NonNull::new(s.as_ptr().cast_mut()).ok_or("empty parameter set"))
+        .collect::<Result<_, _>>()?;
+    let mut sizes: Vec<usize> = sets.iter().map(Vec::len).collect();
+    if pointers.is_empty() || sizes.contains(&0) {
+        return Err("empty parameter sets".into());
+    }
+    // SAFETY: the arrays and NAL bytes remain live for the call. CoreMedia
+    // copies them; raw is an aligned pointer receiving one owned reference.
+    unsafe {
+        let pointers = NonNull::new(pointers.as_mut_ptr()).unwrap();
+        let sizes = NonNull::new(sizes.as_mut_ptr()).unwrap();
+        status(
+            if hevc {
+                CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+                    None,
+                    sets.len(),
+                    pointers,
+                    sizes,
+                    4,
+                    None,
+                    NonNull::from(raw),
+                )
+            } else {
                 CMVideoFormatDescriptionCreateFromH264ParameterSets(
                     None,
-                    pointers.len(),
-                    NonNull::new(pointers.as_mut_ptr()).unwrap(),
-                    NonNull::new(sizes.as_mut_ptr()).unwrap(),
+                    sets.len(),
+                    pointers,
+                    sizes,
                     4,
-                    NonNull::from(&mut raw),
-                ),
-                "format",
-            )?;
+                    NonNull::from(raw),
+                )
+            },
+            "format",
+        )
+    }
+}
+
+impl Session {
+    pub fn new(codec: &super::codec::Format, generation: u32) -> Result<Self, String> {
+        let (width, height, full_range) = (codec.width(), codec.height(), codec.full_range());
+        let mut raw = ptr::null();
+        match codec {
+            super::codec::Format::H264(f) => parameter_format(&f.sets, false, &mut raw)?,
+            super::codec::Format::Hevc(f) => parameter_format(&f.sets, true, &mut raw)?,
+            super::codec::Format::Vp9(f) => {
+                let data = CFData::from_bytes(&f.configuration());
+                let key = CFString::from_str("vpcC");
+                let atoms = CFDictionary::from_slices(&[&*key], &[&*data]);
+                // SAFETY: exported CF key, retained property-list values and
+                // an aligned out pointer. CoreMedia copies the atom payload.
+                unsafe {
+                    VTRegisterSupplementalVideoDecoderIfAvailable(u32::from_be_bytes(*b"vp09"));
+                    let extensions = CFDictionary::from_slices(
+                        &[kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms],
+                        &[&*atoms],
+                    );
+                    status(
+                        CMVideoFormatDescriptionCreate(
+                            None,
+                            u32::from_be_bytes(*b"vp09"),
+                            width as i32,
+                            height as i32,
+                            Some(extensions.as_ref()),
+                            NonNull::from(&mut raw),
+                        ),
+                        "format",
+                    )?;
+                }
+            }
         }
         // SAFETY: a successful Create returns one owned reference.
         let format =

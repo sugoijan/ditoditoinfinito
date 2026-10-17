@@ -4,10 +4,11 @@
 //! at most four workers can exist, including any abandoned worker.
 
 use super::{
-    Backend, DecoderStatus, Event, Frame, Machine, MovieFile, Msg, media::Media, vt::Session,
+    Backend, DecoderStatus, Event, Frame, Machine, MovieFile, Msg, codec::Order, media::Media,
+    vt::Session,
 };
-use ddi_library::h264::{ExactSeek, Offer, OutputOrder, PictureOrder};
-use ddi_platform::video::{VideoInfo, YuvMatrix};
+use ddi_library::h264::{ExactSeek, Offer};
+use ddi_platform::video::VideoInfo;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
@@ -126,6 +127,7 @@ struct NativeMovie {
     epoch: u32,
     seek: Option<f64>,
     last: Option<f64>,
+    same_time: usize,
     ended: bool,
 }
 
@@ -169,6 +171,7 @@ impl Hub {
                                 epoch: 0,
                                 seek: None,
                                 last: None,
+                                same_time: 0,
                                 ended: false,
                             },
                         );
@@ -203,6 +206,7 @@ impl Hub {
                 v.epoch = epoch;
                 v.seek = Some(t);
                 v.last = None;
+                v.same_time = 0;
                 v.ended = false;
                 match v.worker.request(Command::Seek(t, epoch)) {
                     Ok(Reply::Sought) => {}
@@ -229,6 +233,11 @@ impl Hub {
                     }
                     match v.worker.request(Command::Next) {
                         Ok(Reply::Next(Some(frame), _)) => {
+                            v.same_time = if v.last == Some(frame.pts) {
+                                v.same_time + 1
+                            } else {
+                                1
+                            };
                             v.last = Some(frame.pts);
                             machine.post(id, Some(epoch), Event::Frame(frame));
                         }
@@ -283,11 +292,24 @@ impl Hub {
         );
         eprintln!("[video] {}: VideoToolbox → module: {why}", v.name);
         let result = m.open_announced(id, v.path, &v.name, false).and_then(|()| {
-            if let Some(target) = v.last.or(v.seek) {
-                m.seek(id, target, v.epoch)?;
-                if let Some(movie) = m.videos.get_mut(&id) {
-                    movie.skip_through = v.last;
+            if let Some(last) = v.last {
+                let coalesced = v.seek.is_some_and(|t| last <= t + 1e-6);
+                if coalesced {
+                    m.seek(id, v.seek.expect("coalesced seek"), v.epoch)?;
+                } else if last > 1e-5 {
+                    // Seek just before the group, so ExactSeek cannot discard
+                    // its still-undelivered pictures. At zero reopen directly.
+                    m.seek(id, last - 1e-5, v.epoch)?;
                 }
+                if let Some(movie) = m.videos.get_mut(&id) {
+                    movie.epoch = v.epoch;
+                    movie.resume = Some(super::Resume {
+                        time: last,
+                        remaining: v.same_time,
+                    });
+                }
+            } else if let Some(target) = v.seek {
+                m.seek(id, target, v.epoch)?;
             } else if let Some(movie) = m.videos.get_mut(&id) {
                 movie.epoch = v.epoch;
             }
@@ -303,8 +325,7 @@ impl Hub {
 struct Decoder {
     media: Media,
     session: Session,
-    pictures: PictureOrder,
-    order: OutputOrder,
+    order: Order,
     sequence: VecDeque<(usize, f64)>,
     decoded: HashMap<usize, Vec<u8>>,
     submitted: HashSet<usize>,
@@ -324,13 +345,11 @@ impl Decoder {
     fn open(path: &MovieFile, name: &str, module: Option<PathBuf>) -> Result<Self, String> {
         let media = Media::open(path, name, module)?;
         let session = Self::session(&media, 0)?;
-        let pictures = PictureOrder::new(&media.format.stream);
-        let order = OutputOrder::new(media.format.delay);
+        let order = media.format.order();
         let last_length = media.period;
         Ok(Self {
             media,
             session,
-            pictures,
             order,
             sequence: VecDeque::new(),
             decoded: HashMap::new(),
@@ -349,13 +368,7 @@ impl Decoder {
         })
     }
     fn session(m: &Media, generation: u32) -> Result<Session, String> {
-        Session::new(
-            &m.format.sets,
-            m.format.stream.sps.width,
-            m.format.stream.sps.height,
-            generation,
-            m.format.stream.sps.full_range,
-        )
+        Session::new(&m.format, generation)
     }
     fn info(&self) -> VideoInfo {
         self.media.info()
@@ -365,8 +378,7 @@ impl Decoder {
     }
     fn reset(&mut self) -> Result<(), String> {
         self.session = Self::session(&self.media, self.generation)?;
-        self.pictures = PictureOrder::new(&self.media.format.stream);
-        self.order = OutputOrder::new(self.media.format.delay);
+        self.order = self.media.format.order();
         self.sequence.clear();
         self.decoded.clear();
         self.submitted.clear();
@@ -403,17 +415,12 @@ impl Decoder {
         let began = Instant::now();
         loop {
             if let Some((planes, pts)) = self.ready.pop_front() {
-                let s = &self.media.format.stream.sps;
                 return Ok(Some(Frame {
                     pts,
-                    width: s.width,
-                    height: s.height,
-                    matrix: if s.bt709() {
-                        YuvMatrix::Bt709
-                    } else {
-                        YuvMatrix::Bt601
-                    },
-                    full_range: s.full_range,
+                    width: self.media.format.width(),
+                    height: self.media.format.height(),
+                    matrix: self.media.format.matrix(),
+                    full_range: self.media.format.full_range(),
                     planes,
                     decode_ms: began.elapsed().as_secs_f64() * 1000.0,
                 }));
@@ -464,35 +471,18 @@ impl Decoder {
             if let Some(packet) = self.media.next()? {
                 let i = self.index;
                 if i >= 1_000_000 {
-                    return Err("native H.264 packet count exceeds its bound".into());
+                    return Err("native video packet count exceeds its bound".into());
                 }
-                if self.media.packet_path() {
-                    super::media::checked_picture(&packet.bytes, self.media.format.stream.framing)?;
-                }
-                let picture = self
-                    .pictures
-                    .picture(
-                        &packet.bytes,
-                        self.media.format.stream.framing,
-                        &self.media.format.stream.sps,
-                    )
-                    .ok_or("H.264 packet has no supported picture")?;
-                if i == 0 && !picture.idr {
-                    return Err("H.264 seek did not land on an IDR".into());
-                }
-                if picture.b && self.media.format.delay == 0 {
-                    return Err("H.264 B picture violates the fixed reorder delay".into());
-                }
-                // OutputOrder chooses identities from POC; stream timestamps
-                // belong to the packet that releases that identity, not its PTS.
-                let released = self.order.push(i, picture, i as u32);
-                if released.dropped.is_some() {
-                    return Err("H.264 output order dropped a picture".into());
-                }
+                let (sample, released) = self.order.submit(
+                    &self.media.format,
+                    &packet.bytes,
+                    i,
+                    self.media.packet_path(),
+                )?;
                 if let Some(stamp) = packet.stamp {
                     self.last_dts = Some(stamp);
                 }
-                if let Some((id, _)) = released.out {
+                for id in released {
                     let stamp = packet
                         .stamp
                         .map(|t| t.max(0.0))
@@ -500,13 +490,12 @@ impl Decoder {
                     self.timeline = Some(stamp);
                     self.sequence.push_back((id, stamp));
                 }
-                let sample = self.media.format.sample(&packet.bytes)?;
                 self.submitted.insert(i);
                 self.durations.insert(i, packet.duration);
                 self.session.decode(&sample, i)?;
                 self.index += 1;
             } else {
-                for (id, _) in self.order.drain() {
+                for id in self.order.drain() {
                     let stamp = self.missing_time();
                     self.timeline = Some(stamp);
                     self.sequence.push_back((id, stamp));

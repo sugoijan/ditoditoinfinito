@@ -525,10 +525,9 @@ tests cover the deadline/disable behaviour, range bounds, alternate
 configurations and malformed avcC.
 `play_movie` also renders MPEG-4 and H.264 through the real offscreen play.
 
-This completes the AVI part of steps 1–2. Sections 4c–4d add bounded packet
-exports and the native H.264 consumer for MP4/Matroska; streaming HEVC/VP9,
-Windows and GPU interop remain. The finite HEVC/VP9
-spike does not broaden this production gate.
+This completes the AVI part of steps 1–2. Sections 4c–4e add bounded packet
+exports and checked streaming H.264/HEVC/VP9 consumers. Windows and GPU
+interop remain. The finite spike alone does not broaden a production gate.
 
 ## 4c. Bounded sandboxed packets (2026-10-17)
 
@@ -563,9 +562,9 @@ existing codec/reference suite passed (Theora skipped: local encoder absent),
 and fresh headless Chrome and Firefox each passed 150 frames and 188 exact
 seeks through the module. This does not widen the playback capability gate.
 
-Section 4d connects these packets to the native worker for checked H.264 in
-MP4/Matroska. Streaming HEVC/VP9 still needs codec output ordering and exact
-seeks; packet agreement alone is insufficient.
+Sections 4d–4e connect these packets to checked H.264/HEVC/VP9 output
+models and exact seeks. Packet agreement alone is insufficient to select
+an OS decoder.
 
 ## 4d. Streaming H.264 MP4/Matroska (2026-10-17)
 
@@ -604,9 +603,78 @@ simultaneous readers and rapid seeks. Edge cases cover multi-slice/10-bit
 refusal, later SPS changes, open-GOP seeks, malformed files and bad ranges.
 The existing AVI suite remains a regression check. No native FFmpeg is linked.
 
-Next: streaming HEVC/VP9 with codec-specific output order and the same fidelity
-requirements, then Windows Media Foundation. These H.264 checks do not select
-other codecs.
+Section 4e adds independently checked HEVC and VP9 stream classes. The
+H.264 checks alone do not select other codecs.
+
+## 4e. Streaming HEVC and VP9 (2026-10-17)
+
+`codec.rs` selects separate output models below the existing worker and
+private demuxer. HEVC in MP4/Matroska requires hvcC Main, progressive 8-bit
+4:2:0, one layer and temporal layer, one VPS/SPS/PPS and an independent,
+visible slice per packet. Short-term RPS syntax (including prediction) and
+POC wrap are parsed with bounded Rust header reads. The DPB retains pending
+output and reference identities, removes references no longer in the RPS,
+and emits the lowest POC when either the reorder count or DPB capacity is
+exceeded. An IDR drains the old sequence before starting the new one.
+Every emitted identity takes the current packet's normalized DTS; EOF uses
+the module's incremental additions. Container PTS is never an output index.
+
+The HEVC gate refuses long-term references, extra/dependent slices, changed
+parameter sets, custom scaling lists, PCM, fields and unsupported NALs/SEI.
+Only user-data-unregistered SEI is accepted; recovery/timing/film-grain SEI
+could alter output or pixels. A seek must land on an IDR; an open-GOP CRA
+seek returns to the module at the same requested time. The SPS DPB is at
+most 16 pictures, with at most 64 short-term RPS definitions and 16
+references per set. NAL units and samples retain the existing 256/8 MiB
+limits; each header reader examines at most 64 KiB. Full compressed payloads
+stay opaque to Rust and are submitted only after those checks.
+
+VP9 in WebM/Matroska or MP4 requires profile 0 and one visible coded picture
+per packet. Every header checks profile, geometry and rendering size; key
+headers also check range/matrix against the container. References all retain
+the checked geometry. A fresh decoder/seek must begin with a key picture.
+Visible pictures emit immediately on their packet DTS. Hidden alternate
+references, superframes and show-existing pictures refuse before submission;
+their output multiplicity is outside this first class. Higher bit depth,
+HDR, changed geometry/colour, packet side data and corruption also use the
+module. The existing 4096×2160 geometry, two-second/256 MiB demux heap,
+four-second worker deadline and four-worker/32-output bounds remain.
+
+CoreMedia builds HEVC's format from the checked parameter sets and VP9's
+from a vpcC atom describing the checked profile and colours. VP9 registers
+Apple's supplemental decoder before attempting the session. Both require
+hardware and verify the actual hardware property, retaining the copied NV12
+to I420 path and its range/geometry checks. No native FFmpeg is linked.
+
+HEVC can release several pictures at the same DTS. The decoder-check harness
+now allows equal successive times and seeks to the last picture at that
+time, matching the unchanged module and shared `ExactSeek`. Recovery counts
+the delivered part of a coincident group, seeks just before it, and skips
+only those delivered pictures. An exact seek is restored to its original target so the module coalesces
+the same initial pictures before applying the count. This avoids losing a still-undelivered picture
+when a native failure happens part-way through a group.
+
+Nineteen generated clips (1,540 frames and 2,188 exact seeks per backend)
+match the module through hardware VideoToolbox and Auto. They cover B/no-B
+HEVC, closed GOPs, POC wrap, fractional rates, nonzero starts, VFR gaps, long GOPs, 720p,
+full-range BT.709 and lossless VP9. Stored members, concurrent codecs and
+superseded seeks exercise the shared worker. Refusal/recovery cases include
+later HEVC SPS changes in both containers, non-IDR open-GOP seeks, multiple
+slices, 10-bit streams and two-pass VP9 hidden alternate references. Real
+movie play remains covered offscreen on a fake clock; H.264 remains a
+regression suite.
+
+Sources for syntax and baseline behaviour:
+[H.265](https://www.itu.int/rec/T-REC-H.265), sections 7.3.2/7.3.6/7.3.7 and
+8.3.1; [VP9 headers](https://downloads.webmproject.org/docs/vp9/vp9-bitstream_superframe-and-uncompressed-header_v1.0.pdf)
+and [ISO binding](https://www.webmproject.org/vp9/mp4/). The pinned FFmpeg
+9.0.2 source (`target/video/ffmpeg-9.0.2/libavcodec/hevc/{ps,hevcdec,refs}.c`,
+`vp9.c` and `bsf/vp9_superframe_split.c`) defines the module's release and
+DTS behaviour. These are independent Rust header/output models checked
+against that baseline, not native FFmpeg decoding.
+
+Next: Windows Media Foundation. Wider macOS stream classes require their
+own output models and fidelity evidence; GPU plane sharing remains later.
 
 ## 5. Safety
 
@@ -710,7 +778,7 @@ StepMania plays", and H.264 alone has had such bugs.
 ## 7. Implementation order (decision 50)
 
 The module remains the baseline decoder and fallback throughout this work.
-The verified macOS H.264 AVI and MP4/Matroska subsets select VideoToolbox automatically;
+The verified macOS H.264, HEVC and VP9 subsets select VideoToolbox automatically;
 `DDI_VIDEO_DECODER=module` forces the module for play.
 An OS path is selected for a movie only after its supported stream class
 passes the checks; absence, refusal, bad output or a stalled session moves
@@ -735,8 +803,8 @@ backend and fallback reason in `--video-check` and diagnostics. Preserve
    retain/release pixel buffers explicitly; drain/flush on seek; tag
    callbacks with generations so old results cannot enter a new movie.
    Probe actual hardware sessions, preserving software/module fallback.
-   Then implement and verify streaming HEVC/VP9 ordering; AV1 and other
-   codecs only where capability and fidelity checks pass. A watchdog
+   Streaming HEVC/VP9 subsets are implemented (4e); wider profiles, AV1 and
+   other codecs need their own capability and fidelity checks. A watchdog
    abandons a stuck session and its outputs without blocking the game.
 3. **Windows copied-plane decoder.** Media Foundation with D3D11, below.
    Test real Windows hardware, plus software-only/refusal cases. Cross
@@ -875,11 +943,10 @@ remove them.
 
 ## 9. Remaining validation
 
-- The first checked H.264 AVI path in section 4b is implemented. Other containers
-  and codec classes still use the module; their automatic selection waits
-  for the bounded packet interface and the same fidelity checks.
-- A new packet interface for non-AVI containers and bounded streaming
-  HEVC/VP9 reordering remain work, despite the fixture successes.
+- Sections 4b–4e implement the checked H.264/HEVC/VP9 subsets and the
+  bounded packet interface. Wider profiles and output classes (including
+  hidden/superframe VP9, HEVC long-term references and higher bit depths)
+  remain with the module until their own fidelity checks pass.
 - The zero-copy spike does not measure a rendered frame; full GPU lifetime,
   colour, upload and device-loss tests are required before adopting it.
 - Default vs background QoS is a useful weak-CPU proxy, not a general

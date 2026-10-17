@@ -5,8 +5,8 @@ module as `ddivideo.c`. Existing decode exports and callers are unchanged.
 `ddi_demux_abi()` returns 1; hosts load these exports only when requested,
 so older modules can still decode movies. `desktop::video::packets::PacketReader`
 checks the ABI and copies owned buffers out of a private, deadline-limited
-wasmtime instance. Use it on a decoder worker. macOS H.264 MP4/Matroska
-playback now uses it with a 256 MiB heap and two-second calls.
+wasmtime instance. Use it on a decoder worker. macOS H.264/HEVC MP4/Matroska
+and VP9 WebM/MP4 playback now use it with a 256 MiB heap and two-second calls.
 
 Run `node --no-warnings video/packets.mjs movie.mp4 [--json]` to inspect
 metadata, packet CRCs and seek hints and verify key-packet seeks under WASI.
