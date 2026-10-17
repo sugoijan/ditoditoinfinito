@@ -5,7 +5,8 @@ module as `ddivideo.c`. Existing decode exports and callers are unchanged.
 `ddi_demux_abi()` returns 1; hosts load these exports only when requested,
 so older modules can still decode movies. `desktop::video::packets::PacketReader`
 checks the ABI and copies owned buffers out of a private, deadline-limited
-wasmtime instance. Use it on a decoder worker. Playback does not use it yet.
+wasmtime instance. Use it on a decoder worker. macOS H.264 MP4/Matroska
+playback now uses it with a 256 MiB heap and two-second calls.
 
 Run `node --no-warnings video/packets.mjs movie.mp4 [--json]` to inspect
 metadata, packet CRCs and seek hints and verify key-packet seeks under WASI.
@@ -47,7 +48,10 @@ Enum values are those of the pinned FFmpeg 9 release; unknown values must
 be handled conservatively. Rational values are `[numerator, denominator]`.
 The time base is positive. A zero denominator in an optional rational means
 unknown. Integer timestamps and counts are decimal **strings** or `null`,
-so JavaScript never rounds 64-bit values.
+so JavaScript never rounds 64-bit values. `container_duration` is an additive
+optional string/null field in AV_TIME_BASE microseconds, excluding bitrate
+guesses. The native packet path requires reliable duration metadata; older
+modules without that field retain software playback.
 
 `ddi_demux_config(handle)` and `ddi_demux_config_size(handle)` expose the
 current container extradata verbatim, not an OS-specific format conversion.

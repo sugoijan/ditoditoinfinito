@@ -95,7 +95,7 @@ static int describe(Demux *d) {
     AVCodecParameters *c = s->codecpar;
     AVRational rate = av_guess_frame_rate(d->format, s, NULL);
     const AVPixFmtDescriptor *pix = av_pix_fmt_desc_get(c->format);
-    char start[32], duration[32], frames[32];
+    char start[32], duration[32], frames[32], container_duration[32];
     /* Names come from FFmpeg's static codec/format tables, never file tags. */
     int n = snprintf(d->description, sizeof(d->description),
         "{\"abi\":1,\"codec\":\"%s\",\"container\":\"%s\","
@@ -104,7 +104,7 @@ static int describe(Demux *d) {
         "\"field_order\":%d,\"video_delay\":%d,"
         "\"time_base\":[%d,%d],\"frame_rate\":[%d,%d],"
         "\"start\":%s,\"duration\":%s,\"frames\":%s,"
-        "\"aspect_ratio\":[%d,%d],\"color_range\":%d,\"color_space\":%d,"
+        "\"container_duration\":%s,\"aspect_ratio\":[%d,%d],\"color_range\":%d,\"color_space\":%d,"
         "\"color_primaries\":%d,\"color_transfer\":%d,\"chroma_location\":%d,"
         "\"configuration_size\":%u}",
         avcodec_get_name(c->codec_id), d->format->iformat->name, d->stream,
@@ -113,6 +113,8 @@ static int describe(Demux *d) {
         c->video_delay, s->time_base.num, s->time_base.den, rate.num, rate.den,
         tick(s->start_time, start), tick(s->duration, duration),
         tick(s->nb_frames ? s->nb_frames : AV_NOPTS_VALUE, frames),
+        tick(d->format->duration_estimation_method != AVFMT_DURATION_FROM_BITRATE &&
+             d->format->duration > 0 ? d->format->duration : AV_NOPTS_VALUE, container_duration),
         c->sample_aspect_ratio.num, c->sample_aspect_ratio.den,
         c->color_range, c->color_space, c->color_primaries, c->color_trc,
         c->chroma_location, d->configuration_size);

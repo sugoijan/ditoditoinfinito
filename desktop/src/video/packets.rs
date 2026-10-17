@@ -37,6 +37,9 @@ pub struct StreamInfo {
     pub duration: Option<i64>,
     #[serde(deserialize_with = "ticks")]
     pub frames: Option<i64>,
+    /// Container duration in AV_TIME_BASE microseconds, excluding bitrate guesses.
+    #[serde(default, deserialize_with = "ticks")]
+    pub container_duration: Option<i64>,
     pub aspect_ratio: [i32; 2],
     pub color_range: i32,
     pub color_space: i32,
@@ -157,12 +160,26 @@ pub struct PacketReader {
 }
 impl PacketReader {
     pub fn open(module: Option<PathBuf>, file: MovieFile, name: &str) -> Result<Self, String> {
+        Self::open_bounded(module, file, name, CALL_DEADLINE, MAX_MEMORY)
+    }
+    /// Native workers use a smaller heap and deadline than software decode.
+    pub(super) fn open_bounded(
+        module: Option<PathBuf>,
+        file: MovieFile,
+        name: &str,
+        deadline: Duration,
+        memory_limit: usize,
+    ) -> Result<Self, String> {
+        if memory_limit == 0 || memory_limit > MAX_MEMORY {
+            return Err("invalid packet memory limit".into());
+        }
         let shared = Arc::new(Mutex::new(Shared {
             status: ModuleStatus::Idle,
             movies: HashMap::new(),
             probes: HashMap::new(),
         }));
-        let mut machine = Machine::new(module, shared, CALL_DEADLINE);
+        let mut machine = Machine::new(module, shared, deadline);
+        machine.memory_limit = memory_limit;
         machine.compiled()?;
         machine.instantiate()?;
         let r = machine.running.as_mut().expect("instance");
@@ -587,6 +604,27 @@ mod tests {
             assert!(failed, "{name}");
             assert!(r.machine.running.is_none());
         }
+    }
+    #[test]
+    fn a_worker_heap_limit_is_enforced_on_memory_growth() {
+        let engine = Engine::default();
+        let module = Module::new(
+            &engine,
+            wat::parse_str(format!("{})", decode_stub())).unwrap(),
+        )
+        .unwrap();
+        let shared = Arc::new(Mutex::new(Shared {
+            status: ModuleStatus::Idle,
+            movies: HashMap::new(),
+            probes: HashMap::new(),
+        }));
+        let mut machine = Machine::new(None, shared, Duration::from_secs(2));
+        machine.engine = Some(engine);
+        machine.module = Some(module);
+        machine.memory_limit = 65536;
+        machine.instantiate().unwrap();
+        let r = machine.running.as_mut().unwrap();
+        assert!(r.x.memory.grow(&mut r.store, 1).is_err());
     }
     #[test]
     fn missing_packet_exports_do_not_break_old_playback_exports() {

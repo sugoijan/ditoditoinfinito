@@ -1,7 +1,8 @@
 //! Background movies on desktop (feature `video`): on macOS, checked
-//! progressive 8-bit H.264 AVIs through hardware VideoToolbox; every other
+//! progressive 8-bit H.264 AVI, MP4 and Matroska through hardware VideoToolbox; other
 //! movie through the sandboxed FFmpeg module under wasmtime. The OS path
-//! reuses `ddi_library::avi` and `h264` as WebCodecs does, with bounded
+//! reuses `ddi_library::avi` and `h264` as WebCodecs does; MP4/Matroska
+//! packets come from a bounded private wasm demuxer. Both paths have bounded
 //! reads, callbacks and reorder queues, copied I420 planes, exact seeks,
 //! and per-generation output. A separate worker owns each native session;
 //! a deadline abandons a stuck one and disables native opens for the process.
@@ -57,6 +58,10 @@ use wasmtime::{
 
 #[cfg(target_os = "macos")]
 mod avi;
+#[cfg(target_os = "macos")]
+mod h264_format;
+#[cfg(target_os = "macos")]
+mod media;
 #[cfg(target_os = "macos")]
 mod native;
 #[cfg(target_os = "macos")]
@@ -1076,6 +1081,7 @@ struct Machine {
     module_path: Option<PathBuf>,
     /// Each call's deadline, in ticks.
     deadline_ticks: u64,
+    memory_limit: usize,
     engine: Option<Engine>,
     _ticker: Option<Ticker>,
     /// The module's `Ready` status once loaded (put back after a later
@@ -1110,6 +1116,7 @@ impl Machine {
             deadline_ticks: (deadline.as_secs_f64() / TICK.as_secs_f64())
                 .ceil()
                 .max(1.0) as u64,
+            memory_limit: MAX_MEMORY,
             engine: None,
             _ticker: None,
             loaded: None,
@@ -1276,7 +1283,7 @@ impl Machine {
             engine,
             Wasi {
                 limits: StoreLimitsBuilder::new()
-                    .memory_size(MAX_MEMORY)
+                    .memory_size(self.memory_limit)
                     .instances(1)
                     .build(),
                 deadline_ticks: self.deadline_ticks,
