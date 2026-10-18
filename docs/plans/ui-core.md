@@ -1192,6 +1192,11 @@ Done, 6.3 options (2026-10-16):
   live directly under the Arrows choice, shown for Dito and Built-in
   only. Other skins supply their own colors; changing skins keeps the
   saved color choices. Lyrics stays in Display.
+- **Preview layout** (2026-10-18): the layout selector sits directly
+  above the preview on every tab, separate from Arrows' rows. Tap its
+  arrows, press P to focus it, or move Down past the section's last row;
+  Left/Right change the layout and Up/Down return to the options. It
+  affects only the preview and is not saved as the play style.
 - **Pure and shared:** `ui/src/screens/options_model.rs` makes the rows
   from the settings and what the platform knows (`World`: the
   noteskins, the controllers connected, the library's counts, the

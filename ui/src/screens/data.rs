@@ -516,6 +516,8 @@ pub struct OptionSection {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct OptionsData {
     pub sections: Vec<OptionSection>,
+    /// The layout selector above the preview, shared by every section.
+    pub preview_layout: Option<OptionDef>,
     /// Under the field preview ("Dito · Single · ×2.5 · Reverse").
     pub preview: String,
     /// What the last action did ("Settings reset.", "3 plays

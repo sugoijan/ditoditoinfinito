@@ -338,7 +338,9 @@ results say AUTOPLAY. On a phone the results are one scrolled column
 (`ui.theme.compact`, `scroll`; `ui.rects.ResultsClip`, `Back`).
 Options (`#/options`) is our theme's screen too, on the stored settings:
 drive it the same way (Up/Down rows, Left/Right change, Enter presses a
-row's button, Tab the next section, Escape back), read
+row's button, Tab the next section, Escape back). The layout selector above
+the preview is available on every tab (P focuses it; Left/Right change it,
+Up/Down return to the options). Read
 `__DDI_DEBUG.ui.theme` (`section`, `optionId`, `value`, `rows`,
 `notice`, `preview`) and `__DDI_DEBUG.options`, and the settings in
 `localStorage` (`ddi.settings.v1`); the bind dialog takes keys and a

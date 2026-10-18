@@ -1486,12 +1486,17 @@ impl Look for Infinito {
                 // A stand-in for the field: four targets near the top
                 // (reverse puts them at the bottom in play).
                 let mut c = vec![p, edge];
-                let side = 44.0;
+                let side = 44.0_f32.min((h - 40.0).max(16.0));
                 let left = w / 2.0 - 2.0 * side - 12.0;
                 for k in 0..4 {
                     c.push(outline_r(
                         "",
-                        [left + k as f32 * (side + 8.0), h - 120.0, side, side],
+                        [
+                            left + k as f32 * (side + 8.0),
+                            (h - 120.0).max(4.0),
+                            side,
+                            side,
+                        ],
                         2.0,
                         self.c("Line2"),
                         6.0,

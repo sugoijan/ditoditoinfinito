@@ -11,13 +11,16 @@
 //! - **Right**: the field's preview (`Options.Preview`): the shell draws
 //!   the demo chart with the options chosen into the texture
 //!   [`FIELD_PREVIEW`], told where by [`UiRequest::FieldPreview`]; until
-//!   it does, the panel's placeholder shows.
+//!   it does, the panel's placeholder shows. Its layout selector sits
+//!   directly above it, available in every section.
 //! - **Below**: what the focused option does (`Options.Description`).
 //! - **Keys**: Up and Down move through the options, Left and Right
 //!   change the focused one (or move between its buttons), Start presses
 //!   a button, Tab (the menu's Select) moves to the next section, Back
 //!   leaves. Changes are saved as they are made (the shell's
 //!   [`OptionsShell`], or the sample's [`ChangeFn`]).
+//!   P focuses the preview layout; Down past a section's last row does
+//!   too. Left/Right change it, Up/Down return to the options.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -88,6 +91,7 @@ pub struct OptionsScreen {
     data: OptionsData,
     section: usize,
     focus: usize,
+    preview_focused: bool,
     places: Places,
     /// How far the rows are scrolled, and the tab strip.
     scroll: f32,
@@ -111,6 +115,7 @@ impl OptionsScreen {
             data,
             section: 0,
             focus: 0,
+            preview_focused: false,
             places: Places::default(),
             scroll: 0.0,
             sliding: None,
@@ -147,6 +152,14 @@ impl OptionsScreen {
             .map_or(&[], |s| &s.options)
     }
 
+    fn selected_option(&self) -> Option<&OptionDef> {
+        if self.preview_focused {
+            self.data.preview_layout.as_ref()
+        } else {
+            self.options().get(self.focus)
+        }
+    }
+
     /// The layout's size for the virtual screen: the full design as it
     /// is; a compact one sideways as it is (a phone's own size); upright,
     /// 480 wide, zoomed to the screen's width.
@@ -167,6 +180,11 @@ impl OptionsScreen {
         let (screen, zoom, compact) = self.fit(vp);
         let env = &self.env;
         let [w, h] = screen;
+        let selector = if self.data.preview_layout.is_some() {
+            ROW + 8.0
+        } else {
+            0.0
+        };
         self.places = if !compact {
             let design_w = env.metric("Design.Width", 1280.0);
             let m = env.metric("Margin", 32.0);
@@ -195,7 +213,12 @@ impl OptionsScreen {
                     desc_y - 16.0 - top,
                 ],
                 label_w: 220.0,
-                preview: Some([preview_x, top, 344.0, (desc_y - 16.0 - top).min(500.0)]),
+                preview: Some([
+                    preview_x,
+                    top + selector,
+                    344.0,
+                    (desc_y - 16.0 - top).min(500.0) - selector,
+                ]),
                 desc: [rows_x, desc_y, w - rows_x - m, desc_h],
             }
         } else {
@@ -206,9 +229,9 @@ impl OptionsScreen {
                 // the preview, and what the focused option does under it.
                 let pw = env.metric("Options.Compact.Preview", 320.0).min(w * 0.38);
                 let right = h - top - m;
-                let ph = (right * 0.45)
-                    .min(right - 8.0 - self.desc_height(pw))
-                    .max(120.0)
+                let ph = ((right - selector) * 0.45)
+                    .min(right - selector - 8.0 - self.desc_height(pw))
+                    .max(64.0)
                     .round();
                 Places {
                     screen,
@@ -217,14 +240,19 @@ impl OptionsScreen {
                     sections: [m, 50.0, w - 2.0 * m, 36.0],
                     rows: [m, top, w - 3.0 * m - pw, right],
                     label_w: 170.0,
-                    preview: Some([w - m - pw, top, pw, ph]),
-                    desc: [w - m - pw, top + ph + 8.0, pw, right - ph - 8.0],
+                    preview: Some([w - m - pw, top + selector, pw, ph]),
+                    desc: [
+                        w - m - pw,
+                        top + selector + ph + 8.0,
+                        pw,
+                        right - selector - ph - 8.0,
+                    ],
                 }
             } else {
                 // Upright: rows, what the focused one does, the preview.
                 let ph = (h * 0.3).clamp(200.0, 320.0);
                 let desc_h = self.desc_height(w - 2.0 * m);
-                let rows_h = h - top - desc_h - ph - 4.0 * m;
+                let rows_h = h - top - desc_h - selector - ph - 4.0 * m;
                 Places {
                     screen,
                     zoom,
@@ -246,6 +274,9 @@ impl OptionsScreen {
         let mut children = vec![ground(&env, screen)];
         children.push(self.sections_actor());
         children.push(self.rows_actor());
+        if let Some(selector) = self.preview_selector() {
+            children.push(selector);
+        }
         if let Some([px, py, pw, ph]) = p.preview {
             let mut panel = env.component(
                 "Options.Preview",
@@ -301,6 +332,7 @@ impl OptionsScreen {
                 &[
                     (&["↑↓"], "Option"),
                     (&["←→"], "Change"),
+                    (&["P"], "Preview"),
                     (&["TAB"], "Section"),
                     (&["ESC"], "Back"),
                 ],
@@ -316,6 +348,43 @@ impl OptionsScreen {
             call(&mut root, "zoom", &[p.zoom]);
         }
         root
+    }
+
+    fn preview_selector(&self) -> Option<Actor> {
+        let [x, y, w, _] = self.places.preview?;
+        let option = self.data.preview_layout.as_ref()?;
+        let env = &self.env;
+        let mut selector = env.component(
+            "Button",
+            "Button",
+            &Spec::new([w, ROW], &format!("Preview: {}", option.value())),
+            "PreviewLayout",
+            [x + w / 2.0, y - 8.0 - ROW / 2.0],
+        );
+        if let Some(label) = part(&mut selector, "Label") {
+            call(label, "maxwidth", &[w - 96.0]);
+            ellipsize(label);
+        }
+        if let Kind::Frame(children) = &mut selector.kind {
+            for (name, text, x) in [("Down", "◀", -w / 2.0 + 22.0), ("Up", "▶", w / 2.0 - 22.0)]
+            {
+                let hit = quad("", [44.0, ROW], [0.0, 0.0, 0.0, 0.004]);
+                let arrow = env.text("", text, 14.0, 400, "Accent");
+                let mut button = frame(&format!("PreviewLayout.{name}"), vec![hit, arrow]);
+                call(&mut button, "x", &[x]);
+                children.push(button);
+            }
+        }
+        crate::widgets::play(
+            &mut selector,
+            if self.preview_focused {
+                "GainFocus"
+            } else {
+                "LoseFocus"
+            },
+        );
+        selector.finish_tweening();
+        Some(selector)
     }
 
     /// The sections: a rail, or a strip of tabs scrolled to the chosen.
@@ -444,7 +513,7 @@ impl OptionsScreen {
             // `Select`, not focus: the rows' frame is what takes focus.
             crate::widgets::play(
                 &mut row,
-                if i == self.focus {
+                if i == self.focus && !self.preview_focused {
                     "Select"
                 } else {
                     "Deselect"
@@ -599,7 +668,7 @@ impl OptionsScreen {
                     let mut a = look::component(&*env.look, "Button", &Spec::new([bw, 30.0], b));
                     a.name = format!("Option{i}.Button{j}");
                     call(&mut a, "xy", &[bx - bw / 2.0, mid]);
-                    let lit = i == self.focus && j == o.index;
+                    let lit = i == self.focus && j == o.index && !self.preview_focused;
                     crate::widgets::play(&mut a, if lit { "GainFocus" } else { "LoseFocus" });
                     a.finish_tweening();
                     placed.push(a);
@@ -662,9 +731,13 @@ impl OptionsScreen {
         if let Some(r) = hit::find_mut(root, "Sections") {
             *r = fresh;
         }
+        if let Some(fresh) = self.preview_selector()
+            && let Some(selector) = hit::find_mut(root, "PreviewLayout")
+        {
+            *selector = fresh;
+        }
         let (label, description) = self
-            .options()
-            .get(self.focus)
+            .selected_option()
             .map(|o| {
                 let label = if o.label.is_empty() {
                     o.heading.clone().unwrap_or_default()
@@ -703,6 +776,7 @@ impl OptionsScreen {
             .sections
             .iter()
             .flat_map(|s| &s.options)
+            .chain(self.data.preview_layout.iter())
             .map(|o| super::select_dialogs::wrap_lines(&o.description, w - 40.0, 13.0).len())
             .max()
             .unwrap_or(1)
@@ -764,12 +838,15 @@ impl OptionsScreen {
 
     fn change(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
         let section = self.section;
-        let Some(o) = self
-            .data
-            .sections
-            .get_mut(section)
-            .and_then(|s| s.options.get_mut(self.focus))
-        else {
+        let option = if self.preview_focused {
+            self.data.preview_layout.as_mut()
+        } else {
+            self.data
+                .sections
+                .get_mut(section)
+                .and_then(|s| s.options.get_mut(self.focus))
+        };
+        let Some(o) = option else {
             return;
         };
         let n = o.values().len() as i32;
@@ -784,7 +861,11 @@ impl OptionsScreen {
             self.refresh(root);
             return;
         }
-        let name = self.data.sections[section].name.clone();
+        let name = if self.preview_focused {
+            "Preview".to_string()
+        } else {
+            self.data.sections[section].name.clone()
+        };
         self.env.state.borrow_mut().status = format!("{} {}", o.label, o.value());
         if let Some(f) = &self.changed {
             f(&name, &o);
@@ -828,6 +909,7 @@ impl OptionsScreen {
             return;
         }
         self.section = i;
+        self.preview_focused = false;
         self.focus = 0;
         self.scroll = 0.0;
         self.tabs_follow = true;
@@ -885,7 +967,7 @@ impl OptionsScreen {
             .get(self.section)
             .map(|s| s.name.clone())
             .unwrap_or_default();
-        let o = self.options().get(self.focus);
+        let o = self.selected_option();
         st.option = o.map(|o| o.label.clone()).unwrap_or_default();
         st.option_id = o.map(|o| o.id.clone()).unwrap_or_default();
         st.value = o.map(|o| o.value().to_string()).unwrap_or_default();
@@ -923,6 +1005,7 @@ impl OptionsScreen {
                     return None;
                 }
                 self.sliding = Some(i);
+                self.preview_focused = false;
                 if i != self.focus {
                     self.focus = i;
                     self.refresh(root);
@@ -984,6 +1067,9 @@ impl Screen for OptionsScreen {
 
     fn focusables(&self) -> Vec<Focusable> {
         let mut v = vec![Focusable::new("RowsClip")];
+        if self.data.preview_layout.is_some() {
+            v.push(Focusable::new("PreviewLayout"));
+        }
         if self.places.compact {
             v.push(Focusable::new("Back"));
         } else {
@@ -1021,11 +1107,18 @@ impl Screen for OptionsScreen {
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
         let n = self.options().len();
         let on_rows = cx.focused().is_none_or(|f| f == "RowsClip");
+        let on_preview = cx.focused() == Some("PreviewLayout");
         if let Some(h) = self.slide(input, root, cx) {
             return h;
         }
         match input {
             Input::Menu { action, repeat } => match action {
+                MenuAction::Up | MenuAction::Down if on_preview => {
+                    self.preview_focused = false;
+                    cx.focus("RowsClip");
+                    self.refresh(root);
+                    Handled::Yes
+                }
                 // A fresh Up on the first row goes on up: on a phone to
                 // the sections' tabs above, otherwise (and from the top
                 // bar) past the top, to the app's notices.
@@ -1050,16 +1143,27 @@ impl Screen for OptionsScreen {
                     self.refresh(root);
                     Handled::Yes
                 }
+                MenuAction::Down
+                    if on_rows
+                        && self.focus + 1 >= n
+                        && !repeat
+                        && self.data.preview_layout.is_some() =>
+                {
+                    self.preview_focused = true;
+                    cx.focus("PreviewLayout");
+                    self.refresh(root);
+                    Handled::Yes
+                }
                 MenuAction::Down if on_rows => {
                     self.focus = (self.focus + 1).min(n.saturating_sub(1));
                     self.refresh(root);
                     Handled::Yes
                 }
-                MenuAction::Left if on_rows => {
+                MenuAction::Left if on_rows || on_preview => {
                     self.change(-1, root, cx);
                     Handled::Yes
                 }
-                MenuAction::Right if on_rows => {
+                MenuAction::Right if on_rows || on_preview => {
                     self.change(1, root, cx);
                     Handled::Yes
                 }
@@ -1071,6 +1175,10 @@ impl Screen for OptionsScreen {
                 }
                 MenuAction::Back => {
                     self.leave(cx);
+                    Handled::Yes
+                }
+                MenuAction::Start if on_preview => {
+                    self.change(1, root, cx);
                     Handled::Yes
                 }
                 MenuAction::Start if on_rows => {
@@ -1129,6 +1237,25 @@ impl Screen for OptionsScreen {
                 target: Some(t),
                 gesture: Gesture::Tap,
                 ..
+            } if t.within("PreviewLayout") => {
+                self.preview_focused = true;
+                cx.focus("PreviewLayout");
+                self.change(
+                    if t.within("PreviewLayout.Down") {
+                        -1
+                    } else {
+                        1
+                    },
+                    root,
+                    cx,
+                );
+                self.refresh(root);
+                Handled::Yes
+            }
+            Input::Pointer {
+                target: Some(t),
+                gesture: Gesture::Tap,
+                ..
             } => {
                 // A choice, a stepper's arrow, a button, or a row.
                 let Some((i, what)) = Self::row_of(t) else {
@@ -1138,6 +1265,7 @@ impl Screen for OptionsScreen {
                 if i >= n {
                     return Handled::No;
                 }
+                self.preview_focused = false;
                 if i != self.focus {
                     self.focus = i;
                     self.refresh(root);
@@ -1179,6 +1307,9 @@ impl Screen for OptionsScreen {
                     cx.focus("RowsClip");
                 } else if name == "Link.Back" || name == "Back" {
                     self.leave(cx);
+                } else if name == "PreviewLayout" {
+                    self.preview_focused = true;
+                    self.change(1, root, cx);
                 } else if name == "RowsClip" {
                     return self.input(
                         &Input::Menu {
@@ -1191,15 +1322,32 @@ impl Screen for OptionsScreen {
                 }
                 Handled::Yes
             }
+            Input::Key(k)
+                if k.down
+                    && !k.repeat
+                    && !k.composing
+                    && !k.modifiers.any_but_shift()
+                    && k.key.eq_ignore_ascii_case("p")
+                    && self.data.preview_layout.is_some() =>
+            {
+                self.preview_focused = !on_preview;
+                cx.focus(if self.preview_focused {
+                    "PreviewLayout"
+                } else {
+                    "RowsClip"
+                });
+                self.refresh(root);
+                Handled::Yes
+            }
             // The rows' frame took or lost focus: its commands reached
             // every button in it; only the lit one shows so.
             Input::Focus { from, to }
-                if from.as_deref() == Some("RowsClip") || to.as_deref() == Some("RowsClip") =>
+                if [from.as_deref(), to.as_deref()]
+                    .iter()
+                    .any(|f| matches!(f, Some("RowsClip" | "PreviewLayout"))) =>
             {
-                let fresh = self.rows_actor();
-                if let Some(r) = hit::find_mut(root, "RowsClip") {
-                    *r = fresh;
-                }
+                self.preview_focused = to.as_deref() == Some("PreviewLayout");
+                self.refresh(root);
                 Handled::No
             }
             _ => Handled::No,
