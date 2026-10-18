@@ -357,7 +357,7 @@ impl OptionsScreen {
         let mut selector = env.component(
             "Button",
             "Button",
-            &Spec::new([w, ROW], &format!("Preview: {}", option.value())),
+            &Spec::new([w, ROW], format!("Preview: {}", option.value())),
             "PreviewLayout",
             [x + w / 2.0, y - 8.0 - ROW / 2.0],
         );
