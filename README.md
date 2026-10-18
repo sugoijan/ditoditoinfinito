@@ -5,6 +5,12 @@ StepMania and DWI simfiles: a few bundled songs, plus any packs you import
 (folder, zip or drag and drop; they stay in your browser). Live at
 `https://sugoijan.dev/ditoditoinfinito/`.
 
+![Beatucada's Hard single chart with Dito arrows over its beach background, autoplayed in a short loop.](docs/screenshots/readme.gif)
+
+*Beatucada* by Kurio Prokos · chart by Chriszo · background by Jose Varela.
+[Generated from a fixed gameplay scenario](docs/screenshots/README.md).
+[Full-size still](docs/screenshots/readme.png).
+
 Implementation notes: written in Rust; the same game runs in the browser (wasm
 through Trunk, on GitHub Pages) and as a desktop app (`cargo run`), which reads
 your song folders and zips where they are.
@@ -28,6 +34,10 @@ Tasks (`just --list` shows them all):
 - `just build` — release build with the production public URL; output in `dist/`
 - `just check` — native + wasm checks, SEO regen, REUSE lint
 - `just test` — native unit tests
+- `just animation` — regenerate the small gameplay GIF above (also requires
+  FFmpeg on `PATH`)
+- `just screenshot` — regenerate the full-size still, offscreen on a
+  fixed clock (requires a GPU; no window or sound device)
 - `cargo run` — the desktop app (`--profile desktop` for a fast build; add
   song folders under Options; on Linux it builds against ALSA and udev:
   `libasound2-dev`, `libudev-dev`)

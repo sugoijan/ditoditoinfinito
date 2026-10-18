@@ -12,6 +12,17 @@ dev address="127.0.0.1":
 build public_url="/ditoditoinfinito/":
     @trunk build --release --public-url "{{public_url}}"
 
+# Reproduce the README gameplay image offscreen, on a fixed clock.
+screenshot scenario="docs/screenshots/readme.json" output="docs/screenshots/readme.png":
+    @cargo run -q -p xtask -- gen-songs
+    @cargo run -q -p xtask -- gen-noteskins
+    @DDI_HOME="$PWD/target/scratch/screenshot/home" cargo run -p ddi-desktop --no-default-features --example screenshot -- "{{scenario}}" "{{output}}"
+
+# Reproduce the small, looping README GIF (requires ffmpeg on PATH).
+animation scenario="docs/screenshots/animation.json" output="docs/screenshots/readme.gif":
+    @command -v ffmpeg >/dev/null || { echo "Install ffmpeg to generate the GIF" >&2; exit 1; }
+    @just screenshot "{{scenario}}" "{{output}}"
+
 # Check the web app for wasm32
 app-check:
     @cargo check -p ditoditoinfinito -p ddi-opus-worker --target wasm32-unknown-unknown
