@@ -1188,6 +1188,10 @@ Done, 6.3 options (2026-10-16):
   (`options.rs`), its bind flow (`bind_flow.rs`) and their CSS are gone;
   calibration and credits stay Yew until 6.4 (Options' Calibrate and
   the autoplay demo go to their routes).
+- **Arrow colours** (2026-10-18): Note colours and Songs' own colours
+  live directly under the Arrows choice, shown for Dito and Built-in
+  only. Other skins supply their own colours; changing skins keeps the
+  saved colour choices. Lyrics stays in Display.
 - **Pure and shared:** `ui/src/screens/options_model.rs` makes the rows
   from the settings and what the platform knows (`World`: the
   noteskins, the controllers connected, the library's counts, the

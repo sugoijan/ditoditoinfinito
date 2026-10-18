@@ -45,6 +45,15 @@ the measured refresh rate is shown but not part of the key because
 variable-rate panels change it); an unknown device prompts to calibrate at
 song start, and device changes mid-play are flagged on the results. Receptor
 snap draws a note exactly on the receptor in its closest frame.
+
+Options follow-up (2026-10-18): note colours and songs' own colours now
+sit under Arrows, shown for Dito and Built-in only. A future noteskin
+parameter mechanism should let skins declare controls and defaults,
+persist values per skin and share them between preview and play. Dito's
+colour variants would use it first; retiring the visible Built-in choice
+can follow once Dito covers its needs, keeping procedural arrows for
+fallbacks.
+
 Detailed research with sources lives in [`docs/research/`](research/):
 
 - [`formats-sm-ssc-dwi.md`](research/formats-sm-ssc-dwi.md) — StepMania `.sm`/`.ssc` and DWI formats, timing semantics, existing parsers, test fixtures.
