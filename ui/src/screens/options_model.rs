@@ -636,21 +636,6 @@ impl OptionsModel {
              renderer).",
         );
         demo.heading = Some("DIAGNOSTICS".into());
-        let mut colours = choice(
-            "note_colors",
-            "Note colours",
-            &[
-                "Vivid",
-                "Rainbow",
-                "By subdivision",
-                "Flat",
-                "Single colour",
-            ],
-            pos(&NOTE_COLOURS, s.note_colors),
-            "Vivid: a cycling rainbow, shifted by subdivision. Rainbow: by position in the beat, \
-             flowing. Flat: all notes alike.",
-        );
-        colours.heading = Some("NOTES".into());
         let mut brightness = row(
             "bg_brightness",
             "Background brightness",
@@ -701,14 +686,6 @@ impl OptionsModel {
                     &["Off", "On"],
                     s.receptor_snap as usize,
                     "Draws a note exactly on the receptor in its closest frame.",
-                ),
-                colours,
-                choice(
-                    "chart_colors",
-                    "Songs' own colours",
-                    &["Off", "On"],
-                    s.chart_colors as usize,
-                    "Uses a song's own note colours when it has them (Dancing☆Onigiri works).",
                 ),
                 choice(
                     "lyrics",
@@ -807,6 +784,31 @@ impl OptionsModel {
                  skin (lighter). Or a bundled or an imported noteskin."
             },
         )];
+        if matches!(s.noteskin.as_deref(), None | Some(BUILT_IN)) {
+            rows.extend([
+                choice(
+                    "note_colors",
+                    "Note colours",
+                    &[
+                        "Vivid",
+                        "Rainbow",
+                        "By subdivision",
+                        "Flat",
+                        "Single colour",
+                    ],
+                    pos(&NOTE_COLOURS, s.note_colors),
+                    "Vivid: a cycling rainbow, shifted by subdivision. Rainbow: by position in the \
+                     beat, flowing. Flat: all notes alike.",
+                ),
+                choice(
+                    "chart_colors",
+                    "Songs' own colours",
+                    &["Off", "On"],
+                    s.chart_colors as usize,
+                    "Uses a song's own note colours when it has them (Dancing☆Onigiri works).",
+                ),
+            ]);
+        }
         let desktop = self.world.platform == super::data::Platform::Desktop;
         // Desktop reads skins in place (bundled ones, the song folders'):
         // none is stored to remove.
