@@ -355,7 +355,7 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
                 }
             }
         }
-        // The work's own colours, used when the player asks for them.
+        // The work's own colors, used when the player asks for them.
         let palette = colors::Palette::new(dos, &suffix, &def.color);
         for n in &mut notes {
             n.color = match n.kind {

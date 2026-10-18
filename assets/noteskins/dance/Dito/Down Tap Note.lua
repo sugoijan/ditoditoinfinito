@@ -1,8 +1,8 @@
 -- A tap, lift or fake (and a hold's or roll's head): the frames of the
--- colour scheme's sheet for it (one for Quantized and Single, coloured by
+-- color scheme's sheet for it (one for Quantized and Single, colored by
 -- the row the engine picks; the four-beat cycle for Vivid and Flat; the
 -- beat's flow for Rainbow). Lifts and fakes have sheets of their own (a
--- dot, 60 %): the engine sets a note's colour and frame on its sprite.
+-- dot, 60 %): the engine sets a note's color and frame on its sprite.
 local sheets = { ["Tap Lift"] = "tap lift", ["Tap Fake"] = "tap fake" }
 local count = NOTESKIN:GetMetricI("NoteDisplay", "DitoTapFrames")
 local frames = {}

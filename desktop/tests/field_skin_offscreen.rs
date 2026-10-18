@@ -36,7 +36,7 @@ fn a_skin_picked_shows_once_read() {
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
     };
     let picks: [(Settings, Option<&str>); 4] = [
-        // Dito by default, in the note colours' variant.
+        // Dito by default, in the note colors' variant.
         (Settings::default(), Some("Dito Vivid")),
         (
             Settings {

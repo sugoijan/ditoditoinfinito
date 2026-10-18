@@ -21,12 +21,12 @@ pub struct DiskSkin {
     /// Its folder.
     pub dir: PathBuf,
     pub bundled: bool,
-    /// The skin it is a colour scheme of (bundled ones).
+    /// The skin it is a color scheme of (bundled ones).
     pub variant_of: Option<String>,
 }
 
 impl DiskSkin {
-    /// The key a Lua stop counts against: a colour variant's against the
+    /// The key a Lua stop counts against: a color variant's against the
     /// skin it is a variant of (they share their Lua), as the web's.
     pub fn strike_key(&self) -> String {
         match &self.variant_of {
@@ -153,7 +153,7 @@ pub fn lua_off(strike: &str) -> Option<String> {
 /// The dance and pump skins one can pick `(key, name)`, as the web
 /// lists them:
 /// the bundled ones first, then the player's, by name; Dito (the
-/// default), its colours and `default` are chosen otherwise.
+/// default), its colors and `default` are chosen otherwise.
 pub fn choices(skins: &[DiskSkin]) -> Vec<(String, String)> {
     let mut list: Vec<(bool, String, String)> = skins
         .iter()

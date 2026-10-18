@@ -438,7 +438,7 @@ Integration is feasible but backend-specific: create the texture cache
 on wgpu's actual Metal device, wrap the retained `MTLTexture`s using
 wgpu-hal 30's `Device::texture_from_raw`, then
 `wgpu::Device::create_texture_from_hal`. The renderer needs an NV12
-plane/shader variant beside I420, preserving range, matrix and colour
+plane/shader variant beside I420, preserving range, matrix and color
 conversion. Retain the CVPixelBuffer and CVMetalTexture views until GPU
 completion, handle device loss and seek generations, and never recycle a
 surface still sampled. First ship the simpler copied-plane path; measure
@@ -636,12 +636,12 @@ the checked geometry. A fresh decoder/seek must begin with a key picture.
 Visible pictures emit immediately on their packet DTS. Hidden alternate
 references, superframes and show-existing pictures refuse before submission;
 their output multiplicity is outside this first class. Higher bit depth,
-HDR, changed geometry/colour, packet side data and corruption also use the
+HDR, changed geometry/color, packet side data and corruption also use the
 module. The existing 4096×2160 geometry, two-second/256 MiB demux heap,
 four-second worker deadline and four-worker/32-output bounds remain.
 
 CoreMedia builds HEVC's format from the checked parameter sets and VP9's
-from a vpcC atom describing the checked profile and colours. VP9 registers
+from a vpcC atom describing the checked profile and colors. VP9 registers
 Apple's supplemental decoder before attempting the session. Both require
 hardware and verify the actual hardware property, retaining the copied NV12
 to I420 path and its range/geometry checks. No native FFmpeg is linked.

@@ -212,7 +212,7 @@ impl GameLoop {
         // The layers' textures go up with the skin's, after them.
         self.stage
             .upload(&mut self.renderer, &self.gfx.device, &self.gfx.queue);
-        // Without a skin (another layout, the chart's own colours) or
+        // Without a skin (another layout, the chart's own colors) or
         // layers drawn as skins are, frames need not be drawn offscreen
         // for them (WebGL2).
         self.renderer.set_skins_drawn(
@@ -459,7 +459,7 @@ impl GameLoop {
         self.lua_stop_reported = false;
         self.renderer.clear_noteskin_textures();
         self.stage.forget_textures();
-        // Colours as the target blends them: encoded when skins blend as
+        // Colors as the target blends them: encoded when skins blend as
         // StepMania's do.
         let srgb = self.renderer.srgb() && !self.renderer.skins_blend_encoded();
         self.noteskin = play.map(|mut play| {

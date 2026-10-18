@@ -21,8 +21,8 @@ vertices, 60 triangles, 2 meshes and 2 materials (at most 1,284 vertices,
 |---|---|
 | Several meshes, each with its material | 48 |
 | Textures scrolled by `.ini` `TexVelocity`, driven by the note's beat | 45 |
-| Vertex flags masking the colour translation (u, v) | 44 |
-| Colour by texture translation (`NoteColorTextureCoordSpacing`) | 42 |
+| Vertex flags masking the color translation (u, v) | 44 |
+| Color by texture translation (`NoteColorTextureCoordSpacing`) | 42 |
 | One rigid bone with key frames (ITG's spinning mine) | 32 |
 | UVs past 0..1 (repeat wrapping) | 11 |
 | Multi-frame `.ini` textures | 1 |
@@ -41,14 +41,14 @@ vertices, 60 triangles, 2 meshes and 2 materials (at most 1,284 vertices,
 - **Depth**: the z-buffer is on for models and back faces are culled, but
   it is cleared after every note (`NoteDisplay.cpp:625-628`): a model
   hides only its own faces; notes overlap by draw order.
-- **Colour**: unlit; a mesh's colour is its material's ambient + diffuse
+- **Color**: unlit; a mesh's color is its material's ambient + diffuse
   + emissive (clamped), times the actor's diffuse; the texture modulates
-  it; a glow pass (texture alpha in the glow colour) follows.
+  it; a glow pass (texture alpha in the glow color) follows.
 - **Textures**: relative to the materials file; an `.ini` is an animated
   texture (`[AnimatedTexture]`: frames and delays, `TexVelocityX/Y`,
   `TexOffsetX/Y`); its translation is velocity × the fraction of its
   animation + offset, the fraction from the note (`SetSecondsIntoAnimation`
-  as for sprites: beats, vivid). Repeat wrapping. The note's colour
+  as for sprites: beats, vivid). Repeat wrapping. The note's color
   translation applies to the whole model, except per vertex where flag 1
   (u) or 2 (v) masks it (`TextureMatrixScale`).
 - **Bones**: key frames at 30 fps, position lerped and rotation slerped,
@@ -67,7 +67,7 @@ each at most, as other texts).
 **Done 2026-10-12.** `noteskin/src/model.rs`: meshes, materials, bones
 and animated textures, parsed as StepMania does (comment and header rules,
 quoted names up to 31 characters, a byte for the material index with -1
-as none, vertex flags 1 and 2 as the colour mask, a mesh following one
+as none, vertex flags 1 and 2 as the color mask, a mesh following one
 bone as a whole, texture paths with `\` and `..` cleaned), every count
 checked against the lines left and at most 65,535 vertices; tested on a
 synthetic model. All 338 model files of the local corpora (StepMania 5.0
@@ -90,8 +90,8 @@ before the projection). Textures are found and decoded like a sprite's.
 
 **Done 2026-10-12, with step 3 (one commit: neither is any use alone).**
 `Kind::Model` holds the shared geometry and animation, each material's
-colour (unlit: ambient + diffuse + emissive, clamped only after the
-actor's diffuse multiplies it, as a vertex colour is), frames and
+color (unlit: ambient + diffuse + emissive, clamped only after the
+actor's diffuse multiplies it, as a vertex color is), frames and
 animated texture, and the play state; built from a `.txt` element and
 from `Def.Model` (paths relative to the file that wrote it, the three
 files charged to the load's budget by their lines), with `playanimation`,
@@ -109,7 +109,7 @@ On the CPU, per note: the actor's 3D transform, the field's perspective
 model's triangles sorted far to near (its own depth only, as StepMania's
 cleared z-buffer gives), then drawn as textured triangles in the skin's
 passes (`render/src/textured.rs`: a triangle list beside the instanced
-quads, the same blends, the plain view on WebGPU), with the colour
+quads, the same blends, the plain view on WebGPU), with the color
 translation masked per vertex, repeat wrapping and the glow pass. No
 depth buffer: a few hundred triangles a note are cheap to sort, and the
 renderer's passes stay as they are. Checked by screenshot against
@@ -124,8 +124,8 @@ counter-clockwise faces the viewer: true of the open models of the
 corpus), the rest sorted far to near. `render/src/textured.rs`: an
 instance is a quad or a triangle (its three corners, texture
 coordinates and `w`, so the texture is drawn in perspective), and a
-shape may be untextured (a mesh without a texture: its colour alone),
-through the same batches, blends and passes. The note's colour and the
+shape may be untextured (a mesh without a texture: its color alone),
+through the same batches, blends and passes. The note's color and the
 material's scroll move every vertex's texture coordinates but along the
 axes it fixes (StepMania's texture-matrix shader); repeat wrapping; the
 glow pass after every mesh's diffuse one; a mesh without a material is
@@ -176,7 +176,7 @@ playing "default" again from its start when it runs out (another name
 holds the frame), else looping or clamped. Two meshes of one name are
 merged as StepMania merges them (4 of the corpus's models). Multi-frame
 `.ini` textures were done in step 2 (frames by time, each frame's own
-translation). Not done: StepMania's hot-pink colour key on model textures
+translation). Not done: StepMania's hot-pink color key on model textures
 (none of the corpus's 139 readable model textures has a hot-pink pixel).
 Checked natively (poses, rest, merge, default animations) and by screenshot
 (ITGmania's cel mines spin together, their centres pulsing).

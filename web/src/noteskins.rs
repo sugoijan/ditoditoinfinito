@@ -56,7 +56,7 @@ pub(crate) struct StoredSkin {
     /// A bundled skin's folder under `noteskins/` (never stored).
     #[serde(skip)]
     pub(crate) bundled: Option<String>,
-    /// The bundled skin this one is a colour scheme of (never stored).
+    /// The bundled skin this one is a color scheme of (never stored).
     #[serde(skip)]
     pub(crate) variant_of: Option<String>,
 }
@@ -97,13 +97,13 @@ pub(crate) const BUNDLED: &str = "bundled:";
 /// The `noteskin` setting for the built-in arrows, drawn without a skin.
 pub(crate) const BUILT_IN: &str = "builtin";
 
-/// Dito's key (its colour variants' are `bundled:dance/dito <scheme>`).
+/// Dito's key (its color variants' are `bundled:dance/dito <scheme>`).
 const DITO: &str = "bundled:dance/dito";
 
 /// The skin a play draws its layout with, by key: the chosen one,
 /// or Dito (the built-in arrows as a skin, when none is chosen) in its
-/// variant for the note colours; none for the built-in arrows, and none
-/// instead of Dito when the chart's own colours are drawn (a skin colours
+/// variant for the note colors; none for the built-in arrows, and none
+/// instead of Dito when the chart's own colors are drawn (a skin colors
 /// notes by their place in the beat, not one by one).
 pub(crate) fn play_skin(
     choice: Option<&str>,
@@ -219,7 +219,7 @@ fn with_session_stops(mut skins: Vec<StoredSkin>) -> Vec<StoredSkin> {
     skins
 }
 
-/// The key a Lua stop of skin `key` counts against: a colour variant's
+/// The key a Lua stop of skin `key` counts against: a color variant's
 /// counts against the skin it is a variant of (they share their Lua).
 fn strike_key(key: &str) -> String {
     BUNDLED_SKINS
@@ -341,7 +341,7 @@ pub(crate) async fn choices() -> Result<Choices, String> {
     };
     let mut skins: Vec<(bool, String, String)> = skins
         .into_iter()
-        // Dito and its colours are the default, chosen as such.
+        // Dito and its colors are the default, chosen as such.
         // Pump skins are listed too, for the pump layouts
         // (`Settings::pump_noteskin`).
         .filter(|s| {

@@ -20,7 +20,7 @@ StepMania 5's `default` and `common`).
 
 - Elements by file, no Lua: `Down Tap Note 4th.model`, one file per note
   type when `TapNoteAnimationIsNoteColor` (`NoteDisplay.cpp:212`), the
-  same as our per-colour copies for `Var "Color"`.
+  same as our per-color copies for `Var "Color"`.
 - `.actor` (an INI: `File=`, `BaseRotationZDegrees=`, commands),
   `.sprite` (an INI: `Texture=`, frames, delays, base rotation), `.model`
   (an INI naming `Meshes=`, `Materials=`, `Bones=` MilkShape files, which
@@ -97,7 +97,7 @@ How it is built (`noteskin/src/legacy.rs`):
    drawn (`docs/research/noteskins.md`, a section of its own); a survey of
    the local skins in the format (which files, which features).
 2. **Loading**: the 3.9 element names onto the engine's elements, the
-   per-colour files, the file types into actors (reusing the model,
+   per-color files, the file types into actors (reusing the model,
    sprite and command code), stand-ins for OpenITG's own skins; natively
    tested on synthetic skins, then on the local ones (`local_skins`).
 3. **Playing**: the explosions by judgement and receptor states driven by

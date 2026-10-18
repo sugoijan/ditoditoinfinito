@@ -260,10 +260,10 @@ impl Gfx {
         config.present_mode = wgpu::PresentMode::AutoVsync;
         surface.configure(&device, &config);
         // Draw through an sRGB view everywhere, so blending happens in linear
-        // light and both backends show the same colours. WebGL2 offers an
+        // light and both backends show the same colors. WebGL2 offers an
         // sRGB surface format; WebGPU canvases do not, but accept an sRGB
         // view of theirs. A browser that refuses it keeps the plain view
-        // (the renderer adapts its colours to either).
+        // (the renderer adapts its colors to either).
         if !config.format.is_srgb() {
             let srgb = config.format.add_srgb_suffix();
             if srgb != config.format {

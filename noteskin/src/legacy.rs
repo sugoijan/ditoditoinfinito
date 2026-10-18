@@ -416,7 +416,7 @@ fn visible(on: bool) -> Call {
 impl Builder<'_, '_> {
     /// An element of a skin in StepMania 3.9's format: the receptor and
     /// the explosions built natively as OpenITG draws them, a note part in
-    /// note type `color`'s file when its metrics colour it, lifts by the
+    /// note type `color`'s file when its metrics color it, lifts by the
     /// built-in skin (the format has none) and fakes as tap notes.
     pub(crate) fn legacy_element(&mut self, button: Button, element: &str, color: &str) -> Built {
         match element {

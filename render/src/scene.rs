@@ -215,9 +215,9 @@ pub struct RenderOptions {
     /// The shape (width over height) backgrounds are fitted into, centred,
     /// with a blurred extension around it; `None`: the whole screen.
     pub frame_aspect: Option<f32>,
-    /// How notes are coloured (an explicit chart colour still wins).
+    /// How notes are colored (an explicit chart color still wins).
     pub note_colors: ColorScheme,
-    /// Draw notes in the colours a chart gives them (Dancing☆Onigiri
+    /// Draw notes in the colors a chart gives them (Dancing☆Onigiri
     /// works); otherwise every note follows `note_colors`.
     pub chart_colors: bool,
     /// Darkening behind the lanes, `0..=1` of perceived brightness removed
@@ -225,7 +225,7 @@ pub struct RenderOptions {
     pub field_filter: f32,
     /// Draw only the field (receptors, holds, notes, explosions: a
     /// noteskin's, or the built-in arrows where it has none), as placed by
-    /// this geometry, over the clear colour (a skin's preview).
+    /// this geometry, over the clear color (a skin's preview).
     pub preview: Option<Preview>,
     /// The ghost: how far the score is ahead of (or behind) the chart's
     /// best play at the same point, drawn under the score.
@@ -276,7 +276,7 @@ pub struct Preview {
     pub receptors: bool,
 }
 
-/// A note's colour under Hidden/Sudden: hidden notes show only their white
+/// A note's color under Hidden/Sudden: hidden notes show only their white
 /// glow, visible ones are tinted towards white by it (StepMania draws the
 /// glow as a white overlay of that opacity).
 fn glowing(color: [f32; 4], note: &NoteSprite) -> [f32; 4] {
@@ -327,7 +327,7 @@ impl HoldLook {
     }
 }
 
-/// O.K.'s colour (a pale gold, `#ffd666`) and N.G.'s (a pale red,
+/// O.K.'s color (a pale gold, `#ffd666`) and N.G.'s (a pale red,
 /// `#ff6e6e`).
 pub const HELD_COLOR: [f32; 4] = [1.0, 0.84, 0.4, 1.0];
 pub const LET_GO_COLOR: [f32; 4] = [1.0, 0.43, 0.43, 1.0];
@@ -1009,7 +1009,7 @@ fn push_note(
         None => scheme.note_color(note.quantization, note.beat_frac, song_beat),
     };
     // A flowing gradient on notes of a scheme that has one (along an
-    // arrow, radial on a symbol), unless the chart colours the note or it
+    // arrow, radial on a symbol), unless the chart colors the note or it
     // is glowing (the glow is plain white).
     let gradient = (explicit.is_none() && note.glow <= 0.0)
         .then(|| scheme.note_gradient(note.beat_frac, song_beat))
@@ -1384,7 +1384,7 @@ mod tests {
     }
 
     #[test]
-    fn the_colour_scheme_reaches_the_arrows() {
+    fn the_color_scheme_reaches_the_arrows() {
         let f = frame(
             vec![note(1.0, SpriteKind::Tap, Appearance::Visible)],
             Appearance::Visible,

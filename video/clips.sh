@@ -2,7 +2,7 @@
 # Generates small synthetic clips of the codecs and pixel formats packs use
 # (FFmpeg's test pattern: ours, never third-party video), decodes each with
 # the ffmpeg command as the reference and checks the module against it with
-# video/check.mjs: frames, timestamps, seeking, colour tags. Needs ffmpeg
+# video/check.mjs: frames, timestamps, seeking, color tags. Needs ffmpeg
 # with libx264 and Node 22 or later; `just video-check` runs it.
 set -euo pipefail
 
@@ -65,7 +65,7 @@ clip mpeg2-422.avi 320x240 -- \
   -c:v mpeg2video -pix_fmt yuv422p -bf 2 -q:v 4 -f mpeg2video
 clip h264-10bit.avi 320x240 --min-psnr 50 -- \
   -c:v libx264 -pix_fmt yuv420p10le -vtag H264
-# Colour tags: tagged BT.709 full range; untagged HD is taken as BT.709.
+# Color tags: tagged BT.709 full range; untagged HD is taken as BT.709.
 clip h264-709-full.avi 320x240 --min-psnr 99 --colorspace 709 --range full -- \
   -c:v libx264 -pix_fmt yuv420p -colorspace bt709 -color_primaries bt709 \
   -color_trc bt709 -color_range pc -vtag H264 -- \

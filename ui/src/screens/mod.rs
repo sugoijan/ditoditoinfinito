@@ -35,7 +35,7 @@
 //!   `ChartButton` (centred; `Button`): `Meter`; the same commands.
 //!   `PlayButton`, `IconButton`, `StyleButton` (centred; `Button`).
 //! - `Results.Judgement` (`List.Row`): `Name`, `Bar` (as long as the
-//!   row's `Spec` is wide, zoomed by the share), `Count`; its colour's
+//!   row's `Spec` is wide, zoomed by the share), `Count`; its color's
 //!   name as a command (`Judgement.W1`). `Results.Score` (`Panel`):
 //!   `Grade`, `Score`, `Ex`. `Panel`: `Plate`, `Title`, `Note`.
 //! - `Options.Section` (`List.Header`): `Plate`, `Title`, `Mark`;
@@ -44,7 +44,7 @@
 //!   `Options.Description` (`Panel`): `Title`, `Note`. `Options.Preview`
 //!   (`Panel`): `Plate`, `Title`.
 //!
-//! Colours a screen asks for itself: `Ground`, `Text`, `Muted`,
+//! Colors a screen asks for itself: `Ground`, `Text`, `Muted`,
 //! `Accent`, `Difficulty.<name>`, `Judgement.<W1…Miss>`, `Graph.*`.
 //!
 //! Motion: selections glide, the beat pulse lights the selection once a
@@ -429,7 +429,7 @@ pub fn footer(
     (f, texts)
 }
 
-/// The ground: the look's darkest colour over everything.
+/// The ground: the look's darkest color over everything.
 pub fn ground(env: &Env, screen: [f32; 2]) -> Actor {
     let mut g = quad(
         "Ground",

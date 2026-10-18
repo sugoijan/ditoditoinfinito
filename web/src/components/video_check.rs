@@ -32,7 +32,7 @@ use crate::web::webcodecs::WebCodecsVideo;
 const BATCH: u32 = 8;
 /// The frame shown for each file.
 const SAMPLE_FRAME: usize = 30;
-/// …and later in a long movie, for the colour comparison (frame 30 is
+/// …and later in a long movie, for the color comparison (frame 30 is
 /// often a fade).
 const LATE_SAMPLE_FRAME: usize = 900;
 /// About this many seek targets per file.
@@ -50,9 +50,9 @@ pub(crate) struct FileCheck {
     /// With both decoders checked, on the browser's row: whether every
     /// frame had the module's time and pixels, or the first difference.
     compared: Option<String>,
-    /// With both checked and the browser's frames in its own colours: how
+    /// With both checked and the browser's frames in its own colors: how
     /// close they are to the module's frame under each matrix and range.
-    colours: Option<String>,
+    colors: Option<String>,
     /// `waiting`, `decoding`, `seeking`, `done` or `failed`.
     state: String,
     error: Option<String>,
@@ -73,7 +73,7 @@ pub(crate) struct FileCheck {
     slowest_seek_ms: f64,
     #[serde(skip)]
     sample: Option<Sample>,
-    /// The module's frame behind `sample`, for the colour comparison.
+    /// The module's frame behind `sample`, for the color comparison.
     #[serde(skip)]
     sample_yuv: Option<VideoFrame>,
 }
@@ -249,12 +249,12 @@ impl Component for VideoCheck {
                                 }
                                 ("webcodecs", Some(expected)) => {
                                     check.compared = Some(compare(expected, &frames));
-                                    let browser_colours =
+                                    let browser_colors =
                                         !frames.is_empty() && frames.iter().all(|f| f.1 == 0);
                                     if let (true, Some(m), Some(b)) =
-                                        (browser_colours, &module_yuv, &check.sample)
+                                        (browser_colors, &module_yuv, &check.sample)
                                     {
-                                        check.colours = Some(colour_match(m, b));
+                                        check.colors = Some(color_match(m, b));
                                     }
                                     report(&check);
                                 }
@@ -534,8 +534,8 @@ fn row(table: &web_sys::HtmlElement, f: &FileCheck) {
         let _ = td.set_attribute("colspan", "5");
         td.set_text_content(Some(&text));
     };
-    if let Some(c) = &f.colours {
-        note(format!("browser colours: {c}"), "");
+    if let Some(c) = &f.colors {
+        note(format!("browser colors: {c}"), "");
     }
     if let Some(c) = &f.compared {
         note(
@@ -548,7 +548,7 @@ fn row(table: &web_sys::HtmlElement, f: &FileCheck) {
     }
 }
 
-/// A frame's fingerprint; 0 for one in the browser's colours (no planes).
+/// A frame's fingerprint; 0 for one in the browser's colors (no planes).
 fn print_of(frame: &VideoFrame) -> u64 {
     if frame.external.is_some() {
         0
@@ -618,21 +618,21 @@ async fn next_frame(
 /// Whether the browser's frames are the module's: the same times and the
 /// same pixels, frame for frame.
 fn compare(module: &[(f64, u64)], browser: &[(f64, u64)]) -> String {
-    // Frames in the browser's colours have no planes to compare (print 0).
-    let colours = !browser.is_empty() && browser.iter().all(|b| b.1 == 0);
+    // Frames in the browser's colors have no planes to compare (print 0).
+    let colors = !browser.is_empty() && browser.iter().all(|b| b.1 == 0);
     for (i, (m, b)) in module.iter().zip(browser).enumerate() {
         if (m.0 - b.0).abs() > 1e-6 {
             return format!("frame {i} at {:.4} s, the module's at {:.4} s", b.0, m.0);
         }
-        if m.1 != b.1 && !colours {
+        if m.1 != b.1 && !colors {
             return format!("frame {i} ({:.4} s) has other pixels", m.0);
         }
     }
     if module.len() != browser.len() {
         return format!("{} frames, the module gave {}", browser.len(), module.len());
     }
-    if colours {
-        "same times (the pixels are in the browser's colours: see the frames)".into()
+    if colors {
+        "same times (the pixels are in the browser's colors: see the frames)".into()
     } else {
         "same".into()
     }
@@ -641,7 +641,7 @@ fn compare(module: &[(f64, u64)], browser: &[(f64, u64)]) -> String {
 /// How close the browser's frame (`browser`, RGBA as drawn) is to the
 /// module's frame converted under each matrix and range, closest first,
 /// as mean differences in 1/255.
-fn colour_match(module: &VideoFrame, browser: &Sample) -> String {
+fn color_match(module: &VideoFrame, browser: &Sample) -> String {
     use ddi_platform::video::{YuvMatrix, yuv_to_rgb};
     if (module.width, module.height) != (browser.width, browser.height) {
         return format!(

@@ -55,7 +55,7 @@ fn the_widget_screen_draws() {
         [pixels[i], pixels[i + 1], pixels[i + 2]]
     };
     let close = |a: [u8; 3], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 3);
-    // The plain look's colours (`look.rs`), 1280/960 window pixels a
+    // The plain look's colors (`look.rs`), 1280/960 window pixels a
     // virtual one: the screen's ground, the first pack's header
     // (selected), a row's plate, its banner's placeholder, an option
     // row's plate, a panel.

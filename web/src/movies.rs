@@ -1024,7 +1024,7 @@ impl MovieDeck {
     }
 
     /// Copies a browser frame (the direct path) into the movie's RGBA
-    /// texture, GPU to GPU, in the browser's colours. The first copies are
+    /// texture, GPU to GPU, in the browser's colors. The first copies are
     /// checked for errors: a browser whose frames cannot be copied moves
     /// every movie to the module.
     fn upload_direct(

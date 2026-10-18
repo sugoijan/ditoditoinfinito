@@ -1,7 +1,7 @@
 //! Image decoding by the browser (`createImageBitmap`), so no image decoder
 //! is compiled into the wasm.
 //!
-//! Every bitmap here keeps its colours unmultiplied by its alpha
+//! Every bitmap here keeps its colors unmultiplied by its alpha
 //! (`premultiplyAlpha: "none"`): the textures are filled with
 //! `premultiplied_alpha: false`, which WebGPU honours whatever the bitmap,
 //! but WebGL2 takes an `ImageBitmap` as it is, so a premultiplied one
@@ -55,7 +55,7 @@ pub(crate) async fn decode_sized(
     scaled.map(|s| (s, (w, h)))
 }
 
-/// A bitmap from `make`, given options asking for unmultiplied colours
+/// A bitmap from `make`, given options asking for unmultiplied colors
 /// (`Some`), else, when the browser refuses that, the default (`None`).
 async fn bitmap(
     what: &str,
@@ -148,8 +148,8 @@ pub(crate) async fn rasterise_svg(
 
 /// Draws text as a back or mask layer shows it (danoniplus's `<span>`:
 /// its base font, `"Meiryo UI", sans-serif`, at `size` px, 16 when 0, in
-/// `color`, else the colour danoniplus's page templates give text,
-/// `#cccccc`, as CSS keeps it for a colour it does not read; lines at the
+/// `color`, else the color danoniplus's page templates give text,
+/// `#cccccc`, as CSS keeps it for a color it does not read; lines at the
 /// font's height) at `scale` times that size. Returns the bitmap and its
 /// size in the stage's px.
 pub(crate) async fn text_bitmap(
@@ -199,7 +199,7 @@ pub(crate) async fn text_bitmap(
     let ctx = context(&canvas)?;
     ctx.set_font(&font);
     ctx.set_text_baseline("top");
-    // A colour the canvas does not read leaves the one before.
+    // A color the canvas does not read leaves the one before.
     ctx.set_fill_style_str("#cccccc");
     if !color.is_empty() {
         ctx.set_fill_style_str(color);

@@ -894,7 +894,7 @@ fn a_host_limit_stays_a_failure() {
 #[test]
 fn outfox_and_fallback_names_skins_read() {
     // Dake's calls: the field's direction, the game button and its key, the
-    // theme's NoteField metrics and a judgement's colour.
+    // theme's NoteField metrics and a judgement's color.
     let folders = vec![folder(
         "dance",
         "o",
@@ -995,9 +995,9 @@ fn a_pump_skin_sees_its_game() {
 }
 
 #[test]
-fn notes_load_per_colour_when_their_lua_reads_it() {
+fn notes_load_per_color_when_their_lua_reads_it() {
     // A lift loads the tap through NOTESKIN:LoadActor, which loads the
-    // 4ths' (as ITGmania's does): the lift is the same in every colour.
+    // 4ths' (as ITGmania's does): the lift is the same in every color.
     let folders = vec![folder(
         "dance",
         "c",

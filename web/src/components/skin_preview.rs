@@ -4,7 +4,7 @@
 //!
 //! The page's parameters: `skin` (the setting's key, `bundled:dance/cf_chrome`
 //! or an import's `dance/<name>`; `builtin` for the built-in arrows),
-//! `size` (one arrow's pixels, default 128), `bg` (hex colour, default
+//! `size` (one arrow's pixels, default 128), `bg` (hex color, default
 //! `000000`), `bpm` (default 60), `beat` (held still at that beat;
 //! otherwise the beat runs from 0), `notes=4` (every lane's tap note rather
 //! than Down's), `receptors=1`, `gfx=gl`, `demo=1` (a looping autoplayed
@@ -56,7 +56,7 @@ pub(crate) struct PreviewOptions {
     pub(crate) rows: u32,
     /// The demo's x-mod.
     pub(crate) speed: f64,
-    /// The built-in arrows' colours.
+    /// The built-in arrows' colors.
     pub(crate) colors: ColorScheme,
     /// Canvas pixels per CSS pixel: the canvas is shown `1 / pixel_ratio`
     /// as large (sharp on a high-density screen).

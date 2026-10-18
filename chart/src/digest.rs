@@ -11,7 +11,7 @@
 //! Dancing☆Onigiri chart says that changes its play (its speed, gauge
 //! values and headers, its place in the work, where it starts and ends).
 //! What it leaves out: titles, artists, credits, the chart's name,
-//! difficulty and meter, art, music, file names, note colours,
+//! difficulty and meter, art, music, file names, note colors,
 //! keysounds, background and foreground changes, time signatures and
 //! labels.
 //!

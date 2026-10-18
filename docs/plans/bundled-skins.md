@@ -16,13 +16,13 @@ were fetched and run through `local_skins` on 2026-10-12 (below).
 | Dake (hanubeki) | Apache-2.0 (`README.md`, `LICENSE`) | hanubeki/dake @ `e26aa8d0` | every element fails: it calls OutFox's `INPUTFILTER`, `GAMESTATE:GetIsFieldReversed`, `THEME:GetMetric("NoteField", …)` and `_fallback`'s `JudgmentLineToColor`; with those four stubbed, 156 of 156 and at most 20.5k fuel |
 | CF_CHROME, CF_VIBRANT, CF_ALLOY (Peter Lawrence) | Unlicense (CF_CHROME's mine explosion CC0, JangaFX) | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-12: taps, lifts and mines are MilkShape models (`docs/plans/models.md`, step 5) |
 | (2026-10-13) CF_CHROME, CF_VIBRANT, CF_ALLOY's `Center` files | Unlicense | the same | restored byte for byte so the family draws Dancing☆Onigiri's onigiri as its own (`docs/plans/danoni-skins.md`); CF_ALLOY's `Center Tap Lift.lua` left out, CF_CHROME's |
-| Peters-DDR-Vivid, Peters-DDR-Note (Peter Lawrence) | Unlicense | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-13: Vivid's taps a model whose colours cycle in vivid; it falls back on Note (models for taps and lifts, Lua for the rest, 6.2 MB, most of it four mine sheets). Both load all 156 elements as their own; full autoplays all Fantastic on WebGPU, WebGL2 and in Firefox |
+| Peters-DDR-Vivid, Peters-DDR-Note (Peter Lawrence) | Unlicense | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-13: Vivid's taps a model whose colors cycle in vivid; it falls back on Note (models for taps and lifts, Lua for the rest, 6.2 MB, most of it four mine sheets). Both load all 156 elements as their own; full autoplays all Fantastic on WebGPU, WebGL2 and in Firefox |
 
 The built-in arrows (`render/src/scene.rs`, `shader.wgsl`,
 `note_colors.rs`) are procedural: an SDF arrow with a darker rim, an
-outline receptor that flashes the judgement's colour for 0.25 s and
+outline receptor that flashes the judgement's color for 0.25 s and
 shrinks while pressed, hold and roll bodies in fixed green and grey,
-a mine whose spikes turn with the song, five colour schemes (Vivid by
+a mine whose spikes turn with the song, five color schemes (Vivid by
 default: a hue moving smoothly round 16 `midi-vivid` hues over four
 beats, a ramp from tail to tip; Rainbow's gradient runs down the screen,
 not along the arrow). They draw no explosions.
@@ -42,7 +42,7 @@ not along the arrow). They draw no explosions.
   with a star for the onigiri: `docs/plans/danoni-skins.md`). The
   procedural arrows stay: they are what a skin's missing elements fall
   back on, what is drawn when a skin's Lua stops, the look when a chart's
-  own colours are drawn, and a choice under Options ("built in, no Lua")
+  own colors are drawn, and a choice under Options ("built in, no Lua")
   for slow devices.
 - **Bundled skins are read-only; each kind falls back on its own kind
   first**: an imported skin's chain looks in imported skins before bundled
@@ -106,19 +106,19 @@ is the imported one's with the strike kept in memory).
   64-pixel lane stays sharp at the 160-pixel arrow cap.
 - **Art from the shaders' shapes.** `xtask gen-dito` writes the SVGs from
   `sd_arrow`'s skeleton (two round-capped strokes: the darker rim, a
-  quarter of the colour, and the core), the receptor's ring (a mask), the
+  quarter of the color, and the core), the receptor's ring (a mask), the
   mine's spiked outline and core, the bodies and their rounded ends, and
-  takes every colour from `ddi_render::note_colors`. The files are
+  takes every color from `ddi_render::note_colors`. The files are
   committed (text, MIT) and CI checks they are fresh (`gen-dito --check`).
-- **A skin per colour scheme, sharing a base** by `FallbackNoteSkin`, the
+- **A skin per color scheme, sharing a base** by `FallbackNoteSkin`, the
   way StepMania's own skins share one: `Dito` (receptor, holds, rolls,
   mine, lift, fake, explosions; Quantized taps, `Denominator` over nine
   rows), `Dito Vivid` (32 frames over four beats, each with its
   tail-to-tip ramp, vivid), `Dito Flat` (Vivid's frames, not vivid),
   `Dito Rainbow` (`ProgressAlternate` over the four bands, 16 frames of
   the flow a beat), `Dito Single`. Each scheme has a tap, a lift (the
-  tap with its dot) and a fake sheet (the scheme's colour, flat, at
-  60 %): the engine sets a note's colour and animation frame on the
+  tap with its dot) and a fake sheet (the scheme's color, flat, at
+  60 %): the engine sets a note's color and animation frame on the
   note's own sprite, as StepMania does, so a lift or a fake cannot be Lua
   around a tap. One Lua file draws all three (and the heads), by the
   element asked for; a metric (`DitoTapFrames`) gives the frames. Variants
@@ -129,14 +129,14 @@ is the imported one's with the strike kept in memory).
   by an update function from the song's seconds; the explosion turned
   with its button (`NoteSkin.lua`).
 - **Explosions** (the built-in arrows have none): a hit's judgement
-  colour bursts from the receptor as a glow and the arrow's outline,
+  color bursts from the receptor as a glow and the arrow's outline,
   larger past 100 combo (`ColumnJudgment`'s `Bright`); a completed hold
   bursts green; a held hold or roll glows green, pulsing on the beat (a
   roll twice as fast); a mine flashes red.
 - **The default**: an unset `noteskin` setting is Dito, in the variant of
-  the note colours; `builtin` draws the procedural arrows without a skin
+  the note colors; `builtin` draws the procedural arrows without a skin
   (Options: "built in, without a skin (lighter)"); a chart drawn in its
-  own colours keeps the procedural arrows instead of the default (a
+  own colors keeps the procedural arrows instead of the default (a
   chosen skin stays). A bundled skin falls back only on bundled skins.
   Decision 36 is revised.
 
@@ -154,7 +154,7 @@ references or a `filter` attribute got past, and that let nested `use`
 freeze the page (now a strict XML parser that bounds the elements drawn,
 references expanded); fakes drawn opaque and lifts off the beat (Lua
 around a sprite: now sheets of their own); the mine turning the wrong
-way; an imported `default` or `common` changing Dito; chart colours
+way; an imported `default` or `common` changing Dito; chart colors
 dropping a chosen skin; Dito's Lua stops counted per variant. Checked: `noteskin/tests/bundled.rs`
 (all 156 elements of every Dito variant its own, no warning), the SVG
 subset's tests and every generated file against it; `local_skins` on
@@ -189,9 +189,9 @@ what the original does (Down's art turned per button, heads and fakes as
 taps, top caps only for the diagonals, the receptor's beat pulse and
 press flash, the lift's beat thump, the mine's spin, a turned glow and
 upright rays for the best judgements, a pulsing hold glow); the receptor
-and the explosion follow Dito's (a judgement's colour flashing the
+and the explosion follow Dito's (a judgement's color flashing the
 receptor's flash art, no beat pulse; the explosion's swell and fade),
-with Dito's judgement colours. Reviewed independently: the first
+with Dito's judgement colors. Reviewed independently: the first
 receptor followed StepMania default's receptor commands with the numbers
 changed, and the explosion's timing echoed the original's metrics; both
 were rewritten.
@@ -221,30 +221,30 @@ game's), `INPUTFILTER:GameButtonToKeyMapped` (`""`: the player's bindings
 are not shown to skins), `GAMESTATE:GetIsFieldReversed` (the play's
 reverse setting, a new `Env` field the app fills), a `THEME` whose
 `GetMetric` knows NoteField's `NoteFieldType` (`""`) and `ShowBoard`
-(false), and `JudgmentLineToColor` in the game's judgement colours (`Pro`
+(false), and `JudgmentLineToColor` in the game's judgement colors (`Pro`
 judgements as the plain ones). With them Dake's `NoteSkin.lua` (2,910
 lines, for every game) loads unchanged. Bundled as `Dake`: its
 `NoteSkin.lua`, `metrics.ini`, `README.md`, `LICENSE` and the 74 images
 dance asks for (found by building every element of all six dance
 buttons), byte for byte, 476 KB of the repository's 5.6 MB; the other
 games' art, `_common buttons/`, the two sounds and `extras/` left out.
-Dake colours a note by `Var "Color"`, as ITGmania and OutFox load notes
-once per quantization colour; our host read it as "4th" for every note,
+Dake colors a note by `Var "Color"`, as ITGmania and OutFox load notes
+once per quantization color; our host read it as "4th" for every note,
 so its taps were all red (the reviewer caught that we had blamed Dake).
 Now a note element whose Lua reads `Var "Color"` (taps, lifts, fakes,
-mines and every hold and roll part, as ITGmania loads per colour) is
+mines and every hold and roll part, as ITGmania loads per color) is
 loaded once per note type, 4ths to 192nds (`LuaSkin::element_colored_sliced`
 says whether it read it), and each note draws its type's copy, a hold
 all its parts in its head's (`render/src/noteskin.rs`, tested). ITGmania
-loads every such element per colour whether or not it reads it; here
+loads every such element per color whether or not it reads it; here
 only those that do, so other skins load their notes once, as before. A
 script's own `NOTESKIN:LoadActor` loads the 4ths' (as ITGmania's does),
 and a copy that does not load as its 4ths' did (an error, the built-in
 skin) is dropped for the 4ths'. A skin may make 16,384 actors (was
 4,096), for the copies. Reviewed independently (a second reviewer for
 this): fixed copies drawn by nobody when only they fell back to the
-built-in skin, hold parts left uncoloured, the actor cap, and nested
-loads inheriting the colour. Checked: `noteskin/tests/bundled.rs` (all 156 elements its own,
+built-in skin, hold parts left uncolored, the actor cap, and nested
+loads inheriting the color. Checked: `noteskin/tests/bundled.rs` (all 156 elements its own,
 no warning; no stand-in art); `local_skins`: loads in 16.7 ms, a frame's
 Lua at a mean of 600 fuel and at most 21,300; headless Chrome on the
 synthetic chart with and without reverse by screenshot; a full autoplay
@@ -260,7 +260,7 @@ frames have such pixels at their edges, visible as specks that change
 with the beat). Draw the skin quads through a non-sRGB view of the
 target on WebGPU (the canvas's format is plain, its sRGB view is ours),
 and through an offscreen pass on WebGL2 (its surface is sRGB only), with
-the colours passed unconverted; decision 17 amended. Checked against
+the colors passed unconverted; decision 17 amended. Checked against
 screenshots of fades, explosions and Delta's receptor before and after.
 
 **Done on WebGPU 2026-10-12.** The renderer is given the canvas's plain
@@ -270,17 +270,17 @@ view too and samples that one there (so texels are filtered and blended
 as encoded, as StepMania does, with no conversion in the shader), and
 draws each run of a skin's quads in a pass of its own on the plain view
 between the scene's passes (`passes`, `render/src/renderer.rs`, tested);
-the skin's colours are then given encoded (`NoteskinPlay::set_srgb(false)`). Everything else still blends
+the skin's colors are then given encoded (`NoteskinPlay::set_srgb(false)`). Everything else still blends
 in linear light. `__DDI_DEBUG.skins_encoded` says which way a play draws.
 Checked in headless Chrome: on WebGPU skins blend encoded, on WebGL2 as
 before; Delta's receptor specks fainter (the brightest from about 46 to
 27 of 255 on the dark field; re-encoding sampled texels instead, as a
 first version did, gave 34: filtering in linear light lightens fringes),
-Dito's colours unchanged and its additive
+Dito's colors unchanged and its additive
 glow softer, as in StepMania; full autoplays all top tier on WebGPU and
 in Firefox, no validation warnings. Reviewed independently: the
 filtering (above) and an assertion that the plain view is given whenever
-skins' colours are made for it. Open: WebGL2, whose surface is sRGB only (no other view of
+skins' colors are made for it. Open: WebGL2, whose surface is sRGB only (no other view of
 it): skins still blend in linear light there.
 
 **Done on WebGL2 2026-10-13.** The renderer takes how skins blend
@@ -314,7 +314,7 @@ no console warnings. Cost on WebGL2: two textures the size of the canvas
 two draws over the field's quads for each run of them (two or three runs
 a frame: receptors, holds, notes, explosions between the built-in
 sprites). A skin chosen but not drawn (a layout other than dance, a
-chart's own colours) is known only when its session starts: then
+chart's own colors) is known only when its session starts: then
 `Renderer::set_skins_drawn` makes the scene's pipelines draw to the
 canvas again (2026-10-13; checked with a Dancing☆Onigiri work, local only,
 and `__DDI_DEBUG.offscreen`).
@@ -340,5 +340,5 @@ were kept current at each step; this one added decision 39 and closed
   write such paths through `NOTESKIN:GetPath`, as the bundled ones do.
 
 - Done 2026-10-13: Dito's explosions (`Down Explosion.lua`: a glow and
-  the note's outline in its judgement's colour, the onigiri's star and
+  the note's outline in its judgement's color, the onigiri's star and
   the centre's square for theirs).

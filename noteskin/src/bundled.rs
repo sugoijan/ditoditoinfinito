@@ -22,7 +22,7 @@ pub struct Bundled {
     /// Who made it and under which licence, in a line (the skin's origin,
     /// as an imported skin's is the folder it came from).
     pub credit: String,
-    /// The skin this one is a colour scheme of; such skins are chosen
+    /// The skin this one is a color scheme of; such skins are chosen
     /// through it, not listed on their own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant_of: Option<String>,

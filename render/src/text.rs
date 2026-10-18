@@ -221,11 +221,11 @@ impl TextPipeline {
     }
 }
 
-/// How glyphon takes a run's colour (sRGB values, as written) for a
+/// How glyphon takes a run's color (sRGB values, as written) for a
 /// target: turned into linear light where the target holds linear light
 /// (an sRGB view, which encodes it again, or a float texture encoded at
 /// the end); as they are where it holds encoded values (a plain view).
-/// So a colour draws as written on every target.
+/// So a color draws as written on every target.
 pub fn color_mode(format: wgpu::TextureFormat) -> glyphon::ColorMode {
     use wgpu::TextureFormat as F;
     let linear = format.is_srgb()

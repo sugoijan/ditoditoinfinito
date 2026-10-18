@@ -12,7 +12,7 @@ use ddi_render::draw2d::DrawList;
 use ddi_render::{Painter, TextureKey};
 
 const SIZE: [u32; 2] = [64, 16];
-/// The image's stripes, encoded values: greys and a colour.
+/// The image's stripes, encoded values: greys and a color.
 const STRIPES: [[u8; 3]; 4] = [
     [40, 40, 40],
     [128, 128, 128],

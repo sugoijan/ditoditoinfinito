@@ -92,7 +92,7 @@ pub enum Quantization {
     N192,
 }
 
-/// RGBA colour in 0..=1.
+/// RGBA color in 0..=1.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Color {
     pub r: f32,
@@ -133,7 +133,7 @@ pub struct Note {
     pub kind: NoteKind,
     /// Index into `Song::keysounds`.
     pub keysound: Option<u16>,
-    /// Explicit colour (FFR per-note colours, DanOni group colours).
+    /// Explicit color (FFR per-note colors, DanOni group colors).
     pub color: Option<Color>,
     /// Per-note scroll multiplier (DanOni `boost_data`).
     pub speed_mul: Option<f32>,

@@ -33,12 +33,12 @@ pub enum SpriteSource {
     /// An image, by the name the work's data uses (its stored
     /// `layer_images` key).
     Image(Rc<str>),
-    /// Text: danoniplus's span, `w` its font size and `h` its colour.
+    /// Text: danoniplus's span, `w` its font size and `h` its color.
     Text {
         text: Rc<str>,
         /// Font size, px on the stage; 0 for the page's own.
         size: u32,
-        /// A CSS colour, as written; empty (or unreadable) for the page's
+        /// A CSS color, as written; empty (or unreadable) for the page's
         /// own.
         color: Rc<str>,
     },
@@ -176,7 +176,7 @@ impl SpriteTrack {
                     .then(|| track.sprite(source, &f[2..]))
                     .flatten()
                     .map(Rc::new);
-                // A colour box or a transform keeps the depth as it is.
+                // A color box or a transform keeps the depth as it is.
                 if sprite.is_none() && !source.is_empty() {
                     continue;
                 }
@@ -189,7 +189,7 @@ impl SpriteTrack {
 
     /// A content from a cue's fields after its depth and source
     /// (`class, x, y, w, h, opacity, animation, seconds, fill`); `None` for
-    /// a colour box (`[c]`) or a transform (`[t]`), not drawn yet.
+    /// a color box (`[c]`) or a transform (`[t]`), not drawn yet.
     fn sprite(&mut self, source: &str, f: &[String]) -> Option<Sprite> {
         if source.starts_with("[c]") || source.starts_with("[t]") {
             return None;
@@ -246,7 +246,7 @@ impl SpriteTrack {
                 .ok()
                 .filter(|s| s.is_finite())
                 .unwrap_or(0.0),
-            // danoniplus writes the fill mode only into a colour box's
+            // danoniplus writes the fill mode only into a color box's
             // style (`colorObjInfo`); images and text keep CSS's `none`.
             fill: Fill::None,
             source,
@@ -306,7 +306,7 @@ impl SpriteTrack {
 
 /// What a song's back and mask layers ask that is not reproduced, for an
 /// import's report: animations from a work's own stylesheet (played as
-/// none), colour boxes and layer transforms (not drawn), positions a
+/// none), color boxes and layer transforms (not drawn), positions a
 /// script computes (placed at 0).
 pub fn import_notes(song: &Song) -> Vec<String> {
     let mut animations: Vec<String> = Vec::new();
@@ -337,7 +337,7 @@ pub fn import_notes(song: &Song) -> Vec<String> {
         f.get(2)
             .is_some_and(|s| s.starts_with("[c]") || s.starts_with("[t]"))
     }) {
-        notes.push("back and mask colour boxes and layer transforms are not drawn".into());
+        notes.push("back and mask color boxes and layer transforms are not drawn".into());
     }
     let scripted = |s: &str| {
         let t = s
@@ -912,7 +912,7 @@ mod tests {
         );
         // Over: the element's own opacity again; a fill mode does not
         // hold an image's last keyframe (danoniplus writes it only into a
-        // colour box's style).
+        // color box's style).
         let over = at(1.5);
         assert_eq!(over[0].opacity, 0.7);
         assert_eq!(over[1].opacity, 1.0);

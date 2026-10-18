@@ -208,7 +208,7 @@ impl Replay {
     }
 
     /// The settings a replay is drawn with: those the record kept (the
-    /// skin, the colours, the filter, the background, the videos, the
+    /// skin, the colors, the filter, the background, the videos, the
     /// lyrics, the timing-error display; the options as played), with
     /// this device's volume, bindings, offsets' profiles, graphics and
     /// the rest of what is not the play's from `current`.

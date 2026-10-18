@@ -325,7 +325,7 @@ impl Shell {
         // plain surface (D6); a surface that cannot have one draws it
         // through the plain view.
         // Vulkan drivers without mutable swapchain formats cannot: the
-        // play then draws into the plain surface itself (its colours
+        // play then draws into the plain surface itself (its colors
         // encoded by its pipelines, skins blending as the scene does).
         let srgb = format.add_srgb_suffix();
         let srgb_view = srgb != format

@@ -25,7 +25,7 @@ ddi-render.workspace = true
 # A Dancing☆Onigiri work's text layers drawn (`src/play/stage.rs`):
 # cosmic-text, as the 2D pass's text, on the system's fonts.
 glyphon.workspace = true
-# Their colours, as a canvas's `fillStyle` reads them.
+# Their colors, as a canvas's `fillStyle` reads them.
 csscolorparser = "0.9.0"
 # The play (`src/play/`): the session the web runs too.
 ddi-session.workspace = true

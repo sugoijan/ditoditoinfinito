@@ -7,7 +7,7 @@
 //! page's texture once per page and frame (step 0 measured a copy per run
 //! at 0.2 ms; one per page and frame is what keeps a scroll's new runs
 //! under 2 ms). Pages hold coverage alone (`R8Unorm`, a quarter of RGBA
-//! and pixel-identical for white text); a run's colour is a tint.
+//! and pixel-identical for white text); a run's color is a tint.
 //!
 //! The pages cache what is shown, not the library: past a byte budget
 //! the page drawn least recently is cleared whole and reused, and its

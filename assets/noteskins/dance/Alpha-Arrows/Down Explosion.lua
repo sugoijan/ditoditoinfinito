@@ -1,5 +1,5 @@
 -- The explosion (Dito's, on this skin's art): the arrow's glow, turned to
--- the button and coloured by the judgement, swelling as it fades (more
+-- the button and colored by the judgement, swelling as it fades (more
 -- past 100 combo); for the best three judgements, rays flung out upright
 -- around it; a held hold's or roll's glow breathing with the beat; a
 -- mine's flash in red.

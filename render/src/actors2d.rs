@@ -82,7 +82,7 @@ pub fn append(
                         blend: Blend::NoEffect,
                         mask: Mask::Clear,
                         // Opaque, so the alpha test keeps it; it draws no
-                        // colour.
+                        // color.
                         ..Quad::plain([-1e6, -1e6, 1e6, 1e6], [1.0; 4])
                     });
                 }
@@ -151,7 +151,7 @@ pub fn append(
                     text: t.text.clone(),
                     style: t.style.clone(),
                     transform: Affine(t.line_box_transform()),
-                    // White text tinted: the upper left corner's colour.
+                    // White text tinted: the upper left corner's color.
                     color: t.diffuse[0],
                     blend,
                     mask,
@@ -161,7 +161,7 @@ pub fn append(
                 if t.diffuse[0][3] > 0.0 {
                     list.push(Command::Text(run.clone()));
                 }
-                // Glowing white text is the glow's colour.
+                // Glowing white text is the glow's color.
                 if t.glow[3] > 0.0 {
                     list.push(Command::Text(TextRun {
                         color: t.glow,

@@ -8,7 +8,7 @@
 //!   left out), then holds (under the ruleset's names), hold ticks, mines,
 //!   stray presses, max combo, fast and slow, the mean and σ.
 //! - **Right**: panels in sets the ruleset offers and the player picks
-//!   ([`super::data::PanelSet`]): the timing histogram coloured by the
+//!   ([`super::data::PanelSet`]): the timing histogram colored by the
 //!   ruleset's windows, life over the song with the gauge's danger line,
 //!   offsets over the song with misses marked, and hits short of the best
 //!   tier by lane.
@@ -664,7 +664,7 @@ impl ResultsScreen {
         (r / 5.0).ceil().max(2.0) * 5.0
     }
 
-    /// The timing histogram, bins coloured by the ruleset's windows, the
+    /// The timing histogram, bins colored by the ruleset's windows, the
     /// best window's band behind them.
     fn timing_panel(&self, rect: [f32; 4], large: bool) -> Actor {
         let env = &self.env;

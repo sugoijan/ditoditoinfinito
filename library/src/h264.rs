@@ -1,6 +1,6 @@
 //! H.264 for decoders that are not the FFmpeg module (WebCodecs;
 //! `docs/plans/video-backgrounds.md`, step 6): the sequence parameter set
-//! (size, codec string, colour tags, reorder delay), the NAL units of a
+//! (size, codec string, color tags, reorder delay), the NAL units of a
 //! chunk, and the module's frame times and exact seeks, so a movie plays
 //! frame for frame the same through either decoder.
 //!
@@ -283,7 +283,7 @@ impl Sps {
         self.reorder
     }
 
-    /// The module's colour matrix: the stream's tag, else BT.601 below
+    /// The module's color matrix: the stream's tag, else BT.601 below
     /// 720 lines and BT.709 from there (`guess_colorspace` in the shim).
     pub fn bt709(&self) -> bool {
         match self.matrix {
@@ -819,7 +819,7 @@ mod tests {
     }
 
     /// A Main profile SPS, 852×480 (crop 6 on the right), with a VUI
-    /// carrying the colour tags and the bitstream restriction.
+    /// carrying the color tags and the bitstream restriction.
     fn sps(reorder: Option<u32>, matrix: Option<u32>) -> Vec<u8> {
         let mut w = Writer { bits: Vec::new() };
         w.u(8, 77).u(8, 0x40).u(8, 31).ue(0);

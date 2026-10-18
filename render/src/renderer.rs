@@ -291,7 +291,7 @@ impl Renderer {
     }
 
     /// Skins' quads blend as StepMania blends (in the target's plain view,
-    /// or offscreen in a plain texture, so their colours are given encoded,
+    /// or offscreen in a plain texture, so their colors are given encoded,
     /// as on a plain target).
     pub fn skins_blend_encoded(&self) -> bool {
         self.textured.gamma()
@@ -302,7 +302,7 @@ impl Renderer {
         self.offscreen.is_some()
     }
 
-    /// The skin's background colour as the target expects it.
+    /// The skin's background color as the target expects it.
     pub fn clear_color(&self) -> wgpu::Color {
         let c = self.skin.background;
         let [r, g, b, a] = to_target([c.r as f32, c.g as f32, c.b as f32, c.a as f32], self.srgb);
@@ -396,9 +396,9 @@ impl Renderer {
                 i.params = [r, g, b, phase];
             }
         }
-        // Text colours go as written: glyphon turns them into linear light
+        // Text colors go as written: glyphon turns them into linear light
         // where the target holds it (`text::color_mode`).
-        // The plain backdrop (`background::PLAIN`) is the field's colour.
+        // The plain backdrop (`background::PLAIN`) is the field's color.
         let c = self.skin.background;
         let byte = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         self.background
@@ -425,7 +425,7 @@ impl Renderer {
         // the scene's (`skins_blend_encoded`); offscreen, to a plain texture
         // the scene so far is drawn into encoded, then back into the scene
         // decoded, and the frame is drawn to the target at the end.
-        // The skin's colours were made encoded for it (`skins_blend_encoded`).
+        // The skin's colors were made encoded for it (`skins_blend_encoded`).
         debug_assert!(
             scene.quads.is_empty()
                 || plain_view.is_some()
@@ -463,7 +463,7 @@ impl Renderer {
             let turned = n > 0 && plans[n - 1].plain != pass_plan.plain;
             if pass_plan.plain && (turned || n == 0) {
                 // The run's quads, over its passes (a masked run's too);
-                // what draws no colour left out.
+                // what draws no color left out.
                 let end = plans[n..]
                     .iter()
                     .take_while(|p| p.plain)

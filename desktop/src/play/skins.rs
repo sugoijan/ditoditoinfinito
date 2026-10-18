@@ -22,13 +22,13 @@ use crate::library::noteskins::DiskSkin;
 
 /// The `noteskin` setting's value for the built-in arrows.
 pub const BUILT_IN: &str = "builtin";
-/// Dito's key (its colour variants' are `bundled:dance/dito <scheme>`).
+/// Dito's key (its color variants' are `bundled:dance/dito <scheme>`).
 const DITO: &str = "bundled:dance/dito";
 
 /// The skin a play draws its layout with, by key (the web's
 /// `noteskins::play_skin`): the chosen one, or Dito in its variant for
-/// the note colours; none for the built-in arrows, and none instead of
-/// Dito when the chart's own colours are drawn.
+/// the note colors; none for the built-in arrows, and none instead of
+/// Dito when the chart's own colors are drawn.
 pub fn play_skin(choice: Option<&str>, colors: NoteColors, chart_colors: bool) -> Option<String> {
     match choice {
         Some(BUILT_IN) => None,

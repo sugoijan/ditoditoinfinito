@@ -777,10 +777,10 @@ impl OptionsModel {
             OptionKind::Choices(names),
             at,
             if self.world.platform == super::data::Platform::Desktop {
-                "Dito: the built-in arrows in the note colours. Built in: the same without a \
+                "Dito: the built-in arrows in the note colors. Built in: the same without a \
                  skin (lighter). Or a bundled noteskin, or one from the song folders."
             } else {
-                "Dito: the built-in arrows in the note colours. Built in: the same without a \
+                "Dito: the built-in arrows in the note colors. Built in: the same without a \
                  skin (lighter). Or a bundled or an imported noteskin."
             },
         )];
@@ -788,24 +788,18 @@ impl OptionsModel {
             rows.extend([
                 choice(
                     "note_colors",
-                    "Note colours",
-                    &[
-                        "Vivid",
-                        "Rainbow",
-                        "By subdivision",
-                        "Flat",
-                        "Single colour",
-                    ],
-                    pos(&NOTE_COLOURS, s.note_colors),
+                    "Note colors",
+                    &["Vivid", "Rainbow", "By subdivision", "Flat", "Single color"],
+                    pos(&NOTE_COLORS, s.note_colors),
                     "Vivid: a cycling rainbow, shifted by subdivision. Rainbow: by position in the \
                      beat, flowing. Flat: all notes alike.",
                 ),
                 choice(
                     "chart_colors",
-                    "Songs' own colours",
+                    "Songs' own colors",
                     &["Off", "On"],
                     s.chart_colors as usize,
-                    "Uses a song's own note colours when it has them (Dancing☆Onigiri works).",
+                    "Uses a song's own note colors when it has them (Dancing☆Onigiri works).",
                 ),
             ]);
         }
@@ -1247,7 +1241,7 @@ impl OptionsModel {
             "show_deltas" => s.show_deltas = on,
             "ghost" => s.ghost = on,
             "receptor_snap" => s.receptor_snap = on,
-            "note_colors" => s.note_colors = at(&NOTE_COLOURS, i),
+            "note_colors" => s.note_colors = at(&NOTE_COLORS, i),
             "chart_colors" => s.chart_colors = on,
             "lyrics" => s.lyrics = on,
             "bg_brightness" => s.bg_brightness = i as f32 / 20.0,
@@ -1711,7 +1705,7 @@ const DANONI_GAUGES: [(Option<&str>, &str); 10] = [
     (Some("Easy"), "Easy (border)"),
     (Some("Hard"), "Hard (border)"),
 ];
-const NOTE_COLOURS: [NoteColors; 5] = [
+const NOTE_COLORS: [NoteColors; 5] = [
     NoteColors::Vivid,
     NoteColors::Rainbow,
     NoteColors::Quantized,

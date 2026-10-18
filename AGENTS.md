@@ -86,7 +86,7 @@ the browser are implementation details, not advertised features.
   screen both shells run (`ui/src/dev.rs`). Pure, natively tested.
 - `theme/` our theme (`ddi-theme`, `docs/plans/theme.md`): `Infinito`,
   a look for the UI core whose components are the maintainer's mockups,
-  its colours, faces, sizes, timings and places in
+  its colors, faces, sizes, timings and places in
   `theme/src/infinito.toml` (turned into tables at build time). The
   screens it dresses are `ui/src/screens/` (song select, results,
   options; theme-agnostic, fed plain data). Pure, natively tested.
@@ -511,6 +511,9 @@ dependency's licence before adding it.
 
 ## Conventions
 
+- Use American English in first-party identifiers, comments, UI text and
+  documentation (`color`, for example). Preserve copied upstream text and
+  names required by external APIs or file formats.
 - Logical file paths use `ddi_library::path::{RelPath, RelPathBuf}`; convert to OS paths only with `to_path(base)`, never by joining their text onto a `PathBuf`.
 - Commit messages: imperative summary line, body explaining why.
 - Keep `docs/PLAN.md` status and decisions current when scope changes.

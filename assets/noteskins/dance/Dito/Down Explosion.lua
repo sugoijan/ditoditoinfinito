@@ -1,5 +1,5 @@
 -- Dito's explosions (the built-in arrows have none). A hit bursts from the
--- receptor in its judgement's colour, as a glow and the arrow's outline
+-- receptor in its judgement's color, as a glow and the arrow's outline
 -- (the onigiri's star's, the centre's square's) growing and fading, larger and brighter past 100
 -- combo; a completed hold bursts green; a held hold or roll glows green,
 -- pulsing on the beat (a roll faster); a mine flashes red.

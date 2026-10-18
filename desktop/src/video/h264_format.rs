@@ -53,7 +53,7 @@ impl Format {
         })
     }
     /// Four-byte length framing, refusing parameter-set changes instead of
-    /// silently letting the OS's timing or colour interpretation change.
+    /// silently letting the OS's timing or color interpretation change.
     pub fn sample(&self, bytes: &[u8]) -> Result<Vec<u8>, String> {
         let mut out = Vec::with_capacity(bytes.len() + 32);
         for n in h264::nal_units(bytes, self.stream.framing) {

@@ -53,7 +53,7 @@ typedef struct {
     int64_t seek_key;  // dts of the first packet read since the seek
     int seek_retries;  // seeks back to an earlier keyframe for the same target
     int seek_reopened; // the current seek decodes from a reopened file
-    // The frame handed over: its planes, size and colour tags.
+    // The frame handed over: its planes, size and color tags.
     uint8_t *planes;
     size_t planes_cap;
     struct SwsContext *sws; // for pixel formats copied through swscale

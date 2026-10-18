@@ -2751,7 +2751,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
 }
 
 /// Readies the chosen noteskin for `song`'s chart `chart` (its layout,
-/// colours and scroll direction), for [`Msg::NoteskinLoaded`]. `None` for
+/// colors and scroll direction), for [`Msg::NoteskinLoaded`]. `None` for
 /// the built-in arrows.
 fn noteskin_ready(
     settings: &Settings,

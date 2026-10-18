@@ -17,7 +17,7 @@ use ddi_ui::state::settings::{BackgroundFrame, NoteColors, Settings};
 /// The HUD's face (the web's `game_loop::FONT`).
 const FONT: &[u8] = include_bytes!("../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
 
-/// The note colours as the renderer has them (the web's
+/// The note colors as the renderer has them (the web's
 /// `settings::note_scheme`).
 fn note_scheme(colors: NoteColors) -> ColorScheme {
     match colors {
@@ -58,7 +58,7 @@ pub fn options(settings: &Settings) -> FieldPreviewOptions {
 
 /// The noteskin the preview's layout is drawn with and what it is
 /// readied for (key, layout, direction): key `None` for the built-in
-/// arrows. The demo has no colours of its own.
+/// arrows. The demo has no colors of its own.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SkinWant {
     pub key: Option<String>,

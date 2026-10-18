@@ -64,7 +64,7 @@ use self::stage::Stage;
 const PRELUDE: &str = include_str!("prelude.lua");
 
 /// Actors one skin may make, over all its elements (and the copies of its
-/// note elements per colour, [`NOTE_COLORS`]).
+/// note elements per color, [`NOTE_COLORS`]).
 pub const MAX_ACTORS: usize = 16384;
 
 /// The play a skin loads for, as far as its Lua asks
@@ -564,7 +564,7 @@ impl LuaSkin {
 
     /// [`LuaSkin::element_sliced`] with `Var "Color"` set to `color` (one
     /// of [`NOTE_COLORS`]), and whether its Lua read it: then the element
-    /// looks different per colour and is loaded once for each, as ITGmania
+    /// looks different per color and is loaded once for each, as ITGmania
     /// and OutFox load notes.
     pub async fn element_colored_sliced(
         &mut self,

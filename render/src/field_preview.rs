@@ -12,7 +12,7 @@
 //! (speed, Reverse, Boost, Brake, Wave), Turn and Cut and the
 //! simplifications, Hidden, Sudden and Stealth, receptor snap (the
 //! player's [`PlayOptions`], played by the demo as by a play); the
-//! ruleset (how the demo's hits are judged, and named); the note colours,
+//! ruleset (how the demo's hits are judged, and named); the note colors,
 //! the field filter and the timing error under the judgement; the
 //! background's brightness and the frame it is fitted into, over a plate
 //! of our own (the demo has no song background: [`plate`]). The arrows

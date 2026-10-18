@@ -50,7 +50,7 @@ pub struct Settings {
     /// browser (they are most of a pack's size); linked songs read them
     /// from their folder either way.
     pub import_videos: bool,
-    /// How notes are coloured.
+    /// How notes are colored.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub note_colors: NoteColors,
     /// The noteskin layouts are drawn with: an imported one's key,
@@ -61,7 +61,7 @@ pub struct Settings {
     /// The pump noteskin pump layouts are drawn with (`pump/<name>`, an
     /// imported one's key); `None`: the noteskin above draws them too.
     pub pump_noteskin: Option<String>,
-    /// Draw notes in the colours a chart gives them (Dancing☆Onigiri
+    /// Draw notes in the colors a chart gives them (Dancing☆Onigiri
     /// works) instead of `note_colors` (decision 23: off by default).
     pub chart_colors: bool,
     /// Show the lyrics of songs that have them (Dancing☆Onigiri works).
@@ -210,7 +210,7 @@ pub enum BackgroundFrame {
     Screen,
 }
 
-/// Note colour scheme (see `ddi_render::note_colors`; the app maps it).
+/// Note color scheme (see `ddi_render::note_colors`; the app maps it).
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NoteColors {
     /// By subdivision.
@@ -221,10 +221,10 @@ pub enum NoteColors {
     Vivid,
     /// Cycling rainbow, all notes alike.
     Flat,
-    /// By position in the beat, in four colour families with flowing
+    /// By position in the beat, in four color families with flowing
     /// gradients (DDR 2014–A3).
     Rainbow,
-    /// One colour.
+    /// One color.
     Single,
 }
 

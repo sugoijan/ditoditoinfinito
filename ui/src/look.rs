@@ -27,7 +27,7 @@
 //!   `ChartLadder.Row`, …), listed in [`crate::screens`], each falling
 //!   back to one of these.
 //!
-//! A look also gives named colours, font stacks by role (`Text`,
+//! A look also gives named colors, font stacks by role (`Text`,
 //! `Numbers`), the wheel's curve and named metrics (a region's place, a
 //! timing, an amount: [`Look::metric`]), which screens read with their
 //! own defaults.
@@ -86,7 +86,7 @@ pub trait Look {
         None
     }
 
-    /// A named colour (`Graph.Line`, `Graph.Bar`, `Text`, `Accent`, …).
+    /// A named color (`Graph.Line`, `Graph.Bar`, `Text`, `Accent`, …).
     fn color(&self, _name: &str) -> Option<Rgba> {
         None
     }

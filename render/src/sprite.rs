@@ -12,7 +12,7 @@ pub enum Shape {
     Mine = 3,
     Circle = 4,
     HoldBody = 5,
-    /// An arrow with a flowing two-colour gradient: `color` to
+    /// An arrow with a flowing two-color gradient: `color` to
     /// `params[0..3]` down the screen, shifted by `params[3]` cycles.
     ArrowGradient = 7,
     /// An arrow running from `color` at its tail to `params[0..3]` at its
@@ -105,7 +105,7 @@ struct Globals {
     scale: [f32; 2],
     translate: [f32; 2],
     time: f32,
-    /// 1 when the target is sRGB: the shader's own colour maths then works
+    /// 1 when the target is sRGB: the shader's own color maths then works
     /// in linear light.
     srgb: f32,
     _pad: [f32; 2],

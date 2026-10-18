@@ -122,7 +122,7 @@ pub fn build(
 
 /// [`build`] for notes of note type `color` (`4th` … `192nd`): a skin in
 /// StepMania 3.9's format has files per note type for the parts its
-/// metrics colour (`<Part>AnimationIsNoteColor`); other skins' elements
+/// metrics color (`<Part>AnimationIsNoteColor`); other skins' elements
 /// are the same for every note type.
 pub fn build_colored(
     skin: &Skin<'_>,

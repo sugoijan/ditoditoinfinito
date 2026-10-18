@@ -202,7 +202,7 @@ Safari by the maintainer, which settles research section 7's first item.
 - Protocol: `want` carries the seek generation; a seek cancels the wants
   from before it and the end cancels the rest (`eof` once per generation).
   `VideoDecoder::pending()` says how many frames are still coming, so step
-  4 asks for `ahead − queued − pending`. Frames also carry their colour
+  4 asks for `ahead − queued − pending`. Frames also carry their color
   tags and decode time.
 - Crashes: anything thrown out of the module (trap, `abort()`, a stack
   overflow, which V8 reports as `RangeError`) fails every open movie and the
@@ -358,7 +358,7 @@ checking the report and the manifest.
 
 Verification: a scratch pack with a synthetic 30 fps clip whose frames are
 numbered (`drawtext`), autoplayed headless on WebGPU and WebGL2; sample the
-background pixel colour at known song times to confirm the frame shown is
+background pixel color at known song times to confirm the frame shown is
 the one `movie_time` says (within one frame), including after a loop and
 after starting mid-segment (`&song_offset` via the per-song offset or a
 late `#BGCHANGES` beat); `__DDI_DEBUG` gains `video: {decoded, dropped,
@@ -409,7 +409,7 @@ late}`.
   BT.601/709, limited/full range, linearised on sRGB targets) draws behind
   the field with the images' brightness and crossfades.
 - Checked headless on WebGPU and WebGL2 with numbered clips (each frame a
-  colour coding its number) read back from the screen at chosen song
+  color coding its number) read back from the screen at chosen song
   times (`window.__DDI_SONG_TIME`): first run, image between, resume,
   rewinding loop (from memory), double rate, a long clip wrapping at its
   end, a change at a negative beat (joined 8 s in), two movies alternating
@@ -645,8 +645,8 @@ state says which decoder); Firefox and Safari by the maintainer.
   and WebGL2, all top tier, about 605 frames shown by 20 s, none late.
 - `#/video-check?decoder=both` shows each file's frame from both decoders
   side by side (frame 900, 30 s in, or 30 in a short movie), and for
-  frames in the browser's colours compares times only and measures the
-  colours: the mean difference (of 255) from the module's frame converted
+  frames in the browser's colors compares times only and measures the
+  colors: the mean difference (of 255) from the module's frame converted
   under BT.601 and BT.709, limited and full range. Chrome's own
   conversion came out closest to what the module uses (BT.601 limited
   0.6 for 640×360, BT.709 limited 0.4 for 1280×720).
@@ -749,7 +749,7 @@ the change; otherwise its `#BACKGROUND` stays, as before.
   JPEG; Safari's no WebP). Decoded planes are converted on the CPU as the
   shader converts them (`VideoFrame::rgba`: centre-sited chroma
   interpolated as the sampler does, then `yuv_to_rgb`, natively tested);
-  a browser frame in its own colours (Firefox's direct path) is drawn as
+  a browser frame in its own colors (Firefox's direct path) is drawn as
   the browser draws it. Song select and the prompt read the JPEG and never
   load the decoder. The stills are taken in a pass after the import (since
   the review: the report and the songs show at once, the status line says
@@ -810,7 +810,7 @@ the change; otherwise its `#BACKGROUND` stays, as before.
   picture. `__DDI_DEBUG.still` (the still is loaded) and
   `prompt_backdrop` (`still`, `background`, `none`) say what shows.
 - Checked headless in Chrome (WebGPU and `gfx=gl`) and Firefox on a
-  scratch pack (a numbered-colour clip from beat 0, H.264 from beat −8,
+  scratch pack (a numbered-color clip from beat 0, H.264 from beat −8,
   the same clip after the first note, a broken file) and on local packs:
   Bad Apple!! (DivX 3 AVI, module), BAD (1920×1080 H.264 MP4, stored
   1280×720), BANG BANG (1280×720 MP4), 1116 (H.264 AVI, WebCodecs; in

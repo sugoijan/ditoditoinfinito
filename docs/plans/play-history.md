@@ -36,7 +36,7 @@ metadata out again when something changes.
     range over the play.
   - **The song offset** in effect. The engine plays a song shifted by it
     (`Song::shift_notes`), and re-judging shifts it the same way.
-  - **How it was drawn:** the arrows (noteskin), note colours, the field
+  - **How it was drawn:** the arrows (noteskin), note colors, the field
     filter and background brightness, the background frame and videos
     setting, the timing-error display, the graphics backend.
   - **How it was played:** the input devices used (keyboard, pads by
@@ -405,7 +405,7 @@ its edges are fed to a new play when this device's clock reaches them.
   played (speed, reverse, turn and its seed, cut, appearance, scroll
   action, receptor snap), never the settings' now.
 - **How it was drawn,** from the settings the record kept: the skin, the
-  note colours, the chart's colours, the field filter, the background's
+  note colors, the chart's colors, the field filter, the background's
   brightness and frame, the videos setting, lyrics, the timing-error
   display. Not this device's volume, bindings or graphics backend.
 - **The offsets:** the record's when this is the audio path and display

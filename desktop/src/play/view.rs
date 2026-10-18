@@ -22,7 +22,7 @@ pub const FONT: &[u8] = include_bytes!("../../../assets/fonts/IosevkaCustom-Extr
 const MAX_BACKGROUND_SIDE: u32 = 2048;
 const MAX_CHANGE_SIDE: u32 = 1024;
 
-/// The note colours as the renderer has them (the web's
+/// The note colors as the renderer has them (the web's
 /// `settings::note_scheme`).
 pub fn note_scheme(colors: NoteColors) -> ColorScheme {
     match colors {

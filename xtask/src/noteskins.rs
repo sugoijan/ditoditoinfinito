@@ -32,7 +32,7 @@ pub(crate) struct Provenance {
     /// This repository's own (MIT, like the code): not in the credits.
     #[serde(default)]
     pub(crate) ours: bool,
-    /// The skin this one is a variant of (a colour scheme of it): not
+    /// The skin this one is a variant of (a color scheme of it): not
     /// listed under Options on its own.
     #[serde(default)]
     pub(crate) variant_of: Option<String>,
@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn bad_records_and_names_are_refused() {
         for (tag, name, prov) in [
-            ("unknown", "Mine", format!("colour = \"red\"\n{PROVENANCE}")),
+            ("unknown", "Mine", format!("color = \"red\"\n{PROVENANCE}")),
             (
                 "nolicence",
                 "Mine",

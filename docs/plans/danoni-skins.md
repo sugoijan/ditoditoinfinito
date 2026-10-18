@@ -23,7 +23,7 @@ not. The maintainer's decisions (2026-10-13):
 Done: 7i out; `Skin::lane_button` (`noteskin/src/load.rs`) and
 `NoteskinPlay` on every built-in layout, natively and through the skin's
 Lua (`Button::Center` and `Button::Onigiri` are buttons the Lua is given
-as `Var "Button"`); Dito's onigiri star (`xtask gen-dito`, every colour
+as `Var "Button"`); Dito's onigiri star (`xtask gen-dito`, every color
 scheme, and `Onigiri Tap Note.lua`, `Onigiri Receptor.lua`); CF_CHROME's
 centre files back (CF_VIBRANT and CF_ALLOY have their own models and
 glow). Checked: native tests (the mapping, a 7-key play of a synthetic
@@ -58,7 +58,7 @@ here too, as they are; without them, the Down arrow turned.
    built-in layout, natively and through its Lua; the preview's layout
    picker shows it.
 4. **Dito's onigiri**: its generator draws the onigiri star the built-in
-   arrows draw (tap note sheets per colour scheme, receptor), and its Lua
+   arrows draw (tap note sheets per color scheme, receptor), and its Lua
    loads them for the `Onigiri` button.
 5. **CF_CHROME's centre**: the `Center` files left out when it was
    bundled come back (byte for byte), so its family draws its own

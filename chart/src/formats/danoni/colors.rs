@@ -1,19 +1,19 @@
-//! A work's own note colours.
+//! A work's own note colors.
 //!
-//! danoniplus colours a lane by its colour group (`setColor`, per chart
+//! danoniplus colors a lane by its color group (`setColor`, per chart
 //! `setColor2`, …; `resetBaseColorList`, `js/lib/dosConverter.js`), a hold
-//! head by its group's freeze colours (`frzColor`: normal arrow, normal bar,
+//! head by its group's freeze colors (`frzColor`: normal arrow, normal bar,
 //! hit arrow, hit bar per group), and changes them over time with
-//! `color_data`/`acolor_data` (`frame,target,colour`: 0–19 or 1000+ a lane,
-//! 20–29 a colour group, 30–61 freeze parts) and `ncolor_data`
-//! (`frame,target[:part],colour[,all]`: `0...7`, `1/3/5`, `g2`, `all`; parts
+//! `color_data`/`acolor_data` (`frame,target,color`: 0–19 or 1000+ a lane,
+//! 20–29 a color group, 30–61 freeze parts) and `ncolor_data`
+//! (`frame,target[:part],color[,all]`: `0...7`, `1/3/5`, `g2`, `all`; parts
 //! `Arrow`, `Normal`, …) (`pushColors`, `js/lib/dataLoader.js` 1900–2020). A
 //! change applies to notes arriving at or after its frame.
 //!
-//! Here each note gets the colour it would be drawn with: taps the arrow
-//! colour, hold heads the freeze normal-arrow colour. Hold bodies keep the
-//! skin's colours, gradients use their first colour, and changes marked to
-//! recolour notes already on screen (`acolor_data`, the `all` flag) are
+//! Here each note gets the color it would be drawn with: taps the arrow
+//! color, hold heads the freeze normal-arrow color. Hold bodies keep the
+//! skin's colors, gradients use their first color, and changes marked to
+//! recolor notes already on screen (`acolor_data`, the `all` flag) are
 //! treated like the others (only notes already on screen at that frame
 //! differ).
 
@@ -22,23 +22,23 @@ use crate::model::Color;
 use super::dos::{Dos, js_round, parse_int, split_lf, split_lf2};
 use super::expr;
 
-/// danoniplus's default arrow colours (`setColorInit`), one per group.
+/// danoniplus's default arrow colors (`setColorInit`), one per group.
 const SET_COLOR_INIT: [&str; 10] = [
     "#6666ff", "#99ffff", "#ffffff", "#ffff99", "#ff9966", "#6666ff", "#99ffff", "#ffffff",
     "#ffff99", "#ff9966",
 ];
 
-/// Its default freeze colours (`frzColorInit`): normal arrow, normal bar,
+/// Its default freeze colors (`frzColorInit`): normal arrow, normal bar,
 /// hit arrow, hit bar.
 const FRZ_COLOR_INIT: [&str; 4] = ["#66ffff", "#6600ff", "#cccc33", "#999933"];
 
-/// Most colour changes read per chart.
+/// Most color changes read per chart.
 const MAX_CHANGES: usize = 100_000;
 
 /// Most lane targets read from one `ncolor_data` entry.
 const MAX_TARGETS: usize = 1024;
 
-/// What a colour change applies to.
+/// What a color change applies to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Part {
     /// Taps (and the arrow of anything not a hold).
@@ -47,21 +47,21 @@ enum Part {
     HoldHead,
 }
 
-/// The colours of a chart's notes.
+/// The colors of a chart's notes.
 pub(super) struct Palette {
     arrow: Vec<Color>,
     hold: Vec<Color>,
-    /// Per lane and part (`lane * 2 + part`), `(frame, colour)` sorted by
+    /// Per lane and part (`lane * 2 + part`), `(frame, color)` sorted by
     /// frame (stably, so a later change on the same frame wins).
     changes: Vec<Vec<(i64, Color)>>,
     /// Changes read so far.
     count: usize,
-    /// Lanes of each colour group.
+    /// Lanes of each color group.
     by_group: Vec<Vec<usize>>,
 }
 
 impl Palette {
-    /// The colours of chart `suffix` (`""`, `"2"`, …) for lanes in colour
+    /// The colors of chart `suffix` (`""`, `"2"`, …) for lanes in color
     /// groups `groups`.
     pub(super) fn new(dos: &Dos, suffix: &str, groups: &[u8]) -> Palette {
         let header = |name: &str| {
@@ -86,7 +86,7 @@ impl Palette {
                 .filter_map(|c| parse_color(c))
                 .collect(),
         };
-        // One row of freeze colours per group; missing ones from the
+        // One row of freeze colors per group; missing ones from the
         // defaults.
         let frz_rows: Vec<String> = header("frzColor")
             .map(|f| split_lf2(&f))
@@ -138,7 +138,7 @@ impl Palette {
         self.count >= MAX_CHANGES
     }
 
-    /// The colour of a note of `lane` arriving at `frame`.
+    /// The color of a note of `lane` arriving at `frame`.
     pub(super) fn color(&self, lane: usize, frame: i64, hold: bool) -> Option<Color> {
         let part = if hold { Part::HoldHead } else { Part::Arrow };
         let base = if hold { &self.hold } else { &self.arrow };
@@ -158,7 +158,7 @@ impl Palette {
         }
     }
 
-    /// `color_data` / `acolor_data`: `frame,target,colour` triples.
+    /// `color_data` / `acolor_data`: `frame,target,color` triples.
     fn legacy(&mut self, data: &str) {
         for line in split_lf(data).filter(|l| !l.is_empty()) {
             let items: Vec<&str> = line.split(',').collect();
@@ -189,7 +189,7 @@ impl Palette {
                     20..=29 => self.groups(frame, (target - 20) as u8, Part::Arrow, color),
                     30..=61 => {
                         // Freeze parts (`pushColors`): only the normal arrow
-                        // colours a hold head here.
+                        // colors a hold head here.
                         let parts: Vec<i64> = match target {
                             30..=49 => vec![target % 30],
                             50..=59 => vec![(target % 50) * 2, (target % 50) * 2 + 1],
@@ -210,7 +210,7 @@ impl Palette {
         }
     }
 
-    /// `ncolor_data`: `frame,target[:part],colour[,all]` per line.
+    /// `ncolor_data`: `frame,target[:part],color[,all]` per line.
     fn modern(&mut self, data: &str) {
         for line in split_lf(data).filter(|l| !l.is_empty()) {
             if self.full() {
@@ -301,7 +301,7 @@ fn expand_parts(spec: &str) -> Vec<String> {
     full.split('/').map(str::to_string).collect()
 }
 
-/// A frame of a colour change (evaluated, rounded, bounded like note
+/// A frame of a color change (evaluated, rounded, bounded like note
 /// frames).
 fn frame_of(s: &str) -> Option<i64> {
     expr::eval(s)
@@ -316,7 +316,7 @@ const WHITE: Color = Color {
     a: 1.0,
 };
 
-/// The first colour of a danoniplus colour value: `#rgb`, `#rrggbb`,
+/// The first color of a danoniplus color value: `#rgb`, `#rrggbb`,
 /// `#rrggbbaa` or `0xrrggbb`, possibly the first stop of a gradient
 /// (`45deg:#ffff99:#ffffff@linear-gradient`).
 pub(super) fn parse_color(s: &str) -> Option<Color> {
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn colours_parse() {
+    fn colors_parse() {
         assert_eq!(parse_color("#ff9966").map(hex).as_deref(), Some("#ff9966"));
         assert_eq!(parse_color("0x80FFFF").map(hex).as_deref(), Some("#80ffff"));
         assert_eq!(parse_color("#fff").map(hex).as_deref(), Some("#ffffff"));

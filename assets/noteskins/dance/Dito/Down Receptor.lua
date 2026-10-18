@@ -1,5 +1,5 @@
 -- The receptor: the arrow's outline, smaller while its button is down,
--- flashing a judgement's colour for a quarter of a second (not a miss's).
+-- flashing a judgement's color for a quarter of a second (not a miss's).
 local base = color("0.75,0.75,0.8,0.9")
 local flashes =
 {

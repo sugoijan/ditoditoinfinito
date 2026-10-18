@@ -62,7 +62,7 @@ impl TweenState {
         }
     }
 
-    /// The upper left corner's colour: what `GetDiffuse` answers and a
+    /// The upper left corner's color: what `GetDiffuse` answers and a
     /// frame hands down to its children (`ActorFrame::DrawPrimitives`).
     pub fn diffuse(&self) -> Rgba {
         self.diffuse[0]
@@ -197,13 +197,13 @@ pub enum Blend {
     Add,
     Subtract,
     Modulate,
-    /// `BlendMode_NoEffect`: leaves the colour as it is (`glBlendFunc(GL_ZERO,
+    /// `BlendMode_NoEffect`: leaves the color as it is (`glBlendFunc(GL_ZERO,
     /// GL_ONE)`); what a mask is drawn with ([`Actor`]'s `MaskSource`),
     /// writing only depth.
     NoEffect,
     /// `BlendMode_CopySrc`: the source replaces what is there.
     CopySrc,
-    /// `BlendMode_AlphaMask` and `BlendMode_AlphaKnockOut`: the colour
+    /// `BlendMode_AlphaMask` and `BlendMode_AlphaKnockOut`: the color
     /// left alone, the target's alpha scaled by the source's (or by one
     /// less it).
     AlphaMask,
@@ -245,7 +245,7 @@ pub enum ZTest {
     WriteOnFail,
 }
 
-/// The texture id of an untextured sprite ([`Sprite::quad`]): its colour
+/// The texture id of an untextured sprite ([`Sprite::quad`]): its color
 /// alone.
 pub const UNTEXTURED: u32 = u32::MAX;
 
@@ -623,7 +623,7 @@ impl Model {
         self.animation.pose(&self.rest, self.frame, &mut self.bones);
     }
 
-    /// What the materials show now: texture, colour (times `diffuse`, as
+    /// What the materials show now: texture, color (times `diffuse`, as
     /// `DrawPrimitives` multiplies ambient, diffuse and emissive by the
     /// actor's), translation.
     fn materials_now(&self, diffuse: Rgba) -> Vec<(Option<u32>, Rgba, [f32; 2])> {
@@ -659,7 +659,7 @@ pub struct ModelDraw {
     /// viewer; a column-major 4×4.
     pub transform: [f32; 16],
     pub geometry: Arc<Geometry>,
-    /// Per material: its texture now (`None`: none), colour, translation.
+    /// Per material: its texture now (`None`: none), color, translation.
     pub materials: Vec<(Option<u32>, Rgba, [f32; 2])>,
     /// Each bone's matrix (MilkShape's space), for the meshes and vertices
     /// that follow one.
@@ -887,7 +887,7 @@ pub struct Actor {
     /// `shadowlength`: a sprite or text draws a copy of itself this far
     /// right and down, in the screen's pixels, under it (`Sprite::DrawTexture`).
     pub shadow: [f32; 2],
-    /// `shadowcolor`: the copy's colour, its alpha times the actor's.
+    /// `shadowcolor`: the copy's color, its alpha times the actor's.
     pub shadow_color: Rgba,
     /// `motionblur`: what it draws, and everything inside it, smeared
     /// this far along its own y axis (in its units, centred), as a list's
@@ -1055,7 +1055,7 @@ pub const METHODS: &[&str] = &[
     "zwrite",
 ];
 
-/// How a sprite's quad is cut and coloured beyond StepMania's (our
+/// How a sprite's quad is cut and colored beyond StepMania's (our
 /// extension for the game's own theme, not StepMania's; commands
 /// `cornerradius`, `softedge`, `outline`, `saturation`): sizes are the
 /// sprite's own units (before zoom). The plain values draw StepMania's
@@ -1282,7 +1282,7 @@ impl Actor {
     }
 
     /// `SetDiffuse`/`SetGlow` as `NoteDisplay::DrawActor` calls them for a
-    /// note: the colour of the appearance mods and a hold's life.
+    /// note: the color of the appearance mods and a hold's life.
     pub fn set_note_colors(&mut self, diffuse: Rgba, glow: Rgba) {
         let d = self.dest();
         d.diffuse = [diffuse; 4];
@@ -1472,7 +1472,7 @@ impl Actor {
         let alpha = s.diffuse[0][3];
         let (c1, c2) = (self.effect_color1, self.effect_color2);
         let mix = |t: f32| -> Rgba { std::array::from_fn(|i| c1[i] * t + c2[i] * (1.0 - t)) };
-        // Every corner the effect's colour, at the actor's alpha.
+        // Every corner the effect's color, at the actor's alpha.
         let corners = |mut c: Rgba| {
             c[3] *= alpha;
             [c; 4]
@@ -1802,7 +1802,7 @@ impl Actor {
                 )),
             }
         };
-        // `RageColor::FromStackCompat`: a colour table, or four numbers.
+        // `RageColor::FromStackCompat`: a color table, or four numbers.
         let color = |i: usize| -> Result<Rgba, String> {
             match a.get(i) {
                 Some(Arg::Color(c)) => Ok(*c),
@@ -1905,7 +1905,7 @@ impl Actor {
             "baserotationx" => self.base_rotation[0] = num(0)?,
             "baserotationy" => self.base_rotation[1] = num(0)?,
             "baserotationz" => self.base_rotation[2] = num(0)?,
-            // Colour, of every corner or of some (`Actor.h:460-472`).
+            // Color, of every corner or of some (`Actor.h:460-472`).
             "diffuse" => self.dest().diffuse = [color(0)?; 4],
             "diffusealpha" => {
                 let a = num(0)?;
@@ -2345,7 +2345,7 @@ impl Actor {
 
     /// What getter `method` answers (`Actor`'s and `Sprite`'s Lua
     /// methods that read state, `src/Actor.cpp`, `src/Sprite.cpp`); `None`
-    /// for anything else. Positions, zooms and colours are the destination
+    /// for anything else. Positions, zooms and colors are the destination
     /// of the tweens queued so far, as `DestTweenState` is.
     pub fn getter(&self, method: &str) -> Option<Value> {
         let d = self.tweens.last().map_or(&self.current, |t| &t.dest);
@@ -2515,7 +2515,7 @@ impl Actor {
         } else {
             under.blur
         };
-        // A sprite's or a run's shadow: itself in the shadow's colour, moved
+        // A sprite's or a run's shadow: itself in the shadow's color, moved
         // in the screen's pixels (`TranslateWorld`), drawn first
         // (`Sprite::DrawTexture`, `BitmapText::DrawPrimitives`).
         let shadow = |alpha: f32| {
@@ -2801,7 +2801,7 @@ impl Actor {
 
 /// A part of a sprite as `Sprite::DrawPrimitives` draws it: the cut away
 /// (left, top, right, bottom, fractions of the sprite) and its corners'
-/// colours.
+/// colors.
 struct Piece {
     crop: [f32; 4],
     diffuse: [Rgba; 4],
@@ -3311,7 +3311,7 @@ mod tests {
             &mut g,
             "diffusealpha,1;glowshift;effectcolor1,color(\"1,1,1,0\");effectcolor2,color(\"1,1,1,.7\");effectperiod,.1",
         );
-        // At the start of the cycle the shift is all colour 1.
+        // At the start of the cycle the shift is all color 1.
         assert!(close(g.with_effects().glow[3], 0.0));
         g.update(0.025, &Clocks::default(), &mut p);
         // A quarter in (percent 0.25): sin(π) / 2 + 0.5 = half way.
@@ -3433,7 +3433,7 @@ mod tests {
         assert!(close(p[0], 120.0), "{p:?}");
         assert!(close(p[1], 0.0), "{p:?}");
         assert!(close(p[2], 2.0), "{p:?}");
-        // The material's colour times the diffuse, its frame and scroll by
+        // The material's color times the diffuse, its frame and scroll by
         // time.
         assert_eq!(d.materials[0].0, Some(3));
         assert_eq!(d.materials[0].1, [0.25, 1.0, 1.0, 1.0]);
@@ -3656,7 +3656,7 @@ mod tests {
     }
 
     #[test]
-    fn quads_and_corner_colours() {
+    fn quads_and_corner_colors() {
         let mut q = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
         assert!(q.textures().is_empty());
         run(
@@ -3679,7 +3679,7 @@ mod tests {
             ]
         );
         // `GetDiffuse` is the upper left corner; `diffusealpha` sets every
-        // corner's alpha, `diffusecolor` every corner's colour.
+        // corner's alpha, `diffusecolor` every corner's color.
         assert_eq!(
             q.getter("GetDiffuse"),
             Some(Value::Color([1.0, 0.0, 0.0, 1.0]))
@@ -3694,7 +3694,7 @@ mod tests {
         q.update(0.5, &Clocks::default(), &mut Problems::default());
         assert_eq!(q.current().diffuse[2], [0.5, 0.5, 0.5, 1.0]);
         assert_eq!(q.current().diffuse[0], [1.0, 1.0, 1.0, 0.25]);
-        // A colour effect paints every corner, at the upper left's alpha.
+        // A color effect paints every corner, at the upper left's alpha.
         run(&mut q, "finishtweening;diffuseblink");
         assert_eq!(q.with_effects().diffuse, [[1.0, 1.0, 1.0, 0.25]; 4]);
         // Only the upper left corner is handed down (`ActorFrame::DrawPrimitives`);
@@ -3752,7 +3752,7 @@ mod tests {
         assert_eq!(t.size(), [0.0, 25.0]);
         t.measure(&mut FixedMeasure);
         assert_eq!(t.size(), [50.0, 25.0]);
-        // A shadow: the run again, under it, in the shadow's colour.
+        // A shadow: the run again, under it, in the shadow's color.
         run(&mut t, "shadowlength,3;diffusealpha,0.5");
         let out = draw_all(&mut t);
         let [Drawn::Text(shadow), Drawn::Text(run_)] = out.as_slice() else {

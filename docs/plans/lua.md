@@ -172,7 +172,7 @@ is:
   "ITGmania", and since 2026-10-12 (`docs/plans/bundled-skins.md`, step 4)
   OutFox's `INPUTFILTER:GameButtonToKeyMapped` (`""`), a `THEME` knowing
   NoteField's `NoteFieldType` and `ShowBoard`, and `_fallback`'s
-  `JudgmentLineToColor` in the game's colours. Anything else is nil and
+  `JudgmentLineToColor` in the game's colors. Anything else is nil and
   fails loudly.
   Host functions charge the budget and count actors and textures.
 - The `NoteSkin.lua` chain and `Load()` per element produce actor trees fed
@@ -228,7 +228,7 @@ what step 4 needs:
   tables). Each is fixed and in `hostile_skins_end_quickly` or its own
   test; every hostile case ends within 2 s and the VM's 32 MiB.
 - ITGmania's `Var "Color"` reads "4th": notes load once, not once per
-  quantization colour as ITGmania loads them (STARLiGHT and ITGmania's
+  quantization color as ITGmania loads them (STARLiGHT and ITGmania's
   `couples` ask for it). Done since 2026-10-12 (`docs/plans/bundled-skins.md`,
   step 4): a note element whose Lua reads it loads once per note type.
 - Checked: unit tests on synthetic skins (the stand-ins, a Delta-like skin,
@@ -244,7 +244,7 @@ what step 4 needs:
 - Left for step 4: building the play's elements through `LuaSkin` (the
   app keeps `.lua` texts with imported skins), playing event commands and
   `queuecommand`s through the driver, update functions
-  (`SetUpdateFunction`), the song position during play, and per-colour
+  (`SetUpdateFunction`), the song position during play, and per-color
   notes.
 
 ## Step 4. Lua during play (commit 4)
@@ -323,7 +323,7 @@ phone by hand). What it does, and what differs from the plan:
   failed second load missing images, image-only skins exposed to the
   Lua's deadline, blank elements left blank after a stop, records
   rewritten on every play.
-- Not done: per-colour notes (ITGmania's `Var "Color"` still reads
+- Not done: per-color notes (ITGmania's `Var "Color"` still reads
   "4th"; done since in `docs/plans/bundled-skins.md`, step 4),
   `ShowNoteUpcoming`/`MinefieldOn`, the per-frame cost on a phone.
   A skin readied for a song the player leaves keeps loading in the
@@ -333,7 +333,7 @@ phone by hand). What it does, and what differs from the plan:
   song's position, a frame out of fuel, a sliced load) and through the
   renderer (`render/src/noteskin.rs`); the corpus as above; in headless
   Chrome on WebGPU and WebGL2 a live skin (beat flash from an update
-  function, explosions coloured by the message's score), a skin whose
+  function, explosions colored by the message's score), a skin whose
   update function loops after 4 s (stops, the built-in skin takes over,
   a second play stops again and the third runs without Lua) and one whose
   `NoteSkin.lua` never returns (the import reports it; it plays

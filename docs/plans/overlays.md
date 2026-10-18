@@ -48,7 +48,7 @@ background layers can draw") held only in part.
   every depth).
 - A source is an image (by extension; an `<img>` at `x,y`, `w,h` when
   positive, else its own size), else text (a `<span>`: `w` is the font
-  size, `h` the colour), `[c]` a gradient box, `[t]` a CSS transform of
+  size, `h` the color), `[c]` a gradient box, `[t]` a CSS transform of
   the whole depth, `[loop]`/`[jump]` for the title and results screens.
   `x,y` may be expressions in braces. `opacity` is CSS opacity; the
   animation is a CSS animation by name over `frames / 60` s; `fillMode`
@@ -97,7 +97,7 @@ background layers can draw") held only in part.
    the import report. `ex-*` (play effects on the field) are not layers'
    and are left out.
 5. **StepMania's second layer next**, with the effects that need no
-   script (the stretch, centre and corner placements, the colour tints,
+   script (the stretch, centre and corner placements, the color tints,
    `OverlayAdd`'s additive blend, the checkerboards and kaleidoscope) on
    both layers, stills and movies; BGAnimations stay the song background
    as on layer 1.
@@ -117,7 +117,7 @@ Done, steps 1 to 5 (Dancing☆Onigiri's back and mask layers):
   them (`preloadImgFile`: the page's folder, `(..)`, `syncBackPath`),
   stored or linked as `layer/<name>` (128 at most a song), the missing
   and SVG ones reported; a capture's layers have no images. The import
-  report notes animations from a work's own stylesheet, colour boxes,
+  report notes animations from a work's own stylesheet, color boxes,
   layer transforms and script-computed positions.
 - `engine/src/sprites.rs`: each depth's content at a time, clears and
   `ALL`, Reverse's data, danoniplus's 16 layer animations with CSS's
@@ -142,7 +142,7 @@ Firefox, and compared with danoniplus's own page at the same frames
 (410: the `fromBig` text and the grey mask over the stage's bottom half;
 820: `spinZ` a quarter turn on): the same places and phases.
 
-After an independent review: fill modes left to colour boxes, clipping
+After an independent review: fill modes left to color boxes, clipping
 to the stage, Reverse's empty data, `startFrame`, the order of tags and
 references (`*comma*` is `‚`), a depth that does not evaluate as 0,
 `trimStr`'s trimming, budgets (128 images, 64 texts, 48 million decoded
@@ -173,7 +173,7 @@ them again (`makeSpriteWordData`).
    play reads them (`Rev`, `Alt`, `A`, `En` suffixes chosen as for
    `word_data`), into a timeline of `(seconds, layer, depth, content)`
    with content = image (path, x, y, w, h, opacity, animation, duration,
-   fill), text (string, size, colour, …) or clear; parsed as
+   fill), text (string, size, color, …) or clear; parsed as
    `makeSpriteData` parses, natively tested on the sample work and the
    corpus (`DDI_DANONI_CORPUS`).
 2. **Import** (`app`, `library`): the images a work's layers name, stored
