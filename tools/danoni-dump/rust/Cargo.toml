@@ -1,0 +1,62 @@
+[workspace]
+
+[package]
+name = "ddi-danoni-export"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[lib]
+name = "ddi_danoni_export"
+
+[[bin]]
+name = "ddi-danoni-export"
+path = "src/main.rs"
+
+[features]
+default = ["native", "opus"]
+opus = ["dep:rusty-opus", "dep:ogg"]
+vorbis = ["dep:vorbis_rs"]
+native = ["dep:libc", "dep:robotstxt", "dep:reqwest", "dep:tokio", "dep:hickory-resolver", "dep:async-compression", "dep:time"]
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+libc = { version = "0.2.190", optional = true }
+
+[dependencies]
+url = "2.5.8"
+robotstxt = { version = "0.3.0", optional = true }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"], optional = true }
+tokio = { version = "1.53.3", features = ["rt", "net", "time", "io-util", "sync", "macros"], optional = true }
+hickory-resolver = { version = "0.26.3", optional = true }
+async-compression = { version = "0.4.50", default-features = false, features = ["tokio", "gzip", "zlib", "brotli"], optional = true }
+time = { version = "0.3.55", features = ["formatting", "parsing"], optional = true }
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
+rusty-opus = { version = "1.0.1", optional = true }
+ogg = { version = "0.9.2", optional = true }
+vorbis_rs = { version = "0.5.6", default-features = false, optional = true }
+symphonia = { version = "0.6.1", default-features = false, features = ["mp3", "pcm", "wav", "ogg", "vorbis", "id3v1", "id3v2"] }
+rubato = { version = "5.0.1", default-features = false, features = ["fft_resampler"] }
+rustfft = "6.4.1"
+audioadapter-buffers = "5.2.0"
+
+resvg = { version = "0.48.1", default-features = false, features = ["text"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+unicode-segmentation = "1.13.3"
+sha2 = "0.11.1"
+unicode-normalization = "0.1.25"
+html5ever = "0.40.1"
+encoding_rs = "0.8.42"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+
+ddi-chart = { path = "../../../chart" }
+ddi-library = { path = "../../../library" }
+
+[dev-dependencies]
+ddi-engine = { path = "../../../engine" }
+
+[profile.dev]
+opt-level = 1

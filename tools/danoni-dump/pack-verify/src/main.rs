@@ -1,0 +1,431 @@
+//! Read-only export checks using the game's real parsers. No work JS runs here.
+use ddi_chart::{
+    NoteKind,
+    formats::{
+        danoni::{self, Dos, keys},
+        sm,
+    },
+};
+use serde_json::{Value, json};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+fn read(path: &Path) -> Value {
+    serde_json::from_slice(&fs::read(path).expect("read input")).expect("JSON input")
+}
+fn strv(v: &Value) -> &str {
+    v.as_str().expect("string")
+}
+fn num(v: &Value) -> f64 {
+    v.as_f64().expect("number")
+}
+fn notes(chart: &ddi_chart::Chart, song: &ddi_chart::Song) -> Vec<(u8, bool, f64, f64)> {
+    let timing = chart.timing(song);
+    let mut out: Vec<_> = chart
+        .notes
+        .iter()
+        .map(|n| {
+            let t = timing.seconds_at(n.tick);
+            match n.kind {
+                NoteKind::Tap => (n.lane, false, t, t),
+                NoteKind::HoldHead { end } => (n.lane, true, t, timing.seconds_at(end)),
+                _ => panic!("unexpected note kind"),
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0).then(a.2.total_cmp(&b.2)));
+    out
+}
+/// Sample within the first active scroll segment, after beat zero. An author
+/// change can coincide with the baseline at zero; the pre-roll before it still
+/// uses the engine's default ratio and cannot prove authored compensation.
+fn scroll_probe(timing: &ddi_chart::TimingMap) -> (f64, f64, f64) {
+    let start = timing.seconds_at(ddi_chart::Tick::ZERO);
+    let ratio = timing
+        .scrolls
+        .iter()
+        .take_while(|s| s.tick <= ddi_chart::Tick::ZERO)
+        .last()
+        .map_or(1.0, |s| s.ratio);
+    let dt = timing
+        .scrolls
+        .iter()
+        .find(|s| s.tick > ddi_chart::Tick::ZERO)
+        .map_or(0.01, |s| {
+            ((timing.seconds_at(s.tick) - start) / 4.0).min(0.01)
+        });
+    assert!(dt > 0.0, "need a nonempty native scroll interval");
+    (start + 2.0 * dt, dt, ratio)
+}
+
+fn normalized(source: &Path, prepared: &Path, baseline: Option<&Path>) -> Value {
+    let original = read(source);
+    let m = read(&prepared.join("manifest.json"));
+    let old = baseline.map(read);
+    let mut count = 0;
+    let mut taps = 0;
+    let mut holds = 0;
+    let mut max_error: f64 = 0.0;
+    for entry in m["songs"].as_array().unwrap() {
+        let song =
+            sm::parse_ssc(&fs::read_to_string(prepared.join(strv(&entry["simfile"]))).unwrap())
+                .unwrap();
+        if let Some(banner) = entry["banner"].as_str() {
+            assert_eq!(song.banner.as_deref(), Some("banner.png"));
+            let png = fs::read(prepared.join(banner)).expect("banner file");
+            assert!(png.len() >= 24 && &png[..8] == b"\x89PNG\r\n\x1a\n");
+            assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 640);
+            assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 200);
+        }
+        assert_eq!(song.title, strv(&entry["title"]), "song title changed");
+        assert!((song.preview_start - num(&entry["preview"]["startSeconds"])).abs() < 1e-6);
+        assert!((song.preview_length - num(&entry["preview"]["lengthSeconds"])).abs() < 1e-6);
+        assert!(song.preview_start >= 0.0 && song.preview_length > 0.0);
+        assert!(
+            song.preview_start + song.preview_length
+                <= num(&entry["pcmFrames"]) / num(&entry["pcmSampleRate"]) + 1e-6
+        );
+        assert_eq!(song.charts.len(), entry["charts"].as_array().unwrap().len());
+        let old_song = old.as_ref().map(|old| {
+            let row = old["songs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["id"] == entry["id"])
+                .unwrap();
+            assert_eq!(
+                row["musicSha256"], entry["musicSha256"],
+                "accepted audio changed"
+            );
+            sm::parse_ssc(
+                &fs::read_to_string(
+                    baseline
+                        .unwrap()
+                        .parent()
+                        .unwrap()
+                        .join(strv(&row["simfile"])),
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        });
+        for (index, c) in entry["charts"].as_array().unwrap().iter().enumerate() {
+            let src = original["charts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["id"] == c["id"])
+                .unwrap();
+            let chart = &song.charts[index];
+            let timing = chart.timing(&song);
+            if let Some(label) = src["metadata"]["difficultyLabel"].as_str() {
+                assert_eq!(
+                    c["sourceDifficultyLabel"], label,
+                    "source label lost from provenance"
+                );
+                let displayed =
+                    if c["difficultyStars"].is_null() || c["preservedDuplicateLabel"] == true {
+                        label
+                    } else {
+                        ""
+                    };
+                assert_eq!(
+                    song.charts[index].name, displayed,
+                    "rated charts must show their standard tier"
+                );
+            }
+            assert_eq!(chart.layout, format!("danoni-{}", strv(&src["mode"])));
+            assert!(ddi_chart::PLAYED_DANONI_MODES.contains(&strv(&src["mode"])));
+            assert_eq!(
+                chart.meter,
+                c["difficultyStars"].as_u64().unwrap_or(0) as u32
+            );
+            assert_eq!(
+                format!("{:?}", chart.difficulty),
+                strv(&c["difficultyClassification"])
+            );
+            let budget = c["musicalQuantization"]["grid"]["maximumErrorMs"]
+                .as_f64()
+                .unwrap_or(0.0)
+                / 1000.0
+                + 1e-10;
+            let mut wanted = vec![];
+            for (lane, l) in src["lanes"].as_array().unwrap().iter().enumerate() {
+                for t in l["tapsSeconds"].as_array().unwrap() {
+                    wanted.push((lane as u8, false, num(t), num(t)));
+                    taps += 1;
+                }
+                for h in l["holdsSeconds"].as_array().unwrap() {
+                    wanted.push((lane as u8, true, num(&h[0]), num(&h[1])));
+                    holds += 1;
+                }
+            }
+            if src["cwReference"].is_object() {
+                let root = source.parent().unwrap().join("source");
+                let effective = read(&root.join(strv(&src["cwReference"]["effectiveDos"])));
+                let mut dos = Dos::default();
+                for (key, value) in effective["fields"].as_object().unwrap() {
+                    dos.set(key, strv(value).to_string());
+                }
+                let mode = keys::canonical_label(strv(&src["mode"]));
+                let (def, custom) = keys::key_def(&dos, mode).unwrap().unwrap();
+                assert!(
+                    !custom,
+                    "custom/redefined CW keys are outside the SSC bridge scope"
+                );
+                for (chara, lane) in def.chara.iter().zip(src["lanes"].as_array().unwrap()) {
+                    assert_eq!(chara, strv(&lane["name"]), "CW lane order changed");
+                }
+                let original = danoni::import(&dos).expect("original CW import");
+                let id = src["cwReference"]["chartId"].as_u64().unwrap() as usize;
+                let (si, ci) = original.charts[id].expect("selected CW chart");
+                let native = notes(&original.songs[si].charts[ci], &original.songs[si]);
+                let mut normalized = wanted.clone();
+                normalized.sort_by(|a, b| a.0.cmp(&b.0).then(a.2.total_cmp(&b.2)));
+                assert_eq!(native.len(), normalized.len(), "CW note count changed");
+                for (a, b) in native.iter().zip(normalized) {
+                    assert_eq!((a.0, a.1), (b.0, b.1));
+                    assert!(
+                        (a.2 - b.2).abs() < 1e-10 && (a.3 - b.3).abs() < 1e-10,
+                        "CW origin/normalization changed"
+                    );
+                }
+            }
+            wanted.sort_by(|a, b| a.0.cmp(&b.0).then(a.2.total_cmp(&b.2)));
+            let got = notes(chart, &song);
+            assert_eq!(wanted.len(), got.len());
+            for (a, b) in wanted.iter().zip(&got) {
+                assert_eq!((a.0, a.1), (b.0, b.1));
+                let error = (a.2 - b.2).abs().max((a.3 - b.3).abs());
+                assert!(error <= budget);
+                max_error = max_error.max(error);
+            }
+            if let Some(old_song) = &old_song {
+                assert_eq!(old_song.charts[index].notes.len(), chart.notes.len());
+                for (a, b) in notes(&old_song.charts[index], old_song).iter().zip(&got) {
+                    assert_eq!((a.0, a.1), (b.0, b.1));
+                    assert!((a.2 - b.2).abs() < 1e-10 && (a.3 - b.3).abs() < 1e-10);
+                }
+                for (a, b) in old_song.charts[index].notes.iter().zip(&chart.notes) {
+                    assert_eq!(a.tick.quantization(), b.tick.quantization());
+                }
+            }
+            let speed = src["speed"].as_array().cloned().unwrap_or_default();
+            let native = c["nativeScroll"].is_object();
+            let extra = usize::from(native);
+            let base = c["nativeScroll"]["sscBaseRatio"].as_f64().unwrap_or(1.0);
+            assert_eq!(timing.scrolls.len(), speed.len() + extra);
+            if native {
+                assert_eq!(timing.scrolls[0].tick, ddi_chart::Tick(0));
+                assert!((timing.scrolls[0].ratio - base).abs() < 1e-12);
+                let first = &chart.notes[0];
+                let (sec, dt, active_ratio) = scroll_probe(timing);
+                let expected =
+                    num(&c["nativeScroll"]["baseArrowHeightsPerSecond"]) * active_ratio / base;
+                for x in [1.0, 2.0, 3.0] {
+                    let opt = ddi_engine::scroll::ScrollOptions {
+                        speed: ddi_engine::scroll::SpeedMod::XMod(x),
+                        ..Default::default()
+                    };
+                    let velocity = (ddi_engine::scroll::note_y(opt, timing, first.tick, sec - dt)
+                        - ddi_engine::scroll::note_y(opt, timing, first.tick, sec))
+                        as f64
+                        / dt;
+                    assert!(
+                        (velocity - expected * x).abs() < 0.001,
+                        "native velocity {velocity} for x{x}, expected {}",
+                        expected * x
+                    );
+                }
+            }
+            for (e, s) in speed.iter().zip(timing.scrolls.iter().skip(extra)) {
+                assert!((timing.seconds_at(s.tick) - num(&e["seconds"])).abs() <= budget);
+                assert!((s.ratio - num(&e["multiplier"]) * base).abs() < 1e-12);
+            }
+            count += 1;
+        }
+    }
+    json!({"format":"ssc","charts":count,"taps":taps,"holds":holds,"maximumErrorMs":max_error*1000.0,"baselineMatched":baseline.is_some(),"passed":true})
+}
+fn cw(path: &Path) -> Value {
+    let m = read(path);
+    let root = path.parent().unwrap();
+    let mut import_data: Option<danoni::Import> = None;
+    let mut first_dos: Option<Dos> = None;
+    let mut taps = 0;
+    let mut holds = 0;
+    let mut count = 0;
+    for c in m["charts"].as_array().unwrap() {
+        let eff = read(&root.join(strv(&c["paths"]["effectiveDos"])));
+        let mut dos = Dos::default();
+        for (k, v) in eff["fields"].as_object().unwrap() {
+            dos.set(k, strv(v).to_string());
+        }
+        let r = read(&root.join(strv(&c["paths"]["reference"])));
+        let mode = keys::canonical_label(strv(&c["keyMode"]));
+        assert!(ddi_chart::PLAYED_DANONI_MODES.contains(&mode));
+        let (def, custom) = keys::key_def(&dos, mode).unwrap().unwrap();
+        assert!(!custom, "custom/redefined keys are outside scope");
+        let adj = num(&r["timing"]["intAdjustment"]) as i64;
+        let pre = num(&r["timing"]["preblankFrame"]) as i64;
+        assert_eq!(
+            num(&r["timing"]["headerAdjustment"]).floor() as i64,
+            adj - pre
+        );
+        let lanes = danoni::lane_frames(&dos, &def.chara, strv(&c["sourceSuffix"]));
+        assert_eq!(lanes.len(), r["lanes"].as_array().unwrap().len());
+        for (i, (o, l)) in lanes.iter().zip(r["lanes"].as_array().unwrap()).enumerate() {
+            assert_eq!(def.chara[i], strv(&l["chara"]));
+            let ints = |v: &Value| {
+                v.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|n| num(n) as i64)
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                o.taps.iter().map(|f| f + adj).collect::<Vec<_>>(),
+                ints(&l["taps"])
+            );
+            assert_eq!(
+                o.holds.iter().map(|f| f + adj).collect::<Vec<_>>(),
+                ints(&l["holdEndpoints"])
+            );
+            taps += o.taps.len();
+            holds += o.holds.len() / 2;
+        }
+        for (name, events) in [
+            ("speed", danoni::speed_pairs(&dos, strv(&c["sourceSuffix"]))),
+            ("boost", danoni::boost_pairs(&dos, strv(&c["sourceSuffix"]))),
+        ] {
+            let expected: Vec<_> = r[name]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| (num(&e["frame"]) as i64, num(&e["multiplier"])))
+                .collect();
+            assert_eq!(
+                events
+                    .into_iter()
+                    .map(|(f, m)| (f + adj, m))
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+        let import = danoni::import(&dos).unwrap();
+        let id = c["chartId"].as_u64().unwrap() as usize;
+        assert!(import.charts[id].is_some());
+        if let Some(first) = &import_data {
+            let (si, ci) = import.charts[id].unwrap();
+            let (first_si, first_ci) = first.charts[id].unwrap();
+            assert_eq!(
+                import.music[si], first.music[first_si],
+                "chart/music grouping changed between captures"
+            );
+            assert_eq!(
+                notes(&import.songs[si].charts[ci], &import.songs[si]),
+                notes(
+                    &first.songs[first_si].charts[first_ci],
+                    &first.songs[first_si]
+                ),
+                "the first effective dos must contain every selected chart"
+            );
+            for events in [danoni::speed_pairs, danoni::boost_pairs] {
+                assert_eq!(
+                    events(&dos, strv(&c["sourceSuffix"])),
+                    events(first_dos.as_ref().unwrap(), strv(&c["sourceSuffix"]))
+                );
+            }
+        } else {
+            first_dos = Some(dos);
+            import_data = Some(import);
+        }
+        count += 1;
+    }
+    let import = import_data.unwrap();
+    let actual: Vec<_> = import
+        .charts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| c.map(|_| i))
+        .collect();
+    let expected: Vec<_> = m["charts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["chartId"].as_u64().unwrap() as usize)
+        .collect();
+    assert_eq!(
+        actual, expected,
+        "uncaptured playable charts would leak into import"
+    );
+    json!({"format":"native-cw-dump","charts":count,"songs":import.songs.len(),"taps":taps,"holds":holds,"passed":true})
+}
+fn main() {
+    let root = PathBuf::from(std::env::args().nth(1).expect("generation directory"));
+    let m = read(&root.join("index.json"));
+    assert_eq!(strv(&m["schema"]), "ddi-danoni-export-generation/1");
+    for w in m["works"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|w| w["status"] == "built")
+    {
+        let result = if w["kind"] == "normalized" {
+            normalized(
+                Path::new(strv(&w["source"])),
+                &root.join(strv(&w["prepared"])),
+                w["baseline"].as_str().map(Path::new),
+            )
+        } else {
+            cw(&root.join(strv(&w["dump"])))
+        };
+        println!("{}", json!({"work":w["id"],"validation":result}));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ddi_chart::{ScrollSegment, Tick, TimingMap};
+
+    #[test]
+    fn native_scroll_probe_handles_an_author_change_at_beat_zero() {
+        for author_at_zero in [false, true] {
+            let bpm = 158.046;
+            let base = 0.9914332319908649;
+            let mut timing = TimingMap::constant(bpm, 1.6128919742711);
+            timing.scrolls.push(ScrollSegment {
+                tick: Tick::ZERO,
+                ratio: base,
+            });
+            if author_at_zero {
+                timing.scrolls.push(ScrollSegment {
+                    tick: Tick::ZERO,
+                    ratio: base * 0.5,
+                });
+            }
+            timing.scrolls.push(ScrollSegment {
+                tick: Tick(48),
+                ratio: base * 1.3,
+            });
+            let (sec, dt, ratio) = scroll_probe(&timing);
+            assert!(sec - dt > timing.seconds_at(Tick::ZERO));
+            assert!(sec < timing.seconds_at(Tick(48)));
+            assert_eq!(ratio, base * if author_at_zero { 0.5 } else { 1.0 });
+            for x in [1.0, 2.0, 3.0] {
+                let options = ddi_engine::scroll::ScrollOptions {
+                    speed: ddi_engine::scroll::SpeedMod::XMod(x),
+                    ..Default::default()
+                };
+                let velocity = (ddi_engine::scroll::note_y(options, &timing, Tick(96), sec - dt)
+                    - ddi_engine::scroll::note_y(options, &timing, Tick(96), sec))
+                    as f64
+                    / dt;
+                assert!((velocity - bpm / 60.0 * ratio * x).abs() < 0.001);
+            }
+        }
+    }
+}

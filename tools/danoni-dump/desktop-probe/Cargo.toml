@@ -1,0 +1,24 @@
+[workspace]
+
+[package]
+name = "ddi-danoni-desktop-probe"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[dependencies]
+ddi-danoni-export = { path = "../rust" }
+ddi-desktop = { path = "../../../desktop", default-features = false }
+ddi-platform = { path = "../../../platform" }
+ddi-ui = { path = "../../../ui" }
+serde_json = "1.0.154"
+url = "2.5.8"
+
+[profile.dev]
+opt-level = 1
+debug = 1
+
+[profile.dev.package."*"]
+opt-level = 2
