@@ -449,15 +449,16 @@ pub fn validate(
         event(Stage::Library, i, songs.len())?;
         let candidate = candidates
             .iter()
-            .find(|c| c.chart == song["simfile"])
+            .find(|c| Some(c.chart.as_str()) == song["simfile"].as_str())
             .ok_or_else(|| invalid("Song SSC is not the library scanner choice"))?;
         let parsed = ddi_chart::formats::sm::parse_ssc(
-            std::str::from_utf8(&files[&candidate.chart]).map_err(|e| invalid(e.to_string()))?,
+            std::str::from_utf8(&files[candidate.chart.as_str()])
+                .map_err(|e| invalid(e.to_string()))?,
         )
         .map_err(|e| invalid(e.to_string()))?;
         let assets = pack::resolve_assets(&parsed, &candidate.dir, &paths);
-        if assets.music.as_deref() != song["music"].as_str()
-            || assets.banner.as_deref() != song["banner"].as_str()
+        if assets.music.as_ref().map(|p| p.as_str()) != song["music"].as_str()
+            || assets.banner.as_ref().map(|p| p.as_str()) != song["banner"].as_str()
             || assets.background.is_some()
             || !parsed.effects.is_empty()
         {
@@ -530,32 +531,32 @@ pub fn validate(
                 "Ambiguous song identities; explicit stream discrimination required",
             ));
         }
-        let prefix = format!("{}/", candidate.dir);
+        let prefix = &*candidate.dir;
         let mut playback = Vec::new();
         for path in std::iter::once(&candidate.chart)
             .chain(assets.music.iter())
             .chain(assets.banner.iter())
         {
             let name = path
-                .strip_prefix(&prefix)
+                .strip_prefix(prefix)
                 .ok_or_else(|| invalid("Playback asset escapes song folder"))?;
-            component(name)?;
+            component(name.as_str())?;
             playback.push(Artifact {
-                path: name.into(),
-                bytes: files[path].clone(),
+                path: name.as_str().into(),
+                bytes: files[path.as_str()].clone(),
             });
         }
         playback.sort_by(|a, b| a.path.cmp(&b.path));
-        let chart_name = candidate.chart.strip_prefix(&prefix).unwrap().to_owned();
+        let chart_name = candidate.chart.strip_prefix(prefix).unwrap().to_owned();
         let music = assets
             .music
             .unwrap()
-            .strip_prefix(&prefix)
+            .strip_prefix(prefix)
             .unwrap()
             .to_owned();
         let banner = assets
             .banner
-            .map(|p| p.strip_prefix(&prefix).unwrap().to_owned());
+            .map(|p| p.strip_prefix(prefix).unwrap().to_owned());
         let (title, artist) = manifest::simfile_names(&parsed, candidate.dir_name());
         let mut entry = manifest::summarize(
             EntryMeta {

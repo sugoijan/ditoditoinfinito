@@ -10,6 +10,44 @@ bind the final application graph, not just the SDK's own lockfile.
 Desktop video is disabled in the probe; the exported SSC/audio/banner path does
 not need the movie decoder.
 
+## Compatibility with main (2026-10-18)
+
+The research tip `9c3f78e` is integrated with main `e66e8d4`. The SDK's
+admission/store boundary now uses `ddi_library::path` values and converts
+only to plain strings for evidence/artifact records. Desktop OS paths use
+checked `to_path(base)` conversions. The manifest wire representation and
+source/audio identity rules are unchanged. Probe and verifier lockfiles record
+main's existing platform dependencies; no dependency versions are refreshed.
+The shared desktop Opus decoder already trims by integer end granules, so the
+older floating-point tail-trimming observation does not require another fix.
+
+`just danoni-check` runs standalone formatting, warnings-as-errors Clippy and
+synthetic tests with locked dependencies, including minimal/default SDK
+features, optional Vorbis audio/preparation tests and the independent FFmpeg
+Opus comparison. The runner clears optional `DDI_DANONI_*` corpus/runtime
+switches, sets a scratch `DDI_HOME` and defaults to two build jobs with debug
+symbols disabled and SDK test code unoptimized (dependencies retain their
+normal optimizations) to keep builds manageable on CI runners. CI runs the
+full recipe on Linux and macOS; Windows runs `--minimal`. It neither downloads a worker nor imports
+public URLs. Root `just test` and `just check` remain separate.
+
+The desktop tests cover managed admission, cancellation before commit,
+duplicate/replacement identity, reopening, old snapshot playback and corrupt
+payload rejection. A second test generates SSCs through the SDK compiler for
+5, 7, 9A and 9B keys, with mono/stereo Opus ending on an odd frame count. It
+checks the real desktop scanner, exact decoded frame counts and fake-clock
+60/144 Hz autoplay, including holds and history. No GPU, output device or
+third-party assets are needed.
+
+This is the compatibility/CI merge, not production URL UI wiring. The next
+step is a store-owned snapshot API and desktop library adapter, followed by
+job lifecycle/UI integration. Installed runtime/source identity and the final
+application dependency graph must be rebound and verified before release;
+existing research runtime attestations do not certify a new game binary.
+The incomplete runtime redistribution notice inventory, Windows confinement,
+managed-store durability and the recorded large-batch memory issue remain
+follow-ups. Historical corpus figures below are not rerun by synthetic CI.
+
 ## The first boundary to test
 
 The SDK's managed store is a private, transactional library. Its current
@@ -51,7 +89,8 @@ platform, engine and rendering limits still apply.
 
 ## Running
 
-Build/check this standalone package separately from `just check`:
+Run `just danoni-check` for the complete standalone recipe (Python 3 and
+ffmpeg required), or check only the probe separately from `just check`:
 
 ```sh
 DDI_HOME="$PWD/target/scratch/danoni-desktop/home" \

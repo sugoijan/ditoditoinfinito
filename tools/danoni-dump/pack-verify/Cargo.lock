@@ -34,6 +34,7 @@ version = "0.1.0"
 dependencies = [
  "ddi-chart",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -248,7 +248,7 @@ fn catalog_valid(c: &Catalog) -> Result<()> {
             .into_iter()
             .chain(s.entry.banner.iter())
         {
-            if !s.files.iter().any(|f| &f.path == name) {
+            if !s.files.iter().any(|f| f.path == name.as_str()) {
                 return Err(invalid("Missing playback asset"));
             }
         }
@@ -1207,7 +1207,10 @@ mod tests {
         assert!(s.recover().is_err());
         assert!(root.join("pending.json").exists());
         assert!(s.catalog().is_err());
-        assert!(s.read_asset(song, &song.entry.music, MEDIA_LIMIT).is_err());
+        assert!(
+            s.read_asset(song, song.entry.music.as_str(), MEDIA_LIMIT)
+                .is_err()
+        );
         drop(s);
         fs::remove_dir_all(&root).unwrap();
         let unknown = temp("unknown");
@@ -1246,7 +1249,10 @@ mod tests {
         ));
         fs::remove_file(&audio).unwrap();
         symlink(&target, &audio).unwrap();
-        assert!(s.read_asset(&song, &song.entry.music, MEDIA_LIMIT).is_err());
+        assert!(
+            s.read_asset(&song, song.entry.music.as_str(), MEDIA_LIMIT)
+                .is_err()
+        );
         assert!(s.verify().is_err());
         fs::remove_dir_all(root).unwrap();
         fs::remove_file(target).unwrap();

@@ -45,7 +45,12 @@ font study (production fonts are unchanged).
 
 ## Commands
 
-Run from the research checkout with Rust 1.99 or later:
+Run from the repository with Rust 1.99 or later. `just danoni-check` checks
+all three standalone packages, including the synthetic desktop SSC/Opus
+handoff (Python 3 and ffmpeg are maintainer-only requirements). It clears
+optional corpus/runtime environment switches. `just danoni-check --minimal`
+checks the SDK without native/codec features. Neither runs public URL imports
+or builds a worker. More focused commands:
 
 ```sh
 cargo test --locked --manifest-path tools/danoni-dump/rust/Cargo.toml --target-dir target/danoni-rust

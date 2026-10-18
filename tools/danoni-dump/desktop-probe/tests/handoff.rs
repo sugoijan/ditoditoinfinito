@@ -124,7 +124,11 @@ fn cancelled_commit_reopen_duplicate_and_replacement_keep_desktop_identity() {
     assert_ne!(updated[0].root, songs[0].root);
     audit(&updated).unwrap();
     audit(&songs).unwrap(); // Already-loaded snapshots stay playable after replacement.
-    fs::write(updated[0].root.join(&updated[0].entry.chart), b"corrupted").unwrap();
+    fs::write(
+        updated[0].entry.chart.to_path(&updated[0].root).unwrap(),
+        b"corrupted",
+    )
+    .unwrap();
     assert!(
         snapshot(&library).is_err(),
         "Do not register corrupt committed payloads"

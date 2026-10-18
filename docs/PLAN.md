@@ -22,6 +22,11 @@ Alpha-Arrows, Dake and Peter Lawrence's CF_CHROME, CF_VIBRANT, CF_ALLOY,
 Peters-DDR-Note and Peters-DDR-Vivid (3D models); Dancing☆Onigiri's
 back and mask layers; StepMania's second background layer and scripted
 backgrounds not); per-phase status in the roadmap (section 5).
+DanOni URL imports (2026-10-18): the research SDK is incorporated as
+standalone tooling with shared-library compatibility checks and a synthetic
+SSC/Opus desktop handoff. It is not exposed in the game yet. The agreed first
+consumer is desktop; browser URL import remains separate. See decision 51
+and [the integration notes](research/danoni-desktop-integration.md).
 Players import their own simfile packs (folder, zip or drag and drop; `.sm`,
 `.ssc`, `.dwi`) into IndexedDB, edit a per-song offset on the results, and
 Ogg Vorbis decodes in wasm where the browser cannot. Calibration runs on the real gameplay path (generated 120 BPM chart
@@ -574,6 +579,22 @@ Tooling:
 49. **A replay is the record's play judged again as it is watched, on this device's clock** (2026-10-16; `docs/plans/play-history.md`, "Replays"). The log is in judged song time, so a replay feeds each edge to a new play (`Player::input_at`) when this device's judged time reaches it, before the frame's update: no edge is ever behind what was judged, at any frame rate, so the watched results are the record's exactly, and they are checked against the same log judged at once, the timing kept and the summary (all of it but `late_edges`, which only a live play has); a difference is shown, never hidden. It plays the record's chart (by digest, in any song that has it), rules (`RulesetKey`), options as played (seed and worked-out speed included), song offset and drawing settings (the snapshot kept), with this device's volume, bindings and graphics; the offsets are the record's on the devices it was played on and this device's elsewhere (the record's corrected other hardware; judging never reads them). It never records, counts toward a best or changes a setting. What it cannot reproduce is refused with the reason: a newer record format or judge, a song or chart gone or changed, a skin no longer installed. Records now keep the judge that judged them (`judge_version`, 1 for older ones) and summaries the options (for the plays list). The ghost of the best play is the same mechanism: the best's log played beside a play, judged to the same point every frame, its score's lead shown under the score (off by default).
 
 50. **OS video decoders come before a native FFmpeg helper** (2026-10-17; `docs/plans/native-video.md`). The sandboxed wasm module remains the baseline decoder and fallback; the verified macOS paths (indexed 8-bit H.264 AVI, checked single-slice H.264/HEVC MP4/Matroska and visible-picture VP9 WebM/MP4, copied planes) now select hardware VideoToolbox automatically, with exact-position module recovery and an explicit module override. Windows Media Foundation/D3D11 now has an experimental opt-in implementation and a deferred-host fidelity runner; Windows Auto stays on the module until real hardware validation. Extend and validate OS decoders, selecting only supported streams that preserve the module's frame times and exact seeks; unsupported or failed movies return to the module. Keep packet demuxing separate from decode, as WebCodecs does: our checked AVI reader first, a bounded packet interface from the sandboxed module for other containers (ABI v1, checked Rust reader and streaming H.264/HEVC/VP9 consumers implemented). The M1 Max spike hardware-decodes H.264, HEVC and VP9; it does not establish support for every profile or OS. CPU plane copies remain the default. An opt-in `video-metal` build with `DDI_VIDEO_PLANES=metal` now shares macOS NV12 planes on wgpu's actual device, following rendered measurements and 4,800 exact frame comparisons; command-buffer leases, bounded retention and copied fallback protect GPU lifetimes. Other Macs and physical GPU loss still need validation before changing defaults. D3D11/DX12 sharing awaits Windows evidence. Linux VA-API needs a separate driver/capability spike. Later, if the remaining codecs need more speed, use the same FFmpeg shim in a sandboxed child with bounded pipe messages and shared-memory frames, never native FFmpeg in the game's process. The child must have a working, tested OS sandbox before it is offered to players; the module remains available on every platform.
+
+51. **DanOni URL imports start on desktop with an SSC/Opus handoff**
+(2026-10-18). Retain the embeddable SDK and its pinned, confined worker inputs
+under `tools/danoni-dump/`, with separate locked CI checks. Hand prepared SSCs,
+Opus music and title artwork to the existing desktop loader and shared play
+session; do not introduce a second gameplay path or change music offsets.
+The managed store's verified catalog publishes entries with the SDK's stable
+IDs; recursively scanning its transactions would expose cancelled or obsolete
+songs. Next add a store-owned snapshot API and desktop adapter that merges
+managed entries with folder/bundled songs, then a background job owner and URL
+UI with progress/cancellation. Before shipping a runtime, bind attestation to
+the application's actual dependency graph, finish notice/license inventory
+and platform confinement/durability checks. Linux/macOS CI tests the synthetic
+handoff; Windows checks the portable SDK, not runtime execution. Frozen corpus
+measurements remain historical evidence, not a claim that the current build
+has rerun live imports. Browser URL acquisition needs its own design.
 
 ## 7. Risks
 

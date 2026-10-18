@@ -49,6 +49,10 @@ test:
     @cargo run -q -p xtask -- gen-noteskins
     @cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
 
+# Standalone DanOni SDK/probe checks (Python 3 and ffmpeg; no live imports)
+danoni-check *args:
+    @python3 tools/danoni-dump/check.py {{args}}
+
 # Regenerate the SEO fragments and sitemap from seo/metadata.toml
 # (trunk also runs this automatically as a pre_build hook)
 regen-seo:

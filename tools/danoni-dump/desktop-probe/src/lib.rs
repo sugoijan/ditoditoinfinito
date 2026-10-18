@@ -163,7 +163,7 @@ pub fn snapshot(root: &Path) -> Result<(String, Vec<LibSong>)> {
                 .join("songs")
                 .join(&s.installed.id),
             zip: false,
-            dir: String::new(),
+            dir: Default::default(),
             pack: "DanOni imports".into(),
             entry: s.entry,
             warnings: vec![],
@@ -191,9 +191,12 @@ pub fn audit(songs: &[LibSong]) -> Result<Value> {
         {
             return Err(error("Desktop load differs from the admitted catalog"));
         }
-        let preview =
-            ddi_desktop::preview::PreviewSong::from_dir(&s.entry.id, &s.root.join(&s.dir))
-                .ok_or_else(|| error("Preview lookup failed"))?;
+        let dir = s
+            .dir
+            .to_path(&s.root)
+            .ok_or_else(|| error("Invalid song directory"))?;
+        let preview = ddi_desktop::preview::PreviewSong::from_dir(&s.entry.id, &dir)
+            .ok_or_else(|| error("Preview lookup failed"))?;
         if (preview.from - s.entry.preview_start.max(0.0)).abs() > 1e-6 || !preview.music.is_file()
         {
             return Err(error("Preview metadata/path differs"));

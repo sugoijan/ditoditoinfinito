@@ -183,6 +183,20 @@ the browser are implementation details, not advertised features.
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
   from the system); winit, rfd and arboard load their libraries at run
   time.
+- `tools/danoni-dump/` the standalone Dancing☆Onigiri URL-import SDK
+  (`rust/`), its confined Ruffle worker build inputs (`ruffle/`), desktop
+  handoff probe (`desktop-probe/`) and independent chart verifier
+  (`pack-verify/`). Separate workspaces and lockfiles: root Cargo checks do
+  not cover them. `just danoni-check` (Python 3, ffmpeg and native build
+  prerequisites) runs their locked checks, synthetic tests and independent
+  Opus decoder comparison; `--minimal` checks the SDK without native/codec
+  features, including on Windows in CI. No live songs or runtime downloads
+  are part of this check. The SDK is not linked into the game yet; desktop
+  integration will hand off prepared SSC/Opus through the verified managed
+  catalog, never scan its transaction directories. Sources and generated
+  third-party packs stay outside Git. See
+  `docs/research/danoni-desktop-integration.md` for the remaining adapter,
+  runtime attestation and redistribution work.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md` and
   `THIRD_PARTY_RUST.md`.
 - `video/` the software video decoder: C shims over FFmpeg's video
