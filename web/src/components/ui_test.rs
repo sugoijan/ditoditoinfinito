@@ -1,10 +1,10 @@
 //! The 2D pass's test scene (`docs/plans/ui-core.md`, step 2), at
-//! `#/ui-test`, not linked from the menus: quads (plain, one colour a
+//! `#/ui-test`, not linked from the menus: quads (plain, one color a
 //! corner, turned, textured, a texture loading late, one that fails),
 //! StepMania's blend modes, text (system fonts with Japanese, the
 //! bundled font, tinted, turned, scaled, measured), clips, an external
 //! slot, actors drawn through the bridge (`ddi_render::actors2d`: draw
-//! order, corner colours, a shadow, a turned clip through the stencil, a
+//! order, corner colors, a shadow, a turned clip through the stencil, a
 //! frame in perspective, a mask, a text actor), and a list of 2,000
 //! titles scrolling through a clip, which runs the text atlas through
 //! its budget. The canvas shows behind the page; a line of the page's
@@ -249,7 +249,7 @@ fn titles() -> Vec<std::sync::Arc<str>> {
         .collect()
 }
 
-/// A colour from 8-bit sRGB values.
+/// A color from 8-bit sRGB values.
 fn rgb(r: u8, g: u8, b: u8) -> [f32; 4] {
     [
         f32::from(r) / 255.0,
@@ -369,7 +369,7 @@ fn build(scene: &mut Scene, t: f64, width: f32, height: f32, measure: &mut dyn T
         white,
     );
 
-    // Quads: plain, a colour a corner, turned, textured (late), failed.
+    // Quads: plain, a color a corner, turned, textured (late), failed.
     l.rect([24.0, 70.0, 124.0, 170.0], rgb(224, 64, 64));
     l.quad(quad(
         [140.0, 70.0, 240.0, 170.0],
@@ -471,7 +471,7 @@ fn build(scene: &mut Scene, t: f64, width: f32, height: f32, measure: &mut dyn T
     l.external(0);
     l.rect([24.0, 560.0, 124.0, 580.0], rgb(255, 255, 255));
 
-    // StepMania's other blend modes over grey, a half-transparent colour:
+    // StepMania's other blend modes over grey, a half-transparent color:
     // weighted multiply, invert dest, alpha multiply, copy source, no
     // effect.
     for (i, blend) in [

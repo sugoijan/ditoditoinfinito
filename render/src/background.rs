@@ -21,7 +21,7 @@ use bytemuck::{Pod, Zeroable};
 /// layer's two, then the second's.
 const DRAWS: usize = 5;
 
-/// The id a [`Backdrop`] shows the plain backdrop by: the colour given to
+/// The id a [`Backdrop`] shows the plain backdrop by: the color given to
 /// [`BackgroundPipeline::set_plain_color`] (the field's), opaque.
 pub const PLAIN: usize = usize::MAX;
 /// The black base under the first layer.
@@ -72,7 +72,7 @@ struct Params {
 /// What to show behind the field in one frame. While `mix < 1` a crossfade
 /// is running from `previous` to `current` (`mix` = how far, 1 = only
 /// `current`). Ids are from [`BackgroundPipeline::add_texture`]; `None` is
-/// no image, the plain field colour. `second` is drawn over them.
+/// no image, the plain field color. `second` is drawn over them.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Backdrop {
     pub current: Option<usize>,
@@ -153,16 +153,16 @@ struct Image {
     params: wgpu::Buffer,
     width: f32,
     height: f32,
-    /// A movie: its planes and the current frame's colour tags.
+    /// A movie: its planes and the current frame's color tags.
     video: Option<Video>,
 }
 
-/// One-pixel images of a colour: the black base and the plain backdrop.
+/// One-pixel images of a color: the black base and the plain backdrop.
 struct Solids {
     black: Image,
     plain: Image,
     plain_texture: wgpu::Texture,
-    /// The colour written into `plain_texture`.
+    /// The color written into `plain_texture`.
     plain_written: [u8; 4],
 }
 
@@ -281,7 +281,7 @@ pub struct BackgroundPipeline {
     images: Vec<Image>,
     /// The black base and the plain backdrop, made when first drawn.
     solids: Option<Solids>,
-    /// The plain backdrop's colour (sRGB-encoded RGBA).
+    /// The plain backdrop's color (sRGB-encoded RGBA).
     plain: [u8; 4],
     wide: Option<Wide>,
     format: wgpu::TextureFormat,
@@ -459,7 +459,7 @@ impl BackgroundPipeline {
     /// [`BackgroundPipeline::set_texture`], for sRGB-encoded pixels. On an
     /// sRGB target it is an sRGB texture, so sampling returns linear light
     /// like the target expects; on a plain target the encoded values pass
-    /// straight through, like every other colour in the scene.
+    /// straight through, like every other color in the scene.
     /// `RENDER_ATTACHMENT` is required by WebGPU's
     /// `copyExternalImageToTexture`.
     pub fn create_texture(&self, device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
@@ -723,7 +723,7 @@ impl BackgroundPipeline {
         self.images.len() - 1
     }
 
-    /// The colour of [`PLAIN`] (sRGB-encoded RGBA; opaque however given).
+    /// The color of [`PLAIN`] (sRGB-encoded RGBA; opaque however given).
     pub fn set_plain_color(&mut self, rgba: [u8; 4]) {
         self.plain = [rgba[0], rgba[1], rgba[2], 255];
     }
@@ -737,7 +737,7 @@ impl BackgroundPipeline {
         }
     }
 
-    /// Makes the one-pixel images, and gives the plain one its colour.
+    /// Makes the one-pixel images, and gives the plain one its color.
     fn solids(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         let pixel = |rgba: [u8; 4]| {
             let texture = self.create_texture(device, 1, 1);

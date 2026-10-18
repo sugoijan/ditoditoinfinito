@@ -1,5 +1,5 @@
 -- A symbol's receptor: the onigiri's star's outline or the centre
--- panel's square's (`Var "Button"`), smaller while its button is down, flashing a judgement's colour for a quarter of a second (not a
+-- panel's square's (`Var "Button"`), smaller while its button is down, flashing a judgement's color for a quarter of a second (not a
 -- miss's).
 local base = color("0.75,0.75,0.8,0.9")
 local flashes =

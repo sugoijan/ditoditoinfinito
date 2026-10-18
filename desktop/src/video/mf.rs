@@ -353,7 +353,7 @@ impl Session {
     }
     fn choose_output(&mut self) -> Result<(), String> {
         // SAFETY: all returned media types and blobs are owned COM objects.
-        // Output remains NV12 at the checked geometry; no colour conversion.
+        // Output remains NV12 at the checked geometry; no color conversion.
         unsafe {
             let t = &self.active.transform;
             let mut last = "no NV12 output".to_string();
@@ -398,7 +398,7 @@ impl Session {
                         .ok()
                         .is_some_and(|n| n != self.matrix())
                 {
-                    return Err("MF negotiated format or colours changed".into());
+                    return Err("MF negotiated format or colors changed".into());
                 }
                 let info = w(t.GetOutputStreamInfo(self.output), "output stream info")?;
                 if info.dwFlags

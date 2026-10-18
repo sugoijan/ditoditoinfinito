@@ -47,15 +47,15 @@ pub fn parse_color(s: &str) -> Option<[f32; 4]> {
     ])
 }
 
-/// Parses a tunables file: every section and key known, every colour a
-/// colour, every metric finite.
+/// Parses a tunables file: every section and key known, every color a
+/// color, every metric finite.
 pub fn parse(source: &str) -> Result<Tunables, String> {
     let f: File = toml::from_str(source).map_err(|e| e.to_string())?;
     let mut colors = Vec::new();
     for (k, v) in &f.colors {
         colors.push((
             k.clone(),
-            parse_color(v).ok_or_else(|| format!("colour {k}: {v:?}"))?,
+            parse_color(v).ok_or_else(|| format!("color {k}: {v:?}"))?,
         ));
     }
     for (k, v) in &f.metrics {

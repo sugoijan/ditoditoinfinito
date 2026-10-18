@@ -18,7 +18,7 @@ pub enum Arg {
     Str(String),
     Bool(bool),
     Nil,
-    /// A colour table, as `color(…)` returns.
+    /// A color table, as `color(…)` returns.
     Color([f32; 4]),
 }
 
@@ -723,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn colours_parse_as_stepmania_does() {
+    fn colors_parse_as_stepmania_does() {
         assert_eq!(color_from_string("1,.5,0"), [1.0, 0.5, 0.0, 1.0]);
         assert_eq!(color_from_string(" 1, 0.5 ,0,0.25"), [1.0, 1.0, 1.0, 1.0]);
         assert_eq!(color_from_string("1, 0.5,0,0.25"), [1.0, 0.5, 0.0, 0.25]);

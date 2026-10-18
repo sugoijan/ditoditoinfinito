@@ -3,7 +3,7 @@
 // rectangle of its texture; or it is a triangle of a model, its corners
 // given on the screen with their perspective w. StepMania draws an actor's
 // diffuse pass, then its glow pass (the texture's alpha in the glow
-// colour) on top (`Sprite::DrawTexture`, `TextureMode_Glow`).
+// color) on top (`Sprite::DrawTexture`, `TextureMode_Glow`).
 
 struct Globals {
     // Pixels -> clip space: x' = x * sx + tx, y' = y * sy + ty
@@ -24,13 +24,13 @@ struct Instance {
     // left, top, right, bottom of the texture, in texture fractions. A
     // triangle: its first two corners'.
     @location(2) uv: vec4<f32>,
-    // The colour; with a gradient, the upper left corner's (a triangle's
+    // The color; with a gradient, the upper left corner's (a triangle's
     // first).
     @location(3) color: vec4<f32>,
-    // Bit 0: glow (colour, texture alpha) rather than diffuse (texture
-    // times colour); bit 1: the texture repeats (hold bodies, models);
-    // bit 2: a triangle; bit 3: no texture (the colour alone); bit 5: a
-    // quad seen in perspective; bit 6: a colour a corner.
+    // Bit 0: glow (color, texture alpha) rather than diffuse (texture
+    // times color); bit 1: the texture repeats (hold bodies, models);
+    // bit 2: a triangle; bit 3: no texture (the color alone); bit 5: a
+    // quad seen in perspective; bit 6: a color a corner.
     @location(4) mode: u32,
     // A triangle: its third corner's texture coordinates.
     @location(5) uv2: vec2<f32>,
@@ -39,7 +39,7 @@ struct Instance {
     // A projected quad's lower right corner.
     @location(7) corner: vec2<f32>,
     // With a gradient: the upper right, lower left and lower right
-    // corners' colours (a triangle's second and third).
+    // corners' colors (a triangle's second and third).
     @location(8) c1: vec4<f32>,
     @location(9) c2: vec4<f32>,
     @location(10) c3: vec4<f32>,
@@ -114,8 +114,8 @@ fn texel_of(in: VsOut) -> vec4<f32> {
 }
 
 fn shade(texel: vec4<f32>, in: VsOut) -> vec4<f32> {
-    // Flat unless the corners differ, so a quad of one colour is exactly
-    // that colour.
+    // Flat unless the corners differ, so a quad of one color is exactly
+    // that color.
     let color = select(in.color, in.graded, (in.mode & 64u) != 0u);
     if ((in.mode & 1u) != 0u) {
         return vec4<f32>(color.rgb, texel.a * color.a);

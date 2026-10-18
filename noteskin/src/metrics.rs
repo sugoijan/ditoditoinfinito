@@ -4,7 +4,7 @@
 use crate::ini::{string_to_float, string_to_int};
 use crate::skin::Skin;
 
-/// A note part with its own animation and colour metrics (`NotePartNames`,
+/// A note part with its own animation and color metrics (`NotePartNames`,
 /// `src/NoteDisplay.cpp:36-46`). Rolls use the hold parts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Part {
@@ -47,7 +47,7 @@ impl Part {
     }
 }
 
-/// How a part's colour is chosen (`NoteColorType`, `src/NoteDisplay.h:38-45`).
+/// How a part's color is chosen (`NoteColorType`, `src/NoteDisplay.h:38-45`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoteColorType {
     /// By the note's beat division (`BeatToNoteType`).
@@ -60,7 +60,7 @@ pub enum NoteColorType {
 
 impl NoteColorType {
     /// `StringToNoteColorType`: the whole value, ignoring case; anything else
-    /// is invalid (StepMania then stops with an error when it colours the
+    /// is invalid (StepMania then stops with an error when it colors the
     /// part).
     fn parse(s: &str) -> Option<NoteColorType> {
         [
@@ -81,10 +81,10 @@ pub struct PartMetrics {
     pub animation_length: f32,
     pub animation_is_vivid: bool,
     pub addition_offset: [f32; 2],
-    /// Texture translation per colour, in padded-texture units.
+    /// Texture translation per color, in padded-texture units.
     pub color_spacing: [f32; 2],
-    /// As read; StepMania divides by it when colouring, so 0 or less
-    /// colours nothing.
+    /// As read; StepMania divides by it when coloring, so 0 or less
+    /// colors nothing.
     pub color_count: i32,
     /// `None` for a name StepMania does not know.
     pub color_type: Option<NoteColorType>,
@@ -170,7 +170,7 @@ impl NoteDisplay {
 
     /// StepMania 3.9's and OpenITG's metrics (`NoteMetricCache_t::Load`,
     /// OpenITG `src/NoteDisplay.cpp:61-83`): animations always on the beat,
-    /// no colour by texture translation, lifts and fakes as tap notes. Its
+    /// no color by texture translation, lifts and fakes as tap notes. Its
     /// `Part` enum lists the hold's tail after the head where its names
     /// (`PartNames`) list it last, so each hold part but the head reads the
     /// metrics of the name after its own: the tail `HoldTopCap…`, the top

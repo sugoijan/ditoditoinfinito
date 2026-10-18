@@ -130,7 +130,7 @@ actors exist and which commands they run.
 
 **Done 2026-10-10.** `actor.rs` (the tween queue, effects and their
 clocks, sprite states, commands, the draw list), `commands.rs`,
-`notes.rs` (frame selection with vivid, colour translation), `build.rs`
+`notes.rs` (frame selection with vivid, color translation), `build.rs`
 (elements to actors). Command arguments evaluate natively when they are
 numbers, strings, booleans, `nil`, `color("…")` or enum and alignment
 globals; anything else is reported as needing Lua. Duplicate commands
@@ -163,7 +163,7 @@ frame. Bright: combo above 100, after the row is scored.
   translation, diffuse, glow, normal and additive blend), batched by
   texture; skin images uploaded once per play.
 - Per lane: receptor actor, notes (taps, heads, tails, mines, lifts, fakes)
-  with frame selection and colour, holds as StepMania draws them (top cap,
+  with frame selection and color, holds as StepMania draws them (top cap,
   body tiled from the tail end, bottom cap cropped when short, tail, head
   pinned while held; active and inactive sprites; grey after a let-go;
   `Flip*WhenReverse`; research §5), explosions; field order as StepMania's
@@ -171,10 +171,10 @@ frame. Bright: combo above 100, after the row is scored.
   working (alpha and glow).
 - Elements resolved as built-in, Lua or model are drawn by the procedural
   skin in the same place, so a partial skin plays.
-- Checks: a synthetic test skin (script-drawn sheets, a note-colour sheet, a
+- Checks: a synthetic test skin (script-drawn sheets, a note-color sheet, a
   vivid sheet, holds with caps) autoplayed in headless Chrome on WebGPU and
   WebGL2, all top tier, frame time within budget; screenshots at known song
-  times (frame selection, colours, holds under normal and reverse).
+  times (frame selection, colors, holds under normal and reverse).
 - Review before handover.
 
 **Done 2026-10-10.** `render/src/textured.rs` (StepMania's diffuse then
@@ -188,7 +188,7 @@ skin's shapes; explosion parts that fall back use generated white art
 Headless Chrome, a bundled 10-level chart: all 329 taps top tier and 27 of
 27 holds kept with the test skin on WebGPU, as without it; WebGL2 and
 reverse checked by screenshot (held bodies green, head pinned, flipped caps
-under reverse, explosions, vivid colours), 60 fps. StepMania's Delta
+under reverse, explosions, vivid colors), 60 fps. StepMania's Delta
 (local copy) plays as a partial skin: its taps and receptor (Lua) built in,
 its holds, caps and explosions its own.
 
@@ -203,7 +203,7 @@ its holds, caps and explosions its own.
 - The import report lists each skin's elements drawn by the built-in skin
   and why (Lua, a model, missing), and the files it ignored (`NoteSkin.lua`).
 - Options: "Arrows" (built-in, or an imported skin), applied to dance
-  layouts; the colour scheme applies to the built-in arrows only. Delete an
+  layouts; the color scheme applies to the built-in arrows only. Delete an
   imported skin.
 - Images decoded by the browser and limited in size (texture limits, a
   memory budget per skin).

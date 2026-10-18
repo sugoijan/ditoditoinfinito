@@ -252,7 +252,7 @@ fn legacy_default_files() -> &'static [(&'static str, Virtual)] {
     &FILES
 }
 
-/// OpenITG's note types, the names of its per-colour files
+/// OpenITG's note types, the names of its per-color files
 /// (`NoteTypeNames`); it loads the first eight (`NOTE_COLOR_IMAGES`), a
 /// 192nd drawn as a 64th.
 pub const LEGACY_NOTE_TYPES: [&str; 9] = [
@@ -303,7 +303,7 @@ const LEGACY_FLAT_METRICS: &str = include_str!("builtin/stepmania39/dance/flat/m
 /// Ours: what OpenITG's `common/default` sets that StepMania 3.9's
 /// `dance/default` does not (`docs/research/noteskins.md` section 11): no
 /// lighting, the hold explosion's command, a receptor that shrinks and
-/// grows back on a step, and a held hold's flash (OK, in Perfect's colour
+/// grows back on a step, and a held hold's flash (OK, in Perfect's color
 /// and 3.9's manner; NG shows nothing).
 const LEGACY_COMMON_METRICS: &str = "[NoteDisplay]
 TapNoteUseLighting=0

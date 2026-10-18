@@ -372,7 +372,7 @@ fn the_screens_in_the_theme() {
     ] {
         assert!(texts.iter().any(|x| x == t), "no {t:?} in {texts:?}");
     }
-    // The meter in its difficulty's colour.
+    // The meter in its difficulty's color.
     let hard = parse_color("#e8584a").unwrap();
     let meter = h.ui.actor("Ladder.Row3").unwrap();
     let mut m = meter.clone();
@@ -539,7 +539,7 @@ fn the_selected_rows_ring_lies_within_the_wheel() {
 }
 
 /// The best on the ladder: its grade, score and lamp in the lamp's
-/// colour; and the footer's hints never run into its links.
+/// color; and the footer's hints never run into its links.
 #[test]
 fn bests_and_the_footer_in_the_theme() {
     let theme = Rc::new(Infinito::new());

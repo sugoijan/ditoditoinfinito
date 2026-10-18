@@ -43,7 +43,7 @@ impl Format {
             let matrix = b.bits(3)?;
             let full = b.flag()?;
             if !matches!(matrix, 0..=3) || (matrix == 2) != self.bt709 || full != self.full_range {
-                return Err("VP9 colour configuration changed or unsupported".into());
+                return Err("VP9 color configuration changed or unsupported".into());
             }
             (b.bits(16)? + 1, b.bits(16)? + 1)
         } else {

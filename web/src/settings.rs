@@ -4,7 +4,7 @@
 
 pub(crate) use ddi_ui::state::settings::*;
 
-/// The renderer's colour scheme for a [`NoteColors`] setting.
+/// The renderer's color scheme for a [`NoteColors`] setting.
 pub(crate) fn note_scheme(colors: NoteColors) -> ddi_render::ColorScheme {
     use ddi_render::ColorScheme;
     match colors {

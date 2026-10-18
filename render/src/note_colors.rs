@@ -1,4 +1,4 @@
-//! Note colour schemes.
+//! Note color schemes.
 //!
 //! - **Quantized**: by subdivision (DDR "NOTE", the StepMania default; the
 //!   game's default is Vivid).
@@ -8,11 +8,11 @@
 //!   of the cycle from tail to tip (DDR "VIVID"; measured on footage, see
 //!   `docs/research/rules-ddr-itg-dwi.md` §8.1).
 //! - **Flat**: the same cycle with no shift, all notes alike (DDR "FLAT").
-//! - **Rainbow**: by position within the beat, in four colour families,
+//! - **Rainbow**: by position within the beat, in four color families,
 //!   each arrow carrying a gradient of its family that flows once per beat
 //!   (DDR "RAINBOW", 2014–A3: "arrows have different gradient cycles which
 //!   correspond to note value").
-//! - **Single**: one colour for everything.
+//! - **Single**: one color for everything.
 //!
 //! Vivid and Flat follow StepMania 5.1's `midi-vivid` noteskin and
 //! `NoteDisplay::SetActiveFrame` (`src/NoteDisplay.cpp` 667–690 at
@@ -23,13 +23,13 @@
 //! skin's, and the hue moves smoothly instead of in 16 steps. Rainbow's
 //! bands are DDR's (pink up to 1/16 of a measure into the beat, blue to
 //! 1/8, purple to 3/16, orange to the next beat; a band includes its end),
-//! which StepMania's `ProgressAlternate` colouring matches on 4ths, 8ths
+//! which StepMania's `ProgressAlternate` coloring matches on 4ths, 8ths
 //! and 16ths (it puts notes between them one band later).
 //! Sources in `docs/research/rules-ddr-itg-dwi.md` §8.
 
 use ddi_chart::Quantization;
 
-/// Colour choice for notes.
+/// Color choice for notes.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum ColorScheme {
     #[default]
@@ -37,7 +37,7 @@ pub enum ColorScheme {
     Vivid,
     Flat,
     Rainbow,
-    /// One colour for everything.
+    /// One color for everything.
     Single([f32; 4]),
 }
 
@@ -62,7 +62,7 @@ const VIVID_HUES: [f32; 16] = [
     -287.0, -300.0, -316.0,
 ];
 
-/// Beats per colour cycle (`TapNoteAnimationLength`).
+/// Beats per color cycle (`TapNoteAnimationLength`).
 const CYCLE_BEATS: f64 = 4.0;
 
 /// How much of the cycle one vivid arrow spans from tip to tail. Measured on
@@ -71,15 +71,15 @@ const CYCLE_BEATS: f64 = 4.0;
 /// the 16 frames' hues cover about that.
 const VIVID_SPAN: f64 = 3.0 / 16.0;
 
-/// A gradient across an arrow, beyond its base colour.
+/// A gradient across an arrow, beyond its base color.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Gradient {
-    /// Down the screen from the base colour to `to` and back, shifted by
+    /// Down the screen from the base color to `to` and back, shifted by
     /// `phase` cycles (Rainbow).
     Flow { to: [f32; 3], phase: f32 },
-    /// Along the arrow, from the base colour at its tail to `tip` at its
-    /// tip (Vivid, Flat): the cycle's later colour sits at the tail, so as
-    /// the cycle moves the colour flows towards the tip.
+    /// Along the arrow, from the base color at its tail to `tip` at its
+    /// tip (Vivid, Flat): the cycle's later color sits at the tail, so as
+    /// the cycle moves the color flows towards the tip.
     Ramp { tip: [f32; 3] },
 }
 
@@ -118,7 +118,7 @@ fn hue_color(hue: f32) -> [f32; 4] {
     [r + m, g + m, b + m, 1.0]
 }
 
-/// The cycling colour at `phase` (cycles; only the fraction matters).
+/// The cycling color at `phase` (cycles; only the fraction matters).
 pub fn cycle_color(phase: f64) -> [f32; 4] {
     let p = phase.rem_euclid(1.0) as f32 * 16.0;
     let i = (p.floor() as usize).min(15);
@@ -161,7 +161,7 @@ impl ColorScheme {
         }
     }
 
-    /// Phase in cycles of a Vivid or Flat note's tail colour.
+    /// Phase in cycles of a Vivid or Flat note's tail color.
     fn cycle_phase(self, beat_frac: f32, song_beat: f64) -> f64 {
         let phase = song_beat / CYCLE_BEATS;
         match self {
@@ -173,7 +173,7 @@ impl ColorScheme {
         }
     }
 
-    /// Colour of a note in `quantization`, `beat_frac` into its beat, while
+    /// Color of a note in `quantization`, `beat_frac` into its beat, while
     /// the song is at `song_beat`.
     pub fn note_color(
         self,
@@ -260,8 +260,8 @@ mod tests {
 
     #[test]
     fn vivid_tips_show_what_the_tail_showed_earlier() {
-        // The tail has the note's colour; the tip the colour the tail had
-        // 3/16 of a cycle (0.75 beats) ago, so colour flows tail to tip.
+        // The tail has the note's color; the tip the color the tail had
+        // 3/16 of a cycle (0.75 beats) ago, so color flows tail to tip.
         let vivid = ColorScheme::Vivid;
         let Some(Gradient::Ramp { tip }) = vivid.note_gradient(0.0, 0.75) else {
             panic!("vivid arrows ramp");

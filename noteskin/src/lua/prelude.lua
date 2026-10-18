@@ -77,8 +77,8 @@ function ProductID() return "ITGmania" end
 
 -- Thread variables: what NOTESKIN:LoadActor sets while an element loads.
 local vars = {}
--- Whether the element the engine is loading read its colour (`Var
--- "Color"`): then it is loaded once per colour, as ITGmania and OutFox load
+-- Whether the element the engine is loading read its color (`Var
+-- "Color"`): then it is loaded once per color, as ITGmania and OutFox load
 -- notes (they do it whether or not it is read). A load the skin's own
 -- script makes sees the 4ths' (below) and does not count.
 local color_read = false
@@ -357,10 +357,10 @@ PREFSMAN = {
 -- What OutFox and StepMania's `_fallback` theme add that skins read (Dake):
 -- the field's direction, the key a game button is mapped to (none: the
 -- player's bindings are not shown to skins), a few theme metrics, and a
--- judgement's colour. The colours are the game's own (the receptor
+-- judgement's color. The colors are the game's own (the receptor
 -- flashes', `render/src/scene.rs`; a test keeps them equal), not
 -- `_fallback`'s, which shows Pro judgements in white and unknown names in
--- black: here Pro judgements take the plain ones' colours and unknown
+-- black: here Pro judgements take the plain ones' colors and unknown
 -- names white.
 GAMESTATE.GetIsFieldReversed = function() return H.field_reversed() end
 

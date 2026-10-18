@@ -19,7 +19,7 @@ pub struct StageTexture {
 
 /// The back and mask quads of `draws`, on a `stage` (danoniplus's px)
 /// shown `height` px tall with its centre at `center_x`; `texture` finds a
-/// content's texture (none: not drawn yet). Colours as the target expects
+/// content's texture (none: not drawn yet). Colors as the target expects
 /// them for skins' quads (`srgb`, see [`to_target`]).
 pub fn quads(
     draws: &[SpriteDraw],

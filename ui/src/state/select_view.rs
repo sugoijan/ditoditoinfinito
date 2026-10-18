@@ -74,7 +74,7 @@ fn difficulty(name: &str) -> Difficulty {
     }
 }
 
-/// A lamp as colours and commands name it, and written short.
+/// A lamp as colors and commands name it, and written short.
 pub fn lamp_names(l: Lamp) -> (&'static str, &'static str) {
     match l {
         Lamp::Failed => ("Failed", "FAILED"),

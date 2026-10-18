@@ -2,14 +2,14 @@
 //! P11): what a screen draws, in order, in its units (virtual pixels;
 //! [`crate::painter::Painter::draw`] scales them to physical pixels).
 //!
-//! Quads (a texture's rectangle or a plain colour, under a 2D affine
-//! transform or seen in perspective, one colour a corner, StepMania's
+//! Quads (a texture's rectangle or a plain color, under a 2D affine
+//! transform or seen in perspective, one color a corner, StepMania's
 //! blend modes, glow and masks), text runs (a string in a style, its line
 //! box's top left at the transform's origin, tinted), clips pushed and
 //! popped (scissor rectangles, or any quad through the stencil), and
 //! external slots, where the shell draws
 //! something of its own between the list's layers (the play field, so a
-//! theme's layers can lie under and over it). Colours are encoded values
+//! theme's layers can lie under and over it). Colors are encoded values
 //! with straight alpha: the 2D pass blends as StepMania and the browser
 //! do, in encoded values (P11).
 
@@ -95,7 +95,7 @@ pub type Rect = [f32; 4];
 pub struct Quad {
     pub rect: Rect,
     pub transform: Affine,
-    /// `None`: the colours alone.
+    /// `None`: the colors alone.
     pub texture: Option<TextureId>,
     /// The texture's rectangle, in fractions of it.
     pub uv: Rect,
@@ -103,7 +103,7 @@ pub struct Quad {
     /// alpha.
     pub colors: [[f32; 4]; 4],
     pub blend: Blend,
-    /// StepMania's glow pass: the colours with the texture's alpha.
+    /// StepMania's glow pass: the colors with the texture's alpha.
     pub glow: bool,
     pub mask: Mask,
     /// Seen in perspective: `rect` and `transform` then give way to these
@@ -118,7 +118,7 @@ pub struct Quad {
     pub blur: [f32; 2],
 }
 
-/// How a quad is cut and coloured beyond StepMania's (actors'
+/// How a quad is cut and colored beyond StepMania's (actors'
 /// `ddi_actor::Shape`), in its rectangle's units, per axis. [`Shape::NONE`]
 /// draws exactly as before.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -180,7 +180,7 @@ pub struct Projected {
 }
 
 impl Quad {
-    /// `rect` in one colour, untextured.
+    /// `rect` in one color, untextured.
     pub fn plain(rect: Rect, color: [f32; 4]) -> Quad {
         Quad {
             rect,
@@ -256,7 +256,7 @@ impl DrawList {
         self.commands.push(command);
     }
 
-    /// A rectangle in one colour.
+    /// A rectangle in one color.
     pub fn rect(&mut self, rect: Rect, color: [f32; 4]) {
         self.push(Command::Quad(Quad::plain(rect, color)));
     }

@@ -150,7 +150,7 @@ fn fonts() -> &'static Mutex<(
 /// A text content drawn as the web's canvas draws it (`text_bitmap`):
 /// its font size (16 px for the page's own, 400 at most) at
 /// [`TEXT_SCALE`] times, in the page's sans-serif face, line by line (64
-/// at most) 1.2 lines apart from the top, in its colour (`#cccccc` for
+/// at most) 1.2 lines apart from the top, in its color (`#cccccc` for
 /// none or one not read); its pixels and its size in the stage's px.
 pub fn text_image(text: &str, size: u32, color: &str) -> Option<(Rgba, (f32, f32))> {
     use glyphon::cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping};
@@ -201,10 +201,10 @@ pub fn text_image(text: &str, size: u32, color: &str) -> Option<(Rgba, (f32, f32
     ))
 }
 
-/// A CSS colour as a canvas's `fillStyle` reads it (every named colour,
+/// A CSS color as a canvas's `fillStyle` reads it (every named color,
 /// `transparent`, hex, `rgb()`, `hsl()`, `hwb()` and the rest,
 /// `csscolorparser`); `None` for one it does not read (the canvas keeps
-/// its colour then).
+/// its color then).
 pub fn css_color(s: &str) -> Option<[u8; 4]> {
     csscolorparser::parse(s.trim()).ok().map(|c| c.to_rgba8())
 }
@@ -293,7 +293,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn colours_as_a_canvas_reads_them() {
+    fn colors_as_a_canvas_reads_them() {
         assert_eq!(css_color("#f00"), Some([255, 0, 0, 255]));
         assert_eq!(css_color("#00ff0080"), Some([0, 255, 0, 128]));
         assert_eq!(css_color("rgba(10, 20, 30, 0.5)"), Some([10, 20, 30, 128]));

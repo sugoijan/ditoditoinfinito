@@ -151,16 +151,16 @@ pub struct NoteSprite {
     pub y: f32,
     pub kind: SpriteKind,
     pub quantization: Quantization,
-    /// Fractional position within its beat, `0..1` (progress colouring).
+    /// Fractional position within its beat, `0..1` (progress coloring).
     pub beat_frac: f32,
-    /// Explicit colour from the chart, if any.
+    /// Explicit color from the chart, if any.
     pub color: Option<Color>,
     /// 0 or 1 under Hidden/Sudden/Stealth, else 1.
     pub alpha: f32,
     /// White glow where a note appears or vanishes, `0..=1.3`
     /// ([`Appearance::visibility`]).
     pub glow: f32,
-    /// The note's beat (noteskin animation and colours).
+    /// The note's beat (noteskin animation and colors).
     pub beat: f32,
     /// A hold's life, `0..=1`: 1 until it is let go, then what is left (a
     /// noteskin greys it); 1 for other notes.

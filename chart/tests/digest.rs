@@ -220,7 +220,7 @@ fn notes_and_timing_change_the_digest() {
     assert_ne!(own(&|l| l.lanes[0].shuffle_group = 9), plain);
     assert_ne!(own(&|l| l.turn_left = None), plain);
     assert_eq!(own(&|l| l.lanes[0].label = "Other".into()), plain);
-    // Not: the name, the meter, a note's colour or keysound, the art.
+    // Not: the name, the meter, a note's color or keysound, the art.
     assert_eq!(
         changed(&|s| {
             s.charts[0].name = "x".into();

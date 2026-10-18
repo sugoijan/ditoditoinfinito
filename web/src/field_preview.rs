@@ -60,7 +60,7 @@ pub(crate) fn options(settings: &Settings) -> FieldPreviewOptions {
 
 /// The noteskin play would draw the preview's layout with, and what it
 /// is loaded for (its key, the layout, the direction): `None` for the
-/// built-in arrows. The demo has no colours of its own.
+/// built-in arrows. The demo has no colors of its own.
 fn wanted_skin(settings: &Settings, options: &FieldPreviewOptions) -> SkinWant {
     SkinWant {
         key: crate::noteskins::play_skin(

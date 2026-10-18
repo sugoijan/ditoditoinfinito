@@ -1,4 +1,4 @@
-//! Colours as written: the play's HUD text (a judgement word, the combo,
+//! Colors as written: the play's HUD text (a judgement word, the combo,
 //! the timing error) on each kind of target the renderer draws to (an
 //! sRGB view, as WebGPU and desktop; a plain view; the encoded float path
 //! of the options' field preview), and the theme's accent on the 2D
@@ -49,7 +49,7 @@ fn read(
     buf.slice(..).get_mapped_range().expect("mapped").to_vec()
 }
 
-/// The colour most pixels have among those `near` (each channel within
+/// The color most pixels have among those `near` (each channel within
 /// 40), and whether it is within 2 of `want`.
 fn shows(pixels: &[u8], want: [u8; 3]) -> (bool, Option<[u8; 3]>) {
     let mut c: HashMap<[u8; 3], usize> = HashMap::new();
@@ -71,7 +71,7 @@ fn bytes(c: [f32; 4]) -> [u8; 3] {
 }
 
 #[test]
-fn hud_and_menu_colours_draw_as_written() {
+fn hud_and_menu_colors_draw_as_written() {
     let instance = gpu::instance();
     let Some(adapter) = gpu::adapter(&instance, None) else {
         eprintln!("no GPU adapter: skipped");

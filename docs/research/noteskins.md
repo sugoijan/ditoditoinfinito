@@ -26,7 +26,7 @@ to a file with `NOTESKIN:GetPath` and `LoadActor`s it: a PNG becomes a
 Sprite, a `.lua` file returns an actor tree, a `.txt` file is a MilkShape 3D
 model. The engine keeps **one actor per (button, element)** and draws it
 once per note, setting its sprite frame from the song beat, shifting its
-texture coordinates for the quantization colour, and placing it from the
+texture coordinates for the quantization color, and placing it from the
 scroll mods. Holds are not actors: their caps and body are textured strips
 sampled from three Sprites. Receptors and explosions are long-lived actors
 the engine drives with named commands ("Press", "W1", "HoldingOn"), whose
@@ -101,7 +101,7 @@ UpRight` (`SM src/GameManager.cpp:513-518`); double reuses the four names
 for the second pad, distinguished only by `Var "Controller"`
 (`src/Style.cpp:130-139`).
 
-## 4. Sprite sheets, animation and colour
+## 4. Sprite sheets, animation and color
 
 - **File name hints**: `" WxH"` frame grid, row-major (`SM
   src/RageTexture.cpp:29-77`); `(res WxH)` overrides the displayed source size
@@ -118,12 +118,12 @@ for the second pad, distinguished only by `Var "Controller"`
   nothing when `L=1` (`midi-vivid` uses `L=4` with a `4x4` sheet). On a Lua
   ActorFrame the engine's frame selection does nothing and the Lua animates
   itself (`src/Actor.h:620-621`).
-- **Quantization colour is a texture translation** for taps, heads and tails,
+- **Quantization color is a texture translation** for taps, heads and tails,
   not bodies (`SM src/NoteDisplay.cpp:1346-1381`): `NoteColorType`
   `Denominator` (`BeatToNoteType`: 4th … 192nd, clamped to
   `NoteColorCount − 1`, default 8; `src/NoteTypes.cpp:128-144`), `Progress`
   or `ProgressAlternate` (rainbow), times
-  `<Part>NoteColorTextureCoordSpacingX/Y`. "Note" skins put eight colours
+  `<Part>NoteColorTextureCoordSpacingX/Y`. "Note" skins put eight colors
   along one axis (`dance/default`: spacing Y `.125` on `_arrow 1x8`); flat
   skins have no spacing. The changelog's "ProgressOnBeatAtEnd" does not exist
   in the code (`src/NoteDisplay.h:38-45`).
@@ -154,7 +154,7 @@ into the receptor (`:802-820`; at the head with `TopHoldAnchorWhenReverse` in
 reverse); caps use the whole frame, and the bottom cap is cropped from the
 top when the rest of the hold is shorter. While a hold is active the head
 stays on the receptor; the **Active** sprites show while held (always while
-inside a roll, `src/Player.cpp:1414-1424`); colour scales from 1 down to
+inside a roll, `src/Player.cpp:1414-1424`); color scales from 1 down to
 `HoldLetGoGrayPercent` as the hold's life drains after a let-go (`:1226`); a
 completed hold disappears (`:1577-1581`). Under reverse the head and tail
 offsets swap, so `FlipHeadAndTailWhenReverse=1` is needed for the head to
@@ -323,13 +323,13 @@ test oracle.
   DANCEDANCEREVOLUTION marks and filed DDR (third-party trademark mirrors,
   not checked against USPTO); trade dress claims were part of Konami v. Roxor
   (E.D. Tex. 2:05-cv-00173). The dance-game patent US 6,410,835 has expired.
-  Simple shapes and colourings are not protectable
-  (37 CFR 202.1(a)), so our procedural arrows and colour schemes are fine;
+  Simple shapes and colorings are not protectable
+  (37 CFR 202.1(a)), so our procedural arrows and color schemes are fine;
   a close copy of a specific official rendering is not, and bundled skins
   never carry other games' names. Importing skins a player owns is the same
   model as importing songs.
-- **Dancing☆Onigiri** skins are CSS themes plus single-colour silhouette
-  image sets used as masks and coloured per lane (danoniplus `1a29eb62`,
+- **Dancing☆Onigiri** skins are CSS themes plus single-color silhouette
+  image sets used as masks and colored per lane (danoniplus `1a29eb62`,
   `js/danoni_main.js:1835`); works can name their own sets with `imgType`
   (https://github.com/cwtickle/danoniplus/wiki/dos-h0082-imgType). Out of
   scope here; the procedural symbols already play that role.
@@ -358,8 +358,8 @@ behaviour only.
   mine`, and per hold and roll `head`, `topcap`, `body`, `bottomcap`,
   `tail`, each `active` and `inactive` (`NoteDisplay.cpp:300-318`). No
   lifts or fakes. With `<Part>AnimationIsNoteColor=1` a part loads one
-  actor per note type, `<element> 4th` … `64th` (8 colours; a 192nd uses
-  the 64th's, `NoteDisplay.h:15`); colour by texture translation does not
+  actor per note type, `<element> 4th` … `64th` (8 colors; a 192nd uses
+  the 64th's, `NoteDisplay.h:15`); color by texture translation does not
   exist. A hold's top cap, body and bottom cap are sprites only; its head
   and tail are any actor.
 - **Metrics** (`[NoteDisplay]`; a hold part's are read under the next

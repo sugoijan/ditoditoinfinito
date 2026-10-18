@@ -49,7 +49,7 @@ must be `close()`d, since frames come from a small pool
 `VideoFrame` (Chrome 116+, [WebCodecs integration](https://developer.chrome.com/blog/new-in-webgpu-116)),
 and wgpu's `ExternalImageSource` has a `VideoFrame` variant on both its
 WebGPU and WebGL2 backends (`wgpu_types::texture::external_image`;
-`wgpu_hal::gles::queue` uploads it with `texSubImage2D`), with colour
+`wgpu_hal::gles::queue` uploads it with `texSubImage2D`), with color
 conversion from YUV done by the browser. The app already uploads background
 images this way (`ImageBitmap`, `web/src/game_loop.rs`), so a video frame is
 the same call with a different source.

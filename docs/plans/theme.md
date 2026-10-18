@@ -70,11 +70,11 @@ desktop's `--screen`. Where the build differs from the mockups:
   field there. Unlit tabs and the empty ladder have square dashes.
 - **Pages** (calibration's menu, the credits; step 6.4): one column,
   at most 880 wide, under the header: titles at 20, entries at 16,
-  text at 14, notes at 13 in the muted colour, links in the accent,
+  text at 14, notes at 13 in the muted color, links in the accent,
   lit on the selected plate when focused, buttons as the theme's
   (`PlayButton` for the first test).
 - **The device notices** (step 6.4): a band across the top in the
-  second plate colour with an accent line under it, the text at 15
+  second plate color with an accent line under it, the text at 15
   (13 on a phone), "calibrate" as a `PlayButton` and the rest as
   `Link`s, beside the text where they fit, else under it, "F2" faint at
   its top right; the screens lie below it; the short "devices: …" line
@@ -98,7 +98,7 @@ desktop's `--screen`. Where the build differs from the mockups:
   panels beside the score), the offset and the buttons at the bottom
   (two rows upright).
 - **Accent buttons' focus:** the ring inside the plate, in the label's
-  colour (an accent ring around an accent plate barely shows).
+  color (an accent ring around an accent plate barely shows).
 - **The volume** is a slider row: a thin track, the accent fill, a
   light knob, the value and the dB note after it.
 - **The compact threshold** is 480 CSS pixels of height
@@ -110,7 +110,7 @@ from the mockups:
 
 - **Bests:** on the ladder row the grade (numbers face), the score under
   it, the lamp as a short word (FAILED, CLEAR, FC, GFC, PFC, MFC) in its
-  colour (`Lamp.*`) and a bar of that colour at the row's end; a line
+  color (`Lamp.*`) and a bar of that color at the row's end; a line
   under each wheel meter and each compact chart button.
 - **Notices** (storage, errors, controllers) are one line over the song
   column, cut to fit, their links after it.
@@ -131,15 +131,15 @@ dark background, but laid out more as rhythm games lay out their screens.
 - the dark scheme of `styles.css` (ground `#161318`, text `#f2eee9`,
   muted `#9a938c`, accent `#ff6ea0`);
 - system fonts, with the HUD in Iosevka ExtraBold;
-- one centred column per page, with the difficulty pills coloured as
-  StepMania colours difficulties.
+- one centred column per page, with the difficulty pills colored as
+  StepMania colors difficulties.
 
 ## What changes: packed like a game screen
 
 A web page scrolls, and its column runs as long as its content. A game
 screen is fixed instead: it holds everything a choice needs at once, in
 regions that stay put while the selection moves through them. The
-mockups keep the colours and the cleanliness, and change the packing:
+mockups keep the colors and the cleanliness, and change the packing:
 
 - **Fixed regions on a 1280×720 design.** This is the theme's design
   size, set as a StepMania theme sets it, for the virtual screen of
@@ -152,8 +152,8 @@ mockups keep the colours and the cleanliness, and change the packing:
   touch hides it).
 - **The selection is the brightest thing on screen.** It gets a 2 px
   accent ring, a raised plate, and a bigger row in the wheel. Everything
-  else is a quiet plate on the dark ground. Colour comes from the songs'
-  art and the difficulty and judgement colours, never from the chrome.
+  else is a quiet plate on the dark ground. Color comes from the songs'
+  art and the difficulty and judgement colors, never from the chrome.
 - **The selected song's art behind the screen:** its background
   blurred and at about a fifth of its strength (a tweak in the
   mockups). The screen stays black at a glance, but each song tints it.
@@ -171,14 +171,14 @@ mockups keep the colours and the cleanliness, and change the packing:
 - **Plates** `#14121a` and `#1c1924`, raised `#241f2d`.
 - **Lines** `#26222e` and `#3a3542`.
 - **Text** `#f2eee9`, secondary `#c9c2bb`, muted `#a39c95` (17:1, 11:1
-  and 7:1 on the ground; every difficulty colour is above 4.5:1 on every
+  and 7:1 on the ground; every difficulty color is above 4.5:1 on every
   plate).
 - **Accent:** today's `#ff6ea0`. The mockups offer cyan, gold and
   violet as alternatives.
-- **Difficulty colours:** today's hues, lifted for a dark ground so a
-  meter in colour stays readable: Beginner `#4ea3f0`, Easy `#49b86a`,
+- **Difficulty colors:** today's hues, lifted for a dark ground so a
+  meter in color stays readable: Beginner `#4ea3f0`, Easy `#49b86a`,
   Medium `#d9a925`, Hard `#e8584a`, Challenge `#a979ea`, Edit `#8f8a94`.
-- **Judgement colours:** the HUD's (`render/src/scene.rs`), so results
+- **Judgement colors:** the HUD's (`render/src/scene.rs`), so results
   read the same as play.
 - **Radii:** 4–10 px. **Spacing:** multiples of 2 and 4. No gradients,
   no glows beyond the selection's shadow.
@@ -210,7 +210,7 @@ today:
 - **Left:** the selected song large: banner, title, BPM and length, the
   style tabs (lit where the song has charts, with how many; Tab moves to
   the next), then the chart ladder for that style (one row per chart, the
-  meter big in its colour). Changing style keeps the chart's difficulty,
+  meter big in its color). Changing style keeps the chart's difficulty,
   or the closest. A song with no chart in the style says so in place of
   the ladder.
 - **Right:** the wheel. The selected row sits on a fixed line, and the
@@ -338,7 +338,7 @@ The theme becomes code in the shape P6 set (`ui/src/look.rs`):
 
 - a `Look` with the components the screens of step 6 ask for (`SongList.Row`,
   `SongList.Header`, `ChartLadder`, `Panel`, `OptionRow`, `KeyHint`, …);
-- a tunables file holding the colours, sizes and motion above;
+- a tunables file holding the colors, sizes and motion above;
 - the chosen OFL face, subset to Latin, under `assets/fonts/` with its
   `PROVENANCE.toml`;
 - art only if it is ours or freely licensed, each with its provenance.

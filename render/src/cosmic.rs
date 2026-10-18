@@ -30,7 +30,7 @@ struct Glyph {
     top: i32,
     width: u32,
     height: u32,
-    /// Coverage (a mask), or RGBA whose alpha is taken (a colour glyph).
+    /// Coverage (a mask), or RGBA whose alpha is taken (a color glyph).
     data: Vec<u8>,
     rgba: bool,
 }

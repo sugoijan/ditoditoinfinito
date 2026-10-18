@@ -42,7 +42,7 @@ pub struct PlayInfo<'a> {
     pub autoplay: bool,
 }
 
-/// The colour names of the tiers, best first.
+/// The color names of the tiers, best first.
 const TIER_COLORS: [&str; 6] = [
     "Judgement.W1",
     "Judgement.W2",
@@ -484,7 +484,7 @@ mod tests {
         let danoni = presets::danoni();
         let d = results_data(&info(&r, &danoni, &layout));
         assert_eq!(names(&d), ["Perfect", "Great", "Good", "Bad", "Miss"]);
-        // Colours follow the tier, not the row.
+        // Colors follow the tier, not the row.
         assert_eq!(d.judgements[4].color, "Judgement.Miss");
         // Windows for the histogram, as the ruleset scales them.
         let d = results_data(&info(&r, &itg, &layout));

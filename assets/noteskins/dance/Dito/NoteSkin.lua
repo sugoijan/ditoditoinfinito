@@ -1,7 +1,7 @@
 -- Dito: the game's built-in arrows as a noteskin, so that every play runs
 -- a skin's Lua (docs/plans/bundled-skins.md). Its art is generated from
 -- the built-in arrows' shapes (`cargo run -p xtask -- gen-dito`); each
--- colour scheme is a skin falling back on this one.
+-- color scheme is a skin falling back on this one.
 local ret = ... or {}
 
 -- Every button is drawn from Down's art, turned; hold and roll heads,

@@ -1,5 +1,5 @@
 //! Both background layers on desktop: a song folder made here (solid
-//! colour images, one half transparent, and with feature `video` a movie
+//! color images, one half transparent, and with feature `video` a movie
 //! on the second layer), played autoplayed on a fake clock with no sound
 //! device, drawn offscreen through the play's view, a pixel left of the
 //! field read back at chosen song times. The second layer (`#BGCHANGES2`)

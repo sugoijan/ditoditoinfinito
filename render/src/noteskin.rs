@@ -114,9 +114,9 @@ impl HoldParts {
     }
 }
 
-/// A lane's note elements in one note type's colour, for a skin whose
+/// A lane's note elements in one note type's color, for a skin whose
 /// Lua reads `Var "Color"` (`None`: as the 4ths'). ITGmania loads taps,
-/// lifts, fakes, mines and every hold and roll part per colour; a hold is
+/// lifts, fakes, mines and every hold and roll part per color; a hold is
 /// drawn in its head's.
 #[derive(Clone, Debug, Default)]
 struct ColorSet {
@@ -141,7 +141,7 @@ enum Slot {
 
 impl ColorSet {
     /// Where an element of [`LANE_ELEMENTS`] goes, for those loaded per
-    /// colour.
+    /// color.
     fn place(&mut self, name: &str) -> Option<&mut Option<Element>> {
         match name {
             "Tap Note" => return Some(&mut self.tap),
@@ -204,7 +204,7 @@ struct Lane {
     holding: Option<HoldKind>,
     /// The layout's scroll sign for the lane (-1: a lower-row lane).
     scroll_sign: i8,
-    /// The note elements of 8ths to 192nds, when the skin's Lua colours
+    /// The note elements of 8ths to 192nds, when the skin's Lua colors
     /// notes by `Var "Color"` (empty otherwise: every note is as the 4ths).
     colors: Vec<ColorSet>,
 }
@@ -411,7 +411,7 @@ impl Lane {
     }
 
     /// Exchanges the hold's (or roll's) parts with note type `note_type`'s
-    /// copies: before drawing a hold in its head's colour, and after.
+    /// copies: before drawing a hold in its head's color, and after.
     fn swap_hold_colors(&mut self, note_type: u32, roll: bool) {
         let Lane {
             hold,
@@ -731,7 +731,7 @@ impl NoteskinPlay {
         {
             let button = lane_button.button;
             let mut elements = Vec::new();
-            // The note elements whose Lua read their colour.
+            // The note elements whose Lua read their color.
             let mut colored = Vec::new();
             for name in LANE_ELEMENTS {
                 let (built, read) = lua
@@ -860,7 +860,7 @@ impl NoteskinPlay {
         }
     }
 
-    /// Whether the target is sRGB (colours are converted for it).
+    /// Whether the target is sRGB (colors are converted for it).
     pub fn set_srgb(&mut self, srgb: bool) {
         self.srgb = srgb;
     }
@@ -1095,8 +1095,8 @@ impl NoteskinPlay {
         cmd.failed
     }
 
-    /// Appends `actor`'s quads at `transform`, coloured, with `offset` added
-    /// to its texture coordinates (a note's colour).
+    /// Appends `actor`'s quads at `transform`, colored, with `offset` added
+    /// to its texture coordinates (a note's color).
     fn emit(
         &self,
         actor: &mut Actor,
@@ -1147,8 +1147,8 @@ impl NoteskinPlay {
             if mesh == 0 { blend } else { QuadBlend::Normal }
         };
         let glow_blend = if diffuse { QuadBlend::Normal } else { blend };
-        // A mesh's texture id (`UNTEXTURED`: its colour alone; `None`: not
-        // loaded) and colour; a mesh without a material is grey
+        // A mesh's texture id (`UNTEXTURED`: its color alone; `None`: not
+        // loaded) and color; a mesh without a material is grey
         // (`DrawPrimitives`' fallback material, unlit).
         let meshes: Vec<(Option<u32>, [f32; 4])> = m
             .geometry
@@ -1196,7 +1196,7 @@ impl NoteskinPlay {
     }
 
     /// A quad's diffuse and glow passes (`Sprite::DrawTexture`), its
-    /// corners' colours, its perspective and its mask.
+    /// corners' colors, its perspective and its mask.
     fn push(&self, q: Quad, offset: [f32; 2], out: &mut Vec<TexQuad>) {
         self.quads.set(self.quads.get() + 1);
         if q.depth.clear {
@@ -1206,7 +1206,7 @@ impl NoteskinPlay {
                     transform: [1e6, 0.0, 0.0, 1e6, 0.0, 0.0],
                     uv: [0.0, 0.0, 1.0, 1.0],
                 },
-                // Opaque, so the alpha test keeps it; it draws no colour.
+                // Opaque, so the alpha test keeps it; it draws no color.
                 color: [1.0; 4],
                 glow: false,
                 texture: UNTEXTURED,
@@ -1275,7 +1275,7 @@ impl NoteskinPlay {
     }
 
     /// A note part drawn as StepMania's `DrawActor` does: placed by the
-    /// field, its frame from the beat, its colour by texture translation,
+    /// field, its frame from the beat, its color by texture translation,
     /// its diffuse and glow from the appearance mods and the hold's life.
     #[allow(clippy::too_many_arguments)]
     fn note_actor(
@@ -1349,7 +1349,7 @@ impl Lane {
         .chain(self.roll.all())
     }
 
-    /// Every element, the colours' too.
+    /// Every element, the colors' too.
     fn elements_mut(&mut self) -> impl Iterator<Item = &mut Element> {
         [
             &mut self.receptor,
@@ -1473,7 +1473,7 @@ impl NoteLayer for NoteskinPlay {
             let (Some(l), Some(lane)) = (layout.lanes.get(i), lanes.get_mut(i)) else {
                 continue;
             };
-            // The hold in its head's colour (the copies swapped back below).
+            // The hold in its head's color (the copies swapped back below).
             let note_type = note_type(note.beat);
             lane.swap_hold_colors(note_type, roll);
             let m = lane.metrics.clone();
@@ -1820,7 +1820,7 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
-/// What the colour-scale and pixel maths of a hold look like, for tests.
+/// What the color-scale and pixel maths of a hold look like, for tests.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2220,7 +2220,7 @@ mod tests {
     }
 
     #[test]
-    fn skins_get_the_games_judgement_colours() {
+    fn skins_get_the_games_judgement_colors() {
         // `JudgmentLineToColor` (noteskin/src/lua/prelude.lua) keeps its own
         // table: it must match the receptor flashes'.
         let play = lua_play(
@@ -2254,7 +2254,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tap_whose_lua_reads_its_colour_is_drawn_per_note_type() {
+    fn a_tap_whose_lua_reads_its_color_is_drawn_per_note_type() {
         let mut play = lua_play(
             "local x = ({ ['4th'] = 1, ['8th'] = 2 })[Var 'Color'] or 9\n\
              return Def.ActorFrame {\n\
@@ -2272,7 +2272,7 @@ mod tests {
         assert_eq!(x(lane.note_slot(Slot::Tap, 0)), 1.0);
         assert_eq!(x(lane.note_slot(Slot::Tap, 1)), 2.0);
         assert_eq!(x(lane.note_slot(Slot::Tap, 8)), 9.0);
-        // Heads are taps in dance/default: coloured too, swapped in for a
+        // Heads are taps in dance/default: colored too, swapped in for a
         // hold of their type.
         lane.swap_hold_colors(1, false);
         assert_eq!(x(&mut lane.hold.head[1]), 2.0);
@@ -2400,7 +2400,7 @@ mod tests {
     }
 
     #[test]
-    fn a_colour_that_fails_to_load_is_drawn_as_the_4ths() {
+    fn a_color_that_fails_to_load_is_drawn_as_the_4ths() {
         let mut play = lua_play(
             "if Var 'Color' == '12th' then error('no 12ths') end\n\
              local x = ({ ['4th'] = 1, ['8th'] = 2 })[Var 'Color'] or 9\n\

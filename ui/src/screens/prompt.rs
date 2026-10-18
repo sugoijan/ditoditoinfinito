@@ -25,7 +25,7 @@
 //! is song select's backdrop's way of drawing ([`super::Backdrop`]).
 //!
 //! Components: `Dialog` (the card, `Panel`'s fallback), `PlayButton` and
-//! `Button`; colours `Play.Field` (the play's own, under the picture),
+//! `Button`; colors `Play.Field` (the play's own, under the picture),
 //! `Text`, `Muted`, `Faint`, `Accent`, `Danger`,
 //! `Difficulty.<name>`; metric `Prompt.Width` (the card's), and
 //! `Backdrop.Side` and `Backdrop.Spread` for the blurred copy.
@@ -50,7 +50,7 @@ pub struct PromptInfo {
     pub artist: String,
     /// "Hard 13 · Single" ([`chart_line`]); empty for none.
     pub chart: String,
-    /// The difficulty's name for its colour (`Difficulty.Hard`); empty:
+    /// The difficulty's name for its color (`Difficulty.Hard`); empty:
     /// the text's.
     pub difficulty: String,
     /// The mods it will be played with ([`mods_line`]); empty for none.
@@ -109,7 +109,7 @@ pub enum PromptStep {
     /// The play was cut off (the tab hidden, the audio suspended).
     Interrupted,
     /// What came of it (a calibration's outcome): a heading, lines with
-    /// their colours' names, and actions (id, label), the first focused.
+    /// their colors' names, and actions (id, label), the first focused.
     Card {
         heading: String,
         lines: Vec<(String, String)>,
@@ -367,7 +367,7 @@ impl PromptScreen {
         self.built_step = Some(std::mem::discriminant(&state.step));
         let env = self.env.clone();
         let screen = self.screen;
-        // The play's own field colour (`Play.Field`): a song without a
+        // The play's own field color (`Play.Field`): a song without a
         // picture opens on it.
         let mut field = quad(
             "Ground",

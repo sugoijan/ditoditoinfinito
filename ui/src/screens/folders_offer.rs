@@ -79,8 +79,8 @@ impl Screen for FoldersOfferDialog {
         let lines = self.lines(w - 48.0);
         let h = (140.0 + lines.len() as f32 * 18.0).min(screen[1] - 32.0);
         let (mut c, [x, y]) = shell(&env, screen, [w, h], "Add the songs you have?");
-        for (i, (line, colour)) in lines.iter().enumerate() {
-            let mut b = env.text(&format!("Body{i}"), line, 14.0, 400, colour);
+        for (i, (line, color)) in lines.iter().enumerate() {
+            let mut b = env.text(&format!("Body{i}"), line, 14.0, 400, color);
             wrap(&mut b, w - 48.0);
             c.push(left(b, x + 24.0, y + 66.0 + i as f32 * 18.0));
         }

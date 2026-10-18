@@ -74,12 +74,12 @@ pub const ACTIVATION_WINDOW: f64 = 1000.0;
 
 /// The focus ring drawn by default (a theme may draw its own and turn
 /// this off, [`Ui::set_focus_ring`]): this far outside the actor, this
-/// thick, this colour (virtual pixels, encoded RGBA).
+/// thick, this color (virtual pixels, encoded RGBA).
 pub const RING_GAP: f32 = 3.0;
 pub const RING_WIDTH: f32 = 2.0;
 pub const RING_COLOR: [f32; 4] = [1.0, 0.78, 0.2, 1.0];
 /// The caret and the composition's underline, as a fraction of the text's
-/// size (at least a virtual pixel), and the selection's colour.
+/// size (at least a virtual pixel), and the selection's color.
 pub const CARET_WIDTH: f32 = 1.0 / 14.0;
 pub const SELECTION_COLOR: [f32; 4] = [0.35, 0.55, 1.0, 0.4];
 

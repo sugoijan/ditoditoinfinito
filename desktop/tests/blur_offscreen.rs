@@ -1,5 +1,5 @@
 //! The 2D pass's motion blur drawn on this machine's GPU: a quad smeared
-//! along its blur keeps its colour and its coverage, its edges ramped
+//! along its blur keeps its color and its coverage, its edges ramped
 //! over the blur's length; text likewise. Skipped where there is no GPU
 //! adapter (CI).
 

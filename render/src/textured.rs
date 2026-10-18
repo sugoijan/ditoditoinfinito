@@ -38,7 +38,7 @@ pub enum QuadBlend {
     NoEffect,
 }
 
-/// [`TexQuad::texture`] of a shape drawn in its colour alone (a model's
+/// [`TexQuad::texture`] of a shape drawn in its color alone (a model's
 /// mesh without a texture).
 pub const UNTEXTURED: u32 = u32::MAX;
 
@@ -84,7 +84,7 @@ pub struct TexQuad {
     pub blend: QuadBlend,
     /// Repeat the texture (hold bodies) instead of clamping it.
     pub wrap: bool,
-    /// A colour a corner (upper left, upper right, lower left, lower
+    /// A color a corner (upper left, upper right, lower left, lower
     /// right; a triangle's first three), as the target expects them,
     /// interpolated over the shape; `None`: `color` alone.
     pub gradient: Option<[[f32; 4]; 4]>,
@@ -108,7 +108,7 @@ struct Instance {
     w: [f32; 4],
     /// A projected quad's lower right corner.
     corner: [f32; 2],
-    /// The corners' colours with a gradient (the first is `color`).
+    /// The corners' colors with a gradient (the first is `color`).
     c1: [f32; 4],
     c2: [f32; 4],
     c3: [f32; 4],

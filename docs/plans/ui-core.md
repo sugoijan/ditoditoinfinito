@@ -82,7 +82,7 @@ repeat and plays queued commands; the actors fill a draw list; `render`
 draws it. Menus redraw only while something moves or input arrives (P13).
 
 **Draw list.** Quads (texture, texture rectangle, transform, corner
-colours, blend mode; a full 3D transform with perspective when an actor
+colors, blend mode; a full 3D transform with perspective when an actor
 uses `rotationx`/`rotationy` or `fov`, which themes do), text runs, clip
 push/pop (scissor rectangles; masks later through the stencil), models
 (the noteskins' meshes, as now), and `External` slots the shell fills
@@ -151,7 +151,7 @@ they were drawn at.
   to a plain built-in look, like the noteskin resolver; StepMania themes
   will answer the same lookups. Our theme's components are Rust over the
   actor API (a builder in osu!framework's style:
-  `.linear(0.2).zoom(1.2).then().fade_out(0.1)`), its tunables (colours,
+  `.linear(0.2).zoom(1.2).then().fade_out(0.1)`), its tunables (colors,
   fonts, sizes, timings) in a data file beside its art. Fonts under
   OFL-1.1 are fine (decided 2026-10-15; `AGENTS.md`), as the HUD's
   Iosevka subset already is (`assets/fonts/PROVENANCE.toml`), with any
@@ -182,7 +182,7 @@ they were drawn at.
   lost device or WebGL context is recreated (a new instance, perhaps a new
   canvas) and textures reloaded from their sources; a browser with no
   usable GPU gets a DOM page saying so.
-- **P11. Colour space of the 2D pass** (settled by step 0's results:
+- **P11. Color space of the 2D pass** (settled by step 0's results:
   encoded values for menus). Decision 17
   draws in linear light and blends skins in encoded values, which on
   WebGL2 sends every frame through an offscreen float texture
@@ -255,9 +255,9 @@ Results (2026-10-15; Chrome 155 headless, Firefox 151 and 158 through
     every browser; system fonts differ by about 2 %.
   - Text blended in encoded values matches the DOM within 3 levels; an
     sRGB view makes light text bolder and dark text thinner. Tinting
-    white text differs from text drawn in its colour by up to 53 levels
-    (browsers adjust contrast per colour); tinting is acceptable for our
-    theme, drawing in colour stays possible for an exact match.
+    white text differs from text drawn in its color by up to 53 levels
+    (browsers adjust contrast per color); tinting is acceptable for our
+    theme, drawing in color stays possible for an exact match.
   - `FontFace` from bytes: 1–3 ms (WebKit's first, 17 ms).
 - **Typing.** With composition scripted in Chrome, the preedit lives in
   the textarea's value, Enter while composing arrives as key code 229
@@ -315,7 +315,7 @@ Done (2026-10-15):
   both backends, three beats) were identical pixel for pixel.
 - **Additions.** Quads (`ddi_actor::UNTEXTURED`; Lua's `Def.Quad` is now
   StepMania's solid quad, not the built-in square art) and per-corner
-  colours (`TweenState.diffuse` is four corners, `Actor.h:460-472`); text
+  colors (`TweenState.diffuse` is four corners, `Actor.h:460-472`); text
   actors (`Kind::Text`, measured in a pass of their own through
   `ddi_actor::text::TextMeasure`, drawn as `Drawn::Text`); clipping, our
   own frame property, drawn as clip push and pop with a scissor and
@@ -337,7 +337,7 @@ Done (2026-10-15):
   sprites no longer drawn opaque over the notes; quads solid). The bundled
   skins' previews are unchanged pixel for pixel.
 - **Left for the renderer** (`render/src/noteskin.rs` approximates them
-  meanwhile): per-vertex colour in the textured pass (corner gradients
+  meanwhile): per-vertex color in the textured pass (corner gradients
   are cut into 8 cells a side), perspective-correct quads from projected
   corners (drawn flat from the corners' mean), masks through the stencil
   (sources skipped, destinations drawn whole), blend modes beyond normal,
@@ -388,7 +388,7 @@ Done (2026-10-15):
   "Iosevka Custom". Natively, cosmic-text with bundled and optionally
   system fonts.
 - **The 2D pass** (`render/src/draw2d.rs`, `painter.rs`, `painter.wgsl`):
-  quads (textured, coverage, untextured; corner colours; four blend
+  quads (textured, coverage, untextured; corner colors; four blend
   modes), text runs, clips as scissors, `External` slots that end the
   pass for the shell to draw into; drawn in encoded values through a plain
   view, WebGL2's surface switched to plain `Rgba8Unorm` while no play
@@ -406,18 +406,18 @@ Done (2026-10-15):
   touch quit button cut off from its handler, waiters dropped when the
   backend switched during start-up, a lost WebGL2 context reconfigured);
   all fixed and checked again.
-- **Left:** runs drawn in colour (tinted white only); nothing draws the
+- **Left:** runs drawn in color (tinted white only); nothing draws the
   play field into an `External` slot yet; the test scene redraws every
   frame (P13 is step 3); WebGPU in Firefox and Safari unchecked.
 
 Done, actors in both passes (2026-10-15):
 
 - **The bridge** (`render/src/actors2d.rs`) turns actors' `Drawn` into the
-  2D pass's list: corner colours, glow as a second quad, text on its line
+  2D pass's list: corner colors, glow as a second quad, text on its line
   box, exact clips as scissors and turned ones as `PushClipQuad`, masks
   and perspective; models are left to the play field.
 - **Both passes** (play field and painter) draw corner gradients (quads of
-  one colour keep the old path exactly), perspective-correct quads from
+  one color keep the old path exactly), perspective-correct quads from
   projected corners, and StepMania's masks through a
   `Depth24PlusStencil8` attachment made only when a frame needs it (the
   high bit is the mask, the low seven count turned clips): only a
@@ -437,7 +437,7 @@ Done, actors in both passes (2026-10-15):
   blobs in perspective; the bundled skins' previews are unchanged pixel
   for pixel and the corpus reports nothing else changed. `#/ui-test`
   gains a row of the new blend modes and a part built from actors (draw
-  order, corner colours, shadows, a clip turned 30°, an `fov` frame, a
+  order, corner colors, shadows, a clip turned 30°, an `fov` frame, a
   mask with a hole). An independent review found eight defects (among
   them no alpha test outside mask sources and an extra pass per frame on
   WebGL2); all fixed.
@@ -648,8 +648,8 @@ Done (2026-10-15):
   `IconButton`, `StyleButton`, `Results.Judgement`, `Results.Score`,
   `Options.Section`, `.Row`, `.Description`, `.Preview`), its wheel
   curve (the selected row taller on its line, `WheelPlace::y` making
-  room), and named colours (difficulties lifted for the dark ground,
-  judgements as the HUD draws them). Every colour, face, size, region,
+  room), and named colors (difficulties lifted for the dark ground,
+  judgements as the HUD draws them). Every color, face, size, region,
   timing, the backdrop's strength and the pulse are in
   `theme/src/infinito.toml`, which `build.rs` turns into tables (no TOML
   parser in the wasm); a test runs every screen and checks that each key
@@ -805,7 +805,7 @@ Firefox.
    chosen, changing as they change (the maintainer, 2026-10-15): the
    direction (Reverse), the speed and whether charts keep their own, the
    scroll action, Turn, the appearance (Hidden, Sudden, Stealth), the
-   simplified notes, the note colours, the arrows (noteskin) and the
+   simplified notes, the note colors, the arrows (noteskin) and the
    style chosen, receptor snap, the field filter and the timing error,
    and anything later added that changes how the field looks.
 4. **The rest:** calibration's menu, credits (links open through a
@@ -834,7 +834,7 @@ Done, 6.1 results (2026-10-15):
   (a millisecond either way, this play's mean error when worth taking,
   reset; same storage).
 - **The screen** (`ui/src/screens/results.rs`) draws them with the
-  ruleset's windows colouring the histogram, the gauge's danger line on
+  ruleset's windows coloring the histogram, the gauge's danger line on
   the life graph, misses on the offsets, and the layout's lanes (4, 5, 6,
   8, 10 and Dancing☆Onigiri's, by name when they fit, by symbol when
   not). Panel sets (Overview, Timing, Song) are the ruleset's to offer
@@ -985,8 +985,8 @@ Done, 6.2 song select (2026-10-16):
   charts, from `xtask gen-songs` and the import; songs imported before
   get it, and their charts' digests, when their chart is next read).
 - **Bests** on the ladder rows (grade, score, the lamp as a word in its
-  colour and a bar at the row's end; "…" after the score while pending),
-  under the wheel rows' meters (a line in the lamp's colour) and on the
+  color and a bar at the row's end; "…" after the score while pending),
+  under the wheel rows' meters (a line in the lamp's color) and on the
   compact chart buttons, from the play history by chart digest and the
   best key of the rules the settings choose for that chart (autoplay
   never counts); they follow the history as it changes (a play kept,
@@ -1038,7 +1038,7 @@ Done, 6.2 song select (2026-10-16):
   and the place within the input; the place back; bests, pending; new
   data keeping the song; the search's count; links and notices; the
   import dialog's calls, progress and report; removal confirmed); theme
-  tests (the ring, the bests' colours, the footer's hints clear of its
+  tests (the ring, the bests' colors, the footer's hints clear of its
   links, the dialogs at both sizes); Playwright in Chrome (WebGPU,
   WebGL2) and Firefox: the bundled library, styles and greying, a typed
   search and a composed Japanese one (Chrome), a preview starting with
@@ -1107,7 +1107,7 @@ Done, 6.3's field preview (2026-10-16):
   Boost/Brake/Wave, Turn, Cut and the simplifications, Hidden, Sudden,
   Stealth, receptor snap (the player's `PlayOptions`, the demo played
   with them), the ruleset (its windows judge the demo's hits, its names
-  show), the note colours, the field filter, the timing error, and the
+  show), the note colors, the field filter, the timing error, and the
   background's brightness and frame. The demo has no song background,
   so the preview shows a plate of ours (a dark 16:9 gradient with soft
   light bands, `field_preview::plate`) at the chosen brightness, fitted
@@ -1116,7 +1116,7 @@ Done, 6.3's field preview (2026-10-16):
   demo has no speed of its own, so "charts with their own speed"
   changes nothing here (as on such a chart in play); offsets are not
   applied. The arrows are the noteskin play would draw the layout with
-  (`noteskins::play_skin`, Dito in the note colours' variant without a
+  (`noteskins::play_skin`, Dito in the note colors' variant without a
   choice), loaded as play loads it (`noteskins::prepare` with the
   demo's Lua environment, in slices, off the frame) and shown from the
   frame after it is in; the last one shows meanwhile. A change shows
@@ -1142,7 +1142,7 @@ Done, 6.3's field preview (2026-10-16):
   texture pixel for pixel and asking nothing of the platform). In the
   browser on `#/ui-dev?screen=options`, Chrome WebGPU, WebGL2 and
   Firefox: seven option sets (Dito, Reverse with Hidden at ×2.5, the
-  built-in arrows in quantized colours with the filter and the timing
+  built-in arrows in quantized colors with the filter and the timing
   error, CF_CHROME with Boost in a 4:3 frame, pump single, 7 keys with
   Mirror and Wave, DDR A with Sudden and Cut), a live change, a lost
   device; the 84 noteskin previews identical; beatucada autoplayed all
@@ -1188,10 +1188,10 @@ Done, 6.3 options (2026-10-16):
   (`options.rs`), its bind flow (`bind_flow.rs`) and their CSS are gone;
   calibration and credits stay Yew until 6.4 (Options' Calibrate and
   the autoplay demo go to their routes).
-- **Arrow colours** (2026-10-18): Note colours and Songs' own colours
+- **Arrow colors** (2026-10-18): Note colors and Songs' own colors
   live directly under the Arrows choice, shown for Dito and Built-in
-  only. Other skins supply their own colours; changing skins keeps the
-  saved colour choices. Lyrics stays in Display.
+  only. Other skins supply their own colors; changing skins keeps the
+  saved color choices. Lyrics stays in Display.
 - **Pure and shared:** `ui/src/screens/options_model.rs` makes the rows
   from the settings and what the platform knows (`World`: the
   noteskins, the controllers connected, the library's counts, the
@@ -1203,7 +1203,7 @@ Done, 6.3 options (2026-10-16):
   them as they are (step 7).
 - **Rows:** choices underlined, or stepped one at a time with ◀ ▶ where
   they do not fit the row (Ruleset, the gauge, the noteskin, the note
-  colours); numbers stepped (speed by ×0.25, offsets by 1 ms, volume
+  colors); numbers stepped (speed by ×0.25, offsets by 1 ms, volume
   by 1 % of the slider, background brightness by 5 %); rows of buttons
   (`OptionKind::Actions`: Left and Right move between them, Start or a
   tap presses one); rows that only say something (a controller's lanes,
@@ -1366,7 +1366,7 @@ Done after 6.4 part one's review (2026-10-16):
   (`Layer::built`). The IME's caret and the hidden textarea follow a
   layer's shift and scale.
 - **Focus looks:** an accent button's ring is drawn inside it in the
-  label's colour (on the accent it would vanish); the banner lights its
+  label's color (on the accent it would vanish); the banner lights its
   focused action again when built anew. Its "F2" shows only after a key
   or a pad (`Cx::by_keys`), in room kept for it. On a phone it offers one
   other device's offset, the devices' line lets taps through
@@ -1422,7 +1422,7 @@ Done, 6.4 part two (2026-10-16):
 
 - **One start prompt for both shells** (`ui/src/screens/prompt.rs`,
   dressed by the theme): the song, its artist, the chart in its
-  difficulty's colour, AUTOPLAY, the mods it will play with (the speed,
+  difficulty's color, AUTOPLAY, the mods it will play with (the speed,
   Reverse, every option off its default, `mods_line`) over its picture;
   steps the shell sets through a shared `PromptState` (its `version`
   rebuilds the screen): loading, ready (Start, Back; Enter, a pad's
@@ -1481,9 +1481,9 @@ Done, 6.4 part two (2026-10-16):
 Done, 6.4 part three (2026-10-16):
 
 - **The 2D pass over a play, on every backend:** the painter draws to an
-  sRGB target too (`Painter::new` with an sRGB format: its colours are
+  sRGB target too (`Painter::new` with an sRGB format: its colors are
   decoded before blending and the target encodes them again; the same
-  colours, the edges of text and soft shapes blended in linear light),
+  colors, the edges of text and soft shapes blended in linear light),
   so the play's loop draws a `DrawList` after the scene: through the
   surface's plain view on WebGPU (blended encoded, as the menus), through
   the sRGB surface on WebGL2. Its own painter (made when first needed,
@@ -1502,7 +1502,7 @@ Done, 6.4 part three (2026-10-16):
   (`web/src/lyrics.rs`) and its CSS are gone; `__DDI_DEBUG.lyrics`
   lists the texts drawn.
 - **The calibration run's outcome on the canvas:** a card on the start
-  prompt's screen (`PromptStep::Card`: a heading, coloured lines,
+  prompt's screen (`PromptStep::Card`: a heading, colored lines,
   actions; `PromptChoice::Action`), worded as the DOM card was: the
   offset (and frames at the refresh rate), the hits, ignored, trimmed
   and missed, the verdict, the offsets in effect, the devices, a device

@@ -232,13 +232,13 @@ impl BindDialog {
         let h = 140.0 + wrapped.len() as f32 * 20.0 + step_rows as f32 * 34.0;
         let (mut c, [x, y]) = shell(&env, screen, [w, h], &self.title());
         let mut ly = y + 64.0;
-        for (i, (t, colour)) in wrapped.iter().enumerate() {
+        for (i, (t, color)) in wrapped.iter().enumerate() {
             let mut a = env.text(
                 &format!("Line{i}"),
                 t,
                 if i == 0 { 16.0 } else { 14.0 },
                 if i == 0 { 600 } else { 400 },
-                colour,
+                color,
             );
             wrap(&mut a, w - 48.0);
             c.push(left(a, x + 24.0, ly));
@@ -255,13 +255,13 @@ impl BindDialog {
                 && f.recorded[i]
                     .as_ref()
                     .is_some_and(|ctl| f.held.contains(ctl));
-            let colour = if current || lit { "Accent" } else { "Text" };
+            let color = if current || lit { "Accent" } else { "Text" };
             let name = if i >= f.lanes {
                 format!("{} (optional)", f.steps[i])
             } else {
                 f.steps[i].clone()
             };
-            let mut n = env.text(&format!("Step{i}"), &name, 13.0, 600, colour);
+            let mut n = env.text(&format!("Step{i}"), &name, 13.0, 600, color);
             wrap(&mut n, cw * 0.5);
             c.push(left(n, cx0, cy));
             let mut v = env.text(
@@ -269,7 +269,7 @@ impl BindDialog {
                 &f.step_value(i),
                 13.0,
                 400,
-                colour,
+                color,
             );
             wrap(&mut v, cw * 0.5 - 6.0);
             c.push(left(v, cx0 + cw * 0.5 + 6.0, cy));

@@ -1,5 +1,5 @@
 -- The receptor: the outline, a tenth smaller while its button is down;
--- a judgement lights its flash art in the judgement's colour for a
+-- a judgement lights its flash art in the judgement's color for a
 -- quarter of a second (not a miss).
 local flashes =
 {

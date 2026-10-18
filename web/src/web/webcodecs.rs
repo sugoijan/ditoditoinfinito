@@ -150,7 +150,7 @@ fn rgb_frames() -> bool {
     match mode() {
         Mode::Planes => {
             web_sys::console::info_1(
-                &"video: the browser's decoder gives RGB frames; they go straight to the GPU, in the browser's colours"
+                &"video: the browser's decoder gives RGB frames; they go straight to the GPU, in the browser's colors"
                     .into(),
             );
             MODE.with(|m| m.set(Mode::Direct));
@@ -410,7 +410,7 @@ async fn load(blob: &Blob) -> Result<Media, String> {
 /// What the movie reports as its codec: which way frames are taken.
 fn codec_name() -> String {
     match mode() {
-        Mode::Direct => "h264 (browser colours)".into(),
+        Mode::Direct => "h264 (browser colors)".into(),
         _ => "h264".into(),
     }
 }

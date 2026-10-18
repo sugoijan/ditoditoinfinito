@@ -1,7 +1,7 @@
 // The 2D pass (`painter.rs`): each instance is a rectangle of its own
 // space placed on the screen by a 2D affine transform, sampling a
 // rectangle of an image, of a text page's coverage, or nothing, tinted
-// with one colour a corner, perhaps smeared along a motion blur. Colours and texels are encoded values with
+// with one color a corner, perhaps smeared along a motion blur. Colors and texels are encoded values with
 // straight alpha, drawn to a plain (non-sRGB) target: blending happens
 // in encoded values, as StepMania and the browser blend
 // (`docs/plans/ui-core.md`, P11). Over a play's sRGB surface (WebGL2)
@@ -11,14 +11,14 @@ struct Globals {
     // Pixels -> clip space: x' = x * sx + tx, y' = y * sy + ty
     scale: vec2<f32>,
     translate: vec2<f32>,
-    // 1: the target is an sRGB view (linear light): colours are decoded.
+    // 1: the target is an sRGB view (linear light): colors are decoded.
     linear: f32,
     // To 32 bytes: WebGL2 binds uniforms in multiples of 16.
     pad0: f32,
     pad1: vec2<f32>,
 };
 
-// An encoded colour as the target takes it (`Globals::linear`).
+// An encoded color as the target takes it (`Globals::linear`).
 fn to_target(c: vec4<f32>) -> vec4<f32> {
     if (globals.linear > 0.5) {
         let lo = c.rgb / 12.92;
@@ -39,7 +39,7 @@ struct Instance {
     @location(0) axes: vec4<f32>,
     @location(1) origin: vec2<f32>,
     // Bit 0: the texture holds coverage in red (a text page); bit 1: no
-    // texture (the colours alone); bit 2: StepMania's glow (the colours
+    // texture (the colors alone); bit 2: StepMania's glow (the colors
     // with the texture's alpha); bit 3: seen in perspective.
     @location(2) mode: u32,
     // left, top, right, bottom in the instance's space. In perspective:
@@ -87,7 +87,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
         vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0),
         vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0),
     );
-    // The corner's colour, in the order of `corners`.
+    // The corner's color, in the order of `corners`.
     var colors = array<vec4<f32>, 6>(inst.c0, inst.c1, inst.c2, inst.c0, inst.c2, inst.c3);
     let t = corners[vi];
     var out: VsOut;
@@ -182,7 +182,7 @@ fn cut_at(in: VsOut, local: vec2<f32>) -> f32 {
     return a;
 }
 
-// One tap of a motion blur: the quad's colour at `uv` and `local`, as
+// One tap of a motion blur: the quad's color at `uv` and `local`, as
 // `fs_main` makes it before the saturation, nothing outside the quad.
 fn tap(in: VsOut, uv: vec2<f32>, local: vec2<f32>, lod: f32) -> vec4<f32> {
     let lo = min(in.rect.xy, in.rect.zw);

@@ -1,7 +1,7 @@
 //! `gen-dito`: the art of Dito, the bundled skin that draws the built-in
 //! arrows through a skin's Lua (`docs/plans/bundled-skins.md`, step 2), as
 //! SVG drawn from the shader's own shapes (`render/src/shader.wgsl`) and
-//! the colour schemes' own colours (`ddi_render::note_colors`). Writes the
+//! the color schemes' own colors (`ddi_render::note_colors`). Writes the
 //! `.svg` files of `assets/noteskins/dance/Dito*/`; the Lua and metrics
 //! next to them are written by hand.
 //!
@@ -41,10 +41,10 @@ const RING_INNER: f64 = 0.04;
 pub(crate) const VIVID_FRAMES: usize = 32;
 /// Frames of Rainbow's flow (one beat).
 pub(crate) const RAINBOW_FRAMES: usize = 16;
-/// Rows of the Quantized sheet: nine colours, padded to a power of two.
+/// Rows of the Quantized sheet: nine colors, padded to a power of two.
 const QUANTIZED_ROWS: usize = 16;
 
-/// The single colour (`web/src/settings.rs`, `NoteColors::Single`).
+/// The single color (`web/src/settings.rs`, `NoteColors::Single`).
 const SINGLE: [f32; 4] = [0.35, 0.85, 1.0, 1.0];
 /// The mine (`render/src/scene.rs`).
 const MINE: [f32; 3] = [0.35, 0.3, 0.45];
@@ -91,7 +91,7 @@ fn rgb(c: [f32; 4]) -> [f32; 3] {
     [c[0], c[1], c[2]]
 }
 
-/// The rim: the shader scales the colour by `factor(0.25)`, 0.25^2.2 in
+/// The rim: the shader scales the color by `factor(0.25)`, 0.25^2.2 in
 /// linear light on the sRGB targets the game draws to.
 fn darker(c: [f32; 3]) -> [f32; 3] {
     let linear = |v: f32| {
@@ -261,7 +261,7 @@ fn sheet_of(shape: Shape, cols: usize, rows: usize, defs: &str, frames: &[String
     s
 }
 
-/// A tap arrow: the darker rim, then the core, in flat colours or along
+/// A tap arrow: the darker rim, then the core, in flat colors or along
 /// gradients `#b{id}` (core) and `#r{id}` (rim).
 fn arrow(core: &str, rim: &str) -> String {
     let wide = n(2.0 * HALF_STROKE * UNIT);
@@ -275,7 +275,7 @@ fn flat_arrow(c: [f32; 3]) -> String {
     arrow(&hex(c), &hex(darker(c)))
 }
 
-/// Vivid's ramp from `tail` (the base colour) to `tip`, along the arrow.
+/// Vivid's ramp from `tail` (the base color) to `tip`, along the arrow.
 fn ramp_arrow(id: usize, tail: [f32; 3], tip: [f32; 3], defs: &mut String) -> String {
     let (_, tip_y) = down(-1.0, 0.0);
     let (_, tail_y) = down(1.0, 0.0);
@@ -295,14 +295,14 @@ fn ramp_arrow(id: usize, tail: [f32; 3], tip: [f32; 3], defs: &mut String) -> St
 /// The files of one skin folder: `(name, text)`.
 type Files = Vec<(String, String)>;
 
-/// How one frame of a colour sheet looks.
+/// How one frame of a color sheet looks.
 #[derive(Clone, Copy)]
 struct Look {
-    /// A tap's colour, at its tail when it has a ramp.
+    /// A tap's color, at its tail when it has a ramp.
     base: [f32; 3],
-    /// Vivid's and Flat's colour at the tip.
+    /// Vivid's and Flat's color at the tip.
     tip: Option<[f32; 3]>,
-    /// A fake's: the scheme's colour, flat (the built-in fake has no
+    /// A fake's: the scheme's color, flat (the built-in fake has no
     /// gradient), drawn at 60 %.
     plain: [f32; 3],
 }
@@ -340,10 +340,10 @@ fn note_of(shape: Shape, look: Look, id: usize, defs: &mut String) -> String {
     }
 }
 
-/// The three sheets of a colour scheme, `cols` × `rows` frames (`None`:
+/// The three sheets of a color scheme, `cols` × `rows` frames (`None`:
 /// an empty frame): taps, lifts (a tap with a white dot of 0.3 of the
 /// lane at 80 %), fakes. Lifts and fakes have sheets of their own rather
-/// than Lua around a tap, because the engine sets a note's colour and its
+/// than Lua around a tap, because the engine sets a note's color and its
 /// frame on the note's own sprite, as StepMania does.
 fn sheets(cols: usize, rows: usize, looks: &[Option<Look>]) -> Files {
     [Shape::Arrow, Shape::Star, Shape::Square]
@@ -385,7 +385,7 @@ fn sheets_of(shape: Shape, cols: usize, rows: usize, looks: &[Option<Look>]) -> 
     out
 }
 
-/// Quantized (Dito): a colour a row, 4ths to 192nds.
+/// Quantized (Dito): a color a row, 4ths to 192nds.
 fn quantized() -> Files {
     use Quantization::*;
     let mut looks = vec![None; QUANTIZED_ROWS];
@@ -427,7 +427,7 @@ fn vivid() -> Files {
 /// Rainbow: a band a row (StepMania's `ProgressAlternate` puts a beat's
 /// first quarter's notes in row 0 … and the beat's own in row 3, as
 /// `rainbow_band` does), its flow over one beat across the row's frames.
-/// The built-in flow also runs down the screen; a frame is one colour.
+/// The built-in flow also runs down the screen; a frame is one color.
 fn rainbow() -> Files {
     let mut looks = Vec::new();
     for band in 0..4 {
@@ -453,7 +453,7 @@ fn rainbow() -> Files {
     sheets(RAINBOW_FRAMES, 4, &looks)
 }
 
-/// Single: one colour.
+/// Single: one color.
 fn single() -> Files {
     let c = rgb(SINGLE);
     let look = Look {
@@ -465,7 +465,7 @@ fn single() -> Files {
 }
 
 /// The receptor: the arrow's outline as a ring (`SHAPE_ARROW_OUTLINE`),
-/// white (the Lua colours it).
+/// white (the Lua colors it).
 fn receptor() -> String {
     let defs = format!(
         "<mask id=\"m\" maskUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" width=\"{l}\" height=\"{l}\"><use xlink:href=\"#a\" stroke=\"#fff\" stroke-width=\"{}\"/><use xlink:href=\"#a\" stroke=\"#000\" stroke-width=\"{}\"/></mask>",
@@ -528,7 +528,7 @@ fn mine() -> String {
     )
 }
 
-/// A soft white glow for the explosions (the Lua colours it).
+/// A soft white glow for the explosions (the Lua colors it).
 fn glow() -> String {
     let c = n(LANE / 2.0);
     let defs = format!(

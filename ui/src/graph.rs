@@ -1,7 +1,7 @@
 //! Graph primitives for results (`docs/plans/ui-core.md`, step 4 and
 //! 6.1): lines (thin quads turned along each segment), bars, points, a
 //! histogram, a line over time. Each returns a frame of actors in the
-//! space of a rectangle `[x, y, w, h]` (y down), coloured from the look
+//! space of a rectangle `[x, y, w, h]` (y down), colored from the look
 //! (`Graph.Line`, `Graph.Bar`, `Graph.Point`, `Graph.Axis`) or as given.
 
 use ddi_actor::{Actor, Kind, Rgba};

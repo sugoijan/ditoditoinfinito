@@ -31,7 +31,7 @@ pub struct Vertex {
     pub pos: [f32; 3],
     pub uv: [f32; 2],
     pub bone: Option<usize>,
-    /// The note's colour translation does not move this vertex's texture
+    /// The note's color translation does not move this vertex's texture
     /// coordinate in u, in v (vertex flags 1 and 2, `TextureMatrixScale`).
     pub fixed: [bool; 2],
 }
@@ -53,10 +53,10 @@ pub struct Material {
 }
 
 impl Material {
-    /// The colour a mesh of this material has, unlit (`SetMaterial` with
+    /// The color a mesh of this material has, unlit (`SetMaterial` with
     /// lighting off: ambient + diffuse + emissive, the diffuse's alpha),
     /// before the actor's diffuse multiplies it; the product is clamped,
-    /// as a vertex colour is.
+    /// as a vertex color is.
     pub fn unlit_color(&self) -> [f32; 4] {
         let c = |i: usize| self.ambient[i] + self.diffuse[i] + self.emissive[i];
         [c(0), c(1), c(2), self.diffuse[3]]

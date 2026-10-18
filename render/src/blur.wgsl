@@ -1,7 +1,7 @@
 // The blurred extension around the background frame
 // (docs/plans/video-backgrounds.md, step 5): the backdrop is drawn small,
 // blurred in two passes (`fs_blur`, one direction each) and stretched over
-// the screen, dimmed (`fs_composite`). Colours stay premultiplied by alpha
+// the screen, dimmed (`fs_composite`). Colors stay premultiplied by alpha
 // throughout: the small target starts transparent.
 
 struct Blur {
@@ -70,7 +70,7 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         b = b * blur.band_keep;
     }
     if (blur.linear > 0.5 && c.a > 0.0) {
-        // Premultiplied: the colour itself is dimmed, as encoded.
+        // Premultiplied: the color itself is dimmed, as encoded.
         let rgb = srgb_to_linear(linear_to_srgb(c.rgb / c.a) * b);
         return vec4<f32>(rgb * c.a, c.a);
     }

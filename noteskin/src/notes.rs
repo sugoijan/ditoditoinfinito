@@ -1,7 +1,7 @@
 //! What the engine does to a note's actor before drawing it: the frame of
 //! its animation from the song's beat (`NoteDisplay::SetActiveFrame`,
 //! `src/NoteDisplay.cpp:667-695`) and the texture translation that picks
-//! its colour (`NoteDisplay::DrawActor`, `:1346-1381`), 5_1-new.
+//! its color (`NoteDisplay::DrawActor`, `:1346-1381`), 5_1-new.
 
 use crate::metrics::{NoteColorType, PartMetrics};
 
@@ -68,7 +68,7 @@ pub fn color_offset(part: &PartMetrics, note_beat: f32, is_addition: bool) -> Op
     }
     let count = part.color_count as f32;
     let color = match part.color_type {
-        // StepMania stops on an unknown type; it is coloured by
+        // StepMania stops on an unknown type; it is colored by
         // denominator here.
         Some(NoteColorType::Denominator) | None => {
             (note_type(note_beat) as f32).clamp(0.0, (count - 1.0).max(0.0))
@@ -82,7 +82,7 @@ pub fn color_offset(part: &PartMetrics, note_beat: f32, is_addition: bool) -> Op
             }
             scaled.ceil() % count
         }
-        // `fmod` by 0 or less: no colour.
+        // `fmod` by 0 or less: no color.
         Some(_) => 0.0,
     };
     let color = if color.is_finite() { color } else { 0.0 };
@@ -150,12 +150,12 @@ mod tests {
     }
 
     #[test]
-    fn colours_by_division_and_progress() {
+    fn colors_by_division_and_progress() {
         let p = part(1.0, false);
         // dance/default's `.125` steps down a 1x8 sheet.
         assert_eq!(color_offset(&p, 2.0, false), Some([0.0, 0.0]));
         assert_eq!(color_offset(&p, 2.25, false), Some([0.0, 0.375]));
-        // 192nds clamp to colour 7.
+        // 192nds clamp to color 7.
         assert_eq!(color_offset(&p, 1.0 / 48.0, false), Some([0.0, 0.875]));
         let mut r = p;
         r.color_type = Some(NoteColorType::Progress);

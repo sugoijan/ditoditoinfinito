@@ -1,11 +1,11 @@
 //! Infinito, our theme (`docs/plans/theme.md`, `docs/plans/ui-core.md`
 //! step 5): a [`Look`] whose components are the maintainer's mockups
-//! (layout A), its colours, faces, sizes and timings read from
+//! (layout A), its colors, faces, sizes and timings read from
 //! `infinito.toml`, embedded.
 //!
 //! - **Ground** near black, plates a step up, the selection raised with
-//!   a 2 px accent ring; colour comes from the songs' art and the
-//!   difficulty and judgement colours, never from the chrome.
+//!   a 2 px accent ring; color comes from the songs' art and the
+//!   difficulty and judgement colors, never from the chrome.
 //! - **Text** in Iosevka Term (the system's fonts behind it for
 //!   Japanese and the like), **numbers** in the HUD's Iosevka ExtraBold.
 //! - Corners are square: the painter draws no rounded rectangles yet
@@ -45,7 +45,7 @@ pub struct Infinito {
     numbers_weight: u16,
     colors: BTreeMap<String, Rgba>,
     metrics: BTreeMap<String, f32>,
-    /// Every colour and metric asked for, for the test that the file
+    /// Every color and metric asked for, for the test that the file
     /// and the screens agree (kept in tests only).
     #[cfg(test)]
     used: RefCell<BTreeSet<String>>,
@@ -54,7 +54,7 @@ pub struct Infinito {
     wheel_open: std::cell::Cell<f32>,
 }
 
-/// A colour as command arguments.
+/// A color as command arguments.
 fn rgba(c: Rgba) -> String {
     format!("{},{},{},{}", c[0], c[1], c[2], c[3])
 }
@@ -89,13 +89,13 @@ impl Infinito {
     #[cfg(not(test))]
     fn note(&self, _kind: &str, _name: &str) {}
 
-    /// The colour and metric names asked for so far.
+    /// The color and metric names asked for so far.
     #[cfg(test)]
     pub fn used(&self) -> BTreeSet<String> {
         self.used.borrow().clone()
     }
 
-    /// The colour and metric names the file has.
+    /// The color and metric names the file has.
     #[cfg(test)]
     pub fn keys(&self) -> BTreeSet<String> {
         self.colors
@@ -136,7 +136,7 @@ impl Infinito {
         )
     }
 
-    /// `command` setting a colour, tweened over the selection's time.
+    /// `command` setting a color, tweened over the selection's time.
     fn tint(&self, color: &str) -> String {
         format!(
             "stoptweening;decelerate,{};diffuse,{}",
@@ -291,8 +291,8 @@ impl Infinito {
         let r = if h >= 44.0 { 8.0 } else { 6.0 };
         // The ring in the accent around a plain plate; on an accent one
         // (the primary buttons, the notices' "calibrate") inside it, in
-        // the label's colour, or it would vanish into the plate.
-        let (colour, width, out) = if fill == "Accent" {
+        // the label's color, or it would vanish into the plate.
+        let (color, width, out) = if fill == "Accent" {
             (label, 2.0, -3.0)
         } else {
             ("Accent", 2.0, 2.0)
@@ -301,7 +301,7 @@ impl Infinito {
             "Ring",
             [-w / 2.0 - out, -h / 2.0 - out, w + 2.0 * out, h + 2.0 * out],
             width,
-            self.c(colour),
+            self.c(color),
             (r + out).max(2.0),
         );
         hide(&mut ring);
@@ -814,8 +814,8 @@ impl Infinito {
         f
     }
 
-    /// A chart of the ladder: its colour bar, difficulty, notes and step
-    /// artist, and its meter large in its colour.
+    /// A chart of the ladder: its color bar, difficulty, notes and step
+    /// artist, and its meter large in its color.
     fn ladder_row(&self, spec: &Spec) -> Actor {
         let [w, h] = spec.size;
         let d = if DIFFICULTIES.contains(&spec.text.as_str()) {
@@ -912,7 +912,7 @@ impl Infinito {
         )
     }
 
-    /// `Lamp.<name>` commands: the lamp's colour, or hidden for none.
+    /// `Lamp.<name>` commands: the lamp's color, or hidden for none.
     fn lamp_commands(&self, a: &mut Actor) {
         hide(a);
         command_of(a, "Lamp.None", "diffusealpha,0");
@@ -922,7 +922,7 @@ impl Infinito {
         }
     }
 
-    /// The same for a lamp's text (shown in its colour).
+    /// The same for a lamp's text (shown in its color).
     fn lamp_commands_text(&self, a: &mut Actor) {
         command_of(a, "Lamp.None", "diffusealpha,0");
         for name in LAMPS {

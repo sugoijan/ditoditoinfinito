@@ -92,7 +92,7 @@ pub struct Seen {
 /// `model`'s triangles facing the camera, far to near (a model's own
 /// triangles in a mesh order where they tie), each corner's texture
 /// coordinates moved by its material's translation and `offset` (the
-/// note's colour) except along the axes its vertex fixes.
+/// note's color) except along the axes its vertex fixes.
 pub fn triangles(model: &ModelDraw, camera: &Camera, offset: [f32; 2], out: &mut Vec<Seen>) {
     let mut seen: Vec<(f32, Seen)> = Vec::new();
     let mut corners: Vec<Option<([f32; 2], f32)>> = Vec::new();
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn back_faces_are_culled_and_colour_moves_unfixed_coordinates() {
+    fn back_faces_are_culled_and_color_moves_unfixed_coordinates() {
         let mut out = Vec::new();
         triangles(&squares(0.0), &CAMERA, [0.5, 0.0], &mut out);
         assert_eq!(out.len(), 2);

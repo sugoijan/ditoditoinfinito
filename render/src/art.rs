@@ -1,7 +1,7 @@
 //! Images drawn here in place of StepMania's own `default` and `common`
 //! skins' art (not under an explicit licence): what a noteskin's explosion
 //! row or mine shows when it falls back to them. White, so the commands'
-//! colours tint them as they tint StepMania's.
+//! colors tint them as they tint StepMania's.
 
 /// An image, sRGB-encoded RGBA8 with straight alpha.
 pub struct Art {

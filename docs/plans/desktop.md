@@ -1841,7 +1841,7 @@ cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
 - **Layers** (`desktop/src/play/stage.rs`, the web's `stage.rs`): the
   contents read on a thread (images at most 2048 px, their own size in
   the stage's px; texts drawn with cosmic-text on the system's fonts as
-  the web's canvas draws them, three times their size, in their colour),
+  the web's canvas draws them, three times their size, in their color),
   their textures registered as a skin's (again after a skin replaces
   them), placed by `ddi_render::stage` on the play's timeline
   (`ddi_session::stage`).
@@ -1879,7 +1879,7 @@ cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
   target folder), and CI writes them before its tests in both jobs; a
   charset label no decoder knows (`UTF-8N`) or a "replacement" one
   reads the page by what its bytes are, as the web does; text layers'
-  colours are every form a canvas reads (`csscolorparser`); a page over
+  colors are every form a canvas reads (`csscolorparser`); a page over
   8 MB is not read as a work; works are cached by their folder's
   listing, as simfile folders are (a page's music or images outside
   that folder changing does not read it again: "read again" does);
@@ -2195,7 +2195,7 @@ Added or changed, all compatible with MIT distribution:
 | wat | 1.262.0 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | desktop (dev-dependency) | the video host's tests write their stand-in module as text |
 | winit | 0.30.13 | Apache-2.0 | desktop | 0.31 is still beta (0.31.0-beta.3) |
 | glyphon | 0.12 (workspace) | MIT OR Apache-2.0 OR Zlib | desktop | 7.5b: a work's text layers drawn with its cosmic-text |
-| csscolorparser | 0.9.0 | MIT OR Apache-2.0 | desktop | 7.5b: the text layers' colours, every form a canvas's `fillStyle` reads |
+| csscolorparser | 0.9.0 | MIT OR Apache-2.0 | desktop | 7.5b: the text layers' colors, every form a canvas's `fillStyle` reads |
 
 System libraries, linked dynamically, flagged as copyleft: ALSA's
 `libasound` and `libudev` (systemd) are LGPL-2.1-or-later; dynamic
@@ -2258,7 +2258,7 @@ Each with a recommendation; those the lead should decide are marked.
 - **Desktop and web profiles and bindings are separate.** Offsets are
   per device fingerprint and pad bindings per id, both platform-specific
   (decision 11 already keeps browsers apart). Recommendation: keep them
-  apart; settings themselves (speed, rules, skin, colours) are the same
+  apart; settings themselves (speed, rules, skin, colors) are the same
   JSON and could be exported and imported between the two later.
 - **Where a packaged app keeps its assets, its licences and the video
   module**, and code signing (Gatekeeper, SmartScreen). *When: decided below ("Decided

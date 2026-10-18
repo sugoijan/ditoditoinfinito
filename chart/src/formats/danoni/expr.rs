@@ -1,6 +1,6 @@
 //! Arithmetic on effect values.
 //!
-//! danoniplus evaluates effect frames and values (speed, boost, colours,
+//! danoniplus evaluates effect frames and values (speed, boost, colors,
 //! gauges) as JavaScript (`new Function("return " + s)`, `js/danoni_main.js`
 //! 399–405), so authors write things like `60*20` or `(4+1)*60`. Only
 //! numbers, `+ - * / %` and parentheses are understood here; anything else

@@ -19,7 +19,7 @@ pub fn difficulty_index(d: Difficulty) -> usize {
     DIFFICULTIES.iter().position(|x| *x == d).unwrap_or(0)
 }
 
-/// A difficulty's name, as commands and colours are named
+/// A difficulty's name, as commands and colors are named
 /// (`Difficulty.Hard`).
 pub fn difficulty_name(d: Difficulty) -> &'static str {
     match d {
@@ -110,7 +110,7 @@ pub struct Best {
     pub grade: String,
     /// As the ruleset scores ("96.77%", "987650").
     pub score: String,
-    /// Its lamp's name, as colours and commands name it (`Failed`,
+    /// Its lamp's name, as colors and commands name it (`Failed`,
     /// `Clear`, `FullCombo`, `GreatFullCombo`, `PerfectFullCombo`,
     /// `MarvelousFullCombo`), and how it is written short ("PFC").
     pub lamp: String,
@@ -327,7 +327,7 @@ pub struct SelectData {
 pub struct JudgementCount {
     /// As the ruleset names it ("Fantastic").
     pub name: String,
-    /// Its colour's name (`Judgement.W1` … `Judgement.Miss`).
+    /// Its color's name (`Judgement.W1` … `Judgement.Miss`).
     pub color: String,
     pub count: u32,
 }
@@ -342,7 +342,7 @@ pub struct Hit {
 }
 
 /// A judgement window of the histogram: how early and how late (ms,
-/// both positive) and its colour's name, best first.
+/// both positive) and its color's name, best first.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Window {
     pub early: f32,
@@ -414,7 +414,7 @@ pub struct ResultsData {
     /// during play").
     pub notes: Vec<String>,
     pub hits: Vec<Hit>,
-    /// The ruleset's windows the histogram colours by.
+    /// The ruleset's windows the histogram colors by.
     pub windows: Vec<Window>,
     /// Life over the song: (seconds, 0..=1).
     pub life: Vec<(f32, f32)>,

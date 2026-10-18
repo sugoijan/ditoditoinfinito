@@ -1,5 +1,5 @@
 // Instanced quads with procedural shapes. One draw call per batch; each
-// instance carries its centre, size, rotation, colour and a shape id that the
+// instance carries its centre, size, rotation, color and a shape id that the
 // fragment shader renders as a signed-distance field (arrow, mine, bar,
 // rectangle). No textures needed for the MVP skin.
 
@@ -8,7 +8,7 @@ struct Globals {
     scale: vec2<f32>,
     translate: vec2<f32>,
     time: f32,
-    // 1.0 on an sRGB target: instance colours arrive in linear light, so
+    // 1.0 on an sRGB target: instance colors arrive in linear light, so
     // the constants and factors below are converted to match.
     srgb: f32,
     _pad1: f32,
@@ -69,10 +69,10 @@ const SHAPE_ARROW_OUTLINE: u32 = 2u;
 const SHAPE_MINE: u32 = 3u;
 const SHAPE_CIRCLE: u32 = 4u;
 const SHAPE_HOLD_BODY: u32 = 5u;
-// An arrow whose colour runs from `color` to `params.rgb` and back down the
+// An arrow whose color runs from `color` to `params.rgb` and back down the
 // screen, shifted by `params.w` cycles (a flowing gradient).
 const SHAPE_ARROW_GRADIENT: u32 = 7u;
-// An arrow whose colour runs from `color` at its tail to `params.rgb` at its
+// An arrow whose color runs from `color` at its tail to `params.rgb` at its
 // tip, along the arrow (it points to -x in quad space).
 const SHAPE_ARROW_RAMP: u32 = 8u;
 
@@ -159,7 +159,7 @@ fn srgb_to_linear(c: f32) -> f32 {
     return pow((c + 0.055) / 1.055, 2.4);
 }
 
-// A display-space constant (sRGB-encoded) in the space colours arrive in.
+// A display-space constant (sRGB-encoded) in the space colors arrive in.
 fn display(c: vec3<f32>) -> vec3<f32> {
     if (globals.srgb > 0.5) {
         return vec3<f32>(srgb_to_linear(c.r), srgb_to_linear(c.g), srgb_to_linear(c.b));
@@ -168,7 +168,7 @@ fn display(c: vec3<f32>) -> vec3<f32> {
 }
 
 // A display-space brightness factor in that space. Scaling an encoded
-// colour by f is close to scaling it in linear light by f^2.2 (the curve is
+// color by f is close to scaling it in linear light by f^2.2 (the curve is
 // close to a power law); exact for no curve, so this is approximate.
 fn factor(f: f32) -> f32 {
     if (globals.srgb > 0.5) {

@@ -310,7 +310,7 @@ fn pos_value(s: &str, div: f32) -> Option<f32> {
     }
 }
 
-/// Numbers of a colour or shuffle group list, with pattern references.
+/// Numbers of a color or shuffle group list, with pattern references.
 fn numbers(s: &str, n: usize, field: impl Fn(KeyDef) -> Vec<u8>) -> Result<Vec<u8>, String> {
     if let Some(d) = pattern_ref(s)? {
         return Ok(pad(field(d), n, |_| 0));

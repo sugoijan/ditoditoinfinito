@@ -60,7 +60,7 @@ const GLOW: u32 = 4;
 const PROJECTED: u32 = 8;
 /// Cut by `shape` (rounded corners, a soft edge, an outline).
 const CUT: u32 = 16;
-/// Its colour's saturation changed (`shape2`'s z).
+/// Its color's saturation changed (`shape2`'s z).
 const SATURATION: u32 = 32;
 /// Smeared along `blur` (a motion blur).
 const BLUR: u32 = 64;
@@ -133,13 +133,13 @@ const NO_SHAPE2: [f32; 4] = [0.0, 0.0, 1.0, 0.0];
 struct Globals {
     scale: [f32; 2],
     translate: [f32; 2],
-    /// 1 when the target holds linear light (an sRGB view): colours are
+    /// 1 when the target holds linear light (an sRGB view): colors are
     /// decoded before blending, and the target encodes them again.
     linear: f32,
     _pad: [f32; 3],
 }
 
-/// A colour as 8-bit RGBA (memory order r, g, b, a).
+/// A color as 8-bit RGBA (memory order r, g, b, a).
 fn pack(c: [f32; 4]) -> u32 {
     let b = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
     b(c[0]) | b(c[1]) << 8 | b(c[2]) << 16 | b(c[3]) << 24
@@ -661,10 +661,10 @@ pub struct Painter {
 
 impl Painter {
     /// A painter drawing to `format`: a plain (non-sRGB) view of the
-    /// target, where colours are blended as given, encoded (the menus');
+    /// target, where colors are blended as given, encoded (the menus');
     /// or an sRGB one (a play's surface on WebGL2, which has no plain
     /// view), where they are decoded first and blended in linear light, as
-    /// the scene's are: the same colours, the edges of text and of soft
+    /// the scene's are: the same colors, the edges of text and of soft
     /// shapes a little different.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Painter {
         Painter {
@@ -930,7 +930,7 @@ impl Painter {
                 _pad: 0,
                 rect: [p[2][0], p[2][1], p[3][0], p[3][1]],
                 uv: [0.0, 0.0, 1.0, 1.0],
-                // Opaque, so the alpha test keeps it; it draws no colour.
+                // Opaque, so the alpha test keeps it; it draws no color.
                 colors: [u32::MAX; 4],
                 w: [1.0; 4],
                 shape: [0.0; 4],
@@ -1341,7 +1341,7 @@ mod tests {
     }
 
     #[test]
-    fn colours_pack_as_bytes_in_order() {
+    fn colors_pack_as_bytes_in_order() {
         assert_eq!(pack([1.0, 0.0, 0.5, 1.0]).to_le_bytes(), [255, 0, 128, 255]);
         assert_eq!(pack([2.0, -1.0, 0.0, 0.0]), 255);
     }

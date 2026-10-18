@@ -1,6 +1,6 @@
 //! The 2D pass over a play's sRGB surface (WebGL2 has no plain view of
-//! it): through an sRGB target the painter decodes its colours, so a
-//! colour reads back as it does through a plain one; text drawn the same
+//! it): through an sRGB target the painter decodes its colors, so a
+//! color reads back as it does through a plain one; text drawn the same
 //! way lands in the same place. Skipped where there is no GPU adapter
 //! (CI).
 
@@ -72,7 +72,7 @@ fn draw(
 }
 
 #[test]
-fn a_colour_reads_back_alike_through_srgb_and_plain_targets() {
+fn a_color_reads_back_alike_through_srgb_and_plain_targets() {
     let instance = gpu::instance();
     let Some(adapter) = gpu::adapter(&instance, None) else {
         eprintln!("no GPU adapter: skipped");

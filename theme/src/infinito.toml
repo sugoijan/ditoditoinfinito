@@ -1,4 +1,4 @@
-# Infinito, our theme (docs/plans/theme.md): its tunables. Colours are
+# Infinito, our theme (docs/plans/theme.md): its tunables. Colors are
 # encoded sRGB, "#rrggbb" or "#rrggbbaa"; sizes are virtual pixels of the
 # 1280×720 design; times are seconds. Every key here is read, and every
 # name the screens and the theme ask for is here: a test checks both.
@@ -15,7 +15,7 @@ numbers_weight = 800
 
 [colors]
 "Ground" = "#0a090d"
-# The play's field colour (render's `Skin::background`), under the start
+# The play's field color (render's `Skin::background`), under the start
 # prompt's picture: a song without one opens on it.
 "Play.Field" = "#05020d"
 # The developer widget screen's ground, under this look.

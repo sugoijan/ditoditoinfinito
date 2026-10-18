@@ -1,10 +1,10 @@
-//! Colour spaces.
+//! Color spaces.
 //!
-//! Colours in the scene and skin are written as they should appear on screen
-//! (sRGB-encoded, like CSS colours). On an sRGB target the GPU blends in
+//! Colors in the scene and skin are written as they should appear on screen
+//! (sRGB-encoded, like CSS colors). On an sRGB target the GPU blends in
 //! linear light and encodes on write, so the renderer converts them to
 //! linear first; on a plain target they pass through unchanged. Either way
-//! a solid colour looks the same.
+//! a solid color looks the same.
 
 /// One sRGB-encoded component to linear light (IEC 61966-2-1).
 pub fn srgb_to_linear(c: f32) -> f32 {

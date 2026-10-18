@@ -18,7 +18,7 @@ kept in the song, unplayable. The maintainer's decisions (2026-10-13):
   are, unturned), else Down's, turned to the lane's angle (the
   diagonals) or as they are (the centre). Dito gets a centre of its own.
 - **Pump skins later.** Importing StepMania's `NoteSkins/pump/*` (their own
-  art per panel, coloured by panel rather than by beat) is a later step;
+  art per panel, colored by panel rather than by beat) is a later step;
   import keeps leaving them out.
 
 ## Rules
@@ -66,7 +66,7 @@ Done:
   lanes when it was told `pump`). Pump skins will be told `pump`
   (`Env::game`, the steps types `StepsType_Pump_*`).
 - Dito's centre: `xtask gen-dito` draws the shader's rounded square
-  (`sd_square`) as tap, lift and fake sheets for every colour scheme and a
+  (`sd_square`) as tap, lift and fake sheets for every color scheme and a
   receptor; `Center Tap Note.lua` and `Center Receptor.lua` load the
   symbols' shared files (`_symbol tap note.lua`, `_symbol receptor.lua`,
   the onigiri's too), and the explosion rings the centre in its square.

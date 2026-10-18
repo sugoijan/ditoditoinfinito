@@ -9,7 +9,7 @@ use ddi_desktop::gpu::{self, Gpu};
 use ddi_ui::dev::{self, DevScreen, Shared};
 use ddi_ui::{TextMode, Ui, UiEvent};
 
-/// `(x, y)` in the window and the web's colour there.
+/// `(x, y)` in the window and the web's color there.
 const WEB: [((u32, u32), [u8; 3]); 7] = [
     // The background.
     ((5, 700), [12, 12, 18]),

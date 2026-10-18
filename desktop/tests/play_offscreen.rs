@@ -189,7 +189,7 @@ fn a_play_draws_its_field_skin_and_background() {
     let (device, queue) = gpu::device(&adapter).unwrap();
     let g = Gpu { device, queue };
     for (skin, want) in [
-        // Dito in the default note colours' variant.
+        // Dito in the default note colors' variant.
         (None, "Dito Vivid"),
         (Some("bundled:dance/delta"), "Delta"),
         (Some("builtin"), "built-in"),
@@ -215,7 +215,7 @@ fn a_play_draws_its_field_skin_and_background() {
 }
 
 /// A surface with no sRGB view (a Vulkan driver without mutable swapchain
-/// formats): the play draws into the plain target itself, its colours
+/// formats): the play draws into the plain target itself, its colors
 /// encoded by its pipelines, and looks as through the sRGB view.
 #[test]
 fn a_plain_surface_draws_the_same_play() {

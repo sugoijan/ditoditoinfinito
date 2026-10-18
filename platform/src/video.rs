@@ -185,7 +185,7 @@ impl VideoFrame {
         Some((y, u, v))
     }
 
-    /// The colour of pixel (`x`, `y`) as non-linear RGB in 0–1 (see
+    /// The color of pixel (`x`, `y`) as non-linear RGB in 0–1 (see
     /// [`yuv_to_rgb`]); `None` outside the frame or for malformed planes.
     pub fn rgb_at(&self, x: u32, y: u32) -> Option<[f32; 3]> {
         if x >= self.width || y >= self.height {
@@ -1434,7 +1434,7 @@ mod tests {
         assert!(blank_picture(&flat(16)));
         assert!(blank_picture(&flat(250)));
         assert!(blank_picture(&[]));
-        // A flat mid grey or colour is a picture (a title card).
+        // A flat mid grey or color is a picture (a title card).
         assert!(!blank_picture(&flat(128)));
         assert!(!blank_picture(&[200, 30, 30, 255].repeat(100)));
         // Black with the codec's noise is still blank ...
