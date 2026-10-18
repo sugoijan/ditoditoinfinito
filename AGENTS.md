@@ -243,6 +243,17 @@ the browser are implementation details, not advertised features.
   another machine, tunnel instead (`ssh -N -L 8080:127.0.0.1:8080 <host>`,
   then open `http://localhost:8080`).
 - `just build` release build with the production public URL.
+- `just screenshot [scenario.json] [output.png]` regenerates the README's
+  gameplay image from `docs/screenshots/readme.json` (Beatucada, with its
+  background). The desktop example `screenshot` runs the actual play and
+  renderer offscreen on a fixed clock, with no window or sound device;
+  its home is isolated under `target/scratch/screenshot/home`. Requires
+  a GPU. `just animation [scenario.json] [output.gif]` uses the same
+  example with `docs/screenshots/animation.json` to generate a small,
+  silent looping GIF, requiring FFmpeg on `PATH`. Media provenance and
+  reproduction are documented in `docs/screenshots/README.md`; the generated
+  PNG and GIF are committed and their third-party visual components are
+  annotated in `REUSE.toml`.
 - `just check` native checks, wasm check, SEO regen, REUSE lint.
 - macOS video planes remain copied by default. A build with
   `--features ddi-desktop/video-metal` and `DDI_VIDEO_PLANES=metal` opts

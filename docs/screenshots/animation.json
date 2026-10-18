@@ -1,0 +1,20 @@
+{
+  "song": "beatucada",
+  "style": "dance-single",
+  "difficulty": "Hard",
+  "seconds": 24.25,
+  "fps": 60,
+  "size": [768, 432],
+  "animation": {
+    "seconds": 4,
+    "fps": 20
+  },
+  "settings": {
+    "speed": 2.5,
+    "noteskin": null,
+    "note_colors": "Vivid",
+    "bg_brightness": 0.55,
+    "field_filter": 0.6,
+    "debug": false
+  }
+}
