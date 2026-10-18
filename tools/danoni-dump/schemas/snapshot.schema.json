@@ -1,0 +1,226 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sugoijan.dev/ditoditoinfinito/schemas/danoni-snapshot.schema.json",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "ddi-danoni-snapshot/1"
+    },
+    "root": {
+      "$ref": "#/definitions/node"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "path",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "root",
+    "diagnostics"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "node": {
+      "oneOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "undefined"
+            }
+          },
+          "required": [
+            "$type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "number"
+            },
+            "value": {
+              "enum": [
+                "NaN",
+                "Infinity",
+                "-Infinity",
+                "-0"
+              ]
+            }
+          },
+          "required": [
+            "$type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "bigint"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^-?[0-9]+$"
+            }
+          },
+          "required": [
+            "$type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "opaque"
+            },
+            "kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "$type",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "ref"
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "$type",
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "object"
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "nullPrototype": {
+              "type": "boolean"
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/definitions/node"
+                  }
+                ],
+                "minItems": 2,
+                "maxItems": 2,
+                "additionalItems": false
+              }
+            }
+          },
+          "required": [
+            "$type",
+            "id",
+            "nullPrototype",
+            "entries"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$type": {
+              "const": "array"
+            },
+            "id": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "length": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/definitions/node"
+                  }
+                ],
+                "minItems": 2,
+                "maxItems": 2,
+                "additionalItems": false
+              }
+            }
+          },
+          "required": [
+            "$type",
+            "id",
+            "length",
+            "entries"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

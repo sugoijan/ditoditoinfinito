@@ -1,0 +1,23 @@
+# Portable title fonts used only by the native dump tooling.
+# No system font discovery; no transformations made in this branch.
+
+[[font]]
+path = "IosevkaTerm-Regular-latin.ttf"
+sha256 = "4aa11ea11626ffe18bb66800f1ee5225fbcbcd49c05f6bb9833fea8a9a941c5d"
+bytes = 26940
+license = "OFL-1.1"
+holders = "Renzhi Li (aka. Belleve Invis)"
+source = "https://github.com/be5invis/Iosevka/releases/tag/v34.9.0"
+copy_source = "origin/main 448c0a5:assets/fonts/IosevkaTerm-Regular-latin.ttf (Git blob 7102064d45d6c833701635c7f1fb9b308010ec03)"
+modifications = "Byte-identical copy of main's subset. Upstream unhinted TTF archive SHA-256 b11472aab68b01d5936758962af8da5902ebbb7f8311303236f5e1023a4bee45. Prior main transformation: pyftsubset IosevkaTerm-Regular.ttf --unicodes=U+0020-007E,U+00A0-017F,U+2013-2014,U+2018-201D,U+2022,U+2026,U+2039-203A,U+2190-2193,U+2212,U+25A0,U+25B2,U+25B6,U+25B8,U+25BC,U+25BE,U+25C0,U+25C2,U+2605-2606,U+266A-266B,U+2715 --layout-features= --output-file=IosevkaTerm-Regular-latin.ttf. No layout features retained."
+
+[[font]]
+path = "NotoSansCJKjp-Regular.otf"
+sha256 = "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5"
+license = "OFL-1.1"
+holders = "Adobe; Noto contributors"
+source = "https://github.com/notofonts/noto-cjk/blob/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+release = "Sans2.004"
+retrieved = "2026-10-16"
+modifications = "None: complete Japanese-language static OTF, no subsetting, renaming or conversion. Existing GSUB/GPOS shaping retained."
+license_source = "https://github.com/notofonts/noto-cjk/blob/523d033d6cb47f4a80c58a35753646f5c3608a78/LICENSE"

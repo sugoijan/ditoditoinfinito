@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sugoijan.dev/ditoditoinfinito/schemas/danoni-effective-dos.schema.json",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "ddi-danoni-effective-dos/1"
+    },
+    "fields": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "native": {
+      "$ref": "https://sugoijan.dev/ditoditoinfinito/schemas/danoni-snapshot.schema.json"
+    }
+  },
+  "required": [
+    "schema",
+    "fields",
+    "native"
+  ],
+  "additionalProperties": false
+}

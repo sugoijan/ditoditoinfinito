@@ -1,0 +1,32 @@
+[
+  {
+    "work": "reku-047-7keyfestival-march",
+    "sourceSwfSha256": "1f97ec3212832491b15cdf1ab588c64bb3e9fbc2a9bf86acf4afab57438d1c3a",
+    "url": "http://autumnleaves.yukishigure.com/7keyfestival/iro.txt",
+    "responseSha256": "ff82879a993ec395960852ae41c9cb7f02088df35642cd90316ad2da18f5c369"
+  },
+  {
+    "work": "reku-048-7keyfestival-gkbr-riguru",
+    "sourceSwfSha256": "f9cd6077ce1349d6fd2ad7d20c7887746fe2af96f8b68486a77bd28d1030df9f",
+    "url": "http://autumnleaves.yukishigure.com/7keyfestival/gkbr/iro.txt",
+    "responseSha256": "ff82879a993ec395960852ae41c9cb7f02088df35642cd90316ad2da18f5c369"
+  },
+  {
+    "work": "reku-050-dosmf08-last-saigo",
+    "sourceSwfSha256": "766186b0188ecf2a1f1d7895f6dbc89868ceaa12ed4556e42e0b1b2e063cbec2",
+    "url": "http://autumnleaves.yukishigure.com/DOSMF08/Last/iro.txt",
+    "responseSha256": "ff82879a993ec395960852ae41c9cb7f02088df35642cd90316ad2da18f5c369"
+  },
+  {
+    "work": "reku-052-dosmf08-regret-enemy",
+    "sourceSwfSha256": "28446398310d111500757f8b991be2a769f78600525ab6c4e413ad3fc6710685",
+    "url": "http://autumnleaves.yukishigure.com/DOSMF08/REGRET/iro.txt",
+    "responseSha256": "ff82879a993ec395960852ae41c9cb7f02088df35642cd90316ad2da18f5c369"
+  },
+  {
+    "work": "reku-18b-7keyfestival-syoujosyuu-danmaku",
+    "sourceSwfSha256": "311f95244a562fdf3b11b0f08ecd329b95d893048de5da8037b1a705cc8b6bd1",
+    "url": "http://autumnleaves.yukishigure.com/7keyfestival/syoujosyuu/iro.txt",
+    "responseSha256": "ff82879a993ec395960852ae41c9cb7f02088df35642cd90316ad2da18f5c369"
+  }
+]

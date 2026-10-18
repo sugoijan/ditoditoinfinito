@@ -145,6 +145,20 @@ A "dos" (ダンおにスコア) is plain text of pipe-delimited `|key=value|` pa
 - `scrollch_data`: `frame,colorNo,±1[,layerGroup,transform]` per-lane scroll reversal (`.../dos-e0007-scrollchData`).
 - `style_data` (`styletitle_`, `styleresult_`…): `frame,--css-custom-property,value` (`.../dos-e0008-styleData`).
 
+**Published ratings outside dos (2026-10-10 corpus observation).** An absent
+`name::maker::level` does not imply that no author rating exists. The
+[Straight Soul work page](https://cw7.sakura.ne.jp/danoni/2009/0169_StraightSoul.html)
+publishes levels 13/18 for its 5/7-key charts while their captured `difData` names
+omit the optional level; the third comma-separated value 3.5 remains initial
+speed. [Jam with Pancake](https://chipstar64.sakura.ne.jp/danoni/danoni_JwP.html)
+uses numbered-star notation `☆08`, while
+[Hikari](https://vorhandensein.sakura.ne.jp/danoni/291_hikari/) associates `★×2`
+and `★×6` with separate 9A/9B table rows. Work pages and exact author-catalogue
+rows can therefore supplement missing runtime ratings, with source bytes,
+encoding, chart association and publisher scale retained. Do not reuse a tool
+score, key count or initial speed as difficulty. The [source-rating contract](danoni-source-ratings.md)
+keeps factual counts/ranges separate from derived SSC classification.
+
 **Example** from the bundled sample (`danoniplus:danoni/dos/0001_ThrustUp.txt`): `|difData=5,Thrust,3.5$7,Hard,3.5,75,1,7$11L,Upper,3.5,75,1,7|`, `|left_data=608,875,...|`, `|frzLeft_data=1728,1781,4093,4135,...|`, `|speed_data=284,1,954,0,1100,1,5475,1.125,6144,1|`, `|color_data=210,20,0x80FFFF,...|`. The second sample uses `|oni_data=...|foni_data=|` for a 14-key onigiri lane, `|speed_change=400,0.25|`, `|boost_data=200,3|`, and per-gauge overrides `|gaugeEasy=$50,3,5,40$...|` (`danoni/danoniA.txt`).
 
 ### B2. Key modes
@@ -259,7 +273,103 @@ Checked against danoniplus v51.2.2, `develop` @ `80c3c47` (2026-10-08), by readi
 
 **Score.** B5's formula holds, but `sfsf` is never incremented (always 0); it is also the name of the 4-frame hold-start bound. Rank X (no rank) when not every note was judged, with autoplay, or with Excessive off on a chart that requires it.
 
+### Reading B8 with the capture addenda (2026-10-09)
+
+B8 records the importer session's v51.2.2 source analysis. The dated addenda
+below retain observations of deployed engines (including v48.4.1 and v49.1.1)
+and the separately identified legacy SWF. Keep those version and evidence
+boundaries when comparing them; a successful parse comparison does not validate
+all playback-clock or judgement behavior.
+
+- In B8's timing paragraph, “round only for local `file://` music” refers to
+  **`intAdjustment`**, not to the outer `Math.round` in `calcFrame`. The latter
+  rounds note frames in both branches. The fractional-frame CW experiment below
+  confirms this in deployed v48.4.1. The later statement that fractional
+  adjustment affects audio scheduling does not establish a fractional change
+  in note-to-audio alignment: B8's cancellation argument concerns the v51.2.2
+  audio-clock path and remains marked for browser verification.
+  [Source: scoreConvert](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js),
+  [audio scheduling and frame clock](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/mainWindow.js).
+- B8's chart-number suffix rule describes ordinary unlocked numbering. Divided
+  or locked works can use `scoreNos`; the capture addendum and dump contract
+  preserve selection index, resource number and resolved source suffix
+  separately. Likewise, an odd hold endpoint can exist in the full converter
+  return before play preparation drops it. These are different capture stages,
+  not competing interpretations of one snapshot.
+  [Source: setScoreIdHeader, scoreConvert and pushArrows](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
+- Part C is an earlier model proposal. Its boost/spawn wording and claim that
+  frame-to-beat conversion must lose precision are superseded by B8 and the
+  dated capture addendum: boost uses arrival time, non-immediate colours are
+  authored by arrival time and later converted to spawn times, and this
+  repository represents integer 60 Hz frames exactly at 75 BPM / 48 ticks per
+  beat. The [current implementation decisions](../PLAN.md) govern game support;
+  the [corpus contract](danoni-corpus.md) also preserves unsupported modes and
+  effects for research.
+
 ---
+
+### Title graphics are not necessarily song metadata (2026-10-09)
+
+The [local artwork study](danoni-artwork.md) finds a concrete legacy case where
+rendered 桃源郷 -Remix- and runtime 桃源郷 differ. Preserve both source variants;
+do not overwrite `musicTitle` from a screenshot. Embedded bitmaps can be
+musician-site/link banners rather than song covers, and wordmarks can be vector
+shapes or font-backed text. For HTML5 captures, an empty image `chartIds` list
+means usage has not been resolved, not that the image is irrelevant.
+
+The reviewed Kouhaku SWF's two `DefineBitsJPEG2` payloads required removal of the
+erroneous leading `FF D9 FF D8` marker pair before normal JPEG decoding. Preserve
+the payload and record a normalized derivative separately. Ruffle explains
+this SWF JPEG behavior and handles marker pairs inside headers as well in
+[`remove_invalid_jpeg_data`](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/render/src/utils.rs).
+
+### Legacy constant-travel sources and missing colour sidecars (2026-10-10)
+
+Native observations of [灼冬赫夜](http://autumnleaves.yukishigure.com/noname08/noname.html),
+[END of AIR](http://autumnleaves.yukishigure.com/DOSMF08/END_of_AIR/END.html)
+and seven related レク sources establish a distinct 2.17 engine family.
+Split `timeline`/`ftimeline` contain raw judgment frames; compiled
+`mkArrow`/`mkFArrow` use `head - set_cnt`. The mutable tap and hold-head banks
+are overwritten with spawn frames, while hold tails and cached durations remain
+in judgment-frame units. A snapshot must identify the conversion stage; reading
+an arbitrary live array as raw dos timing is incorrect. The native reference
+preserves both stages and cross-checks every scheduled head.
+[Runtime evidence and adapter contract](danoni-corpus-v2-admission.md#new-native-contract-and-proof).
+
+`set_spi` is the initial pixel increment (`2 * dif_spi`) in these observed
+sources. A speed change may precede audio zero, so the first visible arrow can
+already move at twice that increment. Extracting that observed speed as the
+baseline and applying the speed array again would double the author change.
+The adapter separates the initial increment and active multiplier and proves
+both against motion. `iro.txt` is optional presentation data in five observed
+works whose actual cached responses are HTTP 404; chart data still initializes.
+This is a narrowly bound exception, not a rule that any missing dependency can
+be ignored. Original errors, response bodies and parsed `iro_dac` values stay
+in local evidence. [Native adapter details](danoni-native-adapters.md).
+
+The [NEEDS page](https://vorhandensein.sakura.ne.jp/danoni/433_needs/)
+publishes 200–252.5 BPM and explicitly names 252.5 as its main tempo, even
+though its captured `difData` BPM text is undeclared. Metadata can therefore
+require page/catalogue evidence outside the dos header. An estimated constant
+grid is a presentation approximation, not recovery of those tempo changes.
+
+### ParaFla ports and carried source fields (2026-10-11)
+
+[Saigetsu](http://autumnleaves.yukishigure.com/Saigetsu/saigetsu.html) and
+[ESS](https://mfv2.sakura.ne.jp/do/__Flash/danoniwinterfes/No200/DO.ESS.html)
+use runtime-loaded chart sidecars. Static gen4 resemblance does not mean embedded
+data or the same engine revision. Divided ESS sidecars load into unsuffixed
+fields despite numeric `diffin`; its 55 is a menu count rather than a difficulty
+rating. The engine's `arrowSpd` stores pixel increments, and retained source
+fields can belong to a previously selected key mode. The adapter retains
+inactive key-code-zero schedules separately and reads actual parsed speed state.
+[Native observations and exact contracts](danoni-paired-ports.md).
+
+[Saigetsu's HTML5 port](https://mfv2.sakura.ne.jp/do/_rekuAL/?id=saigetsu)
+has 682 taps versus the SWF's 679, with frame/hold edits. A later port therefore
+needs chart-identity checks before being used as an equality oracle. Identical
+offline converter references and complete playable-work verification are also
+different results; preserve both status fields. [Comparison report contract](danoni-paired-ports.md#generic-comparison-utility-and-local-layout).
 
 ## Part C — Implications for an internal chart model
 
@@ -297,3 +407,640 @@ Checked against danoniplus v51.2.2, `develop` @ `80c3c47` (2026-10-08), by readi
 - danoniplus docs wiki: https://github.com/cwtickle/danoniplus-docs/wiki — pages `dos_header`, `dos_score`, `dos_effect`, `dos_setting`, `AboutJudgment`, `AboutGameSystem`, `AboutFrameProcessing`, `SpeedChange`, `keys`, `dos-e0001-speedData`, `dos-e0002-colorData`, `dos-e0002-ncolorData`, `dos-e0003-wordData`, `dos-e0004-animationData`, `dos-e0005-motionData`, `dos-e0006-keychData`, `dos-e0007-scrollchData`, `dos-e0008-styleData`, `dos-h0001`…`dos-h0105`, `dos-s0003-initialGauge`
 - Community wiki: https://wikiwiki.jp/danoniplus/
 - DDR references: https://remywiki.com/DanceDanceRevolution_Scoring_System ; https://scrapbox.io/0b5vr/Timing_Window
+
+## 2026-10-08 addendum — deployed works and oracle capture corrections
+
+This addendum qualifies/supersedes the corresponding statements in B1 and
+Part C above. The [dump tool](../../tools/danoni-dump/README.md) is implemented;
+the survey, emitted schemas and importer handover are in
+[danoni-corpus.md](danoni-corpus.md). A local capture of
+[Jam with Pancake](https://chipstar64.sakura.ne.jp/danoni/danoni_JwP.html)
+using its deployed v48.4.1 engine completed and passed offline reference replay.
+That verifies this work's captured startup/parse/media scope, not all CW works
+or full-song custom behavior. Source inspection below uses v51.2.2 at commit
+`80c3c4776ed1727c10c78bcf6eb8963a4ed77523`; deployed works also serve older
+versions, so retain both actual response bytes and browser-source identity for
+differential comparisons.
+
+- **A work need not have one dos text.** Inline input is decoded by the HTML
+  parser, then converted to an object. An external `.txt` or `.js` is loaded
+  as JavaScript, calls `externalDosInit`, and merges `g_externalDos` over that
+  object. Custom code can later alter the object directly. Preserve exact
+  strings passed to `dosConvert`, original responses and the final effective
+  object separately. `dosConvert` also serves key-definition strings, so
+  record caller/stage. Its default accepts both `&` and `|`; HTML flags can
+  disable ampersand splitting or enable URI decoding. Duplicate keys take the
+  last value; the split is at the first `=` and field whitespace is retained.
+  [Source: dosConverter.js, dosConvert/loadChartFile](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dosConverter.js).
+- **Multi-chart numbering is not always an index suffix.** `externalDosDivide`,
+  `externalDosLock`, `dosNo`, resolved `dosNos` and `scoreNos` can separate
+  selection index, file number and note-array suffix. External resource
+  charset can differ from HTML charset. The live
+  [Tanoshii page](https://kt-rpg.sakura.ne.jp/danoni/html5/danoni/danoni_tanoshii.html)
+  explicitly requests Shift_JIS for its external dos.
+  [Authoring controls](https://github.com/cwtickle/danoniplus/wiki/HowtoMake).
+- **B1's expression claim is too broad.** Tap and hold tokens use
+  `parseFloat`, filter nonnumeric tokens, transform/round frames, and sort
+  numerically. Thus `100+20` is read as `100`, not `120`. Several effect
+  fields instead invoke `C_TYP_CALC`. Flat hold endpoints are sorted too;
+  keep an odd trailing endpoint in the parse reference, since later play
+  preparation drops it. When both speed spellings are present, the inspected
+  implementation chooses `speed_change`. Effect list references are resolved
+  by the engine's line/prefix logic, not a general recursive alias evaluator.
+  [Source: dataLoader.js, scoreConvert/getRefData/pushArrows](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
+- **Freeze names require the engine's mapping.** Examples include
+  `leftdia → frzLdia`, `rightdia → frzRdia`, `sleft → sfrzLeft`, and
+  `oni → foni`; `frz` plus capitalization is not a general algorithm.
+  [Source: danoni_constants.js, g_escapeStr.frzName](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/danoni_constants.js).
+- **Source frames and parsed frames are distinct.** Full `scoreConvert`
+  computes `realAdjustment = (userAdjustment + headerAdjustment) /
+  playbackRate + preblankFrame`, then uses its floor for online audio (round
+  for the local-file branch). Each parsed note frame is
+  `round((parseFloat(raw) - blankFrame) / playbackRate + blankFrame +
+  intAdjustment)`. Fractional adjustment affects audio scheduling. Do not
+  zero author timing fields merely to make a reference match raw data.
+  `startFrame` selects the playback start; it is not a universal subtraction
+  applied to every note by `scoreConvert`.
+  [Source: dataLoader.js, scoreConvert/getStartFrame](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
+- **Resolved timer headers can still be strings.** `transTimerToFrame` returns
+  a number for colon notation, but returns an input without `:` unchanged.
+  Thus a numeric header such as `startFrame=0` can remain the string `"0"` in
+  `g_headerObj.startFrame`, while `endFrame=1:35.20` becomes the number `5720`
+  at 60 fps: `.20` means 20 frames, not 20 hundredths of a second.
+  `startFrame`, `endFrame` and the first `fadeFrame` component use this helper.
+  The dump's native snapshot preserves the type; normalized start/end fields
+  accept complete finite numeric strings as numbers. Empty or partially
+  numeric strings must not be silently converted with `parseFloat` here.
+  [Source: danoni_main.js, transTimerToFrame](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/danoni_main.js);
+  [header conversion: dosConverter.js](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dosConverter.js).
+- **Boost uses arrival time, correcting Part C item 4.** `pushArrows`
+  chooses boost through `getSpdByFrame(arrowArrivalFrm)`. Separately,
+  non-immediate color events are converted to spawn times during
+  `pushArrows`, mutating the score object. A parse oracle must capture the
+  full `scoreConvert` return before that mutation. Startup's analysis-only
+  return omits lyrics and later color merging; play preparation can also
+  repeat conversion with automatic extra lead-in and copy back only selected
+  fields, so its final prepared state need not equal the last converter
+  return. Record every invocation, plus the pre-pushArrows snapshot and stage. [Source: dataLoader.js, prepareScoreData/scoreConvert/pushArrows](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js).
+  The implemented dumper's third stage, `runtime`, is entry to `mainInit`
+  before its first statement; it is not after main-init custom hooks and does
+  not trace per-frame mutations. [Main initialization: mainWindow.js](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/mainWindow.js).
+- **Frame-to-tick conversion need not be lossy, correcting Part C item 1.**
+  With this repository's 48 ticks/beat and synthetic 75 BPM, one beat is
+  0.8 seconds = 48 frames at 60 Hz. One integer source frame is exactly one
+  tick; 30 Hz sources use two ticks. This follows PLAN §3.2 and decision 4.
+  Fractional input accepted by `parseFloat` and playback-rate rounding remain
+  separate issues to test against the engine.
+- **Music and media may be generated or indirect.** Encoded music `.js`
+  and `.txt` run `musicInit` and expose base64 `g_musicdata`; ordinary online
+  music is fetched before becoming a blob URL. Preserve original music URL,
+  wrapper bytes and derived decoded bytes. Images may come from preloads,
+  CSS and custom JS, and lyrics may be images rather than `word_data`.
+  [Audio source: dataLoader.js, loadAndSetupAudio/musicInit](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dataLoader.js);
+  [preloads: dosConverter.js](https://github.com/cwtickle/danoniplus/blob/80c3c4776ed1727c10c78bcf6eb8963a4ed77523/js/lib/dosConverter.js);
+  [live Summer Sky](https://vorhandensein.sakura.ne.jp/danoni/426_summersky/).
+- **Generated input occurs in published collections.** The live
+  [7ikey Package dos.txt](https://apoi108.sakura.ne.jp/danoni/7ikey_package/dos.txt)
+  constructs its dos from JS objects/arrays; treating it as a plain text score
+  or extracting one template literal would be incomplete. The published
+  [key-change extension](https://github.com/suzme/danoni-key-change/blob/master/js/key_change.js)
+  also demonstrates direct rewriting of difficulty/lane/hold data. Twilight's
+  browser capture loaded the [publisher's copy](https://cw7.sakura.ne.jp/danoni/js/key_change.js);
+  its `key`/`double` conversion options were not activated in this corpus.
+  Distinguish script delivery from verification of those conversion branches.
+- **Configured engine version can differ from the engine that runs.** Cross
+  Walker's [bootstrap](https://cw7.sakura.ne.jp/danoni/js/danoni_main.js) reads
+  [version.txt](https://cw7.sakura.ne.jp/danoni/js/version.txt), observed as
+  `51.2.2`, and selects a versioned CDN script; failure loads
+  [danoni_main_local.js](https://cw7.sakura.ne.jp/danoni/js/danoni_main_local.js),
+  which declares `49.1.1`. The fallback was selected during local browser
+  capture. Record the actual executed source URL/hash and engine declaration;
+  the manifest file, page year or desired CDN version is not the oracle identity.
+- **Browser-source hashes and response hashes are different measurements.**
+  The inspected deployed scripts, including
+  [chip creation's v48.4.1 source](https://chipstar64.sakura.ne.jp/js/danoni_main.js),
+  contain a UTF-8 BOM that Chrome removes from its decoded source string.
+  `Debugger.getScriptSource` hashing therefore differs from hashing the saved
+  response body, even without a code modification. Retain response-body SHA-256
+  for archive integrity and browser-decoded source SHA-256 for adapter selection;
+  preserve charset provenance too. The tool's
+  [reviewed source registry](../../tools/danoni-dump/engine-hashes.json) labels
+  these variants; [the handover](danoni-corpus.md) specifies the two fields.
+
+The known music-selection extension adds an intermediate song menu before
+options. The tool drives its `lblMusicNumBarSlider` input and Enter handler using
+the chart's resolved music index, so normal selection hooks execute. This does
+not provide a generic adapter for every custom menu, course transition or later
+runtime-generated asset. The published
+[7ikey Package](https://apoi108.sakura.ne.jp/danoni/7ikey_package/) and its
+[external data](https://apoi108.sakura.ne.jp/danoni/7ikey_package/dos.txt) are the
+source-backed example; completed corpus coverage is recorded separately in the
+handover.
+
+Part B describes CW Edition, not every Flash-era dos dialect. The upstream
+[migration tool](https://github.com/cwtickle/danoniplus-converter) documents
+legacy header/key/color translations; do not silently apply CW semantics to
+an unconverted legacy file. No Flash extraction or protected content is part
+of the tool's corpus scope.
+
+### Dos interchange versus editor save data (2026-10-08)
+
+Dos denotes chart data, not a required `.dos` filename extension. The CW
+[authoring guide](https://github.com/cwtickle/danoniplus/wiki/HowtoMake)
+describes `dos.txt` and the same fields embedded in HTML. Its external `.txt`
+example wraps the text in `externalDosInit()` assigning `g_externalDos`, so
+external files may be executable JavaScript despite their suffix. Preserve both
+the response bytes and the effective chart string; plain text for interchange
+is distinct from a file accepted by the engine's external script loader.
+
+Chart text is also distinct from an editor's save file. The upstream
+[Chart Reverser](https://github.com/cwtickle/danoniplus-reverser) reconstructs
+editor data using first-number, BPM and tempo-change inputs and warns that
+incorrect inputs can place notes in different grid positions. Frame arrays do
+not uniquely identify the original authoring grid or project. Extracted Flash
+arrays can support a reconstructed CW-compatible dos export when lane and
+audio-time semantics are understood, but not a claim of byte-exact original
+source recovery. The [legacy plan](danoni-legacy-plan.md) separates raw source,
+reconstructed chart exports and observed runtime references, and requires a
+CW round trip before accepting reconstructed timing.
+
+### Native Flash inspection and export precision (2026-10-08)
+
+The earlier statement that Flash extraction is outside the tooling scope is
+superseded by the agreed [native legacy pilot](danoni-legacy-plan.md). It does
+not broaden access permissions or make legacy snapshots CW references.
+
+- **Native execution does not require Wasm bindings.** The prototype embeds
+  Ruffle v0.7.1 with small revision-pinned AVM1 inspection hooks and offscreen
+  rendering. The core exports a native player, but its VM internals are private;
+  using it as a library does not provide general public property enumeration.
+  [Pinned core exports](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/lib.rs),
+  [offscreen texture target](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/render/wgpu/src/target.rs).
+- **A worker iteration is not an established song clock.** Our host's
+  `run_frame` and fixed timer steps coexist with wall-clock `getTimer` and a
+  null audio backend returning sound position zero. The original synthetic SWF
+  deliberately has 30 Hz header FPS and 60 Hz chart data. Do not infer chart
+  units or audio origin from a SWF header or a snapshot capture index.
+  [Player scheduling](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/player.rs),
+  [audio backend](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/backend/audio.rs).
+- **Fractional parsing is not fractional preservation.** In the captured CW
+  v48.4.1, `scoreConvert` rounds note frames after timing conversion. A synthetic
+  240.5-frame tap exported with zero adjustments and playback rate 1 is observed
+  as 241 in the full reference parse: an 8.333… ms change at 60 Hz. Integer
+  note/hold frames round-trip exactly in that fixture. This narrows the earlier
+  fractional-input caveat; do not silently call the reconstructed export exact.
+  [Deployed engine source](https://chipstar64.sakura.ne.jp/js/danoni_main.js),
+  [reproduction and offline comparison](../../tools/danoni-dump/ruffle/README.md).
+- **Legacy data can be split across ordinary load-variable sidecars.**
+  [Higan](https://autumnleaves.yukishigure.com/higan/higan.html) requests `dos.txt`
+  and `iro.txt` separately. Its cached Shift_JIS dos includes unused placeholder
+  strings and a malformed-looking stop field; the observed root contains an
+  empty `stop_data`. Preserve bytes and engine interpretation instead of cleaning
+  the source first. The page's source 2.15 label differs from the rendered title's
+  Ver 2.16. Those observations identify acquisition/initialization behavior, not
+  complete chart or audio equivalence. The pilot inventory records the limits.
+
+### Real legacy projection and music demux (2026-10-09)
+
+The [Higan pilot](danoni-native.md) now captures complete pre-consumption arrays
+and compares reconstructed dos through actual CW parsing. Its 562 taps, 9 holds,
+12 speed events and 342 expanded colour events reproduce with zero conversion
+timing error. The source audio/clock convention and unresolved original Flash
+latency are explicit; this is not a universal Flash-to-CW dialect conversion.
+
+- **Fonts can affect startup logic.** Higan's title/settings controls use
+  autosized text with zero declared hit-state rectangles. Enabling Ruffle's
+  bundled default font allows the original recorded clicks to work. Inspect
+  native child MovieClip state and display bounds when diagnosing controls;
+  a missing font can prevent reaching the chart, beyond changing its appearance.
+  [Pinned fallback registration](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/player.rs),
+  [work page](https://autumnleaves.yukishigure.com/higan/higan.html).
+- **Reference stages must precede consumption and cleanup.** This engine
+  splits `timeline`/`ftimeline`, transforms them into spawn schedules, then
+  deletes the original arrays and consumes schedule entries each frame.
+  Tap/hold spawn frames are note frames minus `set_cnt-correction`; hold tails
+  stay in the source coordinate while durations are stored separately at even
+  endpoint indices. Higan's speed coordinates are also shifted; colour lookup
+  instead compares `frame_num+set_cnt` against unshifted `iro_dac`. These are
+  observed rules of this pinned SWF, not CW field semantics.
+  [Work/source](https://autumnleaves.yukishigure.com/higan/higan.swf),
+  [evidence and projection contract](danoni-native.md).
+- **Nonzero MP3 block seeks need contextual interpretation.** SWF19 describes
+  concatenation for continuous playback and use of per-block `SeekSamples`
+  when seeking to another timeline frame. Head/first-block latency must also
+  be retained. Higan's varying block seek values agree with a continuous,
+  zero-latency stream; skipping them repeatedly would corrupt extraction.
+  Empty blocks still have four-byte samples/seek headers, and use long tag
+  headers even with tiny payloads. The demuxer checks whole MPEG frames and
+  declared sample counts, preserving every block offset/hash and header.
+  [Adobe SWF19, printed pp.182–186](https://open-flash.github.io/mirrors/swf-spec-19.pdf).
+- **A reconstructed early chart can trigger CW padding.** Higan's first note
+  is audio-relative frame 33 under the recorded native music origin. CW adds
+  201 frames during startup; comparisons must remove the observed validated
+  adjustment when converting final frames to audio-relative seconds. This
+  applies neither that padding nor the original native lead-in twice.
+  [Captured deployed v48.4.1 source](https://chipstar64.sakura.ne.jp/js/danoni_main.js),
+  [reproduction](danoni-native.md#reproduce-locally).
+
+### Older collections can hold several complete songs in one SWF (2026-10-09)
+
+The [2004 Kouhaku page](http://eucaly.net/~iso50/kouhaku.html) publishes one SWF
+containing five songs and six five-key charts. Its original menu selects the
+root data strings; initialized child MovieClips contain split lane timelines,
+while title/default options live in the SWF6 case-insensitive `_global` scope.
+A hidden difficulty can be reached through the original Options/FMV control
+(labelled FMV in the movie). A root-only snapshot is insufficient for this family.
+[Local extraction and validation](danoni-kouhaku.md) records the exact scope.
+
+All five embedded tracks are mono 22,050 Hz MP3 with a declared 1,633-sample
+latency and nonzero block seek metadata. The earlier Higan continuous-zero-latency
+criterion does not cover them. Preserving MP3 bytes and decoding to untrimmed WAV
+keeps the chosen Ruffle sample origin explicit, but does not verify original
+Flash's latency/seek behavior. The [pinned Ruffle stream reader](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/backend/audio/decoders.rs)
+strips block seek fields without applying that compensation. Changing the export
+codec alone cannot resolve this source timing question.
+
+### Musical tempo is distinct from the frame clock (2026-10-09)
+
+The exact 75 BPM encoding above does not recover a work's musical tempo or beat
+phase. The local [Kouhaku analysis](danoni-beat-grid.md) demonstrates strong
+chart-grid fits with half/double and triplet/binary aliases, and a track whose
+local fits disagree with one global tempo. Audio beat tracking provides useful
+independent hypotheses, not original metadata.
+[Librosa 1.0.0 algorithm](https://github.com/librosa/librosa/blob/1.0.0/librosa/beat.py).
+
+Rhythmic colours need a musical quarter-beat phase in addition to BPM. Retain
+source-frame timestamps and store inferred/reviewed beat descriptions separately;
+changing a simfile's timing BPM without repositioning notes changes playback
+time. Rating extraction likewise retains a typed source number (Kouhaku stars)
+and raw provenance, while named difficulty classification belongs to consumers.
+
+
+A named difficulty tier is a derived policy, not a universally recoverable
+DanOni source field. [Generic pack preparation](danoni-postprocess.md) retains
+numeric stars and puts a configurable tier only in the playable export. Unknown
+ratings stay unknown. Local musical-grid analysis can fit stable sections while
+reporting every excluded portion; consensus in BPM does not imply consensus in
+beat phase. No notes are removed or retimed by that fitting procedure.
+
+
+A separate [approximate musical-grid export](danoni-postprocess.md#opt-in-musical-timing-with-a-strict-error-budget)
+can reposition notes with a conventional musical BPM and reviewed beat origin,
+while keeping each timestamp change below an explicit single-digit millisecond
+cap. Nearest 48-tick rounding costs at most `60/(BPM*48*2)` seconds. Snapping to
+coarser musical subdivisions needs a separate error check, with fine-tick
+fallbacks for outliers and tempo changes. The local implementation reports every
+endpoint shift, rejects collisions/collapsed holds and preserves exact source
+references. This optional approximation is not original DanOni metadata.
+
+
+The [native-scroll trial](danoni-postprocess.md#measured-native-scroll-with-a-tunable-correction)
+measures source motion independently of musical tempo. All six default charts in
+the [Kouhaku SWF](http://eucaly.net/~iso50/kouhaku.html) translate at 2 px per 60 Hz
+frame; a selected 43 px receptor-arrow width normalizes that to 120/43 arrow-size
+units/s. An SSC base scroll ratio `nativeUnitsPerSecond*60/musicalBpm` cancels
+BPM-derived X-mod velocity while leaving the player's multiplier on top. This
+compensation changes visual spacing, not judgement timing or musical colour
+buckets. Source relative speed events multiply that base ratio. Units and source
+geometry must be recorded; a raw legacy variable named `SpeedUp` is not itself
+a portable CW `difData` speed. Native relative rate and exact approach time on a
+different field remain distinct measurements.
+
+
+### Individual-song sites and archived resources (2026-10-09)
+
+The [index-input survey](danoni-indexes.md) records concrete publisher lists and
+single-song SWFs from 2004–2006 and later, distinct from Kouhaku's multi-song
+movie. iso's early pages require normal navigation from their `flash.html`
+index; the 2006 7key Festival retains original embeds inside `noscript` while
+adding Ruffle support. The legacy FAKE800 engine computes a sidecar name:
+restricted native execution requested `no7-31.txt`. Static discovery alone can
+miss such dependencies.
+
+NAOTOPage's archived RE:RAVE page, SWF and external dos resolve to three
+different March 2019 snapshots. Store requested/final capture times per resource
+and retain the original logical URL for native relative loading. Internet Archive
+[documents nearby-date and live-web fallback](https://help.archive.org/help/using-the-wayback-machine/);
+an archived page does not prove that all its dependencies share its snapshot or
+that the captured revision is the original release. Injected archive scripts'
+UTF-8 declarations must not replace the author's EUC-JP HTML encoding.
+
+Several inspected single-song SWFs contain many SoundStreamHead tags across
+nested sprites; tag count is not a song count, and blindly concatenating every
+streaming block is not a validated audio extraction. These files are preserved
+as explicit future adapter/audio cases. Native playable scope remains 5 first,
+plus 7, 7i, 9A and 9B; 9t and larger/custom modes stay outside gameplay support.
+
+
+### Single-song native families and independent clocks (2026-10-10)
+
+The [family extraction handover](danoni-native-adapters.md) adds eight works
+across three structural contracts. The earlier statements that these sources
+have only title captures are superseded by initialized native evidence.
+
+- **Chart clocks differ between legacy families.** Early iso works use advancing
+  root movie frames; later Destined Marionette and FAKE800 use independent
+  `frame_num` / `frameNum` counters while the root timeline stops. Their sparse
+  compiled `mkArrow` / `mkFArrow` indices are spawn frames, while the misleadingly
+  named `judgeY[spawn]` stores travel in frames. Native `spawn + travel` agrees
+  with every raw tap/hold head in both captured works. Dividing worker iteration
+  or root movie frame by 60 would produce incorrect origin/timing here.
+  [Destined Marionette](https://autumnleaves.yukishigure.com/_9/D_M.html),
+  [FAKE800](https://mfv2.sakura.ne.jp/do/__Flash/mfv2_005/danoni/DanOni/FAKE800/DO.FAKE800.html).
+- **Difficulty selection and split sentinels matter.** RE:RAVE's LVUP selects
+  `nleft_data` and matching prefixed lane fields; Hard selects ordinary fields.
+  DAC arrays can end in an empty token, which is not a zero-frame note. Parsed
+  banks are cross-checked against the selected fields rather than merged by name.
+  felys's final right-lane frame is out of order; the stored chart can therefore
+  differ from what its one-way native cursor actually spawns. Preserve/report
+  the defect instead of treating sorted conversion as original runtime behavior.
+  [Archived RE:RAVE](https://web.archive.org/web/20190314171455/http://www.geocities.jp/naotopage2/game/re_rave/re_rave.htm),
+  [felys](http://eucaly.net/~iso50/10/onigiri10.html).
+- **Shared loaded effects can be inactive for one selector.** In the archived
+  RE:RAVE SWF (`a6fec2d1ac860d35d5481274fbed04b35c608049e30d8d2d30e01e3a5bcbbbae`),
+  root-frame-4 code creates `speed_timeline` only for global `humen=2` (LVUP).
+  Hard (`humen=1`) retains `speed_data=9117,1.5` but creates no bank for the
+  handler to execute. The event is within Hard's note range, so this is not an
+  inactive trailing event. Preserve unused data separately from active effects;
+  missing banks alone cannot prove inactivity in other engines. Exact source
+  review and fresh runtime evidence are recorded in the
+  [Rust adapter contract](danoni-rust-extraction.md#rerave-selector-controlled-speed-proof-2026-10-14).
+  [Archived RE:RAVE](https://web.archive.org/web/20190314171455/http://www.geocities.jp/naotopage2/game/re_rave/re_rave.htm).
+- **A legacy stop array need not be an audio/timing stop.** Decipher's native
+  `stop_dac` toggles a visual flag; it does not stop the movie/audio clock. The
+  current SSC export preserves that evidence and declares its presentation
+  omission, rather than fabricating StepMania `#STOPS` and changing note times.
+  [Decipher source work](https://cw7.sakura.ne.jp/event/7fes06/works/15decipher/main.html).
+- **Native audio slices have their own offset basis.** Ruffle's `SwfSlice`
+  offsets address decompressed tag data, excluding the header/RECT/FPS section.
+  A static full-file parser must add its `tagStart` before matching container
+  ranges. A root range can enclose a separate menu stream, so format/latency
+  metadata alone cannot identify the song. Match the observed slice's enclosing
+  timeline and retain the selected blocks, not every MP3 head in the movie.
+  [Pinned movie/slice implementation](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/common/src/tag_utils.rs),
+  [party 4u](http://eucaly.net/~iso50/onigiri5.html).
+- **Decoder-origin evidence is separate from musical offset.** The new adapters
+  compare energetic native PCM windows with independently decoded compressed
+  payloads, rejecting silence and inconsistent lags. Decipher's observed Ruffle
+  origin differs by approximately 50 ms from FFmpeg's full-stream decode; its
+  canonical WAV prepends the measured samples and retains the unshifted decode.
+  The pinned reader's buffer/seek rules remain runtime-specific, not a proof of
+  original Flash/device latency. Changing codecs alone does not settle origin.
+  [Pinned decoder](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/core/src/backend/audio/decoders.rs),
+  [local measurement contract](danoni-native-adapters.md#music-origin-and-presentation).
+
+The original Straight Soul remains outside initialized extraction: its first-time
+startup performs server-backed name registration after a published-URL check.
+The restricted worker does not POST, alter the guard or simulate its response.
+Its separately captured HTML5 port must not stand in for an unobserved Flash
+reference. [Original work](https://cw7.sakura.ne.jp/danoni/2009/straights/main.html),
+[compatibility limits](danoni-native-adapters.md).
+
+### Gen3 SWF selectors, parsed speeds and stage units (2026-10-11)
+
+The [gen3 native corpus](danoni-gen3-admission.md) adds further evidence from
+[レク's work list](https://cw7.sakura.ne.jp/lst/ds0065/) and the original SWFs:
+
+- A work list can omit charts and modes inside the linked SWF.
+  [Cynthia](http://ikazch.ikaduchi.com/cynthia/cynthia.html) offers six selections,
+  including tickle and Air's 7-key charts; the レク catalogue records only its
+  5-key chart. [タイヨウノハナ](http://autumnleaves.yukishigure.com/DOXF04/flower/SUN.html)
+  has five author selections and [G Free](http://autumnleaves.yukishigure.com/DOXF04/G/Free.html)
+  three. Runtime `diffin` / `difficulty` are selectors, not numeric ratings.
+- Gen3's prepared raw lane banks agree with every compiled `mkArrow` /
+  `mkFArrow` head through `spawn + judgeY`. Its independently observed
+  `frame_num` clock and music origin, rather than the worker iteration number,
+  determine seconds. Origins in this batch are 145, 152 or 157 source frames.
+- `set_spi == 2 * dif_spi` proves default pixel increments in these captured
+  builds. Preserve parsed `speed_dac`: [Crow](http://autumnleaves.yukishigure.com/Crow/aya.html)
+  loads 1.3 at frame 485 from `option.txt`, then overwrites it with 1.25 from
+  `dos.txt`; the compiled bank contains 1.25. This is load precedence, not
+  multiplier quantization. An early text snapshot cannot represent final state.
+- Stage coordinates use twips, 20 per pixel. The pinned
+  [Ruffle conversion](https://github.com/ruffle-rs/ruffle/blob/89a7049965f3090e706265670df309a5128233ac/swf/src/types/twips.rs)
+  truncates pixel-to-twip conversion. An observed 4.4-pixel movement can agree
+  with an authored 4.375-pixel increment after each `_y` assignment. Movement
+  proofs must account for that quantization and author changes during flight;
+  neither observation justifies shifting note times or widening arrival bounds.
+- The two collaborator pages above explicitly publish integer levels attributed
+  to それは秘密's tool. These are usable published levels with their scale retained.
+  Cynthia's decimal page levels are different evidence, not star counts; keep
+  them separate from a linked catalogue's selected integer rating.
+- A URL redirect and a runtime decoding error are separate problems.
+  [曽根崎心中](https://sound.jp/kkkkk_1126/doxf04/sonezaki/shinju.html) needs its
+  cached sidecar's recorded HTTPS final URL when loaded from the HTTPS movie.
+  Some native Japanese credits still decode incorrectly. Preserve original
+  bytes and runtime strings; surrounding cached HTML supplies readable metadata.
+
+A selector is not accepted solely because its sibling charts work: the fifth
+タイヨウノハナ converter halts under the bounded native executor. Its diagnostics
+and published rating remain evidence, without an exported chart. Author boosts,
+custom fades and other presentation retain the existing explicit limitations.
+
+### Gen1 conversion precedes clock initialization (2026-10-12)
+
+The [gen1 native batch](danoni-gen1-admission.md) verifies 25 works / 31 charts
+from [レク's catalogue](https://cw7.sakura.ne.jp/lst/ds0065/). Static identifier
+overlap alone does not identify the runtime adapter:
+
+- These builds have no `judgeY`. Their compiled heads equal the original heads
+  minus `set_cnt`; tails remain unshifted, and the independent `frzLength`
+  cache records original durations. They belong to the constant-travel family.
+  [MeltyBlood](http://autumnleaves.yukishigure.com/DOXF03/MeltyBlood/Melty.html).
+- The original arrays disappear before `frame_num` is initialized. Observe both
+  conversion stages and then verify intact schedules at `frame_num = 0`;
+  neither an undefined clock nor the stopped root movie frame represents
+  initialized gameplay. Native music origins in this set range from 145 to
+  185 frames and must be measured separately per selection.
+- Parsed `speed_dac` already subtracts `set_cnt` from source event frames.
+  [Road to you](http://autumnleaves.yukishigure.com/Road/Road.html)'s source
+  `200,0.5` becomes `50,0.5` with 150 frames of travel. Use the parsed clock
+  positions directly, without another travel subtraction.
+- `difficulty = 4` counts charts; `difStep = 5,5,5,5` supplies their key modes.
+  Both [ゆかりんファンタジア](http://autumnleaves.yukishigure.com/Team_9/yukarin_side/Phantasia.html)
+  and [ばか☆すた](http://autumnleaves.yukishigure.com/Team_9/9_side/bakasuta.html)
+  offer four selections where the catalogue lists only レク's chart. Their
+  original pages publish matching tap/hold counts for all four authors, but do
+  not publish individual numerical ratings for the other three.
+- Catalogue ratings cannot be applied merely by song title:
+  [千年幻想郷](http://autumnleaves.yukishigure.com/history/history.html) lists
+  Normal/0 while its SWF selects Hard; [東の国の眠らない夜](http://autumnleaves.yukishigure.com/DOXF03/higasinokuni/higasi.html)
+  lists Normal/11 while its SWF also selects Hard. Preserve that disagreement
+  and leave the playable meter unset without further source evidence.
+- Older AVM1 arrays can expose `constructor` instead of `__constructor__` as
+  metadata. This does not authorize unknown nonnumeric schedule entries.
+  [魔法少女達の百年祭](http://autumnleaves.yukishigure.com/mahou/mahou.html)
+  and [弾・幕・決・壊](http://varenntainn.oboroduki.com/danmaku/danmaku.html)
+  exercise this older variant. Windows-specific Japanese characters in the
+  surrounding Shift_JIS-labelled HTML require CP932 decoding; preserve the
+  original bytes alongside the readable metadata.
+
+### Shared recordings do not imply identical chart grids (2026-10-11)
+
+The [shared-song fitting comparison](danoni-shared-tempo.md) finds distinct
+phases and small authored tempo approximations among charts sharing exactly
+the same canonical PCM. Pooling all head timestamps can cancel circular phase
+evidence; fit chart phases independently and preserve weak/non-grid portions.
+The generic policy requires majority chart support and agreement with audio,
+allows at most a 0.15% local tempo refinement, and retains the 9 ms endpoint
+budget. Original frame references and decoder origins remain authoritative.
+
+SSC's existing [split timing](formats-sm-ssc-dwi.md) expresses these estimates
+with each chart's own `#OFFSET`, `#BPMS` and `#SCROLLS`. Native scroll compensation
+must use that chart's BPM, even when the song-level header uses a shared median.
+This changes musical coordinates/coloring without changing the music or the
+player's speed setting. No fitted grid establishes the original editor's
+downbeat, a unique tempo octave, or a recovered variable-tempo map.
+
+
+### Gen4 filenames, title tuples and native gauge lifetime (2026-10-12)
+
+The [gen4 native batch](danoni-gen4-admission.md) adds 13 works / 16 charts
+using the existing ParaFla contract:
+
+- Missing literal `dos.txt` does not prove embedded data. `DOS_FILE_NAME =
+  "dos"` constructs the external request; all 13 files were observed natively
+  before acquisition. [Lunatic Blue](http://autumnleaves.yukishigure.com/Lunatic/blue.html).
+- `GAME_TITLE` is already resolved, while `musicTitle` can retain the original
+  title/artist/URL tuple. Readable cached page metadata remains separate from
+  an incorrectly decoded runtime string; preserve original bytes and both
+  forms. [君恋し](http://autumnleaves.yukishigure.com/kimikoishi/ls2.html),
+  [ぽっぴっぽー](http://autumnleaves.yukishigure.com/miku/pop.html).
+- [まんまるお月様](http://autumnleaves.yukishigure.com/DOWF_1/M/moon.html)
+  contains four native author selections where the work list names only レク.
+  The stars in `★ぞろり★` are part of that author's name, not a difficulty
+  rating. Its early speed changes invalidate an earlier constant-flight arrival
+  extrapolation; measure inside a stable interval instead.
+- An unplayed chart can reach its result screen, stopping `frameNum` while the
+  VM continues. Its later movie iterations cannot be treated as advancing
+  gameplay frames. A native Practice menu setting can provide longer audio
+  evidence only after proving that chart banks, compiled schedules, key codes
+  and speed units are unchanged. This batch keeps default-gauge movement and
+  Practice audio as separate, bound observations.
+- Embedded MP3 streams need not be 44.1 kHz stereo:
+  [Lapis](http://autumnleaves.yukishigure.com/DOWF_1/L/Lapis.html) is 22.05 kHz
+  stereo; [聖少女サクリファイス](http://autumnleaves.yukishigure.com/sacrifice/sac.html)
+  and [メロスピ信者の百年祭](http://autumnleaves.yukishigure.com/merosupi/100.html)
+  are 44.1 kHz mono. The stereo 44.1 kHz waveform comparison is an intermediate;
+  it does not prescribe the canonical recording's sample rate or channels.
+
+
+### Early DAC sources keep speed on each arrow (2026-10-12)
+
+The [gen0 native batch](danoni-gen0-admission.md) proves six SWF6 works/seven
+five-key charts. Their raw split child banks use `le/do/up/ri/oni_dac`, root
+`f*_dac` stores hold pairs, and source difficulty suffixes precede `_data`.
+The root movie frame is their judgment clock; a later `frame_num`/`timeline`
+structure cannot be assumed. [sai](https://sound.jp/safaido/),
+[No Life Queen](http://varenntainn.oboroduki.com/DOVSF/Queen.html).
+
+For the five configurable-key works, source speed pair `(F,M)` updates the controller at `F−150`
+to **initial pixels/frame + 2 × (M−1)**. Each arrow keeps its birth speed;
+measured arrow-local `spd` and arrivals corroborate the source bytecode.
+Treating M as a multiplier is incorrect here. SSC global scroll can approximate
+these changes but cannot reproduce overlapping arrows carrying different
+speeds; preserve original values, application frames and the visual limitation.
+[HARASSIN' BOSS](http://varenntainn.oboroduki.com/harasin.html).
+
+Its second selector is spelled `Onigiriress` natively and `Onigiriless` in the
+[catalogue](https://cw7.sakura.ne.jp/lst/ds0065/). It has the same four directional
+banks as Death, an empty onigiri lane and a five-key key bank. Blank catalogue
+continuation columns and empty lanes do not establish another key mode. The
+explicit reviewed spelling mapping supplies published meter 5; it is not a
+portable free-text classification rule.
+
+[Her Selves](http://varenntainn.oboroduki.com/selves/selves.html)'s artwork is
+registered at y=80, while source travel and frame judgment use y=70. Keep that
+registration distinction separate from musical timing.
+[U.N.オーエン](https://sound.jp/safaido/ungassaku.html)'s stream includes empty
+early payload blocks; seven waveform windows prove a 50.11 ms native delay
+relative to concatenated decoded MP3. Block headers and an observed stream
+start alone do not establish a zero decoder-origin shift.
+
+The fixed-control Owen source instead multiplies baseline speed by M and
+keeps an independent onigiri speed. These variants require separate native
+contracts (`dac-5` and `dac-fixed-5`); an initial movement sample before the
+first speed event cannot prove which later law applies. Static controller
+review and original runtime fields remain part of the evidence.
+
+
+### Collaboration banks, source scales and early child clocks (2026-10-12)
+
+The [next native admission](danoni-legacy-single-admission.md) finds:
+
+- [闇夜の月](http://varenntainn.oboroduki.com/yamiyo.html) selects eleven
+  authors from one movie/dos. Its mode is the number 5 rather than a string.
+  Ten selectors pass exact native bank/movement/audio checks; the Fly-Sky
+  selector's malformed note and hold tokens remain pending.
+- DOS comments can remain inside a loaded value after its final comma. Native
+  `speed_dac` keeps them as split strings. Only an unreachable terminal tail
+  after complete pairs is separated; original values and source-field agreement
+  remain in the reference. General comment stripping would change engine input.
+- Original stars and catalogue integers can use different scales:
+  [歪んだ神](http://shomotsu.g2.xrea.com/danoni/sec1/kami2.html) has Hard/three
+  filled stars versus [catalogue level 12](https://cw7.sakura.ne.jp/lst/ds0080/).
+  [What's Going On](http://blossom130.g3.xrea.com/danoni/doxf04/wgo.html) prints
+  hundreds in star-number notation versus catalogue levels 5/6. Retain both
+  publications and explicitly choose the scale; do not infer note counts.
+- [NIGHTMARE](http://tseirproodni.sakura.ne.jp/danoni/1-100/2-6/5/nightmare.html)
+  modifies some heads 37 frames before constant compilation. A raw-looking
+  mixed string/number bank is not necessarily untouched author input.
+- 2005 [Air](http://www7a.biglobe.ne.jp/~tyruster/rank/air/) and
+  [Cold Breath](http://www7a.biglobe.ne.jp/~tyruster/rank/cold/) expose child
+  timeline banks/`Cnt` and one native 22.05 kHz mono stream with nonzero
+  `latencySeek = 1633`. Stream-head counts alone do not identify songs or
+  establish their clock/audio origin. The subsequent native proof is below.
+
+
+### A child data bank need not have a child clock (2026-10-12)
+
+Native [Air](http://www7a.biglobe.ne.jp/~tyruster/rank/air/) and
+[Cold Breath](http://www7a.biglobe.ne.jp/~tyruster/rank/cold/) runs correct the
+initial child-clock suspicion: `Cnt` increments on arrow duplication and wraps
+at 500. Their controller compares the **parent movie frame** against a native
+lane head minus 150. The root timeline advances at 60 Hz; first-arrow arrivals
+agree exactly with the unchanged loaded chart frames, and the observed song
+stream starts at movie frame 190. A child bank's location or a counter-like
+variable name is insufficient to establish its timing clock.
+[Native evidence and contract](danoni-2005-admission.md).
+
+Cold Breath's global selector chooses unsuffixed Easy data, suffix `2` for
+native **Standard**, `3` for Hard and `4` for Special. The
+[catalogue](https://cw7.sakura.ne.jp/lst/ds0002/) calls Standard **Normal**.
+A selector outside the captured root can be represented by an explicit reviewed
+source suffix, provided **every selected loaded lane agrees with the native
+prepared arrays**. Matching a title or a difficulty label alone is insufficient.
+The catalogue's numerical levels and the original pages' filled stars are
+separate published scales and are retained separately.
+
+Both works have one observed 22.05 kHz mono MP3 stream with nonzero declared
+`latencySeek = 1633`. Whole-payload demuxing and independent waveform comparisons
+for all five selectors find **zero measured decoder-origin shift** in the pinned
+Ruffle executor. The preserved stream header is not a prescription to trim 1633
+samples from the decoded song. Original Flash/device latency remains unmeasured;
+other streams need their own origin proof. Special's stair-shaped field is an
+original presentation customization, not a change to the extracted note times.
+
+
+### A legacy menu table is not a difficulty rating (2026-10-14)
+
+The shared レク engine observed in [No Name](http://autumnleaves.yukishigure.com/noname08/noname.html)
+and [March](http://autumnleaves.yukishigure.com/7keyfestival/march.html) keeps
+`difficulty` as the **number of selector rows**, `diff_label[]` / `key_label[]`
+as the difficulty/key labels, and `dif_shift` as the zero-based selection.
+`diffi` / `keyLabel` are the current row's labels. `diffin` is empty for the first
+row and numeric `index + 1` for later rows; it participates in selecting DOS banks.
+The same engine can publish multiple 5-key charts or a single 7-key chart.
+Neither a variable named `difficulty` nor an arbitrary menu label establishes
+stars or a numerical rating. These names are an observed engine-family contract,
+not universal properties of DanOni SWFs.
+
+The title/start actions do not establish audio zero. In these captures the MP3
+starts well after the start click while `frame_num` has already advanced; source
+frame numbers, worker iterations and audio sample frames remain distinct. Discover
+the stream start and read the native clock on that exact iteration, then prove
+movement and decoded PCM independently. Dense charts also create large transient
+object graphs during compilation: a truncated graph is not an empty chart or an
+acceptable partial reference. The [Rust automatic-profile contract](danoni-rust-profiles.md)
+documents controls, repeated menu/selector checks, graph limits and source-bound
+proofs; per-work evidence remains in the local corpus.

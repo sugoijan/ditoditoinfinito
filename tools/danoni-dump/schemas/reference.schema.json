@@ -1,0 +1,620 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sugoijan.dev/ditoditoinfinito/schemas/danoni-reference.schema.json",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "ddi-danoni-reference/1"
+    },
+    "chartId": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "patternId": {
+      "type": "string"
+    },
+    "engineVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "engineScriptHashes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "url",
+          "sha256"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "adapterId": {
+      "type": "string"
+    },
+    "captureStage": {
+      "const": "scoreConvert-return-full"
+    },
+    "invocationId": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "fps": {
+      "const": 60
+    },
+    "timing": {
+      "type": "object",
+      "properties": {
+        "raw": {
+          "type": "object",
+          "properties": {
+            "blankFrame": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "startFrame": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "endFrame": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "fadeFrame": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "adjustment": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "playbackRate": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "blankFrame",
+            "startFrame",
+            "endFrame",
+            "fadeFrame",
+            "adjustment",
+            "playbackRate"
+          ],
+          "additionalProperties": false
+        },
+        "blankFrame": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "blankFrameDef": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "startFrame": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "endFrame": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "headerAdjustment": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "userAdjustment": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "preblankFrame": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "realAdjustment": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "intAdjustment": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "decimalAdjustment": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "runtimeAddedPadding": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "playbackRate": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "raw",
+        "blankFrame",
+        "blankFrameDef",
+        "startFrame",
+        "endFrame",
+        "headerAdjustment",
+        "userAdjustment",
+        "preblankFrame",
+        "realAdjustment",
+        "intAdjustment",
+        "decimalAdjustment",
+        "runtimeAddedPadding",
+        "playbackRate"
+      ],
+      "additionalProperties": false
+    },
+    "difData": {
+      "type": "object",
+      "properties": {
+        "raw": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "rawRow": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "keyLabel": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "creator": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "difficulty": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "initialSpeed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gaugeHeader": {
+          "type": "object",
+          "properties": {
+            "Border": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "Recovery": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "Damage": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "Init": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "Border",
+            "Recovery",
+            "Damage",
+            "Init"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "raw",
+        "rawRow",
+        "keyLabel",
+        "label",
+        "creator",
+        "difficulty",
+        "initialSpeed",
+        "gaugeHeader"
+      ],
+      "additionalProperties": false
+    },
+    "lanes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "chara": {
+            "type": "string"
+          },
+          "tapDataKey": {
+            "type": "string"
+          },
+          "holdDataKey": {
+            "type": "string"
+          },
+          "taps": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "holdEndpoints": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "holds": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "dummyTaps": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "dummyHoldEndpoints": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "index",
+          "chara",
+          "tapDataKey",
+          "holdDataKey",
+          "taps",
+          "holdEndpoints",
+          "holds",
+          "dummyTaps",
+          "dummyHoldEndpoints"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "speed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "frame": {
+            "type": "number"
+          },
+          "multiplier": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "frame",
+          "multiplier"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "boost": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "frame": {
+            "type": "number"
+          },
+          "multiplier": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "frame",
+          "multiplier"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "colors": {
+      "type": "object",
+      "properties": {
+        "legacy": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "frame": {
+                "type": "number"
+              },
+              "target": {
+                "type": "number"
+              },
+              "color": {
+                "type": "string"
+              },
+              "all": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "frame",
+              "target",
+              "color",
+              "all"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "modern": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "frame": {
+                  "type": "number"
+                },
+                "target": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "all": {
+                  "type": "boolean"
+                },
+                "part": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "frame",
+                "target",
+                "color",
+                "all",
+                "part"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "dummyLegacy": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "frame": {
+                "type": "number"
+              },
+              "target": {
+                "type": "number"
+              },
+              "color": {
+                "type": "string"
+              },
+              "all": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "frame",
+              "target",
+              "color",
+              "all"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "dummyModern": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "frame": {
+                  "type": "number"
+                },
+                "target": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "all": {
+                  "type": "boolean"
+                },
+                "part": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "frame",
+                "target",
+                "color",
+                "all",
+                "part"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "required": [
+        "legacy",
+        "modern",
+        "dummyLegacy",
+        "dummyModern"
+      ],
+      "additionalProperties": false
+    },
+    "effects": {
+      "$ref": "https://sugoijan.dev/ditoditoinfinito/schemas/danoni-snapshot.schema.json"
+    },
+    "snapshotPath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\).+$"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "path",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "chartId",
+    "patternId",
+    "engineVersion",
+    "engineScriptHashes",
+    "adapterId",
+    "captureStage",
+    "invocationId",
+    "fps",
+    "timing",
+    "difData",
+    "lanes",
+    "speed",
+    "boost",
+    "colors",
+    "effects",
+    "snapshotPath",
+    "diagnostics"
+  ],
+  "additionalProperties": false
+}
