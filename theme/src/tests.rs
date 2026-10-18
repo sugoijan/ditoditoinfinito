@@ -891,13 +891,25 @@ fn options_fit_every_size() {
             );
         };
         let screen = [0.0, 0.0, vp.width, vp.height];
-        for name in ["Preview", "Description", "RowsClip", "Sections"] {
+        for name in [
+            "Preview",
+            "PreviewLayout",
+            "Description",
+            "RowsClip",
+            "Sections",
+        ] {
             let b =
                 h.ui.bounds(name)
                     .unwrap_or_else(|| panic!("{size:?} {name}"));
             inside(b, screen, name);
         }
         let sections = state.borrow().option_rows.len();
+        let selector = h.ui.bounds("PreviewLayout").unwrap();
+        let preview = h.ui.bounds("Preview").unwrap();
+        assert!(
+            selector[3] < preview[1],
+            "{size:?}: {selector:?} {preview:?}"
+        );
         assert!(sections > 0);
         for _ in 0..10 {
             let rows = state.borrow().option_rows.clone();

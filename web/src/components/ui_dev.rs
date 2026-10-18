@@ -2226,7 +2226,18 @@ fn publish(h: &Host) {
             names.extend((0..st.page_items.len()).map(|i| format!("Item{i}")));
         }
         if st.screen == "options" {
-            names.extend(["Back", "RowsClip", "Preview", "Description"].map(String::from));
+            names.extend(
+                [
+                    "Back",
+                    "RowsClip",
+                    "Preview",
+                    "Description",
+                    "PreviewLayout",
+                    "PreviewLayout.Down",
+                    "PreviewLayout.Up",
+                ]
+                .map(String::from),
+            );
             names.extend((0..12).map(|i| format!("Section{i}")));
             for i in 0..st.option_rows.len() {
                 names.push(format!("Option{i}"));

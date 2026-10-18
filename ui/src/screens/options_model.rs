@@ -294,13 +294,14 @@ impl OptionsModel {
     /// The rows.
     pub fn data(&self) -> OptionsData {
         let s = &self.settings;
+        let shown = self.preview_layout.as_deref().unwrap_or(&s.style);
         let style = self
             .bind_layouts()
             .into_iter()
-            .find(|l| l.id == s.style)
-            .map_or_else(|| s.style.clone(), |l| l.name);
+            .find(|l| l.id == shown)
+            .map_or_else(|| shown.to_string(), |l| l.name);
         let mut preview = vec![
-            self.skin_name(s.noteskin.as_deref()),
+            self.skin_name(s.noteskin_for(shown)),
             style,
             format!("×{}", trim(s.speed)),
         ];
@@ -322,6 +323,7 @@ impl OptionsModel {
             .into_iter()
             .chain(self.folders())
             .collect(),
+            preview_layout: Some(self.preview_layout_option()),
             preview: preview.join(" · "),
             notice: self.notice.clone(),
         }
@@ -760,17 +762,6 @@ impl OptionsModel {
                 .position(|(key, _)| key == k)
                 .map_or(0, |i| i + 2),
         };
-        let layouts = self.bind_layouts();
-        let shown = self.preview_layout.as_deref().unwrap_or(&s.style);
-        let mut preview = row(
-            "preview_layout",
-            "Preview on",
-            OptionKind::Choices(layouts.iter().map(|l| l.name.clone()).collect()),
-            layouts.iter().position(|l| l.id == shown).unwrap_or(0),
-            "The style the preview shows the arrows on (the style chosen until you pick \
-             another; not kept).",
-        );
-        preview.heading = Some("PREVIEW".into());
         let mut rows = vec![row(
             "noteskin",
             "Arrows",
@@ -852,8 +843,23 @@ impl OptionsModel {
                 ));
             }
         }
-        rows.push(preview);
         section("Arrows", rows)
+    }
+
+    fn preview_layout_option(&self) -> OptionDef {
+        let layouts = self.bind_layouts();
+        let shown = self
+            .preview_layout
+            .as_deref()
+            .unwrap_or(&self.settings.style);
+        row(
+            "preview_layout",
+            "Preview on",
+            OptionKind::Choices(layouts.iter().map(|l| l.name.clone()).collect()),
+            layouts.iter().position(|l| l.id == shown).unwrap_or(0),
+            "The style the preview shows the arrows on (the style chosen until you pick \
+             another; not kept).",
+        )
     }
 
     fn controls(&self) -> OptionSection {
@@ -1930,11 +1936,12 @@ mod tests {
         );
         // The preview's layout: the style's until another is picked.
         let d = m.data();
-        let p = find(&d, "preview_layout");
+        let p = d.preview_layout.as_ref().unwrap();
         assert_eq!(p.value(), "Single");
         let solo = p.values().iter().position(|v| v == "Solo").unwrap();
         assert!(m.change("preview_layout", solo));
         assert_eq!(m.preview_settings().style, "dance-solo");
+        assert!(m.data().preview.contains(" · Solo · "));
         assert_eq!(m.settings.style, "dance-single");
     }
 }

@@ -230,6 +230,59 @@ fn the_preview_is_told_once_and_again_when_it_moves() {
 }
 
 #[test]
+fn the_preview_layout_is_available_in_every_section_without_changing_play() {
+    for (size, design) in [
+        ([1280.0, 720.0], DESIGN),
+        ([844.0, 390.0], super::COMPACT),
+        ([390.0, 844.0], super::COMPACT),
+    ] {
+        let mut r = rig(size, design);
+        let settings = r.model.borrow().settings.clone();
+        let sections = r.model.borrow().data().sections.len();
+        for _ in 0..sections {
+            let section = r.state.borrow().section.clone();
+            assert!(
+                !r.state
+                    .borrow()
+                    .option_rows
+                    .iter()
+                    .any(|id| id == "preview_layout")
+            );
+            let selector = r.h.ui.bounds("PreviewLayout").unwrap();
+            let preview = r.h.ui.bounds("Preview").unwrap();
+            assert!(
+                selector[3] < preview[1],
+                "{size:?}: {selector:?} {preview:?}"
+            );
+            r.h.tap(PointerKind::Touch, "PreviewLayout.Up");
+            assert_eq!(r.model.borrow().preview_settings().style, "dance-solo");
+            assert_eq!(r.state.borrow().section, section);
+            assert_eq!(r.state.borrow().option_id, "preview_layout");
+            r.h.pad(MenuAction::Left, true);
+            r.h.pad(MenuAction::Left, false);
+            assert_eq!(r.model.borrow().preview_settings().style, "dance-single");
+            r.h.key("ArrowUp", "ArrowUp");
+            assert_ne!(r.state.borrow().option_id, "preview_layout");
+            r.h.key("KeyP", "p");
+            assert_eq!(r.state.borrow().option_id, "preview_layout");
+            r.h.key("ArrowRight", "ArrowRight");
+            assert_eq!(r.model.borrow().preview_settings().style, "dance-solo");
+            r.h.key("ArrowLeft", "ArrowLeft");
+            assert_eq!(r.model.borrow().settings, settings);
+            assert_eq!(stored(), settings);
+            r.h.key("Tab", "Tab");
+            r.h.run(0.05);
+        }
+        // A controller reaches the selector after the section's last row.
+        let last = r.state.borrow().option_rows.last().unwrap().clone();
+        r.row(&last);
+        r.h.pad(MenuAction::Down, true);
+        r.h.pad(MenuAction::Down, false);
+        assert_eq!(r.state.borrow().option_id, "preview_layout");
+    }
+}
+
+#[test]
 fn the_keyboard_is_bound_by_keys_through_the_dialog() {
     let mut r = rig([1280.0, 720.0], DESIGN);
     r.section("Controls");
