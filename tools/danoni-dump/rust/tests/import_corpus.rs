@@ -55,7 +55,8 @@ impl host::Transaction for Tx<'_> {
             ddi_chart::formats::sm::parse_ssc(std::str::from_utf8(&body.bytes).unwrap()).unwrap();
         assert_eq!(parsed.charts.len(), summary.entry.charts.len());
         let all = s.files().iter().map(|f| f.path.clone()).collect::<Vec<_>>();
-        let assets = ddi_library::pack::resolve_assets(&parsed, "", &all);
+        let assets =
+            ddi_library::pack::resolve_assets(&parsed, ddi_library::path::RelPath::new(""), &all);
         assert_eq!(assets.music.as_ref(), Some(&summary.entry.music));
         assert_eq!(assets.banner, summary.entry.banner);
         self.staged

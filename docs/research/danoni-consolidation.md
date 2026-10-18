@@ -13,6 +13,10 @@ commands, [runtime setup](danoni-rust-runtime.md) to install the worker, and
 Earlier research documents retain their dated measurements, URLs, contracts and
 commands as historical evidence; commands listed below have been retired.
 
+The 2026-10-18 merge adds current-main path compatibility and standalone CI;
+see [the integration update](danoni-desktop-integration.md#compatibility-with-main-2026-10-18).
+The dated measurements here retain their original scope.
+
 ## Retired tools
 
 The earlier implementation remains recoverable from the backup branch. Its frozen

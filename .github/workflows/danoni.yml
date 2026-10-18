@@ -1,0 +1,53 @@
+name: DanOni SDK and desktop handoff
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# These packages have their own workspaces/lockfiles. Root cargo checks cannot
+# catch shared library API changes here. No public URLs or worker downloads.
+jobs:
+  # Linux confinement tests require Landlock ABI >= 6; a missing sandbox
+  # must fail closed (docs/research/danoni-rust-linux.md).
+  handoff:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: danoni
+          workspaces: |
+            tools/danoni-dump/rust -> ../../../target
+            tools/danoni-dump/desktop-probe -> ../../../target
+            tools/danoni-dump/pack-verify -> ../../../target
+      - name: ALSA and udev headers, independent audio decoder
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev ffmpeg
+      - name: Independent audio decoder on macOS
+        if: runner.os == 'macOS'
+        run: command -v ffmpeg || brew install ffmpeg
+      - name: SDK, desktop lifecycle and SSC/Opus playback
+        run: python3 tools/danoni-dump/check.py
+
+  # Windows runtime confinement is still pending; the pure SDK is portable.
+  portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: danoni-portable
+          workspaces: tools/danoni-dump/rust -> ../../../target
+      - name: SDK without native runtime or codec features
+        run: python tools/danoni-dump/check.py --minimal
