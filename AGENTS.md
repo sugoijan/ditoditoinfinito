@@ -193,12 +193,17 @@ the browser are implementation details, not advertised features.
   prerequisites) runs their locked checks, synthetic tests and independent
   Opus decoder comparison; `--minimal` checks the SDK without native/codec
   features, including on Windows in CI. No live songs or runtime downloads
-  are part of this check. The SDK is not linked into the game yet; desktop
-  integration will hand off prepared SSC/Opus through the verified managed
-  catalog, never scan its transaction directories. Sources and generated
-  third-party packs stay outside Git. See
-  `docs/research/danoni-desktop-integration.md` for the remaining adapter,
-  runtime attestation and redistribution work.
+  are part of this check. The optional desktop/app `danoni` development feature
+  (Rust 1.99; default game remains on 1.98) links the SDK for macOS/Linux, with
+  Add songs URL import and
+  cancellable jobs. It requires an explicitly installed verified runtime and
+  `DDI_DANONI_HOST` binding the final executable/root lock; distribution remains
+  gated on enabled-graph credits, worker notices and publisher attestation.
+  Prepared SSC/Opus use the SDK-owned verified playback snapshot and the ordinary
+  library; never scan transaction directories. See `docs/plans/danoni-import.md`.
+  Sources and generated third-party packs stay outside Git. See
+  `docs/research/danoni-desktop-integration.md` for runtime attestation and
+  redistribution work.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md` and
   `THIRD_PARTY_RUST.md`.
 - `video/` the software video decoder: C shims over FFmpeg's video

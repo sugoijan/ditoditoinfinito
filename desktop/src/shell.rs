@@ -950,7 +950,11 @@ impl ApplicationHandler for Shell {
             [l.x, l.y]
         };
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                if self.songs.as_ref().is_none_or(|s| s.shutdown()) {
+                    event_loop.exit();
+                }
+            }
             WindowEvent::Resized(_) => self.resized(),
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor;
@@ -1144,6 +1148,14 @@ impl ApplicationHandler for Shell {
         // screen open over it.
         if let Some(songs) = &self.songs {
             songs.poll(&mut self.ui);
+            let invalidated = crate::library::take_invalidated_previews();
+            if !invalidated.is_empty() {
+                self.sound.borrow_mut().invalidate(&invalidated);
+            }
+            if songs.drained() {
+                event_loop.exit();
+                return;
+            }
             // A library song's preview made ready on its thread.
             if crate::library::take_prepared() {
                 self.sound.borrow_mut().refind();
@@ -1195,11 +1207,21 @@ impl ApplicationHandler for Shell {
         }
         if let Some(limit) = self.quit_after {
             if self.start.elapsed().as_secs_f64() >= limit {
-                event_loop.exit();
+                if self.songs.as_ref().is_none_or(|s| s.shutdown()) {
+                    event_loop.exit();
+                } else {
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(
+                        Instant::now() + std::time::Duration::from_millis(50),
+                    ));
+                }
                 return;
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + std::time::Duration::from_millis(100),
+            ));
+        } else if self.songs.as_ref().is_some_and(|s| s.importing()) {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + std::time::Duration::from_millis(50),
             ));
         } else if let Some(at) = self.retry_at {
             event_loop.set_control_flow(ControlFlow::WaitUntil(at));

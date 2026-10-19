@@ -613,9 +613,13 @@ Opus music and title artwork to the existing desktop loader and shared play
 session; do not introduce a second gameplay path or change music offsets.
 The managed store's verified catalog publishes entries with the SDK's stable
 IDs; recursively scanning its transactions would expose cancelled or obsolete
-songs. Next add a store-owned snapshot API and desktop adapter that merges
-managed entries with folder/bundled songs, then a background job owner and URL
-UI with progress/cancellation. Before shipping a runtime, bind attestation to
+songs. The opt-in `danoni` development feature now adds the store-owned verified
+playback snapshot, desktop adapter preserving immutable revisions alongside
+folder/bundled songs, an owned cancellable background job and Add songs URL UI
+(macOS/Linux; browser/Windows hidden). It requires Rust 1.99 and an explicit
+installed runtime plus operator binding to the final executable and root lock;
+see `docs/plans/danoni-import.md`. Default builds remain on Rust 1.98. Before
+shipping this feature/runtime, complete trusted application attestation for
 the application's actual dependency graph, finish notice/license inventory
 and platform confinement/durability checks. Linux/macOS CI tests the synthetic
 handoff; Windows checks the portable SDK, not runtime execution. Frozen corpus

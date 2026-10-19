@@ -165,3 +165,81 @@ fn the_web_keeps_its_wording() {
     h.run(0.3);
     assert!(h.texts().iter().any(|t| t.contains("browser")));
 }
+
+#[test]
+fn danoni_url_import_is_capability_gated_and_empty_submission_does_nothing() {
+    use super::data::ImportView;
+    use super::select::SelectCall;
+    use std::cell::RefCell;
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let seen = calls.clone();
+    let shell = Rc::new(move |call, _: &mut crate::Cx| seen.borrow_mut().push(call));
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(ImportDialog::new(env(), Rc::default(), Some(shell.clone())));
+    assert!(h.ui.bounds("DanoniUrl").is_none());
+
+    let view = Rc::new(RefCell::new(ImportView {
+        platform: Platform::Desktop,
+        danoni_urls: true,
+        ..Default::default()
+    }));
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(ImportDialog::new(env(), view, Some(shell)));
+    h.run(0.2);
+    h.tap(PointerKind::Mouse, "DanoniUrl");
+    h.run(0.2);
+    h.tap(PointerKind::Mouse, "ImportDanoni");
+    assert!(calls.borrow().is_empty());
+    assert!(h.ui.bounds("DanoniUrlField").is_some());
+    h.tap(PointerKind::Mouse, "DanoniUrlField");
+    let url = "  https://example.org/song/  ";
+    h.sync(url, [url.len(); 2], None);
+    h.key("Enter", "Enter");
+    h.run(0.2);
+    assert_eq!(
+        &*calls.borrow(),
+        &[SelectCall::ImportDanoni("https://example.org/song/".into())]
+    );
+    assert!(h.ui.bounds("DanoniUrlField").is_none());
+    assert!(
+        h.ui.bounds("DanoniUrl").is_some(),
+        "the progress dialog remains"
+    );
+}
+
+#[test]
+fn danoni_running_import_can_be_cancelled_but_closing_does_not_cancel_it() {
+    use super::data::ImportView;
+    use super::select::SelectCall;
+    use std::cell::RefCell;
+    for cancel in [false, true] {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let seen = calls.clone();
+        let shell = Rc::new(move |call, _: &mut crate::Cx| seen.borrow_mut().push(call));
+        let view = Rc::new(RefCell::new(ImportView {
+            platform: Platform::Desktop,
+            danoni_urls: true,
+            danoni_cancel: true,
+            running: Some("Converting charts…".into()),
+            ..Default::default()
+        }));
+        let env = env();
+        let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+        h.push(ImportDialog::new(env.clone(), view, Some(shell)));
+        h.run(0.2);
+        h.tap(PointerKind::Mouse, "DanoniUrl");
+        h.tap(PointerKind::Mouse, "PickFolder");
+        assert!(
+            calls.borrow().is_empty(),
+            "a busy import cannot start another"
+        );
+        if cancel {
+            h.tap(PointerKind::Mouse, "CancelDanoni");
+            assert_eq!(&*calls.borrow(), &[SelectCall::CancelDanoni]);
+        }
+        h.tap(PointerKind::Mouse, "Close");
+        h.run(0.2);
+        assert_eq!(calls.borrow().len(), usize::from(cancel));
+        assert!(!env.state.borrow().import_open);
+    }
+}

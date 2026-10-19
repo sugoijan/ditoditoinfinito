@@ -106,6 +106,8 @@ pub(crate) fn import_view(settings: &Settings) -> ImportView {
     let (running, report, _) = crate::import::status();
     ImportView {
         platform: ddi_ui::screens::data::Platform::Web,
+        danoni_urls: false,
+        danoni_cancel: false,
         folders: crate::web::folders::supported(),
         copy: settings.import_copy,
         videos: settings.import_videos,

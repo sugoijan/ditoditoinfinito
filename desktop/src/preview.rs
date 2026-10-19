@@ -184,6 +184,17 @@ impl Player {
         self.settle = id.map(|_| Instant::now() + SETTLE);
     }
 
+    /// A library revision changed beneath the selected id. Future preview
+    /// playback must decode its new immutable path, even if the id is stable.
+    pub fn invalidate(&mut self, ids: &[String]) {
+        if self.wanted.as_ref().is_some_and(|id| ids.contains(id)) {
+            self.stop();
+            self.loaded = None;
+            self.job = None;
+            self.settle = Some(Instant::now() + SETTLE);
+        }
+    }
+
     /// The wanted song's preview may be found now (it was being made
     /// ready on a thread, `crate::library::preview_song`): looked for
     /// again unless it plays or decodes.
@@ -396,6 +407,20 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_replaced_selected_song_restarts_its_preview_without_changing_pause() {
+        let mut p = Player::with(Audio::silent(0.0), PreviewSong::bundled);
+        p.select(Some("replacement-test"));
+        p.pause();
+        p.settle = None;
+        p.invalidate(&["other-song".into()]);
+        assert!(p.settle.is_none());
+        p.invalidate(&["replacement-test".into()]);
+        assert!(p.settle.is_some());
+        assert_eq!(p.wanted.as_deref(), Some("replacement-test"));
+        assert!(p.paused);
+    }
 
     #[test]
     fn bundled_songs_have_previews() {

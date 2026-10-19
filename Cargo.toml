@@ -1,5 +1,6 @@
 [workspace]
 resolver = "3"
+exclude = ["tools/danoni-dump/rust"]
 members = ["chart", "engine", "render", "platform", "library", "actor", "ui", "theme", "noteskin", "lua", "session", "web", "opus-worker", "desktop", "app", "xtask"]
 # `app` is the game: built for wasm by Trunk (index.html) it starts the
 # web shell, built natively (a bare `cargo run`) the desktop shell.
@@ -88,3 +89,13 @@ overflow-checks = true
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# The opt-in acquisition SDK is large; debug codegen must stay below the
+# per-process compiler budget. The optimized desktop profile is independent.
+[profile.dev.package.ddi-danoni-export]
+opt-level = 0
+debug = 0
+
+[profile.test.package.ddi-danoni-export]
+opt-level = 0
+debug = 0

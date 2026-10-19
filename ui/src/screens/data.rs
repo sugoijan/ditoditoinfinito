@@ -197,6 +197,10 @@ pub struct ImportView {
     pub videos: bool,
     /// Details for pack authors.
     pub details: bool,
+    /// The desktop shell has a configured DanOni URL importer.
+    pub danoni_urls: bool,
+    /// A running DanOni import can be cancelled.
+    pub danoni_cancel: bool,
     /// What runs now ("reading 120 files…").
     pub running: Option<String>,
     /// The last import's report.
