@@ -22,6 +22,8 @@
 //!   the music's path (a zip's extracted once into the cache folder).
 
 pub mod files;
+#[cfg(all(feature = "danoni", any(target_os = "macos", target_os = "linux")))]
+pub mod managed;
 pub mod noteskins;
 pub mod offer;
 
@@ -126,6 +128,23 @@ impl Hidden {
         self.packs.retain(|p| !p.eq_ignore_ascii_case(name));
         self.songs.retain(|s| !ids.contains(&s.as_str()));
         before != (self.packs.len(), self.songs.len())
+    }
+
+    /// Restore selected imported ids without revealing other rows of a hidden
+    /// managed pack. A hidden pack becomes individual hidden ids for its remainder.
+    pub fn show_only(&mut self, name: &str, all: &[&str], ids: &[&str]) -> bool {
+        let before = self.clone();
+        if self.packs.iter().any(|p| p.eq_ignore_ascii_case(name)) {
+            self.packs.retain(|p| !p.eq_ignore_ascii_case(name));
+            let mut hidden: HashSet<String> = self.songs.iter().cloned().collect();
+            for id in all.iter().filter(|id| !ids.contains(id)) {
+                if hidden.insert((*id).to_string()) {
+                    self.songs.push((*id).to_string());
+                }
+            }
+        }
+        self.songs.retain(|id| !ids.contains(&id.as_str()));
+        *self != before
     }
 
     pub fn hides(&self, s: &LibSong) -> bool {
@@ -972,6 +991,8 @@ pub enum News {
 pub struct Library {
     pub songs: Vec<LibSong>,
     pub report: Report,
+    folder_songs: Vec<LibSong>,
+    managed_songs: Vec<LibSong>,
     /// A scan is running.
     pub scanning: bool,
     /// The list came from the cache (no scan finished yet).
@@ -997,6 +1018,8 @@ impl Library {
     ) -> Library {
         let mut l = Library {
             songs: Vec::new(),
+            folder_songs: Vec::new(),
+            managed_songs: Vec::new(),
             report: Report::default(),
             scanning: false,
             from_cache: false,
@@ -1008,6 +1031,47 @@ impl Library {
         };
         l.run(folders, Force::default(), true);
         l
+    }
+
+    /// Publishes verified managed rows beside folder songs. Folder songs win
+    /// an id collision; managed duplicates keep their first row. A later folder
+    /// scan replaces only folder rows, so pending scan news cannot erase imports.
+    pub fn set_managed(&mut self, songs: Vec<LibSong>) -> bool {
+        self.managed_songs = songs;
+        self.merge_songs()
+    }
+
+    fn merge_songs(&mut self) -> bool {
+        let mut seen = HashSet::new();
+        let songs: Vec<_> = self
+            .folder_songs
+            .iter()
+            .chain(&self.managed_songs)
+            .filter(|s| seen.insert(s.entry.id.as_str()))
+            .cloned()
+            .collect();
+        if self.songs == songs {
+            register(&songs);
+            return false;
+        }
+        // Cached previews carry immutable file paths; replacing an import must
+        // prepare its new music instead of reusing the previous revision.
+        let by_id: HashMap<_, _> = songs.iter().map(|s| (s.entry.id.as_str(), s)).collect();
+        let changed: HashSet<_> = self
+            .songs
+            .iter()
+            .filter(|old| by_id.get(old.entry.id.as_str()).copied() != Some(*old))
+            .map(|s| s.entry.id.as_str())
+            .collect();
+        register(&songs);
+        if let Ok(mut list) = preps().lock() {
+            list.retain(|(id, _)| !changed.contains(id.as_str()));
+        }
+        if let Ok(mut invalidated) = invalidated_previews().lock() {
+            invalidated.extend(changed.into_iter().map(str::to_string));
+        }
+        self.songs = songs;
+        true
     }
 
     /// Scans `folders` again (`force`: the roots under these read whole,
@@ -1098,14 +1162,14 @@ impl Library {
                 News::Cached(songs, ms) => {
                     // A scan done first keeps its newer list.
                     if self.scanning {
-                        self.songs = songs;
+                        self.folder_songs = songs;
                         self.from_cache = true;
                         self.cached_ms = Some(ms);
                         changed = true;
                     }
                 }
                 News::Scanned(songs, mut report) => {
-                    self.songs = songs;
+                    self.folder_songs = songs;
                     report.cached_ms = self.cached_ms;
                     self.report = report;
                     self.scanning = false;
@@ -1115,7 +1179,7 @@ impl Library {
             }
         }
         if changed {
-            register(&self.songs);
+            self.merge_songs();
         }
         changed
     }
@@ -1210,6 +1274,19 @@ fn preps() -> &'static Mutex<Vec<(String, Prep)>> {
     PREPS.get_or_init(Default::default)
 }
 
+fn invalidated_previews() -> &'static Mutex<HashSet<String>> {
+    static INVALIDATED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    INVALIDATED.get_or_init(Default::default)
+}
+
+/// Changed song revisions whose already-decoded previews must be discarded.
+pub fn take_invalidated_previews() -> Vec<String> {
+    invalidated_previews()
+        .lock()
+        .map(|mut ids| ids.drain().collect())
+        .unwrap_or_default()
+}
+
 /// Previews kept ready at most.
 const PREPS_KEPT: usize = 48;
 
@@ -1263,6 +1340,7 @@ pub fn preview_song(id: &str) -> Option<crate::preview::PreviewSong> {
         .spawn(move || {
             let done = prepare_preview(&s).map_or(Prep::Failed, |p| Prep::Ready(Box::new(p)));
             if let Ok(mut preps) = preps().lock()
+                && song(&id).as_ref() == Some(&s)
                 && let Some(slot) = preps.iter_mut().find(|(k, _)| *k == id)
             {
                 slot.1 = done;
@@ -1399,3 +1477,103 @@ fn clean_previews(dir: &Path, key: &str, keep: &Path) {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod managed_merge_tests {
+    use super::*;
+
+    fn song(id: &str, title: &str) -> LibSong {
+        LibSong {
+            root: PathBuf::from("/synthetic"),
+            zip: false,
+            dir: Default::default(),
+            pack: "Test".into(),
+            entry: serde_json::from_value(serde_json::json!({
+                "id": id, "title": title, "artist": "Test", "chart": "chart.ssc", "music": "music.opus"
+            })).unwrap(),
+            warnings: Vec::new(),
+            notes: Vec::new(),
+            work: None,
+        }
+    }
+
+    #[test]
+    fn managed_import_restore_preserves_other_hidden_rows() {
+        let mut hidden = Hidden {
+            packs: vec!["DanOni imports".into(), "Other pack".into()],
+            songs: vec!["separately-hidden".into()],
+        };
+        assert!(hidden.show_only(
+            "DanOni imports",
+            &["reimported", "unrelated", "separately-hidden"],
+            &["reimported"]
+        ));
+        assert!(!hidden.packs.contains(&"DanOni imports".into()));
+        assert!(hidden.packs.contains(&"Other pack".into()));
+        assert!(!hidden.songs.contains(&"reimported".into()));
+        assert!(hidden.songs.contains(&"unrelated".into()));
+        assert!(hidden.songs.contains(&"separately-hidden".into()));
+        assert!(!hidden.show_only(
+            "DanOni imports",
+            &["reimported", "unrelated"],
+            &["reimported"]
+        ));
+    }
+
+    #[test]
+    fn imports_survive_cached_and_scanned_news_with_folder_priority() {
+        let (tx, rx) = mpsc::channel();
+        let mut library = Library {
+            songs: Vec::new(),
+            folder_songs: Vec::new(),
+            managed_songs: Vec::new(),
+            report: Report::default(),
+            scanning: true,
+            from_cache: false,
+            rx: Some(rx),
+            cached_ms: None,
+            generation: Arc::new(AtomicU64::new(1)),
+            wake: Arc::new(|| {}),
+            cache: None,
+        };
+        let imported = song("managed-test-import", "Imported");
+        let folder = song("managed-test-folder", "Folder");
+        assert!(library.set_managed(vec![imported.clone(), imported.clone()]));
+        assert_eq!(library.songs, vec![imported.clone()]);
+        tx.send((1, News::Cached(vec![folder.clone()], 1.0)))
+            .unwrap();
+        assert!(library.take());
+        assert_eq!(library.songs, vec![folder.clone(), imported.clone()]);
+        let mut collision = imported.clone();
+        collision.entry.title = "Folder copy wins".into();
+        tx.send((
+            1,
+            News::Scanned(vec![folder.clone(), collision.clone()], Report::default()),
+        ))
+        .unwrap();
+        assert!(library.take());
+        assert_eq!(library.songs, vec![folder.clone(), collision]);
+        tx.send((1, News::Scanned(vec![folder.clone()], Report::default())))
+            .unwrap();
+        assert!(library.take());
+        assert_eq!(library.songs, vec![folder.clone(), imported.clone()]);
+        assert!(!library.set_managed(vec![imported.clone()]));
+        preps()
+            .lock()
+            .unwrap()
+            .push((imported.entry.id.clone(), Prep::Failed));
+        let mut replaced = imported;
+        replaced.root = PathBuf::from("/replacement");
+        assert!(library.set_managed(vec![replaced.clone()]));
+        assert!(
+            !preps()
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(id, _)| id == &replaced.entry.id)
+        );
+        assert_eq!(library.songs, vec![folder.clone(), replaced]);
+        assert!(library.set_managed(Vec::new()));
+        assert_eq!(library.songs, vec![folder]);
+    }
+}

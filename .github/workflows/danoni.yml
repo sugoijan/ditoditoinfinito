@@ -38,6 +38,16 @@ jobs:
         run: command -v ffmpeg || brew install ffmpeg
       - name: SDK, desktop lifecycle and SSC/Opus playback
         run: python3 tools/danoni-dump/check.py
+      - name: Opt-in desktop adapter and job owner (no runtime downloads)
+        env:
+          DDI_HOME: ${{ github.workspace }}/target/scratch/danoni-ci/home
+          DDI_NO_GPU: "1"
+          CARGO_BUILD_JOBS: "2"
+        run: |
+          cargo clippy --locked -p ddi-desktop --no-default-features --features danoni --all-targets -- -D warnings
+          cargo test --locked -p ddi-desktop --no-default-features --features danoni --lib danoni::tests
+          cargo test --locked -p ddi-desktop --no-default-features --features danoni --lib managed
+
 
   # Windows runtime confinement is still pending; the pure SDK is portable.
   portable:

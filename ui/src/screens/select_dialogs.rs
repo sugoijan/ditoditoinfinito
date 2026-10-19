@@ -17,7 +17,9 @@ use crate::hit;
 use crate::look::{self, Spec, call, quad};
 use crate::message::Message;
 use crate::nav::{Focusable, MenuAction};
+use crate::request::{EnterKey, InputHints, InputMode};
 use crate::screen::{Cx, Handled, Input, Screen};
+use crate::widgets::field::{FieldEvent, SearchField};
 use crate::widgets::list::{ItemKind, List, ListConfig, ListModel, ListStyle};
 use crate::widgets::{part, set_text};
 
@@ -535,7 +537,7 @@ impl ImportDialog {
 
     fn options(&self) -> Vec<(&'static str, &'static str, bool)> {
         let v = self.view.borrow();
-        // Desktop copies nothing: the options are the browser's.
+        // Desktop folders are read in place; these copy options are the browser's.
         if v.platform == Platform::Desktop {
             return Vec::new();
         }
@@ -604,7 +606,7 @@ impl Screen for ImportDialog {
             "They stay in this browser only."
         };
         let intro = if platform == Platform::Desktop {
-            "StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works: a song folder (a StepMania, ITGmania or OutFox folder, a Songs folder, a pack) or a pack's zip. They are read where they are, nothing is copied; Options lists the folders.".to_string()
+            "StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works: a song folder (a StepMania, ITGmania or OutFox folder, a Songs folder, a pack) or a pack's zip. Chosen folders and zips are read where they are; Options lists them.".to_string()
         } else {
             format!(
                 "StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works: a folder, a zip or files, or drop them on this page. {keeps}"
@@ -641,6 +643,21 @@ impl Screen for ImportDialog {
             children.push(b);
         }
         let mut oy = by + 44.0;
+        if self.view.borrow().danoni_urls {
+            let mut b = button(
+                &env,
+                "DanoniUrl",
+                "Import from DanOni URL…",
+                [x + w / 2.0, oy],
+                w - 48.0,
+                "Button",
+            );
+            if busy {
+                look::run(&mut b, "diffusealpha,0.4");
+            }
+            children.push(b);
+            oy += 44.0;
+        }
         for (name, label, on) in self.options() {
             let t = crate::widgets::controls::Toggle::new(
                 &format!("Option.{name}"),
@@ -675,6 +692,16 @@ impl Screen for ImportDialog {
         c.style = ListStyle::Plain;
         self.list = List::new(c, &Lines(&self.lines));
         children.push(self.list.build(&*env.look));
+        if busy && self.view.borrow().danoni_cancel {
+            children.push(button(
+                &env,
+                "CancelDanoni",
+                "Cancel import",
+                [x + 94.0, y + h - 36.0],
+                140.0,
+                "Button",
+            ));
+        }
         children.push(button(
             &env,
             "Close",
@@ -705,12 +732,21 @@ impl Screen for ImportDialog {
             pick("PickFolder", "PickFiles"),
             pick("PickFiles", "PickFolder"),
         ];
+        if self.view.borrow().danoni_urls {
+            v.push(Focusable::new("DanoniUrl"));
+            for item in &mut v[..2] {
+                item.down = Some("DanoniUrl".into());
+            }
+        }
         v.extend(
             self.options()
                 .into_iter()
                 .map(|(n, _, _)| Focusable::new(format!("Option.{n}"))),
         );
         v.push(Focusable::new("Report"));
+        if self.view.borrow().running.is_some() && self.view.borrow().danoni_cancel {
+            v.push(Focusable::new("CancelDanoni"));
+        }
         v.push(Focusable::new("Close"));
         v
     }
@@ -740,6 +776,16 @@ impl Screen for ImportDialog {
                     "PickFolder" if !busy => self.call(SelectCall::PickFolder, cx),
                     "PickFiles" if !busy => self.call(SelectCall::PickFiles, cx),
                     "PickFolder" | "PickFiles" => {}
+                    "DanoniUrl" if !busy && self.view.borrow().danoni_urls => {
+                        cx.overlay(
+                            DanoniUrlDialog::new(self.env.clone(), self.shell.clone()),
+                            true,
+                        );
+                    }
+                    "CancelDanoni" if busy && self.view.borrow().danoni_cancel => {
+                        self.call(SelectCall::CancelDanoni, cx);
+                    }
+                    "DanoniUrl" | "CancelDanoni" => {}
                     "Close" => {
                         self.env.state.borrow_mut().import_open = false;
                         cx.close(false);
@@ -798,6 +844,137 @@ impl Screen for ImportDialog {
 impl Drop for ImportDialog {
     fn drop(&mut self) {
         self.env.state.borrow_mut().import_open = false;
+    }
+}
+
+/// The desktop URL entry; progress belongs to Add songs, not this transient field.
+struct DanoniUrlDialog {
+    env: Env,
+    shell: Option<ShellFn>,
+    url: SearchField,
+}
+
+impl DanoniUrlDialog {
+    fn new(env: Env, shell: Option<ShellFn>) -> Self {
+        let mut url = SearchField::new("DanoniUrlField", "https://…", [0.0; 2], [1.0; 2]);
+        url.hints = InputHints {
+            mode: InputMode::Url,
+            enter: EnterKey::Go,
+            max_chars: Some(8192),
+        };
+        Self { env, shell, url }
+    }
+
+    fn submit(&self, cx: &mut Cx) {
+        let url = self.url.text.trim();
+        if url.is_empty() {
+            return;
+        }
+        if let Some(shell) = &self.shell {
+            shell(SelectCall::ImportDanoni(url.to_string()), cx);
+        }
+        cx.end_text();
+        cx.close(false);
+    }
+}
+
+impl Screen for DanoniUrlDialog {
+    fn name(&self) -> &str {
+        "danoni-url"
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        let w = 680.0_f32.min(vp.width - 32.0);
+        let description = "Paste a DanOni work's URL. Only supported Flash engines can be imported. The import continues if you close Add songs.";
+        let lines = wrap_lines(description, w - 48.0, 14.0);
+        let h = 200.0 + lines.len() as f32 * 18.0;
+        let (mut children, [x, y]) = shell(
+            &self.env,
+            [vp.width, vp.height],
+            [w, h],
+            "IMPORT FROM DANONI URL",
+        );
+        for (i, line) in lines.iter().enumerate() {
+            children.push(left(
+                self.env
+                    .text(&format!("DanoniIntro{i}"), line, 14.0, 400, "Muted"),
+                x + 24.0,
+                y + 64.0 + i as f32 * 18.0,
+            ));
+        }
+        self.url.centre = [x + w / 2.0, y + h - 106.0];
+        self.url.size = [w - 48.0, 40.0];
+        children.push(self.url.build(&*self.env.look));
+        let bw = ((w - 58.0) / 2.0).min(180.0);
+        let mut import = button(
+            &self.env,
+            "ImportDanoni",
+            "Import",
+            [x + w - 24.0 - bw / 2.0, y + h - 40.0],
+            bw,
+            "Button",
+        );
+        if self.url.text.trim().is_empty() {
+            look::run(&mut import, "diffusealpha,0.4");
+        }
+        children.push(import);
+        children.push(button(
+            &self.env,
+            "Back",
+            "Back",
+            [x + 24.0 + bw / 2.0, y + h - 40.0],
+            bw,
+            "Button",
+        ));
+        dialog_root(children)
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        vec![
+            Focusable::new("DanoniUrlField"),
+            Focusable::new("ImportDanoni"),
+            Focusable::new("Back"),
+        ]
+    }
+
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        let (handled, event) = self.url.input(input, root, cx, &|_| Vec::new());
+        match event {
+            Some(FieldEvent::Submitted(_)) => self.submit(cx),
+            Some(FieldEvent::Changed(_)) => {
+                if let Some(button) = hit::find_mut(root, "ImportDanoni") {
+                    look::run(
+                        button,
+                        if self.url.text.trim().is_empty() {
+                            "diffusealpha,0.4"
+                        } else {
+                            "diffusealpha,1"
+                        },
+                    );
+                }
+            }
+            None => {}
+        }
+        if handled == Handled::Yes {
+            return handled;
+        }
+        match input {
+            Input::Activate { name } if name == "ImportDanoni" => {
+                self.submit(cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == "Back" => {
+                cx.end_text();
+                cx.close(false);
+                Handled::Yes
+            }
+            Input::Outside => {
+                cx.close(true);
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
     }
 }
 

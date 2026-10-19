@@ -39,9 +39,12 @@ checks the real desktop scanner, exact decoded frame counts and fake-clock
 60/144 Hz autoplay, including holds and history. No GPU, output device or
 third-party assets are needed.
 
-This is the compatibility/CI merge, not production URL UI wiring. The next
-step is a store-owned snapshot API and desktop library adapter, followed by
-job lifecycle/UI integration. Installed runtime/source identity and the final
+The opt-in `danoni` desktop development feature now wires the SDK-owned verified
+snapshot into the regular library, with cancellable owned background jobs and
+an Add songs URL field. See [the implementation/setup guide](../plans/danoni-import.md).
+It requires an explicitly installed runtime and separately binds the reviewed
+final game executable and root lock. This is not redistribution approval or a
+claim of live URL acceptance on the newly embedded graph. Installed runtime/source identity and the final
 application dependency graph must be rebound and verified before release;
 existing research runtime attestations do not certify a new game binary.
 The incomplete runtime redistribution notice inventory, Windows confinement,
@@ -66,11 +69,11 @@ The store assumes a private filesystem with cooperative writers; it is not a
 sandbox against concurrent external file tampering.
 
 The probe uses the desktop's test registry to supply these entries to its real
-song loader, audio decoder, image loader and `Play` session. A production adapter
-must instead merge managed entries into desktop's regular library refresh,
-without clearing the folder/bundled entries. Store path construction should move
-behind a managed-store API before production adoption. Pack naming is a host
-presentation decision; the prototype uses `DanOni imports`.
+song loader, audio decoder, image loader and `Play` session. The optional desktop
+adapter instead merges SDK-owned verified playback snapshots into regular library
+refresh, retaining folder/bundled entries and obtaining immutable playback paths
+only through the store API. Pack naming is a host presentation decision;
+`DanOni imports` is the current presentation.
 
 ## Background jobs
 
@@ -146,14 +149,13 @@ with `DDI_HOME` set to the isolated scratch home above.
 
 ## Follow-ups after this gate
 
-1. Add a native-only dependency at the agreed production crate location, plus a
-   desktop managed-library adapter preserving IDs, atomic snapshots, existing
-   folder entries and immutable files used by in-progress plays.
-2. Attach the job owner to the desktop event loop: wake notifications, explicit
-   shutdown cancellation/drain, progress and terminal errors, durable restart
-   tokens, duplicate/recovery outcomes and library refresh after commit.
-3. Add the URL input and import-status UI, with host-owned cache/runtime/site
-   policy. Exercise cancel/retry, restart and partial collections through it.
+1. Validate the newly embedded application graph against an explicitly installed
+   matching runtime on representative reviewed works. Synthetic snapshot and job
+   tests do not establish fresh URL extraction or audible sync.
+2. Add durable host restart/resume controls and partial-collection review; retained
+   SDK staging evidence is available for explicit diagnosis/resume today.
+3. Complete enabled-graph credits, runtime notice/license inventory and trusted
+   publisher attestation before enabling redistribution or default builds.
 4. Run the same probe and UI flow on Linux with its tested installed runtime;
    verify banners and play offscreen, then previews and interactive play with
    real output. Windows confinement/runtime packaging remains a separate gate.

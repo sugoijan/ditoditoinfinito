@@ -100,7 +100,7 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | serde | 1.0.229 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | serde-wasm-bindgen | 0.6.5 | MIT | MIT | [44](#notice-44) |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| serde_json | 1.0.151 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
+| serde_json | 1.0.154 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | serde_urlencoded | 0.7.1 | MIT/Apache-2.0 | MIT | [45](#notice-45) |
 | skrifa | 0.40.0 | MIT OR Apache-2.0 | MIT | [19](#notice-19) |
 | skrifa | 0.44.0 | MIT OR Apache-2.0 | MIT | [20](#notice-20) |
@@ -368,7 +368,7 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 | semver | 1.0.28 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | serde | 1.0.229 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
-| serde_json | 1.0.151 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
+| serde_json | 1.0.154 | MIT OR Apache-2.0 | MIT | [1](#notice-1) |
 | sha2 | 0.10.9 | MIT OR Apache-2.0 | MIT | [138](#notice-138) |
 | simd-adler32 | 0.3.10 | MIT | MIT | [139](#notice-139) |
 | simdutf8 | 0.1.5 | MIT OR Apache-2.0 | MIT | [26](#notice-26) |
@@ -490,7 +490,7 @@ The Rust libraries (crates) compiled into Dito Dito Infinito, each with its lice
 
 <a id="notice-1"></a>
 
-### 1. MIT — adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.104, gc-arena 0.7.0, glow 0.17.0, glyphon 0.12.0, itoa 1.0.18, lazy_static 1.5.1, leb128fmt 0.1.0, linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, lunita 0.1.2, once_cell 1.21.4, pin-project 1.1.13, pin-project-lite 0.2.17, pinned 0.1.0, polling 3.11.0, raw-window-metal 1.1.0, rtrb 0.4.0, rustc-hash 1.1.0, rustc-hash 2.1.3, rustix 0.38.44, rustix 1.1.5, semver 1.0.28, serde 1.0.229, serde_core 1.0.229, serde_json 1.0.151, siphasher 1.0.4, smol_str 0.2.2, smol_str 0.3.6, thiserror 1.0.69, thiserror 2.0.21, tinyvec 1.13.3, unicode-ident 1.0.26, wasm-encoder 0.258.3, wasmparser 0.258.3, wasmprinter 0.258.3, x11-dl 2.21.0, zmij 1.0.23
+### 1. MIT — adler2 2.0.1, allocator-api2 0.2.21, anyhow 1.0.104, gc-arena 0.7.0, glow 0.17.0, glyphon 0.12.0, itoa 1.0.18, lazy_static 1.5.1, leb128fmt 0.1.0, linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, lunita 0.1.2, once_cell 1.21.4, pin-project 1.1.13, pin-project-lite 0.2.17, pinned 0.1.0, polling 3.11.0, raw-window-metal 1.1.0, rtrb 0.4.0, rustc-hash 1.1.0, rustc-hash 2.1.3, rustix 0.38.44, rustix 1.1.5, semver 1.0.28, serde 1.0.229, serde_core 1.0.229, serde_json 1.0.154, siphasher 1.0.4, smol_str 0.2.2, smol_str 0.3.6, thiserror 1.0.69, thiserror 2.0.21, tinyvec 1.13.3, unicode-ident 1.0.26, wasm-encoder 0.258.3, wasmparser 0.258.3, wasmprinter 0.258.3, x11-dl 2.21.0, zmij 1.0.23
 
 ```text
 Permission is hereby granted, free of charge, to any

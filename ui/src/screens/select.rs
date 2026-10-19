@@ -76,6 +76,10 @@ pub enum SelectCall {
     /// can), or zips and files.
     PickFolder,
     PickFiles,
+    /// Import a DanOni work from its URL (desktop capability only).
+    ImportDanoni(String),
+    /// Request cancellation without waiting for the import worker.
+    CancelDanoni,
     /// An import option changed: `copy`, `videos` or `details`.
     ImportOption(String, bool),
     /// Read a pack's folder again.

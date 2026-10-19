@@ -822,6 +822,7 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             "source" => cx.request(UiRequest::OpenUrl(SOURCE.into())),
             _ => {}
         },
+        SelectCall::ImportDanoni(_) | SelectCall::CancelDanoni => {}
         SelectCall::PickFolder => {
             // In the gesture: Firefox asks before it keeps the library.
             let _ = storage::request_persist();

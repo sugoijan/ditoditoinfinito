@@ -61,6 +61,24 @@ impl Catalog {
         }
     }
 }
+/// A verified catalog publication and its immutable playback directories.
+///
+/// Directories remain valid after later replacements or recovery: the store
+/// retains transaction payloads. This is a local-store integrity check, not a
+/// sandbox against another process modifying files after verification.
+#[derive(Clone, Debug)]
+pub struct PlaybackSnapshot {
+    pub revision: String,
+    pub songs: Vec<PlaybackSong>,
+}
+
+/// The public playback handoff, without exposing transaction layout to hosts.
+#[derive(Clone, Debug)]
+pub struct PlaybackSong {
+    pub entry: ManifestEntry,
+    pub directory: PathBuf,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Pending {
@@ -478,6 +496,33 @@ impl Store {
         let (c, bytes) = self.raw_catalog()?;
         self.verify_catalog(&c, &bytes)?;
         Ok(c)
+    }
+    /// Verifies the published inventory before handing paths to a player.
+    /// Unpublished/cancelled transactions are never listed, and a store needing
+    /// recovery or containing corrupted published assets fails closed.
+    pub fn playback_snapshot(&self) -> Result<PlaybackSnapshot> {
+        let catalog = self.verify()?;
+        let mut songs = Vec::with_capacity(catalog.songs.len());
+        for song in catalog.songs {
+            let directory = contained(
+                &self.root,
+                &format!(
+                    "transactions/{}/songs/{}",
+                    song.transaction, song.installed.id
+                ),
+            )?;
+            if !directory.is_dir() {
+                return Err(invalid("Expected playback directory"));
+            }
+            songs.push(PlaybackSong {
+                entry: song.entry,
+                directory,
+            });
+        }
+        Ok(PlaybackSnapshot {
+            revision: catalog.revision,
+            songs,
+        })
     }
     /// Reads one flat playback file, checking its saved size/hash. Catalog rows
     /// from older snapshots remain readable; garbage collection is not implied.
@@ -959,6 +1004,51 @@ mod tests {
         assert_eq!(c.songs.len(), 2);
         assert!(c.songs.iter().all(|s| s.entry.title == "Changed"));
         audit_assets(&store, &c);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn playback_snapshot_is_published_verified_and_survives_replacement() {
+        let root = temp("playback");
+        let mut store = Store::create(&root).unwrap();
+        assert!(store.playback_snapshot().unwrap().songs.is_empty());
+        install(
+            &mut store,
+            &import("First", false),
+            host::DuplicatePolicy::Reject,
+        )
+        .unwrap();
+        let old = store.playback_snapshot().unwrap();
+        assert_eq!(old.songs.len(), 1);
+        let chart = old.songs[0]
+            .entry
+            .chart
+            .to_path(&old.songs[0].directory)
+            .unwrap();
+        let bytes = fs::read(&chart).unwrap();
+        install(
+            &mut store,
+            &import("Replacement", false),
+            host::DuplicatePolicy::Replace,
+        )
+        .unwrap();
+        let new = store.playback_snapshot().unwrap();
+        assert_ne!(old.revision, new.revision);
+        assert_ne!(old.songs[0].directory, new.songs[0].directory);
+        assert_eq!(old.songs[0].entry.id, new.songs[0].entry.id);
+        assert_eq!(fs::read(chart).unwrap(), bytes);
+        write_new(&root, "pending.new", b"interrupted").unwrap();
+        assert_eq!(
+            store.playback_snapshot().unwrap_err().code,
+            "library-needs-recovery"
+        );
+        store.recover().unwrap();
+        let current = &new.songs[0];
+        fs::write(
+            current.entry.music.to_path(&current.directory).unwrap(),
+            b"corrupted",
+        )
+        .unwrap();
+        assert!(store.playback_snapshot().is_err());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
