@@ -30,7 +30,9 @@ the browser are implementation details, not advertised features.
   the texture cache and the text atlas (runs measured and drawn by the
   platform: the browser on the web, cosmic-text natively; drawn over a
   play too, through an sRGB surface where there is no plain view, for
-  Dancing☆Onigiri's lyrics, `render/src/lyrics.rs`), and Options'
+  Dancing☆Onigiri's lyrics, `render/src/lyrics.rs`),
+  cached menu Gaussian images (`render/src/gaussian.rs`, recorded once
+  on upload before mipmaps, keyed separately from sharp images), and Options'
   field preview (`render/src/field_preview.rs`: the demo chart drawn as
   play draws it into a texture the 2D pass shows). No platform
   code.
@@ -414,7 +416,8 @@ or 600 wide gets the compact layout, and `prefers-reduced-motion` (or the
 `reduced_motion` setting) stops the beat pulse.
 `window.__DDI_LOSE_DEVICE()` loses the device (a WebGL2 context too), to test recovery;
 `__DDI_DEBUG` carries the canvas's `screen`, `textures`, `text` and
-`pass2d` counters, and on every page `history` (the play history:
+`pass2d` counters (`pass2d.blurred`: cached Gaussian jobs, unchanged by
+ordinary frames or cached revisits), and on every page `history` (the play history:
 `count`, `loaded`, `blocked`, `stale`, `unreadable`, `last` (the latest
 play's summary and `id`), and on the play route, once the chart is
 loaded, `song` and its charts' `bests`); on the play route `still`

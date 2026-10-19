@@ -652,6 +652,7 @@ pub(crate) fn debug_into(obj: &js_sys::Object) {
             set(&pass, "draws", (stats.draws as f64).into());
             set(&pass, "passes", (stats.passes as f64).into());
             set(&pass, "externals", (stats.externals as f64).into());
+            set(&pass, "blurred", (stats.blurred as f64).into());
             set(obj, "pass2d", pass.into());
         }
     });

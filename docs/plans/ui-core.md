@@ -672,12 +672,17 @@ Done (2026-10-15):
   844×390 (`Ui::set_design`), with chart buttons, a Play button, icon
   buttons and no hints; results and options are scaled down there until
   they get their own.
-- **Backdrop:** the selected song's background (else its banner) asked
-  for at 64 px, so the texture cache decodes it tiny, and drawn
-  stretched over the screen five times a little apart at alphas adding
-  up to `Backdrop.Alpha` (0.2; results 0.14): the linear filter and the
-  copies blur it with no extra pass, the same on WebGPU, WebGL2 and
-  desktop; a new one cross-fades in.
+- **Backdrop:** the selected song's background, with a separate Gaussian
+  cache entry (`TextureKey::blurred`, `Cx::blurred_texture`, 2026-10-18).
+  Decoded at 256 physical pixels long, regardless of display scale, and
+  filtered once before its mipmaps through two GPU passes (σ = 6 texels,
+  radius 18, clamped edges, premultiplied alpha). A layer then draws a
+  single sprite at `Backdrop.Alpha` (0.2; results 0.14); a new one
+  cross-fades in. Sharp pictures and other blur sizes never substitute
+  for it. The start prompt's extension uses the same cached blur while
+  its central picture stays sharp. No background means the plain theme.
+  `__DDI_DEBUG.pass2d.blurred` counts cached filter jobs; idle frames and
+  cached revisits add none. Eviction or a lost device regenerates the image.
 - **Beat pulse:** the selected row's and chart's ring brighten on each
   beat from a beat function the screen is given (the developer routes
   count from the display BPM; step 6 reads the preview's time).

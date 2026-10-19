@@ -56,9 +56,14 @@ desktop's `--screen`. Where the build differs from the mockups:
   small capitals and "…"** are drawn as the mockups have them, through
   our extensions to actors (`docs/plans/ui-core.md`, step 5). Long
   titles are squeezed a little, then cut.
-- **The backdrop** is the background asked for tiny and drawn stretched,
-  five times a little apart, at 0.2 (results 0.14): close to the
-  mockups' 30 px blur at no extra pass. A song with no background shows
+- **The backdrop** uses a cached Gaussian-blurred image (2026-10-18),
+  decoded at most 256 physical pixels long, independent of display scale.
+  Two GPU passes filter it once on upload (σ = 6 texels, radius 18,
+  clamped edges, premultiplied alpha during filtering); it then draws once
+  per layer, at 0.2 (results 0.14). Its cache key stays separate from sharp
+  images, so a loaded full-size picture cannot replace the blur. The start
+  prompt's blurred extension uses the same filter; its central picture stays
+  sharp. New images keep their 0.35 s crossfade. A song with no background shows
   the theme's plain backdrop, cross-faded like the rest (the
   maintainer, 2026-10-16: the blurred background is a step on the way
   into the song, and a banner blown up is not one).

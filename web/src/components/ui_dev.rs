@@ -1893,8 +1893,13 @@ impl Host {
             // Actor textures to the cache's, by source and the size drawn
             // (only what is drawn is asked for, P9).
             ddi_render::actors2d::append(&drawn, list, &mut |t| {
-                let (source, side) = ui.texture_source(t)?;
-                Some(p.texture(TextureKey::drawn(source, side * dpr)))
+                let image = ui.texture_source(t)?;
+                let key = if image.blurred {
+                    TextureKey::blurred(image.source, image.side)
+                } else {
+                    TextureKey::drawn(image.source, image.side * dpr)
+                };
+                Some(p.texture(key))
             });
             p.stats().textures
         });

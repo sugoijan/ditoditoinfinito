@@ -10,11 +10,21 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// An actor image requested from the shell, with its processing kept separate
+/// from sharp images of the same source.
+#[derive(Clone, Debug)]
+pub struct TextureSource {
+    pub source: Arc<str>,
+    /// Virtual pixels for sharp images, physical pixels for cached blurs.
+    pub side: f32,
+    pub blurred: bool,
+}
+
 /// Sources by id.
 #[derive(Debug, Default)]
 pub struct TextureTable {
-    ids: HashMap<(Arc<str>, u32), u32>,
-    sources: Vec<(Arc<str>, f32)>,
+    ids: HashMap<(Arc<str>, u32, bool), u32>,
+    sources: Vec<TextureSource>,
 }
 
 /// The sides sizes round up to, so a banner drawn at 300 and at 310
@@ -24,24 +34,36 @@ const SIDES: [f32; 6] = [64.0, 128.0, 256.0, 512.0, 1024.0, 2048.0];
 impl TextureTable {
     /// The id of `source` drawn at most `side` virtual pixels long.
     pub fn id(&mut self, source: &str, side: f32) -> u32 {
+        self.image(source, side, false)
+    }
+
+    pub fn blurred(&mut self, source: &str, side: f32) -> u32 {
+        self.image(source, side, true)
+    }
+
+    fn image(&mut self, source: &str, side: f32, blurred: bool) -> u32 {
         let side = SIDES
             .iter()
             .copied()
             .find(|&s| s >= side)
             .unwrap_or(SIDES[SIDES.len() - 1]);
         let source: Arc<str> = source.into();
-        let key = (source.clone(), side as u32);
+        let key = (source.clone(), side as u32, blurred);
         if let Some(&id) = self.ids.get(&key) {
             return id;
         }
         let id = self.sources.len() as u32 + 1;
-        self.sources.push((source, side));
+        self.sources.push(TextureSource {
+            source,
+            side,
+            blurred,
+        });
         self.ids.insert(key, id);
         id
     }
 
     /// The source and side of id `id`.
-    pub fn source(&self, id: u32) -> Option<(Arc<str>, f32)> {
+    pub fn source(&self, id: u32) -> Option<TextureSource> {
         let i = id.checked_sub(1)? as usize;
         self.sources.get(i).cloned()
     }
@@ -65,8 +87,13 @@ mod tests {
         let a = t.id("songs/a/bn.png", 200.0);
         assert_eq!(t.id("songs/a/bn.png", 250.0), a);
         assert_ne!(t.id("songs/a/bn.png", 300.0), a);
-        assert_eq!(t.source(a).unwrap().1, 256.0);
-        assert_eq!(t.source(0), None);
+        assert_eq!(t.source(a).unwrap().side, 256.0);
+        assert!(t.source(0).is_none());
         assert_eq!(t.len(), 2);
+        let blurred = t.blurred("songs/a/bn.png", 200.0);
+        assert_ne!(blurred, a);
+        assert_eq!(t.blurred("songs/a/bn.png", 250.0), blurred);
+        assert!(t.source(blurred).unwrap().blurred);
+        assert!(!t.source(a).unwrap().blurred);
     }
 }

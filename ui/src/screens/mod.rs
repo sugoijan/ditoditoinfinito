@@ -441,13 +441,10 @@ pub fn ground(env: &Env, screen: [f32; 2]) -> Actor {
 }
 
 /// The selected song's background behind a screen, blurred and dim
-/// (`docs/plans/theme.md`): the image asked for tiny
-/// (`Backdrop.Side` virtual pixels, so the texture cache decodes it at
-/// its smallest size) and drawn stretched over the screen, where the
-/// linear filter blurs it, a few times a little apart
-/// (`Backdrop.Spread`) so no texel's edge shows; at `Backdrop.Alpha`.
-/// A new image cross-fades in over `Backdrop.Fade` seconds. No extra
-/// pass and no shader: as cheap as a few sprites.
+/// (`docs/plans/theme.md`): a small, cached Gaussian-filtered texture
+/// (`Backdrop.Side` physical pixels), drawn once at `Backdrop.Alpha`.
+/// A new image cross-fades in over `Backdrop.Fade` seconds. Filtering
+/// happens once on upload, never on an ordinary frame.
 pub struct Backdrop {
     /// The image each of the two layers shows; which is in front.
     shown: [Option<String>; 2],
@@ -455,15 +452,6 @@ pub struct Backdrop {
     /// The metric its strength is read from.
     alpha: &'static str,
 }
-
-/// The copies of each layer: one in the middle and four around it.
-const SPREAD: [[f32; 2]; 5] = [
-    [0.0, 0.0],
-    [-1.0, -0.6],
-    [1.0, -0.6],
-    [-0.6, 1.0],
-    [0.6, 1.0],
-];
 
 impl Backdrop {
     pub fn new() -> Backdrop {
@@ -482,32 +470,15 @@ impl Backdrop {
     /// The backdrop's actors, over `screen`.
     pub fn build(&mut self, env: &Env, screen: [f32; 2]) -> Actor {
         let front = self.front;
-        let spread = env.metric("Backdrop.Spread", 14.0);
-        // Over the screen and past its edges, so a blurred edge never
-        // shows.
-        let size = [screen[0] + 4.0 * spread, screen[1] + 4.0 * spread];
+        let size = [screen[0] + 8.0, screen[1] + 8.0];
         let alpha = env.metric(self.alpha, 0.2).clamp(0.0, 1.0);
-        // Copies over each other add up: each one's alpha so that all of
-        // them come to `alpha`.
-        let each = 1.0 - (1.0 - alpha).powf(1.0 / SPREAD.len() as f32);
         let layers = (0..2)
             .map(|l| {
-                let copies = SPREAD
-                    .iter()
-                    .enumerate()
-                    .map(|(i, [dx, dy])| {
-                        let mut s = named(Kind::Sprite(Sprite::quad(size)), &format!("Copy{i}"));
-                        call(
-                            &mut s,
-                            "xy",
-                            &[screen[0] / 2.0 + dx * spread, screen[1] / 2.0 + dy * spread],
-                        );
-                        call(&mut s, "diffuse", &[1.0, 1.0, 1.0, each]);
-                        s.visible = false;
-                        s
-                    })
-                    .collect();
-                let mut f = frame(&format!("Backdrop.{l}"), copies);
+                let mut image = named(Kind::Sprite(Sprite::quad(size)), "Image");
+                call(&mut image, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
+                call(&mut image, "diffuse", &[1.0, 1.0, 1.0, alpha]);
+                image.visible = false;
+                let mut f = frame(&format!("Backdrop.{l}"), vec![image]);
                 call(
                     &mut f,
                     "diffusealpha",
@@ -524,10 +495,10 @@ impl Backdrop {
 
     /// Puts the textures back on a rebuilt backdrop.
     pub fn restore(&self, root: &mut Actor, cx: &mut crate::Cx, env: &Env) {
-        let side = env.metric("Backdrop.Side", 64.0);
+        let side = env.metric("Backdrop.Side", 256.0);
         for (l, s) in self.shown.iter().enumerate() {
             if let Some(source) = s {
-                let id = cx.texture(source, side);
+                let id = cx.blurred_texture(source, side);
                 Self::show(root, l, Some(id));
             }
         }
@@ -549,10 +520,10 @@ impl Backdrop {
         if self.shown[self.front].as_deref() == source {
             return;
         }
-        let side = env.metric("Backdrop.Side", 64.0);
+        let side = env.metric("Backdrop.Side", 256.0);
         let fade = env.metric("Backdrop.Fade", 0.35);
         let back = 1 - self.front;
-        let id = source.map(|s| cx.texture(s, side));
+        let id = source.map(|s| cx.blurred_texture(s, side));
         Self::show(root, back, id);
         self.shown[back] = source.map(str::to_string);
         for (l, to) in [(back, 1.0), (self.front, 0.0)] {

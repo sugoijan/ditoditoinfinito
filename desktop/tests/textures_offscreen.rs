@@ -60,7 +60,12 @@ fn images_evicted_in_the_draw_that_mipmaps_them_are_safe() {
     // Three images come in between frames (asked for, no longer drawn).
     let rgba = vec![255u8; 64 * 64 * 4];
     for i in 0..3 {
-        let id = painter.texture(TextureKey::drawn(format!("b{i}.png"), 64.0));
+        let key = if i % 2 == 0 {
+            TextureKey::blurred(format!("b{i}.png"), 64.0)
+        } else {
+            TextureKey::drawn(format!("b{i}.png"), 64.0)
+        };
+        let id = painter.texture(key);
         painter.insert_rgba(&device, &queue, id, [64, 64], &rgba);
     }
     draw(&mut painter);

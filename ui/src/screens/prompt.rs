@@ -28,7 +28,7 @@
 //! `Button`; colors `Play.Field` (the play's own, under the picture),
 //! `Text`, `Muted`, `Faint`, `Accent`, `Danger`,
 //! `Difficulty.<name>`; metric `Prompt.Width` (the card's), and
-//! `Backdrop.Side` and `Backdrop.Spread` for the blurred copy.
+//! `Backdrop.Side` for the cached Gaussian-blurred copy.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -752,36 +752,17 @@ fn picture(env: &Env, [w, h]: [f32; 2], p: &PromptPicture, cx: &mut Cx) -> Actor
     let mut children = Vec::new();
     let framed = fw < w - 1.0 || fh < h - 1.0;
     if framed {
-        // Blurred: the image asked for tiny and drawn large, several
-        // times a little apart (song select's backdrop's way).
-        let side = env.metric("Backdrop.Side", 64.0);
-        let spread = env.metric("Backdrop.Spread", 14.0);
-        let tex = cx.texture(&p.source, side);
-        let size = cover(w + 4.0 * spread, h + 4.0 * spread);
-        let copies: [[f32; 2]; 5] = [
-            [0.0, 0.0],
-            [-1.0, -0.6],
-            [1.0, -0.6],
-            [-0.6, 1.0],
-            [0.6, 1.0],
-        ];
+        let side = env.metric("Backdrop.Side", 256.0);
+        let tex = cx.blurred_texture(&p.source, side);
+        let size = cover(w + 8.0, h + 8.0);
         let dim = b * EXTENSION_DIM;
-        for (i, [dx, dy]) in copies.iter().enumerate() {
-            let mut s = named(Kind::Sprite(Sprite::quad(size)), &format!("Wide{i}"));
-            if let Kind::Sprite(sp) = &mut s.kind {
-                sp.texture = tex;
-            }
-            call(
-                &mut s,
-                "xy",
-                &[w / 2.0 + dx * spread, h / 2.0 + dy * spread],
-            );
-            // Each over the last: the first opaque, the rest blending in,
-            // so all of them come to their average.
-            let alpha = 1.0 / (i as f32 + 1.0);
-            call(&mut s, "diffuse", &[dim, dim, dim, alpha]);
-            children.push(s);
+        let mut wide = named(Kind::Sprite(Sprite::quad(size)), "Wide0");
+        if let Kind::Sprite(sp) = &mut wide.kind {
+            sp.texture = tex;
         }
+        call(&mut wide, "xy", &[w / 2.0, h / 2.0]);
+        call(&mut wide, "diffuse", &[dim, dim, dim, 1.0]);
+        children.push(wide);
     }
     let side = fw.max(fh);
     let tex = cx.texture(&p.source, side);

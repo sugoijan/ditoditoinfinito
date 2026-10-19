@@ -38,9 +38,14 @@ impl Shell {
         for d in &self.h.drawn {
             if let Drawn::Quad(q) = d
                 && q.texture != UNTEXTURED
-                && let Some((source, side)) = self.h.ui.texture_source(q.texture)
+                && let Some(image) = self.h.ui.texture_source(q.texture)
             {
-                let id = self.cache.id(TextureKey::drawn(source, side * self.ratio));
+                let key = if image.blurred {
+                    TextureKey::blurred(image.source, image.side)
+                } else {
+                    TextureKey::drawn(image.source, image.side * self.ratio)
+                };
+                let id = self.cache.id(key);
                 self.cache.resolve(id);
             }
         }
