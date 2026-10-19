@@ -1136,7 +1136,7 @@ impl Host {
         let best = plays.history().best(
             loaded.song.chart_digest(request.chart),
             &settings.ruleset_for(c).key(),
-            settings.transform.is_assist(),
+            c.derivation.is_some() || settings.transform.is_assist(),
         )?;
         let got: Rc<RefCell<Option<_>>> = Rc::default();
         let g = got.clone();

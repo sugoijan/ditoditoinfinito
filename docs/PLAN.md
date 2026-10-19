@@ -348,6 +348,17 @@ autoplay in play pressing on the judged timeline, exact under any
 calibrated offset (2026-10-15; calibration's autoplayer still follows the
 heard or drawn cue).
 
+Song select navigation (2026-10-18): single taps of any arrow move
+through songs; double taps change chart without moving the song, with
+a 250 ms recognition window. Held arrows scroll. Both shells use the
+shared screen (`docs/plans/theme.md`, layout A).
+
+Additional onigiri-free charts (2026-10-18): Options can expose 5-key →
+Single, 7-key → Solo, 9A → Double and 9B → Techno 8-panel versions alongside
+their originals. Only the generated versions are assisted by this feature;
+indexes, original digests and replays remain stable. See
+[`chart-simplification.md`](plans/chart-simplification.md).
+
 ### Known gaps before phase 9 (2026-10-15)
 
 Everything known to be missing, approximate or unchecked before the
@@ -604,6 +615,8 @@ and platform confinement/durability checks. Linux/macOS CI tests the synthetic
 handoff; Windows checks the portable SDK, not runtime execution. Frozen corpus
 measurements remain historical evidence, not a claim that the current build
 has rerun live imports. Browser URL acquisition needs its own design.
+
+52. **Simplifications can expose additional chart versions** (2026-10-18; `docs/plans/chart-simplification.md`). The Without onigiri option exposes converted DanOni charts in Single, Solo, Double and Techno 8-panel. Shared library loading appends them for native works and simfiles (including SSC exports) with explicit provenance and stable indexes; the option controls their visibility. Originals stay unchanged and unassisted by this feature. Converted charts have their own content digests, assisted results and bests, and keep their source chart's lyrics, layers and replay identity. Existing cut options keep their behavior.
 
 ## 7. Risks
 

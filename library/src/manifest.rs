@@ -14,6 +14,10 @@ use crate::path::RelPathBuf;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ManifestEntry {
+    /// Generated-chart metadata version; older imported charts are upgraded
+    /// from their stored chart data without requiring another import.
+    #[serde(default, skip_serializing_if = "is_zero_version")]
+    pub variants_version: u32,
     /// Stable id. For bundled songs also the directory name under `songs/`;
     /// for imported songs [`crate::pack::song_id`].
     pub id: String,
@@ -107,6 +111,48 @@ fn kept() -> bool {
     true
 }
 
+fn is_zero_version(value: &u32) -> bool {
+    *value == 0
+}
+
+/// Current metadata for additional chart versions in imported manifests.
+pub const VARIANTS_VERSION: u32 = 1;
+
+impl ManifestEntry {
+    /// Whether stored chart data should be reread to add missing versions.
+    pub fn needs_chart_variants(&self) -> bool {
+        self.variants_version < VARIANTS_VERSION
+            && (self.chart.as_str().ends_with(crate::danoni::STORED_EXT)
+                || self
+                    .charts
+                    .iter()
+                    .any(|c| ddi_chart::simplify::without_onigiri(&c.layout).is_some()))
+    }
+}
+
+/// Enrich a consumer's metadata from the parsed song without changing its
+/// admitted source metadata. Parse through [`crate::scan::parse_simfile`] (or
+/// add the song's chart variants first). Managed catalogs and admission receipts
+/// keep their original-only entries; shells expose this clone in the library.
+pub fn with_chart_variants(entry: &ManifestEntry, song: &Song) -> ManifestEntry {
+    let mut entry = entry.clone();
+    crate::works::fill_chart_keys(&mut entry, song);
+    entry
+}
+
+pub(crate) fn chart_variants_version(song: &Song) -> u32 {
+    let relevant = song.source.format == SourceFormat::Danoni
+        || song
+            .charts
+            .iter()
+            .any(|c| ddi_chart::simplify::without_onigiri(&c.layout).is_some());
+    if relevant && song.chart_variants_current() {
+        VARIANTS_VERSION
+    } else {
+        0
+    }
+}
+
 impl VideoRef {
     /// Whether the game plays it: kept and in a format the decoder has.
     pub fn plays(&self) -> bool {
@@ -116,6 +162,9 @@ impl VideoRef {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChartInfo {
+    /// Provenance of an additional, assisted version of an original chart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derivation: Option<ddi_chart::simplify::Derivation>,
     /// Position in `Song::charts` (the `chart=` URL parameter).
     pub index: usize,
     pub layout: String,
@@ -198,11 +247,19 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         .collect();
     if danoni {
         // Works order their charts themselves.
-        indexed.sort_by(|(i, a), (j, b)| a.layout.cmp(&b.layout).then(i.cmp(j)));
+        indexed.sort_by(|(i, a), (j, b)| {
+            a.derivation
+                .is_some()
+                .cmp(&b.derivation.is_some())
+                .then(a.layout.cmp(&b.layout))
+                .then(i.cmp(j))
+        });
     } else {
         indexed.sort_by(|(_, a), (_, b)| {
-            a.layout
-                .cmp(&b.layout)
+            a.derivation
+                .is_some()
+                .cmp(&b.derivation.is_some())
+                .then(a.layout.cmp(&b.layout))
                 .then(a.difficulty.cmp(&b.difficulty))
                 .then(a.meter.cmp(&b.meter))
         });
@@ -216,6 +273,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
     let charts = indexed
         .into_iter()
         .map(|(index, c)| ChartInfo {
+            derivation: c.derivation.clone(),
             index,
             layout: c.layout.clone(),
             difficulty: format!("{:?}", c.difficulty),
@@ -228,6 +286,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         })
         .collect();
     ManifestEntry {
+        variants_version: chart_variants_version(song),
         id: meta.id,
         title: meta.title,
         artist: meta.artist,
@@ -376,6 +435,7 @@ mod tests {
     #[test]
     fn json_shape_is_stable() {
         let entry = ManifestEntry {
+            variants_version: 0,
             id: "a".into(),
             title: "t".into(),
             artist: "r".into(),

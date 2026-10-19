@@ -181,6 +181,9 @@ pub enum DisplayBpm {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Chart {
+    /// A generated version of another chart. Original charts have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derivation: Option<crate::simplify::Derivation>,
     /// `Layout::id`, e.g. `dance-single`.
     pub layout: String,
     pub difficulty: Difficulty,

@@ -271,7 +271,7 @@ fn song_select_reaches_the_notices_past_its_first_row() {
     while h.ui.chrome_focused().is_none() && presses < 40 {
         h.pad(crate::MenuAction::Up, true);
         h.pad(crate::MenuAction::Up, false);
-        h.run(0.05);
+        h.run(0.3);
         presses += 1;
     }
     assert_eq!(
@@ -302,7 +302,7 @@ fn up_into_the_notices<S: crate::Screen + 'static>(screen: impl FnOnce(&Env) -> 
     while h.ui.chrome_focused().is_none() && presses < 40 {
         before = h.ui.focused().map(str::to_string);
         h.key("ArrowUp", "ArrowUp");
-        h.run(0.05);
+        h.run(0.3);
         presses += 1;
     }
     eprintln!("{name} {size:?}: {presses} Up, from {before:?}");

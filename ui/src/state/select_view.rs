@@ -97,7 +97,8 @@ pub fn score_text(v: &ddi_engine::rules::ScoreView) -> String {
 }
 
 /// The player's best on a chart under the rules the settings choose for
-/// it (autoplay never counts; assist plays are apart, not shown here).
+/// it. Original charts show unassisted bests; generated charts show their
+/// own assisted bests. Autoplay never counts.
 fn best_of(
     entry: &ManifestEntry,
     chart: &ChartInfo,
@@ -112,7 +113,7 @@ fn best_of(
     let key = BestKey {
         digest,
         ruleset: settings.best_key_for(&chart.layout, danoni, chart.excessive),
-        assist: false,
+        assist: chart.derivation.is_some(),
     };
     let b = bests.get(&key)?;
     let (lamp, lamp_text) = lamp_names(b.lamp);
@@ -183,6 +184,22 @@ pub fn select_data(
     history: &History,
     place: &MenuPlace,
 ) -> SelectData {
+    // Generation is independent of the display setting so indexes stay
+    // stable. Only hide the additional versions from the song list.
+    let visible: Vec<Listed> = songs
+        .iter()
+        .cloned()
+        .map(|mut song| {
+            song.entry.charts.retain(|c| match c.derivation {
+                None => true,
+                Some(ddi_chart::simplify::Derivation::WithoutOnigiri { .. }) => {
+                    settings.simplify_onigiri
+                }
+            });
+            song
+        })
+        .collect();
+    let songs = visible.as_slice();
     let styles: Vec<StyleDef> = library_styles(songs.iter().map(|s| &s.entry))
         .into_iter()
         .map(|l| StyleDef {
@@ -251,6 +268,85 @@ pub fn select_data(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn onigiri_versions_are_optional_but_the_originals_are_always_listed_and_unassisted() {
+        use ddi_chart::formats::danoni::{self, Dos, DosFlags};
+        use ddi_engine::player::Player;
+        let mut song = danoni::import(&Dos::parse(
+            "|musicTitle=Test,Artist|musicUrl=test.ogg|blankFrame=0|difData=5,Hard,3.5|left_data=60|space_data=90|right_data=120|",
+            DosFlags::default(),
+        )).unwrap().songs.remove(0);
+        song.add_no_onigiri_charts();
+        let mut entry = ddi_library::manifest::summarize(
+            ddi_library::manifest::EntryMeta {
+                id: "test".into(),
+                chart: format!("test.{}", ddi_library::danoni::STORED_EXT).into(),
+                ..Default::default()
+            },
+            &song,
+        );
+        ddi_library::works::fill_chart_keys(&mut entry, &song);
+        let songs = [Listed {
+            entry,
+            pack: Some("Test".into()),
+            banner: None,
+            background: None,
+            removable: true,
+        }];
+        let mut settings = Settings::default();
+        let data = select_data(
+            &songs,
+            &|_| false,
+            &settings,
+            &History::default(),
+            &MenuPlace::default(),
+        );
+        assert_eq!(data.songs[0].charts.len(), 1);
+        assert_eq!(data.songs[0].charts[0].style, "danoni-5");
+        settings.simplify_onigiri = true;
+        let data = select_data(
+            &songs,
+            &|_| false,
+            &settings,
+            &History::default(),
+            &MenuPlace::default(),
+        );
+        assert_eq!(data.songs[0].charts.len(), 2);
+        assert!(data.styles.iter().any(|s| s.id == "dance-single"));
+        assert!(data.styles.iter().any(|s| s.id == "danoni-5"));
+        assert_eq!(
+            data.songs[0]
+                .charts
+                .iter()
+                .find(|c| c.style == "danoni-5")
+                .unwrap()
+                .index,
+            0
+        );
+        for (index, assisted, count) in [(0, false, 3), (1, true, 2)] {
+            let player = Player::new(
+                &song,
+                index,
+                settings.ruleset_for(&song.charts[index]),
+                settings.play_options(None),
+            );
+            assert_eq!(player.results().assist, assisted);
+            assert_eq!(player.judge().notes().len(), count);
+        }
+        // Turning the display option back off does not remove a replay's chart.
+        settings.simplify_onigiri = false;
+        assert!(
+            Player::new(
+                &song,
+                1,
+                settings.ruleset_for(&song.charts[1]),
+                settings.play_options(None)
+            )
+            .results()
+            .assist
+        );
+    }
 
     fn entry(id: &str, layout: &str) -> ManifestEntry {
         let mut e: ManifestEntry = serde_json::from_str(&format!(

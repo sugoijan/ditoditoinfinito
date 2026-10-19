@@ -236,7 +236,14 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         failed: r.failed,
         // The autoplayer's lamp would mean nothing: it says it played.
         lamp: if p.autoplay {
-            Some("AUTOPLAY".into())
+            Some(
+                if r.assist {
+                    "AUTOPLAY · ASSIST"
+                } else {
+                    "AUTOPLAY"
+                }
+                .into(),
+            )
         } else {
             lamp(r)
         },
@@ -623,5 +630,10 @@ mod tests {
         assert_eq!(d.lamp.as_deref(), Some("AUTOPLAY"));
         assert!(d.line.ends_with("· AUTOPLAY"), "{}", d.line);
         assert!(d.notes[0].starts_with("Autoplay"));
+        let mut assisted = r.clone();
+        assisted.assist = true;
+        let mut p = info(&assisted, &rules, &layout);
+        p.autoplay = true;
+        assert_eq!(results_data(&p).lamp.as_deref(), Some("AUTOPLAY · ASSIST"));
     }
 }

@@ -422,6 +422,7 @@ fn build_chart(name: &str, tag: &MsdTag) -> Option<Chart> {
     notes.sort_by_key(|n| (n.tick, n.lane));
 
     Some(Chart {
+        derivation: None,
         layout: mode.layout_id().to_string(),
         difficulty,
         meter: meter.max(0) as u32,

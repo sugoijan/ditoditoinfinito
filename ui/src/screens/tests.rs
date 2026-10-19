@@ -32,6 +32,131 @@ fn tab(h: &mut Harness) {
     h.run(0.1);
 }
 
+fn double_arrow(h: &mut Harness, code: &str) {
+    h.key(code, code);
+    h.run(0.08);
+    h.key(code, code);
+}
+
+#[test]
+fn every_arrow_moves_songs_on_a_single_tap_and_charts_on_a_double_tap() {
+    for (key, song, chart) in [
+        ("ArrowUp", "Into My Dream", "Medium 10"),
+        ("ArrowLeft", "Into My Dream", "Medium 10"),
+        ("ArrowDown", "Sweeteners", "Challenge 16"),
+        ("ArrowRight", "Sweeteners", "Challenge 16"),
+    ] {
+        let (mut h, s) = select([1280.0, 720.0], DESIGN, true);
+        h.key(key, key);
+        h.run(0.1);
+        assert_eq!(s.borrow().song, "Some Things Must", "wait for a second tap");
+        h.run_on_demand(0.5);
+        assert_eq!(s.borrow().song, song, "{key}");
+        assert_eq!(
+            s.borrow().preferred,
+            "Hard",
+            "single taps keep the difficulty"
+        );
+
+        let (mut h, s) = select([1280.0, 720.0], DESIGN, true);
+        double_arrow(&mut h, key);
+        assert_eq!(s.borrow().chart.as_deref(), Some(chart), "{key}");
+        h.run_on_demand(0.6);
+        assert_eq!(
+            s.borrow().song,
+            "Some Things Must",
+            "a double tap never moves songs"
+        );
+        assert_eq!(s.borrow().chart.as_deref(), Some(chart));
+    }
+}
+
+#[test]
+fn held_arrows_scroll_songs_and_never_change_difficulty() {
+    for key in ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] {
+        let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
+        h.key_down(key, key);
+        h.run(0.8);
+        h.key_up(key, key);
+        assert_eq!(s.borrow().preferred, "Hard", "{key}");
+        assert_ne!(s.borrow().song, "Some Things Must", "{key}");
+    }
+}
+
+#[test]
+fn pads_double_tap_all_four_directions_without_moving_the_song() {
+    use crate::MenuAction::{Down, Left, Right, Up};
+    for (action, chart) in [
+        (Up, "Medium 10"),
+        (Left, "Medium 10"),
+        (Down, "Challenge 16"),
+        (Right, "Challenge 16"),
+    ] {
+        let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
+        h.pad(action, true);
+        h.pad(action, false);
+        h.run(0.08);
+        h.pad(action, true);
+        h.pad(action, false);
+        h.run(0.5);
+        assert_eq!(s.borrow().song, "Some Things Must");
+        assert_eq!(s.borrow().chart.as_deref(), Some(chart));
+    }
+}
+
+#[test]
+fn mixed_directions_are_separate_moves_and_other_inputs_cancel_a_pending_tap() {
+    let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.08);
+    h.key("ArrowRight", "ArrowRight");
+    assert_eq!(
+        s.borrow().song,
+        "Sweeteners",
+        "first move settles before queuing the next"
+    );
+    h.key("Slash", "/");
+    h.run(0.5);
+    assert_eq!(
+        s.borrow().song,
+        "Sweeteners",
+        "search cancels the queued move"
+    );
+    assert_eq!(s.borrow().preferred, "Hard");
+}
+
+#[test]
+fn slow_taps_and_taps_from_different_devices_do_not_change_difficulty() {
+    let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
+    h.key("ArrowLeft", "ArrowLeft");
+    h.run(0.4);
+    h.key("ArrowLeft", "ArrowLeft");
+    h.run(0.4);
+    assert_eq!(s.borrow().song, "Beatucada");
+    assert_eq!(s.borrow().preferred, "Hard");
+
+    let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
+    h.key("ArrowLeft", "ArrowLeft");
+    h.run(0.08);
+    h.pad(crate::MenuAction::Left, true);
+    h.pad(crate::MenuAction::Left, false);
+    h.run(0.4);
+    assert_eq!(s.borrow().song, "Beatucada");
+    assert_eq!(s.borrow().preferred, "Hard");
+}
+
+#[test]
+fn choosing_a_chart_by_pointer_cancels_a_pending_song_move() {
+    for kind in [PointerKind::Mouse, PointerKind::Touch] {
+        let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
+        h.key("ArrowRight", "ArrowRight");
+        h.tap(kind, "Ladder.Row2");
+        h.run(0.6);
+        assert_eq!(s.borrow().song, "Some Things Must");
+        assert_eq!(s.borrow().chart.as_deref(), Some("Medium 10"));
+    }
+}
+
 #[test]
 fn song_select_starts_on_the_song_and_its_preferred_chart() {
     let (h, s) = select([1280.0, 720.0], DESIGN, false);
@@ -76,8 +201,8 @@ fn changing_style_keeps_the_difficulty_or_the_closest() {
     tab(&mut h);
     assert_eq!(s.borrow().style, "Pump double");
     assert_eq!(s.borrow().chart.as_deref(), Some("Hard 17"));
-    // Left picks Medium, which becomes the choice kept.
-    h.key("ArrowLeft", "ArrowLeft");
+    // Double Left picks Medium, which becomes the choice kept.
+    double_arrow(&mut h, "ArrowLeft");
     h.run(0.1);
     assert_eq!(s.borrow().chart.as_deref(), Some("Medium 11"));
     assert_eq!(s.borrow().preferred, "Medium");
@@ -142,6 +267,7 @@ fn packs_open_and_close() {
     // Down into another pack's header, Start closes it.
     for _ in 0..5 {
         h.key("ArrowDown", "ArrowDown");
+        h.run(0.3);
     }
     h.run(0.5);
     assert_eq!(s.borrow().header.as_deref(), Some("Arrow Basics"));
@@ -225,7 +351,10 @@ fn the_pulse_runs_on_the_beat_and_not_with_reduced_motion() {
     h.key("ArrowDown", "ArrowDown");
     h.frame(1.0 / 60.0);
     assert_eq!(h.ui.bounds("Wheel").map(|_| ()), Some(()));
-    assert!(h.run_on_demand(1.0) <= 30);
+    assert!(
+        h.run_on_demand(1.0) <= 45,
+        "tap window plus the backdrop fade"
+    );
     assert_eq!(s.borrow().song, "Sweeteners");
 }
 
@@ -388,11 +517,11 @@ fn start_acts_on_the_song_moved_to_in_the_same_poll() {
     h.pad(crate::MenuAction::Up, true);
     h.pad(crate::MenuAction::Start, true);
     assert_eq!(s.borrow().status, "PLAYED Into My Dream Hard 12");
-    // Left too: the chart of the song moved to.
+    // Double Left changes the chart of the song moved to.
     let (mut h, s) = recording(sample::select(), [1280.0, 720.0], DESIGN);
     h.key("ArrowDown", "ArrowDown");
-    h.key("ArrowLeft", "ArrowLeft");
-    h.run(0.2);
+    h.run(0.3);
+    double_arrow(&mut h, "ArrowLeft");
     assert_eq!(s.borrow().song, "Sweeteners");
     assert_eq!(s.borrow().chart.as_deref(), Some("Medium 10"));
 }
@@ -420,7 +549,7 @@ fn the_pick_survives_a_new_layout() {
     let (mut h, s) = recording(sample::select(), [1280.0, 720.0], DESIGN);
     tab(&mut h);
     tab(&mut h);
-    h.key("ArrowLeft", "ArrowLeft");
+    double_arrow(&mut h, "ArrowLeft");
     h.run(0.1);
     assert_eq!(s.borrow().chart.as_deref(), Some("Medium 10"));
     h.send(crate::UiEvent::Resize {
@@ -906,13 +1035,20 @@ fn the_shell_hears_the_song_shown_and_the_place() {
     assert_eq!(p.song.as_deref(), Some("some-things-must"));
     assert_eq!(p.style, "dance-single");
     assert!(p.chart.is_some());
-    // A key: told in the key's own input (its gesture), not a pad's.
+    // A single tap settles after the double-tap window, keeping its source.
     let n = calls.borrow().len();
     h.key("ArrowDown", "ArrowDown");
-    assert!(calls.borrow().len() > n, "told within the key press");
+    assert_eq!(
+        calls.borrow().len(),
+        n,
+        "not selected while a double tap is possible"
+    );
+    h.run(0.3);
     assert_eq!(last_song(&calls), Some((Some("sweeteners".into()), false)));
     // A pad's move says so.
     h.pad(crate::MenuAction::Up, true);
+    h.pad(crate::MenuAction::Up, false);
+    h.run(0.3);
     assert_eq!(
         last_song(&calls),
         Some((Some("some-things-must".into()), true))
@@ -978,13 +1114,13 @@ fn the_place_comes_back() {
 fn bests_show_on_the_ladder_and_the_wheel() {
     let (mut h, s, _, _) = shelled(library(), Some("some-things-must"));
     assert_eq!(s.borrow().best.as_deref(), Some("AA 96.12% FullCombo"));
-    h.key("ArrowLeft", "ArrowLeft");
+    double_arrow(&mut h, "ArrowLeft");
     h.run(0.2);
     assert_eq!(
         s.borrow().best.as_deref(),
         Some("★★ 99.20% PerfectFullCombo")
     );
-    h.key("ArrowLeft", "ArrowLeft");
+    double_arrow(&mut h, "ArrowLeft");
     h.run(0.2);
     assert_eq!(s.borrow().best, None);
     // Pending: marked.
@@ -1490,7 +1626,7 @@ fn named_charts_go_by_their_names() {
         Rc::new(|_, _| {}),
     ));
     h.run(0.5);
-    h.key("ArrowRight", "ArrowRight");
+    double_arrow(&mut h, "ArrowRight");
     h.run(0.3);
     assert_eq!(state.borrow().chart.as_deref(), Some("Edit 0"));
     let texts = h.texts();

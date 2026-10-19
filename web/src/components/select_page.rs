@@ -760,8 +760,8 @@ fn ask_folder(shared: &Shared, id: &str) {
     }
 }
 
-/// What the screen asked, inside its input (a gesture, when it came from
-/// one).
+/// What the screen asked. A selection may settle on a frame; requests
+/// that need a gesture arrive synchronously from the input that asked.
 fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
     let link = shared.link.clone();
     match call {

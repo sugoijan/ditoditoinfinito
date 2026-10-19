@@ -36,6 +36,7 @@ fn song() -> Song {
         timing: TimingMap::constant(60.0, 0.0),
         display_bpm: DisplayBpm::Actual,
         charts: vec![Chart {
+            derivation: None,
             layout: "dance-single".into(),
             difficulty: Difficulty::Challenge,
             meter: 9,

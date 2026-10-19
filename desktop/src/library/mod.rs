@@ -45,10 +45,10 @@ use files::{DirReader, Listed, ZipReader};
 pub const FOLDERS_KEY: &str = "ddi.desktop.folders.v1";
 /// Packs and songs the player removed from the list (files kept).
 pub const HIDDEN_KEY: &str = "ddi.desktop.hidden.v1";
-/// The cache's file (in the cache folder) and version (4: the second
-/// background layer's files are listed, and `bg_scripted` kept).
+/// The cache's file (in the cache folder) and version (5: generated
+/// onigiri-free charts are listed alongside original DanOni charts).
 pub const CACHE_FILE: &str = "library-v1.json";
-const CACHE_VERSION: u32 = 4;
+const CACHE_VERSION: u32 = 5;
 
 /// The song folders the settings list.
 pub fn folders() -> Vec<PathBuf> {

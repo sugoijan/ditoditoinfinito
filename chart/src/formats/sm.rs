@@ -1032,6 +1032,7 @@ fn build_chart(
     let lanes = known_lane_count(&steps_type);
     let notes = parse_note_data(note_data.trim(), lanes);
     Ok(Chart {
+        derivation: None,
         layout: steps_type,
         difficulty: diff,
         meter,

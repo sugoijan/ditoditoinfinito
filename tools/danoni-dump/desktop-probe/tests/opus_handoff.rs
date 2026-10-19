@@ -86,12 +86,28 @@ fn ssc_opus_preserves_odd_frame_counts_and_plays_every_supported_layout() {
             .map(|c| c["layout"].as_str().unwrap())
             .collect::<Vec<_>>();
         layouts.sort_unstable();
-        assert_eq!(layouts, ["danoni-5", "danoni-7", "danoni-9A", "danoni-9B"]);
+        assert_eq!(
+            layouts,
+            [
+                "dance-double",
+                "dance-single",
+                "dance-solo",
+                "danoni-5",
+                "danoni-7",
+                "danoni-9A",
+                "danoni-9B",
+                "techno-single8",
+            ]
+        );
         for chart in charts {
             let lanes = match chart["layout"].as_str().unwrap() {
                 "danoni-5" => 5,
                 "danoni-7" => 7,
-                _ => 9,
+                "danoni-9A" | "danoni-9B" => 9,
+                "dance-single" => 4,
+                "dance-solo" => 6,
+                "dance-double" | "techno-single8" => 8,
+                other => panic!("Unexpected layout: {other}"),
             };
             let runs = chart["runs"].as_array().unwrap();
             assert_eq!(
@@ -103,6 +119,11 @@ fn ssc_opus_preserves_odd_frame_counts_and_plays_every_supported_layout() {
             for run in runs {
                 assert_eq!(run["topTier"], lanes * 3);
                 assert_eq!(run["held"], lanes);
+                assert_eq!(run["replayMatches"], true);
+                assert_eq!(
+                    run["assist"],
+                    !chart["layout"].as_str().unwrap().starts_with("danoni-")
+                );
             }
         }
     }

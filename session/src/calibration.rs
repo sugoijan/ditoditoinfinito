@@ -386,6 +386,7 @@ pub fn song(mode: CalMode) -> Song {
         timing,
         display_bpm: DisplayBpm::Actual,
         charts: vec![Chart {
+            derivation: None,
             layout: "dance-single".into(),
             difficulty: Difficulty::Beginner,
             meter: 1,

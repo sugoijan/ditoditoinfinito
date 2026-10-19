@@ -158,6 +158,43 @@ fn a_play_judged_again_comes_to_the_same() {
 }
 
 #[test]
+fn converted_onigiri_plays_keep_their_own_identity_assist_flag_and_replay() {
+    use ddi_chart::formats::danoni::{self, Dos, DosFlags};
+    let mut song = danoni::import(&Dos::parse(
+        "|musicTitle=Test,Artist|musicUrl=test.ogg|blankFrame=0|difData=5,Hard,3.5|left_data=60|space_data=90|right_data=120|",
+        DosFlags::default(),
+    )).unwrap().songs.remove(0);
+    let original_digest = song.chart_digest(0);
+    song.add_no_onigiri_charts();
+    let mut history = History::default();
+    for (index, assisted, taps) in [(0, false, 3), (1, true, 2)] {
+        let (log, results) = play(&song, index, &itg(), Some(0.0));
+        assert_eq!(results.assist, assisted);
+        assert_eq!(results.tally.taps[0], taps);
+        let rec = record(&song, index, &itg(), index as f64, false);
+        let (entry, summary) = new_entry(format!("p{index}"), &rec, &log, &results).unwrap();
+        history.add(entry.id.clone(), summary);
+        let watched = Replay::from_entry(&entry).unwrap().results(&song).unwrap();
+        assert_eq!(watched.assist, assisted);
+        assert_eq!(watched.tally, results.tally);
+        assert_eq!(rework(&entry, &song).unwrap().assist, assisted);
+    }
+    assert_eq!(song.chart_digest(0), original_digest);
+    assert_ne!(song.chart_digest(1), original_digest);
+    let bests = history.bests();
+    assert!(
+        bests
+            .keys()
+            .any(|k| k.digest == original_digest && !k.assist)
+    );
+    assert!(
+        bests
+            .keys()
+            .any(|k| k.digest == song.chart_digest(1) && k.assist)
+    );
+}
+
+#[test]
 fn a_chart_is_found_by_its_content() {
     let song = song();
     let key = |i: usize, index: u32| ChartKey {

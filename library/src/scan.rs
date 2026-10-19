@@ -14,7 +14,6 @@
 //! as the web's are (its chart, music, banner and background by their own
 //! names, `../` where the simfile reaches out of the folder).
 
-use ddi_chart::formats::sm::parse_simfile;
 use ddi_platform::video::VideoFormat;
 
 use crate::image::{IMAGE_HEADER_LEN, image_size};
@@ -25,6 +24,17 @@ use crate::path::{RelPath, RelPathBuf};
 /// The most background-change images a song keeps (the web's
 /// `songs::MAX_BG_IMAGES`).
 pub const MAX_BG_IMAGES: usize = 32;
+
+/// Reads a simfile for the library or a play, appending any generated
+/// chart versions. The format importer itself preserves the source charts.
+pub fn parse_simfile(
+    text: &str,
+    extension: &str,
+) -> Result<ddi_chart::Song, ddi_chart::formats::ParseError> {
+    let mut song = ddi_chart::formats::sm::parse_simfile(text, extension)?;
+    song.add_no_onigiri_charts();
+    Ok(song)
+}
 
 /// Files of a folder or a zip, by paths relative to its root.
 pub trait Reader {
@@ -534,6 +544,63 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+
+    #[test]
+    fn exported_danoni_simfiles_keep_originals_and_gain_versioned_charts() {
+        for (mode, lanes, onigiri, target) in [
+            ("5", 5, 4, "dance-single"),
+            ("7", 7, 3, "dance-solo"),
+            ("9A", 9, 4, "dance-double"),
+            ("9B", 9, 4, "techno-single8"),
+        ] {
+            let mut rows = vec![vec![b'0'; lanes]; 4];
+            rows[0][0] = b'2';
+            rows[0][onigiri] = b'1';
+            rows[1][onigiri] = b'2';
+            rows[2][0] = b'3';
+            rows[2][onigiri] = b'3';
+            rows[3][lanes - 2] = b'1';
+            let notes = rows
+                .into_iter()
+                .map(|r| String::from_utf8(r).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let text = format!(
+                "#VERSION:0.83;#TITLE:Export;#BPMS:0=120;#NOTEDATA:;\
+                #STEPSTYPE:danoni-{mode};#CHARTNAME:Hard;#DIFFICULTY:Hard;#METER:8;\
+                #OFFSET:0.25;#BPMS:0=150;#SCROLLS:0=0.8,2=1.2;#NOTES:{notes};"
+            );
+            let original = ddi_chart::formats::sm::parse_ssc(&text).unwrap();
+            let raw_entry = summarize(Default::default(), &original);
+            assert_eq!(raw_entry.variants_version, 0);
+            assert!(raw_entry.needs_chart_variants());
+            let song = parse_simfile(&text, "ssc").unwrap();
+            assert_eq!(song.charts.len(), 2, "{mode}");
+            assert_eq!(song.charts[0], original.charts[0]);
+            assert_eq!(song.chart_digest(0), original.chart_digest(0));
+            assert_eq!(song.charts[1].layout, target);
+            assert_eq!(song.charts[1].notes.len(), 2);
+            assert_eq!(song.charts[1].timing, original.charts[0].timing);
+            assert!(
+                song.charts[1].danoni.is_none(),
+                "SSC keeps its ruleset semantics"
+            );
+            let entry = summarize(Default::default(), &song);
+            assert_eq!(entry.charts[0].index, 0);
+            assert_eq!(entry.charts[1].index, 1);
+            assert!(!entry.needs_chart_variants());
+            let admitted_json = serde_json::to_string(&raw_entry).unwrap();
+            let enriched = crate::manifest::with_chart_variants(&raw_entry, &song);
+            assert_eq!(enriched.charts, entry.charts);
+            assert!(!enriched.needs_chart_variants());
+            assert_eq!(&enriched.charts[..raw_entry.charts.len()], raw_entry.charts);
+            assert_eq!(serde_json::to_string(&raw_entry).unwrap(), admitted_json);
+            assert_eq!(
+                crate::manifest::with_chart_variants(&enriched, &song),
+                enriched
+            );
+        }
+    }
 
     struct Files(BTreeMap<String, Vec<u8>>);
 

@@ -11,8 +11,9 @@
 //! - **Header**: the screen's name, the search field (suggestions drop
 //!   under it; the wheel shows the matches), what is in effect.
 //!   **Footer**: what the keys do now, and links.
-//! - **Keys**: Up and Down move through songs, Left and Right through
-//!   charts, Tab (the menu's Select) to the next lit style, Start plays
+//! - **Keys**: all four arrows move through songs; double-tap the same
+//!   arrow to change chart (Up/Left easier, Down/Right harder). Tab
+//!   (the menu's Select) goes to the next lit style, Start plays
 //!   (or opens and closes a pack), `/` searches, Back clears the search
 //!   or closes the pack.
 //!
@@ -57,8 +58,8 @@ pub type PlayFn = Rc<dyn Fn(&SongEntry, &ChartEntry, &Env, &mut Cx)>;
 /// What the Options link does.
 pub type OpenFn = Rc<dyn Fn(&Env, &mut Cx)>;
 
-/// What song select asks the shell, inside the input that asked (a
-/// gesture, when it came from one).
+/// What song select asks the shell. Selection can settle on a frame;
+/// gesture-bound requests are made inside the input that asked.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SelectCall {
     /// The song shown changed (its preview starts): `None`, no song.
@@ -142,6 +143,16 @@ pub const NOTICE_LINK: &str = "NoticeLink";
 const LADDER_ROWS: usize = 8;
 /// Rows a second past which the wheel's room for its selected row closes.
 const FLICK_ROWS: f32 = 6.0;
+/// Wait for a second press before moving the song; held repeats never
+/// count as taps. Shorter than the menu's initial repeat delay.
+const DOUBLE_TAP: f32 = 0.25;
+
+struct PendingMove {
+    action: MenuAction,
+    remaining: f32,
+    from_pad: bool,
+}
+
 /// The compact layout's left side, from its top (`Phone.dc.html`):
 /// banner 94, the title and a line, then the style button (36), the
 /// chart buttons (44) and Play (48), 8 apart.
@@ -468,7 +479,7 @@ pub struct SelectScreen {
     haystacks: Vec<String>,
     style: usize,
     preferred: Difficulty,
-    /// The ladder's chart picked for the song shown (by Left and Right).
+    /// The ladder's chart picked for the song shown.
     pick: Option<usize>,
     closed: BTreeSet<usize>,
     matches: Option<Vec<bool>>,
@@ -514,6 +525,8 @@ pub struct SelectScreen {
     told_song: Option<Option<String>>,
     /// The input being handled came from a controller.
     from_pad: bool,
+    /// A single arrow press waiting for a possible difficulty double tap.
+    pending_move: Option<PendingMove>,
     /// How open the wheel's room for the selected row is (closed while
     /// it flicks), and whether the selected row was shrunk for it.
     open: f32,
@@ -589,6 +602,7 @@ impl SelectScreen {
             told_place: None,
             told_song: None,
             from_pad: false,
+            pending_move: None,
             open: 1.0,
             shut: false,
         };
@@ -1130,7 +1144,7 @@ impl SelectScreen {
 
     // Filling.
 
-    /// The song the selection shows, at once (what Start, Left, Right
+    /// The song the selection shows, at once (what Start, chart changes
     /// and Tab act on); the left side is filled at the next frame.
     fn follow(&mut self) {
         let item = self.selected_item();
@@ -1595,8 +1609,8 @@ impl SelectScreen {
         let (hints, note): (&[(&[&str], &str)], &str) = match now {
             Hints::Song => (
                 &[
-                    (&["↑↓"], "Song"),
-                    (&["←→"], "Chart"),
+                    (&["↑↓←→"], "Song"),
+                    (&["2×↑↓←→"], "Chart"),
                     (&["TAB"], "Style"),
                     (&["ENTER"], "Play"),
                     (&["/"], "Search"),
@@ -1606,7 +1620,7 @@ impl SelectScreen {
             ),
             Hints::Greyed => (
                 &[
-                    (&["↑↓"], "Song"),
+                    (&["↑↓←→"], "Song"),
                     (&["TAB"], "Style"),
                     (&["/"], "Search"),
                     (&["ESC"], esc),
@@ -1614,12 +1628,12 @@ impl SelectScreen {
                 "",
             ),
             Hints::Header if searching => (
-                &[(&["↑↓"], "Song"), (&["/"], "Search"), (&["ESC"], esc)],
+                &[(&["↑↓←→"], "Song"), (&["/"], "Search"), (&["ESC"], esc)],
                 "",
             ),
             Hints::Header => (
                 &[
-                    (&["↑↓"], "Song"),
+                    (&["↑↓←→"], "Song"),
                     (&["ENTER"], "Open or close"),
                     (&["/"], "Search"),
                 ],
@@ -1837,6 +1851,7 @@ impl SelectScreen {
             )
         };
         if let Some(d) = data {
+            self.pending_move = None;
             self.set_data(d, false);
             self.fill_tabs(root);
             self.fill_charts(root);
@@ -1850,10 +1865,12 @@ impl SelectScreen {
             self.notices_dirty = true;
         }
         if let Some(open) = overlay {
+            self.pending_move = None;
             open(&self.env, cx);
         }
         // Files dropped on the page: the dialog shows how the import goes.
         if open && !self.import_open(cx) {
+            self.pending_move = None;
             cx.focus("Wheel");
             cx.overlay(
                 ImportDialog::new(self.env.clone(), self.import.clone(), self.shell.clone()),
@@ -1932,6 +1949,70 @@ impl SelectScreen {
     }
 
     // Actions.
+
+    fn move_song(&mut self, action: MenuAction, root: &mut Actor) {
+        let action = match action {
+            MenuAction::Up | MenuAction::Left => MenuAction::Up,
+            _ => MenuAction::Down,
+        };
+        let model = wheel(
+            &self.items,
+            &self.data,
+            &self.packs,
+            &self.closed,
+            self.matches.as_deref(),
+            self.style,
+            self.layout.compact,
+        );
+        self.list.input(
+            &Input::Menu {
+                action,
+                repeat: false,
+            },
+            root,
+            &model,
+        );
+        self.follow();
+    }
+
+    fn flush_move(&mut self, root: &mut Actor, cx: &mut Cx) {
+        if let Some(pending) = self.pending_move.take() {
+            self.move_song(pending.action, root);
+            // Timer-driven moves keep the original input's source, so the
+            // shell still knows whether a controller chose the preview.
+            let from_pad = std::mem::replace(&mut self.from_pad, pending.from_pad);
+            self.tell(cx);
+            self.from_pad = from_pad;
+        }
+    }
+
+    fn arrow(&mut self, action: MenuAction, repeat: bool, root: &mut Actor, cx: &mut Cx) {
+        if repeat {
+            self.flush_move(root, cx);
+            self.move_song(action, root);
+            return;
+        }
+        if self.pending_move.as_ref().is_some_and(|pending| {
+            pending.action == action && pending.from_pad == self.from_pad && pending.remaining > 0.0
+        }) && matches!(self.selected_item(), Some(Item::Song(_)))
+        {
+            self.pending_move = None;
+            let by = if matches!(action, MenuAction::Up | MenuAction::Left) {
+                -1
+            } else {
+                1
+            };
+            self.move_chart(by, root);
+            return;
+        }
+        // Different arrows are separate song moves, even when pressed quickly.
+        self.flush_move(root, cx);
+        self.pending_move = Some(PendingMove {
+            action,
+            remaining: DOUBLE_TAP,
+            from_pad: self.from_pad,
+        });
+    }
 
     fn set_style(&mut self, i: usize, root: &mut Actor) {
         if i >= self.data.styles.len() || i == self.style {
@@ -2417,12 +2498,19 @@ impl Screen for SelectScreen {
     }
 
     fn animating(&self) -> bool {
-        self.list.animating()
+        self.pending_move.is_some()
+            || self.list.animating()
             || self.pulse.on
             || (!self.layout.compact && (self.open > 0.0 && self.open < 1.0))
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        if let Some(pending) = &mut self.pending_move {
+            pending.remaining -= dt;
+            if pending.remaining <= 0.0 {
+                self.flush_move(root, cx);
+            }
+        }
         // A new size (a window resized or turned, a new design), or
         // reduced motion changed: laid out again.
         let vp = cx.viewport().screen;
@@ -2574,6 +2662,29 @@ impl Screen for SelectScreen {
             _ => input,
         };
         self.from_pad = matches!(input, Input::Menu { .. }) && !cx.menu_from_keyboard();
+        match input {
+            // Starting or changing style immediately after a single tap acts
+            // on the requested song, even before its tap window has elapsed.
+            Input::Menu {
+                action: MenuAction::Start | MenuAction::Select,
+                ..
+            } => {
+                self.flush_move(root, cx);
+            }
+            Input::Menu {
+                action: MenuAction::Back,
+                ..
+            }
+            | Input::Activate { .. }
+            | Input::Focus { .. }
+            | Input::Wheel { .. }
+            | Input::Pointer {
+                gesture: crate::Gesture::Press,
+                ..
+            } => self.pending_move = None,
+            Input::Key(k) if k.down => self.pending_move = None,
+            _ => {}
+        }
         // A link a controller pressed: the browser opens it only from a
         // key or a tap; the footer says so for a while.
         if let Input::NeedsGesture(UiRequest::OpenUrl(_)) = input {
@@ -2592,7 +2703,7 @@ impl Screen for SelectScreen {
         self.sync_field(root);
         self.publish_dirty = true;
         self.publish();
-        // Inside the input: a preview starts in its gesture.
+        // Tell the shell synchronously for changes committed by this input.
         self.tell(cx);
         self.from_pad = false;
         h
@@ -2802,13 +2913,14 @@ impl SelectScreen {
         {
             return Handled::No;
         }
-        // The wheel: pointers and the wheel on it, and the menu's Up and
-        // Down whatever has focus.
-        let for_list = match input {
-            Input::Menu { action, .. } => matches!(action, MenuAction::Up | MenuAction::Down),
-            _ => true,
-        };
-        if for_list {
+        if let Input::Menu { action, repeat } = input
+            && action.is_direction()
+        {
+            self.arrow(*action, *repeat, root, cx);
+            return Handled::Yes;
+        }
+        // Pointer gestures and scrolling keep the list's usual behavior.
+        if !matches!(input, Input::Menu { .. }) {
             let model = wheel(
                 &self.items,
                 &self.data,
@@ -2829,14 +2941,6 @@ impl SelectScreen {
         }
         match input {
             Input::Menu { action, .. } => match action {
-                MenuAction::Left => {
-                    self.move_chart(-1, root);
-                    Handled::Yes
-                }
-                MenuAction::Right => {
-                    self.move_chart(1, root);
-                    Handled::Yes
-                }
                 MenuAction::Select => {
                     self.next_style(root);
                     Handled::Yes

@@ -220,7 +220,13 @@ today:
 - **Every song shows in every style;** a song with no chart in the
   selected style is greyed (dimmed, its banner grey, "no Double charts"
   in place of its meters) and can still be selected.
-- **Keys:** Up and Down move through songs, Left and Right through charts.
+- **Keys:** all four arrows move through songs (Up/Left previous,
+  Down/Right next), after a 250 ms window for a possible second tap.
+  Double-tapping the same arrow keeps the song and changes chart:
+  Up/Left easier, Down/Right harder. Held arrows repeat through songs.
+  Enter or Tab settles a queued song move first; search, Back, a pointer
+  press or focus change cancels it. Header navigation and typing keep
+  their usual focus and editing behavior.
 
 Built from widgets that exist (the wheel-style list, option rows). The
 search mockup is in this layout:

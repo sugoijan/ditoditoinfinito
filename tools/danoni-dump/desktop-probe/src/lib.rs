@@ -10,7 +10,10 @@ use ddi_desktop::{
     play::{Ended, Feed, Play, Request, load},
 };
 use ddi_platform::{HostTime, history::MemoryPlayStore};
-use ddi_ui::state::{history::Plays, settings::Settings};
+use ddi_ui::state::{
+    history::{Plays, Replay},
+    settings::Settings,
+};
 use serde_json::{Value, json};
 use std::{
     cell::RefCell,
@@ -156,21 +159,35 @@ pub fn snapshot(root: &Path) -> Result<(String, Vec<LibSong>)> {
     let songs = catalog
         .songs
         .into_iter()
-        .map(|s| LibSong {
-            root: root
+        .map(|s| {
+            let root = root
                 .join("transactions")
                 .join(&s.transaction)
                 .join("songs")
-                .join(&s.installed.id),
-            zip: false,
-            dir: Default::default(),
-            pack: "DanOni imports".into(),
-            entry: s.entry,
-            warnings: vec![],
-            notes: vec![],
-            work: None, // Prepared SSC, not a raw HTML5 work.
+                .join(&s.installed.id);
+            let chart = s
+                .entry
+                .chart
+                .to_path(&root)
+                .ok_or_else(|| error("Invalid chart path"))?;
+            let text = std::fs::read_to_string(chart).map_err(error)?;
+            let parsed = ddi_library::scan::parse_simfile(&text, "ssc").map_err(error)?;
+            let entry = ddi_library::manifest::with_chart_variants(&s.entry, &parsed);
+            if !entry.charts.starts_with(&s.entry.charts) {
+                return Err(error("Chart variants changed admitted source metadata"));
+            }
+            Ok(LibSong {
+                root,
+                zip: false,
+                dir: Default::default(),
+                pack: "DanOni imports".into(),
+                entry,
+                warnings: vec![],
+                notes: vec![],
+                work: None, // Prepared SSC, not a raw HTML5 work.
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
     Ok((catalog.revision, songs))
 }
 
@@ -214,7 +231,11 @@ pub fn audit(songs: &[LibSong]) -> Result<Value> {
         let mut charts = Vec::new();
         for chart in &s.entry.charts {
             let parsed = &loaded.song.charts[chart.index];
-            if parsed.judged_note_count() != chart.notes || parsed.notes.is_empty() {
+            if parsed.judged_note_count() != chart.notes
+                || parsed.notes.is_empty()
+                || chart.digest != Some(loaded.song.chart_digest(chart.index))
+                || chart.derivation != parsed.derivation
+            {
                 return Err(error("Parsed notes differ from catalog or chart is empty"));
             }
             let layout = loaded
@@ -259,15 +280,36 @@ pub fn audit(songs: &[LibSong]) -> Result<Value> {
                     || result.tally.taps[1..].iter().sum::<u32>() != 0
                     || result.tally.let_go != 0
                     || history.len() != 1
+                    || result.assist != parsed.derivation.is_some()
                 {
                     return Err(error(format!(
                         "{} chart {} at {fps} Hz: failed autoplay/history",
                         s.entry.title, chart.index
                     )));
                 }
+                let id = plays
+                    .history()
+                    .last()
+                    .map(|(id, _)| id.clone())
+                    .ok_or_else(|| error("Autoplay history is missing"))?;
+                let entry = Rc::new(RefCell::new(None));
+                let got = entry.clone();
+                plays.entry(&id, move |r| *got.borrow_mut() = Some(r));
+                let entry = entry
+                    .borrow_mut()
+                    .take()
+                    .ok_or_else(|| error("Autoplay history read did not finish"))?
+                    .map_err(error)?;
+                let replay = Replay::from_entry(&entry).map_err(error)?;
+                let watched = replay.results(&loaded.song).map_err(error)?;
+                let replay_matches = replay.check(&result, &watched).matches;
+                if !replay_matches || watched.assist != result.assist {
+                    return Err(error("Autoplay replay differs from the recorded play"));
+                }
                 runs.push(
                     json!({"fps":fps,"topTier":result.tally.taps[0],"held":result.tally.held,
-                    "letGo":result.tally.let_go,"historyRecords":history.len()}),
+                    "letGo":result.tally.let_go,"historyRecords":history.len(),
+                    "assist":result.assist,"replayMatches":replay_matches}),
                 );
             }
             charts.push(json!({"index":chart.index,"layout":layout.id,"runs":runs}));

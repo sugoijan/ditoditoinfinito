@@ -10,8 +10,9 @@
 
 [[code]]
 name = "StepMania 5.1"
-what = "The metrics.ini and Lua files of its dance/default, pump/default and common/common noteskins, byte for byte: the stand-ins every imported noteskin falls back to."
+what = "The metrics.ini and Lua files of its dance/default, pump/default and common/common noteskins, byte for byte: the stand-ins every imported noteskin falls back to. The Techno single8 lane order and keyboard defaults from src/GameManager.cpp, adapted to our Layout data with additional arrow-key aliases and a quarter-turn mapping."
 files = [
+  "chart/src/layout/mod.rs",
   "noteskin/src/builtin/stepmania/dance/default/metrics.ini",
   "noteskin/src/builtin/stepmania/dance/default/NoteSkin.lua",
   "noteskin/src/builtin/stepmania/dance/default/Down Receptor.lua",
