@@ -133,6 +133,7 @@ impl LyricTrack {
     /// `dataLoader.js` 1045–1078; `wordAutoReverse` overrides, and lyrics
     /// with line breaks never move).
     pub fn new(song: &Song, chart: usize, reverse: bool, single_row: bool) -> LyricTrack {
+        let chart = song.effects_chart(chart);
         let mut cues: Vec<(f64, u8, Cue)> = song
             .effects
             .iter()

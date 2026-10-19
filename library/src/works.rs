@@ -293,12 +293,14 @@ pub fn plan<S: AsRef<str>>(
             continue;
         }
         seen.insert(id.clone(), label.to_string());
+        let mut song = song.clone();
+        song.add_no_onigiri_charts();
         out.songs.push(WorkSong {
             id,
             pack: pack.clone(),
             label: label.to_string(),
             music_no,
-            song: song.clone(),
+            song,
             music,
             encoded,
             layers,
@@ -358,12 +360,29 @@ pub fn entry(s: &WorkSong, chart: &str, music: &str) -> ManifestEntry {
 /// The keys the song list finds a chart's bests by: its digest and, for a
 /// work's chart, its own excessive setting.
 pub fn fill_chart_keys(entry: &mut ManifestEntry, song: &Song) {
+    for (index, chart) in song.charts.iter().enumerate() {
+        if chart.derivation.is_some() && !entry.charts.iter().any(|c| c.index == index) {
+            entry.charts.push(crate::manifest::ChartInfo {
+                index,
+                derivation: chart.derivation.clone(),
+                layout: chart.layout.clone(),
+                difficulty: format!("{:?}", chart.difficulty),
+                meter: chart.meter,
+                name: chart.name.clone(),
+                credit: chart.credit.clone(),
+                notes: chart.judged_note_count(),
+                digest: None,
+                excessive: None,
+            });
+        }
+    }
     for c in &mut entry.charts {
         if c.index < song.charts.len() {
             c.digest = Some(song.chart_digest(c.index));
             c.excessive = ddi_engine::rules::danoni::chart_excessive(&song.charts[c.index]);
         }
     }
+    entry.variants_version = crate::manifest::chart_variants_version(song);
 }
 
 /// The song of music number `music_no` of work `w` (as a stored work's).
@@ -373,7 +392,11 @@ pub fn song_of(w: &Work, music_no: usize) -> Result<Song, String> {
         .music
         .iter()
         .position(|m| *m == music_no)
-        .map(|k| import.songs[k].clone())
+        .map(|k| {
+            let mut song = import.songs[k].clone();
+            song.add_no_onigiri_charts();
+            song
+        })
         .ok_or_else(|| format!("the work has no music number {music_no}"))
 }
 
@@ -412,6 +435,30 @@ pub fn sniff_audio(bytes: &[u8]) -> (&'static str, &'static str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn old_manifest_entries_gain_converted_charts_without_changing_original_keys() {
+        use ddi_chart::formats::danoni::{self, Dos, DosFlags};
+        let mut song = danoni::import(&Dos::parse(
+            "|musicTitle=Test,Artist|musicUrl=test.ogg|blankFrame=0|difData=5,Hard,3.5|left_data=60|space_data=90|right_data=120|",
+            DosFlags::default(),
+        )).unwrap().songs.remove(0);
+        let mut entry = crate::manifest::summarize(Default::default(), &song);
+        entry.variants_version = 0;
+        let original = entry.charts[0].clone();
+        song.add_no_onigiri_charts();
+        super::fill_chart_keys(&mut entry, &song);
+        assert_eq!(entry.charts.len(), 2);
+        assert_eq!(entry.charts[0].index, original.index);
+        assert_eq!(entry.charts[0].digest, original.digest);
+        assert!(entry.charts[0].derivation.is_none());
+        assert!(entry.charts[1].derivation.is_some());
+        assert_eq!(entry.charts[1].notes, 2);
+        assert_eq!(entry.variants_version, crate::manifest::VARIANTS_VERSION);
+        let upgraded = entry.clone();
+        super::fill_chart_keys(&mut entry, &song);
+        assert_eq!(entry, upgraded);
+    }
+
     use super::*;
 
     const PAGE: &str = "<html><head><meta charset=\"utf-8\"></head><body>\

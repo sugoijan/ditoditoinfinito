@@ -161,6 +161,15 @@ impl Song {
             None => h.u64(0),
         }
 
+        // Original chart identities stay byte-for-byte compatible. The
+        // derivation kind distinguishes generated charts; source indexes
+        // are intentionally omitted, since chart order can change.
+        match &chart.derivation {
+            Some(crate::simplify::Derivation::WithoutOnigiri { .. }) => {
+                h.section("without-onigiri", 1)
+            }
+            None => {}
+        }
         h.section("notes", chart.notes.len());
         for n in &chart.notes {
             h.tick(n.tick);

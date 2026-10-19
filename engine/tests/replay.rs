@@ -61,6 +61,7 @@ fn song(timing: TimingMap, notes: Vec<Note>) -> Song {
         timing,
         display_bpm: DisplayBpm::Actual,
         charts: vec![Chart {
+            derivation: None,
             layout: "dance-single".into(),
             difficulty: Difficulty::Hard,
             meter: 5,
@@ -733,6 +734,7 @@ fn long_hold_is_drawn_while_its_tail_is_off_screen() {
         timing,
         display_bpm: DisplayBpm::Actual,
         charts: vec![Chart {
+            derivation: None,
             layout: "dance-single".into(),
             difficulty: Difficulty::Beginner,
             meter: 1,
@@ -823,6 +825,7 @@ fn receptor_snap_lands_the_note_in_its_closest_frame() {
         timing: TimingMap::constant(60.0, 0.0),
         display_bpm: DisplayBpm::Actual,
         charts: vec![Chart {
+            derivation: None,
             layout: "dance-single".into(),
             difficulty: Difficulty::Beginner,
             meter: 1,

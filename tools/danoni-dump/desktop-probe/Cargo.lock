@@ -768,6 +768,7 @@ version = "0.1.0"
 dependencies = [
  "ddi-danoni-export",
  "ddi-desktop",
+ "ddi-library",
  "ddi-platform",
  "ddi-ui",
  "serde_json",

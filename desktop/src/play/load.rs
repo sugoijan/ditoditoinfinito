@@ -346,7 +346,7 @@ pub fn load_with(
         .rsplit_once('.')
         .map_or("sm", |(_, e)| e)
         .to_ascii_lowercase();
-    let song = ddi_chart::formats::sm::parse_simfile(&text, &ext).map_err(|e| e.to_string())?;
+    let song = ddi_library::scan::parse_simfile(&text, &ext).map_err(|e| e.to_string())?;
     let music = files.read(&entry.music)?;
     let music_ext = entry
         .music
@@ -389,7 +389,7 @@ pub fn read_chart(id: &str) -> Result<Song, String> {
         .rsplit_once('.')
         .map_or("sm", |(_, e)| e)
         .to_ascii_lowercase();
-    ddi_chart::formats::sm::parse_simfile(&text, &ext).map_err(|e| e.to_string())
+    ddi_library::scan::parse_simfile(&text, &ext).map_err(|e| e.to_string())
 }
 
 /// A work's song read again from where the library found it: its page
@@ -536,6 +536,7 @@ pub fn calibration(mode: ddi_session::calibration::CalMode, rate: u32) -> Loaded
         data,
     });
     let entry = ManifestEntry {
+        variants_version: 0,
         id: format!("calibration:{}", mode.id()),
         title: mode.title().into(),
         artist: String::new(),

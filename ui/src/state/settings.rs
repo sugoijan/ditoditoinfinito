@@ -37,6 +37,8 @@ pub struct Settings {
     /// calibration). Simplified plays are marked as assisted.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub transform: TransformOptions,
+    /// Offer additional DanOni charts without their onigiri lane.
+    pub simplify_onigiri: bool,
     /// Hidden / Sudden / Stealth (drawing only).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub appearance: Appearance,
@@ -258,6 +260,7 @@ impl Default for Settings {
             reverse: false,
             scroll_action: ScrollAction::Normal,
             transform: TransformOptions::default(),
+            simplify_onigiri: false,
             appearance: Appearance::Visible,
             note_colors: NoteColors::Vivid,
             noteskin: None,
@@ -560,6 +563,7 @@ impl Settings {
         excessive: Option<bool>,
     ) -> ddi_engine::rules::RulesetKey {
         let chart = ddi_chart::Chart {
+            derivation: None,
             layout: layout.to_string(),
             difficulty: ddi_chart::Difficulty::Edit,
             meter: 0,
@@ -715,6 +719,7 @@ mod tests {
     fn the_song_lists_best_key_is_the_plays() {
         use ddi_chart::{Chart, DanoniChart, Difficulty};
         let work = |headers: Vec<(&str, &str)>| Chart {
+            derivation: None,
             layout: "danoni-7".into(),
             difficulty: Difficulty::Edit,
             meter: 0,

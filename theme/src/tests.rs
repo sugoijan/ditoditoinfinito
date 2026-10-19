@@ -269,6 +269,7 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     assert!(state.borrow().greyed);
     for _ in 0..4 {
         h.key("ArrowUp", "ArrowUp");
+        h.run(0.3);
     }
     h.run(0.3);
     assert!(state.borrow().header.is_some());
@@ -1426,12 +1427,14 @@ fn song_select_upright_by_touch_keys_and_pad() {
     let mut h = harness([390.0, 844.0], COMPACT);
     h.push(sample::select_screen(&env, None));
     h.run(0.6);
-    // Keys: Down moves the wheel, Right the chart.
+    // Keys: single Down moves the wheel, double Left changes the chart.
     let song = state.borrow().song.clone();
     h.key("ArrowDown", "ArrowDown");
     h.run(0.3);
     assert_ne!(state.borrow().song, song);
     let chart = state.borrow().chart.clone();
+    h.key("ArrowLeft", "ArrowLeft");
+    h.run(0.08);
     h.key("ArrowLeft", "ArrowLeft");
     assert_ne!(state.borrow().chart, chart);
     // A pad's Up goes back up the wheel.

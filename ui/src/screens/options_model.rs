@@ -429,6 +429,15 @@ impl OptionsModel {
                 ),
                 cut,
                 choice(
+                    "simplify_onigiri",
+                    "Without onigiri",
+                    &["Off", "On"],
+                    s.simplify_onigiri as usize,
+                    "Adds separate DanOni charts to Single, Solo, Double and Techno 8-panel, \
+                     without the onigiri notes. Only these versions are marked as assisted; \
+                     the original charts stay available.",
+                ),
+                choice(
                     "no_jumps",
                     "No jumps",
                     &["Off", "On"],
@@ -1219,6 +1228,7 @@ impl OptionsModel {
             "appearance" => s.appearance = at(&APPEARANCES, i),
             "cut" => s.transform.cut = at(&CUTS, i),
             "no_jumps" => s.transform.no_jumps = on,
+            "simplify_onigiri" => s.simplify_onigiri = on,
             "no_holds" => s.transform.no_holds = on,
             "ruleset_mode" => s.ruleset_mode = at(&RULESET_MODES, i),
             "ruleset" => {

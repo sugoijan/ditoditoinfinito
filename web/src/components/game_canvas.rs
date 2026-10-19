@@ -1353,7 +1353,7 @@ impl GameCanvas {
             return;
         };
         let key = self.settings.ruleset_for(c).key();
-        let assist = self.settings.transform.is_assist();
+        let assist = c.derivation.is_some() || self.settings.transform.is_assist();
         let best =
             crate::history::plays()
                 .history()

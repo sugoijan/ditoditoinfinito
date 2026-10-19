@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 
 use ddi_chart::Song;
-use ddi_chart::formats::sm::parse_simfile;
 use ddi_library::backgrounds::BgImage;
+use ddi_library::scan::parse_simfile;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::Blob;
@@ -215,7 +215,22 @@ async fn load_imported() -> Result<(Vec<ImportedSong>, Vec<String>), String> {
             .as_string()
             .and_then(|json| serde_json::from_str::<ImportedSong>(&json).ok())
         {
-            Some(song) => songs.push(song),
+            Some(mut song) => {
+                if song.entry.needs_chart_variants() {
+                    let found = Found {
+                        entry: song.entry.clone(),
+                        origin: Origin::Imported(song.pack.clone()),
+                        record: Some(song.clone()),
+                    };
+                    if let Ok(parsed) = parse_found(&found).await {
+                        ddi_library::works::fill_chart_keys(&mut song.entry, &parsed);
+                        if song.entry.length <= 0.0 {
+                            song.entry.length = ddi_library::manifest::song_length(&parsed);
+                        }
+                    }
+                }
+                songs.push(song);
+            }
             None => unreadable.push(id),
         }
     }
@@ -596,6 +611,7 @@ async fn fill_digests(found: &Found, song: &Song) {
         .iter()
         .all(|c| c.digest.is_some() && (!danoni || c.excessive.is_some()))
         && record.entry.length > 0.0
+        && !record.entry.needs_chart_variants()
     {
         return;
     }

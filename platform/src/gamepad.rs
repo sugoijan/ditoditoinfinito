@@ -484,6 +484,8 @@ pub mod standard {
     pub const Y: u16 = 3;
     pub const LB: u16 = 4;
     pub const RB: u16 = 5;
+    pub const LT: u16 = 6;
+    pub const RT: u16 = 7;
     pub const BACK: u16 = 8;
     pub const START: u16 = 9;
     pub const DPAD_UP: u16 = 12;

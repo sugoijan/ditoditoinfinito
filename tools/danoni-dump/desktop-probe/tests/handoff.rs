@@ -7,6 +7,7 @@ use ddi_danoni_export::{
     managed_store::Store,
 };
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
@@ -34,6 +35,26 @@ fn scratch() -> PathBuf {
     ));
     fs::create_dir(&root).unwrap();
     root.canonicalize().unwrap()
+}
+// Keep every receipted byte, including the active and archived catalog and
+// song summaries. Consumer-only variants must not rewrite any store file.
+fn stored_bytes(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    fn visit(base: &Path, dir: &Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                visit(base, &path, out);
+            } else {
+                out.insert(
+                    path.strip_prefix(base).unwrap().to_owned(),
+                    fs::read(path).unwrap(),
+                );
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    visit(root, root, &mut out);
+    out
 }
 #[test]
 fn cancelled_commit_reopen_duplicate_and_replacement_keep_desktop_identity() {
@@ -80,12 +101,34 @@ fn cancelled_commit_reopen_duplicate_and_replacement_keep_desktop_identity() {
         installed.installation,
         host::Outcome::Installed { added: 1, .. }
     ));
+    let bytes = stored_bytes(&library);
+    let admitted = Store::open(&library).unwrap().verify().unwrap();
+    let source = &admitted.songs[0].entry;
+    assert_eq!(
+        source.variants_version, 0,
+        "admission contains source charts only"
+    );
+    assert!(source.charts.iter().all(|c| c.derivation.is_none()));
     let (revision, songs) = snapshot(&library).unwrap();
+    assert_eq!(
+        stored_bytes(&library),
+        bytes,
+        "snapshot must not modify the store"
+    );
+    assert!(songs[0].entry.charts.starts_with(&source.charts));
+    assert_eq!(songs[0].entry.charts.len(), source.charts.len() * 2);
+    assert!(!songs[0].entry.needs_chart_variants());
+    assert_eq!(snapshot(&library).unwrap().1[0].entry, songs[0].entry);
     assert_eq!(songs.len(), 1);
     let id = songs[0].entry.id.clone();
     assert_eq!(id, installed.review.import.songs[0].entry.id);
     let before = audit(&songs).unwrap();
-    assert_eq!(before["songs"][0]["charts"].as_array().unwrap().len(), 2);
+    assert_eq!(before["songs"][0]["charts"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        stored_bytes(&library),
+        bytes,
+        "play/replay must not modify the store"
+    );
     let duplicate = resume_job(first, library.clone())
         .unwrap()
         .finish()

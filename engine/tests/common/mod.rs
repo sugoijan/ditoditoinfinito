@@ -54,6 +54,7 @@ pub fn song(layout: &str, timing: TimingMap, notes: Vec<Note>) -> Song {
         timing,
         display_bpm: DisplayBpm::Actual,
         charts: vec![Chart {
+            derivation: None,
             layout: layout.into(),
             difficulty: Difficulty::Hard,
             meter: 9,

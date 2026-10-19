@@ -12,6 +12,7 @@ pub mod digest;
 pub mod formats;
 pub mod layout;
 pub mod model;
+pub mod simplify;
 pub mod song_ext;
 pub mod timing;
 

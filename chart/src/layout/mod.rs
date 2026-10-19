@@ -100,13 +100,14 @@ pub const FORMER_DANONI_MODES: [&str; 1] = ["7i"];
 
 /// Ids of the built-in StepMania layouts, in the order the game lists them
 /// (the Dancing☆Onigiri key modes follow, see [`Layout::builtin_ids`]).
-pub const BUILTIN_LAYOUTS: [&str; 6] = [
+pub const BUILTIN_LAYOUTS: [&str; 7] = [
     "dance-single",
     "dance-solo",
     "dance-double",
     "pump-single",
     "pump-halfdouble",
     "pump-double",
+    "techno-single8",
 ];
 
 /// A five-panel pad's lanes in StepMania's track order (`pump`'s buttons,
@@ -262,6 +263,39 @@ impl Layout {
         }
     }
 
+    /// StepMania `techno-single8`, in its track order (GameManager.cpp).
+    pub fn techno_single8() -> Layout {
+        Layout {
+            id: "techno-single8".into(),
+            name: "Techno 8-panel".into(),
+            players: 1,
+            family: LayoutFamily::StepMania,
+            lanes: vec![
+                Self::arrow("downleft", "Down-left", -45.0, 0.0, &["KeyZ", "Numpad1"]),
+                Self::arrow("left", "Left", 0.0, 1.0, &["KeyA", "ArrowLeft", "Numpad4"]),
+                Self::arrow("upleft", "Up-left", 45.0, 2.0, &["KeyQ", "Numpad7"]),
+                Self::arrow(
+                    "down",
+                    "Down",
+                    -90.0,
+                    3.0,
+                    &["KeyX", "ArrowDown", "Numpad2"],
+                ),
+                Self::arrow("up", "Up", 90.0, 4.0, &["KeyW", "ArrowUp", "Numpad8"]),
+                Self::arrow("upright", "Up-right", 135.0, 5.0, &["KeyE", "Numpad9"]),
+                Self::arrow(
+                    "right",
+                    "Right",
+                    180.0,
+                    6.0,
+                    &["KeyD", "ArrowRight", "Numpad6"],
+                ),
+                Self::arrow("downright", "Down-right", 225.0, 7.0, &["KeyC", "Numpad3"]),
+            ],
+            turn_left: Some(vec![2, 4, 5, 1, 6, 7, 3, 0]),
+        }
+    }
+
     /// StepMania `dance-double`: the left pad's L, D, U, R, then the right
     /// pad's (one player on two pads).
     pub fn dance_double() -> Layout {
@@ -409,6 +443,7 @@ impl Layout {
             "pump-single" => Some(Self::pump_single()),
             "pump-halfdouble" => Some(Self::pump_halfdouble()),
             "pump-double" => Some(Self::pump_double()),
+            "techno-single8" => Some(Self::techno_single8()),
             _ => {
                 let mode = id.strip_prefix("danoni-")?;
                 PLAYED_DANONI_MODES.contains(&mode).then_some(())?;

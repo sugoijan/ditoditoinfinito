@@ -129,6 +129,7 @@ pub fn song(layout: &str, bpm: f64) -> Option<Song> {
         timing: TimingMap::constant(bpm, 0.0),
         display_bpm: DisplayBpm::Actual,
         charts: vec![Chart {
+            derivation: None,
             layout: layout.into(),
             difficulty: Difficulty::Beginner,
             meter: 1,

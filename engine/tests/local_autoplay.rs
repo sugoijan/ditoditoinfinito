@@ -18,7 +18,6 @@
 use std::path::{Path, PathBuf};
 
 use ddi_chart::Song;
-use ddi_chart::formats::sm::parse_simfile;
 use ddi_engine::InputEvent;
 use ddi_engine::autoplay;
 use ddi_engine::judge::JudgeEventKind;
@@ -26,6 +25,7 @@ use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::danoni::DanoniOptions;
 use ddi_engine::rules::presets::{self, HoldStyle, RulesetMode};
 use ddi_engine::rules::{FullCombo, Judgement};
+use ddi_library::scan::parse_simfile;
 use ddi_platform::{ClockSample, HostTime};
 
 /// The shell's frame, 60 Hz.
@@ -69,6 +69,7 @@ fn local_autoplay() {
                 let played = std::panic::catch_unwind(|| play(&song, index, preset));
                 let problems = match played {
                     Ok(Some((r, n))) => {
+                        assert_eq!(r.assist, chart.derivation.is_some());
                         shocks += n;
                         check(&r)
                     }

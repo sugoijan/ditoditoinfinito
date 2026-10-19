@@ -108,6 +108,7 @@ impl SpriteTrack {
     /// `Rev` data when the work has one for it (danoniplus tries
     /// `backRev…` before `back…`).
     pub fn new(song: &Song, chart: usize, reverse: bool) -> SpriteTrack {
+        let chart = song.effects_chart(chart);
         let stage = song
             .charts
             .get(chart)

@@ -127,6 +127,16 @@ impl PadBindings {
                 &[RB],
                 &[DPAD_RIGHT, B],
             ]),
+            "techno-single8" => t(&[
+                &[LT],
+                &[DPAD_LEFT, X],
+                &[LB],
+                &[DPAD_DOWN, A],
+                &[DPAD_UP, Y],
+                &[RB],
+                &[DPAD_RIGHT, B],
+                &[RT],
+            ]),
             "dance-double" => t(&[
                 &[DPAD_LEFT],
                 &[DPAD_DOWN],

@@ -173,6 +173,7 @@ pub struct Player {
     timing: TimingMap,
     ruleset: Ruleset,
     options: PlayOptions,
+    chart_assist: bool,
     clock: SongClock,
     judge: Judge,
     lanes: u8,
@@ -279,6 +280,7 @@ impl Player {
             HoldPlace::Lanes
         };
         let mut player = Player {
+            chart_assist: chart.derivation.is_some(),
             timing,
             clock: SongClock::new(options.clock),
             options,
@@ -1118,7 +1120,7 @@ impl Player {
             seed: self.options.seed,
             appearance: self.options.appearance,
             scroll_action: self.options.scroll.scroll_action,
-            assist: self.options.transform.is_assist(),
+            assist: self.chart_assist || self.options.transform.is_assist(),
             timeline: Vec::new(),
             life: Vec::new(),
         }

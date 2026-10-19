@@ -335,7 +335,13 @@ and the helper keeps Firefox away from the maintainer's profiles.
 Playwright's WebKit (not Safari) runs headless with WebGPU; it ignores the
 gesture rule below, so it does not replace the maintainer's Safari check.
 
-Song select (`#/`) is our theme's screen on the canvas: drive it by keys,
+Song select (`#/`) uses all four arrows to move through songs (Up/Left
+previous, Down/Right next), waiting 250 ms for a possible double tap.
+Double-tapping the same arrow changes chart on the current song (Up/Left
+easier, Down/Right harder); held arrows scroll songs. Enter or Tab settles
+a queued move first. Search, Back, pointer presses and focus changes
+cancel it. Typing and navigation in the header keep their usual controls.
+Song select is our theme's screen on the canvas: drive it by keys,
 a fake pad or taps at `window.__DDI_DEBUG.ui.rects`, read
 `__DDI_DEBUG.ui.select` and `__DDI_DEBUG.songs` (the library, the import,
 the preview), set files on the hidden `.import-panel input[type=file]`
@@ -444,6 +450,25 @@ follows the physical cue (heard audio, or drawn arrows in the muted test), not
 the judged timeline; keep it that way or offset tests become meaningless. In
 play (`&auto=1`) it presses on the judged timeline, so it stays exact under any
 calibrated offset.
+
+## Additional chart versions
+
+- Options → Notes → Simplify → Without onigiri (`simplify_onigiri`)
+  exposes additional versions of DanOni 5/7/9A/9B charts in Single,
+  Solo, Double and Techno 8-panel (`techno-single8`). See
+  `docs/plans/chart-simplification.md`.
+- Generated charts carry `Chart::derivation` and are appended after all
+  originals, independently of the display setting. Preserve original
+  chart indexes, digests and files. Only the generated chart gets the
+  assisted mark from this feature; the existing transform options keep
+  their behavior.
+- Chart-scoped lyrics and layers resolve through `Song::effects_chart`.
+  Keep chart provenance in manifests, bests and replay resolution. Old
+  browser imports upgrade their metadata from stored chart data; desktop
+  invalidates its library cache when the metadata changes.
+- Simfiles used by the library and play load through
+  `ddi_library::scan::parse_simfile`, which appends generated versions too;
+  the format importers preserve source charts, including SSC exports.
 
 ## Timing model (do not break)
 

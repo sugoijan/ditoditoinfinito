@@ -6,6 +6,13 @@ path = ["**"]
 SPDX-FileCopyrightText = "すごいジャン <me@sugoijan.dev>"
 SPDX-License-Identifier = "MIT"
 
+# Techno single8's lane order and keyboard defaults, adapted from StepMania
+# 5.1's GameManager.cpp (825467b); other layout code is our own MIT work.
+[[annotations]]
+path = ["chart/src/layout/mod.rs"]
+SPDX-FileCopyrightText = ["すごいジャン <me@sugoijan.dev>", "Chris Danford, the StepMania development team, et al."]
+SPDX-License-Identifier = "MIT AND LicenseRef-StepMania"
+
 # Generated gameplay still and GIF: the game's own display over Beatucada's
 # background (Jose Varela) and Hard chart (Chriszo). Reproduction and
 # modifications: docs/screenshots/README.md, `just screenshot` / `just animation`.

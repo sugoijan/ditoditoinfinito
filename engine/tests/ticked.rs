@@ -55,6 +55,7 @@ fn song(layout: &str) -> Song {
         timing: TimingMap::constant(60.0, 0.0),
         display_bpm: DisplayBpm::Actual,
         charts: vec![Chart {
+            derivation: None,
             layout: layout.into(),
             difficulty: Difficulty::Hard,
             meter: 5,

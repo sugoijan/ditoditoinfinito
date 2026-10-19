@@ -210,6 +210,7 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
                     }
                 };
                 songs[k].1.charts.push(Chart {
+                    derivation: None,
                     layout: layout_id(&label),
                     difficulty: Difficulty::Edit,
                     meter: level.clamp(0, 999) as u32,
@@ -385,6 +386,7 @@ pub fn import(dos: &Dos) -> Result<Import, String> {
                 .unwrap_or_else(|| ["x", "6", "40", "25"][k - 3].to_string())
         });
         let chart = Chart {
+            derivation: None,
             layout: id,
             difficulty: Difficulty::Edit,
             meter: level.clamp(0, 999) as u32,
