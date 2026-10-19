@@ -3,7 +3,7 @@ use super::*;
 use std::collections::BTreeSet;
 pub(super) const HIGAN_HASH: &str =
     "6ce53b126e90b25a9f307595bf226ed4e6ce8f70c74d816a1d372c7f20de6e85";
-pub(super) const KOUHAKU_HASH: &str =
+pub(crate) const KOUHAKU_HASH: &str =
     "e14e472911b6603ddcc58bd40049d0b05cfa986a2240209dd848a516cf40fed2";
 // Reviewed selector-controlled speed initialization; no source ActionScript is
 // copied here. The exact movie identity binds the static control-flow review.

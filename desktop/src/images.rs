@@ -143,9 +143,37 @@ const MAX_FILE: u64 = 48 * 1024 * 1024;
 
 /// Where `songs/…` and the rest are read from.
 pub fn assets() -> PathBuf {
-    std::env::var_os("DDI_ASSETS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets"))
+    if let Some(path) = std::env::var_os("DDI_ASSETS") {
+        return PathBuf::from(path);
+    }
+    let exe = std::env::current_exe().unwrap_or_default();
+    let beside = exe
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("assets");
+    if beside.is_dir() {
+        return beside;
+    }
+    // Cargo puts integration tests and examples one directory below a profile.
+    if let Some(parent) = exe.parent()
+        && parent
+            .file_name()
+            .is_some_and(|name| name == "deps" || name == "examples")
+        && let Some(profile) = parent.parent()
+    {
+        let staged = profile.join("assets");
+        if staged.is_dir() {
+            return staged;
+        }
+    }
+    // A development executable can live anywhere below the workspace's target
+    // directory. Packaged builds use only the sibling assets above.
+    exe.ancestors()
+        .find(|p| p.file_name().is_some_and(|name| name == "target"))
+        .and_then(Path::parent)
+        .map(|p| p.join("assets"))
+        .filter(|p| p.is_dir())
+        .unwrap_or(beside)
 }
 
 /// The file a texture source names.

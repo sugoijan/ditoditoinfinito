@@ -90,7 +90,8 @@ pub fn plan(import: &PreparedImport, snapshot: &Snapshot, policy: DuplicatePolic
         }
     }
     let mut operations = Vec::new();
-    for s in &import.summary().songs {
+    for song in import.songs() {
+        let s = song.summary();
         let old = existing.get(&s.entry.id);
         if old.is_some_and(|o| {
             o.identity_sha256 != s.identity_sha256
@@ -101,6 +102,12 @@ pub fn plan(import: &PreparedImport, snapshot: &Snapshot, policy: DuplicatePolic
         let decision = match old {
             None => Decision::Add,
             Some(o) if o.revision_sha256 == s.revision_sha256 => Decision::Unchanged,
+            Some(o)
+                if matches!(policy, DuplicatePolicy::Reject)
+                    && song.upgrades_pack(&o.revision_sha256) =>
+            {
+                Decision::Replace
+            }
             Some(_) => match policy {
                 DuplicatePolicy::Reject => {
                     return Err(Error::new(

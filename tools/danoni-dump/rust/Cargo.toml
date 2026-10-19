@@ -1,5 +1,3 @@
-[workspace]
-
 [package]
 name = "ddi-danoni-export"
 version = "0.1.0"
@@ -52,11 +50,8 @@ encoding_rs = "0.8.42"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 
-ddi-chart = { path = "../../../chart" }
-ddi-library = { path = "../../../library" }
+ddi-chart.workspace = true
+ddi-library.workspace = true
 
 [dev-dependencies]
-ddi-engine = { path = "../../../engine" }
-
-[profile.dev]
-opt-level = 1
+ddi-engine.workspace = true

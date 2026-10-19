@@ -401,11 +401,37 @@ async fn incomplete_attempts_and_started_cancellation_are_not_retried() {
     );
     assert_eq!(server.paths().iter().filter(|p| *p == "/slow").count(), 1);
     drop(f);
+    let mut manual = test_fetcher(
+        &root.cache(),
+        FetchOptions {
+            robots_policy: RobotsPolicy::UserInitiated,
+            ..Default::default()
+        },
+        &[&server.origin],
+    );
+    assert_eq!(
+        manual
+            .fetch(&q, &NetworkCancel::default(), &mut allow)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        "cached-request-failure"
+    );
+    assert_eq!(server.paths().iter().filter(|p| *p == "/slow").count(), 1);
+    drop(manual);
     let root2 = Scratch::new();
     let mut store = CacheStore::open(&root2.cache()).unwrap();
     store.begin(&q.url).unwrap();
     drop(store);
-    let mut f = test_fetcher(&root2.cache(), FetchOptions::default(), &[&server.origin]);
+    let mut f = test_fetcher(
+        &root2.cache(),
+        FetchOptions {
+            robots_policy: RobotsPolicy::UserInitiated,
+            ..Default::default()
+        },
+        &[&server.origin],
+    );
     assert_eq!(
         f.fetch(&q, &NetworkCancel::default(), &mut allow)
             .await
@@ -603,4 +629,91 @@ fn writer_admits_historical_optional_collections_without_losing_unknown_fields()
         doc["failures"]["https://example.org/attempt"]["code"],
         "request-incomplete"
     );
+}
+
+#[tokio::test]
+async fn user_initiated_download_skips_robots_without_relabelling_crawler_evidence() {
+    let server = Server::new(|p| {
+        if p == "/robots.txt" {
+            Reply::body(b"User-agent: *\nDisallow: /private\n")
+        } else {
+            Reply::body(b"song")
+        }
+    });
+    let root = Scratch::new();
+    let q = request(&format!("{}/private/song", server.origin));
+    let cancel = NetworkCancel::default();
+    let mut crawler = test_fetcher(&root.cache(), FetchOptions::default(), &[&server.origin]);
+    assert_eq!(
+        crawler
+            .fetch(&q, &cancel, &mut allow)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        "robots-denied"
+    );
+    drop(crawler);
+    let mut manual = test_fetcher(
+        &root.cache(),
+        FetchOptions {
+            robots_policy: RobotsPolicy::UserInitiated,
+            ..Default::default()
+        },
+        &[&server.origin],
+    );
+    let response = manual.fetch(&q, &cancel, &mut allow).await.unwrap();
+    assert_eq!(*response.response().body, b"song");
+    assert_eq!(
+        response.response().selected_response["acquisitionPolicy"],
+        "user-initiated"
+    );
+    assert_eq!(
+        response.response().selected_response["robots"],
+        serde_json::json!([])
+    );
+    assert_eq!(server.paths(), vec!["/robots.txt", "/private/song"]);
+    manual.fetch(&q, &cancel, &mut allow).await.unwrap();
+    assert_eq!(manual.counts.requests, 1);
+    drop(manual);
+    let mut crawler = test_fetcher(&root.cache(), FetchOptions::default(), &[&server.origin]);
+    assert_eq!(
+        crawler
+            .fetch(&q, &cancel, &mut allow)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        "cache-policy-mismatch"
+    );
+}
+
+#[tokio::test]
+async fn user_initiated_redirects_skip_all_robots_requests_and_keep_site_decisions() {
+    let target = Server::new(|_| Reply::body(b"music"));
+    let to = format!("{}/music", target.origin);
+    let source = Server::new(move |_| Reply::redirect(&to));
+    let root = Scratch::new();
+    let mut f = test_fetcher(
+        &root.cache(),
+        FetchOptions {
+            robots_policy: RobotsPolicy::UserInitiated,
+            ..Default::default()
+        },
+        &[&source.origin, &target.origin],
+    );
+    let mut sites = vec![];
+    let q = request(&format!("{}/work", source.origin));
+    let response = f
+        .fetch(&q, &NetworkCancel::default(), &mut |u| {
+            sites.push(u.to_owned());
+            allow(u)
+        })
+        .await
+        .unwrap();
+    assert_eq!(*response.response().body, b"music");
+    assert_eq!(response.responses.len(), 2);
+    assert_eq!(source.paths(), vec!["/work"]);
+    assert_eq!(target.paths(), vec!["/music"]);
+    assert_eq!(sites.len(), 2);
 }

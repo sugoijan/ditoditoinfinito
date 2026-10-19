@@ -197,14 +197,40 @@ pub struct ImportView {
     pub videos: bool,
     /// Details for pack authors.
     pub details: bool,
-    /// The desktop shell has a configured DanOni URL importer.
+    /// The desktop build includes the DanOni URL importer.
     pub danoni_urls: bool,
     /// A running DanOni import can be cancelled.
     pub danoni_cancel: bool,
+    /// Parameters and progress for a desktop URL import.
+    pub danoni: DanoniImportView,
     /// What runs now ("reading 120 files…").
     pub running: Option<String>,
     /// The last import's report.
     pub report: Option<ImportReportView>,
+}
+
+/// The parameters and live state of a desktop DanOni URL import.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DanoniImportView {
+    /// Last submitted URL, kept when Add songs closes.
+    pub url: String,
+    /// Use files already cached, without network access.
+    pub offline: bool,
+    /// A short stage such as “Downloading music”.
+    pub stage: Option<String>,
+    /// Completed and total items in the current stage, when known.
+    pub progress: Option<(u64, u64)>,
+    /// An additional address requires the user's decision.
+    pub origin: Option<DanoniOriginRequest>,
+}
+
+/// A request to access one additional origin during an import.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DanoniOriginRequest {
+    pub request_id: u64,
+    pub origin: String,
+    /// Why these files are needed, in user-facing terms.
+    pub purpose: String,
 }
 
 /// An import's report, as the dialog shows it.

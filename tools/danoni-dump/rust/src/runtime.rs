@@ -26,7 +26,7 @@ fn invalid(message: impl Into<String>) -> Error {
 }
 fn identity() -> Value {
     json!({"contract":"ddi-danoni-installed-runtime/1", "sdkVersion":env!("CARGO_PKG_VERSION"), "vorbis":cfg!(feature="vorbis"), "opus":cfg!(feature="opus"),
-        "sdkLockSha256":sha256(include_bytes!("../Cargo.lock")),
+        "sdkLockSha256":sha256(include_bytes!("../../../../Cargo.lock")),
         "hostImplementationSha256":sha256(include_bytes!("runtime.rs")),
         "artworkImplementationSha256":sha256(include_bytes!("artwork.rs")),
         "preparationImplementationSha256":sha256(include_bytes!("preparation.rs")),
@@ -132,7 +132,7 @@ fn validate_notices(files: &BTreeMap<String, Vec<u8>>) -> Result<()> {
     }
     if notice["schema"] != "ddi-danoni-runtime-notices/1"
         || files.get("notices/locks/sdk-Cargo.lock").map(Vec::as_slice)
-            != Some(include_bytes!("../Cargo.lock").as_slice())
+            != Some(include_bytes!("../../../../Cargo.lock").as_slice())
         || files.get("notices/locks/worker-Cargo.lock") != files.get("worker/provenance/Cargo.lock")
     {
         return Err(invalid(

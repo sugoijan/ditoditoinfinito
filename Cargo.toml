@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-exclude = ["tools/danoni-dump/rust"]
-members = ["chart", "engine", "render", "platform", "library", "actor", "ui", "theme", "noteskin", "lua", "session", "web", "opus-worker", "desktop", "app", "xtask"]
+exclude = ["tools/danoni-dump/desktop-probe", "tools/danoni-dump/pack-verify"]
+members = ["tools/danoni-importer", "tools/danoni-dump/rust", "importer-protocol", "chart", "engine", "render", "platform", "library", "actor", "ui", "theme", "noteskin", "lua", "session", "web", "opus-worker", "desktop", "app", "xtask"]
 # `app` is the game: built for wasm by Trunk (index.html) it starts the
 # web shell, built natively (a bare `cargo run`) the desktop shell.
 default-members = ["app"]
@@ -16,6 +16,8 @@ repository = "https://github.com/sugoijan/ditoditoinfinito"
 
 [workspace.dependencies]
 # local crates
+ddi-danoni-export = { path = "tools/danoni-dump/rust", default-features = false }
+ddi-importer-protocol = { path = "importer-protocol" }
 ddi-chart = { path = "chart" }
 ddi-engine = { path = "engine" }
 ddi-render = { path = "render" }
@@ -27,7 +29,7 @@ ddi-theme = { path = "theme" }
 ddi-noteskin = { path = "noteskin" }
 ddi-lua = { path = "lua" }
 ddi-web = { path = "web" }
-ddi-desktop = { path = "desktop" }
+ddi-desktop = { path = "desktop", default-features = false }
 ddi-session = { path = "session" }
 
 # lunita, our hardened fork of piccolo (docs/plans/piccolo-fork.md).
@@ -90,12 +92,18 @@ overflow-checks = true
 [profile.dev.package."*"]
 opt-level = 2
 
-# The opt-in acquisition SDK is large; debug codegen must stay below the
-# per-process compiler budget. The optimized desktop profile is independent.
+# The SDK has many integration-test binaries; keep first-party code cheap to
+# compile while dependencies (especially audio codecs) retain their optimization.
 [profile.dev.package.ddi-danoni-export]
 opt-level = 0
-debug = 0
 
-[profile.test.package.ddi-danoni-export]
-opt-level = 0
+# Native importer executables, built by desktop/build.rs in an independent
+# target directory. Keep unwinding and bounded compiler memory regardless of
+# the app's release/desktop profile. The upstream Ruffle workspace stays separate.
+[profile.importer]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 256
+panic = "unwind"
 debug = 0

@@ -1,64 +1,58 @@
-//! Opt-in desktop URL jobs. Installed runtime integrity and this exact host
-//! executable/lock binding are independent gates; neither authenticates a vendor.
-//! No runtime is bundled or automatically downloaded by this development feature.
-use ddi_danoni_export::{
-    assets::sha256,
-    import_host, import_job,
-    managed_store::Store,
-    native,
-    network::NetworkCancel,
-    runtime::{HostConfig, Installation},
-};
-use ddi_ui::screens::data::{ImportReportView, ImportView};
-use serde::Deserialize;
+//! The packaged importer runs in an owned child process. Only framed messages
+//! cross its anonymous pipes; the SDK and its worker are not linked into the app.
+mod bundle;
+mod client;
+
+use ddi_importer_protocol::{Paths, Request};
+use ddi_ui::screens::data::{DanoniImportView, DanoniOriginRequest, ImportReportView, ImportView};
 use std::{
     collections::BTreeMap,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread::JoinHandle,
 };
 
-/// Host-selected configuration, never obtained from the URL. The binding is
-/// deliberately external to the executable (so it can name the final hash).
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Config {
-    host: PathBuf,
-    application_sha256: String,
-    application_lock_sha256: String,
-}
-const LOCK: &[u8] = include_bytes!("../../Cargo.lock");
-const SETUP: &str = "Set DDI_DANONI_HOST to a desktop binding JSON (see docs/plans/danoni-import.md). This development feature needs a matching installed runtime; it does not install one.";
+const ORIGINS: &str = "ddi.danoni.origins.v1";
 
-fn config() -> Result<HostConfig, String> {
-    let path = std::env::var_os("DDI_DANONI_HOST")
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| SETUP.to_string())?;
-    let raw =
-        std::fs::read(&path).map_err(|e| format!("Cannot read desktop binding: {e}. {SETUP}"))?;
-    if raw.len() > 64 * 1024 {
-        return Err("Desktop binding exceeds 64 KiB".into());
+pub fn bundle_info() -> serde_json::Value {
+    if bundle::ID.is_empty() || bundle::MANIFEST_SHA256.is_empty() {
+        return serde_json::json!({"enabled": false});
     }
-    let c: Config =
-        serde_json::from_slice(&raw).map_err(|e| format!("Invalid desktop binding: {e}"))?;
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
-    // The operator binds a reviewed final application, not the standalone SDK
-    // lock's attestation. No runtime inventory or worker checks are bypassed.
-    let bytes = std::fs::read(executable).map_err(|e| e.to_string())?;
-    check_binding(&c, &bytes, LOCK)?;
-    let host = if c.host.is_absolute() {
-        c.host
-    } else {
-        path.parent().unwrap_or(Path::new(".")).join(c.host)
-    };
-    HostConfig::read(&host).map_err(|e| format!("Cannot read host configuration: {e}"))
+    serde_json::json!({"enabled": true, "id": bundle::ID,
+        "manifestSha256": bundle::MANIFEST_SHA256,
+        "protocolVersion": ddi_importer_protocol::VERSION, "video": cfg!(feature = "video")})
 }
-fn check_binding(c: &Config, executable: &[u8], lock: &[u8]) -> Result<(), String> {
-    if c.application_sha256 != sha256(executable) || c.application_lock_sha256 != sha256(lock) {
-        return Err("Desktop application/lock binding differs. Review this build and create a fresh binding; a standalone SDK runtime does not attest the game binary.".into());
+
+/// Headless package smoke check through the application's real verified pipe
+/// client. No network, window, sound device, or origin decisions are involved.
+pub fn check() -> Result<usize, String> {
+    let (_controls, requests) = mpsc::channel();
+    let finished = client::run(
+        &bundle::locate()?,
+        paths()?,
+        None,
+        false,
+        BTreeMap::new(),
+        &AtomicBool::new(false),
+        &Mutex::default(),
+        requests,
+        &|| {},
+    )?;
+    if let Some(report) = finished.report.filter(|r| r.error) {
+        return Err(report
+            .sections
+            .into_iter()
+            .flat_map(|(_, lines)| lines)
+            .collect::<Vec<_>>()
+            .join("\n"));
     }
-    Ok(())
+    finished
+        .songs
+        .map(|songs| songs.len())
+        .ok_or_else(|| "Importer did not publish a complete catalog".into())
 }
 
 pub struct News {
@@ -66,37 +60,60 @@ pub struct News {
     pub songs: Option<Vec<crate::library::LibSong>>,
     pub report: Option<ImportReportView>,
 }
+#[derive(Default)]
 struct Finished {
     restore: Vec<String>,
     songs: Option<Vec<crate::library::LibSong>>,
     report: Option<ImportReportView>,
 }
+#[derive(Clone)]
+struct Prompt {
+    view: DanoniOriginRequest,
+    job: u64,
+}
+#[derive(Default)]
+struct Progress {
+    work: Option<(u64, u64)>,
+    stage: Option<String>,
+    origin: Option<Prompt>,
+}
 struct Job {
-    cancel: NetworkCancel,
-    stage: Arc<Mutex<Option<String>>>,
+    cancel: Arc<AtomicBool>,
+    progress: Arc<Mutex<Progress>>,
+    controls: mpsc::SyncSender<Request>,
     done: mpsc::Receiver<Finished>,
     thread: JoinHandle<()>,
 }
-/// One owned worker. Progress is coalesced; the separate terminal slot cannot be
-/// overwritten by progress. The event loop drains on exit and never joins live work.
 #[derive(Default)]
 pub struct Imports {
     job: Option<Job>,
     report: Option<ImportReportView>,
+    url: String,
+    offline: bool,
+    origins: BTreeMap<String, String>,
     shutting_down: bool,
     sent: Option<ImportView>,
 }
 impl Imports {
     pub fn view(&self, view: &mut ImportView) {
-        view.danoni_urls = true;
+        view.danoni_urls = !bundle::ID.is_empty() && !bundle::MANIFEST_SHA256.is_empty();
         view.danoni_cancel = self.job.is_some() && !self.shutting_down;
-        view.running = self.job.as_ref().map(|j| {
-            j.stage
-                .lock()
-                .ok()
-                .and_then(|s| s.clone())
+        let progress = self.job.as_ref().and_then(|j| j.progress.lock().ok());
+        let stage = progress.as_ref().and_then(|p| p.stage.clone());
+        view.running = self.job.as_ref().map(|_| {
+            stage
+                .clone()
                 .unwrap_or_else(|| "Preparing DanOni import…".into())
         });
+        view.danoni = DanoniImportView {
+            url: self.url.clone(),
+            offline: self.offline,
+            stage,
+            progress: progress.as_ref().and_then(|p| p.work),
+            origin: progress
+                .as_ref()
+                .and_then(|p| p.origin.as_ref().map(|o| o.view.clone())),
+        };
         view.report = self.report.clone();
     }
     pub fn changed_view(&mut self) -> Option<ImportView> {
@@ -111,37 +128,105 @@ impl Imports {
         self.sent = Some(view.clone());
         Some(view)
     }
-    pub fn start(&mut self, url: String, wake: Arc<dyn Fn() + Send + Sync>) {
+    pub fn start(&mut self, url: String, offline: bool, wake: Arc<dyn Fn() + Send + Sync>) {
         if self.job.is_some() || self.shutting_down {
             return;
         }
-        self.spawn(Some(url), wake);
+        self.url = url.trim().to_owned();
+        self.offline = offline;
+        let parsed = url::Url::parse(&self.url);
+        if self.url.len() > 8192
+            || !parsed.is_ok_and(|p| {
+                matches!(p.scheme(), "http" | "https")
+                    && p.host_str().is_some()
+                    && p.username().is_empty()
+                    && p.password().is_none()
+            })
+        {
+            self.report = Some(report("Enter a complete http:// or https:// DanOni work URL without embedded credentials.".into(), true));
+            return;
+        }
+        self.spawn(Some(self.url.clone()), wake);
     }
-    /// Initial catalog load also runs away from the UI thread. A missing host
-    /// setting is quiet until the user asks to import.
     pub fn load(&mut self, wake: Arc<dyn Fn() + Send + Sync>) {
-        if std::env::var_os("DDI_DANONI_HOST").is_some() && self.job.is_none() {
+        self.origins = ddi_platform::storage::load(ddi_platform::storage::Area::Local, ORIGINS)
+            .unwrap_or_default();
+        if !bundle::ID.is_empty() && self.job.is_none() && !self.shutting_down {
             self.spawn(None, wake);
+        }
+    }
+    pub fn origin_decision(&mut self, request_id: u64, allow: bool, remember: bool) {
+        let Some(job) = &self.job else {
+            return;
+        };
+        let Ok(mut progress) = job.progress.lock() else {
+            return;
+        };
+        let Some(prompt) = progress
+            .origin
+            .as_ref()
+            .filter(|p| p.view.request_id == request_id)
+        else {
+            return;
+        };
+        let origin = prompt.view.origin.clone();
+        let decision = allow
+            .then(|| "User allowed public song files from this origin in Add songs.".to_string());
+        if job
+            .controls
+            .try_send(Request::OriginDecision {
+                id: prompt.job,
+                origin: origin.clone(),
+                decision: decision.clone(),
+            })
+            .is_err()
+        {
+            return;
+        }
+        progress.origin = None;
+        drop(progress);
+        if allow && remember {
+            self.origins.insert(origin, decision.unwrap());
+            if let Err(e) = ddi_platform::storage::save(
+                ddi_platform::storage::Area::Local,
+                ORIGINS,
+                &self.origins,
+            ) {
+                self.report = Some(report(
+                    format!("Access allowed for this import; could not remember the decision: {e}"),
+                    false,
+                ));
+            }
         }
     }
     fn spawn(&mut self, url: Option<String>, wake: Arc<dyn Fn() + Send + Sync>) {
         self.report = None;
-        let cancel = NetworkCancel::default();
-        let stage = Arc::new(Mutex::new(Some("Opening DanOni catalog…".to_string())));
-        let (tx, done) = mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let progress = Arc::new(Mutex::new(Progress {
+            work: None,
+            stage: Some("Opening DanOni catalog…".into()),
+            origin: None,
+        }));
+        let (controls, requests) = mpsc::sync_channel(4);
+        let (tx, done) = mpsc::sync_channel(1);
         let token = cancel.clone();
-        let progress = stage.clone();
-        match std::thread::Builder::new().name("ddi-danoni".into()).spawn(move || {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(url.as_deref(), &token, &progress, &*wake)));
+        let state = progress.clone();
+        let origins = self.origins.clone();
+        let offline = self.offline;
+        match std::thread::Builder::new().name("ddi-danoni-client".into()).spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let executable = bundle::locate()?;
+                client::run(&executable, paths()?, url, offline, origins, &token, &state, requests, &*wake)
+            }));
             let finished = match result {
                 Ok(Ok(f)) => f,
-                Ok(Err(error)) => Finished { restore: Vec::new(), songs: None, report: Some(report(error, true)) },
-                Err(_) => Finished { restore: Vec::new(), songs: None, report: Some(report("DanOni worker stopped unexpectedly. Reopen the app to verify/recover its catalog.".into(), true)) },
+                Ok(Err(e)) => Finished { report: Some(report(e, true)), ..Default::default() },
+                Err(_) => Finished { report: Some(report("The importer client stopped unexpectedly. Reopen the app to verify its catalog.".into(), true)), ..Default::default() },
             };
             let _ = tx.send(finished); wake();
         }) {
-            Ok(thread) => self.job = Some(Job {cancel, stage, done, thread}),
-            Err(e) => self.report = Some(report(format!("Cannot start DanOni import: {e}"), true)),
+            Ok(thread) => self.job = Some(Job { cancel, progress, controls, done, thread }),
+            Err(e) => self.report = Some(report(format!("Cannot start the DanOni importer: {e}"), true)),
         }
     }
     pub fn busy(&self) -> bool {
@@ -149,7 +234,7 @@ impl Imports {
     }
     pub fn cancel(&self) {
         if let Some(j) = &self.job {
-            j.cancel.cancel();
+            j.cancel.store(true, Ordering::Release);
         }
     }
     pub fn shutdown(&mut self) -> bool {
@@ -166,12 +251,11 @@ impl Imports {
         }
         let job = self.job.take()?;
         let result = job.done.try_recv().unwrap_or_else(|_| Finished {
-            restore: Vec::new(),
-            songs: None,
             report: Some(report(
-                "DanOni worker lost its completion result".into(),
+                "The importer lost its completion result.".into(),
                 true,
             )),
+            ..Default::default()
         });
         let _ = job.thread.join();
         self.report = result.report.clone();
@@ -185,9 +269,9 @@ impl Imports {
 impl Drop for Imports {
     fn drop(&mut self) {
         self.cancel();
-        // Normal application exit drains through the event loop. On abnormal
-        // host teardown transfer ownership to a reaper; don't block a UI drop.
         if let Some(job) = self.job.take() {
+            // Normal shutdown drains through the event loop. Abnormal teardown
+            // transfers ownership, without blocking a UI destructor.
             let _ = std::thread::Builder::new()
                 .name("ddi-danoni-drain".into())
                 .spawn(move || {
@@ -211,271 +295,90 @@ fn report(summary: String, error: bool) -> ImportReportView {
         }
     }
 }
-fn run(
-    url: Option<&str>,
-    cancel: &NetworkCancel,
-    stage: &Mutex<Option<String>>,
-    wake: &dyn Fn(),
-) -> Result<Finished, String> {
-    run_config(config()?, url, cancel, stage, wake)
-}
-fn run_config(
-    config: HostConfig,
-    url: Option<&str>,
-    cancel: &NetworkCancel,
-    stage: &Mutex<Option<String>>,
-    wake: &dyn Fn(),
-) -> Result<Finished, String> {
-    if let Some(url) = url {
-        let parsed = url::Url::parse(url)
-            .map_err(|_| "Enter a complete http:// or https:// DanOni work URL.")?;
-        if url.len() > 8192
-            || !matches!(parsed.scheme(), "http" | "https")
-            || parsed.host_str().is_none()
-            || !parsed.username().is_empty()
-            || parsed.password().is_some()
+fn paths() -> Result<Paths, String> {
+    use std::os::unix::fs::DirBuilderExt;
+    fn private(path: std::path::PathBuf) -> Result<std::path::PathBuf, String> {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&path)
+            .map_err(|e| format!("Cannot create importer storage: {e}"))?;
+        if !std::fs::symlink_metadata(&path)
+            .map_err(|e| e.to_string())?
+            .is_dir()
         {
-            return Err("Enter a complete http:// or https:// DanOni work URL without embedded credentials.".into());
+            return Err("Importer storage must be a directory without symlinks".into());
         }
+        path.canonicalize().map_err(|e| e.to_string())
     }
-    // Verification precedes any network acquisition; catalog loading itself does
-    // not need a worker (already published songs remain playable).
-    let installation = url.map(|_| Installation::locate(config.runtime.as_deref())).transpose().map_err(|e| format!("DanOni runtime unavailable: {e}. Reinstall a matching runtime; see docs/plans/danoni-import.md."))?;
-    let mut store = match std::fs::symlink_metadata(&config.library) {
-        Ok(_) => Store::open(&config.library),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound && url.is_none() => return Ok(Finished {restore: Vec::new(), songs: Some(Vec::new()), report: None}),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Store::create(&config.library),
-        Err(e) => return Err(format!("Cannot inspect DanOni catalog: {e}")),
-    }.map_err(|e| format!("Cannot open DanOni catalog: {e}. Ensure the configured library parent is an existing private folder outside Git."))?;
-    store
-        .recover()
-        .map_err(|e| format!("DanOni catalog needs recovery: {e}"))?;
-    let mut terminal = None;
-    let mut restore = Vec::new();
-    if let (Some(url), Some(install)) = (url, installation) {
-        let output = config.staging.join(format!(
-            "desktop-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_nanos()
-        ));
-        let assets = native::DirectorySource::new(BTreeMap::new()).map_err(|e| e.to_string())?;
-        let result = import_job::execute(
-            &install.request(url, config.offline),
-            &import_job::Services {
-                cache: &config.cache,
-                worker: &install.worker,
-                assets: &assets,
-            },
-            &output,
-            &mut store,
-            cancel,
-            &mut |url| {
-                let origin = url::Url::parse(url)
-                    .map_err(|e| ddi_danoni_export::Error {
-                        code: "invalid-url",
-                        message: e.to_string(),
-                    })?
-                    .origin()
-                    .ascii_serialization();
-                let decision = config
-                    .origins
-                    .get(&origin)
-                    .cloned()
-                    .filter(|s| !s.trim().is_empty());
-                decision.ok_or_else(|| ddi_danoni_export::Error { code: "site-terms-denied", message: format!("Review public-access terms for {origin} and configure that exact origin decision in host.json; robots rules still apply.") })
-            },
-            &mut |p| {
-                let label = match p {
-                    import_job::Progress::Preparing { .. } => {
-                        "Downloading and extracting the work…"
-                    }
-                    import_job::Progress::Validating { .. } => "Validating prepared songs…",
-                    import_job::Progress::Planned { .. } => "Checking existing imports…",
-                    import_job::Progress::Installing { .. } => "Publishing songs…",
-                };
-                let changed = stage.lock().is_ok_and(|mut s| {
-                    if s.as_deref() == Some(label) {
-                        return false;
-                    }
-                    *s = Some(label.into());
-                    true
-                });
-                // Coalesce wakeups as well as payloads; repeated chunk progress
-                // must not flood the event-loop proxy's queue.
-                if changed {
-                    wake();
-                }
-                Ok(())
-            },
-        );
-        terminal = Some(match result {
-            Ok(outcome) => {
-                if !matches!(
-                    &outcome.installation,
-                    import_host::Outcome::NeedsRecovery { .. }
-                ) {
-                    restore = outcome
-                        .review
-                        .plan
-                        .operations
-                        .iter()
-                        .map(|op| op.id.clone())
-                        .collect();
-                }
-                match outcome.installation {
-                    import_host::Outcome::Installed {
-                        added,
-                        replaced,
-                        skipped,
-                        ..
-                    } => report(
-                        format!(
-                            "DanOni import complete: {added} added, {replaced} replaced, {skipped} skipped."
-                        ),
-                        false,
-                    ),
-                    import_host::Outcome::Unchanged { .. } => report(
-                        "These songs are already in your DanOni library.".into(),
-                        false,
-                    ),
-                    import_host::Outcome::NeedsRecovery { reason, .. } => report(
-                        format!(
-                            "Import requires catalog recovery: {reason}. Restart before retrying."
-                        ),
-                        true,
-                    ),
-                }
-            }
-            Err(e) if e.code == "request-cancelled" => report(
-                "DanOni import cancelled before publication. No new songs were added.".into(),
-                false,
-            ),
-            Err(e) => report(format!("DanOni import stopped: {e}"), true),
-        });
-    }
-    // Even a post-commit error cannot hide published entries. Never load staging.
-    let songs = store
-        .playback_snapshot()
-        .map_err(|e| format!("Cannot verify DanOni catalog: {e}"))?;
-    let songs = crate::library::managed::songs(songs)?;
-    Ok(Finished {
-        restore,
-        songs: Some(songs),
-        report: terminal,
+    let data = crate::paths::data_dir()
+        .ok_or("Cannot locate application data directory")?
+        .join("danoni");
+    let cache = crate::paths::cache_dir()
+        .ok_or("Cannot locate application cache directory")?
+        .join("danoni");
+    let library = private(data)?.join("library");
+    Ok(Paths {
+        cache: private(cache.join("network"))?,
+        staging: private(cache.join("staging"))?,
+        library,
     })
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn cancellation_drains_and_preserves_committed_terminal_result() {
-        let cancel = NetworkCancel::default();
-        let token = cancel.clone();
-        let (tx, done) = mpsc::channel();
-        let (ready_tx, ready) = mpsc::channel();
-        let stage = Arc::new(Mutex::new(Some("Installing…".into())));
-        let thread = std::thread::spawn(move || {
-            ready_tx.send(()).unwrap();
-            while !token.is_cancelled() {
-                std::thread::yield_now();
-            }
-            // Cancellation after publication must not relabel a committed result.
-            tx.send(Finished {
-                restore: Vec::new(),
-                songs: Some(Vec::new()),
-                report: Some(report("1 added".into(), false)),
-            })
-            .unwrap();
-        });
-        ready.recv().unwrap();
-        let mut imports = Imports {
-            job: Some(Job {
-                cancel,
-                stage,
-                done,
-                thread,
+    fn origin_answer_is_bound_to_current_prompt_and_enqueued_once() {
+        let (controls, received) = mpsc::sync_channel(4);
+        let (done_tx, done) = mpsc::sync_channel(1);
+        let progress = Arc::new(Mutex::new(Progress {
+            work: None,
+            stage: None,
+            origin: Some(Prompt {
+                job: 1,
+                view: DanoniOriginRequest {
+                    request_id: 42,
+                    origin: "https://example.invalid".into(),
+                    purpose: "test".into(),
+                },
             }),
-            report: None,
-            shutting_down: false,
-            sent: None,
-        };
-        assert!(!imports.shutdown());
-        assert!(!imports.drained());
-        let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let result = loop {
-            if let Some(news) = imports.poll() {
-                break news;
-            }
-            assert!(std::time::Instant::now() < end);
-            std::thread::yield_now();
-        };
-        assert!(imports.drained());
-        assert_eq!(result.report.unwrap().summary, "1 added");
-        assert!(imports.poll().is_none());
-        let mut view = ImportView::default();
-        imports.view(&mut view);
-        assert!(!view.danoni_cancel);
-        assert!(view.running.is_none());
-        assert!(!view.report.unwrap().error);
+        }));
+        let mut imports = Imports::default();
+        imports.job = Some(Job {
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress: progress.clone(),
+            controls,
+            done,
+            thread: std::thread::spawn(move || {
+                let _ = done_tx.send(Finished::default());
+            }),
+        });
+        imports.origin_decision(41, true, false);
+        assert!(received.try_recv().is_err());
+        assert!(progress.lock().unwrap().origin.is_some());
+        imports.origin_decision(42, true, false);
+        assert!(
+            matches!(received.try_recv().unwrap(), Request::OriginDecision { id: 1, origin, decision: Some(_) } if origin == "https://example.invalid")
+        );
+        assert!(progress.lock().unwrap().origin.is_none());
+        imports.origin_decision(42, true, false);
+        assert!(received.try_recv().is_err());
+        imports.shutdown();
+        let job = imports.job.take().unwrap();
+        job.thread.join().unwrap();
     }
-
     #[test]
-    fn startup_catalog_is_empty_without_a_store_and_needs_no_runtime() {
-        let base = std::env::temp_dir().join(format!(
-            "ddi-desktop-catalog-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir(&base).unwrap();
-        let base = base.canonicalize().unwrap();
-        let config = HostConfig {
-            runtime: Some(base.join("absent-runtime")),
-            cache: base.join("cache"),
-            staging: base.join("staging"),
-            library: base.join("library"),
-            offline: true,
-            origins: BTreeMap::new(),
-        };
-        let result = run_config(
-            config.clone(),
-            None,
-            &NetworkCancel::default(),
-            &Mutex::default(),
-            &|| {},
-        )
-        .unwrap();
-        assert!(result.songs.unwrap().is_empty());
-        assert!(!config.library.exists());
-        drop(Store::create(&config.library).unwrap());
-        let result = run_config(
-            config,
-            None,
-            &NetworkCancel::default(),
-            &Mutex::default(),
-            &|| {},
-        )
-        .unwrap();
-        assert!(result.songs.unwrap().is_empty());
-        assert!(result.report.is_none());
-        std::fs::remove_dir_all(base).unwrap();
-    }
-
-    #[test]
-    fn host_binding_rejects_other_app_and_graph() {
-        let mut c = Config {
-            host: "host.json".into(),
-            application_sha256: sha256(b"app"),
-            application_lock_sha256: sha256(b"lock"),
-        };
-        assert!(check_binding(&c, b"app", b"lock").is_ok());
-        assert!(check_binding(&c, b"other", b"lock").is_err());
-        c.application_lock_sha256 = sha256(b"other lock");
-        assert!(check_binding(&c, b"app", b"lock").is_err());
+    fn malformed_url_does_not_launch_a_helper() {
+        let mut imports = Imports::default();
+        for url in [
+            "file:///secret",
+            "https://name:password@example.invalid",
+            "not a URL",
+        ] {
+            imports.start(url.into(), false, Arc::new(|| {}));
+            assert!(!imports.busy());
+            assert!(imports.report.as_ref().unwrap().error);
+        }
     }
 }

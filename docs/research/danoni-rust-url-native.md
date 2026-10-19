@@ -100,6 +100,28 @@ recognized charsets become worker resources. Exact optional-colour 404 reviews
 are not guessed or generated; works needing one currently stop explicitly.
 Unsupported engine identities also stop, with acquired evidence preserved.
 
+The URL driver also dispatches `iso50-kouhaku-2004/1` for the exact reviewed
+`2004kouhaku.swf` SHA-256 already bound by the
+[pinned extractor](danoni-rust-pinned.md). Page and direct-SWF URLs use the same
+content identity, without a URL or filename exception. Its fixed physical menu
+controls cover five songs and six charts, including the FMV-selected Tougenkyo
+Hard chart (selector 1; normal is 0, followed by RUN, Kitakaze, Korokke and emy).
+Every capture retains the menu, initial child clock, motion witnesses and mixed
+PCM. The existing pinned source/motion/audio normalizer still authorizes every
+chart; the reviewed controls supply no note data, variable writes or timing
+correction. This profile inspects SWF6 globals and needs no offscreen renderer.
+Unreviewed revisions still fail admission. Partial selector requests retain the
+same stable indices and omit only unselected charts.
+
+Verification on 2026-10-20 used the packaged helper and an isolated external
+store: the HTML URL installed five songs/six original charts; importing the
+direct SWF into the same store returned `unchanged` with the same five IDs and
+catalog revision. All six normalized charts (2,493 taps), their native timing,
+movement, stream origins and canonical WAV hashes matched the frozen pinned
+reference exactly. The 288-test SDK suite, strict native/minimal Clippy and the
+app's headless bundle/IPC check passed. Acquired sources and generated songs
+remain outside Git; the committed regression checks use synthetic inputs.
+
 ## Self-contained output and schemas
 
 ```text

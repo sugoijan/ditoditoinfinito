@@ -5,7 +5,7 @@ mod fetch;
 mod store;
 mod transport;
 pub use control::NetworkCancel;
-pub use fetch::{AcquiredResource, FetchOptions, Fetcher, fetch_job};
+pub use fetch::{AcquiredResource, FetchOptions, Fetcher, RobotsPolicy, fetch_job};
 pub use transport::{RootBundle, TransferCounts, TransportOptions};
 mod robots;
 mod scheduling;

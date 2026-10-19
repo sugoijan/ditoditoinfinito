@@ -15,9 +15,19 @@ use std::{
     time::Duration,
 };
 use tokio::time::Instant;
+/// Chosen by the host, never inferred from an acquired page or a refusal.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RobotsPolicy {
+    #[default]
+    Respect,
+    /// A bounded, explicit single-work desktop download, not a crawl.
+    UserInitiated,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct FetchOptions {
+    pub robots_policy: RobotsPolicy,
     pub offline: bool,
     pub transport: TransportOptions,
     pub maximum_requests: usize,
@@ -29,6 +39,7 @@ pub struct FetchOptions {
 impl Default for FetchOptions {
     fn default() -> Self {
         Self {
+            robots_policy: RobotsPolicy::Respect,
             offline: false,
             transport: TransportOptions::default(),
             maximum_requests: 64,
@@ -187,6 +198,11 @@ impl Fetcher {
         }
         let url = address(&request.url)?.to_string();
         let site_reason = self.site(&url, site)?;
+        if self.options.robots_policy == RobotsPolicy::UserInitiated {
+            return self
+                .live(request, "resource", None, site_reason, cancel)
+                .await;
+        }
         let policy = self.policy(&url, cancel, site).await?;
         if !policy.allowed {
             let error = Error::new(
@@ -202,9 +218,30 @@ impl Fetcher {
         self.live(request, "resource", Some(policy), site_reason, cancel)
             .await
     }
-    fn cached(&self, request: &ReplayRequest) -> Result<Option<ReplayResponse>> {
+    fn cached(&mut self, request: &ReplayRequest) -> Result<Option<ReplayResponse>> {
         match self.cache.lookup(request, false)? {
-            ReplayLookup::Hit(r) => Ok(Some(*r)),
+            ReplayLookup::Hit(r) => {
+                if self.options.robots_policy == RobotsPolicy::Respect
+                    && r.selected_response["acquisitionPolicy"] == "user-initiated"
+                {
+                    return Err(Error::new(
+                        "cache-policy-mismatch",
+                        "This cached response was acquired as a user-initiated download without robots evaluation",
+                    ));
+                }
+                Ok(Some(*r))
+            }
+            ReplayLookup::RecordedFailure { record, .. }
+                if self.options.robots_policy == RobotsPolicy::UserInitiated
+                    && !self.options.offline
+                    && matches!(
+                        record["code"].as_str(),
+                        Some("robots-denied" | "site-terms-denied")
+                    ) =>
+            {
+                self.cache.retry_policy_refusal(&request.url)?;
+                Ok(None)
+            }
             ReplayLookup::RecordedFailure { record, .. } => Err(Error::new(
                 "cached-request-failure",
                 format!(
@@ -431,7 +468,8 @@ impl Fetcher {
             "redirects": [], "robots": robots, "role": role, "fromCache": false,
             "requestContext": request.context,
             "requestContextFingerprint": request.context.fingerprint()?,
-            "network": response.network, "sitePolicy": site_reason
+            "network": response.network, "sitePolicy": site_reason,
+            "acquisitionPolicy": self.options.robots_policy
         });
         self.cache
             .success(&request.url, &id, record, response.body)?;

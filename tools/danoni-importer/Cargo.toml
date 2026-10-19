@@ -1,0 +1,13 @@
+[package]
+name = "ddi-danoni-importer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[dependencies]
+ddi-importer-protocol.workspace = true
+ddi-danoni-export = { workspace = true, features = ["native", "opus"] }
+serde_json = "1"
+url = "2.5.8"

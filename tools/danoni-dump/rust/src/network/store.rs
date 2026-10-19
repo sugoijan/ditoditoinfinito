@@ -424,6 +424,24 @@ impl CacheStore {
         let id = self.begin(url)?;
         self.failure(url, &id, error)
     }
+    /// A new explicit desktop download may supersede a pre-request policy
+    /// refusal. Never clear transport failures or incomplete request reservations.
+    pub fn retry_policy_refusal(&mut self, url: &str) -> Result<()> {
+        self.healthy()?;
+        if self.document["entries"].get(url).is_some()
+            || !matches!(
+                self.document["failures"][url]["code"].as_str(),
+                Some("robots-denied" | "site-terms-denied")
+            )
+        {
+            return Err(rejected("Only a recorded policy refusal can be retried"));
+        }
+        self.document["failures"]
+            .as_object_mut()
+            .unwrap()
+            .remove(url);
+        self.flush()
+    }
     pub fn success(
         &mut self,
         url: &str,

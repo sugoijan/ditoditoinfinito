@@ -147,6 +147,8 @@ pub struct PageDiscovery {
     pub encoding: String,
     /// First completed, unique HTML title, bounded to 512 characters.
     pub title: Option<String>,
+    /// Document title, refined by a unique matching heading before the player.
+    pub pack_title: Option<String>,
     pub base: SourceAddress,
     pub links: Vec<Link>,
     pub movies: Vec<Movie>,
@@ -165,6 +167,12 @@ struct Object {
 }
 type EmbeddedMovie = (String, String, String, bool, Option<[u32; 2]>);
 #[derive(Default)]
+struct TitleBlock {
+    tag: String,
+    text: String,
+    invalid: bool,
+}
+#[derive(Default)]
 struct Tokens {
     base: Option<String>,
     charset: Option<String>,
@@ -172,6 +180,10 @@ struct Tokens {
     in_title: bool,
     title_count: usize,
     title_complete: bool,
+    title_block: Option<TitleBlock>,
+    title_blocks: Vec<String>,
+    title_blocks_full: bool,
+    before_player: bool,
     links: Vec<(String, String)>,
     movies: Vec<EmbeddedMovie>,
     scripts: Vec<String>,
@@ -186,11 +198,17 @@ impl TokenSink for Sink {
     type Handle = ();
     fn process_token(&self, token: Token, _line: u64) -> TokenSinkResult<()> {
         let mut t = self.0.borrow_mut();
-        if let Token::CharacterTokens(chars) = &token
-            && t.in_title
-            && t.title.len() <= 4096
-        {
-            t.title.push_str(chars);
+        if let Token::CharacterTokens(chars) = &token {
+            if t.in_title && t.title.len() <= 4096 {
+                t.title.push_str(chars);
+            }
+            if let Some(block) = &mut t.title_block {
+                if block.text.len() + chars.len() <= 4096 {
+                    block.text.push_str(chars);
+                } else {
+                    block.invalid = true;
+                }
+            }
         }
         let Token::TagToken(tag) = token else {
             return TokenSinkResult::Continue;
@@ -202,6 +220,16 @@ impl TokenSink for Sink {
         }
         let name = tag.name.as_ref();
         if tag.kind == TagKind::EndTag {
+            if t.title_block.as_ref().is_some_and(|b| b.tag == name)
+                && let Some(block) = t.title_block.take()
+                && !block.invalid
+            {
+                if t.title_blocks.len() < 64 {
+                    t.title_blocks.push(block.text);
+                } else {
+                    t.title_blocks_full = true;
+                }
+            }
             if name == "title" {
                 t.in_title = false;
                 t.title_complete = true;
@@ -221,6 +249,23 @@ impl TokenSink for Sink {
                 .find(|a| &*a.name.local == n)
                 .map(|a| a.value.to_string())
         };
+        if matches!(name, "object" | "embed") {
+            t.before_player = false;
+            t.title_block = None;
+        }
+        if t.before_player && matches!(name, "p" | "h1" | "h2") {
+            t.title_block = Some(TitleBlock {
+                tag: name.into(),
+                ..Default::default()
+            });
+        }
+        if let Some(block) = &mut t.title_block
+            && (matches!(name, "script" | "style" | "template" | "textarea" | "a")
+                || attr("hidden").is_some()
+                || attr("style").is_some())
+        {
+            block.invalid = true;
+        }
         match name {
             "base" if t.base.is_none() => t.base = attr("href"),
             "meta" if t.charset.is_none() => {
@@ -329,7 +374,13 @@ fn viewport(width: Option<String>, height: Option<String>) -> Option<[u32; 2]> {
 fn tokenize(text: &str) -> Tokens {
     let queue = BufferQueue::default();
     queue.push_back(StrTendril::from_slice(text));
-    let tokenizer = Tokenizer::new(Sink::default(), Default::default());
+    let tokenizer = Tokenizer::new(
+        Sink(RefCell::new(Tokens {
+            before_player: true,
+            ..Default::default()
+        })),
+        Default::default(),
+    );
     let _ = tokenizer.feed(&queue);
     tokenizer.end();
     let mut t = tokenizer.sink.0.into_inner();
@@ -432,12 +483,37 @@ pub fn inspect_page(
         && !title.is_empty()
         && title.chars().count() <= 512)
         .then_some(title);
+    let pack_title = title.as_ref().map(|title| {
+        let mut headings = t
+            .title_blocks
+            .iter()
+            .map(|s| {
+                s.split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .trim_matches(|c: char| c.is_whitespace() || matches!(c, '~' | '～'))
+                    .to_owned()
+            })
+            .filter(|s| {
+                s.starts_with(title)
+                    && s.len() > title.len()
+                    && s.chars().count() <= 512
+                    && !s.chars().any(char::is_control)
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        if headings.len() == 1 && !t.title_blocks_full {
+            headings.pop_first().unwrap()
+        } else {
+            title.clone()
+        }
+    });
     let mut result = PageDiscovery {
         schema: "ddi-danoni-page-discovery/1",
         source,
         body_sha256: sha256(body),
         encoding,
         title,
+        pack_title,
         base,
         links: vec![],
         movies: vec![],

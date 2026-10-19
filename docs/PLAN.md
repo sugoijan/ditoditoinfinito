@@ -22,10 +22,11 @@ Alpha-Arrows, Dake and Peter Lawrence's CF_CHROME, CF_VIBRANT, CF_ALLOY,
 Peters-DDR-Note and Peters-DDR-Vivid (3D models); Dancing☆Onigiri's
 back and mask layers; StepMania's second background layer and scripted
 backgrounds not); per-phase status in the roadmap (section 5).
-DanOni URL imports (2026-10-18): the research SDK is incorporated as
-standalone tooling with shared-library compatibility checks and a synthetic
-SSC/Opus desktop handoff. It is not exposed in the game yet. The agreed first
-consumer is desktop; browser URL import remains separate. See decision 51
+DanOni URL imports (2026-10-19): the optional `danoni-importer` feature
+exposes desktop URL import through a packaged native helper and framed IPC,
+with the ordinary SSC/Opus library handoff. The helper and SDK share the root
+workspace/lock; the pinned generated Ruffle worker remains separate. Browser
+URL import remains separate. See decision 51, [the build contract](plans/danoni-importer.md)
 and [the integration notes](research/danoni-desktop-integration.md).
 Players import their own simfile packs (folder, zip or drag and drop; `.sm`,
 `.ssc`, `.dwi`) into IndexedDB, edit a per-song offset on the results, and
@@ -608,23 +609,33 @@ Tooling:
 
 51. **DanOni URL imports start on desktop with an SSC/Opus handoff**
 (2026-10-18). Retain the embeddable SDK and its pinned, confined worker inputs
-under `tools/danoni-dump/`, with separate locked CI checks. Hand prepared SSCs,
-Opus music and title artwork to the existing desktop loader and shared play
+under `tools/danoni-dump/`, with dedicated locked CI checks. The SDK and helper
+share the root workspace/lock and use the native `importer` build profile; the
+generated upstream Ruffle worker keeps its independent pinned workspace. Hand
+prepared SSCs, Opus music and title artwork to the existing desktop loader and shared play
 session; do not introduce a second gameplay path or change music offsets.
 The managed store's verified catalog publishes entries with the SDK's stable
 IDs; recursively scanning its transactions would expose cancelled or obsolete
-songs. The opt-in `danoni` development feature now adds the store-owned verified
-playback snapshot, desktop adapter preserving immutable revisions alongside
-folder/bundled songs, an owned cancellable background job and Add songs URL UI
-(macOS/Linux; browser/Windows hidden). It requires Rust 1.99 and an explicit
-installed runtime plus operator binding to the final executable and root lock;
-see `docs/plans/danoni-import.md`. Default builds remain on Rust 1.98. Before
-shipping this feature/runtime, complete trusted application attestation for
-the application's actual dependency graph, finish notice/license inventory
-and platform confinement/durability checks. Linux/macOS CI tests the synthetic
-handoff; Windows checks the portable SDK, not runtime execution. Frozen corpus
-measurements remain historical evidence, not a claim that the current build
-has rerun live imports. Browser URL acquisition needs its own design.
+songs. The optional `danoni-importer` feature (`danoni` alias) now builds a
+separate Rust 1.99 SDK helper and confined worker automatically on macOS and
+x86_64 Linux; the Rust 1.98 game links only the pure protocol, URL validator and
+hashing. Add songs' URL tab uses anonymous-pipe IPC, owned cancellable jobs and
+complete verified snapshots. Since 2026-10-20 it asks only for the URL, reuses
+cached files automatically, and shows task counts with continuous activity
+between updates (stationary under reduced motion). Explicit desktop downloads
+skip site-approval prompts and robots.txt; SDK research/batch defaults still
+respect robots. Public-address checks, limits and pacing remain in both modes.
+The executable-relative content bundle includes
+exact helper/SDK/worker lock graphs, inventory, copied-code/font notices and
+source retrieval information. No runtime operator configuration or host-executable
+binding is required. The package command audits native dependencies and stages
+assets, notices and any video compliance payload for relocation. See
+`docs/plans/danoni-importer.md` and `docs/plans/danoni-import.md`. CI retains
+synthetic handoff/IPC tests and adds an actual native package/relocation check;
+Windows checks the pure SDK and keeps URL import unavailable. Frozen corpus
+measurements remain historical evidence, not a current live-import claim.
+Windows confinement, managed-store durability and browser URL acquisition
+remain separate work.
 
 52. **Simplifications can expose additional chart versions** (2026-10-18; `docs/plans/chart-simplification.md`). The Without onigiri option exposes converted DanOni charts in Single, Solo, Double and Techno 8-panel. Shared library loading appends them for native works and simfiles (including SSC exports) with explicit provenance and stable indexes; the option controls their visibility. Originals stay unchanged and unassisted by this feature. Converted charts have their own content digests, assisted results and bests, and keep their source chart's lyrics, layers and replay identity. Existing cut options keep their behavior.
 

@@ -147,13 +147,17 @@ pub fn collect(root: &Path) -> Result<RustCredits> {
 /// workspace and this generator.
 fn cache_key(root: &Path) -> Result<String> {
     let mut parts = vec![fs::read_to_string(root.join("Cargo.lock"))?];
-    parts.push(fs::read_to_string(root.join("Cargo.toml"))?);
-    for entry in fs::read_dir(root)?.flatten() {
-        let manifest = entry.path().join("Cargo.toml");
-        if let Ok(text) = fs::read_to_string(&manifest) {
-            parts.push(format!("{}\n{text}", entry.file_name().to_string_lossy()));
-        }
+    let manifest = fs::read_to_string(root.join("Cargo.toml"))?;
+    let workspace: toml::Value = toml::from_str(&manifest)?;
+    let members = workspace["workspace"]["members"]
+        .as_array()
+        .context("workspace members must be explicit paths")?;
+    for member in members {
+        let member = member.as_str().context("workspace member must be a path")?;
+        let text = fs::read_to_string(root.join(member).join("Cargo.toml"))?;
+        parts.push(format!("{member}\n{text}"));
     }
+    parts.push(manifest);
     parts.sort();
     parts.push(include_str!("rust_credits.rs").to_string());
     // FNV-1a over all of it: a change anywhere changes the key.
@@ -172,6 +176,15 @@ fn cargo() -> String {
 /// `(name, version)` of every crates.io (or git) crate `package` builds
 /// with for `targets`.
 fn tree(root: &Path, package: &str, targets: &[&str]) -> Result<BTreeSet<(String, String)>> {
+    tree_features(root, package, targets, &[])
+}
+
+fn tree_features(
+    root: &Path,
+    package: &str,
+    targets: &[&str],
+    features: &[&str],
+) -> Result<BTreeSet<(String, String)>> {
     let mut cmd = Command::new(cargo());
     cmd.current_dir(root).args([
         "tree",
@@ -187,6 +200,9 @@ fn tree(root: &Path, package: &str, targets: &[&str]) -> Result<BTreeSet<(String
     ]);
     for t in targets {
         cmd.args(["--target", t]);
+    }
+    if !features.is_empty() {
+        cmd.args(["--features", &features.join(",")]);
     }
     let out = cmd.output().context("running cargo tree")?;
     if !out.status.success() {
@@ -238,10 +254,19 @@ struct Package {
 fn generate(root: &Path) -> Result<RustCredits> {
     let mut web = tree(root, "ditoditoinfinito", &["wasm32-unknown-unknown"])?;
     web.extend(tree(root, "ddi-opus-worker", &["wasm32-unknown-unknown"])?);
-    let desktop = tree(root, "ditoditoinfinito", DESKTOP_TARGETS)?;
+    let mut desktop = tree(root, "ditoditoinfinito", DESKTOP_TARGETS)?;
+    // The optional native importer adds only its pure protocol, URL parser and
+    // integrity hash to this binary. The helper/worker runtime dependency graphs
+    // ship their own complete notices inside the content-addressed bundle.
+    desktop.extend(tree_features(
+        root,
+        "ditoditoinfinito",
+        &["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"],
+        &["danoni-importer"],
+    )?);
     let out = Command::new(cargo())
         .current_dir(root)
-        .args(["metadata", "--format-version", "1"])
+        .args(["metadata", "--format-version", "1", "--all-features"])
         .output()
         .context("running cargo metadata")?;
     if !out.status.success() {

@@ -67,9 +67,12 @@ wasmtime = { version = "49.0.3", optional = true, default-features = false, feat
 # Background movies through the FFmpeg module (steps 7.7 and 7.5), on by
 # default; `--no-default-features` builds without wasmtime.
 default = ["video"]
-# Development-only URL acquisition: installed runtime and host binding required.
-# Enabling this feature requires Rust 1.99; default builds remain on 1.98.
-danoni = ["dep:ddi-danoni-export", "dep:url"]
+# Build and stage the isolated native URL importer beside the application.
+# Runtime SDK dependencies stay in the separate helper process; the app
+# links only the platform-free protocol and bundle integrity hashing.
+danoni-importer = ["dep:ddi-importer-protocol", "dep:sha2", "dep:url"]
+# Compatibility with the first development feature name.
+danoni = ["danoni-importer"]
 video = ["dep:wasmtime", "dep:objc2-video-toolbox", "dep:objc2-core-media", "dep:objc2-core-video", "dep:objc2-core-foundation", "dep:windows"]
 # The pacing's simulated display (`src/pacing/sim.rs`), for tests only:
 # not in the shipped binary.
@@ -118,5 +121,6 @@ ddi-desktop = { path = ".", default-features = false, features = ["sim"] }
 wat = { version = "1.262.0", default-features = false }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
-ddi-danoni-export = { path = "../tools/danoni-dump/rust", optional = true, default-features = false, features = ["native", "opus"] }
+ddi-importer-protocol = { workspace = true, optional = true }
+sha2 = { version = "0.11.1", optional = true }
 url = { version = "2.5.8", optional = true }

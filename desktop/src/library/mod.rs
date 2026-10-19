@@ -22,7 +22,10 @@
 //!   the music's path (a zip's extracted once into the cache folder).
 
 pub mod files;
-#[cfg(all(feature = "danoni", any(target_os = "macos", target_os = "linux")))]
+#[cfg(all(
+    feature = "danoni-importer",
+    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
+))]
 pub mod managed;
 pub mod noteskins;
 pub mod offer;
@@ -145,6 +148,26 @@ impl Hidden {
         }
         self.songs.retain(|id| !ids.contains(&id.as_str()));
         *self != before
+    }
+
+    /// Restore imported ids under their current pack names while keeping the
+    /// other rows hidden, including folder songs sharing the same pack label.
+    pub fn show_selected(&mut self, songs: &[LibSong], ids: &[&str]) -> bool {
+        let packs = songs
+            .iter()
+            .filter(|s| ids.contains(&s.entry.id.as_str()))
+            .map(|s| s.pack.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut changed = false;
+        for pack in packs {
+            let all = songs
+                .iter()
+                .filter(|s| s.pack.eq_ignore_ascii_case(pack))
+                .map(|s| s.entry.id.as_str())
+                .collect::<Vec<_>>();
+            changed |= self.show_only(pack, &all, ids);
+        }
+        changed
     }
 
     pub fn hides(&self, s: &LibSong) -> bool {
@@ -1033,6 +1056,15 @@ impl Library {
         l
     }
 
+    /// Only folder-backed packs can be read again; managed publications refresh
+    /// through the importer, regardless of their display label.
+    pub fn rereadable_packs(&self) -> HashSet<String> {
+        self.folder_songs
+            .iter()
+            .map(|s| s.pack.to_lowercase())
+            .collect()
+    }
+
     /// Publishes verified managed rows beside folder songs. Folder songs win
     /// an id collision; managed duplicates keep their first row. A later folder
     /// scan replaces only folder rows, so pending scan news cannot erase imports.
@@ -1498,6 +1530,33 @@ mod managed_merge_tests {
     }
 
     #[test]
+    fn named_pack_restore_keeps_unselected_and_folder_rows_hidden() {
+        let mut rows = vec![
+            song("restored-a", "A"),
+            song("other-a", "B"),
+            song("folder-a", "C"),
+            song("restored-b", "D"),
+        ];
+        for row in &mut rows[..3] {
+            row.pack = "Collection A".into();
+        }
+        rows[3].pack = "Collection B".into();
+        let mut hidden = Hidden {
+            packs: vec![
+                "Collection A".into(),
+                "Collection B".into(),
+                "Unrelated".into(),
+            ],
+            songs: vec![],
+        };
+        assert!(hidden.show_selected(&rows, &["restored-a", "restored-b"]));
+        assert!(!hidden.hides(&rows[0]));
+        assert!(hidden.hides(&rows[1]));
+        assert!(hidden.hides(&rows[2]));
+        assert!(!hidden.hides(&rows[3]));
+        assert_eq!(hidden.packs, ["Unrelated"]);
+    }
+    #[test]
     fn managed_import_restore_preserves_other_hidden_rows() {
         let mut hidden = Hidden {
             packs: vec!["DanOni imports".into(), "Other pack".into()],
@@ -1536,14 +1595,22 @@ mod managed_merge_tests {
             wake: Arc::new(|| {}),
             cache: None,
         };
-        let imported = song("managed-test-import", "Imported");
+        let mut imported = song("managed-test-import", "Imported");
+        imported.pack = "Named collection".into();
         let folder = song("managed-test-folder", "Folder");
         assert!(library.set_managed(vec![imported.clone(), imported.clone()]));
         assert_eq!(library.songs, vec![imported.clone()]);
+        assert!(!library.rereadable_packs().contains("named collection"));
         tx.send((1, News::Cached(vec![folder.clone()], 1.0)))
             .unwrap();
         assert!(library.take());
         assert_eq!(library.songs, vec![folder.clone(), imported.clone()]);
+        assert!(
+            library
+                .rereadable_packs()
+                .contains(&folder.pack.to_lowercase())
+        );
+        assert!(!library.rereadable_packs().contains("named collection"));
         let mut collision = imported.clone();
         collision.entry.title = "Folder copy wins".into();
         tx.send((

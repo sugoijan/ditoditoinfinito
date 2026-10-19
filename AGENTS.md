@@ -185,25 +185,38 @@ the browser are implementation details, not advertised features.
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
   from the system); winit, rfd and arboard load their libraries at run
   time.
-- `tools/danoni-dump/` the standalone Dancing☆Onigiri URL-import SDK
-  (`rust/`), its confined Ruffle worker build inputs (`ruffle/`), desktop
-  handoff probe (`desktop-probe/`) and independent chart verifier
-  (`pack-verify/`). Separate workspaces and lockfiles: root Cargo checks do
-  not cover them. `just danoni-check` (Python 3, ffmpeg and native build
-  prerequisites) runs their locked checks, synthetic tests and independent
+- `importer-protocol/` the platform-free framed app/helper IPC contract (serde
+  and plain data only; no SDK/networking or filesystem).
+- `tools/danoni-importer/` the native helper, a root workspace member requiring
+  Rust 1.99 (as does the SDK). Both share the root lock; the `importer` profile
+  keeps native builds unwinding with bounded compiler memory.
+  `--features danoni-importer` (`danoni` alias) prepares the pinned worker/helper
+  and complete notices through `desktop/build.rs`, stages an immutable bundle
+  beside the app, and compiles only its content ID/digest into desktop. The SDK
+  is not linked into the app. `build.py package` copies a complete relocatable
+  distribution; see `docs/plans/danoni-importer.md`. Python/Java are build-time
+  prerequisites only. No helper preparation runs for default, wasm or Windows
+  builds. `DDI_IMPORTER_TEST_ONLY=1` skips preparation only in debug unit/check
+  builds, leaves import unavailable and cannot be packaged.
+  Desktop's URL tab is a user-triggered single-work download: no site-approval
+  prompt or robots.txt request, with the usual public-address checks, limits and
+  pacing. The SDK's research/batch default still respects robots. Show real task
+  counts where available and continuous activity otherwise; honor reduced motion.
+- `tools/danoni-dump/` the Dancing☆Onigiri URL-import SDK
+  (`rust/`, a root workspace member), its confined Ruffle worker build inputs
+  (`ruffle/`), desktop handoff probe (`desktop-probe/`) and independent chart verifier
+  (`pack-verify/`). The generated upstream Ruffle worker, probe and verifier
+  retain separate workspaces/locks; root Cargo checks cover the SDK/helper only
+  when selected (the app remains the default member). `just danoni-check`
+  (Python 3, ffmpeg and native build prerequisites) runs their locked checks, synthetic tests and independent
   Opus decoder comparison; `--minimal` checks the SDK without native/codec
   features, including on Windows in CI. No live songs or runtime downloads
-  are part of this check. The optional desktop/app `danoni` development feature
-  (Rust 1.99; default game remains on 1.98) links the SDK for macOS/Linux, with
-  Add songs URL import and
-  cancellable jobs. It requires an explicitly installed verified runtime and
-  `DDI_DANONI_HOST` binding the final executable/root lock; distribution remains
-  gated on enabled-graph credits, worker notices and publisher attestation.
-  Prepared SSC/Opus use the SDK-owned verified playback snapshot and the ordinary
-  library; never scan transaction directories. See `docs/plans/danoni-import.md`.
-  Sources and generated third-party packs stay outside Git. See
-  `docs/research/danoni-desktop-integration.md` for runtime attestation and
-  redistribution work.
+  are part of this check. The SDK runs inside the optional native helper rather
+  than the game process; prepared SSC/Opus use its verified playback snapshot
+  and the ordinary library. Never scan transaction directories. Sources and
+  generated third-party packs stay outside Git. See
+  `docs/plans/danoni-importer.md` for the current build/distribution contract;
+  `docs/research/danoni-desktop-integration.md` records the research.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md` and
   `THIRD_PARTY_RUST.md`.
 - `video/` the software video decoder: C shims over FFmpeg's video
@@ -221,6 +234,16 @@ the browser are implementation details, not advertised features.
 
 ## Commands
 
+- `cargo build --features danoni-importer` includes the native URL-import
+  helper/runtime on macOS and x86_64 Linux. The first build fetches pinned public
+  build inputs; no runtime tools or maintainer configuration are needed by the
+  result. `python3 tools/danoni-importer/build.py package --app
+  target/debug/ditoditoinfinito --output /tmp/ddi-package` prepares a fresh
+  relocatable folder. Keep its assets, notices, optional full video payload and
+  `danoni-importer/` beside the executable. `--danoni-bundle-info` and
+  `--danoni-importer-check` inspect it without a window or sound device. The app
+  defaults to video; `--no-default-features --features danoni-importer` makes a
+  deliberate no-video package.
 - `cargo run` opens the desktop app on our theme's song select
   (`--profile desktop` for smooth frames: `release` is the wasm bundle's,
   tuned for size and aborting on panics). Flags (`ddi_desktop::run`):

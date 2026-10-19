@@ -1,3 +1,4 @@
+mod kouhaku;
 use super::*;
 use crate::{
     assets::*,
@@ -157,11 +158,10 @@ fn config(
     events: &[Value],
     frames: &[u64],
     mix: bool,
-    render: bool,
-    execution_ms: u64,
+    profile: EngineProfile,
     renderer: Option<&supervisor::RendererOptions>,
 ) -> Result<Vec<u8>> {
-    let render = render || renderer.is_some();
+    let render = profile.render() || renderer.is_some();
     let mut value = context.clone();
     value["events"] = json!(events);
     value["captureFrames"] = json!(frames);
@@ -171,7 +171,10 @@ fn config(
     }
     value["mixAudio"] = json!(mix);
     value["inspectionScale"] = json!(4);
-    value["avmExecutionMs"] = json!(execution_ms);
+    value["avmExecutionMs"] = json!(profile.avm_execution_ms());
+    if profile == EngineProfile::IsoKouhaku2004 {
+        value["inspectGlobals"] = json!(true);
+    }
     let b = bytes(&value)?;
     supervisor::validate_config(&b)?;
     Ok(b)
@@ -217,15 +220,7 @@ fn prepare(
         return Err(invalid("Source manifest names another movie"));
     }
     let mut value = serde_json::to_value(&context).map_err(|e| invalid(e.to_string()))?;
-    config(
-        &value,
-        &[],
-        &[1],
-        false,
-        profile.render(),
-        profile.avm_execution_ms(),
-        request.renderer.as_ref(),
-    )?;
+    config(&value, &[], &[1], false, profile, request.renderer.as_ref())?;
     let mut files = BTreeMap::new();
     let movie = blob(&mut files, movie_bytes)?;
     let source = add(&mut files, "inputs/source-manifest.json".into(), provenance)?;
@@ -326,6 +321,44 @@ struct Run<'a, F: FnMut(&ProfileProgress) -> Result<()>> {
     trials: Vec<Value>,
 }
 impl<F: FnMut(&ProfileProgress) -> Result<()>> Run<'_, F> {
+    fn normalize(
+        &mut self,
+        charts: Vec<NativeChartRequest>,
+        planned: &[ChartPlan],
+    ) -> Result<Value> {
+        let normal_request = NativeWorkRequest {
+            source_manifest: self.prepared.source.clone(),
+            movie: self.prepared.movie.clone(),
+            metadata: self.request.metadata.clone(),
+            charts,
+        };
+        orchestration::write(
+            self.root,
+            "normalization-request.json",
+            &bytes(&normal_request)?,
+        )?;
+        let plan = NativePlan {
+            source_manifest: self.prepared.source.clone(),
+            movie: self.prepared.movie.clone(),
+            metadata: self.request.metadata.clone(),
+            charts: planned.to_vec(),
+            limits: self.request.capture_limits.clone(),
+        };
+        let job = PlanJob {
+            schema: "ddi-danoni-native-plan-job/1".into(),
+            roots: BTreeMap::from([("profile".into(), PathBuf::from("."))]),
+            plan,
+        };
+        orchestration::write(self.root, "replay-job.json", &bytes(&job)?)?;
+        self.state.stage = "normalization";
+        self.reserve(576 * 1024 * 1024)?;
+        let work = prepare_native_work(&normal_request, &self.source()?, &mut || self.check())?;
+        native::write_normalized(&work, &self.root.join("normalized"), &mut || self.check())?;
+        Ok(
+            json!({"manifest":"normalized/manifest.json","manifestSha256":sha256(&self.source()?.read("profile","normalized/manifest.json",JSON_LIMIT)?),"normalization":"normalized/normalization.json","normalizationSha256":sha256(&self.source()?.read("profile","normalized/normalization.json",JSON_LIMIT)?),"charts":work.manifest["charts"].as_array().unwrap().len()}),
+        )
+    }
+
     fn reserve(&self, extra: u64) -> Result<()> {
         if orchestration::tree_size(self.root)?
             .checked_add(extra)
@@ -401,8 +434,7 @@ impl<F: FnMut(&ProfileProgress) -> Result<()>> Run<'_, F> {
             events,
             frames,
             mix,
-            self.prepared.profile.render(),
-            self.prepared.profile.avm_execution_ms(),
+            self.prepared.profile,
             self.request.renderer.as_ref(),
         )?;
         let binding = bind(format!("inputs/{id}.json"), &b);
@@ -487,7 +519,8 @@ impl<F: FnMut(&ProfileProgress) -> Result<()>> Run<'_, F> {
     }
 }
 /// Observe a reviewed native menu, drive every supported selector, prove one
-/// generic motion witness per chart, and run unchanged full normalization.
+/// motion witness per chart (generic proposals or exact pinned plans), and run
+/// unchanged full normalization.
 /// The context must already contain required public cached resources. Missing
 /// requests are retained as evidence, never fetched or fabricated here.
 pub fn execute(
@@ -546,6 +579,9 @@ pub fn execute(
     let mut planned = Vec::new();
     let mut play_inputs = Vec::new();
     let result = (|| -> Result<Value> {
+        if prepared.profile == EngineProfile::IsoKouhaku2004 {
+            return run.kouhaku(&mut planned, &mut observed_menu, &mut excluded_selectors);
+        }
         run.state.stage = "menu";
         let (capture, menu_binding) = run.capture(
             "menu",
@@ -829,43 +865,13 @@ pub fn execute(
                 "Observed menu has no supported 5/7 selectors",
             ));
         }
-        let normal_request = NativeWorkRequest {
-            source_manifest: prepared.source.clone(),
-            movie: prepared.movie.clone(),
-            metadata: request.metadata.clone(),
-            charts,
-        };
-        orchestration::write(
-            run.root,
-            "normalization-request.json",
-            &bytes(&normal_request)?,
-        )?;
-        let plan = NativePlan {
-            source_manifest: prepared.source.clone(),
-            movie: prepared.movie.clone(),
-            metadata: request.metadata.clone(),
-            charts: planned.clone(),
-            limits: request.capture_limits.clone(),
-        };
-        let job = PlanJob {
-            schema: "ddi-danoni-native-plan-job/1".into(),
-            roots: BTreeMap::from([("profile".into(), PathBuf::from("."))]),
-            plan,
-        };
-        orchestration::write(run.root, "replay-job.json", &bytes(&job)?)?;
-        run.state.stage = "normalization";
-        run.reserve(576 * 1024 * 1024)?;
-        let work = prepare_native_work(&normal_request, &run.source()?, &mut || run.check())?;
-        native::write_normalized(&work, &run.root.join("normalized"), &mut || run.check())?;
-        Ok(
-            json!({"manifest":"normalized/manifest.json","manifestSha256":sha256(&run.source()?.read("profile","normalized/manifest.json",JSON_LIMIT)?),"normalization":"normalized/normalization.json","normalizationSha256":sha256(&run.source()?.read("profile","normalized/normalization.json",JSON_LIMIT)?),"charts":work.manifest["charts"].as_array().unwrap().len()}),
-        )
+        run.normalize(charts, &planned)
     })();
     let (normalized, mut failure) = match result {
         Ok(v) => (Some(v), None),
         Err(e) => (None, Some(e)),
     };
-    let mut manifest = json!({"schema":"ddi-danoni-native-profile-run/1","producer":"native-menu-profiles/1","ready":failure.is_none(),"profile":prepared.profile,"request":request,"worker":worker,"fingerprints":prepared.fingerprints,"fingerprintScope":"Reviewed control/placement roles plus every AVM2 tag; complete bounded tag scan, not a full script audit","sourceInputs":prepared.source_inputs,"menu":observed_menu,"excludedSelectors":excluded_selectors,"failedSelector":if failure.is_some(){run.state.selector}else{None},"captures":run.captures,"motionTrials":run.trials,"playInputs":play_inputs,"pendingDependencies":run.pending,"plannedCharts":planned,"normalized":normalized,"failure":failure,"scope":"Requested observed supported menu selectors and proved source/motion/PCM normalization; no HTTP, hidden-chart completeness, tempo acceptance or installation"});
+    let mut manifest = json!({"schema":"ddi-danoni-native-profile-run/1","producer":"native-menu-profiles/1","ready":failure.is_none(),"profile":prepared.profile,"request":request,"worker":worker,"fingerprints":prepared.fingerprints,"fingerprintScope":if prepared.profile == EngineProfile::IsoKouhaku2004 {"Exact reviewed source movie SHA-256; pinned menu, source, motion and audio proofs remain mandatory"} else {"Reviewed control/placement roles plus every AVM2 tag; complete bounded tag scan, not a full script audit"},"sourceInputs":prepared.source_inputs,"menu":observed_menu,"excludedSelectors":excluded_selectors,"failedSelector":if failure.is_some(){run.state.selector}else{None},"captures":run.captures,"motionTrials":run.trials,"playInputs":play_inputs,"pendingDependencies":run.pending,"plannedCharts":planned,"normalized":normalized,"failure":failure,"scope":"Requested observed supported menu selectors and proved source/motion/PCM normalization; no HTTP, hidden-chart completeness, tempo acceptance or installation"});
     if failure.is_none() {
         orchestration::write(run.root, ".manifest.json.tmp", &bytes(&manifest)?)?;
         run.state.stage = "ready";
@@ -949,7 +955,15 @@ mod renderer_policy_tests {
         let context = json!({"movie":"work.swf","sourceUrl":"https://example.test/work.swf","flashVars":{"difficulty":"Hard"},"resources":[]});
         let policy = supervisor::RendererOptions::default();
         let c: Value = serde_json::from_slice(
-            &config(&context, &[], &[1], false, false, 500, Some(&policy)).unwrap(),
+            &config(
+                &context,
+                &[],
+                &[1],
+                false,
+                EngineProfile::RekuConstantMenu,
+                Some(&policy),
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(c["render"], true);
@@ -957,10 +971,20 @@ mod renderer_policy_tests {
         for key in ["movie", "sourceUrl", "flashVars", "resources"] {
             assert_eq!(c[key], context[key]);
         }
-        let c: Value =
-            serde_json::from_slice(&config(&context, &[], &[1], false, false, 500, None).unwrap())
-                .unwrap();
+        let c: Value = serde_json::from_slice(
+            &config(
+                &context,
+                &[],
+                &[1],
+                false,
+                EngineProfile::RekuConstantMenu,
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
         assert_eq!(c["render"], false);
         assert!(c.get("renderer").is_none());
+        assert!(c.get("inspectGlobals").is_none());
     }
 }

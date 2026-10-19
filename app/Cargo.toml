@@ -15,4 +15,7 @@ ddi-web.workspace = true
 ddi-desktop.workspace = true
 
 [features]
-danoni = ["ddi-desktop/danoni"]
+default = ["video"]
+video = ["ddi-desktop/video"]
+danoni-importer = ["ddi-desktop/danoni-importer"]
+danoni = ["danoni-importer"]

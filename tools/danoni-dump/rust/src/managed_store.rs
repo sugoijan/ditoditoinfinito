@@ -41,6 +41,8 @@ pub struct StoredFile {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Song {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack: Option<String>,
     pub installed: host::InstalledSong,
     pub entry: ManifestEntry,
     pub transaction: String,
@@ -75,6 +77,7 @@ pub struct PlaybackSnapshot {
 /// The public playback handoff, without exposing transaction layout to hosts.
 #[derive(Clone, Debug)]
 pub struct PlaybackSong {
+    pub pack: Option<String>,
     pub entry: ManifestEntry,
     pub directory: PathBuf,
 }
@@ -246,6 +249,9 @@ fn catalog_valid(c: &Catalog) -> Result<()> {
             || i.selectors.len() > 16
             || i.selectors.iter().any(|n| *n >= 16)
             || i.selectors.windows(2).any(|w| w[0] >= w[1])
+            || s.pack.as_ref().is_some_and(|s| {
+                s.trim().is_empty() || s.chars().count() > 512 || s.chars().any(char::is_control)
+            })
             || s.files.is_empty()
             || s.files.len() > 16
         {
@@ -465,6 +471,9 @@ impl Store {
                 return Err(invalid("Missing receipted song summary"));
             }
             let summary: serde_json::Value = decode(&summary_bytes)?;
+            if summary["pack"] != serde_json::json!(s.pack) {
+                return Err(invalid("Catalog pack disagrees with admission summary"));
+            }
             let expected = serde_json::json!({"identitySha256":s.installed.identity_sha256,"sourceIdentitySha256":s.installed.source_identity_sha256,"revisionSha256":s.installed.revision_sha256,"selectors":s.installed.selectors,"entry":s.entry,"files":s.files});
             for key in [
                 "identitySha256",
@@ -515,6 +524,7 @@ impl Store {
                 return Err(invalid("Expected playback directory"));
             }
             songs.push(PlaybackSong {
+                pack: song.pack,
                 entry: song.entry,
                 directory,
             });
@@ -822,6 +832,7 @@ impl Transaction for InstallTransaction<'_> {
         self.write(&format!("songs/{}/summary.json", s.entry.id), &encode(s)?)?;
         self.catalog.songs.retain(|e| e.installed.id != s.entry.id);
         self.catalog.songs.push(Song {
+            pack: s.pack.clone(),
             installed: host::InstalledSong {
                 id: s.entry.id.clone(),
                 source_identity_sha256: s.source_identity_sha256.clone(),
@@ -945,6 +956,32 @@ mod tests {
                 assert_eq!(sha256(&bytes), f.sha256);
             }
         }
+    }
+    #[test]
+    fn page_pack_survives_store_reopen_and_is_bound_to_the_admitted_summary() {
+        let root = temp("pack");
+        let (mut m, ready) = fixture(&[0, 1], true, "Song");
+        let ready = crate::import_fixture::with_page_pack(&mut m, &ready, "Collection");
+        let work = validated(&m, &ready);
+        let mut store = Store::create(&root).unwrap();
+        install(&mut store, &work, host::DuplicatePolicy::Replace).unwrap();
+        drop(store);
+        let store = Store::open(&root).unwrap();
+        assert!(
+            store
+                .playback_snapshot()
+                .unwrap()
+                .songs
+                .iter()
+                .all(|s| s.pack.as_deref() == Some("Collection"))
+        );
+        let mut catalog = store.verify().unwrap();
+        // Even a reserialized catalog cannot rename a pack independently of its receipt.
+        catalog.songs[0].pack = Some("Changed".into());
+        let bytes = encode(&catalog).unwrap();
+        assert!(store.verify_catalog(&catalog, &bytes).is_err());
+        drop(store);
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn durable_add_replace_old_readers_and_noop() {

@@ -9,8 +9,9 @@ on:
 permissions:
   contents: read
 
-# These packages have their own workspaces/lockfiles. Root cargo checks cannot
-# catch shared library API changes here. No public URLs or worker downloads.
+# The helper/SDK share the root workspace and lock. Dedicated jobs exercise
+# their feature combinations and the separate research probe/verifier. Cheap
+# jobs use synthetic inputs; native-package downloads pinned public build inputs.
 jobs:
   # Linux confinement tests require Landlock ABI >= 6; a missing sandbox
   # must fail closed (docs/research/danoni-rust-linux.md).
@@ -23,11 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
           key: danoni
           workspaces: |
-            tools/danoni-dump/rust -> ../../../target
+            . -> target
             tools/danoni-dump/desktop-probe -> ../../../target
             tools/danoni-dump/pack-verify -> ../../../target
       - name: ALSA and udev headers, independent audio decoder
@@ -36,17 +39,25 @@ jobs:
       - name: Independent audio decoder on macOS
         if: runner.os == 'macOS'
         run: command -v ffmpeg || brew install ffmpeg
+      - name: Web app with importer feature keeps the native SDK out
+        if: runner.os == 'Linux'
+        run: cargo check --locked -p ditoditoinfinito --target wasm32-unknown-unknown --features danoni-importer
       - name: SDK, desktop lifecycle and SSC/Opus playback
         run: python3 tools/danoni-dump/check.py
-      - name: Opt-in desktop adapter and job owner (no runtime downloads)
+      - name: Native IPC client, protocol and helper (no worker preparation)
         env:
+          DDI_IMPORTER_TEST_ONLY: "1"
           DDI_HOME: ${{ github.workspace }}/target/scratch/danoni-ci/home
           DDI_NO_GPU: "1"
           CARGO_BUILD_JOBS: "2"
         run: |
-          cargo clippy --locked -p ddi-desktop --no-default-features --features danoni --all-targets -- -D warnings
-          cargo test --locked -p ddi-desktop --no-default-features --features danoni --lib danoni::tests
-          cargo test --locked -p ddi-desktop --no-default-features --features danoni --lib managed
+          cargo test --locked -p ddi-importer-protocol
+          cargo clippy --locked -p ddi-desktop --no-default-features --features danoni-importer --all-targets -- -D warnings
+          cargo test --locked -p ddi-desktop --no-default-features --features danoni-importer --lib danoni
+          cargo test --locked -p ddi-desktop --no-default-features --features danoni-importer --lib managed
+          cargo clippy --locked -p ddi-danoni-importer --all-targets -- -D warnings
+          cargo test --locked -p ddi-danoni-importer
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/danoni-importer/tests -p 'test_*.py'
 
 
   # Windows runtime confinement is still pending; the pure SDK is portable.
@@ -58,6 +69,65 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: danoni-portable
-          workspaces: tools/danoni-dump/rust -> ../../../target
+          workspaces: . -> target
       - name: SDK without native runtime or codec features
         run: python tools/danoni-dump/check.py --minimal
+
+  # This lane really builds/downloads pinned public Ruffle/Cargo inputs. It is
+  # distinct from the cheap fixture-only IPC checks above, and never imports a
+  # third-party song or launches a window/audio device.
+  native-package:
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ditoditoinfinito/danoni-importer
+          key: ${{ runner.os }}-${{ runner.arch }}-danoni-native-${{ hashFiles('Cargo.lock', 'tools/danoni-dump/ruffle/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-danoni-native-
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: danoni-native-app
+      - name: Linux native build and software-renderer prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev cmake pkg-config libvulkan1 mesa-vulkan-drivers
+      - name: macOS build prerequisites
+        if: runner.os == 'macOS'
+        run: |
+          command -v cmake || brew install cmake
+          command -v pkg-config || brew install pkgconf
+      - name: Build self-contained native importer and app
+        env:
+          CARGO_BUILD_JOBS: '2'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          DDI_HOME: ${{ github.workspace }}/target/scratch/danoni-package/home
+        run: |
+          cargo run --locked -p xtask -- gen-songs
+          cargo run --locked -p xtask -- gen-noteskins
+          cargo build --locked -p ditoditoinfinito --no-default-features --features danoni-importer
+          python3 tools/danoni-importer/build.py package --app target/debug/ditoditoinfinito --output "$RUNNER_TEMP/ddi-package"
+      - name: Relocate and check actual app/client with no developer commands on PATH
+        run: |
+          mv "$RUNNER_TEMP/ddi-package" "$RUNNER_TEMP/relocated game"
+          mkdir "$RUNNER_TEMP/empty-path"
+          cd "$RUNNER_TEMP/relocated game"
+          PATH="$RUNNER_TEMP/empty-path" DDI_HOME="$PWD/target/scratch/home" ./ditoditoinfinito --danoni-importer-check > smoke.json
+          python3 -c 'import json; result=json.load(open("smoke.json")); assert result["ready"] and result["bundledSongs"] > 0'
+          python3 - <<'PY'
+          import json, pathlib, subprocess, os
+          root = pathlib.Path.cwd()
+          info = json.loads(subprocess.check_output([root / 'ditoditoinfinito', '--danoni-bundle-info']))
+          env = dict(os.environ, PATH=str(pathlib.Path(os.environ['RUNNER_TEMP']) / 'empty-path'))
+          subprocess.run([root / 'danoni-importer' / info['id'] / 'bin/ddi-danoni-importer', '--check-bundle'], env=env, check=True)
+          PY

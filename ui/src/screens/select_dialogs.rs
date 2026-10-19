@@ -482,7 +482,7 @@ impl ListModel for Lines<'_> {
     }
 }
 
-/// Adding songs: the pickers, the options, what runs, the last report.
+/// Adding songs: folders and ZIPs, or a desktop DanOni URL import.
 pub struct ImportDialog {
     env: Env,
     view: Rc<RefCell<ImportView>>,
@@ -491,12 +491,20 @@ pub struct ImportDialog {
     list: List,
     screen: [f32; 2],
     rect: [f32; 4],
+    tab: ImportTab,
+    url: SearchField,
+    progress_phase: f32,
+    progress_rect: [f32; 3],
+    url_error: Option<String>,
 }
 
-/// The report's text size.
-const REPORT_TEXT: f32 = 13.0;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ImportTab {
+    Files,
+    Danoni,
+}
 
-/// The import options the dialog offers, `(name, label)`.
+const REPORT_TEXT: f32 = 13.0;
 const OPTIONS: [(&str, &str); 3] = [
     ("copy", "Store a chosen folder's songs in this browser"),
     ("videos", "Also store background videos"),
@@ -505,6 +513,23 @@ const OPTIONS: [(&str, &str); 3] = [
 
 impl ImportDialog {
     pub fn new(env: Env, view: Rc<RefCell<ImportView>>, shell: Option<ShellFn>) -> ImportDialog {
+        let mut url = SearchField::new("DanoniUrlField", "https://…", [0.0; 2], [1.0; 2]);
+        url.hints = InputHints {
+            mode: InputMode::Url,
+            enter: EnterKey::Go,
+            max_chars: Some(8192),
+        };
+        let v = view.borrow();
+        url.text = v.danoni.url.clone();
+        let tab = if v.platform == Platform::Desktop
+            && v.danoni_urls
+            && (v.danoni_cancel || !v.danoni.url.is_empty() || v.danoni.origin.is_some())
+        {
+            ImportTab::Danoni
+        } else {
+            ImportTab::Files
+        };
+        drop(v);
         ImportDialog {
             env,
             view,
@@ -513,14 +538,70 @@ impl ImportDialog {
             list: List::new(ListConfig::new("Report", [0.0, 0.0, 1.0, 1.0]), &Lines(&[])),
             screen: super::DESIGN,
             rect: [0.0; 4],
+            tab,
+            url,
+            progress_phase: 0.0,
+            progress_rect: [0.0; 3],
+            url_error: None,
         }
     }
 
-    /// The report's lines, each item wrapped to `width`.
+    fn urls(&self) -> bool {
+        let v = self.view.borrow();
+        v.platform == Platform::Desktop && v.danoni_urls
+    }
+
+    fn busy_animation(&self) -> bool {
+        self.tab == ImportTab::Danoni
+            && self.view.borrow().running.is_some()
+            && !self.origin_pending()
+            && !self.env.reduced()
+    }
+    fn activity_x(&self) -> f32 {
+        let [left, _, width] = self.progress_rect;
+        let position = if self.env.reduced() {
+            0.5
+        } else {
+            (1.0 - (self.progress_phase * std::f32::consts::TAU).cos()) * 0.5
+        };
+        left + width * (0.09 + 0.82 * position)
+    }
+    fn origin_pending(&self) -> bool {
+        self.tab == ImportTab::Danoni && self.view.borrow().danoni.origin.is_some()
+    }
+
+    fn origin_button(&self, action: &str) -> String {
+        let id = self
+            .view
+            .borrow()
+            .danoni
+            .origin
+            .as_ref()
+            .map_or(0, |origin| origin.request_id);
+        format!("{action}.{id}")
+    }
+
     fn report_lines(&self, width: f32) -> Vec<(bool, String)> {
         let v = self.view.borrow();
         let mut out = Vec::new();
-        if let Some(r) = &v.report {
+        if self.tab == ImportTab::Danoni
+            && let Some(origin) = &v.danoni.origin
+        {
+            out.push((true, "Allow files from this address?".into()));
+            for text in [
+                origin.origin.as_str(),
+                origin.purpose.as_str(),
+                "Allow once permits this import. Remember also permits future imports from this address. Decline stops this request.",
+            ] {
+                if !text.is_empty() {
+                    out.extend(
+                        wrap_lines(text, width, REPORT_TEXT)
+                            .into_iter()
+                            .map(|l| (false, l)),
+                    );
+                }
+            }
+        } else if let Some(r) = &v.report {
             for (title, items) in &r.sections {
                 out.push((true, title.clone()));
                 for item in items {
@@ -537,8 +618,7 @@ impl ImportDialog {
 
     fn options(&self) -> Vec<(&'static str, &'static str, bool)> {
         let v = self.view.borrow();
-        // Desktop folders are read in place; these copy options are the browser's.
-        if v.platform == Platform::Desktop {
+        if v.platform == Platform::Desktop || self.tab != ImportTab::Files {
             return Vec::new();
         }
         OPTIONS
@@ -556,7 +636,24 @@ impl ImportDialog {
     }
 
     fn status(&self) -> (String, bool) {
+        if let Some(error) = &self.url_error {
+            return (error.clone(), true);
+        }
         let v = self.view.borrow();
+        if self.tab == ImportTab::Danoni {
+            if v.danoni.origin.is_some() {
+                return ("Your decision is needed to continue.".into(), false);
+            }
+            if v.running.is_some()
+                && let Some(stage) = &v.danoni.stage
+            {
+                let suffix = v
+                    .danoni
+                    .progress
+                    .map(|(done, total)| format!(" · {done} of {total}"));
+                return (format!("{stage}{}", suffix.unwrap_or_default()), false);
+            }
+        }
         match (&v.running, &v.report) {
             (Some(t), _) => (t.clone(), false),
             (None, Some(r)) => (r.summary.clone(), r.error),
@@ -574,9 +671,215 @@ impl ImportDialog {
         let focused = cx.focused().map(str::to_string);
         *root = self.build(cx);
         root.finish_tweening();
-        if let Some(f) = focused {
+        if let Some(f) = focused.filter(|f| self.focusables().iter().any(|a| &a.name == f)) {
             cx.focus(f);
+        } else {
+            cx.focus(if self.tab == ImportTab::Danoni {
+                "TabDanoni"
+            } else {
+                "PickFolder"
+            });
         }
+    }
+
+    fn set_tab(&mut self, tab: ImportTab, root: &mut Actor, cx: &mut Cx) {
+        if !self.urls() {
+            return;
+        }
+        cx.end_text();
+        self.tab = tab;
+        self.url_error = None;
+        self.refresh(root, cx);
+        cx.focus(if tab == ImportTab::Danoni {
+            "TabDanoni"
+        } else {
+            "TabFiles"
+        });
+    }
+
+    fn submit(&mut self, root: &mut Actor, cx: &mut Cx) {
+        if !self.urls() || self.view.borrow().running.is_some() || self.origin_pending() {
+            return;
+        }
+        let url = self.url.text.trim().to_string();
+        if url.is_empty() {
+            return;
+        }
+        if !(url.starts_with("https://") || url.starts_with("http://")) {
+            self.url_error = Some("Enter a URL beginning with https:// or http://.".into());
+            self.refresh(root, cx);
+            return;
+        }
+        self.url_error = None;
+        {
+            let mut v = self.view.borrow_mut();
+            v.danoni.url = url.clone();
+            v.danoni.offline = false;
+        }
+        cx.end_text();
+        self.call(
+            SelectCall::ImportDanoni {
+                url,
+                offline: false,
+            },
+            cx,
+        );
+        self.refresh(root, cx);
+    }
+
+    fn file_controls(
+        &self,
+        children: &mut Vec<Actor>,
+        x: f32,
+        mut y: f32,
+        w: f32,
+        busy: bool,
+    ) -> f32 {
+        let v = self.view.borrow();
+        let keeps = if v.folders && !v.copy {
+            "A chosen folder's music and backgrounds are read from the folder, the rest is stored in this browser only."
+        } else {
+            "They stay in this browser only."
+        };
+        let compact = self.screen[1] < 480.0;
+        let intro = if compact && v.platform == Platform::Desktop {
+            "Choose a song folder or a pack's ZIP. Folders and ZIPs are read where they are.".into()
+        } else if compact && v.folders && !v.copy {
+            "Choose a folder or ZIP. Linked folders are read in place; other files stay in this browser.".into()
+        } else if compact {
+            "Choose a folder, ZIP or files, or drop them here. Files stay in this browser.".into()
+        } else if v.platform == Platform::Desktop {
+            "Choose a song folder, a Songs folder or a pack's ZIP. StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works are supported. Folders and ZIPs are read where they are; Options lists them.".to_string()
+        } else {
+            format!(
+                "StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works: a folder, a zip or files, or drop them on this page. {keeps}"
+            )
+        };
+        let desktop = v.platform == Platform::Desktop;
+        drop(v);
+        let text_size = if self.screen[1] < 480.0 { 12.0 } else { 14.0 };
+        for (i, line) in wrap_lines(&intro, w - 48.0, text_size).iter().enumerate() {
+            children.push(left(
+                self.env
+                    .text(&format!("Intro{i}"), line, text_size, 400, "Muted"),
+                x + 24.0,
+                y,
+            ));
+            y += text_size + 4.0;
+        }
+        y += if compact { 20.0 } else { 24.0 };
+        let bw = ((w - 58.0) / 2.0).min(260.0);
+        for (i, (name, label)) in [
+            ("PickFolder", "Choose folder"),
+            (
+                "PickFiles",
+                if desktop {
+                    "Choose zip"
+                } else {
+                    "Choose zip or files"
+                },
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut b = button(
+                &self.env,
+                name,
+                label,
+                [x + 24.0 + bw / 2.0 + i as f32 * (bw + 10.0), y],
+                bw,
+                "Button",
+            );
+            if busy {
+                look::run(&mut b, "diffusealpha,0.4");
+            }
+            children.push(b);
+        }
+        y += if compact { 40.0 } else { 44.0 };
+        let option_height = if self.screen[1] < 480.0 { 28.0 } else { 34.0 };
+        for (name, label, on) in self.options() {
+            children.push(
+                crate::widgets::controls::Toggle::new(
+                    &format!("Option.{name}"),
+                    label,
+                    [x + w / 2.0, y],
+                    [w - 48.0, option_height],
+                    on,
+                )
+                .build(&*self.env.look),
+            );
+            y += option_height + 4.0;
+        }
+        y
+    }
+
+    fn url_controls(
+        &mut self,
+        children: &mut Vec<Actor>,
+        x: f32,
+        mut y: f32,
+        w: f32,
+        busy: bool,
+    ) -> f32 {
+        if self.origin_pending() {
+            return y + 10.0;
+        }
+        let intro = "Paste a Dancing☆Onigiri work's URL.";
+        for (i, line) in wrap_lines(intro, w - 48.0, 14.0).iter().enumerate() {
+            children.push(left(
+                self.env
+                    .text(&format!("DanoniIntro{i}"), line, 14.0, 400, "Muted"),
+                x + 24.0,
+                y,
+            ));
+            y += 18.0;
+        }
+        let narrow = w < 520.0;
+        y += 24.0;
+        self.url.centre = [
+            x + 24.0 + (w - 48.0 - if narrow { 0.0 } else { 120.0 }) / 2.0,
+            y,
+        ];
+        self.url.size = [w - 48.0 - if narrow { 0.0 } else { 120.0 }, 40.0];
+        let mut field = self.url.build(&*self.env.look);
+        if busy {
+            look::run(&mut field, "diffusealpha,0.55");
+        }
+        children.push(field);
+        if narrow {
+            y += 48.0;
+        }
+        let retry = self.view.borrow().report.as_ref().is_some_and(|r| r.error);
+        let mut import = button(
+            &self.env,
+            "ImportDanoni",
+            if retry { "Retry" } else { "Import" },
+            [x + w - 76.0, y],
+            104.0,
+            "Button",
+        );
+        if busy || self.url.text.trim().is_empty() {
+            look::run(&mut import, "diffusealpha,0.4");
+        }
+        children.push(import);
+        if !narrow {
+            y += 44.0;
+        }
+        if narrow {
+            y += 30.0;
+        }
+        let note = "Files are downloaded and converted for your library.";
+        for (i, line) in wrap_lines(note, w - 48.0, 12.0).iter().enumerate() {
+            children.push(left(
+                self.env
+                    .text(&format!("DanoniNote{i}"), line, 12.0, 400, "Muted"),
+                x + 24.0,
+                y,
+            ));
+            y += 15.0;
+        }
+        y + 6.0
     }
 }
 
@@ -589,88 +892,44 @@ impl Screen for ImportDialog {
         self.env.state.borrow_mut().import_open = true;
         let vp = cx.viewport().screen;
         self.screen = [vp.width, vp.height];
-        let env = self.env.clone();
-        let compact = self.screen[1] < 480.0;
         let w = 760.0_f32.min(self.screen[0] - 32.0);
-        let h = (self.screen[1] - if compact { 16.0 } else { 80.0 }).min(620.0);
-        let (mut children, [x, y]) = shell(&env, self.screen, [w, h], "ADD SONGS");
+        let h = (self.screen[1] - if self.screen[1] < 480.0 { 16.0 } else { 80.0 }).min(620.0);
+        let (mut children, [x, y]) = shell(&self.env, self.screen, [w, h], "ADD SONGS");
         let busy = self.view.borrow().running.is_some();
-        // What is kept where, as the import keeps it.
-        let (folders, copy, platform) = {
-            let v = self.view.borrow();
-            (v.folders, v.copy, v.platform)
-        };
-        let keeps = if folders && !copy {
-            "A chosen folder's music and backgrounds are read from the folder, the rest is stored in this browser only."
-        } else {
-            "They stay in this browser only."
-        };
-        let intro = if platform == Platform::Desktop {
-            "StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works: a song folder (a StepMania, ITGmania or OutFox folder, a Songs folder, a pack) or a pack's zip. Chosen folders and zips are read where they are; Options lists them.".to_string()
-        } else {
-            format!(
-                "StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works: a folder, a zip or files, or drop them on this page. {keeps}"
-            )
-        };
-        let lines = wrap_lines(&intro, w - 48.0, 14.0);
-        for (i, line) in lines.iter().enumerate() {
-            let mut t = env.text(&format!("Intro{i}"), line, 14.0, 400, "Muted");
-            wrap(&mut t, w - 48.0);
-            children.push(left(t, x + 24.0, y + 58.0 + i as f32 * 18.0));
-        }
-        let bw = ((w - 48.0 - 10.0) / 2.0).min(260.0);
-        let by = y + 58.0 + lines.len() as f32 * 18.0 + 24.0;
-        let files = if platform == Platform::Desktop {
-            "Choose zip"
-        } else {
-            "Choose zip or files"
-        };
-        for (i, (name, label)) in [("PickFolder", "Choose folder"), ("PickFiles", files)]
+        let mut top = y + 58.0;
+        if self.urls() {
+            let bw = (w - 58.0) / 2.0;
+            for (i, (name, label, tab)) in [
+                ("TabFiles", "Folders / ZIPs", ImportTab::Files),
+                ("TabDanoni", "DanOni URL", ImportTab::Danoni),
+            ]
             .into_iter()
             .enumerate()
-        {
-            let mut b = button(
-                &env,
-                name,
-                label,
-                [x + 24.0 + bw / 2.0 + i as f32 * (bw + 10.0), by],
-                bw,
-                "Button",
-            );
-            if busy {
-                look::run(&mut b, "diffusealpha,0.4");
+            {
+                let b = button(
+                    &self.env,
+                    name,
+                    label,
+                    [x + 24.0 + bw / 2.0 + i as f32 * (bw + 10.0), top + 10.0],
+                    bw,
+                    if tab == self.tab {
+                        "PlayButton"
+                    } else {
+                        "Button"
+                    },
+                );
+                children.push(b);
             }
-            children.push(b);
+            top += 46.0;
         }
-        let mut oy = by + 44.0;
-        if self.view.borrow().danoni_urls {
-            let mut b = button(
-                &env,
-                "DanoniUrl",
-                "Import from DanOni URL…",
-                [x + w / 2.0, oy],
-                w - 48.0,
-                "Button",
-            );
-            if busy {
-                look::run(&mut b, "diffusealpha,0.4");
-            }
-            children.push(b);
-            oy += 44.0;
-        }
-        for (name, label, on) in self.options() {
-            let t = crate::widgets::controls::Toggle::new(
-                &format!("Option.{name}"),
-                label,
-                [x + w / 2.0, oy],
-                [w - 48.0, 34.0],
-                on,
-            );
-            children.push(t.build(&*env.look));
-            oy += 38.0;
-        }
+        let mut bottom = y + h - 70.0;
+        top = if self.tab == ImportTab::Danoni {
+            self.url_controls(&mut children, x, top, w, busy)
+        } else {
+            self.file_controls(&mut children, x, top, w, busy)
+        };
         let (status, error) = self.status();
-        let mut st = env.text(
+        let mut st = self.env.text(
             "Status",
             &status,
             14.0,
@@ -678,23 +937,78 @@ impl Screen for ImportDialog {
             if error { "Danger" } else { "Text" },
         );
         wrap(&mut st, w - 48.0);
-        children.push(left(st, x + 24.0, oy + 10.0));
-        // The report, scrolled.
-        let top = oy + 30.0;
-        let bottom = y + h - 70.0;
-        self.rect = [x + 24.0, top, w - 48.0, (bottom - top).max(40.0)];
+        children.push(left(st, x + 24.0, top + 10.0));
+        top += if self.screen[1] < 480.0 && self.tab == ImportTab::Files {
+            22.0
+        } else {
+            30.0
+        };
+        if self.tab == ImportTab::Danoni && busy && !self.origin_pending() {
+            let width = w - 48.0;
+            self.progress_rect = [x + 24.0, top, width];
+            let mut track = quad("DanoniProgress", [width, 6.0], self.env.color("Muted"));
+            call(&mut track, "xy", &[x + w / 2.0, top]);
+            call(&mut track, "diffusealpha", &[0.2]);
+            children.push(track);
+            if let Some((done, total)) = self
+                .view
+                .borrow()
+                .danoni
+                .progress
+                .filter(|(_, total)| *total > 0)
+            {
+                let amount = width * (done as f64 / total as f64).clamp(0.0, 1.0) as f32;
+                let mut fill = quad(
+                    "DanoniProgress.Fill",
+                    [amount, 6.0],
+                    self.env.color("Accent"),
+                );
+                call(&mut fill, "xy", &[x + 24.0 + amount / 2.0, top]);
+                call(&mut fill, "diffusealpha", &[0.5]);
+                children.push(fill);
+            }
+            let mut activity = quad(
+                "DanoniProgress.Activity",
+                [width * 0.18, 6.0],
+                self.env.color("Accent"),
+            );
+            call(&mut activity, "xy", &[self.activity_x(), top]);
+            children.push(activity);
+            top += 14.0;
+        }
+        if self.origin_pending() {
+            bottom -= 50.0;
+            let bw = (w - 68.0) / 3.0;
+            for (i, (name, label)) in [
+                ("OriginOnce", "Allow once"),
+                ("OriginRemember", "Remember"),
+                ("OriginDecline", "Decline"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                children.push(button(
+                    &self.env,
+                    &self.origin_button(name),
+                    label,
+                    [x + 24.0 + bw / 2.0 + i as f32 * (bw + 10.0), y + h - 96.0],
+                    bw,
+                    "Button",
+                ));
+            }
+        }
+        self.rect = [x + 24.0, top, w - 48.0, (bottom - top).max(20.0)];
         self.lines = self.report_lines(self.rect[2] - 32.0);
         let mut c = ListConfig::new("Report", self.rect);
-        // Text rows (no banner box), wrapped.
         c.component = "Report".into();
         c.row = 22.0;
         c.header = 30.0;
         c.style = ListStyle::Plain;
         self.list = List::new(c, &Lines(&self.lines));
-        children.push(self.list.build(&*env.look));
+        children.push(self.list.build(&*self.env.look));
         if busy && self.view.borrow().danoni_cancel {
             children.push(button(
-                &env,
+                &self.env,
                 "CancelDanoni",
                 "Cancel import",
                 [x + 94.0, y + h - 36.0],
@@ -703,48 +1017,85 @@ impl Screen for ImportDialog {
             ));
         }
         children.push(button(
-            &env,
+            &self.env,
             "Close",
             "Close",
-            [x + w - 24.0 - 70.0, y + h - 36.0],
+            [x + w - 94.0, y + h - 36.0],
             140.0,
             "Button",
         ));
+        if self.origin_pending() {
+            cx.focus(self.origin_button("OriginDecline"));
+        } else if self.urls() {
+            cx.focus(if self.tab == ImportTab::Danoni {
+                "TabDanoni"
+            } else {
+                "TabFiles"
+            });
+        }
         dialog_root(children)
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        // The two buttons side by side, then the rows below them (whose
-        // focus rings touch the buttons: spatial moves would take a row
-        // for the button to the right).
-        let first = self
-            .options()
-            .first()
-            .map(|(n, _, _)| format!("Option.{n}"))
-            .unwrap_or_else(|| "Report".into());
-        let pick = |name: &str, other: &str| Focusable {
-            left: Some(other.into()),
-            right: Some(other.into()),
-            down: Some(first.clone()),
-            ..Focusable::new(name)
+        let mut v = Vec::new();
+        let busy = self.view.borrow().running.is_some();
+        let first = if self.tab == ImportTab::Files {
+            "PickFolder"
+        } else if self.origin_pending() || busy {
+            "Report"
+        } else {
+            "DanoniUrlField"
         };
-        let mut v = vec![
-            pick("PickFolder", "PickFiles"),
-            pick("PickFiles", "PickFolder"),
-        ];
-        if self.view.borrow().danoni_urls {
-            v.push(Focusable::new("DanoniUrl"));
-            for item in &mut v[..2] {
-                item.down = Some("DanoniUrl".into());
+        if self.urls() {
+            for (name, other) in [("TabFiles", "TabDanoni"), ("TabDanoni", "TabFiles")] {
+                v.push(Focusable {
+                    left: Some(other.into()),
+                    right: Some(other.into()),
+                    down: Some(first.into()),
+                    ..Focusable::new(name)
+                });
             }
         }
-        v.extend(
-            self.options()
-                .into_iter()
-                .map(|(n, _, _)| Focusable::new(format!("Option.{n}"))),
-        );
+        if self.tab == ImportTab::Files {
+            let next = self
+                .options()
+                .first()
+                .map(|(n, _, _)| format!("Option.{n}"))
+                .unwrap_or_else(|| "Report".into());
+            for (name, other) in [("PickFolder", "PickFiles"), ("PickFiles", "PickFolder")] {
+                v.push(Focusable {
+                    left: Some(other.into()),
+                    right: Some(other.into()),
+                    down: Some(next.clone()),
+                    ..Focusable::new(name)
+                });
+            }
+            v.extend(
+                self.options()
+                    .into_iter()
+                    .map(|(n, _, _)| Focusable::new(format!("Option.{n}"))),
+            );
+        } else if !busy && !self.origin_pending() {
+            v.extend([
+                Focusable::new("DanoniUrlField"),
+                Focusable::new("ImportDanoni"),
+            ]);
+        }
         v.push(Focusable::new("Report"));
-        if self.view.borrow().running.is_some() && self.view.borrow().danoni_cancel {
+        if self.origin_pending() {
+            for (name, left, right) in [
+                ("OriginOnce", "OriginDecline", "OriginRemember"),
+                ("OriginRemember", "OriginOnce", "OriginDecline"),
+                ("OriginDecline", "OriginRemember", "OriginOnce"),
+            ] {
+                v.push(Focusable {
+                    left: Some(self.origin_button(left)),
+                    right: Some(self.origin_button(right)),
+                    ..Focusable::new(self.origin_button(name))
+                });
+            }
+        }
+        if busy && self.view.borrow().danoni_cancel {
             v.push(Focusable::new("CancelDanoni"));
         }
         v.push(Focusable::new("Close"));
@@ -752,41 +1103,142 @@ impl Screen for ImportDialog {
     }
 
     fn animating(&self) -> bool {
-        self.list.animating()
+        self.list.animating() || self.busy_animation()
     }
-
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
-        let look = self.env.look.clone();
+        if self.busy_animation() {
+            self.progress_phase = (self.progress_phase + dt.clamp(0.0, 0.25) / 2.0) % 1.0;
+        }
+        if let Some(activity) = hit::find_mut(root, "DanoniProgress.Activity") {
+            call(activity, "x", &[self.activity_x()]);
+        }
         let lines = std::mem::take(&mut self.lines);
-        self.list.update(dt, root, &Lines(&lines), &*look, cx);
+        self.list
+            .update(dt, root, &Lines(&lines), &*self.env.look, cx);
         self.lines = lines;
     }
-
     fn message(&mut self, m: &Message, root: &mut Actor, cx: &mut Cx) {
         if m.name == IMPORT_CHANGED {
+            if self.view.borrow().danoni.origin.is_some() && self.urls() {
+                self.tab = ImportTab::Danoni;
+                cx.end_text();
+            }
             self.refresh(root, cx);
+            if self.origin_pending() {
+                cx.focus(self.origin_button("OriginDecline"));
+            }
         }
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
         let busy = self.view.borrow().running.is_some();
-        match input {
-            Input::Activate { name } => {
-                match name.as_str() {
-                    "PickFolder" if !busy => self.call(SelectCall::PickFolder, cx),
-                    "PickFiles" if !busy => self.call(SelectCall::PickFiles, cx),
-                    "PickFolder" | "PickFiles" => {}
-                    "DanoniUrl" if !busy && self.view.borrow().danoni_urls => {
-                        cx.overlay(
-                            DanoniUrlDialog::new(self.env.clone(), self.shell.clone()),
-                            true,
+        if self.tab == ImportTab::Danoni && !busy && !self.origin_pending() {
+            let (handled, event) = self.url.input(input, root, cx, &|_| Vec::new());
+            match event {
+                Some(FieldEvent::Submitted(_)) => self.submit(root, cx),
+                Some(FieldEvent::Changed(_)) => {
+                    self.url_error = None;
+                    if let Some(button) = hit::find_mut(root, "ImportDanoni") {
+                        look::run(
+                            button,
+                            if self.url.text.trim().is_empty() {
+                                "diffusealpha,0.4"
+                            } else {
+                                "diffusealpha,1"
+                            },
                         );
                     }
-                    "CancelDanoni" if busy && self.view.borrow().danoni_cancel => {
-                        self.call(SelectCall::CancelDanoni, cx);
+                }
+                None => {}
+            }
+            if handled == Handled::Yes {
+                return handled;
+            }
+        }
+        match input {
+            Input::Menu {
+                action: MenuAction::Left | MenuAction::Right,
+                repeat: false,
+            } if self.urls() && matches!(cx.focused(), Some("TabFiles" | "TabDanoni")) => {
+                self.set_tab(
+                    if self.tab == ImportTab::Files {
+                        ImportTab::Danoni
+                    } else {
+                        ImportTab::Files
+                    },
+                    root,
+                    cx,
+                );
+                Handled::Yes
+            }
+            Input::Menu {
+                action: MenuAction::Select,
+                repeat: false,
+            } if self.urls() => {
+                self.set_tab(
+                    if self.tab == ImportTab::Files {
+                        ImportTab::Danoni
+                    } else {
+                        ImportTab::Files
+                    },
+                    root,
+                    cx,
+                );
+                Handled::Yes
+            }
+            Input::Activate { name } => {
+                match name.as_str() {
+                    "TabFiles" => self.set_tab(ImportTab::Files, root, cx),
+                    "TabDanoni" => self.set_tab(ImportTab::Danoni, root, cx),
+                    "PickFolder" if !busy && self.tab == ImportTab::Files => {
+                        self.call(SelectCall::PickFolder, cx)
                     }
-                    "DanoniUrl" | "CancelDanoni" => {}
+                    "PickFiles" if !busy && self.tab == ImportTab::Files => {
+                        self.call(SelectCall::PickFiles, cx)
+                    }
+                    "PickFolder" | "PickFiles" => {}
+                    "ImportDanoni" if self.tab == ImportTab::Danoni => self.submit(root, cx),
+                    "CancelDanoni" if busy && self.view.borrow().danoni_cancel => {
+                        self.call(SelectCall::CancelDanoni, cx)
+                    }
+                    other
+                        if other.starts_with("Origin")
+                            && self.urls()
+                            && self.tab == ImportTab::Danoni =>
+                    {
+                        let Some((action, request_id)) = other.split_once('.') else {
+                            return Handled::Yes;
+                        };
+                        let Ok(request_id) = request_id.parse::<u64>() else {
+                            return Handled::Yes;
+                        };
+                        if !matches!(action, "OriginOnce" | "OriginRemember" | "OriginDecline") {
+                            return Handled::Yes;
+                        }
+                        let pending = self
+                            .view
+                            .borrow()
+                            .danoni
+                            .origin
+                            .as_ref()
+                            .is_some_and(|origin| origin.request_id == request_id);
+                        // A pointer release captured before a rebuild must not answer a newer request.
+                        if pending {
+                            self.view.borrow_mut().danoni.origin = None;
+                            self.call(
+                                SelectCall::DanoniOriginDecision {
+                                    request_id,
+                                    allow: action != "OriginDecline",
+                                    remember: action == "OriginRemember",
+                                },
+                                cx,
+                            );
+                            self.refresh(root, cx);
+                        }
+                    }
+                    "ImportDanoni" | "CancelDanoni" => {}
                     "Close" => {
+                        cx.end_text();
                         self.env.state.borrow_mut().import_open = false;
                         cx.close(false);
                     }
@@ -794,6 +1246,9 @@ impl Screen for ImportDialog {
                         let Some(opt) = other.strip_prefix("Option.") else {
                             return Handled::No;
                         };
+                        if !self.options().iter().any(|(name, _, _)| *name == opt) {
+                            return Handled::No;
+                        }
                         let on = {
                             let mut v = self.view.borrow_mut();
                             let slot = match opt {
@@ -811,7 +1266,6 @@ impl Screen for ImportDialog {
                         }
                         self.call(SelectCall::ImportOption(opt.to_string(), on), cx);
                         if opt == "details" {
-                            // The report shows its details, or not.
                             cx.broadcast(Message::new(IMPORT_CHANGED));
                         }
                     }
@@ -819,11 +1273,10 @@ impl Screen for ImportDialog {
                 Handled::Yes
             }
             Input::Outside => {
+                cx.end_text();
                 cx.close(true);
                 Handled::Yes
             }
-            // Menu moves are the report's only while it is focused, and
-            // only until its end: past it, the focus moves on.
             Input::Menu { .. } if cx.focused() != Some("Report") => Handled::No,
             _ => {
                 let lines = std::mem::take(&mut self.lines);
@@ -844,137 +1297,6 @@ impl Screen for ImportDialog {
 impl Drop for ImportDialog {
     fn drop(&mut self) {
         self.env.state.borrow_mut().import_open = false;
-    }
-}
-
-/// The desktop URL entry; progress belongs to Add songs, not this transient field.
-struct DanoniUrlDialog {
-    env: Env,
-    shell: Option<ShellFn>,
-    url: SearchField,
-}
-
-impl DanoniUrlDialog {
-    fn new(env: Env, shell: Option<ShellFn>) -> Self {
-        let mut url = SearchField::new("DanoniUrlField", "https://…", [0.0; 2], [1.0; 2]);
-        url.hints = InputHints {
-            mode: InputMode::Url,
-            enter: EnterKey::Go,
-            max_chars: Some(8192),
-        };
-        Self { env, shell, url }
-    }
-
-    fn submit(&self, cx: &mut Cx) {
-        let url = self.url.text.trim();
-        if url.is_empty() {
-            return;
-        }
-        if let Some(shell) = &self.shell {
-            shell(SelectCall::ImportDanoni(url.to_string()), cx);
-        }
-        cx.end_text();
-        cx.close(false);
-    }
-}
-
-impl Screen for DanoniUrlDialog {
-    fn name(&self) -> &str {
-        "danoni-url"
-    }
-
-    fn build(&mut self, cx: &mut Cx) -> Actor {
-        let vp = cx.viewport().screen;
-        let w = 680.0_f32.min(vp.width - 32.0);
-        let description = "Paste a DanOni work's URL. Only supported Flash engines can be imported. The import continues if you close Add songs.";
-        let lines = wrap_lines(description, w - 48.0, 14.0);
-        let h = 200.0 + lines.len() as f32 * 18.0;
-        let (mut children, [x, y]) = shell(
-            &self.env,
-            [vp.width, vp.height],
-            [w, h],
-            "IMPORT FROM DANONI URL",
-        );
-        for (i, line) in lines.iter().enumerate() {
-            children.push(left(
-                self.env
-                    .text(&format!("DanoniIntro{i}"), line, 14.0, 400, "Muted"),
-                x + 24.0,
-                y + 64.0 + i as f32 * 18.0,
-            ));
-        }
-        self.url.centre = [x + w / 2.0, y + h - 106.0];
-        self.url.size = [w - 48.0, 40.0];
-        children.push(self.url.build(&*self.env.look));
-        let bw = ((w - 58.0) / 2.0).min(180.0);
-        let mut import = button(
-            &self.env,
-            "ImportDanoni",
-            "Import",
-            [x + w - 24.0 - bw / 2.0, y + h - 40.0],
-            bw,
-            "Button",
-        );
-        if self.url.text.trim().is_empty() {
-            look::run(&mut import, "diffusealpha,0.4");
-        }
-        children.push(import);
-        children.push(button(
-            &self.env,
-            "Back",
-            "Back",
-            [x + 24.0 + bw / 2.0, y + h - 40.0],
-            bw,
-            "Button",
-        ));
-        dialog_root(children)
-    }
-
-    fn focusables(&self) -> Vec<Focusable> {
-        vec![
-            Focusable::new("DanoniUrlField"),
-            Focusable::new("ImportDanoni"),
-            Focusable::new("Back"),
-        ]
-    }
-
-    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
-        let (handled, event) = self.url.input(input, root, cx, &|_| Vec::new());
-        match event {
-            Some(FieldEvent::Submitted(_)) => self.submit(cx),
-            Some(FieldEvent::Changed(_)) => {
-                if let Some(button) = hit::find_mut(root, "ImportDanoni") {
-                    look::run(
-                        button,
-                        if self.url.text.trim().is_empty() {
-                            "diffusealpha,0.4"
-                        } else {
-                            "diffusealpha,1"
-                        },
-                    );
-                }
-            }
-            None => {}
-        }
-        if handled == Handled::Yes {
-            return handled;
-        }
-        match input {
-            Input::Activate { name } if name == "ImportDanoni" => {
-                self.submit(cx);
-                Handled::Yes
-            }
-            Input::Activate { name } if name == "Back" => {
-                cx.end_text();
-                cx.close(false);
-                Handled::Yes
-            }
-            Input::Outside => {
-                cx.close(true);
-                Handled::Yes
-            }
-            _ => Handled::No,
-        }
     }
 }
 

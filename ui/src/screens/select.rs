@@ -77,7 +77,16 @@ pub enum SelectCall {
     PickFolder,
     PickFiles,
     /// Import a DanOni work from its URL (desktop capability only).
-    ImportDanoni(String),
+    ImportDanoni {
+        url: String,
+        offline: bool,
+    },
+    /// Answer one pending request for files at an additional address.
+    DanoniOriginDecision {
+        request_id: u64,
+        allow: bool,
+        remember: bool,
+    },
     /// Request cancellation without waiting for the import worker.
     CancelDanoni,
     /// An import option changed: `copy`, `videos` or `details`.

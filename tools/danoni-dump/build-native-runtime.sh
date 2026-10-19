@@ -28,8 +28,8 @@ export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
 # Fetch all locked targets for the deliberately overinclusive notice inventory.
 # CARGO_NET_OFFLINE=true remains supported for a fully seeded public cache.
 cargo fetch --locked --manifest-path "$manifest"
-cargo build --locked --release --manifest-path "$manifest"
-bin=$CARGO_TARGET_DIR/release/ddi-danoni-export
+cargo build --locked --profile importer --package ddi-danoni-export --manifest-path "$manifest"
+bin=$CARGO_TARGET_DIR/importer/ddi-danoni-export
 "$bin" prepare-worker "$ruffle_git" "$build_dir/sources"
 cargo fetch --locked --manifest-path "$build_dir/sources/worker/Cargo.toml"
 CARGO_TARGET_DIR="$build_dir/worker-target" cargo build --locked --release \

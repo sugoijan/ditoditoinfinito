@@ -133,3 +133,28 @@ pub fn fixture(selectors: &[usize], split_music: bool, title: &str) -> (Memory, 
 pub fn validated(m: &Memory, b: &Binding) -> admission::PreparedImport {
     admission::validate(b, m, &mut |_| Ok(())).unwrap()
 }
+
+/// Synthetic receipted page metadata; playback bytes and identities stay fixed.
+pub fn with_page_pack(m: &mut Memory, ready: &Binding, title: &str) -> Binding {
+    let discovery = m.json(
+        "candidate",
+        "source/acquisition/discovery.json",
+        json!({
+            "schema":"ddi-danoni-page-discovery/1",
+            "source":{"logicalUrl":"https://example.org/work/index.html"},
+            "packTitle":title
+        }),
+    );
+    let mut source: Value =
+        serde_json::from_slice(&m.files[&("candidate".into(), "source/manifest.json".into())])
+            .unwrap();
+    source["inputs"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"namespace":"url","path":"discovery.json","sha256":discovery.sha256}));
+    let source = m.json("candidate", "source/manifest.json", source);
+    let mut outer: Value =
+        serde_json::from_slice(&m.files[&(ready.namespace.clone(), ready.path.clone())]).unwrap();
+    outer["completed"]["source"]["sha256"] = json!(source.sha256);
+    m.json("candidate", &ready.path, outer)
+}

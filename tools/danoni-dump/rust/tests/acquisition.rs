@@ -318,3 +318,43 @@ fn archived_body_records_never_invent_http_response_metadata() {
         }
     }
 }
+
+#[test]
+fn pack_title_uses_a_unique_matching_heading_before_the_player() {
+    let html = "<meta charset=shift_jis><title>第３回紅白FLASH合戦</title><p>戻る</p><p align=center>～　 第３回紅白FLASH合戦<font>提出作品</font>　～</p><p>DANCING☆ONIGIRI</p><object data=work.swf></object><p>第３回紅白FLASH合戦 後書き</p>";
+    let (bytes, _, _) = encoding_rs::SHIFT_JIS.encode(html);
+    let page = inspect_page(PAGE, &bytes, None).unwrap();
+    assert_eq!(page.title.as_deref(), Some("第３回紅白FLASH合戦"));
+    assert_eq!(
+        page.pack_title.as_deref(),
+        Some("第３回紅白FLASH合戦提出作品")
+    );
+    for heading in [
+        "<p>Unrelated text</p>",
+        "<p>Work A</p><p>Work B</p>",
+        "<p>Work unfinished",
+        "<p hidden>Work hidden</p>",
+        "<p>Work<script> hidden</script></p>",
+    ] {
+        let html = format!("<title>Work</title>{heading}<embed src=work.swf>");
+        assert_eq!(
+            inspect_page(PAGE, html.as_bytes(), None)
+                .unwrap()
+                .pack_title
+                .as_deref(),
+            Some("Work")
+        );
+    }
+    for html in [
+        "<title>Work",
+        "<title>A</title><title>B</title>",
+        "<p>Some heading</p>",
+    ] {
+        assert!(
+            inspect_page(PAGE, html.as_bytes(), None)
+                .unwrap()
+                .pack_title
+                .is_none()
+        );
+    }
+}
