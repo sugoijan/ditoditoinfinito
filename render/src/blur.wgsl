@@ -3,6 +3,7 @@
 // blurred in two passes (`fs_blur`, one direction each) and stretched over
 // the screen, dimmed (`fs_composite`). Colors stay premultiplied by alpha
 // throughout: the small target starts transparent.
+// `fs_cached_blur` also filters static menu images once on upload.
 
 struct Blur {
     // One texel along the blur's direction (unused by the composite).
@@ -14,7 +15,8 @@ struct Blur {
     // The field filter's band (target pixels) and what it keeps.
     band: vec2<f32>,
     band_keep: f32,
-    pad: f32,
+    // Cached-image vertical pass: return straight alpha for the painter.
+    unpremultiply: f32,
 };
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
@@ -60,6 +62,30 @@ fn fs_blur(in: VsOut) -> @location(0) vec4<f32> {
         total += w;
     }
     return sum / total;
+}
+
+// Cached menu images: σ = 6 texels, truncated at 3σ. The horizontal pass
+// premultiplies straight RGBA; the vertical one unpremultiplies
+// for the painter. Filter encoded values, as the painter blends them.
+@fragment
+fn fs_cached_blur(in: VsOut) -> @location(0) vec4<f32> {
+    var sum = vec4<f32>(0.0);
+    var total = 0.0;
+    for (var i = -18; i <= 18; i++) {
+        let x = f32(i);
+        let w = exp(-x * x / 72.0);
+        var c = textureSampleLevel(source, source_sampler, in.uv + blur.step * x, 0.0);
+        if (blur.unpremultiply < 0.5) {
+            c = vec4<f32>(c.rgb * c.a, c.a);
+        }
+        sum += w * c;
+        total += w;
+    }
+    let c = sum / total;
+    if (blur.unpremultiply > 0.5 && c.a > 0.0) {
+        return vec4<f32>(c.rgb / c.a, c.a);
+    }
+    return c;
 }
 
 @fragment

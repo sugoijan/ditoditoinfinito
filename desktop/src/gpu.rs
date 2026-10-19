@@ -181,8 +181,13 @@ impl Gpu {
         // Actor textures to the cache's, by source and the size drawn.
         let painter = &mut self.painter;
         ddi_render::actors2d::append(&drawn, &mut self.list, &mut |t| {
-            let (source, side) = ui.texture_source(t)?;
-            Some(painter.texture(TextureKey::drawn(source, side * scale)))
+            let image = ui.texture_source(t)?;
+            let key = if image.blurred {
+                TextureKey::blurred(image.source, image.side)
+            } else {
+                TextureKey::drawn(image.source, image.side * scale)
+            };
+            Some(painter.texture(key))
         });
         let mut encoder = self
             .device

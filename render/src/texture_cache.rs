@@ -23,6 +23,8 @@
 //! large in an info panel is decoded twice at most (small first, large
 //! when needed), and once when the large one came first; a row zooming
 //! between sizes decodes nothing again.
+//! Gaussian images have separate keys and always use their own size:
+//! another size changes the blur radius, and a sharp image is no substitute.
 //!
 //! What is kept is bounded by bytes (mipmaps included) and by count
 //! ([`MAX_LOADED`]), least recently drawn out first; the ids handed out
@@ -44,6 +46,9 @@ pub struct TextureKey {
     /// Its longest side is scaled down to this many pixels (0: as it is,
     /// within the device's limit).
     pub max_side: u32,
+    /// Gaussian-filtered once on upload. Never substitutes for a sharp
+    /// image, or another size whose blur would have a different radius.
+    pub blurred: bool,
 }
 
 /// The sides [`TextureKey::drawn`] rounds up to: a texture is decoded at
@@ -63,6 +68,15 @@ impl TextureKey {
         TextureKey {
             source: source.into(),
             max_side,
+            blurred: false,
+        }
+    }
+
+    /// A filtered copy with its own cache entry and decode size.
+    pub fn blurred(source: impl Into<Arc<str>>, side: f32) -> TextureKey {
+        Self {
+            blurred: true,
+            ..Self::drawn(source, side)
         }
     }
 }
@@ -239,7 +253,11 @@ impl<T> TextureCache<T> {
     /// first time), the largest smaller one loaded, or `None` (the caller
     /// draws a placeholder). A size that failed to load is drawn from
     /// another that did. What it returns counts as drawn.
+    /// Gaussian images use only their own key, without size substitution.
     pub fn resolve(&mut self, id: TextureId) -> Option<TextureId> {
+        if self.key(id).is_some_and(|key| key.blurred) {
+            return self.get(id).map(|_| id);
+        }
         let frame = self.frame;
         let entry = self.entries.get_mut(id.0 as usize)?;
         entry.last_used = frame;
@@ -256,6 +274,9 @@ impl<T> TextureCache<T> {
                 continue;
             }
             let e = &self.entries[other.0 as usize];
+            if e.key.blurred {
+                continue;
+            }
             let s = side(e.key.max_side);
             match e.slot {
                 Slot::Ready { .. } if s >= mine => {
@@ -481,10 +502,44 @@ impl<T> TextureCache<T> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn blurred_images_never_alias_sharp_images_or_other_blur_sizes() {
+        let mut cache = TextureCache::<()>::new(1 << 20);
+        let sharp = cache.id(TextureKey::drawn("background.png", 1024.0));
+        cache.insert(sharp, (), 4096);
+        let blur = cache.id(TextureKey::blurred("background.png", 256.0));
+        assert_eq!(
+            cache.resolve(blur),
+            None,
+            "a sharp image cannot stand in for blur"
+        );
+        assert_eq!(cache.take_requests().len(), 1);
+        cache.insert(blur, (), 1024);
+        assert_eq!(cache.resolve(blur), Some(blur));
+        let small = cache.id(TextureKey::drawn("background.png", 64.0));
+        assert_eq!(cache.resolve(small), Some(sharp));
+        let other_blur = cache.id(TextureKey::blurred("background.png", 128.0));
+        assert_eq!(
+            cache.resolve(other_blur),
+            None,
+            "different sizes change the blur radius"
+        );
+
+        let only_blur = cache.id(TextureKey::blurred("other.png", 256.0));
+        cache.insert(only_blur, (), 1024);
+        let normal = cache.id(TextureKey::drawn("other.png", 128.0));
+        assert_eq!(
+            cache.resolve(normal),
+            None,
+            "blur cannot stand in for a sharp image"
+        );
+    }
+
     fn key(s: &str) -> TextureKey {
         TextureKey {
             source: s.into(),
             max_side: 0,
+            blurred: false,
         }
     }
 

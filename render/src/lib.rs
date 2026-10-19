@@ -17,6 +17,7 @@ pub mod color;
 pub mod cosmic;
 pub mod draw2d;
 pub mod field_preview;
+mod gaussian;
 mod instances;
 pub mod lyrics;
 mod mipmaps;

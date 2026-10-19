@@ -721,9 +721,9 @@ impl Ui {
         self.text.as_ref().map(|t| (t.name.as_str(), &t.field))
     }
 
-    /// The source and the longest side (virtual pixels) of an actor
-    /// texture id handed out by [`Cx::texture`], for the shell's cache.
-    pub fn texture_source(&self, id: u32) -> Option<(std::sync::Arc<str>, f32)> {
+    /// The source, longest side and filtering of an actor texture id handed
+    /// out by [`Cx::texture`] or [`Cx::blurred_texture`], for the shell's cache.
+    pub fn texture_source(&self, id: u32) -> Option<crate::textures::TextureSource> {
         self.textures.borrow().source(id)
     }
 

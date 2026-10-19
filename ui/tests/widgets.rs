@@ -535,7 +535,7 @@ fn the_widget_screen_lists_its_library_with_headers() {
     assert!(
         (1..=h.ui.texture_count() as u32)
             .filter_map(|i| h.ui.texture_source(i))
-            .any(|(s, _)| &*s == "songs/beatucada/bn.png")
+            .any(|image| &*image.source == "songs/beatucada/bn.png")
     );
     // Start on the first header closes its pack.
     h.key("Enter", "Enter");

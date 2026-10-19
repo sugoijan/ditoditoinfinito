@@ -157,6 +157,7 @@ fn prompt(
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let mut painter = Painter::new(device, queue, format);
     let id = painter.texture(TextureKey {
+        blurred: false,
         source: "image".into(),
         max_side: 0,
     });

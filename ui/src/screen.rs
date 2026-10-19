@@ -280,6 +280,12 @@ impl Cx {
         self.textures.borrow_mut().id(source, side)
     }
 
+    /// A cached Gaussian-blurred copy, decoded at most `side` physical
+    /// pixels long, independent of the display scale. Sharp uses stay sharp.
+    pub fn blurred_texture(&mut self, source: &str, side: f32) -> u32 {
+        self.textures.borrow_mut().blurred(source, side)
+    }
+
     pub fn request(&mut self, r: UiRequest) {
         self.ops.push(Op::Request(r));
     }

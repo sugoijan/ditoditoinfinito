@@ -369,6 +369,7 @@ struct Gpu {
     pages: Vec<Option<Page>>,
     max_side: u32,
     mipmaps: crate::mipmaps::Mipmaps,
+    gaussian: Option<crate::gaussian::Gaussian>,
 }
 
 impl Gpu {
@@ -480,6 +481,7 @@ impl Gpu {
             pages: Vec::new(),
             max_side: device.limits().max_texture_dimension_2d,
             mipmaps: crate::mipmaps::Mipmaps::new(device),
+            gaussian: None,
         }
     }
 }
@@ -635,6 +637,8 @@ pub struct PainterStats {
     /// Images the shell draws itself, set now
     /// ([`Painter::set_external_image`]).
     pub externals: usize,
+    /// Cached Gaussian jobs recorded since this painter was created.
+    pub blurred: u64,
 }
 
 pub struct Painter {
@@ -644,8 +648,8 @@ pub struct Painter {
     text: RunCache,
     raster: Option<Box<dyn RunRasterizer>>,
     fonts_version: u64,
-    /// Images whose mipmaps the next draw fills.
-    unmipped: Vec<TextureId>,
+    /// Images whose Gaussian filter and mipmaps the next draw prepares.
+    unprepared: Vec<TextureId>,
     /// Images the shell draws itself, by source, and their bindings
     /// (`None`: none yet, the placeholder shows).
     externals: Vec<(Arc<str>, Option<wgpu::BindGroup>)>,
@@ -657,6 +661,7 @@ pub struct Painter {
     /// the submit belongs to the same frame (a page the first one samples
     /// must not be cleared for it).
     drawing: bool,
+    blurred: u64,
 }
 
 impl Painter {
@@ -674,12 +679,13 @@ impl Painter {
             text: RunCache::new(PAGE, TEXT_BUDGET),
             raster: None,
             fonts_version: 0,
-            unmipped: Vec::new(),
+            unprepared: Vec::new(),
             externals: Vec::new(),
             instances: Vec::new(),
             steps: Vec::new(),
             last: (0, 0, 0),
             drawing: false,
+            blurred: 0,
         }
     }
 
@@ -697,7 +703,7 @@ impl Painter {
         format: wgpu::TextureFormat,
     ) {
         self.textures.unload_all();
-        self.unmipped.clear();
+        self.unprepared.clear();
         for e in &mut self.externals {
             e.1 = None;
         }
@@ -745,7 +751,8 @@ impl Painter {
 
     /// Makes texture `id`, `size` pixels of encoded RGBA, and has `fill`
     /// write its first level through the queue (the platform's copy of a
-    /// decoded image); the next draw fills its mipmaps.
+    /// decoded image); the next draw applies any requested Gaussian filter,
+    /// then fills its mipmaps.
     pub fn insert_texture(
         &mut self,
         device: &wgpu::Device,
@@ -766,8 +773,10 @@ impl Painter {
         // The mipmaps add a third.
         let bytes = u64::from(size[0].max(1)) * u64::from(size[1].max(1)) * 4;
         let bytes = if levels > 1 { bytes * 4 / 3 } else { bytes };
-        if levels > 1 {
-            self.unmipped.push(id);
+        if (levels > 1 || self.textures.key(id).is_some_and(|key| key.blurred))
+            && !self.unprepared.contains(&id)
+        {
+            self.unprepared.push(id);
         }
         // What it replaces or the budget evicts is dropped, not destroyed
         // (a draw recorded and not submitted may sample it).
@@ -846,6 +855,7 @@ impl Painter {
             draws: self.last.1,
             passes: self.last.2,
             externals: self.externals.iter().filter(|e| e.1.is_some()).count(),
+            blurred: self.blurred,
         }
     }
 
@@ -897,8 +907,9 @@ impl Painter {
             raster,
             instances,
             steps,
-            unmipped,
+            unprepared,
             externals,
+            blurred,
             ..
         } = self;
         instances.clear();
@@ -1138,10 +1149,16 @@ impl Painter {
         // Dropped, not destroyed: what this frame's encoder (or one not
         // submitted yet) uses stays alive until done with.
         drop(textures.evict());
-        // Images loaded since, and still kept: their mipmaps, recorded
-        // before the passes that sample them.
-        for id in unmipped.drain(..) {
+        // Images loaded since, and still kept: filter once, then generate
+        // mipmaps, before the passes that sample them.
+        for id in unprepared.drain(..) {
             if let Some(image) = textures.peek(id) {
+                if textures.key(id).is_some_and(|key| key.blurred) {
+                    gpu.gaussian
+                        .get_or_insert_with(|| crate::gaussian::Gaussian::new(device))
+                        .record(device, encoder, &image.texture);
+                    *blurred += 1;
+                }
                 gpu.mipmaps.record(
                     device,
                     encoder,
@@ -1266,6 +1283,9 @@ fn external_image(
         return None;
     }
     let key = textures.key(id)?;
+    if key.blurred {
+        return None;
+    }
     let i = externals.iter().position(|e| e.0 == key.source)?;
     Some(externals[i].1.is_some().then_some(i))
 }

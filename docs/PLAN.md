@@ -359,6 +359,12 @@ their originals. Only the generated versions are assisted by this feature;
 indexes, original digests and replays remain stable. See
 [`chart-simplification.md`](plans/chart-simplification.md).
 
+Menu backgrounds (2026-10-18): cached Gaussian-filtered images replace the
+offset copies. Filtering runs once at 256 pixels on upload; frames draw
+one sprite per layer. Sharp pictures keep separate cache entries, including
+the start prompt's central picture (`docs/plans/theme.md`).
+
+
 ### Known gaps before phase 9 (2026-10-15)
 
 Everything known to be missing, approximate or unchecked before the

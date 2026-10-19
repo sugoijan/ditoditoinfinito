@@ -136,12 +136,11 @@ numbers_weight = 800
 # Song select upright on a phone: its side margins (the layout 480 wide).
 "Compact.Upright.Margin" = 12
 # The selected song's background behind the menus: how strong (results'
-# fainter), how soft (the image is asked for this small, then drawn
-# large, several times this far apart), how long a new one fades in.
+# fainter), its cached Gaussian image's longest side in physical pixels
+# (independent of display scale), how long a new one fades in.
 "Backdrop.Alpha" = 0.2
 "Backdrop.Results" = 0.14
-"Backdrop.Side" = 64
-"Backdrop.Spread" = 14
+"Backdrop.Side" = 256
 "Backdrop.Fade" = 0.35
 # Motion: a selection moving, a screen coming in, and the beat pulse
 # (the selection's ring lit this much on each beat, settling in this
