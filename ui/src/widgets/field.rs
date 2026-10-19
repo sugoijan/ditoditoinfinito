@@ -120,6 +120,7 @@ impl SearchField {
         if let Kind::Frame(children) = &mut a.kind {
             children.push(text);
         }
+        self.show_hint(&mut a);
         a
     }
 

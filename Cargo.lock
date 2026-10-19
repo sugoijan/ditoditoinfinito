@@ -189,6 +189,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "aotuv_lancer_vorbis_sys"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bc4fd1a61860d2f1198b60bedd30910eaffa978f1ee6214dfb24ac70d589225"
+dependencies = [
+ "cc",
+ "ogg_next_sys",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1133,6 +1143,7 @@ dependencies = [
  "async-compression",
  "audioadapter-buffers",
  "ddi-chart",
+ "ddi-engine",
  "ddi-library",
  "encoding_rs",
  "flate2",
@@ -1156,7 +1167,18 @@ dependencies = [
  "unicode-normalization",
  "unicode-segmentation",
  "url",
+ "vorbis_rs",
  "zip",
+]
+
+[[package]]
+name = "ddi-danoni-importer"
+version = "0.1.0"
+dependencies = [
+ "ddi-danoni-export",
+ "ddi-importer-protocol",
+ "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -1169,9 +1191,9 @@ dependencies = [
  "csscolorparser",
  "ddi-actor",
  "ddi-chart",
- "ddi-danoni-export",
  "ddi-desktop",
  "ddi-engine",
+ "ddi-importer-protocol",
  "ddi-library",
  "ddi-lua",
  "ddi-noteskin",
@@ -1201,6 +1223,7 @@ dependencies = [
  "rtrb",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "url",
  "wasmtime",
  "wat",
@@ -1216,6 +1239,14 @@ dependencies = [
  "ddi-chart",
  "ddi-library",
  "ddi-platform",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ddi-importer-protocol"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]
@@ -3601,6 +3632,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ogg_next_sys"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed2d7a48e247c2bb07e633aefb65a38648ea58c7eedd4e4408a5861721ab049b"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4617,9 +4657,9 @@ dependencies = [
 
 [[package]]
 name = "schannel"
-version = "0.1.29"
+version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91c1b7e4904c873ef0710c1f407dde2e6287de2bebc1bbbf7d430bb7cbffd939"
+checksum = "9cb23c424d8ee841bb4d813677ca237e2a610067d594fec130f87d6093495ab5"
 dependencies = [
  "windows-sys 0.61.2",
 ]
@@ -5782,6 +5822,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "vorbis_rs"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49c5da94d280f7a27e8c937e9b73df2da3e23a2583f48471fd8fb4c72f9c1933"
+dependencies = [
+ "aotuv_lancer_vorbis_sys",
+ "errno",
+ "ogg_next_sys",
+ "thiserror 2.0.21",
+ "tinyvec",
 ]
 
 [[package]]

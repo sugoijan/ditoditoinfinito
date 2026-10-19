@@ -97,7 +97,12 @@ impl RendererPolicy {
     ) -> Option<crate::supervisor::RendererOptions> {
         use crate::profiles::EngineProfile;
         use crate::supervisor::renderer_options::{Adapter, Backend};
-        if self == Self::ExplicitOnly || profile == EngineProfile::RekuConstantMenu {
+        if self == Self::ExplicitOnly
+            || matches!(
+                profile,
+                EngineProfile::RekuConstantMenu | EngineProfile::IsoKouhaku2004
+            )
+        {
             return None;
         }
         Some(crate::supervisor::RendererOptions {

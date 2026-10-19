@@ -108,6 +108,8 @@ pub struct ChartValidation {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SongSummary {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pack: Option<String>,
     pub identity_sha256: String,
     pub source_identity_sha256: String,
     pub encoded_audio_sha256: String,
@@ -118,10 +120,15 @@ pub struct SongSummary {
     pub files: Vec<File>,
 }
 pub struct PreparedSong {
+    unlabelled_revision_sha256: String,
     summary: SongSummary,
     files: Vec<Artifact>,
 }
 impl PreparedSong {
+    /// Only admission can prove that adding a page label is the sole change.
+    pub(crate) fn upgrades_pack(&self, previous_revision: &str) -> bool {
+        self.summary.pack.is_some() && self.unlabelled_revision_sha256 == previous_revision
+    }
     pub fn summary(&self) -> &SongSummary {
         &self.summary
     }
@@ -234,6 +241,55 @@ fn selector(id: &str) -> Result<usize> {
     }
     Ok(n)
 }
+/// Presentation only, from the same receipted page that selected the movie.
+fn page_pack(
+    inputs: &mut Inputs<'_, impl AssetSource>,
+    source: &Binding,
+    native: &Value,
+    context: &Value,
+) -> Result<Option<String>> {
+    let Some(page) = context["pageUrl"].as_str() else {
+        return Ok(None);
+    };
+    let rows = native["inputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|b| b["namespace"] == "url" && b["path"] == "discovery.json")
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        return Ok(None);
+    } // Older/synthetic handovers lack discovery.
+    if rows.len() != 1 {
+        return Err(invalid("Need unique page discovery for pack name"));
+    }
+    let discovery = checked_doc(
+        inputs,
+        &source.sibling(&RelativeBinding {
+            path: "acquisition/discovery.json".into(),
+            sha256: text(rows[0], "sha256")?.into(),
+        })?,
+    )?;
+    if discovery["schema"] != "ddi-danoni-page-discovery/1"
+        || discovery["source"]["logicalUrl"] != page
+    {
+        return Err(invalid("Pack discovery names another page"));
+    }
+    let pack = discovery["packTitle"]
+        .as_str()
+        .or_else(|| discovery["title"].as_str());
+    match pack {
+        Some(s)
+            if s.trim().is_empty()
+                || s.chars().count() > 512
+                || s.chars().any(char::is_control) =>
+        {
+            Err(invalid("Invalid page pack name"))
+        }
+        Some(s) => Ok(Some(s.trim().into())),
+        None => Ok(None),
+    }
+}
 /// Accepts the current native URL-prepared schema. Receipts bind trusted-producer
 /// output bytes; they are not publisher signatures or independent runtime replay.
 pub fn validate(
@@ -330,6 +386,7 @@ pub fn validate(
         sha256: text(context_rows[0], "sha256")?.into(),
     })?;
     let context = checked_doc(&mut inputs, &context_binding)?;
+    let pack = page_pack(&mut inputs, &source_binding, &native, &context)?;
     let identity = SourceIdentity {
         movie_url: text(&context, "sourceUrl")?.into(),
         flash_vars: serde_json::from_value(context["flashVars"].clone())
@@ -593,11 +650,16 @@ pub fn validate(
                 bytes: f.bytes.len(),
             })
             .collect::<Vec<_>>();
-        let revision = sha256(&encoded(
-            &json!({"schema":"ddi-danoni-song-revision/1","identity":song_identity,"entry":entry,"selectors":selectors,"validation":validation,"files":inventory,"musicalQuality":"provisional","tempoStatus":tempo}),
-        )?);
+        let mut revision = json!({"schema":"ddi-danoni-song-revision/1","identity":song_identity,"entry":entry,"selectors":selectors,"validation":validation,"files":inventory,"musicalQuality":"provisional","tempoStatus":tempo});
+        let unlabelled_revision_sha256 = sha256(&encoded(&revision)?);
+        if let Some(pack) = &pack {
+            revision["pack"] = json!(pack);
+        }
+        let revision = sha256(&encoded(&revision)?);
         result.push(PreparedSong {
+            unlabelled_revision_sha256,
             summary: SongSummary {
+                pack: pack.clone(),
                 identity_sha256: song_identity,
                 source_identity_sha256: identity_hash.clone(),
                 encoded_audio_sha256: audio_hash.into(),

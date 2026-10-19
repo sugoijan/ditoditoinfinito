@@ -106,6 +106,11 @@ pub fn read_menu(capture: &Value) -> Result<Menu> {
 }
 impl EngineProfile {
     pub fn read_menu(self, capture: &Value) -> Result<Menu> {
+        if self == Self::IsoKouhaku2004 {
+            return Err(invalid(
+                "Kouhaku uses source-bound pinned menu observations",
+            ));
+        }
         extraction::audit_ok(capture, &[])?;
         if capture["swfHeaderFps"].as_f64() != Some(60.) || capture["avm1Halted"] != false {
             return Err(invalid("Menu requires nonhalted 60 Hz capture"));
@@ -144,6 +149,9 @@ pub fn selector_controls(menu: &Menu, index: usize) -> Result<SelectorControls> 
 }
 impl EngineProfile {
     pub fn selector_controls(self, menu: &Menu, index: usize) -> Result<SelectorControls> {
+        if self == Self::IsoKouhaku2004 {
+            return Err(invalid("Kouhaku uses its dedicated physical selector plan"));
+        }
         if menu.rows.is_empty()
             || menu.rows.len() > 16
             || menu.selected >= menu.rows.len()

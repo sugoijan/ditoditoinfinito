@@ -10,9 +10,10 @@ uses bundled C libraries; TLS also has native dependencies. HTML5 browser captur
 The default `native` feature supplies HTTP/cache, filesystem and worker adapters.
 `--no-default-features` leaves the in-memory APIs and host-supplied assets. The
 default `opus` feature supplies Opus; `vorbis` separately enables compatibility
-exports (JSON codec `"ogg"`). The game's workspace and WASM dependency
-tree remain unchanged. Code is MIT under REUSE. Third-party sources, music,
-artwork and generated packs stay outside Git.
+exports (JSON codec `"ogg"`). The SDK and native importer helper share the
+game's root workspace and lockfile, while remaining outside the game binary's
+dependency tree, including WASM. Code is MIT under REUSE. Third-party sources,
+music, artwork and generated packs stay outside Git.
 
 ## Entry points
 
@@ -37,8 +38,9 @@ source frames and derived SSC timing remain separate; musical fits are provision
 and arbitrary author engine customizations are outside the playable export scope.
 
 The [desktop probe](../../../docs/research/danoni-desktop-integration.md) links the
-SDK with the real loader and play session. Production desktop UI wiring is still
-separate. See the [consolidation review](../../../docs/research/danoni-consolidation.md)
+SDK with the real loader and play session. The optional desktop importer uses
+a separate helper process; see [the build contract](../../../docs/plans/danoni-importer.md).
+See the [consolidation review](../../../docs/research/danoni-consolidation.md)
 for cleanup decisions and follow-ups, and the
 [Sarasa comparison](../../../docs/research/danoni-font-comparison.md) for the optional
 font study (production fonts are unchanged).
@@ -46,7 +48,7 @@ font study (production fonts are unchanged).
 ## Commands
 
 Run from the repository with Rust 1.99 or later. `just danoni-check` checks
-all three standalone packages, including the synthetic desktop SSC/Opus
+the workspace SDK and two separate research packages, including synthetic SSC/Opus
 handoff (Python 3 and ffmpeg are maintainer-only requirements). It clears
 optional corpus/runtime environment switches. `just danoni-check --minimal`
 checks the SDK without native/codec features. Neither runs public URL imports

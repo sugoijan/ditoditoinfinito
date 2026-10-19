@@ -1,8 +1,11 @@
-//! Exact shared-engine control roles propose a profile; runtime proofs gate data.
+//! Reviewed engine roles or an exact pinned movie propose controls; runtime proofs gate data.
 use super::*;
 use crate::swf::{ActionFingerprint, Movie};
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 pub enum EngineProfile {
+    /// Exact reviewed movie; selector-specific proofs remain mandatory.
+    #[serde(rename = "iso50-kouhaku-2004/1")]
+    IsoKouhaku2004,
     #[serde(rename = "reku-constant-menu/1")]
     RekuConstantMenu,
     #[serde(rename = "reku-constant-menu-early/1")]
@@ -131,12 +134,16 @@ type Signature = (&'static str, u32, u16, &'static str);
 impl EngineProfile {
     fn variants(self) -> &'static [&'static [Signature]] {
         match self {
+            Self::IsoKouhaku2004 => &[],
             Self::RekuConstantMenu => &[&SIGNATURES],
             Self::RekuConstantMenuEarly => &[&EARLY_SIGNATURES],
             Self::RekuScheduledMenu => &[&SCHEDULED_SIGNATURES, &SCHEDULED_ALTERNATE],
         }
     }
     pub fn options(self, mode: Mode) -> Result<ProjectionOptions> {
+        if self == Self::IsoKouhaku2004 {
+            return Err(invalid("Kouhaku requires an explicit pinned selection"));
+        }
         let mut options = super::options(mode)?;
         if self == Self::RekuScheduledMenu {
             options.family = Family::ScheduledCounter;
@@ -151,11 +158,12 @@ impl EngineProfile {
     pub(super) fn menu_frame(self) -> f64 {
         match self {
             Self::RekuConstantMenu | Self::RekuScheduledMenu => 3.,
-            Self::RekuConstantMenuEarly => 4.,
+            Self::RekuConstantMenuEarly | Self::IsoKouhaku2004 => 4.,
         }
     }
     pub(super) fn title_y(self) -> u64 {
         match self {
+            Self::IsoKouhaku2004 => 157,
             Self::RekuConstantMenu => 200,
             Self::RekuConstantMenuEarly => 165,
             Self::RekuScheduledMenu => 193,
@@ -163,6 +171,7 @@ impl EngineProfile {
     }
     pub(super) fn next_y(self) -> u64 {
         match self {
+            Self::IsoKouhaku2004 => 0, // Uses keyboard navigation in its dedicated plan.
             Self::RekuConstantMenu => 35,
             Self::RekuConstantMenuEarly => 45,
             Self::RekuScheduledMenu => 69,
@@ -170,7 +179,7 @@ impl EngineProfile {
     }
     pub(super) fn discovery_end(self) -> u64 {
         match self {
-            Self::RekuConstantMenu => 1200,
+            Self::RekuConstantMenu | Self::IsoKouhaku2004 => 1200,
             // Offscreen rendering must fit the unchanged process CPU budget.
             // Later starts fail explicitly rather than extending a work's run.
             Self::RekuConstantMenuEarly | Self::RekuScheduledMenu => 600,
@@ -206,6 +215,10 @@ pub(super) fn inspect(
     movie: &Movie,
     checkpoint: &mut impl FnMut() -> Result<()>,
 ) -> Result<(EngineProfile, Vec<ActionFingerprint>)> {
+    checkpoint()?;
+    if movie.header.sha256 == extraction::KOUHAKU_HASH {
+        return Ok((EngineProfile::IsoKouhaku2004, vec![]));
+    }
     let roles = [
         &SIGNATURES[..],
         &EARLY_SIGNATURES[..],
@@ -258,6 +271,34 @@ fn identify_fingerprints(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pinned_movie_identity_proposes_only_its_dedicated_controls() {
+        // Synthetic container: only the parsed header identity is substituted
+        // here. Production prepare() recomputes it from hash-checked SWF bytes.
+        let mut bytes = b"FWS\x06".to_vec();
+        bytes.extend(18u32.to_le_bytes());
+        bytes.extend([8, 0, 0, 60, 1, 0, 64, 0, 0, 0]);
+        let mut movie = Movie::read(&bytes, &mut || Ok(())).unwrap();
+        assert!(identify(&movie, &mut || Ok(())).is_err());
+        movie.header.sha256 = extraction::KOUHAKU_HASH.into();
+        let (profile, roles) = inspect(&movie, &mut || Ok(())).unwrap();
+        assert_eq!(profile, EngineProfile::IsoKouhaku2004);
+        assert!(roles.is_empty()); // Whole-movie contract, not a role match.
+        assert!(profile.options(Mode::Five).is_err());
+        assert!(profile.read_menu(&json!({})).is_err());
+        assert!(
+            crate::url_native::RendererPolicy::ReviewedNativeScale
+                .renderer(profile)
+                .is_none()
+        );
+        let cancelled = Error::new("host-cancelled", "before identity");
+        assert_eq!(
+            identify(&movie, &mut || Err(cancelled.clone())).unwrap_err(),
+            cancelled
+        );
+        movie.header.sha256.replace_range(..1, "0");
+        assert!(identify(&movie, &mut || Ok(())).is_err());
+    }
     #[test]
     fn unreviewed_multimode_initialization_does_not_inherit_five_key_admission() {
         let mut rows = SCHEDULED_ALTERNATE

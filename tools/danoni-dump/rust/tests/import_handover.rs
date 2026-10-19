@@ -431,3 +431,61 @@ fn failed_bound_child_and_case_aliases_are_rejected_even_when_rewrapped() {
         "invalid-prepared-import"
     );
 }
+
+#[test]
+fn page_pack_labels_all_songs_without_changing_identity_or_playback() {
+    let (mut m, ready) = fixture(&[0, 1], true, "Song");
+    let old = validated(&m, &ready);
+    assert!(old.summary().songs.iter().all(|s| s.pack.is_none()));
+    let ready = with_page_pack(&mut m, &ready, "架空の作品集");
+    let named = validated(&m, &ready);
+    for (before, after) in old.songs().iter().zip(named.songs()) {
+        assert_eq!(after.summary().pack.as_deref(), Some("架空の作品集"));
+        assert_eq!(before.summary().entry, after.summary().entry);
+        assert_ne!(
+            before.summary().revision_sha256,
+            after.summary().revision_sha256
+        );
+        assert_eq!(before.summary().files, after.summary().files);
+    }
+    let existing = snapshot(&old, "old", true);
+    let plan = host::plan(&named, &existing, host::DuplicatePolicy::Reject).unwrap();
+    assert!(
+        plan.summary()
+            .operations
+            .iter()
+            .all(|o| o.decision == host::Decision::Replace)
+    );
+    let plan = host::plan(&named, &existing, host::DuplicatePolicy::KeepExisting).unwrap();
+    assert!(
+        plan.summary()
+            .operations
+            .iter()
+            .all(|o| o.decision == host::Decision::KeepExisting)
+    );
+    let (mut changed, ready_changed) = fixture(&[0, 1], true, "Changed song title");
+    let ready_changed = with_page_pack(&mut changed, &ready_changed, "架空の作品集");
+    let changed = validated(&changed, &ready_changed);
+    assert_eq!(
+        host::plan(&changed, &existing, host::DuplicatePolicy::Reject)
+            .err()
+            .unwrap()
+            .code,
+        "library-import-conflict"
+    );
+    // A changed page is not admitted under its previous discovery digest.
+    m.files
+        .get_mut(&(
+            "candidate".into(),
+            "source/acquisition/discovery.json".into(),
+        ))
+        .unwrap()
+        .push(b' ');
+    assert_eq!(
+        admission::validate(&ready, &m, &mut |_| Ok(()))
+            .err()
+            .unwrap()
+            .code,
+        "changed-asset"
+    );
+}

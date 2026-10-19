@@ -70,3 +70,25 @@ holders = ["2018 tickle"]
 source = "https://github.com/cwtickle/danoniplus"
 commit = "80c3c47"
 license_url = "https://github.com/cwtickle/danoniplus/blob/80c3c47/LICENSE"
+
+[[code]]
+name = "Noto Sans (Ruffle importer worker)"
+what = "The optional native importer worker embeds Ruffle's pinned subset/merge of Noto Sans and Noto Sans Math. Their exact copyright and OFL notices are packaged with the worker; font binaries remain generated build artifacts."
+files = ["tools/danoni-importer/licenses/NotoSans-OFL.txt"]
+spdx = "OFL-1.1"
+holders = ["2022 The Noto Project Authors"]
+source = "https://github.com/notofonts/notofonts.github.io"
+commit = "eb3fdd45f361e6ae8bb5e5ac75f90f7482d02c80"
+license_url = "https://openfontlicense.org/open-font-license-official-text/"
+notice = "tools/danoni-importer/licenses/NotoSans-OFL.txt"
+
+[[code]]
+name = "Noto Sans Math (Ruffle importer worker)"
+what = "The optional native importer worker embeds Noto Sans Math in Ruffle's pinned subset/merge. The exact copyright/OFL notice and subset recipe ship with the runtime; font binaries remain generated build artifacts."
+files = ["tools/danoni-importer/licenses/NotoSansMath-OFL.txt"]
+spdx = "OFL-1.1"
+holders = ["2022 Google LLC"]
+source = "https://github.com/notofonts/notofonts.github.io"
+commit = "eb3fdd45f361e6ae8bb5e5ac75f90f7482d02c80"
+license_url = "https://openfontlicense.org/open-font-license-official-text/"
+notice = "tools/danoni-importer/licenses/NotoSansMath-OFL.txt"

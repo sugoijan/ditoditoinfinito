@@ -1,0 +1,174 @@
+[
+  {
+    "name": "alloc-stdlib",
+    "version": "0.3.0",
+    "repository": "https://github.com/dropbox/rust-alloc-no-stdlib",
+    "revision": "0a81fd6928ea3b33c8cd484aa4575d50ffb98012",
+    "pathInVcs": "alloc-stdlib",
+    "source": "https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/0a81fd6928ea3b33c8cd484aa4575d50ffb98012/LICENSE",
+    "path": "crates/alloc-stdlib-0.3.0-BSD-3-Clause.txt",
+    "sha256": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae",
+    "license": "BSD-3-Clause",
+    "authors": [
+      "Daniel Reiter Horn <danielrh@dropbox.com>"
+    ],
+    "retrieved": "2026-10-19",
+    "modifications": "None: byte-identical pinned upstream license text; absent from the published crate archive."
+  },
+  {
+    "name": "block2",
+    "version": "0.6.2",
+    "repository": "https://github.com/madsmtm/objc2",
+    "revision": "b4167b582b2f75f9a1be75495c41b765344fd03c",
+    "pathInVcs": "crates/block2",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md",
+    "path": "crates/block2-0.6.2-MIT.txt",
+    "sha256": "426770b6a917449c40c0fde141f58646b6a9d650f428688cec68dfef793d61be",
+    "license": "MIT",
+    "authors": [
+      "Mads Marquart <mads@marquart.dk>"
+    ],
+    "retrieved": "2026-10-19",
+    "modifications": "Standard MIT grant with authors declared in published Cargo.toml (or the crate authors where absent), following xtask rust_credits.rs fallback. Upstream pinned LICENSE.md explicitly names these four crates as MIT; its overview including Apple SDK licensing discussion is preserved separately, byte-identical. No standalone grant file exists upstream at this commit.",
+    "manifestSha256": "e325c51f01145af3e11f2ee5ce7c47f10697d936c1d90b9ee81a0cf4f700f6d7",
+    "overviewPath": "crates/block2-0.6.2-LICENSING.md",
+    "overviewSha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+  },
+  {
+    "name": "objc2",
+    "version": "0.6.5",
+    "repository": "https://github.com/madsmtm/objc2",
+    "revision": "d7d2fa23ceaa5e6096c923b081040e5d81b3b9df",
+    "pathInVcs": "crates/objc2",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md",
+    "path": "crates/objc2-0.6.5-MIT.txt",
+    "sha256": "426770b6a917449c40c0fde141f58646b6a9d650f428688cec68dfef793d61be",
+    "license": "MIT",
+    "authors": [
+      "Mads Marquart <mads@marquart.dk>"
+    ],
+    "retrieved": "2026-10-19",
+    "modifications": "Standard MIT grant with authors declared in published Cargo.toml (or the crate authors where absent), following xtask rust_credits.rs fallback. Upstream pinned LICENSE.md explicitly names these four crates as MIT; its overview including Apple SDK licensing discussion is preserved separately, byte-identical. No standalone grant file exists upstream at this commit.",
+    "manifestSha256": "5556dba493fc18e98ebf82f587011f76df6c8c26532613e4c8f904ee586d7cf0",
+    "overviewPath": "crates/objc2-0.6.5-LICENSING.md",
+    "overviewSha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+  },
+  {
+    "name": "objc2-encode",
+    "version": "4.1.0",
+    "repository": "https://github.com/madsmtm/objc2",
+    "revision": "8d214f5477365ffcbcbb7de058c86ed9a518efb7",
+    "pathInVcs": "crates/objc2-encode",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+    "path": "crates/objc2-encode-4.1.0-MIT.txt",
+    "sha256": "426770b6a917449c40c0fde141f58646b6a9d650f428688cec68dfef793d61be",
+    "license": "MIT",
+    "authors": [
+      "Mads Marquart <mads@marquart.dk>"
+    ],
+    "retrieved": "2026-10-19",
+    "modifications": "Standard MIT grant with authors declared in published Cargo.toml (or the crate authors where absent), following xtask rust_credits.rs fallback. Upstream pinned LICENSE.md explicitly names these four crates as MIT; its overview including Apple SDK licensing discussion is preserved separately, byte-identical. No standalone grant file exists upstream at this commit.",
+    "manifestSha256": "cf9a8cc812710344d7fe618a5e615530baeeceae5c2826b9d5bb557dc419f159",
+    "overviewPath": "crates/objc2-encode-4.1.0-LICENSING.md",
+    "overviewSha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+  },
+  {
+    "name": "objc2-foundation",
+    "version": "0.3.2",
+    "repository": "https://github.com/madsmtm/objc2",
+    "revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+    "pathInVcs": "framework-crates/objc2-foundation",
+    "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "path": "crates/objc2-foundation-0.3.2-MIT.txt",
+    "sha256": "5f74ef5198e9a468b7ad77e07be4f6bed3d7f4948e626e3e075e3524979d2dfb",
+    "license": "MIT",
+    "authors": [],
+    "retrieved": "2026-10-19",
+    "modifications": "Standard MIT grant with authors declared in published Cargo.toml (or the crate authors where absent), following xtask rust_credits.rs fallback. Upstream pinned LICENSE.md explicitly names these four crates as MIT; its overview including Apple SDK licensing discussion is preserved separately, byte-identical. No standalone grant file exists upstream at this commit.",
+    "manifestSha256": "eabbe24e325c7b474c6f5de2e955f4f942ecd385608e4b6609b89a1f68ef39cc",
+    "overviewPath": "crates/objc2-foundation-0.3.2-LICENSING.md",
+    "overviewSha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+  },
+  {
+    "name": "realfft",
+    "version": "3.5.0",
+    "repository": "https://github.com/HEnquist/realfft",
+    "revision": "d0d4eee0525fd27c96c8a046d6d107acd5ed84a6",
+    "pathInVcs": "",
+    "source": "https://raw.githubusercontent.com/HEnquist/realfft/d0d4eee0525fd27c96c8a046d6d107acd5ed84a6/README.md",
+    "path": "crates/realfft-3.5.0-MIT.txt",
+    "sha256": "d5f6a3af3b29938913162d5913e49d5043d9f4606b6767483a2ab7f5e3240b59",
+    "license": "MIT",
+    "authors": [
+      "HEnquist <henrik.enquist@gmail.com>"
+    ],
+    "retrieved": "2026-10-19",
+    "modifications": "Standard MIT grant with the exact authors from published Cargo.toml (no invented year), following xtask rust_credits.rs fallback. The same published README explicitly declares License: MIT; upstream has no standalone license file at this revision.",
+    "declarationSha256": "1e92c54e7fa08298d2a34ea9aa63b85626c47519873a91cd1028f234e1221608",
+    "manifestSha256": "fe28135c8d4cb6456b797ff5143e6b65b4e35ded5db778ed962cfdbb8ac98581"
+  },
+  {
+    "name": "symphonia",
+    "version": "0.5.5",
+    "repository": "https://github.com/pdeljanov/Symphonia",
+    "revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+    "pathInVcs": "symphonia",
+    "source": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE",
+    "path": "crates/symphonia-0.5.5-MPL-2.0.txt",
+    "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
+    "license": "MPL-2.0",
+    "authors": [
+      "Philip Deljanov <philip.deljanov@gmail.com>"
+    ],
+    "retrieved": "2026-10-19",
+    "modifications": "None: byte-identical pinned upstream license text; absent from the published crate archive."
+  },
+  {
+    "name": "symphonia-bundle-mp3",
+    "version": "0.5.5",
+    "repository": "https://github.com/pdeljanov/Symphonia",
+    "revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+    "pathInVcs": "symphonia-bundle-mp3",
+    "source": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE",
+    "path": "crates/symphonia-bundle-mp3-0.5.5-MPL-2.0.txt",
+    "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
+    "license": "MPL-2.0",
+    "authors": [
+      "Philip Deljanov <philip.deljanov@gmail.com>"
+    ],
+    "retrieved": "2026-10-19",
+    "modifications": "None: byte-identical pinned upstream license text; absent from the published crate archive."
+  },
+  {
+    "name": "symphonia-core",
+    "version": "0.5.5",
+    "repository": "https://github.com/pdeljanov/Symphonia",
+    "revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+    "pathInVcs": "symphonia-core",
+    "source": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE",
+    "path": "crates/symphonia-core-0.5.5-MPL-2.0.txt",
+    "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
+    "license": "MPL-2.0",
+    "authors": [
+      "Philip Deljanov <philip.deljanov@gmail.com>"
+    ],
+    "retrieved": "2026-10-19",
+    "modifications": "None: byte-identical pinned upstream license text; absent from the published crate archive."
+  },
+  {
+    "name": "symphonia-metadata",
+    "version": "0.5.5",
+    "repository": "https://github.com/pdeljanov/Symphonia",
+    "revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+    "pathInVcs": "symphonia-metadata",
+    "source": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE",
+    "path": "crates/symphonia-metadata-0.5.5-MPL-2.0.txt",
+    "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
+    "license": "MPL-2.0",
+    "authors": [
+      "Philip Deljanov <philip.deljanov@gmail.com>"
+    ],
+    "retrieved": "2026-10-19",
+    "modifications": "None: byte-identical pinned upstream license text; absent from the published crate archive."
+  }
+]

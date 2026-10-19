@@ -39,17 +39,21 @@ checks the real desktop scanner, exact decoded frame counts and fake-clock
 60/144 Hz autoplay, including holds and history. No GPU, output device or
 third-party assets are needed.
 
-The opt-in `danoni` desktop development feature now wires the SDK-owned verified
-snapshot into the regular library, with cancellable owned background jobs and
-an Add songs URL field. See [the implementation/setup guide](../plans/danoni-import.md).
-It requires an explicitly installed runtime and separately binds the reviewed
-final game executable and root lock. This is not redistribution approval or a
-claim of live URL acceptance on the newly embedded graph. Installed runtime/source identity and the final
-application dependency graph must be rebound and verified before release;
-existing research runtime attestations do not certify a new game binary.
-The incomplete runtime redistribution notice inventory, Windows confinement,
-managed-store durability and the recorded large-batch memory issue remain
-follow-ups. Historical corpus figures below are not rerun by synthetic CI.
+The optional `danoni-importer` feature now puts acquisition in a separate
+native helper, with a verified snapshot adapter, owned cancellable jobs and
+Add songs URL UI. The normal game links the pure IPC protocol rather than the
+SDK. Feature builds prepare a pinned worker/helper bundle automatically and
+compile its content ID and manifest digest into the client; discovery and
+runtime resources are executable-relative. No operator host JSON or binding to
+the final game executable is part of this path. The build collector inventories
+the exact normal helper/SDK/worker graphs and completes their copied-code/font
+notices; the packaging command audits dynamic dependencies and preserves source
+retrieval information. See [the distribution guide](../plans/danoni-importer.md)
+and [the application integration guide](../plans/danoni-import.md).
+
+Windows confinement, managed-store durability and the recorded large-batch
+memory issue remain follow-ups. Historical corpus figures below are not rerun
+by synthetic CI or the relocated empty-catalog package smoke test.
 
 ## The first boundary to test
 

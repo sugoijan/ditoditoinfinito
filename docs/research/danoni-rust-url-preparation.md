@@ -101,6 +101,26 @@ it is not a new artist credit. Source page URLs are also retained in the normali
 manifest. Direct SWFs without title metadata still fall back to chart identifiers.
 No work script is evaluated to infer titles or ratings.
 
+For the desktop pack label, discovery additionally retains `packTitle`: a unique
+completed paragraph or heading before the first player that extends the document
+title, or the document title itself when no unique refinement exists. Text is
+entity/charset decoded, whitespace is collapsed, surrounding `~`/`～` decoration
+is removed, and the same 512-character bound applies. Ambiguous, incomplete,
+linked or scripted heading text cannot refine the title. This finds Kouhaku's
+`第３回紅白FLASH合戦提出作品` without replacing its individual song titles.
+Admission reads the hash-bound discovery for the source page; the optional pack
+name follows every song through its admitted summary, durable catalog and IPC
+snapshot into song select. Older catalogs and direct SWF imports without a page
+retain `DanOni imports`. Reimporting the HTML upgrades the label without changing
+song IDs, chart digests or playback files. Default duplicate rejection permits
+this unnamed-to-named upgrade only when admission recomputes the exact previous
+revision without the new label; changes to playback, chart coverage, song metadata
+or validation still conflict. Explicit keep-existing policy remains unchanged.
+The 2026-10-20 packaged-helper check upgraded the five existing Kouhaku songs
+(0 added, 5 replaced), preserved all song IDs, original chart metadata and playback
+file hashes, and reopened the named catalog through the app's headless IPC client.
+
+
 ## Layout and receipts
 
 ```text

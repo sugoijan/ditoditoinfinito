@@ -2,7 +2,17 @@
 //! Hosts never reconstruct managed-store transaction paths or rescan its tree.
 
 use super::LibSong;
-use ddi_danoni_export::managed_store::PlaybackSnapshot;
+use ddi_library::manifest::ManifestEntry;
+use std::path::PathBuf;
+
+pub struct PlaybackSong {
+    pub pack: Option<String>,
+    pub entry: ManifestEntry,
+    pub directory: PathBuf,
+}
+pub struct PlaybackSnapshot {
+    pub songs: Vec<PlaybackSong>,
+}
 
 /// Retains SDK ids so settings/history survive replacement. Catalog entries stay
 /// original-only; enrich a clone from the verified SSC for ordinary playback.
@@ -36,7 +46,7 @@ pub fn songs(snapshot: PlaybackSnapshot) -> Result<Vec<LibSong>, String> {
                 root: song.directory,
                 zip: false,
                 dir: Default::default(),
-                pack: "DanOni imports".into(),
+                pack: song.pack.unwrap_or_else(|| "DanOni imports".into()),
                 entry,
                 warnings: Vec::new(),
                 notes: Vec::new(),
@@ -49,7 +59,6 @@ pub fn songs(snapshot: PlaybackSnapshot) -> Result<Vec<LibSong>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ddi_danoni_export::managed_store::PlaybackSong;
 
     #[test]
     fn adapter_keeps_admitted_identity_and_adds_separate_playable_variants() {
@@ -73,8 +82,8 @@ mod tests {
         entry.music = "music.opus".into();
         let admitted = serde_json::to_vec(&entry).unwrap();
         let rows = songs(PlaybackSnapshot {
-            revision: "test-revision".into(),
             songs: vec![PlaybackSong {
+                pack: Some("Collection".into()),
                 entry: entry.clone(),
                 directory: directory.clone(),
             }],
@@ -82,6 +91,7 @@ mod tests {
         .unwrap();
         let song = &rows[0];
         assert_eq!(song.entry.id, entry.id);
+        assert_eq!(song.pack, "Collection");
         assert_eq!(song.root, directory);
         assert!(song.dir.as_str().is_empty());
         assert!(!song.zip);
@@ -100,8 +110,8 @@ mod tests {
         std::fs::write(directory.join("song.ssc"), "not a simfile").unwrap();
         assert!(
             songs(PlaybackSnapshot {
-                revision: "bad".into(),
                 songs: vec![PlaybackSong {
+                    pack: None,
                     entry,
                     directory: directory.clone()
                 }]

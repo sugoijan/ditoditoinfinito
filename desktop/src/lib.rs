@@ -165,9 +165,51 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// block and late with one and two in flight, four seconds each, and
 /// prints what each did when the play ends.
 pub fn run() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--danoni-bundle-info") {
+        #[cfg(all(
+            feature = "danoni-importer",
+            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
+        ))]
+        println!("{}", danoni::bundle_info());
+        #[cfg(not(all(
+            feature = "danoni-importer",
+            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
+        )))]
+        println!("{{\"enabled\":false}}");
+        return;
+    }
+    if args.iter().any(|a| a == "--danoni-importer-check") {
+        #[cfg(all(
+            feature = "danoni-importer",
+            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
+        ))]
+        match danoni::check() {
+            Ok(songs) => println!(
+                "{}",
+                serde_json::json!({"ready":true,"songs":songs,"protocolVersion":1, "bundledSongs":library::bundled().len()})
+            ),
+            Err(e) => {
+                eprintln!("DanOni importer check failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        #[cfg(not(all(
+            feature = "danoni-importer",
+            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
+        )))]
+        {
+            eprintln!("This build has no supported DanOni importer");
+            std::process::exit(2);
+        }
+        #[cfg(all(
+            feature = "danoni-importer",
+            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
+        ))]
+        return;
+    }
     clock::epoch();
     store::install();
-    let args: Vec<String> = std::env::args().skip(1).collect();
     // Flags that would be misread: said before anything opens.
     if let Some(i) = args.iter().position(|a| a == "--calibrate")
         && !args
@@ -488,5 +530,8 @@ pub fn run() {
     }
 }
 
-#[cfg(all(feature = "danoni", any(target_os = "macos", target_os = "linux")))]
+#[cfg(all(
+    feature = "danoni-importer",
+    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
+))]
 pub mod danoni;

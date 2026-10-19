@@ -7,6 +7,8 @@ mod normalized;
 pub use normalized::{NativeChartRequest, NativeWorkRequest, NormalizedWork, prepare_native_work};
 mod observed;
 mod pinned;
+#[cfg(feature = "native")]
+pub(crate) use pinned::KOUHAKU_HASH;
 pub use pinned::PinnedSelection;
 mod scheduled;
 use crate::{Error, Result, model::Mode};

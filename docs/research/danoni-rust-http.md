@@ -17,6 +17,17 @@ and access restrictions; neither page scripts nor robots.txt grant that decision
 Use `site-terms-denied` for a definite refusal, which is persisted without fetching
 the target. Cache hits require no new site-policy callback or network request.
 
+Desktop's explicit single-work importer selects `RobotsPolicy::UserInitiated`
+(2026-10-20). It skips robots GETs/evaluation and records the initiating action
+as its host decision without claiming a terms review. `Respect` remains the SDK
+default for research/batch callers; the policy is host-selected, never inferred
+from downloaded content or a robots refusal. Both policies retain transport
+checks, acquisition limits and pacing. Desktop may retry a previously cached
+robots/site refusal as a new explicit download. Its responses carry
+`acquisitionPolicy: "user-initiated"` and empty robots evidence; a default SDK
+fetch refuses these cache hits with `cache-policy-mismatch` rather than treating
+them as robots-approved. Existing reviewed cache evidence remains readable.
+
 `AcquiredResource` contains the canonical requested URL and a nonempty ordered
 `responses` array of `ReplayResponse` values, including each actual redirect hop.
 `response()` selects its terminal response. HTTP errors are response evidence,
@@ -80,7 +91,7 @@ this operation and does not change system settings. Failure to read system DNS
 configuration is an error, never an implicit switch to a different resolver.
 
 Each redirect is explicit, limited to eight hops and checked for loops. A new
-origin needs its own host site-policy decision and robots chain. Robots redirects
+origin needs its own host site-policy decision and, under `Respect`, robots chain. Robots redirects
 also retain every response and need a terminal 200 or 404; other outcomes stop.
 Every cached robots hop must be no older than `robotsMaxAgeSeconds`, with at most
 five minutes of future-clock tolerance. Stale policies are not silently reused or
