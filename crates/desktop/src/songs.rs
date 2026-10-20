@@ -154,21 +154,9 @@ impl Songs {
         self.tell_options();
     }
 
-    /// The list now: the bundled songs, then the library's by pack and
-    /// title, what the player removed left out.
-    pub fn listed(&self) -> Vec<Listed> {
-        let mut out: Vec<Listed> = self
-            .bundled
-            .iter()
-            .map(|e| Listed {
-                entry: e.clone(),
-                pack: None,
-                pack_banner: None,
-                banner: e.banner.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
-                background: e.background.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
-                removable: false,
-            })
-            .collect();
+    /// `f` of the library's songs the list shows: by pack and title, what
+    /// the player removed left out.
+    fn shown<R>(&self, f: impl FnOnce(&[&LibSong]) -> R) -> R {
         let hidden = self.hidden.borrow();
         let library = self.library.borrow();
         let mut songs: Vec<&LibSong> = library
@@ -176,15 +164,32 @@ impl Songs {
             .map(|l| l.songs.iter().filter(|s| !hidden.hides(s)).collect())
             .unwrap_or_default();
         songs.sort_by_cached_key(|s| (s.pack.to_lowercase(), s.entry.title.to_lowercase()));
-        out.extend(songs.into_iter().map(|s| Listed {
-            entry: s.entry.clone(),
-            pack: Some(s.pack.clone()),
-            pack_banner: s.pack_banner.as_deref().map(|p| s.root_source(p)),
-            banner: s.entry.banner.as_deref().map(|b| s.source(b)),
-            background: s.entry.background.as_deref().map(|b| s.source(b)),
-            removable: true,
-        }));
+        f(&songs)
+    }
+
+    /// The list now: the bundled songs, then the library's by pack and
+    /// title, what the player removed left out.
+    pub fn listed(&self) -> Vec<Listed> {
+        let mut out: Vec<Listed> = self.bundled.iter().map(Listed::bundled).collect();
+        self.shown(|songs| {
+            out.extend(songs.iter().map(|s| Listed {
+                entry: s.entry.clone(),
+                pack: Some(s.pack.clone()),
+                pack_banner: s.pack_banner.as_deref().map(|p| s.root_source(p)),
+                banner: s.entry.banner.as_deref().map(|b| s.source(b)),
+                background: s.entry.background.as_deref().map(|b| s.source(b)),
+                removable: true,
+            }))
+        });
         out
+    }
+
+    /// The layouts with charts in the list ([`Songs::listed`]'s songs, in
+    /// its order).
+    pub fn library_styles(&self) -> Vec<ddi_chart::Layout> {
+        self.shown(|songs| {
+            select_view::library_styles(self.bundled.iter().chain(songs.iter().map(|s| &s.entry)))
+        })
     }
 
     /// Song select's data now.
@@ -378,13 +383,7 @@ impl Songs {
         packs.sort_unstable();
         packs.dedup();
         for pack in packs {
-            let ids: Vec<&str> = l
-                .songs
-                .iter()
-                .filter(|s| s.pack.eq_ignore_ascii_case(pack))
-                .map(|s| s.entry.id.as_str())
-                .collect();
-            changed |= hidden.show(pack, &ids);
+            changed |= hidden.show_pack(&l.songs, pack);
         }
         if changed {
             hidden.save();
@@ -513,13 +512,7 @@ impl Songs {
                 // songs of it come back.
                 let folders = self.folders();
                 if let Some(l) = self.library.borrow_mut().as_mut() {
-                    let ids: Vec<&str> = l
-                        .songs
-                        .iter()
-                        .filter(|s| s.pack.eq_ignore_ascii_case(&pack))
-                        .map(|s| s.entry.id.as_str())
-                        .collect();
-                    if self.hidden.borrow_mut().show(&pack, &ids) {
+                    if self.hidden.borrow_mut().show_pack(&l.songs, &pack) {
                         self.hidden.borrow().save();
                     }
                     l.reread_pack(folders, &pack);

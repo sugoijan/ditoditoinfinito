@@ -11,50 +11,15 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use ddi_chart::Layout;
-use ddi_noteskin::build::{Images, TextureKey};
+use ddi_noteskin::build::{Images, MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes, SVG_SCALE};
+use ddi_noteskin::bundled::Index;
+use ddi_noteskin::import::{MAX_TEXT, MAX_TEXTS};
 use ddi_noteskin::lua::{Env, LoadBudget, LuaSkin};
-use ddi_noteskin::{Dir, Folder, Skin};
+use ddi_noteskin::{Folder, Skin};
 use ddi_render::noteskin::NoteskinPlay;
-use ddi_ui::state::settings::NoteColors;
 
 use super::view::Rgba;
-use crate::library::noteskins::DiskSkin;
-
-/// The `noteskin` setting's value for the built-in arrows.
-pub const BUILT_IN: &str = "builtin";
-/// Dito's key (its color variants' are `bundled:dance/dito <scheme>`).
-const DITO: &str = "bundled:dance/dito";
-
-/// The skin a play draws its layout with, by key (the web's
-/// `noteskins::play_skin`): the chosen one, or Dito in its variant for
-/// the note colors; none for the built-in arrows, and none instead of
-/// Dito when the chart's own colors are drawn.
-pub fn play_skin(choice: Option<&str>, colors: NoteColors, chart_colors: bool) -> Option<String> {
-    match choice {
-        Some(BUILT_IN) => None,
-        Some(key) => Some(key.to_string()),
-        None if chart_colors => None,
-        None => Some(
-            match colors {
-                NoteColors::Quantized => DITO,
-                NoteColors::Vivid => "bundled:dance/dito vivid",
-                NoteColors::Flat => "bundled:dance/dito flat",
-                NoteColors::Rainbow => "bundled:dance/dito rainbow",
-                NoteColors::Single => "bundled:dance/dito single",
-            }
-            .to_string(),
-        ),
-    }
-}
-
-/// The largest image side kept, and the pixels a skin may hold (the web's).
-const MAX_IMAGE_SIDE: u32 = 4096;
-const MAX_PIXELS: u64 = 64 << 20;
-/// How much finer than its own size an SVG is drawn (the web's).
-const SVG_SCALE: f32 = 4.0;
-/// The largest text read, and a skin's texts in all (the web's).
-const MAX_TEXT: u64 = 1 << 20;
-const MAX_TEXTS: u64 = 32 << 20;
+use crate::library::noteskins::{DiskSkin, read_index};
 
 /// A skin ready for a play.
 pub struct Prepared {
@@ -71,9 +36,26 @@ pub struct Prepared {
 /// A skin's folder as the loader reads it: its files and bounded texts.
 /// Authoring tools use the same listing for resolution and coverage reports.
 pub fn folder(skin: &DiskSkin) -> Folder {
+    let index = if skin.bundled { read_index() } else { None };
+    folder_in(skin, index.as_ref())
+}
+
+/// The folders of `skins`, each as [`folder`] reads it, the bundled
+/// skins' index read once.
+pub fn folders(skins: &[DiskSkin]) -> Vec<Folder> {
+    let index = if skins.iter().any(|s| s.bundled) {
+        read_index()
+    } else {
+        None
+    };
+    skins.iter().map(|s| folder_in(s, index.as_ref())).collect()
+}
+
+/// [`folder`], with the bundled skins' `index` when it could be read.
+fn folder_in(skin: &DiskSkin, index: Option<&Index>) -> Folder {
     // A bundled skin's are in the index.
     if skin.bundled
-        && let Some(f) = bundled_folder(skin)
+        && let Some(f) = index.and_then(|i| bundled_folder(i, skin))
     {
         return f;
     }
@@ -111,45 +93,12 @@ pub fn folder(skin: &DiskSkin) -> Folder {
 }
 
 /// A bundled skin's folder from the index.
-fn bundled_folder(skin: &DiskSkin) -> Option<Folder> {
-    let assets = crate::images::assets();
-    let index = [
-        assets.join("../target/noteskins/index.json"),
-        assets.join("noteskins/index.json"),
-    ]
-    .iter()
-    .find_map(|p| std::fs::read_to_string(p).ok())
-    .and_then(|t| serde_json::from_str::<ddi_noteskin::bundled::Index>(&t).ok())?;
+fn bundled_folder(index: &Index, skin: &DiskSkin) -> Option<Folder> {
     index
         .skins
-        .into_iter()
+        .iter()
         .find(|b| b.folder.game == skin.game && b.folder.name == skin.name)
-        .map(|b| b.folder)
-}
-
-/// Image sizes as decoded, by `(folder, path)`; the first pass answers
-/// 128 for each and notes what was asked.
-struct Sizes {
-    sizes: HashMap<(usize, String), (u32, u32)>,
-    asked: std::cell::RefCell<Vec<(usize, String)>>,
-    probe: bool,
-}
-
-impl Images for Sizes {
-    fn size(&self, dir: Dir, path: &str) -> Option<(u32, u32)> {
-        let Dir::Folder(i) = dir else {
-            return None;
-        };
-        if self.probe {
-            self.asked.borrow_mut().push((i, path.to_string()));
-            return Some((128, 128));
-        }
-        self.sizes.get(&(i, path.to_string())).copied()
-    }
-
-    fn max_size(&self) -> u32 {
-        MAX_IMAGE_SIDE
-    }
+        .map(|b| b.folder.clone())
 }
 
 /// Decodes an image of a skin: its RGBA and the size the skin sees (an
@@ -204,7 +153,7 @@ pub fn decode_svg(bytes: &[u8]) -> Result<(Rgba, (u32, u32)), String> {
     let tree = resvg::usvg::Tree::from_str(text, &resvg::usvg::Options::default())
         .map_err(|e| e.to_string())?;
     let longest = size.0.max(size.1) as f32;
-    let scale = SVG_SCALE.min(MAX_IMAGE_SIDE as f32 / longest.max(1.0));
+    let scale = (SVG_SCALE as f32).min(MAX_IMAGE_SIDE as f32 / longest.max(1.0));
     let (w, h) = (
         ((size.0 as f32 * scale).round() as u32).max(1),
         ((size.1 as f32 * scale).round() as u32).max(1),
@@ -290,7 +239,7 @@ pub struct Read {
     with_lua: bool,
     lua_error: Option<String>,
     record_failures: bool,
-    sizes: Sizes,
+    sizes: ProbeSizes,
     decoded: HashMap<(usize, String), Rgba>,
     pixels: u64,
 }
@@ -319,7 +268,7 @@ fn read_inner(
         stored.retain(|s| s.bundled);
     }
     stored.insert(0, first);
-    let folders: Vec<Folder> = stored.iter().map(folder).collect();
+    let folders = folders(&stored);
     let chosen = &stored[0];
     let skin = match Skin::load(&folders, &chosen.game, &chosen.name) {
         Ok(s) => s,
@@ -342,11 +291,7 @@ fn read_inner(
     env.style = ddi_noteskin::lua::style_for(&chosen.game, layout).into();
     let seed = hash_seed();
     let mut lua_error = None;
-    let sizes = Sizes {
-        sizes: HashMap::new(),
-        asked: Default::default(),
-        probe: true,
-    };
+    let sizes = ProbeSizes::probe();
     // First pass: which images the actors use.
     if with_lua {
         match lua_play(
@@ -392,10 +337,7 @@ impl Read {
     /// The images the last pass asked for, decoded (the skin's pixels
     /// capped).
     fn decode(&mut self) {
-        let mut asked = self.sizes.asked.take();
-        asked.sort();
-        asked.dedup();
-        for (i, path) in asked {
+        for (i, path) in self.sizes.take_asked() {
             if self.decoded.contains_key(&(i, path.clone())) {
                 continue;
             }
@@ -462,17 +404,7 @@ pub fn build(mut r: Read, layout: &Layout) -> Option<Prepared> {
         play = NoteskinPlay::new(&skin, layout, &r.sizes, true);
     }
     let play = play?;
-    let images = play
-        .texture_keys()
-        .iter()
-        .map(|k| match k {
-            TextureKey::Skin {
-                dir: Dir::Folder(i),
-                path,
-            } => r.decoded.get(&(*i, path.clone())).cloned(),
-            _ => None,
-        })
-        .collect();
+    let images = play.images_for(&r.decoded);
     for n in &play.notes {
         eprintln!("noteskin {}: {n}", r.name);
     }

@@ -651,9 +651,35 @@ pub fn song_id(pack: &str, dir: &str) -> String {
 
 /// FNV-1a, 64 bits: the imported songs' ids and other short keys.
 pub fn fnv1a64(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
-        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
-    })
+    let mut h = Fnv1a64::new();
+    h.write(bytes);
+    h.finish()
+}
+
+/// [`fnv1a64`] over bytes given in parts: the same as over them joined.
+#[derive(Clone, Copy, Debug)]
+pub struct Fnv1a64(u64);
+
+impl Fnv1a64 {
+    pub fn new() -> Fnv1a64 {
+        Fnv1a64(0xcbf2_9ce4_8422_2325)
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+
+    pub fn finish(self) -> u64 {
+        self.0
+    }
+}
+
+impl Default for Fnv1a64 {
+    fn default() -> Fnv1a64 {
+        Fnv1a64::new()
+    }
 }
 
 /// Directory part of a path (`""` at the root): [`RelPath::parent`].
@@ -1160,5 +1186,10 @@ mod tests {
         assert_eq!(fnv1a64(b""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(fnv1a64(b"a"), 0xaf63_dc4c_8601_ec8c);
         assert_eq!(fnv1a64(b"foobar"), 0x8594_4171_f739_67e8);
+        let mut h = Fnv1a64::new();
+        h.write(b"foo");
+        h.write(b"");
+        h.write(b"bar");
+        assert_eq!(h.finish(), fnv1a64(b"foobar"));
     }
 }

@@ -1,5 +1,7 @@
 //! Convenience queries on [`Song`].
 
+use std::borrow::Cow;
+
 use crate::layout::Layout;
 use crate::model::{Chart, Difficulty, Song};
 
@@ -35,6 +37,18 @@ impl Song {
             if let Some(t) = &mut chart.timing {
                 t.offset_seconds -= seconds;
             }
+        }
+    }
+
+    /// The song with its notes moved `seconds` later ([`Song::shift_notes`]),
+    /// borrowed as it is when that is 0.
+    pub fn shifted(&self, seconds: f64) -> Cow<'_, Song> {
+        if seconds == 0.0 {
+            Cow::Borrowed(self)
+        } else {
+            let mut s = self.clone();
+            s.shift_notes(seconds);
+            Cow::Owned(s)
         }
     }
 }

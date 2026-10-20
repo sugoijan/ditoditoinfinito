@@ -3,6 +3,8 @@
 
 use wgpu::util::DeviceExt;
 
+use crate::background::BlurParams;
+
 pub(crate) struct Gaussian {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
@@ -78,16 +80,15 @@ impl Gaussian {
         encoder: &mut wgpu::CommandEncoder,
         texture: &wgpu::Texture,
     ) {
-        let scratch = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("ddi-cached-gaussian-scratch"),
-            size: texture.size(),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
+        let scratch = crate::gpu::texture_2d(
+            device,
+            "ddi-cached-gaussian-scratch",
+            [texture.width(), texture.height()],
+            wgpu::TextureFormat::Rgba8Unorm,
+            1,
+            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            &[],
+        );
         let original = texture.create_view(&wgpu::TextureViewDescriptor {
             mip_level_count: Some(1),
             ..Default::default()
@@ -101,49 +102,34 @@ impl Gaussian {
             .into_iter()
             .enumerate()
         {
-            // Matches blur.wgsl's 64-byte Blur uniform. Only step and the
-            // final unpremultiply flag are used by the cached-image entry point.
-            let params = [
-                steps[i][0],
-                steps[i][1],
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                i as f32,
-                1.0,
-                1.0,
-                0.0,
-                0.0,
-                1.0,
-                0.0,
-                0.0,
-                0.0,
-            ];
+            // Only step and the final unpremultiply flag are used by the
+            // cached-image entry point.
+            let params = BlurParams {
+                step: steps[i],
+                brightness: 0.0,
+                linear: 0.0,
+                band: [0.0; 2],
+                band_keep: 0.0,
+                unpremultiply: i as f32,
+                uv_scale: [1.0; 2],
+                uv_offset: [0.0; 2],
+                opacity: 1.0,
+                base: 0.0,
+                _pad2: [0.0; 2],
+            };
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("ddi-cached-gaussian-params"),
-                contents: bytemuck::cast_slice(&params),
+                contents: bytemuck::bytes_of(&params),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ddi-cached-gaussian-group"),
-                layout: &self.layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(input),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
+            let group = crate::gpu::uniform_texture_group(
+                device,
+                "ddi-cached-gaussian-group",
+                &self.layout,
+                buffer.as_entire_binding(),
+                input,
+                &self.sampler,
+            );
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ddi-cached-gaussian"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {

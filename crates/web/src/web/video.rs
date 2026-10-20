@@ -14,8 +14,10 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+pub(crate) use ddi_platform::video::Picture;
 use ddi_platform::video::{
-    VideoBackend, VideoDecoder, VideoEvent, VideoFormat, VideoFrame, VideoInfo, YuvMatrix,
+    PlanePool, VideoBackend, VideoDecoder, VideoEvent, VideoFormat, VideoFrame, VideoInfo,
+    YuvMatrix,
 };
 use js_sys::{ArrayBuffer, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -25,41 +27,23 @@ use super::js_err;
 
 const WORKER_JS: &str = include_str!("video_worker.js");
 
-/// Plane buffers kept for the next frames, so a playing movie allocates
-/// none per frame (a 640×480 frame is 460 KB; at 30 frames a second the
-/// garbage made collections pause the page, in Firefox most).
-const SPARE_KEPT: usize = 8;
-
 thread_local! {
-    static SPARE: std::cell::RefCell<Vec<Vec<u8>>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Plane buffers kept for the next frames, so a playing movie
+    /// allocates none per frame (the garbage made collections pause the
+    /// page, in Firefox most).
+    static SPARE: RefCell<PlanePool> = const { RefCell::new(PlanePool::new()) };
 }
 
 /// An empty buffer for a frame's planes, `len` bytes or more of capacity:
 /// one given back by [`recycle`] when there is one.
 pub(crate) fn spare_planes(len: usize) -> Vec<u8> {
-    let found = SPARE.with(|s| {
-        let mut s = s.borrow_mut();
-        let i = s.iter().position(|v| v.capacity() >= len)?;
-        Some(s.swap_remove(i))
-    });
-    let mut v = found.unwrap_or_else(|| Vec::with_capacity(len));
-    v.clear();
-    v
+    SPARE.with(|s| s.borrow_mut().take(len))
 }
 
 /// Gives a frame's planes back once they are drawn (or passed over); the
 /// oldest kept goes when full, so a movie of another size takes over.
 pub(crate) fn recycle(planes: Vec<u8>) {
-    if planes.capacity() == 0 {
-        return;
-    }
-    SPARE.with(|s| {
-        let mut s = s.borrow_mut();
-        if s.len() >= SPARE_KEPT {
-            s.remove(0);
-        }
-        s.push(planes);
-    });
+    SPARE.with(|s| s.borrow_mut().give(planes));
 }
 
 /// Where the FFmpeg module is.
@@ -82,26 +66,6 @@ struct Movie {
     /// Seeks so far; frames tagged with an older one are dropped.
     generation: u32,
     events: Vec<VideoEvent>,
-}
-
-/// A movie's picture as the black-bar probe found it.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Picture {
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    /// The area inside the movie's own black bars, `(x, y, width, height)`;
-    /// `None` when every sample was black.
-    pub(crate) bounds: Option<(u32, u32, u32, u32)>,
-}
-
-impl Picture {
-    /// Width over height of what the movie shows (bars left out).
-    pub(crate) fn aspect(&self) -> Option<f32> {
-        let (w, h) = self
-            .bounds
-            .map_or((self.width, self.height), |(_, _, w, h)| (w, h));
-        (w > 0 && h > 0).then(|| w as f32 / h as f32)
-    }
 }
 
 struct Shared {

@@ -419,6 +419,68 @@ pub struct MovieStats {
     pub seeks: u64,
 }
 
+impl MovieStats {
+    /// Adds `other`'s counts to these.
+    pub fn add(&mut self, other: &MovieStats) {
+        self.decoded += other.decoded;
+        self.shown += other.shown;
+        self.dropped += other.dropped;
+        self.late += other.late;
+        self.seeks += other.seeks;
+    }
+}
+
+/// What kept a play's movies from playing, `(name, why)` in the order
+/// they failed, in a line for the results.
+pub fn trouble_line(trouble: &[(String, String)]) -> Option<String> {
+    let ((name, first), rest) = trouble.split_first()?;
+    Some(if rest.is_empty() {
+        format!("the video {name} could not play: {first}")
+    } else if rest.iter().all(|(_, e)| e == first) {
+        format!("{} videos could not play: {first}", rest.len() + 1)
+    } else {
+        format!("{} videos could not play; {name}: {first}", rest.len() + 1)
+    })
+}
+
+/// Plane buffers kept for a movie's next frames, so a playing movie
+/// allocates none per frame (a 640×480 frame is 460 KB; at 30 frames a
+/// second the garbage made collections pause the web page).
+#[derive(Debug, Default)]
+pub struct PlanePool {
+    spare: Vec<Vec<u8>>,
+}
+
+impl PlanePool {
+    /// Buffers kept, at most.
+    pub const KEPT: usize = 8;
+
+    pub const fn new() -> PlanePool {
+        PlanePool { spare: Vec::new() }
+    }
+
+    /// An empty buffer with `len` bytes of capacity or more: a kept one
+    /// when there is one.
+    pub fn take(&mut self, len: usize) -> Vec<u8> {
+        let i = self.spare.iter().position(|v| v.capacity() >= len);
+        let mut planes = i.map_or_else(|| Vec::with_capacity(len), |i| self.spare.swap_remove(i));
+        planes.clear();
+        planes
+    }
+
+    /// Keeps a frame's planes once they are drawn (or passed over); the
+    /// oldest kept goes when full, so a movie of another size takes over.
+    pub fn give(&mut self, planes: Vec<u8>) {
+        if planes.capacity() == 0 {
+            return;
+        }
+        if self.spare.len() >= PlanePool::KEPT {
+            self.spare.remove(0);
+        }
+        self.spare.push(planes);
+    }
+}
+
 /// Plays one movie for the game loop: keeps frames decoded ahead, picks the
 /// frame for a position on the movie's clock (the newest not after it; the
 /// first frame of a run as soon as it arrives), loops or holds the last
@@ -888,6 +950,32 @@ impl VideoGuard {
             (false, true) => "excused",
             _ => "watching",
         }
+    }
+}
+
+/// Where the black-bar probe samples a movie: shares of its duration, or
+/// seconds when it is unknown ([`PROBE_SECONDS`]).
+pub const PROBE_SHARES: [f64; 6] = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9];
+/// Where the probe samples a movie of unknown duration, seconds.
+pub const PROBE_SECONDS: [f64; 6] = [1.0, 3.0, 6.0, 10.0, 15.0, 20.0];
+
+/// A movie's picture as the black-bar probe found it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Picture {
+    pub width: u32,
+    pub height: u32,
+    /// The area inside the movie's own black bars, `(x, y, width,
+    /// height)` ([`picture_bounds`]); `None` when every sample was black.
+    pub bounds: Option<(u32, u32, u32, u32)>,
+}
+
+impl Picture {
+    /// Width over height of what the movie shows (bars left out).
+    pub fn aspect(&self) -> Option<f32> {
+        let (w, h) = self
+            .bounds
+            .map_or((self.width, self.height), |(_, _, w, h)| (w, h));
+        (w > 0 && h > 0).then(|| w as f32 / h as f32)
     }
 }
 

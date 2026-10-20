@@ -223,10 +223,7 @@ fn keep_grid(notes: &mut Vec<Note>, grid: i64) {
 /// Holds and rolls become taps (`ChangeRollsToHolds` + `RemoveHoldNotes`).
 fn remove_holds(notes: &mut [Note]) {
     for n in notes {
-        if matches!(
-            n.kind,
-            NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
-        ) {
+        if n.kind.is_long() {
             n.kind = NoteKind::Tap;
         }
     }
@@ -254,17 +251,9 @@ fn remove_jumps(notes: &mut Vec<Note>) {
         let held = last
             .iter()
             .flatten()
-            .filter(|&&k| match notes[k].kind {
-                NoteKind::HoldHead { end } | NoteKind::RollHead { end } => end >= tick,
-                _ => false,
-            })
+            .filter(|&&k| notes[k].kind.hold_end().is_some_and(|end| end >= tick))
             .count();
-        let pressable = |n: &Note| {
-            matches!(
-                n.kind,
-                NoteKind::Tap | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
-            )
-        };
+        let pressable = |n: &Note| n.kind == NoteKind::Tap || n.kind.is_long();
         let on_row = (i..end)
             .filter(|&k| pressable(&notes[k]) || notes[k].kind == NoteKind::Lift)
             .count();

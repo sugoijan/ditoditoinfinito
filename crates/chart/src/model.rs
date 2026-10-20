@@ -126,6 +126,21 @@ pub enum NoteKind {
     Dummy,
 }
 
+impl NoteKind {
+    /// The tail of a hold or a roll.
+    pub fn hold_end(self) -> Option<Tick> {
+        match self {
+            NoteKind::HoldHead { end } | NoteKind::RollHead { end } => Some(end),
+            _ => None,
+        }
+    }
+
+    /// A hold or a roll.
+    pub fn is_long(self) -> bool {
+        matches!(self, NoteKind::HoldHead { .. } | NoteKind::RollHead { .. })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Note {
     pub tick: Tick,
@@ -153,10 +168,7 @@ impl Note {
 
     /// Tick at which the note stops mattering (tail for holds/rolls, else `tick`).
     pub fn end_tick(&self) -> Tick {
-        match self.kind {
-            NoteKind::HoldHead { end } | NoteKind::RollHead { end } => end,
-            _ => self.tick,
-        }
+        self.kind.hold_end().unwrap_or(self.tick)
     }
 }
 
@@ -168,6 +180,36 @@ pub enum Difficulty {
     Hard,
     Challenge,
     Edit,
+}
+
+impl Difficulty {
+    /// The difficulties in their order (StepMania's `Difficulty` enum).
+    pub const ALL: [Difficulty; 6] = [
+        Difficulty::Beginner,
+        Difficulty::Easy,
+        Difficulty::Medium,
+        Difficulty::Hard,
+        Difficulty::Challenge,
+        Difficulty::Edit,
+    ];
+
+    /// Its name, as StepMania's commands and colors name it
+    /// (`Difficulty.Hard`).
+    pub const fn name(self) -> &'static str {
+        match self {
+            Difficulty::Beginner => "Beginner",
+            Difficulty::Easy => "Easy",
+            Difficulty::Medium => "Medium",
+            Difficulty::Hard => "Hard",
+            Difficulty::Challenge => "Challenge",
+            Difficulty::Edit => "Edit",
+        }
+    }
+
+    /// The difficulty named `name` exactly ([`Difficulty::name`]).
+    pub fn from_name(name: &str) -> Option<Difficulty> {
+        Difficulty::ALL.into_iter().find(|d| d.name() == name)
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]

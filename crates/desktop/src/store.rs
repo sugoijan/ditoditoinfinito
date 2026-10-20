@@ -2,7 +2,7 @@
 //! values (the same keys and JSON the web keeps in `localStorage`) in the
 //! user's configuration folder; the session's in memory.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -20,6 +20,8 @@ pub fn default_path() -> Option<PathBuf> {
 pub struct FileStore {
     path: PathBuf,
     values: RefCell<BTreeMap<String, String>>,
+    /// The last write failed: the file may not have `values`.
+    unsaved: Cell<bool>,
     session: MemoryStore,
 }
 
@@ -46,11 +48,18 @@ impl FileStore {
         FileStore {
             path,
             values: RefCell::new(values),
+            unsaved: Cell::new(false),
             session: MemoryStore::default(),
         }
     }
 
     fn write(&self) -> Result<(), String> {
+        let written = self.write_file();
+        self.unsaved.set(written.is_err());
+        written
+    }
+
+    fn write_file(&self) -> Result<(), String> {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
@@ -85,7 +94,11 @@ impl Store for FileStore {
     fn set(&self, area: Area, key: &str, value: &str) -> Result<(), String> {
         match area {
             Area::Local => {
-                self.values.borrow_mut().insert(key.into(), value.into());
+                let old = self.values.borrow_mut().insert(key.into(), value.into());
+                // The file has it already.
+                if old.as_deref() == Some(value) && !self.unsaved.get() {
+                    return Ok(());
+                }
                 self.write()
             }
             Area::Session => self.session.set(area, key, value),
@@ -166,7 +179,7 @@ mod tests {
         let place = MenuPlace {
             song: Some("u-last-song".into()),
             chart: Some(("u-last-song".into(), 4)),
-            closed: Some(vec!["Bundled songs".into()]),
+            closed: Some(vec![ddi_ui::state::select_view::BUNDLED_PACK.into()]),
             ..Default::default()
         };
         place.save();

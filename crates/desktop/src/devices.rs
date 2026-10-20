@@ -11,7 +11,9 @@
 use std::time::{Duration, Instant};
 
 use ddi_platform::{DeviceFingerprint, DeviceProfile};
-use ddi_ui::screens::notices::{AppNotices, NoticesFeed, device_notice, register_devices};
+use ddi_ui::screens::notices::{
+    AppNotices, NoticesFeed, device_notice, devices_line, register_devices,
+};
 use ddi_ui::state::settings::Settings;
 
 /// How long the devices' line shows.
@@ -74,18 +76,7 @@ impl Watcher {
                 }
             }
         } else if !first {
-            let a = settings.audio_profile(&profile.audio.id);
-            let d = settings.display_profile(&profile.display.id);
-            self.toast = Some((
-                format!(
-                    "devices: {} ({:+.0} ms) · {} ({:+.0} ms)",
-                    profile.audio.label,
-                    a.map(|p| p.offset).unwrap_or(0.0) * 1000.0,
-                    profile.display.label,
-                    d.map(|p| p.offset).unwrap_or(0.0) * 1000.0
-                ),
-                Instant::now() + TOAST,
-            ));
+            self.toast = Some((devices_line(&settings, &profile), Instant::now() + TOAST));
         }
         true
     }

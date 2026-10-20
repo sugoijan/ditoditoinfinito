@@ -116,6 +116,49 @@ impl FieldPreviewOptions {
     }
 }
 
+/// The noteskin a preview's layout is drawn with and what it is readied
+/// for: its key (`None`: the built-in arrows), the layout and the
+/// direction. The demo has no colors of its own.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SkinWant {
+    pub key: Option<String>,
+    pub layout: String,
+    pub reverse: bool,
+}
+
+impl SkinWant {
+    /// Skin `key` for `options`' layout and direction.
+    pub fn new(key: Option<String>, options: &FieldPreviewOptions) -> SkinWant {
+        SkinWant {
+            key,
+            layout: options.layout.clone(),
+            reverse: options.play.scroll.reverse,
+        }
+    }
+
+    /// The layout the skin is readied for (dance single for one that is
+    /// not built in).
+    pub fn layout(&self) -> Layout {
+        Layout::builtin(&self.layout).unwrap_or_else(Layout::dance_single)
+    }
+
+    /// What the skin's Lua is told: the demo's song and chart on
+    /// `layout` ([`SkinWant::layout`]), in the direction wanted.
+    pub fn env(&self, layout: &Layout) -> ddi_noteskin::lua::Env {
+        ddi_engine::demo::song(&self.layout, BPM)
+            .and_then(|song| {
+                let chart = song.charts.first()?;
+                Some(ddi_noteskin::lua::chart_env(
+                    &song,
+                    chart,
+                    layout,
+                    self.reverse,
+                ))
+            })
+            .unwrap_or_default()
+    }
+}
+
 /// The texture drawn into.
 struct Target {
     size: [u32; 2],
@@ -158,9 +201,9 @@ impl FieldPreview {
         };
         let mut renderer = Renderer::new(device, queue, FORMAT, blending, fonts);
         let (w, h, rgba) = plate();
-        let texture = renderer.create_background_texture(device, w, h);
-        crate::gpu::write_rgba(queue, &texture, [w, h], &rgba);
-        let plate = renderer.add_background(device, &texture);
+        let plate = renderer.add_background_image(device, [w, h], |texture| {
+            crate::gpu::write_rgba(queue, texture, [w, h], &rgba);
+        });
         let options = FieldPreviewOptions::default();
         let mut preview = FieldPreview {
             renderer,
@@ -240,7 +283,7 @@ impl FieldPreview {
         self.renderer.clear_noteskin_textures();
         self.renderer.set_skins_drawn(device, queue, play.is_some());
         self.noteskin = play.map(|mut p| {
-            p.set_srgb(self.renderer.srgb() && !self.renderer.skins_blend_encoded());
+            p.set_srgb(self.renderer.skin_colors_linear());
             upload(&mut self.renderer, &mut p);
             p.restart();
             p
@@ -314,23 +357,18 @@ impl FieldPreview {
     ) {
         let size = [size[0].max(1), size[1].max(1)];
         if self.target.as_ref().is_none_or(|t| t.size != size) {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("ddi-field-preview"),
-                size: wgpu::Extent3d {
-                    width: size[0],
-                    height: size[1],
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: FORMAT,
+            let texture = crate::gpu::texture_2d(
+                device,
+                "ddi-field-preview",
+                size,
+                FORMAT,
+                1,
                 // Read back by tests.
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_SRC,
-                view_formats: &[],
-            });
+                &[],
+            );
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             self.target = Some(Target {
                 size,

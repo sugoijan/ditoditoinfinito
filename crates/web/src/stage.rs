@@ -69,9 +69,9 @@ impl StageView {
                 continue;
             }
             let (w, h) = (bitmap.width().max(1), bitmap.height().max(1));
-            let texture = renderer.create_noteskin_texture(device, w, h, false);
-            crate::web::gfx::copy_bitmap(queue, bitmap, &texture, w, h);
-            let id = renderer.add_noteskin_texture(device, &texture);
+            let id = renderer.add_noteskin_image(device, queue, [w, h], false, |texture| {
+                crate::web::gfx::copy_bitmap(queue, bitmap, texture, w, h);
+            });
             self.textures
                 .insert(source.clone(), StageTexture { id, size: *size });
         }

@@ -119,11 +119,6 @@ impl Bindings {
         self.bind(device, control, lane);
     }
 
-    /// Removes every mapping of `lane`.
-    pub fn unbind_lane(&mut self, lane: u8) {
-        self.bindings.retain(|b| b.lane != lane);
-    }
-
     /// Lane for a control of a device's slot 0, if bound (keyboard and
     /// touch edges always carry slot 0).
     pub fn lane_of(&self, device: &DeviceId, control: &str) -> Option<u8> {

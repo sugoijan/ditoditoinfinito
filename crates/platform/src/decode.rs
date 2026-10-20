@@ -58,7 +58,7 @@ pub struct DecodedAudio {
 impl DecodedAudio {
     /// Length in sample frames.
     pub fn frames(&self) -> usize {
-        self.channels.first().map_or(0, Vec::len)
+        frame_count(&self.channels)
     }
 
     /// Length in seconds.
@@ -575,14 +575,7 @@ impl<'a> Decoder<'a> {
     }
 
     fn drop_skipped(&mut self) {
-        if self.skip == 0 {
-            return;
-        }
-        let n = self.skip.min(self.out.frames());
-        for c in &mut self.out.channels {
-            c.drain(..n);
-        }
-        self.skip -= n;
+        drop_front(&mut self.out.channels, &mut self.skip);
     }
 
     /// The first channel as decoded so far.
@@ -739,6 +732,46 @@ impl<'a> Decoder<'a> {
         }
         Ok(self.out)
     }
+
+    /// Steps `batch` packets at a time until `want` frames are kept (all
+    /// of them: `None`), and returns those.
+    pub(crate) fn run_to(
+        mut self,
+        want: Option<usize>,
+        batch: usize,
+    ) -> Result<DecodedAudio, DecodeError> {
+        while want.is_none_or(|w| self.frames() < w) && !self.step(batch)? {}
+        let mut audio = self.finish()?;
+        if let Some(w) = want {
+            for c in &mut audio.channels {
+                c.truncate(w);
+            }
+        }
+        Ok(audio)
+    }
+}
+
+/// Planar channels' length in frames.
+pub(crate) fn frame_count(channels: &[Vec<f32>]) -> usize {
+    channels.first().map_or(0, Vec::len)
+}
+
+/// Drops up to `skip` frames from the front of `channels`, counting them
+/// off `skip`.
+pub(crate) fn drop_front(channels: &mut [Vec<f32>], skip: &mut usize) {
+    if *skip == 0 {
+        return;
+    }
+    let n = (*skip).min(frame_count(channels));
+    for c in channels {
+        c.drain(..n);
+    }
+    *skip -= n;
+}
+
+/// The frames up to second `seconds`, the last one started included.
+pub(crate) fn frames_until(seconds: f64, rate: u32) -> usize {
+    (seconds.max(0.0) * f64::from(rate)).ceil() as usize
 }
 
 /// The frames to reserve: the stream's, or `seconds`' when only a start
@@ -748,7 +781,7 @@ impl<'a> Decoder<'a> {
 fn cap(frames: u64, rate: u32, seconds: Option<f64>) -> u64 {
     match seconds {
         Some(s) => {
-            let want = (s.max(0.0) * f64::from(rate)).ceil() as u64 + 32 * 1152;
+            let want = frames_until(s, rate) as u64 + 32 * 1152;
             if frames == 0 { want } else { frames.min(want) }
         }
         None => frames,
@@ -777,14 +810,9 @@ pub fn decode(bytes: &[u8]) -> Result<DecodedAudio, DecodeError> {
 /// [`decode`] does, cut there); what the web compares a browser's decode
 /// with.
 pub fn decode_start(bytes: &[u8], seconds: f64) -> Result<DecodedAudio, DecodeError> {
-    let mut decoder = Decoder::start(bytes, seconds)?;
-    let want = (seconds.max(0.0) * f64::from(decoder.sample_rate())).ceil() as usize;
-    while decoder.frames() < want && !decoder.step(8)? {}
-    let mut audio = decoder.finish()?;
-    for c in &mut audio.channels {
-        c.truncate(want);
-    }
-    Ok(audio)
+    let decoder = Decoder::start(bytes, seconds)?;
+    let want = frames_until(seconds, decoder.sample_rate());
+    decoder.run_to(Some(want), 8)
 }
 
 #[cfg(test)]

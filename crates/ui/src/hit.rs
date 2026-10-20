@@ -27,15 +27,9 @@ use ddi_actor::{Actor, Kind};
 /// `y' = m[1]x + m[3]y + m[5]` (the actor crate's).
 pub type Affine = [f32; 6];
 
-/// The identity, and `parent · local` (`local` first): the actor crate's.
-pub use ddi_actor::{TRANSFORM_IDENTITY as IDENTITY, mul};
-
-pub fn apply(m: &Affine, p: [f32; 2]) -> [f32; 2] {
-    [
-        m[0] * p[0] + m[2] * p[1] + m[4],
-        m[1] * p[0] + m[3] * p[1] + m[5],
-    ]
-}
+/// The identity, `parent · local` (`local` first) and a point under a
+/// transform: the actor crate's.
+pub use ddi_actor::{TRANSFORM_IDENTITY as IDENTITY, apply, mul};
 
 /// The inverse; `None` when the transform squashes the plane (a zoom of
 /// 0, a quarter turn about x or y).

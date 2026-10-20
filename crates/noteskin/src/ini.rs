@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use ddi_actor::commands::scan_float;
+
 /// Sections in file order, each with its keys in order. Names are
 /// case-sensitive, as StepMania's `XNode` children and attributes are.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -151,47 +153,12 @@ const TRIM: &[char] = &[' ', '\t', '\r', '\n'];
 /// `StringToFloat` (`src/RageUtil.cpp`): `strtof` on the leading number,
 /// whatever follows; 0 when there is none or it is not finite.
 pub fn string_to_float(s: &str) -> f32 {
-    let t = s.trim_start_matches(|c: char| c.is_ascii_whitespace());
-    let b = t.as_bytes();
-    let mut i = 0;
-    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
-        i += 1;
-    }
-    let digits_start = i;
-    while i < b.len() && b[i].is_ascii_digit() {
-        i += 1;
-    }
-    let mut digits = i - digits_start;
-    if i < b.len() && b[i] == b'.' {
-        i += 1;
-        let frac = i;
-        while i < b.len() && b[i].is_ascii_digit() {
-            i += 1;
-        }
-        digits += i - frac;
-    }
-    if digits == 0 {
-        // `strtof` also reads "inf", "nan" and hex floats; the first two are
-        // not finite (0 here), hex floats do not occur in skins.
-        return 0.0;
-    }
-    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
-        let mut j = i + 1;
-        if j < b.len() && (b[j] == b'+' || b[j] == b'-') {
-            j += 1;
-        }
-        let exp = j;
-        while j < b.len() && b[j].is_ascii_digit() {
-            j += 1;
-        }
-        if j > exp {
-            i = j;
-        }
-    }
-    match t[..i].parse::<f32>() {
-        Ok(v) if v.is_finite() => v,
-        _ => 0.0,
-    }
+    // `strtof` also reads "inf", "nan" and hex floats; the first two are not
+    // finite (0 here), hex floats do not occur in skins.
+    scan_float(s)
+        .map(|(v, _)| v)
+        .filter(|v| v.is_finite())
+        .unwrap_or(0.0)
 }
 
 /// `StringToInt` (`std::stoi` with 0 on failure): the leading integer.

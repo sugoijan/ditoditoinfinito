@@ -153,6 +153,17 @@ impl Calibrator {
     }
 }
 
+/// More than a quarter of the notes were missed.
+fn high_miss_rate(hits: u32, misses: u32) -> bool {
+    misses * 4 > hits.max(1)
+}
+
+/// Enough evidence to stop the test as unreliable
+/// ([`Outcome::should_stop_early`], without working out the residuals).
+pub fn stop_early(hits: u32, misses: u32) -> bool {
+    misses >= EARLY_STOP_MISSES && high_miss_rate(hits, misses)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Outcome {
     pub correction: f64,
@@ -180,12 +191,12 @@ impl Outcome {
     }
 
     pub fn high_miss_rate(&self) -> bool {
-        self.misses * 4 > self.hits.max(1)
+        high_miss_rate(self.hits, self.misses)
     }
 
     /// Enough evidence to stop the test as unreliable.
     pub fn should_stop_early(&self) -> bool {
-        self.misses >= EARLY_STOP_MISSES && self.high_miss_rate()
+        stop_early(self.hits, self.misses)
     }
 
     /// What saving should add to the setting: the applied correction plus the

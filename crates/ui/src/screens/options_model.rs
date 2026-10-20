@@ -17,14 +17,9 @@ use ddi_platform::gamepad::Control;
 use super::data::{OptionDef, OptionKind, OptionSection, OptionsData};
 use crate::state::bind::Bound;
 use crate::state::settings::{
-    BackgroundFrame, FIELD_FILTERS, Graphics, NoteColors, PadBindings, ReducedMotion, Settings,
-    VideoMode, slider_to_volume, volume_to_slider,
+    BUILT_IN, BUNDLED, BackgroundFrame, FIELD_FILTERS, Graphics, NoteColors, PadBindings,
+    ReducedMotion, Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
-
-/// The noteskin setting's value for the built-in arrows without a skin.
-pub const BUILT_IN: &str = "builtin";
-/// Bundled skins' keys start so.
-pub const BUNDLED: &str = "bundled:";
 
 /// The volume sample.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -570,7 +565,7 @@ impl OptionsModel {
             for (i, p) in list.iter().enumerate() {
                 let mut r = offset(
                     &format!("profile.{kind}.{i}"),
-                    &format!("{}: {}", cap(kind), p.label),
+                    &format!("{}: {}", super::capitalized(kind), p.label),
                     p.offset,
                     if p.calibrated {
                         "calibrated"
@@ -1666,13 +1661,6 @@ fn count(n: usize, one: &str, many: &str) -> String {
         1 => format!("1 {one}"),
         n => format!("{n} {many}"),
     }
-}
-
-fn cap(s: &str) -> String {
-    let mut c = s.chars();
-    c.next()
-        .map(|f| f.to_uppercase().chain(c).collect())
-        .unwrap_or_default()
 }
 
 /// "2.5", "3".

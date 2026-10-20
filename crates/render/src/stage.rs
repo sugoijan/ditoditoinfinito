@@ -7,7 +7,7 @@
 use ddi_engine::sprites::{SpriteDraw, SpriteSource, StageLayer};
 
 use crate::color::to_target;
-use crate::textured::{QuadBlend, Shape, TexQuad};
+use crate::textured::{Shape, TexQuad};
 
 /// A content's texture: its registered id and its own size in the stage's
 /// px (an image's natural size; text as laid out).
@@ -67,16 +67,7 @@ pub fn quads(
         };
         // Brightness can only darken here (a multiply).
         let b = d.brightness.clamp(0.0, 1.0);
-        let quad = TexQuad {
-            shape,
-            color: to_target([b, b, b, opacity], srgb),
-            glow: false,
-            texture: tex.id,
-            blend: QuadBlend::Normal,
-            wrap: false,
-            gradient: None,
-            mask: Default::default(),
-        };
+        let quad = TexQuad::new(shape, to_target([b, b, b, opacity], srgb), tex.id);
         match d.layer {
             StageLayer::Back => back.push(quad),
             StageLayer::Mask => mask.push(quad),

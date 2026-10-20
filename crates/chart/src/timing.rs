@@ -397,6 +397,11 @@ impl TimingMap {
             .sum()
     }
 
+    /// Seconds at which the song reaches `tick`, before a delay on it.
+    pub fn seconds_before_delay(&self, tick: Tick) -> f64 {
+        self.seconds_at(tick) - self.delay_at(tick)
+    }
+
     /// Speed multiplier from `#SPEEDS` at a song position.
     ///
     /// As `TimingData::GetDisplayedSpeedPercent`: the ramp from the previous
@@ -417,7 +422,7 @@ impl TimingMap {
         if seg.delay <= 0.0 {
             return seg.ratio;
         }
-        let start_time = self.seconds_at(seg.tick) - self.delay_at(seg.tick);
+        let start_time = self.seconds_before_delay(seg.tick);
         let end_time = match seg.unit {
             SpeedUnit::Beats => {
                 let end_beat = seg.tick.beat() + seg.delay;

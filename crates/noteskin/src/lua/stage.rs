@@ -8,7 +8,7 @@
 //! path of child indices to it, recorded again when a frame sorts its
 //! children ([`Stage::reindex`]).
 
-use ddi_actor::{Actor, Kind};
+use ddi_actor::Actor;
 
 #[derive(Default)]
 pub(crate) struct Stage {
@@ -107,10 +107,7 @@ impl Stage {
         }
         let mut a: &mut Actor = self.roots.get_mut(*root)?;
         for &i in path {
-            a = match &mut a.kind {
-                Kind::Frame(c) => c.get_mut(usize::from(i))?,
-                _ => return None,
-            };
+            a = a.children_mut().get_mut(usize::from(i))?;
         }
         Some(a)
     }

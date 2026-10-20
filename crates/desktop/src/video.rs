@@ -53,8 +53,10 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+pub use ddi_platform::video::Picture;
 use ddi_platform::video::{
-    VideoBackend, VideoDecoder, VideoEvent, VideoFormat, VideoFrame, VideoInfo, YuvMatrix,
+    PROBE_SECONDS, PROBE_SHARES, PlanePool, VideoBackend, VideoDecoder, VideoEvent, VideoFormat,
+    VideoFrame, VideoInfo, YuvMatrix,
 };
 use ddi_video_protocol::{Reply, Request};
 
@@ -153,8 +155,6 @@ pub struct DecoderStatus {
 pub const NOT_INCLUDED: &str = "the video decoder is not included in this build";
 /// Broken frames in a row before the movie counts as broken.
 const MAX_BAD_FRAMES: u32 = 50;
-/// Frame buffers kept for the next frames (`crates/web/src/web/video.rs`).
-const SPARE_KEPT: usize = 8;
 /// How far ahead a read fills its window.
 const READ_AHEAD: usize = 64 * 1024;
 /// Decoder messages shown, at most.
@@ -166,10 +166,6 @@ const MAX_LOG_LINES: u32 = 200;
 pub const CALL_DEADLINE: Duration = Duration::from_secs(10);
 /// The longest decoder message kept, bytes (longer ones are cut).
 const MAX_LOG_LINE: usize = 4096;
-/// Where the black-bar probe samples a movie: shares of its duration, or
-/// seconds when it is unknown.
-const PROBE_SHARES: [f64; 6] = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9];
-const PROBE_SECONDS: [f64; 6] = [1.0, 3.0, 6.0, 10.0, 15.0, 20.0];
 
 /// Where the decoder helper stands.
 #[derive(Clone, Debug, PartialEq)]
@@ -214,16 +210,6 @@ fn helper_near(exe: &Path) -> Option<PathBuf> {
         .take_while(|a| !a.file_name().is_none_or(|n| n == "target"))
         .map(|d| d.join("video").join(&name))
         .find(|p| p.is_file())
-}
-
-/// A movie's picture as the black-bar probe found it.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Picture {
-    pub width: u32,
-    pub height: u32,
-    /// The area inside the movie's own black bars, `(x, y, width,
-    /// height)`; `None` when every sample was black.
-    pub bounds: Option<(u32, u32, u32, u32)>,
 }
 
 /// Hands a frame to the renderer's movie `id` (from
@@ -1108,7 +1094,8 @@ pub(super) struct Machine {
     loaded: Option<HelperStatus>,
     running: Option<helper::Helper>,
     videos: HashMap<u32, Video>,
-    spare: Vec<Vec<u8>>,
+    /// Frame buffers kept for the next frames.
+    spare: PlanePool,
     shared: Arc<Mutex<Shared>>,
 }
 
@@ -1135,7 +1122,7 @@ impl Machine {
             loaded: None,
             running: None,
             videos: HashMap::new(),
-            spare: Vec::new(),
+            spare: PlanePool::new(),
             shared,
         }
     }
@@ -1152,7 +1139,7 @@ impl Machine {
     fn post(&mut self, id: u32, epoch: Option<u32>, event: Event) {
         let back = self.shared().post(id, epoch, event);
         if let Some(planes) = back {
-            self.keep_spare(planes);
+            self.spare.give(planes);
         }
     }
 
@@ -1168,17 +1155,6 @@ impl Machine {
         if let Some(movie) = self.shared().movies.get_mut(&id) {
             movie.decoder = status;
         }
-    }
-
-    fn keep_spare(&mut self, planes: Vec<u8>) {
-        if planes.capacity() == 0 {
-            return;
-        }
-        // The oldest goes when full, so a movie of another size takes over.
-        if self.spare.len() >= SPARE_KEPT {
-            self.spare.remove(0);
-        }
-        self.spare.push(planes);
     }
 
     fn handle(&mut self, msg: Msg) {
@@ -1213,7 +1189,7 @@ impl Machine {
                 Ok(())
             }
             Msg::Recycle(planes) => {
-                self.keep_spare(planes);
+                self.spare.give(planes);
                 Ok(())
             }
             Msg::Open { id, path, name } => self.open(id, path, &name),
@@ -1493,9 +1469,7 @@ impl Machine {
         let size = planes_in_slot(&h.arena.layout, slot, width, height)?;
         let range = h.arena.layout.frame(slot).expect("checked");
         let src = h.arena.slice(&(range.start..range.start + size));
-        let i = self.spare.iter().position(|v| v.capacity() >= size);
-        let mut planes = i.map_or_else(|| Vec::with_capacity(size), |i| self.spare.swap_remove(i));
-        planes.clear();
+        let mut planes = self.spare.take(size);
         planes.extend_from_slice(src);
         Ok(Frame {
             pts,

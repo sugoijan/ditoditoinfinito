@@ -16,7 +16,7 @@ use std::rc::{Rc, Weak};
 
 use ddi_chart::Layout;
 use ddi_render::Renderer;
-use ddi_render::field_preview::{BPM, FieldPreview, FieldPreviewOptions};
+use ddi_render::field_preview::{BPM, FieldPreview, FieldPreviewOptions, SkinWant};
 use ddi_render::noteskin::NoteskinPlay;
 
 pub(crate) use ddi_render::field_preview::SOURCE;
@@ -63,22 +63,7 @@ pub(crate) fn options(settings: &Settings) -> FieldPreviewOptions {
 /// is loaded for (its key, the layout, the direction): `None` for the
 /// built-in arrows. The demo has no colors of its own.
 fn wanted_skin(settings: &Settings, options: &FieldPreviewOptions) -> SkinWant {
-    SkinWant {
-        key: crate::noteskins::play_skin(
-            settings.noteskin_for(&options.layout),
-            settings.note_colors,
-            false,
-        ),
-        layout: options.layout.clone(),
-        reverse: options.play.scroll.reverse,
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct SkinWant {
-    key: Option<String>,
-    layout: String,
-    reverse: bool,
+    SkinWant::new(settings.play_skin(&options.layout, None), options)
 }
 
 /// The preview on one device.
@@ -223,7 +208,7 @@ impl FieldPreviewHost {
         if self.shown.as_ref() == Some(&want) || self.ready.as_ref().is_some_and(|r| r.0 == want) {
             return;
         }
-        let layout = Layout::builtin(&want.layout).unwrap_or_else(Layout::dance_single);
+        let layout = want.layout();
         let Some(key) = want.key.clone() else {
             // The built-in arrows: at once.
             self.show_skin(gfx, want, None);
@@ -234,19 +219,9 @@ impl FieldPreviewHost {
         let host = host.clone();
         let current = self.load_number.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let env = ddi_engine::demo::song(&want.layout, BPM).and_then(|song| {
-                let chart = song.charts.first()?;
-                Some(ddi_noteskin::lua::chart_env(
-                    &song,
-                    chart,
-                    &layout,
-                    want.reverse,
-                ))
-            });
+            let env = want.env(&layout);
             let wanted: crate::noteskins::Wanted = Rc::new(move || current.get() == number);
-            let prepared =
-                crate::noteskins::prepare_while(&key, &layout, env.unwrap_or_default(), wanted)
-                    .await;
+            let prepared = crate::noteskins::prepare_while(&key, &layout, env, wanted).await;
             let Some(rc) = host.upgrade() else {
                 if let Some(p) = prepared {
                     p.close();

@@ -28,7 +28,7 @@
 //! notch.
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
 use ddi_actor::{Actor, Kind};
@@ -436,16 +436,7 @@ impl ListModel for Wheel<'_> {
                     .map(|b| cx.texture(b, self.banner_side));
                 set_image(item, "Banner", banner);
                 let charts = song.charts_in(self.style);
-                for (k, d) in [
-                    Difficulty::Beginner,
-                    Difficulty::Easy,
-                    Difficulty::Medium,
-                    Difficulty::Hard,
-                    Difficulty::Challenge,
-                ]
-                .into_iter()
-                .enumerate()
-                {
+                for (k, &d) in Difficulty::ALL[..5].iter().enumerate() {
                     let chart = charts.iter().find(|c| c.difficulty == d);
                     let meter = chart.map(|c| c.meter);
                     set_text(
@@ -508,6 +499,8 @@ pub struct SelectScreen {
     resume: Option<(String, Option<usize>)>,
     resume_pack: Option<String>,
     matches: Option<Vec<bool>>,
+    /// How many songs `matches` matches.
+    match_count: usize,
     items: Vec<Item>,
     list: List,
     search: SearchField,
@@ -618,6 +611,7 @@ impl SelectScreen {
             resume: None,
             resume_pack: None,
             matches: None,
+            match_count: 0,
             items: Vec::new(),
             search,
             suggester: RefCell::new(None),
@@ -826,38 +820,37 @@ impl SelectScreen {
             .iter()
             .filter_map(|&p| self.packs.get(p).map(|(n, _)| n.clone()))
             .collect();
+        // The packs in order of first song.
         let mut packs: Vec<(String, Vec<usize>)> = Vec::new();
+        let mut pack_at: HashMap<&str, usize> = HashMap::new();
         for (i, s) in data.songs.iter().enumerate() {
-            match packs.iter_mut().find(|(p, _)| *p == s.pack) {
-                Some((_, v)) => v.push(i),
-                None => packs.push((s.pack.clone(), vec![i])),
-            }
+            let p = *pack_at.entry(s.pack.as_str()).or_insert_with(|| {
+                packs.push((s.pack.clone(), Vec::new()));
+                packs.len() - 1
+            });
+            packs[p].1.push(i);
         }
-        let f = |s: &str| (self.env.fold)(s);
-        self.haystacks = data
-            .songs
-            .iter()
-            .map(|s| {
-                let credits: Vec<&str> = s
-                    .charts
-                    .iter()
-                    .flat_map(|c| [c.credit.as_str(), c.name.as_str()])
-                    .collect();
-                ddi_library::search::haystack(
-                    [
-                        s.title.as_str(),
-                        s.subtitle.as_str(),
-                        s.artist.as_str(),
-                        s.pack.as_str(),
-                        s.credit.as_str(),
-                    ]
-                    .into_iter()
-                    .chain(credits),
-                    [s.title_translit.as_str(), s.artist_translit.as_str()],
-                    &f,
-                )
-            })
-            .collect();
+        // The songs' search text, folded again only when what it is made
+        // of changed.
+        let unchanged = self.haystacks.len() == data.songs.len()
+            && self.data.songs.len() == data.songs.len()
+            && self
+                .data
+                .songs
+                .iter()
+                .zip(&data.songs)
+                .all(|(a, b)| same_search(a, b));
+        if !unchanged {
+            let f = |s: &str| (self.env.fold)(s);
+            self.haystacks = data
+                .songs
+                .iter()
+                .map(|s| {
+                    let (fields, credits, translits) = search_fields(s);
+                    ddi_library::search::haystack(fields.into_iter().chain(credits), translits, &f)
+                })
+                .collect();
+        }
         self.packs = packs;
         *self.suggester.borrow_mut() = None;
         self.data = Rc::new(data);
@@ -1684,14 +1677,14 @@ impl SelectScreen {
         }
         let now = self.hints_now();
         let searching = !self.search.text.is_empty();
-        let manage = self.manageable().is_some();
+        let manage = self.can_manage();
         // While searching (not typing), what it found.
         let found = match (&self.matches, now) {
             _ if self.gesture_note > 0.0 && now != Hints::Typing => {
                 "Press Enter or tap to open the link.".to_string()
             }
             (_, Hints::Typing) | (None, _) => String::new(),
-            (Some(m), _) => match m.iter().filter(|&&x| x).count() {
+            (Some(_), _) => match self.match_count {
                 0 => "No song matches.".to_string(),
                 1 => "1 song matches.".to_string(),
                 n => format!("{n} songs match."),
@@ -1825,6 +1818,22 @@ impl SelectScreen {
             self.open = target;
         }
         self.env.look.set_wheel_open("Wheel", self.open);
+    }
+
+    /// Whether Manage can act on what is selected ([`Self::manageable`]
+    /// is some).
+    fn can_manage(&self) -> bool {
+        match self.selected_item() {
+            Some(Item::Header(p)) => self.packs.get(p).is_some_and(|(name, _)| {
+                self.data
+                    .packs
+                    .iter()
+                    .find(|q| q.name == *name)
+                    .is_some_and(|q| q.removable || q.rereadable)
+            }),
+            Some(Item::Song(i)) => self.data.songs.get(i).is_some_and(|s| s.removable),
+            None => false,
+        }
     }
 
     /// What Manage acts on: the selected header's pack, or the selected
@@ -2389,10 +2398,11 @@ impl SelectScreen {
             self.list.select(at);
         }
         self.follow();
-        let n = self
-            .matches
-            .as_ref()
-            .map_or(self.data.songs.len(), |m| m.iter().filter(|&&x| x).count());
+        let n = if self.matches.is_some() {
+            self.match_count
+        } else {
+            self.data.songs.len()
+        };
         self.env.state.borrow_mut().matches = n;
     }
 
@@ -2407,10 +2417,15 @@ impl SelectScreen {
             let q = ddi_library::search::Query::new(text, &f);
             Some(self.haystacks.iter().map(|h| q.matches(h)).collect())
         };
-        let n = self
+        self.match_count = self
             .matches
             .as_ref()
-            .map_or(self.data.songs.len(), |m| m.iter().filter(|&&x| x).count());
+            .map_or(0, |m| m.iter().filter(|&&x| x).count());
+        let n = if self.matches.is_some() {
+            self.match_count
+        } else {
+            self.data.songs.len()
+        };
         self.env.state.borrow_mut().matches = n;
     }
 
@@ -2525,6 +2540,31 @@ impl SelectScreen {
             });
         st.notices = self.notices.iter().map(|n| n.text.clone()).collect();
     }
+}
+
+/// What a song is searched by: its fields, its charts' credits and
+/// names, and its transliterations.
+fn search_fields(s: &SongEntry) -> ([&str; 5], impl Iterator<Item = &str> + '_, [&str; 2]) {
+    (
+        [
+            s.title.as_str(),
+            s.subtitle.as_str(),
+            s.artist.as_str(),
+            s.pack.as_str(),
+            s.credit.as_str(),
+        ],
+        s.charts
+            .iter()
+            .flat_map(|c| [c.credit.as_str(), c.name.as_str()]),
+        [s.title_translit.as_str(), s.artist_translit.as_str()],
+    )
+}
+
+/// Whether two songs are searched by the same text.
+fn same_search(a: &SongEntry, b: &SongEntry) -> bool {
+    let (a_fields, a_credits, a_translits) = search_fields(a);
+    let (b_fields, b_credits, b_translits) = search_fields(b);
+    a_fields == b_fields && a_translits == b_translits && a_credits.eq(b_credits)
 }
 
 /// Suggestions for what is typed: titles, artists and packs (the
@@ -2799,10 +2839,12 @@ impl Screen for SelectScreen {
             }
         }
         // The beat pulse on the selected row and chart.
-        let (id, bpm) = self
-            .song()
-            .map_or((String::new(), 0.0), |s| (s.id.clone(), s.bpm));
-        let v = self.pulse.update(dt, &self.env, &id, bpm);
+        let song = match self.shown {
+            Some(Item::Song(s)) => self.data.songs.get(s),
+            _ => None,
+        };
+        let (id, bpm) = song.map_or(("", 0.0), |s| (s.id.as_str(), s.bpm));
+        let v = self.pulse.update(dt, &self.env, id, bpm);
         let row = self.list.selected().and_then(|i| self.list.item_actor(i));
         light(root, row.as_deref(), v, &mut self.lit);
         let (_, pick) = self.charts();

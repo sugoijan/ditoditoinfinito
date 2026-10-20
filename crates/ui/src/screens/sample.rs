@@ -125,7 +125,7 @@ const BUNDLED: [Bundled; 4] = [
 ];
 
 /// The bundled songs' pack, as the song list names it.
-pub const BUNDLED_PACK: &str = "Bundled songs";
+pub use crate::state::select_view::BUNDLED_PACK;
 
 /// The styles, as `ddi_chart`'s built-in layouts name them.
 pub fn styles() -> Vec<StyleDef> {
@@ -549,6 +549,27 @@ pub fn prompt_screen(env: &Env, step: super::prompt::PromptStep) -> super::promp
         ..PromptState::default()
     }));
     PromptScreen::new(env.clone(), state, Rc::new(|_, _| {}))
+}
+
+/// What the sample's options do when changed: reduced motion is the
+/// settings' (saved, and the screens follow it at once, `system` the
+/// system's preference); the rest is the sample's.
+pub fn motion_change(env: &Env, system: fn() -> bool) -> ChangeFn {
+    use crate::state::settings::{ReducedMotion, Settings};
+    let env = env.clone();
+    Rc::new(move |_section: &str, o: &super::data::OptionDef| {
+        if o.label != "Reduced motion" {
+            return;
+        }
+        let mut settings = Settings::load();
+        settings.reduced_motion = match o.index {
+            1 => ReducedMotion::On,
+            2 => ReducedMotion::Off,
+            _ => ReducedMotion::Auto,
+        };
+        settings.save();
+        env.follow_motion(settings.reduced_motion, system());
+    })
 }
 
 /// Options over [`options`], reduced motion as the shell has it.

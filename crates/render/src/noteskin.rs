@@ -11,7 +11,7 @@
 //! a host limit), every element is the built-in skin's for the rest of
 //! the play ([`NoteskinPlay::lua_failure`]).
 
-use ddi_actor::{Actor, Blend, Clocks, Drawn, Kind, ModelDraw, Problems, Quad};
+use ddi_actor::{Actor, Clocks, Drawn, Kind, ModelDraw, Problems, Quad};
 use ddi_chart::Layout;
 use ddi_engine::frame::{Frame, HoldKind, NoteSprite, SkinEvent, SkinEventKind, SpriteKind};
 use ddi_engine::rules::Judgement;
@@ -22,8 +22,9 @@ use ddi_noteskin::metrics::{NoteDisplay, Part};
 use ddi_noteskin::notes::{animation_percent, color_offset, note_type};
 use ddi_noteskin::{Button, LaneButton, Skin};
 
+use crate::actors2d;
 use crate::color::to_target;
-use crate::model::{Camera, triangles};
+use crate::model::{Camera, Corners, Seen, triangles_with};
 use crate::scene::FieldGeometry;
 use crate::stencil::Mask;
 use crate::textured::{QuadBlend, Shape, TexQuad, UNTEXTURED};
@@ -227,6 +228,9 @@ pub struct NoteskinPlay {
     triangles: std::cell::Cell<usize>,
     /// What an actor drew, reused by each [`NoteskinPlay::emit`].
     drawn: std::cell::Cell<Vec<Drawn>>,
+    /// A model's triangles and meshes, reused by each
+    /// [`NoteskinPlay::push_model`].
+    model_scratch: std::cell::Cell<ModelScratch>,
     /// The field's perspective this frame, for models.
     camera: Camera,
     textures: Textures,
@@ -248,11 +252,22 @@ pub struct NoteskinPlay {
     /// Why the skin's Lua stopped during the play, and whether only the
     /// clock stopped it (the backstop: a stalled machine, not the skin).
     lua_failure: Option<(String, bool)>,
+    /// [`NoteskinPlay::take_lua_stop`] has told of the stop.
+    lua_stop_taken: bool,
     /// Fuel the skin's Lua spent in the last frame, and at most in one.
     lua_fuel: (u64, u64),
     /// A skin in StepMania 3.9's format: its explosion rows take the
     /// score with the row's name (`ddi_noteskin::legacy`).
     legacy: bool,
+}
+
+/// What [`NoteskinPlay::push_model`] reuses: a model's triangles seen,
+/// its vertices seen, and each mesh's texture and color.
+#[derive(Default)]
+struct ModelScratch {
+    seen: Vec<Seen>,
+    corners: Corners,
+    meshes: Vec<(Option<u32>, [f32; 4])>,
 }
 
 /// The most triangles a frame's models draw (a model has at most
@@ -815,6 +830,7 @@ impl NoteskinPlay {
             quads: std::cell::Cell::new(0),
             triangles: std::cell::Cell::new(0),
             drawn: std::cell::Cell::default(),
+            model_scratch: std::cell::Cell::default(),
             camera: Camera {
                 vanish: [0.0; 2],
                 distance: 1.0,
@@ -834,6 +850,7 @@ impl NoteskinPlay {
             lua,
             lua_seen: 0,
             lua_failure: None,
+            lua_stop_taken: false,
             lua_fuel: (0, 0),
             legacy: false,
         };
@@ -865,6 +882,18 @@ impl NoteskinPlay {
         self.lua_failure.as_ref().is_some_and(|(_, clock)| *clock)
     }
 
+    /// Why the skin's Lua stopped, and whether on the clock alone
+    /// ([`NoteskinPlay::lua_stopped_on_clock`]), the first time it is
+    /// asked once it has: a shell reports a stop once per play it
+    /// installs, a retry's included.
+    pub fn take_lua_stop(&mut self) -> Option<(&str, bool)> {
+        let (why, clock) = self.lua_failure.as_ref()?;
+        if std::mem::replace(&mut self.lua_stop_taken, true) {
+            return None;
+        }
+        Some((why.as_str(), *clock))
+    }
+
     /// Fuel the skin's Lua spent in the last frame, and the most in one.
     pub fn lua_fuel(&self) -> (u64, u64) {
         self.lua_fuel
@@ -873,6 +902,25 @@ impl NoteskinPlay {
     /// The textures the actors draw, by index.
     pub fn texture_keys(&self) -> &[TextureKey] {
         self.textures.keys()
+    }
+
+    /// Each texture's image among `images` (a skin's images as the shell
+    /// decoded them, by `(folder, path)`), by texture index: `None` for
+    /// the built-in art and an image not decoded.
+    pub fn images_for<T: Clone>(
+        &self,
+        images: &std::collections::HashMap<(usize, String), T>,
+    ) -> Vec<Option<T>> {
+        self.texture_keys()
+            .iter()
+            .map(|k| match k {
+                TextureKey::Skin {
+                    dir: ddi_noteskin::Dir::Folder(i),
+                    path,
+                } => images.get(&(*i, path.clone())).cloned(),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Actual textures referenced by a lane's built actors, for authoring inspection. This
@@ -1289,24 +1337,31 @@ impl NoteskinPlay {
         if m.diffuse[3] < 0.001 && m.glow[3] < 0.001 {
             return;
         }
-        let mut seen = Vec::new();
+        let mut scratch = self.model_scratch.take();
+        let ModelScratch {
+            seen,
+            corners,
+            meshes,
+        } = &mut scratch;
+        seen.clear();
         // An `fov` frame's camera, or the field's.
         let camera = m
             .perspective
             .as_ref()
             .map_or(self.camera, Camera::of_perspective);
-        triangles(m, &camera, offset, &mut seen);
+        triangles_with(m, &camera, offset, seen, corners);
         // A frame's budget: models past it are not drawn.
         let passes = 1 + usize::from(m.glow[3] > 0.0001);
         let total = self.triangles.get() + seen.len() * passes;
         if total > MAX_FRAME_TRIANGLES {
+            self.model_scratch.set(scratch);
             return;
         }
         self.triangles.set(total);
         // `DrawPrimitives` sets the blend back to normal after each mesh:
         // the actor's blends the first mesh, and the glow pass only when
         // no diffuse pass came before it.
-        let blend = quad_blend(m.blend);
+        let blend = actors2d::blend(m.blend);
         let diffuse = m.diffuse[3] > 0.0;
         let mesh_blend = |mesh: usize| {
             if mesh == 0 { blend } else { QuadBlend::Normal }
@@ -1315,49 +1370,45 @@ impl NoteskinPlay {
         // A mesh's texture id (`UNTEXTURED`: its color alone; `None`: not
         // loaded) and color; a mesh without a material is grey
         // (`DrawPrimitives`' fallback material, unlit).
-        let meshes: Vec<(Option<u32>, [f32; 4])> = m
-            .geometry
-            .meshes
-            .iter()
-            .map(
-                |mesh| match mesh.material.and_then(|i| m.materials.get(i)) {
-                    Some(&(Some(t), color, _)) => {
-                        (self.texture_ids.get(t as usize).copied().flatten(), color)
-                    }
-                    Some(&(None, color, _)) => (Some(UNTEXTURED), color),
-                    None => (Some(UNTEXTURED), [0.9, 0.9, 0.9, 1.0]),
-                },
-            )
-            .collect();
-        let triangle =
-            |s: &crate::model::Seen, texture: u32, color: [f32; 4], glow: bool, blend| TexQuad {
-                shape: Shape::Triangle {
+        meshes.clear();
+        meshes.extend(m.geometry.meshes.iter().map(|mesh| {
+            match mesh.material.and_then(|i| m.materials.get(i)) {
+                Some(&(Some(t), color, _)) => {
+                    (self.texture_ids.get(t as usize).copied().flatten(), color)
+                }
+                Some(&(None, color, _)) => (Some(UNTEXTURED), color),
+                None => (Some(UNTEXTURED), [0.9, 0.9, 0.9, 1.0]),
+            }
+        }));
+        let triangle = |s: &Seen, texture: u32, color: [f32; 4], glow: bool, blend| TexQuad {
+            glow,
+            blend,
+            wrap: true,
+            ..TexQuad::new(
+                Shape::Triangle {
                     points: s.points,
                     w: s.w,
                     uv: s.uv,
                 },
-                color: to_target(color, self.srgb),
-                glow,
+                to_target(color, self.srgb),
                 texture,
-                blend,
-                wrap: true,
-                gradient: None,
-                mask: Mask::None,
-            };
+            )
+        };
         if diffuse {
-            for s in &seen {
+            for s in seen.iter() {
                 if let (Some(texture), color) = meshes[s.mesh] {
                     out.push(triangle(s, texture, color, false, mesh_blend(s.mesh)));
                 }
             }
         }
         if m.glow[3] > 0.0001 {
-            for s in &seen {
+            for s in seen.iter() {
                 if let (Some(texture), _) = meshes[s.mesh] {
                     out.push(triangle(s, texture, m.glow, true, glow_blend));
                 }
             }
         }
+        self.model_scratch.set(scratch);
     }
 
     /// A quad's diffuse and glow passes (`Sprite::DrawTexture`), its
@@ -1367,25 +1418,22 @@ impl NoteskinPlay {
         if q.depth.clear {
             // `clearzbuffer`: the mask cleared over the whole target.
             out.push(TexQuad {
-                shape: Shape::Quad {
-                    transform: [1e6, 0.0, 0.0, 1e6, 0.0, 0.0],
-                    uv: [0.0, 0.0, 1.0, 1.0],
-                },
-                // Opaque, so the alpha test keeps it; it draws no color.
-                color: [1.0; 4],
-                glow: false,
-                texture: UNTEXTURED,
                 blend: QuadBlend::NoEffect,
-                wrap: false,
-                gradient: None,
                 mask: Mask::Clear,
+                // Opaque, so the alpha test keeps it; it draws no color.
+                ..TexQuad::new(
+                    Shape::Quad {
+                        transform: [1e6, 0.0, 0.0, 1e6, 0.0, 0.0],
+                        uv: [0.0, 0.0, 1.0, 1.0],
+                    },
+                    [1.0; 4],
+                    UNTEXTURED,
+                )
             });
         }
-        let mask = crate::actors2d::mask(q.depth, q.blend);
-        // A mask's source that writes no mask draws nothing.
-        if q.blend == Blend::NoEffect && mask != Mask::Write {
+        let Some(mask) = actors2d::drawn_mask(q.depth, q.blend) else {
             return;
-        }
+        };
         let texture = if q.texture == ddi_actor::UNTEXTURED {
             UNTEXTURED
         } else {
@@ -1394,16 +1442,13 @@ impl NoteskinPlay {
                 _ => return,
             }
         };
-        let o = [
-            offset[0] + q.texcoord_offset[0],
-            offset[1] + q.texcoord_offset[1],
-        ];
-        let uv = [
-            q.uv[0] + o[0],
-            q.uv[1] + o[1],
-            q.uv[2] + o[0],
-            q.uv[3] + o[1],
-        ];
+        let uv = actors2d::offset_uv(
+            q.uv,
+            [
+                offset[0] + q.texcoord_offset[0],
+                offset[1] + q.texcoord_offset[1],
+            ],
+        );
         let shape = match q.projected {
             Some(p) => Shape::Projected {
                 corners: p.corners,
@@ -1417,14 +1462,10 @@ impl NoteskinPlay {
         };
         let colors = q.diffuse.map(|c| to_target(c, self.srgb));
         let base = TexQuad {
-            shape,
-            color: colors[0],
-            glow: false,
-            texture,
-            blend: quad_blend(q.blend),
-            wrap: false,
+            blend: actors2d::blend(q.blend),
             gradient: colors.iter().any(|c| *c != colors[0]).then_some(colors),
             mask,
+            ..TexQuad::new(shape, colors[0], texture)
         };
         if q.diffuse.iter().any(|c| c[3] > 0.0) {
             out.push(base);
@@ -1660,7 +1701,7 @@ impl NoteLayer for NoteskinPlay {
             let note_type = note_type(note.beat);
             lane.swap_hold_colors(note_type, roll);
             self.last_note_positions.insert(note.note_index, note.y);
-            let m = lane.metrics.clone();
+            let m = &lane.metrics;
             // The Active sprites while the button is held (always inside a
             // roll; `Player.cpp:1381-1386`, `1414-1424`).
             let pressed = frame.receptors.get(i).is_some_and(|r| r.pressed);
@@ -1695,6 +1736,14 @@ impl NoteLayer for NoteskinPlay {
                 } else {
                     &[(0, QuadBlend::Normal)]
                 };
+                // At most two spans.
+                let mut spans = [None; 2];
+                for (span, s) in spans
+                    .iter_mut()
+                    .zip(frame.appearance.visible_spans(note.y, tail_y))
+                {
+                    *span = Some(s);
+                }
                 for &(a, blend) in layers {
                     let spec = HoldDraw {
                         x,
@@ -1704,10 +1753,10 @@ impl NoteLayer for NoteskinPlay {
                         k,
                         color_scale,
                         blend,
-                        spans: frame.appearance.visible_spans(note.y, tail_y).collect(),
+                        spans,
                         lane_sign: l.scroll_sign,
                     };
-                    self.hold_body(parts, a, &m, note, frame, geo, &spec, out);
+                    self.hold_body(parts, a, m, note, frame, geo, &spec, out);
                 }
             }
             let a = state;
@@ -1729,7 +1778,7 @@ impl NoteLayer for NoteskinPlay {
                 let mut tail = std::mem::replace(&mut parts.tail[a], Element::Blank);
                 self.note_actor(
                     &mut tail,
-                    &m,
+                    m,
                     Part::HoldTail,
                     note.beat,
                     tail_vis,
@@ -1747,7 +1796,7 @@ impl NoteLayer for NoteskinPlay {
                 let mut head = std::mem::replace(&mut parts.head[a], Element::Blank);
                 self.note_actor(
                     &mut head,
-                    &m,
+                    m,
                     Part::HoldHead,
                     note.beat,
                     (note.alpha, note.glow),
@@ -1798,10 +1847,9 @@ impl NoteLayer for NoteskinPlay {
             let note_type = note_type(note.beat);
             let at = [geo.lane_x(l.column), geo.lane_y(l.scroll_sign, note.y)];
             let mut e = std::mem::replace(lane.note_slot(slot, note_type), Element::Blank);
-            let m = lane.metrics.clone();
             self.note_actor(
                 &mut e,
-                &m,
+                &lane.metrics,
                 part,
                 note.beat,
                 (note.alpha, note.glow),
@@ -1827,8 +1875,9 @@ struct HoldDraw {
     k: f32,
     color_scale: f32,
     blend: QuadBlend,
-    /// The parts Hidden/Sudden leave visible, in arrow heights.
-    spans: Vec<(f32, f32)>,
+    /// The parts Hidden/Sudden leave visible, in arrow heights, in order
+    /// ([`ddi_engine::appearance::Appearance::visible_spans`]).
+    spans: [Option<(f32, f32)>; 2],
     lane_sign: i8,
 }
 
@@ -1914,34 +1963,32 @@ impl NoteskinPlay {
         let flip_rect = |r: [f32; 4]| if flip { [r[0], r[3], r[2], r[1]] } else { r };
         // The visible stretches of the hold on screen (Hidden/Sudden),
         // `ArrowGetAlphaOrGlow` per vertex in StepMania.
-        let visible: Vec<(f32, f32)> = d
-            .spans
-            .iter()
-            .map(|&(lo, hi)| {
+        let visible = d.spans.map(|span| {
+            span.map(|(lo, hi)| {
                 let (a0, a1) = (geo.lane_y(d.lane_sign, lo), geo.lane_y(d.lane_sign, hi));
                 (a0.min(a1), a0.max(a1))
             })
-            .collect();
+        });
         // A cap shows when the end of the body it is attached to does.
         let shown_at = |y: f32| {
             visible
                 .iter()
+                .flatten()
                 .any(|&(v0, v1)| v0 <= y + 0.5 && v1 >= y - 0.5)
         };
         let c = d.color_scale;
         let color = to_target([c, c, c, 1.0], self.srgb);
         let quad = |texture: u32, y0: f32, y1: f32, width: f32, uv: [f32; 4], wrap: bool| TexQuad {
-            shape: Shape::Quad {
-                transform: [width, 0.0, 0.0, y1 - y0, d.x, (y0 + y1) / 2.0],
-                uv,
-            },
-            color,
-            glow: false,
-            texture,
             blend: d.blend,
             wrap,
-            gradient: None,
-            mask: Mask::None,
+            ..TexQuad::new(
+                Shape::Quad {
+                    transform: [width, 0.0, 0.0, y1 - y0, d.x, (y0 + y1) / 2.0],
+                    uv,
+                },
+                color,
+                texture,
+            )
         };
         let id = |t: u32| self.texture_ids.get(t as usize).copied().flatten();
         // The top cap: its whole frame above the head end.
@@ -1973,7 +2020,7 @@ impl NoteskinPlay {
                 (r[1] + add - shift, end + add - shift)
             };
             let v_at = |y: f32| v0 + (v1 - v0) * (y - top) / (bottom - top);
-            for &(s0, s1) in &visible {
+            for &(s0, s1) in visible.iter().flatten() {
                 let (y0, y1) = (s0.max(top), s1.min(bottom));
                 if y1 > y0 {
                     // Overshoot by a pixel at the bottom, as StepMania does.
@@ -2005,10 +2052,6 @@ impl NoteskinPlay {
             }
         }
     }
-}
-
-fn quad_blend(b: Blend) -> QuadBlend {
-    crate::actors2d::blend(b)
 }
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {

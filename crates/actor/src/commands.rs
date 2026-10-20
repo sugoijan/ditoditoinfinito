@@ -279,8 +279,9 @@ pub fn color_from_string(s: &str) -> [f32; 4] {
     [1.0; 4]
 }
 
-/// `%f`: optional white space, then a decimal number (C syntax).
-fn scan_float(s: &str) -> Option<(f32, &str)> {
+/// `%f`: optional white space, then a decimal number (C syntax), and
+/// what follows it; `None` when there are no mantissa digits.
+pub fn scan_float(s: &str) -> Option<(f32, &str)> {
     let t = s.trim_start_matches(|c: char| c.is_ascii_whitespace());
     let b = t.as_bytes();
     let mut i = 0;

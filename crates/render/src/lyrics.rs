@@ -64,7 +64,7 @@ impl Place {
         Place {
             size: [geo.width, geo.height],
             stage,
-            center_x: geo.left + geo.arrow * span / 2.0,
+            center_x: geo.center_x(span),
             keep_out,
             receptors: crate::scene::receptor_areas(geo, layout),
             min_size: 10.0 * ratio,

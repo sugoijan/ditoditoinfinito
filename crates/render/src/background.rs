@@ -32,23 +32,25 @@ const BLACK: usize = usize::MAX - 1;
 /// Uniform slots per image: sharp content, ambient base and soft content,
 /// for each place it may be drawn in (an image can show on both layers).
 const SLOTS: u64 = 3 * DRAWS as u64;
+/// `blur.wgsl`'s `Blur` uniform.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
-struct BlurParams {
-    step: [f32; 2],
-    brightness: f32,
+pub(crate) struct BlurParams {
+    pub(crate) step: [f32; 2],
+    pub(crate) brightness: f32,
     /// 1: the target holds linear light (the brightness is applied to the
     /// encoded values all the same).
-    linear: f32,
+    pub(crate) linear: f32,
     /// The field filter's band, as [`Params`] has it.
-    band: [f32; 2],
-    band_keep: f32,
-    _pad: f32,
-    uv_scale: [f32; 2],
-    uv_offset: [f32; 2],
-    opacity: f32,
-    base: f32,
-    _pad2: [f32; 2],
+    pub(crate) band: [f32; 2],
+    pub(crate) band_keep: f32,
+    /// 1: return straight alpha (a cached image's vertical pass).
+    pub(crate) unpremultiply: f32,
+    pub(crate) uv_scale: [f32; 2],
+    pub(crate) uv_offset: [f32; 2],
+    pub(crate) opacity: f32,
+    pub(crate) base: f32,
+    pub(crate) _pad2: [f32; 2],
 }
 
 #[repr(C)]
@@ -188,18 +190,8 @@ fn weights(bt709: bool) -> (f32, f32) {
 /// Texture coordinates `(scale, offset)` that cover a `target_w × target_h`
 /// area with an `image_w × image_h` image, cropping the overflow evenly.
 pub fn cover_uv(target_w: f32, target_h: f32, image_w: f32, image_h: f32) -> ([f32; 2], [f32; 2]) {
-    if target_w <= 0.0 || target_h <= 0.0 || image_w <= 0.0 || image_h <= 0.0 {
-        return ([1.0, 1.0], [0.0, 0.0]);
-    }
-    let target = target_w / target_h;
-    let image = image_w / image_h;
-    if image > target {
-        let s = target / image;
-        ([s, 1.0], [(1.0 - s) / 2.0, 0.0])
-    } else {
-        let s = image / target;
-        ([1.0, s], [0.0, (1.0 - s) / 2.0])
-    }
+    let [x, y] = ddi_actor::background::cover_scale(target_w, target_h, image_w, image_h);
+    ([x, y], [(1.0 - x) / 2.0, (1.0 - y) / 2.0])
 }
 
 /// Texture coordinates of the part `(scale, offset)` of the frame (in the
@@ -522,26 +514,21 @@ impl BackgroundPipeline {
     /// `RENDER_ATTACHMENT` is required by WebGPU's
     /// `copyExternalImageToTexture`.
     pub fn create_texture(&self, device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("ddi-background-image"),
-            size: wgpu::Extent3d {
-                width: width.max(1),
-                height: height.max(1),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: if self.srgb {
+        crate::gpu::texture_2d(
+            device,
+            "ddi-background-image",
+            [width.max(1), height.max(1)],
+            if self.srgb {
                 wgpu::TextureFormat::Rgba8UnormSrgb
             } else {
                 wgpu::TextureFormat::Rgba8Unorm
             },
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
+            1,
+            wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        })
+            &[],
+        )
     }
 
     fn params_buffer(&self, device: &wgpu::Device) -> wgpu::Buffer {
@@ -613,20 +600,15 @@ impl BackgroundPipeline {
     ) -> ([wgpu::Texture; 3], wgpu::BindGroup) {
         let (w, h) = (width.max(1), height.max(1));
         let plane = |w: u32, h: u32| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("ddi-background-plane"),
-                size: wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            })
+            crate::gpu::texture_2d(
+                device,
+                "ddi-background-plane",
+                [w, h],
+                wgpu::TextureFormat::R8Unorm,
+                1,
+                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                &[],
+            )
         };
         let planes = [
             plane(w, h),
@@ -811,24 +793,14 @@ impl BackgroundPipeline {
     fn make_image(&self, device: &wgpu::Device, texture: &wgpu::Texture) -> Image {
         let params = self.params_buffer(device);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ddi-background-bg"),
-            layout: &self.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: Self::params_binding(&params),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
+        let group = crate::gpu::uniform_texture_group(
+            device,
+            "ddi-background-bg",
+            &self.layout,
+            Self::params_binding(&params),
+            &view,
+            &self.sampler,
+        );
         let size = texture.size();
         Image {
             group,
@@ -841,23 +813,16 @@ impl BackgroundPipeline {
 
     fn make_wide(&self, device: &wgpu::Device, size: (u32, u32)) -> Wide {
         let target = || {
-            device
-                .create_texture(&wgpu::TextureDescriptor {
-                    label: Some("ddi-background-filtered"),
-                    size: wgpu::Extent3d {
-                        width: size.0,
-                        height: size.1,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::RENDER_ATTACHMENT,
-                    view_formats: &[],
-                })
-                .create_view(&Default::default())
+            crate::gpu::texture_2d(
+                device,
+                "ddi-background-filtered",
+                [size.0, size.1],
+                wgpu::TextureFormat::Rgba8Unorm,
+                1,
+                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                &[],
+            )
+            .create_view(&Default::default())
         };
         let (a, b) = (target(), target());
         let params: [wgpu::Buffer; 5] = std::array::from_fn(|_| {
@@ -869,24 +834,14 @@ impl BackgroundPipeline {
             })
         });
         let group = |source: &wgpu::TextureView, params: &wgpu::Buffer| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ddi-background-filter-group"),
-                layout: &self.blur_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: params.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(source),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            })
+            crate::gpu::uniform_texture_group(
+                device,
+                "ddi-background-filter-group",
+                &self.blur_layout,
+                params.as_entire_binding(),
+                source,
+                &self.sampler,
+            )
         };
         let groups = [
             group(&a, &params[0]),
@@ -1065,7 +1020,7 @@ impl BackgroundPipeline {
                     linear: if self.srgb { 1.0 } else { 0.0 },
                     band: band.map_or([0.0; 2], |v| v.0),
                     band_keep: band.map_or(1.0, |v| v.1),
-                    _pad: 0.0,
+                    unpremultiply: 0.0,
                     uv_scale: uv.0,
                     uv_offset: uv.1,
                     opacity: if content {

@@ -13,11 +13,10 @@ use serde::Deserialize;
 
 use super::{
     History, JUDGE_VERSION, PlayEntry, PlayLog, PlayRecord, PlaySummary, PlayTiming,
-    RECORD_VERSION, RulesetKey, Worked, find_chart, replay,
+    RECORD_VERSION, RulesetKey, Worked, find_chart, replay, score_text,
 };
 use crate::screens::data::PlayRow;
-use crate::state::select_view::{lamp_names, score_text};
-use crate::state::settings::Settings;
+use crate::state::settings::{BUILT_IN, BUNDLED, Settings};
 
 /// A kept play, read back to be watched again or its results shown.
 #[derive(Clone, Debug, PartialEq)]
@@ -144,11 +143,7 @@ impl Replay {
     /// `song` (as stored) as it was played: shifted by the play's song
     /// offset.
     pub fn played_song(&self, song: &Song) -> Song {
-        let mut s = song.clone();
-        if self.record.song_offset != 0.0 {
-            s.shift_notes(self.record.song_offset);
-        }
-        s
+        song.shifted(self.record.song_offset).into_owned()
     }
 
     /// The play judged again from its log on `song` (as stored): its
@@ -272,11 +267,12 @@ impl Replay {
 
     /// The noteskin the replay draws the play's chart (of layout
     /// `layout`) with, when it is one that must be installed: not the
-    /// built-in arrows, not Dito (bundled, chosen by no choice).
+    /// built-in arrows, not a bundled one (they ship with the game; Dito,
+    /// chosen by no choice, among them).
     pub fn skin(&self, settings: &Settings, layout: &str) -> Option<String> {
         settings
             .noteskin_for(layout)
-            .filter(|k| *k != "builtin")
+            .filter(|k| *k != BUILT_IN && !k.starts_with(BUNDLED))
             .map(str::to_string)
     }
 
@@ -341,6 +337,18 @@ impl Replay {
         }
     }
 
+    /// [`Self::check`] of a watched replay against the log judged at once
+    /// on `song` (as stored); a refusal of that is what differed.
+    pub fn check_on(&self, song: &Song, watched: &Results) -> ReplayCheck {
+        match self.results(song) {
+            Ok(offline) => self.check(watched, &offline),
+            Err(e) => ReplayCheck {
+                problems: vec![e],
+                ..Default::default()
+            },
+        }
+    }
+
     /// The results' line under a replay's or a kept play's results: when
     /// it was played (`tz` as [`play_rows`]'s).
     pub fn when_line(&self, tz: &dyn Fn(f64) -> i32) -> String {
@@ -400,7 +408,7 @@ pub fn play_rows(
         .filter(|(_, s)| s.chart.digest == digest)
         .map(|(id, s)| {
             let (lamp, lamp_text) = match &s.worked {
-                Some(w) => lamp_names(w.lamp),
+                Some(w) => w.lamp.names(),
                 None => ("None", ""),
             };
             PlayRow {
@@ -484,11 +492,7 @@ impl Ghost {
             options: replay.record.options,
             log: replay.log.clone(),
             last,
-            shift: 0.0,
-        })
-        .map(|g| Ghost {
             shift: replay.record.song_offset,
-            ..g
         })
     }
 

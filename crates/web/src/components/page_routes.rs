@@ -16,14 +16,12 @@ use std::rc::Rc;
 
 use crate::component::{Component, Context, NodeRef};
 use ddi_ui::screens::calibration::{self, CalAct};
-use ddi_ui::screens::options_dialogs::ConfirmDialog;
 use ddi_ui::screens::page::{PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageShell};
-use ddi_ui::{Cx, Message, TextMode, Ui, UiRequest};
+use ddi_ui::{Cx, TextMode, Ui, UiRequest};
 use web_sys::HtmlElement;
 
 use crate::components::ui_dev::{self, Host, Started};
 use crate::router::Route;
-use crate::settings::Settings;
 
 /// Which page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,7 +119,7 @@ impl PagePage {
         let env = theme.env().clone();
         let which = ctx.props().which;
         let (name, doc) = match which {
-            Which::Calibration => ("calibration", calibration_doc()),
+            Which::Calibration => ("calibration", calibration::stored_doc()),
             Which::Credits => ("credits", ddi_ui::screens::credits::waiting(None)),
         };
         let shell: PageShell = {
@@ -170,10 +168,6 @@ fn send(feed: &PageFeed, host: &Rc<RefCell<Option<std::rc::Weak<RefCell<Host>>>>
     ui_dev::broadcast_soon(weak, PAGE_CHANGED);
 }
 
-fn calibration_doc() -> PageDoc {
-    calibration::doc(&Settings::load(), crate::calibration::MAX_OFFSET * 1000.0)
-}
-
 /// A calibration button: a run (with the session's testing parameters),
 /// the options, or the reset, asked first.
 fn calibration_button(
@@ -202,23 +196,7 @@ fn calibration_button(
             None
         }
         CalAct::ConfirmReset => {
-            let (title, body, yes) = calibration::reset_texts();
-            let feed = feed.clone();
-            cx.overlay(
-                ConfirmDialog::new(
-                    env.clone(),
-                    &title,
-                    &body,
-                    &yes,
-                    Rc::new(move |cx| {
-                        let mut s = Settings::load();
-                        calibration::reset(&mut s);
-                        *feed.borrow_mut() = Some(calibration_doc());
-                        cx.broadcast(Message::new(PAGE_CHANGED));
-                    }),
-                ),
-                true,
-            );
+            calibration::confirm_reset(env, feed, cx);
             None
         }
         CalAct::Nothing => None,

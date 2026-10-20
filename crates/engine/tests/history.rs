@@ -139,11 +139,8 @@ fn assert_replays(label: &str, song: &Song, player: &Player) {
 }
 
 fn autoplay_script(player: &Player) -> Vec<(f64, u8, bool)> {
-    let mut script: Vec<(f64, u8, bool)> = autoplay::script(player.judge().notes(), 0.0)
-        .iter()
-        .flat_map(|p| [(p.press, p.lane, true), (p.release, p.lane, false)])
-        .collect();
-    script.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.2.cmp(&b.2)));
+    let mut script = autoplay::edges(autoplay::script(player.judge().notes(), 0.0));
+    autoplay::sort_edges(&mut script);
     script
 }
 

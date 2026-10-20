@@ -15,16 +15,9 @@ use ddi_engine::sprites::{SpriteSource, SpriteTrack};
 use ddi_render::Renderer;
 use ddi_render::stage::{self, StageTexture};
 use ddi_render::textured::TexQuad;
-use ddi_session::stage::StageLayers;
+use ddi_session::stage::{MAX_LAYER_SIDE, StageLayers, TEXT_SCALE};
 
 use super::view::Rgba;
-
-/// The longest side an image is kept at (the web's `MAX_LAYER_SIDE`).
-const MAX_LAYER_SIDE: u32 = 2048;
-/// Texts drawn at most (the web's `MAX_LAYER_TEXTS`).
-const MAX_LAYER_TEXTS: usize = 64;
-/// How much finer than its size text is drawn (the web's `TEXT_SCALE`).
-const TEXT_SCALE: f32 = 3.0;
 
 /// A content as it crosses threads ([`SpriteSource`] holds `Rc`s).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -72,24 +65,14 @@ pub fn contents(
     chart: usize,
     layers: &[(String, String)],
 ) -> Vec<(Content, Option<String>)> {
-    let mut sources = SpriteTrack::new(song, chart, false).sources();
-    for s in SpriteTrack::new(song, chart, true).sources() {
-        if !sources.contains(&s) {
-            sources.push(s);
-        }
-    }
-    let mut texts = 0;
-    sources
+    ddi_session::stage::layer_sources(song, chart)
         .iter()
         .filter_map(|s| match s {
             SpriteSource::Image(name) => layers
                 .iter()
                 .find(|(n, _)| **n == **name)
                 .map(|(_, source)| (Content::of(s), Some(source.clone()))),
-            SpriteSource::Text { .. } => {
-                texts += 1;
-                (texts <= MAX_LAYER_TEXTS).then(|| (Content::of(s), None))
-            }
+            SpriteSource::Text { .. } => Some((Content::of(s), None)),
         })
         .collect()
 }
@@ -257,9 +240,9 @@ impl StageView {
                 continue;
             }
             let [w, h] = image.size;
-            let texture = renderer.create_noteskin_texture(device, w.max(1), h.max(1), false);
-            super::view::write_rgba(queue, &texture, image);
-            let id = renderer.add_noteskin_texture(device, &texture);
+            let id = renderer.add_noteskin_image(device, queue, [w.max(1), h.max(1)], false, |t| {
+                super::view::write_rgba(queue, t, image);
+            });
             self.textures
                 .insert(source.clone(), StageTexture { id, size: *size });
         }

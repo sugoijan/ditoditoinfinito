@@ -280,19 +280,7 @@ async fn encode(frame: &VideoFrame) -> Result<(Blob, u32, u32, bool), String> {
         .map_err(|e| js_err("createImageBitmap", e))?
         .dyn_into()
         .map_err(|e| js_err("createImageBitmap", e))?;
-    let canvas: web_sys::HtmlCanvasElement = document
-        .create_element("canvas")
-        .map_err(|e| js_err("canvas", e))?
-        .dyn_into()
-        .map_err(|_| "not a canvas")?;
-    canvas.set_width(tw);
-    canvas.set_height(th);
-    let context: web_sys::CanvasRenderingContext2d = canvas
-        .get_context("2d")
-        .map_err(|e| js_err("canvas", e))?
-        .ok_or("no 2D canvas")?
-        .dyn_into()
-        .map_err(|_| "no 2D canvas")?;
+    let (canvas, context) = crate::web::image::canvas_2d(&document, tw, th)?;
     let drawn = context.draw_image_with_image_bitmap(&bitmap, 0.0, 0.0);
     bitmap.close();
     drawn.map_err(|e| js_err("drawing the frame", e))?;
@@ -338,19 +326,7 @@ pub(crate) async fn check_blank(id: &str, blob: &Blob) -> Result<bool, String> {
     let document = web_sys::window()
         .and_then(|w| w.document())
         .ok_or("no document")?;
-    let canvas: web_sys::HtmlCanvasElement = document
-        .create_element("canvas")
-        .map_err(|e| js_err("canvas", e))?
-        .dyn_into()
-        .map_err(|_| "not a canvas")?;
-    canvas.set_width(w);
-    canvas.set_height(h);
-    let context: web_sys::CanvasRenderingContext2d = canvas
-        .get_context("2d")
-        .map_err(|e| js_err("canvas", e))?
-        .ok_or("no 2D canvas")?
-        .dyn_into()
-        .map_err(|_| "no 2D canvas")?;
+    let (_canvas, context) = crate::web::image::canvas_2d(&document, w, h)?;
     let drawn = context.draw_image_with_image_bitmap(&bitmap, 0.0, 0.0);
     bitmap.close();
     drawn.map_err(|e| js_err("drawing the still", e))?;

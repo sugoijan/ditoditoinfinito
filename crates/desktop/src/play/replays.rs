@@ -67,7 +67,6 @@ pub fn request_with(
     // The skin it was drawn with (bundled ones ship with the game).
     let settings = replay.settings(&Settings::load());
     if let Some(skin) = replay.skin(&settings, &song.charts[chart].layout)
-        && !skin.starts_with("bundled:")
         && !crate::library::noteskins::all(&crate::library::all_folders())
             .iter()
             .any(|s| s.key() == skin)

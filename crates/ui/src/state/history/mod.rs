@@ -209,6 +209,18 @@ impl Lamp {
             (false, FullCombo::MarvelousFC) => Lamp::MarvelousFullCombo,
         }
     }
+
+    /// The lamp as colors and commands name it, and written short.
+    pub fn names(self) -> (&'static str, &'static str) {
+        match self {
+            Lamp::Failed => ("Failed", "FAILED"),
+            Lamp::Clear => ("Clear", "CLEAR"),
+            Lamp::FullCombo => ("FullCombo", "FC"),
+            Lamp::GreatFullCombo => ("GreatFullCombo", "GFC"),
+            Lamp::PerfectFullCombo => ("PerfectFullCombo", "PFC"),
+            Lamp::MarvelousFullCombo => ("MarvelousFullCombo", "MFC"),
+        }
+    }
 }
 
 /// What is worked out from a play's raw data, by the judge of
@@ -274,9 +286,21 @@ pub fn score_value(v: &ScoreView) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// A `worked` that does not read (a later format, a damaged store) is
-/// none: the play is stale and is worked out again from its record.
-fn lenient_worked<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Worked>, D::Error> {
+/// A best's score as the ruleset scores: money, a percentage, EX.
+pub fn score_text(v: &ScoreView) -> String {
+    match (v.money, v.percent, v.ex) {
+        (Some(m), _, _) => m.to_string(),
+        (None, Some(p), _) => format!("{:.2}%", p * 100.0),
+        (None, None, Some(ex)) => format!("EX {ex}"),
+        _ => format!("{:.0}", score_value(v)),
+    }
+}
+
+/// A field that does not read (a later format, a damaged store) is none:
+/// a `worked` then is stale and is worked out again from its record.
+fn lenient_some<'de, D: serde::Deserializer<'de>, T: serde::de::DeserializeOwned>(
+    d: D,
+) -> Result<Option<T>, D::Error> {
     let v = serde_json::Value::deserialize(d)?;
     Ok(serde_json::from_value(v).ok())
 }
@@ -293,19 +317,12 @@ pub struct PlaySummary {
     #[serde(default)]
     pub autoplay: bool,
     pub ended: Ending,
-    #[serde(default, deserialize_with = "lenient_worked")]
+    #[serde(default, deserialize_with = "lenient_some")]
     pub worked: Option<Worked>,
     /// The options as played (the plays list shows them; none in
     /// summaries kept before they were, or that do not read).
-    #[serde(default, deserialize_with = "lenient_options")]
+    #[serde(default, deserialize_with = "lenient_some")]
     pub options: Option<PlayOptions>,
-}
-
-fn lenient_options<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Option<PlayOptions>, D::Error> {
-    let v = serde_json::Value::deserialize(d)?;
-    Ok(serde_json::from_value(v).ok())
 }
 
 impl PlaySummary {
@@ -404,16 +421,8 @@ pub fn rework(entry: &PlayEntry, song: &Song) -> Result<Worked, String> {
     let by: JudgedBy = serde_json::from_str(&entry.record).map_err(|e| e.to_string())?;
     let index = find_chart(song, &by.chart).ok_or("the chart is no longer there")?;
     let log = PlayLog::decode(&entry.log).map_err(|e| e.to_string())?;
-    let shifted;
-    let song = if by.song_offset == 0.0 {
-        song
-    } else {
-        let mut s = song.clone();
-        s.shift_notes(by.song_offset);
-        shifted = s;
-        &shifted
-    };
-    let results = replay(song, index, &by.ruleset, &by.options, &log);
+    let song = song.shifted(by.song_offset);
+    let results = replay(&song, index, &by.ruleset, &by.options, &log);
     Ok(Worked::from_results(&results))
 }
 
@@ -540,18 +549,17 @@ impl History {
         self.select(|s| songs.contains(&s.chart.song))
     }
 
-    /// Plays worked out by an older judge (or not readable), by song,
-    /// oldest first.
-    pub fn stale(&self) -> BTreeMap<String, Vec<String>> {
-        let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for (id, s) in &self.plays {
-            if s.is_stale() {
-                out.entry(s.chart.song.clone())
-                    .or_default()
-                    .push(id.clone());
-            }
-        }
-        out
+    /// The plays of `song` worked out by an older judge (or not
+    /// readable), oldest first.
+    pub fn stale_of(&self, song: &str) -> Vec<String> {
+        self.select(|s| s.is_stale() && s.chart.song == song)
+    }
+
+    /// Whether a play of `song` waits to be worked out again.
+    pub fn has_stale(&self, song: &str) -> bool {
+        self.plays
+            .values()
+            .any(|s| s.is_stale() && s.chart.song == song)
     }
 
     /// How many plays wait to be worked out again.
@@ -586,6 +594,22 @@ impl History {
             assist,
         };
         self.bests_where(|s| s.chart.digest == digest).remove(&key)
+    }
+
+    /// The best of `song`'s chart `chart` (as stored) under the rules and
+    /// the assist the settings play it with: a play's ghost's.
+    pub fn best_of_play(
+        &self,
+        song: &Song,
+        chart: usize,
+        settings: &crate::state::settings::Settings,
+    ) -> Option<Best> {
+        let c = song.charts.get(chart)?;
+        self.best(
+            song.chart_digest(chart),
+            &settings.ruleset_for(c).key(),
+            c.derivation.is_some() || settings.transform.is_assist(),
+        )
     }
 
     fn bests_where(&self, f: impl Fn(&PlaySummary) -> bool) -> HashMap<BestKey, Best> {

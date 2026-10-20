@@ -3,7 +3,13 @@
 //! run itself is the play route's, `#/calibrate/run?mode=…`), the default
 //! offsets and every device's, and resetting them.
 
-use super::page::{Block, PageDoc};
+use std::rc::Rc;
+
+use super::Env;
+use super::options_dialogs::ConfirmDialog;
+use super::page::{Block, PAGE_CHANGED, PageDoc, PageFeed};
+use crate::message::Message;
+use crate::screen::Cx;
 use crate::state::settings::Settings;
 
 /// The tests, as the run's route names them.
@@ -128,6 +134,36 @@ pub fn doc(settings: &Settings, max_ms: f64) -> PageDoc {
         title: "Calibration".into(),
         blocks: b,
     }
+}
+
+/// The menu on the stored settings.
+pub fn stored_doc() -> PageDoc {
+    doc(
+        &Settings::load(),
+        ddi_engine::calibration::MAX_OFFSET * 1000.0,
+    )
+}
+
+/// Asks before resetting the offsets ([`reset`]); once reset, the menu
+/// in `feed` is the stored settings' again.
+pub fn confirm_reset(env: &Env, feed: &PageFeed, cx: &mut Cx) {
+    let (title, body, yes) = reset_texts();
+    let feed = feed.clone();
+    cx.overlay(
+        ConfirmDialog::new(
+            env.clone(),
+            &title,
+            &body,
+            &yes,
+            Rc::new(move |cx| {
+                let mut s = Settings::load();
+                reset(&mut s);
+                *feed.borrow_mut() = Some(stored_doc());
+                cx.broadcast(Message::new(PAGE_CHANGED));
+            }),
+        ),
+        true,
+    );
 }
 
 /// What button `id` does.

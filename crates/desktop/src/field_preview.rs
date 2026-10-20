@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use ddi_chart::Layout;
 use ddi_render::Painter;
+pub use ddi_render::field_preview::SkinWant;
 use ddi_render::field_preview::{BPM, FieldPreview, FieldPreviewOptions, SOURCE};
 use ddi_ui::state::settings::{BackgroundFrame, Settings};
 
@@ -44,28 +45,10 @@ pub fn options(settings: &Settings) -> FieldPreviewOptions {
     }
 }
 
-/// The noteskin the preview's layout is drawn with and what it is
-/// readied for (key, layout, direction): key `None` for the built-in
-/// arrows. The demo has no colors of its own.
-#[derive(Clone, Debug, PartialEq)]
-pub struct SkinWant {
-    pub key: Option<String>,
-    pub layout: String,
-    pub reverse: bool,
-}
-
-impl SkinWant {
-    pub fn of(settings: &Settings, options: &FieldPreviewOptions) -> SkinWant {
-        SkinWant {
-            key: crate::play::skins::play_skin(
-                settings.noteskin_for(&options.layout),
-                settings.note_colors,
-                false,
-            ),
-            layout: options.layout.clone(),
-            reverse: options.play.scroll.reverse,
-        }
-    }
+/// The noteskin the preview's layout is drawn with under `settings`
+/// and what it is readied for: key `None` for the built-in arrows.
+pub fn skin_want(settings: &Settings, options: &FieldPreviewOptions) -> SkinWant {
+    SkinWant::new(settings.play_skin(&options.layout, None), options)
 }
 
 /// The preview, while a screen shows it.
@@ -134,7 +117,7 @@ impl Field {
     /// on the next frame when it changed).
     pub fn set_settings(&mut self, settings: &Settings) {
         let options = options(settings);
-        self.wanted = Some(SkinWant::of(settings, &options));
+        self.wanted = Some(skin_want(settings, &options));
         self.options = options;
     }
 
@@ -194,20 +177,10 @@ impl Field {
             && self.shown.as_ref() != Some(&want)
             && self.reading.as_ref().is_none_or(|(w, ..)| *w != want)
         {
-            let layout = Layout::builtin(&want.layout).unwrap_or_else(Layout::dance_single);
+            let layout = want.layout();
             match &want.key {
                 Some(key) => {
-                    let env = ddi_engine::demo::song(&want.layout, BPM)
-                        .and_then(|song| {
-                            let chart = song.charts.first()?;
-                            Some(ddi_noteskin::lua::chart_env(
-                                &song,
-                                chart,
-                                &layout,
-                                want.reverse,
-                            ))
-                        })
-                        .unwrap_or_default();
+                    let env = want.env(&layout);
                     let reading = crate::play::skins::Reading::start(key, &layout, env, None);
                     self.reading = Some((want, reading, layout));
                 }

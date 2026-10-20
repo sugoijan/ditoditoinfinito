@@ -3,7 +3,7 @@
 //! through callbacks (`ddi_platform::history::Reply`).
 
 use std::cell::{Cell, Ref, RefCell};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::rc::Rc;
 
 use ddi_chart::Song;
@@ -149,9 +149,7 @@ impl Plays {
             let unmatched = self.unmatched.borrow();
             self.history
                 .borrow()
-                .stale()
-                .remove(song_id)
-                .unwrap_or_default()
+                .stale_of(song_id)
                 .into_iter()
                 .filter(|id| !unmatched.contains(id))
                 .take(max)
@@ -197,13 +195,14 @@ impl Plays {
     /// The songs with stale plays still to work out this session.
     pub fn stale_songs(&self) -> Vec<String> {
         let unmatched = self.unmatched.borrow();
-        self.history
+        let songs: BTreeSet<String> = self
+            .history
             .borrow()
-            .stale()
-            .into_iter()
-            .filter(|(_, ids)| ids.iter().any(|id| !unmatched.contains(id)))
-            .map(|(song, _)| song)
-            .collect()
+            .iter()
+            .filter(|(id, s)| s.is_stale() && !unmatched.contains(*id))
+            .map(|(_, s)| s.chart.song.clone())
+            .collect();
+        songs.into_iter().collect()
     }
 
     fn remove(self: &Rc<Self>, ids: Vec<String>, done: impl FnOnce(Result<(), String>) + 'static) {

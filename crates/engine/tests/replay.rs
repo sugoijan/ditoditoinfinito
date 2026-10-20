@@ -1121,11 +1121,8 @@ fn cuts_change_the_counted_chart_and_mark_an_assist() {
 /// Plays `song` with the engine's autoplay script under `options`.
 fn autoplay_run(ruleset: fn() -> Ruleset, song: &Song, options: PlayOptions) -> Run {
     let probe = Player::new(song, 0, ruleset(), options);
-    let mut script: Vec<(f64, u8, bool)> = autoplay::script(probe.judge().notes(), 0.0)
-        .into_iter()
-        .flat_map(|p| [(p.press, p.lane, true), (p.release, p.lane, false)])
-        .collect();
-    script.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.2.cmp(&b.2)));
+    let mut script = autoplay::edges(autoplay::script(probe.judge().notes(), 0.0));
+    autoplay::sort_edges(&mut script);
     run_script(ruleset(), song, options, 0.0, &script)
 }
 

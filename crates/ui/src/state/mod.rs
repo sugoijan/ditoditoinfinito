@@ -4,7 +4,6 @@
 
 pub mod bind;
 pub mod history;
-pub mod library;
 pub mod place;
 pub mod select_view;
 pub mod settings;

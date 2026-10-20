@@ -1293,7 +1293,9 @@ pub fn theme_ui_with(
     sound: Option<SharedPlayer>,
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let (mut ui, env, look) = theme_base(fold, sound.as_ref().map(|p| preview_beat(p.clone())));
-    let changed = options_changed(&env);
+    // Reduced motion changed in options: saved, and followed at once
+    // (desktop has no system preference).
+    let changed = sample::motion_change(&env, || false);
     let mut select = sample::select_screen(&env, Some(changed.clone()));
     // Under a page (the credits, calibration's menu) the song list's
     // preview stays quiet.
@@ -1364,9 +1366,7 @@ fn theme_base(
         env.beat = beat;
     }
     let settings = ddi_ui::state::settings::Settings::load();
-    env.reduced_motion
-        .set(settings.reduced_motion.reduced(false));
-    env.state.borrow_mut().reduced_motion_setting = settings.reduced_motion as usize;
+    env.follow_motion(settings.reduced_motion, false);
     let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Own, false);
     ui.set_focus_ring(false);
     (ui, env, look)
@@ -1383,27 +1383,6 @@ fn preview_beat(player: SharedPlayer) -> theme_screens::BeatFn {
         } else {
             by_bpm(id, t, bpm)
         }
-    })
-}
-
-/// Reduced motion changed in options: saved, and followed at once.
-fn options_changed(env: &ThemeEnv) -> theme_screens::options::ChangeFn {
-    use ddi_ui::state::settings::{ReducedMotion, Settings};
-    let flag = env.reduced_motion.clone();
-    let state = env.state.clone();
-    Rc::new(move |_section: &str, o: &theme_screens::data::OptionDef| {
-        if o.label != "Reduced motion" {
-            return;
-        }
-        let mut settings = Settings::load();
-        settings.reduced_motion = match o.index {
-            1 => ReducedMotion::On,
-            2 => ReducedMotion::Off,
-            _ => ReducedMotion::Auto,
-        };
-        settings.save();
-        flag.set(settings.reduced_motion.reduced(false));
-        state.borrow_mut().reduced_motion_setting = o.index;
     })
 }
 

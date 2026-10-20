@@ -31,11 +31,8 @@ fn work(text: &str) -> Song {
 /// Autoplays `song`'s first chart; returns the player at the end.
 fn autoplay(ruleset: &dyn Fn() -> Ruleset, song: &Song, options: PlayOptions) -> Player {
     let probe = Player::new(song, 0, ruleset(), options);
-    let mut script: Vec<(f64, u8, bool)> = autoplay::script(probe.judge().notes(), 0.0)
-        .into_iter()
-        .flat_map(|p| [(p.press, p.lane, true), (p.release, p.lane, false)])
-        .collect();
-    script.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.2.cmp(&b.2)));
+    let mut script = autoplay::edges(autoplay::script(probe.judge().notes(), 0.0));
+    autoplay::sort_edges(&mut script);
     let mut player = Player::new(song, 0, ruleset(), options);
     player.clock_sample(ClockSample {
         context_time: 0.0,

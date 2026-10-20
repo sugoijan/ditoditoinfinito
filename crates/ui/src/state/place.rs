@@ -94,7 +94,7 @@ mod tests {
             chart: Some(2),
             style: "dance-single".into(),
             open: Some("My Pack".into()),
-            closed: vec!["Bundled songs".into()],
+            closed: vec![crate::state::select_view::BUNDLED_PACK.into()],
             ..Default::default()
         };
         place.remember(&selection);
@@ -114,7 +114,10 @@ mod tests {
         assert_eq!(resumed.chart, Some(("u-song".into(), 2)));
         assert_eq!(resumed.open.as_deref(), Some("pack:my pack"));
         assert!(resumed.search.is_empty());
-        assert_eq!(resumed.closed, Some(vec!["Bundled songs".into()]));
+        assert_eq!(
+            resumed.closed,
+            Some(vec![crate::state::select_view::BUNDLED_PACK.into()])
+        );
     }
 
     #[test]

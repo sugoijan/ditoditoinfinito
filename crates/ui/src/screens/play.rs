@@ -12,6 +12,9 @@ use ddi_engine::{
     Appearance, Judgement, Results, Ruleset, ScrollAction, TimingCut, TransformOptions, Turn,
 };
 
+use crate::state::history::{Replay, ReplayCheck};
+use crate::state::settings::Settings;
+
 use super::data::{
     Hit, JudgementCount, LaneName, PanelKind, PanelSet, ResultsData, SongEntry, SongOffset, Window,
 };
@@ -279,6 +282,48 @@ pub fn mark_replay(data: &mut ResultsData, kind: super::data::ResultsKind, when:
     }
 }
 
+/// The notes under a play's results, in order: why its video was turned
+/// off, a movie's trouble, why the play could not be saved, how a replay
+/// judged differently (`check`) and that a kept play (`replay`) was
+/// judged by an older version.
+pub fn results_notes(
+    video_off: Option<ddi_platform::video::StopReason>,
+    video_trouble: Option<&str>,
+    save_error: Option<&str>,
+    check: Option<&ReplayCheck>,
+    replay: Option<&Replay>,
+) -> Vec<String> {
+    let mut notes = Vec::new();
+    if let Some(reason) = video_off {
+        let why = match reason {
+            ddi_platform::video::StopReason::DroppedFrames => "frames were being dropped",
+            ddi_platform::video::StopReason::DecoderBehind => "the decoder could not keep up",
+        };
+        notes.push(format!(
+            "Video was turned off for this song: {why} (Options)."
+        ));
+    }
+    if let Some(why) = video_trouble {
+        notes.push(format!("{why}; the song background showed."));
+    }
+    if let Some(e) = save_error {
+        notes.push(format!("This play could not be saved: {e}."));
+    }
+    notes.extend(check.and_then(ReplayCheck::note));
+    notes.extend(replay.and_then(Replay::older_judge_note));
+    notes
+}
+
+/// The results' song offset editor's action: song `id`'s offset saved
+/// in the settings.
+pub fn song_offset_saver(id: String) -> super::results::OffsetFn {
+    std::rc::Rc::new(move |seconds| {
+        let mut settings = Settings::load();
+        settings.set_song_offset(&id, seconds);
+        settings.save();
+    })
+}
+
 /// The layout's lanes, named.
 pub fn lanes(layout: &Layout) -> Vec<LaneName> {
     layout
@@ -287,10 +332,7 @@ pub fn lanes(layout: &Layout) -> Vec<LaneName> {
         .map(|l| LaneName {
             symbol: lane_symbol(&l.glyph).to_string(),
             label: if l.label.is_empty() {
-                let mut c = l.name.chars();
-                c.next()
-                    .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
-                    .unwrap_or_default()
+                super::capitalized(&l.name)
             } else {
                 l.label.clone()
             },

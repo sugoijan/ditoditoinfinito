@@ -328,18 +328,14 @@ impl Demo {
                 _ => {}
             }
         }
-        let mut script: Vec<(f64, u8, bool)> = presses
-            .into_iter()
-            .flatten()
-            .flat_map(|p| [(p.press, p.lane, true), (p.release, p.lane, false)])
-            .collect();
+        let mut script = autoplay::edges(presses.into_iter().flatten());
         for n in player.judge().notes() {
             if matches!(n.note.kind, NoteKind::Mine) {
                 script.push((n.seconds, n.note.lane, true));
                 script.push((n.seconds + 0.05, n.note.lane, false));
             }
         }
-        script.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.2.cmp(&b.2)));
+        autoplay::sort_edges(&mut script);
         player.clock_sample(ClockSample {
             context_time: 0.0,
             host_time: HostTime(0.0),

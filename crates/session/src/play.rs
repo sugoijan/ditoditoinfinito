@@ -6,6 +6,8 @@
 //! through [`Inputs`]; the audio through `ddi_platform::AudioBackend`.
 
 use ddi_chart::{Layout, Song};
+use ddi_engine::autoplay::Press;
+use ddi_engine::frame::Frame;
 use ddi_engine::input::{BindingDevice, Bindings, InputEvent, LaneInput};
 use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
 use ddi_engine::player::{PlayOptions, Player, Results};
@@ -13,7 +15,7 @@ use ddi_engine::rules::{JudgeNames, Ruleset};
 use ddi_engine::{ConnectedPad, ControlBindings};
 use ddi_platform::{AudioBackend, DeviceId, DeviceProfile, HostTime, RawInput};
 use ddi_ui::state::history::{
-    Ghost, GhostDelta, GhostRun, InputDevice, PlayLog, Replaying, RulesetKey,
+    Ghost, GhostDelta, GhostRun, InputDevice, PlayLog, Replay, Replaying, RulesetKey,
 };
 use ddi_ui::state::settings::Settings;
 
@@ -144,6 +146,29 @@ impl SessionConfig {
             self.volume = 0.0;
         }
     }
+
+    /// Replays the kept play `r`: its log on the lanes, its options and
+    /// rules, the offsets this device needs ([`Replay::replaying`]).
+    /// Never autoplayed.
+    pub fn set_replay(&mut self, r: &Replay) {
+        self.replay = Some(r.replaying(self.devices.as_ref(), self.options.clock));
+    }
+}
+
+/// Seconds the notes of song `song_id` are moved later for a play
+/// ([`ddi_chart::Song::shift_notes`]): a replay's as it was played, else
+/// the song's offset in `settings`; none for a calibration test.
+pub fn song_shift(
+    settings: &Settings,
+    song_id: &str,
+    replay: Option<&Replay>,
+    calibration: bool,
+) -> f64 {
+    match replay {
+        _ if calibration => 0.0,
+        Some(r) => r.record.song_offset,
+        None => settings.song_offset(song_id),
+    }
 }
 
 /// What the field shows of the session beside the chart: the notes hidden
@@ -229,8 +254,8 @@ enum Cue {
 }
 
 struct AutoPlay {
-    /// (press time, release time, lane), sorted by press time.
-    events: Vec<(f64, f64, u8)>,
+    /// Sorted by press time.
+    events: Vec<Press>,
     next: usize,
     pending_release: Vec<(f64, u8)>,
     cue: Cue,
@@ -336,7 +361,6 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let names = ruleset.names.clone();
         let rules = ruleset.fresh();
         let duration = audio.duration(&buffer);
-        let length = duration;
         // Any key for the one lane (calibration by ear): judged there, shown
         // where pressed.
         let any_key = config.calibration.is_some_and(|m| m.any_key());
@@ -411,10 +435,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         player.judge_all_in(any_lane);
         // The autoplayer presses the transformed chart's lanes.
         let auto = auto_play.then(|| AutoPlay {
-            events: ddi_engine::autoplay::script(player.judge().notes(), config.auto_bias)
-                .into_iter()
-                .map(|p| (p.press, p.release, p.lane))
-                .collect(),
+            events: ddi_engine::autoplay::script(player.judge().notes(), config.auto_bias),
             next: 0,
             pending_release: Vec::new(),
             cue: match config.calibration {
@@ -482,7 +503,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             layout,
             names,
             rules,
-            length,
+            length: duration,
             view: SessionView {
                 hide_notes: config.hide_notes,
                 cancel_progress: 0.0,
@@ -534,6 +555,15 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let (_, cal) = self.calibration.as_ref()?;
         let t = self.player.tally();
         Some(cal.outcome(t.taps[0], t.taps[5]))
+    }
+
+    /// [`Outcome::should_stop_early`] of [`Self::calibration_outcome`],
+    /// without working out the residuals every frame.
+    fn calibration_stops_early(&self) -> bool {
+        self.calibration.is_some() && {
+            let t = self.player.tally();
+            ddi_engine::calibration::stop_early(t.taps[0], t.taps[5])
+        }
     }
 
     /// Advance to the current host time. Returns judge events for effects.
@@ -641,9 +671,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 // Schedule ahead on the test pad; the edges come back through
                 // the poller like a real pad's.
                 while auto.next < auto.events.len()
-                    && auto.events[auto.next].0 <= heard + AUTO_PAD_LOOKAHEAD
+                    && auto.events[auto.next].press <= heard + AUTO_PAD_LOOKAHEAD
                 {
-                    let (t, rel, lane) = auto.events[auto.next];
+                    let Press {
+                        press: t,
+                        release: rel,
+                        lane,
+                    } = auto.events[auto.next];
                     auto.next += 1;
                     if let Some(Some(control)) = controls.get(lane as usize) {
                         self.inputs.press_test_pad(
@@ -662,9 +696,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             let mut pending = Vec::new();
             while auto.via_pad.is_none()
                 && auto.next < auto.events.len()
-                && auto.events[auto.next].0 <= heard
+                && auto.events[auto.next].press <= heard
             {
-                let (t, rel, lane) = auto.events[auto.next];
+                let Press {
+                    press: t,
+                    release: rel,
+                    lane,
+                } = auto.events[auto.next];
                 auto.next += 1;
                 pending.push((t, lane, true));
                 auto.pending_release.push((rel, lane));
@@ -701,22 +739,16 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if let Some(g) = self.ghost.as_mut()
             && !self.player.finished()
         {
-            let t = self.player.clock().heard_now(HostTime(judge_now))
-                - self.player.ruleset().judge.judge_offset;
+            let t = self.player.judge_time(HostTime(judge_now));
             self.ghost_delta = Some(g.delta(&self.player.ruleset().score.view(), t));
         }
-        let hits: Vec<f64> = events
-            .iter()
-            .filter_map(|ev| match ev.kind {
-                JudgeEventKind::Tap(j, delta) if j != ddi_engine::rules::Judgement::Miss => {
-                    Some(delta)
-                }
-                _ => None,
-            })
-            .collect();
-        for delta in hits {
-            self.last_delta = Some(delta);
-            self.calibrate_hit(delta);
+        for ev in &events {
+            if let JudgeEventKind::Tap(j, delta) = ev.kind
+                && j != ddi_engine::rules::Judgement::Miss
+            {
+                self.last_delta = Some(delta);
+                self.calibrate_hit(delta);
+            }
         }
 
         // An immediate fail: the engine has stopped judging and the field is
@@ -752,9 +784,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 }
             })
         } else if self.calibration.as_ref().is_some_and(|(_, c)| c.done())
-            || self
-                .calibration_outcome()
-                .is_some_and(|o| o.should_stop_early())
+            || self.calibration_stops_early()
         {
             self.audio.master_ramp(None, 0.0, None, 0.3);
             // The test is over: clear the field instead of letting the rest of
@@ -781,8 +811,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let Some((log, next)) = self.replay.as_mut() else {
             return;
         };
-        let now =
-            self.player.clock().heard_now(host_now) - self.player.ruleset().judge.judge_offset;
+        let now = self.player.judge_time(host_now);
         let mut due = Vec::new();
         while let Some(i) = log.inputs.get(*next).filter(|i| i.time <= now) {
             due.push(*i);
@@ -901,6 +930,17 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
 
     pub fn predicted_present(&self, host_now: HostTime) -> HostTime {
         HostTime(host_now.0 + self.frame_interval)
+    }
+
+    /// The player's frame presented at `present`. With the notes hidden
+    /// (the audio test) its beat is held too, so that a skin pulsing on
+    /// the beat gives no cue to follow.
+    pub fn frame(&self, present: HostTime) -> Frame {
+        let mut frame = self.player.frame(present);
+        if self.view.hide_notes {
+            frame.beat = 0.0;
+        }
+        frame
     }
 }
 

@@ -14,10 +14,12 @@
 //!   rate measured from frames, the automatic video setting's step.
 //! - [`stage`]: a Dancing☆Onigiri work's layers' timeline in a play.
 //! - [`record`]: what the play history keeps of a play.
+//! - [`preview`]: song select's previews' length and fades.
 
 pub mod backgrounds;
 pub mod calibration;
 pub mod play;
+pub mod preview;
 pub mod record;
 pub mod stage;
 
@@ -26,6 +28,16 @@ pub mod stage;
 /// the browser's own decode; PLAN.md decision 46).
 pub fn music_target(song: &ddi_chart::Song) -> ddi_platform::mp3::Target {
     if song.source.format == ddi_chart::SourceFormat::Danoni {
+        ddi_platform::mp3::Target::Chromium
+    } else {
+        ddi_platform::mp3::Target::StepMania
+    }
+}
+
+/// [`music_target`] from what the library knows of a song: its chart
+/// stored as a Dancing☆Onigiri work's.
+pub fn music_target_of(entry: &ddi_library::manifest::ManifestEntry) -> ddi_platform::mp3::Target {
+    if entry.is_danoni_work() {
         ddi_platform::mp3::Target::Chromium
     } else {
         ddi_platform::mp3::Target::StepMania

@@ -513,9 +513,7 @@ fn follow_motion(shared: &Rc<Shared>) {
         return;
     };
     let setting = shared.model.borrow().settings.reduced_motion;
-    let system = ui_dev::reduced_motion_query().is_some_and(|q| q.matches());
-    env.reduced_motion.set(setting.reduced(system));
-    env.state.borrow_mut().reduced_motion_setting = setting as usize;
+    env.follow_motion(setting, ui_dev::system_reduced());
 }
 
 /// `__DDI_DEBUG.options`.

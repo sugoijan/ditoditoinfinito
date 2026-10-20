@@ -33,9 +33,6 @@ const SETTLE_MS: u32 = 300;
 /// output's, and Opus's own): a context at another rate resamples it as
 /// it plays.
 const OFFLINE_RATE: f32 = 48_000.0;
-/// Preview length when the simfile gives none, and the longest one played.
-const DEFAULT_LENGTH: f64 = 12.0;
-const MAX_LENGTH: f64 = 30.0;
 
 struct Playing {
     id: String,
@@ -232,17 +229,7 @@ async fn fetch(entry: ManifestEntry, load: u64) {
     // A work's MP3 where Chrome's decode has it (by its stored chart's
     // extension when the chart did not load).
     let target = chart.as_ref().map_or_else(
-        |_| {
-            if entry
-                .chart
-                .as_str()
-                .ends_with(ddi_library::danoni::STORED_EXT)
-            {
-                ddi_platform::mp3::Target::Chromium
-            } else {
-                ddi_platform::mp3::Target::StepMania
-            }
-        },
+        |_| ddi_session::music_target_of(&entry),
         ddi_session::music_target,
     );
     let timing = chart.ok().map(|song| Rc::new(song.timing));
@@ -334,15 +321,11 @@ fn play(in_gesture: bool) {
             // Waits for a gesture ([`gesture`]).
             return None;
         }
-        let length = if entry.preview_length > 1.0 {
-            entry.preview_length.min(MAX_LENGTH)
-        } else {
-            DEFAULT_LENGTH
-        };
+        let length = ddi_session::preview::length(entry.preview_length);
         let from = entry
             .preview_start
             .clamp(0.0, (buffer.duration() - 1.0).max(0.0));
-        let started = audio.context().current_time() + 0.05;
+        let started = audio.context().current_time() + ddi_session::preview::LEAD;
         audio.play_preview(&buffer, from, length, volume).ok()?;
         let load = s.load;
         s.playing = Some(Playing {

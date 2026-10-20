@@ -16,10 +16,6 @@ use web_sys::AudioBuffer;
 use crate::songs::{ManifestEntry, load_music};
 use crate::web::audio::WebAudio;
 
-/// Preview length when the simfile gives none, and the longest one played.
-const DEFAULT_LENGTH: f64 = 12.0;
-const MAX_LENGTH: f64 = 30.0;
-
 pub(crate) struct Preview {
     entry: ManifestEntry,
     audio: WebAudio,
@@ -49,15 +45,7 @@ impl Preview {
             let bytes = load_music(&entry).await?;
             decoder.resume().await;
             // A work's MP3 where Chrome's decode has it.
-            let target = if entry
-                .chart
-                .as_str()
-                .ends_with(ddi_library::danoni::STORED_EXT)
-            {
-                ddi_platform::mp3::Target::Chromium
-            } else {
-                ddi_platform::mp3::Target::StepMania
-            };
+            let target = ddi_session::music_target_of(&entry);
             decoder.decode(&bytes, target).await
         }
     }
@@ -70,11 +58,7 @@ impl Preview {
         volume: f32,
         on_end: impl FnOnce() + 'static,
     ) -> Result<(), String> {
-        let length = if self.entry.preview_length > 1.0 {
-            self.entry.preview_length.min(MAX_LENGTH)
-        } else {
-            DEFAULT_LENGTH
-        };
+        let length = ddi_session::preview::length(self.entry.preview_length);
         let start = self
             .entry
             .preview_start

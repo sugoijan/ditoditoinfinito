@@ -36,7 +36,7 @@ use std::rc::Rc;
 use ddi_actor::{Actor, Kind, Sprite};
 
 use super::data::{PanelKind, ResultsData, ResultsKind};
-use super::{Backdrop, Env, fit, fit_root, footer, frame, ground, header, left, right};
+use super::{Backdrop, Env, footer, frame, ground, header, left, right};
 use crate::graph;
 use crate::hit;
 use crate::look::{self, Spec, call, named, quad};
@@ -51,6 +51,16 @@ pub type ActionFn = Rc<dyn Fn(&Env, &mut Cx)>;
 pub type OffsetFn = Rc<dyn Fn(f64)>;
 /// The panel set picked (its name).
 pub type PanelsFn = Rc<dyn Fn(&str)>;
+
+/// The panel set picked, kept in the settings
+/// ([`Settings::results_panels`](crate::state::settings::Settings::results_panels)).
+pub fn stored_panels() -> PanelsFn {
+    Rc::new(|name| {
+        let mut s = crate::state::settings::Settings::load();
+        s.results_panels = name.to_string();
+        s.save();
+    })
+}
 
 /// The shell's part of the screen.
 #[derive(Clone, Default)]
@@ -107,19 +117,9 @@ impl ResultsScreen {
         }
     }
 
-    /// The layout's size and zoom: the full design as `fit` makes it; on
-    /// a compact screen, sideways as it is, upright 480 wide zoomed to
-    /// the width.
-    fn fit(&self, vp: ddi_actor::screen::VirtualScreen) -> ([f32; 2], f32, bool) {
-        if !super::is_compact(&*self.env.look, vp) {
-            return (fit(&*self.env.look, vp), 1.0, false);
-        }
-        let (screen, zoom) = super::narrow_fit(&self.env, vp);
-        (screen, zoom, true)
-    }
-
+    /// The layout's size and zoom ([`super::compact_fit`]).
     fn place(&mut self, vp: ddi_actor::screen::VirtualScreen) -> bool {
-        let (screen, zoom, compact) = self.fit(vp);
+        let (screen, zoom, compact) = super::compact_fit(&self.env, vp);
         let changed = (screen, zoom, compact) != (self.screen, self.zoom, self.compact);
         self.screen = screen;
         self.zoom = zoom;
@@ -129,7 +129,6 @@ impl ResultsScreen {
 
     /// The root for this layout: built, zoomed.
     fn make_root(&mut self, cx: &mut Cx) -> Actor {
-        let vp = cx.viewport().screen;
         self.banner = self
             .data
             .song
@@ -141,12 +140,8 @@ impl ResultsScreen {
         } else {
             self.build_tree(cx)
         };
-        if self.compact {
-            if self.zoom != 1.0 {
-                call(&mut root, "zoom", &[self.zoom]);
-            }
-        } else {
-            fit_root(&*self.env.look, &mut root, vp);
+        if self.compact && self.zoom != 1.0 {
+            call(&mut root, "zoom", &[self.zoom]);
         }
         root
     }

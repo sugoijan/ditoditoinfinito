@@ -30,16 +30,6 @@ pub fn now() -> HostTime {
     HostTime(now_ns() as f64 / 1e9)
 }
 
-/// The host clock, for what takes a [`ddi_platform::HostClock`].
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DesktopClock;
-
-impl ddi_platform::HostClock for DesktopClock {
-    fn now(&self) -> HostTime {
-        now()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

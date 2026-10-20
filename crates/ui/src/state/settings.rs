@@ -58,7 +58,7 @@ pub struct Settings {
     /// The noteskin layouts are drawn with: an imported one's key,
     /// `dance/<name>`, a bundled one's, `bundled:dance/<name>`, or
     /// `builtin` for the built-in arrows without a skin; `None`: Dito, the
-    /// built-in arrows as a skin (`crate::noteskins::play_skin`).
+    /// built-in arrows as a skin ([`Settings::play_skin`]).
     pub noteskin: Option<String>,
     /// The pump noteskin pump layouts are drawn with (`pump/<name>`, an
     /// imported one's key); `None`: the noteskin above draws them too.
@@ -298,9 +298,16 @@ impl Default for Settings {
     }
 }
 
+/// The noteskin setting's value for the built-in arrows without a skin.
+pub const BUILT_IN: &str = "builtin";
+/// Bundled skins' keys start so.
+pub const BUNDLED: &str = "bundled:";
+/// Dito's key (its color variants' are `bundled:dance/dito <scheme>`).
+pub const DITO: &str = "bundled:dance/dito";
+
 /// Whether a noteskin key is a pump skin's (`pump/…`, `bundled:pump/…`).
 pub fn is_pump_skin(key: &str) -> bool {
-    let key = key.strip_prefix("bundled:").unwrap_or(key);
+    let key = key.strip_prefix(BUNDLED).unwrap_or(key);
     key.split('/')
         .next()
         .is_some_and(|g| g.eq_ignore_ascii_case("pump"))
@@ -309,7 +316,7 @@ pub fn is_pump_skin(key: &str) -> bool {
 /// Whether a [`Settings::pump_noteskin`] key draws the pump layouts: a
 /// pump skin's, or the built-in arrows (`builtin`).
 fn draws_pump(key: &str) -> bool {
-    is_pump_skin(key) || key == "builtin"
+    is_pump_skin(key) || key == BUILT_IN
 }
 
 impl Settings {
@@ -320,6 +327,33 @@ impl Settings {
         match &self.pump_noteskin {
             Some(k) if layout.starts_with("pump") && draws_pump(k) => Some(k),
             _ => self.noteskin.as_deref(),
+        }
+    }
+
+    /// The skin a play draws layout `layout` (an id) with, by key: the
+    /// chosen one ([`Settings::noteskin_for`]), or Dito (the built-in
+    /// arrows as a skin, when none is chosen) in its variant for the note
+    /// colors; none for the built-in arrows, and none instead of Dito when
+    /// `chart`'s own colors are drawn (a skin colors notes by their place
+    /// in the beat, not one by one). `None` for a chart without colors,
+    /// as the field preview's demo.
+    pub fn play_skin(&self, layout: &str, chart: Option<&ddi_chart::Chart>) -> Option<String> {
+        let chart_colors =
+            self.chart_colors && chart.is_some_and(|c| c.notes.iter().any(|n| n.color.is_some()));
+        match self.noteskin_for(layout) {
+            Some(BUILT_IN) => None,
+            Some(key) => Some(key.to_string()),
+            None if chart_colors => None,
+            None => Some(
+                match self.note_colors {
+                    NoteColors::Quantized => DITO,
+                    NoteColors::Vivid => "bundled:dance/dito vivid",
+                    NoteColors::Flat => "bundled:dance/dito flat",
+                    NoteColors::Rainbow => "bundled:dance/dito rainbow",
+                    NoteColors::Single => "bundled:dance/dito single",
+                }
+                .to_string(),
+            ),
         }
     }
 

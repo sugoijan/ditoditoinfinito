@@ -65,17 +65,18 @@ impl Camera {
     /// or past the far one (as StepMania's frustum, 1000 pixels behind
     /// the screen, scaled with it).
     pub fn project(&self, p: [f32; 3]) -> Option<([f32; 2], f32)> {
-        let depth = self.distance - p[2];
-        let far = self.distance * (1.0 + 1000.0 / SM_DISTANCE);
-        if !(depth >= 1.0 && depth <= far) {
-            return None;
+        self.perspective().project(p)
+    }
+
+    /// This camera as an `fov` frame's: its near plane a pixel in front
+    /// of it, its far one 1000 of StepMania's pixels behind the screen.
+    pub fn perspective(&self) -> Perspective {
+        Perspective {
+            vanish: self.vanish,
+            distance: self.distance,
+            near: 1.0,
+            far: self.distance * (1.0 + 1000.0 / SM_DISTANCE),
         }
-        let s = self.distance / depth;
-        let at = [
-            self.vanish[0] + (p[0] - self.vanish[0]) * s,
-            self.vanish[1] + (p[1] - self.vanish[1]) * s,
-        ];
-        Some((at, depth / self.distance))
     }
 }
 
@@ -94,8 +95,22 @@ pub struct Seen {
 /// coordinates moved by its material's translation and `offset` (the
 /// note's color) except along the axes its vertex fixes.
 pub fn triangles(model: &ModelDraw, camera: &Camera, offset: [f32; 2], out: &mut Vec<Seen>) {
-    let mut seen: Vec<(f32, Seen)> = Vec::new();
-    let mut corners: Vec<Option<([f32; 2], f32)>> = Vec::new();
+    triangles_with(model, camera, offset, out, &mut Vec::new());
+}
+
+/// Where a model's vertices are seen ([`Camera::project`]).
+pub(crate) type Corners = Vec<Option<([f32; 2], f32)>>;
+
+/// [`triangles`], with a scratch kept between calls for the corners.
+pub(crate) fn triangles_with(
+    model: &ModelDraw,
+    camera: &Camera,
+    offset: [f32; 2],
+    out: &mut Vec<Seen>,
+    corners: &mut Corners,
+) {
+    let start = out.len();
+    let camera = camera.perspective();
     for (i, mesh) in model.geometry.meshes.iter().enumerate() {
         let translation = mesh
             .material
@@ -144,20 +159,16 @@ pub fn triangles(model: &ModelDraw, camera: &Camera, offset: [f32; 2], out: &mut
             if !whole || !front {
                 continue;
             }
-            let depth = w[0] + w[1] + w[2];
-            seen.push((
-                depth,
-                Seen {
-                    mesh: i,
-                    points,
-                    w,
-                    uv,
-                },
-            ));
+            out.push(Seen {
+                mesh: i,
+                points,
+                w,
+                uv,
+            });
         }
     }
-    seen.sort_by(|a, b| b.0.total_cmp(&a.0));
-    out.extend(seen.into_iter().map(|(_, s)| s));
+    let depth = |s: &Seen| s.w[0] + s.w[1] + s.w[2];
+    out[start..].sort_by(|a, b| depth(b).total_cmp(&depth(a)));
 }
 
 /// Twice the signed area, positive when the corners turn clockwise as seen

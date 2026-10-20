@@ -51,6 +51,24 @@ pub fn mask(depth: Depth, blend: ActorBlend) -> Mask {
     }
 }
 
+/// [`mask`], or `None` when the actor draws nothing: a mask's source
+/// (`BlendMode_NoEffect`) that writes no mask.
+pub fn drawn_mask(depth: Depth, blend: ActorBlend) -> Option<Mask> {
+    let mask = mask(depth, blend);
+    (blend != ActorBlend::NoEffect || mask == Mask::Write).then_some(mask)
+}
+
+/// A quad's texture rectangle (`[left, top, right, bottom]`) moved by
+/// `offset`.
+pub(crate) fn offset_uv(uv: [f32; 4], offset: [f32; 2]) -> [f32; 4] {
+    [
+        uv[0] + offset[0],
+        uv[1] + offset[1],
+        uv[2] + offset[0],
+        uv[3] + offset[1],
+    ]
+}
+
 /// Upper left, upper right, lower left, lower right (an actor's) as top
 /// left, top right, bottom right, bottom left (the list's).
 fn corners<T: Copy>(c: [T; 4]) -> [T; 4] {
@@ -75,7 +93,7 @@ pub fn append(
     for d in drawn {
         match d {
             Drawn::Quad(q) => {
-                let mask = mask(q.depth, q.blend);
+                let mask = drawn_mask(q.depth, q.blend);
                 if q.depth.clear {
                     // `clearzbuffer`: the mask cleared everywhere.
                     list.quad(Quad {
@@ -86,10 +104,9 @@ pub fn append(
                         ..Quad::plain([-1e6, -1e6, 1e6, 1e6], [1.0; 4])
                     });
                 }
-                let blend = blend(q.blend);
-                if blend == Blend::NoEffect && mask != Mask::Write {
+                let Some(mask) = mask else {
                     continue;
-                }
+                };
                 let tex = if q.texture == UNTEXTURED {
                     None
                 } else {
@@ -98,20 +115,14 @@ pub fn append(
                         None => continue,
                     }
                 };
-                let o = q.texcoord_offset;
                 let quad = Quad {
                     rect: UNIT,
                     transform: Affine(q.transform),
                     texture: tex,
                     cover: q.cover,
-                    uv: [
-                        q.uv[0] + o[0],
-                        q.uv[1] + o[1],
-                        q.uv[2] + o[0],
-                        q.uv[3] + o[1],
-                    ],
+                    uv: offset_uv(q.uv, q.texcoord_offset),
                     colors: corners(q.diffuse),
-                    blend,
+                    blend: blend(q.blend),
                     glow: false,
                     mask,
                     projected: q.projected.map(|p| Projected {
@@ -140,24 +151,17 @@ pub fn append(
                 let mask = mask(t.depth, t.blend);
                 let blend = blend(t.blend);
                 // From the line box's top left, as the list places runs.
-                let top = [0.0, -t.metrics.baseline];
-                let perspective = t.perspective.map(|(m, camera)| {
-                    let shift = [
-                        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, top[0], top[1],
-                        0.0, 1.0,
-                    ];
-                    (ddi_actor::mul4(&m, &shift), camera)
-                });
+                let transform = Affine(t.line_box_transform());
                 let run = TextRun {
                     text: t.text.clone(),
                     style: t.style.clone(),
-                    transform: Affine(t.line_box_transform()),
+                    transform,
                     // White text tinted: the upper left corner's color.
                     color: t.diffuse[0],
                     blend,
                     mask,
-                    perspective,
-                    blur: local_blur(t.blur, &Affine(t.line_box_transform())),
+                    perspective: t.line_box_perspective(),
+                    blur: local_blur(t.blur, &transform),
                 };
                 if t.diffuse[0][3] > 0.0 {
                     list.push(Command::Text(run.clone()));

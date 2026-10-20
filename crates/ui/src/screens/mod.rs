@@ -250,6 +250,14 @@ impl Env {
         self.reduced_motion.get()
     }
 
+    /// Follows reduced motion `setting` at once, `system` the system's
+    /// preference: motion as the screens see it, and the setting as
+    /// options show it ([`ThemeState::reduced_motion_setting`]).
+    pub fn follow_motion(&self, setting: crate::state::settings::ReducedMotion, system: bool) {
+        self.reduced_motion.set(setting.reduced(system));
+        self.state.borrow_mut().reduced_motion_setting = setting as usize;
+    }
+
     pub fn metric(&self, name: &str, default: f32) -> f32 {
         look::metric(&*self.look, name, default)
     }
@@ -629,40 +637,32 @@ pub fn is_compact(look: &dyn Look, vp: ddi_actor::screen::VirtualScreen) -> bool
     vp.design == compact
 }
 
-/// The full design's height.
-fn design_height(look: &dyn Look) -> f32 {
-    look::metric(look, "Design.Height", DESIGN[1])
-}
-
-/// A screen without a compact layout of its own (results, options) on
-/// a compact design: laid out at the full design's height, then scaled
-/// down to the screen ([`fit_root`]).
-pub(crate) fn fit(look: &dyn Look, vp: ddi_actor::screen::VirtualScreen) -> [f32; 2] {
-    if is_compact(look, vp) {
-        let s = vp.height / design_height(look);
-        [vp.width / s, design_height(look)]
-    } else {
-        [vp.width, vp.height]
+/// A screen's layout size, zoom and whether it is compact (results,
+/// options, the pages): the full design as it is; a compact one sideways
+/// (or no wider than `Options.Narrow.Width`) as it is (a phone's own
+/// size); upright, that wide, zoomed to the screen's width.
+pub(crate) fn compact_fit(
+    env: &Env,
+    vp: ddi_actor::screen::VirtualScreen,
+) -> ([f32; 2], f32, bool) {
+    if !is_compact(&*env.look, vp) {
+        return ([vp.width, vp.height], 1.0, false);
     }
-}
-
-/// A compact screen's layout size and zoom: sideways (or no wider than
-/// `Options.Narrow.Width`) as it is; upright, that wide, zoomed to the
-/// screen's width.
-pub(crate) fn narrow_fit(env: &Env, vp: ddi_actor::screen::VirtualScreen) -> ([f32; 2], f32) {
     let narrow = env.metric("Options.Narrow.Width", 480.0);
     if vp.width >= vp.height || vp.width <= narrow {
-        ([vp.width, vp.height], 1.0)
+        ([vp.width, vp.height], 1.0, true)
     } else {
         let z = vp.width / narrow;
-        ([narrow, vp.height / z], z)
+        ([narrow, vp.height / z], z, true)
     }
 }
 
-pub(crate) fn fit_root(look: &dyn Look, root: &mut Actor, vp: ddi_actor::screen::VirtualScreen) {
-    if is_compact(look, vp) {
-        call(root, "zoom", &[vp.height / design_height(look)]);
-    }
+/// `s` with its first letter capitalized ("audio" → "Audio").
+pub(crate) fn capitalized(s: &str) -> String {
+    let mut c = s.chars();
+    c.next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default()
 }
 
 /// A screen over song select leaves (`cancel`: backing out).

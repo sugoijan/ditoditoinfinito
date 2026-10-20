@@ -99,6 +99,10 @@ impl JudgedNote {
     fn is_roll(&self) -> bool {
         matches!(self.note.kind, NoteKind::RollHead { .. })
     }
+
+    fn is_long(&self) -> bool {
+        self.note.kind.is_long()
+    }
 }
 
 /// Simultaneous judgeable tap-like notes.
@@ -223,11 +227,9 @@ impl Judge {
             .iter()
             .map(|n| {
                 let seconds = timing.seconds_at(n.tick);
-                let end_seconds = match n.kind {
-                    NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
-                        timing.seconds_at(end).max(seconds)
-                    }
-                    _ => seconds,
+                let end_seconds = match n.kind.hold_end() {
+                    Some(end) => timing.seconds_at(end).max(seconds),
+                    None => seconds,
                 };
                 let judgeable = !matches!(
                     n.kind,
@@ -287,13 +289,7 @@ impl Judge {
         }
         let (checkpoints, heads) = if table.hold.is_ticked() {
             let mut heads: Vec<usize> = (0..notes.len())
-                .filter(|&i| {
-                    notes[i].judgeable
-                        && matches!(
-                            notes[i].note.kind,
-                            NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
-                        )
-                })
+                .filter(|&i| notes[i].judgeable && notes[i].is_long())
                 .collect();
             heads.sort_by(|&a, &b| notes[a].seconds.total_cmp(&notes[b].seconds));
             (checkpoint_rows(&notes, timing), heads)
@@ -402,13 +398,7 @@ impl Judge {
     pub fn hold_count(&self) -> u32 {
         self.notes
             .iter()
-            .filter(|n| {
-                n.judgeable
-                    && matches!(
-                        n.note.kind,
-                        NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
-                    )
-            })
+            .filter(|n| n.judgeable && n.is_long())
             .count() as u32
     }
 
@@ -488,6 +478,21 @@ impl Judge {
             tick: n.note.tick,
             kind,
             song_time,
+        }
+    }
+
+    /// How far ahead of the time judged a note or a mine can be reached.
+    fn lookahead(&self) -> f64 {
+        self.table.max_early().max(self.table.mine_window_seconds())
+    }
+
+    /// The mine (or shock) `idx` is stepped on at `at`.
+    fn step_on_mine(&mut self, idx: usize, at: f64, out: &mut Vec<JudgeEvent>) {
+        if self.notes[idx].note.kind == NoteKind::Shock {
+            self.hit_shock(idx, at, out);
+        } else {
+            self.notes[idx].state = NoteState::MineHit;
+            out.push(self.event(idx, JudgeEventKind::HitMine, at));
         }
     }
 
@@ -645,36 +650,26 @@ impl Judge {
     fn miss_note(&mut self, idx: usize, at: f64, out: &mut Vec<JudgeEvent>) {
         let is_hold = matches!(self.notes[idx].note.kind, NoteKind::HoldHead { .. });
         let start = self.table.hold_start;
-        let body = matches!(
-            self.notes[idx].note.kind,
-            NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
+        let body = self.notes[idx].is_long();
+        let miss = self.event(
+            idx,
+            JudgeEventKind::Tap(Judgement::Miss, at - self.notes[idx].seconds),
+            at,
         );
         if body && self.ticked() {
-            out.push(self.event(
-                idx,
-                JudgeEventKind::Tap(Judgement::Miss, at - self.notes[idx].seconds),
-                at,
-            ));
+            out.push(miss);
             // Its life runs from its head ([`Judge::cross_heads`]).
             let life = self.hold_life(idx, at);
             self.notes[idx].state = NoteState::HoldActive { life };
         } else if is_hold && start.accept.is_some() {
             if start.judged {
-                out.push(self.event(
-                    idx,
-                    JudgeEventKind::Tap(Judgement::Miss, at - self.notes[idx].seconds),
-                    at,
-                ));
+                out.push(miss);
             }
             self.notes[idx].state = NoteState::LetGo;
             out.push(self.event(idx, JudgeEventKind::LetGo, at));
         } else {
             self.notes[idx].state = NoteState::Missed;
-            out.push(self.event(
-                idx,
-                JudgeEventKind::Tap(Judgement::Miss, at - self.notes[idx].seconds),
-                at,
-            ));
+            out.push(miss);
         }
     }
 
@@ -796,7 +791,7 @@ impl Judge {
         // Everything before the press, the lane still as it was.
         self.advance(song_time, &mut out);
         self.down[lane_idx] = true;
-        let max_early = self.table.max_early().max(self.table.mine_window_seconds());
+        let max_early = self.lookahead();
         let (from, to) = (self.cursor[lane_idx], self.lanes[lane_idx].len());
 
         // Active holds get their life back; active rolls restart their decay.
@@ -856,25 +851,13 @@ impl Judge {
         };
         if hit_mine {
             let (idx, _) = mine.expect("mine candidate");
-            if self.notes[idx].note.kind == NoteKind::Shock {
-                self.hit_shock(idx, song_time, &mut out);
-            } else {
-                self.notes[idx].state = NoteState::MineHit;
-                out.push(self.event(idx, JudgeEventKind::HitMine, song_time));
-            }
-        } else if let Some((idx, delta, _)) = tap.filter(|&(idx, ..)| {
-            self.ticked()
-                && matches!(
-                    self.notes[idx].note.kind,
-                    NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
-                )
-        }) {
+            self.step_on_mine(idx, song_time, &mut out);
+        } else if let Some((idx, delta, _)) =
+            tap.filter(|&(idx, ..)| self.ticked() && self.notes[idx].is_long())
+        {
             self.step_on_ticked_head(idx, delta, song_time, &mut out);
         } else if let Some((idx, delta, judgement)) = tap {
-            let is_hold = matches!(
-                self.notes[idx].note.kind,
-                NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
-            );
+            let is_hold = self.notes[idx].is_long();
             // Hold start rules apply to holds; rolls are StepMania's own.
             let freeze = matches!(self.notes[idx].note.kind, NoteKind::HoldHead { .. });
             let start = self.table.hold_start;
@@ -1016,7 +999,7 @@ impl Judge {
         }
         self.last_time = Some(song_time);
         let first = out.len();
-        let max_ahead = self.table.max_early().max(self.table.mine_window_seconds());
+        let max_ahead = self.lookahead();
         self.cross_heads(song_time, out);
         self.checkpoints_until(song_time, out);
         for lane in 0..self.lanes.len() {
@@ -1035,12 +1018,7 @@ impl Judge {
                     // lane was down the whole span.
                     NoteState::Pending if n.is_mine() => {
                         if down && prev <= seconds && seconds < song_time {
-                            if n.note.kind == NoteKind::Shock {
-                                self.hit_shock(idx, seconds, out);
-                            } else {
-                                self.notes[idx].state = NoteState::MineHit;
-                                out.push(self.event(idx, JudgeEventKind::HitMine, seconds));
-                            }
+                            self.step_on_mine(idx, seconds, out);
                         } else if song_time > seconds + self.table.mine_window_seconds() {
                             self.notes[idx].state = NoteState::MineAvoided;
                             if self.notes[idx].note.kind == NoteKind::Shock {
@@ -1082,9 +1060,8 @@ impl Judge {
 fn checkpoint_rows(notes: &[JudgedNote], timing: &TimingMap) -> Vec<CheckpointRow> {
     let mut by_tick: BTreeMap<i64, Vec<usize>> = BTreeMap::new();
     for (i, n) in notes.iter().enumerate() {
-        let end = match n.note.kind {
-            NoteKind::HoldHead { end } | NoteKind::RollHead { end } if n.judgeable => end,
-            _ => continue,
+        let Some(end) = n.note.kind.hold_end().filter(|_| n.judgeable) else {
+            continue;
         };
         for t in n.note.tick.0 + 1..=end.0 {
             let tick = Tick(t);
@@ -1099,13 +1076,7 @@ fn checkpoint_rows(notes: &[JudgedNote], timing: &TimingMap) -> Vec<CheckpointRo
     }
     let steps: HashSet<i64> = notes
         .iter()
-        .filter(|n| {
-            n.judgeable
-                && matches!(
-                    n.note.kind,
-                    NoteKind::Tap | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. }
-                )
-        })
+        .filter(|n| n.judgeable && n.is_press_judged())
         .map(|n| n.note.tick.0)
         .collect();
     by_tick

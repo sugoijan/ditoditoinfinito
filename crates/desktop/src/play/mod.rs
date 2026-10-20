@@ -246,6 +246,8 @@ pub struct Play {
     pub feed: Rc<RefCell<Feed>>,
     /// The song offset the notes were shifted by.
     pub played_offset: f64,
+    /// The song shifted by it (`None`: by nothing, `loaded`'s).
+    shifted: Option<ddi_chart::Song>,
     /// The display's refresh rate as the play started.
     pub refresh_hz: f64,
     /// Sound dropouts before the play, to tell its own.
@@ -302,32 +304,24 @@ impl Play {
         // A replay: its log on the lanes, its options and rules, the
         // offsets this device needs.
         if let Some(r) = &request.replay {
-            config.replay = Some(r.replaying(config.devices.as_ref(), config.options.clock));
-            config.auto = false;
+            config.set_replay(r);
         }
-        let shift = match (&request.replay, request.calibration) {
-            (_, Some(_)) => 0.0,
-            (Some(r), None) => r.record.song_offset,
-            (None, None) => settings.song_offset(&request.song),
-        };
+        let shift = ddi_session::play::song_shift(
+            settings,
+            &request.song,
+            request.replay.as_deref(),
+            request.calibration.is_some(),
+        );
         config.ghost = request
             .ghost
             .as_deref()
             .filter(|_| request.replay.is_none() && request.calibration.is_none())
             .map(|g| g.clone().for_play(shift));
-        let shifted;
-        let song = if shift == 0.0 {
-            &loaded.song
-        } else {
-            let mut s = loaded.song.clone();
-            s.shift_notes(shift);
-            shifted = s;
-            &shifted
-        };
+        let song = loaded.song.shifted(shift);
         let xruns_at_start = audio.xruns();
         let inputs = DesktopInputs::new(feed.clone(), request.auto_pad);
         let session = Session::start(
-            song,
+            &song,
             request.chart,
             settings,
             config,
@@ -335,12 +329,17 @@ impl Play {
             loaded.music.clone(),
             inputs,
         )?;
+        let shifted = match song {
+            std::borrow::Cow::Owned(s) => Some(s),
+            std::borrow::Cow::Borrowed(_) => None,
+        };
         Ok(Play {
             request,
             loaded,
             session,
             feed,
             played_offset: shift,
+            shifted,
             refresh_hz,
             xruns_at_start,
             recorded: false,
@@ -348,6 +347,11 @@ impl Play {
             graphics: String::new(),
             play_id: None,
         })
+    }
+
+    /// The song as played: shifted by the song offset.
+    pub fn song(&self) -> &ddi_chart::Song {
+        self.shifted.as_ref().unwrap_or(&self.loaded.song)
     }
 
     /// Sound dropouts during the play.

@@ -52,21 +52,11 @@ impl Affine {
 
     /// This transform, then `outer`.
     pub fn then(self, outer: Affine) -> Affine {
-        let [a0, a1, a2, a3, a4, a5] = self.0;
-        let [b0, b1, b2, b3, b4, b5] = outer.0;
-        Affine([
-            b0 * a0 + b2 * a1,
-            b1 * a0 + b3 * a1,
-            b0 * a2 + b2 * a3,
-            b1 * a2 + b3 * a3,
-            b0 * a4 + b2 * a5 + b4,
-            b1 * a4 + b3 * a5 + b5,
-        ])
+        Affine(ddi_actor::mul(&outer.0, &self.0))
     }
 
-    pub fn apply(&self, [x, y]: [f32; 2]) -> [f32; 2] {
-        let m = self.0;
-        [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
+    pub fn apply(&self, p: [f32; 2]) -> [f32; 2] {
+        ddi_actor::apply(&self.0, p)
     }
 
     /// A move alone (no scaling, turning or skewing).

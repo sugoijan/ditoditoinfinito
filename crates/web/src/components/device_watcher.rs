@@ -232,15 +232,7 @@ impl Component for DeviceWatcher {
                         }
                     }
                 } else if changed {
-                    let a = settings.audio_profile(&profile.audio.id);
-                    let d = settings.display_profile(&profile.display.id);
-                    self.toast = Some(format!(
-                        "devices: {} ({:+.0} ms) · {} ({:+.0} ms)",
-                        profile.audio.label,
-                        a.map(|p| p.offset).unwrap_or(0.0) * 1000.0,
-                        profile.display.label,
-                        d.map(|p| p.offset).unwrap_or(0.0) * 1000.0
-                    ));
+                    self.toast = Some(ddi_ui::screens::notices::devices_line(&settings, &profile));
                     let link = ctx.link().clone();
                     self._toast_timer = Some(Timeout::new(5000, move || {
                         link.send_message(Msg::HideToast)

@@ -177,12 +177,11 @@ fn cache_key(root: &Path) -> Result<String> {
     parts.sort();
     parts.push(include_str!("rust_credits.rs").to_string());
     // FNV-1a over all of it: a change anywhere changes the key.
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in parts.concat().bytes() {
-        h ^= u64::from(b);
-        h = h.wrapping_mul(0x100_0000_01b3);
+    let mut h = ddi_library::pack::Fnv1a64::new();
+    for part in &parts {
+        h.write(part.as_bytes());
     }
-    Ok(format!("{h:016x}"))
+    Ok(format!("{:016x}", h.finish()))
 }
 
 fn cargo() -> String {

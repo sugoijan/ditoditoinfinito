@@ -112,41 +112,27 @@ impl Offscreen {
             return;
         }
         let texture = |format, label| {
-            device
-                .create_texture(&wgpu::TextureDescriptor {
-                    label: Some(label),
-                    size: wgpu::Extent3d {
-                        width: size.0,
-                        height: size.1,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                })
-                .create_view(&wgpu::TextureViewDescriptor::default())
+            crate::gpu::texture_2d(
+                device,
+                label,
+                [size.0, size.1],
+                format,
+                1,
+                wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                &[],
+            )
+            .create_view(&wgpu::TextureViewDescriptor::default())
         };
         let scene = texture(self.scene_format, "ddi-offscreen-scene");
         let plain = texture(PLAIN, "ddi-offscreen-plain");
         let group = |view: &wgpu::TextureView| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ddi-offscreen-bg"),
-                layout: &self.layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            })
+            crate::gpu::texture_sampler_group(
+                device,
+                "ddi-offscreen-bg",
+                &self.layout,
+                view,
+                &self.sampler,
+            )
         };
         self.targets = Some(Targets {
             size,

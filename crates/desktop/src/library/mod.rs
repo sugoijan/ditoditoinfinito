@@ -130,6 +130,17 @@ impl Hidden {
         before != (self.packs.len(), self.songs.len())
     }
 
+    /// Puts pack `name` (told apart ignoring ASCII case) and its songs in
+    /// `songs` back on the list; whether it changed.
+    pub fn show_pack(&mut self, songs: &[LibSong], name: &str) -> bool {
+        let ids: Vec<&str> = songs
+            .iter()
+            .filter(|s| s.pack.eq_ignore_ascii_case(name))
+            .map(|s| s.entry.id.as_str())
+            .collect();
+        self.show(name, &ids)
+    }
+
     /// Restore selected imported ids without revealing other rows of a hidden
     /// managed pack. A hidden pack becomes individual hidden ids for its remainder.
     pub fn show_only(&mut self, name: &str, all: &[&str], ids: &[&str]) -> bool {
@@ -403,18 +414,13 @@ fn listing_hash(listing: &[Listed], dir: &str) -> u64 {
     let prefix = format!("{dir}/");
     let start = listing.partition_point(|l| l.path.as_str() < prefix.as_str());
     let len = listing[start..].partition_point(|l| l.path.as_str().starts_with(&prefix));
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut eat = |bytes: &[u8]| {
-        for &b in bytes {
-            h = (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    };
+    let mut h = pack::Fnv1a64::new();
     for l in &listing[start..start + len] {
-        eat(l.path.as_str().as_bytes());
-        eat(&l.size.to_le_bytes());
-        eat(&l.modified.to_le_bytes());
+        h.write(l.path.as_str().as_bytes());
+        h.write(&l.size.to_le_bytes());
+        h.write(&l.modified.to_le_bytes());
     }
-    h
+    h.finish()
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -769,11 +775,9 @@ fn scan_works(
                 .filter(|(l, _)| *l == s.label || *l == song_label)
                 .map(|(_, w)| w.clone())
                 .collect();
-            let entry = ddi_library::works::entry(
-                &s,
-                &relative_to(&dir, &real(&label)),
-                &relative_to(&dir, &real(&s.music)),
-            );
+            let from = |p: &str| RelPath::new(&real(p)).relative_to(RelPath::new(&dir));
+            let entry =
+                ddi_library::works::entry(&s, from(&label).as_str(), from(&s.music).as_str());
             out.songs.push(CachedSong {
                 listing: hash,
                 song: LibSong {
@@ -882,17 +886,6 @@ pub fn decode_with(bytes: &[u8], label: Option<&str>) -> String {
 
 fn parent_of(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(d, _)| d)
-}
-
-/// `path` relative to folder `dir` (both relative to the same root),
-/// `../` where it is outside.
-pub fn relative_to(dir: &str, path: &str) -> String {
-    let d: Vec<&str> = dir.split('/').filter(|s| !s.is_empty()).collect();
-    let p: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    let common = d.iter().zip(&p).take_while(|(a, b)| a == b).count();
-    let mut out: Vec<&str> = vec![".."; d.len() - common];
-    out.extend(&p[common..]);
-    out.join("/")
 }
 
 /// Failures named by where they are: the root's path and the folder

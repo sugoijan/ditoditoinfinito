@@ -96,6 +96,11 @@ impl FieldGeometry {
         self.left + (column + 0.5) * self.arrow
     }
 
+    /// The middle of the field, `span` lane widths wide (as made).
+    pub fn center_x(&self, span: f32) -> f32 {
+        self.left + self.arrow * span / 2.0
+    }
+
     /// Screen y for an engine distance in arrow heights.
     pub fn y(&self, arrows: f32) -> f32 {
         self.receptor_y + arrows * self.arrow * self.direction
@@ -233,6 +238,17 @@ pub struct RenderOptions {
     /// The ghost: how far the score is ahead of (or behind) the chart's
     /// best play at the same point, drawn under the score.
     pub ghost: Option<ScoreDelta>,
+}
+
+impl RenderOptions {
+    /// A calibration test's field: plain (no background, no filter),
+    /// each hit's error shown, the notes hidden in the sound-only test.
+    pub fn for_calibration(&mut self, hide_notes: bool) {
+        self.background = 0.0;
+        self.field_filter = 0.0;
+        self.hide_notes = hide_notes;
+        self.show_deltas = true;
+    }
 }
 
 /// A score's lead over another ([`RenderOptions::ghost`]), as the
@@ -541,6 +557,15 @@ pub fn add_quit_button(scene: &mut SceneOutput, [x, y, r]: [f32; 3]) {
 pub fn filter_band(geo: &FieldGeometry, span: f32) -> [f32; 2] {
     let a = geo.arrow;
     [geo.left + a * span / 2.0, a * (span + 0.3)]
+}
+
+/// [`filter_band`] of `layout`'s field on a `width` by `height` screen,
+/// as fractions of its width: what the start prompt's picture darkens.
+pub fn filter_fraction(layout: &Layout, width: f32, height: f32, reverse: bool) -> [f32; 2] {
+    let span = field_span(layout);
+    let geo = FieldGeometry::new(width, height, span, reverse);
+    let [mid, w] = filter_band(&geo, span);
+    [mid / width, w / width]
 }
 
 /// The size a popping run is drawn at: `size` with its overshoot past

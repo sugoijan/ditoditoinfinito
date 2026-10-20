@@ -1226,7 +1226,7 @@ pub(crate) async fn probe(blob: &Blob) -> Result<Picture, String> {
     let mut planes = Vec::new();
     let (mut width, mut height, mut full) = (0, 0, media.stream.sps.full_range);
     let mut result = Ok(());
-    for share in [0.15, 0.3, 0.45, 0.6, 0.75, 0.9] {
+    for share in ddi_platform::video::PROBE_SHARES {
         let target = share * f64::from(last);
         let Some(i) = media
             .chunks

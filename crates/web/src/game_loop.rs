@@ -103,10 +103,8 @@ pub(crate) struct GameLoop {
         Vec<Option<web_sys::ImageBitmap>>,
         String,
     )>,
-    /// The noteskin's store key, and whether its Lua stopping was
-    /// reported.
+    /// The noteskin's store key.
     noteskin_key: String,
-    lua_stop_reported: bool,
 }
 
 impl GameLoop {
@@ -179,7 +177,6 @@ impl GameLoop {
             noteskin: None,
             next_noteskin: None,
             noteskin_key: String::new(),
-            lua_stop_reported: false,
         }
     }
 
@@ -243,21 +240,12 @@ impl GameLoop {
     /// Copies queued background images to the GPU, as
     /// [`GameLoop::add_background`] describes.
     fn upload_backgrounds(&mut self) {
-        let count = match self.playing_at {
-            None => self.pending_backgrounds.len(),
-            Some(t) => {
-                let next_change = self
-                    .background_schedule
-                    .iter()
-                    .filter_map(|l| l.iter().map(|s| s.seconds).find(|&s| s > t))
-                    .reduce(f64::min);
-                usize::from(next_change.is_none_or(|s| s - t >= 1.0))
-            }
-        };
-        let batch: Vec<_> = self
-            .pending_backgrounds
-            .drain(..count.min(self.pending_backgrounds.len()))
-            .collect();
+        let count = backgrounds::uploads_due(
+            &self.background_schedule,
+            self.playing_at,
+            self.pending_backgrounds.len(),
+        );
+        let batch: Vec<_> = self.pending_backgrounds.drain(..count).collect();
         for (what, image) in batch {
             self.upload_background(what, image);
         }
@@ -280,16 +268,17 @@ impl GameLoop {
             return;
         }
         let (width, height) = (image.width().max(1), image.height().max(1));
-        let texture = self
+        let queue = &self.gfx.queue;
+        let id = self
             .renderer
-            .create_background_texture(&self.gfx.device, width, height);
-        crate::web::gfx::copy_bitmap(&self.gfx.queue, &image, &texture, width, height);
+            .add_background_image(&self.gfx.device, [width, height], |texture| {
+                crate::web::gfx::copy_bitmap(queue, &image, texture, width, height);
+            });
         match what {
             BgImage::Song => self.frame_shape.song_bg_aspect = Some(width as f32 / height as f32),
             BgImage::Still => self.frame_shape.still_aspect = Some(width as f32 / height as f32),
             _ => {}
         }
-        let id = self.renderer.add_background(&self.gfx.device, &texture);
         self.background_ids.push((what, id));
         self.uploaded_images.push(image);
     }
@@ -436,12 +425,11 @@ impl GameLoop {
         key: String,
     ) {
         self.noteskin_key = key;
-        self.lua_stop_reported = false;
         self.renderer.clear_noteskin_textures();
         self.stage.forget_textures();
         // Colors as the target blends them: encoded when skins blend as
         // StepMania's do.
-        let srgb = skin_srgb(&self.renderer);
+        let srgb = self.renderer.skin_colors_linear();
         self.noteskin = play.map(|mut play| {
             play.set_srgb(srgb);
             self.uploaded_images.extend(upload_noteskin(
@@ -577,12 +565,7 @@ impl GameLoop {
             });
         match self.session.as_ref() {
             Some(session) => {
-                let mut frame = session.player.frame(session.predicted_present(host_now));
-                // The audio test hides the notes; its beat is held too, so
-                // that a skin pulsing on the beat gives no cue to follow.
-                if session.render.hide_notes {
-                    frame.beat = 0.0;
-                }
+                let frame = session.frame(session.predicted_present(host_now));
                 // The song time of each drawn frame, for tests that read
                 // the screen (the debug state is refreshed every 10 frames).
                 if let Some(window) = web_sys::window() {
@@ -690,12 +673,9 @@ impl GameLoop {
                         );
                         // The skin's Lua stopped: the play goes on with
                         // the built-in skin; the next one tries again.
-                        if let Some(why) = play.lua_failure()
-                            && !self.lua_stop_reported
-                        {
-                            self.lua_stop_reported = true;
+                        if let Some((why, on_clock)) = play.take_lua_stop() {
                             let (key, why) = (self.noteskin_key.clone(), why.to_string());
-                            if play.lua_stopped_on_clock() {
+                            if on_clock {
                                 // A stall, not the skin: not held against it.
                                 web_sys::console::warn_1(&format!("noteskin {key}: {why}").into());
                             } else {
@@ -714,12 +694,11 @@ impl GameLoop {
                     if stage.pending() {
                         stage.upload(&mut self.renderer, &self.gfx.device, &self.gfx.queue);
                     }
-                    let srgb = skin_srgb(&self.renderer);
                     let (back, mask) = stage.quads(
                         frame.song_time,
-                        geo.left + geo.arrow * span / 2.0,
+                        geo.center_x(span),
                         height as f32,
-                        srgb,
+                        self.renderer.skin_colors_linear(),
                     );
                     self.stage_drawn = (back.len(), mask.len());
                     self.renderer.set_stage_quads(back, mask);
@@ -1102,12 +1081,6 @@ impl GameLoop {
     }
 }
 
-/// Whether skins' colors are made in linear light: on an sRGB target,
-/// unless skins blend as StepMania's do (in encoded values).
-fn skin_srgb(renderer: &ddi_render::Renderer) -> bool {
-    renderer.srgb() && !renderer.skins_blend_encoded()
-}
-
 impl Drop for GameLoop {
     fn drop(&mut self) {
         // A pending resize callback must not run into a dropped closure.
@@ -1141,13 +1114,11 @@ pub(crate) fn upload_noteskin(
                 let (w, h) = (image.width().max(1), image.height().max(1));
                 // A model's texture is mipmapped, as StepMania's are.
                 let mipmaps = play.texture_mipmaps(i);
-                let texture = renderer.create_noteskin_texture(device, w, h, mipmaps);
-                crate::web::gfx::copy_bitmap(queue, &image, &texture, w, h);
-                if mipmaps {
-                    renderer.generate_noteskin_mipmaps(device, queue, &texture);
-                }
+                let id = renderer.add_noteskin_image(device, queue, [w, h], mipmaps, |texture| {
+                    crate::web::gfx::copy_bitmap(queue, &image, texture, w, h);
+                });
                 uploaded.push(image);
-                renderer.add_noteskin_texture(device, &texture)
+                id
             }
             (_, None) => continue,
         };

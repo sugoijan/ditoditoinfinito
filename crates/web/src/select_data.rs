@@ -4,7 +4,7 @@
 //! and backgrounds are bundled files or stored ones; and the import
 //! dialog's views.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ddi_chart::Layout;
 use ddi_ui::screens::data::{ImportReportView, ImportView, SelectData};
@@ -14,7 +14,7 @@ use wasm_bindgen::JsValue;
 
 use crate::import::ImportReport;
 use crate::settings::Settings;
-use crate::songs::{ImportedSong, Library, ManifestEntry, file_key};
+use crate::songs::{ImportedSong, Library, file_key};
 use ddi_ui::state::place::MenuPlace;
 
 /// Layouts with charts in the library: the built-in ones in their order,
@@ -28,46 +28,31 @@ pub(crate) fn library_styles(library: &Library) -> Vec<Layout> {
     )
 }
 
-/// A bundled song (`imported` `None`) or an imported one as the list
-/// shows it: bundled files under `songs/<id>/`, stored ones as `files:`
-/// keys, an imported song's background its opening movie's still first
-/// (`crate::stills`; a background left in a kept folder is not in the
-/// store).
-fn listed(entry: &ManifestEntry, imported: Option<&ImportedSong>) -> Listed {
-    let (banner, background) = match imported {
-        None => (
-            entry
-                .banner
-                .as_ref()
-                .map(|b| format!("songs/{}/{b}", entry.id)),
-            entry
-                .background
-                .as_ref()
-                .map(|b| format!("songs/{}/{b}", entry.id)),
-        ),
-        Some(s) => (
-            entry
-                .banner
-                .as_ref()
-                .map(|b| format!("files:{}", file_key(&entry.id, b))),
-            s.still_file()
-                .map(|key| format!("files:{key}"))
-                .or_else(|| {
-                    entry
-                        .background
-                        .as_ref()
-                        .filter(|b| !s.links.contains_key(b.as_str()))
-                        .map(|b| format!("files:{}", file_key(&entry.id, b)))
-                }),
-        ),
-    };
+/// An imported song as the list shows it: stored files as `files:` keys,
+/// its background its opening movie's still first (`crate::stills`; a
+/// background left in a kept folder is not in the store). Bundled songs
+/// are [`Listed::bundled`].
+fn imported(s: &ImportedSong) -> Listed {
+    let entry = &s.entry;
     Listed {
         entry: entry.clone(),
-        pack: imported.map(|s| s.pack.clone()),
+        pack: Some(s.pack.clone()),
         pack_banner: None,
-        banner,
-        background,
-        removable: imported.is_some(),
+        banner: entry
+            .banner
+            .as_ref()
+            .map(|b| format!("files:{}", file_key(&entry.id, b))),
+        background: s
+            .still_file()
+            .map(|key| format!("files:{key}"))
+            .or_else(|| {
+                entry
+                    .background
+                    .as_ref()
+                    .filter(|b| !s.links.contains_key(b.as_str()))
+                    .map(|b| format!("files:{}", file_key(&entry.id, b)))
+            }),
+        removable: true,
     }
 }
 
@@ -82,17 +67,18 @@ pub(crate) fn select_data(
     let songs: Vec<Listed> = library
         .bundled
         .iter()
-        .map(|e| listed(e, None))
-        .chain(library.imported.iter().map(|s| listed(&s.entry, Some(s))))
+        .map(Listed::bundled)
+        .chain(library.imported.iter().map(imported))
         .collect();
     // A pack (told apart ignoring case) can be read again when one of its
     // songs came from a folder still known.
-    let rereadable = |pack: &str| {
-        library.imported.iter().any(|s| {
-            s.pack.to_lowercase() == pack.to_lowercase()
-                && s.folder.as_ref().is_some_and(|f| folders.contains_key(f))
-        })
-    };
+    let rereadable_packs: HashSet<String> = library
+        .imported
+        .iter()
+        .filter(|s| s.folder.as_ref().is_some_and(|f| folders.contains_key(f)))
+        .map(|s| s.pack.to_lowercase())
+        .collect();
+    let rereadable = |pack: &str| rereadable_packs.contains(&pack.to_lowercase());
     let mut data = select_view::select_data(&songs, &rereadable, settings, history, place);
     for pack in &mut data.packs {
         let key = crate::songs::pack_art_key(&pack.name);

@@ -475,11 +475,10 @@ fn stage_opus(dest: Option<PathBuf>) -> Result<()> {
             dest.display()
         );
     };
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in js_bytes.iter().chain(&wasm_bytes) {
-        h ^= u64::from(*b);
-        h = h.wrapping_mul(0x100_0000_01b3);
-    }
+    let mut h = ddi_library::pack::Fnv1a64::new();
+    h.write(&js_bytes);
+    h.write(&wasm_bytes);
+    let h = h.finish();
     let stem = format!("opus-worker-{h:016x}");
     fs::rename(&js, dest.join(format!("{stem}.js")))?;
     fs::rename(&wasm, dest.join(format!("{stem}_bg.wasm")))?;

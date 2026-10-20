@@ -23,7 +23,7 @@ use ddi_ui::screens::prompt::{
     PromptChoice, PromptFn, PromptInfo, PromptPicture, PromptScreen, PromptState, PromptStep,
     SharedPrompt, chart_line, mods_line, new_device_step,
 };
-use ddi_ui::screens::results::{ActionFn, OffsetFn, PanelsFn, ResultsActions, ResultsScreen};
+use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen, stored_panels};
 use ddi_ui::state::history::Plays;
 use ddi_ui::state::settings::Settings;
 
@@ -763,7 +763,6 @@ impl Host {
         let Some(loaded) = r.loaded.clone() else {
             return Stage::Idle;
         };
-        let loaded_song = loaded.song.clone();
         let settings = r.request.settings();
         let audio = match r.audio.take() {
             Some((a, _)) => a,
@@ -806,37 +805,21 @@ impl Host {
                 if let Some(v) = r.view.as_mut()
                     && r.request.calibration.is_none()
                 {
-                    let shift = match &r.request.replay {
-                        Some(replay) => replay.record.song_offset,
-                        None => settings.song_offset(&r.request.song),
-                    };
-                    let mut song = loaded_song;
-                    if shift != 0.0 {
-                        song.shift_notes(shift);
-                    }
-                    let chart = r.request.chart;
-                    v.set_stage_track((settings.bg_brightness > 0.0).then(|| {
-                        ddi_engine::sprites::SpriteTrack::new(&song, chart, settings.reverse)
-                    }));
                     // Its lyrics, over the field (the web's rule: one row
                     // of lanes or two).
-                    let single_row = play.session.layout.lanes.iter().all(|l| l.row == 0);
-                    v.set_lyrics(settings.lyrics.then(|| {
-                        ddi_engine::lyrics::LyricTrack::new(
-                            &song,
-                            chart,
-                            settings.reverse,
-                            single_row,
-                        )
-                    }));
+                    let (track, lyrics) = ddi_session::stage::play_layers(
+                        play.song(),
+                        r.request.chart,
+                        &play.session.layout,
+                        &settings,
+                    );
+                    v.set_stage_track(track);
+                    v.set_lyrics(lyrics);
                 }
                 let mut render = render_options(&settings);
                 // A test shows its plain field and each hit's error.
                 if let Some(mode) = r.request.calibration {
-                    render.background = 0.0;
-                    render.field_filter = 0.0;
-                    render.hide_notes = mode.hide_notes();
-                    render.show_deltas = true;
+                    render.for_calibration(mode.hide_notes());
                 }
                 Stage::Playing(r, Box::new(play), Box::new(render))
             }
@@ -997,36 +980,17 @@ impl Host {
             ));
         }
         #[cfg(feature = "video")]
-        if let Some(v) = r.view.as_ref() {
-            if let Some(reason) = v.movies.off() {
-                let why = match reason {
-                    ddi_platform::video::StopReason::DroppedFrames => "frames were being dropped",
-                    ddi_platform::video::StopReason::DecoderBehind => {
-                        "the decoder could not keep up"
-                    }
-                };
-                notes.push(format!(
-                    "Video was turned off for this song: {why} (Options)."
-                ));
-            }
-            if let Some(why) = v.movies.trouble() {
-                notes.push(format!("{why}; the song background showed."));
-            }
-        }
-        if let Some(Err(e)) = play.saved.borrow().as_ref() {
-            notes.push(format!("This play could not be saved: {e}."));
-        }
+        let (video_off, video_trouble) = r
+            .view
+            .as_ref()
+            .map_or((None, None), |v| (v.movies.off(), v.movies.trouble()));
+        #[cfg(not(feature = "video"))]
+        let (video_off, video_trouble) = (None, None::<String>);
         // A replay: its results against the log judged at once and the
         // play's kept ones (`Replay::check`).
         let replay = play.request.replay.clone();
-        if let Some(rp) = &replay {
-            let check = match rp.results(&play.loaded.song) {
-                Ok(offline) => rp.check(results, &offline),
-                Err(e) => ddi_ui::state::history::ReplayCheck {
-                    problems: vec![e],
-                    ..Default::default()
-                },
-            };
+        let check = replay.as_ref().map(|rp| {
+            let check = rp.check_on(&play.loaded.song, results);
             self.log.push(format!(
                 "replay {}: {}",
                 rp.id,
@@ -1038,10 +1002,20 @@ impl Host {
             ));
             if let Some(note) = check.note() {
                 eprintln!("{note}");
-                notes.push(note);
             }
-            notes.extend(rp.older_judge_note());
-        }
+            check
+        });
+        let save_error = match play.saved.borrow().as_ref() {
+            Some(Err(e)) => Some(e.clone()),
+            _ => None,
+        };
+        notes.extend(ddi_ui::screens::play::results_notes(
+            video_off,
+            video_trouble.as_deref(),
+            save_error.as_deref(),
+            check.as_ref(),
+            replay.as_deref(),
+        ));
         let mut data = results_data(&PlayInfo {
             results,
             ruleset: &session.rules,
@@ -1076,11 +1050,7 @@ impl Host {
             });
         let retry = results_action(&self.after, || After::Retry, false);
         let song_list = results_action(&self.after, || After::Leave, true);
-        let offset: OffsetFn = Rc::new(move |seconds| {
-            let mut s = Settings::load();
-            s.set_song_offset(&id, seconds);
-            s.save();
-        });
+        let offset = ddi_ui::screens::play::song_offset_saver(id);
         ui.push(ResultsScreen::new(
             env.clone(),
             data,
@@ -1088,7 +1058,7 @@ impl Host {
                 retry: Some(retry),
                 song_list: Some(song_list),
                 offset: Some(offset),
-                panels: Some(save_panels()),
+                panels: Some(stored_panels()),
                 replay: watch,
             },
         ));
@@ -1103,12 +1073,9 @@ impl Host {
         settings: &Settings,
     ) -> Option<ddi_ui::state::history::Ghost> {
         let plays = self.plays.as_ref()?;
-        let c = loaded.song.charts.get(request.chart)?;
-        let best = plays.history().best(
-            loaded.song.chart_digest(request.chart),
-            &settings.ruleset_for(c).key(),
-            c.derivation.is_some() || settings.transform.is_assist(),
-        )?;
+        let best = plays
+            .history()
+            .best_of_play(&loaded.song, request.chart, settings)?;
         let got: Rc<RefCell<Option<_>>> = Rc::default();
         let g = got.clone();
         plays.entry(&best.score_play, move |e| *g.borrow_mut() = Some(e));
@@ -1211,7 +1178,7 @@ impl Host {
                 retry: None,
                 song_list: Some(song_list),
                 offset: None,
-                panels: Some(save_panels()),
+                panels: Some(stored_panels()),
                 replay: Some(watch),
             },
         ));
@@ -1237,10 +1204,8 @@ fn filter(loaded: &Loaded, chart: usize, settings: &Settings, ui: &Ui) -> Option
     if w <= 0.0 || h <= 0.0 {
         return None;
     }
-    let span = ddi_render::scene::field_span(&layout);
-    let geo = ddi_render::FieldGeometry::new(w, h, span, settings.reverse);
-    let [mid, width] = ddi_render::scene::filter_band(&geo, span);
-    Some(([mid / w, width / w], settings.field_filter))
+    let band = ddi_render::scene::filter_fraction(&layout, w, h, settings.reverse);
+    Some((band, settings.field_filter))
 }
 
 /// The song's chart's noteskin, readied (`None`: the built-in arrows).
@@ -1268,11 +1233,7 @@ fn skin_want(
 ) -> Option<(String, ddi_chart::Layout, ddi_noteskin::lua::Env)> {
     let c = loaded.song.charts.get(chart)?;
     let layout = loaded.song.layout_of(c)?;
-    let key = super::skins::play_skin(
-        settings.noteskin_for(&layout.id),
-        settings.note_colors,
-        settings.chart_colors && c.notes.iter().any(|n| n.color.is_some()),
-    )?;
+    let key = settings.play_skin(&layout.id, Some(c))?;
     let env = ddi_noteskin::lua::chart_env(&loaded.song, c, &layout, settings.reverse);
     Some((key, layout, env))
 }
@@ -1327,14 +1288,5 @@ fn results_action(
     Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
         after.set(Some(what()));
         ddi_ui::screens::leave(env, cx, cancel);
-    })
-}
-
-/// The results' panel set, kept in the settings.
-fn save_panels() -> PanelsFn {
-    Rc::new(|name| {
-        let mut s = Settings::load();
-        s.results_panels = name.to_string();
-        s.save();
     })
 }

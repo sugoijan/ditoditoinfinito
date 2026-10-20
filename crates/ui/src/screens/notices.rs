@@ -412,6 +412,23 @@ pub fn device_notice(
     Some(AppNotice { text, actions })
 }
 
+/// The short line when the devices change to known ones: "devices:
+/// <audio> (+12 ms) · <display> (+0 ms)", each with its offset.
+pub fn devices_line(
+    settings: &crate::state::settings::Settings,
+    profile: &ddi_platform::DeviceProfile,
+) -> String {
+    let a = settings.audio_profile(&profile.audio.id);
+    let d = settings.display_profile(&profile.display.id);
+    format!(
+        "devices: {} ({:+.0} ms) · {} ({:+.0} ms)",
+        profile.audio.label,
+        a.map(|p| p.offset).unwrap_or(0.0) * 1000.0,
+        profile.display.label,
+        d.map(|p| p.offset).unwrap_or(0.0) * 1000.0
+    )
+}
+
 /// The devices probed, kept with a starting offset: the defaults, or a
 /// calibrated device's (`copy-audio:<id>`, `copy-display:<id>`).
 pub fn register_devices(

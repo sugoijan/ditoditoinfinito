@@ -177,9 +177,9 @@ impl WebAudio {
         length: f64,
         volume: f32,
     ) -> Result<SoundId, String> {
-        const FADE: f64 = 0.5;
+        use ddi_session::preview::{FADE, LEAD};
         self.set_master_volume(volume);
-        let start = self.ctx.current_time() + 0.05;
+        let start = self.ctx.current_time() + LEAD;
         let end = start + length.max(2.0 * FADE);
         let id = self.play(buffer, start, offset, 0.0)?;
         if let Some(voice) = self.voices.borrow().live.get(&id) {
@@ -833,10 +833,6 @@ impl AudioBackend for WebAudio {
         f64::from(self.ctx.sample_rate())
     }
 
-    fn set_master_volume(&mut self, volume: f32) {
-        WebAudio::set_master_volume(self, volume);
-    }
-
     fn master_ramp(&mut self, from: Option<f32>, to: f32, at: Option<f64>, seconds: f64) {
         let gain = self.master.gain();
         match at {
@@ -967,23 +963,6 @@ impl AudioBackend for WebAudio {
             },
         );
         Ok(id)
-    }
-
-    fn stop(&mut self, id: SoundId) {
-        let voice = {
-            let mut voices = self.voices.borrow_mut();
-            voices.finished.clear();
-            voices.live.remove(&id)
-        };
-        if let Some(voice) = voice {
-            Self::silence(&voice);
-        }
-    }
-
-    fn set_volume(&mut self, id: SoundId, volume: f32) {
-        if let Some(voice) = self.voices.borrow().live.get(&id) {
-            voice.gain.gain().set_value(volume);
-        }
     }
 
     fn duration(&self, buffer: &AudioBuffer) -> f64 {

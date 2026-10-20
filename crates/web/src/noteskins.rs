@@ -22,7 +22,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 
 use ddi_chart::Layout;
-use ddi_noteskin::build::{Images, TextureKey};
+use ddi_noteskin::build::{Images, MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes, SVG_SCALE, TextureKey};
 use ddi_noteskin::lua::{Env, LoadBudget, LuaSkin};
 use ddi_noteskin::{Dir, Folder, Skin};
 use ddi_render::noteskin::NoteskinPlay;
@@ -65,20 +65,17 @@ impl StoredSkin {
     /// The key, `<game>/<name>` (names match ignoring case, as
     /// StepMania's do), after [`BUNDLED`] for a bundled skin.
     pub(crate) fn key(&self) -> String {
-        let key = skin_key(&self.game, &self.name);
-        if self.bundled.is_some() {
-            format!("{BUNDLED}{key}")
-        } else {
-            key
-        }
+        ddi_noteskin::bundled::key(&self.game, &self.name, self.bundled.is_some())
     }
 
     /// See [`strike_key`](fn@strike_key).
     fn strike_key(&self) -> String {
-        match (&self.bundled, &self.variant_of) {
-            (Some(_), Some(base)) => format!("{BUNDLED}{}", skin_key(&self.game, base)),
-            _ => self.key(),
-        }
+        ddi_noteskin::bundled::strike_key(
+            &self.game,
+            &self.name,
+            self.bundled.is_some(),
+            self.variant_of.as_deref(),
+        )
     }
 
     fn folder(&self) -> Folder {
@@ -91,50 +88,10 @@ impl StoredSkin {
     }
 }
 
-/// The start of a bundled skin's key.
-pub(crate) const BUNDLED: &str = "bundled:";
+use crate::settings::DITO;
+pub(crate) use crate::settings::{BUILT_IN, BUNDLED};
 
-/// The `noteskin` setting for the built-in arrows, drawn without a skin.
-pub(crate) const BUILT_IN: &str = "builtin";
-
-/// Dito's key (its color variants' are `bundled:dance/dito <scheme>`).
-const DITO: &str = "bundled:dance/dito";
-
-/// The skin a play draws its layout with, by key: the chosen one,
-/// or Dito (the built-in arrows as a skin, when none is chosen) in its
-/// variant for the note colors; none for the built-in arrows, and none
-/// instead of Dito when the chart's own colors are drawn (a skin colors
-/// notes by their place in the beat, not one by one).
-pub(crate) fn play_skin(
-    choice: Option<&str>,
-    colors: crate::settings::NoteColors,
-    chart_colors: bool,
-) -> Option<String> {
-    use crate::settings::NoteColors;
-    match choice {
-        Some(BUILT_IN) => None,
-        Some(key) => Some(key.to_string()),
-        None if chart_colors => None,
-        None => Some(
-            match colors {
-                NoteColors::Quantized => DITO,
-                NoteColors::Vivid => "bundled:dance/dito vivid",
-                NoteColors::Flat => "bundled:dance/dito flat",
-                NoteColors::Rainbow => "bundled:dance/dito rainbow",
-                NoteColors::Single => "bundled:dance/dito single",
-            }
-            .to_string(),
-        ),
-    }
-}
-
-pub(crate) fn skin_key(game: &str, name: &str) -> String {
-    format!(
-        "{}/{}",
-        game.to_ascii_lowercase(),
-        name.to_ascii_lowercase()
-    )
-}
+pub(crate) use ddi_noteskin::bundled::skin_key;
 
 /// Key of a skin's file in the `files` store.
 pub(crate) fn file_key(skin: &str, path: &str) -> String {
@@ -146,13 +103,7 @@ pub(crate) fn file_key(skin: &str, path: &str) -> String {
 pub(crate) const MAX_FILES: usize = 2000;
 /// Skins one import keeps, at most.
 pub(crate) const MAX_SKINS: usize = 200;
-/// The largest text read (`metrics.ini`, `.redir`, `.lua`, a model's
-/// `.txt` or `.ini`), in bytes.
-pub(crate) const MAX_TEXT: u64 = 1 << 20;
-/// The texts of one skin, in bytes, at most; the rest are left out.
-pub(crate) const MAX_TEXTS: u64 = 32 << 20;
-
-pub(crate) use ddi_noteskin::import::kept_text;
+pub(crate) use ddi_noteskin::import::{MAX_TEXT, MAX_TEXTS, kept_text};
 
 /// Whether a skin's file is worth storing: images, Lua and models (for the
 /// steps that read them), the texts.
@@ -310,19 +261,6 @@ pub(crate) struct Choices {
     pub(crate) default_lua_off: Option<String>,
 }
 
-impl Choices {
-    /// The skins as screens read them (P12).
-    pub(crate) fn views(&self) -> Vec<ddi_ui::state::library::NoteskinView> {
-        self.skins
-            .iter()
-            .map(|(key, name)| ddi_ui::state::library::NoteskinView {
-                key: key.clone(),
-                name: name.clone(),
-            })
-            .collect()
-    }
-}
-
 /// The dance skins one can pick; an error when none could be read.
 pub(crate) async fn choices() -> Result<Choices, String> {
     let imported = match Db::open().await {
@@ -339,31 +277,18 @@ pub(crate) async fn choices() -> Result<Choices, String> {
             skins
         }
     };
-    let mut skins: Vec<(bool, String, String)> = skins
-        .into_iter()
-        // Dito and its colors are the default, chosen as such.
-        // Pump skins are listed too, for the pump layouts
-        // (`Settings::pump_noteskin`).
-        .filter(|s| {
-            (s.game == "dance" || s.game == "pump")
-                && !s.name.eq_ignore_ascii_case("default")
-                && s.variant_of.is_none()
-                && !(s.bundled.is_some() && s.name == "Dito")
-        })
-        .map(|s| {
-            let mut name = s.name.clone();
-            if s.bundled.is_some() {
-                name.push_str(" (with the game)");
-            }
-            if s.lua_broken.is_some() {
-                name.push_str(" (its Lua is off)");
-            }
-            (s.bundled.is_none(), s.key(), name)
-        })
-        .collect();
-    skins.sort_by_key(|(imported, _, n)| (*imported, n.to_lowercase()));
+    // Dito and its colors are the default, chosen as such. Pump skins
+    // are listed too, for the pump layouts (`Settings::pump_noteskin`).
+    let skins =
+        ddi_noteskin::bundled::pickable(skins.iter().map(|s| ddi_noteskin::bundled::Candidate {
+            game: &s.game,
+            name: &s.name,
+            bundled: s.bundled.is_some(),
+            variant: s.variant_of.is_some(),
+            lua_off: s.lua_broken.is_some(),
+        }));
     Ok(Choices {
-        skins: skins.into_iter().map(|(_, k, n)| (k, n)).collect(),
+        skins,
         complete,
         default_lua_off: LUA_OFF.with(|off| off.borrow().get(DITO).cloned()),
     })
@@ -414,7 +339,7 @@ async fn lua_summary(
     layout: &Layout,
     button: ddi_noteskin::Button,
 ) -> String {
-    let probe = Sizes::probe();
+    let probe = ProbeSizes::probe();
     let env = Env {
         game: game.to_string(),
         style: ddi_noteskin::lua::style_for(game, layout).into(),
@@ -467,7 +392,7 @@ async fn lua_summary(
 fn legacy_summary(skin: &Skin<'_>, button: ddi_noteskin::Button) -> String {
     use ddi_noteskin::build::{Built, Textures, build};
     use ddi_noteskin::load::ENGINE_ELEMENTS;
-    let probe = Sizes::probe();
+    let probe = ProbeSizes::probe();
     let mut textures = Textures::default();
     // The format has no lifts: they are drawn built in.
     let elements: Vec<&str> = ENGINE_ELEMENTS
@@ -609,53 +534,6 @@ impl Prepared {
     }
 }
 
-/// Image sizes as decoded (original pixels), by `(folder, path)`.
-struct Sizes {
-    sizes: HashMap<(usize, String), (u32, u32)>,
-    max_size: u32,
-    /// The images asked for (the first pass answers every size 128).
-    asked: RefCell<Vec<(usize, String)>>,
-    probe: bool,
-}
-
-impl Sizes {
-    /// The first pass: every image 128 pixels square, the ones asked for
-    /// noted.
-    fn probe() -> Sizes {
-        Sizes {
-            sizes: HashMap::new(),
-            max_size: MAX_IMAGE_SIDE,
-            asked: RefCell::new(Vec::new()),
-            probe: true,
-        }
-    }
-}
-
-impl Images for Sizes {
-    fn size(&self, dir: Dir, path: &str) -> Option<(u32, u32)> {
-        let Dir::Folder(i) = dir else {
-            return None;
-        };
-        if self.probe {
-            self.asked.borrow_mut().push((i, path.to_string()));
-            return Some((128, 128));
-        }
-        self.sizes.get(&(i, path.to_string())).copied()
-    }
-
-    fn max_size(&self) -> u32 {
-        self.max_size
-    }
-}
-
-/// The largest image side kept (GPU limits and memory).
-const MAX_IMAGE_SIDE: u32 = 4096;
-
-/// Decoded pixels a skin may hold at once (each is kept as a bitmap and
-/// again on the GPU): about 256 MB of each. Images past it are left out
-/// and drawn by the built-in skin.
-const MAX_PIXELS: u64 = 64 << 20;
-
 /// Builds skin `name` through its Lua for `layout` (`clock` its
 /// deadlines'); why it could not.
 #[allow(clippy::too_many_arguments)]
@@ -684,8 +562,9 @@ async fn lua_play(
 
 /// Fills in the texts of a skin stored before they were kept with its
 /// record (`.lua` since skins' Lua runs, models and `.ini` textures since
-/// models draw), from its stored files, and saves the record.
-pub(crate) async fn add_missing_texts(db: &Db, skin: &mut StoredSkin) {
+/// models draw), from its stored files, and saves the record; whether
+/// any were added.
+pub(crate) async fn add_missing_texts(db: &Db, skin: &mut StoredSkin) -> bool {
     let missing: Vec<String> = skin
         .stored
         .iter()
@@ -694,7 +573,7 @@ pub(crate) async fn add_missing_texts(db: &Db, skin: &mut StoredSkin) {
         .cloned()
         .collect();
     if missing.is_empty() {
-        return;
+        return false;
     }
     let key = skin.key();
     let before = skin.texts.len();
@@ -715,7 +594,7 @@ pub(crate) async fn add_missing_texts(db: &Db, skin: &mut StoredSkin) {
         }
     }
     if skin.texts.len() == before {
-        return;
+        return false;
     }
     if let Ok(json) = serde_json::to_string(skin) {
         let _ = db
@@ -726,6 +605,7 @@ pub(crate) async fn add_missing_texts(db: &Db, skin: &mut StoredSkin) {
             }])
             .await;
     }
+    true
 }
 
 thread_local! {
@@ -753,10 +633,14 @@ pub(crate) async fn lua_stopped(key: &str, why: &str) {
     let Ok(db) = Db::open().await else {
         return;
     };
-    let Ok(stored) = all(&db).await else {
+    // An imported skin's record is stored under its key ([`store`]).
+    let Ok(Some(record)) = db.get(idb::NOTESKINS, key).await else {
         return;
     };
-    let Some(mut skin) = stored.into_iter().find(|s| s.key() == key) else {
+    let Some(mut skin) = record
+        .as_string()
+        .and_then(|json| serde_json::from_str::<StoredSkin>(&json).ok())
+    else {
         return;
     };
     skin.lua_broken = Some(why.to_string());
@@ -776,15 +660,12 @@ pub(crate) async fn lua_stopped(key: &str, why: &str) {
 async fn decode(
     db: Option<&Db>,
     stored: &[StoredSkin],
-    sizes: &mut Sizes,
+    sizes: &mut ProbeSizes,
     bitmaps: &mut HashMap<(usize, String), ImageBitmap>,
     pixels: &mut u64,
     wanted: &Wanted,
 ) {
-    let mut asked = sizes.asked.take();
-    asked.sort();
-    asked.dedup();
-    for (i, path) in asked {
+    for (i, path) in sizes.take_asked() {
         // A load no longer wanted decodes no more.
         if !wanted() {
             break;
@@ -839,11 +720,6 @@ async fn decode(
     }
     sizes.probe = false;
 }
-
-/// How much finer than its own size an SVG is drawn: a skin's 64-pixel
-/// lane is drawn up to 160 device pixels wide (the arrow size's cap), so
-/// four times keeps it sharp there.
-const SVG_SCALE: f64 = 4.0;
 
 /// An SVG image, checked and rasterised, with the size the skin sees (its
 /// own, as for a bitmap).
@@ -979,8 +855,8 @@ async fn prepare_until(
     stored.insert(0, first);
     let chosen = 0;
     // The `.lua` texts of the folders the skin falls back on.
+    let mut folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
     let chain: Vec<usize> = {
-        let folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
         let skin = match Skin::load(&folders, &stored[chosen].game, &stored[chosen].name) {
             Ok(s) => s,
             Err(e) => {
@@ -999,16 +875,17 @@ async fn prepare_until(
     for i in chain {
         if let (Some(s), Some(db)) = (stored.get_mut(i), &db)
             && s.bundled.is_none()
+            && add_missing_texts(db, s).await
         {
-            add_missing_texts(db, s).await;
+            folders[i] = s.folder();
         }
     }
     if !wanted() {
         return None;
     }
     let stored = stored;
+    let folders = folders;
     let chosen = &stored[chosen];
-    let folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
     let skin = match Skin::load(&folders, &chosen.game, &chosen.name) {
         Ok(s) => s,
         Err(e) => {
@@ -1033,7 +910,7 @@ async fn prepare_until(
     let seed = hash_seed();
     let mut lua_error = None;
     // First pass: which images the actors use.
-    let mut sizes = Sizes::probe();
+    let mut sizes = ProbeSizes::probe();
     if with_lua {
         match lua_play(
             &folders,
@@ -1126,17 +1003,7 @@ async fn prepare_until(
         }
         return None;
     };
-    let images = play
-        .texture_keys()
-        .iter()
-        .map(|k| match k {
-            TextureKey::Skin {
-                dir: Dir::Folder(i),
-                path,
-            } => bitmaps.get(&(*i, path.clone())).cloned(),
-            _ => None,
-        })
-        .collect();
+    let images = play.images_for(&bitmaps);
     for (_, b) in bitmaps.iter().filter(|(k, _)| {
         !play.texture_keys().iter().any(|t| matches!(t, TextureKey::Skin { dir: Dir::Folder(i), path } if (*i, path) == (k.0, &k.1)))
     }) {

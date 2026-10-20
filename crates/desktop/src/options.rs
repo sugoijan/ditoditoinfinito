@@ -103,10 +103,7 @@ pub fn screen(
     let world = World {
         platform: ddi_ui::screens::data::Platform::Desktop,
         pads_supported: true,
-        library_styles: songs.as_ref().map_or_else(Vec::new, |s| {
-            let listed = s.listed();
-            ddi_ui::state::select_view::library_styles(listed.iter().map(|l| &l.entry))
-        }),
+        library_styles: songs.as_ref().map_or_else(Vec::new, |s| s.library_styles()),
         // The bundled ones at once; the folders' when their walk is done.
         noteskins: crate::library::noteskins::choices(&crate::library::noteskins::bundled()),
         plays: songs
@@ -272,9 +269,7 @@ impl OptionsPlatform for Desktop {
         *self.0.edited.borrow_mut() = Some(model.settings.clone());
         if id == "reduced_motion" {
             let env = &self.0.env;
-            env.reduced_motion
-                .set(model.settings.reduced_motion.reduced(false));
-            env.state.borrow_mut().reduced_motion_setting = model.settings.reduced_motion as usize;
+            env.follow_motion(model.settings.reduced_motion, false);
         }
     }
 

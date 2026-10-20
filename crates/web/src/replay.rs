@@ -205,9 +205,7 @@ async fn resolve(
 /// it was drawn with is not installed (bundled ones ship with the game).
 pub(crate) async fn missing_skin(replay: &Replay, layout: &str) -> Option<String> {
     let settings = replay.settings(&Settings::load());
-    let skin = replay
-        .skin(&settings, layout)
-        .filter(|s| !s.starts_with(crate::noteskins::BUNDLED))?;
+    let skin = replay.skin(&settings, layout)?;
     let db = crate::web::idb::Db::open().await.ok();
     let skins = crate::noteskins::catalogue(db.as_ref()).await;
     (!skins.iter().any(|s| s.key() == skin)).then(|| Replay::missing_skin(&skin))

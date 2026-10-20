@@ -191,7 +191,7 @@ fn frames_at(t: f64, rate: u32) -> usize {
 
 /// The frames up to `until`, if it limits them.
 fn limit(until: Option<f64>, rate: u32) -> Option<usize> {
-    until.map(|s| (s.max(0.0) * f64::from(rate)).ceil() as usize)
+    until.map(|s| crate::decode::frames_until(s, rate))
 }
 
 /// Where decoded audio goes: the frames before the range's start
@@ -218,7 +218,7 @@ impl Kept {
     }
 
     fn frames(&self) -> usize {
-        self.channels.first().map_or(0, Vec::len)
+        crate::decode::frame_count(&self.channels)
     }
 
     fn full(&self) -> bool {
@@ -246,13 +246,7 @@ impl Kept {
     }
 
     fn settle(&mut self) {
-        if self.skip > 0 {
-            let k = self.skip.min(self.frames());
-            for c in &mut self.channels {
-                c.drain(..k);
-            }
-            self.skip -= k;
-        }
+        crate::decode::drop_front(&mut self.channels, &mut self.skip);
         if let Some(w) = self.want {
             for c in &mut self.channels {
                 c.truncate(w);
@@ -416,14 +410,7 @@ fn run(
     let rate = d.sample_rate();
     d.skip(shift + frames_at(range.from, rate));
     let want = limit(range.until, rate).map(|u| u.saturating_sub(frames_at(range.from, rate)));
-    while want.is_none_or(|w| d.frames() < w) && !d.step(16).map_err(from_web)? {}
-    let mut audio = d.finish().map_err(from_web)?;
-    if let Some(w) = want {
-        for c in &mut audio.channels {
-            c.truncate(w);
-        }
-    }
-    Ok(audio)
+    d.run_to(want, 16).map_err(from_web)
 }
 
 /// `audio` at `rate`, interleaved: what a mixer plays, made with one

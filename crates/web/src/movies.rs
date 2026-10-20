@@ -476,31 +476,12 @@ impl MovieDeck {
     /// while the one it named is still drawn it stays, so a change on the
     /// other layer does not start the rule's warm-up again.
     pub(crate) fn drawing(&self, layers: &[Vec<BgSegment>]) -> Option<usize> {
-        let drawing: Vec<(usize, usize)> = self
-            .current
-            .iter()
-            .enumerate()
-            .filter_map(|(layer, current)| {
-                let current = (*current)?;
-                let BgImage::Movie(name) = &layers.get(layer)?.get(current)?.image else {
-                    return None;
-                };
-                // Shown (`MovieDeck::shown_ids`).
-                self.textures
-                    .iter()
-                    .any(|t| {
-                        t.fresh && t.name == *name && !self.failed.iter().any(|(n, _)| *n == t.name)
-                    })
-                    .then_some((layer, current))
+        backgrounds::drawing_movie(layers, &self.current, &self.guard_key, |name| {
+            // Shown (`MovieDeck::shown_ids`).
+            self.textures.iter().any(|t| {
+                t.fresh && t.name == name && !self.failed.iter().any(|(n, _)| *n == t.name)
             })
-            .collect();
-        let key = self
-            .guard_key
-            .get()
-            .filter(|k| drawing.contains(k))
-            .or_else(|| drawing.first().copied());
-        self.guard_key.set(key);
-        key.map(|(layer, segment)| segment * LAYERS + layer)
+        })
     }
 
     /// Stops every movie for the rest of this play: the song's own
@@ -559,12 +540,7 @@ impl MovieDeck {
     /// frame only then; off, failed or turned off, the song background
     /// shows, as StepMania would.
     pub(crate) fn opening_plays(&self, schedule: &[BgSegment]) -> bool {
-        let Some(BgImage::Movie(name)) = schedule.get(1).map(|s| &s.image) else {
-            return false;
-        };
-        self.off.is_none()
-            && !self.failed.iter().any(|(n, _)| n == name)
-            && !self.trouble.iter().any(|(n, _)| n == name)
+        backgrounds::opening_plays(schedule, self.off.is_some(), &self.failed, &self.trouble)
     }
 
     /// Why the movies were turned off for this play, if they were.
@@ -575,14 +551,7 @@ impl MovieDeck {
     /// What kept movies from playing this play, in a line for the results
     /// (a build without the module says so once, not per movie).
     pub(crate) fn trouble(&self) -> Option<String> {
-        let ((name, first), rest) = self.trouble.split_first()?;
-        Some(if rest.is_empty() {
-            format!("the video {name} could not play: {first}")
-        } else if rest.iter().all(|(_, e)| e == first) {
-            format!("{} videos could not play: {first}", rest.len() + 1)
-        } else {
-            format!("{} videos could not play; {name}: {first}", rest.len() + 1)
-        })
+        ddi_platform::video::trouble_line(&self.trouble)
     }
 
     /// Closes every decoder (the song ended). Sources, textures and what
@@ -591,7 +560,7 @@ impl MovieDeck {
     /// why the movies were turned off stays for the results.
     pub(crate) fn stop(&mut self) {
         for open in self.open.drain(..) {
-            add_stats(&mut self.closed, &open.track.stats);
+            self.closed.add(&open.track.stats);
         }
         for texture in &mut self.textures {
             texture.fresh = false;
@@ -794,7 +763,7 @@ impl MovieDeck {
     }
 
     fn close(&mut self, open: Open) {
-        add_stats(&mut self.closed, &open.track.stats);
+        self.closed.add(&open.track.stats);
         if let Some(end) = open.track.end() {
             self.learn_end(&open.name, end);
         }
@@ -1068,7 +1037,7 @@ impl MovieDeck {
     pub(crate) fn stats(&self) -> MovieStats {
         let mut total = self.closed;
         for open in &self.open {
-            add_stats(&mut total, &open.track.stats);
+            total.add(&open.track.stats);
         }
         total
     }
@@ -1114,12 +1083,4 @@ impl MovieDeck {
         set("module", status.into());
         obj
     }
-}
-
-fn add_stats(total: &mut MovieStats, s: &MovieStats) {
-    total.decoded += s.decoded;
-    total.shown += s.shown;
-    total.dropped += s.dropped;
-    total.late += s.late;
-    total.seeks += s.seeks;
 }

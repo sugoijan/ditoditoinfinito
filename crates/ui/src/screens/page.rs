@@ -170,16 +170,10 @@ impl PageScreen {
         self
     }
 
-    /// As options: the full design as it is; a phone sideways as it is;
-    /// upright 480 wide, zoomed to the width.
+    /// As options ([`super::compact_fit`]).
     fn place(&mut self, vp: ddi_actor::screen::VirtualScreen) -> bool {
         let before = (self.screen, self.zoom);
-        let compact = super::is_compact(&*self.env.look, vp);
-        let (screen, zoom) = if compact {
-            super::narrow_fit(&self.env, vp)
-        } else {
-            ([vp.width, vp.height], 1.0)
-        };
+        let (screen, zoom, compact) = super::compact_fit(&self.env, vp);
         self.screen = screen;
         self.zoom = zoom;
         self.compact = compact;

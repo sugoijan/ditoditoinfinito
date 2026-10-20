@@ -138,27 +138,12 @@ impl Movies {
     /// while the one it named is still drawn it stays, so a change on the
     /// other layer does not start the rule's warm-up again.
     pub fn drawing(&self, layers: &[Vec<BgSegment>]) -> Option<usize> {
-        let drawing: Vec<(usize, usize)> = self
-            .current
-            .iter()
-            .enumerate()
-            .filter_map(|(layer, current)| {
-                let current = (*current)?;
-                let BgImage::Movie(name) = &layers.get(layer)?.get(current)?.image else {
-                    return None;
-                };
-                self.shown_ids()
-                    .any(|(what, _)| what == BgImage::Movie(name.clone()))
-                    .then_some((layer, current))
+        backgrounds::drawing_movie(layers, &self.current, &self.guard_key, |name| {
+            // Shown (`Movies::shown_ids`).
+            self.textures.iter().any(|t| {
+                t.fresh && t.name == name && !self.failed.iter().any(|(n, _)| *n == t.name)
             })
-            .collect();
-        let key = self
-            .guard_key
-            .get()
-            .filter(|k| drawing.contains(k))
-            .or_else(|| drawing.first().copied());
-        self.guard_key.set(key);
-        key.map(|(layer, segment)| segment * LAYERS + layer)
+        })
     }
 
     pub fn turn_off(&mut self, reason: StopReason) {
@@ -192,12 +177,7 @@ impl Movies {
 
     /// Whether the opening movie (segment 1) is expected to play.
     pub fn opening_plays(&self, schedule: &[BgSegment]) -> bool {
-        let Some(BgImage::Movie(name)) = schedule.get(1).map(|s| &s.image) else {
-            return false;
-        };
-        self.off.is_none()
-            && !self.failed.iter().any(|(n, _)| n == name)
-            && !self.trouble.iter().any(|(n, _)| n == name)
+        backgrounds::opening_plays(schedule, self.off.is_some(), &self.failed, &self.trouble)
     }
 
     pub fn off(&self) -> Option<StopReason> {
@@ -206,14 +186,7 @@ impl Movies {
 
     /// What kept movies from playing, in a line for the results.
     pub fn trouble(&self) -> Option<String> {
-        let ((name, first), rest) = self.trouble.split_first()?;
-        Some(if rest.is_empty() {
-            format!("the video {name} could not play: {first}")
-        } else if rest.iter().all(|(_, e)| e == first) {
-            format!("{} videos could not play: {first}", rest.len() + 1)
-        } else {
-            format!("{} videos could not play; {name}: {first}", rest.len() + 1)
-        })
+        ddi_platform::video::trouble_line(&self.trouble)
     }
 
     /// Closes every decoder (the song ended); a retry starts them again.
@@ -252,7 +225,7 @@ impl Movies {
     pub fn stats(&self) -> MovieStats {
         let mut s = self.closed;
         for o in &self.open {
-            add_stats(&mut s, &o.track.stats);
+            s.add(&o.track.stats);
         }
         s
     }
@@ -401,7 +374,7 @@ impl Movies {
     }
 
     fn close(&mut self, open: Open) {
-        add_stats(&mut self.closed, &open.track.stats);
+        self.closed.add(&open.track.stats);
         if let Some(end) = open.track.end() {
             match self.ends.iter_mut().find(|(n, _)| *n == open.name) {
                 Some((_, e)) => *e = end,
@@ -455,14 +428,12 @@ impl Movies {
         let at = t.max(schedule[segment].seconds);
         let looping = backgrounds::movie_loops_in(layers, layer, segment, at);
         let mut track = MovieTrack::new(looping, AHEAD, end);
-        track.start(
-            &mut decoder,
-            backgrounds::movie_position_in(layers, layer, segment, at),
-        );
+        let position = backgrounds::movie_position_in(layers, layer, segment, at);
+        track.start(&mut decoder, position);
         self.open.push(Open {
             layer,
             segment,
-            position: backgrounds::movie_position_in(layers, layer, segment, at),
+            position,
             name,
             decoder,
             track,
@@ -525,12 +496,4 @@ fn self_recycle(host: &Option<VideoHost>, frame: VideoFrame) {
     if let Some(h) = host {
         h.recycle(frame.planes);
     }
-}
-
-fn add_stats(total: &mut MovieStats, s: &MovieStats) {
-    total.decoded += s.decoded;
-    total.shown += s.shown;
-    total.dropped += s.dropped;
-    total.late += s.late;
-    total.seeks += s.seeks;
 }

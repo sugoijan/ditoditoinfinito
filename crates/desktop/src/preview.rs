@@ -21,19 +21,13 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use ddi_chart::TimingMap;
+use ddi_session::preview::{FADE, LEAD};
 
 use crate::audio::decoder::Decoder;
 use crate::audio::{Audio, Sound};
 
 /// Wait after a selection before its preview loads.
 const SETTLE: Duration = Duration::from_millis(300);
-/// Preview length when the simfile gives none, and the longest one played.
-const DEFAULT_LENGTH: f64 = 12.0;
-const MAX_LENGTH: f64 = 30.0;
-/// The fades in and out.
-const FADE: f64 = 0.5;
-/// After the start is asked for, when it starts (context seconds).
-const LEAD: f64 = 0.05;
 /// The pause between loops.
 const AGAIN: f64 = 0.6;
 
@@ -87,16 +81,11 @@ impl PreviewSong {
     /// A preview of `music` from the simfile's `#SAMPLESTART` and
     /// `#SAMPLELENGTH` (the defaults where it gives none).
     pub fn of(id: &str, music: PathBuf, start: f64, length: f64, timing: TimingMap) -> PreviewSong {
-        let length = if length > 1.0 {
-            length.min(MAX_LENGTH)
-        } else {
-            DEFAULT_LENGTH
-        };
         PreviewSong {
             id: id.to_string(),
             music,
             from: start.max(0.0),
-            length,
+            length: ddi_session::preview::length(length),
             timing: Rc::new(timing),
             target: Default::default(),
         }
@@ -433,7 +422,7 @@ mod tests {
             let p = PreviewSong::bundled(id).unwrap_or_else(|| panic!("{id}"));
             assert!(p.music.is_file(), "{}", p.music.display());
             assert!(
-                p.length > 1.0 && p.length <= MAX_LENGTH,
+                p.length > 1.0 && p.length <= ddi_session::preview::MAX_LENGTH,
                 "{id}: {}",
                 p.length
             );

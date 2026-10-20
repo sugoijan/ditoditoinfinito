@@ -6,22 +6,14 @@
 
 use std::rc::Rc;
 
-use ddi_session::calibration::{CalMode, MAX_OFFSET};
+use ddi_session::calibration::CalMode;
 use ddi_ui::Cx;
-use ddi_ui::message::Message;
 use ddi_ui::screens::Env;
 use ddi_ui::screens::calibration::{self, CalAct};
-use ddi_ui::screens::options_dialogs::ConfirmDialog;
-use ddi_ui::screens::page::{PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageShell};
-use ddi_ui::state::settings::Settings;
+use ddi_ui::screens::page::{PageCall, PageDoc, PageFeed, PageScreen, PageShell};
 
 use crate::preview::SharedPlayer;
 use crate::songs::Songs;
-
-/// The menu on the stored settings.
-pub fn doc() -> PageDoc {
-    calibration::doc(&Settings::load(), MAX_OFFSET * 1000.0)
-}
 
 /// The menu: its tests played through `songs`' play call.
 pub fn menu(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> PageScreen {
@@ -36,7 +28,7 @@ pub fn menu(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> PageSc
             PageCall::Button(id) => button(&env, &songs, sound.as_ref(), &feed, &id, cx),
         })
     };
-    PageScreen::new(env.clone(), "calibration", doc()).with_shell(shell, feed)
+    PageScreen::new(env.clone(), "calibration", calibration::stored_doc()).with_shell(shell, feed)
 }
 
 fn button(
@@ -66,23 +58,7 @@ fn button(
             None
         }
         CalAct::ConfirmReset => {
-            let (title, body, yes) = calibration::reset_texts();
-            let feed = feed.clone();
-            cx.overlay(
-                ConfirmDialog::new(
-                    env.clone(),
-                    &title,
-                    &body,
-                    &yes,
-                    Rc::new(move |cx| {
-                        let mut s = Settings::load();
-                        calibration::reset(&mut s);
-                        *feed.borrow_mut() = Some(doc());
-                        cx.broadcast(Message::new(PAGE_CHANGED));
-                    }),
-                ),
-                true,
-            );
+            calibration::confirm_reset(env, feed, cx);
             None
         }
         CalAct::Nothing => None,

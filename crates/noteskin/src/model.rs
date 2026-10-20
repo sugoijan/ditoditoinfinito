@@ -15,6 +15,7 @@
 
 use std::fmt;
 
+use ddi_actor::commands::scan_float;
 use ddi_actor::model::{AnimatedTexture, Animation, Bone, Geometry, Material, Mesh, Vertex};
 
 use crate::ini::Ini;
@@ -157,40 +158,24 @@ fn floats<const N: usize>(s: &str) -> Option<[f32; N]> {
 
 /// The number at the start of `f`, as `strtof` takes it: a sign, digits
 /// with a point, an exponent if digits follow it; or `inf`, `infinity`,
-/// `nan`. Found in one pass.
+/// `nan`.
 fn strtof(f: &str) -> Option<f32> {
+    if let Some((v, _)) = scan_float(f) {
+        return Some(v);
+    }
+    // No mantissa digits: past the sign and a point, a word.
     let b = f.as_bytes();
-    let mut i = usize::from(matches!(b.first(), Some(b'+' | b'-')));
-    let digits = |i: &mut usize| {
-        let start = *i;
-        while b.get(*i).is_some_and(u8::is_ascii_digit) {
-            *i += 1;
-        }
-        *i - start
-    };
-    let mut mantissa = digits(&mut i);
-    if b.get(i) == Some(&b'.') {
-        i += 1;
-        mantissa += digits(&mut i);
+    let sign = usize::from(matches!(b.first(), Some(b'+' | b'-')));
+    let i = sign + usize::from(b.get(sign) == Some(&b'.'));
+    let word = b.get(i..i + 3);
+    let sign = if b.first() == Some(&b'-') { -1.0 } else { 1.0 };
+    if word.is_some_and(|w| w.eq_ignore_ascii_case(b"inf")) {
+        Some(sign * f32::INFINITY)
+    } else if word.is_some_and(|w| w.eq_ignore_ascii_case(b"nan")) {
+        Some(f32::NAN)
+    } else {
+        None
     }
-    if mantissa == 0 {
-        let word = b.get(i..i + 3);
-        let sign = if b.first() == Some(&b'-') { -1.0 } else { 1.0 };
-        return if word.is_some_and(|w| w.eq_ignore_ascii_case(b"inf")) {
-            Some(sign * f32::INFINITY)
-        } else if word.is_some_and(|w| w.eq_ignore_ascii_case(b"nan")) {
-            Some(f32::NAN)
-        } else {
-            None
-        };
-    }
-    if matches!(b.get(i), Some(b'e' | b'E')) {
-        let mut j = i + 1 + usize::from(matches!(b.get(i + 1), Some(b'+' | b'-')));
-        if digits(&mut j) > 0 {
-            i = j;
-        }
-    }
-    f[..i].parse().ok()
 }
 
 fn ints<const N: usize>(s: &str) -> Option<[i64; N]> {

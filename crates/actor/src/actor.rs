@@ -708,6 +708,15 @@ impl TextDraw {
     pub fn line_box_transform(&self) -> [f32; 6] {
         shifted_local(&self.transform, [0.0, -self.metrics.baseline])
     }
+
+    /// [`TextDraw::perspective`] from the line box's top left instead of
+    /// the pen.
+    pub fn line_box_perspective(&self) -> Option<(Mat4, Perspective)> {
+        self.perspective.map(|(m, camera)| {
+            let top = translation4([0.0, -self.metrics.baseline, 0.0]);
+            (mul4(&m, &top), camera)
+        })
+    }
 }
 
 /// `m` after a move of `by` in its own space.
@@ -769,8 +778,7 @@ impl Default for View {
 impl View {
     /// The target's pixels per virtual pixel.
     fn scale(&self) -> f32 {
-        let t = &self.transform;
-        (t[0] * t[3] - t[1] * t[2]).abs().sqrt()
+        scale_of(&self.transform)
     }
 
     /// A vector of the screen's on the target.
@@ -780,8 +788,7 @@ impl View {
     }
 
     fn point(&self, p: [f32; 2]) -> [f32; 2] {
-        let v = self.vector(p);
-        [v[0] + self.transform[4], v[1] + self.transform[5]]
+        apply(&self.transform, p)
     }
 }
 
@@ -835,6 +842,22 @@ impl Perspective {
             depth / self.distance,
         ))
     }
+
+    /// The points (in the plane z = 0) under `m`, seen: where and their
+    /// `w`, as [`Perspective::project`]; `None` when one is outside the
+    /// depth.
+    pub fn project_quad(
+        &self,
+        m: &Mat4,
+        points: [[f32; 2]; 4],
+    ) -> Option<([[f32; 2]; 4], [f32; 4])> {
+        let mut seen = [[0.0; 2]; 4];
+        let mut w = [0.0; 4];
+        for (i, [x, y]) in points.into_iter().enumerate() {
+            (seen[i], w[i]) = self.project(transform_point(m, [x, y, 0.0]))?;
+        }
+        Some((seen, w))
+    }
 }
 
 /// A quad's corners as a camera sees them.
@@ -852,16 +875,10 @@ impl Projected {
     /// viewer), seen by `camera`; `None` when a corner is outside its
     /// depth.
     fn of(camera: &Perspective, transform: &Mat4) -> Option<Projected> {
-        let mut corners = [[0.0; 2]; 4];
-        let mut w = [0.0; 4];
-        for (i, (x, y)) in [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)]
-            .into_iter()
-            .enumerate()
-        {
-            let (p, cw) = camera.project(transform_point(transform, [x, y, 0.0]))?;
-            corners[i] = p;
-            w[i] = cw;
-        }
+        let (corners, w) = camera.project_quad(
+            transform,
+            [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]],
+        )?;
         Some(Projected { corners, w })
     }
 }
@@ -925,7 +942,8 @@ pub struct Actor {
     hibernate: f32,
     animating: bool,
     update_rate: f32,
-    commands: Vec<(String, Vec<Call>)>,
+    /// Shared, so playing one does not copy it.
+    commands: Vec<(String, Arc<[Call]>)>,
     rng: u64,
 }
 
@@ -1189,6 +1207,21 @@ pub fn mul(parent: &Mat, local: &Mat) -> Mat {
     ]
 }
 
+/// The point `p` under `m`: `x' = m[0]x + m[2]y + m[4]`,
+/// `y' = m[1]x + m[3]y + m[5]`.
+pub fn apply(m: &Mat, p: [f32; 2]) -> [f32; 2] {
+    [
+        m[0] * p[0] + m[2] * p[1] + m[4],
+        m[1] * p[0] + m[3] * p[1] + m[5],
+    ]
+}
+
+/// The lengths `m` scales by on average: the square root of its
+/// determinant's size.
+pub fn scale_of(m: &Mat) -> f32 {
+    (m[0] * m[3] - m[1] * m[2]).abs().sqrt()
+}
+
 const MAX_DEPTH: u32 = 32;
 /// `BeginTweening`: more than this many queued tweens is a runaway command.
 const MAX_TWEENS: usize = 50;
@@ -1268,8 +1301,8 @@ impl Actor {
     /// Sets command `name` (without `Command`), replacing one already there.
     pub fn set_command(&mut self, name: &str, calls: Vec<Call>) {
         match self.commands.iter_mut().find(|(n, _)| n == name) {
-            Some((_, c)) => *c = calls,
-            None => self.commands.push((name.to_string(), calls)),
+            Some((_, c)) => *c = calls.into(),
+            None => self.commands.push((name.to_string(), calls.into())),
         }
     }
 
@@ -1277,8 +1310,8 @@ impl Actor {
     /// chains two functions (`MergeTables`, `02 ActorDef.lua:12-37`).
     pub fn add_command(&mut self, name: &str, calls: Vec<Call>) {
         match self.commands.iter_mut().find(|(n, _)| n == name) {
-            Some((_, c)) => c.extend(calls),
-            None => self.commands.push((name.to_string(), calls)),
+            Some((_, c)) => *c = c.iter().cloned().chain(calls).collect(),
+            None => self.commands.push((name.to_string(), calls.into())),
         }
     }
 
@@ -1723,11 +1756,11 @@ impl Actor {
             .commands
             .iter()
             .find(|(n, _)| n == name)
-            .map(|(_, c)| c.clone())
+            .map(|(_, c)| Arc::clone(c))
         else {
             return;
         };
-        for call in &calls {
+        for call in calls.iter() {
             if !problems.spend(&self.name) {
                 return;
             }
@@ -2444,7 +2477,7 @@ impl Actor {
     ) {
         // The same placement in 3D: the 2D part, depth scaled alike.
         let t = transform;
-        let k = (t[0] * t[3] - t[1] * t[2]).abs().sqrt();
+        let k = scale_of(&t);
         let m3: Mat4 = [
             t[0], t[1], 0.0, 0.0, t[2], t[3], 0.0, 0.0, 0.0, 0.0, k, 0.0, t[4], t[5], 0.0, 1.0,
         ];
@@ -3026,8 +3059,7 @@ fn clip(
         }
         None => {
             let m = sized;
-            let corners = [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)]
-                .map(|(x, y)| [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]);
+            let corners = [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]].map(|p| apply(m, p));
             // Turned by a multiple of 90° at most.
             let straight =
                 (m[1].abs() < EPS && m[2].abs() < EPS) || (m[0].abs() < EPS && m[3].abs() < EPS);

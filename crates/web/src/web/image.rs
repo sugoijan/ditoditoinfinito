@@ -10,9 +10,34 @@
 
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{Blob, ImageBitmap, ImageBitmapOptions, PremultiplyAlpha, ResizeQuality};
+use web_sys::{
+    Blob, CanvasRenderingContext2d, HtmlCanvasElement, ImageBitmap, ImageBitmapOptions,
+    PremultiplyAlpha, ResizeQuality,
+};
 
 use super::js_err;
+
+/// A `width × height` canvas of `document`, and its 2D context.
+pub(crate) fn canvas_2d(
+    document: &web_sys::Document,
+    width: u32,
+    height: u32,
+) -> Result<(HtmlCanvasElement, CanvasRenderingContext2d), String> {
+    let canvas: HtmlCanvasElement = document
+        .create_element("canvas")
+        .map_err(|e| js_err("canvas", e))?
+        .dyn_into()
+        .map_err(|_| "not a canvas")?;
+    canvas.set_width(width);
+    canvas.set_height(height);
+    let context: CanvasRenderingContext2d = canvas
+        .get_context("2d")
+        .map_err(|e| js_err("canvas", e))?
+        .ok_or("no 2D canvas")?
+        .dyn_into()
+        .map_err(|_| "no 2D canvas")?;
+    Ok((canvas, context))
+}
 
 /// Decodes `blob` and scales it down, keeping the aspect ratio, so neither
 /// side exceeds `max_side` (GPU texture limits and memory).
@@ -115,19 +140,7 @@ pub(crate) async fn rasterise_svg(
     let loaded = JsFuture::from(image.decode()).await;
     super::files::revoke_object_url(&url);
     loaded.map_err(|e| js_err("decode SVG", e))?;
-    let canvas: web_sys::HtmlCanvasElement = document
-        .create_element("canvas")
-        .map_err(|e| js_err("canvas", e))?
-        .dyn_into()
-        .map_err(|_| "not a canvas")?;
-    canvas.set_width(w);
-    canvas.set_height(h);
-    let context: web_sys::CanvasRenderingContext2d = canvas
-        .get_context("2d")
-        .map_err(|e| js_err("canvas", e))?
-        .ok_or("no 2D canvas")?
-        .dyn_into()
-        .map_err(|_| "no 2D canvas")?;
+    let (canvas, context) = canvas_2d(&document, w, h)?;
     context
         .draw_image_with_html_image_element_and_dw_and_dh(
             &image,

@@ -44,12 +44,11 @@ const PLACEHOLDER: [f32; 3] = [0.16, 0.16, 0.2];
 /// size on the screen, rounded to a quarter of an octave (a zoom tween
 /// draws a run again a few times, not every frame), from 1/4 to 8.
 fn run_zoom(transform: &crate::draw2d::Affine) -> f32 {
-    let m = transform.0;
-    let det = (m[0] * m[3] - m[1] * m[2]).abs();
-    if !(det.is_finite() && det > 0.0) {
+    let scale = ddi_actor::scale_of(&transform.0);
+    if !(scale.is_finite() && scale > 0.0) {
         return 1.0;
     }
-    let steps = (det.sqrt().log2() * 4.0).round().clamp(-8.0, 12.0);
+    let steps = (scale.log2() * 4.0).round().clamp(-8.0, 12.0);
     (steps / 4.0).exp2()
 }
 
@@ -122,6 +121,22 @@ impl Instance {
             a(11, Float32x4, 112),
             a(12, Float32x4, 128),
         ]
+    };
+
+    /// What the instances share unless they set it: the whole texture,
+    /// opaque white, `w` 1, no cut, saturation change or blur.
+    const BASE: Instance = Instance {
+        axes: [0.0; 4],
+        origin: [0.0; 2],
+        mode: 0,
+        _pad: 0,
+        rect: [0.0; 4],
+        uv: [0.0, 0.0, 1.0, 1.0],
+        colors: [u32::MAX; 4],
+        w: [1.0; 4],
+        shape: [0.0; 4],
+        shape2: NO_SHAPE2,
+        blur: [0.0; 4],
     };
 }
 
@@ -329,22 +344,16 @@ fn project_rect(
     rect: [f32; 4],
     scale: f32,
 ) -> Option<([f32; 4], [f32; 4], [f32; 4])> {
-    let mut points = [[0.0; 2]; 4];
-    let mut w = [0.0; 4];
-    for (i, (x, y)) in [
-        (rect[0], rect[1]),
-        (rect[2], rect[1]),
-        (rect[2], rect[3]),
-        (rect[0], rect[3]),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let p = ddi_actor::transform_point(m, [x, y, 0.0]);
-        let (at, cw) = camera.project(p)?;
-        points[i] = [at[0] * scale, at[1] * scale];
-        w[i] = cw;
-    }
+    let (seen, w) = camera.project_quad(
+        m,
+        [
+            [rect[0], rect[1]],
+            [rect[2], rect[1]],
+            [rect[2], rect[3]],
+            [rect[0], rect[3]],
+        ],
+    )?;
+    let points = seen.map(|at| [at[0] * scale, at[1] * scale]);
     Some((
         [points[0][0], points[0][1], points[1][0], points[1][1]],
         [points[2][0], points[2][1], points[3][0], points[3][1]],
@@ -378,16 +387,10 @@ impl Gpu {
             label: Some("ddi-painter"),
             source: wgpu::ShaderSource::Wgsl(include_str!("painter.wgsl").into()),
         });
-        let globals = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ddi-painter-globals"),
-            size: std::mem::size_of::<Globals>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let (globals_layout, globals_group) = crate::gpu::uniform_group(
+        let (globals, globals_layout, globals_group) = crate::gpu::uniform_group(
             device,
             "ddi-painter-globals",
-            &globals,
+            std::mem::size_of::<Globals>(),
             wgpu::ShaderStages::VERTEX_FRAGMENT,
         );
         let texture_layout = crate::gpu::texture_sampler_layout(device, "ddi-painter-texture-bgl");
@@ -488,24 +491,19 @@ fn texture(
     label: &str,
     levels: u32,
 ) -> wgpu::Texture {
-    device.create_texture(&wgpu::TextureDescriptor {
-        label: Some(label),
-        size: wgpu::Extent3d {
-            width: width.max(1),
-            height: height.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: levels,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
+    crate::gpu::texture_2d(
+        device,
+        label,
+        [width.max(1), height.max(1)],
         format,
+        levels,
         // Copies from the browser's images and canvases need it to be a
         // render target too.
-        usage: wgpu::TextureUsages::TEXTURE_BINDING
+        wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::COPY_DST
             | wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    })
+        &[],
+    )
 }
 
 fn bind(
@@ -515,20 +513,7 @@ fn bind(
     texture: &wgpu::Texture,
 ) -> wgpu::BindGroup {
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("ddi-painter-texture-bg"),
-        layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(sampler),
-            },
-        ],
-    })
+    crate::gpu::texture_sampler_group(device, "ddi-painter-texture-bg", layout, &view, sampler)
 }
 
 /// The run cache's pages on the device, drawn by the platform's
@@ -875,17 +860,11 @@ impl Painter {
             let p = corners.map(|c| [c[0] * s, c[1] * s]);
             Instance {
                 axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
-                origin: [0.0; 2],
                 mode: UNTEXTURED | PROJECTED,
-                _pad: 0,
                 rect: [p[2][0], p[2][1], p[3][0], p[3][1]],
-                uv: [0.0, 0.0, 1.0, 1.0],
-                // Opaque, so the alpha test keeps it; it draws no color.
-                colors: [u32::MAX; 4],
-                w: [1.0; 4],
-                shape: [0.0; 4],
-                shape2: NO_SHAPE2,
-                blur: [0.0; 4],
+                // Opaque (the base's colors), so the alpha test keeps it;
+                // it draws no color.
+                ..Instance::BASE
             }
         };
         for command in &list.commands {
@@ -974,16 +953,12 @@ impl Painter {
                             let c = p.corners.map(|c| [c[0] * s, c[1] * s]);
                             Instance {
                                 axes: [c[0][0], c[0][1], c[1][0], c[1][1]],
-                                origin: [0.0; 2],
                                 mode: mode | PROJECTED,
-                                _pad: 0,
                                 rect: [c[2][0], c[2][1], c[3][0], c[3][1]],
                                 uv,
                                 colors: colors.map(pack),
                                 w: p.w,
-                                shape: [0.0; 4],
-                                shape2: NO_SHAPE2,
-                                blur: [0.0; 4],
+                                ..Instance::BASE
                             }
                         }
                         None => {
@@ -997,14 +972,13 @@ impl Painter {
                                 axes,
                                 origin,
                                 mode,
-                                _pad: 0,
                                 rect: q.rect,
                                 uv,
                                 colors: colors.map(pack),
-                                w: [1.0; 4],
                                 shape: [sh.radius[0], sh.radius[1], sh.soft[0], sh.soft[1]],
                                 shape2: [sh.outline[0], sh.outline[1], sh.saturation, 0.0],
                                 blur: [q.blur[0], q.blur[1], 0.0, 0.0],
+                                ..Instance::BASE
                             }
                         }
                     };
@@ -1085,7 +1059,6 @@ impl Painter {
                         axes,
                         origin,
                         mode: COVERAGE | extra,
-                        _pad: 0,
                         rect,
                         uv: [
                             cell.x as f32 / p,
@@ -1095,9 +1068,8 @@ impl Painter {
                         ],
                         colors: [pack(t.color); 4],
                         w: ws,
-                        shape: [0.0; 4],
-                        shape2: NO_SHAPE2,
                         blur: [blur[0], blur[1], 0.0, 0.0],
+                        ..Instance::BASE
                     });
                 }
             }

@@ -126,7 +126,7 @@ pub fn opening_movie(song: &Song, segments: &[BgSegment]) -> Option<Opening> {
         .iter()
         .filter(|c| song.layout_of(c).is_some())
         .filter_map(|c| {
-            let timing = c.timing.as_ref().unwrap_or(&song.timing);
+            let timing = c.timing(song);
             c.notes
                 .iter()
                 .map(|n| n.tick)
@@ -619,7 +619,7 @@ pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
     if !has_changes(song) {
         if let [movie] = movies {
             segments.push(BgSegment {
-                seconds: song.timing.seconds_at(Tick(0)) - song.timing.delay_at(Tick(0)),
+                seconds: song.timing.seconds_before_delay(Tick(0)),
                 image: BgImage::Movie(movie.as_ref().to_string()),
                 fade: 0.0,
                 rate: 1.0,
@@ -663,7 +663,7 @@ pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
 /// Song second at which a change on beat `tick` shows: the song reaches
 /// the beat at the start of a delay on it.
 fn change_seconds(song: &Song, tick: Tick) -> f64 {
-    song.timing.seconds_at(tick) - song.timing.delay_at(tick)
+    song.timing.seconds_before_delay(tick)
 }
 
 /// A change's transition (seconds of fade, 0 for a cut), and the rate and
@@ -1086,6 +1086,72 @@ pub fn shown_over(segments: &[BgSegment], t: f64, loaded: &[(BgImage, usize)]) -
         previous: state.previous.and_then(id),
         mix: state.mix,
     }
+}
+
+/// How many of `pending` decoded background images go up to the GPU
+/// now: all of them outside play (`at` `None`); in play, at song second
+/// `at`, one a frame, and only when no change of `layers` is due within a
+/// second (an upload never costs a change its frame).
+pub fn uploads_due(layers: &[Vec<BgSegment>], at: Option<f64>, pending: usize) -> usize {
+    let count = match at {
+        None => pending,
+        Some(t) => {
+            let next = layers
+                .iter()
+                .filter_map(|l| l.iter().map(|s| s.seconds).find(|&s| s > t))
+                .reduce(f64::min);
+            usize::from(next.is_none_or(|s| s - t >= 1.0))
+        }
+    };
+    count.min(pending)
+}
+
+/// Whether the song's opening movie (`schedule`'s segment 1) is expected
+/// to play: movies are not turned `off`, and it is neither among the
+/// movies `failed` this run nor in the play's `trouble` (`(name, why)`
+/// each). The opening still stands in for it until its first frame only
+/// then ([`shown`]).
+pub fn opening_plays(
+    schedule: &[BgSegment],
+    off: bool,
+    failed: &[(String, String)],
+    trouble: &[(String, String)],
+) -> bool {
+    let Some(BgImage::Movie(name)) = schedule.get(1).map(|s| &s.image) else {
+        return false;
+    };
+    !off && !failed.iter().any(|(n, _)| n == name) && !trouble.iter().any(|(n, _)| n == name)
+}
+
+/// The movie being drawn now, for the automatic video setting's rule, as
+/// `segment * LAYERS + layer`: among the movies of each layer's `current`
+/// segment that are `shown` (by name: their texture holds a frame of this
+/// run), the one `guard` named while it is still drawn, so a change on the
+/// other layer does not start the rule's warm-up again, else the first;
+/// `guard` is set to it.
+pub fn drawing_movie(
+    layers: &[Vec<BgSegment>],
+    current: &[Option<usize>; LAYERS],
+    guard: &std::cell::Cell<Option<(usize, usize)>>,
+    shown: impl Fn(&str) -> bool,
+) -> Option<usize> {
+    let drawing: Vec<(usize, usize)> = current
+        .iter()
+        .enumerate()
+        .filter_map(|(layer, current)| {
+            let current = (*current)?;
+            let BgImage::Movie(name) = &layers.get(layer)?.get(current)?.image else {
+                return None;
+            };
+            shown(name).then_some((layer, current))
+        })
+        .collect();
+    let key = guard
+        .get()
+        .filter(|k| drawing.contains(k))
+        .or_else(|| drawing.first().copied());
+    guard.set(key);
+    key.map(|(layer, segment)| segment * LAYERS + layer)
 }
 
 #[cfg(test)]

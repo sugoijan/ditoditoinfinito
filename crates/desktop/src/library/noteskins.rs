@@ -29,44 +29,39 @@ impl DiskSkin {
     /// The key a Lua stop counts against: a color variant's against the
     /// skin it is a variant of (they share their Lua), as the web's.
     pub fn strike_key(&self) -> String {
-        match &self.variant_of {
-            Some(base) if self.bundled => format!(
-                "bundled:{}/{}",
-                self.game.to_ascii_lowercase(),
-                base.to_ascii_lowercase()
-            ),
-            _ => self.key(),
-        }
+        ddi_noteskin::bundled::strike_key(
+            &self.game,
+            &self.name,
+            self.bundled,
+            self.variant_of.as_deref(),
+        )
     }
 
     /// The `noteskin` setting's value for it, as the web's.
     pub fn key(&self) -> String {
-        let key = format!(
-            "{}/{}",
-            self.game.to_ascii_lowercase(),
-            self.name.to_ascii_lowercase()
-        );
-        if self.bundled {
-            format!("bundled:{key}")
-        } else {
-            key
-        }
+        ddi_noteskin::bundled::key(&self.game, &self.name, self.bundled)
     }
 }
 
-/// The bundled skins, from the index beside the assets
-/// (`target/noteskins/index.json`, as Trunk builds it); none when it was
+/// The bundled skins' index beside the assets
+/// (`target/noteskins/index.json`, as Trunk builds it); `None` when it was
 /// never generated.
-pub fn bundled() -> Vec<DiskSkin> {
+pub fn read_index() -> Option<Index> {
     let assets = crate::images::assets();
-    let index = [
+    [
         assets.join("../target/noteskins/index.json"),
         assets.join("noteskins/index.json"),
     ]
     .iter()
     .find_map(|p| std::fs::read_to_string(p).ok())
-    .and_then(|t| serde_json::from_str::<Index>(&t).ok());
-    index
+    .and_then(|t| serde_json::from_str::<Index>(&t).ok())
+}
+
+/// The bundled skins, from [`read_index`]; none when it was never
+/// generated.
+pub fn bundled() -> Vec<DiskSkin> {
+    let assets = crate::images::assets();
+    read_index()
         .map(|i| i.skins)
         .unwrap_or_default()
         .into_iter()
@@ -155,27 +150,13 @@ pub fn lua_off(strike: &str) -> Option<String> {
 /// the bundled ones first, then the player's, by name; Dito (the
 /// default), its colors and `default` are chosen otherwise.
 pub fn choices(skins: &[DiskSkin]) -> Vec<(String, String)> {
-    let mut list: Vec<(bool, String, String)> = skins
-        .iter()
-        .filter(|s| {
-            (s.game == "dance" || s.game == "pump")
-                && !s.name.eq_ignore_ascii_case("default")
-                && s.variant_of.is_none()
-                && !(s.bundled && s.name == "Dito")
-        })
-        .map(|s| {
-            let mut name = s.name.clone();
-            if s.bundled {
-                name.push_str(" (with the game)");
-            }
-            if lua_off(&s.strike_key()).is_some() {
-                name.push_str(" (its Lua is off)");
-            }
-            (!s.bundled, s.key(), name)
-        })
-        .collect();
-    list.sort_by_key(|(mine, _, n)| (*mine, n.to_lowercase()));
-    list.into_iter().map(|(_, k, n)| (k, n)).collect()
+    ddi_noteskin::bundled::pickable(skins.iter().map(|s| ddi_noteskin::bundled::Candidate {
+        game: &s.game,
+        name: &s.name,
+        bundled: s.bundled,
+        variant: s.variant_of.is_some(),
+        lua_off: lua_off(&s.strike_key()).is_some(),
+    }))
 }
 
 #[cfg(test)]

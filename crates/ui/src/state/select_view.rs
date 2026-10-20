@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use ddi_chart::{Difficulty, Layout};
 use ddi_library::manifest::{ChartInfo, ManifestEntry};
 
-use super::history::{Best as HistoryBest, BestKey, History, Lamp, score_value};
+use ddi_engine::rules::RulesetKey;
+
+use super::history::{Best as HistoryBest, BestKey, History, score_text};
 use super::place::MenuPlace;
 use super::settings::Settings;
 use crate::screens::data::{
@@ -35,12 +37,41 @@ pub struct Listed {
     pub removable: bool,
 }
 
+impl Listed {
+    /// A bundled song as the list shows it: its banner and background
+    /// under `songs/<id>/`.
+    pub fn bundled(e: &ManifestEntry) -> Listed {
+        Listed {
+            entry: e.clone(),
+            pack: None,
+            pack_banner: None,
+            banner: e.banner.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
+            background: e.background.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
+            removable: false,
+        }
+    }
+}
+
 /// Layouts with charts in `songs`: the built-in ones in their order,
 /// then the ones songs define themselves, by name.
 pub fn library_styles<'a>(songs: impl Iterator<Item = &'a ManifestEntry> + Clone) -> Vec<Layout> {
+    library_styles_where(songs, |_| true)
+}
+
+/// [`library_styles`] of the charts `keep` keeps.
+fn library_styles_where<'a>(
+    songs: impl Iterator<Item = &'a ManifestEntry> + Clone,
+    keep: impl Fn(&ChartInfo) -> bool,
+) -> Vec<Layout> {
+    let keep = &keep;
     let mut ids: Vec<&str> = songs
         .clone()
-        .flat_map(|e| e.charts.iter().map(|c| c.layout.as_str()))
+        .flat_map(|e| {
+            e.charts
+                .iter()
+                .filter(move |c| keep(c))
+                .map(|c| c.layout.as_str())
+        })
         .collect();
     ids.sort_unstable();
     ids.dedup();
@@ -66,59 +97,46 @@ pub fn library_styles<'a>(songs: impl Iterator<Item = &'a ManifestEntry> + Clone
 }
 
 fn difficulty(name: &str) -> Difficulty {
-    match name {
-        "Beginner" => Difficulty::Beginner,
-        "Easy" => Difficulty::Easy,
-        "Medium" => Difficulty::Medium,
-        "Hard" => Difficulty::Hard,
-        "Challenge" => Difficulty::Challenge,
-        _ => Difficulty::Edit,
+    Difficulty::from_name(name).unwrap_or(Difficulty::Edit)
+}
+
+/// Whether the song list shows `c`: an additional version only with its
+/// option on. Generation is independent of the setting, so indexes stay
+/// stable.
+fn shows(c: &ChartInfo, settings: &Settings) -> bool {
+    match c.derivation {
+        None => true,
+        Some(ddi_chart::simplify::Derivation::WithoutOnigiri { .. }) => settings.simplify_onigiri,
     }
 }
 
-/// A lamp as colors and commands name it, and written short.
-pub fn lamp_names(l: Lamp) -> (&'static str, &'static str) {
-    match l {
-        Lamp::Failed => ("Failed", "FAILED"),
-        Lamp::Clear => ("Clear", "CLEAR"),
-        Lamp::FullCombo => ("FullCombo", "FC"),
-        Lamp::GreatFullCombo => ("GreatFullCombo", "GFC"),
-        Lamp::PerfectFullCombo => ("PerfectFullCombo", "PFC"),
-        Lamp::MarvelousFullCombo => ("MarvelousFullCombo", "MFC"),
-    }
-}
-
-/// A best's score as the ruleset scores: money, a percentage, EX.
-pub fn score_text(v: &ddi_engine::rules::ScoreView) -> String {
-    match (v.money, v.percent, v.ex) {
-        (Some(m), _, _) => m.to_string(),
-        (None, Some(p), _) => format!("{:.2}%", p * 100.0),
-        (None, None, Some(ex)) => format!("EX {ex}"),
-        _ => format!("{:.0}", score_value(v)),
-    }
-}
+/// The best keys worked out so far in one [`select_data`], by what
+/// [`Settings::best_key_for`] reads of a chart.
+type BestKeys<'a> = HashMap<(&'a str, bool, Option<bool>), RulesetKey>;
 
 /// The player's best on a chart under the rules the settings choose for
 /// it. Original charts show unassisted bests; generated charts show their
 /// own assisted bests. Autoplay never counts.
-fn best_of(
+fn best_of<'a>(
     entry: &ManifestEntry,
-    chart: &ChartInfo,
+    chart: &'a ChartInfo,
     settings: &Settings,
     bests: &HashMap<BestKey, HistoryBest>,
+    keys: &mut BestKeys<'a>,
 ) -> Option<Best> {
     let digest = chart.digest?;
-    let danoni = entry
-        .chart
-        .as_str()
-        .ends_with(ddi_library::danoni::STORED_EXT);
+    let danoni = entry.is_danoni_work();
+    let ruleset = keys
+        .entry((chart.layout.as_str(), danoni, chart.excessive))
+        .or_insert_with(|| settings.best_key_for(&chart.layout, danoni, chart.excessive))
+        .clone();
     let key = BestKey {
         digest,
-        ruleset: settings.best_key_for(&chart.layout, danoni, chart.excessive),
+        ruleset,
         assist: chart.derivation.is_some(),
     };
     let b = bests.get(&key)?;
-    let (lamp, lamp_text) = lamp_names(b.lamp);
+    let (lamp, lamp_text) = b.lamp.names();
     Some(Best {
         grade: b.grade.clone(),
         score: score_text(&b.score),
@@ -130,11 +148,12 @@ fn best_of(
     })
 }
 
-fn song_entry(
-    s: &Listed,
+fn song_entry<'a>(
+    s: &'a Listed,
     pack: &str,
     settings: &Settings,
     bests: &HashMap<BestKey, HistoryBest>,
+    keys: &mut BestKeys<'a>,
 ) -> SongEntry {
     let entry = &s.entry;
     let bpm = entry
@@ -157,6 +176,7 @@ fn song_entry(
         charts: entry
             .charts
             .iter()
+            .filter(|c| shows(c, settings))
             .map(|c| ChartEntry {
                 style: c.layout.clone(),
                 difficulty: difficulty(&c.difficulty),
@@ -165,7 +185,7 @@ fn song_entry(
                 credit: c.credit.clone(),
                 index: c.index,
                 name: c.name.clone(),
-                best: best_of(entry, c, settings, bests),
+                best: best_of(entry, c, settings, bests, keys),
                 digest: c.digest,
             })
             .collect(),
@@ -186,33 +206,23 @@ pub fn select_data(
     history: &History,
     place: &MenuPlace,
 ) -> SelectData {
-    // Generation is independent of the display setting so indexes stay
-    // stable. Only hide the additional versions from the song list.
-    let visible: Vec<Listed> = songs
-        .iter()
-        .cloned()
-        .map(|mut song| {
-            song.entry.charts.retain(|c| match c.derivation {
-                None => true,
-                Some(ddi_chart::simplify::Derivation::WithoutOnigiri { .. }) => {
-                    settings.simplify_onigiri
-                }
-            });
-            song
-        })
-        .collect();
-    let songs = visible.as_slice();
-    let styles: Vec<StyleDef> = library_styles(songs.iter().map(|s| &s.entry))
-        .into_iter()
-        .map(|l| StyleDef {
-            id: l.id,
-            name: l.name,
-        })
-        .collect();
+    let styles: Vec<StyleDef> =
+        library_styles_where(songs.iter().map(|s| &s.entry), |c| shows(c, settings))
+            .into_iter()
+            .map(|l| StyleDef {
+                id: l.id,
+                name: l.name,
+            })
+            .collect();
     let bests = history.bests();
+    let mut keys = BestKeys::new();
     let mut list = Vec::with_capacity(songs.len());
     let mut packs: Vec<PackEntry> = Vec::new();
+    // Packs told apart ignoring case, named as first seen: their places
+    // in `packs` by their lowercased names.
+    let mut pack_at: HashMap<String, usize> = HashMap::new();
     if songs.iter().any(|s| s.pack.is_none()) {
+        pack_at.insert(BUNDLED_PACK.to_lowercase(), packs.len());
         packs.push(PackEntry {
             name: BUNDLED_PACK.into(),
             banner: None,
@@ -221,27 +231,21 @@ pub fn select_data(
         });
     }
     for s in songs.iter().filter(|s| s.pack.is_none()) {
-        list.push(song_entry(s, BUNDLED_PACK, settings, &bests));
+        list.push(song_entry(s, BUNDLED_PACK, settings, &bests, &mut keys));
     }
     for s in songs.iter() {
         let Some(pack) = &s.pack else { continue };
-        // Packs told apart ignoring case, named as first seen.
-        let name = match packs
-            .iter()
-            .find(|p| p.name.to_lowercase() == pack.to_lowercase())
-        {
-            Some(p) => p.name.clone(),
-            None => {
-                packs.push(PackEntry {
-                    name: pack.clone(),
-                    banner: s.pack_banner.clone(),
-                    removable: s.removable,
-                    rereadable: rereadable(pack),
-                });
-                pack.clone()
-            }
-        };
-        list.push(song_entry(s, &name, settings, &bests));
+        let at = *pack_at.entry(pack.to_lowercase()).or_insert_with(|| {
+            packs.push(PackEntry {
+                name: pack.clone(),
+                banner: s.pack_banner.clone(),
+                removable: s.removable,
+                rereadable: rereadable(pack),
+            });
+            packs.len() - 1
+        });
+        let name = packs[at].name.clone();
+        list.push(song_entry(s, &name, settings, &bests, &mut keys));
     }
     let mods = crate::screens::play::mods_summary(
         &settings.transform,

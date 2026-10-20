@@ -27,10 +27,10 @@ use std::rc::{Rc, Weak};
 
 use crate::component::{Callback, Component, Context, NodeRef};
 use ddi_chart::Song;
-use ddi_engine::lyrics::LyricTrack;
 use ddi_engine::player::Results;
-use ddi_engine::sprites::{SpriteSource, SpriteTrack};
+use ddi_engine::sprites::SpriteSource;
 use ddi_platform::DeviceProfile;
+use ddi_session::stage::{MAX_LAYER_SIDE, TEXT_SCALE};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::render::{AnimationFrame, request_animation_frame};
 use wasm_bindgen::{JsCast, JsValue};
@@ -1356,15 +1356,10 @@ impl GameCanvas {
         if !self.settings.ghost || self.replay.is_some() {
             return;
         }
-        let Some(c) = song.song.charts.get(*chart) else {
-            return;
-        };
-        let key = self.settings.ruleset_for(c).key();
-        let assist = c.derivation.is_some() || self.settings.transform.is_assist();
         let best =
             crate::history::plays()
                 .history()
-                .best(song.song.chart_digest(*chart), &key, assist);
+                .best_of_play(&song.song, *chart, &self.settings);
         if let Some(b) = best {
             let link = ctx.link().clone();
             crate::history::entry(&b.score_play, move |e| {
@@ -1385,14 +1380,7 @@ impl GameCanvas {
         let (Some(r), Status::Ready(song)) = (self.kept(), &self.song) else {
             return;
         };
-        let check = match r.results(&song.song) {
-            Ok(offline) => r.check(results, &offline),
-            Err(e) => ddi_ui::state::history::ReplayCheck {
-                matches: false,
-                with_record: false,
-                problems: vec![e],
-            },
-        };
+        let check = r.check_on(&song.song, results);
         if !check.matches {
             web_sys::console::error_1(&format!("replay {}: {:?}", r.id, check.problems).into());
         }
@@ -1431,10 +1419,7 @@ impl GameCanvas {
             SongSource::Song { chart, .. } => *chart,
             SongSource::Calibration(mode) => {
                 config.session.calibrate(*mode);
-                config.render.background = 0.0;
-                config.render.field_filter = 0.0;
-                config.render.hide_notes = mode.hide_notes();
-                config.render.show_deltas = true;
+                config.render.for_calibration(mode.hide_notes());
                 0
             }
         };
@@ -1445,30 +1430,21 @@ impl GameCanvas {
         // A replay: its log on the lanes, its options and rules, the
         // offsets this device needs (`Replay::replaying`).
         if let Some(r) = self.kept() {
-            config.session.replay =
-                Some(r.replaying(self.devices.as_ref(), config.session.options.clock));
-            config.session.auto = false;
+            config.session.set_replay(r);
             crate::replay::publish(&r.id, "playing", None, None);
         }
-        let shift = match (&ctx.props().source, self.kept()) {
-            (SongSource::Song { .. }, Some(r)) => r.record.song_offset,
-            (SongSource::Song { id, .. }, None) => self.settings.song_offset(id),
-            (SongSource::Calibration(_), _) => 0.0,
+        let shift = match &ctx.props().source {
+            SongSource::Song { id, .. } => {
+                ddi_session::play::song_shift(&self.settings, id, self.kept(), false)
+            }
+            SongSource::Calibration(_) => 0.0,
         };
         // The best play's ghost beside it, lined up by the song offsets.
         if self.settings.ghost && self.replay.is_none() {
             config.session.ghost = self.ghost.clone().map(|g| g.for_play(shift));
         }
         self.played_offset = shift;
-        let shifted;
-        let play_song = if shift == 0.0 {
-            &song.song
-        } else {
-            let mut s = song.song.clone();
-            s.shift_notes(shift);
-            shifted = s;
-            &shifted
-        };
+        let play_song = song.song.shifted(shift);
         // On the song's timing as played, so the song offset moves them too.
         let schedule = match &ctx.props().source {
             SongSource::Song { .. } => {
@@ -1488,13 +1464,13 @@ impl GameCanvas {
                     .collect();
                 [
                     backgrounds::schedule(
-                        play_song,
+                        &play_song,
                         &song.bg_images,
                         &song.bg_videos,
                         song.has_background,
                     ),
                     backgrounds::second_layer(
-                        play_song,
+                        &play_song,
                         &song.bg_images,
                         &song.bg_videos,
                         &unshowable,
@@ -1504,22 +1480,22 @@ impl GameCanvas {
             }
             SongSource::Calibration(_) => Default::default(),
         };
-        match PlaySession::start(play_song, chart, &self.settings, config, audio, buffer) {
+        match PlaySession::start(&play_song, chart, &self.settings, config, audio, buffer) {
             Ok(session) => {
                 self.layout = Some(session.layout.clone());
                 // The ruleset is chosen per chart when the session starts.
                 self.names = Some(session.names.clone());
                 self.rules = Some(session.rules.fresh());
                 self.song_length = session.length;
-                // Drawn over the play by the 2D pass (`GameLoop`).
-                let lyrics = self
-                    .settings
-                    .lyrics
-                    .then(|| {
-                        let single_row = session.layout.lanes.iter().all(|l| l.row == 0);
-                        LyricTrack::new(play_song, chart, self.settings.reverse, single_row)
-                    })
-                    .filter(|t| !t.is_empty());
+                // The lyrics drawn over the play by the 2D pass
+                // (`GameLoop`), a work's back and mask layers with the
+                // backgrounds.
+                let (stage_track, lyrics) = ddi_session::stage::play_layers(
+                    &play_song,
+                    chart,
+                    &session.layout,
+                    &self.settings,
+                );
                 self.start_refresh = self.refresh_hz();
                 self.save = Save::NotAsked;
                 self.replay_check = None;
@@ -1531,11 +1507,7 @@ impl GameCanvas {
                         ctx.props().slow,
                     );
                     game.set_lyrics(lyrics);
-                    // A work's back and mask layers, with the backgrounds.
-                    game.set_stage_track(
-                        (self.settings.bg_brightness > 0.0)
-                            .then(|| SpriteTrack::new(play_song, chart, self.settings.reverse)),
-                    );
+                    game.set_stage_track(stage_track);
                     game.set_background_schedule(schedule);
                     game.set_session(session);
                     game.enter_background(
@@ -1778,11 +1750,13 @@ impl GameCanvas {
                     .and_then(|c| song.song.layout_of(c))
                     .filter(|l| !l.lanes.is_empty())
                     .map(|layout| {
-                        let span = ddi_render::scene::field_span(&layout);
-                        let geo =
-                            ddi_render::FieldGeometry::new(cw, ch, span, self.settings.reverse);
-                        let [mid, w] = ddi_render::scene::filter_band(&geo, span);
-                        ([mid / cw, w / cw], self.settings.field_filter)
+                        let band = ddi_render::scene::filter_fraction(
+                            &layout,
+                            cw,
+                            ch,
+                            self.settings.reverse,
+                        );
+                        (band, self.settings.field_filter)
                     })
             }
             _ => None,
@@ -1978,9 +1952,7 @@ impl GameCanvas {
     fn show_results(&mut self, ctx: &Context<Self>) {
         use ddi_ui::screens::data::SongEntry;
         use ddi_ui::screens::play::{PlayInfo, results_data};
-        use ddi_ui::screens::results::{
-            ActionFn, OffsetFn, PanelsFn, ResultsActions, ResultsScreen,
-        };
+        use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen, stored_panels};
 
         let Stage::Finished {
             results,
@@ -2026,28 +1998,17 @@ impl GameCanvas {
             charts: Vec::new(),
             ..Default::default()
         };
-        let mut video_notes = Vec::new();
-        if let Some(reason) = video_stopped {
-            let why = match reason {
-                ddi_platform::video::StopReason::DroppedFrames => "frames were being dropped",
-                ddi_platform::video::StopReason::DecoderBehind => "the decoder could not keep up",
-            };
-            video_notes.push(format!(
-                "Video was turned off for this song: {why} (Options)."
-            ));
-        }
-        if let Some(why) = video_trouble {
-            video_notes.push(format!("{why}; the song background showed."));
-        }
-        if let Save::Done(Some(e)) = &self.save {
-            video_notes.push(format!("This play could not be saved: {e}."));
-        }
-        if let Some(note) = self.replay_check.as_ref().and_then(|c| c.note()) {
-            video_notes.push(note);
-        }
-        if let Some(note) = self.kept().and_then(|r| r.older_judge_note()) {
-            video_notes.push(note);
-        }
+        let save_error = match &self.save {
+            Save::Done(Some(e)) => Some(e.as_str()),
+            _ => None,
+        };
+        let video_notes = ddi_ui::screens::play::results_notes(
+            *video_stopped,
+            video_trouble.as_deref(),
+            save_error,
+            self.replay_check.as_ref(),
+            self.kept(),
+        );
         let kept = self.kept().cloned();
         let mut data = results_data(&PlayInfo {
             results,
@@ -2114,19 +2075,7 @@ impl GameCanvas {
         let song_list: ActionFn = Rc::new(|_, _| {
             spawn_local(async { Route::Home.navigate() });
         });
-        let offset: OffsetFn = {
-            let id = id.clone();
-            Rc::new(move |seconds| {
-                let mut settings = Settings::load();
-                settings.set_song_offset(&id, seconds);
-                settings.save();
-            })
-        };
-        let panels: PanelsFn = Rc::new(|name| {
-            let mut settings = Settings::load();
-            settings.results_panels = name.to_string();
-            settings.save();
-        });
+        let offset = ddi_ui::screens::play::song_offset_saver(id.clone());
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
         let env = theme.env().clone();
         let mut ui = ddi_ui::Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Mirror, true);
@@ -2138,7 +2087,7 @@ impl GameCanvas {
                 retry: (!view_results).then_some(retry),
                 song_list: Some(song_list),
                 offset: Some(offset),
-                panels: Some(panels),
+                panels: Some(stored_panels()),
                 replay,
             },
         ));
@@ -2408,20 +2357,9 @@ fn schedule(
     *raf.borrow_mut() = Some(handle);
 }
 
-/// Longest side of a back or mask image kept (they show at the stage's
-/// size, about the screen's height at most).
-const MAX_LAYER_SIDE: u32 = 2048;
-
-/// Texts of a work's layers drawn, at most.
-const MAX_LAYER_TEXTS: usize = 64;
-
 /// Pixels of a work's layers kept decoded, in all (each is kept twice: the
 /// bitmap, for a skin's reinstall, and its texture).
 const MAX_LAYER_PIXELS: u64 = 48 << 20;
-
-/// How much larger than its stage size layer text is drawn, to stay
-/// sharp on large screens.
-const TEXT_SCALE: f64 = 3.0;
 
 /// Loads the song and its background images, and readies the chosen
 /// noteskin for the chart's layout; the song arrives as [`Msg::SongLoaded`].
@@ -2563,19 +2501,10 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                     .iter()
                     .map(|p| p.as_str())
                     .collect();
-                let mut sources = SpriteTrack::new(&loaded.song, chart, false).sources();
-                for s in SpriteTrack::new(&loaded.song, chart, true).sources() {
-                    if !sources.contains(&s) {
-                        sources.push(s);
-                    }
-                }
-                let mut texts = 0;
+                let mut sources = ddi_session::stage::layer_sources(&loaded.song, chart);
                 sources.retain(|s| match s {
                     SpriteSource::Image(name) => kept.contains(&**name),
-                    SpriteSource::Text { .. } => {
-                        texts += 1;
-                        texts <= MAX_LAYER_TEXTS
-                    }
+                    SpriteSource::Text { .. } => true,
                 });
                 for source in sources {
                     let entry = loaded.entry.clone();
@@ -2593,7 +2522,13 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                                 }
                             }
                             SpriteSource::Text { text, size, color } => {
-                                crate::web::image::text_bitmap(text, *size, color, TEXT_SCALE).await
+                                crate::web::image::text_bitmap(
+                                    text,
+                                    *size,
+                                    color,
+                                    f64::from(TEXT_SCALE),
+                                )
+                                .await
                             }
                         };
                         let content = content
@@ -2742,11 +2677,7 @@ fn noteskin_ready(
 ) -> Option<impl std::future::Future<Output = Option<Box<crate::noteskins::Prepared>>> + use<>> {
     let c = song.charts.get(chart)?;
     let layout = song.layout_of(c)?;
-    let key = crate::noteskins::play_skin(
-        settings.noteskin_for(&layout.id),
-        settings.note_colors,
-        settings.chart_colors && c.notes.iter().any(|n| n.color.is_some()),
-    )?;
+    let key = settings.play_skin(&layout.id, Some(c))?;
     let env = ddi_noteskin::lua::chart_env(song, c, &layout, settings.reverse);
     Some(async move {
         crate::noteskins::prepare(&key, &layout, env)

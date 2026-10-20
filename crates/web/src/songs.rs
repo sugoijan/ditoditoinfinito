@@ -185,36 +185,6 @@ impl Library {
     }
 }
 
-impl ddi_ui::state::library::Libraries for Library {
-    /// The songs as screens read them (P12): bundled first, then the
-    /// imported ones by pack; banners as texture sources (a site path, or
-    /// `files:<key>` for an imported one, `crate::web::textures`).
-    fn view(&self) -> ddi_ui::state::library::LibraryView {
-        use ddi_ui::state::library::{LibraryView, Origin, SongView};
-        let bundled = self.bundled.iter().map(|e| SongView {
-            banner: e.banner.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
-            entry: e.clone(),
-            origin: Origin::Bundled,
-        });
-        let imported = self.imported.iter().map(|s| SongView {
-            banner: s
-                .entry
-                .banner
-                .as_ref()
-                .map(|b| format!("files:{}", file_key(&s.entry.id, b))),
-            entry: s.entry.clone(),
-            origin: Origin::Imported {
-                pack: s.pack.clone(),
-            },
-        });
-        LibraryView {
-            songs: bundled.chain(imported).collect(),
-            noteskins: Vec::new(),
-            error: self.imported_error.clone(),
-        }
-    }
-}
-
 /// Imported songs, and the ids of records that do not parse.
 async fn load_imported() -> Result<(Vec<ImportedSong>, Vec<String>), String> {
     let db = Db::open().await?;
@@ -244,10 +214,7 @@ async fn load_imported() -> Result<(Vec<ImportedSong>, Vec<String>), String> {
             None => unreadable.push(id),
         }
     }
-    songs.sort_by(|a, b| {
-        let key = |s: &ImportedSong| (s.pack.to_lowercase(), s.entry.title.to_lowercase());
-        key(a).cmp(&key(b))
-    });
+    songs.sort_by_cached_key(|s| (s.pack.to_lowercase(), s.entry.title.to_lowercase()));
     Ok((songs, unreadable))
 }
 
@@ -633,11 +600,7 @@ async fn fill_digests(found: &Found, song: &Song) {
     let Some(record) = &found.record else {
         return;
     };
-    let danoni = record
-        .entry
-        .chart
-        .as_str()
-        .ends_with(ddi_library::danoni::STORED_EXT);
+    let danoni = record.entry.is_danoni_work();
     if record
         .entry
         .charts

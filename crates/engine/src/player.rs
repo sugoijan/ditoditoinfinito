@@ -485,7 +485,7 @@ impl Player {
     /// Heard song time of a host timestamp, shifted by the judge offset: a
     /// positive offset means the notes are expected later, so the press
     /// counts as earlier (see [`crate::rules::JudgeTable::judge_offset`]).
-    fn judge_time(&self, host: HostTime) -> f64 {
+    pub fn judge_time(&self, host: HostTime) -> f64 {
         self.clock.song_time_at_host(host) - self.ruleset.judge.judge_offset
     }
 

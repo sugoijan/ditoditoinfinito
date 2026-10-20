@@ -98,10 +98,8 @@ pub struct View {
     pub renderer: Renderer,
     formats: Formats,
     noteskin: Option<NoteskinPlay>,
-    /// What the skin's Lua stops count against, and whether one was said
-    /// in this play.
+    /// What the skin's Lua stops count against.
     noteskin_key: String,
-    lua_stop_said: bool,
     /// Background textures by what they show (renderer ids).
     backgrounds: Vec<(BgImage, usize)>,
     /// Decoded images waiting for the GPU.
@@ -155,7 +153,6 @@ impl View {
             formats,
             noteskin: None,
             noteskin_key: String::new(),
-            lua_stop_said: false,
             backgrounds: Vec::new(),
             pending: Vec::new(),
             schedule: Default::default(),
@@ -276,35 +273,22 @@ impl View {
     /// and only when no change is due within a second (an upload never
     /// costs a change its frame).
     fn upload_backgrounds(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, at: Option<f64>) {
-        let count = match at {
-            None => self.pending.len(),
-            Some(t) => {
-                let next = self
-                    .schedule
-                    .iter()
-                    .filter_map(|l| l.iter().map(|s| s.seconds).find(|&s| s > t))
-                    .reduce(f64::min);
-                usize::from(next.is_none_or(|s| s - t >= 1.0))
-            }
-        };
-        let batch: Vec<_> = self
-            .pending
-            .drain(..count.min(self.pending.len()))
-            .collect();
+        let count = backgrounds::uploads_due(&self.schedule, at, self.pending.len());
+        let batch: Vec<_> = self.pending.drain(..count).collect();
         let limit = device.limits().max_texture_dimension_2d;
         for (what, image) in batch {
             let [w, h] = image.size;
             if w.max(h) > limit || w == 0 || h == 0 {
                 continue;
             }
-            let texture = self.renderer.create_background_texture(device, w, h);
-            write_rgba(queue, &texture, &image);
+            let id = self
+                .renderer
+                .add_background_image(device, [w, h], |texture| write_rgba(queue, texture, &image));
             match what {
                 BgImage::Song => self.frame_shape.song_bg_aspect = Some(w as f32 / h as f32),
                 BgImage::Still => self.frame_shape.still_aspect = Some(w as f32 / h as f32),
                 _ => {}
             }
-            let id = self.renderer.add_background(device, &texture);
             self.backgrounds.push((what, id));
         }
     }
@@ -321,8 +305,7 @@ impl View {
         self.renderer.clear_noteskin_textures();
         // The layers' textures went with them.
         self.stage.forget_textures();
-        self.lua_stop_said = false;
-        let srgb = self.renderer.srgb() && !self.renderer.skins_blend_encoded();
+        let srgb = self.renderer.skin_colors_linear();
         self.noteskin = play.map(|(mut play, images, key)| {
             self.noteskin_key = key;
             play.set_srgb(srgb);
@@ -407,11 +390,8 @@ impl View {
             .present_at
             .take()
             .unwrap_or_else(|| session.predicted_present(now));
-        let mut frame = session.player.frame(present);
+        let frame = session.frame(present);
         let v = session.view;
-        if v.hide_notes {
-            frame.beat = 0.0;
-        }
         let started = session.player.started();
         let playing = started && !session.player.finished();
         self.upload_backgrounds(device, queue, playing.then_some(frame.song_time));
@@ -478,10 +458,8 @@ impl View {
                 // built-in skin; the next one tries again, and the
                 // second stop turns its Lua off (a stall is not the
                 // skin's: not held against it).
-                if let Some(why) = n.lua_failure()
-                    && !std::mem::replace(&mut self.lua_stop_said, true)
-                {
-                    if n.lua_stopped_on_clock() {
+                if let Some((why, on_clock)) = n.take_lua_stop() {
+                    if on_clock {
                         eprintln!("noteskin {}: {why}", self.noteskin_key);
                     } else {
                         crate::library::noteskins::lua_stopped(&self.noteskin_key, why);
@@ -491,16 +469,17 @@ impl View {
             }
             None => None,
         };
+        // The field's place, for a work's layers and the lyrics.
+        let (w, h) = (size[0] as f32, size[1] as f32);
+        let span = ddi_render::scene::field_span(&session.layout);
+        let geo = ddi_render::FieldGeometry::new(w, h, span, render.reverse);
         // A work's back and mask layers, placed as the web places them.
         if self.stage.shown() {
             self.stage.upload(&mut self.renderer, device, queue);
-            let (w, h) = (size[0] as f32, size[1] as f32);
-            let span = ddi_render::scene::field_span(&session.layout);
-            let geo = ddi_render::FieldGeometry::new(w, h, span, render.reverse);
-            let srgb = self.renderer.srgb() && !self.renderer.skins_blend_encoded();
-            let (back, mask) =
-                self.stage
-                    .quads(frame.song_time, geo.left + geo.arrow * span / 2.0, h, srgb);
+            let srgb = self.renderer.skin_colors_linear();
+            let (back, mask) = self
+                .stage
+                .quads(frame.song_time, geo.center_x(span), h, srgb);
             self.stage_drawn = (back.len(), mask.len());
             self.renderer.set_stage_quads(back, mask);
         }
@@ -526,9 +505,6 @@ impl View {
             .as_ref()
             .filter(|_| playing)
             .map(|track| {
-                let (w, h) = (size[0] as f32, size[1] as f32);
-                let span = ddi_render::scene::field_span(&session.layout);
-                let geo = ddi_render::FieldGeometry::new(w, h, span, render.reverse);
                 // Clear of the HUD's gauge and score, never over the
                 // receptors (no quit button here); the smallest size in
                 // points, as the web's is in CSS pixels.
@@ -724,14 +700,10 @@ pub fn upload_noteskin(
                 renderer.add_builtin_art(device, queue, name)
             }
             (_, Some(image)) => {
-                let [w, h] = image.size;
                 let mipmaps = play.texture_mipmaps(i);
-                let texture = renderer.create_noteskin_texture(device, w, h, mipmaps);
-                write_rgba(queue, &texture, image);
-                if mipmaps {
-                    renderer.generate_noteskin_mipmaps(device, queue, &texture);
-                }
-                renderer.add_noteskin_texture(device, &texture)
+                renderer.add_noteskin_image(device, queue, image.size, mipmaps, |texture| {
+                    write_rgba(queue, texture, image);
+                })
             }
             (_, None) => continue,
         };

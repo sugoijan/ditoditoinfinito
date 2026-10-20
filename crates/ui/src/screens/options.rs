@@ -152,19 +152,9 @@ impl OptionsScreen {
         }
     }
 
-    /// The layout's size for the virtual screen: the full design as it
-    /// is; a compact one sideways as it is (a phone's own size); upright,
-    /// 480 wide, zoomed to the screen's width.
-    fn fit(&self, vp: ddi_actor::screen::VirtualScreen) -> ([f32; 2], f32, bool) {
-        if !super::is_compact(&*self.env.look, vp) {
-            return ([vp.width, vp.height], 1.0, false);
-        }
-        let (screen, zoom) = super::narrow_fit(&self.env, vp);
-        (screen, zoom, true)
-    }
-
+    /// The layout's size for the virtual screen ([`super::compact_fit`]).
     fn place(&mut self, vp: ddi_actor::screen::VirtualScreen) {
-        let (screen, zoom, compact) = self.fit(vp);
+        let (screen, zoom, compact) = super::compact_fit(&self.env, vp);
         let env = &self.env;
         let [w, h] = screen;
         let selector = if self.data.preview_layout.is_some() {

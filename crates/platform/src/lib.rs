@@ -60,8 +60,6 @@ pub trait AudioBackend {
 
     /// The output's sample rate.
     fn sample_rate(&self) -> f64;
-    /// Moves the master volume smoothly (no click) to `volume`.
-    fn set_master_volume(&mut self, volume: f32);
     /// Ramps the master gain linearly to `to` over `seconds`: from context
     /// time `at`, where it is set to `from` first (a fade-in from 0, a
     /// fade-out from 1); or, with `at` `None`, from now and the value it
@@ -100,8 +98,6 @@ pub trait AudioBackend {
         offset: f64,
         volume: f32,
     ) -> Result<SoundId, Self::Error>;
-    fn stop(&mut self, id: SoundId);
-    fn set_volume(&mut self, id: SoundId, volume: f32);
     /// The sound's length on the song's timeline: its samples' plus its
     /// lead (see [`Self::play`]).
     fn duration(&self, buffer: &Self::Buffer) -> f64;
@@ -110,20 +106,6 @@ pub trait AudioBackend {
 /// Polled source of input edges.
 pub trait InputSource {
     fn poll(&mut self, out: &mut Vec<RawInput>);
-}
-
-/// Host clock.
-pub trait HostClock {
-    fn now(&self) -> HostTime;
-}
-
-/// Summary row for a song list.
-#[derive(Clone, Debug, PartialEq)]
-pub struct SongSummary {
-    pub id: String,
-    pub title: String,
-    pub artist: String,
-    pub banner: Option<String>,
 }
 
 /// An identity for the audio output path or the display the game is shown

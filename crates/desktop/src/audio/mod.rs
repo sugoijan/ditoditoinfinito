@@ -602,10 +602,6 @@ impl AudioBackend for Audio {
         f64::from(Audio::sample_rate(self))
     }
 
-    fn set_master_volume(&mut self, volume: f32) {
-        Audio::set_master_volume(self, volume);
-    }
-
     fn master_ramp(&mut self, from: Option<f32>, to: f32, at: Option<f64>, seconds: f64) {
         match (at, from) {
             (None, _) => {
@@ -657,23 +653,6 @@ impl AudioBackend for Audio {
         volume: f32,
     ) -> Result<SoundId, String> {
         Ok(self.play_sound(buffer, start_at_context_time, offset, volume))
-    }
-
-    fn stop(&mut self, id: SoundId) {
-        self.stop_at(id, None);
-    }
-
-    fn set_volume(&mut self, id: SoundId, volume: f32) {
-        let volume = mixer::gain(volume);
-        let now = self.frame(self.context_time());
-        self.send(Command::CancelGain { id, from: 0 });
-        self.send(Command::Gain {
-            id,
-            event: Event::Set {
-                at: now,
-                value: volume,
-            },
-        });
     }
 
     fn duration(&self, buffer: &Sound) -> f64 {

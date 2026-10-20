@@ -119,10 +119,16 @@ fn is_zero_version(value: &u32) -> bool {
 pub const VARIANTS_VERSION: u32 = 1;
 
 impl ManifestEntry {
+    /// Whether the song is a Dancing☆Onigiri work's (its chart stored as
+    /// one, [`crate::danoni::STORED_EXT`]).
+    pub fn is_danoni_work(&self) -> bool {
+        self.chart.as_str().ends_with(crate::danoni::STORED_EXT)
+    }
+
     /// Whether stored chart data should be reread to add missing versions.
     pub fn needs_chart_variants(&self) -> bool {
         self.variants_version < VARIANTS_VERSION
-            && (self.chart.as_str().ends_with(crate::danoni::STORED_EXT)
+            && (self.is_danoni_work()
                 || self
                     .charts
                     .iter()
@@ -204,7 +210,7 @@ impl ChartInfo {
             derivation: chart.derivation.clone(),
             index,
             layout: chart.layout.clone(),
-            difficulty: format!("{:?}", chart.difficulty),
+            difficulty: chart.difficulty.name().to_string(),
             meter: chart.meter,
             name: chart.name.clone(),
             credit: chart.credit.clone(),
@@ -338,14 +344,10 @@ pub fn song_length(song: &Song) -> f64 {
         .iter()
         .filter(|c| song.layout_of(c).is_some())
         .filter_map(|c| {
-            let timing = c.timing.as_ref().unwrap_or(&song.timing);
+            let timing = c.timing(song);
             c.notes
                 .iter()
-                .map(|n| match n.kind {
-                    ddi_chart::NoteKind::HoldHead { end }
-                    | ddi_chart::NoteKind::RollHead { end } => end,
-                    _ => n.tick,
-                })
+                .map(|n| n.end_tick())
                 .max()
                 .map(|t| timing.seconds_at(t))
         })

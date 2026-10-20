@@ -1130,7 +1130,7 @@ Done, 6.3's field preview (2026-10-16):
   demo has no speed of its own, so "charts with their own speed"
   changes nothing here (as on such a chart in play); offsets are not
   applied. The arrows are the noteskin play would draw the layout with
-  (`noteskins::play_skin`, Dito in the note colors' variant without a
+  (`Settings::play_skin`, Dito in the note colors' variant without a
   choice), loaded as play loads it (`noteskins::prepare` with the
   demo's Lua environment, in slices, off the frame) and shown from the
   frame after it is in; the last one shows meanwhile. A change shows

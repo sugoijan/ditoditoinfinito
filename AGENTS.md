@@ -83,7 +83,8 @@ the browser are implementation details, not advertised features.
   data, options' rows made from the settings and the shell every
   platform shares (`options_model.rs`, `options_shell.rs`, the bind
   flow in `crates/ui/src/state/bind.rs`); the state screens read (settings and
-  their migrations, the song list's place, library views, the play
+  their migrations, the song list's place, song select's data from a
+  library (`select_view.rs`), the play
   history and its replays, `crates/ui/src/state/history/`; stored through
   `ddi_platform::storage`, which each shell installs) and the developer
   screen both shells run (`crates/ui/src/dev.rs`). Pure, natively tested.

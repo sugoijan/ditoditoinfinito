@@ -57,14 +57,21 @@ pub(crate) fn fullscreen_pipeline(
     })
 }
 
-/// A layout of one uniform buffer at binding 0, seen by `visibility`, and
-/// a group binding `buffer` to it (labeled `<label>-bgl` and `<label>-bg`).
+/// A uniform buffer of `size` bytes the queue writes (labeled `label`), a
+/// layout of it at binding 0, seen by `visibility`, and a group binding it
+/// there (labeled `<label>-bgl` and `<label>-bg`).
 pub(crate) fn uniform_group(
     device: &wgpu::Device,
     label: &str,
-    buffer: &wgpu::Buffer,
+    size: usize,
     visibility: wgpu::ShaderStages,
-) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
+) -> (wgpu::Buffer, wgpu::BindGroupLayout, wgpu::BindGroup) {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: size as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some(&format!("{label}-bgl")),
         entries: &[wgpu::BindGroupLayoutEntry {
@@ -86,7 +93,7 @@ pub(crate) fn uniform_group(
             resource: buffer.as_entire_binding(),
         }],
     });
-    (layout, group)
+    (buffer, layout, group)
 }
 
 /// A layout of a filterable 2D texture at binding 0 and a filtering
@@ -110,6 +117,87 @@ pub(crate) fn texture_sampler_layout(device: &wgpu::Device, label: &str) -> wgpu
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
+            },
+        ],
+    })
+}
+
+/// A 2D texture of one sample a texel, `width × height` as given.
+pub(crate) fn texture_2d(
+    device: &wgpu::Device,
+    label: &str,
+    [width, height]: [u32; 2],
+    format: wgpu::TextureFormat,
+    mip_level_count: u32,
+    usage: wgpu::TextureUsages,
+    view_formats: &[wgpu::TextureFormat],
+) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage,
+        view_formats,
+    })
+}
+
+/// A group of `view` at binding 0 and `sampler` at binding 1, as
+/// [`texture_sampler_layout`] lays them out.
+pub(crate) fn texture_sampler_group(
+    device: &wgpu::Device,
+    label: &str,
+    layout: &wgpu::BindGroupLayout,
+    view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some(label),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+/// A group of `uniform` at binding 0, `view` at binding 1 and `sampler`
+/// at binding 2.
+pub(crate) fn uniform_texture_group(
+    device: &wgpu::Device,
+    label: &str,
+    layout: &wgpu::BindGroupLayout,
+    uniform: wgpu::BindingResource<'_>,
+    view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some(label),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform,
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
             },
         ],
     })

@@ -321,7 +321,7 @@ pub(crate) fn chart_loaded(id: &str, song: &Song) {
         .map(|i| song.chart_digest(i))
         .collect();
     CURRENT.with(|c| *c.borrow_mut() = Some((id.to_string(), digests)));
-    if plays().history().stale().contains_key(id) {
+    if plays().history().has_stale(id) {
         FOCUS.with(|f| *f.borrow_mut() = Some((id.to_string(), Rc::new(song.clone()))));
         schedule(0);
     }
@@ -368,8 +368,8 @@ fn step() {
     let digests: Vec<ChartDigest> = {
         let p = plays();
         let h = p.history();
-        let ids = h.stale().remove(&id).unwrap_or_default();
-        ids.iter()
+        h.stale_of(&id)
+            .iter()
             .filter_map(|p| h.get(p).map(|s| s.chart.digest))
             .collect()
     };

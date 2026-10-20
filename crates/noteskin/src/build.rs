@@ -58,6 +58,70 @@ impl Textures {
     }
 }
 
+/// The largest image side a shell keeps of a skin's (GPU limits and
+/// memory); larger images are scaled down.
+pub const MAX_IMAGE_SIDE: u32 = 4096;
+
+/// Decoded pixels a skin may hold at once (each is kept decoded and
+/// again on the GPU): about 256 MB of each. Images past it are left out
+/// and drawn by the built-in skin.
+pub const MAX_PIXELS: u64 = 64 << 20;
+
+/// How much finer than its own size an SVG is drawn: a skin's 64-pixel
+/// lane is drawn up to 160 device pixels wide (the arrow size's cap), so
+/// four times keeps it sharp there.
+pub const SVG_SCALE: f64 = 4.0;
+
+/// A skin's image sizes for the shells' two-pass load: the first pass
+/// (the probe) answers 128 pixels square for every image of the skin's
+/// folders and notes the ones asked for; once those are decoded, it
+/// answers with their sizes (original pixels), by `(folder, path)`.
+#[derive(Debug)]
+pub struct ProbeSizes {
+    /// The images' sizes as decoded, by `(folder, path)`.
+    pub sizes: std::collections::HashMap<(usize, String), (u32, u32)>,
+    /// Probing: every image is 128 pixels square, and noted.
+    pub probe: bool,
+    /// The images asked for while probing.
+    asked: std::cell::RefCell<Vec<(usize, String)>>,
+}
+
+impl ProbeSizes {
+    /// The first pass: no size known, every image asked for noted.
+    pub fn probe() -> ProbeSizes {
+        ProbeSizes {
+            sizes: std::collections::HashMap::new(),
+            probe: true,
+            asked: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    /// The images asked for since the last call, sorted, each once.
+    pub fn take_asked(&self) -> Vec<(usize, String)> {
+        let mut asked = self.asked.take();
+        asked.sort();
+        asked.dedup();
+        asked
+    }
+}
+
+impl Images for ProbeSizes {
+    fn size(&self, dir: Dir, path: &str) -> Option<(u32, u32)> {
+        let Dir::Folder(i) = dir else {
+            return None;
+        };
+        if self.probe {
+            self.asked.borrow_mut().push((i, path.to_string()));
+            return Some((128, 128));
+        }
+        self.sizes.get(&(i, path.to_string())).copied()
+    }
+
+    fn max_size(&self) -> u32 {
+        MAX_IMAGE_SIDE
+    }
+}
+
 /// What the builder needs to know about a skin's images (decoded by the
 /// shell).
 pub trait Images {
@@ -371,19 +435,11 @@ pub(crate) fn image_sprite(
 ) -> Option<Actor> {
     let (w, h) = images.size(f.dir, &f.path)?;
     let sheet = skin.hints(f).sheet(w, h, images.max_size());
-    let count = sheet.frame_count().min(4096);
-    let states = (0..count)
-        .map(|i| State {
-            rect: sheet.frame_rect(i),
-            delay: 0.1,
-        })
-        .collect();
-    let (fw, fh) = sheet.frame_size();
     let id = textures.id(TextureKey::Skin {
         dir: f.dir,
         path: f.path.clone(),
     });
-    let mut sprite = Sprite::new(id, states, [fw, fh]);
+    let mut sprite = sheet_sprite(id, &sheet, sheet.frame_count().min(4096));
     sprite.padded_to_image = sheet.from_padded([1.0, 1.0]);
     Some(Actor::new(Kind::Sprite(sprite)))
 }
@@ -475,15 +531,21 @@ pub(crate) fn builtin_sprite(textures: &mut Textures, name: &str) -> Actor {
     let (cols, rows) = hints.frames.unwrap_or((1, 1));
     let k = if hints.doubleres { 128 } else { 64 };
     let sheet = hints.sheet(cols * k, rows * k, u32::MAX);
-    let states = (0..sheet.frame_count())
+    let id = textures.id(TextureKey::BuiltIn(name.to_string()));
+    Actor::new(Kind::Sprite(sheet_sprite(id, &sheet, sheet.frame_count())))
+}
+
+/// A sprite of `sheet`'s first `count` frames in texture `id`, 0.1 s each
+/// (`Sprite::LoadStatesFromTexture`).
+fn sheet_sprite(id: u32, sheet: &crate::hints::Sheet, count: u64) -> Sprite {
+    let states = (0..count)
         .map(|i| State {
             rect: sheet.frame_rect(i),
             delay: 0.1,
         })
         .collect();
-    let id = textures.id(TextureKey::BuiltIn(name.to_string()));
     let (fw, fh) = sheet.frame_size();
-    Actor::new(Kind::Sprite(Sprite::new(id, states, [fw, fh])))
+    Sprite::new(id, states, [fw, fh])
 }
 
 pub(crate) fn visible(on: bool) -> Call {

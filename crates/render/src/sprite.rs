@@ -129,16 +129,10 @@ impl SpritePipeline {
             label: Some("ddi-sprite"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
-        let globals = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ddi-globals"),
-            size: std::mem::size_of::<Globals>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let (bgl, bind_group) = crate::gpu::uniform_group(
+        let (globals, bgl, bind_group) = crate::gpu::uniform_group(
             device,
             "ddi-globals",
-            &globals,
+            std::mem::size_of::<Globals>(),
             wgpu::ShaderStages::VERTEX_FRAGMENT,
         );
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

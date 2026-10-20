@@ -540,7 +540,7 @@ async fn load(state: &Rc<RefCell<State>>, options: PreviewOptions, generation: u
     let play = match prepared {
         Some(p) => {
             let mut play = p.play;
-            play.set_srgb(renderer.srgb() && !renderer.skins_blend_encoded());
+            play.set_srgb(renderer.skin_colors_linear());
             images.extend(crate::game_loop::upload_noteskin(
                 renderer,
                 &gfx.device,

@@ -79,16 +79,23 @@ pub fn frame_rect(w: f32, h: f32, aspect: Option<f32>) -> [f32; 4] {
     }
 }
 
+/// The part of an `iw × ih` image that covers a `w × h` area, per axis,
+/// as fractions of the image (the overflow cropped evenly); all of it when
+/// either is empty.
+pub fn cover_scale(w: f32, h: f32, iw: f32, ih: f32) -> [f32; 2] {
+    if w <= 0.0 || h <= 0.0 || iw <= 0.0 || ih <= 0.0 {
+        return [1.0, 1.0];
+    }
+    if iw / ih > w / h {
+        [(w / h) / (iw / ih), 1.0]
+    } else {
+        [1.0, (iw / ih) / (w / h)]
+    }
+}
+
 /// Centered crop, as `[left, top, right, bottom]`, preserving image proportions.
 pub fn cover_uv(w: f32, h: f32, iw: f32, ih: f32) -> [f32; 4] {
-    if w <= 0.0 || h <= 0.0 || iw <= 0.0 || ih <= 0.0 {
-        return [0.0, 0.0, 1.0, 1.0];
-    }
-    let (x, y) = if iw / ih > w / h {
-        ((w / h) / (iw / ih), 1.0)
-    } else {
-        (1.0, (iw / ih) / (w / h))
-    };
+    let [x, y] = cover_scale(w, h, iw, ih);
     [
         (1.0 - x) / 2.0,
         (1.0 - y) / 2.0,

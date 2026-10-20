@@ -773,12 +773,10 @@ fn parse_note_data(data: &str, lanes: Option<usize>) -> Vec<Note> {
                     // span covers this row.
                     if let Some(heads) = heads_in_lane.get(&lane_u8) {
                         for &hi in heads.iter().rev() {
-                            let covers = match notes[hi].kind {
-                                NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
-                                    notes[hi].tick <= tick && end >= tick
-                                }
-                                _ => false,
-                            };
+                            let covers = notes[hi]
+                                .kind
+                                .hold_end()
+                                .is_some_and(|end| notes[hi].tick <= tick && end >= tick);
                             if covers {
                                 match &mut notes[hi].kind {
                                     NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
@@ -793,8 +791,7 @@ fn parse_note_data(data: &str, lanes: Option<usize>) -> Vec<Note> {
                 } else if let Some(kind) = kind {
                     let mut note = Note::new(tick, lane_u8, kind);
                     note.keysound = keysound;
-                    let is_head =
-                        matches!(kind, NoteKind::HoldHead { .. } | NoteKind::RollHead { .. });
+                    let is_head = kind.is_long();
                     // Same (tick, lane) twice (odd row counts rounding onto
                     // one tick): the later note replaces the earlier one.
                     let replaced = last_in_lane
@@ -820,7 +817,7 @@ fn parse_note_data(data: &str, lanes: Option<usize>) -> Vec<Note> {
     }
 
     // Drop unterminated heads (StepMania removes them).
-    notes.retain(|n| !matches!(n.kind, NoteKind::HoldHead { end } | NoteKind::RollHead { end } if end == open_end));
+    notes.retain(|n| n.kind.hold_end() != Some(open_end));
     notes.sort_by_key(|n| (n.tick, n.lane));
     notes
 }

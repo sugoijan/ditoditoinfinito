@@ -127,20 +127,15 @@ impl Attachment {
         if self.texture.as_ref().is_none_or(|t| t.2 != size) {
             // The old one is dropped, not destroyed: an encoder not yet
             // submitted may still draw with it.
-            let t = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("ddi-stencil"),
-                size: wgpu::Extent3d {
-                    width: size[0],
-                    height: size[1],
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            });
+            let t = crate::gpu::texture_2d(
+                device,
+                "ddi-stencil",
+                size,
+                FORMAT,
+                1,
+                wgpu::TextureUsages::RENDER_ATTACHMENT,
+                &[],
+            );
             let v = t.create_view(&wgpu::TextureViewDescriptor::default());
             self.texture = Some((t, v, size));
         }

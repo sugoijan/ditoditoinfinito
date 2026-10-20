@@ -5,31 +5,17 @@
 use ddi_chart::Difficulty;
 
 /// The difficulties in their order (StepMania's `Difficulty` enum).
-pub const DIFFICULTIES: [Difficulty; 6] = [
-    Difficulty::Beginner,
-    Difficulty::Easy,
-    Difficulty::Medium,
-    Difficulty::Hard,
-    Difficulty::Challenge,
-    Difficulty::Edit,
-];
+pub const DIFFICULTIES: [Difficulty; 6] = Difficulty::ALL;
 
-/// A difficulty's place in [`DIFFICULTIES`].
+/// A difficulty's place in [`DIFFICULTIES`] (its declaration order).
 pub fn difficulty_index(d: Difficulty) -> usize {
-    DIFFICULTIES.iter().position(|x| *x == d).unwrap_or(0)
+    d as usize
 }
 
 /// A difficulty's name, as commands and colors are named
 /// (`Difficulty.Hard`).
 pub fn difficulty_name(d: Difficulty) -> &'static str {
-    match d {
-        Difficulty::Beginner => "Beginner",
-        Difficulty::Easy => "Easy",
-        Difficulty::Medium => "Medium",
-        Difficulty::Hard => "Hard",
-        Difficulty::Challenge => "Challenge",
-        Difficulty::Edit => "Edit",
-    }
+    d.name()
 }
 
 /// A style (a chart layout: `dance-single`, shown as "Single").
@@ -566,6 +552,17 @@ pub struct OptionsData {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn difficulties_in_order_by_name() {
+        for (i, d) in DIFFICULTIES.into_iter().enumerate() {
+            assert_eq!(difficulty_index(d), i);
+            assert_eq!(difficulty_name(d), format!("{d:?}"));
+            assert_eq!(Difficulty::from_name(d.name()), Some(d));
+        }
+        assert!(DIFFICULTIES.is_sorted());
+        assert_eq!(Difficulty::from_name("hard"), None);
+    }
 
     fn chart(d: Difficulty) -> ChartEntry {
         ChartEntry {

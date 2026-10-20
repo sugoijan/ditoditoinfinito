@@ -154,6 +154,12 @@ pub fn kept_game(game: &str) -> bool {
     game == "dance" || game == "pump" || game == "common"
 }
 
+/// The largest text read from a skin (`metrics.ini`, `.redir`, `.lua`, a
+/// model's `.txt` or `.ini`), in bytes.
+pub const MAX_TEXT: u64 = 1 << 20;
+/// The texts of one skin, in bytes, at most; the rest are left out.
+pub const MAX_TEXTS: u64 = 32 << 20;
+
 /// Whether a skin's file is kept as text with the skin's record: its
 /// `metrics.ini`, other `.ini` files (animated textures), redirects, Lua and
 /// `.txt` files (3D models; what [`crate::Folder::texts`] holds).

@@ -197,12 +197,6 @@ impl JudgeTable {
         None
     }
 
-    /// Whether a delta falls inside the FA+ `w0` sub-window.
-    pub fn is_w0(&self, delta_seconds: f64) -> bool {
-        self.w0
-            .is_some_and(|w| delta_seconds.abs() <= self.scaled(w))
-    }
-
     /// Widest late bound: a note older than this is a `Miss`.
     pub fn miss_after(&self) -> f64 {
         Judgement::ALL[..5]

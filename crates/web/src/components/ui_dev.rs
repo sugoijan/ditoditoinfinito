@@ -64,7 +64,6 @@ use ddi_ui::event::{
 };
 use ddi_ui::request::{Cursor, EnterKey, InputMode};
 use ddi_ui::screens::{self as theme_screens, Env as ThemeEnv, sample};
-use ddi_ui::state::library::Libraries;
 use ddi_ui::text_field::composition_range;
 use ddi_ui::{Message, TextMode, Ui, UiRequest};
 use gloo::events::{EventListener, EventListenerOptions};
@@ -327,6 +326,11 @@ pub(crate) fn reduced_motion_query() -> Option<web_sys::MediaQueryList> {
         .flatten()
 }
 
+/// Whether the system prefers reduced motion now.
+pub(crate) fn system_reduced() -> bool {
+    reduced_motion_query().is_some_and(|q| q.matches())
+}
+
 impl Component for UiDev {
     type Message = Msg;
     type Properties = Props;
@@ -526,10 +530,16 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
         let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Mirror, true);
         // The theme draws its own focus.
         ui.set_focus_ring(false);
-        ui.push(sample::select_screen(env, Some(options_changed(env))));
+        ui.push(sample::select_screen(
+            env,
+            Some(sample::motion_change(env, system_reduced)),
+        ));
         match first {
             "results" => ui.push(sample::results_screen(env)),
-            "options" => ui.push(sample::options_screen(env, Some(options_changed(env)))),
+            "options" => ui.push(sample::options_screen(
+                env,
+                Some(sample::motion_change(env, system_reduced)),
+            )),
             "credits" => ui.push(sample::credits_screen(
                 env,
                 &theme_screens::credits::sample(),
@@ -688,10 +698,8 @@ pub(crate) fn theme_host(fold: FoldFn) -> ThemeHost {
     let settings = crate::settings::Settings::load();
     let look = Rc::new(ddi_theme::Infinito::new());
     let env = ThemeEnv::new(look.clone(), fold);
-    let system = reduced_motion_query().is_some_and(|q| q.matches());
-    env.reduced_motion
-        .set(settings.reduced_motion.reduced(system));
-    env.state.borrow_mut().reduced_motion_setting = settings.reduced_motion as usize;
+    let system = system_reduced();
+    env.follow_motion(settings.reduced_motion, system);
     ThemeHost {
         env,
         look,
@@ -2019,25 +2027,42 @@ fn pushed_depth() -> Option<u32> {
     (n >= 1.0).then_some(n as u32)
 }
 
-/// The library's titles for the strip (P12's view).
+/// The library's titles for the strip: bundled first, then the imported
+/// songs by pack; banners as texture sources (a site path, or
+/// `files:<key>` for an imported one, `crate::web::textures`).
 fn load_library(weak: Weak<RefCell<Host>>) {
     wasm_bindgen_futures::spawn_local(async move {
         let Ok(library) = crate::songs::Library::load().await else {
             return;
         };
-        let view = library.view();
-        let titles: Vec<String> = view
-            .songs
+        let bundled = library.bundled.iter().map(|e| LibrarySong {
+            title: e.title.clone(),
+            artist: e.artist.clone(),
+            pack: None,
+            banner: e.banner.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
+        });
+        let imported = library.imported.iter().map(|s| LibrarySong {
+            title: s.entry.title.clone(),
+            artist: s.entry.artist.clone(),
+            pack: Some(s.pack.clone()),
+            banner: s
+                .entry
+                .banner
+                .as_ref()
+                .map(|b| format!("files:{}", crate::songs::file_key(&s.entry.id, b))),
+        });
+        let library: Vec<LibrarySong> = bundled.chain(imported).collect();
+        let titles: Vec<String> = library
             .iter()
             .take(300)
-            .map(|s| match s.pack() {
-                Some(p) => format!("{} ({p})", s.entry.title),
-                None => s.entry.title.clone(),
+            .map(|s| match &s.pack {
+                Some(p) => format!("{} ({p})", s.title),
+                None => s.title.clone(),
             })
             .collect();
         let skins = crate::noteskins::choices()
             .await
-            .map(|c| c.views().len())
+            .map(|c| c.skins.len())
             .unwrap_or(0);
         let Some(rc) = weak.upgrade() else { return };
         {
@@ -2049,16 +2074,7 @@ fn load_library(weak: Weak<RefCell<Host>>) {
             }
             let songs = titles.len();
             h.dev.borrow_mut().songs = titles;
-            h.widgets.borrow_mut().library = view
-                .songs
-                .iter()
-                .map(|s| LibrarySong {
-                    title: s.entry.title.clone(),
-                    artist: s.entry.artist.clone(),
-                    pack: s.pack().map(str::to_string),
-                    banner: s.banner.clone(),
-                })
-                .collect();
+            h.widgets.borrow_mut().library = library;
             h.ui.broadcast(Message::new(LIBRARY_MESSAGE));
             h.ui.broadcast(Message::new(dev::SONGS_MESSAGE));
             h.dev.borrow_mut().status = format!("{songs} songs, {skins} noteskins");
@@ -2450,28 +2466,6 @@ fn publish(h: &Host) {
         extra(&obj);
     }
     let _ = js_sys::Reflect::set(&window, &"__DDI_DEBUG".into(), &obj);
-}
-
-/// What options do when changed: reduced motion is the settings' (saved,
-/// and the screens follow it at once); the rest is the sample's.
-fn options_changed(env: &ThemeEnv) -> theme_screens::options::ChangeFn {
-    let flag = env.reduced_motion.clone();
-    let state = env.state.clone();
-    Rc::new(move |_section: &str, o: &theme_screens::data::OptionDef| {
-        if o.label != "Reduced motion" {
-            return;
-        }
-        let mut settings = crate::settings::Settings::load();
-        settings.reduced_motion = match o.index {
-            1 => crate::settings::ReducedMotion::On,
-            2 => crate::settings::ReducedMotion::Off,
-            _ => crate::settings::ReducedMotion::Auto,
-        };
-        settings.save();
-        let system = reduced_motion_query().is_some_and(|q| q.matches());
-        flag.set(settings.reduced_motion.reduced(system));
-        state.borrow_mut().reduced_motion_setting = o.index;
-    })
 }
 
 /// The address's route without its parameters (`#/options`).

@@ -100,20 +100,13 @@ impl Mipmaps {
         };
         for level in 1..texture.mip_level_count() {
             let (source, target) = (view(level - 1), view(level));
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ddi-mipmaps-bg"),
-                layout: &self.layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&source),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
+            let group = crate::gpu::texture_sampler_group(
+                device,
+                "ddi-mipmaps-bg",
+                &self.layout,
+                &source,
+                &self.sampler,
+            );
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ddi-mipmaps"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {

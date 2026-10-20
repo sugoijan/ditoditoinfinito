@@ -134,21 +134,10 @@ pub fn chart_env(
     layout: &ddi_chart::Layout,
     reversed: bool,
 ) -> Env {
-    use ddi_chart::Difficulty;
-    let difficulty = match chart.difficulty {
-        Difficulty::Beginner => "Beginner",
-        Difficulty::Easy => "Easy",
-        Difficulty::Medium => "Medium",
-        Difficulty::Hard => "Hard",
-        Difficulty::Challenge => "Challenge",
-        Difficulty::Edit => "Edit",
-    };
+    let difficulty = chart.difficulty.name();
     let starts = || chart.notes.iter().map(|n| n.tick.beat());
     // Holds and rolls last to their ends.
-    let ends = chart.notes.iter().map(|n| match n.kind {
-        ddi_chart::NoteKind::HoldHead { end } | ddi_chart::NoteKind::RollHead { end } => end.beat(),
-        _ => n.tick.beat(),
-    });
+    let ends = chart.notes.iter().map(|n| n.end_tick().beat());
     Env {
         style: dance_style(layout).into(),
         columns: layout.lanes.len() as u32,
@@ -760,16 +749,11 @@ impl LuaSkin {
     /// A command that fails is reported ([`LuaSkin::warnings`]).
     pub fn play(&mut self, id: u32, name: &str, params: &[(&str, Param)]) -> Result<(), Failure> {
         let play = self.driver.play.clone();
-        let name = name.to_string();
-        let params: Vec<(String, Param)> = params
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.clone()))
-            .collect();
         let r = now(self.run(
             &play,
-            move |ctx| {
+            |ctx| {
                 let t = Table::new(&ctx);
-                for (k, v) in &params {
+                for (k, v) in params {
                     let v = match v {
                         Param::Str(s) => Value::String(ctx.intern(s.as_bytes())),
                         Param::Int(i) => Value::Integer(*i),

@@ -91,6 +91,23 @@ pub struct TexQuad {
     pub mask: Mask,
 }
 
+impl TexQuad {
+    /// `shape` in `color` and `texture`: its diffuse pass, blended
+    /// normally, the texture clamped, no gradient or mask.
+    pub fn new(shape: Shape, color: [f32; 4], texture: u32) -> TexQuad {
+        TexQuad {
+            shape,
+            color,
+            glow: false,
+            texture,
+            blend: QuadBlend::Normal,
+            wrap: false,
+            gradient: None,
+            mask: Mask::None,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct Instance {
@@ -259,16 +276,10 @@ impl TexturedPipeline {
             label: Some("ddi-textured"),
             source: wgpu::ShaderSource::Wgsl(include_str!("textured.wgsl").into()),
         });
-        let globals = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ddi-textured-globals"),
-            size: std::mem::size_of::<Globals>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let (globals_layout, globals_group) = crate::gpu::uniform_group(
+        let (globals, globals_layout, globals_group) = crate::gpu::uniform_group(
             device,
             "ddi-textured-globals",
-            &globals,
+            std::mem::size_of::<Globals>(),
             wgpu::ShaderStages::VERTEX,
         );
         let texture_layout = crate::gpu::texture_sampler_layout(device, "ddi-textured-texture-bgl");
@@ -335,34 +346,29 @@ impl TexturedPipeline {
     ) -> wgpu::Texture {
         let plain = [wgpu::TextureFormat::Rgba8Unorm];
         let srgb = srgb && !self.plain_textures;
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("ddi-textured-image"),
-            size: wgpu::Extent3d {
-                width: width.max(1),
-                height: height.max(1),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: if mipmaps {
-                crate::mipmaps::levels(width, height)
-            } else {
-                1
-            },
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: if srgb {
+        crate::gpu::texture_2d(
+            device,
+            "ddi-textured-image",
+            [width.max(1), height.max(1)],
+            if srgb {
                 wgpu::TextureFormat::Rgba8UnormSrgb
             } else {
                 wgpu::TextureFormat::Rgba8Unorm
             },
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
+            if mipmaps {
+                crate::mipmaps::levels(width, height)
+            } else {
+                1
+            },
+            wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: if srgb && self.gamma.is_some() {
+            if srgb && self.gamma.is_some() {
                 &plain
             } else {
                 &[]
             },
-        })
+        )
     }
 
     /// Fills the mipmaps of a texture from [`TexturedPipeline::create_texture`]
@@ -400,20 +406,13 @@ impl TexturedPipeline {
             })
         });
         let group = |view: &wgpu::TextureView, sampler: &wgpu::Sampler| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ddi-textured-texture-bg"),
-                layout: &self.texture_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(sampler),
-                    },
-                ],
-            })
+            crate::gpu::texture_sampler_group(
+                device,
+                "ddi-textured-texture-bg",
+                &self.texture_layout,
+                view,
+                sampler,
+            )
         };
         Texture {
             clamp: group(&view, &self.clamp),

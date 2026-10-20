@@ -160,6 +160,20 @@ impl Renderer {
         self.background.add_texture(device, texture)
     }
 
+    /// A background image of `size` pixels: its texture
+    /// ([`Renderer::create_background_texture`]) filled by `fill` and
+    /// registered ([`Renderer::add_background`]).
+    pub fn add_background_image(
+        &mut self,
+        device: &wgpu::Device,
+        [width, height]: [u32; 2],
+        fill: impl FnOnce(&wgpu::Texture),
+    ) -> usize {
+        let texture = self.create_background_texture(device, width, height);
+        fill(&texture);
+        self.add_background(device, &texture)
+    }
+
     /// Refresh filtered copies after an external RGB movie frame upload.
     pub fn background_texture_changed(&mut self) {
         self.background.texture_changed();
@@ -234,6 +248,26 @@ impl Renderer {
         self.textured.add_texture(device, texture)
     }
 
+    /// A noteskin image of `size` pixels: its texture
+    /// ([`Renderer::create_noteskin_texture`]) filled by `fill`, its
+    /// mipmaps made with `mipmaps`, and registered
+    /// ([`Renderer::add_noteskin_texture`]).
+    pub fn add_noteskin_image(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        [width, height]: [u32; 2],
+        mipmaps: bool,
+        fill: impl FnOnce(&wgpu::Texture),
+    ) -> u32 {
+        let texture = self.create_noteskin_texture(device, width, height, mipmaps);
+        fill(&texture);
+        if mipmaps {
+            self.generate_noteskin_mipmaps(device, queue, &texture);
+        }
+        self.add_noteskin_texture(device, &texture)
+    }
+
     /// Registers the built-in art standing in for one of StepMania's own
     /// skins' images (`ddi_noteskin::build::TextureKey::BuiltIn`).
     pub fn add_builtin_art(
@@ -243,9 +277,10 @@ impl Renderer {
         name: &str,
     ) -> u32 {
         let art = crate::art::builtin(name);
-        let texture = self.create_noteskin_texture(device, art.width, art.height, false);
-        crate::gpu::write_rgba(queue, &texture, [art.width, art.height], &art.rgba);
-        self.textured.add_texture(device, &texture)
+        let size = [art.width, art.height];
+        self.add_noteskin_image(device, queue, size, false, |texture| {
+            crate::gpu::write_rgba(queue, texture, size, &art.rgba);
+        })
     }
 
     /// Forgets the noteskin textures (another skin, or none), and the
@@ -283,6 +318,13 @@ impl Renderer {
     /// as on a plain target).
     pub fn skins_blend_encoded(&self) -> bool {
         self.textured.gamma()
+    }
+
+    /// Whether skins' colors are made in linear light
+    /// ([`crate::noteskin::NoteskinPlay::set_srgb`]): on an sRGB target,
+    /// unless skins blend as StepMania's do, in encoded values.
+    pub fn skin_colors_linear(&self) -> bool {
+        self.srgb() && !self.skins_blend_encoded()
     }
 
     /// Frames are drawn offscreen (WebGL2 with a skin drawn).

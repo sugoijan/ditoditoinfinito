@@ -210,20 +210,9 @@ pub fn chart_line(difficulty: ddi_chart::Difficulty, meter: u32, style: &str) ->
 }
 
 /// The mods a play will run with, as the settings have them: the speed,
-/// Reverse, then every option off its default ([`super::play::mods_summary`]).
+/// Reverse, then every option off its default ([`super::play::options_line`]).
 pub fn mods_line(settings: &crate::state::settings::Settings) -> String {
-    let speed = format!("×{}", (settings.speed * 100.0).round() / 100.0);
-    let mut parts = vec![speed];
-    if settings.reverse {
-        parts.push("reverse".into());
-    }
-    parts.extend(super::play::mods_summary(
-        &settings.transform,
-        settings.appearance,
-        settings.scroll_action,
-        None,
-    ));
-    parts.join(" · ")
+    super::play::options_line(&settings.play_options(None))
 }
 
 /// The new-device step for devices `profile`, as the web's card had it:
@@ -260,7 +249,11 @@ pub fn new_device_step(
         ),
     ] {
         if !new {
-            lines.push(format!("{}: {} (known)", capital(what), fp.label));
+            lines.push(format!(
+                "{}: {} (known)",
+                super::capitalized(what),
+                fp.label
+            ));
             continue;
         }
         lines.push(format!("New {what}: {}", fp.label));
@@ -292,13 +285,6 @@ pub fn new_device_step(
     actions.push(("calibrate".into(), "Calibrate now".into()));
     actions.push(("defaults".into(), "Play with defaults".into()));
     PromptStep::NewDevice { lines, actions }
-}
-
-fn capital(s: &str) -> String {
-    let mut c = s.chars();
-    c.next()
-        .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
-        .unwrap_or_default()
 }
 
 /// The prompt's screen.

@@ -171,7 +171,7 @@ DitoDitoInfinito/
     chart/        ddi-chart     chart model + TimingMap + importers (sm, ssc, dwi, danoni, ffr)
     engine/       ddi-engine    SongClock, judge, combo, score, gauge, scroll, options → Frame + events
     render/       ddi-render    wgpu scene (atlas sprites, text), NoteSkin, background layers
-    platform/     ddi-platform  traits: AudioBackend, InputSource, HostClock, Surface; MP3 as StepMania reads it; optional decoders
+    platform/     ddi-platform  traits: AudioBackend, InputSource, Surface; MP3 as StepMania reads it; optional decoders
     library/      ddi-library   pack scanning, sans-IO zip reader, manifest entries (shared by app and xtask)
     actor/        ddi-actor     StepMania's actor model: tweens, effects, sprite states, commands, model data (shared by noteskins and screens)
     ui/           ddi-ui        UI core: events → requests, hit-testing, gestures, navigation and focus, screens, dialogs, text field
@@ -298,8 +298,7 @@ Skins are data (atlas image + TOML describing per-lane rotation or per-lane spri
 pub trait AudioBackend { type Buffer; type Error;
     fn now(&self) -> ClockSample;                 // { context_time, host_time, output_latency }
     fn play(&mut self, b: &Self::Buffer, start_at_context_time: f64, offset: f64, volume: f32) -> Result<SoundId, Self::Error>;
-    fn stop(&mut self, id: SoundId); fn set_volume(&mut self, id: SoundId, v: f32); fn duration(&self, b: &Self::Buffer) -> f64;
-    fn sample_rate(&self) -> f64; fn set_master_volume(&mut self, v: f32);
+    fn duration(&self, b: &Self::Buffer) -> f64; fn sample_rate(&self) -> f64;
     fn master_ramp(&mut self, from: Option<f32>, to: f32, at: Option<f64>, seconds: f64);
     fn stop_all(&mut self); fn running(&self) -> bool; fn fingerprint(&self) -> Option<DeviceFingerprint>;
     fn buffer_from_pcm(&self, channels: Vec<Vec<f32>>, rate: f64) -> Result<Self::Buffer, Self::Error>; }

@@ -146,6 +146,21 @@ pub fn script(notes: &[JudgedNote], bias: f64) -> Vec<Press> {
     out
 }
 
+/// Each press's two edges, `(song seconds, lane, pressed)`, in the
+/// presses' order: sort them with [`sort_edges`].
+pub fn edges(presses: impl IntoIterator<Item = Press>) -> Vec<(f64, u8, bool)> {
+    presses
+        .into_iter()
+        .flat_map(|p| [(p.press, p.lane, true), (p.release, p.lane, false)])
+        .collect()
+}
+
+/// Edges in time order, a release before a press at the same time (a
+/// roll's or a jack's next tap), stably.
+pub fn sort_edges(edges: &mut [(f64, u8, bool)]) {
+    edges.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.2.cmp(&b.2)));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

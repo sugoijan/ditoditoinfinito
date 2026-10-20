@@ -58,15 +58,12 @@ impl AudioBackend for FakeAudio {
         self.played.push((at, offset, volume));
         Ok(1)
     }
-    fn stop(&mut self, _id: SoundId) {}
-    fn set_volume(&mut self, _id: SoundId, _volume: f32) {}
     fn duration(&self, b: &f64) -> f64 {
         *b
     }
     fn sample_rate(&self) -> f64 {
         48_000.0
     }
-    fn set_master_volume(&mut self, _volume: f32) {}
     fn master_ramp(&mut self, from: Option<f32>, to: f32, at: Option<f64>, seconds: f64) {
         self.ramps.push((from, to, at, seconds));
     }
