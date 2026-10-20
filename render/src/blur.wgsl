@@ -1,9 +1,6 @@
-// The blurred extension around the background frame
-// (docs/plans/video-backgrounds.md, step 5): the backdrop is drawn small,
-// blurred in two passes (`fs_blur`, one direction each) and stretched over
-// the screen, dimmed (`fs_composite`). Colors stay premultiplied by alpha
-// throughout: the small target starts transparent.
-// `fs_cached_blur` also filters static menu images once on upload.
+// Shared encoded Gaussian filtering for cached menu images and live scenes.
+// Scene sources stay premultiplied; cached images return straight alpha
+// for the 2D painter. The base and entrance content use the same kernel.
 
 struct Blur {
     // One texel along the blur's direction (unused by the composite).
@@ -17,18 +14,17 @@ struct Blur {
     band_keep: f32,
     // Cached-image vertical pass: return straight alpha for the painter.
     unpremultiply: f32,
+    uv_scale: vec2<f32>,
+    uv_offset: vec2<f32>,
+    opacity: f32,
+    base: f32,
+    pad: vec2<f32>,
 };
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     let low = c / 12.92;
     let high = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
     return select(high, low, c <= vec3<f32>(0.04045));
-}
-
-fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
-    let low = c * 12.92;
-    let high = 1.055 * pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.4)) - 0.055;
-    return select(high, low, c <= vec3<f32>(0.0031308));
 }
 
 @group(0) @binding(0) var<uniform> blur: Blur;
@@ -48,20 +44,6 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
     out.position = vec4<f32>(c.x * 2.0 - 1.0, 1.0 - c.y * 2.0, 0.0, 1.0);
     out.uv = c;
     return out;
-}
-
-// A Gaussian of σ = 3 texels, 13 taps.
-@fragment
-fn fs_blur(in: VsOut) -> @location(0) vec4<f32> {
-    var sum = vec4<f32>(0.0);
-    var total = 0.0;
-    for (var i = -6; i <= 6; i++) {
-        let x = f32(i);
-        let w = exp(-x * x / 18.0);
-        sum += w * textureSampleLevel(source, source_sampler, in.uv + blur.step * x, 0.0);
-        total += w;
-    }
-    return sum / total;
 }
 
 // Cached menu images: σ = 6 texels, truncated at 3σ. The horizontal pass
@@ -88,17 +70,41 @@ fn fs_cached_blur(in: VsOut) -> @location(0) vec4<f32> {
     return c;
 }
 
+// The scene's encoded intermediate is already premultiplied by blending.
 @fragment
-fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
-    let c = textureSampleLevel(source, source_sampler, in.uv, 0.0);
-    var b = blur.brightness;
+fn fs_scene_blur(in: VsOut) -> @location(0) vec4<f32> {
+    var sum = vec4<f32>(0.0);
+    var total = 0.0;
+    for (var i = -18; i <= 18; i++) {
+        let x = f32(i);
+        let w = exp(-x * x / 72.0);
+        sum += w * textureSampleLevel(source, source_sampler, in.uv + blur.step * x, 0.0);
+        total += w;
+    }
+    return sum / total;
+}
+
+@fragment
+fn fs_scene_composite(in: VsOut) -> @location(0) vec4<f32> {
+    let uv = blur.uv_offset + in.uv * blur.uv_scale;
+    let c = textureSampleLevel(source, source_sampler, uv, 0.0);
+    let b = blur.brightness;
+    var keep = 1.0;
     if (in.position.x >= blur.band.x && in.position.x < blur.band.y) {
-        b = b * blur.band_keep;
+        keep = blur.band_keep;
     }
-    if (blur.linear > 0.5 && c.a > 0.0) {
-        // Premultiplied: the color itself is dimmed, as encoded.
-        let rgb = srgb_to_linear(linear_to_srgb(c.rgb / c.a) * b);
-        return vec4<f32>(rgb * c.a, c.a);
+    var rgb = vec3<f32>(0.0);
+    var a = c.a * blur.opacity;
+    if (blur.base > 0.5) {
+        let ground = vec3<f32>(5.0, 2.0, 13.0) / 255.0;
+        rgb = c.rgb * b + ground * (1.0 - c.a * b);
+        a = 1.0;
+    } else if (c.a > 0.0) {
+        rgb = c.rgb / c.a * b;
     }
-    return vec4<f32>(c.rgb * b, c.a);
+    rgb *= keep;
+    if (blur.linear > 0.5) {
+        rgb = srgb_to_linear(rgb);
+    }
+    return vec4<f32>(rgb, a);
 }

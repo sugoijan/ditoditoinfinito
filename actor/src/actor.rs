@@ -262,6 +262,8 @@ pub struct State {
 pub struct Sprite {
     /// The renderer's texture (an index it hands out).
     pub texture: u32,
+    /// UI images: center-crop to the drawn rectangle after the texture size is known.
+    pub cover: bool,
     /// Rounded corners, a soft edge, an outline, saturation: our
     /// extension, not StepMania's ([`Shape`]).
     pub shape: Shape,
@@ -299,6 +301,7 @@ impl Sprite {
         };
         Sprite {
             texture,
+            cover: false,
             frames: states.iter().map(|s| s.rect).collect(),
             frame_size: size,
             states,
@@ -1147,6 +1150,8 @@ pub struct Quad {
     /// `y' = m[1]x + m[3]y + m[5]`, already scaled by the quad's size.
     pub transform: [f32; 6],
     pub texture: u32,
+    /// UI images: center-crop to the drawn rectangle after the texture size is known.
+    pub cover: bool,
     /// `[left, top, right, bottom]` of the image, before `texcoord_offset`.
     pub uv: [f32; 4],
     pub texcoord_offset: [f32; 2],
@@ -2544,6 +2549,7 @@ impl Actor {
                     Some(Drawn::Quad(Quad {
                         transform,
                         texture: sprite.texture,
+                        cover: sprite.cover,
                         uv,
                         texcoord_offset: sprite.texcoord_offset,
                         diffuse,

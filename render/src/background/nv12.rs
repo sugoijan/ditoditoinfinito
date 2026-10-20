@@ -18,6 +18,7 @@ impl BackgroundPipeline {
             [uv.width(), uv.height()],
             [y.width().div_ceil(2), y.height().div_ceil(2)]
         );
+        self.revision = self.revision.wrapping_add(1);
         let image = &mut self.images[id];
         let yv = y.create_view(&Default::default());
         let cv = uv.create_view(&Default::default());

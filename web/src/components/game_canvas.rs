@@ -542,6 +542,11 @@ impl Component for GameCanvas {
             gloo::timers::callback::Interval::new(250, move || link.send_message(Msg::VideoTick))
         };
         let prompt_state = SharedPrompt::default();
+        if let SongSource::Song { id, .. } = &ctx.props().source {
+            prompt_state
+                .borrow_mut()
+                .set_base(crate::web::screen::song_backdrop(id));
+        }
         prompt_state
             .borrow_mut()
             .set_step(PromptStep::Loading("loading…".into()));
@@ -640,6 +645,9 @@ impl Component for GameCanvas {
         // The built-in arrows draw no skin: on WebGL2 frames then go
         // straight to the canvas (`Gfx::skin_blending`).
         let skins = self.settings.noteskin.as_deref() != Some(crate::noteskins::BUILT_IN);
+        let video = self.settings.video;
+        let frame = self.settings.background_frame;
+        let slow = ctx.props().slow;
         spawn_local(async move {
             let result = crate::web::screen::gfx().await.map(|gfx| {
                 gfx.set_mode(SurfaceMode::Scene);
@@ -647,7 +655,9 @@ impl Component for GameCanvas {
                 // again since).
                 let canvas = crate::web::screen::canvas().unwrap_or(canvas);
                 gfx.resize(canvas.width(), canvas.height());
-                Box::new(GameLoop::new(gfx, canvas, on_event, skins))
+                let mut game = Box::new(GameLoop::new(gfx, canvas, on_event, skins));
+                game.set_video(video, frame, slow);
+                game
             });
             link.send_message(Msg::GfxReady(result));
         });
@@ -1541,6 +1551,13 @@ impl GameCanvas {
                     );
                     game.set_background_schedule(schedule);
                     game.set_session(session);
+                    game.enter_background(
+                        self.prompt_state.borrow().reveal,
+                        self.settings.reduced_motion.reduced(
+                            crate::components::ui_dev::reduced_motion_query()
+                                .is_some_and(|q| q.matches()),
+                        ),
+                    );
                 }
                 self.stage = Stage::Playing;
             }
@@ -1864,6 +1881,7 @@ fn prompt_debug(obj: &js_sys::Object, st: &PromptState) {
         PromptStep::Card { .. } => "card",
     };
     set(&p, "step", step.into());
+    set(&p, "reveal", st.reveal.into());
     if let PromptStep::Error(e) = &st.step {
         set(&p, "error", e.as_str().into());
     }

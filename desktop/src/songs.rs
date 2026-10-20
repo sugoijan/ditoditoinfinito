@@ -614,11 +614,10 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
     let play: PlayFn = {
         let songs = songs.clone();
         Rc::new(move |song, chart, _env, _cx| {
-            *songs.play.borrow_mut() = Some(crate::play::Request::song(
-                &song.id,
-                chart.index,
-                songs.autoplay.get(),
-            ));
+            let mut request =
+                crate::play::Request::song(&song.id, chart.index, songs.autoplay.get());
+            request.backdrop = song.background.clone();
+            *songs.play.borrow_mut() = Some(request);
         })
     };
     let open: OpenFn = {

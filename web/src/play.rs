@@ -56,6 +56,7 @@ impl SessionConfig {
                 // Chosen each frame by the game loop.
                 backdrop: Default::default(),
                 frame_aspect: None,
+                background_reveal: None,
                 field_filter: settings.field_filter,
                 preview: None,
                 // Set each frame from the session (`PlaySession::tick`).

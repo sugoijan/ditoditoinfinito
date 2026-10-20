@@ -493,13 +493,16 @@ autoplay stays all top tier throughout (video never touches judging).
   4:3 frame and an ultrawide picture a 16:9 one. It settles once a movie
   frame shows, or when the song starts with no probe running, and never
   changes after that (`GameLoop::frame_aspect`). The renderer draws the
-  layers cover-fitted into the frame through the viewport; the extension
-  is what the frame shows, enlarged to cover the screen (so a movie's own
-  bars stay out of it), drawn at 1/12 of the screen (192 px at most),
-  blurred by a 13-tap Gaussian, one pass each way (σ = 3 texels, about 36 screen
-  pixels) and composited at 60 % of the frame's brightness, premultiplied
-  (`render/src/blur.wgsl`, `background::frame_rect`). Nothing is drawn
-  outside a frame within a pixel of the screen.
+  layers cover-fitted into the frame through the viewport. A separate
+  full-screen base uses the same current layers, cover-fitted in the
+  opening source's aspect ratio, Gaussian-blurred (σ = 6, radius 18 at
+  up to 256 pixels) and drawn at 0.2 over #05020d. It remains present
+  when the content frame fills the screen. Static layers reuse this
+  encoded, premultiplied intermediate; changed crossfade weights and
+  YUV, NV12 or direct RGB movie uploads invalidate it. The prompt/play
+  entrance temporarily adds a softer copy at up to 1024 pixels; see
+  `docs/plans/theme.md`, “Into the song”. Both targets cap resolution at
+  the opening image's size so small images keep the menu's blur strength.
 - The probe runs in the worker (`probe` message): six frames at 15–90 % of
   the duration (or at 1–20 s when it is unknown), each the first after a
   new shim export, `ddi_seek_key` (keyframe at or before the time, no

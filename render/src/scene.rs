@@ -34,9 +34,9 @@ impl Default for Skin {
             hold_dropped: [0.4, 0.4, 0.4, 0.6],
             mine: [0.35, 0.3, 0.45, 1.0],
             background: wgpu::Color {
-                r: 0.02,
-                g: 0.01,
-                b: 0.05,
+                r: ddi_actor::background::GROUND[0] as f64,
+                g: ddi_actor::background::GROUND[1] as f64,
+                b: ddi_actor::background::GROUND[2] as f64,
                 a: 1.0,
             },
         }
@@ -213,8 +213,10 @@ pub struct RenderOptions {
     /// Which background images to show this frame.
     pub backdrop: crate::background::Backdrop,
     /// The shape (width over height) backgrounds are fitted into, centred,
-    /// with a blurred extension around it; `None`: the whole screen.
+    /// above the persistent blurred base; `None`: the whole screen.
     pub frame_aspect: Option<f32>,
+    /// Visual entrance only; None is settled, fully sharp play.
+    pub background_reveal: Option<ddi_actor::background::Reveal>,
     /// How notes are colored (an explicit chart color still wins).
     pub note_colors: ColorScheme,
     /// Draw notes in the colors a chart gives them (Dancing☆Onigiri

@@ -62,9 +62,9 @@ desktop's `--screen`. Where the build differs from the mockups:
   clamped edges, premultiplied alpha during filtering); it then draws once
   per layer, at 0.2 (results 0.14). Its cache key stays separate from sharp
   images, so a loaded full-size picture cannot replace the blur. The start
-  prompt's blurred extension uses the same filter; its central picture stays
-  sharp. New images keep their 0.35 s crossfade. A song with no background shows
-  the theme's plain backdrop, cross-faded like the rest (the
+  prompt keeps that cover-fitted base; its framed content enters as a
+  second copy, retaining a light blur until Start. New images keep their 0.35 s crossfade. A song with no background shows
+  the play's plain field color, cross-faded like the rest (the
   maintainer, 2026-10-16: the blurred background is a step on the way
   into the song, and a banner blown up is not one).
 - **The subtitle** ("(OutFox Edit)") sits at the right of the title line
@@ -308,42 +308,24 @@ the right holding the charts as buttons and a large Play button.
   follows the system's reduced-motion setting, and a setting of our own
   overrides it.
 
-### Proposal: into the song (with 6.4 part two's shared prompt)
+### Into the song (2026-10-20)
 
-The maintainer's idea (2026-10-16): song select's blurred backdrop is
-where the song begins, so starting a chart should carry it on rather
-than cut to another page: the blur sharpens into the start prompt's
-picture, then the play's background. Not built; it belongs with the
-shared start prompt of 6.4 part two. A sketch:
+Song select, the shared start prompt and play use the same full-screen,
+cover-fitted Gaussian base over `Play.Field` (#05020d), at opacity 0.2.
+The prompt carries the menu's cached source while the play loads. Above it,
+a copy contracts from full screen to the configured background frame in
+450 ms, easing toward the background brightness setting and a softer blur
+(σ = 6 at up to 1024 pixels, versus 256 for the base). It stays softly
+blurred while waiting for Start. The card fades independently of the base.
 
-1. **Start on song select** (Enter, Play, a pad's Start): the screen
-   does not leave at once. Its panels, wheel and footer slide and fade
-   out over about 250 ms (`Off`, as screens do now) while the backdrop
-   stays, and the play's loading starts in the same gesture (audio
-   context, `play()` as today).
-2. **The backdrop sharpens** over about 400 ms, decelerating: the five
-   spread copies close in on the middle one (their offsets to 0), the
-   strength goes from 0.2 to the prompt's dim (the background
-   brightness setting), and the tiny texture is swapped for the full
-   one when it is ready (the image cache has it by then: the prompt
-   asks for it anyway). A song with no background goes from the plain
-   backdrop to the prompt's, nothing to sharpen.
-3. **The prompt fades in over it** (title, chart, "press Enter or tap
-   to start"); its picture is the same backdrop actor, handed over, not
-   drawn again, so nothing jumps. Desktop and the web do the same: the
-   backdrop is the UI core's, the prompt is the shared one.
-4. **Into play:** at the start, the play's background layer (its first
-   frame, or the movie's still) cross-fades over the prompt's picture
-   in the time the prompt takes to go (about 200 ms), so the last image
-   of song select is the first of the song.
-5. **Back** (Escape at the prompt) runs it backwards: blur, panels in.
-6. **Reduced motion:** cross-fades only, no sliding or closing in;
-   frames stop once each step settles.
-
-What it needs: the backdrop as an actor the prompt can take over (one
-texture, the spread and strength as tweened properties, not five fixed
-copies), the play's loading overlapped with the transition, and the
-prompt drawn by the UI core on both shells, which 6.4 part two brings.
+Start finishes the unblur in 300 ms. An early Start continues from the
+prompt's current position, without delaying audio or changing its clock.
+Reduced motion shows each settled state immediately. Both shells use
+`ddi_actor::background` for geometry and progress. Play keeps the blurred
+base, even with a screen-sized content frame, and it follows the current
+images, videos, crossfades and second background layer. Static sources reuse
+their filtered copies; video uploads and changed layer weights refresh them.
+Returning from the prompt uses the ordinary menu transition.
 
 ## The theme in code
 

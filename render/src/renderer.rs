@@ -159,6 +159,11 @@ impl Renderer {
         self.background.add_texture(device, texture)
     }
 
+    /// Refresh filtered copies after an external RGB movie frame upload.
+    pub fn background_texture_changed(&mut self) {
+        self.background.texture_changed();
+    }
+
     /// Registers a movie for [`Renderer::set_video_frame`]; returns the id a
     /// [`Backdrop`](crate::Backdrop) shows it by.
     pub fn add_video(&mut self, device: &wgpu::Device, width: u32, height: u32) -> usize {
@@ -412,6 +417,7 @@ impl Renderer {
             opts.backdrop,
             opts.frame_aspect,
             band,
+            opts.background_reveal.unwrap_or_default(),
         );
         self.background.draw_extension(encoder, &background);
         self.sprites

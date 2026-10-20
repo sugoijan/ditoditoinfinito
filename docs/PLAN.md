@@ -28,6 +28,12 @@ with the ordinary SSC/Opus library handoff. The helper and SDK share the root
 workspace/lock; the pinned generated Ruffle worker remains separate. Browser
 URL import remains separate. See decision 51, [the build contract](plans/danoni-importer.md)
 and [the integration notes](research/danoni-desktop-integration.md).
+Background continuity (2026-10-20): song select, pre-start and play share
+an encoded Gaussian base. The prompt introduces softly blurred framed
+content; Start finishes sharpening it without delaying audio. The play's
+base follows current images/videos and layer crossfades. Both shells share
+visual geometry/progress, with static filters cached and reduced motion
+settled immediately ([theme transition](plans/theme.md#into-the-song-2026-10-20)).
 Players import their own simfile packs (folder, zip or drag and drop; `.sm`,
 `.ssc`, `.dwi`) into IndexedDB, edit a per-song offset on the results, and
 Ogg Vorbis decodes in wasm where the browser cannot. Calibration runs on the real gameplay path (generated 120 BPM chart

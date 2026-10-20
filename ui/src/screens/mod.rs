@@ -471,11 +471,14 @@ impl Backdrop {
     /// The backdrop's actors, over `screen`.
     pub fn build(&mut self, env: &Env, screen: [f32; 2]) -> Actor {
         let front = self.front;
-        let size = [screen[0] + 8.0, screen[1] + 8.0];
+        let size = screen;
         let alpha = env.metric(self.alpha, 0.2).clamp(0.0, 1.0);
-        let layers = (0..2)
+        let layers: Vec<Actor> = (0..2)
             .map(|l| {
                 let mut image = named(Kind::Sprite(Sprite::quad(size)), "Image");
+                if let Kind::Sprite(s) = &mut image.kind {
+                    s.cover = true;
+                }
                 call(&mut image, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
                 call(&mut image, "diffuse", &[1.0, 1.0, 1.0, alpha]);
                 image.visible = false;
@@ -491,7 +494,20 @@ impl Backdrop {
         // Rebuilt (a new layout): the front layer's image comes back with
         // `restore`, the other one is let go.
         self.shown[1 - self.front] = None;
-        frame("Backdrop", layers)
+        let mut ground = quad(
+            "BaseGround",
+            screen,
+            [
+                ddi_actor::background::GROUND[0],
+                ddi_actor::background::GROUND[1],
+                ddi_actor::background::GROUND[2],
+                1.0,
+            ],
+        );
+        call(&mut ground, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
+        let mut children = vec![ground];
+        children.extend(layers);
+        frame("Backdrop", children)
     }
 
     /// Puts the textures back on a rebuilt backdrop.

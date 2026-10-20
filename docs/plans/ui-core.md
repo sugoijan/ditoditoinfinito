@@ -679,8 +679,9 @@ Done (2026-10-15):
   radius 18, clamped edges, premultiplied alpha). A layer then draws a
   single sprite at `Backdrop.Alpha` (0.2; results 0.14); a new one
   cross-fades in. Sharp pictures and other blur sizes never substitute
-  for it. The start prompt's extension uses the same cached blur while
-  its central picture stays sharp. No background means the plain theme.
+  for it. The start prompt carries the same cover-fitted base and introduces a
+  softly blurred framed copy above it (see the transition below).
+  No background means `Play.Field`.
   `__DDI_DEBUG.pass2d.blurred` counts cached filter jobs; idle frames and
   cached revisits add none. Eviction or a lost device regenerates the image.
 - **Beat pulse:** the selected row's and chart's ring brighten on each
@@ -1467,12 +1468,16 @@ Done, 6.4 part two (2026-10-16):
   while the prompt shows, the play's loop idles (`GameLoop::idle`:
   measuring the refresh rate, uploading backgrounds, no frames drawn).
   Shaped for the transition from song select (`docs/plans/theme.md`):
-  its blurred copy is song select's backdrop's way of drawing, ready to
-  sharpen into the framed picture.
+  its cached base stays visible during loading. A second copy contracts
+  from full screen into the frame over 450 ms, retaining a soft Gaussian
+  blur at up to 1024 pixels. Start finishes the unblur over 300 ms in the
+  play renderer, continuing from `PromptState.reveal` when started early.
+  Reduced motion skips both animations. Geometry and progress live in
+  `ddi_actor::background`; audio starts in the original gesture.
 - **The web's play route** shows it as it shows the results
   (`ui_dev::embed`), keys and pads to it while it shows; the DOM prompt,
   its folder, new-device and interrupted cards and their CSS are gone.
-  `__DDI_DEBUG.prompt` (`step`, `notes`, `picture`, `frame`) and
+  `__DDI_DEBUG.prompt` (`step`, `notes`, `picture`, `frame`, `reveal`) and
   `prompt_backdrop` say what it shows; `#/ui-dev?screen=prompt` shows
   it on sample data.
 - **The touch quit button is the scene's** (`scene::quit_button`,

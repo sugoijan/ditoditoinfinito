@@ -48,6 +48,7 @@ pub fn render_options(settings: &Settings) -> RenderOptions {
         background: settings.bg_brightness,
         backdrop: Default::default(),
         frame_aspect: None,
+        background_reveal: None,
         field_filter: settings.field_filter,
         preview: None,
         // Set each frame by the play (`play::host`).
@@ -136,6 +137,7 @@ pub struct View {
     pub movies: super::movies::Movies,
     /// Frames drawn.
     pub frames: u64,
+    entrance: Option<ddi_actor::background::Entrance>,
     /// The window's scale factor (device pixels per point).
     pub scale: f32,
     /// The refresh the next frame is for, when the shell's pacing knows
@@ -170,6 +172,7 @@ impl View {
             #[cfg(feature = "video")]
             movies: Default::default(),
             frames: 0,
+            entrance: None,
             scale: 1.0,
             present_at: None,
         }
@@ -332,8 +335,12 @@ impl View {
         self.noteskin.as_ref()
     }
 
-    /// A play starts (or starts again): the skin's commands from their
-    /// start, the movies' guard measuring from now.
+    /// Continue the prompt's visual entrance from the first drawn play frame.
+    pub fn enter_background(&mut self, from: f32, reduced: bool) {
+        self.entrance = Some(ddi_actor::background::Entrance::new(from, reduced));
+    }
+
+    /// Restart skin commands and the movies' guard for a new play.
     pub fn start(&mut self) {
         if let Some(n) = self.noteskin.as_mut() {
             n.restart();
@@ -448,6 +455,13 @@ impl View {
         render.cancel_progress = v.cancel_progress;
         render.cancel_hint = v.cancel_hint;
         render.frame_aspect = frame_aspect;
+        if let Some(entrance) = &mut self.entrance {
+            let reveal = entrance.sample(now.0);
+            render.background_reveal = Some(reveal);
+            if reveal == ddi_actor::background::Reveal::default() {
+                self.entrance = None;
+            }
+        }
         render.backdrop = self.backdrop(frame.song_time);
         let layer = match self.noteskin.as_mut() {
             Some(n) => {

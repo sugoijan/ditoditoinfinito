@@ -22,7 +22,7 @@ struct Params {
     // the brightness kept inside it, applied as the brightness is.
     band: vec2<f32>,
     band_keep: f32,
-    _pad0: f32,
+    source_linear: f32,
     _pad1: f32,
     _pad2: f32,
 };
@@ -68,11 +68,15 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // The image's own transparency too: StepMania draws backgrounds as
     // sprites, blended, so the first layer shows through the second's.
     let a = c.a * params.alpha;
-    if (params.linear_out > 0.5) {
-        // Sampled as linear light from an sRGB texture.
-        return vec4<f32>(srgb_to_linear(linear_to_srgb(c.rgb) * b), a);
+    var rgb = c.rgb;
+    if (params.source_linear > 0.5) {
+        rgb = linear_to_srgb(rgb);
     }
-    return vec4<f32>(c.rgb * b, a);
+    rgb *= b;
+    if (params.linear_out > 0.5) {
+        rgb = srgb_to_linear(rgb);
+    }
+    return vec4<f32>(rgb, a);
 }
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {

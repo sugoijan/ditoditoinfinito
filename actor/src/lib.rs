@@ -20,6 +20,7 @@
 //! when a frame sorts its children.
 
 mod actor;
+pub mod background;
 pub mod commands;
 pub mod model;
 pub mod screen;

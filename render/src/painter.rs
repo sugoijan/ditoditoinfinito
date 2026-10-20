@@ -1002,6 +1002,33 @@ impl Painter {
                             }
                         }
                     };
+                    let uv = if q.cover {
+                        match bind {
+                            Bind::Image(id) => textures
+                                .get(id)
+                                .map(|image| {
+                                    let m = q.transform.0;
+                                    let w = (q.rect[2] - q.rect[0]).abs() * m[0].hypot(m[1]);
+                                    let h = (q.rect[3] - q.rect[1]).abs() * m[2].hypot(m[3]);
+                                    ddi_actor::background::cover_uv(
+                                        w,
+                                        h,
+                                        image.texture.width() as f32,
+                                        image.texture.height() as f32,
+                                    )
+                                })
+                                .unwrap_or(q.uv),
+                            _ => q.uv,
+                        }
+                    } else {
+                        q.uv
+                    };
+                    let colors = if q.cover && matches!(bind, Bind::Blank) && q.texture.is_some() {
+                        // Keep the previous base visible while a new picture loads.
+                        [[0.0; 4]; 4]
+                    } else {
+                        colors
+                    };
                     let mode = mode | if q.glow { GLOW } else { 0 };
                     let instance = match &q.projected {
                         Some(p) => {
@@ -1012,7 +1039,7 @@ impl Painter {
                                 mode: mode | PROJECTED,
                                 _pad: 0,
                                 rect: [c[2][0], c[2][1], c[3][0], c[3][1]],
-                                uv: q.uv,
+                                uv,
                                 colors: colors.map(pack),
                                 w: p.w,
                                 shape: [0.0; 4],
@@ -1033,7 +1060,7 @@ impl Painter {
                                 mode,
                                 _pad: 0,
                                 rect: q.rect,
-                                uv: q.uv,
+                                uv,
                                 colors: colors.map(pack),
                                 w: [1.0; 4],
                                 shape: [sh.radius[0], sh.radius[1], sh.soft[0], sh.soft[1]],

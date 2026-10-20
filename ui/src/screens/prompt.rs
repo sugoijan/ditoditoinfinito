@@ -13,16 +13,13 @@
 //! ([`Cx::in_gesture`] says whether this one is: a pad's press is not in
 //! WebKit).
 //!
-//! The picture is drawn by the screen itself through the 2D pass, as the
-//! play draws it before the first change ([`PromptPicture`]): cover-fitted
-//! into the background frame, dimmed by the backgrounds' brightness, with
-//! a blurred, dimmer copy over the rest of the screen and the field's
-//! filter where the lanes will be. Drawn by the UI and not by the play's
-//! renderer, the prompt is the same on both shells and on every surface
-//! (the 2D pass cannot draw over the play's sRGB surface on WebGL2), and
-//! the transition from song select's blurred backdrop (`docs/plans/
-//! theme.md`) can later sharpen the one into the other: the blurred copy
-//! is song select's backdrop's way of drawing ([`super::Backdrop`]).
+//! The cached song-list base stays visible while loading. A second copy
+//! contracts into the background frame over 450 ms, easing toward the
+//! configured brightness and a softer Gaussian blur. Start samples its
+//! position so the play renderer can finish the unblur over 300 ms, even
+//! when started early. Reduced motion shows the settled states. Shared
+//! geometry and progress live in `ddi_actor::background`; this is visual
+//! time only and never delays the synchronous audio gesture.
 //!
 //! Components: `Dialog` (the card, `Panel`'s fallback), `PlayButton` and
 //! `Button`; colors `Play.Field` (the play's own, under the picture),
@@ -76,10 +73,6 @@ pub struct PromptPicture {
     /// screen's width) and how dark, `0..=1` of the brightness removed.
     pub filter: Option<([f32; 2], f32)>,
 }
-
-/// The play's blurred copy around the frame is this bright against the
-/// frame (`ddi_render::background`'s `WIDE_DIM`).
-const EXTENSION_DIM: f32 = 0.6;
 
 /// What the prompt is at.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -147,6 +140,10 @@ pub struct PromptState {
     /// A touch screen: taps, not keys, and the ✕ button to quit.
     pub touch: bool,
     pub picture: Option<PromptPicture>,
+    /// Cached song-list base, carried over before the play's pictures finish loading.
+    pub base: Option<String>,
+    /// Current visual position, sampled by Start to continue an early entrance.
+    pub reveal: f32,
     pub version: u64,
 }
 
@@ -179,8 +176,18 @@ impl PromptState {
         }
     }
 
+    pub fn set_base(&mut self, source: Option<String>) {
+        if self.base != source {
+            self.base = source;
+            self.version += 1;
+        }
+    }
+
     pub fn set_picture(&mut self, picture: Option<PromptPicture>) {
         if self.picture != picture {
+            if self.base.is_none() {
+                self.base = picture.as_ref().map(|p| p.source.clone());
+            }
             self.picture = picture;
             self.version += 1;
         }
@@ -314,6 +321,8 @@ pub struct PromptScreen {
     over: bool,
     /// The fade in started (at the first frame).
     faded: bool,
+    reveal_time: f32,
+    picture_source: Option<String>,
 }
 
 /// The card's text sizes.
@@ -323,6 +332,7 @@ const SMALL: f32 = 13.0;
 
 impl PromptScreen {
     pub fn new(env: Env, state: SharedPrompt, act: PromptFn) -> PromptScreen {
+        state.borrow_mut().reveal = if env.reduced() { 1.0 } else { 0.0 };
         PromptScreen {
             env,
             state,
@@ -335,6 +345,8 @@ impl PromptScreen {
             buttons: Vec::new(),
             over: false,
             faded: false,
+            reveal_time: 0.0,
+            picture_source: None,
         }
     }
 
@@ -376,9 +388,7 @@ impl PromptScreen {
         );
         call(&mut field, "xy", &[screen[0] / 2.0, screen[1] / 2.0]);
         let mut children = vec![field];
-        if let Some(p) = &state.picture {
-            children.push(picture(&env, screen, p, cx));
-        }
+        children.push(picture(&env, screen, &state, cx));
         let (card, buttons) = self.card(&state);
         self.buttons = buttons;
         children.push(card);
@@ -727,66 +737,83 @@ fn pbutton(
     b
 }
 
-/// The song's picture: the blurred copy over the screen, the picture in
-/// its frame, the field's filter.
-fn picture(env: &Env, [w, h]: [f32; 2], p: &PromptPicture, cx: &mut Cx) -> Actor {
-    let b = p.brightness.clamp(0.0, 1.0);
-    let aspect = if p.aspect.is_finite() && p.aspect > 0.0 {
-        p.aspect
-    } else {
-        w / h
-    };
-    // The frame: centred, as large as fits.
-    let [fx, fy, fw, fh] = match p.frame.filter(|a| a.is_finite() && *a > 0.0) {
-        Some(a) if w / h > a => [(w - h * a) / 2.0, 0.0, h * a, h],
-        Some(a) => [0.0, (h - w / a) / 2.0, w, w / a],
-        None => [0.0, 0.0, w, h],
-    };
-    let cover = |tw: f32, th: f32| -> [f32; 2] {
-        if aspect > tw / th {
-            [th * aspect, th]
-        } else {
-            [tw, tw / aspect]
+/// A continuous blurred base, with a copy emerging into the content frame.
+fn picture(env: &Env, [w, h]: [f32; 2], state: &PromptState, cx: &mut Cx) -> Actor {
+    use ddi_actor::background::{BASE_SIDE, CONTENT_SIDE, Reveal};
+    let image = |name: &str,
+                 rect: [f32; 4],
+                 source: &str,
+                 side: f32,
+                 tint: f32,
+                 alpha: f32,
+                 cx: &mut Cx| {
+        let [x, y, w, h] = rect;
+        let mut s = named(Kind::Sprite(Sprite::quad([w, h])), name);
+        if let Kind::Sprite(sp) = &mut s.kind {
+            sp.texture = cx.blurred_texture(source, side);
+            sp.cover = true;
         }
+        call(&mut s, "xy", &[x + w / 2.0, y + h / 2.0]);
+        call(&mut s, "diffuse", &[tint, tint, tint, alpha]);
+        s
     };
     let mut children = Vec::new();
-    let framed = fw < w - 1.0 || fh < h - 1.0;
-    if framed {
-        let side = env.metric("Backdrop.Side", 256.0);
-        let tex = cx.blurred_texture(&p.source, side);
-        let size = cover(w + 8.0, h + 8.0);
-        let dim = b * EXTENSION_DIM;
-        let mut wide = named(Kind::Sprite(Sprite::quad(size)), "Wide0");
-        if let Kind::Sprite(sp) = &mut wide.kind {
-            sp.texture = tex;
+    if let Some(base) = &state.base {
+        children.push(image(
+            "Base",
+            [0.0, 0.0, w, h],
+            base,
+            BASE_SIDE,
+            1.0,
+            env.metric("Backdrop.Alpha", ddi_actor::background::BASE_ALPHA),
+            cx,
+        ));
+    }
+    if let Some(p) = &state.picture {
+        let progress = state.reveal.clamp(0.0, 1.0);
+        let rect = Reveal {
+            position: progress,
+            clarity: 0.0,
         }
-        call(&mut wide, "xy", &[w / 2.0, h / 2.0]);
-        call(&mut wide, "diffuse", &[dim, dim, dim, 1.0]);
-        children.push(wide);
-    }
-    let side = fw.max(fh);
-    let tex = cx.texture(&p.source, side);
-    let size = cover(fw, fh);
-    let mut s = named(Kind::Sprite(Sprite::quad(size)), "Picture");
-    if let Kind::Sprite(sp) = &mut s.kind {
-        sp.texture = tex;
-    }
-    call(&mut s, "xy", &[fw / 2.0, fh / 2.0]);
-    call(&mut s, "diffuse", &[b, b, b, 1.0]);
-    let mut clip = frame("Frame", vec![s]);
-    clip.clip = Some([0.0, 0.0, fw, fh]);
-    call(&mut clip, "xy", &[fx, fy]);
-    children.push(clip);
-    if let Some(([mid, width], dark)) = p.filter
-        && dark > 0.0
-    {
-        let mut f = quad(
-            "Filter",
-            [width * w, h + 2.0],
-            [0.0, 0.0, 0.0, dark.clamp(0.0, 1.0)],
-        );
-        call(&mut f, "xy", &[mid * w, h / 2.0]);
-        children.push(f);
+        .rect(w, h, p.frame);
+        let b = ddi_actor::background::BASE_ALPHA
+            + (p.brightness.clamp(0.0, 1.0) - ddi_actor::background::BASE_ALPHA) * progress;
+        let [_, strong_alpha, soft_alpha] = Reveal {
+            position: progress,
+            clarity: 0.0,
+        }
+        .alphas();
+        children.push(image(
+            "ContentStrong",
+            rect,
+            &p.source,
+            BASE_SIDE,
+            b,
+            strong_alpha,
+            cx,
+        ));
+        // The two opacity weights sum to the copy's opacity over the base.
+
+        children.push(image(
+            "Picture",
+            rect,
+            &p.source,
+            CONTENT_SIDE,
+            b,
+            soft_alpha,
+            cx,
+        ));
+        if let Some(([mid, width], dark)) = p.filter
+            && dark > 0.0
+        {
+            let mut filter = quad(
+                "Filter",
+                [width * w, h],
+                [0.0, 0.0, 0.0, dark.clamp(0.0, 1.0) * progress],
+            );
+            call(&mut filter, "xy", &[mid * w, h / 2.0]);
+            children.push(filter);
+        }
     }
     frame("Backdrop", children)
 }
@@ -815,17 +842,45 @@ impl Screen for PromptScreen {
         // Changed by the shell since built (a picture, a line, a step):
         // a frame builds it, whatever the step.
         let st = self.state.borrow();
-        matches!(st.step, PromptStep::Loading(_)) || st.version != self.built
+        matches!(st.step, PromptStep::Loading(_))
+            || st.version != self.built
+            || (st.picture.is_some() && self.reveal_time < ddi_actor::background::PROMPT_SECONDS)
     }
 
-    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+    fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
         // Fades in from the first frame, taking keys at once: built into
         // the tree, the fade would be the screen's entrance, which holds
         // input back (a quick Enter or Escape was lost). None under
         // reduced motion.
         if !std::mem::replace(&mut self.faded, true) && !self.env.reduced() {
             let t = self.env.metric("Motion.Screen", 0.2);
-            look::run(root, &format!("diffusealpha,0;linear,{t};diffusealpha,1"));
+            if let Some(card) = crate::hit::find_mut(root, "Prompt") {
+                look::run(card, &format!("diffusealpha,0;linear,{t};diffusealpha,1"));
+            }
+        }
+        let source = self
+            .state
+            .borrow()
+            .picture
+            .as_ref()
+            .map(|p| p.source.clone());
+        if source != self.picture_source {
+            self.picture_source = source;
+            self.reveal_time = 0.0;
+        }
+        if self.picture_source.is_some() {
+            let duration = ddi_actor::background::PROMPT_SECONDS;
+            self.reveal_time = if self.env.reduced() {
+                duration
+            } else {
+                (self.reveal_time + dt).min(duration)
+            };
+            self.state.borrow_mut().reveal =
+                ddi_actor::background::ease(self.reveal_time / duration);
+            let state = self.state.borrow().clone();
+            if let Some(backdrop) = crate::hit::find_mut(root, "Backdrop") {
+                *backdrop = picture(&self.env, self.screen, &state, cx);
+            }
         }
         let vp = cx.viewport().screen;
         let resized = [vp.width, vp.height] != self.vp;
@@ -1152,5 +1207,29 @@ mod tests {
         };
         s.transform.turn = ddi_engine::Turn::Mirror;
         assert_eq!(mods_line(&s), "×2.5 · reverse · mirror");
+    }
+    #[test]
+    fn base_survives_loading_and_rebuilds_do_not_restart_the_reveal() {
+        let state = SharedPrompt::default();
+        state.borrow_mut().set_base(Some("cached:menu".into()));
+        let (mut h, _) = prompt(&state);
+        assert!(h.ui.actor("Base").is_some());
+        assert!(h.ui.actor("Picture").is_none());
+        state.borrow_mut().set_picture(Some(PromptPicture {
+            source: "play:picture".into(),
+            aspect: 4.0 / 3.0,
+            frame: Some(4.0 / 3.0),
+            brightness: 0.75,
+            filter: None,
+        }));
+        h.run(0.15);
+        let progress = state.borrow().reveal;
+        assert!(progress > 0.0 && progress < 1.0);
+        assert_eq!(state.borrow().base.as_deref(), Some("cached:menu"));
+        state.borrow_mut().set_notes(vec!["audio ready".into()]);
+        h.run(0.1);
+        assert!(state.borrow().reveal > progress);
+        h.run(0.3);
+        assert_eq!(state.borrow().reveal, 1.0);
     }
 }

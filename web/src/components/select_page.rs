@@ -462,6 +462,7 @@ impl SelectPage {
         let play: PlayFn = {
             let shared = self.shared.clone();
             Rc::new(move |song, chart, _env, cx| {
+                crate::web::screen::set_song_backdrop(&song.id, song.background.as_deref());
                 let mut place = MenuPlace::load();
                 place.known = true;
                 place.chart = Some((song.id.clone(), chart.index));

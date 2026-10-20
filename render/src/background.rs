@@ -11,32 +11,27 @@
 //! them, so images and movies crossfade alike.
 //!
 //! Layers are cover-fitted into a frame, a centred rectangle of a chosen
-//! shape (the screen the pack's art was made for), and the rest of the
-//! screen shows a blurred, dimmed extension of them: the same layers drawn
-//! small over the whole screen and blurred (`blur.wgsl`).
+//! shape (the screen the pack's art was made for). A full-screen Gaussian
+//! base follows those same layers, even with a screen-sized frame. Static
+//! sources reuse their filtered copies; video uploads and changed layer
+//! weights refresh them. The entrance temporarily adds softly blurred
+//! content, continuing the prompt's visual progress (`ddi_actor::background`).
 
 use bytemuck::{Pod, Zeroable};
 
 /// Draws a frame can make: a black base under the first layer, the first
 /// layer's two, then the second's.
 const DRAWS: usize = 5;
+type FilterKey = (u64, [Option<(usize, f32)>; DRAWS]);
 
 /// The id a [`Backdrop`] shows the plain backdrop by: the color given to
 /// [`BackgroundPipeline::set_plain_color`] (the field's), opaque.
 pub const PLAIN: usize = usize::MAX;
 /// The black base under the first layer.
 const BLACK: usize = usize::MAX - 1;
-/// Uniform slots per image: its draw in the frame and the one into the
-/// extension, for each place it may be drawn in (an image can show on
-/// both layers at once).
-const SLOTS: u64 = 2 * DRAWS as u64;
-/// The extension is drawn at this share of the screen's size, at most
-/// [`WIDE_MAX`] pixels on its long side, then blurred and stretched.
-const WIDE_SCALE: f32 = 1.0 / 12.0;
-const WIDE_MAX: f32 = 192.0;
-/// Perceived brightness of the extension against the frame's.
-const WIDE_DIM: f32 = 0.6;
-
+/// Uniform slots per image: sharp content, ambient base and soft content,
+/// for each place it may be drawn in (an image can show on both layers).
+const SLOTS: u64 = 3 * DRAWS as u64;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct BlurParams {
@@ -49,6 +44,11 @@ struct BlurParams {
     band: [f32; 2],
     band_keep: f32,
     _pad: f32,
+    uv_scale: [f32; 2],
+    uv_offset: [f32; 2],
+    opacity: f32,
+    base: f32,
+    _pad2: [f32; 2],
 }
 
 #[repr(C)]
@@ -66,7 +66,8 @@ struct Params {
     /// and the brightness kept inside it (1: no band).
     band: [f32; 2],
     band_keep: f32,
-    _pad: [f32; 3],
+    source_linear: f32,
+    _pad: [f32; 2],
 }
 
 /// What to show behind the field in one frame. While `mix < 1` a crossfade
@@ -204,6 +205,7 @@ pub fn cover_uv(target_w: f32, target_h: f32, image_w: f32, image_h: f32) -> ([f
 /// Texture coordinates of the part `(scale, offset)` of the frame (in the
 /// frame's own `0..1` coordinates) within an image shown in the frame at
 /// `frame`'s coordinates.
+#[cfg(test)]
 fn extension_uv(
     (frame_scale, frame_offset): ([f32; 2], [f32; 2]),
     (part_scale, part_offset): ([f32; 2], [f32; 2]),
@@ -249,24 +251,30 @@ pub fn brightness_factor(perceived: f32) -> f32 {
 pub struct Prepared {
     /// `(id, opacity)` of each draw ([`Backdrop::draws`]).
     layers: [Option<(usize, f32)>; DRAWS],
-    /// The frame, when it is not the whole target (the extension is drawn).
+    /// The content rectangle, including during its entrance.
     frame: Option<[f32; 4]>,
     target: (f32, f32),
+    alphas: [f32; 3],
+    dirty: [bool; 2],
+    key: Option<FilterKey>,
 }
 
-/// The extension's two small targets (drawn into `a`, blurred through `b`
-/// back into `a`) and the bind groups of its passes: blur `a` into `b`,
-/// `b` into `a`, composite `a`.
+/// A filtered source: compose into `a`, blur through `b` back into `a`.
+/// Groups: horizontal, vertical, base, strong content, soft content.
 struct Wide {
     size: (u32, u32),
     a: wgpu::TextureView,
     b: wgpu::TextureView,
-    groups: [wgpu::BindGroup; 3],
-    params: [wgpu::Buffer; 3],
+    groups: [wgpu::BindGroup; 5],
+    params: [wgpu::Buffer; 5],
 }
 
 pub struct BackgroundPipeline {
     pipeline: wgpu::RenderPipeline,
+    base_pipeline: wgpu::RenderPipeline,
+    base_yuv_pipeline: wgpu::RenderPipeline,
+    #[cfg(feature = "video-planes")]
+    base_nv12_pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     yuv_pipeline: wgpu::RenderPipeline,
     #[cfg(feature = "video-planes")]
@@ -284,6 +292,11 @@ pub struct BackgroundPipeline {
     /// The plain backdrop's color (sRGB-encoded RGBA).
     plain: [u8; 4],
     wide: Option<Wide>,
+    soft: Option<Wide>,
+    base_size: Option<[f32; 2]>,
+    revision: u64,
+    filtered: [Option<FilterKey>; 2],
+    filter_jobs: [u64; 2],
     format: wgpu::TextureFormat,
     /// Bytes between an image's parameter slots.
     stride: u64,
@@ -372,6 +385,31 @@ impl BackgroundPipeline {
         let stride = u64::from(device.limits().min_uniform_buffer_offset_alignment)
             .max(std::mem::size_of::<Params>() as u64);
         BackgroundPipeline {
+            base_pipeline: Self::pipeline_for(
+                device,
+                wgpu::TextureFormat::Rgba8Unorm,
+                &layout,
+                &shader,
+                "fs_main",
+                Some(wgpu::BlendState::ALPHA_BLENDING),
+            ),
+            base_yuv_pipeline: Self::pipeline_for(
+                device,
+                wgpu::TextureFormat::Rgba8Unorm,
+                &yuv_layout,
+                &shader,
+                "fs_yuv",
+                Some(wgpu::BlendState::ALPHA_BLENDING),
+            ),
+            #[cfg(feature = "video-planes")]
+            base_nv12_pipeline: Self::pipeline_for(
+                device,
+                wgpu::TextureFormat::Rgba8Unorm,
+                &yuv_layout,
+                &shader,
+                "fs_nv12",
+                Some(wgpu::BlendState::ALPHA_BLENDING),
+            ),
             pipeline,
             layout,
             yuv_pipeline,
@@ -395,6 +433,11 @@ impl BackgroundPipeline {
             solids: None,
             plain: [0, 0, 0, 255],
             wide: None,
+            soft: None,
+            base_size: None,
+            revision: 0,
+            filtered: [None, None],
+            filter_jobs: [0; 2],
             format,
             stride,
             srgb: linear,
@@ -427,8 +470,10 @@ impl BackgroundPipeline {
             );
         }
         self.format = format;
-        // The blur's textures are of the target's format.
+        // Composite pipelines changed; regenerate their bind groups.
         self.wide = None;
+        self.soft = None;
+        self.filtered = [None, None];
     }
 
     /// The image, movie frame, blur and composite pipelines.
@@ -445,18 +490,25 @@ impl BackgroundPipeline {
         [
             pipeline_for(layout, shader, "fs_main", alpha),
             pipeline_for(yuv_layout, shader, "fs_yuv", alpha),
-            pipeline_for(blur_layout, blur_shader, "fs_blur", None),
+            Self::pipeline_for(
+                device,
+                wgpu::TextureFormat::Rgba8Unorm,
+                blur_layout,
+                blur_shader,
+                "fs_scene_blur",
+                None,
+            ),
             pipeline_for(
                 blur_layout,
                 blur_shader,
-                "fs_composite",
-                Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                "fs_scene_composite",
+                Some(wgpu::BlendState::ALPHA_BLENDING),
             ),
         ]
     }
 
     /// An empty texture of the right format and usage for
-    /// [`BackgroundPipeline::set_texture`], for sRGB-encoded pixels. On an
+    /// [`BackgroundPipeline::add_texture`], for sRGB-encoded pixels. On an
     /// sRGB target it is an sRGB texture, so sampling returns linear light
     /// like the target expects; on a plain target the encoded values pass
     /// straight through, like every other color in the scene.
@@ -649,6 +701,7 @@ impl BackgroundPipeline {
         bt709: bool,
         full_range: bool,
     ) -> bool {
+        self.revision = self.revision.wrapping_add(1);
         let (cw, ch) = (width.div_ceil(2), height.div_ceil(2));
         let luma = width as usize * height as usize;
         let chroma = cw as usize * ch as usize;
@@ -718,14 +771,24 @@ impl BackgroundPipeline {
     /// Registers a filled texture (from
     /// [`BackgroundPipeline::create_texture`]); returns its id.
     pub fn add_texture(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) -> usize {
+        self.revision = self.revision.wrapping_add(1);
         let image = self.make_image(device, texture);
         self.images.push(image);
         self.images.len() - 1
     }
 
+    /// A registered texture was updated in place (for direct RGB movie uploads).
+    pub fn texture_changed(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     /// The color of [`PLAIN`] (sRGB-encoded RGBA; opaque however given).
     pub fn set_plain_color(&mut self, rgba: [u8; 4]) {
-        self.plain = [rgba[0], rgba[1], rgba[2], 255];
+        let plain = [rgba[0], rgba[1], rgba[2], 255];
+        if self.plain != plain {
+            self.plain = plain;
+            self.revision = self.revision.wrapping_add(1);
+        }
     }
 
     /// The image `id` shows ([`PLAIN`] and the black base once made).
@@ -794,21 +857,11 @@ impl BackgroundPipeline {
         }
     }
 
-    /// The extension's targets for a `width × height` screen, made or
-    /// remade when its size changes; their size.
-    fn wide(&mut self, device: &wgpu::Device, width: f32, height: f32) -> (u32, u32) {
-        let scale = WIDE_SCALE.min(WIDE_MAX / width.max(height));
-        let size = (
-            (width * scale).round().max(1.0) as u32,
-            (height * scale).round().max(1.0) as u32,
-        );
-        if self.wide.as_ref().is_some_and(|w| w.size == size) {
-            return size;
-        }
+    fn make_wide(&self, device: &wgpu::Device, size: (u32, u32)) -> Wide {
         let target = || {
             device
                 .create_texture(&wgpu::TextureDescriptor {
-                    label: Some("ddi-background-wide"),
+                    label: Some("ddi-background-filtered"),
                     size: wgpu::Extent3d {
                         width: size.0,
                         height: size.1,
@@ -817,17 +870,17 @@ impl BackgroundPipeline {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    format: self.format,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING
                         | wgpu::TextureUsages::RENDER_ATTACHMENT,
                     view_formats: &[],
                 })
-                .create_view(&wgpu::TextureViewDescriptor::default())
+                .create_view(&Default::default())
         };
         let (a, b) = (target(), target());
-        let params = std::array::from_fn(|_| {
+        let params: [wgpu::Buffer; 5] = std::array::from_fn(|_| {
             device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("ddi-background-blur-params"),
+                label: Some("ddi-background-filter-params"),
                 size: std::mem::size_of::<BlurParams>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
@@ -835,7 +888,7 @@ impl BackgroundPipeline {
         });
         let group = |source: &wgpu::TextureView, params: &wgpu::Buffer| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ddi-background-blur-bg"),
+                label: Some("ddi-background-filter-group"),
                 layout: &self.blur_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -853,16 +906,20 @@ impl BackgroundPipeline {
                 ],
             })
         };
-        let [p0, p1, p2] = &params;
-        let groups = [group(&a, p0), group(&b, p1), group(&a, p2)];
-        self.wide = Some(Wide {
+        let groups = [
+            group(&a, &params[0]),
+            group(&b, &params[1]),
+            group(&a, &params[2]),
+            group(&a, &params[3]),
+            group(&a, &params[4]),
+        ];
+        Wide {
             size,
             a,
             b,
-            groups,
             params,
-        });
-        size
+            groups,
+        }
     }
 
     /// Uploads the parameters of `backdrop`'s layers for a `width × height`
@@ -879,10 +936,15 @@ impl BackgroundPipeline {
         backdrop: Backdrop,
         frame: Option<f32>,
         band: Option<([f32; 2], f32)>,
+        reveal: ddi_actor::background::Reveal,
     ) -> Prepared {
+        use ddi_actor::background::{BASE_ALPHA, BASE_SIDE, CONTENT_SIDE};
+        let band =
+            band.map(|(edges, keep)| (edges, 1.0 - (1.0 - keep) * reveal.position.clamp(0.0, 1.0)));
         let mut prepared = Prepared {
             target: (width, height),
-            ..Prepared::default()
+            alphas: reveal.alphas(),
+            ..Default::default()
         };
         if brightness <= 0.0 {
             return prepared;
@@ -896,7 +958,7 @@ impl BackgroundPipeline {
             self.solids(device, queue);
         }
         for layer in &mut layers {
-            if !layer.is_some_and(|(id, alpha)| alpha > 0.0 && self.image(id).is_some()) {
+            if !layer.is_some_and(|(id, a)| a > 0.0 && self.image(id).is_some()) {
                 *layer = None;
             }
         }
@@ -904,83 +966,135 @@ impl BackgroundPipeline {
         if layers.iter().all(Option::is_none) {
             return prepared;
         }
-        prepared.frame = frame_rect(width, height, frame);
-        let wide = prepared.frame.map(|_| self.wide(device, width, height));
-        let [fw, fh] = prepared
-            .frame
-            .map_or([width, height], |[_, _, w, h]| [w, h]);
+        let source_size = self.base_size.unwrap_or_else(|| {
+            layers
+                .iter()
+                .flatten()
+                .filter(|&&(id, _)| id != BLACK && id != PLAIN)
+                .find_map(|&(id, _)| self.image(id).map(|i| [i.width, i.height]))
+                .unwrap_or([width, height])
+        });
+        self.base_size = Some(source_size);
+        let aspect = source_size[0] / source_size[1];
+        let size = |side: f32| {
+            let side = side.min(source_size[0].max(source_size[1]));
+            if aspect >= 1.0 {
+                (side as u32, (side / aspect).round().max(1.0) as u32)
+            } else {
+                ((side * aspect).round().max(1.0) as u32, side as u32)
+            }
+        };
+        if self.wide.as_ref().is_none_or(|w| w.size != size(BASE_SIDE)) {
+            self.wide = Some(self.make_wide(device, size(BASE_SIDE)));
+            self.filtered[0] = None;
+        }
+        if reveal.clarity < 1.0
+            && self
+                .soft
+                .as_ref()
+                .is_none_or(|w| w.size != size(CONTENT_SIDE))
+        {
+            self.soft = Some(self.make_wide(device, size(CONTENT_SIDE)));
+            self.filtered[1] = None;
+        }
+        // Transient soft targets go away after the entrance; the base is always present.
+        if reveal.clarity >= 1.0 {
+            self.soft = None;
+            self.filtered[1] = None;
+        }
+        for (i, present) in [self.wide.is_some(), self.soft.is_some()]
+            .into_iter()
+            .enumerate()
+        {
+            if present {
+                let key = (self.revision, layers);
+                prepared.dirty[i] = self.filtered[i].as_ref() != Some(&key);
+                prepared.key = Some(key);
+            }
+        }
+        let rect = reveal.rect(width, height, frame);
+        prepared.frame = Some(rect);
+        let [_, _, fw, fh] = rect;
+        let b = BASE_ALPHA
+            + (brightness_factor(brightness) - BASE_ALPHA) * reveal.position.clamp(0.0, 1.0);
+        let none = ([0.0, 0.0], 1.0);
         for (k, (id, alpha)) in layers
             .into_iter()
             .enumerate()
-            .filter_map(|(k, l)| l.map(|l| (k as u64, l)))
+            .filter_map(|(k, l)| l.map(|v| (k as u64, v)))
         {
-            let image = self.image(id).expect("checked above");
-            let (bt709, full_range) = image
+            let image = self.image(id).expect("validated");
+            let (bt709, full) = image
                 .video
                 .as_ref()
                 .map_or((false, false), |v| (v.bt709, v.full_range));
             let (kr, kb) = weights(bt709);
-            let (frame_scale, frame_offset) = cover_uv(fw, fh, image.width, image.height);
-            let params = |(uv_scale, uv_offset): ([f32; 2], [f32; 2]),
-                          brightness: f32,
-                          band: ([f32; 2], f32)| Params {
-                uv_scale,
-                uv_offset,
-                brightness,
-                alpha,
-                kr,
-                kb,
-                full_range: if full_range { 1.0 } else { 0.0 },
-                linear_out: if self.srgb { 1.0 } else { 0.0 },
-                band: band.0,
-                band_keep: band.1,
-                _pad: [0.0; 3],
-            };
-            let none = ([0.0, 0.0], 1.0);
-            let framed = params(
-                (frame_scale, frame_offset),
-                brightness_factor(brightness),
-                band.unwrap_or(none),
-            );
-            queue.write_buffer(
-                &image.params,
-                2 * k * self.stride,
-                bytemuck::bytes_of(&framed),
-            );
-            if let Some((ww, wh)) = wide {
-                // What the frame shows, enlarged to cover the screen (not
-                // the whole image: a movie's own bars stay out); undimmed
-                // here, the composite dims it.
-                let uv = extension_uv(
-                    (frame_scale, frame_offset),
-                    cover_uv(ww as f32, wh as f32, fw, fh),
-                );
-                // The band is the composite's (in the target's pixels).
-                let wide = params(uv, 1.0, none);
+            for slot in 0..3u64 {
+                let (tw, th, brightness, alpha, linear_out, filter) = if slot == 0 {
+                    (
+                        fw,
+                        fh,
+                        b,
+                        alpha * prepared.alphas[0],
+                        self.srgb,
+                        band.unwrap_or(none),
+                    )
+                } else {
+                    (aspect, 1.0, 1.0, alpha, false, none)
+                };
+                let (uv_scale, uv_offset) = cover_uv(tw, th, image.width, image.height);
+                let params = Params {
+                    uv_scale,
+                    uv_offset,
+                    brightness,
+                    alpha,
+                    kr,
+                    kb,
+                    full_range: if full { 1.0 } else { 0.0 },
+                    linear_out: if linear_out { 1.0 } else { 0.0 },
+                    band: filter.0,
+                    band_keep: filter.1,
+                    source_linear: if self.srgb { 1.0 } else { 0.0 },
+                    _pad: [0.0; 2],
+                };
                 queue.write_buffer(
                     &image.params,
-                    (2 * k + 1) * self.stride,
-                    bytemuck::bytes_of(&wide),
+                    (3 * k + slot) * self.stride,
+                    bytemuck::bytes_of(&params),
                 );
             }
         }
-        if let (Some(w), Some((ww, wh))) = (&self.wide, wide) {
-            let blur = [
-                [1.0 / ww as f32, 0.0, 0.0, 0.0],
-                [0.0, 1.0 / wh as f32, 0.0, 0.0],
-                [0.0, 0.0, brightness_factor(brightness * WIDE_DIM), 0.0],
-            ];
-            for (buffer, [x, y, b, _]) in w.params.iter().zip(blur) {
-                let (band, band_keep) = band.unwrap_or(([0.0, 0.0], 1.0));
-                let p = BlurParams {
-                    step: [x, y],
-                    brightness: b,
-                    linear: if self.srgb { 1.0 } else { 0.0 },
-                    band,
-                    band_keep,
-                    _pad: 0.0,
+        for (soft, wide) in [(false, self.wide.as_ref()), (true, self.soft.as_ref())] {
+            let Some(wide) = wide else { continue };
+            for k in 0..5 {
+                let content = k >= 3;
+                let uv = if content {
+                    cover_uv(fw, fh, aspect, 1.0)
+                } else {
+                    cover_uv(width, height, aspect, 1.0)
                 };
-                queue.write_buffer(buffer, 0, bytemuck::bytes_of(&p));
+                let params = BlurParams {
+                    step: match k {
+                        0 => [1.0 / wide.size.0 as f32, 0.0],
+                        1 => [0.0, 1.0 / wide.size.1 as f32],
+                        _ => [0.0; 2],
+                    },
+                    brightness: if content { b } else { BASE_ALPHA },
+                    linear: if self.srgb { 1.0 } else { 0.0 },
+                    band: band.map_or([0.0; 2], |v| v.0),
+                    band_keep: band.map_or(1.0, |v| v.1),
+                    _pad: 0.0,
+                    uv_scale: uv.0,
+                    uv_offset: uv.1,
+                    opacity: if content {
+                        prepared.alphas[if soft { 2 } else { 1 }]
+                    } else {
+                        1.0
+                    },
+                    base: if content { 0.0 } else { 1.0 },
+                    _pad2: [0.0; 2],
+                };
+                queue.write_buffer(&wide.params[k], 0, bytemuck::bytes_of(&params));
             }
         }
         prepared
@@ -988,67 +1102,105 @@ impl BackgroundPipeline {
 
     fn draw_layers(&self, pass: &mut wgpu::RenderPass<'_>, prepared: &Prepared, slot: u64) {
         for (k, layer) in prepared.layers.into_iter().enumerate() {
-            let Some((id, _)) = layer else {
+            let Some((id, _)) = layer else { continue };
+            // The ambient base keeps image transparency over the shared ground.
+            if slot == 1 && id == BLACK {
+                continue;
+            }
+            let Some(image) = self.image(id) else {
                 continue;
             };
-            let slot = 2 * k as u64 + slot;
-            if let Some(image) = self.image(id) {
-                #[cfg(feature = "video-planes")]
-                if image.video.as_ref().is_some_and(|v| v.nv12) {
-                    pass.set_pipeline(&self.nv12_pipeline);
-                    pass.set_bind_group(0, &image.group, &[(slot * self.stride) as u32]);
-                    pass.draw(0..6, 0..1);
-                    continue;
-                }
-                pass.set_pipeline(if image.video.is_some() {
-                    &self.yuv_pipeline
+            #[cfg(feature = "video-planes")]
+            if image.video.as_ref().is_some_and(|v| v.nv12) {
+                pass.set_pipeline(if slot == 0 {
+                    &self.nv12_pipeline
                 } else {
-                    &self.pipeline
+                    &self.base_nv12_pipeline
                 });
-                pass.set_bind_group(0, &image.group, &[(slot * self.stride) as u32]);
+                pass.set_bind_group(
+                    0,
+                    &image.group,
+                    &[((3 * k as u64 + slot) * self.stride) as u32],
+                );
                 pass.draw(0..6, 0..1);
+                continue;
             }
+            pass.set_pipeline(match (slot == 0, image.video.is_some()) {
+                (true, false) => &self.pipeline,
+                (true, true) => &self.yuv_pipeline,
+                (false, false) => &self.base_pipeline,
+                (false, true) => &self.base_yuv_pipeline,
+            });
+            pass.set_bind_group(
+                0,
+                &image.group,
+                &[((3 * k as u64 + slot) * self.stride) as u32],
+            );
+            pass.draw(0..6, 0..1);
         }
     }
 
-    /// Draws and blurs the extension, when [`BackgroundPipeline::prepare`]
-    /// asked for one; before the scene's pass, which composites it.
-    pub fn draw_extension(&self, encoder: &mut wgpu::CommandEncoder, prepared: &Prepared) {
-        let (Some(_), Some(wide)) = (prepared.frame, &self.wide) else {
+    /// Low-resolution ambient base on every frame; a softer content copy only
+    /// during the short entrance. Both use the menu's encoded Gaussian kernel.
+    pub fn draw_extension(&mut self, encoder: &mut wgpu::CommandEncoder, prepared: &Prepared) {
+        if prepared.frame.is_none() {
+            return;
+        }
+        for (slot, wide) in [(1, self.wide.as_ref()), (2, self.soft.as_ref())] {
+            if !prepared.dirty[slot as usize - 1] {
+                continue;
+            }
+            let Some(wide) = wide else { continue };
+            {
+                let mut pass = wide_pass(encoder, &wide.a);
+                self.draw_layers(&mut pass, prepared, slot);
+            }
+            for (group, target) in [(&wide.groups[0], &wide.b), (&wide.groups[1], &wide.a)] {
+                let mut pass = wide_pass(encoder, target);
+                pass.set_pipeline(&self.blur_pipeline);
+                pass.set_bind_group(0, group, &[]);
+                pass.draw(0..3, 0..1);
+            }
+            self.filtered[slot as usize - 1] = prepared.key;
+            self.filter_jobs[slot as usize - 1] += 1;
+        }
+    }
+
+    /// Completed Gaussian jobs for the ambient base and transient soft content.
+    /// Static scenes reuse both; source frames or crossfade weights invalidate them.
+    pub fn filter_jobs(&self) -> [u64; 2] {
+        self.filter_jobs
+    }
+
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, prepared: &Prepared) {
+        let (Some([x, y, w, h]), Some(wide)) = (prepared.frame, &self.wide) else {
             return;
         };
+        pass.set_pipeline(&self.composite_pipeline);
+        pass.set_bind_group(0, &wide.groups[2], &[]);
+        pass.draw(0..3, 0..1);
+        pass.set_viewport(x, y, w, h, 0.0, 1.0);
+        if prepared.alphas[0] > 0.0 {
+            self.draw_layers(pass, prepared, 0);
+        }
+        if prepared.alphas[1] > 0.0 {
+            pass.set_pipeline(&self.composite_pipeline);
+            pass.set_bind_group(0, &wide.groups[3], &[]);
+            pass.draw(0..3, 0..1);
+        }
+        if prepared.alphas[2] > 0.0
+            && let Some(soft) = &self.soft
         {
-            let mut p = wide_pass(encoder, &wide.a);
-            self.draw_layers(&mut p, prepared, 1);
+            pass.set_pipeline(&self.composite_pipeline);
+            pass.set_bind_group(0, &soft.groups[4], &[]);
+            pass.draw(0..3, 0..1);
         }
-        for (group, target) in [(&wide.groups[0], &wide.b), (&wide.groups[1], &wide.a)] {
-            let mut p = wide_pass(encoder, target);
-            p.set_pipeline(&self.blur_pipeline);
-            p.set_bind_group(0, group, &[]);
-            p.draw(0..3, 0..1);
-        }
-    }
-
-    /// Draws what [`BackgroundPipeline::prepare`] set up: the extension
-    /// (from [`BackgroundPipeline::draw_extension`]) over the whole target,
-    /// then the layers in the frame.
-    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, prepared: &Prepared) {
-        match (prepared.frame, &self.wide) {
-            (Some([x, y, w, h]), Some(wide)) => {
-                pass.set_pipeline(&self.composite_pipeline);
-                pass.set_bind_group(0, &wide.groups[2], &[]);
-                pass.draw(0..3, 0..1);
-                pass.set_viewport(x, y, w, h, 0.0, 1.0);
-                self.draw_layers(pass, prepared, 0);
-                let (tw, th) = prepared.target;
-                pass.set_viewport(0.0, 0.0, tw, th, 0.0, 1.0);
-            }
-            _ => self.draw_layers(pass, prepared, 0),
-        }
+        let (w, h) = prepared.target;
+        pass.set_viewport(0.0, 0.0, w, h, 0.0, 1.0);
     }
 }
 
-/// A pass into one of the extension's targets, cleared transparent.
+/// A pass into one of the filter targets, cleared transparent.
 fn wide_pass<'e>(
     encoder: &'e mut wgpu::CommandEncoder,
     target: &wgpu::TextureView,

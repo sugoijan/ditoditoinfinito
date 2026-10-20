@@ -75,6 +75,24 @@ thread_local! {
     static SCREEN: RefCell<Option<Screen>> = const { RefCell::new(None) };
 }
 
+thread_local! {
+    static SONG_BACKDROP: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
+}
+
+/// Carries the already cached menu base over the route's loading frames.
+pub(crate) fn set_song_backdrop(song: &str, source: Option<&str>) {
+    SONG_BACKDROP.with(|s| *s.borrow_mut() = source.map(|source| (song.into(), source.into())));
+}
+
+pub(crate) fn song_backdrop(song: &str) -> Option<String> {
+    SONG_BACKDROP.with(|s| {
+        s.borrow()
+            .as_ref()
+            .filter(|(id, _)| id == song)
+            .map(|(_, source)| source.clone())
+    })
+}
+
 fn with<R>(f: impl FnOnce(&mut Screen) -> R) -> Option<R> {
     SCREEN.with(|s| s.borrow_mut().as_mut().map(f))
 }

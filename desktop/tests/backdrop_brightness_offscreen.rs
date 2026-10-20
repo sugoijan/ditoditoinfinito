@@ -119,6 +119,7 @@ fn play(
         Backdrop::image(id),
         None,
         band,
+        Default::default(),
     );
     let out = target(device, format);
     let view = out.create_view(&Default::default());

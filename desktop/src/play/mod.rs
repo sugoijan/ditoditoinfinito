@@ -39,6 +39,8 @@ use load::Loaded;
 pub struct Request {
     pub song: String,
     pub chart: usize,
+    /// The cached song-list image to keep during loading.
+    pub backdrop: Option<String>,
     /// Autoplay (`--auto`, song select's switch): never counted.
     pub auto: bool,
     /// Autoplay through a test pad (`--auto=pad`): the presses go
@@ -66,6 +68,7 @@ impl Request {
             song: song.to_string(),
             chart,
             auto,
+            backdrop: None,
             auto_pad: false,
             calibration: None,
             bias: 0.0,
@@ -82,6 +85,7 @@ impl Request {
             song: format!("calibration:{}", mode.id()),
             chart: 0,
             auto,
+            backdrop: None,
             auto_pad: false,
             calibration: Some(mode),
             bias: 0.0,

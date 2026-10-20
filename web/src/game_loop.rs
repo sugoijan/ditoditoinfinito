@@ -42,6 +42,7 @@ pub(crate) struct GameLoop {
     canvas: HtmlCanvasElement,
     renderer: Renderer,
     session: Option<PlaySession>,
+    entrance: Option<ddi_actor::background::Entrance>,
     on_event: Callback<SessionEvent>,
     done: bool,
     frames: u64,
@@ -155,6 +156,7 @@ impl GameLoop {
             canvas,
             renderer,
             session: None,
+            entrance: None,
             on_event,
             done: false,
             frames: 0,
@@ -199,6 +201,10 @@ impl GameLoop {
             Some(hz) => crate::web::display::snap_refresh_rate(hz),
             None => 60.0,
         }
+    }
+
+    pub(crate) fn enter_background(&mut self, from: f32, reduced: bool) {
+        self.entrance = Some(ddi_actor::background::Entrance::new(from, reduced));
     }
 
     pub(crate) fn set_session(&mut self, session: PlaySession) {
@@ -672,6 +678,13 @@ impl GameLoop {
                 self.renderer.set_quit_button(quit);
                 let mut render = session.render;
                 render.frame_aspect = frame_aspect;
+                if let Some(entrance) = &mut self.entrance {
+                    let reveal = entrance.sample(host_now.0);
+                    render.background_reveal = Some(reveal);
+                    if reveal == ddi_actor::background::Reveal::default() {
+                        self.entrance = None;
+                    }
+                }
                 render.backdrop = Self::backdrop(
                     &mut self.shown_cache,
                     &self.background_ids,

@@ -84,7 +84,7 @@ enum Stage {
     Idle,
     /// The start prompt is up.
     Prompt(Box<Readied>),
-    Playing(Box<Readied>, Box<Play>, RenderOptions),
+    Playing(Box<Readied>, Box<Play>, Box<RenderOptions>),
     /// The results are up: retry or leave.
     Results(Box<Readied>),
 }
@@ -406,6 +406,7 @@ impl Host {
         {
             let prompt: SharedPrompt = Rc::new(RefCell::new(PromptState {
                 info: first_info(&r),
+                base: r.backdrop.clone(),
                 step: match &r.refused {
                     Some(why) => PromptStep::Error(format!("This replay cannot be watched. {why}")),
                     None => PromptStep::Loading("loading…".into()),
@@ -803,6 +804,7 @@ impl Host {
                 if let Some(v) = r.view.as_mut() {
                     v.refresh_hint = self.refresh_hint;
                     v.start();
+                    v.enter_background(r.prompt.borrow().reveal, env.reduced());
                 }
                 // A work's back and mask layers, on the song as played
                 // (its offset moves them too), with the backgrounds.
@@ -841,7 +843,7 @@ impl Host {
                     render.hide_notes = mode.hide_notes();
                     render.show_deltas = true;
                 }
-                Stage::Playing(r, Box::new(play), render)
+                Stage::Playing(r, Box::new(play), Box::new(render))
             }
             Err(e) => {
                 r.prompt.borrow_mut().set_step(PromptStep::Error(e));
@@ -882,7 +884,7 @@ impl Host {
             v.scale = self.scale;
             v.present_at = self.present_at.take();
             v.draw(
-                dev.device, dev.queue, encoder, view, plain, size, play, *render, now,
+                dev.device, dev.queue, encoder, view, plain, size, play, **render, now,
             );
         }
         let Some(ended) = ended else {

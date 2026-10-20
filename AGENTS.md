@@ -511,6 +511,15 @@ calibrated offset.
   `ddi_library::scan::parse_simfile`, which appends generated versions too;
   the format importers preserve source charts, including SSC exports.
 
+Song select → pre-start → play backgrounds share `actor/src/background.rs`:
+a cover-fitted Gaussian base at 0.2 over #05020d, with a framed content copy
+entering over 450 ms and finishing its unblur over 300 ms after Start.
+Reduced motion settles immediately; early Start samples the current visual
+position without delaying audio. The play base follows current image/video
+layers even for a screen-sized frame. Static filters are reused; direct RGB
+movie uploads must call `Renderer::background_texture_changed`, while YUV
+and NV12 upload methods invalidate their own filtered copies.
+
 ## Timing model (do not break)
 
 - The audio clock is authoritative. Inputs carry browser timestamps and are

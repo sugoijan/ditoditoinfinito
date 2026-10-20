@@ -1076,6 +1076,7 @@ impl MovieDeck {
                 depth_or_array_layers: 1,
             },
         );
+        renderer.background_texture_changed();
         if let Some(scope) = scope {
             self.checks += 1;
             let error = Rc::clone(&self.direct_error);

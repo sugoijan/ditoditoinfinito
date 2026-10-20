@@ -103,6 +103,7 @@ pub fn append(
                     rect: UNIT,
                     transform: Affine(q.transform),
                     texture: tex,
+                    cover: q.cover,
                     uv: [
                         q.uv[0] + o[0],
                         q.uv[1] + o[1],

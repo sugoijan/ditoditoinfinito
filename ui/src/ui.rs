@@ -1906,6 +1906,7 @@ fn quad(m: &Affine, r: [f32; 4], color: [f32; 4]) -> Drawn {
     Drawn::Quad(Quad {
         transform: hit::mul(m, &unit),
         texture: UNTEXTURED,
+        cover: false,
         uv: [0.0, 0.0, 1.0, 1.0],
         texcoord_offset: [0.0; 2],
         diffuse: [color; 4],

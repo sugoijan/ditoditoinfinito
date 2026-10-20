@@ -117,9 +117,26 @@ impl Gaussian {
             .into_iter()
             .enumerate()
         {
-            // Matches blur.wgsl's 32-byte Blur uniform. Only step and the
+            // Matches blur.wgsl's 64-byte Blur uniform. Only step and the
             // final unpremultiply flag are used by the cached-image entry point.
-            let params = [steps[i][0], steps[i][1], 0.0, 0.0, 0.0, 0.0, 0.0, i as f32];
+            let params = [
+                steps[i][0],
+                steps[i][1],
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                i as f32,
+                1.0,
+                1.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+            ];
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("ddi-cached-gaussian-params"),
                 contents: bytemuck::cast_slice(&params),
