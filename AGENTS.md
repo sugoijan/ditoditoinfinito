@@ -190,37 +190,10 @@ the browser are implementation details, not advertised features.
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
   from the system); winit, rfd and arboard load their libraries at run
   time.
-- `tools/skin-studio/` SkinCraft, the standalone native noteskin editor
-  embedding the sibling `../photocraft` and `../vectorcraft` UI libraries
-  (`docs/plans/noteskin-authoring.md`). `run.sh` builds its `skincraft`
-  feature with a separate profile under `.local/skincraft/`; the older
-  PhotoCraft-only extension is launched by `run-photocraft.sh`.
-  SVGs open in VectorCraft, bitmaps in PhotoCraft, in one window. Live
-  artwork replaces textures in the actual game field preview without
-  restarting the demo. SVG exports pass through the game's subset checker
-  and decoder; unsupported vector effects retain the last valid preview.
-  Each source skin has its own project checkpoints for layered raster and
-  native vector documents, closed tabs and text drafts. Native asynchronous
-  file dialogs serve both editors; shared Open routes by file type. Independent
-  reference documents have their own checkpoints, and source folders are
-  protected from native writes. `mcp.sh` runs the stdio MCP bridge to the same
-  live window (authenticated loopback, a private profile-local descriptor).
-  MCP reads default to bundled/current project files and the profile; writes
-  default to the profile. `SKINCRAFT_READ_ROOT`/`SKINCRAFT_WRITE_ROOT` configure
-  other working roots. Native pointer/command APIs, text drafts, preview,
-  copies and exports are exposed through this one workspace connection.
-  The full fallback-chain browser opens images and embedded text tabs; text
-  reloads retain the last working preview on errors. The element inspector
-  reads actual actor texture references. Exports create a new `NoteSkins` tree, and an onigiri starter
-  can be added as a child skin. Separate workspace and lockfile: root Cargo
-  checks do not cover it. `CARGO_TARGET_DIR=$PWD/target/photocraft cargo test
-  --manifest-path tools/skin-studio/Cargo.toml --features skincraft --lib` runs
-  its loader/export, Dito SVG round-trip and offscreen combined-host checks.
-  Build `--features skincraft --bin skincraft` first: the MCP integration test
-  launches that real executable as a stdio client bridge.
-  Agent runs use a scratch
-  `DDI_HOME`, `PHOTOCRAFT_CONFIG_DIR` and the watchdog. Do not run the
-  maintainer's persistent studio profile in an automated check.
+- SkinCraft is maintained in [sugoijan/skincraft](https://github.com/sugoijan/skincraft),
+  a separate native application consuming our loader and field renderer as Git
+  dependencies (`docs/plans/noteskin-authoring.md`). Its own repository contains
+  the editor hosts, MCP bridge, local development patches and authoring tests.
 - `importer-protocol/` the platform-free framed app/helper IPC contract (serde
   and plain data only; no SDK/networking or filesystem).
 - `tools/danoni-importer/` the native helper, a root workspace member requiring

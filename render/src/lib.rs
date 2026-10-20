@@ -45,3 +45,6 @@ pub use sprite::{Instance, Shape, SpritePipeline, Symbol, SymbolMode};
 pub use text::{Align, TextItem, TextPipeline};
 pub use text_atlas::RunRasterizer;
 pub use texture_cache::{TextureId, TextureKey};
+
+/// The bundled HUD font used by game field previews and authoring hosts.
+pub const HUD_FONT: &[u8] = include_bytes!("../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
