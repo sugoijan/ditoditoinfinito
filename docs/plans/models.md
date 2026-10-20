@@ -117,9 +117,12 @@ StepMania's look (midi-note-3d, ITG's cel and metal, Peter's skins, local
 only) and with a synthetic model skin committed for tests.
 
 **Done 2026-10-12.** `crates/render/src/model.rs`: the field's camera (vanishing
-point at the field's centre, 1030/64 arrows away), each vertex projected
+point at the field's centre, `(427/tan 22.5°)/64` arrows away), each vertex projected
 with its `w`, triangles with a corner behind the near plane or past the
-far one dropped, back faces culled by their winding as seen (MilkShape's
+far one dropped (`LoadMenuPerspective`'s frustum: one of StepMania's
+pixels from the eye, 1000 behind the screen; under an `fov` frame that
+frame's, as its quads have, and orthographic within ±1000 under
+`fov(0)`), back faces culled by their winding as seen (MilkShape's
 counter-clockwise faces the viewer: true of the open models of the
 corpus), the rest sorted far to near. `crates/render/src/textured.rs`: an
 instance is a quad or a triangle (its three corners, texture

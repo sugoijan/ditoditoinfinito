@@ -22,8 +22,8 @@ use std::pin::Pin;
 use std::rc::Rc;
 
 use ddi_chart::Layout;
-use ddi_noteskin::build::{Images, MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes, SVG_SCALE, TextureKey};
-use ddi_noteskin::lua::{Env, LoadBudget, LuaSkin};
+use ddi_noteskin::build::{MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes, SVG_SCALE, TextureKey};
+use ddi_noteskin::lua::Env;
 use ddi_noteskin::{Dir, Folder, Skin};
 use ddi_render::noteskin::NoteskinPlay;
 use serde::{Deserialize, Serialize};
@@ -88,10 +88,8 @@ impl StoredSkin {
     }
 }
 
-use crate::settings::DITO;
-pub(crate) use crate::settings::{BUILT_IN, BUNDLED};
-
-pub(crate) use ddi_noteskin::bundled::skin_key;
+use ddi_noteskin::bundled::DITO;
+pub(crate) use ddi_noteskin::bundled::{BUILT_IN, KEY_PREFIX as BUNDLED, skin_key};
 
 /// Key of a skin's file in the `files` store.
 pub(crate) fn file_key(skin: &str, path: &str) -> String {
@@ -345,7 +343,7 @@ async fn lua_summary(
         style: ddi_noteskin::lua::style_for(game, layout).into(),
         ..Env::default()
     };
-    match lua_play(
+    match NoteskinPlay::load_lua(
         folders,
         game,
         name,
@@ -354,6 +352,7 @@ async fn lua_summary(
         layout,
         &probe,
         clock(),
+        Some(&mut pause),
     )
     .await
     {
@@ -492,30 +491,6 @@ fn load_clock(wanted: Wanted, done: Rc<Cell<bool>>) -> Box<dyn FnMut() -> f64> {
     })
 }
 
-/// Starts a skin's Lua: its own VM with hash seed `seed` (the two passes
-/// of a play share one, so tables iterate alike), the prelude and the
-/// `NoteSkin.lua` chain.
-async fn lua_skin(
-    skin: Skin<'static>,
-    env: Env,
-    seed: u64,
-    clock: Box<dyn FnMut() -> f64>,
-) -> Result<LuaSkin, ddi_lua::Failure> {
-    let settings = ddi_lua::Settings {
-        hash_seed: seed,
-        ..ddi_lua::Settings::default()
-    };
-    LuaSkin::new_sliced(
-        skin,
-        env,
-        settings,
-        LoadBudget::default(),
-        clock,
-        Some(&mut pause),
-    )
-    .await
-}
-
 /// A skin ready for a play: its actors and the decoded images its
 /// textures stand for (`None` for the built-in art).
 pub(crate) struct Prepared {
@@ -532,32 +507,6 @@ impl Prepared {
             b.close();
         }
     }
-}
-
-/// Builds skin `name` through its Lua for `layout` (`clock` its
-/// deadlines'); why it could not.
-#[allow(clippy::too_many_arguments)]
-async fn lua_play(
-    folders: &[Folder],
-    game: &str,
-    name: &str,
-    env: Env,
-    seed: u64,
-    layout: &Layout,
-    images: &dyn Images,
-    clock: Box<dyn FnMut() -> f64>,
-) -> Result<Option<NoteskinPlay>, String> {
-    let loaded = Skin::load(folders, game, name).map_err(|e| e.to_string())?;
-    // Lanes no skin draws (`Skin::lane_button`).
-    if layout.lanes.iter().any(|l| loaded.lane_button(l).is_none()) {
-        return Ok(None);
-    }
-    let lua = lua_skin(loaded.into_owned(), env, seed, clock)
-        .await
-        .map_err(|e| e.to_string())?;
-    NoteskinPlay::with_lua(lua, layout, images, true, Some(&mut pause))
-        .await
-        .map_err(|e| e.to_string())
 }
 
 /// Fills in the texts of a skin stored before they were kept with its
@@ -912,7 +861,7 @@ async fn prepare_until(
     // First pass: which images the actors use.
     let mut sizes = ProbeSizes::probe();
     if with_lua {
-        match lua_play(
+        match NoteskinPlay::load_lua(
             &folders,
             &chosen.game,
             &chosen.name,
@@ -921,6 +870,7 @@ async fn prepare_until(
             layout,
             &sizes,
             clock(),
+            Some(&mut pause),
         )
         .await
         {
@@ -956,7 +906,7 @@ async fn prepare_until(
     }
     let mut play = None;
     if with_lua && lua_error.is_none() {
-        match lua_play(
+        match NoteskinPlay::load_lua(
             &folders,
             &chosen.game,
             &chosen.name,
@@ -965,6 +915,7 @@ async fn prepare_until(
             layout,
             &sizes,
             clock(),
+            Some(&mut pause),
         )
         .await
         {

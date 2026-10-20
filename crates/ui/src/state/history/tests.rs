@@ -617,6 +617,132 @@ fn a_play_that_could_not_be_written_is_rolled_back() {
     assert!(plays.history().is_empty());
 }
 
+/// Plays of `(song id, chart)` in `store`, kept with an older judge's
+/// summaries (as a store has them after `JUDGE_VERSION` was raised).
+fn stale_plays(store: &Rc<MemoryPlayStore>, song: &Song, of: &[(&str, usize)]) {
+    let plays = Plays::new(store.clone());
+    plays.load(|r| r.unwrap());
+    for (i, (id, chart)) in of.iter().enumerate() {
+        let (log, results) = play(song, *chart, &itg(), Some(0.0));
+        let mut rec = record(song, *chart, &itg(), i as f64, false);
+        rec.chart.song = id.to_string();
+        plays
+            .record(play_id(i as f64, 0), &rec, &log, &results, |r| r.unwrap())
+            .unwrap();
+    }
+    let olds = plays
+        .history()
+        .iter()
+        .map(|(id, s)| {
+            let mut s = s.clone();
+            s.worked.as_mut().unwrap().judge_version = 0;
+            (id.clone(), serde_json::to_string(&s).unwrap())
+        })
+        .collect();
+    store.replace_summaries(olds, Box::new(|r| r.unwrap()));
+}
+
+/// What the shells run (`Reworker`): nothing before the summaries are in
+/// or during a play; the song whose chart is at hand first, a batch a
+/// step at the focus's pace; then the background pass, a song at a time
+/// in order, its chart read once for its batches; a song whose chart
+/// cannot be read left for the session (until the library changes); done
+/// when nothing is left.
+#[test]
+fn the_reworker_takes_the_focused_song_first_then_the_rest_in_batches() {
+    let song = Rc::new(song());
+    let store = Rc::new(MemoryPlayStore::default());
+    let mut of = vec![("s2", 0), ("gone", 1)];
+    of.extend(std::iter::repeat_n(("s1", 0), REWORK_BATCH + 1));
+    stale_plays(&store, &song, &of);
+    let plays = Plays::new(store.clone());
+    let mut r: Reworker<Rc<Song>> = Reworker::default();
+    // The summaries not in yet.
+    assert!(matches!(r.step(&plays), ReworkStep::Wait));
+    plays.load(|r| r.unwrap());
+    assert_eq!(plays.history().stale_count(), of.len());
+    let rework = |id: &str, chart: Rc<Song>| {
+        let (n, done) = answered();
+        plays.rework_song(id, chart, REWORK_BATCH, done);
+        n.take().unwrap().unwrap()
+    };
+    // Never during a play.
+    assert_eq!(r.set_playing(true), None);
+    assert!(matches!(r.step(&plays), ReworkStep::Wait));
+    assert_eq!(r.set_playing(false), Some(FOCUS_STEP_MS));
+    // A song's chart at hand: its plays first (a chart with none is not
+    // taken).
+    assert_eq!(r.chart_loaded(&plays, "other", || unreachable!()), None);
+    assert_eq!(r.chart_loaded(&plays, "s2", || song.clone()), Some(0));
+    let ReworkStep::Rework {
+        song: id,
+        chart,
+        next_ms,
+    } = r.step(&plays)
+    else {
+        panic!("the focused song first");
+    };
+    assert_eq!((id.as_str(), next_ms), ("s2", FOCUS_STEP_MS));
+    // One step at a time.
+    assert!(matches!(r.step(&plays), ReworkStep::Wait));
+    assert_eq!(rework(&id, chart), 1);
+    r.worked();
+    // The background pass: songs in order, the chart read first, looked
+    // for by content where the song is gone.
+    let ReworkStep::Read { song: id, digests } = r.step(&plays) else {
+        panic!("a chart to read");
+    };
+    assert_eq!((id.as_str(), digests), ("gone", vec![song.chart_digest(1)]));
+    assert_eq!(r.read(id, Err::<Rc<Song>, _>("no such song")), PASS_STEP_MS);
+    let ReworkStep::Read { song: id, .. } = r.step(&plays) else {
+        panic!("the next song's chart");
+    };
+    assert_eq!(id, "s1");
+    assert_eq!(r.read::<()>(id, Ok(song.clone())), 0);
+    // Its chart read once for its batches.
+    let ReworkStep::Rework {
+        song: id,
+        chart,
+        next_ms,
+    } = r.step(&plays)
+    else {
+        panic!("a batch");
+    };
+    assert_eq!((id.as_str(), next_ms), ("s1", PASS_STEP_MS));
+    assert_eq!(rework(&id, chart), REWORK_BATCH);
+    r.worked();
+    let ReworkStep::Rework {
+        song: id, chart, ..
+    } = r.step(&plays)
+    else {
+        panic!("the rest of the song");
+    };
+    // As a shell judging elsewhere runs it: the batch, judged, set.
+    let ids = plays.stale_batch(&id, REWORK_BATCH);
+    assert_eq!(ids.len(), 1);
+    let (entries, done) = answered();
+    store.records(ids.clone(), Box::new(done));
+    let entries = entries.borrow_mut().take().unwrap().unwrap();
+    let changes = plays.set_worked(rework_entries(&ids, &entries, &chart));
+    assert_eq!(changes.len(), 1);
+    store.replace_summaries(changes, Box::new(|r| r.unwrap()));
+    r.worked();
+    // Done; the song that could not be read is left, pending.
+    assert!(matches!(r.step(&plays), ReworkStep::Done));
+    assert_eq!(plays.history().stale_count(), 1);
+    let h = plays.history();
+    assert!(!h.best(song.chart_digest(0), &itg(), false).unwrap().pending);
+    assert!(h.best(song.chart_digest(1), &itg(), false).unwrap().pending);
+    drop(h);
+    // Written back: a new start finds only that one stale.
+    let again = Plays::new(store.clone());
+    again.load(|r| r.unwrap());
+    assert_eq!(again.stale_songs(), vec!["gone".to_string()]);
+    // The library changed: it is looked for again.
+    r.retry_skipped();
+    assert!(matches!(r.step(&plays), ReworkStep::Read { song, .. } if song == "gone"));
+}
+
 /// A kept play of chart 0, pressed `bias` late, as its entry.
 fn kept_entry(bias: f64) -> (Song, PlayEntry, Results) {
     let song = song();

@@ -28,7 +28,7 @@ use ddi_ui::state::history::Plays;
 use ddi_ui::state::settings::Settings;
 
 use super::load::{Loaded, Loading};
-use super::view::{Formats, Rgba, View, render_options};
+use super::view::{Formats, Rgba, View};
 use super::{Ended, Feed, Play, Request};
 use crate::audio::Audio;
 
@@ -126,6 +126,9 @@ impl Card {
 /// library's play call and the options).
 pub type MenuFn = Rc<dyn Fn(&Env, &mut Ui)>;
 
+/// Hears a song's id and chart once read ([`Host::chart_loaded`]).
+pub type ChartLoadedFn = Rc<dyn Fn(&str, &ddi_chart::Song)>;
+
 pub struct Host {
     /// Song select's play call puts what to play here.
     pub requested: Rc<RefCell<Option<Request>>>,
@@ -134,6 +137,9 @@ pub struct Host {
     /// Wakes the event loop (a song read on its thread).
     pub wake: Option<Arc<dyn Fn() + Send + Sync>>,
     pub plays: Option<Rc<Plays>>,
+    /// Told a song's id and chart once read for its prompt (the history
+    /// works its stale plays out first, `Songs::chart_loaded`).
+    pub chart_loaded: Option<ChartLoadedFn>,
     after: Rc<Cell<Option<After>>>,
     /// What the prompt's buttons chose, for the next poll.
     choice: Rc<RefCell<Option<PromptChoice>>>,
@@ -178,6 +184,7 @@ impl Default for Host {
             stage: Stage::Idle,
             wake: None,
             plays: None,
+            chart_loaded: None,
             after: Rc::default(),
             choice: Rc::default(),
             devices: Rc::default(),
@@ -513,7 +520,7 @@ impl Host {
                         && v.noteskin().is_some_and(|n| n.lua_failure().is_some())
                     {
                         let settings = r.request.settings();
-                        r.skin = read_skin(&loaded, r.request.chart, &settings, self.wake.clone());
+                        r.skin = read_skin(&loaded, &r.request, &settings, self.wake.clone());
                     }
                     // The sound opens again; Start once it runs.
                     r.prompt
@@ -638,7 +645,12 @@ impl Host {
         {
             r.loading = None;
             match result {
-                Ok(loaded) => r.loaded = Some(Rc::new(loaded)),
+                Ok(loaded) => {
+                    if let Some(told) = &self.chart_loaded {
+                        told(&r.request.song, &loaded.song);
+                    }
+                    r.loaded = Some(Rc::new(loaded))
+                }
                 Err(e) => {
                     r.prompt
                         .borrow_mut()
@@ -670,7 +682,7 @@ impl Host {
             r.view_made = Some(Instant::now());
             // The skin is read on a thread (its images decoded there);
             // until it comes the prompt says it loads.
-            r.skin = read_skin(&loaded, r.request.chart, &settings, self.wake.clone());
+            r.skin = read_skin(&loaded, &r.request, &settings, self.wake.clone());
             // A work's layers' images and texts, on theirs.
             if settings.bg_brightness > 0.0 && r.request.calibration.is_none() {
                 let contents =
@@ -797,6 +809,9 @@ impl Host {
                 play.graphics = self.graphics.clone();
                 if let Some(v) = r.view.as_mut() {
                     v.refresh_hint = self.refresh_hint;
+                    // The background changes on the song as played: its
+                    // offset moves them too.
+                    v.set_played_song(play.song(), &play.loaded);
                     v.start();
                     v.enter_background(r.prompt.borrow().reveal, env.reduced());
                 }
@@ -816,7 +831,7 @@ impl Host {
                     v.set_stage_track(track);
                     v.set_lyrics(lyrics);
                 }
-                let mut render = render_options(&settings);
+                let mut render = ddi_shell::render_options(&settings);
                 // A test shows its plain field and each hit's error.
                 if let Some(mode) = r.request.calibration {
                     render.for_calibration(mode.hide_notes());
@@ -850,14 +865,7 @@ impl Host {
             return;
         };
         let ended = play.tick(now, self.plays.as_ref());
-        render.ghost = play.session.ghost_delta().map(|d| match d {
-            ddi_ui::state::history::GhostDelta::Percent(p) => {
-                ddi_render::ScoreDelta::Percent(p as f32)
-            }
-            ddi_ui::state::history::GhostDelta::Points(p) => {
-                ddi_render::ScoreDelta::Points(p.round() as i64)
-            }
-        });
+        render.ghost = play.session.ghost_delta().map(ddi_shell::score_delta);
         if let Some(v) = r.view.as_mut() {
             v.scale = self.scale;
             v.present_at = self.present_at.take();
@@ -1218,23 +1226,27 @@ pub fn noteskin(
     Vec<Option<Rgba>>,
     String,
 )> {
-    let (key, layout, env) = skin_want(loaded, chart, settings)?;
+    let shift = settings.song_offset(&loaded.entry.id);
+    let (key, layout, env) = skin_want(loaded, chart, settings, shift)?;
     let skins = crate::library::noteskins::all(&crate::library::all_folders());
     let p = super::skins::prepare(&key, &layout, env, &skins)?;
     Some((p.play, p.images, p.strike))
 }
 
 /// The skin the song's chart is drawn with, its layout and what its Lua
-/// sees (`None`: the built-in arrows).
+/// sees: the timing as the play shifts it by `shift`, the song offset
+/// (`None`: the built-in arrows).
 fn skin_want(
     loaded: &Loaded,
     chart: usize,
     settings: &Settings,
+    shift: f64,
 ) -> Option<(String, ddi_chart::Layout, ddi_noteskin::lua::Env)> {
     let c = loaded.song.charts.get(chart)?;
     let layout = loaded.song.layout_of(c)?;
     let key = settings.play_skin(&layout.id, Some(c))?;
-    let env = ddi_noteskin::lua::chart_env(&loaded.song, c, &layout, settings.reverse);
+    let env =
+        ddi_noteskin::lua::chart_env(&loaded.song, c, &layout, settings.reverse).shifted(shift);
     Some((key, layout, env))
 }
 
@@ -1242,11 +1254,12 @@ fn skin_want(
 /// arrows, nothing to read).
 fn read_skin(
     loaded: &Loaded,
-    chart: usize,
+    request: &Request,
     settings: &Settings,
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Option<(super::skins::Reading, ddi_chart::Layout)> {
-    let (key, layout, env) = skin_want(loaded, chart, settings)?;
+    let shift = request.song_shift(settings);
+    let (key, layout, env) = skin_want(loaded, request.chart, settings, shift)?;
     Some((
         super::skins::Reading::start(&key, &layout, env, wake),
         layout,

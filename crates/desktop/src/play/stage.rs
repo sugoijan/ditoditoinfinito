@@ -2,20 +2,15 @@
 //! (`docs/plans/overlays.md`, `docs/plans/desktop.md` 7.5b), as the web's
 //! `stage.rs` shows them: the contents a song's layers show (its images,
 //! read where the library found them; its text, drawn here as the web's
-//! canvas draws it) read on a thread once per song, their textures
-//! (registered as a noteskin's, so again after a skin replaces them), and
-//! the play's timeline (`ddi_session::stage`).
+//! canvas draws it) read on a thread once per song, written to their
+//! textures by the shared view (`ddi_shell::stage`).
 
-use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use ddi_engine::sprites::{SpriteSource, SpriteTrack};
-use ddi_render::Renderer;
-use ddi_render::stage::{self, StageTexture};
-use ddi_render::textured::TexQuad;
-use ddi_session::stage::{MAX_LAYER_SIDE, StageLayers, TEXT_SCALE};
+use ddi_engine::sprites::SpriteSource;
+use ddi_session::stage::{MAX_LAYER_SIDE, TEXT_SCALE};
 
 use super::view::Rgba;
 
@@ -42,7 +37,8 @@ impl Content {
         }
     }
 
-    fn source(&self) -> SpriteSource {
+    /// What the layers' timeline calls it.
+    pub fn source(&self) -> SpriteSource {
         match self {
             Content::Image(name) => SpriteSource::Image(Rc::from(name.as_str())),
             Content::Text { text, size, color } => SpriteSource::Text {
@@ -192,84 +188,20 @@ pub fn css_color(s: &str) -> Option<[u8; 4]> {
     csscolorparser::parse(s.trim()).ok().map(|c| c.to_rgba8())
 }
 
-/// The layers in a play: the contents read, their textures, the play's
-/// timeline.
-#[derive(Default)]
-pub struct StageView {
-    layers: StageLayers,
-    /// Contents read and their size in the stage's px (a retry keeps
-    /// them).
-    contents: HashMap<SpriteSource, (Rgba, (f32, f32))>,
-    /// Contents on the GPU since the textures were last cleared.
-    textures: HashMap<SpriteSource, StageTexture>,
-}
-
-impl StageView {
-    /// The layers of the play about to start (`None`: none shown).
-    pub fn set_track(&mut self, track: Option<SpriteTrack>) {
-        self.layers.set_track(track);
+/// A content read is copied to its texture as RGBA rows.
+impl ddi_shell::stage::StageContent for Rgba {
+    fn size(&self) -> [u32; 2] {
+        self.size
     }
 
-    /// Whether a play's layers are shown.
-    pub fn shown(&self) -> bool {
-        self.layers.shown()
-    }
-
-    /// A content read.
-    pub fn add(&mut self, read: Read) {
-        let (content, image, size) = read;
-        let source = content.source();
-        self.textures.remove(&source);
-        self.contents.insert(source, (image, size));
-    }
-
-    /// Contents read so far.
-    pub fn contents(&self) -> usize {
-        self.contents.len()
-    }
-
-    /// The renderer's skin textures were cleared, and these with them.
-    pub fn forget_textures(&mut self) {
-        self.textures.clear();
-    }
-
-    /// Puts the contents not on the GPU yet there.
-    pub fn upload(&mut self, renderer: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue) {
-        for (source, (image, size)) in &self.contents {
-            if self.textures.contains_key(source) {
-                continue;
-            }
-            let [w, h] = image.size;
-            let id = renderer.add_noteskin_image(device, queue, [w.max(1), h.max(1)], false, |t| {
-                super::view::write_rgba(queue, t, image);
-            });
-            self.textures
-                .insert(source.clone(), StageTexture { id, size: *size });
-        }
-    }
-
-    /// The back and mask quads at song second `t`, on a target `height`
-    /// px tall with the field centred at `center_x`.
-    pub fn quads(
-        &self,
-        t: f64,
-        center_x: f32,
-        height: f32,
-        srgb: bool,
-    ) -> (Vec<TexQuad>, Vec<TexQuad>) {
-        let Some((sprites, size)) = self.layers.at(t) else {
-            return (Vec::new(), Vec::new());
-        };
-        stage::quads(
-            &sprites,
-            size,
-            center_x,
-            height,
-            |s| self.textures.get(s).copied(),
-            srgb,
-        )
+    fn write(&self, queue: &wgpu::Queue, texture: &wgpu::Texture, _: [u32; 2]) {
+        super::view::write_rgba(queue, texture, self);
     }
 }
+
+/// The layers in a play: the contents read (a retry keeps them), their
+/// textures, the play's timeline.
+pub type StageView = ddi_shell::stage::StageView<Rgba>;
 
 #[cfg(test)]
 mod tests {

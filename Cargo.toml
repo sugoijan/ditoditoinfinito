@@ -32,6 +32,7 @@ ddi-lua = { path = "crates/lua" }
 ddi-web = { path = "crates/web" }
 ddi-desktop = { path = "crates/desktop", default-features = false }
 ddi-session = { path = "crates/session" }
+ddi-shell = { path = "crates/shell" }
 
 # lunita, our hardened fork of piccolo (docs/plans/piccolo-fork.md).
 lunita = "0.1"

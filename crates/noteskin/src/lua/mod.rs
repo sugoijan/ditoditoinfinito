@@ -150,6 +150,17 @@ pub fn chart_env(
     }
 }
 
+impl Env {
+    /// The env with its timing moved as [`ddi_chart::Song::shift_notes`]
+    /// moves the song's: what a skin sees of a play shifted by the song
+    /// offset, whose positions it is given (StepMania's offset edit
+    /// changes the song's own timing). Beats stay where they are.
+    pub fn shifted(mut self, seconds: f64) -> Env {
+        self.timing.offset_seconds -= seconds;
+        self
+    }
+}
+
 /// The style a skin of `game` is told a layout is: a pump skin the pump
 /// style of a pump layout (`single`, `halfdouble`, `double`), a dance
 /// skin [`dance_style`].

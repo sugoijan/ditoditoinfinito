@@ -35,6 +35,8 @@ pub struct Songs {
     imports: RefCell<crate::danoni::Imports>,
     pub library: RefCell<Option<Library>>,
     pub plays: Option<Rc<Plays>>,
+    /// The plays' stale summaries worked out again (`crate::history`).
+    pub rework: RefCell<Option<crate::history::Rework>>,
     pub feed: SharedFeed,
     pub hidden: RefCell<Hidden>,
     /// Folders added for this run only (`--songs`).
@@ -66,11 +68,13 @@ impl Songs {
     pub fn new(extra: Vec<PathBuf>) -> Rc<Songs> {
         // Their noteskins too.
         crate::library::set_extra_folders(&extra);
+        let (plays, rework) = crate::history::open().unzip();
         Rc::new(Songs {
             #[cfg(danoni_importer)]
             imports: RefCell::default(),
             library: RefCell::new(None),
-            plays: crate::history::open(),
+            plays,
+            rework: RefCell::new(rework),
             feed: SharedFeed::default(),
             hidden: RefCell::new(Hidden::load()),
             extra: RefCell::new(extra),
@@ -313,12 +317,50 @@ impl Songs {
         if scanned {
             self.show_again();
             self.tell_options();
+            if let Some(r) = self.rework.borrow_mut().as_mut() {
+                r.library_changed();
+            }
         }
         if scanned || history {
             self.send(ui);
             return true;
         }
         false
+    }
+
+    /// The library knows its songs (no scan running): the history's
+    /// stale plays look for their charts only then.
+    fn listed_all(&self) -> bool {
+        self.library.borrow().as_ref().is_some_and(|l| !l.scanning)
+    }
+
+    /// The history's stale plays worked out again (`crate::history::
+    /// Rework`): its thread's answers taken, its next step when due.
+    /// `playing` and `shown`: a song's play is on, its prompt, play or
+    /// results are up. Before [`Songs::poll`], which sends song select the
+    /// bests that changed.
+    pub fn rework(&self, playing: bool, shown: bool) {
+        let mut rework = self.rework.borrow_mut();
+        let (Some(plays), Some(rework)) = (&self.plays, rework.as_mut()) else {
+            return;
+        };
+        let wake = self.wake.borrow().clone();
+        rework.poll(plays, playing, shown, self.listed_all(), wake.as_ref());
+    }
+
+    /// When [`Songs::rework`] has a step to take.
+    pub fn rework_due(&self) -> Option<std::time::Instant> {
+        if !self.listed_all() {
+            return None;
+        }
+        self.rework.borrow().as_ref()?.due()
+    }
+
+    /// Song `id`'s chart read for its play: its stale plays come first.
+    pub fn chart_loaded(&self, id: &str, song: &ddi_chart::Song) {
+        if let (Some(plays), Some(rework)) = (&self.plays, self.rework.borrow_mut().as_mut()) {
+            rework.chart_loaded(plays, id, song);
+        }
     }
 
     /// What options shows of the folders and the last scan.

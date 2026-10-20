@@ -44,24 +44,7 @@ impl SessionConfig {
     ) -> SessionConfig {
         SessionConfig {
             session: ddi_session::play::SessionConfig::from_settings(settings, auto, devices),
-            render: RenderOptions {
-                reverse: settings.reverse,
-                hide_notes: false,
-                show_deltas: settings.show_deltas,
-                cancel_progress: 0.0,
-                cancel_hint: "",
-                note_colors: crate::settings::note_scheme(settings.note_colors),
-                chart_colors: settings.chart_colors,
-                background: settings.bg_brightness,
-                // Chosen each frame by the game loop.
-                backdrop: Default::default(),
-                frame_aspect: None,
-                background_reveal: None,
-                field_filter: settings.field_filter,
-                preview: None,
-                // Set each frame from the session (`PlaySession::tick`).
-                ghost: None,
-            },
+            render: ddi_shell::render_options(settings),
             gamepads: None,
             touch_canvas: None,
         }
@@ -136,14 +119,7 @@ impl PlaySession {
         self.render.hide_notes = view.hide_notes;
         self.render.cancel_progress = view.cancel_progress;
         self.render.cancel_hint = view.cancel_hint;
-        self.render.ghost = self.core.ghost_delta().map(|d| match d {
-            ddi_ui::state::history::GhostDelta::Percent(p) => {
-                ddi_render::ScoreDelta::Percent(p as f32)
-            }
-            ddi_ui::state::history::GhostDelta::Points(p) => {
-                ddi_render::ScoreDelta::Points(p.round() as i64)
-            }
-        });
+        self.render.ghost = self.core.ghost_delta().map(ddi_shell::score_delta);
         out
     }
 

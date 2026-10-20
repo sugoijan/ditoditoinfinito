@@ -1,10 +1,10 @@
 //! Options' field preview on the web (`ddi_render::field_preview`): the
 //! demo chart drawn as play draws it with the settings being chosen, into
-//! a texture the 2D pass shows as the image [`SOURCE`]. This side builds
-//! the preview's options from the settings, as a play builds its own,
-//! loads the noteskin play would use (in slices, off the frame, as play
-//! loads it) and puts it on the preview once ready, and makes the preview
-//! again on a new device.
+//! a texture the 2D pass shows as the image [`SOURCE`]. This side has
+//! the preview's options built from the settings (`ddi_shell`, as a play
+//! has its own), loads the noteskin play would use (in slices, off the
+//! frame, as play loads it) and puts it on the preview once ready, and
+//! makes the preview again on a new device.
 //!
 //! A screen showing it (Options) says where each frame, in canvas
 //! pixels; [`FieldPreviewHost::draw`] records the preview's frame into
@@ -14,57 +14,14 @@
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
-use ddi_chart::Layout;
 use ddi_render::Renderer;
-use ddi_render::field_preview::{BPM, FieldPreview, FieldPreviewOptions, SkinWant};
+use ddi_render::field_preview::{FieldPreview, SkinWant};
 use ddi_render::noteskin::NoteskinPlay;
 
 pub(crate) use ddi_render::field_preview::SOURCE;
 
-use crate::settings::{BackgroundFrame, Settings};
+use crate::settings::Settings;
 use crate::web::gfx::Gfx;
-
-/// The background frames' shapes, as play fits a background
-/// (`game_loop::frame_aspect`); the automatic one fits the preview's
-/// plate, which is 16:9.
-fn frame_aspect(frame: BackgroundFrame) -> Option<f32> {
-    match frame {
-        BackgroundFrame::Screen => None,
-        BackgroundFrame::FourThree => Some(4.0 / 3.0),
-        BackgroundFrame::SixteenNine | BackgroundFrame::Auto => Some(16.0 / 9.0),
-    }
-}
-
-/// The preview's options under `settings`, as a play's
-/// (`play::SessionConfig::from_settings`).
-pub(crate) fn options(settings: &Settings) -> FieldPreviewOptions {
-    let layout = if Layout::builtin(&settings.style).is_some() {
-        settings.style.clone()
-    } else {
-        "dance-single".to_string()
-    };
-    let rules = ddi_engine::demo::song(&layout, BPM)
-        .and_then(|s| s.charts.first().map(|c| settings.ruleset_for(c).key()))
-        .unwrap_or_else(|| settings.ruleset().key());
-    FieldPreviewOptions {
-        autoplay_flashes: false,
-        layout,
-        play: settings.play_options(None),
-        rules,
-        note_colors: crate::settings::note_scheme(settings.note_colors),
-        field_filter: settings.field_filter,
-        show_deltas: settings.show_deltas,
-        background: settings.bg_brightness,
-        frame_aspect: frame_aspect(settings.background_frame),
-    }
-}
-
-/// The noteskin play would draw the preview's layout with, and what it
-/// is loaded for (its key, the layout, the direction): `None` for the
-/// built-in arrows. The demo has no colors of its own.
-fn wanted_skin(settings: &Settings, options: &FieldPreviewOptions) -> SkinWant {
-    SkinWant::new(settings.play_skin(&options.layout, None), options)
-}
 
 /// The preview on one device.
 pub(crate) struct FieldPreviewHost {
@@ -139,8 +96,8 @@ impl FieldPreviewHost {
     /// Shows `settings` from the next frame; the skin they want loads
     /// meanwhile.
     pub(crate) fn set_settings(&mut self, settings: &Settings) {
-        let options = options(settings);
-        self.wanted = Some(wanted_skin(settings, &options));
+        let options = ddi_shell::field_preview_options(settings);
+        self.wanted = Some(ddi_shell::field_preview_skin(settings, &options));
         self.preview.set_options(options);
     }
 

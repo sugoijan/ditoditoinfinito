@@ -78,8 +78,8 @@ pub(crate) struct GameLoop {
     /// The song's background movies.
     movies: crate::movies::MovieDeck,
     /// Image and movie textures for the backdrop, rebuilt when either
-    /// changes (`(images, movie version)`).
-    shown_cache: (Vec<(BgImage, usize)>, (usize, u64)),
+    /// changes.
+    shown_cache: ddi_session::movies::BackdropTextures,
     /// The movies were stopped at the end of the song.
     movies_stopped: bool,
     video_mode: VideoMode,
@@ -166,7 +166,7 @@ impl GameLoop {
             stage: crate::stage::StageView::default(),
             stage_drawn: (0, 0),
             movies: crate::movies::MovieDeck::default(),
-            shown_cache: (Vec::new(), (0, u64::MAX)),
+            shown_cache: Default::default(),
             movies_stopped: false,
             video_mode: VideoMode::Auto,
             guard: MovieGuard::default(),
@@ -339,29 +339,21 @@ impl GameLoop {
     /// What to show behind the field at song second `t` (fields passed
     /// one by one, so a session can stay borrowed).
     fn backdrop(
-        cache: &mut (Vec<(BgImage, usize)>, (usize, u64)),
+        cache: &mut ddi_session::movies::BackdropTextures,
         images: &[(BgImage, usize)],
         movies: &crate::movies::MovieDeck,
         layers: &[Vec<BgSegment>; LAYERS],
         t: f64,
     ) -> Backdrop {
-        let key = (images.len(), movies.version());
-        if cache.1 != key {
-            *cache = (
-                images
-                    .iter()
-                    .cloned()
-                    .chain(movies.shown_ids())
-                    // The second layer's opaque stand-in for a missing
-                    // song background.
-                    .chain(std::iter::once((BgImage::Plain, ddi_render::PLAIN)))
-                    .collect(),
-                key,
-            );
-        }
+        let all = cache.get(
+            images,
+            movies.version(),
+            || movies.shown_ids(),
+            ddi_render::PLAIN,
+        );
         let [first, second] = layers;
-        let shown = backgrounds::shown(first, t, &cache.0, movies.opening_plays(first));
-        let over = backgrounds::shown_over(second, t, &cache.0);
+        let shown = backgrounds::shown(first, t, all, movies.opening_plays(first));
+        let over = backgrounds::shown_over(second, t, all);
         Backdrop {
             current: shown.current,
             previous: shown.previous,
@@ -388,7 +380,7 @@ impl GameLoop {
         bitmap: web_sys::ImageBitmap,
         size: (f32, f32),
     ) {
-        self.stage.add(source, bitmap, size);
+        self.stage.add(source, crate::stage::Bitmap(bitmap), size);
     }
 
     /// The lyrics of the song about to play (`None`: none shown).

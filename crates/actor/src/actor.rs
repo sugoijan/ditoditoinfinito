@@ -671,9 +671,37 @@ pub struct ModelDraw {
     pub glow: Rgba,
     pub blend: Blend,
     pub depth: Depth,
-    /// Under an `fov` frame, its camera; `None`: the drawer's own (the
-    /// note field's in play).
-    pub perspective: Option<Perspective>,
+    /// What sees it: the camera of the `fov` frame around, as the quads
+    /// beside it are seen.
+    pub camera: FrameCamera,
+}
+
+/// The camera the `fov` frames around an actor set (`ActorFrame::BeginDraw`
+/// → `RageDisplay::LoadMenuPerspective`, which loads the projection every
+/// actor inside is drawn with until the frame's `EndDraw` pops it).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum FrameCamera {
+    /// No `fov` frame around: the drawer's own (the note field's 45° in
+    /// play, `Player::PushPlayerMatrix`). Quads are drawn orthographically
+    /// in it (at z = 0 the two agree), models in that perspective.
+    #[default]
+    Drawer,
+    /// An `fov` frame's.
+    Perspective(Perspective),
+    /// An `fov(0)` frame's: orthographic, depth clipped to ±1000 virtual
+    /// pixels (`GetOrthoMatrix(0, W, H, 0, -1000, +1000)`); `depth` is
+    /// that bound on the target.
+    Orthographic { depth: f32 },
+}
+
+impl FrameCamera {
+    /// The perspective quads are seen in; `None`: orthographic.
+    pub fn perspective(&self) -> Option<Perspective> {
+        match self {
+            FrameCamera::Perspective(p) => Some(*p),
+            FrameCamera::Drawer | FrameCamera::Orthographic { .. } => None,
+        }
+    }
 }
 
 /// A run of text to draw ([`Kind::Text`]).
@@ -801,7 +829,8 @@ pub struct Perspective {
     pub vanish: [f32; 2],
     pub distance: f32,
     /// The frustum's near and far planes, as distances from the eye (1
-    /// and `distance + 1000` virtual pixels).
+    /// and `distance + 1000` virtual pixels: `GetFrustumMatrix(…, 1,
+    /// fDistCameraFromImage + 1000)`).
     pub near: f32,
     pub far: f32,
 }
@@ -2486,7 +2515,7 @@ impl Actor {
             m3,
             diffuse,
             glow,
-            camera: None,
+            camera: FrameCamera::Drawer,
             scissor: None,
             blur: [0.0; 2],
         };
@@ -2561,7 +2590,8 @@ impl Actor {
             c[3] *= alpha;
             (self.shadow != [0.0; 2]).then(|| (view.vector(self.shadow), c))
         };
-        let (blend, depth_state, camera) = (self.blend, self.depth, under.camera);
+        let (blend, depth_state, framed) = (self.blend, self.depth, under.camera);
+        let camera = framed.perspective();
         match &mut self.kind {
             Kind::Actor => {}
             Kind::Sprite(sprite) => {
@@ -2640,7 +2670,7 @@ impl Actor {
                     glow: s.glow,
                     blend,
                     depth: depth_state,
-                    perspective: camera,
+                    camera: framed,
                 }));
             }
             Kind::Text(text) => {
@@ -2681,14 +2711,20 @@ impl Actor {
             Kind::Frame(children) => {
                 // `ActorFrame::BeginDraw`: a camera of the frame's own for
                 // what is inside it.
-                let camera = if self.fov != -1.0 {
+                let framed = if self.fov != -1.0 {
                     let vanish = self
                         .vanish
                         .unwrap_or([view.size[0] / 2.0, view.size[1] / 2.0]);
-                    Perspective::new(view, self.fov, vanish)
+                    match Perspective::new(view, self.fov, vanish) {
+                        Some(p) => FrameCamera::Perspective(p),
+                        None => FrameCamera::Orthographic {
+                            depth: 1000.0 * view.scale(),
+                        },
+                    }
                 } else {
-                    camera
+                    framed
                 };
+                let camera = framed.perspective();
                 let mut scissor = under.scissor;
                 let clipped = match self.clip {
                     Some(r) => {
@@ -2715,7 +2751,7 @@ impl Actor {
                     m3,
                     diffuse: s.diffuse[0],
                     glow: s.glow,
-                    camera,
+                    camera: framed,
                     scissor,
                     blur,
                 };
@@ -3020,8 +3056,8 @@ struct Under {
     m3: Mat4,
     diffuse: Rgba,
     glow: Rgba,
-    /// The camera an `fov` frame around set; `None`: orthographic.
-    camera: Option<Perspective>,
+    /// The camera the `fov` frames around set.
+    camera: FrameCamera,
     /// The clips around, on the target.
     scissor: Option<[f32; 4]>,
     /// The motion blur around, on the target ([`Actor::motion_blur`]).
@@ -3998,9 +4034,37 @@ mod tests {
         let Drawn::Model(d) = &draw_all(&mut m)[0] else {
             panic!()
         };
-        let c = d.perspective.unwrap();
+        let FrameCamera::Perspective(c) = d.camera else {
+            panic!("{:?}", d.camera)
+        };
         assert!(close(c.distance, 427.0 / (22.5f32).to_radians().tan()));
         assert_eq!(c.vanish, [427.0, 240.0]);
+        // The frustum's planes, as its quads have them (`GetFrustumMatrix`:
+        // 1 and the distance + 1000).
+        assert!(close(c.near, 1.0) && close(c.far, c.distance + 1000.0));
+        // Under no frame: the drawer's; under `fov(0)`: orthographic, as
+        // quads there are, depth to ±1000 pixels (on a target at twice the
+        // scale, 2000).
+        let Drawn::Model(d) = &draw_all(&mut model())[0] else {
+            panic!()
+        };
+        assert_eq!(d.camera, FrameCamera::Drawer);
+        let mut flat = frame_of(vec![model()]);
+        run(&mut flat, "fov,0");
+        let mut out = Vec::new();
+        let doubled = View {
+            transform: [2.0, 0.0, 0.0, 2.0, 0.0, 0.0],
+            ..View::default()
+        };
+        flat.draw_in(
+            &doubled,
+            [2.0, 0.0, 0.0, 2.0, 0.0, 0.0],
+            [1.0; 4],
+            [1.0, 1.0, 1.0, 0.0],
+            &mut out,
+        );
+        let Drawn::Model(d) = &out[0] else { panic!() };
+        assert_eq!(d.camera, FrameCamera::Orthographic { depth: 2000.0 });
     }
 
     #[test]

@@ -1173,3 +1173,18 @@ fn corners_masks_and_shadows_from_lua() {
         ]
     );
 }
+
+#[test]
+fn a_shifted_env_times_beats_as_the_shifted_song() {
+    let env = Env {
+        timing: ddi_chart::TimingMap::constant(120.0, 0.25),
+        first_beat: 4.0,
+        ..Env::default()
+    };
+    let played = env.clone().shifted(0.1);
+    // A note 0.1 s later, as `Song::shift_notes(0.1)` moves it.
+    let later = played.timing.seconds_at_beat(8.0) - env.timing.seconds_at_beat(8.0);
+    assert!((later - 0.1).abs() < 1e-12, "{later}");
+    // Beats are the chart's: the shift moves only when they sound.
+    assert_eq!(played.first_beat, 4.0);
+}

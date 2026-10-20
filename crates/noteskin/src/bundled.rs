@@ -31,6 +31,22 @@ pub struct Bundled {
 /// The start of a bundled skin's key.
 pub const KEY_PREFIX: &str = "bundled:";
 
+/// The `noteskin` setting's value for the built-in arrows without a skin.
+pub const BUILT_IN: &str = "builtin";
+
+/// Dito's key, [`key`]`("dance", "Dito", true)` (its color variants' are
+/// `bundled:dance/dito <scheme>`, [`dito`]).
+pub const DITO: &str = "bundled:dance/dito";
+
+/// The key of Dito's color variant `scheme` (`vivid`, `flat`, …), or
+/// Dito's own ([`DITO`]) for none.
+pub fn dito(scheme: Option<&str>) -> String {
+    match scheme {
+        Some(scheme) => format!("{DITO} {}", scheme.to_ascii_lowercase()),
+        None => DITO.to_string(),
+    }
+}
+
 /// `<game>/<name>` in lower case (names match ignoring case, as
 /// StepMania's do): an imported skin's key, and a bundled one's after
 /// [`KEY_PREFIX`].
@@ -103,4 +119,20 @@ pub fn pickable<'a>(skins: impl IntoIterator<Item = Candidate<'a>>) -> Vec<(Stri
         .collect();
     list.sort_by_key(|(mine, _, n)| (*mine, n.to_lowercase()));
     list.into_iter().map(|(_, k, n)| (k, n)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keys() {
+        assert_eq!(key("dance", "Dito", true), DITO);
+        assert_eq!(dito(None), DITO);
+        assert_eq!(dito(Some("vivid")), key("dance", "Dito vivid", true));
+        assert_eq!(key("Pump", "Cmd", false), "pump/cmd");
+        assert_eq!(strike_key("dance", "Dito flat", true, Some("Dito")), DITO);
+        assert!(!key("dance", "Delta", false).starts_with(KEY_PREFIX));
+        assert_ne!(BUILT_IN, key("dance", "builtin", true));
+    }
 }

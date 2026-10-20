@@ -17,7 +17,7 @@ use ddi_desktop::audio::Audio;
 use ddi_desktop::gpu;
 use ddi_desktop::library::files::{DirReader, walk};
 use ddi_desktop::play::load::{Files, Loaded};
-use ddi_desktop::play::view::{Formats, Rgba, View, render_options};
+use ddi_desktop::play::view::{Formats, Rgba, View};
 use ddi_desktop::play::{Feed, Play, Request};
 use ddi_platform::HostTime;
 use ddi_platform::decode_all::Range;
@@ -192,7 +192,7 @@ fn play(adapter: &wgpu::Adapter, root: &Path, times: &[f64]) -> Vec<(f64, [u8; 3
         ..Default::default()
     });
     let plain = texture.create_view(&Default::default());
-    let render = render_options(&settings);
+    let render = ddi_shell::render_options(&settings);
     #[cfg(feature = "video")]
     {
         let start = std::time::Instant::now();

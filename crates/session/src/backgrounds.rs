@@ -11,6 +11,13 @@ use ddi_ui::state::settings::BackgroundFrame;
 pub const FOUR_THREE: f32 = 4.0 / 3.0;
 pub const SIXTEEN_NINE: f32 = 16.0 / 9.0;
 
+/// The song background is scaled down to this side at most: the texture
+/// size every WebGL2 device supports, and more than the field needs.
+pub const MAX_BACKGROUND_SIDE: u32 = 2048;
+/// Background-change images are scaled down further: a song may have
+/// dozens, all kept on the GPU during play.
+pub const MAX_CHANGE_SIDE: u32 = 1280;
+
 /// The cabinet screen shape nearest to `aspect` (by ratio): a square
 /// jacket fills a 4:3 frame, an ultrawide picture a 16:9 one.
 pub fn cabinet_shape(aspect: f32) -> f32 {

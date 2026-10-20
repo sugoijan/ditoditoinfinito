@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ddi_desktop::audio::Audio;
 use ddi_desktop::gpu;
-use ddi_desktop::play::view::{Formats, Rgba, View, render_options};
+use ddi_desktop::play::view::{Formats, Rgba, View};
 use ddi_desktop::play::{Feed, Play, Request, host, load};
 use ddi_platform::HostTime;
 use ddi_ui::state::settings::Settings;
@@ -149,7 +149,7 @@ fn frames(
         60.0,
     )
     .unwrap();
-    let render = render_options(settings);
+    let render = ddi_shell::render_options(settings);
     let step = 1_000_000_000 / 60;
     let pixels = loop {
         let now = clock.fetch_add(step, Ordering::SeqCst) + step;

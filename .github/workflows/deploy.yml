@@ -17,6 +17,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# The desktop's default `danoni-importer` feature prepares the native URL
+# importer (a JDK, CMake, the pinned Ruffle release); checks and tests
+# build without it, URL import unavailable. Its own build and package
+# run in danoni.yml.
+env:
+  DDI_IMPORTER_TEST_ONLY: "1"
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -56,7 +63,7 @@ jobs:
           cargo run -p xtask -- gen-noteskins
           cargo run -p xtask -- gen-credits --check
       - name: Native tests
-        run: cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
+        run: cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
 
   # The desktop shell on the three systems it is for, with and without
   # background movies (the `video` feature: the sandboxed FFmpeg helper,

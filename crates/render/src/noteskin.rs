@@ -17,10 +17,12 @@ use ddi_engine::frame::{Frame, HoldKind, NoteSprite, SkinEvent, SkinEventKind, S
 use ddi_engine::rules::Judgement;
 use ddi_lua::Failure;
 use ddi_noteskin::build::{Built, Images, TextureKey, Textures, build, build_colored};
-use ddi_noteskin::lua::{FrameBudget, LuaSkin, NOTE_COLORS, Param, Pause, Position};
+use ddi_noteskin::lua::{
+    Env, FrameBudget, LoadBudget, LuaSkin, NOTE_COLORS, Param, Pause, Position,
+};
 use ddi_noteskin::metrics::{NoteDisplay, Part};
 use ddi_noteskin::notes::{animation_percent, color_offset, note_type};
-use ddi_noteskin::{Button, LaneButton, Skin};
+use ddi_noteskin::{Button, Folder, LaneButton, Skin};
 
 use crate::actors2d;
 use crate::color::to_target;
@@ -684,6 +686,53 @@ impl NoteskinPlay {
         }
     }
 
+    /// Builds skin `name` among `folders` (its fallbacks' too) through its
+    /// Lua for `layout`, both shells' way: a VM of its own with hash seed
+    /// `seed` (a play's two passes share one, so tables iterate alike) and
+    /// the load's budget ([`LoadBudget::default`]), the prelude and the
+    /// `NoteSkin.lua` chain run, then [`NoteskinPlay::with_lua`]. `clock`
+    /// is the host's for the Lua's deadlines, in seconds; `pause` gives
+    /// the host its turn between slices (none: the load runs straight
+    /// through and never waits, so a caller may poll it to its end at
+    /// once). `Ok(None)` when the layout's lanes are not the skin's
+    /// buttons; why it could not otherwise (the caller then builds it
+    /// natively, [`NoteskinPlay::new`]).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn load_lua(
+        folders: &[Folder],
+        game: &str,
+        name: &str,
+        env: Env,
+        seed: u64,
+        layout: &Layout,
+        images: &dyn Images,
+        clock: Box<dyn FnMut() -> f64>,
+        mut pause: Option<&mut Pause>,
+    ) -> Result<Option<NoteskinPlay>, String> {
+        let loaded = Skin::load(folders, game, name).map_err(|e| e.to_string())?;
+        // Lanes no skin draws (`Skin::lane_button`).
+        if layout.lanes.iter().any(|l| loaded.lane_button(l).is_none()) {
+            return Ok(None);
+        }
+        let settings = ddi_lua::Settings {
+            hash_seed: seed,
+            ..ddi_lua::Settings::default()
+        };
+        let lua = LuaSkin::new_sliced(
+            loaded.into_owned(),
+            env,
+            settings,
+            LoadBudget::default(),
+            clock,
+            pause.as_deref_mut(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        NoteskinPlay::with_lua(lua, layout, images, true, pause)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
     /// Builds every lane's elements through the skin's Lua, giving the host
     /// a turn between slices of it. `Ok(None)` when the layout's lanes are
     /// not dance buttons; an error when the skin's Lua stopped (the caller
@@ -1345,11 +1394,7 @@ impl NoteskinPlay {
         } = &mut scratch;
         seen.clear();
         // An `fov` frame's camera, or the field's.
-        let camera = m
-            .perspective
-            .as_ref()
-            .map_or(self.camera, Camera::of_perspective);
-        triangles_with(m, &camera, offset, seen, corners);
+        triangles_with(m, &self.camera, offset, seen, corners);
         // A frame's budget: models past it are not drawn.
         let passes = 1 + usize::from(m.glow[3] > 0.0001);
         let total = self.triangles.get() + seen.len() * passes;
@@ -2072,8 +2117,6 @@ mod tests {
 
     use ddi_engine::appearance::Appearance;
     use ddi_engine::frame::ReceptorState;
-    use ddi_noteskin::Folder;
-    use ddi_noteskin::lua::{Env, LoadBudget};
 
     struct NoImages;
 
@@ -2182,6 +2225,70 @@ mod tests {
             std::task::Poll::Ready(r) => r.unwrap().unwrap(),
             std::task::Poll::Pending => panic!("pending"),
         }
+    }
+
+    /// The shells' load ([`NoteskinPlay::load_lua`]): with no pause it
+    /// never waits (desktop polls it to its end at once); with one it
+    /// gives the host turns (the web's) and builds the same skin; a
+    /// missing skin is an error.
+    #[test]
+    fn load_lua_runs_through_or_in_slices() {
+        let file = |name: &str, text: &str| (name.to_string(), text.to_string());
+        let texts = vec![
+            file("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            file(
+                "Down Tap Note.lua",
+                "local n = 0\nfor i = 1, 100000 do n = n + i end\n\
+                 return Def.ActorFrame { Def.Sprite { Texture = 'x.png' } }\n",
+            ),
+        ];
+        let mut files: Vec<String> = texts.iter().map(|(n, _)| n.clone()).collect();
+        files.push("x.png".into());
+        let folders = vec![Folder {
+            game: "dance".into(),
+            name: "slow".into(),
+            files,
+            texts,
+        }];
+        let clock = || -> Box<dyn FnMut() -> f64> {
+            let mut t = 0.0;
+            Box::new(move || {
+                t += 1e-6;
+                t
+            })
+        };
+        let cx = &mut std::task::Context::from_waker(std::task::Waker::noop());
+        let layout = Layout::dance_single();
+        let mut load = |name: &str, pause: Option<&mut Pause>| {
+            let mut f = std::pin::pin!(NoteskinPlay::load_lua(
+                &folders,
+                "dance",
+                name,
+                Env::default(),
+                7,
+                &layout,
+                &NoImages,
+                clock(),
+                pause,
+            ));
+            match f.as_mut().poll(cx) {
+                std::task::Poll::Ready(r) => r,
+                std::task::Poll::Pending => panic!("waited without a pause"),
+            }
+        };
+        let straight = load("slow", None).unwrap().unwrap();
+        // The host's turns: each resolves at once, counted.
+        let turns = std::rc::Rc::new(std::cell::Cell::new(0));
+        let counted = turns.clone();
+        let mut pause = move || -> std::pin::Pin<Box<dyn Future<Output = ()>>> {
+            counted.set(counted.get() + 1);
+            Box::pin(std::future::ready(()))
+        };
+        let sliced = load("slow", Some(&mut pause)).unwrap().unwrap();
+        assert!(turns.get() > 0);
+        assert_eq!(straight.own_elements(1), sliced.own_elements(1));
+        assert_eq!(straight.notes, sliced.notes);
+        assert!(load("none", None).is_err());
     }
 
     /// The shipped DanOni scripts, through exactly the same loader as play.

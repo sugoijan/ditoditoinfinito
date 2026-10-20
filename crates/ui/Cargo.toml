@@ -13,6 +13,7 @@ ddi-actor.workspace = true
 ddi-chart.workspace = true
 ddi-engine.workspace = true
 ddi-library.workspace = true
+ddi-noteskin.workspace = true
 ddi-platform.workspace = true
 serde.workspace = true
 serde_json.workspace = true

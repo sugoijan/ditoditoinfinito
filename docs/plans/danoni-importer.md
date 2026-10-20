@@ -1,8 +1,8 @@
 # Desktop DanOni URL importer
 
-The optional `danoni-importer` feature builds an isolated native importer and
-its pinned extraction worker beside the app. `danoni` remains an alias. The
-browser and Windows builds keep Add songs' file workflow and do not run this
+The `danoni-importer` feature, on by default for desktop since 2026-10-21,
+builds an isolated native importer and its pinned extraction worker beside the
+app. `danoni` remains an alias. The browser and Windows builds keep Add songs' file workflow and do not run this
 preparation. Supported native hosts are macOS and x86_64 Linux. The normal game
 binary links only the pure `ddi-importer-protocol`, URL validation and SHA-256;
 the acquisition SDK runs in the separate helper process. The helper and SDK
@@ -47,11 +47,12 @@ against 2 GiB RSS. Default/web/Windows checks invoke no helper preparation tools
 ```
 cargo run -p xtask -- gen-songs
 cargo run -p xtask -- gen-noteskins
-cargo build -p ditoditoinfinito --features danoni-importer
+cargo build -p ditoditoinfinito
 python3 tools/danoni-importer/build.py package --app target/debug/ditoditoinfinito --output /tmp/ddi-package
 ```
 
-The app keeps video enabled by default. A deliberately smaller package can use
+The app keeps video and the importer enabled by default (`--no-default-features
+--features video` builds without the importer). A deliberately smaller package can use
 `--no-default-features --features danoni-importer`; this forwards the app's video
 choice to desktop. Video-enabled packages require the decoder helper
 `crates/desktop/build.rs` staged beside the app (`video/ddi-video-helper`, whose
@@ -105,7 +106,8 @@ staged beside native build artifacts as well, including arbitrary Cargo target
 directories; a package always uses its sibling assets.
 
 `DDI_IMPORTER_TEST_ONLY=1` is a deliberate debug-only exception for cheap
-Clippy/unit IPC tests: no runtime is prepared and discovery remains disabled
+Clippy/unit IPC tests (`just test`, `just check` and `deploy.yml` set it, now that
+the feature is on by default): no runtime is prepared and discovery remains disabled
 with empty bindings. It is refused for release/custom profiles; such a binary
 cannot pass packaging. CI has separate cheap fixture tests and a real native
 package lane (main pushes/manual runs) that installs build prerequisites,

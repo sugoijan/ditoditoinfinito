@@ -49,7 +49,8 @@ pub struct Settings {
     /// be linked (Chromium), so they survive the folder moving.
     pub import_copy: bool,
     /// Also copy background-change movies when songs are copied into the
-    /// browser (they are most of a pack's size); linked songs read them
+    /// browser (they are most of a pack's size; on by default, since a
+    /// copied song's movie left out never plays); linked songs read them
     /// from their folder either way.
     pub import_videos: bool,
     /// How notes are colored.
@@ -269,7 +270,7 @@ impl Default for Settings {
             lyrics: true,
             import_details: false,
             import_copy: false,
-            import_videos: false,
+            import_videos: true,
             bg_brightness: 0.4,
             video: VideoMode::Auto,
             background_frame: BackgroundFrame::Auto,
@@ -298,12 +299,10 @@ impl Default for Settings {
     }
 }
 
-/// The noteskin setting's value for the built-in arrows without a skin.
-pub const BUILT_IN: &str = "builtin";
-/// Bundled skins' keys start so.
-pub const BUNDLED: &str = "bundled:";
-/// Dito's key (its color variants' are `bundled:dance/dito <scheme>`).
-pub const DITO: &str = "bundled:dance/dito";
+/// The noteskin keys' forms, defined with the skins
+/// ([`ddi_noteskin::bundled`]): the built-in arrows' value, bundled skins'
+/// prefix ([`BUNDLED`]) and Dito's key.
+pub use ddi_noteskin::bundled::{BUILT_IN, DITO, KEY_PREFIX as BUNDLED};
 
 /// Whether a noteskin key is a pump skin's (`pump/…`, `bundled:pump/…`).
 pub fn is_pump_skin(key: &str) -> bool {
@@ -344,16 +343,13 @@ impl Settings {
             Some(BUILT_IN) => None,
             Some(key) => Some(key.to_string()),
             None if chart_colors => None,
-            None => Some(
-                match self.note_colors {
-                    NoteColors::Quantized => DITO,
-                    NoteColors::Vivid => "bundled:dance/dito vivid",
-                    NoteColors::Flat => "bundled:dance/dito flat",
-                    NoteColors::Rainbow => "bundled:dance/dito rainbow",
-                    NoteColors::Single => "bundled:dance/dito single",
-                }
-                .to_string(),
-            ),
+            None => Some(ddi_noteskin::bundled::dito(match self.note_colors {
+                NoteColors::Quantized => None,
+                NoteColors::Vivid => Some("vivid"),
+                NoteColors::Flat => Some("flat"),
+                NoteColors::Rainbow => Some("rainbow"),
+                NoteColors::Single => Some("single"),
+            })),
         }
     }
 

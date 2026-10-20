@@ -20,6 +20,8 @@ ddi-lua.workspace = true
 ddi-ui.workspace = true
 # The play session, shared with desktop (step 7.1).
 ddi-session.workspace = true
+# What both shells do between the settings and the renderer.
+ddi-shell.workspace = true
 ddi-theme.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true

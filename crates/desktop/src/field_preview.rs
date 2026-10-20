@@ -12,44 +12,8 @@ use std::time::Instant;
 use ddi_chart::Layout;
 use ddi_render::Painter;
 pub use ddi_render::field_preview::SkinWant;
-use ddi_render::field_preview::{BPM, FieldPreview, FieldPreviewOptions, SOURCE};
-use ddi_ui::state::settings::{BackgroundFrame, Settings};
-
-use crate::play::view::note_scheme;
-
-/// The preview's options under `settings`, as the web builds them
-/// (`crates/web/src/field_preview.rs`, play's own).
-pub fn options(settings: &Settings) -> FieldPreviewOptions {
-    let layout = if Layout::builtin(&settings.style).is_some() {
-        settings.style.clone()
-    } else {
-        "dance-single".to_string()
-    };
-    let rules = ddi_engine::demo::song(&layout, BPM)
-        .and_then(|s| s.charts.first().map(|c| settings.ruleset_for(c).key()))
-        .unwrap_or_else(|| settings.ruleset().key());
-    FieldPreviewOptions {
-        autoplay_flashes: false,
-        layout,
-        play: settings.play_options(None),
-        rules,
-        note_colors: note_scheme(settings.note_colors),
-        field_filter: settings.field_filter,
-        show_deltas: settings.show_deltas,
-        background: settings.bg_brightness,
-        frame_aspect: match settings.background_frame {
-            BackgroundFrame::Screen => None,
-            BackgroundFrame::FourThree => Some(4.0 / 3.0),
-            BackgroundFrame::SixteenNine | BackgroundFrame::Auto => Some(16.0 / 9.0),
-        },
-    }
-}
-
-/// The noteskin the preview's layout is drawn with under `settings`
-/// and what it is readied for: key `None` for the built-in arrows.
-pub fn skin_want(settings: &Settings, options: &FieldPreviewOptions) -> SkinWant {
-    SkinWant::new(settings.play_skin(&options.layout, None), options)
-}
+use ddi_render::field_preview::{FieldPreview, FieldPreviewOptions, SOURCE};
+use ddi_ui::state::settings::Settings;
 
 /// The preview, while a screen shows it.
 pub struct Field {
@@ -116,8 +80,8 @@ impl Field {
     /// The options and the noteskin under `settings` (the skin readied
     /// on the next frame when it changed).
     pub fn set_settings(&mut self, settings: &Settings) {
-        let options = options(settings);
-        self.wanted = Some(skin_want(settings, &options));
+        let options = ddi_shell::field_preview_options(settings);
+        self.wanted = Some(ddi_shell::field_preview_skin(settings, &options));
         self.options = options;
     }
 

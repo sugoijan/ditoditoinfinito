@@ -10,14 +10,19 @@
 //!   recorded with.
 //! - [`calibration`]: the converging calibration's modes, generated chart
 //!   and click track.
-//! - [`backgrounds`]: the frame backgrounds are fitted into, the refresh
-//!   rate measured from frames, the automatic video setting's step.
+//! - [`backgrounds`]: the frame backgrounds are fitted into, the sides
+//!   their images are kept at, the refresh rate measured from frames, the
+//!   automatic video setting's step.
+//! - [`movies`]: a play's background movies: which segments have a
+//!   decoder, their tracks, the frames due and what shows (the shell
+//!   opens the decoders and makes the textures).
 //! - [`stage`]: a Dancing☆Onigiri work's layers' timeline in a play.
 //! - [`record`]: what the play history keeps of a play.
 //! - [`preview`]: song select's previews' length and fades.
 
 pub mod backgrounds;
 pub mod calibration;
+pub mod movies;
 pub mod play;
 pub mod preview;
 pub mod record;

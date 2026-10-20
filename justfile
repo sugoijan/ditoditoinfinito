@@ -27,9 +27,10 @@ animation scenario="docs/screenshots/animation.json" output="docs/screenshots/re
 app-check:
     @cargo check -p ditoditoinfinito -p ddi-opus-worker --target wasm32-unknown-unknown
 
-# Check the platform-independent crates natively
+# Check the platform-independent crates natively (the desktop without
+# preparing its DanOni importer: DDI_IMPORTER_TEST_ONLY)
 core-check:
-    @cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-opus-worker -p ddi-desktop -p ditoditoinfinito -p xtask
+    @DDI_IMPORTER_TEST_ONLY=1 cargo check -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-opus-worker -p ddi-desktop -p ditoditoinfinito -p xtask
 
 # Run all checks
 check: core-check app-check regen-seo reuse-lint
@@ -63,7 +64,8 @@ test:
     @# (Trunk's builds write them too; a fresh checkout has none).
     @cargo run -q -p xtask -- gen-songs
     @cargo run -q -p xtask -- gen-noteskins
-    @cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
+    @# The desktop's DanOni importer is built but not prepared (no JDK).
+    @DDI_IMPORTER_TEST_ONLY=1 cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
 
 # DanOni workspace SDK and separate research probe checks (Python 3 and ffmpeg; no live imports)
 danoni-check *args:

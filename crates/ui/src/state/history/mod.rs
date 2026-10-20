@@ -7,10 +7,11 @@
 //! worked out again ([`rework`]) when the judge has changed since
 //! ([`JUDGE_VERSION`]). [`History`] holds the summaries in memory and
 //! answers for the bests; [`Plays`] puts it over a [`PlayStore`] for the
-//! shells.
+//! shells, and [`Reworker`] says when stale plays are worked out again.
 
 mod plays;
 mod replay;
+mod reworker;
 #[cfg(test)]
 mod tests;
 
@@ -27,10 +28,11 @@ pub use ddi_chart::ChartDigest;
 pub use ddi_engine::JUDGE_VERSION;
 pub use ddi_engine::history::{LogError, LoggedInput, PlayLog, PlayTiming, replay};
 pub use ddi_engine::rules::RulesetKey;
-pub use plays::{Plays, export_lines};
+pub use plays::{Plays, Reworked, export_lines, rework_entries};
 pub use replay::{
     Ghost, GhostDelta, GhostRun, Replay, ReplayCheck, Replaying, local_time, play_rows, plays_list,
 };
+pub use reworker::{FOCUS_STEP_MS, PASS_STEP_MS, REWORK_BATCH, ReworkStep, Reworker};
 
 /// The version of [`PlayRecord`]'s and [`PlaySummary`]'s format. The
 /// reader keeps reading every past one.

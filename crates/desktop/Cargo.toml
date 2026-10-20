@@ -29,6 +29,8 @@ glyphon.workspace = true
 csscolorparser = "0.9.0"
 # The play (`src/play/`): the session the web runs too.
 ddi-session.workspace = true
+# What both shells do between the settings and the renderer.
+ddi-shell.workspace = true
 ddi-ui.workspace = true
 ddi-theme.workspace = true
 serde_json.workspace = true
@@ -65,9 +67,11 @@ ddi-video-protocol = { workspace = true, optional = true }
 
 [features]
 # Background movies through the sandboxed FFmpeg helper (steps 7.7 and
-# 7.5), on by default; `--no-default-features` builds without it (and
-# `build.rs` then builds no helper).
-default = ["video"]
+# 7.5), and the DanOni URL importer where it is supported (macOS, x86_64
+# Linux; `build.rs`), both on by default; `--no-default-features` builds
+# without them (and `build.rs` then builds no helper). Checks and tests set
+# `DDI_IMPORTER_TEST_ONLY=1` to build without preparing the importer.
+default = ["video", "danoni-importer"]
 # Build and stage the isolated native URL importer beside the application.
 # Runtime SDK dependencies stay in the separate helper process; the app
 # links only the platform-free protocol and bundle integrity hashing.

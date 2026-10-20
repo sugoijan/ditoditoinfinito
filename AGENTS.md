@@ -85,7 +85,8 @@ the browser are implementation details, not advertised features.
   flow in `crates/ui/src/state/bind.rs`); the state screens read (settings and
   their migrations, the song list's place, song select's data from a
   library (`select_view.rs`), the play
-  history and its replays, `crates/ui/src/state/history/`; stored through
+  history and its replays, `crates/ui/src/state/history/`, and when its
+  stale plays are judged again, `reworker.rs`; stored through
   `ddi_platform::storage`, which each shell installs) and the developer
   screen both shells run (`crates/ui/src/dev.rs`). Pure, natively tested.
 - `crates/theme/` our theme (`ddi-theme`, `docs/plans/theme.md`): `Infinito`,
@@ -100,9 +101,11 @@ the browser are implementation details, not advertised features.
   images, MilkShape models and commands, and
   (`crates/noteskin/src/lua/`) a skin's Lua run at load over `lua/`; StepMania
   3.9's and OpenITG's format built natively (`crates/noteskin/src/legacy.rs`);
-  SVG images in a checked subset (`crates/noteskin/src/svg.rs`, our extension). Pure,
+  SVG images in a checked subset (`crates/noteskin/src/svg.rs`, our extension);
+  the skin keys settings store (`crates/noteskin/src/bundled.rs`). Pure,
   natively tested; `docs/plans/noteskins.md`. `crates/render/src/noteskin.rs`
-  draws a skin in play and runs its Lua each frame. Our opt-in
+  loads a skin through its Lua for both shells (`NoteskinPlay::load_lua`),
+  draws it in play and runs its Lua each frame. Our opt-in
   `HoldUseDroppedState` loads separate per-note dropped actors; hit messages
   carry `Autoplay` and local `HitX`/`HitY` from the hit note's last drawn
   position (`tools/noteskin-danoni/README.md`). These are presentation data,
@@ -117,11 +120,23 @@ the browser are implementation details, not advertised features.
   `docs/plans/desktop.md` 7.1): the play (`play.rs`: the engine's
   `Player`, bindings, the quit gesture, autoplay and `auto=pad`, the
   fail's fade, a work's start and end fades, the facts a play is kept
-  with, a kept play replayed from its log), calibration's modes, chart and click track, backgrounds' frame
-  and the automatic video setting's step, a work's layers' timeline;
-  generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
+  with, a kept play replayed from its log), calibration's modes, chart and click track, backgrounds' frame,
+  the sides their images are kept at
+  and the automatic video setting's step, a work's layers' timeline, the
+  play's background movies (`movies.rs`: `MovieSlots`, which segments
+  have a decoder, their tracks and what shows, each shell's decoders
+  behind `MovieShell`; `BackdropTextures`, both shells' `movies.rs` run
+  on it); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
   (`crates/web/src/play.rs` is the web's). Platform-free, natively tested on a
   fake clock.
+- `crates/shell/` what both shells do between the settings (`ddi-ui`) and
+  `render` (`ddi-shell`), so neither keeps a copy: a play's
+  `RenderOptions` and Options' field preview's options and skin from the
+  settings, the note colors as the renderer has them, the ghost's lead as
+  the HUD shows it, and a work's layers' textures
+  (`crates/shell/src/stage.rs`, generic over each shell's decoded content:
+  the web's `ImageBitmap`, desktop's RGBA rows). Platform-free (native
+  and wasm), natively tested.
 - `crates/app/` the game (`ditoditoinfinito`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
   everywhere else; Trunk builds it for the browser (`site/index.html`, with the page's
@@ -170,7 +185,8 @@ the browser are implementation details, not advertised features.
   helper of their own, `video/packets.rs`);
   movies in zips read in place or extracted once),
   a work's layers and lyrics, the theme's results, the history in the
-  data folder, replays, `play/replays.rs`); a play's frames paced (`pacing/`: blocking in the
+  data folder (stale plays judged again on a thread, `history.rs`),
+  replays, `play/replays.rs`); a play's frames paced (`pacing/`: blocking in the
   acquire, or each started as late before its refresh as its
   cost allows (late with two frames in flight by default when a display
   link is available, block with one elsewhere); pure, with a simulated display in `pacing/sim.rs`, built
@@ -216,14 +232,17 @@ the browser are implementation details, not advertised features.
 - `tools/danoni-importer/` the native helper, a root workspace member requiring
   Rust 1.99 (as does the SDK). Both share the root lock; the `importer` profile
   keeps native builds unwinding with bounded compiler memory.
-  `--features danoni-importer` (`danoni` alias) prepares the pinned worker/helper
+  The desktop's default feature `danoni-importer` (`danoni` alias; the web
+  never builds it) prepares the pinned worker/helper
   and complete notices through `crates/desktop/build.rs`, stages an immutable bundle
   beside the app, and compiles only its content ID/digest into desktop. The SDK
   is not linked into the app. `build.py package` copies a complete relocatable
   distribution; see `docs/plans/danoni-importer.md`. Python/Java are build-time
-  prerequisites only. No helper preparation runs for default, wasm or Windows
-  builds. `DDI_IMPORTER_TEST_ONLY=1` skips preparation only in debug unit/check
-  builds, leaves import unavailable and cannot be packaged.
+  prerequisites only. No helper preparation runs for wasm or Windows builds or
+  with `--no-default-features`. `DDI_IMPORTER_TEST_ONLY=1` skips preparation
+  only in debug unit/check builds (`just test`, `just check`, CI's
+  `deploy.yml`, and agents' clippy and test runs set it), leaves import
+  unavailable and cannot be packaged.
   Desktop's URL tab is a user-triggered single-work download: no site-approval
   prompt or robots.txt request, with the usual public-address checks, limits and
   pacing. The SDK's research/batch default still respects robots. Show real task
@@ -269,16 +288,18 @@ the browser are implementation details, not advertised features.
 
 ## Commands
 
-- `cargo build --features danoni-importer` includes the native URL-import
-  helper/runtime on macOS and x86_64 Linux. The first build fetches pinned public
+- `cargo build` includes the native URL-import helper/runtime on macOS and
+  x86_64 Linux (the default `danoni-importer` feature; a JDK, CMake and
+  Python 3.11+ at build time). The first build fetches pinned public
   build inputs; no runtime tools or maintainer configuration are needed by the
   result. `python3 tools/danoni-importer/build.py package --app
   target/debug/ditoditoinfinito --output /tmp/ddi-package` prepares a fresh
   relocatable folder. Keep its assets, notices, optional full video payload and
   `danoni-importer/` beside the executable. `--danoni-bundle-info` and
   `--danoni-importer-check` inspect it without a window or sound device. The app
-  defaults to video; `--no-default-features --features danoni-importer` makes a
-  deliberate no-video package.
+  defaults to video and the importer; `--no-default-features --features
+  danoni-importer` makes a deliberate no-video package, `--no-default-features
+  --features video` a build without the importer.
 - `cargo run` opens the desktop app on our theme's song select
   (`--profile desktop` for smooth frames: `release` is the wasm bundle's,
   tuned for size and aborting on panics). Flags (`ddi_desktop::run`):
@@ -337,8 +358,8 @@ the browser are implementation details, not advertised features.
   through `container run` (`act` with `socktainer` gets as far as
   `actions/checkout`, then cannot copy its step scripts into the
   container).
-- `just test` native tests (chart, engine, render, session, platform with
-  `decode` and, through desktop, `decode-all` (its references against
+- `just test` native tests (chart, engine, render, session, shell,
+  platform with `decode` and, through desktop, `decode-all` (its references against
   the `ffmpeg` command where it is installed), library with `nfkd`,
   actor, ui, theme, noteskin, lua, desktop, xtask), after writing the
   bundled songs' and noteskins' indexes the desktop's tests read. The

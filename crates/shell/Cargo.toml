@@ -1,0 +1,17 @@
+[package]
+name = "ddi-shell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DitoDitoInfinito: what both shells do between the settings and the renderer (the field's options, a work's layers' textures), platform-free"
+
+[dependencies]
+ddi-chart.workspace = true
+ddi-engine.workspace = true
+ddi-render.workspace = true
+ddi-session.workspace = true
+ddi-ui.workspace = true
+wgpu.workspace = true

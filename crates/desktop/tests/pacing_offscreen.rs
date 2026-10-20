@@ -21,7 +21,7 @@ use ddi_desktop::audio::Audio;
 use ddi_desktop::gpu;
 use ddi_desktop::pacing::sim::{Display, Surface};
 use ddi_desktop::pacing::{Mode, Next, Pacer, Report};
-use ddi_desktop::play::view::{Formats, Rgba, View, render_options};
+use ddi_desktop::play::view::{Formats, Rgba, View};
 use ddi_desktop::play::{Feed, Play, Request, host, load};
 use ddi_platform::HostTime;
 use ddi_ui::state::settings::Settings;
@@ -121,7 +121,7 @@ fn a_play_paced_late_draws_for_the_refresh_it_is_shown_at() {
         60.0,
     )
     .unwrap();
-    let render = render_options(&settings);
+    let render = ddi_shell::render_options(&settings);
     let draw = |view: &mut View, play: &mut Play, now: HostTime, keep: bool| {
         play.tick(now, None);
         let mut encoder = device.create_command_encoder(&Default::default());

@@ -22,7 +22,10 @@ const SUMMARY: &str = ".summary.json";
 const RAW: &str = ".json";
 const TMP: &str = ".tmp";
 
-/// Plays as files in a folder.
+/// Plays as files in a folder. A clone is the same folder (the history's
+/// thread reads and writes through one; only [`FilePlayStore::new`]
+/// removes a crash's temporary files).
+#[derive(Clone)]
 pub struct FilePlayStore {
     dir: PathBuf,
 }

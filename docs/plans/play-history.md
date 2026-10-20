@@ -387,6 +387,38 @@ export, base64 included (5,004 such short plays export to 40 MB).
    play, a crash's temporary file, the play's file unchanged by a new
    summary, the export in batches, removal, and the model over it.
    Nothing records on desktop until it plays.
+
+   **Re-working on both shells** (2026-10-20). Desktop recorded plays
+   from phase 9 but never worked stale ones out again: their bests stayed
+   pending. What the web's `history.rs` decided moved into
+   `ddi_ui::state::history::Reworker` (sans IO, `reworker.rs`): which
+   step is next (`ReworkStep`: wait, done, read a song's chart, judge a
+   batch of `REWORK_BATCH` = 8), the focused song first every
+   `FOCUS_STEP_MS` (16 ms), the background pass every `PASS_STEP_MS`
+   (1.5 s, also the first step's wait), a song at a time in id order with
+   its chart read once, a song whose chart cannot be read left for the
+   session, nothing during a play or before the summaries are in.
+   `Plays::rework_song` is now `Plays::stale_batch`, the pure
+   `rework_entries` and `Plays::set_worked` (memory and the unmatched
+   plays), which a shell may also run apart. The web runs the reworker on
+   its timers as before (the same order, batches, waits and fallbacks).
+   Desktop (`crates/desktop/src/history.rs`, `Rework`): driven from the
+   event loop (`Songs::rework` before `Songs::poll`, which sends song
+   select the bests when the history's generation moves; the loop sleeps
+   until `Rework::due`), with charts read (`play::load::read_chart`, by
+   digest through `library::find_by_digest` where the song id is gone),
+   records read, plays judged and summaries written (a synced file each,
+   about 5 ms on an Apple SSD) on a thread of its own; the summaries in
+   memory are set on the event loop's thread. It steps only once the
+   library's scan is done, takes a song's plays first when the play
+   host has read its chart (`Host::chart_loaded`), clears that focus
+   when the prompt, play and results are gone, and tries songs it could
+   not read again when the library changes (the web never retries).
+   Tested: `crates/ui/src/state/history/tests.rs`
+   (`the_reworker_takes_the_focused_song_first_then_the_rest_in_batches`)
+   and `crates/desktop/tests/rework.rs` (stale plays of a bundled song, one
+   under a gone id, worked out on the thread, written, bests no longer
+   pending; nothing during a play).
 7. **Song select's bests** (`ui-core.md` 6.2): done 2026-10-16, the
    bests on the ladder rows.
 

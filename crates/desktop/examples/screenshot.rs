@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ddi_chart::Difficulty;
 use ddi_desktop::audio::Audio;
 use ddi_desktop::gpu;
-use ddi_desktop::play::view::{Formats, Rgba, View, render_options};
+use ddi_desktop::play::view::{Formats, Rgba, View};
 use ddi_desktop::play::{Feed, Play, Request, host, load};
 use ddi_platform::HostTime;
 use ddi_ui::state::settings::Settings;
@@ -173,7 +173,7 @@ fn main() -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let mut capture = Capture::new(&output, scenario.size, scenario.animation.as_ref())?;
-    let render = render_options(&settings);
+    let render = ddi_shell::render_options(&settings);
     let last = ((scenario.seconds + duration + 5.0) * f64::from(scenario.fps)).ceil() as u64;
     let mut captured = 0;
     let mut first = None;

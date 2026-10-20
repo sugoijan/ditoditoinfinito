@@ -17,7 +17,7 @@ use ddi_desktop::audio::Audio;
 use ddi_desktop::gpu;
 use ddi_desktop::library::files::{DirReader, walk};
 use ddi_desktop::play::load::{Files, Loaded};
-use ddi_desktop::play::view::{Formats, View, render_options};
+use ddi_desktop::play::view::{Formats, View};
 use ddi_desktop::play::{Feed, Play, Request};
 use ddi_platform::HostTime;
 use ddi_platform::decode_all::Range;
@@ -238,7 +238,7 @@ fn play_movies(
         ..Default::default()
     });
     let plain = texture.create_view(&Default::default());
-    let render = render_options(&settings);
+    let render = ddi_shell::render_options(&settings);
     // The helper started before the song.
     let start = std::time::Instant::now();
     while !matches!(

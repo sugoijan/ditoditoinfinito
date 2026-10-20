@@ -30,6 +30,7 @@ use ddi_chart::Song;
 use ddi_engine::player::Results;
 use ddi_engine::sprites::SpriteSource;
 use ddi_platform::DeviceProfile;
+use ddi_session::backgrounds::{MAX_BACKGROUND_SIDE, MAX_CHANGE_SIDE};
 use ddi_session::stage::{MAX_LAYER_SIDE, TEXT_SCALE};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::render::{AnimationFrame, request_animation_frame};
@@ -60,12 +61,6 @@ const PROMPT_GUARD_MS: f64 = 500.0;
 /// How long a context created from a pad press may take to start before the
 /// screen asks for a real gesture, ms.
 const PAD_START_WAIT_MS: u32 = 1500;
-/// The song background is scaled down to this side at most: the texture
-/// size every WebGL2 device supports, and more than the field needs.
-const MAX_BACKGROUND_SIDE: u32 = 2048;
-/// Background-change images are scaled down further: a song may have
-/// dozens, all kept on the GPU during play.
-const MAX_CHANGE_SIDE: u32 = 1280;
 
 /// What the screen plays.
 #[derive(Clone, Debug, PartialEq)]
@@ -472,7 +467,7 @@ impl Component for GameCanvas {
                 // before the start prompt shows (the test starts at once).
                 // The audio test holds the skin's beat still
                 // (`GameLoop::frame`).
-                let skin = noteskin_ready(&Settings::load(), &song, 0);
+                let skin = noteskin_ready(&Settings::load(), &song, 0, 0.0);
                 let loaded = Loaded {
                     song,
                     title: mode.title().into(),
@@ -1512,10 +1507,9 @@ impl GameCanvas {
                     game.set_session(session);
                     game.enter_background(
                         self.prompt_state.borrow().reveal,
-                        self.settings.reduced_motion.reduced(
-                            crate::components::ui_dev::reduced_motion_query()
-                                .is_some_and(|q| q.matches()),
-                        ),
+                        self.settings
+                            .reduced_motion
+                            .reduced(crate::components::ui_dev::system_reduced()),
                     );
                 }
                 self.stage = Stage::Playing;
@@ -2366,6 +2360,10 @@ const MAX_LAYER_PIXELS: u64 = 48 << 20;
 /// `settings`: those the play runs with (a replay's own).
 fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings) {
     let link = ctx.link().clone();
+    // The song offset the play will shift the notes by (`begin_session`),
+    // for the skin's Lua.
+    let kept = ctx.props().replay.as_ref().and_then(|r| r.replay.as_ref());
+    let shift = ddi_session::play::song_shift(&settings, &id, kept, false);
     let background_name = new_play_background(&id);
     let show_background = settings.bg_brightness > 0.0;
     // Off: no movie file is read and the decoder is never fetched.
@@ -2659,7 +2657,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
             })
         });
         if let Ok(loaded) = &r
-            && let Some(skin) = noteskin_ready(&settings, &loaded.song, chart)
+            && let Some(skin) = noteskin_ready(&settings, &loaded.song, chart, shift)
         {
             link.send_future(async move { Msg::NoteskinLoaded(skin.await) });
         }
@@ -2668,17 +2666,19 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
 }
 
 /// Readies the chosen noteskin for `song`'s chart `chart` (its layout,
-/// colors and scroll direction), for [`Msg::NoteskinLoaded`]. `None` for
-/// the built-in arrows.
+/// colors and scroll direction), for [`Msg::NoteskinLoaded`]; its Lua
+/// sees the timing as the play shifts it by `shift` (the song offset).
+/// `None` for the built-in arrows.
 fn noteskin_ready(
     settings: &Settings,
     song: &Song,
     chart: usize,
+    shift: f64,
 ) -> Option<impl std::future::Future<Output = Option<Box<crate::noteskins::Prepared>>> + use<>> {
     let c = song.charts.get(chart)?;
     let layout = song.layout_of(c)?;
     let key = settings.play_skin(&layout.id, Some(c))?;
-    let env = ddi_noteskin::lua::chart_env(song, c, &layout, settings.reverse);
+    let env = ddi_noteskin::lua::chart_env(song, c, &layout, settings.reverse).shifted(shift);
     Some(async move {
         crate::noteskins::prepare(&key, &layout, env)
             .await

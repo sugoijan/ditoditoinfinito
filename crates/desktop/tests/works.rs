@@ -214,7 +214,7 @@ fn layer_pack(dir: &std::path::Path) -> PathBuf {
 #[test]
 fn a_works_layers_show_in_play() {
     common::indexes();
-    use ddi_desktop::play::view::{Formats, View, render_options};
+    use ddi_desktop::play::view::{Formats, View};
     let instance = ddi_desktop::gpu::instance();
     let Some(adapter) = ddi_desktop::gpu::adapter(&instance, None) else {
         eprintln!("no GPU adapter: skipped");
@@ -302,7 +302,7 @@ fn a_works_layers_show_in_play() {
         60.0,
     )
     .unwrap();
-    let render = render_options(&settings);
+    let render = ddi_shell::render_options(&settings);
     let step = 1_000_000_000 / 60;
     let pixels = loop {
         let now = clock.fetch_add(step, Ordering::SeqCst) + step;

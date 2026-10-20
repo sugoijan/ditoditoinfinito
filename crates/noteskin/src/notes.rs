@@ -9,8 +9,9 @@ use crate::metrics::{NoteColorType, PartMetrics};
 /// `src/NoteTypes.cpp:128-139`; 192 rows a measure, from beat 0, whatever
 /// the time signature).
 pub fn note_type(beat: f32) -> u32 {
-    // `BeatToNoteRow`: rounded to the nearest of 48 rows a beat.
-    let row = (beat * 48.0).round() as i64;
+    // `BeatToNoteRow`: rounded to the nearest of 48 rows a beat (the
+    // chart's ticks; the product taken exactly, in f64).
+    let row = ddi_chart::Tick::from_beat_f64(f64::from(beat)).0;
     [48, 24, 16, 12, 8, 6, 4, 3]
         .iter()
         .position(|&d| row % d == 0)

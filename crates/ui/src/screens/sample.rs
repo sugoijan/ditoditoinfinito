@@ -473,8 +473,14 @@ pub fn options(reduced_motion: usize) -> OptionsData {
     };
     let world = World {
         noteskins: vec![
-            ("bundled:dance/delta".into(), "Delta (with the game)".into()),
-            ("dance/metal".into(), "Metal".into()),
+            (
+                ddi_noteskin::bundled::key("dance", "Delta", true),
+                "Delta (with the game)".into(),
+            ),
+            (
+                ddi_noteskin::bundled::key("dance", "Metal", false),
+                "Metal".into(),
+            ),
         ],
         pads_supported: true,
         connected: vec![ddi_engine::ConnectedPad {

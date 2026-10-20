@@ -89,7 +89,15 @@ pub fn set_folders(list: &[PathBuf]) {
     let _ = storage::save(Area::Local, FOLDERS_KEY, &v);
 }
 
-/// What the player removed from the list.
+/// Whether `a` and `b` name the same pack: equal ignoring case, as song
+/// select groups packs (`select_view::select_data`, by `str::to_lowercase`),
+/// so "Ünïcode" and "üNÏCODE" are one pack here too.
+pub fn same_pack(a: &str, b: &str) -> bool {
+    a == b || a.to_lowercase() == b.to_lowercase()
+}
+
+/// What the player removed from the list: packs by name as song select
+/// showed them (told apart as it tells them, [`same_pack`]), songs by id.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Hidden {
     #[serde(default)]
@@ -109,7 +117,7 @@ impl Hidden {
 
     /// Takes pack `name` off the list (once).
     pub fn hide_pack(&mut self, name: &str) {
-        if !self.packs.iter().any(|p| p.eq_ignore_ascii_case(name)) {
+        if !self.packs.iter().any(|p| same_pack(p, name)) {
             self.packs.push(name.to_string());
         }
     }
@@ -125,17 +133,17 @@ impl Hidden {
     /// changed.
     pub fn show(&mut self, name: &str, ids: &[&str]) -> bool {
         let before = (self.packs.len(), self.songs.len());
-        self.packs.retain(|p| !p.eq_ignore_ascii_case(name));
+        self.packs.retain(|p| !same_pack(p, name));
         self.songs.retain(|s| !ids.contains(&s.as_str()));
         before != (self.packs.len(), self.songs.len())
     }
 
-    /// Puts pack `name` (told apart ignoring ASCII case) and its songs in
+    /// Puts pack `name` ([`same_pack`]) and its songs in
     /// `songs` back on the list; whether it changed.
     pub fn show_pack(&mut self, songs: &[LibSong], name: &str) -> bool {
         let ids: Vec<&str> = songs
             .iter()
-            .filter(|s| s.pack.eq_ignore_ascii_case(name))
+            .filter(|s| same_pack(&s.pack, name))
             .map(|s| s.entry.id.as_str())
             .collect();
         self.show(name, &ids)
@@ -145,8 +153,8 @@ impl Hidden {
     /// managed pack. A hidden pack becomes individual hidden ids for its remainder.
     pub fn show_only(&mut self, name: &str, all: &[&str], ids: &[&str]) -> bool {
         let before = self.clone();
-        if self.packs.iter().any(|p| p.eq_ignore_ascii_case(name)) {
-            self.packs.retain(|p| !p.eq_ignore_ascii_case(name));
+        if self.packs.iter().any(|p| same_pack(p, name)) {
+            self.packs.retain(|p| !same_pack(p, name));
             let mut hidden: HashSet<String> = self.songs.iter().cloned().collect();
             for id in all.iter().filter(|id| !ids.contains(id)) {
                 if hidden.insert((*id).to_string()) {
@@ -170,7 +178,7 @@ impl Hidden {
         for pack in packs {
             let all = songs
                 .iter()
-                .filter(|s| s.pack.eq_ignore_ascii_case(pack))
+                .filter(|s| same_pack(&s.pack, pack))
                 .map(|s| s.entry.id.as_str())
                 .collect::<Vec<_>>();
             changed |= self.show_only(pack, &all, ids);
@@ -179,8 +187,7 @@ impl Hidden {
     }
 
     pub fn hides(&self, s: &LibSong) -> bool {
-        self.songs.contains(&s.entry.id)
-            || self.packs.iter().any(|p| p.eq_ignore_ascii_case(&s.pack))
+        self.songs.contains(&s.entry.id) || self.packs.iter().any(|p| same_pack(p, &s.pack))
     }
 }
 
@@ -491,7 +498,7 @@ impl Force {
     }
 
     fn pack(&self, pack: &str) -> bool {
-        self.packs.iter().any(|p| p.eq_ignore_ascii_case(pack))
+        self.packs.iter().any(|p| same_pack(p, pack))
     }
 }
 
@@ -1596,6 +1603,31 @@ mod managed_merge_tests {
             &["reimported", "unrelated"],
             &["reimported"]
         ));
+    }
+
+    #[test]
+    fn hidden_packs_ignore_unicode_case_as_song_select_does() {
+        let mut rows = vec![song("a", "A"), song("b", "B"), song("c", "C")];
+        rows[0].pack = "Études Ω".into();
+        rows[1].pack = "ÉTUDES ω".into();
+        rows[2].pack = "Etudes".into();
+        // Hidden under one casing, as stored before: the other casing,
+        // which song select shows as the same pack, is hidden too.
+        let mut hidden: Hidden =
+            serde_json::from_str(r#"{"packs":["ÉTUDES Ω"],"songs":[]}"#).unwrap();
+        assert!(hidden.hides(&rows[0]) && hidden.hides(&rows[1]));
+        assert!(!hidden.hides(&rows[2]));
+        // Once, under whichever casing.
+        hidden.hide_pack("études ω");
+        assert_eq!(hidden.packs, ["ÉTUDES Ω"]);
+        // Shown under the other casing, back with its songs; stored as it was.
+        assert!(hidden.show_pack(&rows, "Études Ω"));
+        assert!(!hidden.hides(&rows[0]) && !hidden.hides(&rows[1]));
+        assert_eq!(
+            serde_json::to_string(&hidden).unwrap(),
+            r#"{"packs":[],"songs":[]}"#
+        );
+        assert!(same_pack("ΟΔΟΣ", "οδος") && !same_pack("Étude", "Etude"));
     }
 
     #[test]

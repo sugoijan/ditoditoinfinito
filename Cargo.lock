@@ -980,6 +980,7 @@ dependencies = [
  "ddi-platform",
  "ddi-render",
  "ddi-session",
+ "ddi-shell",
  "ddi-theme",
  "ddi-ui",
  "ddi-video-protocol",
@@ -1113,6 +1114,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddi-shell"
+version = "0.1.0"
+dependencies = [
+ "ddi-chart",
+ "ddi-engine",
+ "ddi-render",
+ "ddi-session",
+ "ddi-ui",
+ "wgpu",
+]
+
+[[package]]
 name = "ddi-theme"
 version = "0.1.0"
 dependencies = [
@@ -1132,6 +1145,7 @@ dependencies = [
  "ddi-chart",
  "ddi-engine",
  "ddi-library",
+ "ddi-noteskin",
  "ddi-platform",
  "serde",
  "serde_json",
@@ -1169,6 +1183,7 @@ dependencies = [
  "ddi-platform",
  "ddi-render",
  "ddi-session",
+ "ddi-shell",
  "ddi-theme",
  "ddi-ui",
  "getrandom 0.2.17",

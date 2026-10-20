@@ -186,6 +186,11 @@ impl Shell {
             songs.as_ref().map(|s| s.play.clone()).unwrap_or_default(),
             songs.as_ref().and_then(|s| s.plays.clone()),
         );
+        // A song's chart read for its prompt: its stale plays first.
+        if let Some(songs) = &songs {
+            let songs = songs.clone();
+            play.chart_loaded = Some(Rc::new(move |id, song| songs.chart_loaded(id, song)));
+        }
         let notice_actions: Rc<RefCell<Vec<String>>> = Rc::default();
         let ui = if let Some(songs) = songs
             .as_ref()
@@ -1147,6 +1152,9 @@ impl ApplicationHandler for Shell {
         // The library's news (its scan woke the loop), and the options
         // screen open over it.
         if let Some(songs) = &self.songs {
+            // Stale plays worked out again (song select's bests follow
+            // in the poll), never during a play.
+            songs.rework(self.play.playing(), !self.play.idle());
             songs.poll(&mut self.ui);
             let invalidated = crate::library::take_invalidated_previews();
             if !invalidated.is_empty() {
@@ -1239,7 +1247,14 @@ impl ApplicationHandler for Shell {
             .play
             .wants_poll()
             .then(|| Instant::now() + std::time::Duration::from_millis(15));
-        if let Some(at) = wake.into_iter().chain(watch_at).chain(sound_at).min() {
+        let rework_at = self.songs.as_ref().and_then(|s| s.rework_due());
+        if let Some(at) = wake
+            .into_iter()
+            .chain(watch_at)
+            .chain(sound_at)
+            .chain(rework_at)
+            .min()
+        {
             match event_loop.control_flow() {
                 ControlFlow::WaitUntil(t) if t <= at => {}
                 ControlFlow::Poll => {}

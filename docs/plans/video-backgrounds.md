@@ -277,7 +277,7 @@ codec; the module is the fallback for everything.
   the game cannot play (codec)".
 - Storage: linked imports (decision 33) link movies like other files
   (`bg/<path>` → `Link`); copying browsers copy a movie only when the new
-  import option `import_videos` (default off) is on, else record it as
+  import option `import_videos` (default off; on since 2026-10-21) is on, else record it as
   `absent` with a note. Shared-folder movies: same rule, stored under
   `shared/` keys with the same option.
 - `backgrounds::schedule` gains `BgImage::Movie(String)` segments for
@@ -313,7 +313,7 @@ checking the report and the manifest.
   stored, linked or shared.
 - Storage: linked imports link movies (`bg/<name>`); copying ones store
   them only with the new "also store background videos" box (setting
-  `import_videos`, default off; added here rather than in step 5, since
+  `import_videos`, default off, on since 2026-10-21; added here rather than in step 5, since
   the import needs it), otherwise `stored: false` and a note. Shared-folder
   movies follow the same rule: copied as blobs under `shared/`, or, when
   linked, a `SharedLink {folder, path, entry}` JSON at the same key; a kept
@@ -902,6 +902,21 @@ stays the first layer's first movie. The opening still is the first
 layer's only (step 8): a second-layer movie is never the song's picture,
 and shows nothing until its first frame (the first layer shows through),
 where the first layer's would show the song background.
+
+Both shells' decks share their segment logic since 2026-10-20
+(`ddi_session::movies::MovieSlots`, tested natively with a fake decoder):
+which segments have a decoder, retargeting and closing them, the feed
+loop, what shows, failures, the automatic rule's pause and turn-off, stop
+and reset. The shells keep what is theirs through `MovieShell` (opening a
+decoder, the web's WebCodecs-to-module fall back, desktop recycling a
+replaced early frame's planes, the worker or helper started again after it
+stopped) and make the textures and upload the frames `update` returns.
+Every close now learns the movie's end for its later tracks (the web
+learned it only when a decoder closed mid-play, not at the song's end),
+and `MovieSlots::version` changes with anything `shown_ids` would show, so
+both shells keep the backdrop's texture list
+(`ddi_session::movies::BackdropTextures`) until an image or a movie
+changes rather than building it every frame.
 
 ## Without the module
 

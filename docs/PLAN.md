@@ -179,6 +179,7 @@ DitoDitoInfinito/
     noteskin/     ddi-noteskin  StepMania noteskins (metrics, redirects, models, Lua at load)
     lua/          ddi-lua       StepMania's Lua for skins, sandboxed
     session/      ddi-session   one play session for both shells (play, calibration, backgrounds' rules)   [lib, both]
+    shell/        ddi-shell     what both shells do between settings and renderer (field options, a work's layers' textures)   [lib, both]
     app/          ditoditoinfinito  the game: starts `web` on wasm, `desktop` natively [bin]
     web/          ddi-web       web shell, web-sys platform impls, canvas host     [lib, wasm32]
     desktop/      ddi-desktop   winit + wgpu + cpal + gilrs, movies in a sandboxed helper   [lib, native]
@@ -191,7 +192,7 @@ DitoDitoInfinito/
   docs/
 ```
 
-Dependency direction: `app` → `web` (wasm) or `desktop` (native); `web` and `desktop` → {`session`, their platform impls, `render`, `engine`, `library`, `chart`}; `session` → `engine`, `chart`, `library`, `platform`, `ui`; `library` → `chart`, `engine` (a work's charts' keys), `platform`; `render` → `engine` (reads `Frame`), `actor`; `noteskin` → `actor`; `ui` → `actor`, `engine`; `engine` → `chart`; `platform`, `actor` → nothing. `chart`, `engine`, `actor`, `ui`, `platform`, `session` compile for native and wasm and are tested with plain `cargo test`.
+Dependency direction: `app` → `web` (wasm) or `desktop` (native); `web` and `desktop` → {`shell`, `session`, their platform impls, `render`, `engine`, `library`, `chart`}; `shell` → `session`, `render`, `ui`; `session` → `engine`, `chart`, `library`, `platform`, `ui`; `library` → `chart`, `engine` (a work's charts' keys), `platform`; `render` → `engine` (reads `Frame`), `actor`; `noteskin` → `actor`; `ui` → `actor`, `engine`; `engine` → `chart`; `platform`, `actor` → nothing. `chart`, `engine`, `actor`, `ui`, `platform`, `session`, `shell` compile for native and wasm and are tested with plain `cargo test`.
 
 ### 3.2 `chart`: the internal model
 

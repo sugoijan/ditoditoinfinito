@@ -7,26 +7,20 @@
 //! their charts alone, a few at a time and never during a play), the
 //! export, and `window.__DDI_DEBUG.history`.
 
-use std::cell::{Cell, RefCell};
-use std::collections::HashSet;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_chart::{ChartDigest, Song};
 use ddi_platform::history::{PlayEntry, PlayStore, Reply};
-use ddi_ui::state::history::{Plays, score_value};
+use ddi_ui::state::history::{
+    PASS_STEP_MS, Plays, REWORK_BATCH, ReworkStep, Reworker, score_value,
+};
 use js_sys::{Array, Object, Reflect, Uint8Array};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 
 use crate::web::idb::{self, Db, Write};
 
-/// Plays worked out again in one step (one replay each: a long chart's
-/// takes about a quarter of a millisecond).
-const REWORK_BATCH: usize = 8;
-/// Time between steps for a song whose chart is at hand, ms (a yield).
-const FOCUS_STEP_MS: u32 = 16;
-/// Time between the background pass's steps, ms.
-const PASS_STEP_MS: u32 = 1500;
 /// Plays read and written out at a time by the export.
 const EXPORT_BATCH: usize = 100;
 /// The first wait before reading the summaries again after a failure,
@@ -241,20 +235,13 @@ thread_local! {
     static LOAD_ERROR: RefCell<Option<String>> = const { RefCell::new(None) };
     static RETRY: RefCell<Option<gloo::timers::callback::Timeout>> = const { RefCell::new(None) };
     static WATCH: RefCell<Option<gloo::timers::callback::Interval>> = const { RefCell::new(None) };
-    /// A song is being played: re-working waits.
-    static PLAYING: Cell<bool> = const { Cell::new(false) };
     /// The song the play screen is on, and its charts' digests once its
     /// chart is loaded (the debug state's bests).
     static CURRENT: RefCell<Option<(String, Vec<ChartDigest>)>> = const { RefCell::new(None) };
-    /// The song whose chart is at hand: its stale plays come first.
-    static FOCUS: RefCell<Option<(String, Rc<Song>)>> = const { RefCell::new(None) };
-    /// The background pass's song and chart, read once for its steps.
-    static BACKGROUND: RefCell<Option<(String, Rc<Song>)>> = const { RefCell::new(None) };
-    /// Songs whose chart could not be read this session (a kept folder
-    /// asking for permission, a removed song): the pass leaves them.
-    static SKIPPED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    /// Which stale plays are worked out when (`Reworker`: a song's whose
+    /// chart is at hand first, never during a play).
+    static REWORKER: RefCell<Reworker<Rc<Song>>> = RefCell::new(Reworker::default());
     static STEP: RefCell<Option<gloo::timers::callback::Timeout>> = const { RefCell::new(None) };
-    static BUSY: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The page's plays.
@@ -299,9 +286,8 @@ fn load(next_wait: u32) {
 
 /// A song's play is on (re-working waits) or over (it goes on).
 pub(crate) fn set_playing(on: bool) {
-    PLAYING.with(|p| p.set(on));
-    if !on {
-        schedule(FOCUS_STEP_MS);
+    if let Some(ms) = REWORKER.with(|r| r.borrow_mut().set_playing(on)) {
+        schedule(ms);
     }
 }
 
@@ -309,7 +295,7 @@ pub(crate) fn set_playing(on: bool) {
 pub(crate) fn set_current(song: Option<&str>) {
     CURRENT.with(|c| *c.borrow_mut() = song.map(|s| (s.to_string(), Vec::new())));
     if song.is_none() {
-        FOCUS.with(|f| f.borrow_mut().take());
+        REWORKER.with(|r| r.borrow_mut().clear_focus());
     }
     publish();
 }
@@ -321,9 +307,12 @@ pub(crate) fn chart_loaded(id: &str, song: &Song) {
         .map(|i| song.chart_digest(i))
         .collect();
     CURRENT.with(|c| *c.borrow_mut() = Some((id.to_string(), digests)));
-    if plays().history().has_stale(id) {
-        FOCUS.with(|f| *f.borrow_mut() = Some((id.to_string(), Rc::new(song.clone()))));
-        schedule(0);
+    let next = REWORKER.with(|r| {
+        r.borrow_mut()
+            .chart_loaded(&plays(), id, || Rc::new(song.clone()))
+    });
+    if let Some(ms) = next {
+        schedule(ms);
     }
     publish();
 }
@@ -334,73 +323,37 @@ fn schedule(ms: u32) {
     STEP.with(|s| *s.borrow_mut() = Some(t));
 }
 
-/// Works out a few stale plays: the focused song's, else a song's in the
-/// background (its chart read alone). Never during a play; stops when
-/// nothing is stale.
+/// Works out a few stale plays (`Reworker::step`): the focused song's,
+/// else a song's in the background (its chart read alone). Never during a
+/// play; stops when nothing is stale.
 fn step() {
     STEP.with(|s| s.borrow_mut().take());
-    if PLAYING.with(Cell::get) || BUSY.with(Cell::get) || !plays().loaded() {
-        return;
-    }
-    let stale = plays().stale_songs();
-    let focus = FOCUS.with(|f| f.borrow().clone());
-    if let Some((id, song)) = focus {
-        if stale.contains(&id) {
-            return rework(id, song, FOCUS_STEP_MS);
-        }
-        FOCUS.with(|f| f.borrow_mut().take());
-    }
-    let skipped = SKIPPED.with(|s| s.borrow().clone());
-    let Some(id) = stale.into_iter().find(|s| !skipped.contains(s)) else {
-        BACKGROUND.with(|b| b.borrow_mut().take());
-        return;
-    };
-    if let Some(song) = BACKGROUND.with(|b| {
-        b.borrow()
-            .as_ref()
-            .filter(|(i, _)| *i == id)
-            .map(|(_, s)| s.clone())
-    }) {
-        return rework(id, song, PASS_STEP_MS);
-    }
-    // Where the song is gone (a pack imported again from another folder),
-    // its charts are looked for by content.
-    let digests: Vec<ChartDigest> = {
-        let p = plays();
-        let h = p.history();
-        h.stale_of(&id)
-            .iter()
-            .filter_map(|p| h.get(p).map(|s| s.chart.digest))
-            .collect()
-    };
-    BUSY.with(|b| b.set(true));
-    spawn_local(async move {
-        let mut loaded = crate::songs::load_chart(&id).await;
-        if loaded.is_err()
-            && let Some(other) = crate::songs::find_by_digest(&digests).await
-        {
-            loaded = crate::songs::load_chart(&other).await;
-        }
-        BUSY.with(|b| b.set(false));
-        match loaded {
-            Ok(song) => {
-                let song = Rc::new(song);
-                BACKGROUND.with(|b| *b.borrow_mut() = Some((id, song)));
-                // A play may have started meanwhile: `step` looks again.
-                schedule(0);
+    let next = REWORKER.with(|r| r.borrow_mut().step(&plays()));
+    match next {
+        ReworkStep::Wait | ReworkStep::Done => {}
+        ReworkStep::Rework {
+            song,
+            chart,
+            next_ms,
+        } => rework(song, chart, next_ms),
+        ReworkStep::Read { song, digests } => spawn_local(async move {
+            // Where the song is gone (a pack imported again from another
+            // folder), its charts are looked for by content.
+            let mut loaded = crate::songs::load_chart(&song).await;
+            if loaded.is_err()
+                && let Some(other) = crate::songs::find_by_digest(&digests).await
+            {
+                loaded = crate::songs::load_chart(&other).await;
             }
-            Err(_) => {
-                SKIPPED.with(|s| s.borrow_mut().insert(id));
-                schedule(PASS_STEP_MS);
-            }
-        }
-    });
+            let ms = REWORKER.with(|r| r.borrow_mut().read(song, loaded.map(Rc::new)));
+            schedule(ms);
+        }),
+    }
 }
 
 fn rework(id: String, song: Rc<Song>, next: u32) {
-    BUSY.with(|b| b.set(true));
     plays().rework_song(&id, song, REWORK_BATCH, move |r| {
-        BUSY.with(|b| b.set(false));
+        REWORKER.with(|w| w.borrow_mut().worked());
         if let Err(e) = r {
             web_sys::console::warn_1(&format!("play history: {e}").into());
         }

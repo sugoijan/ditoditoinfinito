@@ -1530,7 +1530,12 @@ Done, 7.3 (2026-10-16):
   `~/.local/share/ditoditoinfinito/plays` on Linux, where plays kept in
   the config folder before are moved before anything records: the
   folder renamed, or file by file (each removed once copied, never over
-  a newer file), what is left said on the console.
+  a newer file), what is left said on the console. Plays judged by an
+  older judge are worked out again as on the web (2026-10-20,
+  `history::Rework` over the shared `Reworker`; `play-history.md`,
+  "Re-working on both shells"): charts read, plays judged and summaries
+  written on the history's thread, the summaries in memory set on the
+  event loop's, song select's bests following.
 - **Measured** on the local library (`~/Music/Simfiles`, local only,
   `--profile desktop`): 1,305 songs from 1,332 simfiles (27 without
   their music, reported); a full scan 1.6 s (4.9–5.7 s before the
@@ -1689,7 +1694,9 @@ Built in `crates/desktop/src/play/`:
   in Options' list; a stall on the clock is not held against it.
 - **`movies.rs`** (feature `video`): the web's `MovieDeck` without its
   browser path: every movie on the FFmpeg module (7.7's host), the same
-  schedule rules, lead time and queue depth.
+  schedule rules, lead time and queue depth (since 2026-10-20 the same
+  code: `ddi_session::movies::MovieSlots`, each shell bringing its
+  decoders and textures).
 - **The start prompt** is the UI core's (`ddi_ui::screens::prompt`,
   6.4's), as the web's play route shows it: the song, its chart and
   mods over its background in the play's frame with the field's filter

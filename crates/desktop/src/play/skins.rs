@@ -14,7 +14,7 @@ use ddi_chart::Layout;
 use ddi_noteskin::build::{Images, MAX_IMAGE_SIDE, MAX_PIXELS, ProbeSizes, SVG_SCALE};
 use ddi_noteskin::bundled::Index;
 use ddi_noteskin::import::{MAX_TEXT, MAX_TEXTS};
-use ddi_noteskin::lua::{Env, LoadBudget, LuaSkin};
+use ddi_noteskin::lua::Env;
 use ddi_noteskin::{Folder, Skin};
 use ddi_render::noteskin::NoteskinPlay;
 
@@ -191,7 +191,9 @@ fn clock() -> Box<dyn FnMut() -> f64> {
     Box::new(|| crate::clock::now().0)
 }
 
-/// Builds skin `name` through its Lua for `layout`; why it could not.
+/// Builds skin `name` through its Lua for `layout` (the shells' way,
+/// [`NoteskinPlay::load_lua`], with no pause: run to its end on this
+/// thread); why it could not.
 fn lua_play(
     folders: &[Folder],
     game: &str,
@@ -201,24 +203,17 @@ fn lua_play(
     layout: &Layout,
     images: &dyn Images,
 ) -> Result<Option<NoteskinPlay>, String> {
-    let loaded = Skin::load(folders, game, name).map_err(|e| e.to_string())?;
-    if layout.lanes.iter().any(|l| loaded.lane_button(l).is_none()) {
-        return Ok(None);
-    }
-    let settings = ddi_lua::Settings {
-        hash_seed: seed,
-        ..ddi_lua::Settings::default()
-    };
-    let lua = LuaSkin::new(
-        loaded.into_owned(),
+    crate::block_on(NoteskinPlay::load_lua(
+        folders,
+        game,
+        name,
         env,
-        settings,
-        LoadBudget::default(),
+        seed,
+        layout,
+        images,
         clock(),
-    )
-    .map_err(|e| e.to_string())?;
-    crate::block_on(NoteskinPlay::with_lua(lua, layout, images, true, None))
-        .map_err(|e| e.to_string())
+        None,
+    ))
 }
 
 /// What readying a skin does off the UI thread ([`read`], `Send`): its

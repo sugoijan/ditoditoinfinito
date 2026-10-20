@@ -105,6 +105,17 @@ impl Request {
             None => here,
         }
     }
+
+    /// The song offset the notes are shifted by in a play run with
+    /// `settings` ([`ddi_session::play::song_shift`]).
+    pub fn song_shift(&self, settings: &Settings) -> f64 {
+        ddi_session::play::song_shift(
+            settings,
+            &self.song,
+            self.replay.as_deref(),
+            self.calibration.is_some(),
+        )
+    }
 }
 
 /// The test pad's name (`--auto=pad`).
@@ -306,12 +317,7 @@ impl Play {
         if let Some(r) = &request.replay {
             config.set_replay(r);
         }
-        let shift = ddi_session::play::song_shift(
-            settings,
-            &request.song,
-            request.replay.as_deref(),
-            request.calibration.is_some(),
-        );
+        let shift = request.song_shift(settings);
         config.ghost = request
             .ghost
             .as_deref()

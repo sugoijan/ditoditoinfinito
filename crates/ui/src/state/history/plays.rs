@@ -10,7 +10,8 @@ use ddi_chart::Song;
 use ddi_engine::player::Results;
 
 use super::{
-    ChartDigest, History, PlayEntry, PlayLog, PlayRecord, PlayStore, PlaySummary, new_entry, rework,
+    ChartDigest, History, PlayEntry, PlayLog, PlayRecord, PlayStore, PlaySummary, Worked,
+    new_entry, rework,
 };
 
 /// The plays kept, in memory and in a store.
@@ -145,16 +146,7 @@ impl Plays {
         max: usize,
         done: impl FnOnce(Result<usize, String>) + 'static,
     ) {
-        let ids: Vec<String> = {
-            let unmatched = self.unmatched.borrow();
-            self.history
-                .borrow()
-                .stale_of(song_id)
-                .into_iter()
-                .filter(|id| !unmatched.contains(id))
-                .take(max)
-                .collect()
-        };
+        let ids = self.stale_batch(song_id, max);
         if ids.is_empty() {
             return done(Ok(0));
         }
@@ -166,30 +158,50 @@ impl Plays {
                     Ok(e) => e,
                     Err(e) => return done(Err(e)),
                 };
-                let mut changes = Vec::new();
-                for id in &ids {
-                    let worked = entries
-                        .iter()
-                        .find(|e| &e.id == id)
-                        .ok_or_else(|| "not stored".to_string())
-                        .and_then(|e| rework(e, &song));
-                    let summary = match worked {
-                        Ok(w) => me.history.borrow_mut().set_worked(id, w).cloned(),
-                        Err(_) => None,
-                    };
-                    match summary.map(|s| serde_json::to_string(&s)) {
-                        Some(Ok(json)) => changes.push((id.clone(), json)),
-                        _ => {
-                            me.unmatched.borrow_mut().insert(id.clone());
-                        }
-                    }
-                }
+                let changes = me.set_worked(rework_entries(&ids, &entries, &song));
                 let n = changes.len();
-                me.changed();
                 me.store
                     .replace_summaries(changes, Box::new(move |r| done(r.map(|_| n))));
             }),
         );
+    }
+
+    /// The next up to `max` stale plays of `song_id` to work out again
+    /// (oldest first; none tried this session and left unmatched): what
+    /// [`Plays::rework_song`] takes, for a shell that judges them
+    /// elsewhere ([`rework_entries`] on a thread, then
+    /// [`Plays::set_worked`]).
+    pub fn stale_batch(&self, song_id: &str, max: usize) -> Vec<String> {
+        let unmatched = self.unmatched.borrow();
+        self.history
+            .borrow()
+            .stale_of(song_id)
+            .into_iter()
+            .filter(|id| !unmatched.contains(id))
+            .take(max)
+            .collect()
+    }
+
+    /// Plays worked out again ([`rework_entries`]'s answer) into memory;
+    /// those that could not be (their chart changed or is gone, or the
+    /// play went meanwhile) are left unmatched for the session. The new
+    /// summaries, as text, for the store's `replace_summaries`.
+    pub fn set_worked(&self, worked: Reworked) -> Vec<(String, String)> {
+        let mut changes = Vec::new();
+        for (id, worked) in worked {
+            let summary = match worked {
+                Ok(w) => self.history.borrow_mut().set_worked(&id, w).cloned(),
+                Err(_) => None,
+            };
+            match summary.map(|s| serde_json::to_string(&s)) {
+                Some(Ok(json)) => changes.push((id, json)),
+                _ => {
+                    self.unmatched.borrow_mut().insert(id);
+                }
+            }
+        }
+        self.changed();
+        changes
     }
 
     /// The songs with stale plays still to work out this session.
@@ -274,6 +286,26 @@ impl Plays {
         );
     }
 }
+
+/// Plays `ids` judged again on `song` from their stored `entries` (as a
+/// store's `records` answers: one missing is "not stored"), in `ids`'
+/// order. Pure: a shell may run it off its UI thread.
+pub fn rework_entries(ids: &[String], entries: &[PlayEntry], song: &Song) -> Reworked {
+    ids.iter()
+        .map(|id| {
+            let worked = entries
+                .iter()
+                .find(|e| &e.id == id)
+                .ok_or_else(|| "not stored".to_string())
+                .and_then(|e| rework(e, song));
+            (id.clone(), worked)
+        })
+        .collect()
+}
+
+/// Plays judged again: each id with what it comes to, or why it could
+/// not be.
+pub type Reworked = Vec<(String, Result<Worked, String>)>;
 
 /// One play a line, everything in it (`PlayEntry::to_json`).
 pub fn export_lines(entries: &[PlayEntry]) -> String {

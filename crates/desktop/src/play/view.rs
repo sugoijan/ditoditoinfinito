@@ -8,50 +8,14 @@
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_platform::HostTime;
 use ddi_render::noteskin::{NoteLayer, NoteskinPlay};
-use ddi_render::{Backdrop, ColorScheme, RenderOptions, Renderer, SecondLayer, SkinBlending};
-use ddi_session::backgrounds::{FpsMeter, FrameShape, MovieGuard};
-use ddi_ui::state::settings::{NoteColors, Settings, VideoMode};
+use ddi_render::{Backdrop, RenderOptions, Renderer, SecondLayer, SkinBlending};
+use ddi_session::backgrounds::{
+    FpsMeter, FrameShape, MAX_BACKGROUND_SIDE, MAX_CHANGE_SIDE, MovieGuard,
+};
+use ddi_ui::state::settings::{Settings, VideoMode};
 
 use super::Play;
 use super::load::Loaded;
-
-/// Background images' longest side kept (the web's sizes).
-const MAX_BACKGROUND_SIDE: u32 = 2048;
-const MAX_CHANGE_SIDE: u32 = 1024;
-
-/// The note colors as the renderer has them (the web's
-/// `settings::note_scheme`).
-pub fn note_scheme(colors: NoteColors) -> ColorScheme {
-    match colors {
-        NoteColors::Quantized => ColorScheme::Quantized,
-        NoteColors::Vivid => ColorScheme::Vivid,
-        NoteColors::Flat => ColorScheme::Flat,
-        NoteColors::Rainbow => ColorScheme::Rainbow,
-        NoteColors::Single => ColorScheme::Single([0.35, 0.85, 1.0, 1.0]),
-    }
-}
-
-/// What the field draws, from the settings (the web's
-/// `SessionConfig::from_settings`).
-pub fn render_options(settings: &Settings) -> RenderOptions {
-    RenderOptions {
-        reverse: settings.reverse,
-        hide_notes: false,
-        show_deltas: settings.show_deltas,
-        cancel_progress: 0.0,
-        cancel_hint: "",
-        note_colors: note_scheme(settings.note_colors),
-        chart_colors: settings.chart_colors,
-        background: settings.bg_brightness,
-        backdrop: Default::default(),
-        frame_aspect: None,
-        background_reveal: None,
-        field_filter: settings.field_filter,
-        preview: None,
-        // Set each frame by the play (`play::host`).
-        ghost: None,
-    }
-}
 
 /// A decoded image for the renderer: RGBA rows.
 #[derive(Clone)]
@@ -102,6 +66,9 @@ pub struct View {
     noteskin_key: String,
     /// Background textures by what they show (renderer ids).
     backgrounds: Vec<(BgImage, usize)>,
+    /// Image and movie textures for the backdrop, rebuilt when either
+    /// changes.
+    backdrop_textures: ddi_session::movies::BackdropTextures,
     /// Decoded images waiting for the GPU.
     pending: Vec<(BgImage, Rgba)>,
     /// The background changes, a schedule per layer.
@@ -154,6 +121,7 @@ impl View {
             noteskin: None,
             noteskin_key: String::new(),
             backgrounds: Vec::new(),
+            backdrop_textures: Default::default(),
             pending: Vec::new(),
             schedule: Default::default(),
             frame_shape: FrameShape::default(),
@@ -183,37 +151,13 @@ impl View {
     }
 
     /// The song to play (a view draws one song: a new one has a new
-    /// view): its background changes, the settings' frame and video
-    /// mode, its movies. Its images are read on other threads
+    /// view): its background changes (on the song as stored, until a
+    /// play gives its own: [`View::set_played_song`]), the settings' frame
+    /// and video mode, its movies. Its images are read on other threads
     /// ([`View::images_to_read`]) and come in through
     /// [`View::add_background`].
     pub fn set_song(&mut self, loaded: &Loaded, settings: &Settings) {
-        let e = &loaded.entry;
-        let movies: Vec<String> = e
-            .bg_videos
-            .iter()
-            .filter(|v| v.plays())
-            .map(|v| v.name.to_string())
-            .collect();
-        // Movies found but that do not play: the second layer shows
-        // nothing for them.
-        let unshowable: Vec<&str> = e
-            .bg_videos
-            .iter()
-            .filter(|v| !v.plays())
-            .map(|v| v.name.as_str())
-            .chain(e.bg_scripted.iter().map(|p| p.as_str()))
-            .collect();
-        self.schedule = [
-            backgrounds::schedule(&loaded.song, &e.bg_images, &movies, e.background.is_some()),
-            backgrounds::second_layer(
-                &loaded.song,
-                &e.bg_images,
-                &movies,
-                &unshowable,
-                e.background.is_some(),
-            ),
-        ];
+        self.schedule = schedule(&loaded.song, loaded);
         self.frame_shape = FrameShape::new(settings.background_frame);
         self.video = settings.video;
         #[cfg(feature = "video")]
@@ -233,6 +177,13 @@ impl View {
                 }
             }
         }
+    }
+
+    /// The play about to start plays `song`, `loaded`'s song as played:
+    /// shifted by the song offset, which moves its background changes too
+    /// (as the web schedules them).
+    pub fn set_played_song(&mut self, song: &ddi_chart::Song, loaded: &Loaded) {
+        self.schedule = schedule(song, loaded);
     }
 
     /// The images the song shows: what to read, `(what, source,
@@ -642,7 +593,8 @@ impl View {
 
     /// A content of the song's layers, read.
     pub fn add_stage_content(&mut self, read: super::stage::Read) {
-        self.stage.add(read);
+        let (content, image, size) = read;
+        self.stage.add(content.source(), image, size);
     }
 
     /// The layers' quads drawn in the last frame, back and mask.
@@ -651,20 +603,27 @@ impl View {
     }
 
     /// What shows behind the field at song second `t`: both layers.
-    fn backdrop(&self, t: f64) -> Backdrop {
+    fn backdrop(&mut self, t: f64) -> Backdrop {
         let [first, second] = &self.schedule;
         #[cfg(feature = "video")]
-        let (mut all, opening) = {
-            let mut all = self.backgrounds.clone();
-            all.extend(self.movies.shown_ids());
-            (all, self.movies.opening_plays(first))
+        let (all, opening) = {
+            let movies = &self.movies;
+            let all = self.backdrop_textures.get(
+                &self.backgrounds,
+                movies.version(),
+                || movies.shown_ids(),
+                ddi_render::PLAIN,
+            );
+            (all, movies.opening_plays(first))
         };
         #[cfg(not(feature = "video"))]
-        let (mut all, opening) = (self.backgrounds.clone(), false);
-        // The second layer's opaque stand-in for a missing song background.
-        all.push((BgImage::Plain, ddi_render::PLAIN));
-        let shown = backgrounds::shown(first, t, &all, opening);
-        let over = backgrounds::shown_over(second, t, &all);
+        let (all, opening) = (
+            self.backdrop_textures
+                .get(&self.backgrounds, 0, Vec::new, ddi_render::PLAIN),
+            false,
+        );
+        let shown = backgrounds::shown(first, t, all, opening);
+        let over = backgrounds::shown_over(second, t, all);
         Backdrop {
             current: shown.current,
             previous: shown.previous,
@@ -676,6 +635,37 @@ impl View {
             },
         }
     }
+}
+
+/// The background changes of `song` (`loaded`'s, as played or not), a
+/// schedule per layer.
+fn schedule(song: &ddi_chart::Song, loaded: &Loaded) -> [Vec<BgSegment>; LAYERS] {
+    let e = &loaded.entry;
+    let movies: Vec<String> = e
+        .bg_videos
+        .iter()
+        .filter(|v| v.plays())
+        .map(|v| v.name.to_string())
+        .collect();
+    // Movies found but that do not play: the second layer shows nothing
+    // for them.
+    let unshowable: Vec<&str> = e
+        .bg_videos
+        .iter()
+        .filter(|v| !v.plays())
+        .map(|v| v.name.as_str())
+        .chain(e.bg_scripted.iter().map(|p| p.as_str()))
+        .collect();
+    [
+        backgrounds::schedule(song, &e.bg_images, &movies, e.background.is_some()),
+        backgrounds::second_layer(
+            song,
+            &e.bg_images,
+            &movies,
+            &unshowable,
+            e.background.is_some(),
+        ),
+    ]
 }
 
 /// Fills a texture's first level with RGBA rows.
