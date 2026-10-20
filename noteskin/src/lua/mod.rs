@@ -224,6 +224,8 @@ pub enum Param {
     Str(String),
     Int(i64),
     Bool(bool),
+    /// Finite numeric presentation data, e.g. a hit's local coordinates.
+    Float(f64),
 }
 
 /// Gives the host its turn between slices of a load (a loading screen
@@ -737,6 +739,7 @@ impl LuaSkin {
                         Param::Str(s) => Value::String(ctx.intern(s.as_bytes())),
                         Param::Int(i) => Value::Integer(*i),
                         Param::Bool(b) => Value::Boolean(*b),
+                        Param::Float(n) => Value::Number(if n.is_finite() { *n } else { 0.0 }),
                     };
                     let _ = t.set(ctx, ctx.intern(k.as_bytes()), v);
                 }

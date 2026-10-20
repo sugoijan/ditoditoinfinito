@@ -100,7 +100,12 @@ the browser are implementation details, not advertised features.
   3.9's and OpenITG's format built natively (`noteskin/src/legacy.rs`);
   SVG images in a checked subset (`noteskin/src/svg.rs`, our extension). Pure,
   natively tested; `docs/plans/noteskins.md`. `render/src/noteskin.rs`
-  draws a skin in play and runs its Lua each frame.
+  draws a skin in play and runs its Lua each frame. Our opt-in
+  `HoldUseDroppedState` loads separate per-note dropped actors; hit messages
+  carry `Autoplay` and local `HitX`/`HitY` from the hit note's last drawn
+  position (`tools/noteskin-danoni/README.md`). These are presentation data,
+  never changes to judging or replay inputs. `TapJudgmentsPerNote` opts into
+  immediate per-note flashes rather than StepMania's completed-row effects.
 - `lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`):
   `lunita` (crates.io), our hardened fork of piccolo, with per-VM memory
   and string limits, fuel and a deadline per call, StepMania's `cmd`
@@ -199,6 +204,10 @@ the browser are implementation details, not advertised features.
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
   from the system); winit, rfd and arboard load their libraries at run
   time.
+- SkinCraft is maintained in [sugoijan/skincraft](https://github.com/sugoijan/skincraft),
+  a separate native application consuming our loader and field renderer as Git
+  dependencies (`docs/plans/noteskin-authoring.md`). Its own repository contains
+  the editor hosts, MCP bridge, local development patches and authoring tests.
 - `importer-protocol/` the platform-free framed app/helper IPC contract (serde
   and plain data only; no SDK/networking or filesystem).
 - `tools/danoni-importer/` the native helper, a root workspace member requiring
@@ -370,6 +379,10 @@ the browser are implementation details, not advertised features.
   credits (Trunk runs them before every build; CI checks `CREDITS.md` and
   `THIRD_PARTY_RUST.md` are fresh). `gen-dito` regenerates the SVG art of Dito, the default skin
   (committed; CI checks it with `--check`).
+- `python3 tools/noteskin-danoni/generate.py [--check]` adapts the pinned
+  danoniplus SVG alpha masks to the game's SVG subset for the `DanOni`
+  noteskin proof. Its Lua behavior and host-interface limits are documented
+  in `tools/noteskin-danoni/README.md`; upstream originals remain byte-identical.
 
 Prefer the latest released versions of dependencies; check crates.io before
 adding one and refresh the lockfile with `cargo update`.

@@ -3,3 +3,5 @@
 /target
 /.trunk
 /dist-test/
+/.local/skin-studio/
+/.local/skincraft/

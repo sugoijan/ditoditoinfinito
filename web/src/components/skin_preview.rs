@@ -664,6 +664,7 @@ fn still_frame(o: &PreviewOptions, layout: &Layout, beat: f64) -> Frame {
     let notes = lanes
         .iter()
         .map(|&lane| NoteSprite {
+            note_index: lane,
             lane: lane as u8,
             y: 0.0,
             kind: SpriteKind::Tap,

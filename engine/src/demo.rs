@@ -157,6 +157,7 @@ pub struct Demo {
     options: PlayOptions,
     rules: RulesetKey,
     player: Player,
+    autoplay: bool,
     /// `(song seconds, lane, pressed)`, in order.
     script: Vec<(f64, u8, bool)>,
     next: usize,
@@ -237,6 +238,7 @@ impl Demo {
             options,
             rules,
             player,
+            autoplay: false,
             script,
             next: 0,
             length,
@@ -245,6 +247,13 @@ impl Demo {
             seq_base: 0,
             last_now: 0.0,
         })
+    }
+
+    /// Preview only: keep its scripted timing examples, present their flashes
+    /// as autoplay. The hint survives a loop restart.
+    pub fn set_autoplay(&mut self, autoplay: bool) {
+        self.autoplay = autoplay;
+        self.player.set_autoplay(autoplay);
     }
 
     /// A fresh play and its presses: the autoplayer's, moved through
@@ -363,6 +372,7 @@ impl Demo {
             self.seq = 0;
             let (player, script) = Self::start(&self.song, self.options, &self.rules);
             self.player = player;
+            self.player.set_autoplay(self.autoplay);
             self.script = script;
             self.next = 0;
             // Rounding may leave the time at the loop's very end.
@@ -558,5 +568,33 @@ mod tests {
         );
         assert_eq!(seen("pump-single", &itg).0, HoldPlace::None);
         assert!(!seen("pump-single", &itg).1);
+    }
+}
+
+#[cfg(test)]
+mod autoplay_presentation_tests {
+    use super::*;
+
+    #[test]
+    fn autoplay_hint_survives_preview_loops_without_changing_timing_examples() {
+        let mut demo = Demo::new("danoni-7", 120.0, 1.0).unwrap();
+        demo.set_autoplay(true);
+        let mut seen = [0; 2];
+        let mut judgements = Vec::new();
+        for i in 0..(demo.length() * 120.0) as u32 {
+            let now = f64::from(i) / 60.0;
+            let loop_index = usize::from(now >= demo.length());
+            for event in demo.step(now).events {
+                assert!(event.autoplay);
+                seen[loop_index] += 1;
+                if let crate::SkinEventKind::Tap { judgement, .. } = event.kind
+                    && !judgements.contains(&judgement)
+                {
+                    judgements.push(judgement);
+                }
+            }
+        }
+        assert!(seen.iter().all(|&n| n > 0));
+        assert!(judgements.contains(&crate::rules::Judgement::W5));
     }
 }

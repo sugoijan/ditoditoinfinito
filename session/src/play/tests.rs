@@ -221,6 +221,7 @@ fn autoplay_is_all_top_tier_at_any_frame_rate() {
             panic!("no end at {fps} fps");
         };
         let t = s.player.tally();
+        assert!(s.player.skin_events_since(0).all(|e| e.autoplay));
         assert!(t.taps[0] > 0, "{fps}: {t:?}");
         assert!(t.taps[1..].iter().all(|&n| n == 0), "{fps}: {t:?}");
         assert_eq!(t.let_go, 0);
@@ -261,6 +262,7 @@ fn autoplay_through_a_test_pad_is_all_top_tier() {
         panic!("no end");
     };
     let t = s.player.tally();
+    assert!(s.player.skin_events_since(0).all(|e| e.autoplay));
     assert!(
         t.taps[0] > 0 && t.taps[1..].iter().all(|&n| n == 0),
         "{t:?}"
