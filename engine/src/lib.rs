@@ -54,7 +54,7 @@ pub use bindings::{ConnectedPad, ControlBindings, LaneTable, MenuInput, PadBindi
 pub use clock::{ClockOptions, SongClock};
 pub use frame::{
     Frame, HoldFlash, HoldJudgements, HoldKind, HoldPlace, JudgementFlash, NoteSprite,
-    ReceptorState, SkinEvent, SkinEventKind, SpriteKind,
+    ReceptorState, SkinEvent, SkinEventKind, SkinNote, SpriteKind,
 };
 pub use input::{Binding, BindingDevice, Bindings, InputEvent, LaneInput};
 pub use judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};

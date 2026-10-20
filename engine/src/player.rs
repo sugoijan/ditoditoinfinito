@@ -225,14 +225,15 @@ pub struct Player {
     /// Displayed beat of each judged note's head and tail (they never
     /// change, and computing them is linear in the scroll segments).
     displayed: Vec<(f64, f64)>,
-    /// The lanes of each row's notes.
-    row_lanes: Vec<Vec<u8>>,
+    /// The (lane, stable note index) pairs of each judged row.
+    row_notes: Vec<Vec<(u8, usize)>>,
     /// Notes of each row judged so far, for explosions: in the dance game
     /// StepMania flashes a row once it is completely judged, whatever the
     /// ruleset counts (`m_bCountNotesSeparately`, `GameManager.cpp:506`).
     row_judged: Vec<u32>,
     /// The latest skin events, oldest first.
     skin_events: VecDeque<SkinEvent>,
+    autoplay: bool,
     next_seq: u64,
 }
 
@@ -315,18 +316,19 @@ impl Player {
             frame_interval: 1.0 / 60.0,
             lane_map: transformed.take_from,
             displayed: Vec::new(),
-            row_lanes: Vec::new(),
+            row_notes: Vec::new(),
             row_judged: Vec::new(),
             skin_events: VecDeque::new(),
+            autoplay: false,
             next_seq: 0,
             judge,
             ruleset,
         };
-        player.row_lanes = vec![Vec::new(); player.judge.rows().len()];
+        player.row_notes = vec![Vec::new(); player.judge.rows().len()];
         player.row_judged = vec![0; player.judge.rows().len()];
-        for n in player.judge.notes() {
+        for (index, n) in player.judge.notes().iter().enumerate() {
             if let Some(r) = n.row {
-                player.row_lanes[r].push(n.note.lane);
+                player.row_notes[r].push((n.note.lane, index));
             }
         }
         player.displayed = player
@@ -595,6 +597,9 @@ impl Player {
             lane,
             kind,
             song_time,
+            autoplay: self.autoplay,
+            danoni_judgments: self.ruleset.id == "danoni",
+            note: None,
         });
         self.next_seq += 1;
     }
@@ -602,6 +607,12 @@ impl Player {
     /// The skin events numbered `seq` and on still kept, oldest first.
     pub fn skin_events_since(&self, seq: u64) -> impl Iterator<Item = &SkinEvent> {
         self.skin_events.iter().filter(move |e| e.seq >= seq)
+    }
+
+    /// Noteskin presentation hint only. Input timestamps, judgments, scores
+    /// and replay logs follow the same path in both modes.
+    pub fn set_autoplay(&mut self, autoplay: bool) {
+        self.autoplay = autoplay;
     }
 
     /// Explosions are bright above a combo of 100.
@@ -714,6 +725,20 @@ impl Player {
         }
     }
 
+    fn skin_note(&self, index: usize, song_time: f64) -> Option<crate::frame::SkinNote> {
+        let n = self.judge.note(index)?;
+        let &(beat, _) = self.displayed.get(index)?;
+        let scroll = ScrollState::at(
+            self.options.scroll,
+            &self.timing,
+            song_time + self.clock.options().visual_offset,
+        );
+        Some(crate::frame::SkinNote {
+            index,
+            y: scroll.y_displayed(beat, n.seconds) * n.note.speed_mul.unwrap_or(1.0),
+        })
+    }
+
     /// The explosions an event sets off (`Player::Step`, `FlashGhostRow`,
     /// `Player.cpp:2555-2575,2834-2856`).
     fn flash(&mut self, ev: &JudgeEvent, bright: bool) {
@@ -726,6 +751,22 @@ impl Player {
                 else {
                     return;
                 };
+                if !j.is_miss() {
+                    let hit = ev
+                        .note_index
+                        .and_then(|index| self.skin_note(index, ev.song_time));
+                    self.skin_event(
+                        self.pressing.unwrap_or(ev.lane),
+                        SkinEventKind::NoteTap {
+                            judgement: j,
+                            bright,
+                        },
+                        ev.song_time,
+                    );
+                    if let Some(event) = self.skin_events.back_mut() {
+                        event.note = hit;
+                    }
+                }
                 self.row_judged[r] += 1;
                 // Every lane of the row with the last judgement, once the
                 // row is completely judged by a press: a row that ends on a
@@ -734,9 +775,22 @@ impl Player {
                     // With `judged_lane`, where the press was.
                     let lanes = match self.pressing {
                         Some(lane) => vec![lane],
-                        None => self.row_lanes[r].clone(),
+                        None => self.row_notes[r].iter().map(|(lane, _)| *lane).collect(),
                     };
                     for lane in lanes {
+                        let note = self.row_notes[r]
+                            .iter()
+                            .find(|(l, _)| *l == lane)
+                            .map(|(_, i)| *i)
+                            .or(ev.note_index);
+                        let hit = note.and_then(|index| {
+                            let n = self.judge.note(index)?;
+                            let at = match n.state {
+                                NoteState::Hit { delta, .. } => n.seconds + delta,
+                                _ => ev.song_time,
+                            };
+                            self.skin_note(index, at)
+                        });
                         self.skin_event(
                             lane,
                             SkinEventKind::Tap {
@@ -745,6 +799,9 @@ impl Player {
                             },
                             ev.song_time,
                         );
+                        if let Some(event) = self.skin_events.back_mut() {
+                            event.note = hit;
+                        }
                     }
                 }
             }
@@ -907,7 +964,9 @@ impl Player {
         let blind = self
             .shock_blind
             .filter(|&(from, until)| song_time >= from && song_time < until);
-        for (n, &(head_beat, tail_beat)) in self.judge.notes().iter().zip(&self.displayed) {
+        for (note_index, (n, &(head_beat, tail_beat))) in
+            self.judge.notes().iter().zip(&self.displayed).enumerate()
+        {
             if field_cleared {
                 break;
             }
@@ -1005,6 +1064,7 @@ impl Player {
                 _ => 1.0,
             };
             notes.push(NoteSprite {
+                note_index,
                 lane: n.note.lane,
                 y,
                 kind,

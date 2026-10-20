@@ -9,6 +9,21 @@ hardened fork of piccolo, how much Lua runs during play) and `docs/research/note
 
 ## Guarantees
 
+Noteskin presentation extensions (2026-10-20): `HoldUseDroppedState=1`
+loads separate `Hold/Roll … Dropped` actors alongside inactive and active
+art. Selection uses the note's dropped flag, without executing per-note
+Lua each frame. A hit's `ColumnJudgmentMessage` carries `Autoplay` and
+finite numeric `HitX`/`HitY`, in the explosion root's base orientation and
+64-unit lane pixels. The renderer uses the hit note's stable identity to
+recover its last drawn position, with an input-time scroll-position fallback;
+reverse/lower-row direction is included. `Press`/`Lift` also carry `Autoplay`.
+`DanoniJudgments` identifies its four-tier slot arrangement for flash palettes.
+The player/session only supplies cosmetic metadata: judging, clocks, scoring
+and replay edges are unchanged. See `tools/noteskin-danoni/README.md`.
+`TapJudgmentsPerNote=1` forwards the individual hit event to this message,
+instead of the completed row with its last judgment; old skins retain their
+row effects. Both event streams are cosmetic and share the same judged inputs.
+
 These come first; performance is traded for them. They are properties of
 the VM's own code: nothing relies on a worker, a separate wasm instance or
 a separate process.

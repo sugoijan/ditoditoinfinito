@@ -1093,6 +1093,7 @@ mod tests {
     fn note(y: f32, kind: SpriteKind, appearance: Appearance) -> NoteSprite {
         let (alpha, glow) = appearance.visibility(y);
         NoteSprite {
+            note_index: 0,
             lane: 0,
             y,
             kind,

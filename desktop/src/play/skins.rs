@@ -93,6 +93,8 @@ const MAX_TEXTS: u64 = 32 << 20;
 
 /// A skin ready for a play.
 pub struct Prepared {
+    /// Authoring tools retain their last valid preview when Lua falls back after an error.
+    pub load_error: Option<String>,
     pub key: String,
     /// What a Lua stop counts against ([`DiskSkin::strike_key`]).
     pub strike: String,
@@ -101,8 +103,9 @@ pub struct Prepared {
     pub images: Vec<Option<Rgba>>,
 }
 
-/// A skin's folder as the loader reads it: its files and texts.
-fn folder(skin: &DiskSkin) -> Folder {
+/// A skin's folder as the loader reads it: its files and bounded texts.
+/// Authoring tools use the same listing for resolution and coverage reports.
+pub fn folder(skin: &DiskSkin) -> Folder {
     // A bundled skin's are in the index.
     if skin.bundled
         && let Some(f) = bundled_folder(skin)
@@ -193,7 +196,7 @@ pub fn decode_image(path: &Path) -> Result<(Rgba, (u32, u32)), String> {
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("svg"))
     {
-        return svg(&bytes);
+        return decode_svg(&bytes);
     }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
@@ -227,7 +230,7 @@ pub fn decode_image(path: &Path) -> Result<(Rgba, (u32, u32)), String> {
 
 /// An SVG checked (`ddi_noteskin::svg`, the subset browsers and resvg
 /// draw alike) and rasterised at [`SVG_SCALE`] times its size.
-fn svg(bytes: &[u8]) -> Result<(Rgba, (u32, u32)), String> {
+pub fn decode_svg(bytes: &[u8]) -> Result<(Rgba, (u32, u32)), String> {
     if bytes.len() > ddi_noteskin::svg::MAX_SVG {
         return Err("the SVG is too large".into());
     }
@@ -333,6 +336,7 @@ pub struct Read {
     seed: u64,
     with_lua: bool,
     lua_error: Option<String>,
+    record_failures: bool,
     sizes: Sizes,
     decoded: HashMap<(usize, String), Rgba>,
     pixels: u64,
@@ -342,6 +346,16 @@ pub struct Read {
 /// files, and its images decoded; `None` when there is no such skin, it
 /// does not load, or the layout's lanes are not its buttons. Any thread.
 pub fn read(key: &str, layout: &Layout, env: Env, skins: &[DiskSkin]) -> Option<Read> {
+    read_inner(key, layout, env, skins, true)
+}
+
+fn read_inner(
+    key: &str,
+    layout: &Layout,
+    env: Env,
+    skins: &[DiskSkin],
+    record_failures: bool,
+) -> Option<Read> {
     let mut stored: Vec<DiskSkin> = skins.to_vec();
     // The chosen skin first; a bundled one's fallbacks only among the
     // bundled ones, a player's among the player's, then the bundled
@@ -363,7 +377,9 @@ pub fn read(key: &str, layout: &Layout, env: Env, skins: &[DiskSkin]) -> Option<
     };
     // Its Lua stopped twice this run: drawn without it.
     let strike = chosen.strike_key();
-    let lua_off = crate::library::noteskins::lua_off(&strike);
+    let lua_off = record_failures
+        .then(|| crate::library::noteskins::lua_off(&strike))
+        .flatten();
     if let Some(why) = &lua_off {
         eprintln!("noteskin {}: its Lua is off ({why})", chosen.name);
     }
@@ -410,6 +426,7 @@ pub fn read(key: &str, layout: &Layout, env: Env, skins: &[DiskSkin]) -> Option<
         seed,
         with_lua,
         lua_error,
+        record_failures,
         sizes,
         decoded: HashMap::new(),
         pixels: 0,
@@ -479,7 +496,9 @@ pub fn build(mut r: Read, layout: &Layout) -> Option<Prepared> {
             }
         }
     }
-    if let Some(e) = &r.lua_error {
+    if let Some(e) = &r.lua_error
+        && r.record_failures
+    {
         crate::library::noteskins::lua_stopped(
             &r.strike,
             &format!("its Lua stopped while loading ({e}); drawn without it"),
@@ -505,6 +524,7 @@ pub fn build(mut r: Read, layout: &Layout) -> Option<Prepared> {
         eprintln!("noteskin {}: {n}", r.name);
     }
     Some(Prepared {
+        load_error: r.lua_error,
         key: r.key,
         strike: r.strike,
         play,
@@ -518,6 +538,17 @@ pub fn build(mut r: Read, layout: &Layout) -> Option<Prepared> {
 /// buttons.
 pub fn prepare(key: &str, layout: &Layout, env: Env, skins: &[DiskSkin]) -> Option<Prepared> {
     build(read(key, layout, env, skins)?, layout)
+}
+
+/// The authoring preview uses the same loader but retries corrected scripts without a play's
+/// persistent strike count. `Prepared::load_error` reports a fallback instead of hiding it.
+pub fn prepare_authoring(
+    key: &str,
+    layout: &Layout,
+    env: Env,
+    skins: &[DiskSkin],
+) -> Option<Prepared> {
+    build(read_inner(key, layout, env, skins, false)?, layout)
 }
 
 /// A skin read on a thread of its own; dropped, its answer is let go (a

@@ -9,6 +9,14 @@ were fetched and run through `local_skins` on 2026-10-12 (below).
 
 ## What the candidates are
 
+Added 2026-10-20: `DanOni`, a derived MIT proof of danoniplus CW Edition's
+default 5/7-key appearance, with its original SVG masks archived and the
+JavaScript/CSS behavior re-created in Lua. The reproducible conversion,
+source pin and behavior mapping are recorded in
+[`tools/noteskin-danoni/README.md`](../../tools/noteskin-danoni/README.md).
+Dropped-freeze colors and manual/autoplay flashes now use opt-in dropped
+actors and per-hit presentation metadata, shared by desktop, web and SkinCraft.
+
 | Skin | Licence | Upstream | Loads today |
 |---|---|---|---|
 | Delta (shakesoda) | CC BY 3.0 (`readme.txt`) | stepmania/stepmania `5_1-new` @ `825467bc`, `NoteSkins/dance/Delta` | 156 of 156 elements through its Lua, no warnings, at most 21.8k fuel a frame; 64 px art |

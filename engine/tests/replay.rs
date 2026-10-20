@@ -1404,6 +1404,7 @@ fn skin_events_follow_stepmanias_receptor_and_explosion_rules() {
     };
     let kinds = |p: &Player, from: u64| -> Vec<(u8, SkinEventKind)> {
         p.skin_events_since(from)
+            .filter(|e| !matches!(e.kind, SkinEventKind::NoteTap { .. }))
             .map(|e| (e.lane, e.kind))
             .collect()
     };
@@ -1634,4 +1635,100 @@ fn replays_alike(song: &Song, player: &Player) {
         let again = replay(song, 0, &ruleset.key(), player.options(), player.log());
         assert_eq!(again, player.results());
     }
+}
+
+#[test]
+fn skin_hits_identify_each_rows_note_and_keep_autoplay_cosmetic() {
+    use ddi_engine::frame::SkinEventKind;
+    use ddi_engine::scroll::{ScrollOptions, SpeedMod};
+    let mut song = fixture_song();
+    let mut left = ddi_chart::Note::new(ddi_chart::Tick(0), 0, ddi_chart::NoteKind::Tap);
+    left.speed_mul = Some(2.0);
+    let mut right = ddi_chart::Note::new(ddi_chart::Tick(0), 3, ddi_chart::NoteKind::Tap);
+    right.speed_mul = Some(3.0);
+    song.charts[0].notes = vec![left, right];
+    let run = |autoplay| {
+        let mut options = PlayOptions {
+            scroll: ScrollOptions {
+                speed: SpeedMod::CMod(240.0),
+                ..ScrollOptions::default()
+            },
+            ..PlayOptions::default()
+        };
+        options.clock.visual_offset = -0.01;
+        let mut player = Player::new(&song, 0, presets::itg(), options);
+        player.set_autoplay(autoplay);
+        player.clock_sample(ClockSample::default());
+        player.start(0.0, 0.0);
+        let frame = player.frame(HostTime(-0.05));
+        assert_eq!(
+            frame.notes.iter().map(|n| n.note_index).collect::<Vec<_>>(),
+            [0, 1]
+        );
+        for (lane, at) in [(0, 0.02), (3, 0.04)] {
+            player.input(InputEvent {
+                lane,
+                pressed: true,
+                host_time: HostTime(at),
+            });
+            if lane == 0 {
+                assert!(player.skin_events_since(0).any(|e| matches!(
+                    e.kind,
+                    SkinEventKind::NoteTap {
+                        judgement: Judgement::W1,
+                        ..
+                    }
+                )));
+                assert!(
+                    !player
+                        .skin_events_since(0)
+                        .any(|e| matches!(e.kind, SkinEventKind::Tap { .. }))
+                );
+            }
+        }
+        let events: Vec<_> = player.skin_events_since(0).copied().collect();
+        assert!(events.iter().all(|e| e.autoplay == autoplay));
+        assert!(events.iter().all(|e| !e.danoni_judgments));
+        let individual: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e.kind {
+                SkinEventKind::NoteTap { judgement, .. } => {
+                    Some((e.lane, judgement, e.note.unwrap().index))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(individual, [(0, Judgement::W1, 0), (3, Judgement::W2, 1)]);
+        let hits: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e.kind, SkinEventKind::Tap { .. }))
+            .collect();
+        assert_eq!(hits.len(), 2);
+        for (event, index, expected_y) in [(hits[0], 0, -0.08_f32), (hits[1], 1, -0.36)] {
+            let hit = event.note.unwrap();
+            assert_eq!(hit.index, index);
+            assert!((hit.y - expected_y).abs() < 1e-6, "{:?}", hit);
+        }
+        player.update(HostTime(1.0));
+        (player.results(), player.log().clone())
+    };
+    assert_eq!(
+        run(false),
+        run(true),
+        "autoplay presentation must not alter judging or the replay log"
+    );
+    let mut danoni = Player::new(&song, 0, presets::danoni(), PlayOptions::default());
+    danoni.clock_sample(ClockSample::default());
+    danoni.start(0.0, 0.0);
+    danoni.input(InputEvent {
+        lane: 0,
+        pressed: true,
+        host_time: HostTime(0.0),
+    });
+    assert!(danoni.skin_events_since(0).all(|e| e.danoni_judgments));
+    assert!(
+        danoni
+            .skin_events_since(0)
+            .any(|e| matches!(e.kind, SkinEventKind::NoteTap { .. }))
+    );
 }

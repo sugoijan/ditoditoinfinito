@@ -72,6 +72,238 @@ fn bundled() -> Vec<Folder> {
 }
 
 #[test]
+fn danoni_default_art_and_lua_behavior() {
+    use ddi_actor::{Actor, Clocks};
+    use ddi_noteskin::lua::{FrameBudget, Param, Position};
+
+    let folders = bundled();
+    let skin = Skin::load(&folders, "dance", "DanOni").unwrap();
+    let mut lua = LuaSkin::new(
+        skin.into_owned(),
+        Env::default(),
+        ddi_lua::Settings::default(),
+        LoadBudget::default(),
+        Box::new(|| 0.0),
+    )
+    .unwrap();
+    let mut textures = Textures::default();
+    let mut element = |lua: &mut LuaSkin, button, name| -> Box<Actor> {
+        let built = lua.element(button, name, &mut textures, &AnySize).unwrap();
+        assert!(
+            built.notes.is_empty(),
+            "{button:?} {name}: {:?}",
+            built.notes
+        );
+        let Built::Actor(actor) = built.built else {
+            panic!("{button:?} {name}")
+        };
+        let mut actor = Box::new(actor);
+        assert!(lua.reclaim(&mut actor));
+        actor
+    };
+    let near = |actual: [f32; 4], expected: [f32; 4]| {
+        assert!(
+            actual
+                .iter()
+                .zip(expected)
+                .all(|(a, e)| (a - e).abs() < 1e-5),
+            "{actual:?} != {expected:?}"
+        );
+    };
+    let command = |lua: &mut LuaSkin, actor: &mut Box<Actor>, name, params: &[(&str, Param)]| {
+        lua.begin_frame(Position::default(), FrameBudget::default());
+        let id = actor.id;
+        assert!(lua.lend(actor));
+        lua.play(id, name, params).unwrap();
+        assert!(lua.reclaim(actor));
+    };
+    let update = |lua: &mut LuaSkin, actor: &mut Box<Actor>, seconds| {
+        lua.begin_frame(Position::default(), FrameBudget::default());
+        let id = actor.id;
+        assert!(lua.lend(actor));
+        lua.update(id, seconds, &Clocks::default()).unwrap();
+        assert!(lua.reclaim(actor));
+    };
+    for (button, rgb, rotation) in [
+        (Button::Left, [0.4, 0.4, 1.0, 1.0], 0.0),
+        (Button::Down, [0.4, 0.4, 1.0, 1.0], -90.0),
+        (Button::Up, [0.4, 0.4, 1.0, 1.0], 90.0),
+        (Button::Right, [0.4, 0.4, 1.0, 1.0], 180.0),
+        (Button::DownLeft, [0.6, 1.0, 1.0, 1.0], -45.0),
+        (Button::DownRight, [0.6, 1.0, 1.0, 1.0], -135.0),
+        (Button::Onigiri, [1.0; 4], 0.0),
+    ] {
+        let tap = element(&mut lua, button, "Tap Note");
+        near(tap.children()[0].current().diffuse(), rgb);
+        assert_eq!(tap.base_rotation[2], rotation);
+        // Dedicated diagonal buttons also cover freeze tails without the
+        // Down fallback's extra turn (which does not turn tails).
+        let tail = element(&mut lua, button, "Hold Tail Inactive");
+        assert_eq!(tail.base_rotation[2], rotation);
+        near(tail.children()[1].current().diffuse(), [0.4, 1.0, 1.0, 1.0]);
+        for name in ENGINE_ELEMENTS {
+            let built = lua
+                .element(button, name, &mut Textures::default(), &AnySize)
+                .unwrap();
+            assert!(
+                !matches!(built.built, Built::BuiltIn) && built.notes.is_empty(),
+                "{button:?} {name}: {:?}",
+                built.notes
+            );
+        }
+    }
+    for button in [Button::Down, Button::Onigiri] {
+        let mut receptor = element(&mut lua, button, "Receptor");
+        near(
+            receptor.children()[0].current().diffuse(),
+            [0.6, 0.6, 0.6, 1.0],
+        );
+        assert!(!receptor.children()[1].visible);
+        command(&mut lua, &mut receptor, "Press", &[]);
+        assert!(receptor.children()[1].visible);
+        near(
+            receptor.children()[1].current().diffuse(),
+            [0.4, 1.0, 1.0, 1.0],
+        );
+        command(&mut lua, &mut receptor, "W3", &[]);
+        near(
+            receptor.children()[0].current().diffuse(),
+            [0.6, 0.6, 0.6, 1.0],
+        );
+        command(&mut lua, &mut receptor, "Lift", &[]);
+        assert!(!receptor.children()[1].visible);
+        assert_eq!(receptor.current().scale, [1.0; 3]);
+
+        let mut explosion = element(&mut lua, button, "Explosion");
+        assert!(!explosion.children()[0].visible);
+        for (score, rgb) in [
+            ("W1", [0.4, 1.0, 1.0, 0.75]),
+            ("W2", [0.4, 1.0, 1.0, 0.75]),
+            ("W3", [0.6, 1.0, 0.6, 0.75]),
+            ("W4", [1.0, 0.6, 0.4, 0.75]),
+            ("W5", [0.8, 0.8, 1.0, 0.75]),
+        ] {
+            let params = [
+                ("TapNoteScore", Param::Str(format!("TapNoteScore_{score}"))),
+                ("Bright", Param::Bool(true)),
+            ];
+            command(&mut lua, &mut explosion, "ColumnJudgmentMessage", &params);
+            near(explosion.children()[1].current().diffuse(), rgb);
+            assert_eq!(explosion.children()[1].current().scale[..2], [1.6; 2]);
+            update(&mut lua, &mut explosion, 0.04);
+            near(explosion.children()[1].current().diffuse(), rgb);
+            // A second hit resets the full duration, even while the first sleeps.
+            command(&mut lua, &mut explosion, "ColumnJudgmentMessage", &params);
+            update(&mut lua, &mut explosion, 0.04);
+            near(explosion.children()[1].current().diffuse(), rgb);
+            update(&mut lua, &mut explosion, 0.03);
+            assert_eq!(explosion.children()[1].current().diffuse()[3], 0.0);
+        }
+        command(
+            &mut lua,
+            &mut explosion,
+            "ColumnJudgmentMessage",
+            &[("TapNoteScore", Param::Str("TapNoteScore_Miss".into()))],
+        );
+        assert_eq!(explosion.children()[1].current().diffuse()[3], 0.0);
+        for (on, off) in [("HoldingOn", "HoldingOff"), ("RollOn", "RollOff")] {
+            command(&mut lua, &mut explosion, on, &[]);
+            assert!(explosion.children()[0].visible);
+            assert_eq!(explosion.children()[0].current().diffuse()[3], 0.9);
+            command(&mut lua, &mut explosion, off, &[]);
+            assert!(!explosion.children()[0].visible);
+        }
+        command(&mut lua, &mut explosion, "Held", &[]);
+        assert_eq!(explosion.children()[1].current().diffuse()[3], 0.0);
+        let head = element(&mut lua, button, "Hold Head Active");
+        assert!(!head.children()[1].visible);
+        let tail = element(&mut lua, button, "Hold Tail Active");
+        near(tail.children()[1].current().diffuse(), [0.8, 0.8, 0.2, 1.0]);
+        for part in [
+            "Hold Head Dropped",
+            "Hold Tail Dropped",
+            "Roll Head Dropped",
+            "Roll Tail Dropped",
+        ] {
+            let dropped = element(&mut lua, button, part);
+            near(
+                dropped.children()[0].current().diffuse(),
+                [0.2, 0.2, 0.2, 1.0],
+            );
+            near(
+                dropped.children()[1].current().diffuse(),
+                [0.8, 0.8, 0.8, 1.0],
+            );
+            assert!(dropped.children()[1].visible);
+        }
+        command(
+            &mut lua,
+            &mut receptor,
+            "Press",
+            &[("Autoplay", Param::Bool(true))],
+        );
+        assert!(!receptor.children()[1].visible);
+        let auto = [
+            ("TapNoteScore", Param::Str("TapNoteScore_W3".into())),
+            ("Autoplay", Param::Bool(true)),
+            ("HitX", Param::Float(13.0)),
+            ("HitY", Param::Float(-7.0)),
+        ];
+        command(&mut lua, &mut explosion, "ColumnJudgmentMessage", &auto);
+        near(
+            explosion.children()[1].current().diffuse(),
+            [0.6, 0.6, 0.6, 1.0],
+        );
+        assert_eq!(explosion.children()[1].current().pos[..2], [0.0, 0.0]);
+        update(&mut lua, &mut explosion, 0.04);
+        assert_eq!(explosion.children()[1].current().diffuse()[3], 1.0);
+        update(&mut lua, &mut explosion, 0.03);
+        assert_eq!(explosion.children()[1].current().diffuse()[3], 0.0);
+        let manual = [
+            ("TapNoteScore", Param::Str("TapNoteScore_W3".into())),
+            ("Autoplay", Param::Bool(false)),
+            ("HitX", Param::Float(13.0)),
+            ("HitY", Param::Float(-7.0)),
+        ];
+        command(&mut lua, &mut explosion, "ColumnJudgmentMessage", &manual);
+        assert_eq!(explosion.children()[1].current().pos[..2], [13.0, -7.0]);
+        for (score, rgb) in [
+            ("W1", [0.4, 1.0, 1.0, 0.75]),
+            ("W2", [0.6, 1.0, 0.6, 0.75]),
+            ("W3", [1.0, 0.6, 0.4, 0.75]),
+            ("W4", [0.8, 0.8, 1.0, 0.75]),
+        ] {
+            command(
+                &mut lua,
+                &mut explosion,
+                "ColumnJudgmentMessage",
+                &[
+                    ("TapNoteScore", Param::Str(format!("TapNoteScore_{score}"))),
+                    ("DanoniJudgments", Param::Bool(true)),
+                ],
+            );
+            near(explosion.children()[1].current().diffuse(), rgb);
+        }
+    }
+    let bodies = [
+        ("Hold Body Inactive", "_bar inactive.svg"),
+        ("Hold Body Active", "_bar active.svg"),
+        ("Hold Body Dropped", "_bar dropped.svg"),
+    ]
+    .map(|(name, path)| (element(&mut lua, Button::Down, name), path));
+    for (body, path) in bodies {
+        let ddi_actor::Kind::Sprite(sprite) = &body.kind else {
+            panic!("body must be a strip sprite")
+        };
+        assert!(
+            matches!(&textures.keys()[sprite.texture as usize], ddi_noteskin::build::TextureKey::Skin {path: p, ..} if p == path)
+        );
+    }
+    assert!(textures.keys().iter().any(|k| matches!(k, ddi_noteskin::build::TextureKey::Skin {path, ..} if path == "_onigiri shape.svg")));
+    assert!(lua.warnings().is_empty(), "{:?}", lua.warnings());
+}
+
+#[test]
 fn bundled_skins_build_every_element_through_their_lua() {
     let folders = bundled();
     assert!(!folders.is_empty());
@@ -86,7 +318,7 @@ fn bundled_skins_build_every_element_through_their_lua() {
             .and_then(|l| skin.lane_button(l))
             .unwrap()
             .button;
-        let expected = if f.name.starts_with("Dito") {
+        let expected = if f.name.starts_with("Dito") || f.name == "DanOni" {
             Button::Onigiri
         } else if f.name.starts_with("CF_") {
             Button::Center
@@ -122,6 +354,7 @@ fn bundled_skins_build_every_element_through_their_lua() {
                 // Dito, Alpha-Arrows, Dake and the CF skins draw everything
                 // themselves.
                 if f.name.starts_with("Dito")
+                    || f.name == "DanOni"
                     || f.name.starts_with("CF_")
                     || ["Alpha-Arrows", "Dake"].contains(&f.name.as_str())
                 {

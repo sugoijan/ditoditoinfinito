@@ -64,6 +64,8 @@ const PAUSE: f64 = 0.25;
 /// looks.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldPreviewOptions {
+    /// Show the demo's hit effects as autoplay (its timing examples stay).
+    pub autoplay_flashes: bool,
     /// A built-in layout's id (the style chosen); another draws
     /// `dance-single`.
     pub layout: String,
@@ -86,6 +88,7 @@ pub struct FieldPreviewOptions {
 impl Default for FieldPreviewOptions {
     fn default() -> FieldPreviewOptions {
         FieldPreviewOptions {
+            autoplay_flashes: false,
             layout: "dance-single".into(),
             play: PlayOptions::default(),
             rules: presets::itg().key(),
@@ -361,6 +364,7 @@ impl FieldPreview {
         let Some(demo) = &mut self.demo else {
             return;
         };
+        demo.set_autoplay(self.options.autoplay_flashes);
         let step = demo.step(self.demo_time);
         if let Some(p) = &mut self.noteskin {
             p.update(&step.frame, step.events.iter(), reverse);

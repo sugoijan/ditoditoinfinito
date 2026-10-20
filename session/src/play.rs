@@ -407,6 +407,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
         };
         let mut player = Player::new(song, chart_index, ruleset, options);
+        player.set_autoplay(auto_play);
         player.judge_all_in(any_lane);
         // The autoplayer presses the transformed chart's lanes.
         let auto = auto_play.then(|| AutoPlay {

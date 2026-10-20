@@ -1,0 +1,25 @@
+author = "tickle; Dito Dito Infinito adaptation"
+credit = "DanOni CW Edition · tickle · MIT; Lua adaptation by Dito Dito Infinito"
+excluded = [
+    "all upstream files except the four original alpha masks archived in tools/noteskin-danoni/upstream/img and LICENSE",
+    "chart-specific colors, skins, custom JavaScript, alternate image sets and key modes beyond the default 5/7-key appearance",
+]
+modifications = [
+    "python3 tools/noteskin-danoni/generate.py: flatten SVG class styles, change black mask RGB to white for actor tinting, add 64x64 logical dimensions; geometry and stroke widths unchanged",
+    "the same generator writes 40/50-wide freeze-bar SVGs with the source's inactive/active colors and 0.75 opacity, plus its opaque #999999 dropped bar",
+    "JavaScript/CSS behavior re-created in Lua actors and metrics.ini; notes use fixed lane colors, receptors use key-down overlays, hit outlines last 4/60 seconds, freezes change colors while held",
+    "opt-in dropped-state actors use upstream #cccccc outlines, #333333 fills and opaque #999999 bars; manual flashes use the hit note's prior drawn position and 0.75 alpha, autoplay uses centered #999999 flashes at alpha 1",
+    "TapJudgmentsPerNote opts into immediate, independent note flashes rather than StepMania's completed-row flashes",
+    "StepMania-only rolls reuse freeze visuals, lifts and fakes reuse taps, mines use a red onigiri",
+]
+
+[source]
+url = "https://github.com/cwtickle/danoniplus"
+commit = "39e8ae70249a845a69bf24249157b1735b331886"
+path = "."
+retrieved = "2026-10-20"
+
+[[licenses]]
+part = "derived SVG artwork and Lua behavior"
+spdx = "MIT"
+holders = ["2018 tickle", "すごいジャン"]

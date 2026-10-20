@@ -92,14 +92,14 @@ impl Element {
     }
 }
 
-/// A hold's or roll's parts, inactive then active.
+/// A hold's or roll's parts: inactive, active, then optionally dropped.
 #[derive(Clone, Debug)]
 struct HoldParts {
-    head: [Element; 2],
-    tail: [Element; 2],
-    topcap: [Element; 2],
-    body: [Element; 2],
-    bottomcap: [Element; 2],
+    head: Vec<Element>,
+    tail: Vec<Element>,
+    topcap: Vec<Element>,
+    body: Vec<Element>,
+    bottomcap: Vec<Element>,
 }
 
 impl HoldParts {
@@ -124,10 +124,10 @@ struct ColorSet {
     lift: Option<Element>,
     fake: Option<Element>,
     mine: Option<Element>,
-    /// Head, tail, top cap, body, bottom cap; inactive then active (as
+    /// Head, tail, top cap, body, bottom cap; inactive, active, dropped (as
     /// [`HoldParts::all`]).
-    hold: [[Option<Element>; 2]; 5],
-    roll: [[Option<Element>; 2]; 5],
+    hold: [[Option<Element>; 3]; 5],
+    roll: [[Option<Element>; 3]; 5],
 }
 
 /// A tap-like note element of a lane.
@@ -156,15 +156,17 @@ impl ColorSet {
             "Roll" => &mut self.roll,
             _ => return None,
         };
+        let part_name = words.next()?;
         let part = ["Head", "Tail", "Topcap", "Body", "Bottomcap"]
             .iter()
-            .position(|p| Some(*p) == words.next())?;
-        let active = match words.next()? {
+            .position(|p| *p == part_name)?;
+        let state = match words.next()? {
             "Inactive" => 0,
             "Active" => 1,
+            "Dropped" => 2,
             _ => return None,
         };
-        Some(&mut parts[part][active])
+        Some(&mut parts[part][state])
     }
 
     fn get_mut(&mut self, slot: Slot) -> &mut Option<Element> {
@@ -202,6 +204,8 @@ struct Lane {
     hold: HoldParts,
     roll: HoldParts,
     holding: Option<HoldKind>,
+    /// Base orientation before lending the explosion tree to Lua.
+    explosion_rotation: f32,
     /// The layout's scroll sign for the lane (-1: a lower-row lane).
     scroll_sign: i8,
     /// The note elements of 8ths to 192nds, when the skin's Lua colors
@@ -215,6 +219,8 @@ pub struct NoteskinPlay {
     lanes: Vec<Lane>,
     /// The lanes as built, for a retry (StepMania loads the actors again).
     initial: Vec<Lane>,
+    /// Positions actually drawn last frame, keyed by transformed note identity.
+    last_note_positions: std::collections::HashMap<usize, f32>,
     /// Quads drawn in the last frame (debug).
     quads: std::cell::Cell<usize>,
     /// Models' triangles drawn this frame (at most [`MAX_FRAME_TRIANGLES`]).
@@ -252,27 +258,37 @@ pub struct NoteskinPlay {
 const MAX_FRAME_TRIANGLES: usize = 1 << 18;
 
 /// The elements of a lane, in the order they are built.
-const LANE_ELEMENTS: [&str; 26] = [
+const LANE_ELEMENTS: [&str; 36] = [
     "Hold Head Inactive",
     "Hold Head Active",
+    "Hold Head Dropped",
     "Hold Tail Inactive",
     "Hold Tail Active",
+    "Hold Tail Dropped",
     "Hold Topcap Inactive",
     "Hold Topcap Active",
+    "Hold Topcap Dropped",
     "Hold Body Inactive",
     "Hold Body Active",
+    "Hold Body Dropped",
     "Hold Bottomcap Inactive",
     "Hold Bottomcap Active",
+    "Hold Bottomcap Dropped",
     "Roll Head Inactive",
     "Roll Head Active",
+    "Roll Head Dropped",
     "Roll Tail Inactive",
     "Roll Tail Active",
+    "Roll Tail Dropped",
     "Roll Topcap Inactive",
     "Roll Topcap Active",
+    "Roll Topcap Dropped",
     "Roll Body Inactive",
     "Roll Body Active",
+    "Roll Body Dropped",
     "Roll Bottomcap Inactive",
     "Roll Bottomcap Active",
+    "Roll Bottomcap Dropped",
     "Receptor",
     "Explosion",
     "Tap Note",
@@ -280,6 +296,12 @@ const LANE_ELEMENTS: [&str; 26] = [
     "Tap Fake",
     "Tap Mine",
 ];
+
+fn lane_elements(dropped: bool) -> impl Iterator<Item = &'static str> {
+    LANE_ELEMENTS
+        .into_iter()
+        .filter(move |name| dropped || !name.ends_with(" Dropped"))
+}
 
 /// The part whose metrics a lane element of a StepMania 3.9 skin takes,
 /// for its per-note-type files (fakes as tap notes; lifts are drawn built
@@ -358,7 +380,8 @@ impl Lane {
     fn assemble(elements: Vec<Element>, metrics: NoteDisplay, scroll_sign: i8) -> Lane {
         let mut e = elements.into_iter();
         let mut next = || e.next().unwrap_or(Element::BuiltIn);
-        let mut pair = || [next(), next()];
+        let count = if metrics.hold_use_dropped_state { 3 } else { 2 };
+        let mut pair = || (0..count).map(|_| next()).collect();
         let mut parts = || HoldParts {
             head: pair(),
             tail: pair(),
@@ -379,6 +402,7 @@ impl Lane {
             hold,
             roll,
             holding: None,
+            explosion_rotation: 0.0,
             scroll_sign,
             colors: Vec::new(),
         }
@@ -430,9 +454,11 @@ impl Lane {
         } else {
             (hold, &mut set.hold)
         };
-        for (base, copy) in parts.all_mut().zip(copies.iter_mut().flatten()) {
-            if let Some(copy) = copy {
-                std::mem::swap(base, copy);
+        for (part, copies) in parts.parts_mut().into_iter().zip(copies) {
+            for (base, copy) in part.iter_mut().zip(copies) {
+                if let Some(copy) = copy {
+                    std::mem::swap(base, copy);
+                }
             }
         }
     }
@@ -608,18 +634,15 @@ impl NoteskinPlay {
     ) -> Lane {
         {
             let button = lane_button.button;
-            let elements = LANE_ELEMENTS
-                .iter()
+            let metrics = NoteDisplay::read(skin, button.name());
+            let elements = lane_elements(metrics.hold_use_dropped_state)
                 .map(|name| {
                     let built = build(skin, button, name, textures, images);
                     to_element(built, button, name, textures, notes)
                 })
                 .collect();
-            let metrics = NoteDisplay::read(skin, button.name());
             // A StepMania 3.9 skin's note parts with a file per note type.
-            let colored: Vec<&str> = LANE_ELEMENTS
-                .iter()
-                .copied()
+            let colored: Vec<&str> = lane_elements(metrics.hold_use_dropped_state)
                 .filter(|name| {
                     ColorSet::default().place(name).is_some()
                         && legacy_part(name).is_some_and(|p| metrics.part(p).note_color)
@@ -733,7 +756,8 @@ impl NoteskinPlay {
             let mut elements = Vec::new();
             // The note elements whose Lua read their color.
             let mut colored = Vec::new();
-            for name in LANE_ELEMENTS {
+            let metrics = NoteDisplay::read(&lua.skin(), button.name());
+            for name in lane_elements(metrics.hold_use_dropped_state) {
                 let (built, read) = lua
                     .element_colored_sliced(
                         button,
@@ -749,7 +773,6 @@ impl NoteskinPlay {
                 }
                 elements.push(to_element(built, button, name, textures, notes));
             }
-            let metrics = NoteDisplay::read(&lua.skin(), button.name());
             let mut assembled = Lane::assemble(elements, metrics, lane.scroll_sign);
             if !colored.is_empty() {
                 for color in &NOTE_COLORS[1..] {
@@ -794,6 +817,7 @@ impl NoteskinPlay {
                 distance: 1.0,
             },
             initial: lanes.clone(),
+            last_note_positions: Default::default(),
             lanes,
             textures,
             texture_ids: vec![None; count],
@@ -848,6 +872,92 @@ impl NoteskinPlay {
         self.textures.keys()
     }
 
+    /// Actual textures referenced by a lane's built actors, for authoring inspection. This
+    /// follows Lua redirects and shared sprites rather than guessing filenames. An unknown
+    /// lane or element returns an empty list; procedural and blank actors have no texture.
+    pub fn element_texture_keys(&self, lane: usize, name: &str) -> Vec<TextureKey> {
+        let Some(lane) = self.lanes.get(lane) else {
+            return Vec::new();
+        };
+        let mut elements = Vec::new();
+        match name {
+            "Receptor" => elements.push(&lane.receptor),
+            "Explosion" => elements.push(&lane.explosion),
+            "Tap Note" => {
+                elements.push(&lane.tap);
+                elements.extend(lane.colors.iter().filter_map(|c| c.tap.as_ref()));
+            }
+            "Tap Lift" => {
+                elements.push(&lane.lift);
+                elements.extend(lane.colors.iter().filter_map(|c| c.lift.as_ref()));
+            }
+            "Tap Fake" => {
+                elements.push(&lane.fake);
+                elements.extend(lane.colors.iter().filter_map(|c| c.fake.as_ref()));
+            }
+            "Tap Mine" => {
+                elements.push(&lane.mine);
+                elements.extend(lane.colors.iter().filter_map(|c| c.mine.as_ref()));
+            }
+            _ => {
+                let mut words = name.split(' ');
+                let kind = words.next();
+                let Some(parts) = (match kind {
+                    Some("Hold") => Some(&lane.hold),
+                    Some("Roll") => Some(&lane.roll),
+                    _ => None,
+                }) else {
+                    return Vec::new();
+                };
+                let part = words.next();
+                let state = match words.next() {
+                    Some("Active") => 1,
+                    Some("Inactive") => 0,
+                    Some("Dropped") => 2,
+                    _ => return Vec::new(),
+                };
+                let (entries, index) = match part {
+                    Some("Head") => (&parts.head, 0),
+                    Some("Tail") => (&parts.tail, 1),
+                    Some("Topcap") => (&parts.topcap, 2),
+                    Some("Body") => (&parts.body, 3),
+                    Some("Bottomcap") => (&parts.bottomcap, 4),
+                    _ => return Vec::new(),
+                };
+                if let Some(element) = entries.get(state) {
+                    elements.push(element);
+                }
+                for color in &lane.colors {
+                    let slots = if kind == Some("Hold") {
+                        &color.hold
+                    } else {
+                        &color.roll
+                    };
+                    if let Some(element) = slots
+                        .get(index)
+                        .and_then(|s| s.get(state))
+                        .and_then(Option::as_ref)
+                    {
+                        elements.push(element);
+                    }
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for element in elements {
+            if let Element::Actor(actor) = element {
+                for id in actor.textures() {
+                    if let Some(key) = self.textures.keys().get(id as usize)
+                        && !out.contains(key)
+                    {
+                        out.push(key.clone());
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Whether texture `index` gets mipmaps (a model's).
     pub fn texture_mipmaps(&self, index: usize) -> bool {
         self.textures.mipmaps(index)
@@ -882,6 +992,7 @@ impl NoteskinPlay {
         self.started = false;
         self.next_seq = 0;
         self.last_song_time = None;
+        self.last_note_positions.clear();
         self.timer = 0.0;
     }
 
@@ -898,6 +1009,17 @@ impl NoteskinPlay {
         events: impl Iterator<Item = &'e SkinEvent>,
         reverse: bool,
     ) {
+        for lane in &mut self.lanes {
+            if let Element::Actor(a) = &lane.explosion {
+                lane.explosion_rotation = a.base_rotation[2];
+            }
+        }
+        if self
+            .last_song_time
+            .is_some_and(|last| frame.song_time < last)
+        {
+            self.last_note_positions.clear();
+        }
         if let Some(lua) = &mut self.lua {
             lua.begin_frame(
                 Position {
@@ -916,6 +1038,7 @@ impl NoteskinPlay {
             }
         }
         let failed = self.play_frame(frame, events, reverse);
+        self.last_note_positions.clear();
         if let Some(lua) = &mut self.lua {
             for lane in &mut self.lanes {
                 for e in lane.elements_mut() {
@@ -968,6 +1091,7 @@ impl NoteskinPlay {
             started,
             next_seq,
             legacy,
+            last_note_positions,
             ..
         } = self;
         let legacy = *legacy;
@@ -1011,7 +1135,25 @@ impl NoteskinPlay {
                 let mut params = vec![
                     (score.0, Param::Str(score.1)),
                     ("Column", Param::Int(column)),
+                    ("Autoplay", Param::Bool(e.autoplay)),
+                    ("DanoniJudgments", Param::Bool(e.danoni_judgments)),
                 ];
+                if let Some(hit) = e.note {
+                    let y = last_note_positions
+                        .get(&hit.index)
+                        .copied()
+                        .unwrap_or(hit.y);
+                    let y = y
+                        * 64.0
+                        * if reverse != (lane.scroll_sign < 0) {
+                            -1.0
+                        } else {
+                            1.0
+                        };
+                    let (sin, cos) = lane.explosion_rotation.to_radians().sin_cos();
+                    params.push(("HitX", Param::Float(f64::from(y * sin))));
+                    params.push(("HitY", Param::Float(f64::from(y * cos))));
+                }
                 if b {
                     params.push(("Bright", Param::Bool(true)));
                 }
@@ -1026,21 +1168,40 @@ impl NoteskinPlay {
             };
             let tap = |s: &str| ("TapNoteScore", format!("TapNoteScore_{s}"));
             match e.kind {
-                SkinEventKind::Press => cmd.play(&mut lane.receptor, "Press", &[], p),
-                SkinEventKind::Lift => cmd.play(&mut lane.receptor, "Lift", &[], p),
+                SkinEventKind::Press => cmd.play(
+                    &mut lane.receptor,
+                    "Press",
+                    &[("Autoplay", Param::Bool(e.autoplay))],
+                    p,
+                ),
+                SkinEventKind::Lift => cmd.play(
+                    &mut lane.receptor,
+                    "Lift",
+                    &[("Autoplay", Param::Bool(e.autoplay))],
+                    p,
+                ),
                 SkinEventKind::Step(Some(j)) => cmd.play(&mut lane.receptor, score_name(j), &[], p),
                 SkinEventKind::Step(None) => cmd.play(&mut lane.receptor, "None", &[], p),
                 SkinEventKind::StepMine => cmd.play(&mut lane.receptor, "HitMine", &[], p),
                 SkinEventKind::Tap {
                     judgement,
                     bright: b,
-                } => explode(
-                    tap(score_name(judgement)),
-                    b,
-                    &["Judgment", bright(b), score_name(judgement)],
-                    &mut cmd,
-                    p,
-                ),
+                }
+                | SkinEventKind::NoteTap {
+                    judgement,
+                    bright: b,
+                } if matches!(e.kind, SkinEventKind::NoteTap { .. })
+                    == lane.metrics.tap_judgments_per_note =>
+                {
+                    explode(
+                        tap(score_name(judgement)),
+                        b,
+                        &["Judgment", bright(b), score_name(judgement)],
+                        &mut cmd,
+                        p,
+                    )
+                }
+                SkinEventKind::Tap { .. } | SkinEventKind::NoteTap { .. } => {}
                 SkinEventKind::Held { bright: b } => explode(
                     ("HoldNoteScore", "HoldNoteScore_Held".into()),
                     b,
@@ -1367,6 +1528,16 @@ impl Lane {
 }
 
 impl HoldParts {
+    fn parts_mut(&mut self) -> [&mut Vec<Element>; 5] {
+        [
+            &mut self.head,
+            &mut self.tail,
+            &mut self.topcap,
+            &mut self.body,
+            &mut self.bottomcap,
+        ]
+    }
+
     fn all(&self) -> impl Iterator<Item = &Element> {
         self.head
             .iter()
@@ -1464,9 +1635,17 @@ impl NoteLayer for NoteskinPlay {
             .collect();
         order.sort_by(|a, b| a.beat.total_cmp(&b.beat));
         for note in order {
-            let (tail_y, active, roll) = match note.kind {
-                SpriteKind::HoldHead { tail_y, active, .. } => (tail_y, active, false),
-                SpriteKind::RollHead { tail_y, active, .. } => (tail_y, active, true),
+            let (tail_y, active, dropped, roll) = match note.kind {
+                SpriteKind::HoldHead {
+                    tail_y,
+                    active,
+                    dropped,
+                } => (tail_y, active, dropped, false),
+                SpriteKind::RollHead {
+                    tail_y,
+                    active,
+                    dropped,
+                } => (tail_y, active, dropped, true),
                 _ => continue,
             };
             let i = usize::from(note.lane);
@@ -1476,25 +1655,36 @@ impl NoteLayer for NoteskinPlay {
             // The hold in its head's color (the copies swapped back below).
             let note_type = note_type(note.beat);
             lane.swap_hold_colors(note_type, roll);
+            self.last_note_positions.insert(note.note_index, note.y);
             let m = lane.metrics.clone();
             // The Active sprites while the button is held (always inside a
             // roll; `Player.cpp:1381-1386`, `1414-1424`).
             let pressed = frame.receptors.get(i).is_some_and(|r| r.pressed);
-            let held = active && (roll || pressed);
+            // An explicit three-state skin follows the note's lifecycle:
+            // keep active art during release grace, until the note drops.
+            let held = active && (roll || pressed || m.hold_use_dropped_state);
             let x = geo.lane_x(l.column);
             let head_y = geo.lane_y(l.scroll_sign, note.y);
             let tail_px = geo.lane_y(l.scroll_sign, tail_y);
             // The column's reverse; StepMania's "head" is the end higher on
             // screen.
             let reverse = geo.lane_direction(l.scroll_sign) < 0.0;
-            let color_scale = lerp(
-                m.hold_let_go_gray_percent,
-                1.0,
-                note.hold_life.clamp(0.0, 1.0),
-            );
+            let dropped_state = dropped && m.hold_use_dropped_state;
+            let state = if dropped_state { 2 } else { usize::from(held) };
+            let color_scale = if dropped_state {
+                1.0
+            } else {
+                lerp(
+                    m.hold_let_go_gray_percent,
+                    1.0,
+                    note.hold_life.clamp(0.0, 1.0),
+                )
+            };
             let parts = if roll { &mut lane.roll } else { &mut lane.hold };
             if parts.drawn() {
-                let layers: &[(usize, QuadBlend)] = if held && m.hold_active_is_add_layer {
+                let layers: &[(usize, QuadBlend)] = if dropped_state {
+                    &[(2, QuadBlend::Normal)]
+                } else if held && m.hold_active_is_add_layer {
                     &[(0, QuadBlend::Normal), (1, QuadBlend::Add)]
                 } else if held {
                     &[(1, QuadBlend::Normal)]
@@ -1516,7 +1706,7 @@ impl NoteLayer for NoteskinPlay {
                     self.hold_body(parts, a, &m, note, frame, geo, &spec, out);
                 }
             }
-            let a = usize::from(held);
+            let a = state;
             // The tail, then the head on top (at the hold's ends, swapped
             // under reverse unless `FlipHeadAndTailWhenReverse`).
             let flip_ends = reverse && m.flip_head_and_tail_when_reverse;
@@ -1618,6 +1808,7 @@ impl NoteLayer for NoteskinPlay {
                 out,
             );
             *lane.note_slot(slot, note_type) = e;
+            self.last_note_positions.insert(note.note_index, note.y);
         }
         self.lanes = lanes;
     }
@@ -1946,6 +2137,262 @@ mod tests {
         }
     }
 
+    /// The shipped DanOni scripts, through exactly the same loader as play.
+    fn danoni_play(layout: &Layout) -> NoteskinPlay {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets/noteskins/dance/DanOni");
+        let mut files: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().is_file())
+            .map(|e| e.file_name().to_str().unwrap().to_owned())
+            .collect();
+        files.sort();
+        let texts = files
+            .iter()
+            .filter(|f| ddi_noteskin::import::kept_text(f))
+            .map(|f| (f.clone(), std::fs::read_to_string(root.join(f)).unwrap()))
+            .collect();
+        let folders = [Folder {
+            game: "dance".into(),
+            name: "DanOni".into(),
+            files,
+            texts,
+        }];
+        let skin = Skin::load(&folders, "dance", "DanOni")
+            .unwrap()
+            .into_owned();
+        let lua = LuaSkin::new(
+            skin,
+            Env {
+                columns: layout.lane_count() as u32,
+                ..Env::default()
+            },
+            ddi_lua::Settings::default(),
+            LoadBudget::default(),
+            Box::new(|| 0.0),
+        )
+        .unwrap();
+        let mut future =
+            std::pin::pin!(NoteskinPlay::with_lua(lua, layout, &NoImages, false, None));
+        let std::task::Poll::Ready(result) = future
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+        else {
+            panic!("pending")
+        };
+        let mut play = result.unwrap().unwrap();
+        assert!(play.notes.is_empty(), "{:?}", play.notes);
+        for i in 0..play.texture_keys().len() {
+            play.set_texture(i, i as u32);
+        }
+        play
+    }
+
+    fn danoni_note(index: usize, lane: u8, y: f32, kind: SpriteKind) -> NoteSprite {
+        NoteSprite {
+            note_index: index,
+            lane,
+            y,
+            kind,
+            quantization: ddi_chart::Quantization::N4,
+            beat_frac: 0.0,
+            color: None,
+            alpha: 1.0,
+            glow: 0.0,
+            beat: index as f32,
+            hold_life: 0.0,
+        }
+    }
+
+    #[test]
+    fn danoni_flash_uses_the_hit_notes_last_drawn_position_in_every_orientation() {
+        use ddi_engine::frame::SkinNote;
+        for reverse in [false, true] {
+            for lower in [false, true] {
+                let mut layout = Layout::builtin("danoni-7").unwrap();
+                if lower {
+                    for l in &mut layout.lanes {
+                        l.scroll_sign = -1;
+                    }
+                }
+                for auto in [false, true] {
+                    let mut play = danoni_play(&layout);
+                    let geo = FieldGeometry::new(700.0, 800.0, 7.0, reverse);
+                    let mut before = frame(0.0, None);
+                    before.notes = (0..7)
+                        .map(|i| danoni_note(i, i as u8, 0.35 + i as f32 * 0.1, SpriteKind::Tap))
+                        .collect();
+                    play.update(&before, [].iter(), reverse);
+                    play.notes(&before, &layout, &geo, &mut Vec::new());
+                    let events: Vec<_> = (0..7u8)
+                        .flat_map(|lane| {
+                            [
+                                SkinEvent {
+                                    seq: u64::from(lane) * 2,
+                                    lane,
+                                    kind: SkinEventKind::Press,
+                                    song_time: 0.01,
+                                    autoplay: auto,
+                                    danoni_judgments: false,
+                                    note: None,
+                                },
+                                SkinEvent {
+                                    seq: u64::from(lane) * 2 + 1,
+                                    lane,
+                                    kind: SkinEventKind::NoteTap {
+                                        judgement: Judgement::W3,
+                                        bright: true,
+                                    },
+                                    song_time: 0.01,
+                                    autoplay: auto,
+                                    danoni_judgments: false,
+                                    note: Some(SkinNote {
+                                        index: usize::from(lane),
+                                        y: -1.0,
+                                    }),
+                                },
+                            ]
+                        })
+                        .collect();
+                    let hit = frame(0.01, None);
+                    play.update(&hit, events.iter(), reverse);
+                    for lane in 0..7 {
+                        let ex = actor(&play.lanes[lane].explosion);
+                        let flash = &ex.children()[1];
+                        assert_eq!(
+                            flash.current().diffuse(),
+                            if auto {
+                                [0.6, 0.6, 0.6, 1.0]
+                            } else {
+                                [0.6, 1.0, 0.6, 0.75]
+                            }
+                        );
+                        assert_eq!(
+                            actor(&play.lanes[lane].receptor).children()[1].visible,
+                            !auto
+                        );
+                        // Rotate the local displacement back into field coordinates.
+                        let (sin, cos) = ex.base_rotation[2].to_radians().sin_cos();
+                        let [x, y, _] = flash.current().pos;
+                        let expected = if auto {
+                            0.0
+                        } else {
+                            (0.35 + lane as f32 * 0.1)
+                                * 64.0
+                                * geo.lane_direction(layout.lanes[lane].scroll_sign)
+                        };
+                        assert!((x * cos - y * sin).abs() < 1e-4);
+                        assert!(
+                            (x * sin + y * cos - expected).abs() < 1e-4,
+                            "lane {lane}, reverse {reverse}, lower {lower}"
+                        );
+                    }
+                    // The actual quads must have those centers too (not just Lua state).
+                    let mut out = Vec::new();
+                    play.explosions(&hit, &layout, &geo, &mut out);
+                    assert_eq!(out.len(), 7);
+                    for (lane, q) in out.iter().enumerate() {
+                        let Shape::Quad { transform, .. } = q.shape else {
+                            panic!("not a quad")
+                        };
+                        assert!(
+                            (transform[4] - geo.lane_x(layout.lanes[lane].column)).abs() < 1e-3
+                        );
+                        let offset = if auto { 0.0 } else { 0.35 + lane as f32 * 0.1 };
+                        assert!(
+                            (transform[5] - geo.lane_y(layout.lanes[lane].scroll_sign, offset))
+                                .abs()
+                                < 1e-3
+                        );
+                    }
+                    assert!(play.lua_failure().is_none(), "{:?}", play.problems());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn danoni_dropped_freezes_are_per_note_and_keep_exact_colors() {
+        let layout = Layout::builtin("danoni-7").unwrap();
+        let geo = FieldGeometry::new(700.0, 800.0, 7.0, false);
+        let mut play = danoni_play(&layout);
+        assert_eq!(play.own_elements(0), 36);
+        let mut f = frame(0.0, None);
+        f.receptors.resize(7, f.receptors[0]);
+        for (lane, roll) in [(0, false), (3, true)] {
+            // A release still inside the grace period must keep active art.
+            f.receptors[usize::from(lane)].pressed = false;
+            for (i, (active, dropped, y)) in
+                [(false, false, 2.0), (true, false, 0.0), (false, true, -0.4)]
+                    .into_iter()
+                    .enumerate()
+            {
+                let kind = if roll {
+                    SpriteKind::RollHead {
+                        tail_y: y + 1.5,
+                        active,
+                        dropped,
+                    }
+                } else {
+                    SpriteKind::HoldHead {
+                        tail_y: y + 1.5,
+                        active,
+                        dropped,
+                    }
+                };
+                f.notes
+                    .push(danoni_note(usize::from(lane) * 3 + i, lane, y, kind));
+            }
+        }
+        play.update(&f, [].iter(), false);
+        let mut out = Vec::new();
+        play.holds(&f, &layout, &geo, &mut out);
+        for name in ["_bar inactive.svg", "_bar active.svg", "_bar dropped.svg"] {
+            let id = play
+                .texture_keys()
+                .iter()
+                .position(|key| matches!(key,TextureKey::Skin {path,..} if path == name))
+                .unwrap() as u32;
+            let drawn: Vec<_> = out.iter().filter(|q| q.texture == id).collect();
+            assert!(!drawn.is_empty(), "{name}");
+            assert!(
+                drawn.iter().all(|q| q.color == [1.0; 4]),
+                "dropped artwork must not be dimmed by hold life"
+            );
+        }
+        for lane in [0, 3] {
+            let parts = if lane == 0 {
+                &play.lanes[lane].hold
+            } else {
+                &play.lanes[lane].roll
+            };
+            for part in [&parts.head, &parts.tail] {
+                let dropped = actor(&part[2]);
+                assert_eq!(
+                    dropped.children()[0].current().diffuse(),
+                    [0.2, 0.2, 0.2, 1.0]
+                );
+                assert_eq!(
+                    dropped.children()[1].current().diffuse(),
+                    [0.8, 0.8, 0.8, 1.0]
+                );
+                assert!(dropped.children()[1].visible);
+                assert_eq!(
+                    actor(&part[0]).children()[1].current().diffuse(),
+                    [0.4, 1.0, 1.0, 1.0]
+                );
+            }
+        }
+        assert!(out.iter().any(|q| q.color == [0.8, 0.8, 0.8, 1.0]));
+        assert!(out.iter().any(|q| q.color == [0.2, 0.2, 0.2, 1.0]));
+        assert!(play.lua_failure().is_none(), "{:?}", play.problems());
+        // A normal StepMania skin still loads exactly the original two states.
+        let standard = lua_play("return Def.ActorFrame { Def.Sprite {Texture='x.png'} }");
+        assert_eq!(standard.lanes[0].hold.head.len(), 2);
+        assert_eq!(standard.lanes[0].elements().count(), 26);
+    }
+
     fn actor(e: &Element) -> &Actor {
         match e {
             Element::Actor(a) => a,
@@ -2186,12 +2633,18 @@ mod tests {
         let down = 1;
         let events = [
             SkinEvent {
+                autoplay: false,
+                danoni_judgments: false,
+                note: None,
                 seq: 0,
                 lane: down,
                 kind: SkinEventKind::Press,
                 song_time: 0.0,
             },
             SkinEvent {
+                autoplay: false,
+                danoni_judgments: false,
+                note: None,
                 seq: 1,
                 lane: down,
                 kind: SkinEventKind::Tap {
@@ -2318,6 +2771,7 @@ mod tests {
         let layout = Layout::dance_single();
         let mut f = frame(0.0, None);
         f.notes.push(NoteSprite {
+            note_index: 0,
             lane: 1,
             y: 2.0,
             kind: SpriteKind::Tap,

@@ -41,6 +41,7 @@ pub fn options(settings: &Settings) -> FieldPreviewOptions {
         .and_then(|s| s.charts.first().map(|c| settings.ruleset_for(c).key()))
         .unwrap_or_else(|| settings.ruleset().key());
     FieldPreviewOptions {
+        autoplay_flashes: false,
         layout,
         play: settings.play_options(None),
         rules,

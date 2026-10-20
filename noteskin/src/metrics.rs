@@ -108,6 +108,10 @@ pub struct NoteDisplay {
     pub start_drawing_hold_body_offset_from_head: i32,
     pub stop_drawing_hold_body_offset_from_tail: i32,
     pub hold_let_go_gray_percent: f32,
+    /// Our opt-in extension: load separate `Hold/Roll … Dropped` actors.
+    pub hold_use_dropped_state: bool,
+    /// Our opt-in extension: flash individual hits rather than completed rows.
+    pub tap_judgments_per_note: bool,
     pub hold_head_is_above_wavy_parts: bool,
     pub hold_tail_is_above_wavy_parts: bool,
     pub flip_head_and_tail_when_reverse: bool,
@@ -159,6 +163,8 @@ impl NoteDisplay {
             start_drawing_hold_body_offset_from_head: i("StartDrawingHoldBodyOffsetFromHead"),
             stop_drawing_hold_body_offset_from_tail: i("StopDrawingHoldBodyOffsetFromTail"),
             hold_let_go_gray_percent: f("HoldLetGoGrayPercent"),
+            hold_use_dropped_state: b("HoldUseDroppedState"),
+            tap_judgments_per_note: b("TapJudgmentsPerNote"),
             hold_head_is_above_wavy_parts: b("HoldHeadIsAboveWavyParts"),
             hold_tail_is_above_wavy_parts: b("HoldTailIsAboveWavyParts"),
             flip_head_and_tail_when_reverse: b("FlipHeadAndTailWhenReverse"),
@@ -211,6 +217,8 @@ impl NoteDisplay {
             start_drawing_hold_body_offset_from_head: i("StartDrawingHoldBodyOffsetFromHead"),
             stop_drawing_hold_body_offset_from_tail: i("StopDrawingHoldBodyOffsetFromTail"),
             hold_let_go_gray_percent: f("HoldNGGrayPercent"),
+            hold_use_dropped_state: false,
+            tap_judgments_per_note: false,
             hold_head_is_above_wavy_parts: b("HoldHeadIsAboveWavyParts"),
             hold_tail_is_above_wavy_parts: b("HoldTailIsAboveWavyParts"),
             flip_head_and_tail_when_reverse: b("FlipHeadAndTailWhenReverse"),

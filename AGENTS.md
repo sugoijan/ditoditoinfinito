@@ -100,7 +100,12 @@ the browser are implementation details, not advertised features.
   3.9's and OpenITG's format built natively (`noteskin/src/legacy.rs`);
   SVG images in a checked subset (`noteskin/src/svg.rs`, our extension). Pure,
   natively tested; `docs/plans/noteskins.md`. `render/src/noteskin.rs`
-  draws a skin in play and runs its Lua each frame.
+  draws a skin in play and runs its Lua each frame. Our opt-in
+  `HoldUseDroppedState` loads separate per-note dropped actors; hit messages
+  carry `Autoplay` and local `HitX`/`HitY` from the hit note's last drawn
+  position (`tools/noteskin-danoni/README.md`). These are presentation data,
+  never changes to judging or replay inputs. `TapJudgmentsPerNote` opts into
+  immediate per-note flashes rather than StepMania's completed-row effects.
 - `lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`):
   `lunita` (crates.io), our hardened fork of piccolo, with per-VM memory
   and string limits, fuel and a deadline per call, StepMania's `cmd`
@@ -185,6 +190,37 @@ the browser are implementation details, not advertised features.
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
   from the system); winit, rfd and arboard load their libraries at run
   time.
+- `tools/skin-studio/` SkinCraft, the standalone native noteskin editor
+  embedding the sibling `../photocraft` and `../vectorcraft` UI libraries
+  (`docs/plans/noteskin-authoring.md`). `run.sh` builds its `skincraft`
+  feature with a separate profile under `.local/skincraft/`; the older
+  PhotoCraft-only extension is launched by `run-photocraft.sh`.
+  SVGs open in VectorCraft, bitmaps in PhotoCraft, in one window. Live
+  artwork replaces textures in the actual game field preview without
+  restarting the demo. SVG exports pass through the game's subset checker
+  and decoder; unsupported vector effects retain the last valid preview.
+  Each source skin has its own project checkpoints for layered raster and
+  native vector documents, closed tabs and text drafts. Native asynchronous
+  file dialogs serve both editors; shared Open routes by file type. Independent
+  reference documents have their own checkpoints, and source folders are
+  protected from native writes. `mcp.sh` runs the stdio MCP bridge to the same
+  live window (authenticated loopback, a private profile-local descriptor).
+  MCP reads default to bundled/current project files and the profile; writes
+  default to the profile. `SKINCRAFT_READ_ROOT`/`SKINCRAFT_WRITE_ROOT` configure
+  other working roots. Native pointer/command APIs, text drafts, preview,
+  copies and exports are exposed through this one workspace connection.
+  The full fallback-chain browser opens images and embedded text tabs; text
+  reloads retain the last working preview on errors. The element inspector
+  reads actual actor texture references. Exports create a new `NoteSkins` tree, and an onigiri starter
+  can be added as a child skin. Separate workspace and lockfile: root Cargo
+  checks do not cover it. `CARGO_TARGET_DIR=$PWD/target/photocraft cargo test
+  --manifest-path tools/skin-studio/Cargo.toml --features skincraft --lib` runs
+  its loader/export, Dito SVG round-trip and offscreen combined-host checks.
+  Build `--features skincraft --bin skincraft` first: the MCP integration test
+  launches that real executable as a stdio client bridge.
+  Agent runs use a scratch
+  `DDI_HOME`, `PHOTOCRAFT_CONFIG_DIR` and the watchdog. Do not run the
+  maintainer's persistent studio profile in an automated check.
 - `importer-protocol/` the platform-free framed app/helper IPC contract (serde
   and plain data only; no SDK/networking or filesystem).
 - `tools/danoni-importer/` the native helper, a root workspace member requiring
@@ -345,6 +381,10 @@ the browser are implementation details, not advertised features.
   credits (Trunk runs them before every build; CI checks `CREDITS.md` and
   `THIRD_PARTY_RUST.md` are fresh). `gen-dito` regenerates the SVG art of Dito, the default skin
   (committed; CI checks it with `--check`).
+- `python3 tools/noteskin-danoni/generate.py [--check]` adapts the pinned
+  danoniplus SVG alpha masks to the game's SVG subset for the `DanOni`
+  noteskin proof. Its Lua behavior and host-interface limits are documented
+  in `tools/noteskin-danoni/README.md`; upstream originals remain byte-identical.
 
 Prefer the latest released versions of dependencies; check crates.io before
 adding one and refresh the lockfile with `cargo update`.

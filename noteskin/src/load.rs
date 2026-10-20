@@ -223,6 +223,21 @@ pub const ENGINE_ELEMENTS: &[&str] = &[
     "Explosion",
 ];
 
+/// Our opt-in third hold state (`HoldUseDroppedState=1`). Not requested from
+/// StepMania skins, whose inactive art and life dimming remain unchanged.
+pub const DROPPED_ELEMENTS: &[&str] = &[
+    "Hold Head Dropped",
+    "Hold Tail Dropped",
+    "Hold Topcap Dropped",
+    "Hold Body Dropped",
+    "Hold Bottomcap Dropped",
+    "Roll Head Dropped",
+    "Roll Tail Dropped",
+    "Roll Topcap Dropped",
+    "Roll Body Dropped",
+    "Roll Bottomcap Dropped",
+];
+
 /// The parts `common/common`'s `Fallback Explosion.lua` loads for each
 /// column.
 pub const EXPLOSION_PARTS: &[&str] = &[

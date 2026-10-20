@@ -115,6 +115,14 @@ Source: [https://github.com/hanubeki/dake](https://github.com/hanubeki/dake) at 
 - Not included: the images of the other games and of buttons dance does not have (all but the 74 dance asks for); _common buttons/ (key labels for kbx), Inner Sound.wav and Outer Sound.wav, extras/ (eight variant skins)
 - Modifications: the folder named Dake (upstream, the repository's root)
 
+### DanOni — tickle; Dito Dito Infinito adaptation
+
+Source: [https://github.com/cwtickle/danoniplus](https://github.com/cwtickle/danoniplus) at commit `39e8ae70249a845a69bf24249157b1735b331886`, folder `.` (retrieved 2026-10-20).
+
+- **derived SVG artwork and Lua behavior**: 2018 tickle, すごいジャン — [MIT](https://opensource.org/license/mit)
+- Not included: all upstream files except the four original alpha masks archived in tools/noteskin-danoni/upstream/img and LICENSE; chart-specific colors, skins, custom JavaScript, alternate image sets and key modes beyond the default 5/7-key appearance
+- Modifications: python3 tools/noteskin-danoni/generate.py: flatten SVG class styles, change black mask RGB to white for actor tinting, add 64x64 logical dimensions; geometry and stroke widths unchanged; the same generator writes 40/50-wide freeze-bar SVGs with the source's inactive/active colors and 0.75 opacity, plus its opaque #999999 dropped bar; JavaScript/CSS behavior re-created in Lua actors and metrics.ini; notes use fixed lane colors, receptors use key-down overlays, hit outlines last 4/60 seconds, freezes change colors while held; opt-in dropped-state actors use upstream #cccccc outlines, #333333 fills and opaque #999999 bars; manual flashes use the hit note's prior drawn position and 0.75 alpha, autoplay uses centered #999999 flashes at alpha 1; TapJudgmentsPerNote opts into immediate, independent note flashes rather than StepMania's completed-row flashes; StepMania-only rolls reuse freeze visuals, lifts and fakes reuse taps, mines use a red onigiri
+
 ### Delta — shakesoda
 
 Source: [https://github.com/stepmania/stepmania](https://github.com/stepmania/stepmania) at commit `825467bcd81c812b33ad684dc04dd151b2d5dec3`, folder `NoteSkins/dance/Delta` (retrieved 2026-10-12).
@@ -188,6 +196,38 @@ Configure flags (after the toolchain's `--cc`, `--ar` and the zlib paths):
 ```
 
 ## Code from other projects
+
+### danoniplus (Dancing☆Onigiri CW Edition) noteskin
+
+Original SVG alpha masks archived byte-identical; derived SVG artwork and JavaScript/CSS note behavior re-created as Lua actors for the default 5/7-key appearance. Source: https://github.com/cwtickle/danoniplus at commit `39e8ae70249a845a69bf24249157b1735b331886`; licence: [MIT](https://github.com/cwtickle/danoniplus/blob/39e8ae70249a845a69bf24249157b1735b331886/LICENSE). Files: `tools/noteskin-danoni/upstream/img/arrow.svg`, `tools/noteskin-danoni/upstream/img/onigiri.svg`, `tools/noteskin-danoni/upstream/img/arrowShadow.svg`, `tools/noteskin-danoni/upstream/img/aaShadow.svg`, `assets/noteskins/dance/DanOni/NoteSkin.lua`, `assets/noteskins/dance/DanOni/_danoni tap.lua`, `assets/noteskins/dance/DanOni/_danoni receptor.lua`, `assets/noteskins/dance/DanOni/_danoni explosion.lua`, `assets/noteskins/dance/DanOni/_danoni freeze.lua`, `assets/noteskins/dance/DanOni/_danoni body.lua`.
+
+<details><summary>Notice</summary>
+
+```text
+MIT License
+
+Copyright (c) 2018 tickle
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>
 
 ### StepMania 5.1
 

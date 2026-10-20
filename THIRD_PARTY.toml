@@ -9,6 +9,28 @@
 # with the holders' copyright line).
 
 [[code]]
+name = "danoniplus (Dancing☆Onigiri CW Edition) noteskin"
+what = "Original SVG alpha masks archived byte-identical; derived SVG artwork and JavaScript/CSS note behavior re-created as Lua actors for the default 5/7-key appearance."
+files = [
+  "tools/noteskin-danoni/upstream/img/arrow.svg",
+  "tools/noteskin-danoni/upstream/img/onigiri.svg",
+  "tools/noteskin-danoni/upstream/img/arrowShadow.svg",
+  "tools/noteskin-danoni/upstream/img/aaShadow.svg",
+  "assets/noteskins/dance/DanOni/NoteSkin.lua",
+  "assets/noteskins/dance/DanOni/_danoni tap.lua",
+  "assets/noteskins/dance/DanOni/_danoni receptor.lua",
+  "assets/noteskins/dance/DanOni/_danoni explosion.lua",
+  "assets/noteskins/dance/DanOni/_danoni freeze.lua",
+  "assets/noteskins/dance/DanOni/_danoni body.lua",
+]
+spdx = "MIT"
+holders = ["2018 tickle"]
+source = "https://github.com/cwtickle/danoniplus"
+commit = "39e8ae70249a845a69bf24249157b1735b331886"
+license_url = "https://github.com/cwtickle/danoniplus/blob/39e8ae70249a845a69bf24249157b1735b331886/LICENSE"
+notice = "tools/noteskin-danoni/upstream/LICENSE"
+
+[[code]]
 name = "StepMania 5.1"
 what = "The metrics.ini and Lua files of its dance/default, pump/default and common/common noteskins, byte for byte: the stand-ins every imported noteskin falls back to. The Techno single8 lane order and keyboard defaults from src/GameManager.cpp, adapted to our Layout data with additional arrow-key aliases and a quarter-turn mapping."
 files = [

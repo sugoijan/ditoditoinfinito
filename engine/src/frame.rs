@@ -38,6 +38,9 @@ pub enum SkinEventKind {
     /// A tap judged; with per-row combo, every lane of a row once a press
     /// completes it, with the row's last judgement (`FlashGhostRow`).
     Tap { judgement: Judgement, bright: bool },
+    /// Each successful note immediately, before row grouping. Opt-in
+    /// noteskins use this for independent chord flashes (DanOni).
+    NoteTap { judgement: Judgement, bright: bool },
     /// A hold or roll kept to its end.
     Held { bright: bool },
     /// A mine went off (the explosion's `HitMine`).
@@ -51,6 +54,22 @@ pub struct SkinEvent {
     pub lane: u8,
     pub kind: SkinEventKind,
     pub song_time: f64,
+    /// Cosmetic input mode, including scripted pad input. Never changes judging.
+    pub autoplay: bool,
+    /// This ruleset uses DanOni's four tiers (Ii/Shakin/Matari/Shobon in
+    /// W1/W2/W3/W4), rather than the five StepMania slots.
+    pub danoni_judgments: bool,
+    /// The note behind a tap explosion (each lane's own note on a row).
+    pub note: Option<SkinNote>,
+}
+
+/// Stable identity and fallback position for a hit whose sprite has disappeared.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct SkinNote {
+    pub index: usize,
+    /// Arrow heights above the receptor at the hit's visual time. A renderer
+    /// that drew this note uses its last drawn position instead.
+    pub y: f32,
 }
 
 /// The judgement text to show.
@@ -146,6 +165,8 @@ pub enum SpriteKind {
 /// One drawable note.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct NoteSprite {
+    /// Index in the transformed chart, matching [`SkinNote::index`].
+    pub note_index: usize,
     pub lane: u8,
     /// Arrow heights above the receptor (negative = past it).
     pub y: f32,

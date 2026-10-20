@@ -1,5 +1,11 @@
 version = 1
 
+# DanOni CW Edition's MIT alpha masks and the Lua/SVG adaptation.
+[[annotations]]
+path = ["assets/noteskins/dance/DanOni/**", "tools/noteskin-danoni/upstream/**"]
+SPDX-FileCopyrightText = ["2018 tickle", "すごいジャン <me@sugoijan.dev>"]
+SPDX-License-Identifier = "MIT"
+
 # Code, docs, configuration and the project's own assets.
 [[annotations]]
 path = ["**"]
