@@ -5,3 +5,5 @@
 /dist-test/
 /.local/skin-studio/
 /.local/skincraft/
+# FFmpeg's configure leaves this behind when run from the root
+/ffbuild/
