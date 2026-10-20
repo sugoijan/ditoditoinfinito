@@ -54,6 +54,12 @@ fn encode(dir: &Path, name: &str, codec: &str, args: &[&str]) -> Option<PathBuf>
 }
 #[test]
 fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
+    // CI's macOS runners are virtual machines whose VideoToolbox stalls
+    // (DDI_SKIP_VT=1 there); these comparisons run on a Mac.
+    if std::env::var_os("DDI_SKIP_VT").is_some() {
+        eprintln!("DDI_SKIP_VT: skipped");
+        return;
+    }
     let Some(module) = video::helper_path() else {
         eprintln!("no video helper: skipped");
         return;

@@ -347,7 +347,10 @@ the browser are implementation details, not advertised features.
   `DDI_WORKS=<dir>` and `DDI_WEB_WORKS=<jsonl>` (`--test works --
   --ignored`: local works against the web's import, autoplayed),
   `DDI_MOVIE_SONGS`, `DDI_AUDIO_DEVICE_TESTS=1`, `DDI_OFFSCREEN_PPM=<dir>`
-  (keeps the offscreen pictures).
+  (keeps the offscreen pictures). The VideoToolbox comparisons
+  (`video_native*`) run on a Mac only: CI sets `DDI_SKIP_VT=1`, its
+  virtual machines' VideoToolbox having stalled in them;
+  `DDI_REQUIRE_VT=1` makes a refused hardware session fail them.
 - `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
   compares every `.sm` under a local folder against the two oracle parsers
   (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`;

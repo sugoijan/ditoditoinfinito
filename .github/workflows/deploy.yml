@@ -67,15 +67,21 @@ jobs:
   # desktop crate on Linux before a deploy). GPU tests skip as on a
   # machine without one (`DDI_NO_GPU`: a runner's software adapter draws
   # pictures the tests were not checked against); sound tests never open
-  # a device unless asked (`DDI_AUDIO_DEVICE_TESTS`).
+  # a device unless asked (`DDI_AUDIO_DEVICE_TESTS`); the VideoToolbox
+  # comparisons skip (`DDI_SKIP_VT`: the macOS runners' virtual machines
+  # stalled in them) and run on a Mac instead.
   desktop:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # A healthy run takes under 10 minutes; a stuck decoder must not hold
+    # a runner for the default 6 hours.
+    timeout-minutes: 45
     env:
       DDI_NO_GPU: "1"
+      DDI_SKIP_VT: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

@@ -72,6 +72,12 @@ fn first(host: &mut VideoHost, file: MovieFile) -> (Vec<u8>, f64) {
 
 #[test]
 fn native_avi_matches_the_module_and_falls_back_without_changing_position() {
+    // CI's macOS runners are virtual machines whose VideoToolbox stalls
+    // (DDI_SKIP_VT=1 there); these comparisons run on a Mac.
+    if std::env::var_os("DDI_SKIP_VT").is_some() {
+        eprintln!("DDI_SKIP_VT: skipped");
+        return;
+    }
     let Some(module) = video::helper_path() else {
         eprintln!("no video helper: skipped");
         return;

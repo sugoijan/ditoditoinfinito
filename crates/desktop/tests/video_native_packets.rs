@@ -69,6 +69,12 @@ fn first(host: &mut VideoHost, source: MovieFile, name: &str) -> (f64, Vec<u8>) 
 }
 #[test]
 fn streaming_h264_has_the_modules_frames_and_exact_seeks() {
+    // CI's macOS runners are virtual machines whose VideoToolbox stalls
+    // (DDI_SKIP_VT=1 there); these comparisons run on a Mac.
+    if std::env::var_os("DDI_SKIP_VT").is_some() {
+        eprintln!("DDI_SKIP_VT: skipped");
+        return;
+    }
     let Some(module) = video::helper_path() else {
         eprintln!("no video helper: skipped");
         return;
