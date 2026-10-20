@@ -50,10 +50,10 @@ use files::{DirReader, Listed, ZipReader};
 pub const FOLDERS_KEY: &str = "ddi.desktop.folders.v1";
 /// Packs and songs the player removed from the list (files kept).
 pub const HIDDEN_KEY: &str = "ddi.desktop.hidden.v1";
-/// The cache's file (in the cache folder) and version (5: generated
-/// onigiri-free charts are listed alongside original DanOni charts).
+/// The cache's file (in the cache folder) and version (6: pack covers;
+/// version 5 added generated onigiri-free charts).
 pub const CACHE_FILE: &str = "library-v1.json";
-const CACHE_VERSION: u32 = 5;
+const CACHE_VERSION: u32 = 6;
 
 /// The song folders the settings list.
 pub fn folders() -> Vec<PathBuf> {
@@ -198,6 +198,9 @@ pub struct LibSong {
     /// Its folder, relative to the root.
     pub dir: RelPathBuf,
     pub pack: String,
+    /// Pack cover relative to the root (folder or zip).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack_banner: Option<RelPathBuf>,
     /// Its files relative to its folder (`ddi_library::scan`).
     pub entry: ManifestEntry,
     #[serde(default)]
@@ -237,12 +240,15 @@ impl LibSong {
 
     /// One of its files as a texture source: its path, or a zip's entry.
     pub fn source(&self, file: impl AsRef<str>) -> String {
-        let file = file.as_ref();
+        self.root_source(&self.rooted(file))
+    }
+
+    /// A file already relative to the library root, such as a pack cover.
+    pub fn root_source(&self, file: &RelPath) -> String {
         if self.zip {
-            format!("zip:{}!{}", self.root.display(), self.rooted(file))
+            format!("zip:{}!{}", self.root.display(), file)
         } else {
-            self.rooted(file)
-                .to_path(&self.root)
+            file.to_path(&self.root)
                 .map(|p| p.display().to_string())
                 .unwrap_or_default()
         }
@@ -671,6 +677,19 @@ fn scan_songs(
         return Err(Superseded);
     }
     scan_works(root, files, paths, listing, cached, out, report);
+    // Refresh even reused songs: a cover can change without a song changing.
+    let mut covers = HashMap::new();
+    for cached in &mut out.songs {
+        let song = &mut cached.song;
+        let dir = root.virtual_path(&song.dir);
+        song.pack_banner = covers
+            .entry(dir.parent().to_owned())
+            .or_insert_with(|| {
+                pack::pack_banner(dir.parent(), paths)
+                    .map(|p| RelPathBuf::from(root.real_dir(p.as_str())))
+            })
+            .clone();
+    }
     let failed: Vec<(String, String)> = out
         .failed
         .iter()
@@ -765,6 +784,7 @@ fn scan_works(
                     zip: root.zip,
                     dir: dir.clone().into(),
                     pack: s.pack.clone(),
+                    pack_banner: None,
                     entry,
                     warnings,
                     notes: Vec::new(),
@@ -901,6 +921,7 @@ fn lib_song(root: &Root, s: scan::Scanned) -> LibSong {
         zip: root.zip,
         dir: root.real_dir(s.dir.as_str()).into(),
         pack: s.pack,
+        pack_banner: None,
         entry: s.entry,
         warnings: s.warnings,
         notes: s.notes,
@@ -1520,6 +1541,7 @@ mod managed_merge_tests {
             zip: false,
             dir: Default::default(),
             pack: "Test".into(),
+            pack_banner: None,
             entry: serde_json::from_value(serde_json::json!({
                 "id": id, "title": title, "artist": "Test", "chart": "chart.ssc", "music": "music.opus"
             })).unwrap(),

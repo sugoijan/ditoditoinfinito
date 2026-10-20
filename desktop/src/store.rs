@@ -139,6 +139,23 @@ mod tests {
     }
 
     #[test]
+    fn menu_position_survives_reopening_the_desktop_store() {
+        use ddi_ui::state::place::MenuPlace;
+        let path = std::env::temp_dir().join(format!("ddi-menu-{}.json", std::process::id()));
+        storage::install(Rc::new(FileStore::open(path.clone())));
+        let place = MenuPlace {
+            song: Some("u-last-song".into()),
+            chart: Some(("u-last-song".into(), 4)),
+            closed: Some(vec!["Bundled songs".into()]),
+            ..Default::default()
+        };
+        place.save();
+        storage::install(Rc::new(FileStore::open(path.clone())));
+        assert_eq!(MenuPlace::load(), place);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn an_unreadable_file_is_kept_aside() {
         let dir = std::env::temp_dir().join(format!("ddi-store-bad-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

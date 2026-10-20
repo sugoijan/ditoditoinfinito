@@ -1038,7 +1038,12 @@ Done, 6.2 song select (2026-10-16):
   their source (the host's, shared with `#/ui-dev`).
 - **The place** (`ddi.menu.v1`: the song, its chart, the style, the
   search, the packs closed) comes back after a play and a reload; the
-  style chosen is the settings' too.
+  style chosen is the settings' too. Since 2026-10-20 browsing also
+  persists in local storage across launches on both shells. Search stays
+  per session and does not overwrite that browsing position. Only one
+  pack expands at a time outside search; saved lists with multiple open
+  packs favor the selected song's pack. Desktop waits for its initial
+  library scan before restoring an imported song.
 - **Checked:** harness tests on library data (the shell told the song
   and the place within the input; the place back; bests, pending; new
   data keeping the song; the search's count; links and notices; the
@@ -1080,8 +1085,11 @@ Done, 6.2 song select (2026-10-16):
   11–38 ms a key in Chrome (84–109 before: the page's debug state
   lowercased every song each frame); at rest the screen draws at the
   display's rate while the pulse runs, none under reduced motion.
-- **Left for later:** pack banners on the wheel's headers (the import
-  keeps them); the device watcher's notices stay DOM (6.4); a
+- **Pack covers** (2026-10-20) appear on the wheel's headers: the web
+  reads the images already kept by imports; desktop discovers the same
+  pack banners in folders and zips and keeps their root-relative paths
+  in library cache version 6. Headers without artwork remain text-only.
+- **Left for later:** the device watcher's notices stay DOM (6.4); a
   Dancing☆Onigiri work was not imported in the browser test (the import
   path is the one 5.x tested).
 

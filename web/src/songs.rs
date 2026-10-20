@@ -149,6 +149,8 @@ pub(crate) enum Origin {
 #[derive(Default)]
 pub(crate) struct Library {
     pub(crate) bundled: Vec<ManifestEntry>,
+    /// Stored pack covers, by file key (only known images are requested).
+    pub(crate) pack_art: Vec<String>,
     /// Sorted by pack, then title.
     pub(crate) imported: Vec<ImportedSong>,
     /// Why the imported songs could not be read, if they could not (the
@@ -166,8 +168,16 @@ impl Library {
             Ok((songs, unreadable)) => (songs, unreadable, None),
             Err(e) => (Vec::new(), Vec::new(), Some(e)),
         };
+        let pack_art = match Db::open().await {
+            Ok(db) => db
+                .keys_with_prefix(idb::FILES, PACK_ART_PREFIX)
+                .await
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
         Ok(Library {
             bundled,
+            pack_art,
             imported,
             imported_error,
             unreadable,

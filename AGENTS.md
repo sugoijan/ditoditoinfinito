@@ -365,6 +365,11 @@ and the helper keeps Firefox away from the maintainer's profiles.
 Playwright's WebKit (not Safari) runs headless with WebGPU; it ignores the
 gesture rule below, so it does not replace the maintainer's Safari check.
 
+Song select keeps one pack expanded while browsing and shows each pack's
+cover when available. Its open pack, song and chart resume across launches
+in both shells (`ddi.menu.v1`, local storage); search is per session and
+shows matches from every pack without replacing the saved browsing place.
+Desktop waits for the initial library scan before restoring an imported song.
 Song select (`#/`) uses all four arrows to move through songs (Up/Left
 previous, Down/Right next), waiting 250 ms for a possible double tap.
 Double-tapping the same arrow changes chart on the current song (Up/Left

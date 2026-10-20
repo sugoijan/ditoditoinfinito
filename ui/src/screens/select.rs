@@ -123,6 +123,8 @@ pub struct SelectPlace {
     pub style: String,
     pub search: String,
     pub closed: Vec<String>,
+    /// The one expanded browsing pack (search ignores this state).
+    pub open: Option<String>,
 }
 
 /// What the shell sends song select after it started (the library read
@@ -397,9 +399,25 @@ impl ListModel for Wheel<'_> {
         match self.items[i] {
             Item::Header(p) => {
                 let (name, songs) = &self.packs[p];
-                let open = !self.closed.contains(&p);
+                let open = self.matches.is_some() || !self.closed.contains(&p);
                 set_text(item, "Chevron", if open { "▾" } else { "▸" });
                 set_text(item, "Title", name);
+                let cover = self
+                    .data
+                    .packs
+                    .iter()
+                    .find(|pack| pack.name == *name)
+                    .and_then(|pack| pack.banner.as_deref())
+                    .map(|source| cx.texture(source, 96.0));
+                set_image(item, "Cover", cover);
+                crate::widgets::play(
+                    item,
+                    if cover.is_some() {
+                        "WithCover"
+                    } else {
+                        "WithoutCover"
+                    },
+                );
                 let n = songs.len();
                 let plural = if n == 1 { "" } else { "s" };
                 // While searching: how many of its songs match.
@@ -495,6 +513,9 @@ pub struct SelectScreen {
     /// The ladder's chart picked for the song shown.
     pick: Option<usize>,
     closed: BTreeSet<usize>,
+    /// Initial saved song waiting for the library scan.
+    resume: Option<(String, Option<usize>)>,
+    resume_pack: Option<String>,
     matches: Option<Vec<bool>>,
     items: Vec<Item>,
     list: List,
@@ -586,6 +607,8 @@ impl SelectScreen {
             preferred,
             pick: None,
             closed: BTreeSet::new(),
+            resume: None,
+            resume_pack: None,
             matches: None,
             items: Vec::new(),
             search,
@@ -619,6 +642,9 @@ impl SelectScreen {
             open: 1.0,
             shut: false,
         };
+        let resume = data.resume.clone();
+        let resume_pack = data.resume_pack.clone();
+        let loading = data.loading;
         let closed = data.closed.clone();
         let style = data.style.clone();
         let search = data.search.clone();
@@ -639,14 +665,27 @@ impl SelectScreen {
         }
         s.lay_out_items();
         s.list = List::new(wheel_config(&s.layout), &s.model());
-        // The start song's pack is open.
-        let start_song = start.and_then(|id| s.data.songs.iter().position(|x| x.id == id));
-        if let Some(i) = start_song
-            && let Some(p) = s.packs.iter().position(|(_, v)| v.contains(&i))
-            && s.closed.remove(&p)
+        // An explicit start opens its pack. A saved position respects collapsed packs.
+        let start_id = start.or_else(|| resume.as_ref().map(|(id, _)| id.as_str()));
+        let start_song = start_id.and_then(|id| s.data.songs.iter().position(|x| x.id == id));
+        let open = start_song
+            .filter(|_| start.is_some())
+            .and_then(|i| s.packs.iter().position(|(_, v)| v.contains(&i)))
+            .or_else(|| (0..s.packs.len()).find(|p| !s.closed.contains(p)));
+        s.open_pack(open);
+        s.lay_out_items();
+        s.reload();
+        if start_song.is_none() && loading {
+            s.resume = resume.clone();
+        }
+        if loading
+            && let Some(pack) = resume_pack
+            && !s
+                .packs
+                .iter()
+                .any(|(name, _)| name.to_lowercase() == pack.to_lowercase())
         {
-            s.lay_out_items();
-            s.reload();
+            s.resume_pack = Some(pack);
         }
         let at = start_song
             .and_then(|i| s.items.iter().position(|it| *it == Item::Song(i)))
@@ -656,7 +695,18 @@ impl SelectScreen {
             s.list.select(at);
             s.list.finish();
         }
+        s.follow();
+        if let Some((id, Some(chart))) = resume
+            && s.song().is_some_and(|song| song.id == id)
+        {
+            s = s.with_chart(chart);
+        }
         s
+    }
+
+    /// Expand at most one pack. Search displays matches independently.
+    fn open_pack(&mut self, open: Option<usize>) {
+        self.closed = (0..self.packs.len()).filter(|p| Some(*p) != open).collect();
     }
 
     /// What the shell does for song select: previews, the list's place,
@@ -729,7 +779,14 @@ impl SelectScreen {
         if first {
             self.autoplay = data.autoplay;
         }
-        let shown_id = self.song().map(|s| s.id.clone());
+        let restoring = self.resume.clone();
+        let restoring_pack = self.resume_pack.clone();
+        let restore_closed = data.closed.clone();
+        let loading = data.loading;
+        let shown_id = restoring
+            .as_ref()
+            .map(|(id, _)| id.clone())
+            .or_else(|| self.song().map(|s| s.id.clone()));
         // Where the song shown was: its pack and its place there, and the
         // wheel's place (a removed song gives way to its neighbour).
         let was = match self.shown {
@@ -739,8 +796,22 @@ impl SelectScreen {
             }),
             _ => None,
         };
+        let selected_header = if restoring.is_none() && restoring_pack.is_none() {
+            match self.selected_item() {
+                Some(Item::Header(p)) => self.packs.get(p).map(|(name, _)| name.clone()),
+                _ => None,
+            }
+        } else {
+            None
+        };
         let was_at = self.list.selected();
         let style_id = self.style_id().to_string();
+        let was_open = self
+            .packs
+            .iter()
+            .enumerate()
+            .find(|(p, _)| !self.closed.contains(p))
+            .map(|(p, (name, _))| (p, name.clone()));
         let closed: Vec<String> = self
             .closed
             .iter()
@@ -791,6 +862,23 @@ impl SelectScreen {
             .filter(|(_, (n, _))| closed.contains(n))
             .map(|(i, _)| i)
             .collect();
+        if restoring.is_some() || restoring_pack.is_some() {
+            self.closed = self
+                .packs
+                .iter()
+                .enumerate()
+                .filter(|(_, (name, _))| restore_closed.contains(name))
+                .map(|(p, _)| p)
+                .collect();
+        }
+        let open = (0..self.packs.len())
+            .find(|p| !self.closed.contains(p))
+            .or_else(|| {
+                let (p, name) = was_open.as_ref()?;
+                (!self.packs.is_empty() && !self.packs.iter().any(|(n, _)| n == name))
+                    .then(|| (*p).min(self.packs.len() - 1))
+            });
+        self.open_pack(open);
         self.style = self
             .data
             .styles
@@ -804,8 +892,10 @@ impl SelectScreen {
             .and_then(|id| self.data.songs.iter().position(|s| s.id == id))
             .map(Item::Song);
         self.reload();
-        let at = shown
-            .and_then(|it| self.items.iter().position(|x| *x == it))
+        let at = selected_header
+            .and_then(|name| self.packs.iter().position(|(n, _)| *n == name))
+            .and_then(|p| self.items.iter().position(|it| *it == Item::Header(p)))
+            .or_else(|| shown.and_then(|it| self.items.iter().position(|x| *x == it)))
             .or_else(|| self.neighbour(was, was_at))
             .or_else(|| self.items.iter().position(|it| matches!(it, Item::Song(_))));
         if let Some(at) = at {
@@ -814,6 +904,29 @@ impl SelectScreen {
         }
         self.shown = None;
         self.follow();
+        if let Some(pack) = restoring_pack
+            && (!loading
+                || self
+                    .packs
+                    .iter()
+                    .any(|(name, _)| name.to_lowercase() == pack.to_lowercase()))
+        {
+            self.resume_pack = None;
+        }
+        if let Some((id, chart)) = restoring {
+            if self.song().is_some_and(|s| s.id == id) {
+                self.resume = None;
+                if let Some(chart) = chart {
+                    let (charts, _) = self.charts();
+                    if let Some(k) = charts.iter().position(|c| c.index == chart) {
+                        self.preferred = charts[k].difficulty;
+                        self.pick = Some(k);
+                    }
+                }
+            } else if !loading {
+                self.resume = None;
+            }
+        }
         self.left_dirty = true;
         self.hints = None;
         self.publish_dirty = true;
@@ -1831,8 +1944,20 @@ impl SelectScreen {
             );
         }
         let (charts, pick) = self.charts();
+        if self.resume.is_some() || self.resume_pack.is_some() {
+            return;
+        }
         let place = SelectPlace {
-            song,
+            open: self
+                .packs
+                .iter()
+                .enumerate()
+                .find(|(p, _)| !self.closed.contains(p))
+                .map(|(_, (name, _))| name.clone()),
+            song: match self.selected_item() {
+                Some(Item::Song(i)) => Some(self.data.songs[i].id.clone()),
+                _ => None,
+            },
             chart: pick.and_then(|p| charts.get(p)).map(|c| c.index),
             style: self.style_id().to_string(),
             search: self.search.text.clone(),
@@ -2091,9 +2216,8 @@ impl SelectScreen {
     }
 
     fn toggle_pack(&mut self, p: usize) {
-        if !self.closed.remove(&p) {
-            self.closed.insert(p);
-        }
+        let open = self.closed.contains(&p);
+        self.open_pack(open.then_some(p));
         self.lay_out_items();
         self.reload();
         let at = self.items.iter().position(|it| *it == Item::Header(p));
@@ -2179,7 +2303,7 @@ impl SelectScreen {
             && let Some(Item::Song(s)) = self.shown
             && let Some(p) = self.packs.iter().position(|(_, v)| v.contains(&s))
         {
-            self.closed.remove(&p);
+            self.open_pack(Some(p));
         }
         self.lay_out_items();
         self.reload();
@@ -2674,6 +2798,20 @@ impl Screen for SelectScreen {
             }
             _ => input,
         };
+        if matches!(
+            input,
+            Input::Menu { .. }
+                | Input::Activate { .. }
+                | Input::Wheel { .. }
+                | Input::Pointer {
+                    gesture: crate::Gesture::Press,
+                    ..
+                }
+        ) || matches!(input, Input::Key(k) if k.down)
+        {
+            self.resume = None;
+            self.resume_pack = None;
+        }
         self.from_pad = matches!(input, Input::Menu { .. }) && !cx.menu_from_keyboard();
         match input {
             // Starting or changing style immediately after a single tap acts

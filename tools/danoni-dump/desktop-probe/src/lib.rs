@@ -181,6 +181,7 @@ pub fn snapshot(root: &Path) -> Result<(String, Vec<LibSong>)> {
                 zip: false,
                 dir: Default::default(),
                 pack: "DanOni imports".into(),
+                pack_banner: None,
                 entry,
                 warnings: vec![],
                 notes: vec![],

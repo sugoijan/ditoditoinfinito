@@ -47,6 +47,7 @@ pub fn songs(snapshot: PlaybackSnapshot) -> Result<Vec<LibSong>, String> {
                 zip: false,
                 dir: Default::default(),
                 pack: song.pack.unwrap_or_else(|| "DanOni imports".into()),
+                pack_banner: None,
                 entry,
                 warnings: Vec::new(),
                 notes: Vec::new(),

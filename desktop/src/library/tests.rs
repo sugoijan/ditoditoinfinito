@@ -95,6 +95,7 @@ fn a_stepmania_folder_with_a_zip_lists_as_the_web_imports() {
     write(
         &root,
         &[
+            ("Songs/Pack/cover.PNG", b"pack cover"),
             ("Songs/Pack/Song A/a.sm", SM.as_bytes()),
             // Named in other cases than the simfile writes them.
             ("Songs/Pack/Song A/Song.OGG", b"music"),
@@ -111,6 +112,7 @@ fn a_stepmania_folder_with_a_zip_lists_as_the_web_imports() {
     zip(
         &root.join("Songs/Zipped.zip"),
         &[
+            ("Zipped/cover.jpg", b"zip cover"),
             ("Zipped/Z/z.sm", SM.replace("Song;", "Z;").as_bytes()),
             ("Zipped/Z/song.ogg", b"music"),
             ("Zipped/Z/bn.png", b"img"),
@@ -132,6 +134,14 @@ fn a_stepmania_folder_with_a_zip_lists_as_the_web_imports() {
     assert_eq!(a.entry.id, pack::song_id("Pack", "Pack/Song A"));
     assert_eq!(a.entry.music, "Song.OGG");
     assert_eq!(
+        a.pack_banner.as_deref().map(RelPath::as_str),
+        Some("Pack/cover.PNG")
+    );
+    assert_eq!(
+        a.root_source(a.pack_banner.as_deref().unwrap()),
+        root.join("Songs/Pack/cover.PNG").display().to_string()
+    );
+    assert_eq!(
         a.source(a.entry.banner.as_deref().unwrap()),
         root.join("Songs")
             .join("Pack")
@@ -148,6 +158,14 @@ fn a_stepmania_folder_with_a_zip_lists_as_the_web_imports() {
             "zip:{}!Zipped/Z/bn.png",
             root.join("Songs").join("Zipped.zip").display()
         )
+    );
+    assert_eq!(
+        z.pack_banner.as_deref().map(RelPath::as_str),
+        Some("Zipped/cover.jpg")
+    );
+    assert_eq!(
+        z.root_source(z.pack_banner.as_deref().unwrap()),
+        format!("zip:{}!Zipped/cover.jpg", z.root.display())
     );
     // The zip's files read in place.
     let r = ZipReader::open(&z.root, &shift_jis).unwrap();

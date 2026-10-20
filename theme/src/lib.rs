@@ -666,12 +666,29 @@ impl Infinito {
         );
         let mut title = at_left(self.text("Title", "", ts, 600, "Text"), 38.0, row / 2.0);
         max_width(&mut title, w - 38.0 - 120.0);
+        command_of(
+            &mut title,
+            "WithCover",
+            &format!("x,126;maxwidth,{}", w - 126.0 - 120.0),
+        );
+        command_of(
+            &mut title,
+            "WithoutCover",
+            &format!("x,38;maxwidth,{}", w - 38.0 - 120.0),
+        );
         let count = at_right(
             self.text("Count", "", cn, 400, "Muted"),
             w - 18.0,
             row / 2.0,
         );
-        let mut middle = frame("Middle", vec![chevron, title]);
+        let mut cover = named(
+            Kind::Sprite(Sprite::quad([80.0, (row - 12.0).max(12.0)])),
+            "Cover",
+        );
+        call(&mut cover, "xy", &[78.0, row / 2.0]);
+        call(&mut cover, "cornerradius", &[3.0]);
+        cover.visible = false;
+        let mut middle = frame("Middle", vec![chevron, cover, title]);
         let mut right = frame("Right", vec![count]);
         if !compact {
             let dy = (big - row) / 2.0;
