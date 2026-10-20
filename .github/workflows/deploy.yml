@@ -11,8 +11,10 @@ permissions:
   pages: write
   id-token: write
 
+# A new push to a branch, or to a pull request, cancels that ref's
+# outdated run; other refs' runs go on.
 concurrency:
-  group: "pages"
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -216,6 +218,12 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: [lint, test, build]
     runs-on: ubuntu-latest
+    # One Pages deployment at a time: a newer one waits for one under way.
+    # (Cancelling an outdated run still stops its deployment, which leaves
+    # the live site as it was until the newer run deploys.)
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

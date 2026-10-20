@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a branch, or to a pull request, cancels that ref's
+# outdated run; other refs' runs go on.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 # The helper/SDK share the root workspace and lock. Dedicated jobs exercise
 # their feature combinations and the separate research probe/verifier. Cheap
 # jobs use synthetic inputs; native-package downloads pinned public build inputs.
