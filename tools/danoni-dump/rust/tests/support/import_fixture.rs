@@ -135,6 +135,7 @@ pub fn validated(m: &Memory, b: &Binding) -> admission::PreparedImport {
 }
 
 /// Synthetic receipted page metadata; playback bytes and identities stay fixed.
+#[allow(dead_code)] // The separate desktop probe uses only the unlabeled fixture.
 pub fn with_page_pack(m: &mut Memory, ready: &Binding, title: &str) -> Binding {
     let discovery = m.json(
         "candidate",

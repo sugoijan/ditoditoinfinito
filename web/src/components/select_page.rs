@@ -481,22 +481,13 @@ impl SelectPage {
             let shared = self.shared.clone();
             Rc::new(move |call, cx| shell_call(&shared, call, cx))
         };
-        let start_song = place
-            .song
-            .clone()
-            .or_else(|| place.chart.as_ref().map(|(s, _)| s.clone()));
-        let mut screen = SelectScreen::new(env2, data, start_song.as_deref(), play, options)
+        let screen = SelectScreen::new(env2, data, None, play, options)
             .with_shell(shell, self.shared.feed.clone())
             // A chart's kept plays (`docs/plans/play-history.md`, Replays).
             .with_plays(ddi_ui::state::history::plays_list(
                 crate::history::plays(),
                 Rc::new(crate::history::tz_minutes),
             ));
-        if let Some((song, chart)) = &place.chart
-            && start_song.as_deref() == Some(song.as_str())
-        {
-            screen = screen.with_chart(*chart);
-        }
         let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
         ui.set_focus_ring(false);
         ui.push(screen);
@@ -790,15 +781,7 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
         }
         SelectCall::Place(p) => {
             let mut place = MenuPlace::load();
-            place.known = true;
-            place.song = p.song.clone();
-            place.style = Some(p.style.clone());
-            place.search = p.search.clone();
-            place.searched = p.search.clone();
-            place.closed = Some(p.closed.clone());
-            if let (Some(song), Some(chart)) = (&p.song, p.chart) {
-                place.chart = Some((song.clone(), chart));
-            }
+            place.remember(&p);
             if *shared.place.borrow() != place {
                 place.save();
                 *shared.place.borrow_mut() = place;

@@ -62,6 +62,7 @@ fn desktop_screens_do_not_talk_of_the_browser() {
             name: "Pack".into(),
             removable: true,
             rereadable: true,
+            banner: None,
         };
         for (what, button) in [
             (

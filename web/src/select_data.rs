@@ -70,6 +70,7 @@ fn listed(entry: &ManifestEntry, imported: Option<&ImportedSong>) -> Listed {
     Listed {
         entry: entry.clone(),
         pack: imported.map(|s| s.pack.clone()),
+        pack_banner: None,
         banner,
         background,
         removable: imported.is_some(),
@@ -98,7 +99,14 @@ pub(crate) fn select_data(
                 && s.folder.as_ref().is_some_and(|f| folders.contains_key(f))
         })
     };
-    select_view::select_data(&songs, &rereadable, settings, history, place)
+    let mut data = select_view::select_data(&songs, &rereadable, settings, history, place);
+    for pack in &mut data.packs {
+        let key = crate::songs::pack_art_key(&pack.name);
+        if library.pack_art.contains(&key) {
+            pack.banner = Some(format!("files:{key}"));
+        }
+    }
+    data
 }
 
 /// The import dialog's state now.

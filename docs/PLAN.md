@@ -55,6 +55,12 @@ color variants would use it first; retiring the visible Built-in choice
 can follow once Dito covers its needs, keeping procedural arrows for
 fallbacks.
 
+Song-list follow-up (2026-10-20): pack covers appear on headers, browsing
+expands one pack at a time, and both shells persist the last open pack,
+song and chart across launches. Search shows all matching packs and stays
+per session without replacing the saved browsing position. Desktop
+restores imported songs when its asynchronous library scan supplies them.
+
 Detailed research with sources lives in [`docs/research/`](research/):
 
 - [`formats-sm-ssc-dwi.md`](research/formats-sm-ssc-dwi.md) — StepMania `.sm`/`.ssc` and DWI formats, timing semantics, existing parsers, test fixtures.

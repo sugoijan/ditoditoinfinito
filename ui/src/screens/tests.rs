@@ -256,15 +256,17 @@ fn packs_open_and_close() {
     // Back on a song closes its pack, the header selected.
     h.key("Escape", "Escape");
     h.run(0.5);
-    assert_eq!(s.borrow().closed, ["Bundled songs"]);
+    assert_eq!(s.borrow().closed.len(), 6);
+    assert!(s.borrow().closed.contains(&"Bundled songs".into()));
     assert_eq!(s.borrow().items, items - 4);
     assert_eq!(s.borrow().header.as_deref(), Some("Bundled songs"));
     // Start on the header opens it again.
     h.key("Enter", "Enter");
     h.run(0.5);
-    assert!(s.borrow().closed.is_empty());
+    assert_eq!(s.borrow().closed.len(), 5);
+    assert!(!s.borrow().closed.contains(&"Bundled songs".into()));
     assert_eq!(s.borrow().items, items);
-    // Down into another pack's header, Start closes it.
+    // Down into another pack's header, Start opens it and closes the previous pack.
     for _ in 0..5 {
         h.key("ArrowDown", "ArrowDown");
         h.run(0.3);
@@ -273,13 +275,14 @@ fn packs_open_and_close() {
     assert_eq!(s.borrow().header.as_deref(), Some("Arrow Basics"));
     h.key("Enter", "Enter");
     h.run(0.5);
-    assert_eq!(s.borrow().closed, ["Arrow Basics"]);
+    assert_eq!(s.borrow().closed.len(), 5);
+    assert!(s.borrow().closed.contains(&"Bundled songs".into()));
+    assert!(!s.borrow().closed.contains(&"Arrow Basics".into()));
 }
 
 #[test]
 fn search_filters_the_wheel_and_never_shows_its_popup_while_composing() {
     let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
-    let all = s.borrow().items;
     h.key("Slash", "/");
     h.run(0.1);
     assert!(h.ui.text_field().is_some(), "typing");
@@ -321,7 +324,16 @@ fn search_filters_the_wheel_and_never_shows_its_popup_while_composing() {
     h.key("Escape", "Escape");
     h.run(0.3);
     assert_eq!(s.borrow().search, "");
-    assert_eq!(s.borrow().items, all);
+    let data = sample::select();
+    let pack = &data
+        .songs
+        .iter()
+        .find(|song| song.title == s.borrow().song)
+        .unwrap()
+        .pack;
+    let songs = data.songs.iter().filter(|song| &song.pack == pack).count();
+    assert_eq!(s.borrow().items, songs + 6);
+    assert_eq!(s.borrow().closed.len(), 5);
 }
 
 #[test]
@@ -594,7 +606,8 @@ fn clearing_a_search_opens_the_shown_songs_pack() {
     let st = s.borrow();
     assert_eq!(st.search, "");
     assert_eq!(st.song, "Sweeteners");
-    assert!(st.closed.is_empty(), "{:?}", st.closed);
+    assert_eq!(st.closed.len(), 5);
+    assert!(!st.closed.contains(&"Bundled songs".into()));
     assert_eq!(st.header, None);
 }
 
@@ -611,7 +624,7 @@ fn a_header_during_a_search_keeps_its_state() {
     assert!(s.borrow().header.is_some());
     h.key("Enter", "Enter");
     h.run(0.3);
-    assert!(s.borrow().closed.is_empty());
+    assert_eq!(s.borrow().closed.len(), 5);
     assert_eq!(s.borrow().items, 2);
 }
 
@@ -1000,6 +1013,7 @@ fn library() -> Data {
             name: "My Pack".into(),
             removable: true,
             rereadable: true,
+            banner: None,
         },
     ];
     d
@@ -1058,9 +1072,11 @@ fn the_shell_hears_the_song_shown_and_the_place() {
     assert_eq!(last_place(&calls).style, "dance-double");
     h.key("Escape", "Escape");
     h.run(0.3);
-    assert_eq!(
-        last_place(&calls).closed,
-        [sample::BUNDLED_PACK.to_string()]
+    assert_eq!(last_place(&calls).closed.len(), 7);
+    assert!(
+        last_place(&calls)
+            .closed
+            .contains(&sample::BUNDLED_PACK.to_string())
     );
 }
 
@@ -1074,7 +1090,8 @@ fn the_place_comes_back() {
     assert_eq!(st.song, "u-two");
     assert_eq!(st.style, "Double");
     // The start song's pack open; the bundled one kept closed.
-    assert_eq!(st.closed, [sample::BUNDLED_PACK.to_string()]);
+    assert_eq!(st.closed.len(), 6);
+    assert!(!st.closed.contains(&"My Pack".into()));
     drop(st);
     // A search kept.
     let mut d = library();
@@ -1452,6 +1469,7 @@ fn a_removed_song_gives_way_to_its_neighbour() {
         name: "Other".into(),
         removable: true,
         rereadable: false,
+        banner: None,
     });
     let (mut h, s, _, feed) = shelled(d.clone(), Some("u-two"));
     assert_eq!(s.borrow().song, "u-two");
@@ -1945,4 +1963,128 @@ fn a_long_press_on_a_phones_chart_opens_its_plays() {
     // The chart pressed is the one chosen, and its plays the list's.
     let chart = state.borrow().chart.clone().unwrap();
     assert!(state.borrow().plays[0].starts_with('p'), "{chart}");
+}
+
+#[test]
+fn saved_selection_waits_for_the_initial_library_scan() {
+    let mut full = library();
+    full.resume = Some(("u-two".into(), Some(3)));
+    full.style = Some("dance-double".into());
+    full.closed = full
+        .songs
+        .iter()
+        .map(|s| s.pack.clone())
+        .filter(|p| p != "My Pack")
+        .collect();
+    let mut initial = full.clone();
+    initial.songs.retain(|s| !s.removable);
+    initial.loading = true;
+    let (mut h, state, calls, feed) = shelled(initial, None);
+    assert!(
+        !calls
+            .borrow()
+            .iter()
+            .any(|c| matches!(c, SelectCall::Place(_))),
+        "temporary initial selection must not overwrite the saved one"
+    );
+    feed.borrow_mut().data = Some(full);
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.5);
+    assert_eq!(state.borrow().song, "u-two");
+    assert_eq!(last_place(&calls).song.as_deref(), Some("u-two"));
+    assert_eq!(last_place(&calls).chart, Some(3));
+    assert_eq!(last_place(&calls).open.as_deref(), Some("My Pack"));
+}
+
+#[test]
+fn saved_selection_does_not_reopen_a_collapsed_pack() {
+    let mut data = library();
+    data.closed = data.songs.iter().map(|s| s.pack.clone()).collect();
+    data.resume = Some(("u-two".into(), Some(3)));
+    let (_h, state, calls, _) = shelled(data, None);
+    assert_eq!(
+        state.borrow().items,
+        7,
+        "all seven packs have only their header"
+    );
+    assert!(last_place(&calls).open.is_none());
+}
+
+#[test]
+fn missing_saved_song_settles_when_the_scan_finishes() {
+    let mut data = library();
+    data.resume = Some(("gone".into(), None));
+    data.loading = true;
+    let (mut h, _, calls, feed) = shelled(data.clone(), None);
+    assert!(
+        !calls
+            .borrow()
+            .iter()
+            .any(|c| matches!(c, SelectCall::Place(_)))
+    );
+    data.loading = false;
+    feed.borrow_mut().data = Some(data);
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.5);
+    assert!(
+        calls
+            .borrow()
+            .iter()
+            .any(|c| matches!(c, SelectCall::Place(_)))
+    );
+}
+
+#[test]
+fn saved_open_pack_waits_for_its_header_even_without_a_song() {
+    let mut full = library();
+    full.resume_pack = Some("My Pack".into());
+    full.closed = full
+        .songs
+        .iter()
+        .map(|s| s.pack.clone())
+        .filter(|p| p != "My Pack")
+        .collect();
+    let mut initial = full.clone();
+    initial.songs.retain(|s| !s.removable);
+    initial.loading = true;
+    let (mut h, _, calls, feed) = shelled(initial, None);
+    assert!(
+        !calls
+            .borrow()
+            .iter()
+            .any(|c| matches!(c, SelectCall::Place(_)))
+    );
+    feed.borrow_mut().data = Some(full);
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.5);
+    assert_eq!(last_place(&calls).open.as_deref(), Some("My Pack"));
+}
+
+#[test]
+fn saved_chart_is_restored_before_the_first_frame_and_survives_resize() {
+    let mut data = library();
+    data.resume = Some(("some-things-must".into(), Some(0)));
+    let (mut h, _, calls, _) = shelled(data, None);
+    assert_eq!(last_place(&calls).song.as_deref(), Some("some-things-must"));
+    assert_eq!(last_place(&calls).chart, Some(0));
+    h.send(crate::UiEvent::Resize {
+        size: [844.0, 390.0],
+        ratio: 1.0,
+    });
+    h.run(0.3);
+    assert_eq!(last_place(&calls).chart, Some(0));
+}
+
+#[test]
+fn refreshing_pack_art_keeps_the_selected_header_and_only_one_pack_open() {
+    let data = library();
+    let (mut h, state, _, feed) = shelled(data.clone(), Some("u-one"));
+    h.key("ArrowUp", "ArrowUp");
+    h.run(0.3);
+    assert_eq!(state.borrow().header.as_deref(), Some("My Pack"));
+    feed.borrow_mut().data = Some(data);
+    h.ui.broadcast(crate::Message::new(FEED));
+    h.run(0.5);
+    assert_eq!(state.borrow().header.as_deref(), Some("My Pack"));
+    assert_eq!(state.borrow().closed.len(), 6);
 }

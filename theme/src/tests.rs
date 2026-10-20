@@ -117,7 +117,7 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
         (
             "SongList.Header",
             s(596.0, 64.0, ""),
-            &["Plate", "Chevron", "Title", "Count"],
+            &["Plate", "Chevron", "Cover", "Title", "Count"],
         ),
         (
             "SongInfo",
@@ -622,6 +622,7 @@ fn the_dialogs_in_the_theme() {
                     name: "My Pack".into(),
                     removable: true,
                     rereadable: true,
+                    banner: None,
                 },
                 songs: 3,
             },
@@ -1491,4 +1492,70 @@ fn song_select_upright_by_touch_keys_and_pad() {
         "a tap on a row selects it: {before:?}, {}",
         state.borrow().status
     );
+}
+
+#[test]
+fn pack_cover_headers_recycle_without_leaking_art_or_title_insets() {
+    use ddi_ui::screens::data::PackEntry;
+    use ddi_ui::screens::select::{FEED, Feed, SelectScreen, SharedFeed};
+    for (size, design) in [([1280.0, 720.0], DESIGN), ([390.0, 844.0], COMPACT)] {
+        let theme = Rc::new(Infinito::new());
+        let env = env(&theme);
+        let mut data = sample::select();
+        data.packs.push(PackEntry {
+            name: sample::BUNDLED_PACK.into(),
+            banner: Some("pack-cover.png".into()),
+            ..Default::default()
+        });
+        let feed: SharedFeed = Rc::new(std::cell::RefCell::new(Feed::default()));
+        let mut h = harness(size, design);
+        h.push(
+            SelectScreen::new(
+                env,
+                data.clone(),
+                None,
+                Rc::new(|_, _, _, _| {}),
+                Rc::new(|_, _| {}),
+            )
+            .with_shell(Rc::new(|_, _| {}), feed.clone()),
+        );
+        h.run(0.5);
+        let cover =
+            h.ui.actor("Wheel.Items")
+                .unwrap()
+                .children()
+                .iter()
+                .find_map(|row| {
+                    let mut row = row.clone();
+                    ddi_ui::widgets::part(&mut row, "Cover")
+                        .filter(|a| a.visible)
+                        .cloned()
+                })
+                .expect("a pack cover");
+        let Kind::Sprite(sprite) = cover.kind else {
+            panic!("not a sprite")
+        };
+        assert_eq!(
+            h.ui.texture_source(sprite.texture).unwrap().source.as_ref(),
+            "pack-cover.png"
+        );
+        data.packs[0].banner = None;
+        feed.borrow_mut().data = Some(data);
+        h.ui.broadcast(ddi_ui::Message::new(FEED));
+        h.run(0.5);
+        for row in h.ui.actor("Wheel.Items").unwrap().children() {
+            let mut row = row.clone();
+            if let Some(cover) = ddi_ui::widgets::part(&mut row, "Cover") {
+                assert!(!cover.visible);
+                assert_eq!(
+                    ddi_ui::widgets::part(&mut row, "Title")
+                        .unwrap()
+                        .current()
+                        .pos[0],
+                    38.0
+                );
+            }
+        }
+        assert!(h.ui.problems().is_empty(), "{:?}", h.ui.problems());
+    }
 }

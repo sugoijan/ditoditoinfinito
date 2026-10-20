@@ -85,7 +85,7 @@ impl Songs {
             offered: Cell::new(false),
             notices: RefCell::default(),
             bundled: crate::library::bundled(),
-            place: RefCell::new(MenuPlace::default()),
+            place: RefCell::new(MenuPlace::load()),
             history_seen: Cell::new(u64::MAX),
             options: Rc::default(),
             play: Rc::default(),
@@ -190,6 +190,7 @@ impl Songs {
             .map(|e| Listed {
                 entry: e.clone(),
                 pack: None,
+                pack_banner: None,
                 banner: e.banner.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
                 background: e.background.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
                 removable: false,
@@ -205,6 +206,7 @@ impl Songs {
         out.extend(songs.into_iter().map(|s| Listed {
             entry: s.entry.clone(),
             pack: Some(s.pack.clone()),
+            pack_banner: s.pack_banner.as_deref().map(|p| s.root_source(p)),
             banner: s.entry.banner.as_deref().map(|b| s.source(b)),
             background: s.entry.background.as_deref().map(|b| s.source(b)),
             removable: true,
@@ -231,6 +233,8 @@ impl Songs {
             history.as_deref().unwrap_or(&empty),
             &self.place.borrow(),
         );
+        data.loading =
+            self.library.borrow().as_ref().is_none_or(|l| l.scanning) || self.importing();
         data.autoplay = self.autoplay.get();
         // The screens' wording: song folders read in place.
         data.import.platform = ddi_ui::screens::data::Platform::Desktop;
@@ -575,10 +579,8 @@ impl Songs {
             }
             SelectCall::Place(p) => {
                 let mut place = self.place.borrow_mut();
-                place.song = p.song;
-                place.style = Some(p.style);
-                place.search = p.search;
-                place.closed = Some(p.closed);
+                place.remember(&p);
+                place.save();
             }
             // Plays from now on autoplayed (never counted).
             SelectCall::Autoplay(on) => self.autoplay.set(on),

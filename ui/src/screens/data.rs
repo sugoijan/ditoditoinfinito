@@ -153,6 +153,8 @@ pub struct PlayRow {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PackEntry {
     pub name: String,
+    /// Pack cover as a texture source, when supplied by the pack.
+    pub banner: Option<String>,
     /// Imported: it can be removed.
     pub removable: bool,
     /// Imported from a folder the browser keeps: it can be read again.
@@ -342,6 +344,12 @@ pub struct SelectData {
     pub packs: Vec<PackEntry>,
     /// Packs closed at first, by name.
     pub closed: Vec<String>,
+    /// Saved browsing song and chart; restored once, including after a library scan.
+    pub resume: Option<(String, Option<usize>)>,
+    /// Saved open pack, including when its header was selected.
+    pub resume_pack: Option<String>,
+    /// More songs may arrive from the initial library scan.
+    pub loading: bool,
     /// The style shown at first (its id), and the search.
     pub style: Option<String>,
     pub search: String,

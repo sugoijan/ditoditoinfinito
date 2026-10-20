@@ -26,6 +26,8 @@ pub struct Listed {
     pub entry: ManifestEntry,
     /// Its pack; `None` for a bundled song.
     pub pack: Option<String>,
+    /// The pack's own cover, separately from the song banner.
+    pub pack_banner: Option<String>,
     /// Its banner and background as texture sources.
     pub banner: Option<String>,
     pub background: Option<String>,
@@ -213,6 +215,7 @@ pub fn select_data(
     if songs.iter().any(|s| s.pack.is_none()) {
         packs.push(PackEntry {
             name: BUNDLED_PACK.into(),
+            banner: None,
             removable: false,
             rereadable: false,
         });
@@ -231,6 +234,7 @@ pub fn select_data(
             None => {
                 packs.push(PackEntry {
                     name: pack.clone(),
+                    banner: s.pack_banner.clone(),
                     removable: s.removable,
                     rereadable: rereadable(pack),
                 });
@@ -246,10 +250,27 @@ pub fn select_data(
         None,
     );
     // The first visit: the bundled songs open (else the first pack).
-    let closed = match &place.closed {
-        Some(c) => c.clone(),
-        None => packs.iter().skip(1).map(|p| p.name.clone()).collect(),
+    let is_closed = |name: &String| place.closed.as_ref().is_some_and(|c| c.contains(name));
+    let open = if place.closed.is_none() {
+        packs.first()
+    } else {
+        // Migrate older lists with several expanded packs, favoring the selected song.
+        place
+            .song
+            .as_ref()
+            .and_then(|id| list.iter().find(|s| &s.id == id))
+            .and_then(|song| {
+                packs
+                    .iter()
+                    .find(|p| p.name == song.pack && !is_closed(&p.name))
+            })
+            .or_else(|| packs.iter().find(|p| !is_closed(&p.name)))
     };
+    let closed = packs
+        .iter()
+        .filter(|p| open.is_none_or(|o| o.name != p.name))
+        .map(|p| p.name.clone())
+        .collect();
     SelectData {
         styles,
         songs: list,
@@ -257,6 +278,22 @@ pub fn select_data(
         preferred: None,
         packs,
         closed,
+        resume: place.song.clone().map(|song| {
+            let chart = place
+                .chart
+                .as_ref()
+                .filter(|(id, _)| *id == song)
+                .map(|(_, c)| *c);
+            (song, chart)
+        }),
+        resume_pack: place.open.as_ref().and_then(|key| {
+            if key == "bundled" {
+                Some(BUNDLED_PACK.into())
+            } else {
+                key.strip_prefix("pack:").map(str::to_string)
+            }
+        }),
+        loading: false,
         style: place.style.clone().or_else(|| Some(settings.style.clone())),
         search: place.search.clone(),
         notices: Vec::new(),
@@ -290,6 +327,7 @@ mod tests {
         let songs = [Listed {
             entry,
             pack: Some("Test".into()),
+            pack_banner: None,
             banner: None,
             background: None,
             removable: true,
@@ -364,15 +402,17 @@ mod tests {
             entry: entry(id, "dance-single"),
             pack: pack.map(str::to_string),
             banner: None,
+            pack_banner: None,
             background: None,
             removable: pack.is_some(),
         };
-        let songs = vec![
+        let mut songs = vec![
             listed("u-1", Some("Pack")),
             listed("bundled", None),
             listed("u-2", Some("PACK")),
             listed("u-3", Some("Other")),
         ];
+        songs[0].pack_banner = Some("pack-cover.png".into());
         let d = select_data(
             &songs,
             &|p| p == "Other",
@@ -392,6 +432,7 @@ mod tests {
             vec![(BUNDLED_PACK, false), ("Pack", false), ("Other", true)]
         );
         assert_eq!(d.songs[2].pack, "Pack");
+        assert_eq!(d.packs[1].banner.as_deref(), Some("pack-cover.png"));
         assert_eq!(d.songs[1].bpm, 120.0);
         assert_eq!(d.songs[1].bpm_text, "120–150");
         // The first visit opens the bundled songs.
