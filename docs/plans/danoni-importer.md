@@ -52,9 +52,12 @@ python3 tools/danoni-importer/build.py package --app target/debug/ditoditoinfini
 
 The app keeps video enabled by default. A deliberately smaller package can use
 `--no-default-features --features danoni-importer`; this forwards the app's video
-choice to desktop. Video-enabled packages require a built decoder module, its
-notices/build metadata, exact FFmpeg and zlib source archives, and the current
-shim/rebuild scripts. The package command refuses an incomplete payload.
+choice to desktop. Video-enabled packages require the decoder helper
+`desktop/build.rs` staged beside the app (`video/ddi-video-helper`, whose
+sandbox self-test the packager runs), its notice and FFmpeg description, the
+exact FFmpeg and zlib source archives, and the shims, scripts and helper
+crates it is rebuilt from (`video/helper-source/`, the LGPL's relinking
+route). The package command refuses an incomplete payload.
 
 The package includes the app, bundled assets and indexes, credits/licenses,
 optional video payload, and `danoni-importer/<id>/`. Move the whole directory.

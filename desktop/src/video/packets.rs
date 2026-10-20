@@ -1,7 +1,8 @@
-//! Bounded demux-only interface to the sandboxed module (`video/packets.md`).
-//! Synchronous: construct and use on a decoder worker, never the UI thread.
-//! An instance owns one reader; a trap or invalid export poisons it. No FFmpeg
-//! pointers or borrowed wasm memory escape. Playback does not use this yet.
+//! Bounded demux-only interface to the sandboxed helper (`video/packets.md`):
+//! a helper process of its own that only demuxes, its packets copied out of
+//! the shared arena after every length is checked. Synchronous: construct
+//! and use on a decoder worker, never the UI thread. An instance owns one
+//! reader; any failure poisons it (and kills its helper).
 
 use super::*;
 use serde::Deserialize;
@@ -95,105 +96,47 @@ pub struct IndexEntry {
     pub min_distance: i32,
 }
 
-struct PacketExports {
-    close: TypedFunc<i32, ()>,
-    info: TypedFunc<i32, i32>,
-    error: TypedFunc<i32, i32>,
-    config: TypedFunc<i32, i32>,
-    config_size: TypedFunc<i32, i32>,
-    next: TypedFunc<i32, i32>,
-    packet_info: TypedFunc<i32, i32>,
-    data: TypedFunc<i32, i32>,
-    side_data: TypedFunc<i32, i32>,
-    seek: TypedFunc<(i32, i64), i32>,
-    index_count: TypedFunc<i32, i32>,
-    index: TypedFunc<(i32, i32, i32), i32>,
-    index_data: TypedFunc<i32, i32>,
-}
-impl PacketExports {
-    fn load(r: &mut Running) -> Result<(Self, TypedFunc<i32, i32>), String> {
-        let version = r
-            .instance
-            .get_typed_func::<(), i32>(&mut r.store, "ddi_demux_abi")
-            .map_err(|_| "the video module has no packet ABI; rebuild it".to_string())?;
-        if call(&mut r.store, &version, ()).map_err(|e| e.0)? != 1 {
-            return Err("unsupported video packet ABI".into());
-        }
-        macro_rules! get {
-            ($name:ident) => {
-                r.instance
-                    .get_typed_func(&mut r.store, concat!("ddi_demux_", stringify!($name)))
-                    .map_err(|e| format!("invalid packet export: {e}"))?
-            };
-        }
-        Ok((
-            Self {
-                close: get!(close),
-                info: get!(info),
-                error: get!(error),
-                config: get!(config),
-                config_size: get!(config_size),
-                next: get!(next),
-                packet_info: get!(packet_info),
-                data: get!(data),
-                side_data: get!(side_data),
-                seek: get!(seek),
-                index_count: get!(index_count),
-                index: get!(index),
-                index_data: get!(index_data),
-            },
-            get!(open),
-        ))
-    }
-}
-
-/// Owns a private sandbox and one movie (including range-relative zip members).
-/// Older modules still work for ordinary playback; only this API requires v1.
+/// Owns a private helper and one movie (including range-relative zip members).
 pub struct PacketReader {
-    machine: Machine,
-    x: PacketExports,
-    handle: i32,
+    helper: Option<helper::Helper>,
+    id: u32,
     info: StreamInfo,
     epoch: u32,
     sequence: u64,
     configuration: u32,
 }
 impl PacketReader {
-    pub fn open(module: Option<PathBuf>, file: MovieFile, name: &str) -> Result<Self, String> {
-        Self::open_bounded(module, file, name, CALL_DEADLINE, MAX_MEMORY)
+    pub fn open(helper: Option<PathBuf>, file: MovieFile, name: &str) -> Result<Self, String> {
+        Self::open_bounded(helper, file, name, CALL_DEADLINE)
     }
-    /// Native workers use a smaller heap and deadline than software decode.
+    /// Native workers use a shorter deadline than software decode.
     pub(super) fn open_bounded(
-        module: Option<PathBuf>,
+        helper_path: Option<PathBuf>,
         file: MovieFile,
         name: &str,
         deadline: Duration,
-        memory_limit: usize,
     ) -> Result<Self, String> {
-        if memory_limit == 0 || memory_limit > MAX_MEMORY {
-            return Err("invalid packet memory limit".into());
-        }
-        let shared = Arc::new(Mutex::new(Shared {
-            status: ModuleStatus::Idle,
-            movies: HashMap::new(),
-            probes: HashMap::new(),
-        }));
-        let mut machine = Machine::new(module, shared, deadline);
-        machine.memory_limit = memory_limit;
-        machine.compiled()?;
-        machine.instantiate()?;
-        let r = machine.running.as_mut().expect("instance");
-        let (x, open) = PacketExports::load(r)?;
-        let file_name = format!("packets{}", extension_of(name));
-        let handle = machine
-            .open_file_using(&file_name, file, open)
+        let path = helper_path.ok_or_else(|| NOT_INCLUDED.to_string())?;
+        // Demuxing decodes nothing: one thread.
+        let mut helper = helper::Helper::spawn(&path, deadline, 1)?;
+        let id = 1;
+        let size = helper
+            .register(id, &file)
+            .map_err(|e| format!("cannot read the movie: {e}"))?;
+        let reply = helper
+            .request(&Request::DemuxOpen {
+                id,
+                size,
+                name: format!("packets{}", extension_of(name)),
+            })
             .map_err(|e| e.0)?;
-        let r = machine.running.as_mut().expect("instance");
-        if handle == 0 {
-            return Err("cannot demux the movie within the packet limits".into());
-        }
-        let p = call(&mut r.store, &x.info, handle).map_err(|e| e.0)?;
-        let json = string(r, p, 4096)?;
+        let json = match reply {
+            Reply::DemuxOpened { id: got, info } if got == id => info,
+            Reply::DemuxOpenFailed { id: got } if got == id => {
+                return Err("cannot demux the movie within the packet limits".into());
+            }
+            other => return Err(unexpected(other).0),
+        };
         let info: StreamInfo =
             serde_json::from_str(&json).map_err(|e| format!("invalid stream info: {e}"))?;
         if info.abi != 1
@@ -206,9 +149,8 @@ impl PacketReader {
             return Err("invalid stream parameters".into());
         }
         Ok(Self {
-            machine,
-            x,
-            handle,
+            helper: Some(helper),
+            id,
             info,
             epoch: 0,
             sequence: 0,
@@ -219,28 +161,34 @@ impl PacketReader {
         &self.info
     }
 
-    /// Any failure discards the instance. Never call close inside trapped memory.
+    /// Any failure discards the helper (killing it).
     fn run<T>(
         &mut self,
-        f: impl FnOnce(&mut Running, &PacketExports, i32) -> Result<T, String>,
+        f: impl FnOnce(&mut helper::Helper, u32) -> Result<T, String>,
     ) -> Result<T, String> {
-        let r = self
-            .machine
-            .running
+        let h = self
+            .helper
             .as_mut()
             .ok_or("packet reader is closed after an error")?;
-        let result = f(r, &self.x, self.handle);
+        let result = f(h, self.id);
         if result.is_err() {
-            self.machine.running = None;
+            self.helper = None;
         }
         result
     }
     pub fn configuration(&mut self) -> Result<Vec<u8>, String> {
-        self.run(|r, x, h| {
-            let n = call(&mut r.store, &x.config_size, h).map_err(|e| e.0)? as u32 as usize;
-            let p = call(&mut r.store, &x.config, h).map_err(|e| e.0)?;
-            bytes(r, p, n, CONFIG_LIMIT)
-        })
+        self.run(
+            |h, id| match h.request(&Request::DemuxConfig { id }).map_err(|e| e.0)? {
+                Reply::DemuxConfig { id: got, len } if got == id => region_bytes(
+                    h,
+                    &h.arena.layout.config.clone(),
+                    len as usize,
+                    CONFIG_LIMIT,
+                ),
+                Reply::DemuxError { id: got, message } if got == id => Err(message),
+                other => Err(unexpected(other).0),
+            },
+        )
     }
     pub fn next_packet(&mut self) -> Result<Option<Packet>, String> {
         let epoch = self.epoch;
@@ -249,72 +197,17 @@ impl PacketReader {
             .checked_add(1)
             .ok_or("packet sequence exhausted")?;
         let generation = self.configuration;
-        let packet = self.run(|r, x, h| {
-            match call(&mut r.store, &x.next, h).map_err(|e| e.0)? {
-                0 => return Ok(None),
-                -1 => return Err(module_error(r, x, h)?),
-                1 => (),
-                _ => return Err("invalid packet result".into()),
-            }
-            let p = call(&mut r.store, &x.packet_info, h).map_err(|e| e.0)?;
-            let b = bytes(r, p, 72, 72)?;
-            let flags = u32_at(&b, 4);
-            let changed = u32::from(flags & 8 != 0);
-            if u32_at(&b, 0) != 72
-                || flags & !15 != 0
-                || u32_at(&b, 68) != 0
-                || u32_at(&b, 56) != epoch
-                || u64_at(&b, 48) != sequence
-                || generation.checked_add(changed) != Some(u32_at(&b, 60))
-            {
-                return Err("invalid packet record or generation".into());
-            }
-            let p = call(&mut r.store, &x.data, h).map_err(|e| e.0)?;
-            let data = bytes(r, p, u32_at(&b, 8) as usize, PACKET_LIMIT)?;
-            let p = call(&mut r.store, &x.side_data, h).map_err(|e| e.0)?;
-            let side = bytes(r, p, u32_at(&b, 12) as usize, SIDE_LIMIT)?;
-            let count = u32_at(&b, 64);
-            if count > 32 {
-                return Err("too many packet side-data entries".into());
-            }
-            let mut side_data = Vec::with_capacity(count as usize);
-            let mut rest = side.as_slice();
-            for _ in 0..count {
-                if rest.len() < 8 {
-                    return Err("truncated packet side data".into());
-                }
-                let kind = u32_at(rest, 0);
-                let n = u32_at(rest, 4) as usize;
-                rest = &rest[8..];
-                let value = rest.get(..n).ok_or("truncated packet side data")?;
-                side_data.push(SideData {
-                    kind,
-                    data: value.to_vec(),
-                });
-                rest = &rest[n..];
-            }
-            if !rest.is_empty() {
-                return Err("trailing packet side data".into());
-            }
-            if side_data.iter().any(|s| matches!(s.kind, 1 | 2)) != (changed != 0) {
-                return Err("configuration flag disagrees with packet side data".into());
-            }
-            let timestamp = |at| {
-                let n = u64_at(&b, at) as i64;
-                (n != i64::MIN).then_some(n)
+        let packet = self.run(|h, id| {
+            let record = match h.request(&Request::DemuxNext { id }).map_err(|e| e.0)? {
+                Reply::DemuxEnd { id: got } if got == id => return Ok(None),
+                Reply::DemuxError { id: got, message } if got == id => return Err(message),
+                Reply::Packet { id: got, record } if got == id => record,
+                other => return Err(unexpected(other).0),
             };
-            Ok(Some(Packet {
-                flags,
-                pts: timestamp(16),
-                dts: timestamp(24),
-                duration: u64_at(&b, 32) as i64,
-                position: u64_at(&b, 40) as i64,
-                sequence,
-                epoch,
-                configuration: u32_at(&b, 60),
-                data,
-                side_data,
-            }))
+            let (data_size, side_size) = record_sizes(&record)?;
+            let data = region_bytes(h, &h.arena.layout.packet.clone(), data_size, PACKET_LIMIT)?;
+            let side = region_bytes(h, &h.arena.layout.side.clone(), side_size, SIDE_LIMIT)?;
+            packet_from(&record, data, &side, epoch, sequence, generation).map(Some)
         })?;
         if let Some(p) = &packet {
             self.sequence = p.sequence;
@@ -323,18 +216,22 @@ impl PacketReader {
         Ok(packet)
     }
     /// Backward key-packet seek in raw stream ticks, not an exact frame seek.
-    /// Parameter-changing streams require reopen/preroll or module fallback;
+    /// Parameter-changing streams require reopen/preroll or software fallback;
     /// the header configuration is restored, not reconstructed at the target.
     pub fn seek(&mut self, timestamp: i64) -> Result<(), String> {
         let epoch = self.epoch.checked_add(1).ok_or("packet epoch exhausted")?;
         if timestamp == i64::MIN {
             return Err("unknown timestamp cannot be a seek target".into());
         }
-        self.run(|r, x, h| {
-            if call(&mut r.store, &x.seek, (h, timestamp)).map_err(|e| e.0)? != 0 {
-                return Err(module_error(r, x, h)?);
+        self.run(|h, id| {
+            match h
+                .request(&Request::DemuxSeek { id, timestamp })
+                .map_err(|e| e.0)?
+            {
+                Reply::DemuxSought { id: got } if got == id => Ok(()),
+                Reply::DemuxError { id: got, message } if got == id => Err(message),
+                other => Err(unexpected(other).0),
             }
-            Ok(())
         })?;
         self.epoch = epoch;
         self.sequence = 0;
@@ -342,88 +239,160 @@ impl PacketReader {
         Ok(())
     }
     pub fn index_count(&mut self) -> Result<u32, String> {
-        self.run(|r, x, h| {
-            let n = call(&mut r.store, &x.index_count, h).map_err(|e| e.0)? as u32;
-            if n > INDEX_LIMIT {
-                return Err("seek index exceeds the entry limit".into());
+        self.run(|h, id| {
+            match h
+                .request(&Request::DemuxIndexCount { id })
+                .map_err(|e| e.0)?
+            {
+                Reply::DemuxIndexCount { id: got, count } if got == id => {
+                    if count < 0 || count as u32 > INDEX_LIMIT {
+                        return Err("seek index exceeds the entry limit".into());
+                    }
+                    Ok(count as u32)
+                }
+                other => Err(unexpected(other).0),
             }
-            Ok(n)
         })
     }
     pub fn index(&mut self, first: u32, count: u32) -> Result<Vec<IndexEntry>, String> {
         if count > INDEX_PAGE || first > INDEX_LIMIT {
             return Err("invalid seek index page".into());
         }
-        self.run(|r, x, h| {
-            let n = call(&mut r.store, &x.index, (h, first as i32, count as i32))
-                .map_err(|e| e.0)? as u32;
-            if n > count {
-                return Err("invalid seek index page length".into());
-            }
-            let p = call(&mut r.store, &x.index_data, h).map_err(|e| e.0)?;
-            let b = bytes(r, p, n as usize * 32, INDEX_PAGE as usize * 32)?;
-            b.as_chunks::<32>()
-                .0
-                .iter()
-                .map(|b| {
-                    if u32_at(b, 28) != 0 || u32_at(b, 20) & !3 != 0 || (u32_at(b, 16) as i32) < 0 {
-                        return Err("invalid seek index entry".into());
+        self.run(|h, id| {
+            match h
+                .request(&Request::DemuxIndex { id, first, count })
+                .map_err(|e| e.0)?
+            {
+                Reply::DemuxIndex { id: got, entries } if got == id => {
+                    if entries.len() / 32 > count as usize {
+                        return Err("invalid seek index page length".into());
                     }
-                    Ok(IndexEntry {
-                        timestamp: u64_at(b, 0) as i64,
-                        position: u64_at(b, 8) as i64,
-                        size: u32_at(b, 16) as i32,
-                        flags: u32_at(b, 20),
-                        min_distance: u32_at(b, 24) as i32,
-                    })
-                })
-                .collect()
+                    index_from(&entries)
+                }
+                Reply::DemuxError { id: got, message } if got == id => Err(message),
+                other => Err(unexpected(other).0),
+            }
         })
     }
 }
-impl Drop for PacketReader {
-    fn drop(&mut self) {
-        if let Some(r) = &mut self.machine.running {
-            let _ = call(&mut r.store, &self.x.close, self.handle);
+
+/// `n` bytes at the start of `region` of the helper's arena, copied out;
+/// refused past `cap` or the region.
+fn region_bytes(
+    h: &helper::Helper,
+    region: &std::ops::Range<usize>,
+    n: usize,
+    cap: usize,
+) -> Result<Vec<u8>, String> {
+    if n > cap || n > region.len() {
+        return Err("packet buffer exceeds the byte limit".into());
+    }
+    Ok(h.arena.slice(&(region.start..region.start + n)).to_vec())
+}
+
+/// The data and side-data sizes a packet record names.
+fn record_sizes(record: &[u8]) -> Result<(usize, usize), String> {
+    if record.len() != 72 {
+        return Err("invalid packet record".into());
+    }
+    Ok((u32_at(record, 8) as usize, u32_at(record, 12) as usize))
+}
+
+/// A packet from its record and buffers, checked against what this reader
+/// expects of the next packet (`epoch`, `sequence`, the configuration
+/// `generation` before it).
+fn packet_from(
+    b: &[u8],
+    data: Vec<u8>,
+    side: &[u8],
+    epoch: u32,
+    sequence: u64,
+    generation: u32,
+) -> Result<Packet, String> {
+    if b.len() != 72 {
+        return Err("invalid packet record".into());
+    }
+    let flags = u32_at(b, 4);
+    let changed = u32::from(flags & 8 != 0);
+    if u32_at(b, 0) != 72
+        || flags & !15 != 0
+        || u32_at(b, 68) != 0
+        || u32_at(b, 56) != epoch
+        || u64_at(b, 48) != sequence
+        || generation.checked_add(changed) != Some(u32_at(b, 60))
+    {
+        return Err("invalid packet record or generation".into());
+    }
+    if data.len() != u32_at(b, 8) as usize || side.len() != u32_at(b, 12) as usize {
+        return Err("packet buffers disagree with their record".into());
+    }
+    let count = u32_at(b, 64);
+    if count > 32 {
+        return Err("too many packet side-data entries".into());
+    }
+    let mut side_data = Vec::with_capacity(count as usize);
+    let mut rest = side;
+    for _ in 0..count {
+        if rest.len() < 8 {
+            return Err("truncated packet side data".into());
         }
+        let kind = u32_at(rest, 0);
+        let n = u32_at(rest, 4) as usize;
+        rest = &rest[8..];
+        let value = rest.get(..n).ok_or("truncated packet side data")?;
+        side_data.push(SideData {
+            kind,
+            data: value.to_vec(),
+        });
+        rest = &rest[n..];
     }
+    if !rest.is_empty() {
+        return Err("trailing packet side data".into());
+    }
+    if side_data.iter().any(|s| matches!(s.kind, 1 | 2)) != (changed != 0) {
+        return Err("configuration flag disagrees with packet side data".into());
+    }
+    let timestamp = |at| {
+        let n = u64_at(b, at) as i64;
+        (n != i64::MIN).then_some(n)
+    };
+    Ok(Packet {
+        flags,
+        pts: timestamp(16),
+        dts: timestamp(24),
+        duration: u64_at(b, 32) as i64,
+        position: u64_at(b, 40) as i64,
+        sequence,
+        epoch,
+        configuration: u32_at(b, 60),
+        data,
+        side_data,
+    })
 }
-fn bytes(r: &Running, pointer: i32, n: usize, cap: usize) -> Result<Vec<u8>, String> {
-    if n > cap || (n != 0 && pointer == 0) {
-        return Err("packet buffer exceeds the byte limit or is null".into());
+
+/// Index entries from their 32-byte records.
+fn index_from(b: &[u8]) -> Result<Vec<IndexEntry>, String> {
+    if !b.len().is_multiple_of(32) {
+        return Err("invalid seek index page".into());
     }
-    if n == 0 {
-        return Ok(Vec::new());
-    }
-    let p = pointer as u32 as usize;
-    let end = p.checked_add(n).ok_or("packet buffer range overflow")?;
-    Ok(r.x
-        .memory
-        .data(&r.store)
-        .get(p..end)
-        .ok_or("packet buffer outside module memory")?
-        .to_vec())
-}
-fn string(r: &Running, pointer: i32, cap: usize) -> Result<String, String> {
-    let p = pointer as u32 as usize;
-    let memory = r.x.memory.data(&r.store);
-    let b = memory
-        .get(p..)
-        .ok_or("packet string outside module memory")?;
-    let end = b
+    b.as_chunks::<32>()
+        .0
         .iter()
-        .take(cap)
-        .position(|c| *c == 0)
-        .ok_or("unterminated packet string")?;
-    if pointer == 0 {
-        return Err("null packet string".into());
-    }
-    String::from_utf8(b[..end].to_vec()).map_err(|e| e.to_string())
+        .map(|b| {
+            if u32_at(b, 28) != 0 || u32_at(b, 20) & !3 != 0 || (u32_at(b, 16) as i32) < 0 {
+                return Err("invalid seek index entry".into());
+            }
+            Ok(IndexEntry {
+                timestamp: u64_at(b, 0) as i64,
+                position: u64_at(b, 8) as i64,
+                size: u32_at(b, 16) as i32,
+                flags: u32_at(b, 20),
+                min_distance: u32_at(b, 24) as i32,
+            })
+        })
+        .collect()
 }
-fn module_error(r: &mut Running, x: &PacketExports, h: i32) -> Result<String, String> {
-    let p = call(&mut r.store, &x.error, h).map_err(|e| e.0)?;
-    string(r, p, 256)
-}
+
 fn u32_at(b: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(b[at..at + 4].try_into().expect("fixed record"))
 }
@@ -435,119 +404,31 @@ fn u64_at(b: &[u8], at: usize) -> u64 {
 mod tests {
     use super::*;
 
-    fn info() -> StreamInfo {
-        serde_json::from_value(serde_json::json!({
-            "abi":1,"codec":"h264","container":"mov","stream":0,"codec_tag":0,
-            "width":128,"height":96,"profile":100,"level":10,"pixel_format":0,
-            "bit_depth":8,"field_order":1,"video_delay":2,"time_base":[1,30000],
-            "frame_rate":[30000,1001],"start":"9007199254740993","duration":null,
-            "frames":null,"aspect_ratio":[1,1],"color_range":0,"color_space":2,
-            "color_primaries":2,"color_transfer":2,"chroma_location":0,"configuration_size":0
-        }))
-        .unwrap()
+    /// A record of sequence 1, epoch 0, DTS 2^53 + 1, no PTS.
+    fn record() -> Vec<u8> {
+        let mut b = vec![0u8; 72];
+        b[0..4].copy_from_slice(&72u32.to_le_bytes());
+        b[16..24].copy_from_slice(&i64::MIN.to_le_bytes());
+        b[24..32].copy_from_slice(&9007199254740993i64.to_le_bytes());
+        b[48..56].copy_from_slice(&1u64.to_le_bytes());
+        b
     }
-    fn reader(extra: &str) -> PacketReader {
-        reader_with(extra, &[])
+    fn set_u32(b: &mut [u8], at: usize, v: u32) {
+        b[at..at + 4].copy_from_slice(&v.to_le_bytes());
     }
-    fn decode_stub() -> String {
-        let mut text = String::from("(module (memory (export \"memory\") 1)");
-        text.push_str("(func (export \"ddi_malloc\") (param i32) (result i32) (i32.const 4096)) (func (export \"ddi_free\") (param i32))");
-        // Old playback exports remain independently loadable.
-        for name in [
-            "open",
-            "width",
-            "height",
-            "codec",
-            "colorspace",
-            "full_range",
-            "planes",
-            "planes_size",
-        ] {
-            text.push_str(&format!(
-                "(func (export \"ddi_{name}\") (param i32) (result i32) (i32.const 1))"
-            ));
-        }
-        for name in ["last_time", "duration", "next"] {
-            text.push_str(&format!(
-                "(func (export \"ddi_{name}\") (param i32) (result f64) (f64.const 0))"
-            ));
-        }
-        text.push_str("(func (export \"ddi_seek\") (param i32 f64) (result i32) (i32.const 0)) (func (export \"ddi_close\") (param i32))");
-        text
-    }
-    fn reader_with(extra: &str, values: &[(&str, i32)]) -> PacketReader {
-        let mut text = decode_stub();
-        text.push_str("(func (export \"ddi_demux_abi\") (result i32) (i32.const 1))");
-        for (name, value) in [
-            ("info", 2048),
-            ("error", 2000),
-            ("config", 0),
-            ("config_size", 0),
-            ("packet_info", 128),
-            ("data", 512),
-            ("side_data", 1024),
-            ("index_data", 1500),
-            ("index_count", 0),
-            ("open", 1),
-        ] {
-            let value = values
-                .iter()
-                .find(|(n, _)| *n == name)
-                .map_or(value, |(_, v)| *v);
-            text.push_str(&format!(
-                "(func (export \"ddi_demux_{name}\") (param i32) (result i32) (i32.const {value}))"
-            ));
-        }
-        text.push_str("(func (export \"ddi_demux_close\") (param i32)) (func (export \"ddi_demux_index\") (param i32 i32 i32) (result i32) (i32.const 0))");
-        text.push_str(
-            "(func (export \"ddi_demux_seek\") (param i32 i64) (result i32) (i32.const 0))",
-        );
-        text.push_str(&format!(
-            r#"(func (export "ddi_demux_next") (param i32) (result i32)
-            (i32.store (i32.const 128) (i32.const 72))
-            (i64.store (i32.const 144) (i64.const -9223372036854775808))
-            (i64.store (i32.const 152) (i64.const 9007199254740993))
-            (i64.store (i32.const 176) (i64.const 1))
-            {extra} (i32.const 1)))"#
-        ));
-        let engine = Engine::default();
-        let module = Module::new(&engine, wat::parse_str(text).unwrap()).unwrap();
-        let mut store = Store::new(&engine, Wasi::default());
-        let instance = Instance::new(&mut store, &module, &[]).unwrap();
-        let x = exports(&instance, &mut store).unwrap();
-        let mut r = Running { instance, store, x };
-        let (x, _) = PacketExports::load(&mut r).unwrap();
-        let shared = Arc::new(Mutex::new(Shared {
-            status: ModuleStatus::Idle,
-            movies: HashMap::new(),
-            probes: HashMap::new(),
-        }));
-        let mut machine = Machine::new(None, shared, CALL_DEADLINE);
-        machine.running = Some(r);
-        PacketReader {
-            machine,
-            x,
-            handle: 1,
-            info: info(),
-            epoch: 0,
-            sequence: 0,
-            configuration: 0,
-        }
-    }
+
     #[test]
     fn exact_ticks_unknown_pts_and_configuration_changes() {
-        let mut r = reader(
-            r#"
-            (i32.store (i32.const 132) (i32.const 8))
-            (i32.store (i32.const 188) (i32.const 1))
-            (i32.store (i32.const 140) (i32.const 11))
-            (i32.store (i32.const 192) (i32.const 1))
-            (i32.store (i32.const 1024) (i32.const 1))
-            (i32.store (i32.const 1028) (i32.const 3))
-            (i32.store (i32.const 1032) (i32.const 197121))"#,
-        );
-        let p = r.next_packet().unwrap().unwrap();
-        assert_eq!(r.info().start, Some(9007199254740993));
+        let mut b = record();
+        set_u32(&mut b, 4, 8); // configuration changed
+        set_u32(&mut b, 60, 1); // generation 1
+        set_u32(&mut b, 12, 11); // side bytes
+        set_u32(&mut b, 64, 1); // one entry
+        let mut side = Vec::new();
+        side.extend_from_slice(&1u32.to_le_bytes());
+        side.extend_from_slice(&3u32.to_le_bytes());
+        side.extend_from_slice(&[1, 2, 3]);
+        let p = packet_from(&b, Vec::new(), &side, 0, 1, 0).unwrap();
         assert_eq!(p.pts, None);
         assert_eq!(p.dts, Some(9007199254740993));
         assert!(p.configuration_changed());
@@ -560,88 +441,66 @@ mod tests {
             }]
         );
     }
+
     #[test]
-    fn invalid_records_and_traps_poison_the_reader() {
-        for extra in [
-            "unreachable", // no later call, including close, enters this instance
-            "(i32.store (i32.const 128) (i32.const 71))",
-            "(i32.store (i32.const 132) (i32.const 16))",
-            "(i32.store (i32.const 136) (i32.const 8388609))", // too large
-            "(i32.store (i32.const 136) (i32.const 65536))",   // range beyond memory
-            "(i32.store (i32.const 140) (i32.const 1048577))",
-            "(i32.store (i32.const 192) (i32.const 33))",
-            "(i32.store (i32.const 192) (i32.const 1))", // missing TLV
-            "(i32.store (i32.const 140) (i32.const 8))", // unclaimed TLV
-            "(i64.store (i32.const 176) (i64.const 2))", // stale sequence
-            "(i32.store (i32.const 184) (i32.const 1))", // stale epoch
-            "(i32.store (i32.const 188) (i32.const 1))", // unannounced config
-        ] {
-            let mut r = reader(extra);
-            assert!(r.next_packet().is_err(), "{extra}");
-            assert!(r.machine.running.is_none());
-            assert!(r.configuration().unwrap_err().contains("closed"));
+    fn invalid_records_are_refused() {
+        type Change = Box<dyn Fn(&mut Vec<u8>, &mut Vec<u8>, &mut Vec<u8>)>;
+        let cases: Vec<(&str, Change)> = vec![
+            ("size", Box::new(|b, _, _| set_u32(b, 0, 71))),
+            ("flags", Box::new(|b, _, _| set_u32(b, 4, 16))),
+            ("reserved", Box::new(|b, _, _| set_u32(b, 68, 1))),
+            ("data length", Box::new(|b, _, _| set_u32(b, 8, 1))),
+            ("side length", Box::new(|b, _, _| set_u32(b, 12, 1))),
+            ("too many entries", Box::new(|b, _, _| set_u32(b, 64, 33))),
+            ("missing TLV", Box::new(|b, _, _| set_u32(b, 64, 1))),
+            (
+                "unclaimed TLV",
+                Box::new(|b, _, s| {
+                    set_u32(b, 12, 8);
+                    s.extend_from_slice(&[0; 8]);
+                }),
+            ),
+            (
+                "stale sequence",
+                Box::new(|b, _, _| b[48..56].copy_from_slice(&2u64.to_le_bytes())),
+            ),
+            ("stale epoch", Box::new(|b, _, _| set_u32(b, 56, 1))),
+            ("unannounced config", Box::new(|b, _, _| set_u32(b, 60, 1))),
+            (
+                "config flag without side data",
+                Box::new(|b, _, _| {
+                    set_u32(b, 4, 8);
+                    set_u32(b, 60, 1);
+                }),
+            ),
+        ];
+        for (what, change) in cases {
+            let (mut b, mut data, mut side) = (record(), Vec::new(), Vec::new());
+            change(&mut b, &mut data, &mut side);
+            assert!(packet_from(&b, data, &side, 0, 1, 0).is_err(), "{what}");
         }
+        assert!(packet_from(&record(), Vec::new(), &[], 0, 1, 0).is_ok());
+        assert!(record_sizes(&[0; 71]).is_err());
     }
+
     #[test]
-    fn configuration_and_index_exports_are_bounded_independently() {
-        for (name, value, config) in [
-            ("config_size", 1048577, true),
-            ("config", -1, true),
-            ("index_count", 1000001, false),
-            ("index_count", -1, false),
-        ] {
-            let fields = if name == "config" {
-                vec![(name, value), ("config_size", 1)]
-            } else {
-                vec![(name, value)]
-            };
-            let mut r = reader_with("", &fields);
-            let failed = if config {
-                r.configuration().is_err()
-            } else {
-                r.index_count().is_err()
-            };
-            assert!(failed, "{name}");
-            assert!(r.machine.running.is_none());
-        }
-    }
-    #[test]
-    fn a_worker_heap_limit_is_enforced_on_memory_growth() {
-        let engine = Engine::default();
-        let module = Module::new(
-            &engine,
-            wat::parse_str(format!("{})", decode_stub())).unwrap(),
-        )
-        .unwrap();
-        let shared = Arc::new(Mutex::new(Shared {
-            status: ModuleStatus::Idle,
-            movies: HashMap::new(),
-            probes: HashMap::new(),
-        }));
-        let mut machine = Machine::new(None, shared, Duration::from_secs(2));
-        machine.engine = Some(engine);
-        machine.module = Some(module);
-        machine.memory_limit = 65536;
-        machine.instantiate().unwrap();
-        let r = machine.running.as_mut().unwrap();
-        assert!(r.x.memory.grow(&mut r.store, 1).is_err());
-    }
-    #[test]
-    fn missing_packet_exports_do_not_break_old_playback_exports() {
-        let engine = Engine::default();
-        let text = format!("{})", decode_stub());
-        let module = Module::new(&engine, wat::parse_str(text).unwrap()).unwrap();
-        let mut store = Store::new(&engine, Wasi::default());
-        let instance = Instance::new(&mut store, &module, &[]).unwrap();
-        let x = exports(&instance, &mut store).unwrap();
-        let mut running = Running { instance, store, x };
-        let error = PacketExports::load(&mut running).err().unwrap();
-        assert!(error.contains("no packet ABI"));
-        assert_eq!(
-            call(&mut running.store, &running.x.width, 1)
-                .map_err(|e| e.0)
-                .unwrap(),
-            1
-        );
+    fn index_pages_are_checked_entry_by_entry() {
+        let mut e = vec![0u8; 32];
+        e[0..8].copy_from_slice(&(-3i64).to_le_bytes());
+        e[16..20].copy_from_slice(&7u32.to_le_bytes());
+        e[20..24].copy_from_slice(&1u32.to_le_bytes());
+        let got = index_from(&e).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!((got[0].timestamp, got[0].size, got[0].flags), (-3, 7, 1));
+        assert!(index_from(&e[..31]).is_err());
+        let mut bad = e.clone();
+        bad[28] = 1;
+        assert!(index_from(&bad).is_err());
+        let mut bad = e.clone();
+        bad[20] = 4;
+        assert!(index_from(&bad).is_err());
+        let mut bad = e;
+        bad[19] = 0x80;
+        assert!(index_from(&bad).is_err(), "negative size");
     }
 }

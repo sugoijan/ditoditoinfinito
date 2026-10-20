@@ -154,8 +154,12 @@ the browser are implementation details, not advertised features.
   start prompt, noteskins with their Lua read on a thread, backgrounds,
   movies (feature `video`, on by default: checked 8-bit H.264, HEVC and VP9 subsets through
   hardware VideoToolbox on macOS, experimental opt-in Media Foundation/D3D11
-  on Windows (`mf.rs`, `mf_core.rs`; Windows Auto remains the module), the web's sandboxed FFmpeg module
-  under wasmtime for the rest and on failure, `video.rs`, `video/`;
+  on Windows (`mf.rs`, `mf_core.rs`; Windows Auto remains the software
+  decoder), and for the rest and on failure the software decoder:
+  FFmpeg in a sandboxed child process, `ddi-video-helper`
+  (`video/helper`; `video.rs`, `video/helper.rs`, the arena in
+  `video/arena.rs`; MP4/Matroska packets for the OS decoders demuxed by a
+  helper of their own, `video/packets.rs`);
   movies in zips read in place or extracted once),
   a work's layers and lyrics, the theme's results, the history in the
   data folder, replays, `play/replays.rs`); a play's frames paced (`pacing/`: blocking in the
@@ -172,16 +176,26 @@ the browser are implementation details, not advertised features.
   and cache folders under it (`paths.rs`). Tested without a sound device
   on a fake clock and offscreen (`desktop/tests/`; GPU tests skip without
   an adapter or with `DDI_NO_GPU=1`, as in CI's `desktop` job on Linux,
-  macOS and Windows, with and without `video`). The video module is
-  found at `DDI_VIDEO_MODULE`, in `video/` beside the executable, or (an
-  executable built in the workspace) the workspace's `target/video/`,
-  and compiled once into the cache folder (`DDI_VIDEO_CACHE` moves it;
-  `cargo test -p ddi-desktop --test video` checks it on generated
-  clips; `--decoder both` compares the platform's strict OS subset against it,
-  `DDI_VIDEO_DECODER=module` forces the module for play; Windows experiments
-  use `mediafoundation-auto` for module recovery, `mediafoundation` for strict
-  refusal; `video/check-windows.ps1 -Module PATH` records the deferred-host
-  fidelity run, without a window or sound). On Linux it builds
+  macOS and Windows, with and without `video`). The video decoder
+  helper is found at `DDI_VIDEO_HELPER`, else as `video/ddi-video-helper`
+  beside the executable or beside a folder above it (`desktop/build.rs`
+  stages it in the build's `target/<profile>/video/`, which a test in
+  `target/<profile>/deps/` finds too); `cargo test -p ddi-desktop --test
+  video` checks it on generated clips; `--decoder both` compares the
+  platform's strict OS subset against it, `DDI_VIDEO_DECODER=software`
+  forces it for play (`module`, its old name, still works); Windows
+  experiments use `mediafoundation-auto` for software recovery,
+  `mediafoundation` for strict refusal; `video/check-windows.ps1 -Helper
+  PATH` records the deferred-host fidelity run, without a window or
+  sound). `desktop/build.rs` builds the helper on every `video` build:
+  FFmpeg natively first (`video/build-native.sh`, a few minutes once,
+  cached in `target/video/native/`; nasm on x86_64 for its assembly), then
+  the helper crate in `target/video/helper-target/` with the `helper`
+  profile; `DDI_NO_VIDEO_HELPER=1` skips it (movies then show their song
+  background), cross builds skip it, and Windows skips it unless
+  `DDI_VIDEO_NATIVE=1` (MSYS2 bash with the MSVC tools, untested here).
+  `target/debug/video/ddi-video-helper --sandbox-check` runs the sandbox
+  self-test alone. On Linux it builds
   against ALSA and udev (`libasound2-dev`, `libudev-dev`; LGPL, linked
   from the system); winit, rfd and arboard load their libraries at run
   time.
@@ -220,13 +234,22 @@ the browser are implementation details, not advertised features.
 - `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md` and
   `THIRD_PARTY_RUST.md`.
 - `video/` the software video decoder: C shims over FFmpeg's video
-  decoders (every format StepMania plays), built to
-  `target/video/ddivideo.wasm` with wasi-sdk (LGPL module, never
-  committed); `docs/plans/video-backgrounds.md`; additive bounded demux exports in
-  `video/packets.c` (`video/packets.md`), read on desktop by
+  decoders (every format StepMania plays), built two ways from the one
+  pinned release (`video/FFMPEG.toml`): for the web to
+  `target/video/ddivideo.wasm` with wasi-sdk (`video/build.sh`; LGPL
+  module, never committed; `docs/plans/video-backgrounds.md`), and for
+  desktop as static libraries (`video/build-native.sh`, into
+  `target/video/native/<target>/`) linked into `ddi-video-helper`
+  (`video/helper`, the sandboxed decoder process: Seatbelt on macOS,
+  seccomp and Landlock on Linux, a restricted token on Windows, each
+  self-tested before it serves; `video/protocol`, `ddi-video-protocol`,
+  the bounded pipe messages and the shared-memory arena both sides use;
+  `docs/plans/native-video.md`, section 10). `video/ddi_io.c` is the
+  helper's file layer (the game serves the bytes). Additive bounded demux
+  exports in `video/packets.c` (`video/packets.md`), read on desktop by
   `desktop/src/video/packets.rs` for native MP4/Matroska/WebM (`media.rs`,
   codec validation and output models in `codec.rs`, `h264_format.rs`,
-  `hevc.rs` and `vp9.rs`).
+  `hevc.rs` and `vp9.rs`). FFmpeg is never linked into the game.
 - `assets/songs/<id>/` bundled songs with a `PROVENANCE.toml` each;
   `assets/noteskins/<game>/<name>/` bundled noteskins, the same way
   (`docs/plans/bundled-skins.md`); `assets/fonts/` the embedded HUD font
@@ -257,7 +280,7 @@ the browser are implementation details, not advertised features.
   on the host clock), `--volume V`, `--seconds N` (quits, printing the
   library, the clock's latency and jitter, the devices, the plays),
   `--lose-device-after S`, `--video-check FILE [--reference REF.yuv]
-  [--frames] [--decoder auto|module|videotoolbox|mediafoundation|mediafoundation-auto|both]`, `--pacing block|late` (a play's frame pacing),
+  [--frames] [--decoder auto|software|videotoolbox|mediafoundation|mediafoundation-auto|both]`, `--pacing block|late` (a play's frame pacing),
   `--in-flight 1|2` (defaults: late with two when a display link is
   available, block with one elsewhere), `--pacing-report` (block and late with one and two in
   flight, 4 s each in turn on Fifo, a table of each printed when the
@@ -334,8 +357,10 @@ the browser are implementation details, not advertised features.
   `cargo test --release -p ddi-lua --test local -- --nocapture` compile
   local skins' Lua, or run lunita's exported limit cases with
   their time gates (under the memory watchdog).
-- `just video` builds the decoder module (downloads the pinned toolchain and
-  FFmpeg into `target/video/`); every Trunk build runs it too when the
+- `just video` builds the web's decoder module (downloads the pinned
+  toolchain and FFmpeg into `target/video/`); `just video-native` builds
+  the desktop helper's FFmpeg the same way (`cargo build` of the desktop
+  does it by itself); every Trunk build runs the former too when the
   module is missing (as after `cargo clean`, a few minutes) or older than
   its sources, and fails if it fails (`DDI_NO_VIDEO=1` builds the site
   without it); `just video-check [file]` checks it on a file

@@ -1,16 +1,16 @@
-//! The FFmpeg module under wasmtime (feature `video`) on clips generated
-//! here with the `ffmpeg` command (FFmpeg's test pattern, written to a
-//! temporary folder), against `ffmpeg`'s own decode: every frame, the
-//! frame times, exact seeks (into a gap of dropped frames too), loops, a
-//! truncated and a corrupt file, two movies at once, and the compiled
-//! module read back from its cache. Skipped without the module
-//! (`just video`) or without `ffmpeg` with libx264.
+//! The FFmpeg helper (feature `video`) on clips generated here with the
+//! `ffmpeg` command (FFmpeg's test pattern, written to a temporary
+//! folder), against `ffmpeg`'s own decode: every frame, the frame times,
+//! exact seeks (into a gap of dropped frames too), loops, a truncated and
+//! a corrupt file, two movies at once, and a second host starting a helper
+//! of its own. Skipped without the helper (built and staged by
+//! `desktop/build.rs`) or without `ffmpeg` with libx264.
 #![cfg(feature = "video")]
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use ddi_desktop::video::{self, ModuleStatus, VideoHost};
+use ddi_desktop::video::{self, HelperStatus, VideoHost};
 use ddi_platform::video::{
     VideoBackend, VideoCodec, VideoContainer, VideoDecoder, VideoEvent, VideoFormat,
 };
@@ -80,20 +80,15 @@ fn until(v: &mut impl VideoDecoder, mut done: impl FnMut(&VideoEvent) -> bool) -
 
 #[test]
 fn clips_decode_as_ffmpeg_decodes_them() {
-    // A release build does not look in the repository: this test does.
-    let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/video/ddivideo.wasm");
-    let Some(module) = video::module_path().or_else(|| dev.is_file().then_some(dev)) else {
-        eprintln!("no video module (just video): skipped");
+    let Some(module) = video::helper_path() else {
+        eprintln!("no video helper: skipped");
         return;
     };
     let dir = std::env::temp_dir().join(format!("ddi-video-clips-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    // The compiled module goes to a cache of this run's own.
+    // Movies extracted from zips go to this run's own cache folder.
     // SAFETY: set before any thread of this test binary reads it (one
     // test here).
-    unsafe { std::env::set_var("DDI_VIDEO_CACHE", dir.join("cache")) };
-    // Movies extracted from zips go to this run's own cache folder.
-    // SAFETY: as above.
     unsafe { std::env::set_var("DDI_HOME", dir.join("home")) };
     let clips = [
         (
@@ -154,7 +149,7 @@ fn clips_decode_as_ffmpeg_decodes_them() {
         std::fs::remove_dir_all(&dir).ok();
         return;
     }
-    let mut host = VideoHost::with_module(Some(module.clone()));
+    let mut host = VideoHost::with_helper(Some(module.clone()));
     for (name, (path, reference), min_psnr) in &made {
         let r = video::check(&mut host, path, Some(reference));
         for line in r.lines(name) {
@@ -167,16 +162,20 @@ fn clips_decode_as_ffmpeg_decodes_them() {
         let expected = if *name == "xvid-gap.avi" { 50 } else { 60 };
         assert_eq!(r.frames.len(), expected, "{name}");
     }
-    // Compiled once, then read from the cache by a new host.
-    let mut again = VideoHost::with_module(Some(module));
+    // A new host starts a helper of its own, sandboxed.
+    let mut again = VideoHost::with_helper(Some(module));
     let (_, (path, _), _) = &made[0];
     let r = video::check(&mut again, path, None);
     assert!(r.failures.is_empty());
-    assert!(
-        matches!(r.status, Some(ModuleStatus::Ready { cached: true, .. })),
-        "{:?}",
-        r.status
-    );
+    match &r.status {
+        Some(HelperStatus::Ready {
+            decoder, sandbox, ..
+        }) => {
+            assert!(decoder.starts_with("FFmpeg "), "{decoder}");
+            assert_ne!(sandbox, "none");
+        }
+        other => panic!("{other:?}"),
+    }
     // Two movies at once, interleaved: each gets its own frames, in
     // order from its start.
     let mut a = host.open(path.clone().into(), "a.avi", &format());

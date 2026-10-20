@@ -31,9 +31,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # The desktop's sound (cpal) links ALSA, its controllers (gilrs)
       # libudev; ffmpeg decodes the decoders' references (bundled songs,
-      # MP3s).
-      - name: ALSA and udev headers, ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev ffmpeg
+      # MP3s); nasm assembles the video helper's FFmpeg.
+      - name: ALSA and udev headers, ffmpeg, nasm
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev ffmpeg nasm
+      # The video helper's static FFmpeg (video/build-native.sh), built by
+      # desktop/build.rs when missing: a few minutes, so cached by recipe.
+      - name: Cache the helper's FFmpeg
+        uses: actions/cache@v4
+        with:
+          path: |
+            target/video/native
+            target/video/downloads/ffmpeg-*.tar.xz
+            target/video/downloads/zlib-*.tar.gz
+          key: ffmpeg-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('video/build-native.sh', 'video/lib.sh', 'video/FFMPEG.toml') }}
       # The bundled songs' and noteskins' indexes the desktop's tests read
       # (its tests also write them when missing).
       - name: Generated files are fresh
@@ -46,7 +56,9 @@ jobs:
         run: cargo test -p ddi-chart -p ddi-engine -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-desktop -p ditoditoinfinito -p xtask --features ddi-platform/decode,ddi-library/nfkd,ddi-ui/layout
 
   # The desktop shell on the three systems it is for, with and without
-  # background movies (the `video` feature: wasmtime). Not among the
+  # background movies (the `video` feature: the sandboxed FFmpeg helper,
+  # built on Linux and macOS; Windows skips it, so its movie tests skip,
+  # until its FFmpeg builds in CI). Not among the
   # deploy's needs: the site does not use it, so a desktop-only break does
   # not hold back the web (the `test` job still builds and tests the
   # desktop crate on Linux before a deploy). GPU tests skip as on a
@@ -67,15 +79,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: desktop
-      - name: ALSA and udev headers
+      - name: ALSA and udev headers, nasm
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev nasm
+      - name: Cache the helper's FFmpeg
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: |
+            target/video/native
+            target/video/downloads/ffmpeg-*.tar.xz
+            target/video/downloads/zlib-*.tar.gz
+          key: ffmpeg-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('video/build-native.sh', 'video/lib.sh', 'video/FFMPEG.toml') }}
       - name: The bundled songs' and noteskins' indexes
         run: |
           cargo run -p xtask -- gen-songs
           cargo run -p xtask -- gen-noteskins
       - name: Build and test the desktop shell (background movies on)
         run: cargo test -p ddi-desktop --no-fail-fast
+      - name: The decoder helper's sandbox holds on this runner
+        if: runner.os != 'Windows'
+        run: target/debug/video/ddi-video-helper --sandbox-check
       - name: Build and test it without background movies
         run: cargo test -p ddi-desktop --no-default-features --no-fail-fast
 

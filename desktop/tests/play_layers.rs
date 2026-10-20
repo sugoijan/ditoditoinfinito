@@ -5,7 +5,7 @@
 //! field read back at chosen song times. The second layer (`#BGCHANGES2`)
 //! draws over the first as StepMania draws it
 //! (`ddi_library::backgrounds::second_layer`). Skipped without a GPU
-//! adapter (and the movie without the `ffmpeg` command or the module).
+//! adapter (and the movie without the `ffmpeg` command or the helper).
 
 use std::cell::RefCell;
 use std::path::Path;
@@ -196,12 +196,12 @@ fn play(adapter: &wgpu::Adapter, root: &Path, times: &[f64]) -> Vec<(f64, [u8; 3
     #[cfg(feature = "video")]
     {
         let start = std::time::Instant::now();
-        while view.movies.module_status().is_some()
+        while view.movies.helper_status().is_some()
             && !matches!(
-                view.movies.module_status(),
+                view.movies.helper_status(),
                 Some(
-                    ddi_desktop::video::ModuleStatus::Ready { .. }
-                        | ddi_desktop::video::ModuleStatus::Failed(_)
+                    ddi_desktop::video::HelperStatus::Ready { .. }
+                        | ddi_desktop::video::HelperStatus::Failed(_)
                 )
             )
             && start.elapsed().as_secs() < 60
@@ -328,11 +328,6 @@ fn expected(t: f64) -> Option<[u8; 3]> {
 fn the_second_layer_draws_over_the_first() {
     let dir = std::env::temp_dir().join(format!("ddi-play-layers-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    #[cfg(feature = "video")]
-    // SAFETY: the only test of this binary, before any thread starts.
-    unsafe {
-        std::env::set_var("DDI_VIDEO_CACHE", dir.join("cache"))
-    };
     let instance = gpu::instance();
     let Some(adapter) = gpu::adapter(&instance, None) else {
         eprintln!("no GPU adapter: skipped");
@@ -352,12 +347,12 @@ fn the_second_layer_draws_over_the_first() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The module is found in the workspace's `target/video/` (`just
-/// video`); without it, or without `ffmpeg`, this part is skipped.
+/// The helper is found beside the test binary's profile folder
+/// (`desktop/build.rs`); without it, or without `ffmpeg`, this part is skipped.
 #[cfg(feature = "video")]
 fn a_movie_plays_on_the_second_layer(adapter: &wgpu::Adapter, dir: &Path) {
-    if ddi_desktop::video::module_path().is_none() {
-        eprintln!("no video module (just video): movie skipped");
+    if ddi_desktop::video::helper_path().is_none() {
+        eprintln!("no video helper: movie skipped");
         return;
     }
     let movie = dir.join("movie");

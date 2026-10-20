@@ -8,8 +8,14 @@
 #include <string.h>
 #include <libavformat/avformat.h>
 #include <libavutil/pixdesc.h>
+#ifdef DDI_NATIVE
+#include "ddi_io.h"
+#endif
 
 #define EXPORT __attribute__((visibility("default"), used))
+// Native-only entry points (not in the wasm module's export list, which
+// `video/build.sh` reads from the `EXPORT` lines).
+#define EXPORT_NATIVE EXPORT
 #define PACKET_LIMIT (8 * 1024 * 1024)
 #define CONFIG_LIMIT (1024 * 1024)
 #define SIDE_LIMIT (1024 * 1024)
@@ -38,6 +44,9 @@ _Static_assert(offsetof(PacketInfo, pts) == 16 && offsetof(PacketInfo, epoch) ==
 _Static_assert(sizeof(IndexEntry) == 32, "index ABI size");
 
 typedef struct Demux {
+#ifdef DDI_NATIVE
+    DdiIo io;
+#endif
     AVFormatContext *format;
     AVPacket *packet;
     int stream, failed, ended;
@@ -68,7 +77,11 @@ static int fail(Demux *d, const char *message) {
 static void destroy(Demux *d) {
     if (!d) return;
     av_packet_free(&d->packet);
+#ifdef DDI_NATIVE
+    ddi_io_close_input(&d->format);
+#else
     avformat_close_input(&d->format);
+#endif
     free(d->configuration);
     free(d->initial_configuration);
     free(d->side);
@@ -122,20 +135,9 @@ static int describe(Demux *d) {
 }
 
 EXPORT int ddi_demux_abi(void) { return 1; }
-EXPORT Demux *ddi_demux_open(const char *path) {
-    if (handles >= HANDLE_LIMIT) return NULL;
-    Demux *d = calloc(1, sizeof(*d));
-    if (!d) return NULL;
-    d->format = avformat_alloc_context();
-    d->packet = av_packet_alloc();
-    if (!d->format || !d->packet) goto bad;
-    d->format->max_streams = 32;
-    d->format->probesize = 1024 * 1024;
-    d->format->max_analyze_duration = 5 * AV_TIME_BASE;
-    d->format->max_probe_packets = 2500;
-    d->format->max_index_size = 32 * 1024 * 1024;
-    if (avformat_open_input(&d->format, path, NULL, NULL) < 0 ||
-        avformat_find_stream_info(d->format, NULL) < 0) goto bad;
+/* Finishes opening `d`, whose format context is open (not yet probed). */
+static Demux *demux_open(Demux *d) {
+    if (avformat_find_stream_info(d->format, NULL) < 0) goto bad;
     /* NULL decoder_ret deliberately allows codecs not built into the module. */
     d->stream = av_find_best_stream(d->format, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
     if (d->stream < 0) goto bad;
@@ -160,6 +162,44 @@ bad:
     destroy(d);
     return NULL;
 }
+
+#ifdef DDI_NATIVE
+/* Opens the movie `opaque` names (`size` bytes, read through the host) with
+ * the demux bounds above; `hint` is its file name, for the probe. */
+EXPORT_NATIVE Demux *ddi_demux_open_io(void *opaque, uint64_t size, const char *hint) {
+    if (handles >= HANDLE_LIMIT) return NULL;
+    Demux *d = calloc(1, sizeof(*d));
+    if (!d) return NULL;
+    d->io.opaque = opaque;
+    d->io.size = size;
+    d->packet = av_packet_alloc();
+    d->format = ddi_io_open_input(&d->io, hint, 1);
+    if (!d->packet || !d->format) {
+        destroy(d);
+        return NULL;
+    }
+    return demux_open(d);
+}
+#else
+EXPORT Demux *ddi_demux_open(const char *path) {
+    if (handles >= HANDLE_LIMIT) return NULL;
+    Demux *d = calloc(1, sizeof(*d));
+    if (!d) return NULL;
+    d->format = avformat_alloc_context();
+    d->packet = av_packet_alloc();
+    if (!d->format || !d->packet) goto bad;
+    d->format->max_streams = 32;
+    d->format->probesize = 1024 * 1024;
+    d->format->max_analyze_duration = 5 * AV_TIME_BASE;
+    d->format->max_probe_packets = 2500;
+    d->format->max_index_size = 32 * 1024 * 1024;
+    if (avformat_open_input(&d->format, path, NULL, NULL) < 0) goto bad;
+    return demux_open(d);
+bad:
+    destroy(d);
+    return NULL;
+}
+#endif
 EXPORT void ddi_demux_close(Demux *d) {
     if (!d) return;
     destroy(d);

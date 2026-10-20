@@ -255,6 +255,8 @@ fn generate(root: &Path) -> Result<RustCredits> {
     let mut web = tree(root, "ditoditoinfinito", &["wasm32-unknown-unknown"])?;
     web.extend(tree(root, "ddi-opus-worker", &["wasm32-unknown-unknown"])?);
     let mut desktop = tree(root, "ditoditoinfinito", DESKTOP_TARGETS)?;
+    // The video decoder helper ships beside the game (`video/helper`).
+    desktop.extend(tree(root, "ddi-video-helper", DESKTOP_TARGETS)?);
     // The optional native importer adds only its pure protocol, URL parser and
     // integrity hash to this binary. The helper/worker runtime dependency graphs
     // ship their own complete notices inside the content-addressed bundle.

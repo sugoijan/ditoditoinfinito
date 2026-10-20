@@ -57,15 +57,16 @@ gilrs = "0.11.2"
 encoding_rs.workspace = true
 serde.workspace = true
 dirs = "7.0.0"
-# Background movies (`src/video.rs`, feature `video`): the web's FFmpeg
-# module (`target/video/ddivideo.wasm`) under wasmtime (Apache-2.0 WITH
-# LLVM-exception), compiling only, no WASI crate (the module's 20 calls
-# are ours, as `web/src/web/video_worker.js` has them).
-wasmtime = { version = "49.0.3", optional = true, default-features = false, features = ["anyhow", "cranelift", "runtime", "std", "parallel-compilation"] }
+# Background movies (`src/video.rs`, feature `video`): the contract with
+# `ddi-video-helper`, the sandboxed FFmpeg process `build.rs` builds and
+# stages beside the executable (`video/helper`); FFmpeg is never linked
+# into the game.
+ddi-video-protocol = { workspace = true, optional = true }
 
 [features]
-# Background movies through the FFmpeg module (steps 7.7 and 7.5), on by
-# default; `--no-default-features` builds without wasmtime.
+# Background movies through the sandboxed FFmpeg helper (steps 7.7 and
+# 7.5), on by default; `--no-default-features` builds without it (and
+# `build.rs` then builds no helper).
 default = ["video"]
 # Build and stage the isolated native URL importer beside the application.
 # Runtime SDK dependencies stay in the separate helper process; the app
@@ -73,7 +74,7 @@ default = ["video"]
 danoni-importer = ["dep:ddi-importer-protocol", "dep:sha2", "dep:url"]
 # Compatibility with the first development feature name.
 danoni = ["danoni-importer"]
-video = ["dep:wasmtime", "dep:objc2-video-toolbox", "dep:objc2-core-media", "dep:objc2-core-video", "dep:objc2-core-foundation", "dep:windows"]
+video = ["dep:ddi-video-protocol", "dep:objc2-video-toolbox", "dep:objc2-core-media", "dep:objc2-core-video", "dep:objc2-core-foundation", "dep:windows"]
 # The pacing's simulated display (`src/pacing/sim.rs`), for tests only:
 # not in the shipped binary.
 sim = []
@@ -104,9 +105,11 @@ objc2-core-media = { version = "0.3.2", optional = true, default-features = fals
 objc2-core-video = { version = "0.3.2", optional = true, default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
 objc2-video-toolbox = { version = "0.3.2", optional = true, default-features = false, features = ["std", "VTBase", "VTErrors", "VTSession", "VTDecompressionSession", "VTDecompressionProperties", "VTUtilities", "objc2-core-media", "objc2-core-video"] }
 
-# Experimental Media Foundation/D3D11 decoder; Auto remains the module.
+# Experimental Media Foundation/D3D11 decoder; Auto remains the software
+# helper. The helper's restricted-token spawn (`src/video/helper/windows_spawn.rs`)
+# and its shared memory use the security, job, pipe and memory APIs.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62.2", optional = true, features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D10", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Media_MediaFoundation"] }
+windows = { version = "0.62.2", optional = true, features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D10", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Media_MediaFoundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Threading"] }
 
 # The player's time zone for the plays list's dates (`localtime_r`,
 # `src/play/replays.rs`); already in the build through others.
@@ -116,9 +119,6 @@ libc = "0.2.190"
 [dev-dependencies]
 # This crate with its test-only parts (`sim`), for the integration tests.
 ddi-desktop = { path = ".", default-features = false, features = ["sim"] }
-# The video host's tests (`src/video/tests.rs`): small modules written as
-# text that trap, spin, flood and try to escape.
-wat = { version = "1.262.0", default-features = false }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 ddi-importer-protocol = { workspace = true, optional = true }

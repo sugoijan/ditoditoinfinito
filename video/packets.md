@@ -3,10 +3,14 @@
 `video/packets.c` adds demux-only exports to the same replaceable FFmpeg
 module as `ddivideo.c`. Existing decode exports and callers are unchanged.
 `ddi_demux_abi()` returns 1; hosts load these exports only when requested,
-so older modules can still decode movies. `desktop::video::packets::PacketReader`
-checks the ABI and copies owned buffers out of a private, deadline-limited
-wasmtime instance. Use it on a decoder worker. macOS H.264/HEVC MP4/Matroska
-and VP9 WebM/MP4 playback now use it with a 256 MiB heap and two-second calls.
+so older modules can still decode movies. On desktop the same exports are
+built natively into `ddi-video-helper` (`video/helper`, `DDI_NATIVE`:
+`ddi_demux_open_io` in place of `ddi_demux_open`, the bytes served by the
+game) and `desktop::video::packets::PacketReader` drives a sandboxed helper
+process of its own per movie, copying owned buffers out of the shared arena
+after checking every length against the limits below, with two-second
+calls. Use it on a decoder worker. macOS H.264/HEVC MP4/Matroska and VP9
+WebM/MP4 playback use it.
 
 Run `node --no-warnings video/packets.mjs movie.mp4 [--json]` to inspect
 metadata, packet CRCs and seek hints and verify key-packet seeks under WASI.

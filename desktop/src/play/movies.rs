@@ -1,5 +1,5 @@
 //! A play's background movies on desktop (feature `video`): the FFmpeg
-//! module under wasmtime or the checked OS path ([`crate::video`]), a
+//! helper in its sandbox or the checked OS path ([`crate::video`]), a
 //! [`MovieTrack`] per open one setting its queue's depth and its seeks,
 //! frames shown through `Renderer::add_video`. The web's `movies.rs`
 //! without its browser path: the same schedule rules
@@ -14,7 +14,7 @@ use ddi_platform::video::{
 };
 use ddi_render::Renderer;
 
-use crate::video::{DesktopVideo, ModuleStatus, MovieFile, VideoHost};
+use crate::video::{DesktopVideo, HelperStatus, MovieFile, VideoHost};
 
 /// How long before its change a movie is opened (the web's).
 const LEAD_SECONDS: f64 = 2.0;
@@ -128,8 +128,8 @@ impl Movies {
         self.shown_any
     }
 
-    /// Where the module stands, once a movie asked for it.
-    pub fn module_status(&self) -> Option<ModuleStatus> {
+    /// Where the decoder helper stands, once a movie asked for it.
+    pub fn helper_status(&self) -> Option<HelperStatus> {
         self.host.as_ref().map(VideoHost::status)
     }
 
@@ -231,7 +231,7 @@ impl Movies {
         if self
             .host
             .as_ref()
-            .is_some_and(|h| matches!(h.status(), ModuleStatus::Failed(_)))
+            .is_some_and(|h| matches!(h.status(), HelperStatus::Failed(_)))
         {
             self.host = None;
         }

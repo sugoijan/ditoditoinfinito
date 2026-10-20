@@ -96,7 +96,7 @@ impl Worker {
     fn open(
         path: MovieFile,
         name: String,
-        module: Option<PathBuf>,
+        helper: Option<PathBuf>,
         deadline: Duration,
     ) -> Result<(Self, VideoInfo), String> {
         let permit = Permit::take()?;
@@ -107,7 +107,7 @@ impl Worker {
             .spawn(move || {
                 let _permit = permit;
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let mut decoder = Decoder::open(&path, &name, module)?;
+                    let mut decoder = Decoder::open(&path, &name, helper)?;
                     output
                         .send(Ok(Reply::Open(decoder.info())))
                         .map_err(|_| "movie closed")?;
@@ -184,7 +184,7 @@ impl Hub {
                 match Worker::open(
                     path.clone(),
                     name.clone(),
-                    machine.module_path.clone(),
+                    machine.helper_path(),
                     self.deadline,
                 ) {
                     Ok((worker, info)) => {
@@ -218,7 +218,7 @@ impl Hub {
                                 backend: if self.backend.strict() {
                                     "unavailable"
                                 } else {
-                                    "module"
+                                    "software"
                                 }
                                 .into(),
                                 fallback: Some(why.clone()),
@@ -319,7 +319,7 @@ impl Hub {
         m.decoder_status(
             id,
             DecoderStatus {
-                backend: "module".into(),
+                backend: "software".into(),
                 fallback: Some(why.clone()),
             },
         );
@@ -375,8 +375,8 @@ struct Decoder {
     last: Option<f64>,
 }
 impl Decoder {
-    fn open(path: &MovieFile, name: &str, module: Option<PathBuf>) -> Result<Self, String> {
-        let media = Media::open(path, name, module)?;
+    fn open(path: &MovieFile, name: &str, helper: Option<PathBuf>) -> Result<Self, String> {
+        let media = Media::open(path, name, helper)?;
         #[cfg(target_os = "windows")]
         if !media.packet_path() {
             return Err(

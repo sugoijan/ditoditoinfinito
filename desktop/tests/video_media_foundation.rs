@@ -103,7 +103,7 @@ fn clean(report: &video::CheckReport, path: &Path, backend: &str) {
 }
 fn compare(host: &mut VideoHost, baseline: &mut VideoHost, path: &Path, backend: &str) {
     let expected = video::check(baseline, path, None);
-    clean(&expected, path, "module");
+    clean(&expected, path, "software");
     let got = video::check(host, path, None);
     clean(&got, path, backend);
     assert_eq!(got.info, expected.info, "{} metadata", path.display());
@@ -127,7 +127,7 @@ fn compare(host: &mut VideoHost, baseline: &mut VideoHost, path: &Path, backend:
     );
 }
 fn suite(codec: &str, ext: &str) {
-    let module = video::module_path().expect("DDI_VIDEO_MODULE must identify the built decoder");
+    let module = video::helper_path().expect("DDI_VIDEO_HELPER must identify the built decoder");
     // Separate test folders; the runner installs DDI_HOME/cache once before
     // starting the process. Tests never mutate process environment in parallel.
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -138,22 +138,22 @@ fn suite(codec: &str, ext: &str) {
         std::env::var_os("DDI_HOME").is_some(),
         "set DDI_HOME to a scratch home (or use video/check-windows.ps1)"
     );
-    let mut baseline = VideoHost::with_module(Some(module.clone()));
+    let mut baseline = VideoHost::with_helper(Some(module.clone()));
     let mut strict = VideoHost::with_backend(Some(module.clone()), Backend::MediaFoundation);
     let mut recover = VideoHost::with_backend(Some(module.clone()), Backend::MediaFoundationAuto);
     let mut default = VideoHost::with_backend(Some(module), Backend::Auto);
     let basic = encode(&dir, &format!("basic.{ext}"), codec, &[]);
-    compare(&mut default, &mut baseline, &basic, "module");
+    compare(&mut default, &mut baseline, &basic, "software");
     // Exercise availability recovery even on a host where the strict test
     // below will fail. Never turn missing codecs into a successful skip.
     let expected = video::check(&mut baseline, &basic, None);
-    clean(&expected, &basic, "module");
+    clean(&expected, &basic, "software");
     let trial = video::check(&mut recover, &basic, None);
     let selected = trial.decoder.as_ref().expect("decoder selection");
     clean(&trial, &basic, &selected.backend);
     assert_eq!(trial.info, expected.info);
     assert_eq!(trial.frames, expected.frames, "availability recovery");
-    if selected.backend == "module" {
+    if selected.backend == "software" {
         assert!(
             selected.fallback.is_some(),
             "opt-in must report its refusal"
@@ -201,7 +201,7 @@ fn suite(codec: &str, ext: &str) {
         codec,
         &["-pix_fmt", "yuv420p10le"],
     );
-    compare(&mut recover, &mut baseline, &deep, "module");
+    compare(&mut recover, &mut baseline, &deep, "software");
     let refused = video::check(&mut strict, &deep, None);
     assert!(
         !refused.failures.is_empty(),
@@ -209,7 +209,7 @@ fn suite(codec: &str, ext: &str) {
     );
     if codec == "libx264" {
         let avi = encode(&dir, "no-pts.avi", codec, &[]);
-        compare(&mut recover, &mut baseline, &avi, "module");
+        compare(&mut recover, &mut baseline, &avi, "software");
         assert!(!video::check(&mut strict, &avi, None).failures.is_empty());
     }
     if codec == "libx265" {
@@ -224,7 +224,7 @@ fn suite(codec: &str, ext: &str) {
                 "pools=1:frame-threads=1:log-level=error:open-gop=0:slices=2",
             ],
         );
-        compare(&mut recover, &mut baseline, &slices, "module");
+        compare(&mut recover, &mut baseline, &slices, "software");
         let open = encode(
             &dir,
             "open-gop.mp4",
@@ -236,7 +236,7 @@ fn suite(codec: &str, ext: &str) {
                 "pools=1:frame-threads=1:log-level=error:open-gop=1:keyint=30:min-keyint=30:scenecut=0",
             ],
         );
-        compare(&mut recover, &mut baseline, &open, "module");
+        compare(&mut recover, &mut baseline, &open, "software");
     }
     // Stored zip member range, independent simultaneous sessions, cancellation
     // of wants and superseded seeks all go through the real Windows backend.

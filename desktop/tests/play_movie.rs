@@ -1,11 +1,10 @@
 //! A play's background movie on desktop (feature `video`): a song folder
 //! made here (a clip from FFmpeg's test pattern, its `#BGCHANGES` at the
 //! first beat), listed by the library's scan, played on a fake clock with
-//! no sound device; MPEG-4 opens on the module and H.264 uses the OS path
+//! no sound device; MPEG-4 opens on the software helper and H.264 uses the OS path
 //! where its capability gate and hardware session permit it;
 //! its frames reach the renderer and show behind the field. Skipped
-//! without a GPU adapter, the `ffmpeg` command or the module (`just
-//! video`).
+//! without a GPU adapter, the `ffmpeg` command or the helper.
 #![cfg(feature = "video")]
 
 use std::cell::RefCell;
@@ -88,15 +87,9 @@ fn a_movie_plays_behind_the_field() {
         eprintln!("no GPU adapter: skipped");
         return;
     };
-    let dev_module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/video/ddivideo.wasm");
-    if ddi_desktop::video::module_path().is_none() && !dev_module.is_file() {
-        eprintln!("no video module (just video): skipped");
+    if ddi_desktop::video::helper_path().is_none() {
+        eprintln!("no video helper: skipped");
         return;
-    }
-    if ddi_desktop::video::module_path().is_none() {
-        // SAFETY: set before any thread of this test binary reads it (one
-        // test here).
-        unsafe { std::env::set_var("DDI_VIDEO_MODULE", &dev_module) };
     }
     for (codec, extension) in [
         ("mpeg4", "avi"),
@@ -115,8 +108,6 @@ fn a_movie_plays_behind_the_field() {
             eprintln!("no ffmpeg with {codec}: skipped");
             continue;
         }
-        // SAFETY: this binary's only non-ignored test; before its host starts.
-        unsafe { std::env::set_var("DDI_VIDEO_CACHE", dir.join("cache")) };
         let (stats, shown, trouble, _) = play_movies(&adapter, &dir, 8.0);
         assert!(shown, "{codec}: no movie frame shown: {stats:?}");
         assert!(stats.shown > 30, "{codec}: {stats:?}");
@@ -248,19 +239,19 @@ fn play_movies(
     });
     let plain = texture.create_view(&Default::default());
     let render = render_options(&settings);
-    // The module compiled (or read from the cache) before the song.
+    // The helper started before the song.
     let start = std::time::Instant::now();
     while !matches!(
-        view.movies.module_status(),
+        view.movies.helper_status(),
         Some(
-            ddi_desktop::video::ModuleStatus::Ready { .. }
-                | ddi_desktop::video::ModuleStatus::Failed(_)
+            ddi_desktop::video::HelperStatus::Ready { .. }
+                | ddi_desktop::video::HelperStatus::Failed(_)
         )
     ) && start.elapsed().as_secs() < 60
     {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    println!("module: {:?}", view.movies.module_status());
+    println!("decoder: {:?}", view.movies.helper_status());
     let frames = (seconds * 60.0) as usize;
     let mut pixels = Vec::new();
     for i in 0..frames {
@@ -334,11 +325,6 @@ fn a_local_songs_movie_plays() {
         .unwrap_or(20.0);
     let instance = gpu::instance();
     let adapter = gpu::adapter(&instance, None).expect("a GPU");
-    let dev_module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/video/ddivideo.wasm");
-    if ddi_desktop::video::module_path().is_none() {
-        // SAFETY: set before any thread of this test binary reads it.
-        unsafe { std::env::set_var("DDI_VIDEO_MODULE", &dev_module) };
-    }
     let (stats, shown, trouble, pixels) = play_movies(&adapter, &root, seconds);
     if let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") {
         let mut out = b"P6\n640 360\n255\n".to_vec();

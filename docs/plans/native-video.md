@@ -61,6 +61,12 @@ its exact seeks, StepMania's frame times), `docs/plans/desktop.md` (D8,
   cost than the module; codec names alone do not establish support for
   every stream. A sandboxed native FFmpeg child comes later for the
   remaining formats. Keep `ddivideo.c` as the shared FFmpeg shim.
+- **Decision 54 (2026-10-20): the child is here, and wasmtime is gone
+  from desktop.** Section 10: `ddi-video-helper`, the same shims and
+  pinned FFmpeg linked natively into a process the OS confines
+  (Seatbelt, seccomp and Landlock, a restricted token), fed movie bytes
+  by the game over a bounded pipe protocol and handing frames back
+  through shared memory. The web keeps the wasm module.
 
 ## 1. What the decoder must do (unchanged)
 
@@ -923,13 +929,14 @@ backend and fallback reason in `--video-check` and diagnostics. Preserve
    runtime evidence; preserve the copied route.
 5. **Linux capability spike.** VA-API, below, if it benefits the remaining
    hardware. The module continues to cover Linux without it.
-6. **Sandboxed native FFmpeg child, later.** Build the same pinned tarball,
-   decoder list and `ddivideo.c` as a replaceable shared library, assembly
-   on, `FF_IDCT_AUTO`, 2–4 decoder threads. Load it only in the helper,
-   never the game. Reuse the fidelity harness and require a working OS
-   sandbox before offering this backend to players; an unsandboxed
-   experimental toggle is not part of this plan. Mac first, then Windows
-   and Linux with their own tested restrictions. Ship the module too.
+6. **Sandboxed native FFmpeg child: done 2026-10-20, section 10.** The
+   same pinned tarball, decoder list, `ddivideo.c` and `packets.c`,
+   assembly on, frame and slice threads, linked statically into the
+   helper and never into the game; the fidelity harness unchanged
+   (`--video-check`, `tests/video*.rs`); the OS sandbox entered and
+   self-tested before the helper serves, so no unsandboxed path exists.
+   macOS and Linux checked; Windows written against the API, unverified.
+   The module is no longer shipped with desktop (the web keeps it).
 
 ### Windows: Media Foundation with D3D11 (experimental, 2026-10-17)
 
@@ -1090,6 +1097,223 @@ copy from FFmpeg's strided buffers; benchmark it. Control messages and
 state, another build and per-OS signing/sandbox maintenance. Section 4's
 native speedups exclude all those costs. The earlier unsandboxed helper
 line-count estimate is not an implementation budget.
+
+## 10. The sandboxed helper (2026-10-20, decision 54)
+
+**What changed.** Desktop's software decoder is `ddi-video-helper`
+(`video/helper`, a Rust binary over the C shims), a child process the
+game starts for its decoder thread and once more for each OS-decoded
+movie's demuxer. wasmtime, the module's compile cache and the WASI host
+left `desktop/src/video.rs`; `video/ddivideo.c` and `video/packets.c`
+are unchanged in what they decode and how they stamp frames, gaining
+only a native file layer (`video/ddi_io.h`, `ddi_io.c`, under
+`DDI_NATIVE`) and a fixed output buffer. The web is untouched: Trunk
+still builds the wasm module from the same sources.
+
+**Why now.** The maintainer asked for it: wasmtime cost every desktop
+build about 90 s of compilation and 7 MB of binary for one feature, and
+the module decoded at a third of native speed on one thread. Section 5's
+condition was a working, tested sandbox; the helper has one on each OS
+it builds on, and checks it on every start.
+
+### Build
+
+- `video/build-native.sh` configures the pinned FFmpeg
+  (`FFMPEG.toml`'s `native_configure`: the module's libraries, demuxers,
+  parsers and decoder list; no protocols at all; pthreads; assembly;
+  PIC; static) and the pinned zlib for the host, into
+  `target/video/native/<rust target>/` (`lib/`, `include/`,
+  `ffmpeg.json`, `ddivideo-native.LICENSE.txt`). `video/lib.sh` holds
+  what it shares with `build.sh` (reading the TOML, checked downloads).
+  About two minutes on the M1 Max; nasm on x86_64 for the assembly
+  (`--disable-x86asm` without it); `MACOSX_DEPLOYMENT_TARGET` defaults
+  to Rust's own minimum for the target.
+- `video/helper/build.rs` runs that script when its output is missing
+  or its recipe changed, compiles the shims with `cc` (`DDI_NATIVE`),
+  links the five archives, and records FFmpeg's version for `--version`
+  and `Hello`.
+- `desktop/build.rs` (feature `video`) builds the helper with
+  `cargo build -p ddi-video-helper --profile helper` in
+  `target/video/helper-target/` (a target directory of its own, as the
+  importer's; the `helper` profile: `opt-level = 3`, no LTO, abort on
+  panic, stripped) and stages it as `video/ddi-video-helper` beside the
+  game with `ffmpeg.json` and the notice, where `helper_path` finds it
+  (a test in `target/<profile>/deps/` too). `DDI_NO_VIDEO_HELPER=1`
+  skips it, cross builds skip it, Windows skips it unless
+  `DDI_VIDEO_NATIVE=1`. The nested build is a few seconds once FFmpeg
+  is built.
+- Sizes: the helper is 4.0 MB on arm64 macOS (FFmpeg's 7.2 MB of
+  archives dead-stripped); the game loses wasmtime's 6.8 MB and the
+  module's 5.9 MB.
+
+### Protocol (`video/protocol`, `ddi-video-protocol`)
+
+The design of "Later helper: IPC and ownership" above, as built:
+
+- **Frames on the pipes:** `u32` length, `u32` sequence number,
+  payload; the payload a tag byte and fields hand-encoded little-endian
+  (strings with a `u16` length, 4 KiB at most; 64 KiB a payload). No
+  struct is ever sent as its bytes; every decoder refuses unknown tags,
+  truncation and trailing bytes. The parent sends one request and waits
+  for the reply with the same sequence number; a reply out of sequence
+  is a crash.
+- **Requests:** `Hello` (version, arena length, decoder threads),
+  `Open`/`Seek`/`SeekKey`/`Next`/`Close` for decoding, `DemuxOpen`/
+  `DemuxConfig`/`DemuxNext`/`DemuxSeek`/`DemuxIndexCount`/`DemuxIndex`/
+  `DemuxClose` for the packet ABI (`packets.md`, unchanged semantics),
+  `Data` (the answer to a read), `Shutdown`. **Replies:** `Hello`
+  (FFmpeg's version, the sandbox's name, the threads granted), `Read`
+  (the helper's one request: `id`, offset, length), `Opened`/
+  `OpenFailed`, `Frame` (slot, time, size, matrix, range, decode
+  time), `End`, `Bad`, `Sought`, `Closed`, the demux replies with the
+  72-byte packet record and 32-byte index entries as bytes, `Error`,
+  `Bye`.
+- **The arena** (`Layout`): one anonymous shared memory of 35 MiB
+  virtual (committed as touched), created by the parent (`memfd_create`
+  sealed against resizing on Linux; `shm_open` unlinked at once on
+  macOS, where an object can be sized only once; an unnamed inheritable
+  file mapping on Windows) and handed over as descriptor 3 (or the
+  handle on the command line). Regions: 1 MiB of movie bytes the parent
+  serves, 8 MiB packet data, 1 MiB side data, 1 MiB configuration, two
+  frame slots of 12 MiB (a 4K 4:2:0 frame and odd sizes' rounding; a
+  frame that does not fit is refused before decoding). The helper
+  decodes straight into the slot (`ddi_set_planes`) and the parent
+  copies out after checking width × height against `MAX_PIXELS` and
+  the slot, alternating slots so the frame being copied is never the
+  one being written. Packets and configuration are copied out the same
+  way after their lengths pass the ABI's limits.
+- **Reads:** the helper never opens a file. FFmpeg reads through an
+  `AVIOContext` whose read callback asks the parent for `[offset,
+  offset + len)` of the movie the handle names (at most 1 MiB; FFmpeg
+  asks 64 KiB), the parent serves it from its own 64 KiB read-ahead
+  window (`OpenFile`, the module host's, moved) into the I/O region and
+  answers `Data`; seeks are the helper's own arithmetic. A read of an
+  unknown handle or past the region is a crash. Zip members read in
+  place as ranges, as before.
+- **Deadlines and crashes:** the parent waits at most `CALL_DEADLINE`
+  (10 s; 2 s for a demuxing helper) per request, reads included; past
+  it, or on a dead helper, a malformed reply, a wrong sequence number
+  or a `Reply::Error`, the request is a `Crash`: every open movie
+  fails, the helper is killed (dropping the client kills and reaps it)
+  and the next open starts a fresh one, as a trap did. The reader
+  thread's channel is bounded, so a flooding helper is not read into
+  memory. The helper exits with distinct codes (`exit::SANDBOX` 3,
+  `PROTOCOL` 4, `ARENA` 5) and its stderr is shown as the decoder's
+  messages, capped as before.
+
+### Sandbox (`video/helper/src/sandbox/`)
+
+Entered after the arena is mapped and before anything is read, then
+self-tested: opening a file and a directory, listing a directory,
+creating a file, reading metadata, connecting to localhost (a refused
+connection means the network is reachable), binding a UDP socket and
+starting a process must all fail, and a thread, the clock and memory
+must still work. Any hole: exit 3, "the sandbox does not hold", which
+the game reports as a decoder that is not available. So the helper
+never decodes unconfined; `ddi-video-helper --sandbox-check` runs the
+same test alone (CI runs it on Linux and macOS).
+
+- **macOS:** Seatbelt through `sandbox_init` (deprecated, what
+  Chromium's helpers use). The profile: `(deny default)`, `(allow
+  signal (target self))` for abort, `(allow sysctl-read)` for CPU
+  counts and features. Exiting, memory and threads are not Seatbelt
+  operations; `(allow process-exit)` is not even a known one. Checked
+  here: holds.
+- **Linux:** `RLIMIT_AS` at 2 GiB (FFmpeg sees allocation failures,
+  not the OOM killer); a Landlock ruleset handling every file and
+  network access with no rule (best effort: older kernels skip what
+  they lack); then `PR_SET_NO_NEW_PRIVS` and a seccomp-bpf allowlist
+  (`seccompiler`) of the calls a threaded decoder needs (read, write,
+  memory, futex, signals, `clone` only with `CLONE_THREAD`, `prctl`
+  only to name threads, `getrandom`, clocks, affinity, rlimits),
+  everything else `EPERM`; a second filter answers `ENOSYS` to `clone3`
+  so glibc falls back to the filtered `clone`. Checked in an Ubuntu
+  24.04 container (below).
+- **Windows:** the parent (`desktop/src/video/helper/windows_spawn.rs`)
+  creates the helper with `CreateProcessAsUserW` under a restricted
+  primary token (all privileges removed, `WRITE_RESTRICTED`, the null
+  SID as the only restricting SID, untrusted integrity), inherits only
+  the three pipe ends and the mapping, assigns it to a job with
+  `ActiveProcessLimit = 1`, kill-on-close and every UI restriction, and
+  lends its main thread an impersonation token without privileges
+  until the helper's `RevertToSelf` (Chromium's two-token start). The
+  helper's self-test decides. Written against the `windows` crate's
+  API and cross-compiled only: unverified, and the FFmpeg build it needs
+  (`build-native.sh` under MSYS2 with `--toolchain=msvc`) is untested.
+
+### Fidelity and threads
+
+The frames and their times are the shim's as before: `pkt_dts` of the
+packet that released the frame, StepMania's rule. FFmpeg runs with
+`thread_type = FRAME | SLICE` and `thread_count` from the game (half
+the cores, one to four; `DDI_VIDEO_THREADS` overrides, 1 decoding
+exactly as StepMania and the web). Frame threading changes when frames
+come out, not which or in what order, so every frame that has a DTS is
+stamped as before; the one rule threads can shift is the fallback for a
+frame *without* a DTS in a stream whose other packets have one
+(`last_dts` then names a later packet than single-threaded decode
+would), accepted. Raw MPEG elementary streams, whose packets have no
+DTS at all, are unaffected (the fallback counts from the previous
+frame). `--video-check` and `tests/video.rs` check every clip against
+`ffmpeg`'s decode and every seek against the straight run as before;
+`--decoder both` compares the OS path against the helper.
+
+### Checked
+
+- The protocol crate's round trips and refusals; the host against
+  stand-in helpers (shell scripts): one that exits after `Hello`, one
+  that never answers (the deadline), one that says no `Hello`, one that
+  exits as a failed sandbox, one that announces a 100,000 × 100,000
+  frame (refused: "outside its slot"), one that floods frames (out of
+  sequence, not read into memory), one that writes garbage; the helper
+  found beside the executable and in a profile folder;
+  `desktop/src/video/tests.rs`.
+- `--sandbox-check` on macOS 27: holds. In an Ubuntu 24.04 container
+  (Apple's `container`, kernel 6.18 without Landlock): the helper builds
+  (FFmpeg natively, then 2 s for the crate), `--sandbox-check` holds on
+  seccomp alone, and `strace` shows every probe denied with `EPERM`
+  (`openat` of `/`, `/dev/null` and a new file, `statx` and
+  `newfstatat`, `socket`, `clone` without `CLONE_THREAD`) and `clone3`
+  answered `ENOSYS` for both the probe thread (which then ran on
+  `clone`) and the process probe; a 320 × 240 Xvid clip decoded through
+  the protocol with the Python driver used for debugging. Three Linux
+  findings fixed on the way: strict `-std=c11` hides `strdup` (the
+  compiler's default dialect is used), seccompiler sets
+  `PR_SET_NO_NEW_PRIVS` and calls `seccomp` before each filter (both
+  allowed, they only ever restrict), and Rust's `metadata` falls back
+  from `statx` to `newfstatat`, so neither is allowed (nothing stats
+  after the arena is mapped).
+- The clip tests (`tests/video.rs`: Xvid, Xvid with dropped frames,
+  MPEG-2, H.264 against `ffmpeg`'s decode and 104–124 exact seeks each;
+  `video_native.rs`, `video_native_packets.rs`, `video_native_codecs.rs`:
+  VideoToolbox against the helper on H.264 AVI/MP4, HEVC and VP9, the
+  same frames and exact seeks per backend; `video_packets.rs` against
+  `ffprobe`; `zip_movies.rs`), a movie behind the field in an offscreen
+  play (`play_movie.rs`: 180 frames decoded, none dropped or late, on
+  Xvid AVI, H.264 AVI and MP4) and the second layer (`play_layers.rs`)
+  pass on macOS as before.
+- The web module still builds from the refactored `build.sh` (5,893,193
+  bytes, the same 31 exports; `+4 KB` from the shim's shared `open_video`).
+
+### Measured (M1 Max, 2026-10-20)
+
+Generated 1280 × 720 clips (FFmpeg's test pattern, 4 s at 30 fps), the
+helper driven through the protocol by the debugging driver (the time is
+the helper's own per frame; the request's wall time at the parent adds
+about 0.02 ms, the pipe round trip and the copy out of the arena) and
+the web module under Node (`video/check.mjs`) on the same files:
+
+| Clip | helper, 4 threads | helper, 1 thread | web module (Node) |
+|---|---|---|---|
+| H.264 (libx264 medium) | 0.47 ms (p99 1.32) | 1.72 ms (p99 2.24) | 3.50 ms |
+| Xvid (mpeg4, q 4) | 0.21 ms (p99 1.07) | 0.60 ms (p99 1.19) | 1.25 ms |
+
+So the native helper is 2× the module's speed on one thread and 6–7×
+with four, in line with section 4's figures. A helper starts in 12–16 ms
+(the game sees it in the status line), against the module's cached
+load of 5 ms plus a first compilation of 0.85 s. Build: FFmpeg natively
+in about two minutes once, the helper crate in 2–3 s; the desktop crate
+no longer compiles wasmtime (about 90 s of a clean build).
 
 ## 8. Dependencies and packaging
 

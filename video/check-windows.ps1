@@ -1,22 +1,22 @@
 # Opt-in validation on a real Windows GPU. No window, sound or saved settings.
-# The module can be built on another host; supply its unchanged .wasm file.
-param([Parameter(Mandatory=$true)][string]$Module)
+# The helper is built on a Windows host (video/build-native.sh under MSYS2,
+# DDI_VIDEO_NATIVE=1); supply its ddi-video-helper.exe.
+param([Parameter(Mandatory=$true)][string]$Helper)
 $ErrorActionPreference = 'Stop'
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'This runner requires Windows' }
 $root = Split-Path $PSScriptRoot -Parent
-$modulePath = (Resolve-Path $Module).Path
+$helperPath = (Resolve-Path $Helper).Path
 $report = Join-Path $root ('target/scratch/windows-video-report-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Force $report | Out-Null
-$names = @('DDI_HOME', 'DDI_VIDEO_CACHE', 'DDI_VIDEO_MODULE')
+$names = @('DDI_HOME', 'DDI_VIDEO_HELPER')
 $saved = @{}
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 Push-Location $root
 Start-Transcript -Path (Join-Path $report 'run.log') | Out-Null
 try {
     $env:DDI_HOME = Join-Path $report 'home'
-    $env:DDI_VIDEO_CACHE = Join-Path $report 'cache'
-    $env:DDI_VIDEO_MODULE = $modulePath
-    Get-FileHash -Algorithm SHA256 $modulePath
+    $env:DDI_VIDEO_HELPER = $helperPath
+    Get-FileHash -Algorithm SHA256 $helperPath
     Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture | Format-List
     Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion, DriverDate, PNPDeviceID | Format-List
     & rustc -Vv

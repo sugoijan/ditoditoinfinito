@@ -72,8 +72,8 @@ fn first(host: &mut VideoHost, file: MovieFile) -> (Vec<u8>, f64) {
 
 #[test]
 fn native_avi_matches_the_module_and_falls_back_without_changing_position() {
-    let Some(module) = video::module_path() else {
-        eprintln!("no video module: skipped");
+    let Some(module) = video::helper_path() else {
+        eprintln!("no video helper: skipped");
         return;
     };
     let dir =
@@ -82,14 +82,13 @@ fn native_avi_matches_the_module_and_falls_back_without_changing_position() {
     // This binary has one test; no settings or cache from the maintainer.
     unsafe {
         std::env::set_var("DDI_HOME", dir.join("home"));
-        std::env::set_var("DDI_VIDEO_CACHE", dir.join("cache"));
     }
     let Some(basic) = encode(&dir, "basic.avi", &["-g", "30", "-bf", "3"]) else {
         eprintln!("no ffmpeg/libx264: skipped");
         return;
     };
     let mut native = VideoHost::with_backend(None, Backend::VideoToolbox);
-    let mut wasm = VideoHost::with_module(Some(module.clone()));
+    let mut wasm = VideoHost::with_helper(Some(module.clone()));
     // A missing/unavailable hardware session is a skip on old/virtual Macs,
     // but the auto fallback below must still pass. On the development Mac,
     // DDI_REQUIRE_VT=1 makes a skip a failure.
@@ -199,7 +198,7 @@ fn native_avi_matches_the_module_and_falls_back_without_changing_position() {
     assert!(got.failures.is_empty(), "{:?}", got.failures);
     assert_eq!(got.frames, expected.frames);
     let status = got.decoder.unwrap();
-    assert_eq!(status.backend, "module");
+    assert_eq!(status.backend, "software");
     assert!(status.fallback.is_some());
     // Unsupported depth and malformed/truncated sources must leave the native
     // gate. Auto still gets the module's frames for a supported 10-bit clip.
@@ -208,7 +207,7 @@ fn native_avi_matches_the_module_and_falls_back_without_changing_position() {
         let got = video::check(&mut auto, &deep, None);
         assert!(expected.failures.is_empty() && got.failures.is_empty());
         assert_eq!(got.frames, expected.frames);
-        assert_eq!(got.decoder.unwrap().backend, "module");
+        assert_eq!(got.decoder.unwrap().backend, "software");
     }
     let cut = dir.join("truncated.avi");
     let bytes = std::fs::read(&basic).unwrap();

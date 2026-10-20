@@ -1,4 +1,7 @@
-//! Build-time preparation only. No SDK is linked into the desktop binary.
+//! Build-time preparation only: the bundled assets staged beside the
+//! executable, the video decoder helper (`video/helper`, feature `video`)
+//! built and staged in `video/` beside it, and the optional DanOni
+//! importer. Neither FFmpeg nor the SDK is linked into the desktop binary.
 use std::{env, path::PathBuf, process::Command};
 
 fn main() {
@@ -59,6 +62,9 @@ fn main() {
     }
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    if env::var_os("CARGO_FEATURE_VIDEO").is_some() {
+        video_helper(&root, profile, &os);
+    }
     if env::var_os("CARGO_FEATURE_DANONI_IMPORTER").is_none()
         || !(os == "macos" || (os == "linux" && arch == "x86_64"))
     {
@@ -151,6 +157,112 @@ fn main() {
         "cargo:rustc-env=DDI_DANONI_BUNDLE_MANIFEST_SHA256={}",
         rows[1]
     );
+}
+
+/// Builds `ddi-video-helper` (its static FFmpeg first, through its own
+/// build script) in a target directory of its own with the `helper`
+/// profile, and stages it with its notice and FFmpeg's description in
+/// `video/` beside the executable, where `ddi_desktop::video::helper_path`
+/// finds it. Skipped, with a warning and a game that plays songs with their
+/// still background, when `DDI_NO_VIDEO_HELPER=1`, when cross-compiling,
+/// or on Windows unless `DDI_VIDEO_NATIVE=1` (its FFmpeg build needs MSYS2
+/// and the MSVC tools; `video/build-native.sh`).
+fn video_helper(root: &std::path::Path, profile: &std::path::Path, os: &str) {
+    for name in [
+        "DDI_NO_VIDEO_HELPER",
+        "DDI_VIDEO_NATIVE",
+        "DDI_FFMPEG_NATIVE",
+    ] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    for path in [
+        "video/helper/src",
+        "video/helper/build.rs",
+        "video/helper/Cargo.toml",
+        "video/protocol/src",
+        "video/ddivideo.c",
+        "video/packets.c",
+        "video/ddi_io.c",
+        "video/ddi_io.h",
+        "video/FFMPEG.toml",
+        "video/build-native.sh",
+        "video/lib.sh",
+    ] {
+        println!("cargo:rerun-if-changed={}", root.join(path).display());
+    }
+    let skip = |why: &str| {
+        println!(
+            "cargo:warning=no video decoder helper: {why}; movies show their song's background (DDI_VIDEO_HELPER names one at run time)"
+        );
+    };
+    if env::var("DDI_NO_VIDEO_HELPER").as_deref() == Ok("1") {
+        return skip("DDI_NO_VIDEO_HELPER=1");
+    }
+    if env::var("HOST") != env::var("TARGET") {
+        return skip("cross-compiling (the helper is built on its own host)");
+    }
+    if os == "windows" && env::var("DDI_VIDEO_NATIVE").as_deref() != Ok("1") {
+        return skip("Windows builds it only with DDI_VIDEO_NATIVE=1 (MSYS2 and the MSVC tools)");
+    }
+    let target_dir = root.join("target/video/helper-target");
+    let cargo = env::var_os("CARGO").map_or_else(|| PathBuf::from("cargo"), PathBuf::from);
+    let result = Command::new(cargo)
+        .args([
+            "build",
+            "-p",
+            "ddi-video-helper",
+            "--profile",
+            "helper",
+            "--target-dir",
+        ])
+        .arg(&target_dir)
+        .current_dir(root)
+        // Nested Cargo builds must never share the parent's jobserver or target lock.
+        .env_remove("CARGO_MAKEFLAGS")
+        .env_remove("MAKEFLAGS")
+        .env_remove("MFLAGS")
+        .env_remove("CARGO_TARGET_DIR")
+        .env_remove("CARGO_BUILD_TARGET")
+        .env_remove("RUSTC_WRAPPER")
+        .output()
+        .expect("cargo runs the helper's build");
+    if !result.status.success() {
+        panic!(
+            "building the video decoder helper failed (DDI_NO_VIDEO_HELPER=1 builds without it):
+{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    let exe = format!(
+        "ddi-video-helper{}",
+        if os == "windows" { ".exe" } else { "" }
+    );
+    let built = target_dir.join("helper").join(&exe);
+    let video = profile.join("video");
+    copy_file(&built, &video.join(&exe));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(video.join(&exe), std::fs::Permissions::from_mode(0o755));
+    }
+    let native = match env::var_os("DDI_FFMPEG_NATIVE") {
+        Some(p) => PathBuf::from(p),
+        None => root
+            .join("target/video/native")
+            .join(env::var("TARGET").unwrap()),
+    };
+    for (from, to) in [
+        ("ffmpeg.json", "ffmpeg.json"),
+        (
+            "ddivideo-native.LICENSE.txt",
+            "ddi-video-helper.LICENSE.txt",
+        ),
+    ] {
+        let source = native.join(from);
+        if source.is_file() {
+            copy_file(&source, &video.join(to));
+        }
+    }
 }
 
 fn copy_file(source: &std::path::Path, destination: &std::path::Path) {

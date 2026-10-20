@@ -42,7 +42,7 @@ pub(super) struct Media {
     pub may_retry: bool,
 }
 impl Media {
-    pub fn open(file: &MovieFile, name: &str, module: Option<PathBuf>) -> Result<Self, String> {
+    pub fn open(file: &MovieFile, name: &str, helper: Option<PathBuf>) -> Result<Self, String> {
         let mut handle = std::fs::File::open(&file.path).map_err(|e| e.to_string())?;
         let length = handle.metadata().map_err(|e| e.to_string())?.len();
         let (base, size) = file.range.unwrap_or((0, length));
@@ -93,7 +93,7 @@ impl Media {
                 may_retry: false,
             });
         }
-        let (packets, format, info, period) = Packets::open(module, file.clone(), name)?;
+        let (packets, format, info, period) = Packets::open(helper, file.clone(), name)?;
         Ok(Self {
             format,
             input: Input::Packets(Box::new(packets)),
@@ -216,7 +216,7 @@ fn ticks(value: f64, ceil: bool) -> Result<i64, String> {
 }
 struct Packets {
     reader: Option<PacketReader>,
-    module: Option<PathBuf>,
+    helper: Option<PathBuf>,
     file: MovieFile,
     name: String,
     initial: super::packets::StreamInfo,
@@ -228,11 +228,11 @@ struct Packets {
 }
 impl Packets {
     fn open(
-        module: Option<PathBuf>,
+        helper: Option<PathBuf>,
         file: MovieFile,
         name: &str,
     ) -> Result<(Self, Format, VideoInfo, f64), String> {
-        let mut reader = demux(module.clone(), file.clone(), name)?;
+        let mut reader = demux(helper.clone(), file.clone(), name)?;
         let initial = reader.info().clone();
         if !matches!(initial.codec.as_str(), "h264" | "hevc" | "vp9")
             || !matches!(
@@ -315,7 +315,7 @@ impl Packets {
         Ok((
             Self {
                 reader: Some(reader),
-                module,
+                helper,
                 file,
                 name: name.into(),
                 initial,
@@ -342,7 +342,7 @@ impl Packets {
         // Dispose of the old heap before allocating the replacement, including
         // a normal reopen. Four workers must not temporarily own eight heaps.
         self.reader = None;
-        let mut reader = demux(self.module.clone(), self.file.clone(), &self.name)?;
+        let mut reader = demux(self.helper.clone(), self.file.clone(), &self.name)?;
         if reader.info() != &self.initial || reader.configuration()? != self.configuration {
             return Err("native container changed while reopening".into());
         }
@@ -385,16 +385,10 @@ impl Packets {
         }))
     }
 }
-// This bounds a movie's demux heap independently of the shared software
+// A demuxing helper of this movie's own, apart from the shared software
 // decoder. The outer worker's four-second deadline also covers OS calls.
-fn demux(module: Option<PathBuf>, file: MovieFile, name: &str) -> Result<PacketReader, String> {
-    PacketReader::open_bounded(
-        module,
-        file,
-        name,
-        Duration::from_secs(2),
-        256 * 1024 * 1024,
-    )
+fn demux(helper: Option<PathBuf>, file: MovieFile, name: &str) -> Result<PacketReader, String> {
+    PacketReader::open_bounded(helper, file, name, Duration::from_secs(2))
 }
 /// This first streaming class has one picture/slice per packet and no
 /// discard/corrupt/encrypted/configuration side data. Refusal uses the module.

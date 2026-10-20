@@ -324,41 +324,42 @@ def package(app, output):
             if not index.is_file():
                 raise ValueError(f'Generate {name} index with cargo run -p xtask -- gen-{name} before packaging')
             shutil.copy2(index, output / 'assets' / name / 'index.json')
-        module = app.parent / 'video/ddivideo.wasm'
-        if not module.is_file():
-            for parent in app.parents:
-                if parent.name == 'target' and (parent / 'video/ddivideo.wasm').is_file():
-                    module = parent / 'video/ddivideo.wasm'
-                    break
-        if info.get('video', True) and module.is_file():
+        # The sandboxed decoder helper desktop/build.rs staged beside the app
+        # (video/ddi-video-helper), with its notice and FFmpeg's description.
+        exe = 'ddi-video-helper.exe' if manifest['target'].endswith('windows-msvc') else 'ddi-video-helper'
+        helper = app.parent / 'video' / exe
+        if info.get('video', True) and helper.is_file():
             import tomllib
             video_config = tomllib.loads((ROOT / 'video/FFMPEG.toml').read_text())
-            notice = module.parent / 'ddivideo.LICENSE.txt'
-            metadata_file = module.parent / 'ddivideo.json'
+            notice = helper.parent / 'ddi-video-helper.LICENSE.txt'
+            metadata_file = helper.parent / 'ffmpeg.json'
             if not notice.is_file() or not metadata_file.is_file():
-                raise ValueError('Video module lacks its build metadata/notices; run just video before packaging')
+                raise ValueError('Video helper lacks its build metadata/notices; rebuild the app (desktop/build.rs stages them)')
             metadata = json.loads(metadata_file.read_bytes())
-            expected_configure = video_config['configure'] + ['--enable-decoder=' + ','.join(video_config['video_decoders'])]
-            if metadata['version'] != video_config['version'] or metadata['configure'] != expected_configure:
-                raise ValueError('Video binary metadata differs from current pinned build recipe')
-            module_bytes = module.read_bytes()
-            if metadata['size'] != len(module_bytes) or metadata['sha256'] != sha(module_bytes):
-                raise ValueError('Video binary differs from its pinned build metadata')
+            expected_configure = video_config['native_configure'] + ['--enable-decoder=' + ','.join(video_config['video_decoders'])]
+            # The script adds host-dependent flags (--disable-x86asm, --toolchain=msvc) after the pinned ones.
+            if metadata['version'] != video_config['version'] or metadata['configure'][:len(expected_configure)] != expected_configure or metadata['target'] != manifest['target']:
+                raise ValueError('Video helper metadata differs from current pinned build recipe or target')
+            check = run([helper, '--sandbox-check'], env, capture=True)
+            if 'holds' not in check:
+                raise ValueError('Video helper sandbox check failed: ' + check)
             (output / 'video').mkdir()
-            for file in (module, notice, metadata_file):
+            for file in (helper, notice, metadata_file):
                 shutil.copy2(file, output / 'video' / file.name)
-            downloads = module.parent / 'downloads'
+            downloads = ROOT / 'target/video/downloads'
             # These are the exact unmodified upstream archives named by the
-            # module's shipped notice. Their hashes are pinned in FFMPEG.toml.
+            # helper's shipped notice. Their hashes are pinned in FFMPEG.toml.
             for source_url, source_sha in [(video_config['tarball_url'], video_config['tarball_sha256']), (video_config['zlib_url'], video_config['zlib_sha256'])]:
                 name = source_url.rsplit('/', 1)[-1]
                 archive = downloads / name
                 if not archive.is_file() or sha(archive.read_bytes()) != source_sha:
                     raise ValueError('Video source archive missing or changed: ' + name)
                 shutil.copy2(archive, output / 'video' / archive.name)
-            shutil.copytree(ROOT / 'video', output / 'video' / 'shim-source')
+            # The LGPL's relinking route: the shims, the build scripts, the
+            # helper and protocol crates (no build output).
+            shutil.copytree(ROOT / 'video', output / 'video' / 'helper-source', ignore=shutil.ignore_patterns('target', '__pycache__'))
         elif info.get('video', True):
-            raise ValueError('Video-enabled app needs a complete built video module; run just video or build the app without video')
+            raise ValueError('Video-enabled app needs its built decoder helper beside it (video/ddi-video-helper); rebuild the app, or build it without video')
         shutil.copytree(ROOT / 'LICENSES', output / 'LICENSES')
         for name in ['CREDITS.md', 'THIRD_PARTY_RUST.md']:
             shutil.copy2(ROOT / name, output / name)

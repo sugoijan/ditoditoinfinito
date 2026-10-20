@@ -24,8 +24,11 @@ SPDX-License-Identifier = "MIT AND CC-BY-4.0"
 # The video decoder module (target/video/ddivideo.wasm, built by
 # video/build.sh, never committed) is FFmpeg, LGPL-2.1-or-later, with zlib
 # and wasi-libc linked in; the build writes their notices and licence texts
-# next to it (ddivideo.LICENSE.txt) and the site serves both. Its sources
-# here (video/) are MIT like the rest.
+# next to it (ddivideo.LICENSE.txt) and the site serves both. The desktop's
+# decoder helper (ddi-video-helper, built by video/build-native.sh and
+# video/helper, never committed) links the same FFmpeg and zlib statically
+# and ships with its notice (ddi-video-helper.LICENSE.txt), FFmpeg's source
+# and the helper's. The sources here (video/) are MIT like the rest.
 
 # Dancing☆Onigiri key mode and key code tables, generated from danoniplus
 # (https://github.com/cwtickle/danoniplus, js/lib/danoni_constants.js).

@@ -225,6 +225,10 @@ multiplayer, mobile.
   and seeks as the web, the LGPL part still a separate replaceable file,
   and no FFmpeg development libraries at build time. FFmpeg linked
   dynamically through `ffmpeg-next` stays a later option for speed.
+  *Superseded 2026-10-20 (decision 54, `native-video.md` section 10):
+  the same shims and FFmpeg release, native and sandboxed in a helper
+  process; wasmtime left the build. 7.7 below describes the module
+  host as it was; the helper client keeps its messages and guarantees.*
 - **D9. Fidelity details follow StepMania 5.1** (the maintainer's rule):
   MP3 decoder delay and the Xing/LAME frame as its `RageSoundReader_MP3`
   handles them, read before 7.2 and cited in the code; the songs folder

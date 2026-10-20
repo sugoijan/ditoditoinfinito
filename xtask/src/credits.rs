@@ -202,6 +202,8 @@ struct VideoCredit {
     tarball_sha256: String,
     /// The flags after the toolchain ones, the decoders last.
     configure: Vec<String>,
+    /// The desktop helper's (`video/build-native.sh`), the decoders last.
+    native_configure: Vec<String>,
     components: Vec<ComponentCredit>,
     /// Served next to the module, when the build has it.
     notices: String,
@@ -229,6 +231,7 @@ struct FfmpegPin {
     wasi_sdk_version: String,
     wasi_libc_commit: String,
     configure: Vec<String>,
+    native_configure: Vec<String>,
     video_decoders: Vec<String>,
 }
 
@@ -250,8 +253,11 @@ pub fn ffmpeg_tarball(root: &Path) -> Result<String> {
 fn video_credit(root: &Path) -> Result<VideoCredit> {
     let tarball = format!("video/{}", ffmpeg_tarball(root)?);
     let pin = ffmpeg_pin(root)?;
+    let decoders = format!("--enable-decoder={}", pin.video_decoders.join(","));
     let mut configure = pin.configure;
-    configure.push(format!("--enable-decoder={}", pin.video_decoders.join(",")));
+    configure.push(decoders.clone());
+    let mut native_configure = pin.native_configure;
+    native_configure.push(decoders);
     let wasi_sdk = pin.wasi_sdk_version;
     Ok(VideoCredit {
         name: pin.name,
@@ -263,6 +269,7 @@ fn video_credit(root: &Path) -> Result<VideoCredit> {
         tarball,
         tarball_sha256: pin.tarball_sha256,
         configure,
+        native_configure,
         components: vec![
             ComponentCredit {
                 name: format!("zlib {}", pin.zlib_version),
@@ -582,6 +589,16 @@ fn render_markdown(c: &CreditsJson) -> String {
         "Configure flags (after the toolchain's `--cc`, `--ar` and the zlib paths):\n\n```\n",
     );
     for flag in &v.configure {
+        let _ = writeln!(md, "{flag}");
+    }
+    md.push_str("```\n");
+    let _ = writeln!(
+        md,
+        "\nOn desktop the same {} release, with zlib, is linked statically into a separate program, `ddi-video-helper` (`video/helper`, MIT), which decodes in a sandboxed process of its own; the game never links FFmpeg. It is built by `video/build-native.sh` with the configure flags below and the desktop's packages ship it with its notice (`video/ddi-video-helper.LICENSE.txt`), FFmpeg's source and the helper's source, so it can be rebuilt against a modified {} (`cargo build -p ddi-video-helper`).\n",
+        v.name, v.name
+    );
+    md.push_str("Configure flags of the desktop helper's FFmpeg (after `--prefix` and the toolchain's):\n\n```\n");
+    for flag in &v.native_configure {
         let _ = writeln!(md, "{flag}");
     }
     md.push_str("```\n");

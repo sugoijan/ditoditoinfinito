@@ -54,8 +54,8 @@ fn encode(dir: &Path, name: &str, codec: &str, args: &[&str]) -> Option<PathBuf>
 }
 #[test]
 fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
-    let Some(module) = video::module_path() else {
-        eprintln!("no video module: skipped");
+    let Some(module) = video::helper_path() else {
+        eprintln!("no video helper: skipped");
         return;
     };
     let dir =
@@ -63,10 +63,9 @@ fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
     std::fs::create_dir_all(&dir).unwrap();
     unsafe {
         std::env::set_var("DDI_HOME", dir.join("home"));
-        std::env::set_var("DDI_VIDEO_CACHE", dir.join("cache"));
     }
     let mut hardware = VideoHost::with_backend(Some(module.clone()), Backend::VideoToolbox);
-    let mut baseline = VideoHost::with_module(Some(module.clone()));
+    let mut baseline = VideoHost::with_helper(Some(module.clone()));
     let mut auto = VideoHost::with_backend(Some(module.clone()), Backend::Auto);
     for (codec, ext) in [("libx265", "mp4"), ("libvpx-vp9", "webm")] {
         let Some(basic) = encode(&dir, &format!("{codec}.{ext}"), codec, &[]) else {
@@ -171,7 +170,7 @@ fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
             got.failures
         );
         assert_eq!(got.frames, expected.frames);
-        assert_eq!(got.decoder.unwrap().backend, "module");
+        assert_eq!(got.decoder.unwrap().backend, "software");
     }
 
     let hevc = dir.join("libx265.mp4");
@@ -300,7 +299,7 @@ fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
             .decoder
             .unwrap()
             .backend,
-        "module"
+        "software"
     );
     let slices = encode(
         &dir,
@@ -319,7 +318,7 @@ fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
             .decoder
             .unwrap()
             .backend,
-        "module"
+        "software"
     );
     // Two-pass VP9 creates hidden alternate references/superframes. They
     // are outside this class and must recover through the module.
@@ -366,7 +365,7 @@ fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
             .decoder
             .unwrap()
             .backend,
-        "module"
+        "software"
     );
 }
 

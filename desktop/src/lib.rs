@@ -48,7 +48,7 @@ pub mod store;
 pub mod video;
 
 /// `--video-check FILE [--reference REF.yuv] [--frames]
-/// [--decoder auto|module|videotoolbox|mediafoundation|mediafoundation-auto|both]`: the exit code.
+/// [--decoder auto|software|videotoolbox|mediafoundation|mediafoundation-auto|both]`: the exit code.
 fn video_check(args: &[String], at: usize) -> i32 {
     let Some(file) = args.get(at + 1) else {
         eprintln!("--video-check needs a file");
@@ -74,14 +74,14 @@ fn video_check(args: &[String], at: usize) -> i32 {
             b
         } else {
             eprintln!(
-                "--decoder must be auto, module, videotoolbox, mediafoundation, mediafoundation-auto or both"
+                "--decoder must be auto, software, videotoolbox, mediafoundation, mediafoundation-auto or both"
             );
             return 2;
         };
-        let mut host = video::VideoHost::with_backend(video::module_path(), backend);
+        let mut host = video::VideoHost::with_backend(video::helper_path(), backend);
         let mut report = video::check(&mut host, path, reference.as_deref());
         if both {
-            let mut module = video::VideoHost::with_module(video::module_path());
+            let mut module = video::VideoHost::with_helper(video::helper_path());
             let expected = video::check(&mut module, path, reference.as_deref());
             report
                 .failures
@@ -107,7 +107,7 @@ fn video_check(args: &[String], at: usize) -> i32 {
             println!("{line}");
         }
         // Each frame's time and planes' CRC-32, to compare with the web
-        // module's under Node.
+        // module's under Node (`video/check.mjs --frames`).
         if args.iter().any(|a| a == "--frames") {
             for (i, (pts, crc)) in report.frames.iter().enumerate() {
                 println!("frame {i} {pts:.6} {crc:08x}");
@@ -149,7 +149,7 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// volume (0–1, a gain) instead of the settings'; `--fake-pad` plays a
 /// scripted standard controller instead of the real ones
 /// (`input::script`: `1.0:13+,1.1:13-`). `--video-check FILE
-/// [--reference REF.yuv]` decodes a movie through the FFmpeg module
+/// [--reference REF.yuv]` decodes a movie through the software decoder
 /// (feature `video`), seeks through it, prints what it found and quits.
 /// `--play SONG [--chart N] [--auto | --auto=pad] [--start]` opens
 /// that chart's start prompt over song select (charts are played from

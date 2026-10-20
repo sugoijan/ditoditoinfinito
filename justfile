@@ -35,9 +35,14 @@ core-check:
 check: core-check app-check regen-seo reuse-lint
 
 # Downloads the wasi-sdk and FFmpeg pinned in video/FFMPEG.toml on first run.
-# Build the software video decoder into target/video/
+# Build the web's software video decoder module into target/video/
 video:
     @video/build.sh
+
+# Build the desktop decoder helper's static FFmpeg into target/video/native/
+# (cargo build of the desktop runs it by itself; this runs it alone).
+video-native:
+    @video/build-native.sh
 
 # With no file: generated clips of each codec against ffmpeg's own decode
 # (needs ffmpeg with libx264 and Node 22+).

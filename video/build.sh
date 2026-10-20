@@ -20,49 +20,8 @@ out="$root/target/video"
 # reach the wasm compiler too.
 unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH LIBRARY_PATH
 
-say() { printf 'video: %s\n' "$*"; }
-die() { printf 'video: %s\n' "$*" >&2; exit 1; }
-
-# `key = "value"` from FFMPEG.toml.
-value() {
-  local v
-  v=$(sed -n "s/^$1 = \"\(.*\)\"\$/\1/p" "$toml")
-  [ -n "$v" ] || die "$1 missing from $toml"
-  printf '%s\n' "$v"
-}
-
-sha256() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | cut -d' ' -f1
-  else
-    shasum -a 256 "$1" | cut -d' ' -f1
-  fi
-}
-
-# Downloads `url` to `dest` unless it is there with the right hash.
-fetch() {
-  local url=$1 dest=$2 want=$3 got
-  if [ -f "$dest" ] && [ "$(sha256 "$dest")" = "$want" ]; then return; fi
-  say "downloading $url"
-  curl -fL --retry 3 --progress-bar -o "$dest.part" "$url"
-  got=$(sha256 "$dest.part")
-  if [ "$got" != "$want" ]; then
-    rm -f "$dest.part"
-    die "SHA-256 mismatch for $url: got $got, FFMPEG.toml pins $want"
-  fi
-  mv "$dest.part" "$dest"
-}
-
-# Unpacks `tarball` into `dir` (its single top-level directory) once per hash.
-unpack() {
-  local tarball=$1 dir=$2 want=$3
-  if [ -f "$dir/.ddi-sha256" ] && [ "$(cat "$dir/.ddi-sha256")" = "$want" ]; then return; fi
-  say "unpacking $(basename "$tarball")"
-  rm -rf "$dir"
-  tar -xf "$tarball" -C "$(dirname "$dir")"
-  [ -d "$dir" ] || die "$(basename "$tarball") did not unpack to $dir"
-  printf '%s\n' "$want" > "$dir/.ddi-sha256"
-}
+# shellcheck source=video/lib.sh
+. "$root/video/lib.sh"
 
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) host=arm64-macos ;;
@@ -92,9 +51,9 @@ binaryen_sha=$(value "binaryen_sha256_$host_key")
 configure_flags=()
 while IFS= read -r flag; do
   configure_flags+=("$flag")
-done < <(sed -n '/^configure = \[/,/^\]/s/^ *"\(.*\)",\{0,1\}$/\1/p' "$toml")
+done < <(array configure)
 [ "${#configure_flags[@]}" -gt 0 ] || die "no configure flags in $toml"
-decoders=$(sed -n '/^video_decoders = \[/,/^\]/p' "$toml" | grep -o '"[a-z0-9_]*"' | tr -d '"' | paste -sd, -)
+decoders=$(array video_decoders | paste -sd, -)
 [ -n "$decoders" ] || die "no video_decoders in $toml"
 configure_flags+=("--enable-decoder=$decoders")
 
@@ -259,7 +218,6 @@ NOTICE
 
 # 8. Description for the site and the credits, written before the module
 # is moved into place so the two always match.
-json_string() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
 size=$(wc -c < "$built" | tr -d ' ')
 gz_size=$(gzip -9 -c "$built" | wc -c | tr -d ' ')
 {

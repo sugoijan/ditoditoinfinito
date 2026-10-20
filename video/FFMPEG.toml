@@ -4,7 +4,9 @@
 # line; keep that shape) and by `xtask gen-credits`.
 #
 # The module is LGPL-2.1-or-later (no `--enable-gpl`, no `--enable-nonfree`);
-# it is built, never committed, and served as a separate file.
+# it is built, never committed, and served as a separate file. The desktop's
+# decoder helper (`video/helper`, `video/build-native.sh`) links the same
+# release natively, with `native_configure` below.
 
 name = "FFmpeg"
 version = "9.0.2"
@@ -88,6 +90,35 @@ configure = [
   "--enable-zlib",
   "--enable-small",
   "--extra-cflags=-msimd128 -Oz",
+]
+
+# `configure` flags for the desktop helper's static FFmpeg
+# (`video/build-native.sh`): the same libraries and decoders as the module,
+# built for the host with its assembly and threads (the helper decodes with
+# a few threads), no protocols at all (the helper reads movies through the
+# game, never files), and no `--enable-small`: speed is what native is for.
+# The script adds the toolchain, `--prefix`, `--disable-x86asm` where nasm
+# is missing and `--toolchain=msvc` on Windows.
+native_configure = [
+  "--disable-everything",
+  "--disable-programs",
+  "--disable-doc",
+  "--disable-network",
+  "--disable-protocols",
+  "--disable-autodetect",
+  "--disable-debug",
+  "--disable-avdevice",
+  "--disable-avfilter",
+  "--disable-swresample",
+  "--disable-shared",
+  "--enable-static",
+  "--enable-pic",
+  "--enable-avcodec",
+  "--enable-avformat",
+  "--enable-swscale",
+  "--enable-demuxers",
+  "--enable-parsers",
+  "--enable-zlib",
 ]
 
 # Every video decoder FFmpeg has built in, one `--enable-decoder=` for all

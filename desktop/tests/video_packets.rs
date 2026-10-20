@@ -54,8 +54,8 @@ fn reference(path: &Path) -> Value {
 }
 #[test]
 fn packets_configuration_and_seeks_match_ffprobe() {
-    let Some(module) = video::module_path() else {
-        eprintln!("no video module: skipped");
+    let Some(module) = video::helper_path() else {
+        eprintln!("no video helper: skipped");
         return;
     };
     let dir =
@@ -64,7 +64,6 @@ fn packets_configuration_and_seeks_match_ffprobe() {
     // One test in this binary, before any decoder thread starts.
     unsafe {
         std::env::set_var("DDI_HOME", dir.join("home"));
-        std::env::set_var("DDI_VIDEO_CACHE", dir.join("cache"));
     }
     let Ok(encoders) = Command::new("ffmpeg")
         .args(["-hide_banner", "-encoders"])

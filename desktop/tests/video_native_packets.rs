@@ -69,8 +69,8 @@ fn first(host: &mut VideoHost, source: MovieFile, name: &str) -> (f64, Vec<u8>) 
 }
 #[test]
 fn streaming_h264_has_the_modules_frames_and_exact_seeks() {
-    let Some(module) = video::module_path() else {
-        eprintln!("no video module: skipped");
+    let Some(module) = video::helper_path() else {
+        eprintln!("no video helper: skipped");
         return;
     };
     let dir =
@@ -79,14 +79,13 @@ fn streaming_h264_has_the_modules_frames_and_exact_seeks() {
     // One test in this binary, before any decoder thread starts.
     unsafe {
         std::env::set_var("DDI_HOME", dir.join("home"));
-        std::env::set_var("DDI_VIDEO_CACHE", dir.join("cache"));
     }
     let Some(basic) = encode(&dir, "basic.mp4", &["-bf", "3"]) else {
         eprintln!("no ffmpeg/libx264: skipped");
         return;
     };
     let mut native = VideoHost::with_backend(Some(module.clone()), Backend::VideoToolbox);
-    let mut wasm = VideoHost::with_module(Some(module.clone()));
+    let mut wasm = VideoHost::with_helper(Some(module.clone()));
     let trial = video::check(&mut native, &basic, None);
     if !trial.failures.is_empty() {
         assert!(
@@ -295,7 +294,7 @@ fn streaming_h264_has_the_modules_frames_and_exact_seeks() {
             got.failures
         );
         assert_eq!(got.frames, expected.frames);
-        assert_eq!(got.decoder.unwrap().backend, "module");
+        assert_eq!(got.decoder.unwrap().backend, "software");
     }
     // A later in-band SPS differs only in level. Both containers continue
     // with the module at the last delivered time, without gaps/duplicates.
@@ -384,7 +383,7 @@ fn streaming_h264_has_the_modules_frames_and_exact_seeks() {
         got.failures
     );
     assert_eq!(got.frames, expected.frames);
-    assert_eq!(got.decoder.unwrap().backend, "module");
+    assert_eq!(got.decoder.unwrap().backend, "software");
     // Malformed native framing and out-of-range stored members are refused.
     let broken = dir.join("broken.mp4");
     std::fs::write(&broken, b"\0\0\0\x18ftypisom broken").unwrap();

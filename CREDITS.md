@@ -187,6 +187,33 @@ Configure flags (after the toolchain's `--cc`, `--ar` and the zlib paths):
 --enable-decoder=aasc,agm,aic,alias_pix,amv,anm,ansi,apng,apv,arbc,argo,asv1,asv2,aura,aura2,avrn,avrp,avs,avui,bethsoftvid,bfi,bink,bintext,bitpacked,bmp,bmv_video,brender_pix,c93,cavs,cdgraphics,cdtoons,cdxl,cfhd,cinepak,clearvideo,cljr,cllc,cpia,cri,cscd,cyuv,dds,dfa,dirac,dnxhd,dpx,dsicinvideo,dvvideo,dxa,dxtory,dxv,eacmv,eamad,eatgq,eatgv,eatqi,eightbps,escape124,escape130,exr,ffv1,ffvhuff,fic,fits,flashsv,flashsv2,flic,flv,fmvc,fourxm,fraps,frwu,g2m,gdv,gem,gif,h261,h263,h263i,h263p,h264,hap,hdr,hevc,hnm4_video,hq_hqa,hqx,huffyuv,hymt,idcin,idf,iff_ilbm,imm4,imm5,indeo2,indeo3,indeo4,indeo5,interplay_video,ipu,jpeg2000,jpegls,jv,kgv1,kmvc,lagarith,lead,loco,lscr,m101,magicyuv,mdec,media100,mimic,mjpeg,mjpegb,mmvideo,mobiclip,motionpixels,mpeg1video,mpeg2video,mpeg4,mpegvideo,msa1,mscc,msmpeg4v1,msmpeg4v2,msmpeg4v3,msp2,msrle,mss1,mss2,msvideo1,mszh,mts2,mv30,mvc1,mvc2,mvdv,mvha,mwsc,mxpeg,notchlc,nuv,paf_video,pam,pbm,pcx,pdv,pfm,pgm,pgmyuv,pgx,phm,photocd,pictor,pixlet,png,ppm,prores,prores_raw,prosumer,psd,ptx,qdraw,qoi,qpeg,qtrle,r10k,r210,rasc,rawvideo,rl2,roq,rpza,rscc,rtv1,rv10,rv20,rv30,rv40,rv60,sanm,scpr,screenpresso,sga,sgi,sgirle,sheervideo,simbiosis_imx,smacker,smc,smvjpeg,snow,sp5x,speedhq,srgc,sunrast,svq1,svq3,targa,targa_y216,tdsc,theora,thp,tiertexseqvideo,tiff,tmv,truemotion1,truemotion2,truemotion2rt,tscc,tscc2,txd,ulti,utvideo,v210,v210x,vb,vble,vbn,vc1,vc1image,vcr1,vmdvideo,vmix,vmnc,vp3,vp4,vp5,vp6,vp6a,vp6f,vp7,vp8,vp9,vqa,vqc,vvc,wbmp,wcmv,webp,webp_anim,wmv1,wmv2,wmv3,wmv3image,wnv1,xan_wc3,xan_wc4,xbin,xbm,xface,xl,xpm,xwd,y41p,ylc,yop,yuv4,zero12v,zerocodec,zlib,zmbv
 ```
 
+On desktop the same FFmpeg release, with zlib, is linked statically into a separate program, `ddi-video-helper` (`video/helper`, MIT), which decodes in a sandboxed process of its own; the game never links FFmpeg. It is built by `video/build-native.sh` with the configure flags below and the desktop's packages ship it with its notice (`video/ddi-video-helper.LICENSE.txt`), FFmpeg's source and the helper's source, so it can be rebuilt against a modified FFmpeg (`cargo build -p ddi-video-helper`).
+
+Configure flags of the desktop helper's FFmpeg (after `--prefix` and the toolchain's):
+
+```
+--disable-everything
+--disable-programs
+--disable-doc
+--disable-network
+--disable-protocols
+--disable-autodetect
+--disable-debug
+--disable-avdevice
+--disable-avfilter
+--disable-swresample
+--disable-shared
+--enable-static
+--enable-pic
+--enable-avcodec
+--enable-avformat
+--enable-swscale
+--enable-demuxers
+--enable-parsers
+--enable-zlib
+--enable-decoder=aasc,agm,aic,alias_pix,amv,anm,ansi,apng,apv,arbc,argo,asv1,asv2,aura,aura2,avrn,avrp,avs,avui,bethsoftvid,bfi,bink,bintext,bitpacked,bmp,bmv_video,brender_pix,c93,cavs,cdgraphics,cdtoons,cdxl,cfhd,cinepak,clearvideo,cljr,cllc,cpia,cri,cscd,cyuv,dds,dfa,dirac,dnxhd,dpx,dsicinvideo,dvvideo,dxa,dxtory,dxv,eacmv,eamad,eatgq,eatgv,eatqi,eightbps,escape124,escape130,exr,ffv1,ffvhuff,fic,fits,flashsv,flashsv2,flic,flv,fmvc,fourxm,fraps,frwu,g2m,gdv,gem,gif,h261,h263,h263i,h263p,h264,hap,hdr,hevc,hnm4_video,hq_hqa,hqx,huffyuv,hymt,idcin,idf,iff_ilbm,imm4,imm5,indeo2,indeo3,indeo4,indeo5,interplay_video,ipu,jpeg2000,jpegls,jv,kgv1,kmvc,lagarith,lead,loco,lscr,m101,magicyuv,mdec,media100,mimic,mjpeg,mjpegb,mmvideo,mobiclip,motionpixels,mpeg1video,mpeg2video,mpeg4,mpegvideo,msa1,mscc,msmpeg4v1,msmpeg4v2,msmpeg4v3,msp2,msrle,mss1,mss2,msvideo1,mszh,mts2,mv30,mvc1,mvc2,mvdv,mvha,mwsc,mxpeg,notchlc,nuv,paf_video,pam,pbm,pcx,pdv,pfm,pgm,pgmyuv,pgx,phm,photocd,pictor,pixlet,png,ppm,prores,prores_raw,prosumer,psd,ptx,qdraw,qoi,qpeg,qtrle,r10k,r210,rasc,rawvideo,rl2,roq,rpza,rscc,rtv1,rv10,rv20,rv30,rv40,rv60,sanm,scpr,screenpresso,sga,sgi,sgirle,sheervideo,simbiosis_imx,smacker,smc,smvjpeg,snow,sp5x,speedhq,srgc,sunrast,svq1,svq3,targa,targa_y216,tdsc,theora,thp,tiertexseqvideo,tiff,tmv,truemotion1,truemotion2,truemotion2rt,tscc,tscc2,txd,ulti,utvideo,v210,v210x,vb,vble,vbn,vc1,vc1image,vcr1,vmdvideo,vmix,vmnc,vp3,vp4,vp5,vp6,vp6a,vp6f,vp7,vp8,vp9,vqa,vqc,vvc,wbmp,wcmv,webp,webp_anim,wmv1,wmv2,wmv3,wmv3image,wnv1,xan_wc3,xan_wc4,xbin,xbm,xface,xl,xpm,xwd,y41p,ylc,yop,yuv4,zero12v,zerocodec,zlib,zmbv
+```
+
 ## Code from other projects
 
 ### StepMania 5.1
@@ -531,4 +558,4 @@ THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
 
 ## Rust libraries
 
-The game is built on open-source Rust libraries (crates): 132 in the web build (the app and the Opus worker) and 364 in the desktop app (Linux, macOS and Windows). Their names, versions and licences, and the 168 licence notices they ask to ship, are in [THIRD_PARTY_RUST.md](THIRD_PARTY_RUST.md) and on the Credits screen.
+The game is built on open-source Rust libraries (crates): 132 in the web build (the app and the Opus worker) and 320 in the desktop app (Linux, macOS and Windows). Their names, versions and licences, and the 154 licence notices they ask to ship, are in [THIRD_PARTY_RUST.md](THIRD_PARTY_RUST.md) and on the Credits screen.

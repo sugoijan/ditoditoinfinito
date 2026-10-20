@@ -7,6 +7,11 @@
 // `ddi_colorspace` and `ddi_full_range` report for the frame.
 //
 // Not thread-safe (FFmpeg is built without threads); one worker owns it.
+//
+// Built with DDI_NATIVE (`video/helper`, the desktop's sandboxed decoder
+// process), the same code reads movies through `ddi_io.h` instead of files,
+// decodes with a few threads and writes frames into a buffer the host
+// provides (`ddi_set_planes`): shared memory with the game.
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -16,12 +21,19 @@
 #include <libavformat/avformat.h>
 #include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
+#ifdef DDI_NATIVE
+#include "ddi_io.h"
+#endif
 
 #define EXPORT __attribute__((visibility("default"), used))
+// Native-only entry points (not in the wasm module's export list, which
+// `video/build.sh` reads from the `EXPORT` lines).
+#define EXPORT_NATIVE EXPORT
 
 // Larger frames are refused rather than allocated (packs ship SD and 720p).
 #define MAX_PIXELS (3840 * 2160)
 
+#ifndef DDI_NATIVE
 // wasi-libc declares `clock()` but this sysroot does not define it;
 // libavutil's random seed calls it.
 clock_t clock(void) {
@@ -29,9 +41,13 @@ clock_t clock(void) {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (clock_t)(ts.tv_sec * 1000000 + ts.tv_nsec / 1000);
 }
+#endif
 
 typedef struct {
     char *path;
+#ifdef DDI_NATIVE
+    DdiIo io; // the movie's bytes, read through the host
+#endif
     AVFormatContext *fmt;
     AVCodecContext *dec;
     AVPacket *pkt;
@@ -82,11 +98,20 @@ static void close_streams(Video *v) {
     v->has_held = v->has_pending = 0;
     av_packet_free(&v->pkt);
     avcodec_free_context(&v->dec);
+#ifdef DDI_NATIVE
+    ddi_io_close_input(&v->fmt);
+#else
     avformat_close_input(&v->fmt);
+#endif
 }
 
 static int open_streams(Video *v) {
+#ifdef DDI_NATIVE
+    v->fmt = ddi_io_open_input(&v->io, v->path, 0);
+    if (!v->fmt) return -1;
+#else
     if (avformat_open_input(&v->fmt, v->path, NULL, NULL) < 0) return -1;
+#endif
     if (avformat_find_stream_info(v->fmt, NULL) < 0) return -1;
     const AVCodec *codec = NULL;
     v->stream = av_find_best_stream(v->fmt, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0);
@@ -100,6 +125,12 @@ static int open_streams(Video *v) {
     v->dec->workaround_bugs = FF_BUG_AUTODETECT;
     v->dec->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
     v->dec->max_pixels = MAX_PIXELS;
+#ifdef DDI_NATIVE
+    // Frame and slice threads: the frames and their times are the same,
+    // only decoded sooner (docs/plans/native-video.md, section 10).
+    v->dec->thread_count = ddi_threads();
+    v->dec->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+#endif
     if (avcodec_open2(v->dec, codec, NULL) < 0) return -1;
     v->pkt = av_packet_alloc();
     v->frame = av_frame_alloc();
@@ -116,11 +147,10 @@ static int open_streams(Video *v) {
     return 0;
 }
 
-// Opens `path` (inside the worker's preopened directory); NULL on failure.
-EXPORT Video *ddi_open(const char *path) {
+// Opens the streams of `v` (its `path`, or its `io` natively), finishing
+// the open; NULL (everything freed) on failure.
+static Video *open_video(Video *v, const char *path) {
     av_log_set_level(AV_LOG_ERROR);
-    Video *v = calloc(1, sizeof *v);
-    if (!v) return NULL;
     v->path = strdup(path);
     if (!v->path || open_streams(v) < 0) {
         close_streams(v);
@@ -132,6 +162,33 @@ EXPORT Video *ddi_open(const char *path) {
     v->full_range = v->dec->color_range == AVCOL_RANGE_JPEG;
     return v;
 }
+
+#ifdef DDI_NATIVE
+// Opens the movie `opaque` names, `size` bytes long, read through the host
+// (`ddi_io_set_read`); `hint` is its file name, for the probe. NULL on
+// failure.
+EXPORT_NATIVE Video *ddi_open_io(void *opaque, uint64_t size, const char *hint) {
+    Video *v = calloc(1, sizeof *v);
+    if (!v) return NULL;
+    v->io.opaque = opaque;
+    v->io.size = size;
+    return open_video(v, hint);
+}
+
+// Where the next frames' planes go: `cap` bytes at `buf` (the host's
+// shared memory); a frame that does not fit is refused (-2 from `ddi_next`).
+EXPORT_NATIVE void ddi_set_planes(Video *v, uint8_t *buf, size_t cap) {
+    v->planes = buf;
+    v->planes_cap = cap;
+}
+#else
+// Opens `path` (inside the worker's preopened directory); NULL on failure.
+EXPORT Video *ddi_open(const char *path) {
+    Video *v = calloc(1, sizeof *v);
+    if (!v) return NULL;
+    return open_video(v, path);
+}
+#endif
 
 // Size of the last frame handed over, or the stream's before the first.
 EXPORT int ddi_width(Video *v) { return v->width ? v->width : v->dec ? v->dec->width : 0; }
@@ -255,10 +312,14 @@ static int take_planes(Video *v, AVFrame *f) {
     size_t cw = (w + 1) / 2, ch = (h + 1) / 2;
     size_t need = (size_t)w * h + 2 * cw * ch;
     if (need > v->planes_cap) {
+#ifdef DDI_NATIVE
+        return -1; // the host's buffer is fixed
+#else
         uint8_t *p = realloc(v->planes, need);
         if (!p) return -1;
         v->planes = p;
         v->planes_cap = need;
+#endif
     }
     uint8_t *y = v->planes, *u = y + (size_t)w * h, *vv = u + cw * ch;
     int yuvj = strncmp(d->name, "yuvj", 4) == 0;
@@ -476,7 +537,9 @@ EXPORT void ddi_close(Video *v) {
     if (!v) return;
     close_streams(v);
     sws_freeContext(v->sws);
+#ifndef DDI_NATIVE
     free(v->planes);
+#endif
     free(v->path);
     free(v);
 }
