@@ -178,12 +178,16 @@ def native_dependencies(binary, target):
     out = subprocess.check_output(['ldd', str(binary)], text=True)
     if 'not found' in out:
         raise ValueError('Missing native dependency: ' + out)
-    allowed = ('linux-vdso', 'libc.so', 'libm.so', 'libdl.so', 'libpthread.so',
-               'librt.so', 'libgcc_s.so', 'ld-linux', 'libstdc++.so', 'libasound.so', 'libudev.so')
+    allowed = ('libc.so', 'libm.so', 'libdl.so', 'libpthread.so', 'librt.so', 'libgcc_s.so',
+               'ld-linux', 'libstdc++.so', 'libasound.so', 'libudev.so')
+    # Only the binary's own NEEDED entries must be allowed system libraries:
+    # what those load in turn (Ubuntu 24.04's libudev.so.1 loads libcap.so.2)
+    # comes with them, so ldd's transitive list is checked for locations only.
+    dynamic = subprocess.check_output(['readelf', '--dynamic', '--wide', str(binary)], text=True)
+    for name in re.findall(r'\(NEEDED\)\s+Shared library: \[([^\]]+)\]', dynamic):
+        if not name.startswith(allowed):
+            raise ValueError(f'Unpackaged non-system dynamic dependency in {binary.name}: {name}')
     for line in out.splitlines():
-        name = line.strip().split(' ', 1)[0].rsplit('/', 1)[-1]
-        if name and not name.startswith(allowed):
-            raise ValueError(f'Unpackaged non-system dynamic dependency in {binary.name}: {line.strip()}')
         if '=>' in line:
             location = line.split('=>', 1)[1].strip().split(' ', 1)[0]
             if not location.startswith(('/lib/', '/lib64/', '/usr/lib/', '/usr/lib64/')):
