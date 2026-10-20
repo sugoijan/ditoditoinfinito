@@ -355,10 +355,11 @@ autoplay in play pressing on the judged timeline, exact under any
 calibrated offset (2026-10-15; calibration's autoplayer still follows the
 heard or drawn cue).
 
-Song select navigation (2026-10-18): single taps of any arrow move
-through songs; double taps change chart without moving the song, with
-a 250 ms recognition window. Held arrows scroll. Both shells use the
-shared screen (`docs/plans/theme.md`, layout A).
+Song select navigation (2026-10-20): all four arrows browse songs with
+provisional continuous motion, isolated difficulty pairs, opposite-pair
+chaining and capped accelerating holds. Timings come from the maintainer's
+local calibration tool; both shells share the recognizer, physical release
+routing and list motion (`docs/plans/song-navigation.md`, decision 53).
 
 Additional onigiri-free charts (2026-10-18): Options can expose 5-key →
 Single, 7-key → Solo, 9A → Double and 9B → Techno 8-panel versions alongside
@@ -644,6 +645,8 @@ Windows confinement, managed-store durability and browser URL acquisition
 remain separate work.
 
 52. **Simplifications can expose additional chart versions** (2026-10-18; `docs/plans/chart-simplification.md`). The Without onigiri option exposes converted DanOni charts in Single, Solo, Double and Techno 8-panel. Shared library loading appends them for native works and simfiles (including SSC exports) with explicit provenance and stable indexes; the option controls their visibility. Originals stay unchanged and unassisted by this feature. Converted charts have their own content digests, assisted results and bests, and keep their source chart's lyrics, layers and replay identity. Existing cut options keep their behavior.
+
+53. **Song browsing takes priority over difficulty gestures** (2026-10-20; `docs/plans/song-navigation.md`). Physical direction edges feed a shared recognizer. A first tap previews 20% over 260 ms, then completes the same curve over 160 ms; logical commit never restarts easing. Difficulty pairs require 180 ms of quiet afterward; opposite pairs remain provisional to avoid a transient song jump. Browsing is immediate until 400 ms of quiet. Holds start at 275 ms and ramp 8→24 rows/s over 1.2 s, stopping on release. Row geometry and emphasis follow the wheel continuously. Other menus retain standard repeat, and pointer scrolling retains its existing physics. These values were selected in the maintainer's local timing tool.
 
 ## 7. Risks
 

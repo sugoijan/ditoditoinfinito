@@ -370,12 +370,17 @@ cover when available. Its open pack, song and chart resume across launches
 in both shells (`ddi.menu.v1`, local storage); search is per session and
 shows matches from every pack without replacing the saved browsing place.
 Desktop waits for the initial library scan before restoring an imported song.
-Song select (`#/`) uses all four arrows to move through songs (Up/Left
-previous, Down/Right next), waiting 250 ms for a possible double tap.
-Double-tapping the same arrow changes chart on the current song (Up/Left
-easier, Down/Right harder); held arrows scroll songs. Enter or Tab settles
-a queued move first. Search, Back, pointer presses and focus changes
-cancel it. Typing and navigation in the header keep their usual controls.
+Song select (`#/`) uses all four arrows to browse (Up/Left previous,
+Down/Right next). The first tap after quiet previews 20% of a move over a
+260 ms tap window, then completes the same curve over 160 ms. Isolated
+pairs change difficulty after 180 ms of quiet; quick opposite pairs
+(`Up Up Down Down`) stay provisional without temporary song changes.
+Browsing taps are immediate until 400 ms of quiet rearms pairs. Holds
+repeat after 275 ms, accelerating from 8 to 24 rows/s over 1.2 s;
+release stops and reversing resets the ramp. The UI delivers physical
+menu sources/releases to opted-in screens; other menus keep their usual
+repeat. Enter/Tab resolves pending input; search, Back, pointers, focus
+loss and overlays cancel it. See `docs/plans/song-navigation.md`.
 Song select is our theme's screen on the canvas: drive it by keys,
 a fake pad or taps at `window.__DDI_DEBUG.ui.rects`, read
 `__DDI_DEBUG.ui.select` and `__DDI_DEBUG.songs` (the library, the import,

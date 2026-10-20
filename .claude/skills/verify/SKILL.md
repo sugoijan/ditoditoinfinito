@@ -44,6 +44,21 @@ WebGPU works headless with those flags (the badge in the bottom-right corner sho
 
 Play history (`docs/plans/play-history.md`): every song played to the end or failed is kept in IndexedDB `ddi-library` (version 3; `plays`: `{record: JSON, log: Uint8Array, timing: Uint8Array}` and `play_summaries`: summary JSON, both keyed `<15-digit ms>-<8 hex>`); quits and calibration are not. Read `window.__DDI_DEBUG.history` (on every page; written when it changes too): `{count, loaded, error?, blocked (opening the library waits for another tab holding an older version; test it by keeping a version 2 connection open in another page of the origin), stale, unreadable, last: {id, chart: {song, digest, index}, ruleset, time, autoplay, ended, worked: {judge_version, score, grade, lamp, tally, max_combo, fast, slow, hits, mean, stddev, …}}, song, bests: [{digest, ruleset, assist, score, value, grade, lamp, plays, lastPlayed, pending}]}` (`song`/`bests`: the play route's song once its chart is loaded, before a play too; bests are kept by chart digest, whatever the song id). `auto=1` and `auto=pad` plays are flagged and never in `bests`; for a counted play install the fake pad without `auto=` and press its d-pad (`button:12`–`15`) yourself. To simulate a raised judge version, rewrite `play_summaries` values with `worked.judge_version: 0` (a cursor from the page) and reload: `stale` goes back to 0 within a few seconds (the background pass, every 1.5 s, four plays at a time; or at once when that song's play route loads) and the summaries are as before. A summary that is not JSON, a `worked` of an unknown shape, or a play with no summary is rebuilt from its record the same way; a play whose record is broken stays in `unreadable`. A failed play is kept when it fails (a pad's Back double-tap during the hold keeps it); to see an unsaved play's note on the results (`__DDI_DEBUG.results.notes`, "This play could not be saved: …"), make `IDBObjectStore.prototype.put` throw for the `plays` store before the song ends. The bundled manifest (`songs/index.json`) has each chart's `digest`. Options → History → Export (the row `history.export` (Export, Reset: the reset asks first, with Cancel focused, says how many plays go and offers "Export first" (`Extra`); confirmed, IndexedDB's `plays` and `play_summaries` are emptied, `__DDI_DEBUG.history.count` 0), Enter) downloads `ditoditoinfinito-plays-<date>.jsonl` (Playwright: `acceptDownloads`, `waitForEvent('download')`), one `{id, summary, record, log, timing}` a line, the bytes in base64. To check the upgrade, create `ddi-library` version 2 (stores `songs`, `files`, `noteskins`) from another page of the origin (`favicon.svg`) before loading the app.
 
+## Song-select arrow gestures
+
+Use key down/up edges (not OS repeat), and fake-pad press/release edges.
+Single arrows commit at 260 ms with a continuous 20% preview and 160 ms
+completion. After browsing, wait 400 ms before testing a difficulty pair;
+wait 180 ms after its second release for confirmation. Verify all four
+arrows, three same-direction taps, and rapid Up Up Down Down: the latter
+must emit no temporary selected-song changes and must keep the same
+song/difficulty away from ladder bounds. A confirmed pair immediately
+rearms another. A lone opposite third tap waits a tap window before
+becoming navigation. Holds repeat at 275 ms and ramp from 8 to 24 rows/s
+over 1.2 s; release, focus loss, overlays and search must stop them.
+Check reduced motion, compact layout, pack headers and pointer scrolling.
+`docs/plans/song-navigation.md` records the complete contract.
+
 ## Headless Firefox
 
 Launch through `firefox.mjs` (next to this file), never with a bare `firefox.launch`:

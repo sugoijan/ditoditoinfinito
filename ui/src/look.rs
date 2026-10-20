@@ -102,6 +102,12 @@ pub trait Look {
         None
     }
 
+    /// Applies continuous emphasis around the wheel's visual focus. Returns
+    /// true when it replaces the row's Select/Deselect commands.
+    fn wheel_focus(&self, _list: &str, _row: &mut Actor, _width: f32, _weight: f32) -> bool {
+        false
+    }
+
     /// How far open wheel-style list `list`'s room for its selected row is
     /// now, `0..=1`: a screen closes it while the list flicks past rows
     /// (the selected row is not on the line then) and opens it at rest.

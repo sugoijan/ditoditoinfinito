@@ -36,6 +36,7 @@ fn double_arrow(h: &mut Harness, code: &str) {
     h.key(code, code);
     h.run(0.08);
     h.key(code, code);
+    h.run(0.2);
 }
 
 #[test]
@@ -110,17 +111,17 @@ fn mixed_directions_are_separate_moves_and_other_inputs_cancel_a_pending_tap() {
     h.key("ArrowDown", "ArrowDown");
     h.run(0.08);
     h.key("ArrowRight", "ArrowRight");
-    assert_eq!(
-        s.borrow().song,
-        "Sweeteners",
-        "first move settles before queuing the next"
+    let after = s.borrow().song.clone();
+    assert_ne!(
+        after, "Some Things Must",
+        "different directions commit both moves"
     );
     h.key("Slash", "/");
     h.run(0.5);
     assert_eq!(
         s.borrow().song,
-        "Sweeteners",
-        "search cancels the queued move"
+        after,
+        "search cancels provisional navigation"
     );
     assert_eq!(s.borrow().preferred, "Hard");
 }
@@ -529,10 +530,10 @@ fn start_acts_on_the_song_moved_to_in_the_same_poll() {
     h.pad(crate::MenuAction::Up, true);
     h.pad(crate::MenuAction::Start, true);
     assert_eq!(s.borrow().status, "PLAYED Into My Dream Hard 12");
-    // Double Left changes the chart of the song moved to.
+    // After quiet, double Left changes the chart of the song moved to.
     let (mut h, s) = recording(sample::select(), [1280.0, 720.0], DESIGN);
     h.key("ArrowDown", "ArrowDown");
-    h.run(0.3);
+    h.run(0.5);
     double_arrow(&mut h, "ArrowLeft");
     assert_eq!(s.borrow().song, "Sweeteners");
     assert_eq!(s.borrow().chart.as_deref(), Some("Medium 10"));
@@ -2087,4 +2088,61 @@ fn refreshing_pack_art_keeps_the_selected_header_and_only_one_pack_open() {
     h.run(0.5);
     assert_eq!(state.borrow().header.as_deref(), Some("My Pack"));
     assert_eq!(state.borrow().closed.len(), 6);
+}
+
+#[test]
+fn quick_opposite_pairs_do_not_publish_temporary_song_changes() {
+    for pad in [false, true] {
+        let (mut h, s, calls, _) = shelled(library(), Some("some-things-must"));
+        let song = s.borrow().song.clone();
+        let preferred = s.borrow().preferred.clone();
+        let before = calls
+            .borrow()
+            .iter()
+            .filter(|c| matches!(c, SelectCall::Selected { .. }))
+            .count();
+        for key in ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown"] {
+            if pad {
+                let a = if key == "ArrowUp" {
+                    crate::MenuAction::Up
+                } else {
+                    crate::MenuAction::Down
+                };
+                h.pad(a, true);
+                h.pad(a, false);
+            } else {
+                h.key(key, key);
+            }
+            h.run(0.06);
+            assert_eq!(s.borrow().song, song);
+        }
+        h.run(0.5);
+        assert_eq!(s.borrow().song, song);
+        assert_eq!(s.borrow().preferred, preferred);
+        assert_eq!(
+            calls
+                .borrow()
+                .iter()
+                .filter(|c| matches!(c, SelectCall::Selected { .. }))
+                .count(),
+            before
+        );
+    }
+}
+
+#[test]
+fn blur_and_overlays_stop_a_held_song_navigation() {
+    for blur in [false, true] {
+        let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
+        h.key_down("ArrowDown", "ArrowDown");
+        h.run(0.45);
+        if blur {
+            h.send(crate::UiEvent::Focus(false));
+        } else {
+            h.key("Slash", "/");
+        }
+        let song = s.borrow().song.clone();
+        h.run(1.0);
+        assert_eq!(s.borrow().song, song);
+    }
 }

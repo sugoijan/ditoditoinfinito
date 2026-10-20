@@ -140,6 +140,8 @@ pub struct ListConfig {
     /// Glides to its targets (wheel, keys, snaps); off (reduced motion),
     /// it jumps there, and its items never blur.
     pub glide: bool,
+    /// Let the look blend row geometry around the visual wheel focus.
+    pub continuous_selection: bool,
 }
 
 impl ListConfig {
@@ -154,6 +156,7 @@ impl ListConfig {
             margin: 96.0,
             bar: 8.0,
             glide: true,
+            continuous_selection: false,
         }
     }
 }
@@ -489,6 +492,42 @@ impl List {
         self.last_pos = self.pos;
     }
 
+    /// Target scroll for selecting an item, without changing selection.
+    pub fn selection_scroll(&self, i: usize) -> f64 {
+        if self.is_empty() {
+            return self.pos;
+        }
+        let i = i.min(self.len() - 1);
+        if let Some(f) = self.focus_line() {
+            return self.clamp(self.centre(i) - f);
+        }
+        let pad = f64::from(self.config.row) * 0.5;
+        let at = self.clamp(self.target.unwrap_or(self.pos));
+        if self.offsets[i] < at + pad {
+            self.clamp(self.offsets[self.item_at((self.offsets[i] - pad).max(0.0))])
+        } else if self.offsets[i + 1] > at + self.height_shown() - pad {
+            let j = self.item_at(self.offsets[i + 1] - self.height_shown() + pad);
+            self.clamp(self.offsets[(j + 1).min(self.len())])
+        } else {
+            at
+        }
+    }
+
+    /// Commits selection while a screen owns the scrolling trajectory.
+    pub fn select_without_motion(&mut self, i: usize, model: &dyn ListModel) {
+        self.select(i);
+        self.selected_key = model.key(self.selected);
+        self.target = None;
+    }
+
+    /// Applies a screen-owned visual position; never settles selection.
+    pub fn visual_scroll(&mut self, pos: f64) {
+        self.pos = self.clamp(pos);
+        self.target = None;
+        self.velocity = 0.0;
+        self.stream = None;
+    }
+
     /// Scrolls to `pos` at once (tests, a restored place).
     pub fn jump(&mut self, pos: f64) {
         self.pos = self.clamp(pos);
@@ -800,7 +839,14 @@ impl List {
                 }
             }
             let selected = i == self.selected;
-            if s.selected != Some(selected) {
+            let continuous = self.config.continuous_selection
+                && focus.is_some_and(|f| {
+                    let mid = (self.offsets[i] + self.offsets[i + 1]) / 2.0 - self.pos;
+                    let d = ((mid - f) / row).abs().min(1.0) as f32;
+                    let weight = 1.0 - d * d * (3.0 - 2.0 * d);
+                    look.wheel_focus(&name, a, w, weight)
+                });
+            if !continuous && s.selected != Some(selected) {
                 s.selected = Some(selected);
                 a.play(
                     if selected { "Select" } else { "Deselect" },

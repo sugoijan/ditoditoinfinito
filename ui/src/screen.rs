@@ -59,6 +59,10 @@ pub enum Input {
     /// A menu button, from a key, a controller or a pad; `repeat` when it
     /// is our repeat of a held direction.
     Menu { action: MenuAction, repeat: bool },
+    /// Physical release for screens with their own directional gestures.
+    MenuRelease { source: crate::nav::Source },
+    /// Focus loss or an overlay cancels held and provisional navigation.
+    CancelDirections,
     /// A key no menu action claimed (shortcuts: read
     /// [`KeyEvent::key`]); while typing, the keys the field leaves (Up,
     /// Down, Tab, Page Up and Down). Tab while typing is always consumed
@@ -143,6 +147,16 @@ pub trait Screen {
         false
     }
 
+    /// Receives physical direction releases and cancellation on focus loss.
+    fn direction_edges(&self) -> bool {
+        false
+    }
+
+    /// Owns held-direction repeat while a gesture is active.
+    fn owns_direction_repeat(&self) -> bool {
+        false
+    }
+
     /// The named actors focus moves between, in order (the first is
     /// focused when the screen comes in), with any explicit neighbours.
     fn focusables(&self) -> Vec<Focusable> {
@@ -206,6 +220,7 @@ pub struct Cx {
     focused: Option<String>,
     /// The menu action being handled came from a keyboard key.
     pub(crate) menu_key: bool,
+    pub(crate) menu_source: Option<crate::nav::Source>,
     /// ... or from a controller.
     pub(crate) menu_pad: bool,
     /// The last input was a key or a pad's (not a pointer).
@@ -228,6 +243,7 @@ impl Cx {
             time,
             focused,
             menu_key: false,
+            menu_source: None,
             menu_pad: false,
             by_keys: false,
         }
@@ -239,8 +255,12 @@ impl Cx {
         self.by_keys
     }
 
-    /// Whether the menu action being handled came from the keyboard (Tab
-    /// is the menu's Select; a pad's Y is too).
+    /// Physical source of the menu press, for directional gesture ownership.
+    pub fn menu_source(&self) -> Option<&crate::nav::Source> {
+        self.menu_source.as_ref()
+    }
+
+    /// Whether this menu action came from the keyboard.
     pub fn menu_from_keyboard(&self) -> bool {
         self.menu_key
     }
