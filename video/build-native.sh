@@ -5,7 +5,7 @@
 # in target/video/native/<rust target>/ (lib/, include/), with zlib built the
 # same way, a description (ffmpeg.json) and the notice the helper ships with
 # (ddivideo-native.LICENSE.txt). `video/helper`'s build script compiles the
-# shims against it and links them into `ddi-video-helper`; `desktop/build.rs`
+# shims against it and links them into `ddi-video-helper`; `crates/desktop/build.rs`
 # runs this script when the output is missing or older than its recipe.
 # Each stage is skipped when its output is current.
 #

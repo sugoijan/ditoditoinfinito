@@ -141,8 +141,8 @@ These third-party files are not repository fixtures.
 The current `main` importer finds pack names from parent folders (or the ZIP
 name as fallback) and pack images directly inside the pack folder, preferring
 PNG. Its menu crops pack images to 418:164 and song banners to 160:50. This is
-based on read-only inspection of `library/src/pack.rs`, `app/src/import/mod.rs`,
-`app/src/components/song_select.rs` and `styles.css` on 2026-10-09; the research
+based on read-only inspection of `crates/library/src/pack.rs`, `crates/app/src/import/mod.rs`,
+`crates/app/src/components/song_select.rs` and `styles.css` on 2026-10-09; the research
 branch's older app does not yet have that full pack-art UI.
 
 A future exporter can use this existing contract:

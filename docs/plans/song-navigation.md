@@ -17,7 +17,7 @@ web. No new saved setting or noteskin parameter is involved.
 
 ## Recognition
 
-`ui/src/screens/select_navigation.rs` owns a deterministic recognizer.
+`crates/ui/src/screens/select_navigation.rs` owns a deterministic recognizer.
 All four arrows browse; Up/Left select easier charts and Down/Right harder.
 The first tap after quiet is provisional. A matching second tap freezes
 its visual preview; quiet after the second release confirms a difficulty

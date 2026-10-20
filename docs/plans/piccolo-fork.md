@@ -415,7 +415,7 @@ Checked on it:
   more differ for Lua 5.1 (C6: `pcall` catches the overflow, where the
   memory limit stopped it at 16.5 MiB; I2h, I3a: 5.1 counts in floats, so
   `math.maxinteger - 1` is 2^63; I3b: a zero step runs no iteration;
-  listed in `lua/tests/local.rs`), the longest step 7.2 ms natively, no
+  listed in `crates/lua/tests/local.rs`), the longest step 7.2 ms natively, no
   trap in wasm and memory growth at most 32.4 MiB (38.4 before).
 
 ## Published as lunita (2026-10-13)

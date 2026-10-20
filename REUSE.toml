@@ -15,7 +15,7 @@ SPDX-License-Identifier = "MIT"
 # Techno single8's lane order and keyboard defaults, adapted from StepMania
 # 5.1's GameManager.cpp (825467b); other layout code is our own MIT work.
 [[annotations]]
-path = ["chart/src/layout/mod.rs"]
+path = ["crates/chart/src/layout/mod.rs"]
 SPDX-FileCopyrightText = ["すごいジャン <me@sugoijan.dev>", "Chris Danford, the StepMania development team, et al."]
 SPDX-License-Identifier = "MIT AND LicenseRef-StepMania"
 
@@ -39,7 +39,7 @@ SPDX-License-Identifier = "MIT AND CC-BY-4.0"
 # Dancing☆Onigiri key mode and key code tables, generated from danoniplus
 # (https://github.com/cwtickle/danoniplus, js/lib/danoni_constants.js).
 [[annotations]]
-path = ["chart/src/layout/danoni_table.rs", "chart/src/formats/danoni/keycodes.rs"]
+path = ["crates/chart/src/layout/danoni_table.rs", "crates/chart/src/formats/danoni/keycodes.rs"]
 SPDX-FileCopyrightText = "2018 tickle"
 SPDX-License-Identifier = "MIT"
 
@@ -49,9 +49,9 @@ SPDX-License-Identifier = "MIT"
 # Docs/Licenses.txt there), and StepMania 3.9's dance/default and
 # dance/flat metrics (v390release 5d417c1f; licence in
 # stepmania/Docs/Copying.txt, the same terms), byte for byte. Credited
-# through THIRD_PARTY.toml.
+# through credits/THIRD_PARTY.toml.
 [[annotations]]
-path = ["noteskin/src/builtin/stepmania/**", "noteskin/src/builtin/stepmania39/**"]
+path = ["crates/noteskin/src/builtin/stepmania/**", "crates/noteskin/src/builtin/stepmania39/**"]
 SPDX-FileCopyrightText = ["Chris Danford, the StepMania development team, et al.", "AJ Kelly, Midiman, shakesoda (the spinal shark collective), and other contributors"]
 SPDX-License-Identifier = "LicenseRef-StepMania"
 

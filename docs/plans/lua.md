@@ -141,7 +141,7 @@ cap) that became the brief's second round; then on the pushed revision,
 where the 120 limit cases end as expected natively and in wasm. What it
 is:
 
-- `ddi_lua::Vm` (`lua/src/lib.rs`): one skin's state, built from
+- `ddi_lua::Vm` (`crates/lua/src/lib.rs`): one skin's state, built from
   `Lua::empty()` with the host's hash seed (`Settings::hash_seed`: the app
   must give each VM one from the platform's randomness, or strings can be
   built to collide), `Compat::Lua51`, the host's `math.random` seed and
@@ -154,12 +154,12 @@ is:
   `Done`, `Paused` (fuel spent: a load goes on next frame) or `Failed`
   (`Compile`, `Error`, `Limit`, `Deadline`). An uncaught error's message is
   made without running Lua (a looping `__tostring` cannot hang the report).
-- `cmd` (`lua/src/cmd.rs`): tokens replaced in place, so lines and errors
+- `cmd` (`crates/lua/src/cmd.rs`): tokens replaced in place, so lines and errors
   match StepMania's; `;`-separated parts, empty parts, `...`, nested `cmd`,
   and function arguments whose bodies contain `;` (block keywords are
   tracked) as `lparser.c`'s `cmd_body`; malformed `cmd(...)` gives
   StepMania's messages.
-- The globals (`lua/src/sandbox.rs`): base, `string`, `table`, `math`,
+- The globals (`crates/lua/src/sandbox.rs`): base, `string`, `table`, `math`,
   `coroutine`; `load` and `collectgarbage` removed; `_G`, `_VERSION` "Lua
   5.1", `unpack`, `table.getn`, `math.mod`, `math.pow`, `string.gfind`.
   `print`, `loadfile` and the rest come with the host API (step 3).
@@ -170,7 +170,7 @@ is:
   format and a `Docs` file); the fork's 103 limit cases through a `Vm`,
   natively in release (every outcome as expected, eleven of them differing
   from the fork's default mode because of Lua 5.1 and the missing `load`,
-  listed in `lua/tests/local.rs`) and in wasm under Node (no trap, memory
+  listed in `crates/lua/tests/local.rs`) and in wasm under Node (no trap, memory
   growth at most 38.4 MiB).
 
 ## Step 3. The host API and loading skins (commit 3)
@@ -203,7 +203,7 @@ what step 4 needs:
 - The stand-ins run StepMania's own Lua: `common`'s and `dance/default`'s
   `NoteSkin.lua`, `Fallback Explosion.lua`, `Fallback Tap Mine.lua`,
   `Fallback Receptor.lua` and its helpers, `dance/default`'s tap note, lift
-  and receptor, byte for byte under `noteskin/src/builtin/stepmania/`
+  and receptor, byte for byte under `crates/noteskin/src/builtin/stepmania/`
   (credited in `THIRD_PARTY.toml` with the metrics). Their art stays the
   built-in skin's; the native versions of the same Lua remain the fallback
   when a skin's Lua cannot run.
@@ -346,7 +346,7 @@ phone by hand). What it does, and what differs from the plan:
 - Checked: unit tests on synthetic skins (events with parameters, a
   round robin re-armed by `queuecommand`, an update function reading the
   song's position, a frame out of fuel, a sliced load) and through the
-  renderer (`render/src/noteskin.rs`); the corpus as above; in headless
+  renderer (`crates/render/src/noteskin.rs`); the corpus as above; in headless
   Chrome on WebGPU and WebGL2 a live skin (beat flash from an update
   function, explosions colored by the message's score), a skin whose
   update function loops after 4 s (stops, the built-in skin takes over,

@@ -130,8 +130,8 @@ hashes; `check.mjs` decodes the three codecs.
 
 ## Step 2. The worker (commit 2)
 
-`web/src/web/video_worker.js` (plain JS, served by Trunk `copy-file`; it
-is small and it must run before any Rust) and `web/src/web/video.rs` (the
+`crates/web/src/web/video_worker.js` (plain JS, served by Trunk `copy-file`; it
+is small and it must run before any Rust) and `crates/web/src/web/video.rs` (the
 Rust side that owns the `Worker`).
 
 The worker:
@@ -262,7 +262,7 @@ codec; the module is the fallback for everything.
 
 ## Step 3. Import: know which songs have playable movies (commit 3)
 
-- `library/src/video.rs`: `sniff(head: &[u8]) -> Option<VideoCodec>` from
+- `crates/library/src/video.rs`: `sniff(head: &[u8]) -> Option<VideoCodec>` from
   the first 64 KB: RIFF `AVI ` → `strh`/`strf` fourcc (`H264`/`avc1`/`X264`
   → H264; `XVID`/`xvid`/`DX50`/`DIVX`/`MP4V`/`FMP4` → Mpeg4; `MPG2`/`mpg2`
   → Mpeg2; else `Other(fourcc)`); bytes `00 00 01 B3` → Mpeg2 (raw
@@ -332,15 +332,15 @@ checking the report and the manifest.
 
 ## Step 4. Drawing movies (commit 4)
 
-- `render/src/background.rs`: a second background texture kind, YUV: three
+- `crates/render/src/background.rs`: a second background texture kind, YUV: three
   `R8Unorm` textures (Y, U, V) and a fragment shader variant that converts
   with BT.601 or BT.709 and limited or full range from a uniform; the
   `Backdrop` mix (crossfade) works unchanged across kinds. `Renderer::
   add_video(width, height)` returns an id like `add_background`;
   `update_video(id, planes)` writes the three planes with `write_texture`
   (odd sizes: chroma is `(w+1)/2`). A native WGSL validation test like the
-  one in `render/src/sprite.rs`.
-- `web/src/game_loop.rs`: `MovieState` per scheduled movie segment:
+  one in `crates/render/src/sprite.rs`.
+- `crates/web/src/game_loop.rs`: `MovieState` per scheduled movie segment:
   `open` 1 s before the segment starts (decoder `open` + `want 3`); on each
   frame compute `movie_time = (song_time − segment.seconds) × rate`
   (`rate` from the change's field, default 1), apply loop as `movie_time
@@ -398,7 +398,7 @@ late}`.
   saturate. The worker reports the file's last frame time at the end even
   when a seek past it decoded it without handing it over
   (`ddi_last_time`).
-- `web/src/movies.rs` (`MovieDeck`): the current and next movie segments
+- `crates/web/src/movies.rs` (`MovieDeck`): the current and next movie segments
   (opened 2 s ahead) at most; a decoder moves to its movie's next segment
   instead of reopening the file; one texture per movie, shown only once it
   holds a frame of the current run (a retry or a restarting change shows
@@ -542,13 +542,13 @@ autoplay stays all top tier throughout (video never touches judging).
 
 ## Step 6. WebCodecs for H.264 (commit 6)
 
-- `library/src/avi.rs`: a RIFF/AVI demuxer that yields the video stream's
+- `crates/library/src/avi.rs`: a RIFF/AVI demuxer that yields the video stream's
   chunks with frame index, keyframe flag (`idx1` `AVIIF_KEYFRAME`, or the
   `movi` scan when there is no index) and the stream's `scale`/`rate`;
   natively tested on a generated clip. H.264 in AVI is Annex B with
   in-band SPS/PPS, which is what `VideoDecoder` takes with no
   `description`.
-- A second `VideoDecoder` implementation (`web/src/web/webcodecs.rs`):
+- A second `VideoDecoder` implementation (`crates/web/src/web/webcodecs.rs`):
   `isConfigSupported({codec: "avc1.<profile from SPS>", optimizeForLatency: true})`,
   chunks as `EncodedVideoChunk {type: key|delta, timestamp: index × scale /
   rate × 1e6}`; output `VideoFrame`s uploaded with
@@ -588,7 +588,7 @@ state says which decoder); Firefox and Safari by the maintainer.
   the delay; `ExactSeek` holds up to the target; a late first frame goes
   back 0.5 s, doubling, four times, then from the start for good).
 - A local check against FFmpeg's own decode
-  (`library/tests/local_h264.rs`): all 93 local H.264 AVIs give out the
+  (`crates/library/tests/local_h264.rs`): all 93 local H.264 AVIs give out the
   pictures FFmpeg does, in its order (each frame's packet, `pkt_pos`) and
   with its times (`pkt_dts`); 78 have delay 0, 9 delay 1, 6 delay 2;
   every keyframe of their indexes is an IDR, and every one has the
@@ -879,7 +879,7 @@ Apple!! "a bit laggy" and once turned it off. What was measured:
 ## Step 9. Movies on the second layer (2026-10-16)
 
 `#BGCHANGES2` plays (PLAN.md decision 48), its movies too. The decks
-(`web/src/movies.rs`, `desktop/src/play/movies.rs`) take both layers'
+(`crates/web/src/movies.rs`, `crates/desktop/src/play/movies.rs`) take both layers'
 schedules and decode what `backgrounds::movie_segments_at` names: each
 layer's current and next movie segment, a file current on both layers
 once (by the segment that started last, whose decoder was readied for its

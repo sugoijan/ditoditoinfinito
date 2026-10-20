@@ -1,6 +1,6 @@
 //! `gen-dito`: the art of Dito, the bundled skin that draws the built-in
 //! arrows through a skin's Lua (`docs/plans/bundled-skins.md`, step 2), as
-//! SVG drawn from the shader's own shapes (`render/src/shader.wgsl`) and
+//! SVG drawn from the shader's own shapes (`crates/render/src/shader.wgsl`) and
 //! the color schemes' own colors (`ddi_render::note_colors`). Writes the
 //! `.svg` files of `assets/noteskins/dance/Dito*/`; the Lua and metrics
 //! next to them are written by hand.
@@ -44,12 +44,12 @@ pub(crate) const RAINBOW_FRAMES: usize = 16;
 /// Rows of the Quantized sheet: nine colors, padded to a power of two.
 const QUANTIZED_ROWS: usize = 16;
 
-/// The single color (`web/src/settings.rs`, `NoteColors::Single`).
+/// The single color (`crates/web/src/settings.rs`, `NoteColors::Single`).
 const SINGLE: [f32; 4] = [0.35, 0.85, 1.0, 1.0];
-/// The mine (`render/src/scene.rs`).
+/// The mine (`crates/render/src/scene.rs`).
 const MINE: [f32; 3] = [0.35, 0.3, 0.45];
 const MINE_CORE: [f32; 3] = [1.0, 0.9, 0.8];
-/// Hold and roll bodies, held and not (`render/src/scene.rs`).
+/// Hold and roll bodies, held and not (`crates/render/src/scene.rs`).
 const BODY_ACTIVE: [f32; 4] = [0.55, 0.95, 0.65, 0.95];
 const BODY_INACTIVE: [f32; 4] = [0.35, 0.65, 0.45, 0.85];
 

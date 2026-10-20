@@ -22,7 +22,7 @@ the FFmpeg command is not an importer runtime dependency.
 cargo run --features danoni-importer
 ```
 
-`desktop/build.rs` invokes `tools/danoni-importer/build.py` on supported native
+`crates/desktop/build.rs` invokes `tools/danoni-importer/build.py` on supported native
 hosts. The builder fetches the pinned public Ruffle sources, prepares the checked
 worker sources, builds the SDK/helper/worker in separate targets outside the
 application target, and collects their exact normal-dependency notices. Its

@@ -127,7 +127,7 @@ multiplayer, mobile.
 (Before step 7; kept for the record.)
 
 - **`desktop/`** (`ddi-desktop`, run by `app/` natively): a winit 0.30
-  window, the painter over a plain-format surface (`desktop/src/gpu.rs`),
+  window, the painter over a plain-format surface (`crates/desktop/src/gpu.rs`),
   cosmic-text with the bundled faces and system fonts, keys as the DOM
   names them (`keys.rs`), typing with winit's IME in own mode
   (`shell.rs`), rfd, arboard, links through the OS (`os.rs`), banners
@@ -137,7 +137,7 @@ multiplayer, mobile.
   (`ddi_ui::screens::sample`). `UiRequest::StartAudio`, `PlayPreview`,
   `StopPreview`, `Navigate` and `FieldPreview` are ignored.
 - **`platform/`:** `ClockSample`, `HostTime`, `RawInput`, `DeviceId`,
-  `AudioBackend` (implemented only by `web/src/web/audio.rs`),
+  `AudioBackend` (implemented only by `crates/web/src/web/audio.rs`),
   `InputSource`, `HostClock`, `DeviceFingerprint`/`DeviceProfile`,
   `gamepad::PadTracker` (edges from snapshots, axis hysteresis, hats,
   timestamps), `storage`, `history::PlayStore`, `video` (`VideoDecoder`,
@@ -145,18 +145,18 @@ multiplayer, mobile.
   through Symphonia, the web's fallback). The doc still names a
   `SongStore` trait that does not exist.
 - **What the web does that desktop must match**, and where it lives:
-  - the play session (`web/src/play.rs`: the `Player`, input sources,
+  - the play session (`crates/web/src/play.rs`: the `Player`, input sources,
     bindings, cancel gesture, autoplay, fail fade, `startFrame`/`endFrame`
     fades, the facts a play is recorded with), calibration
-    (`web/src/calibration.rs`), the frame loop (`web/src/game_loop.rs`:
+    (`crates/web/src/calibration.rs`), the frame loop (`crates/web/src/game_loop.rs`:
     refresh estimate, backgrounds, the video guard), movies
-    (`web/src/movies.rs`), Dancing☆Onigiri layers (`web/src/stage.rs`),
+    (`crates/web/src/movies.rs`), Dancing☆Onigiri layers (`crates/web/src/stage.rs`),
     lyrics (still DOM);
-  - the library (`web/src/songs.rs`, `web/src/import/mod.rs`,
-    `web/src/noteskins.rs`), song select's data (`web/src/select_data.rs`),
-    previews (`web/src/select_preview.rs`, `web/src/preview.rs`);
-  - device profiles (`web/src/web/devices.rs`, `display.rs`, the device
-    watcher), the history (`web/src/history.rs`).
+  - the library (`crates/web/src/songs.rs`, `crates/web/src/import/mod.rs`,
+    `crates/web/src/noteskins.rs`), song select's data (`crates/web/src/select_data.rs`),
+    previews (`crates/web/src/select_preview.rs`, `crates/web/src/preview.rs`);
+  - device profiles (`crates/web/src/web/devices.rs`, `display.rs`, the device
+    watcher), the history (`crates/web/src/history.rs`).
   Most of the session and calibration code is platform-free already: it
   names `WebAudio`, `WebKeyboard`, `Gamepads`, `TouchLanes` and a few
   web-sys types, and little else.
@@ -244,7 +244,7 @@ multiplayer, mobile.
   tuned for wasm (`opt-level = "z"`, `panic = "abort"`). Desktop gets
   `[profile.desktop]` (inherits release, `opt-level = 3`,
   `panic = "unwind"`): decoders run on untrusted files, and the image
-  loader's `catch_unwind` (`desktop/src/images.rs`) only works with
+  loader's `catch_unwind` (`crates/desktop/src/images.rs`) only works with
   unwinding.
 
 ## 1. Audio
@@ -267,7 +267,7 @@ All are permissive; none is copyleft. On Linux, cpal always links ALSA
 build time, `libasound.so.2` (LGPL-2.1-or-later, a system library,
 linked dynamically) at run time. See the risks.
 
-### The backend: `desktop/src/audio/`
+### The backend: `crates/desktop/src/audio/`
 
 - **Stream.** The default output device, `f32`, the device's own rate
   (no resampling in the callback), stereo (mono and more channels mixed
@@ -292,7 +292,7 @@ linked dynamically) at run time. See the risks.
   `output_latency` = `playback − callback`. The engine's `SongClock`
   then works unchanged (its drift filter absorbs the device clock's ppm
   error against the host's).
-- **Host time.** One epoch for the process (`desktop/src/clock.rs`, an
+- **Host time.** One epoch for the process (`crates/desktop/src/clock.rs`, an
   `Instant` taken at start): audio, winit, the pad thread and the history
   all stamp against it.
 - **Device changes.** cpal's error callback (device gone) and a check of
@@ -314,10 +314,10 @@ the session can be generic (D1): `sample_rate`, `set_master_volume`,
 `endFrame` stop), `stop_all`, `running`, `buffer_from_pcm` (calibration's
 click track), `fingerprint`. Decoding stays outside the trait: it is async
 on the web and on a worker thread on desktop, and the session is handed
-buffers. `web/src/web/audio.rs` implements the additions with the calls
+buffers. `crates/web/src/web/audio.rs` implements the additions with the calls
 it already makes.
 
-### Decoding: `platform/src/decode.rs`
+### Decoding: `crates/platform/src/decode.rs`
 
 - A new feature `decode-all` (desktop) beside `decode` (the web's Ogg
   Vorbis fallback, unchanged in size): Symphonia 0.6.1 (MPL-2.0,
@@ -362,7 +362,7 @@ it already makes.
 
 Unchanged in method (the generated 120 BPM chart with a click baked into
 its audio, batches of 8, convergence at |mean| ≤ 2σ/√n, the ±250 ms
-range, arrows only / sound only / combined): `web/src/calibration.rs`
+range, arrows only / sound only / combined): `crates/web/src/calibration.rs`
 moves into the shared session (step 7.1) and runs on the desktop backend.
 The calibration autoplayer keeps following the physical cue (`AGENTS.md`).
 A desktop device profile with no offsets prompts to calibrate at song
@@ -397,7 +397,7 @@ start, as on the web.
 
 ### Controllers
 
-- **gilrs 0.11.2** (Apache-2.0/MIT), its own thread (`desktop/src/pads.rs`),
+- **gilrs 0.11.2** (Apache-2.0/MIT), its own thread (`crates/desktop/src/pads.rs`),
   `GilrsBuilder` with the default filters off (no deadzone or jitter
   filter: `PadTracker` does hysteresis), `next_event_blocking` with a
   short timeout. Each event becomes a `PadSnapshot` of that pad (slot,
@@ -441,7 +441,7 @@ start, as on the web.
 
 ## 3. Play on desktop
 
-### The frame loop (`desktop/src/play/`)
+### The frame loop (`crates/desktop/src/play/`)
 
 - **Menus** stay on demand (`ControlFlow::Wait`, P13). **Play** runs
   continuously: each frame reads the clock, drains input, updates the
@@ -474,7 +474,7 @@ start, as on the web.
 
 ### Frame pacing (2026-10-17)
 
-`desktop/src/pacing/` (pure, tested on a fake clock), driven by the
+`crates/desktop/src/pacing/` (pure, tested on a fake clock), driven by the
 shell's loop; `--pacing block|late`, `--pacing-report`.
 
 **Blocking frames (the default without a display link).** The loop polls; each
@@ -609,7 +609,7 @@ in flight repeat a third of the refreshes, with two in flight none
 
 **What changed for it.**
 
-- **A display link** (`desktop/src/display_link.rs`): on macOS 14 and
+- **A display link** (`crates/desktop/src/display_link.rs`): on macOS 14 and
   later the window's view's `CADisplayLink` (`NSView.displayLink(target:
   selector:)`, objc2's bindings), on the main run loop, paused outside
   play, its `preferredFrameRateRange` pinned at the OS's rate (120 Hz on
@@ -749,7 +749,7 @@ over a fixed or variable display; `sim::run` and `sim::Loop` drive a
 shown. It is built for tests only (`cfg(test)`, and the `sim` feature
 the integration tests turn on through ddi-desktop's dev-dependency on
 itself), not into the shipped binary. Tests
-(`desktop/src/pacing/tests.rs`): the grid (a 119.88 Hz display called
+(`crates/desktop/src/pacing/tests.rs`): the grid (a 119.88 Hz display called
 120, a wrong rate, strays, no grid), block never sleeps, late at 60, 120
 and 144 Hz (latency, the same drawn-for time as block, no repeats, one
 frame a refresh), one overrun costs one repeat and no more, a 3 ms
@@ -762,7 +762,7 @@ the first frame, a compositor that keeps drawables (one in flight
 repeats, two do not); `display_link.rs`: a `CVDisplayLink` run with no
 window ticks at the display's rate on the host clock, and
 `CACurrentMediaTime` is the host clock. A review's simulation (phase
-shifts, 60 ↔ 120 Hz, a 3 s stall, late releases) ran on it too. `desktop/tests/pacing.rs`: every bundled chart autoplayed with its
+shifts, 60 ↔ 120 Hz, a 3 s stall, late releases) ran on it too. `crates/desktop/tests/pacing.rs`: every bundled chart autoplayed with its
 frames at the times late pacing gives them (60 Hz, 144 Hz, a 48–144 Hz
 variable display, a missed refresh, a late timer) judged as at a steady
 60: the same tally, the same log (so the same replay), every hit at the
@@ -777,13 +777,13 @@ same offset.
   beside a songs folder (StepMania's layout), images decoded by the
   shell. **SVG** (Dito, the default skin, is SVG; decision 38): rasterised
   with `resvg` 0.48.1 (Apache-2.0 OR MIT) at four times its size, the
-  subset `noteskin/src/svg.rs` checks being the one browsers and resvg
+  subset `crates/noteskin/src/svg.rs` checks being the one browsers and resvg
   draw alike. The image loader gains GIF, BMP and WebP (`image`
   features), the formats `pack::IMAGE_EXTENSIONS` lists.
 - **Backgrounds:** the still images and `#BGCHANGES` schedule
   (`ddi_library::backgrounds`), decoded by the shell into RGBA as
   decision 16 foresaw; the background frame and the blur as on the web.
-- **Dancing☆Onigiri layers** (`web/src/stage.rs`'s timeline moves to
+- **Dancing☆Onigiri layers** (`crates/web/src/stage.rs`'s timeline moves to
   the session) and lyrics (drawn in the scene once 6.4 moves them there;
   cosmic-text draws Japanese with system fonts).
 - **Results** are the theme's screen (`ddi_ui::screens::results`), from
@@ -800,7 +800,7 @@ same offset.
 - **Options weighed:**
   - *The web's module under wasmtime* (`wasmtime` 49.0.3,
     `wasmtime-wasi` 49.0.3, Apache-2.0 WITH LLVM-exception). The module
-    is a WASI reactor importing 20 calls (`web/src/web/video_worker.js`
+    is a WASI reactor importing 20 calls (`crates/web/src/web/video_worker.js`
     implements them in JavaScript); wasmtime-wasi or our own 20 calls
     over a file give it the same. Same decoder, frame times and seeks as
     the web's software path; LGPL compliance unchanged (a separate file,
@@ -819,7 +819,7 @@ same offset.
     only, not Xvid or MPEG-2; no.
 - **Proposed:** wasmtime, behind a cargo feature `video` (on by default
   for `cargo run`), implementing `VideoBackend`/`VideoDecoder`
-  (`desktop/src/video.rs`) on one decoder thread per movie, the module
+  (`crates/desktop/src/video.rs`) on one decoder thread per movie, the module
   looked for beside the executable, then in `target/video/` (dev), then
   `DDI_VIDEO_MODULE`. Without it, movies show the song background with
   the results' one line, as a web build without the module does. Planes
@@ -858,10 +858,10 @@ same offset.
 
 ### Scanning and the cache
 
-- **Shared song building.** `web/src/import/mod.rs::import_song`'s
+- **Shared song building.** `crates/web/src/import/mod.rs::import_song`'s
   platform-free part (parse, playable layouts, `resolve_assets`,
   `classify_images` from image headers, missing-file warnings and notes,
-  `summarize`, the chart digests) moves to `library/src/scan.rs` behind a
+  `summarize`, the chart digests) moves to `crates/library/src/scan.rs` behind a
   small reader trait (list, read a range, read whole), used by the web's
   import, `xtask gen-songs` and desktop. The report (`ImportReport`)
   moves with it.
@@ -876,16 +876,16 @@ same offset.
   played or previewed (milliseconds); music, banners, backgrounds and
   movies are read from their paths; nothing is copied. Banners go
   through the existing image loader (absolute paths already allowed,
-  `desktop/src/images.rs`).
+  `crates/desktop/src/images.rs`).
 - **To measure** (7.3): a full scan and a cached start of the local
   library (`~/Music/Simfiles`, about 1,200 simfiles, one-off and local
   only).
 
 ### Song select's data, the history, removal
 
-- `web/src/select_data.rs` (packs, styles, charts, bests from the
+- `crates/web/src/select_data.rs` (packs, styles, charts, bests from the
   history) moves into `ui::state` (D1), fed by either shell's library.
-- The history stays two files a play (`desktop/src/plays.rs`), in the data
+- The history stays two files a play (`crates/desktop/src/plays.rs`), in the data
   folder (D10); bests by chart digest work across both shells' ids.
 - "Remove a pack" on desktop removes it from the list (the folder is
   hidden), never deletes files. "Read again" rescans the folder.
@@ -898,7 +898,7 @@ same offset.
   Dropping folders or zips on the window (winit's `DroppedFile`; not on
   Wayland) adds them, as the web's drop imports.
 - **Clipboard:** arboard 3.7.0 (MIT OR Apache-2.0; bump from 3.6.1).
-- **Links:** `desktop/src/os.rs` as now (`open`, `rundll32`, `xdg-open`).
+- **Links:** `crates/desktop/src/os.rs` as now (`open`, `rundll32`, `xdg-open`).
 - **IME:** done in step 3 (own mode, preedit and commit, the caret area).
   Windows (`WM_IME_*`) and Linux (X11 XIM through ibus or fcitx,
   Wayland's text-input-v3) are checked by hand only (section 6).
@@ -943,7 +943,7 @@ same offset.
     reports for the same files; the cache's invalidation;
   - `PadTracker` fed with recorded gilrs event streams (standard and
     unmapped pads, hats as axes);
-  - offscreen GPU tests (`desktop/tests/*_offscreen.rs`, skipped without
+  - offscreen GPU tests (`crates/desktop/tests/*_offscreen.rs`, skipped without
     an adapter): a play's frame with the built-in arrows, Dito and a Lua
     skin, matched against the web's pixels within 2 levels, as the
     developer screen is; results and options on real data.
@@ -1135,22 +1135,22 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
   which is too slow and decodes through 16-bit. Decision 9's question
   for the web (a pure-Rust Opus decoder now matches libopus) stays open.
   Settled 2026-10-16: the web's fallback decodes Opus with the same code
-  (`platform/src/opus.rs`, which `decode_all` now goes through), in a
+  (`crates/platform/src/opus.rs`, which `decode_all` now goes through), in a
   worker fetched only when needed (PLAN.md decision 9).
 
 ### 7.1 One session for both shells
 
 - New crate `session/` (`ddi-session`, platform-free, natively tested):
-  `PlaySession` and `SessionConfig` from `web/src/play.rs`, generic over
+  `PlaySession` and `SessionConfig` from `crates/web/src/play.rs`, generic over
   `AudioBackend` and fed `RawInput`s; `Calibrator` and the click track
-  from `web/src/calibration.rs`; the backgrounds schedule and video guard
-  glue from `web/src/game_loop.rs`; the layers' timeline from
-  `web/src/stage.rs`; the `PlayFacts` a play is recorded with.
+  from `crates/web/src/calibration.rs`; the backgrounds schedule and video guard
+  glue from `crates/web/src/game_loop.rs`; the layers' timeline from
+  `crates/web/src/stage.rs`; the `PlayFacts` a play is recorded with.
   Dependencies: `engine`, `chart`, `library`, `platform`, `ui` (settings).
 - `ddi_platform::AudioBackend` extended (section 1); `WebAudio`
   implements it; `SongStore` dropped from the docs.
-- `web/src/select_data.rs` → `ui::state::select_data`;
-  `import_song`'s core → `library/src/scan.rs` (section 4).
+- `crates/web/src/select_data.rs` → `ui::state::select_data`;
+  `import_song`'s core → `crates/library/src/scan.rs` (section 4).
 - Checked: every web run that exists, unchanged (autoplay all top tier on
   WebGPU and WebGL2, `auto=pad`, calibration's automatic runs, plays
   recorded with the same facts, imports with the same reports), plus the
@@ -1159,14 +1159,14 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
 #### Done, 7.1 (2026-10-16)
 
 - **`session/`** (`ddi-session`): `play.rs`, the play the web ran in
-  `web/src/play.rs` (the engine's `Player`, bindings, the quit gesture,
+  `crates/web/src/play.rs` (the engine's `Player`, bindings, the quit gesture,
   autoplay and `auto=pad`, the fail's fade, a work's fades, the facts a
   play is kept with), generic over `ddi_platform::AudioBackend` and an
   `Inputs` trait (begin and poll, connected pads, interruptions, device
   changes, the test pad); `calibration.rs` (modes, chart, click track,
   generic); `backgrounds.rs` (the frame's shape, the refresh meter, the
   automatic video setting's step); `stage.rs` (a work's layers'
-  timeline). The web keeps a thin wrapper (`web/src/play.rs`: its
+  timeline). The web keeps a thin wrapper (`crates/web/src/play.rs`: its
   keyboard, gamepads, touch lanes, listeners, and what the field draws).
   Nine native tests on a fake clock: autoplay all top tier at 60, 144
   and 37 fps, through a test pad, calibration converging on a late
@@ -1180,7 +1180,7 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
 - **Song select's view** of the library is `ddi_ui::state::select_view`
   (the web's `select_data.rs` keeps what only it knows: banners from
   storage, the import's panel).
-- **The import's core:** `library/src/scan.rs` now has its steps apart
+- **The import's core:** `crates/library/src/scan.rs` now has its steps apart
   (`read_song`, `Reading::images_to_size` and `sized`,
   `Reading::movies`, `Reading::finish` with the files `Naming::InPlace`
   or `Naming::Stored`), so the web's `import_song` runs it on `Blob`s
@@ -1208,8 +1208,8 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
 
 ### 7.2 Audio on desktop
 
-- `desktop/src/audio/` (stream, mixer, clock, decoder thread),
-  `desktop/src/clock.rs`, `decode-all` in `platform`, `[profile.desktop]`
+- `crates/desktop/src/audio/` (stream, mixer, clock, decoder thread),
+  `crates/desktop/src/clock.rs`, `decode-all` in `platform`, `[profile.desktop]`
   (D11).
 - Song select on sample data plays previews; the developer screen's
   sound; the options' volume sample.
@@ -1219,11 +1219,11 @@ Generated clips are 20 s of `testsrc2`; the rest are local pack movies.
 
 #### Done, 7.2 (2026-10-16)
 
-Built: `desktop/src/audio/` (`mod.rs` the backend and the cpal stream,
-`mixer.rs`, `clock.rs`, `hal.rs`, `decoder.rs`), `desktop/src/clock.rs`
-(the process's epoch), `desktop/src/preview.rs` (song select's
+Built: `crates/desktop/src/audio/` (`mod.rs` the backend and the cpal stream,
+`mixer.rs`, `clock.rs`, `hal.rs`, `decoder.rs`), `crates/desktop/src/clock.rs`
+(the process's epoch), `crates/desktop/src/preview.rs` (song select's
 previews, the developer screen's tone), `decode-all` in `platform`
-(`platform/src/decode_all.rs`), `[profile.desktop]` in the workspace's
+(`crates/platform/src/decode_all.rs`), `[profile.desktop]` in the workspace's
 `Cargo.toml`, and the shell's wiring (`StartAudio`, `PlayPreview`,
 `StopPreview`, song select's `Selected`, the pulse's `BeatFn`).
 
@@ -1428,7 +1428,7 @@ previews, the developer screen's tone), `decode-all` in `platform`
 
 Done, 7.3 (2026-10-16):
 
-- **Shared building** (`library/src/scan.rs`): `scan_song` is the
+- **Shared building** (`crates/library/src/scan.rs`): `scan_song` is the
   platform-free part of the web's `import_song` (parse, notes and
   warnings, `resolve_assets`, `classify_images` from image headers,
   movies sniffed, missing files, `summarize`, the chart digests) over a
@@ -1460,7 +1460,7 @@ Done, 7.3 (2026-10-16):
   IndexedDB JSON strings (only import timestamps removed), ids, digests,
   keys and 119 stored-file hashes. Firefox also imported the two synthetic
   ZIP layouts. No cache or IndexedDB migration is needed.
-- **Folders** (`desktop/src/library/`): `ddi.desktop.folders.v1` in
+- **Folders** (`crates/desktop/src/library/`): `ddi.desktop.folders.v1` in
   desktop's storage (the web's settings untouched); each is a StepMania
   root (`Songs/`, with `RandomMovies/` and `SongMovies/` as the shared
   folders and `NoteSkins/` for skins), a songs folder, one pack, or a
@@ -1496,7 +1496,7 @@ Done, 7.3 (2026-10-16):
   there (an unplugged drive) keeps its cached songs for its return.
   "Read again" reads that pack whole (song select's Manage) or every
   folder (Options).
-- **Song select on the library** (`desktop/src/songs.rs`): the bundled
+- **Song select on the library** (`crates/desktop/src/songs.rs`): the bundled
   songs first, then the library by pack, through
   `ddi_ui::state::select_view` (the web's `select_data` logic in
   `ui::state`, D1; the web adopts it in 7.1), with bests from the
@@ -1517,10 +1517,10 @@ Done, 7.3 (2026-10-16):
   the cache (in desktop's words: nothing in the folders is deleted); the
   noteskins of the folders' `NoteSkins/` (walked on a thread) and the
   bundled index are listed with the web's keys
-  (`desktop/src/library/noteskins.rs`; drawn natively from phase 9:
+  (`crates/desktop/src/library/noteskins.rs`; drawn natively from phase 9:
   the field preview keeps the built-in arrows until then); the play
   history exports as JSON lines to a file the player picks.
-- **History** in the data folder (`desktop/src/history.rs`, D10):
+- **History** in the data folder (`crates/desktop/src/history.rs`, D10):
   `~/Library/Application Support/DitoDitoInfinito/plays` on macOS,
   `%APPDATA%\DitoDitoInfinito\plays` on Windows,
   `~/.local/share/ditoditoinfinito/plays` on Linux, where plays kept in
@@ -1544,7 +1544,7 @@ Done, 7.3 (2026-10-16):
 ### 7.4 Input on desktop
 
 - `DesktopKeyboard` with receipt stamps and the macOS `NSEvent` monitor;
-  `desktop/src/pads.rs` (gilrs thread, `PadTracker`, ids and standard
+  `crates/desktop/src/pads.rs` (gilrs thread, `PadTracker`, ids and standard
   numbering); menu input by pad; the bind flow and bindings on 6.3's
   options screen.
 - Checked: the tracker tests with recorded streams; a fake pad source
@@ -1553,7 +1553,7 @@ Done, 7.3 (2026-10-16):
 
 Done, 7.4 (2026-10-16):
 
-- **Keys** (`desktop/src/keyboard.rs`): `Stamps` pairs winit's
+- **Keys** (`crates/desktop/src/keyboard.rs`): `Stamps` pairs winit's
   `KeyboardInput` with the OS's stamp of the same key code (winit's
   `to_scancode`, macOS's virtual key code; a key winit cannot name by
   the OS's own code, macOS's ISO § key, 0x0a, as winit's `Backquote`),
@@ -1572,7 +1572,7 @@ Done, 7.4 (2026-10-16):
   everything released on `Focused(false)`), kept from 7.5 on; menus get
   the stamped time already. The shell's UI times are the host clock's
   now (`crate::clock`), so keys, pads and audio share one.
-- **Controllers** (`desktop/src/pads.rs`): gilrs 0.11.2 with its filters
+- **Controllers** (`crates/desktop/src/pads.rs`): gilrs 0.11.2 with its filters
   off on a thread of its own, blocking in `next_event_blocking`; each
   report becomes `PadEvent`s, read as one snapshot by the pad's
   `PadTracker` (the d-pad's two buttons of one hat change are one
@@ -1595,13 +1595,13 @@ Done, 7.4 (2026-10-16):
   hats as two axes. Edges go to the main thread over a channel and wake
   the loop through an `EventLoopProxy`; a pad unplugged releases what
   it held.
-- **Menus by pad on every screen** (`desktop/src/input.rs`): edges
+- **Menus by pad on every screen** (`crates/desktop/src/input.rs`): edges
   through `ControlBindings::menu_input` (the options' bindings as
   edited, else the stored ones) as `UiEvent::Menu`, a gesture always;
   while a screen binds (`Ui::wants_raw`), as `UiEvent::Raw`, decided
   for each edge once the one before was handled (the press that opens
   the bind flow sends the next ones raw).
-- **Options on desktop** (`desktop/src/options.rs`): `--screen options`
+- **Options on desktop** (`crates/desktop/src/options.rs`): `--screen options`
   is the theme's options on the stored settings through
   `options_shell` (the API unchanged), `OptionsPlatform` on desktop: the
   volume sample on the preview player, the controllers connected and
@@ -1621,7 +1621,7 @@ Done, 7.4 (2026-10-16):
   streams (W3C numbers, the d-pad's hat, stick hysteresis, a stamp from
   the future falling back to receipt, an unplugged pad); gilrs's own
   events through `button_event` and `axis_events`; the bind flow on
-  desktop's options driven by the fake pad (`desktop/tests/bind_flow.rs`:
+  desktop's options driven by the fake pad (`crates/desktop/tests/bind_flow.rs`:
   the pad moves down the rows as a menu, opens its own row's bind flow
   with A, binds its d-pad, Start and Back, and the stored bindings have
   them); 4-second windowed runs with gilrs (no controller connected:
@@ -1632,7 +1632,7 @@ Done, 7.4 (2026-10-16):
 
 ### 7.5 Play
 
-- `desktop/src/play.rs`: the session on the desktop backend and sources,
+- `crates/desktop/src/play.rs`: the session on the desktop backend and sources,
   the play field in the painter's `External` slot, the present modes and
   pacing (D6), noteskins with Lua and SVG, backgrounds, layers, results,
   the history recorded, `--play`/`--auto`.
@@ -1643,7 +1643,7 @@ Done, 7.4 (2026-10-16):
 
 #### Done, 7.5 (2026-10-16)
 
-Built in `desktop/src/play/`:
+Built in `crates/desktop/src/play/`:
 
 - **`mod.rs`:** `Play`, the shared session (`ddi_session::play`) on the
   desktop's `Audio` and `DesktopInputs`: the shell's keyboard and pad
@@ -1723,7 +1723,7 @@ Built in `desktop/src/play/`:
 Checked, with no sound device (CoreAudio is off limits for now) and no
 window (the display is asleep):
 
-- `desktop/tests/play.rs`: every playable chart of the four bundled
+- `crates/desktop/tests/play.rs`: every playable chart of the four bundled
   songs autoplayed on a fake clock at 60 and 144 frames a second, all
   top tier, no hold let go, kept once in the history; Beatucada through
   the test pad, the same tally.
@@ -1765,14 +1765,14 @@ wait for the maintainer.
 
 After the maintainer's first look:
 
-- **`DDI_HOME`** (`desktop/src/paths.rs`): the configuration, data and
+- **`DDI_HOME`** (`crates/desktop/src/paths.rs`): the configuration, data and
   cache folders move under it; every agent's and test's run sets it
   (AGENTS.md, the verify skill), so no run writes the player's
   `storage.json` again.
 - **Options' field preview** readies the noteskin play would draw
   (`Settings::noteskin_for`, the pump skin for pump layouts) natively,
   shown from the next frame after a pick
-  (`desktop/tests/field_skin_offscreen.rs`).
+  (`crates/desktop/tests/field_skin_offscreen.rs`).
 - **Movies on by default:** feature `video` is ddi-desktop's default
   (`--no-default-features` builds without wasmtime; CI tests both). A
   `cargo run` finds the module in `target/video/` under any profile
@@ -1820,15 +1820,15 @@ cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
 
 #### Done, 7.5b (2026-10-16)
 
-- **One core for both shells** (`library/src/works.rs`): what the web's
+- **One core for both shells** (`crates/library/src/works.rs`): what the web's
   import did with a page or a dump once read, moved as 7.1 moved the
   simfiles' (`scan.rs`): a page's dos (`read_page`, then
   `Page::finish` with the external dos), a dump's (`dump_work`), the
   songs, their ids, music, layer images and the report's lines
   (`plan`), a song's entry with its charts' keys (`entry`,
-  `fill_chart_keys`). The web's import (`web/src/import/danoni.rs`)
+  `fill_chart_keys`). The web's import (`crates/web/src/import/danoni.rs`)
   reads the files and stores what it found, as before.
-- **The library on disk** (`desktop/src/library/`): each root's works
+- **The library on disk** (`crates/desktop/src/library/`): each root's works
   scanned after its simfiles (read every scan: a few files each; a
   zip's kept with the zip's stamp), the page decoded in its declared
   charset (`encoding_rs`); a song's `WorkRef` says where its work is
@@ -1842,7 +1842,7 @@ cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
   they are. Previews of works too: from the start, a script's or a
   zip's music written once into the previews folder, lined up the same
   way.
-- **Layers** (`desktop/src/play/stage.rs`, the web's `stage.rs`): the
+- **Layers** (`crates/desktop/src/play/stage.rs`, the web's `stage.rs`): the
   contents read on a thread (images at most 2048 px, their own size in
   the stage's px; texts drawn with cosmic-text on the system's fonts as
   the web's canvas draws them, three times their size, in their color),
@@ -1860,7 +1860,7 @@ cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
   difficulty, meter, notes, digest and excessive setting); the 9
   others not read (key modes the game does not play, dumps without
   their dos); 6 charts autoplayed headless, all top tier
-  (`desktop/tests/works.rs`, `local_works`, with `DDI_WORKS` and
+  (`crates/desktop/tests/works.rs`, `local_works`, with `DDI_WORKS` and
   `DDI_WEB_WORKS`). A generated work with back and mask layers (two
   images, a text, Japanese lyrics; a folder and the same as a zip): the
   same id as Chrome's import, and offscreen at 2 s against Chrome's
@@ -1879,7 +1879,7 @@ cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
   next scan), the old id kept as an alias until then.
 - **After its review (2026-10-16):** a fresh checkout's tests write the
   bundled songs' and noteskins' indexes they read when missing
-  (`desktop/tests/common/mod.rs`; checked on a fresh copy with its own
+  (`crates/desktop/tests/common/mod.rs`; checked on a fresh copy with its own
   target folder), and CI writes them before its tests in both jobs; a
   charset label no decoder knows (`UTF-8N`) or a "replacement" one
   reads the page by what its bytes are, as the web does; text layers'
@@ -1902,7 +1902,7 @@ cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
 
 #### Done, 7.6 (2026-10-16)
 
-- **The tests run as plays** (`desktop/src/play/`): a calibration is a
+- **The tests run as plays** (`crates/desktop/src/play/`): a calibration is a
   `Request` like a song's (`Request::calibration`), its chart and click
   track generated (`load::calibration`, the session's
   `calibration::song` and `click_samples` at the output's rate), played
@@ -1919,11 +1919,11 @@ cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
   the default), the guided flow's next, again, done. Done (and Escape,
   and leaving a test's prompt or quitting it) opens the menu again; the
   last step's done goes back to the songs, as the web's.
-- **Calibration's menu** (`desktop/src/calibrate.rs`): 6.4's page, from
+- **Calibration's menu** (`crates/desktop/src/calibrate.rs`): 6.4's page, from
   song select's Calibrate link and Options' Calibrate button, its tests
   started through the library's play call (the menu closes, the test's
   prompt comes), Options in its place, the reset asked first.
-- **Devices** (`desktop/src/devices.rs`): the audio path's fingerprint
+- **Devices** (`crates/desktop/src/devices.rs`): the audio path's fingerprint
   (the output's host, device, rate and nominal latency in 5 ms buckets,
   7.2) and the display's (`display:<monitor>:<w>x<h>@<scale>`, the
   refresh rate left out), looked at every second; the web's notices in
@@ -1938,7 +1938,7 @@ cache folder (`movies/`, 2 GB kept, `zip::extract_to` streaming).
   an autoplay), and a change during it is flagged on its results. `--silent` has no audio path: plays take the defaults.
 - **CLI:** `--calibrate visual|audio|combined [--auto] [--bias MS]
   [--start]`; a timed run's last lines say the devices and the notice.
-- **Checked:** headless on a fake clock (`desktop/tests/calibration.rs`):
+- **Checked:** headless on a fake clock (`crates/desktop/tests/calibration.rs`):
   every test reads a 30 ms late autoplayer as +30 ms, and saving the
   sound-only and arrows-only tests' results brings offsets set 40 and
   25 ms off back to 0 ± 4 ms, the check then reading nothing to change;
@@ -1956,7 +1956,7 @@ maintainer's).
 
 Then, after its review (2026-10-16): a skin in the settings' song
 folders is found when read on its thread (the folders are taken on the
-caller's: the settings are a thread's; `desktop/tests/skins.rs`); a
+caller's: the settings are a thread's; `crates/desktop/tests/skins.rs`); a
 compressed movie inflates whatever its ratio (never miniz's `Finish`,
 which wanted the rest of the output at once: 11 of 313 local movies;
 a stream cut short is an error); two loads of a zipped movie extract it
@@ -1979,7 +1979,7 @@ writes the bundled songs' and noteskins' indexes first.
 
 ### 7.7 Video
 
-- `desktop/src/video.rs` on wasmtime (feature `video`), the module found
+- `crates/desktop/src/video.rs` on wasmtime (feature `video`), the module found
   as section 3 says, the YUV path, the automatic setting's guard.
 - Checked: the module's frames against the web's on generated clips
   (`video-check`'s references), a local pack with movies played all top
@@ -1988,16 +1988,16 @@ writes the bundled songs' and noteskins' indexes first.
 #### Done, 7.7 groundwork (2026-10-16)
 
 What play (7.5) plugs in, behind ddi-desktop's `video` feature (off by
-default until then): `desktop/src/video.rs`, its unit tests in
-`desktop/src/video/tests.rs`, `desktop/tests/video.rs`, and
+default until then): `crates/desktop/src/video.rs`, its unit tests in
+`crates/desktop/src/video/tests.rs`, `crates/desktop/tests/video.rs`, and
 `--video-check FILE [--reference REF.yuv] [--frames]` (run with
 `--features ddi-desktop/video`).
 
 - **The host.** `VideoHost` (`VideoBackend`, its source a path) runs the
   FFmpeg module on one decoder thread, shared by every movie
   (`VideoHost::shared`, as the web shares its worker), and `DesktopVideo`
-  is `VideoDecoder`. It mirrors `web/src/web/video_worker.js` and
-  `web/src/web/video.rs` call for call: the module's 20 WASI calls are
+  is `VideoDecoder`. It mirrors `crates/web/src/web/video_worker.js` and
+  `crates/web/src/web/video.rs` call for call: the module's 20 WASI calls are
   ours (no `wasmtime-wasi`), over the movie files with the worker's
   64 KiB read-ahead and names (`/v/<id>.<ext>`), everything else refused;
   messages in order (open, seek, want, close, probe, recycle, load);
@@ -2040,7 +2040,7 @@ default until then): `desktop/src/video.rs`, its unit tests in
   own decode within `clips.sh`'s bounds, and 104–124 seeks a clip (each
   frame time, mid-periods, the gap of dropped frames, the end, past it,
   and a loop back to the start) landing on the straight-through frames
-  byte for byte. `desktop/tests/video.rs` does the same on four clips it
+  byte for byte. `crates/desktop/tests/video.rs` does the same on four clips it
   generates (Xvid, Xvid with dropped frames, MPEG-2, H.264), plus two
   movies decoded at once, a truncated file (plays what it has and ends),
   a corrupt one (fails to open, the decoder carries on), and the cache
@@ -2076,7 +2076,7 @@ default until then): `desktop/src/video.rs`, its unit tests in
   a decoder message is cut at 4 KB, a later success clears a `Failed`
   status, and no build path is kept in the binary (the workspace's
   `target/video/` is found from the executable, any profile).
-  `desktop/src/video/tests.rs` runs a stand-in module written as text
+  `crates/desktop/src/video/tests.rs` runs a stand-in module written as text
   (`wat`, a dev-dependency) that traps, spins, opens its movie 1,000
   times, writes 64 MiB of messages with no line end, asks for files
   outside `/v` and claims a 100,000×100,000 picture; and damages and
@@ -2135,7 +2135,7 @@ Done, 7.8 (2026-10-16):
   step: its scripts never reach the container (the copy into
   `/var/run/act/workflow` leaves it empty), so the image is run
   directly.
-- **The first start's offer** (D7, `desktop/src/library/offer.rs`): with
+- **The first start's offer** (D7, `crates/desktop/src/library/offer.rs`): with
   no song folder (settings and `--songs`) and no answer kept
   (`ddi.desktop.offer.v1`), the places StepMania 5, ITGmania and OutFox
   keep songs are looked at by folder names only (a folder counts with a
@@ -2156,7 +2156,7 @@ Done, 7.8 (2026-10-16):
   run's last lines name the UI's layers (`select › folders-offer`).
   Checked: the places on made-up trees for each system, the dialog in
   the harness (it opens through the feed, "Add it" answers yes) and on
-  the GPU (`desktop/tests/offer_offscreen.rs`), first-start runs on a
+  the GPU (`crates/desktop/tests/offer_offscreen.rs`), first-start runs on a
   scratch `HOME` (offered; on this Mac also OutFox's real folders in
   `/Applications/OutFox` and `~/Library/Application Support/Project
   OutFox`, which confirm macOS's OutFox place).
@@ -2276,7 +2276,7 @@ Each with a recommendation; those the lead should decide are marked.
 - **Library size and memory:** a cache of a large library and banners
   for thousands of songs. Recommendation: the cache stores entries only
   (kilobytes a song); banners stay under the texture cache's budget (P9,
-  `desktop/tests/banners.rs`); measured on the local library in 7.3.
+  `crates/desktop/tests/banners.rs`); measured on the local library in 7.3.
 - **Two folders with the same pack** give the same song ids.
   Recommendation: the first folder in the list wins, the rest are
   reported, as StepMania keeps the first song folder it loads.

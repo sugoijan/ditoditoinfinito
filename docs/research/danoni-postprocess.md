@@ -60,7 +60,7 @@ not invented from a title or tuning string. Native reference JSON and all source
 chart/metadata fields are copied to the derived references unchanged.
 
 Built-in lane order follows CW pattern 0 and
-[the generated game table](../../chart/src/layout/danoni_table.rs):
+[the generated game table](../../crates/chart/src/layout/danoni_table.rs):
 
 | Mode | Ordered lane names |
 |---|---|
@@ -253,7 +253,7 @@ are identical to the prior pack; its existing Chrome proof still applies.
 `chart-verification.jsonl` records parser values and the current menu values.
 
 **The current menu still needs a game-side change.**
-[`library::manifest::summarize`](../../library/src/manifest.rs:103) honors
+[`library::manifest::summarize`](../../crates/library/src/manifest.rs:103) honors
 `song.display_bpm` only when `song.source.format == SourceFormat::Danoni`.
 Reconstructed `.ssc` files have SSC format, even with `danoni-5` steps types, so
 this function takes `song.timing.bpm_range()` and emits 75. Merely adding the
@@ -401,7 +401,7 @@ native motion (base speed, speed changes and per-note boost). Keep that separati
 in future normalization and game integration.
 
 The musical SSC variant above changes ordinary beat-based X-mod motion too:
-[`ScrollState`](../../engine/src/scroll.rs) uses displayed beat distance times
+[`ScrollState`](../../crates/engine/src/scroll.rs) uses displayed beat distance times
 the player multiplier. With no compensating scroll segments, a track at 199.759
 BPM moves about **2.663 times** as fast as its earlier 75 BPM SSC at the same
 setting. The 9 ms bound covers note timestamps only, not visual travel speed.

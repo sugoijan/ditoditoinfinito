@@ -14,7 +14,7 @@ WebM/MP4 playback use it.
 
 Run `node --no-warnings video/packets.mjs movie.mp4 [--json]` to inspect
 metadata, packet CRCs and seek hints and verify key-packet seeks under WASI.
-`desktop/tests/video_packets.rs` compares generated containers with ffprobe.
+`crates/desktop/tests/video_packets.rs` compares generated containers with ffprobe.
 
 ## Ownership and limits
 
@@ -126,7 +126,7 @@ The pinned upstream contracts are FFmpeg's `AVPacket`, packet side data and
 `AVIndexEntry`; see [FFmpeg's API documentation](https://www.ffmpeg.org/doxygen/9.0/avformat_8h.html).
 
 Windows' experimental Media Foundation consumer uses these same bounded
-packets (`desktop/src/video/mf.rs`). It requires unique usable packet PTS
+packets (`crates/desktop/src/video/mf.rs`). It requires unique usable packet PTS
 only to correlate transform output with input pictures, while the checked
 codec models keep DTS-based game timing. AVI has no such packet identity
 source and is refused by this initial Windows class. Auto on Windows

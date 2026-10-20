@@ -31,7 +31,7 @@ actors exist and which commands they run.
   StepMania's MIT code and cited; anything a skin does not provide as an
   image is drawn procedurally, as today.
 - Imported skins stay local like imported songs. Test skins committed to the
-  repository are synthetic: images drawn by a script in `noteskin/tests/`,
+  repository are synthetic: images drawn by a script in `crates/noteskin/tests/`,
   MIT like the rest.
 - Fidelity: follow StepMania 5.1 (`5_1-new` @ `825467b`), ITGmania where it
   differs, cite file and line in comments where a rule is not obvious.
@@ -177,14 +177,14 @@ frame. Bright: combo above 100, after the row is scored.
   times (frame selection, colors, holds under normal and reverse).
 - Review before handover.
 
-**Done 2026-10-10.** `render/src/textured.rs` (StepMania's diffuse then
+**Done 2026-10-10.** `crates/render/src/textured.rs` (StepMania's diffuse then
 glow pass, normal and additive blending, clamp or repeat), `noteskin.rs`
 (the playing skin: lanes' actors, commands from the events and the
 holding edges, `DrawHold` geometry), and scene segments interleaving the
 procedural sprites and the skin's quads (receptors, holds, notes,
 explosions). Elements made only of the stand-ins' art are the built-in
 skin's shapes; explosion parts that fall back use generated white art
-(`art.rs`). The synthetic skin is `noteskin/tests/make_test_skin.py`.
+(`art.rs`). The synthetic skin is `crates/noteskin/tests/make_test_skin.py`.
 Headless Chrome, a bundled 10-level chart: all 329 taps top tier and 27 of
 27 holds kept with the test skin on WebGPU, as without it; WebGL2 and
 reverse checked by screenshot (held bodies green, head pinned, flipped caps
@@ -277,6 +277,6 @@ layouts (`docs/plans/danoni-skins.md`, `docs/plans/pump.md`). Left:
   a whole quad: a cut piece draws StepMania's plain one. In the corpus
   pump/delta (StepMania 5.1's, ITGmania's, OutFox's) and the community
   Bright14 use them; they load and play through their Lua with no
-  warning about them (`desktop/tests/actor_cuts_offscreen.rs` draws each
+  warning about them (`crates/desktop/tests/actor_cuts_offscreen.rs` draws each
   direction and a tween on the GPU; the 84 skin previews of the bundled
   skins are identical).

@@ -53,7 +53,7 @@ underlying checks read `noteskin.name`, `quads`, `problems`, `lua.runs` and
 ### Native base scroll and player multipliers
 
 A read-only WebGPU observer captures the procedural instance buffer submitted
-by the actual renderer. The current `render/src/sprite.rs::Instance` layout is
+by the actual renderer. The current `crates/render/src/sprite.rs::Instance` layout is
 56 bytes; its centre, size and shape distinguish the nearest unjudged arrow
 from the leftmost directional receptor. A linear fit against host timestamps
 measures physical velocity. Replaced heads, unstable geometry, insufficient

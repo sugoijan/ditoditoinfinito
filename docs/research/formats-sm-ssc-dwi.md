@@ -246,7 +246,7 @@ Whitespace (`\n \r \t space`) is stripped from step strings before parsing. `//`
 | [barrysir/stepmania-parsing-code](https://github.com/barrysir/stepmania-parsing-code) | C++ extraction of SM's loaders (.sm/.ssc/.dwi/.json/.lrc) for 100% identical parsing | MIT | Declared defunct; useful as a reference oracle |
 | [simfile (Python)](https://docs.simfile.dev/) | .sm/.ssc with a well-documented `TimingEngine` | MIT | Maintained; its docs are the clearest prose on stop/delay/warp semantics |
 
-**As differential-test oracles (checked 2026-10-07, `chart/tests/differential.rs`).** Both are weak on their own, so each is used for what it gets right:
+**As differential-test oracles (checked 2026-10-07, `crates/chart/tests/differential.rs`).** Both are weak on their own, so each is used for what it gets right:
 
 - `rgchart` 0.0.15: `.sm` only (`from_ssc` is `unimplemented!`); reads only the **last** `#NOTES` block; assumes four columns; `f32` beats, times truncated to whole milliseconds; no delays, warps or negative BPMs; applies a stop *before* a note on the stop's own beat (StepMania pauses after it, which is a delay). Good for note times through BPM changes and stops.
 - `danceparser` 0.2.1: `.sm` only; reads every chart; its `NoteKind` names `3` "RollHead" and `4` "Tail", the reverse of StepMania (`3` is a tail, `4` a roll head); `beat_to_time` ignores stops; strict lexer rejects dashed comment lines, `#DISPLAYBPM` ranges, `#ATTACKS` and empty meters. Good for the note grid, steps types, meters, BPMs and stops.

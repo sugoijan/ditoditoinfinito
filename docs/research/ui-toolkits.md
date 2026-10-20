@@ -1,7 +1,7 @@
 # Drawing the menus ourselves: GUI toolkits, game UI, what to reuse (2026-10-15)
 
 Scope: the menus are Yew components over the DOM (about 7,700 lines in
-`web/src/components/` and `web/src/app.rs`: song select 1,780, the play
+`crates/web/src/components/` and `crates/web/src/app.rs`: song select 1,780, the play
 screen's component 1,630, options 1,320, the rest for the bind flow, the
 skin preview, the device notices, credits and developer pages; plus a
 1,050-line stylesheet). The aims are to draw every player-facing screen
@@ -31,7 +31,7 @@ WebGL2), glyphon and taffy measures 1,279 KB.
   path to keep right on both backends.
 - **StepMania's actor model.** Themes are scene graphs of actors with
   per-actor tween queues, blend modes, sprite sheets, draw order and a
-  virtual screen (`stepmania-themes.md`); `noteskin/src/actor.rs` already
+  virtual screen (`stepmania-themes.md`); `crates/noteskin/src/actor.rs` already
   runs that model for noteskins.
 - **Gestures.** Audio and file pickers must start inside the input event
   that caused them (`AGENTS.md`), so the UI must handle input synchronously
@@ -120,7 +120,7 @@ short-staffed project whose web support is a low priority.
 
 | Crate | Findings | Use |
 |---|---|---|
-| cosmic-text 0.19 / glyphon 0.12 | Already in the app (`render/src/text.rs`). Shaping and swash rasterizing alone measure 499 KB. Its `Editor` has no composition (preedit) support | Keep for text |
+| cosmic-text 0.19 / glyphon 0.12 | Already in the app (`crates/render/src/text.rs`). Shaping and swash rasterizing alone measure 499 KB. Its `Editor` has no composition (preedit) support | Keep for text |
 | parley 0.12 (2026-10-09) | Layout plus `PlainEditor` with `set_compose`; 330 KB without a rasterizer | Only if it replaced cosmic-text everywhere, never both |
 | taffy 0.15 (MIT, 2026-10-12) | Flexbox, block and grid; flex + block 40 KB | Optional layout frames |
 | lyon 1.0.19, kurbo | Tessellate paths to triangles: fine on WebGL2 | When shapes are needed |
@@ -129,7 +129,7 @@ short-staffed project whose web support is a low priority.
 | accesskit 0.25 | — | Skip for now |
 | rive-rs | Not on crates.io, last push 2025-07-04, wraps the C++ runtime, draws through Vello's compute renderer | Reject |
 | velato 0.12 | Lottie into a Vello scene; no text, images or time remapping | Reject for now |
-| keyframe, interpolation, tween, simple-easing | Easing functions only | Ours: StepMania's eases already exist (`noteskin/src/actor.rs`) |
+| keyframe, interpolation, tween, simple-easing | Easing functions only | Ours: StepMania's eases already exist (`crates/noteskin/src/actor.rs`) |
 | clay-layout 0.4 (Zlib) | Bindings to a C layout library | Reject (C toolchain on wasm) |
 
 ## 5. Design references

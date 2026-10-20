@@ -21,46 +21,46 @@ the browser are implementation details, not advertised features.
 
 ## Layout
 
-- `chart/` chart model and importers (`.sm`/`.ssc`), 48 ticks per beat, exact
+- `crates/chart/` chart model and importers (`.sm`/`.ssc`), 48 ticks per beat, exact
   StepMania timing semantics. Pure, natively tested.
-- `engine/` deterministic gameplay: clock, judge, rulesets, scoring, gauges,
-  scroll, calibration maths. No I/O. Replay fixtures in `engine/tests/`.
-- `render/` wgpu scene (procedural SDF arrows, glyphon text) and the 2D pass
+- `crates/engine/` deterministic gameplay: clock, judge, rulesets, scoring, gauges,
+  scroll, calibration maths. No I/O. Replay fixtures in `crates/engine/tests/`.
+- `crates/render/` wgpu scene (procedural SDF arrows, glyphon text) and the 2D pass
   the menus move onto (`docs/plans/ui-core.md`): a draw list, its painter,
   the texture cache and the text atlas (runs measured and drawn by the
   platform: the browser on the web, cosmic-text natively; drawn over a
   play too, through an sRGB surface where there is no plain view, for
-  Dancing☆Onigiri's lyrics, `render/src/lyrics.rs`),
-  cached menu Gaussian images (`render/src/gaussian.rs`, recorded once
+  Dancing☆Onigiri's lyrics, `crates/render/src/lyrics.rs`),
+  cached menu Gaussian images (`crates/render/src/gaussian.rs`, recorded once
   on upload before mipmaps, keyed separately from sharp images), and Options'
-  field preview (`render/src/field_preview.rs`: the demo chart drawn as
+  field preview (`crates/render/src/field_preview.rs`: the demo chart drawn as
   play draws it into a texture the 2D pass shows). No platform
   code.
-- `platform/` traits and plain data the shells implement (audio clock, input,
+- `crates/platform/` traits and plain data the shells implement (audio clock, input,
   device fingerprints), plus the Ogg Vorbis and MP3 fallback decoder behind
   the `decode` feature (Symphonia, MPL-2.0; MP3 as StepMania decodes it,
-  `platform/src/mp3.rs`), Ogg Opus through `rusty-opus` (BSD-3-Clause)
-  behind `opus` (`platform/src/opus.rs`: the web's Opus worker and
+  `crates/platform/src/mp3.rs`), Ogg Opus through `rusty-opus` (BSD-3-Clause)
+  behind `opus` (`crates/platform/src/opus.rs`: the web's Opus worker and
   desktop's decoder) and, behind `decode-all` (the
   desktop's), every format a simfile's music comes in: MP3 as StepMania
-  5.1 decodes it (`platform/src/decode_all.rs`), resampling with rubato.
-- `opus-worker/` the web's Ogg Opus fallback (`ddi-opus-worker`, PLAN.md
-  decision 9): a worker Trunk builds beside the app (index.html,
+  5.1 decodes it (`crates/platform/src/decode_all.rs`), resampling with rubato.
+- `crates/opus-worker/` the web's Ogg Opus fallback (`ddi-opus-worker`, PLAN.md
+  decision 9): a worker Trunk builds beside the app (`site/index.html`,
   `data-type="worker"`; `xtask stage-opus`, a post-build hook, names its
   files by their hash and tells the page in index.html's
-  `ddi-opus-worker` meta), started by `web/src/web/opus.rs` only when the
+  `ddi-opus-worker` meta), started by `crates/web/src/web/opus.rs` only when the
   browser cannot decode an Ogg Opus file (the module compiled once a
   session and handed to a worker a decode; one that has not started in
   25 s fails); it sends back a float WAV at 48 kHz that
   `decodeAudioData` resamples. Empty natively.
-- `library/` song library logic shared by the app and xtask: pack scanning
+- `crates/library/` song library logic shared by the app and xtask: pack scanning
   (which file is the chart, music, banner), a sans-IO zip reader, the manifest
   entry type, and the import's core (`scan.rs`: a song's entry, its files
   and the report's warnings from its folder; `works.rs`: a
   Dancing☆Onigiri work's songs, ids, music and layers; the web's import
   runs them on `Blob`s, desktop's library on its folders). Pure,
   natively tested.
-- `actor/` StepMania's actor model, shared by noteskins and later our
+- `crates/actor/` StepMania's actor model, shared by noteskins and later our
   screens (`docs/plans/ui-core.md`): actors, the tween queue, effects,
   sprite states, eases, commands as metrics write them, a model's meshes,
   bones and animated textures, and what is drawn (with our own
@@ -69,83 +69,84 @@ the browser are implementation details, not advertised features.
   natively tested;
   the files actors are built from (`metrics.ini`, MilkShape, legacy actor
   files, Lua) are read in `noteskin/`.
-- `ui/` the UI core our screens are built on (`docs/plans/ui-core.md`,
+- `crates/ui/` the UI core our screens are built on (`docs/plans/ui-core.md`,
   step 3): input events in, requests to the shell out (handled
   synchronously, gesture-bound ones flagged), hit-testing through actors,
   touch and mouse gestures, menu navigation with key repeat and focus,
   screens with transitions, dialogs, messages to actors, the one-line text
   field (mirroring the web's hidden textarea, or editing itself on
   desktop), and a headless harness; the theme's screens
-  (`ui/src/screens/`: song select, results, options, the pages for
+  (`crates/ui/src/screens/`: song select, results, options, the pages for
   calibration's menu and the credits, the app's notices as the UI's
   chrome, the play's start prompt, `prompt.rs`) with their sample
   data, options' rows made from the settings and the shell every
   platform shares (`options_model.rs`, `options_shell.rs`, the bind
-  flow in `ui/src/state/bind.rs`); the state screens read (settings and
+  flow in `crates/ui/src/state/bind.rs`); the state screens read (settings and
   their migrations, the song list's place, library views, the play
-  history and its replays, `ui/src/state/history/`; stored through
+  history and its replays, `crates/ui/src/state/history/`; stored through
   `ddi_platform::storage`, which each shell installs) and the developer
-  screen both shells run (`ui/src/dev.rs`). Pure, natively tested.
-- `theme/` our theme (`ddi-theme`, `docs/plans/theme.md`): `Infinito`,
+  screen both shells run (`crates/ui/src/dev.rs`). Pure, natively tested.
+- `crates/theme/` our theme (`ddi-theme`, `docs/plans/theme.md`): `Infinito`,
   a look for the UI core whose components are the maintainer's mockups,
   its colors, faces, sizes, timings and places in
-  `theme/src/infinito.toml` (turned into tables at build time). The
-  screens it dresses are `ui/src/screens/` (song select, results,
+  `crates/theme/src/infinito.toml` (turned into tables at build time). The
+  screens it dresses are `crates/ui/src/screens/` (song select, results,
   options; theme-agnostic, fed plain data). Pure, natively tested.
-- `noteskin/` StepMania noteskins: fallback chains, file lookup and
+- `crates/noteskin/` StepMania noteskins: fallback chains, file lookup and
   redirects, `metrics.ini`, file name hints, what each element is (stand-ins
   for StepMania's `default` and `common`), its actors built (`actor/`) from
   images, MilkShape models and commands, and
-  (`noteskin/src/lua/`) a skin's Lua run at load over `lua/`; StepMania
-  3.9's and OpenITG's format built natively (`noteskin/src/legacy.rs`);
-  SVG images in a checked subset (`noteskin/src/svg.rs`, our extension). Pure,
-  natively tested; `docs/plans/noteskins.md`. `render/src/noteskin.rs`
+  (`crates/noteskin/src/lua/`) a skin's Lua run at load over `lua/`; StepMania
+  3.9's and OpenITG's format built natively (`crates/noteskin/src/legacy.rs`);
+  SVG images in a checked subset (`crates/noteskin/src/svg.rs`, our extension). Pure,
+  natively tested; `docs/plans/noteskins.md`. `crates/render/src/noteskin.rs`
   draws a skin in play and runs its Lua each frame. Our opt-in
   `HoldUseDroppedState` loads separate per-note dropped actors; hit messages
   carry `Autoplay` and local `HitX`/`HitY` from the hit note's last drawn
   position (`tools/noteskin-danoni/README.md`). These are presentation data,
   never changes to judging or replay inputs. `TapJudgmentsPerNote` opts into
   immediate per-note flashes rather than StepMania's completed-row effects.
-- `lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`):
+- `crates/lua/` StepMania's Lua for skins, sandboxed (`docs/plans/lua.md`):
   `lunita` (crates.io), our hardened fork of piccolo, with per-VM memory
   and string limits, fuel and a deadline per call, StepMania's `cmd`
   keyword, Lua 5.1's globals and nothing that reaches outside.
   Platform-free, natively tested.
-- `session/` one play session for both shells (`ddi-session`,
+- `crates/session/` one play session for both shells (`ddi-session`,
   `docs/plans/desktop.md` 7.1): the play (`play.rs`: the engine's
   `Player`, bindings, the quit gesture, autoplay and `auto=pad`, the
   fail's fade, a work's start and end fades, the facts a play is kept
   with, a kept play replayed from its log), calibration's modes, chart and click track, backgrounds' frame
   and the automatic video setting's step, a work's layers' timeline;
   generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
-  (`web/src/play.rs` is the web's). Platform-free, natively tested on a
+  (`crates/web/src/play.rs` is the web's). Platform-free, natively tested on a
   fake clock.
-- `app/` the game (`ditoditoinfinito`, the workspace's default member):
+- `crates/app/` the game (`ditoditoinfinito`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
-  everywhere else; Trunk builds it for the browser (`index.html`),
+  everywhere else; Trunk builds it for the browser (`site/index.html`, with the page's
+  styles, boot script and SEO data beside it in `site/`),
   `cargo run` for desktop.
-- `web/` the web shell (`ddi-web`): the UI core's screens on the canvas
-  (song select at `#/`, `web/src/components/select_page.rs`; the start
+- `crates/web/` the web shell (`ddi-web`): the UI core's screens on the canvas
+  (song select at `#/`, `crates/web/src/components/select_page.rs`; the start
   prompt and the results on the play route,
-  `web/src/components/game_canvas.rs`; options at `#/options`,
-  `web/src/components/options_page.rs`; calibration's menu at
+  `crates/web/src/components/game_canvas.rs`; options at `#/options`,
+  `crates/web/src/components/options_page.rs`; calibration's menu at
   `#/calibrate` and the credits at `#/credits`,
-  `web/src/components/page_routes.rs`; the device notices over all of
-  them, `web/src/notices.rs`; a calibration's outcome a card on the
+  `crates/web/src/components/page_routes.rs`; the device notices over all of
+  them, `crates/web/src/notices.rs`; a calibration's outcome a card on the
   start prompt's screen; Dancing☆Onigiri's lyrics drawn over the play
   by the 2D pass, `ddi_render::lyrics`), pages as components of our own
-  (`web/src/component.rs`: messages handled in a microtask, each page's
+  (`crates/web/src/component.rs`: messages handled in a microtask, each page's
   few DOM elements its own; no Yew; `#/video-check`, the crash page and
   the no-GPU page are plain DOM), one wgpu canvas and
-  device for the whole app (`web/src/web/screen.rs`: made at boot, moved
+  device for the whole app (`crates/web/src/web/screen.rs`: made at boot, moved
   into the page that draws, made again after a lost device), Web Audio
-  clock, settings in `localStorage` (`web/src/web/kv.rs`), imported songs
+  clock, settings in `localStorage` (`crates/web/src/web/kv.rs`), imported songs
   and the play history in IndexedDB (`ddi-library` version 3; the plays in
-  `plays` and `play_summaries`, `web/src/history.rs`,
+  `plays` and `play_summaries`, `crates/web/src/history.rs`,
   `docs/plans/play-history.md`), replays on the play route
-  (`#/play?replay=<play id>`, `web/src/replay.rs`). Compiles for `wasm32-unknown-unknown` only (empty when
+  (`#/play?replay=<play id>`, `crates/web/src/replay.rs`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
-- `desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
+- `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with
   `render`'s painter (cosmic-text, system fonts); sound through cpal with
   our own mixer, the clock from CoreAudio's host time and latencies
@@ -179,11 +180,11 @@ the browser are implementation details, not advertised features.
   devices' fingerprints and notices (`devices.rs`). Settings in
   `storage.json` in the config folder; `DDI_HOME` moves the config, data
   and cache folders under it (`paths.rs`). Tested without a sound device
-  on a fake clock and offscreen (`desktop/tests/`; GPU tests skip without
+  on a fake clock and offscreen (`crates/desktop/tests/`; GPU tests skip without
   an adapter or with `DDI_NO_GPU=1`, as in CI's `desktop` job on Linux,
   macOS and Windows, with and without `video`). The video decoder
   helper is found at `DDI_VIDEO_HELPER`, else as `video/ddi-video-helper`
-  beside the executable or beside a folder above it (`desktop/build.rs`
+  beside the executable or beside a folder above it (`crates/desktop/build.rs`
   stages it in the build's `target/<profile>/video/`, which a test in
   `target/<profile>/deps/` finds too); `cargo test -p ddi-desktop --test
   video` checks it on generated clips; `--decoder both` compares the
@@ -192,7 +193,7 @@ the browser are implementation details, not advertised features.
   experiments use `mediafoundation-auto` for software recovery,
   `mediafoundation` for strict refusal; `video/check-windows.ps1 -Helper
   PATH` records the deferred-host fidelity run, without a window or
-  sound). `desktop/build.rs` builds the helper on every `video` build:
+  sound). `crates/desktop/build.rs` builds the helper on every `video` build:
   FFmpeg natively first (`video/build-native.sh`, a few minutes once,
   cached in `target/video/native/`; nasm on x86_64 for its assembly), then
   the helper crate in `target/video/helper-target/` with the `helper`
@@ -208,13 +209,13 @@ the browser are implementation details, not advertised features.
   a separate native application consuming our loader and field renderer as Git
   dependencies (`docs/plans/noteskin-authoring.md`). Its own repository contains
   the editor hosts, MCP bridge, local development patches and authoring tests.
-- `importer-protocol/` the platform-free framed app/helper IPC contract (serde
+- `crates/importer-protocol/` the platform-free framed app/helper IPC contract (serde
   and plain data only; no SDK/networking or filesystem).
 - `tools/danoni-importer/` the native helper, a root workspace member requiring
   Rust 1.99 (as does the SDK). Both share the root lock; the `importer` profile
   keeps native builds unwinding with bounded compiler memory.
   `--features danoni-importer` (`danoni` alias) prepares the pinned worker/helper
-  and complete notices through `desktop/build.rs`, stages an immutable bundle
+  and complete notices through `crates/desktop/build.rs`, stages an immutable bundle
   beside the app, and compiles only its content ID/digest into desktop. The SDK
   is not linked into the app. `build.py package` copies a complete relocatable
   distribution; see `docs/plans/danoni-importer.md`. Python/Java are build-time
@@ -240,8 +241,8 @@ the browser are implementation details, not advertised features.
   generated third-party packs stay outside Git. See
   `docs/plans/danoni-importer.md` for the current build/distribution contract;
   `docs/research/danoni-desktop-integration.md` records the research.
-- `xtask/` generators: SEO fragments, the song manifest, `CREDITS.md` and
-  `THIRD_PARTY_RUST.md`.
+- `xtask/` generators: SEO fragments, the song manifest, `credits/CREDITS.md`
+  and `credits/THIRD_PARTY_RUST.md`.
 - `video/` the software video decoder: C shims over FFmpeg's video
   decoders (every format StepMania plays), built two ways from the one
   pinned release (`video/FFMPEG.toml`): for the web to
@@ -256,7 +257,7 @@ the browser are implementation details, not advertised features.
   `docs/plans/native-video.md`, section 10). `video/ddi_io.c` is the
   helper's file layer (the game serves the bytes). Additive bounded demux
   exports in `video/packets.c` (`video/packets.md`), read on desktop by
-  `desktop/src/video/packets.rs` for native MP4/Matroska/WebM (`media.rs`,
+  `crates/desktop/src/video/packets.rs` for native MP4/Matroska/WebM (`media.rs`,
   codec validation and output models in `codec.rs`, `h264_format.rs`,
   `hevc.rs` and `vp9.rs`). FFmpeg is never linked into the game.
 - `assets/songs/<id>/` bundled songs with a `PROVENANCE.toml` each;
@@ -376,8 +377,8 @@ the browser are implementation details, not advertised features.
   or on generated clips against the `ffmpeg` command's decode.
 - `cargo run -p xtask -- gen-songs` / `gen-noteskins` / `gen-credits`
   regenerate the song manifest, the bundled noteskins' index and the
-  credits (Trunk runs them before every build; CI checks `CREDITS.md` and
-  `THIRD_PARTY_RUST.md` are fresh). `gen-dito` regenerates the SVG art of Dito, the default skin
+  credits (Trunk runs them before every build; CI checks `credits/CREDITS.md` and
+  `credits/THIRD_PARTY_RUST.md` are fresh). `gen-dito` regenerates the SVG art of Dito, the default skin
   (committed; CI checks it with `--check`).
 - `python3 tools/noteskin-danoni/generate.py [--check]` adapts the pinned
   danoniplus SVG alpha masks to the game's SVG subset for the `DanOni`
@@ -472,7 +473,7 @@ WebCodecs decoder with it frame by frame);
 holds and rolls kept and dropped, a mine), `rows`, `speed`, `layout=<id>`; `skin=builtin` for the
 built-in arrows; a test sets `window.__DDI_PREVIEW_BEAT`);
 `#/ui-test` draws the 2D pass's test scene (`t`, `scroll`, `delay`,
-`budget`, `speed`, `all=1`; module doc of `web/src/components/ui_test.rs`);
+`budget`, `speed`, `all=1`; module doc of `crates/web/src/components/ui_test.rs`);
 `#/ui-dev` runs the UI core's developer screen (every primitive: focus,
 dialog, popup, the text field over a hidden textarea, a flickable strip,
 long press, a sound, a link and a file picker behind gestures) and
@@ -549,7 +550,7 @@ calibrated offset.
   `ddi_library::scan::parse_simfile`, which appends generated versions too;
   the format importers preserve source charts, including SSC exports.
 
-Song select → pre-start → play backgrounds share `actor/src/background.rs`:
+Song select → pre-start → play backgrounds share `crates/actor/src/background.rs`:
 a cover-fitted Gaussian base at 0.2 over #05020d, with a framed content copy
 entering over 450 ms and finishing its unblur over 300 ms after Start.
 Reduced motion settles immediately; early Start samples the current visual
@@ -607,7 +608,7 @@ and NV12 upload methods invalidate their own filtered copies.
   as a modification with the exact command.
 - Code or data copied from another project (StepMania's noteskin metrics,
   danoniplus's key tables) keeps its upstream form where possible, gets a
-  `REUSE.toml` annotation and a `THIRD_PARTY.toml` entry (the credits ship
+  `REUSE.toml` annotation and a `credits/THIRD_PARTY.toml` entry (the credits ship
   its notice). Copy only from permissive sources: never from ITGmania
   (GPLv3 since 2024-09-20; StepMania 5.1 has the same older files under its
   MIT-style licence). Reading GPL code to learn behaviour is fine;
@@ -620,7 +621,7 @@ with the game: `gen-credits` lists every crate in the web build (the app
 and the Opus worker) and in the desktop binary (`cargo tree`, normal
 dependencies without proc macros, Linux, macOS and Windows together) with
 its licence texts from the crate's files, deduplicated, into
-`THIRD_PARTY_RUST.md` and the Credits screen's folded "Rust libraries"
+`credits/THIRD_PARTY_RUST.md` and the Credits screen's folded "Rust libraries"
 (`xtask/src/rust_credits.rs`); a licence outside its allowlist (MIT,
 Apache-2.0, BSD, ISC, Zlib, 0BSD, Unicode, MPL-2.0, CC0, Unlicense,
 BSL-1.0, the LLVM exception) fails the generator, so check a new
@@ -631,7 +632,7 @@ dependency's licence before adding it.
 - GitHub Pages from the `main` branch via the workflow in `.github/`. The
   public URL is lowercase; on a custom domain Pages paths are case-sensitive,
   which is why the repository name is lowercase.
-- `CREDITS.md` and `THIRD_PARTY_RUST.md` are generated and committed;
+- `credits/CREDITS.md` and `credits/THIRD_PARTY_RUST.md` are generated and committed;
   `Trunk.toml` ignores them in the watcher so regenerating them does not
   loop the dev server.
 

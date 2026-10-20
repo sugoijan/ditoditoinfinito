@@ -24,8 +24,8 @@ StepMania 5's `default` and `common`).
 - `.actor` (an INI: `File=`, `BaseRotationZDegrees=`, commands),
   `.sprite` (an INI: `Texture=`, frames, delays, base rotation), `.model`
   (an INI naming `Meshes=`, `Materials=`, `Bones=` MilkShape files, which
-  `noteskin/src/model.rs` reads), `.xml` (actor trees whose commands are
-  metrics-style strings, which `noteskin/src/commands.rs` reads).
+  `crates/noteskin/src/model.rs` reads), `.xml` (actor trees whose commands are
+  metrics-style strings, which `crates/noteskin/src/commands.rs` reads).
 - Explosions by judgement and brightness: `Tap Explosion Bright Great`,
   `Dim Marvelous`, `Hold Explosion`, `Roll Explosion`, `ok`/`ng` for
   holds (`GhostArrowRow.cpp:41`); receptors `Receptor Go` and
@@ -45,7 +45,7 @@ Firefox; the preview draws them. His `Peters-Shadow-*` skins fall back on
 a StepMania 5 `Peters-DDRLike` his repository does not have, so they are
 not this format's to fix.
 
-How it is built (`noteskin/src/legacy.rs`):
+How it is built (`crates/noteskin/src/legacy.rs`):
 
 - A skin is in the format when it, or a skin its chain falls back on
   among the imported ones, has `.sprite`, `.actor` or `.model` files and

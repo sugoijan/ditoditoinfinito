@@ -20,7 +20,7 @@ not. The maintainer's decisions (2026-10-13):
 
 ## Status (2026-10-13)
 
-Done: 7i out; `Skin::lane_button` (`noteskin/src/load.rs`) and
+Done: 7i out; `Skin::lane_button` (`crates/noteskin/src/load.rs`) and
 `NoteskinPlay` on every built-in layout, natively and through the skin's
 Lua (`Button::Center` and `Button::Onigiri` are buttons the Lua is given
 as `Var "Button"`); Dito's onigiri star (`xtask gen-dito`, every color
@@ -54,7 +54,7 @@ here too, as they are; without them, the Down arrow turned.
    UpRight), else Down's elements turned to its angle (the diagonals
    down-left and down-right of 7 keys); the onigiri lane `Onigiri`,
    `Center` or Down by what the chain holds. Natively tested.
-3. **The play** (`render/src/noteskin.rs`, the app): a skin draws every
+3. **The play** (`crates/render/src/noteskin.rs`, the app): a skin draws every
    built-in layout, natively and through its Lua; the preview's layout
    picker shows it.
 4. **Dito's onigiri**: its generator draws the onigiri star the built-in

@@ -34,7 +34,7 @@ chart, autoplayed with Dito's Vivid arrows at 60 frames per second, captured
 at song second 24.25 at 1280 × 720. The background brightness is 55% and
 the field filter is 60%. Other settings use the game's defaults.
 
-[`desktop/examples/screenshot.rs`](../../desktop/examples/screenshot.rs)
+[`crates/desktop/examples/screenshot.rs`](../../crates/desktop/examples/screenshot.rs)
 runs the actual desktop play session and renderer into an offscreen
 texture. It advances a headless audio clock by fixed frame timestamps,
 runs the noteskin's commands each frame, and reads the rendered pixels
@@ -78,7 +78,7 @@ Both the still and GIF contain:
 The song is **Beatucada by Kurio Prokos**. Neither output contains audio.
 The bundled files' upstream commit, source and licenses are recorded in
 [`PROVENANCE.toml`](../../assets/songs/beatucada/PROVENANCE.toml), with full
-attribution in [`CREDITS.md`](../../CREDITS.md).
+attribution in [`CREDITS.md`](../../credits/CREDITS.md).
 
 The generated images combine MIT and CC BY 4.0 material, as recorded in
 [`REUSE.toml`](../../REUSE.toml). Generation and modifications are exactly

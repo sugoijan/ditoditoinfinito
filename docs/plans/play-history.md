@@ -13,7 +13,7 @@ metadata out again when something changes.
 - **The chart.** The song's id plus a digest of the chart's content
   (`ChartKey`).
   - Song ids alone are not enough: an imported song's id is a hash of its
-    folder path (`library/src/pack.rs:641`), so a pack updated in place
+    folder path (`crates/library/src/pack.rs:641`), so a pack updated in place
     keeps its ids.
   - The digest covers what judging reads: notes, timing (BPMs, stops,
     delays, warps, scrolls, speeds, fakes, combos), the offset and the
@@ -74,7 +74,7 @@ metadata out again when something changes.
 
 Judging today depends on when `Player::update` is called, not only on the
 inputs. Mine crossings and hold decay and regrab are measured between one
-update and the next (`engine/src/judge.rs:975, 997, 1013-1016`). So a play
+update and the next (`crates/engine/src/judge.rs:975, 997, 1013-1016`). So a play
 on a 144 Hz display and the same presses at 60 Hz may differ.
 
 That is a fairness problem on its own, before any history. So the first
@@ -195,7 +195,7 @@ export, base64 included (5,004 such short plays export to 40 MB).
    that dispatches it; an output latency reported anew steps the heard
    time back) is judged at its own time; later ones count when judged and
    are counted (`Results::late_edges`). Times are kept to the
-   microsecond. `engine/tests/cadence.rs` plays generated charts and
+   microsecond. `crates/engine/tests/cadence.rs` plays generated charts and
    presses (mines, shocks, holds let go and taken again, rolls, lifts,
    checkpoints, a stop, a tempo change, stray presses) with updates every
    millisecond, at 60 and 144 Hz, at uneven 1–50 ms steps, and exactly at
@@ -213,7 +213,7 @@ export, base64 included (5,004 such short plays export to 40 MB).
    each lane without copying it (16,700 notes: 85 ms → 8 ms). The
    "edges" cadence now also updates at every event's own time, a
    Dancing☆Onigiri chart on its frame grid is tested, and
-   `engine/tests/instants.rs` keeps the review's probes (the tie, the
+   `crates/engine/tests/instants.rs` keeps the review's probes (the tie, the
    early release, a NaN, a late edge, presses snapped to window edges,
    noise for the codecs, a long play's time). `JUDGE_VERSION` stays 1: no
    record had been kept.
@@ -239,7 +239,7 @@ export, base64 included (5,004 such short plays export to 40 MB).
    `Ruleset::key`, `RulesetKey::build`, `JUDGE_VERSION = 1`. Every replay
    fixture (`replay.rs`, `ticked.rs`, `shocks.rs`, `danoni.rs`) and every
    corpus autoplay (`local_autoplay.rs`) is judged again from its log to
-   the same results; `engine/tests/history.rs` adds autoplays and random
+   the same results; `crates/engine/tests/history.rs` adds autoplays and random
    plays under every ruleset and transform, live plays with a drifting,
    jittering clock, latency and offsets, a part-way start, a log shifted
    to another offset, the codecs and the sizes.
@@ -253,7 +253,7 @@ export, base64 included (5,004 such short plays export to 40 MB).
    warps, speeds, scrolls, fakes, tick counts, combos), the layout (id,
    lane count, the lanes' shuffle groups and its quarter turn, what turns
    read), and a Dancing☆Onigiri chart's speed, gauge, headers, place
-   in the work, start and end; numbers as exact bits. `chart/tests/digest.rs`:
+   in the work, start and end; numbers as exact bits. `crates/chart/tests/digest.rs`:
    a pinned value, distinct digests across the bundled songs, the same
    after other metadata and Windows line endings, changed by a moved note,
    a BPM, the offset, a stop, the layout. Over 1,222 local files (9,285
@@ -293,7 +293,7 @@ export, base64 included (5,004 such short plays export to 40 MB).
    `Plays`, the history over a store for the shells (load, record,
    re-work a song's stale plays a few at a time, remove all / a chart / a
    pack's songs, export as JSON lines). A play whose chart is gone or
-   changed stays stale and unmatched. Tests (`ui/src/state/history/
+   changed stays stale and unmatched. Tests (`crates/ui/src/state/history/
    tests.rs`): a play kept whole and read back (the settings' unknown
    fields too), judged again to the same summary, charts found by
    content, bests, stale plays worked out again and written back,
@@ -310,7 +310,7 @@ export, base64 included (5,004 such short plays export to 40 MB).
    - Checked with Playwright: plays recorded, re-judged after a version
      raise in a test build, bests kept across reloads.
 
-   Done (2026-10-16). `web/src/history.rs`: `IdbPlayStore`; the page's
+   Done (2026-10-16). `crates/web/src/history.rs`: `IdbPlayStore`; the page's
    `Plays`, its summaries read at start (`history::start` at boot); a
    song's play recorded when it ends, finished or failed
    (`GameCanvas::record_play`, from `PlayFacts` the session hands over:
@@ -374,7 +374,7 @@ export, base64 included (5,004 such short plays export to 40 MB).
 6. **Desktop:** the file store, tested natively (desktop plays come with
    phase 9).
 
-   Done (2026-10-16). `desktop/src/plays.rs`: `FilePlayStore`, two
+   Done (2026-10-16). `crates/desktop/src/plays.rs`: `FilePlayStore`, two
    files a play in `plays/` beside `storage.json`: `<id>.json`, the play
    as played (the export's line without the summary: the log and the
    timing in base64), written once; `<id>.summary.json`, rewritten when
@@ -468,7 +468,7 @@ noteskin no longer installed.
 
 Done (2026-10-16).
 
-- **The model** (`ui/src/state/history/replay.rs`): `Replay` (a play read
+- **The model** (`crates/ui/src/state/history/replay.rs`): `Replay` (a play read
   back: record, log, timing, summary; `from_entry` refuses a newer
   record format or judge and a log that does not read), `chart`,
   `played_song`, `results` (judged at once), `settings`, `clock`,
@@ -476,7 +476,7 @@ Done (2026-10-16).
   `play_rows` and `plays_list` (song select's list), `local_time`.
   Records keep `judge_version` (1 when absent), summaries `options`.
   `Plays::entry` and `Plays::remove_play`.
-- **The session** (`session/src/play.rs`): `SessionConfig::replay`; the
+- **The session** (`crates/session/src/play.rs`): `SessionConfig::replay`; the
   record's rules and options (never the settings', never worked out
   again), its start; the log's edges fed before each update, up to the
   time the update judges to; lane edges from the shell ignored, the quit
@@ -487,7 +487,7 @@ Done (2026-10-16).
   (`Play`, `Replay`: "Watch again", `Kept`: no Retry) and `mark_replay`;
   song select's plays list (`PlaysDialog`), P, W, "Plays…", a long press
   on a phone's chart.
-- **Web:** `#/play?replay=<id>[&view=results]` (`web/src/replay.rs`: the
+- **Web:** `#/play?replay=<id>[&view=results]` (`crates/web/src/replay.rs`: the
   loader reads the play, finds its chart, looks for its skin, then puts
   the play screen up, or the refusal on its prompt); the play screen
   replays with the replay's settings, checks it at its end

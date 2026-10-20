@@ -2,7 +2,7 @@
 //! `video/ddi_io.c`) natively and links the static FFmpeg that
 //! `video/build-native.sh` leaves in `target/video/native/<target>/`
 //! (running the script when that is missing or stale). Nothing here is
-//! linked into the game: `desktop/build.rs` builds this binary separately.
+//! linked into the game: `crates/desktop/build.rs` builds this binary separately.
 use std::{env, path::PathBuf, process::Command};
 
 fn main() {

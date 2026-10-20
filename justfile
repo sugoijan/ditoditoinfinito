@@ -69,7 +69,7 @@ test:
 danoni-check *args:
     @python3 tools/danoni-dump/check.py {{args}}
 
-# Regenerate the SEO fragments and sitemap from seo/metadata.toml
+# Regenerate the SEO fragments and sitemap from site/seo/metadata.toml
 # (trunk also runs this automatically as a pre_build hook)
 regen-seo:
     @cargo run -p xtask -- regen-seo

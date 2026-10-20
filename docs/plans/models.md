@@ -56,7 +56,7 @@ vertices, 60 triangles, 2 meshes and 2 materials (at most 1,284 vertices,
 
 ## Step 1. Parsing (commit 1)
 
-`noteskin/src/model.rs`: the MilkShape ASCII meshes, materials and bones
+`crates/noteskin/src/model.rs`: the MilkShape ASCII meshes, materials and bones
 as StepMania reads them (line rules, limits, the quirks that change what
 is drawn), and `[AnimatedTexture]` `.ini` files. Pure, natively tested
 on synthetic files (committed tests write their own; third-party models
@@ -64,7 +64,7 @@ stay local) and on the local corpus (`local_skins`). Imports and the
 bundled index keep a skin's `.txt` and `.ini` texts with its record (1 MB
 each at most, as other texts).
 
-**Done 2026-10-12.** `noteskin/src/model.rs`: meshes, materials, bones
+**Done 2026-10-12.** `crates/noteskin/src/model.rs`: meshes, materials, bones
 and animated textures, parsed as StepMania does (comment and header rules,
 quoted names up to 31 characters, a byte for the material index with -1
 as none, vertex flags 1 and 2 as the color mask, a mesh following one
@@ -80,7 +80,7 @@ from position), which no skin sets.
 
 ## Step 2. The `Model` actor (commit 2)
 
-`Kind::Model` in `noteskin/src/actor.rs`: its meshes (shared), materials
+`Kind::Model` in `crates/noteskin/src/actor.rs`: its meshes (shared), materials
 (texture ids, scroll), vertex flags and animation state; built from a
 model file (`build.rs`) and from `Def.Model` (`lua/convert.rs`), with the
 methods skins call (`playanimation`, `rate`, `loop`, `position`,
@@ -108,7 +108,7 @@ On the CPU, per note: the actor's 3D transform, the field's perspective
 (45°, vanishing point at the field's centre), back faces culled and the
 model's triangles sorted far to near (its own depth only, as StepMania's
 cleared z-buffer gives), then drawn as textured triangles in the skin's
-passes (`render/src/textured.rs`: a triangle list beside the instanced
+passes (`crates/render/src/textured.rs`: a triangle list beside the instanced
 quads, the same blends, the plain view on WebGPU), with the color
 translation masked per vertex, repeat wrapping and the glow pass. No
 depth buffer: a few hundred triangles a note are cheap to sort, and the
@@ -116,12 +116,12 @@ renderer's passes stay as they are. Checked by screenshot against
 StepMania's look (midi-note-3d, ITG's cel and metal, Peter's skins, local
 only) and with a synthetic model skin committed for tests.
 
-**Done 2026-10-12.** `render/src/model.rs`: the field's camera (vanishing
+**Done 2026-10-12.** `crates/render/src/model.rs`: the field's camera (vanishing
 point at the field's centre, 1030/64 arrows away), each vertex projected
 with its `w`, triangles with a corner behind the near plane or past the
 far one dropped, back faces culled by their winding as seen (MilkShape's
 counter-clockwise faces the viewer: true of the open models of the
-corpus), the rest sorted far to near. `render/src/textured.rs`: an
+corpus), the rest sorted far to near. `crates/render/src/textured.rs`: an
 instance is a quad or a triangle (its three corners, texture
 coordinates and `w`, so the texture is drawn in perspective), and a
 shape may be untextured (a mesh without a texture: its color alone),
@@ -148,7 +148,7 @@ corner that is not a number dropped, and an import keeping at most 32 MB
 of a skin's texts. Since 2026-10-13 model textures have mipmaps, as
 StepMania makes for them and not for sprites (`AnimatedTexture::Load`,
 `bMipMaps`): the skin's texture registry marks a model's images, the app
-makes their textures with every level, and `render/src/mipmaps.rs` fills
+makes their textures with every level, and `crates/render/src/mipmaps.rs` fills
 the levels from the first, averaged as the skin blends (the plain view's
 encoded values where skins blend as StepMania's), sampled trilinearly.
 Checked by screenshot on WebGPU, WebGL2 and in Firefox (ITGmania's metal
@@ -161,7 +161,7 @@ Rigid bones (a mesh or its vertices bound to one bone) with key frames,
 as ITG's mine spins; multi-frame `.ini` textures. Full skinning only if a
 skin turns up that needs it.
 
-**Done 2026-10-12.** `noteskin/src/model.rs`: each bone at rest
+**Done 2026-10-12.** `crates/noteskin/src/model.rs`: each bone at rest
 (`RageMatrixAngles` and its position, under its parent) and posed at a
 frame as `SetBones` does it (the keys either side, positions lerped,
 rotations as StepMania's quaternions slerped; past the last key the last
@@ -196,7 +196,7 @@ center, the 50 % and 75 % mines and the artist's design file, plus copies
 identical to CF_CHROME's, which CF_VIBRANT and CF_ALLOY fall back on. 3 MB
 in all (CF_CHROME's mine explosion sheet is 1.9 MB). The repository's
 `LICENSE` and `README.md` sit in each; `LICENSES/` gains the Unlicense and
-CC0 1.0; the credits list them. `noteskin/tests/bundled.rs`: all 156
+CC0 1.0; the credits list them. `crates/noteskin/tests/bundled.rs`: all 156
 elements of each their own, no warning. Full autoplays all 329 Fantastic
 and 27 of 27 holds with CF_CHROME in Chrome (WebGPU) and CF_VIBRANT in
 Firefox, CF_ALLOY and CF_VIBRANT by screenshot on WebGL2 and WebGPU.

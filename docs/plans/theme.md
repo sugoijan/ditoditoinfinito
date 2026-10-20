@@ -48,7 +48,7 @@ version.
 ## Built (step 5, 2026-10-15)
 
 The theme is `ddi_theme::Infinito` (`theme/`), its tunables in
-`theme/src/infinito.toml`; the screens are `ddi_ui::screens`, run on
+`crates/theme/src/infinito.toml`; the screens are `ddi_ui::screens`, run on
 sample data at `#/ui-dev?screen=select|results|options` and with the
 desktop's `--screen`. Where the build differs from the mockups:
 
@@ -183,7 +183,7 @@ mockups keep the colors and the cleanliness, and change the packing:
 - **Difficulty colors:** today's hues, lifted for a dark ground so a
   meter in color stays readable: Beginner `#4ea3f0`, Easy `#49b86a`,
   Medium `#d9a925`, Hard `#e8584a`, Challenge `#a979ea`, Edit `#8f8a94`.
-- **Judgement colors:** the HUD's (`render/src/scene.rs`), so results
+- **Judgement colors:** the HUD's (`crates/render/src/scene.rs`), so results
   read the same as play.
 - **Radii:** 4–10 px. **Spacing:** multiples of 2 and 4. No gradients,
   no glows beyond the selection's shadow.
@@ -329,7 +329,7 @@ Returning from the prompt uses the ordinary menu transition.
 
 ## The theme in code
 
-The theme becomes code in the shape P6 set (`ui/src/look.rs`):
+The theme becomes code in the shape P6 set (`crates/ui/src/look.rs`):
 
 - a `Look` with the components the screens of step 6 ask for (`SongList.Row`,
   `SongList.Header`, `ChartLadder`, `Panel`, `OptionRow`, `KeyHint`, …);

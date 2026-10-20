@@ -54,7 +54,7 @@ python3 tools/danoni-importer/build.py package --app target/debug/ditoditoinfini
 The app keeps video enabled by default. A deliberately smaller package can use
 `--no-default-features --features danoni-importer`; this forwards the app's video
 choice to desktop. Video-enabled packages require the decoder helper
-`desktop/build.rs` staged beside the app (`video/ddi-video-helper`, whose
+`crates/desktop/build.rs` staged beside the app (`video/ddi-video-helper`, whose
 sandbox self-test the packager runs), its notice and FFmpeg description, the
 exact FFmpeg and zlib source archives, and the shims, scripts and helper
 crates it is rebuilt from (`video/helper-source/`, the LGPL's relinking
@@ -80,7 +80,7 @@ uses its own receipted capture/normalization evidence files internally.
 
 ## Build cache and integrity
 
-`desktop/build.rs` invokes the build-only Python driver. It selects only the
+`crates/desktop/build.rs` invokes the build-only Python driver. It selects only the
 SDK and helper packages in one build with the root `importer` profile (unwinding,
 no LTO, optimization level 1, 256 codegen units), with optimization disabled
 for the SDK itself to stay under the 2 GiB compiler-memory limit on Linux.

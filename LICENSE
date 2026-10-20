@@ -3,5 +3,5 @@ License (see LICENSES/MIT.txt).
 
 Third-party assets bundled under assets/ (demo songs: audio, charts, graphics)
 are NOT covered by the MIT License. Each is licensed by its own authors under
-the terms recorded in REUSE.toml and CREDITS.md (Creative Commons licences;
+the terms recorded in REUSE.toml and credits/CREDITS.md (Creative Commons licences;
 full texts in LICENSES/).

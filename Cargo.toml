@@ -1,10 +1,10 @@
 [workspace]
 resolver = "3"
 exclude = ["tools/danoni-dump/desktop-probe", "tools/danoni-dump/pack-verify"]
-members = ["tools/danoni-importer", "tools/danoni-dump/rust", "importer-protocol", "video/protocol", "video/helper", "chart", "engine", "render", "platform", "library", "actor", "ui", "theme", "noteskin", "lua", "session", "web", "opus-worker", "desktop", "app", "xtask"]
-# `app` is the game: built for wasm by Trunk (index.html) it starts the
+members = ["crates/*", "tools/danoni-importer", "tools/danoni-dump/rust", "video/protocol", "video/helper", "xtask"]
+# `app` is the game: built for wasm by Trunk (site/index.html) it starts the
 # web shell, built natively (a bare `cargo run`) the desktop shell.
-default-members = ["app"]
+default-members = ["crates/app"]
 
 [workspace.package]
 version = "0.1.0"
@@ -17,21 +17,21 @@ repository = "https://github.com/sugoijan/ditoditoinfinito"
 [workspace.dependencies]
 # local crates
 ddi-danoni-export = { path = "tools/danoni-dump/rust", default-features = false }
-ddi-importer-protocol = { path = "importer-protocol" }
+ddi-importer-protocol = { path = "crates/importer-protocol" }
 ddi-video-protocol = { path = "video/protocol" }
-ddi-chart = { path = "chart" }
-ddi-engine = { path = "engine" }
-ddi-render = { path = "render" }
-ddi-platform = { path = "platform" }
-ddi-library = { path = "library" }
-ddi-actor = { path = "actor" }
-ddi-ui = { path = "ui" }
-ddi-theme = { path = "theme" }
-ddi-noteskin = { path = "noteskin" }
-ddi-lua = { path = "lua" }
-ddi-web = { path = "web" }
-ddi-desktop = { path = "desktop", default-features = false }
-ddi-session = { path = "session" }
+ddi-chart = { path = "crates/chart" }
+ddi-engine = { path = "crates/engine" }
+ddi-render = { path = "crates/render" }
+ddi-platform = { path = "crates/platform" }
+ddi-library = { path = "crates/library" }
+ddi-actor = { path = "crates/actor" }
+ddi-ui = { path = "crates/ui" }
+ddi-theme = { path = "crates/theme" }
+ddi-noteskin = { path = "crates/noteskin" }
+ddi-lua = { path = "crates/lua" }
+ddi-web = { path = "crates/web" }
+ddi-desktop = { path = "crates/desktop", default-features = false }
+ddi-session = { path = "crates/session" }
 
 # lunita, our hardened fork of piccolo (docs/plans/piccolo-fork.md).
 lunita = "0.1"

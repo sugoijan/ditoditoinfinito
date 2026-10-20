@@ -37,7 +37,7 @@ jobs:
       - name: ALSA and udev headers, ffmpeg, nasm
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev ffmpeg nasm
       # The video helper's static FFmpeg (video/build-native.sh), built by
-      # desktop/build.rs when missing: a few minutes, so cached by recipe.
+      # crates/desktop/build.rs when missing: a few minutes, so cached by recipe.
       - name: Cache the helper's FFmpeg
         uses: actions/cache@v4
         with:

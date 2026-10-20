@@ -18,7 +18,7 @@ as `target/scratch/video-spike-2026-10-17.tar.gz`, without movie files.
 Read first: `docs/plans/video-backgrounds.md` (why the module exists,
 its exact seeks, StepMania's frame times), `docs/plans/desktop.md` (D8,
 7.0's and 7.7's numbers and hardening), `video/FFMPEG.toml`,
-`video/ddivideo.c`, `desktop/src/video.rs`.
+`video/ddivideo.c`, `crates/desktop/src/video.rs`.
 
 ## Direction
 
@@ -87,7 +87,7 @@ its exact seeks, StepMania's frame times), `docs/plans/desktop.md` (D8,
   - 8-bit 4:2:0 planes, with the matrix and range.
 - **The same pixels in both shells** where the codec allows it, so the
   checks (`video/check.mjs`, `--video-check`,
-  `desktop/tests/video.rs`) compare one decoder with itself.
+  `crates/desktop/tests/video.rs`) compare one decoder with itself.
 - **Licence:** FFmpeg stays LGPL-2.1-or-later (no `--enable-gpl`, no
   `--enable-nonfree`), replaceable by the user, with its notices and
   source shipped (decision 35).
@@ -116,7 +116,7 @@ its exact seeks, StepMania's frame times), `docs/plans/desktop.md` (D8,
 | NihAV (nihav.org) | git only | AGPL-3.0 | H.264, partial MPEG-4 ASP, VP3–8, FLV. No DivX 3, MPEG-1/2, WMV, VP9, ASF, MPEG-PS | AGPL, and incomplete |
 | oxideav (`oxideav-h264` 0.1.9, `-mpeg4video` 0.1.8, `-mpeg12video` 0.0.13, `-msmpeg4` 0.0.10, `-avi` 0.0.10) | 2026-04 to 2026-10 | MIT | claims nearly all of ours | Six months old, self-reported conformance, almost no users. Worth a conformance run in a year, not a dependency now |
 | `openh264` | 0.9.9 (2026-10-15) | BSD-2-Clause (Cisco's binary has its own patent licence) | H.264 only; Main/High not conformant | No |
-| macOS VideoToolbox (`objc2-video-toolbox` 0.3.2) | 2025-10-04 | Zlib OR Apache-2.0 OR MIT | H.264 and HEVC in hardware; MPEG-4 Part 2 and MPEG-2 unverified on Apple Silicon; no DivX 3, WMV, VP6; AVFoundation does not open AVI | Possible for H.264 only, fed by `library/src/avi.rs` as WebCodecs is on the web |
+| macOS VideoToolbox (`objc2-video-toolbox` 0.3.2) | 2025-10-04 | Zlib OR Apache-2.0 OR MIT | H.264 and HEVC in hardware; MPEG-4 Part 2 and MPEG-2 unverified on Apple Silicon; no DivX 3, WMV, VP6; AVFoundation does not open AVI | Possible for H.264 only, fed by `crates/library/src/avi.rs` as WebCodecs is on the web |
 | Windows Media Foundation (`windows` 0.62.2) | 2025-10-06 | MIT OR Apache-2.0 | H.264, MPEG-4 Part 2 and WMV candidates; other codecs depend on installed extensions, edition and hardware | Runtime probing and fidelity checks required; section 7 |
 | Linux | | | hardware APIs only (VA-API, V4L2) | No software fallback |
 | GStreamer (`gstreamer` 0.25.4) | 2026-09-21 | bindings MIT/Apache; GStreamer LGPL | old codecs come from gst-libav, which is FFmpeg | A large runtime to ship for no codec gain |
@@ -347,8 +347,8 @@ absorb today (7.7 saw the same).
 
 **Scope and packet source.** A small Rust driver feeds compressed samples
 into `VTDecompressionSession`, retaining each callback's `CVPixelBuffer`.
-H.264 AVI uses the game's own `library/src/avi.rs` index and packet reader,
-and `library/src/h264.rs` for picture order, DTS-based output times and
+H.264 AVI uses the game's own `crates/library/src/avi.rs` index and packet reader,
+and `crates/library/src/h264.rs` for picture order, DTS-based output times and
 `ExactSeek`, as the web's WebCodecs path does. The MP4/WebM/MPEG-PS
 experiments use the earlier spike's native libavformat **only as a test
 packet source**. This is not production demuxing: those containers need
@@ -475,7 +475,7 @@ window. The earlier FFmpeg spike and its builds are retained.
 
 ## 4b. First production slice: H.264 AVI (2026-10-17)
 
-`desktop/src/video/avi.rs`, `vt.rs` and `native.rs` now integrate the first
+`crates/desktop/src/video/avi.rs`, `vt.rs` and `native.rs` now integrate the first
 copied-plane path behind `video`. The default host tries VideoToolbox on
 macOS and the module on other platforms. Selection requires an actual
 hardware session for an indexed AVI with a single SPS/PPS configuration,
@@ -517,7 +517,7 @@ while checking each backend's exact seeks. `with_module` remains an explicit
 module-only host for existing tests. The frame and track interfaces and the
 automatic video rule stay shared with the web.
 
-Validation on the M1 Max: `desktop/tests/video_native.rs` generates eight
+Validation on the M1 Max: `crates/desktop/tests/video_native.rs` generates eight
 AVIs (B frames, no B frames, long GOP, dropped-frame gap, full-range BT.709,
 fractional frame rate, nonzero stream start, and 720p): 560 sequential frames
 and 906 seeks per backend. Every returned I420 CRC and timestamp and the
@@ -540,7 +540,7 @@ interop remain. The finite spike alone does not broaden a production gate.
 `video/packets.c` now supplies additive ABI v1 exports for container metadata,
 raw codec configuration, compressed video packets, side data and paged seek
 hints. The old decode interface stays compatible. The checked Rust reader
-(`desktop/src/video/packets.rs`) owns a private wasmtime instance, uses the
+(`crates/desktop/src/video/packets.rs`) owns a private wasmtime instance, uses the
 existing file/range sandbox, memory cap, cache and call deadlines, and checks
 all exported lengths, ranges, flags and generations before copying. Errors
 poison the reader; no later close enters a trapped instance. No native FFmpeg
@@ -728,7 +728,7 @@ frames use copies; new decoder sessions request copied output. Healthy
 retirement releases all owners and periodically flushes unused Core Video
 cache entries. No new native FFmpeg code is introduced.
 
-`desktop/src/video/vt/benchmark.rs` exercises the production importer,
+`crates/desktop/src/video/vt/benchmark.rs` exercises the production importer,
 background pipeline and GPU-completion leases. Generated H.264 MP4/MKV,
 HEVC MP4 and VP9 WebM clips cover BT.601/709 and limited/full range, plain
 and sRGB output, one/three frames in flight, decoder teardown before GPU
@@ -779,9 +779,9 @@ DDI_VIDEO_PLANES=metal cargo test -p ddi-desktop --features video-metal --lib re
 CARGO_PROFILE_DESKTOP_LTO=false cargo test -p ddi-desktop --profile desktop --features video-bench --lib measure_video_gpu -- --ignored --nocapture --test-threads=1
 ```
 
-Implementation: `desktop/src/video/metal.rs`, `vt.rs`, `native.rs`,
+Implementation: `crates/desktop/src/video/metal.rs`, `vt.rs`, `native.rs`,
 `play/movies.rs` and `play/view.rs`; renderer plane bindings in
-`render/src/background/nv12.rs`. The optional objc2-metal/Core Video
+`crates/render/src/background/nv12.rs`. The optional objc2-metal/Core Video
 bindings are 0.3.2 (MIT OR Apache-2.0 OR Zlib); default builds do not gain
 a new rendering path. Core Video's SDK declarations define flipped origin
 and clean coordinates; wgpu's command-encoder completion callback and HAL
@@ -940,7 +940,7 @@ backend and fallback reason in `--video-check` and diagnostics. Preserve
 
 ### Windows: Media Foundation with D3D11 (experimental, 2026-10-17)
 
-`desktop/src/video/mf.rs`, `mf/surface.rs` and the portable `mf_core.rs`
+`crates/desktop/src/video/mf.rs`, `mf/surface.rs` and the portable `mf_core.rs`
 implement the copied-plane path behind `video`, using `windows` 0.62.2
 (MIT OR Apache-2.0). This was written and cross-compiled on the Mac. **No
 Windows decoder, device or driver has been exercised here.** The maintainer's
@@ -1009,7 +1009,7 @@ libx264/libx265/libvpx-vp9 encoders available):
 The module may be the unchanged build from another host. The runner sets a
 scratch home/cache, restores environment afterwards, records OS/GPU driver,
 Rust/FFmpeg versions and module SHA-256, then runs the three ignored tests
-in `desktop/tests/video_media_foundation.rs`. It opens no window or sound
+in `crates/desktop/tests/video_media_foundation.rs`. It opens no window or sound
 device. Missing encoders/module, unavailable codecs and missing DXGI output
 **fail**, rather than turn the hardware suite into skipped successes. Each
 codec has a separate test so failures identify the unsupported class.
@@ -1104,7 +1104,7 @@ line-count estimate is not an implementation budget.
 (`video/helper`, a Rust binary over the C shims), a child process the
 game starts for its decoder thread and once more for each OS-decoded
 movie's demuxer. wasmtime, the module's compile cache and the WASI host
-left `desktop/src/video.rs`; `video/ddivideo.c` and `video/packets.c`
+left `crates/desktop/src/video.rs`; `video/ddivideo.c` and `video/packets.c`
 are unchanged in what they decode and how they stamp frames, gaining
 only a native file layer (`video/ddi_io.h`, `ddi_io.c`, under
 `DDI_NATIVE`) and a fixed output buffer. The web is untouched: Trunk
@@ -1132,7 +1132,7 @@ it builds on, and checks it on every start.
   or its recipe changed, compiles the shims with `cc` (`DDI_NATIVE`),
   links the five archives, and records FFmpeg's version for `--version`
   and `Hello`.
-- `desktop/build.rs` (feature `video`) builds the helper with
+- `crates/desktop/build.rs` (feature `video`) builds the helper with
   `cargo build -p ddi-video-helper --profile helper` in
   `target/video/helper-target/` (a target directory of its own, as the
   importer's; the `helper` profile: `opt-level = 3`, no LTO, abort on
@@ -1229,7 +1229,7 @@ same test alone (CI runs it on Linux and macOS).
   everything else `EPERM`; a second filter answers `ENOSYS` to `clone3`
   so glibc falls back to the filtered `clone`. Checked in an Ubuntu
   24.04 container (below).
-- **Windows:** the parent (`desktop/src/video/helper/windows_spawn.rs`)
+- **Windows:** the parent (`crates/desktop/src/video/helper/windows_spawn.rs`)
   creates the helper with `CreateProcessAsUserW` under a restricted
   primary token (all privileges removed, `WRITE_RESTRICTED`, the null
   SID as the only restricting SID, untrusted integrity), inherits only
@@ -1267,7 +1267,7 @@ frame). `--video-check` and `tests/video.rs` check every clip against
   frame (refused: "outside its slot"), one that floods frames (out of
   sequence, not read into memory), one that writes garbage; the helper
   found beside the executable and in a profile folder;
-  `desktop/src/video/tests.rs`.
+  `crates/desktop/src/video/tests.rs`.
 - `--sandbox-check` on macOS 27: holds. In an Ubuntu 24.04 container
   (Apple's `container`, kernel 6.18 without Landlock): the helper builds
   (FFmpeg natively, then 2 s for the crate), `--sandbox-check` holds on

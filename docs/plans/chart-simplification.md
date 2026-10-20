@@ -18,7 +18,7 @@ speed multipliers. Timing, ruleset hints, start/end/fade, lyrics, back
 and mask layers still come from the original. An empty result is not
 offered. Imported files and original charts are never rewritten.
 
-`chart/src/simplify.rs` appends these versions after all original charts,
+`crates/chart/src/simplify.rs` appends these versions after all original charts,
 with explicit `Chart::derivation` provenance. Importers themselves still
 return the original charts. Shared library loading adds versions for
 both native works and simfiles with `danoni-*` layouts, including SSC exports,

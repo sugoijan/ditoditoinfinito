@@ -6,14 +6,14 @@ they are chosen.
 
 ## Step 1. The preview page
 
-`#/skin-preview?skin=<key>` (`web/src/components/skin_preview.rs`): the
+`#/skin-preview?skin=<key>` (`crates/web/src/components/skin_preview.rs`): the
 skin's Down tap note (`notes=4`: the four arrows; `receptors=1`: their
 receptors too) on a canvas, `size` pixels an arrow, over `bg`, held at
 `beat` or running at `bpm`, on WebGPU or (`gfx=gl`) WebGL2. It goes through
 the play's own path: the skin is readied as for a play
 (`noteskins::prepare`), its textures uploaded by the game loop's function
 (`game_loop::upload_noteskin`, shared), and drawn by `Renderer::render`
-with `RenderOptions::preview` (`render/src/scene.rs`: the skin's elements
+with `RenderOptions::preview` (`crates/render/src/scene.rs`: the skin's elements
 alone, placed by the given `FieldGeometry`), so blending, models, mipmaps
 and WebGL2's offscreen frames are the play's. A test sets
 `window.__DDI_PREVIEW_BEAT` and waits for `window.__DDI_PREVIEW_DRAWN`.
@@ -45,7 +45,7 @@ of 255, much of it the GIFs' 256-color dithering.
 
 ## Step 3. Holds, mines and explosions: the demo
 
-`demo=1`: a short chart scrolling into the receptors (`engine/src/demo.rs`):
+`demo=1`: a short chart scrolling into the receptors (`crates/engine/src/demo.rs`):
 taps of several note types in every lane, holds, rolls and a mine,
 played by the engine's own `Player` (ITG's rules, failing off) with the
 autoplayer's presses moved to land in each of the judgement windows in
@@ -58,7 +58,7 @@ numbering events on so a skin's actors carry over. It runs on any
 built-in layout (`layout`): the four-lane phrase on dance-single, a
 generated one on the others (dance-double, solo, Dancing☆Onigiri's key
 modes). `rows` and `speed` size it. The preview now draws the field
-through the play's own scene path (`render/src/scene.rs`, stopping
+through the play's own scene path (`crates/render/src/scene.rs`, stopping
 before the HUD), so what a skin leaves to the built-in arrows shows, and
 `skin=builtin` previews the built-in arrows themselves, in the
 `ColorScheme` given.
@@ -70,7 +70,7 @@ format skins.
 
 ## Step 4. Previews in Options
 
-`PreviewCanvas` (`web/src/components/skin_preview.rs`) is the page's canvas
+`PreviewCanvas` (`crates/web/src/components/skin_preview.rs`) is the page's canvas
 as a component: it keeps its device and renderer and loads another skin
 when its options change (an older load gives way to a newer one). Under
 the Arrows choice, Options shows the arrows a play would draw (the chosen

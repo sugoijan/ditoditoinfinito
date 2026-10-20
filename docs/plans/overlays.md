@@ -119,13 +119,13 @@ Done, steps 1 to 5 (Dancing☆Onigiri's back and mask layers):
   and SVG ones reported; a capture's layers have no images. The import
   report notes animations from a work's own stylesheet, color boxes,
   layer transforms and script-computed positions.
-- `engine/src/sprites.rs`: each depth's content at a time, clears and
+- `crates/engine/src/sprites.rs`: each depth's content at a time, clears and
   `ALL`, Reverse's data, danoniplus's 16 layer animations with CSS's
   `ease` per keyframe segment, transforms about the centre (`spinX`/
   `spinY` as a squeeze without perspective; `blur` unblurred;
   `brightToDark` darkens only); no cue before `startFrame`; text with its
   tags dropped, then its references decoded.
-- `render/src/stage.rs` and the scene: back quads first, mask quads
+- `crates/render/src/stage.rs` and the scene: back quads first, mask quads
   before the HUD (danoniplus puts masks over its own judgements and
   information; ours stay readable over them); clipped to the stage (a
   turned quad, `spinZ`'s, drawn whole); images and text (drawn by the browser in danoniplus's

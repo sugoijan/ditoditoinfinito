@@ -257,8 +257,8 @@ def collect(root, sources, manifests, output, target, env):
     # Shared first-party chart/library code includes permissively copied tables
     # with notices beyond the workspace's MIT grant. Keep their actual REUSE
     # copyright/annotations and every declared upstream notice with the bundle.
-    for name in ('REUSE.toml', 'THIRD_PARTY.toml', 'CREDITS.md'):
-        save('first-party/' + name, (root / name).read_bytes())
+    for name in ('REUSE.toml', 'credits/THIRD_PARTY.toml', 'credits/CREDITS.md'):
+        save('first-party/' + Path(name).name, (root / name).read_bytes())
     for license_file in sorted((root / 'LICENSES').iterdir()):
         if license_file.is_file():
             data = license_file.read_bytes()
@@ -267,7 +267,7 @@ def collect(root, sources, manifests, output, target, env):
                                     'Copyright (c) すごいジャン <me@sugoijan.dev>'.encode())
             save('first-party/LICENSES/' + license_file.name, data)
     import tomllib
-    copied = tomllib.loads((root / 'THIRD_PARTY.toml').read_text())
+    copied = tomllib.loads((root / 'credits/THIRD_PARTY.toml').read_text())
     for row in copied.get('code', []):
         if row.get('notice'):
             save('first-party/' + row['notice'], (root / row['notice']).read_bytes())

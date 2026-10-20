@@ -151,8 +151,8 @@ def compiler_identity(target):
 
 def fingerprint(target):
     digest = hashlib.sha256(compiler_identity(target))
-    paths = ['Cargo.toml', 'Cargo.lock', 'chart', 'engine', 'library', 'platform', 'importer-protocol',
-             'tools/danoni-importer', 'tools/danoni-dump/rust', 'tools/danoni-dump/ruffle', 'LICENSES', 'REUSE.toml', 'THIRD_PARTY.toml', 'CREDITS.md']
+    paths = ['Cargo.toml', 'Cargo.lock', 'crates/chart', 'crates/engine', 'crates/library', 'crates/platform', 'crates/importer-protocol',
+             'tools/danoni-importer', 'tools/danoni-dump/rust', 'tools/danoni-dump/ruffle', 'LICENSES', 'REUSE.toml', 'credits/THIRD_PARTY.toml', 'credits/CREDITS.md']
     for relative in paths:
         path = ROOT / relative
         files = [path] if path.is_file() else sorted(path.rglob('*'))
@@ -232,7 +232,7 @@ def prepare(target, stage):
             env = cargo_env(cache)
             cli_manifest = ROOT / 'tools/danoni-dump/rust/Cargo.toml'
             helper_manifest = ROOT / 'tools/danoni-importer/Cargo.toml'
-            # Select only these two packages: never recurse into desktop/build.rs.
+            # Select only these two packages: never recurse into crates/desktop/build.rs.
             # Both executables share one lock, feature graph and compilation cache.
             cargo(ROOT / 'Cargo.toml', cache / 'importer-target', target, env,
                   profile='importer', packages=('ddi-danoni-export', 'ddi-danoni-importer'))
@@ -332,7 +332,7 @@ def package(app, output):
             if not index.is_file():
                 raise ValueError(f'Generate {name} index with cargo run -p xtask -- gen-{name} before packaging')
             shutil.copy2(index, output / 'assets' / name / 'index.json')
-        # The sandboxed decoder helper desktop/build.rs staged beside the app
+        # The sandboxed decoder helper crates/desktop/build.rs staged beside the app
         # (video/ddi-video-helper), with its notice and FFmpeg's description.
         exe = 'ddi-video-helper.exe' if manifest['target'].endswith('windows-msvc') else 'ddi-video-helper'
         helper = app.parent / 'video' / exe
@@ -342,7 +342,7 @@ def package(app, output):
             notice = helper.parent / 'ddi-video-helper.LICENSE.txt'
             metadata_file = helper.parent / 'ffmpeg.json'
             if not notice.is_file() or not metadata_file.is_file():
-                raise ValueError('Video helper lacks its build metadata/notices; rebuild the app (desktop/build.rs stages them)')
+                raise ValueError('Video helper lacks its build metadata/notices; rebuild the app (crates/desktop/build.rs stages them)')
             metadata = json.loads(metadata_file.read_bytes())
             expected_configure = video_config['native_configure'] + ['--enable-decoder=' + ','.join(video_config['video_decoders'])]
             # The script adds host-dependent flags (--disable-x86asm, --toolchain=msvc) after the pinned ones.
@@ -370,7 +370,7 @@ def package(app, output):
             raise ValueError('Video-enabled app needs its built decoder helper beside it (video/ddi-video-helper); rebuild the app, or build it without video')
         shutil.copytree(ROOT / 'LICENSES', output / 'LICENSES')
         for name in ['CREDITS.md', 'THIRD_PARTY_RUST.md']:
-            shutil.copy2(ROOT / name, output / name)
+            shutil.copy2(ROOT / 'credits' / name, output / name)
         run([output / 'danoni-importer' / manifest['id'] / manifest['executable'], '--check-bundle'], env, cwd=output)
         (output / 'PACKAGE.json').write_bytes(encoded({'schema': 'ddi-desktop-distribution/1', 'appSha256': sha(app.read_bytes()), 'importerId': manifest['id'], 'manifestSha256': digest, 'target': manifest['target'], 'appNativeDependencies': app_dependencies}))
         (output / 'README.txt').write_text('Run ./' + app.name + '\nKeep assets/, video/ (when present), LICENSES/ and danoni-importer/ beside the executable.\nThe importer is self-contained native code; Java/Python/Cargo are build tools only.\nSee danoni-importer/' + manifest['id'] + '/runtime/notices/manifest.json for exact helper/SDK/worker dependency and embedded-font notices.\n')

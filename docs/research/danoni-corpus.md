@@ -521,13 +521,13 @@ JavaScript-to-static-event conversion remain outside supported scope.
 
 Local `main` at `36e57b1` implements CW import and reads the existing
 `ddi-danoni-dump/1` manifest/effective-dos contract through
-[`library/src/danoni.rs`](../../library/src/danoni.rs). This research branch is
+[`crates/library/src/danoni.rs`](../../crates/library/src/danoni.rs). This research branch is
 rebased onto that implementation; the dump schemas are unchanged. The game's
 supported modes are **5, 7, 7i, 9A and 9B**. Other modes and work-defined or
 redefined layouts are reported as unsupported. Retaining those works in the
 research corpus still tests extraction and layout interpretation; it is not a
 promise that the game plays them. See PLAN decisions 26–27 and
-[`PLAYED_DANONI_MODES`](../../chart/src/layout/mod.rs).
+[`PLAYED_DANONI_MODES`](../../crates/chart/src/layout/mod.rs).
 
 The importer now has an opt-in local comparison:
 
@@ -536,7 +536,7 @@ DDI_DANONI_CORPUS="$HOME/Music/DanOni/corpus" cargo test -p ddi-chart \
   --test danoni_corpus -- --nocapture
 ```
 
-[`danoni_corpus.rs`](../../chart/tests/danoni_corpus.rs) compares lane names,
+[`danoni_corpus.rs`](../../crates/chart/tests/danoni_corpus.rs) compares lane names,
 tap/hold frames, speed/boost pairs and integer timing adjustment, and checks
 whether each chart imports according to the supported-mode policy. It does not
 compare colours, lyrics, audio playback, arbitrary custom hooks or legacy export

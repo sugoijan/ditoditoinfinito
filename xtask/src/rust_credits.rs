@@ -151,11 +151,27 @@ fn cache_key(root: &Path) -> Result<String> {
     let workspace: toml::Value = toml::from_str(&manifest)?;
     let members = workspace["workspace"]["members"]
         .as_array()
-        .context("workspace members must be explicit paths")?;
+        .context("workspace members must be a list")?;
     for member in members {
         let member = member.as_str().context("workspace member must be a path")?;
-        let text = fs::read_to_string(root.join(member).join("Cargo.toml"))?;
-        parts.push(format!("{member}\n{text}"));
+        // A trailing `/*` (`crates/*`) stands for every crate in that folder.
+        let mut dirs = vec![];
+        match member.strip_suffix("/*") {
+            Some(parent) => {
+                for entry in fs::read_dir(root.join(parent))? {
+                    let dir = entry?.path();
+                    if dir.join("Cargo.toml").is_file() {
+                        dirs.push(dir);
+                    }
+                }
+            }
+            None => dirs.push(root.join(member)),
+        }
+        for dir in dirs {
+            let text = fs::read_to_string(dir.join("Cargo.toml"))?;
+            let name = dir.strip_prefix(root).unwrap_or(&dir).display();
+            parts.push(format!("{name}\n{text}"));
+        }
     }
     parts.push(manifest);
     parts.sort();

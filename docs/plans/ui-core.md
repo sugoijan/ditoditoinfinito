@@ -63,7 +63,7 @@ desktop/  ddi-desktop  winit window, wgpu surface, input → UiEvent, rfd, arboa
                        file, system fonts; audio and play come with the rest of phase 9
 ```
 
-(`ddi-actor` rather than "scene": `render/src/scene.rs` already names the
+(`ddi-actor` rather than "scene": `crates/render/src/scene.rs` already names the
 play field's sprite builder.) `actor` and `ui` are platform-free and
 tested natively, like `engine` and `noteskin`. Dependency direction: `ui`
 → `actor`, `library`, `engine`, `platform`; `noteskin` → `actor`;
@@ -97,9 +97,9 @@ they were drawn at.
 
 ## Decisions proposed
 
-- **P1. One actor model.** `noteskin/src/actor.rs` and `commands.rs`
+- **P1. One actor model.** `crates/noteskin/src/actor.rs` and `commands.rs`
   (StepMania's tween queue, effects, sprite states, commands, eases) and
-  the model data types they hold (`noteskin/src/model.rs`: `Geometry`,
+  the model data types they hold (`crates/noteskin/src/model.rs`: `Geometry`,
   `Animation`, `AnimatedTexture`) become `ddi-actor`, shared by noteskins,
   our screens and later themes; parsers stay in `noteskin`. The scene is
   retained (Lua themes keep actor references) and actors are placed
@@ -133,7 +133,7 @@ they were drawn at.
   fallback and so the choice can be changed later (with a CJK font fetched
   on demand: identical layout everywhere, megabytes on the first Japanese
   title). The Dancing☆Onigiri layers draw text through the browser
-  already (`web/src/web/image.rs:122`), but with one `createImageBitmap`
+  already (`crates/web/src/web/image.rs:122`), but with one `createImageBitmap`
   promise per run, too slow for a long list. The play HUD keeps glyphon
   and its embedded font.
 - **P5. Text input through the platform's own editor where there is one.**
@@ -158,7 +158,7 @@ they were drawn at.
   subsetting recorded as a modification. On the web a bundled font
   reaches the browser's text drawing as a `FontFace`.
 - **P7. Messages, generalised.** Noteskins' Lua already receives messages
-  (`noteskin/src/lua/mod.rs`, `HandleMessage`); screens broadcast named
+  (`crates/noteskin/src/lua/mod.rs`, `HandleMessage`); screens broadcast named
   messages with parameters to every actor (StepMania's `MessageManager`,
   `<Name>MessageCommand`), so StepMania themes' `CurrentSongChanged` and
   the like map onto what our screens send.
@@ -175,7 +175,7 @@ they were drawn at.
   6.2).
 - **P10. One canvas and device for the whole web app**, created at boot
   and kept across routes. Today the play screen and the skin preview each
-  call `Gfx::new` (`web/src/web/gfx.rs:151`), which may replace the canvas
+  call `Gfx::new` (`crates/web/src/web/gfx.rs:151`), which may replace the canvas
   when WebGPU fails (`gfx.rs:124`), and `&gfx=gl` is read per route; both
   become boot-time choices (`gfx=gl` a boot parameter and a setting). The
   first paint waits for the adapter (the boot shell shows meanwhile); a
@@ -186,11 +186,11 @@ they were drawn at.
   encoded values for menus). Decision 17
   draws in linear light and blends skins in encoded values, which on
   WebGL2 sends every frame through an offscreen float texture
-  (`render/src/offscreen.rs`). Theme art and browser-drawn text expect
+  (`crates/render/src/offscreen.rs`). Theme art and browser-drawn text expect
   encoded blending, and an offscreen pass every frame costs power on
   phones; menus may draw directly in encoded values.
 - **P12. State the screens need moves out of `app`.** Settings
-  (`web/src/settings.rs`, `localStorage` through gloo), the song and
+  (`crates/web/src/settings.rs`, `localStorage` through gloo), the song and
   noteskin libraries (`songs.rs`, `noteskins.rs`) and the song list's
   place (`menu.rs`, `sessionStorage`) become plain data behind `platform`
   traits, with the web's storage keys unchanged so players keep their
@@ -302,7 +302,7 @@ Results (2026-10-15; Chrome 155 headless, Firefox 151 and 158 through
    which skins changed, and each change is checked against StepMania's
    behaviour before it is accepted. Settle how actors are held (today a
    tree of owned children that the Lua stage lends,
-   `noteskin/src/lua/stage.rs`; an arena with stable ids if screens need
+   `crates/noteskin/src/lua/stage.rs`; an arena with stable ids if screens need
    to reach actors by id).
 
 Done (2026-10-15):
@@ -336,7 +336,7 @@ Done (2026-10-15):
   receptor frames call `fov(60)`), the seven STARLiGHT-NEXXT skins (mask
   sprites no longer drawn opaque over the notes; quads solid). The bundled
   skins' previews are unchanged pixel for pixel.
-- **Left for the renderer** (`render/src/noteskin.rs` approximates them
+- **Left for the renderer** (`crates/render/src/noteskin.rs` approximates them
   meanwhile): per-vertex color in the textured pass (corner gradients
   are cut into 8 cells a side), perspective-correct quads from projected
   corners (drawn flat from the corners' mean), masks through the stencil
@@ -347,7 +347,7 @@ Done (2026-10-15):
 
 `render` gains the 2D pass over a draw list (P11) and the texture cache
 (P9); the limit that drops quads beyond one device buffer in a frame
-(`render/src/textured.rs`) goes. The web app gets one canvas and device
+(`crates/render/src/textured.rs`) goes. The web app gets one canvas and device
 for every route (P10), drawn behind the Yew pages while they last. A
 developer route draws a test scene (quads, text, clips, blend modes, a
 texture loading late).
@@ -359,7 +359,7 @@ context (`WEBGL_lose_context`) recovers; texture-cache bytes in
 
 Done (2026-10-15):
 
-- **One canvas** (`web/src/web/screen.rs`): canvas and device made in
+- **One canvas** (`crates/web/src/web/screen.rs`): canvas and device made in
   `main` before Yew mounts (the boot shell waits for the adapter, at most
   4 s); the backend chosen at boot (`gfx=gl` in the address, or the new
   Graphics setting), a route asking for WebGL2 later switching it once for
@@ -371,12 +371,12 @@ Done (2026-10-15):
   which stay until retry; the skin preview rebuilds. wgpu's errors are
   logged, not fatal; nothing configures a lost device. Without a usable
   GPU the drawing pages say so and the Yew pages keep working.
-- **Texture cache** (`render/src/texture_cache.rs`): keyed by source and a
+- **Texture cache** (`crates/render/src/texture_cache.rs`): keyed by source and a
   size bucket (64 … 2048), stable ids, queued loads decoded by
-  `createImageBitmap` (`web/src/web/textures.rs`), least-recently-used
+  `createImageBitmap` (`crates/web/src/web/textures.rs`), least-recently-used
   eviction under a byte budget, reloaded after a lost device.
-- **Text** (`render/src/text_atlas.rs`, `web/src/web/text.rs`,
-  `render/src/cosmic.rs`): runs drawn white by Canvas2D on one staging
+- **Text** (`crates/render/src/text_atlas.rs`, `crates/web/src/web/text.rs`,
+  `crates/render/src/cosmic.rs`): runs drawn white by Canvas2D on one staging
   canvas into 2048² `R8Unorm` pages with 2 px padding; one upload per page
   and stretch of a shelf each frame (a union rectangle would copy the
   staging canvas's blank parts over earlier runs); budget in pages,
@@ -387,12 +387,12 @@ Done (2026-10-15):
   map one to one; turned runs are sampled. The bundled font is the `FontFace`
   "Iosevka Custom". Natively, cosmic-text with bundled and optionally
   system fonts.
-- **The 2D pass** (`render/src/draw2d.rs`, `painter.rs`, `painter.wgsl`):
+- **The 2D pass** (`crates/render/src/draw2d.rs`, `painter.rs`, `painter.wgsl`):
   quads (textured, coverage, untextured; corner colors; four blend
   modes), text runs, clips as scissors, `External` slots that end the
   pass for the shell to draw into; drawn in encoded values through a plain
   view, WebGL2's surface switched to plain `Rgba8Unorm` while no play
-  field is shown. Instance buffers are chunked (`render/src/instances.rs`),
+  field is shown. Instance buffers are chunked (`crates/render/src/instances.rs`),
   so the textured pass no longer drops quads beyond one buffer.
 - **Checked:** 25 pixel checks of `#/ui-test` with no failure in Chrome
   (WebGPU, WebGL2) and Firefox (WebGL2), also after a lost device (ids
@@ -412,7 +412,7 @@ Done (2026-10-15):
 
 Done, actors in both passes (2026-10-15):
 
-- **The bridge** (`render/src/actors2d.rs`) turns actors' `Drawn` into the
+- **The bridge** (`crates/render/src/actors2d.rs`) turns actors' `Drawn` into the
   2D pass's list: corner colors, glow as a second quad, text on its line
   box, exact clips as scissors and turned ones as `PushClipQuad`, masks
   and perspective; models are left to the play field.
@@ -454,7 +454,7 @@ Done, actors in both passes (2026-10-15):
 - **Harness:** drives a `Ui` with scripted events and frames and asserts
   on the actors and the draw list, natively.
 - **Shared state** out of `app` (P12). `ddi_library::search` folds text
-  with the browser's NFKD (`library/src/search.rs`); desktop gets the
+  with the browser's NFKD (`crates/library/src/search.rs`); desktop gets the
   same through `unicode-normalization`, checked against the browser's on
   the search tests.
 - **Web:** the canvas takes pointer events (`touch-action: none`, no
@@ -528,13 +528,13 @@ Done, the shells (2026-10-15):
 
 - **Shared state (P12).** `ddi_platform::storage` is a store each shell
   installs (`localStorage`/`sessionStorage` under the same keys on the
-  web, `web/src/web/kv.rs`; `storage.json` in the user's config folder on
+  web, `crates/web/src/web/kv.rs`; `storage.json` in the user's config folder on
   desktop, an unreadable one kept as `storage.json.bad`). Settings and
   their migrations, the song list's place and the library views screens
-  read live in `ui/src/state/`; the app re-exports them, and old settings
+  read live in `crates/ui/src/state/`; the app re-exports them, and old settings
   load as before (checked natively and in Chrome). Search folds with
   `unicode-normalization` natively (`ddi-library`'s `nfkd` feature).
-- **Web.** `#/ui-dev` runs the developer screen (`ui/src/dev.rs`, shared
+- **Web.** `#/ui-dev` runs the developer screen (`crates/ui/src/dev.rs`, shared
   with desktop) on the canvas: pointer events with `touch-action: none`,
   no context menu or callout, every wheel prevented; keys prevented when
   `consumed`; the hidden textarea (step 0's recipe; state re-read on every
@@ -581,7 +581,7 @@ screen in both browsers and on desktop.
 
 Done (2026-10-15):
 
-- **Look seam (P6, `ui/src/look.rs`).** Widgets ask a `Look` for
+- **Look seam (P6, `crates/ui/src/look.rs`).** Widgets ask a `Look` for
   components by name and only fill and move their named parts and play
   commands on them; a built-in dark look answers what a theme does not.
 - **Images.** `Cx::texture(source, side)` gives a stable actor texture
@@ -597,12 +597,12 @@ Done (2026-10-15):
   suggestion popup that never shows while composing, fed by
   `ddi_library::suggest` (prefix, then word start, then anywhere; titles
   before artists before packs; folding and romaji as search has them).
-- **Layout frames** (`ui/src/layout.rs`): taffy behind the `layout`
+- **Layout frames** (`crates/ui/src/layout.rs`): taffy behind the `layout`
   feature, off in both shells for now: flex and grid cost 77 KB of wasm,
   about twice the estimate, and a hand-made grid serves so far; to decide
   again with the results screen (step 6.1). **Graphs** (`graph.rs`):
   segments, polylines, bars, points, a histogram, a line over time.
-- **Widget screen** (`ui/src/dev_widgets.rs`; `#/ui-dev?screen=widgets`,
+- **Widget screen** (`crates/ui/src/dev_widgets.rs`; `#/ui-dev?screen=widgets`,
   `--widgets` on desktop; lists take a component prefix, `SongList.Row`
   falling back to `List.Row`): 10,000 songs under 200 packs (the library's
   own first, with banners), search with suggestions, option rows, a
@@ -619,7 +619,7 @@ Done (2026-10-15):
   left blank after shrinking mid-glide, a panic in a short list's
   scrollbar, a tap that caught a moving list starting a song, the wheel
   style never settling) and ten lesser ones; all fixed, its cases kept as
-  tests (`ui/tests/review.rs`). Lists keep the selected item across a
+  tests (`crates/ui/tests/review.rs`). Lists keep the selected item across a
   reload (`ListModel::key`), positions are kept in `f64`, banners are not
   asked for above 1,500 px/s, the popup is an overlay that flips above
   the field near the visible bottom, and pointers reach widgets in their
@@ -651,10 +651,10 @@ Done (2026-10-15):
   room), and named colors (difficulties lifted for the dark ground,
   judgements as the HUD draws them). Every color, face, size, region,
   timing, the backdrop's strength and the pulse are in
-  `theme/src/infinito.toml`, which `build.rs` turns into tables (no TOML
+  `crates/theme/src/infinito.toml`, which `build.rs` turns into tables (no TOML
   parser in the wasm); a test runs every screen and checks that each key
   is read and each name asked for is there.
-- **The screens** (`ui/src/screens/`), theme-agnostic (metrics with the
+- **The screens** (`crates/ui/src/screens/`), theme-agnostic (metrics with the
   mockups' numbers as defaults, components falling back to the plain
   look's), fed by plain data (`screens/data.rs`) that step 6 fills:
   song select (the wheel with pack headers that open and close, every
@@ -705,7 +705,7 @@ Done (2026-10-15):
   since a bundled banner on a made-up title reads as a mislabelled
   song), Start showing results and the
   Options link options; `__DDI_DEBUG.ui.theme` publishes what they did.
-  Desktop now decodes banners and backgrounds (`desktop/src/images.rs`,
+  Desktop now decodes banners and backgrounds (`crates/desktop/src/images.rs`,
   the `image` crate, PNG and JPEG).
 - **Checked:** harness tests per screen (greying, style changes keeping
   the difficulty, packs, the popup never while composing, the pulse and
@@ -713,13 +713,13 @@ Done (2026-10-15):
   look and again with the theme; Playwright in Chrome (WebGPU, WebGL2)
   and Firefox at 1280×720 and 844×390; a play still all top tier on
   both backends; desktop's select drawn offscreen
-  (`desktop/tests/theme_offscreen.rs`). Work a frame with the backdrop
+  (`crates/desktop/tests/theme_offscreen.rs`). Work a frame with the backdrop
   and the pulse running: 0.6 ms on Chrome's WebGPU, 1.0 ms on WebGL2,
   5.1 ms in headless Firefox (means); none while idle with reduced
   motion. Wasm 2,460 KB gzip (+69 KB over step 4: the screens, the
   theme, the sample data and the look additions).
 - **Review fixes** (an independent review; its probes kept as tests in
-  `ui/src/screens/tests.rs` and `theme/src/tests.rs`): the ladder's
+  `crates/ui/src/screens/tests.rs` and `crates/theme/src/tests.rs`): the ladder's
   window is computed once and used for drawing, picking and the pulse
   (rows shrink to fit six charts at 720); Start, Left, Right and Tab act
   on the song the selection is on even in the poll that moved it; Enter
@@ -758,8 +758,8 @@ Firefox.
 
 1. **Results**, first: the smallest screen, and it proves layout frames.
    Today it is a state of the play route (`results_view`,
-   `web/src/components/game_canvas.rs`), and the engine keeps only totals,
-   the mean and the deviation (`engine/src/player.rs`, `Results`). The
+   `crates/web/src/components/game_canvas.rs`), and the engine keeps only totals,
+   the mean and the deviation (`crates/engine/src/player.rs`, `Results`). The
    panels need more, recorded by the engine first, with replay-fixture
    tests: every judgement with its time, offset and lane; the life over
    the song; counts per lane. Then the panels (judgement counts, timing
@@ -807,7 +807,7 @@ Firefox.
    sample, resets behind a confirmation dialog, the noteskin choice with
    its preview drawn in the scene. The preview (the panel beside the
    rows, a placeholder since step 5) plays the demo chart
-   (`engine/src/demo.rs`) as play would draw it with the options being
+   (`crates/engine/src/demo.rs`) as play would draw it with the options being
    chosen, changing as they change (the maintainer, 2026-10-15): the
    direction (Reverse), the speed and whether charts keep their own, the
    scroll action, Turn, the appearance (Hidden, Sudden, Stealth), the
@@ -827,7 +827,7 @@ Done, 6.1 results (2026-10-15):
   (`Results::timeline`, `Results::life`, `Results::taps_by_lane`; a
   replay test), and a gauge says where its danger line is
   (`GaugeRules::danger_line`).
-- **The mapping** (`ui/src/screens/play.rs`, natively tested): counts from
+- **The mapping** (`crates/ui/src/screens/play.rs`, natively tested): counts from
   the ruleset's tally (a per-row ruleset counts a jump once), panels from
   the timeline; the ruleset's tier names (tiers it does not have, named
   "—" or empty and never judged, left out: DDR A and Dancing☆Onigiri
@@ -839,7 +839,7 @@ Done, 6.1 results (2026-10-15):
   device-changed and video notes; the per-song offset editor as before
   (a millisecond either way, this play's mean error when worth taking,
   reset; same storage).
-- **The screen** (`ui/src/screens/results.rs`) draws them with the
+- **The screen** (`crates/ui/src/screens/results.rs`) draws them with the
   ruleset's windows coloring the histogram, the gauge's danger line on
   the life graph, misses on the offsets, and the layout's lanes (4, 5, 6,
   8, 10 and Dancing☆Onigiri's, by name when they fit, by symbol when
@@ -863,7 +863,7 @@ Done, 6.1 results (2026-10-15):
   ruleset's grades at both sizes.
 - **On the play route**: when a song's play ends, the play's frames stop
   and the screen takes the canvas, the keys and the pads
-  (`web/src/components/ui_dev.rs`'s host, embedded: its size the
+  (`crates/web/src/components/ui_dev.rs`'s host, embedded: its size the
   canvas's, history the route's, its debug state added to the page's as
   `__DDI_DEBUG.results`, removed when they go). The backdrop is the
   background the play read, kept in memory (`web::textures::keep`) under
@@ -964,7 +964,7 @@ Done, 6.2 from the maintainer's try: trackpads, motion blur, banners
   asked for is the component's). What stays loaded is bounded by bytes
   (mipmaps counted) and by count (`MAX_LOADED`, 768). Measured over
   10,000 rows, two in three with a banner of their own
-  (`desktop/tests/banners.rs`, a budget of 100 banners): a slow
+  (`crates/desktop/tests/banners.rs`, a budget of 100 banners): a slow
   trackpad scroll through 300 rows loads 188
   and evicts 88, never more than 100 loaded (10.7 MB); a long flick
   loads only where it stops (14). Desktop decodes on two threads
@@ -975,9 +975,9 @@ Done, 6.2 from the maintainer's try: trackpads, motion blur, banners
 Done, 6.2 song select (2026-10-16):
 
 - **`#/` is our theme's song select** on the app's canvas over the whole
-  window (`web/src/components/select_page.rs`, the UI core's host from
+  window (`crates/web/src/components/select_page.rs`, the UI core's host from
   `ui_dev.rs` started as a route of its own), on the real library: the
-  bundled manifest and the imported songs (`web/src/select_data.rs`),
+  bundled manifest and the imported songs (`crates/web/src/select_data.rs`),
   every song in every style, greyed where it has no chart in it, packs
   as the wheel's headers (bundled first, then each imported pack;
   closed or open as left), banners and backgrounds through the texture
@@ -1012,7 +1012,7 @@ Done, 6.2 song select (2026-10-16):
   The pulse follows the preview's music through the chart's timing
   (`Env::beat`), at the display BPM when silent.
 - **Import:** "+ Add songs" (compact: "+") opens a dialog
-  (`ui/src/screens/select_dialogs.rs`) whose buttons click the page's
+  (`crates/ui/src/screens/select_dialogs.rs`) whose buttons click the page's
   real inputs inside the gesture (a folder through `showDirectoryPicker`
   where it exists, else the `webkitdirectory` input; zips and files),
   with the import options as toggles, the status, and the report in a
@@ -1096,8 +1096,8 @@ Done, 6.2 song select (2026-10-16):
 
 Done, 6.3's field preview (2026-10-16):
 
-- **What it is** (`render/src/field_preview.rs`, platform-free): each
-  frame it plays the demo chart (`engine/src/demo.rs`, now playable
+- **What it is** (`crates/render/src/field_preview.rs`, platform-free): each
+  frame it plays the demo chart (`crates/engine/src/demo.rs`, now playable
   with any play options and ruleset, `Demo::with_options`) and draws the
   frame as play draws it, HUD and all (life bar, score, combo, the
   ruleset's judgement names, the timing error), with the play
@@ -1116,7 +1116,7 @@ Done, 6.3's field preview (2026-10-16):
   half floats the device renders and blends, straight into the plain
   texture, blending in encoded values.
 - **What it follows** (`FieldPreviewOptions`, built from the settings by
-  the shell as play builds its own, `web/src/field_preview.rs`): the
+  the shell as play builds its own, `crates/web/src/field_preview.rs`): the
   style's layout (pump and Dancing☆Onigiri lanes), speed and Reverse,
   Boost/Brake/Wave, Turn, Cut and the simplifications, Hidden, Sudden,
   Stealth, receptor snap (the player's `PlayOptions`, the demo played
@@ -1149,7 +1149,7 @@ Done, 6.3's field preview (2026-10-16):
   `__DDI_DEBUG.ui.fieldPreviewDrawn` has `{frames, status, skin, layout,
   demoTime, texture}`.
 - **Checked:** native tests (options, the plate, the demo with options,
-  the cache's cancel); `desktop/tests/field_preview_offscreen.rs` on the
+  the cache's cancel); `crates/desktop/tests/field_preview_offscreen.rs` on the
   GPU (Reverse puts the receptors at the bottom, Hidden blanks the notes
   near them and not further, Mirror swaps the lanes' notes, the
   background's brightness and the filter, the 2D pass drawing the
@@ -1174,7 +1174,7 @@ Done, 6.3's field preview (2026-10-16):
   cached, the resting size exact. Not by scaling one raster: glyphon
   samples its atlas pixel for pixel at whole-pixel places, so a scaled
   raster would show its pixels. The look is the same
-  (`desktop/tests/hud_text_offscreen.rs`: the same box within a pixel
+  (`crates/desktop/tests/hud_text_offscreen.rs`: the same box within a pixel
   and the same ink within 4 % at five points of a pop; a second pop
   shapes nothing). Shapings a second in a beatucada autoplay
   (`__DDI_DEBUG.text_shaped`): 31.7 → 6.6 in headless Firefox at 120
@@ -1182,18 +1182,18 @@ Done, 6.3's field preview (2026-10-16):
   headless Firefox 10 → 8 ms. Play's pacing in headless Firefox has
   headroom either way (8.4 ms mean, p99 10.3, at 120 Hz); to be read
   off the debug overlay in a real Firefox.
-- **Desktop** (`desktop/src/field_preview.rs`, `Gpu::field`): the
+- **Desktop** (`crates/desktop/src/field_preview.rs`, `Gpu::field`): the
   window answers `UiRequest::FieldPreview` the same way, with the
   settings read from `storage.json` when the panel shows, frames going
   on while it does; the built-in arrows only until desktop loads
   noteskins (step 7). `cargo run -- --screen options`;
-  `desktop/tests/options_offscreen.rs` draws the screen with the
+  `crates/desktop/tests/options_offscreen.rs` draws the screen with the
   preview (Reverse moving the receptors to the panel's bottom).
 
 Done, 6.3 options (2026-10-16):
 
 - **`#/options` is our theme's options screen** on the app's canvas
-  (`web/src/components/options_page.rs`, the same host as song select),
+  (`crates/web/src/components/options_page.rs`, the same host as song select),
   on the player's settings: every setting the Yew page had, in nine
   sections (Scroll, Notes, Rules, Timing, Sound, Display, Arrows,
   Controls, Data: History and Reset merged on 2026-10-16, with a
@@ -1211,7 +1211,7 @@ Done, 6.3 options (2026-10-16):
   arrows, press P to focus it, or move Down past the section's last row;
   Left/Right change the layout and Up/Down return to the options. It
   affects only the preview and is not saved as the play style.
-- **Pure and shared:** `ui/src/screens/options_model.rs` makes the rows
+- **Pure and shared:** `crates/ui/src/screens/options_model.rs` makes the rows
   from the settings and what the platform knows (`World`: the
   noteskins, the controllers connected, the library's counts, the
   volume sample) and applies each change; `options_shell.rs` is the
@@ -1234,7 +1234,7 @@ Done, 6.3 options (2026-10-16):
   (bind, reset its keys, per lane: add a key, clear), each controller
   connected or saved (what it plays: saved, defaults, one pad of a
   double; bind, clear, use defaults, forget). The bind flow
-  (`ui/src/state/bind.rs`, natively tested) is the Yew one's: each lane,
+  (`crates/ui/src/state/bind.rs`, natively tested) is the Yew one's: each lane,
   then a controller's Start and Back (skippable), a press released
   before the next, one device only, a control used twice or a lane of
   another style's table refused with the reason, opposite ends of one
@@ -1288,7 +1288,7 @@ Done, 6.3 options (2026-10-16):
 
 Done, 6.4 part one (2026-10-16):
 
-- **Pages to read** (`ui/src/screens/page.rs`): headings, paragraphs,
+- **Pages to read** (`crates/ui/src/screens/page.rs`): headings, paragraphs,
   links, buttons and folded sections in one column that scrolls (keys go
   from one link or button to the next and scroll it into view, Page Up
   and Down, Home and End; a wheel or a drag), under the theme's header,
@@ -1296,19 +1296,19 @@ Done, 6.4 part one (2026-10-16):
   phone upright (480 wide, zoomed). Links open through
   `UiRequest::OpenUrl` from the press; a link's hit area lies over its
   text.
-- **Calibration's menu** at `#/calibrate` (`ui/src/screens/calibration.rs`,
-  the page `web/src/components/page_routes.rs`): what the three tests do
+- **Calibration's menu** at `#/calibrate` (`crates/ui/src/screens/calibration.rs`,
+  the page `crates/web/src/components/page_routes.rs`): what the three tests do
   and a button to start each (the run is still the play route's
   `#/calibrate/run?mode=…`, unchanged, its autoplayer still following
   the physical cue), the default offsets and every device's, and "Reset
   offsets to 0" (asked first: the defaults and each device's offset to
   0, the devices kept as not calibrated), Options. `#/calibrate?auto=1&
   bias=<ms>` carries `auto` and `bias` to the run it starts.
-- **The credits** at `#/credits` (`ui/src/screens/credits.rs`, the same
+- **The credits** at `#/credits` (`crates/ui/src/screens/credits.rs`, the same
   page): `credits/credits.json` as the Yew page showed it, every source,
   licence and the video decoder's licence texts a link, the configure
   flags and each copied code's notice folded.
-- **The app's notices in the scene** (`ui/src/screens/notices.rs`): the
+- **The app's notices in the scene** (`crates/ui/src/screens/notices.rs`): the
   device watcher's banners ("First time here? …", "New audio path: …
   New display: … No calibration for it yet.", with calibrate, use
   defaults, use another device's offset, later) and its "devices: …"
@@ -1324,7 +1324,7 @@ Done, 6.4 part one (2026-10-16):
   there), moves the menu's focus into its actions (Left and Right
   between them, Start presses one, Down, Back or F2 go back; a hint
   "F2" on the banner); pushed by every theme host (`ui_dev::start_ui`)
-  and fed by `web/src/notices.rs` from the watcher, which no longer
+  and fed by `crates/web/src/notices.rs` from the watcher, which no longer
   draws anything. Same persistence:
   "later" until a new device shows up, "use defaults" and "use … from …"
   keep the devices, held back in play, calibration and the developer
@@ -1439,7 +1439,7 @@ Done after 6.4 part one's review (2026-10-16):
 
 Done, 6.4 part two (2026-10-16):
 
-- **One start prompt for both shells** (`ui/src/screens/prompt.rs`,
+- **One start prompt for both shells** (`crates/ui/src/screens/prompt.rs`,
   dressed by the theme): the song, its artist, the chart in its
   difficulty's color, AUTOPLAY, the mods it will play with (the speed,
   Reverse, every option off its default, `mods_line`) over its picture;
@@ -1485,7 +1485,7 @@ Done, 6.4 part two (2026-10-16):
   since part three's review), kept clear of the safe area; `web::touch`
   takes presses on it as the cancel control. Lyrics stayed DOM here
   (moved in part three, below).
-- **Desktop** swaps its stand-in (`desktop/src/play/prompt.rs`) for the
+- **Desktop** swaps its stand-in (`crates/desktop/src/play/prompt.rs`) for the
   shared screen: `PromptScreen::new(env, state, act)`, its picture drawn
   by the screen (the desktop's prompt picture under the UI can go).
 - **Checked:** the screen's choices and steps natively (Enter, a pad's
@@ -1522,7 +1522,7 @@ Done, 6.4 part three (2026-10-16):
   Japanese) and aligned in it, in its `#cccccc` with a soft shadow; the
   browser's text on the web (Japanese without a download), cosmic-text
   with the system's fonts for desktop's play to call. The DOM overlay
-  (`web/src/lyrics.rs`) and its CSS are gone; `__DDI_DEBUG.lyrics`
+  (`crates/web/src/lyrics.rs`) and its CSS are gone; `__DDI_DEBUG.lyrics`
   lists the texts drawn.
 - **The calibration run's outcome on the canvas:** a card on the start
   prompt's screen (`PromptStep::Card`: a heading, colored lines,
@@ -1533,7 +1533,7 @@ Done, 6.4 part three (2026-10-16):
   still follows the physical cue). A calibration without an outcome and
   a song's score when the theme's results cannot start are cards too.
 - **No Yew:** the web shell's pages are components of our own
-  (`web/src/component.rs`: a page's messages handled one after another
+  (`crates/web/src/component.rs`: a page's messages handled one after another
   in a microtask after they are sent, as Yew did, its few DOM elements
   made and updated by itself under its root), the router mounts the
   page of the address (made again when its key changes: the route, a
@@ -1552,12 +1552,12 @@ Done, 6.4 part three (2026-10-16):
   shaders encode, multiply and decode, where they took the brightness
   to the power 2.2 in linear light: dark tones came out darker than on a
   plain target), so the prompt's picture and the play's first frame are
-  the same pixels (`desktop/tests/backdrop_brightness_offscreen.rs`, and
+  the same pixels (`crates/desktop/tests/backdrop_brightness_offscreen.rs`, and
   in Chrome); the shared calibration card (`ddi_session::calibration::
   card`) on the web too.
 - **Checked:** the painter's sRGB target on the GPU (a grey and a
   half-transparent white read back as on a plain one,
-  `desktop/tests/painter_srgb_offscreen.rs`), the lyrics' layout
+  `crates/desktop/tests/painter_srgb_offscreen.rs`), the lyrics' layout
   natively; Playwright: a synthetic work (danoniplus's 7-key sample with
   a `word_data` of Japanese and Latin lines, fades, alignment, a line
   break) in Chrome on WebGPU and WebGL2 and in Firefox; every route

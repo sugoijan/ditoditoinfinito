@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.98"
 license = "MIT"
 publish = false
-description = "DitoDitoInfinito: the sandboxed video decoder process (FFmpeg linked statically; built by desktop/build.rs, never linked into the game)"
+description = "DitoDitoInfinito: the sandboxed video decoder process (FFmpeg linked statically; built by crates/desktop/build.rs, never linked into the game)"
 
 [[bin]]
 name = "ddi-video-helper"

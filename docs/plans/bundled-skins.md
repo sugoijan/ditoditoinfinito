@@ -26,7 +26,7 @@ actors and per-hit presentation metadata, shared by desktop, web and SkinCraft.
 | (2026-10-13) CF_CHROME, CF_VIBRANT, CF_ALLOY's `Center` files | Unlicense | the same | restored byte for byte so the family draws Dancing☆Onigiri's onigiri as its own (`docs/plans/danoni-skins.md`); CF_ALLOY's `Center Tap Lift.lua` left out, CF_CHROME's |
 | Peters-DDR-Vivid, Peters-DDR-Note (Peter Lawrence) | Unlicense | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-13: Vivid's taps a model whose colors cycle in vivid; it falls back on Note (models for taps and lifts, Lua for the rest, 6.2 MB, most of it four mine sheets). Both load all 156 elements as their own; full autoplays all Fantastic on WebGPU, WebGL2 and in Firefox |
 
-The built-in arrows (`render/src/scene.rs`, `shader.wgsl`,
+The built-in arrows (`crates/render/src/scene.rs`, `shader.wgsl`,
 `note_colors.rs`) are procedural: an SDF arrow with a darker rim, an
 outline receptor that flashes the judgement's color for 0.25 s and
 shrinks while pressed, hold and roll bodies in fixed green and grey,
@@ -80,17 +80,17 @@ not along the arrow). They draw no explosions.
   and Firefox: Delta from a fresh profile with no imports, with an import
   of the same name, and after a Lua stop.
 
-**Done 2026-10-12.** `noteskin/src/bundled.rs` (the index type),
+**Done 2026-10-12.** `crates/noteskin/src/bundled.rs` (the index type),
 `xtask gen-noteskins` (`xtask/src/noteskins.rs`: the provenance record
 with unknown keys refused, `default`/`common` names refused, every skin
 loaded against the others; tested), a Noteskins section in the credits,
 Trunk's hook and `index.html`'s copy rules, the CI freshness step. In the
-app (`web/src/noteskins.rs`) the catalogue is imported records then the
+app (`crates/web/src/noteskins.rs`) the catalogue is imported records then the
 bundled index (fetched once; a bundled skin plays when storage does not
 open, and Options still lists it),
 the chosen skin's folder put first so a shadowing import never plays in
 its place, bundled images fetched by URL, Options listing "Delta (with
-the game)" first and without a remove button. `noteskin/tests/bundled.rs`
+the game)" first and without a remove button. `crates/noteskin/tests/bundled.rs`
 builds every bundled skin through its Lua in `just test` (156 elements,
 no warning, taps and receptors its own). Checked: headless Chrome (WebGPU
 and WebGL2) and the installed Firefox (WebGL2, through the verify skill's
@@ -104,7 +104,7 @@ is the imported one's with the strike kept in memory).
 ## Step 2. `Dito`: the built-in arrows as a skin (commit 2)
 
 - **SVG in skins** (our extension; StepMania reads bitmaps): an `.svg`
-  is an image wherever a bitmap is (`noteskin/src/svg.rs`). Only a
+  is an image wherever a bitmap is (`crates/noteskin/src/svg.rs`). Only a
   static subset is read, the one browsers and `resvg` draw alike: shapes,
   paths, groups, `use`, gradients, masks and clip paths; no text, images,
   filters, styles, scripts, animation, entities or references outside the
@@ -163,7 +163,7 @@ freeze the page (now a strict XML parser that bounds the elements drawn,
 references expanded); fakes drawn opaque and lifts off the beat (Lua
 around a sprite: now sheets of their own); the mine turning the wrong
 way; an imported `default` or `common` changing Dito; chart colors
-dropping a chosen skin; Dito's Lua stops counted per variant. Checked: `noteskin/tests/bundled.rs`
+dropping a chosen skin; Dito's Lua stops counted per variant. Checked: `crates/noteskin/tests/bundled.rs`
 (all 156 elements of every Dito variant its own, no warning), the SVG
 subset's tests and every generated file against it; `local_skins` on
 `assets/noteskins`: Dito loads in 8 ms and 277,000 fuel and plays at a
@@ -207,7 +207,7 @@ A probe built both on our engine: every element draws the same images
 at the same rotations, except the cardinal arrows' hold top caps (the
 original's fall through to StepMania's `common`; ours are blank, the hold
 starting under its head) and the explosion. Checked:
-`noteskin/tests/bundled.rs` (all 156 elements its own, no warning);
+`crates/noteskin/tests/bundled.rs` (all 156 elements its own, no warning);
 `local_skins`: loads in 7.6 ms, a frame's Lua at a mean of 700 fuel and
 at most 24,600; headless Chrome on the synthetic chart (mines, lifts,
 holds, rolls, explosions, reverse) by screenshot; a full autoplay all
@@ -223,7 +223,7 @@ OutFox's `INPUTFILTER:GameButtonToKeyMapped`, `GAMESTATE:GetIsFieldReversed`,
 Dake's dance files byte-identical; the other games' files and the sounds
 listed as excluded.
 
-**Done 2026-10-12.** The host (`noteskin/src/lua/prelude.lua`, with a
+**Done 2026-10-12.** The host (`crates/noteskin/src/lua/prelude.lua`, with a
 test) gives `Var "GameButton"` (the button: a style's buttons are the
 game's), `INPUTFILTER:GameButtonToKeyMapped` (`""`: the player's bindings
 are not shown to skins), `GAMESTATE:GetIsFieldReversed` (the play's
@@ -243,7 +243,7 @@ Now a note element whose Lua reads `Var "Color"` (taps, lifts, fakes,
 mines and every hold and roll part, as ITGmania loads per color) is
 loaded once per note type, 4ths to 192nds (`LuaSkin::element_colored_sliced`
 says whether it read it), and each note draws its type's copy, a hold
-all its parts in its head's (`render/src/noteskin.rs`, tested). ITGmania
+all its parts in its head's (`crates/render/src/noteskin.rs`, tested). ITGmania
 loads every such element per color whether or not it reads it; here
 only those that do, so other skins load their notes once, as before. A
 script's own `NOTESKIN:LoadActor` loads the 4ths' (as ITGmania's does),
@@ -252,7 +252,7 @@ skin) is dropped for the 4ths'. A skin may make 16,384 actors (was
 4,096), for the copies. Reviewed independently (a second reviewer for
 this): fixed copies drawn by nobody when only they fell back to the
 built-in skin, hold parts left uncolored, the actor cap, and nested
-loads inheriting the color. Checked: `noteskin/tests/bundled.rs` (all 156 elements its own,
+loads inheriting the color. Checked: `crates/noteskin/tests/bundled.rs` (all 156 elements its own,
 no warning; no stand-in art); `local_skins`: loads in 16.7 ms, a frame's
 Lua at a mean of 600 fuel and at most 21,300; headless Chrome on the
 synthetic chart with and without reverse by screenshot; a full autoplay
@@ -277,7 +277,7 @@ textured pipelines a second time for it, makes skin textures with a plain
 view too and samples that one there (so texels are filtered and blended
 as encoded, as StepMania does, with no conversion in the shader), and
 draws each run of a skin's quads in a pass of its own on the plain view
-between the scene's passes (`passes`, `render/src/renderer.rs`, tested);
+between the scene's passes (`passes`, `crates/render/src/renderer.rs`, tested);
 the skin's colors are then given encoded (`NoteskinPlay::set_srgb(false)`). Everything else still blends
 in linear light. `__DDI_DEBUG.skins_encoded` says which way a play draws.
 Checked in headless Chrome: on WebGPU skins blend encoded, on WebGL2 as
@@ -293,7 +293,7 @@ it): skins still blend in linear light there.
 
 **Done on WebGL2 2026-10-13.** The renderer takes how skins blend
 (`SkinBlending`: the scene's way, through a plain view, or offscreen),
-and on WebGL2 draws every frame offscreen (`render/src/offscreen.rs`):
+and on WebGL2 draws every frame offscreen (`crates/render/src/offscreen.rs`):
 the scene's pipelines draw linear light into a half-float texture
 (blending there is in linear light, as through an sRGB view), each run of
 a skin's quads goes to a plain 8-bit texture the scene so far is encoded

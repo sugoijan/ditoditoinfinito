@@ -8,6 +8,6 @@ license = "MIT"
 publish = false
 
 [dependencies]
-ddi-chart = { path = "../../../chart" }
-ddi-engine = { path = "../../../engine" }
+ddi-chart = { path = "../../../crates/chart" }
+ddi-engine = { path = "../../../crates/engine" }
 serde_json = "=1.0.151"

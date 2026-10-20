@@ -277,7 +277,7 @@ Sources: sampled from [SM default noteskin sprite](https://raw.githubusercontent
 
 **Measured on DDR footage (VIVID).** A gameplay recording of DDR EXTREME 2 (PS2), *butterfly (UPSWING MIX)* at 170.009 BPM with the default VIVID coloring, examined frame by frame (29.97 fps), confirms StepMania's model and adds what its sprite sheet flattens: a note runs through the whole wheel (green → yellow → orange → pink → purple → blue → cyan) in about 1.4 s, i.e. one cycle per 4 beats (1.41 s); notes on and off the beat sit half a cycle apart; and each arrow is a gradient along its own axis, about a sixth of the wheel from tip to tail (e.g. yellow tip, orange middle, red tail), with the tail further along the cycle, so the color flows from tail to tip and turns with the arrow.
 
-The game's color schemes (`render/src/note_colors.rs`) use these hues and timings with the procedural skin's own saturation, moving the hue smoothly between frames; Vivid and Flat arrows carry the tail-to-tip gradient (3/16 of the cycle).
+The game's color schemes (`crates/render/src/note_colors.rs`) use these hues and timings with the procedural skin's own saturation, moving the hue smoothly between frames; Vivid and Flat arrows carry the tail-to-tip gradient (3/16 of the cycle).
 
 ---
 

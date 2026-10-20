@@ -146,7 +146,7 @@ Local evidence: `~/Music/DanOni/reviews/opus-20261017/` (never committed).
   (Brilliant Blue, 彼岸帰航, Cynthia, 君恋し, つるぺったん). All five match
   `ceil((frames / 48000.0) * 48000.0) == frames + 1`: about **0.0208 ms** at the end.
   The producer and FFmpeg lengths remain exact. Main-side follow-up:
-  `platform/src/decode_all.rs::decode_opus` should preserve the integer final
+  `crates/platform/src/decode_all.rs::decode_opus` should preserve the integer final
   granule limit through `Kept`, instead of expressing that exact bound as an
   `f64` time and rounding it back in `limit`. Add a regression using a 7,513,235
   frame stream and a caller-supplied range. This changes only the end bound;

@@ -36,7 +36,7 @@ judgement and a step of combo, instead of OK or N.G. at its end): see
 
 Done:
 
-- `chart/src/layout/mod.rs`: `Layout::pump_single`, `pump_halfdouble`,
+- `crates/chart/src/layout/mod.rs`: `Layout::pump_single`, `pump_halfdouble`,
   `pump_double` in StepMania's track order (`src/GameManager.cpp`: single
   DL, UL, C, UR, DR; half-double the middle six panels of two pads, the
   left pad's C, UR, DR and the right pad's DL, UL, C; double both pads),
@@ -45,7 +45,7 @@ Done:
   Keys: a 3×3 block per hand (Q E / S / Z C on the left, U O / K / M .
   on the right) and the number pad as StepMania's second player has it;
   each panel keeps its keys on every pump layout.
-- Bindings (`engine/src/bindings.rs`): standard controllers get each
+- Bindings (`crates/engine/src/bindings.rs`): standard controllers get each
   panel on the d-pad (left pad) or the face buttons (right pad), the pad
   turned an eighth (up-left on Up, up-right on Right…), the centres on
   the shoulders. Two controllers on a two-pad layout each play one pad
@@ -55,7 +55,7 @@ Done:
   half-double's left pad plays the centre, up-right and down-right rows.
 - The built-in arrows draw the centre as a square (the symbols' style,
   decision 27).
-- Skins (`noteskin/src/load.rs`): `Button::DownLeft`, `DownRight`; the
+- Skins (`crates/noteskin/src/load.rs`): `Button::DownLeft`, `DownRight`; the
   lane choices above, natively tested and through a skin's Lua (a skin's
   Lua without a redirect for a button falls back to the next choice).
   A dance skin's Lua is told the dance game on every layout, and the
@@ -87,7 +87,7 @@ CF_CHROME and Delta on all three layouts; autoplays of Beatucada's
 half-double (311 notes), double and single charts all top tier through
 their first 101 s with the skins' Lua running. Every bundled skin builds
 every built-in layout's lanes through its Lua with the style it is told,
-without warnings (`noteskin/tests/bundled.rs`). After an independent
+without warnings (`crates/noteskin/tests/bundled.rs`). After an independent
 review: dance skins told the dance game (above), the controller warning,
 the docs on holds.
 
@@ -165,8 +165,8 @@ counts it for the holds' outcomes without judging it.
 Status (2026-10-14): done in the engine (`HoldRules::Ticked`,
 `JudgeEventKind::Checkpoint`, `presets::HoldStyle`, `TimingMap::ticks_per_beat_at`)
 and the app (the option under Rules, the results row). Natively tested:
-the judge's rules one by one (`engine/src/judge.rs`) and whole plays
-under StepMania 5, ITG and DDR A (`engine/tests/ticked.rs`: 100 % and
+the judge's rules one by one (`crates/engine/src/judge.rs`) and whole plays
+under StepMania 5, ITG and DDR A (`crates/engine/tests/ticked.rs`: 100 % and
 1,000,000 for a perfect play, combo by holds kept, a missed checkpoint's
 cost). After an independent review: heads always W1 (pressed late or
 held through), `InitialHoldLife`, the tail row left out of the outcome,
@@ -188,7 +188,7 @@ A pump skin falls back only on what it names (`FallbackNoteSkin`), then
 pump's `default` and `common`, as StepMania's chain does: never on a
 dance skin. pump's `default` is a stand-in (`BuiltIn::PumpDefault`): its
 `metrics.ini` and Lua are StepMania 5.1's byte for byte
-(`noteskin/src/builtin/stepmania/pump/default/`, 825467b, credited in
+(`crates/noteskin/src/builtin/stepmania/pump/default/`, 825467b, credited in
 `THIRD_PARTY.toml`), its art (not under an explicit licence) listed by
 name and drawn by the built-in skin. Its `NoteSkin.lua` builds every
 element (the right side's notes and receptors are the left's turned
@@ -202,7 +202,7 @@ Checked: StepMania 5.1's eleven pump skins, ITGmania's and OutFox's
 (the stand-ins), every element an actor, and play 20 s at 60 and 144 Hz
 (`DDI_NOTESKINS=… DDI_NOTESKINS_STANDINS=1 DDI_NOTESKINS_LUA=1
 DDI_NOTESKINS_LUA_PLAY=1`); a synthetic left-side-only skin draws every
-panel, the right side mirrored (`render/src/noteskin.rs`); in headless
+panel, the right side mirrored (`crates/render/src/noteskin.rs`); in headless
 Chrome (WebGPU and WebGL2) `pump/cmd` and `pump/simple` imported from a
 scratch copy, chosen for the pump styles, drawn in the field preview on
 Pump single and in an autoplayed pump chart (all top tier).
