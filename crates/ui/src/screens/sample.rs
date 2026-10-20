@@ -10,8 +10,8 @@ use ddi_chart::Difficulty;
 
 use super::Env;
 use super::data::{
-    Best, ChartEntry, Hit, JudgementCount, LaneName, OptionsData, PanelKind, PanelSet, ResultsData,
-    SelectData, SongEntry, SongOffset, StyleDef, Window,
+    Best, ChartEntry, Hit, JudgementCount, LaneName, OptionsData, ResultsData, SelectData,
+    SongEntry, SongOffset, StyleDef, Window,
 };
 use super::options::{ChangeFn, OptionsScreen};
 use super::results::{ResultsActions, ResultsScreen};
@@ -403,10 +403,6 @@ pub fn results() -> ResultsData {
         color: color.into(),
         count,
     };
-    let set = |name: &str, panels: &[PanelKind]| PanelSet {
-        name: name.into(),
-        panels: panels.to_vec(),
-    };
     ResultsData {
         line: "Hard 13 · Single · ITG rules".into(),
         mods: "×2.5 · reverse".into(),
@@ -456,19 +452,7 @@ pub fn results() -> ResultsData {
             current: 0.0,
             suggested: Some(-0.002),
         }),
-        panel_sets: vec![
-            set(
-                "Overview",
-                &[
-                    PanelKind::Timing,
-                    PanelKind::Life,
-                    PanelKind::Offsets,
-                    PanelKind::Lanes,
-                ],
-            ),
-            set("Timing", &[PanelKind::Timing, PanelKind::Offsets]),
-            set("Song", &[PanelKind::Life, PanelKind::Lanes]),
-        ],
+        panel_sets: super::play::panel_sets(),
         panel_set: 0,
         note: "Sample play: the numbers are illustrative.".into(),
         song,

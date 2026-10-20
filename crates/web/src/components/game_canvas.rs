@@ -458,10 +458,7 @@ impl Component for GameCanvas {
         let replay = ctx.props().replay.clone();
         let refused = replay.as_ref().and_then(|r| r.refused.clone());
         // A replay is drawn with its own settings (`Replay::settings`).
-        let play_settings = match &replay {
-            Some(r) => r.settings(),
-            None => Settings::load(),
-        };
+        let play_settings = play_settings(replay.as_deref());
         match ctx.props().source.clone() {
             // Refused: nothing to load, the prompt says why.
             SongSource::Song { .. } if refused.is_some() => {}
@@ -917,12 +914,7 @@ impl GameCanvas {
             Msg::Decoded(Ok((audio, buffer))) => {
                 self.shell.pad_ctx.borrow_mut().take();
                 // Probe the devices now that the context is running.
-                let refresh = self
-                    .game
-                    .borrow()
-                    .as_ref()
-                    .map(|g| g.refresh_hz())
-                    .unwrap_or(60.0);
+                let refresh = self.refresh_hz();
                 let profile = DeviceProfile {
                     audio: audio.fingerprint(),
                     display: crate::web::display::fingerprint(refresh),
@@ -1214,6 +1206,14 @@ impl GameCanvas {
 }
 
 /// Empties `cell` now, or right after whoever borrows it returns.
+/// [`GameCanvas::play_settings`] for `replay`.
+fn play_settings(replay: Option<&crate::replay::ReplayProp>) -> Settings {
+    match replay {
+        Some(r) => r.settings(),
+        None => Settings::load(),
+    }
+}
+
 fn take_later<T: 'static>(cell: &Rc<RefCell<Option<T>>>) {
     match cell.try_borrow_mut() {
         Ok(mut c) => drop(c.take()),
@@ -1342,10 +1342,7 @@ impl GameCanvas {
     /// The settings the play runs with: the stored ones, or a replay's
     /// over them (`Replay::settings`).
     fn play_settings(&self) -> Settings {
-        match &self.replay {
-            Some(r) => r.settings(),
-            None => Settings::load(),
-        }
+        play_settings(self.replay.as_deref())
     }
 
     /// The chart's best play under the rules it is played by, read for
@@ -1428,27 +1425,17 @@ impl GameCanvas {
         let Status::Ready(song) = &self.song else {
             return;
         };
-        let (chart, mut config) = match &ctx.props().source {
-            SongSource::Song { chart, .. } => (
-                *chart,
-                SessionConfig::from_settings(
-                    &self.settings,
-                    ctx.props().auto,
-                    self.devices.clone(),
-                ),
-            ),
+        let mut config =
+            SessionConfig::from_settings(&self.settings, ctx.props().auto, self.devices.clone());
+        let chart = match &ctx.props().source {
+            SongSource::Song { chart, .. } => *chart,
             SongSource::Calibration(mode) => {
-                let mut c = SessionConfig::from_settings(
-                    &self.settings,
-                    ctx.props().auto,
-                    self.devices.clone(),
-                );
-                c.session.calibrate(*mode);
-                c.render.background = 0.0;
-                c.render.field_filter = 0.0;
-                c.render.hide_notes = mode.hide_notes();
-                c.render.show_deltas = true;
-                (0, c)
+                config.session.calibrate(*mode);
+                config.render.background = 0.0;
+                config.render.field_filter = 0.0;
+                config.render.hide_notes = mode.hide_notes();
+                config.render.show_deltas = true;
+                0
             }
         };
         config.session.auto_bias = ctx.props().auto_bias;
@@ -1597,7 +1584,7 @@ impl GameCanvas {
                     if let Some(game) = self.game.borrow_mut().as_mut() {
                         game.scene_mode();
                     }
-                    schedule(self.raf.clone(), self.game.clone());
+                    schedule(self.raf.clone(), self.game.clone(), GameLoop::frame);
                 }
             }
             return;
@@ -1839,7 +1826,7 @@ impl GameCanvas {
             Ok(e) => {
                 *self.results_host.borrow_mut() = Some(Rc::downgrade(&e.host));
                 self.prompt = Some(e);
-                schedule_idle(self.raf.clone(), self.game.clone());
+                schedule(self.raf.clone(), self.game.clone(), GameLoop::idle);
             }
             Err(e) => web_sys::console::warn_1(&format!("start prompt: {e}").into()),
         }
@@ -1852,15 +1839,7 @@ impl GameCanvas {
         }
         self.results_host.borrow_mut().take();
         self.raf.borrow_mut().take();
-        if let Some(d) = web_sys::window()
-            .and_then(|w| js_sys::Reflect::get(&w, &"__DDI_DEBUG".into()).ok())
-            .filter(|d| d.is_object())
-        {
-            let d = js_sys::Object::from(d);
-            for key in ["ui", "prompt", "prompt_backdrop"] {
-                let _ = js_sys::Reflect::delete_property(&d, &key.into());
-            }
-        }
+        crate::web::forget_debug(&["ui", "prompt", "prompt_backdrop"]);
     }
 }
 
@@ -2029,12 +2008,7 @@ impl GameCanvas {
         let bpm_text = entry.as_ref().map(|e| e.bpm.clone()).unwrap_or_default();
         let played = song.song.charts.get(chart);
         let chart_line = match played {
-            Some(c) => format!(
-                "{} {} · {}",
-                ddi_ui::screens::data::difficulty_name(c.difficulty),
-                c.meter,
-                layout.name
-            ),
+            Some(c) => ddi_ui::screens::prompt::chart_line(c.difficulty, c.meter, &layout.name),
             None => layout.name.clone(),
         };
         let song_entry = SongEntry {
@@ -2229,14 +2203,8 @@ impl GameCanvas {
     fn close_results(&mut self) -> bool {
         self.results_host.borrow_mut().take();
         let was = self.results.take().is_some();
-        if was
-            && let Some(d) = web_sys::window()
-                .and_then(|w| js_sys::Reflect::get(&w, &"__DDI_DEBUG".into()).ok())
-                .filter(|d| d.is_object())
-        {
-            let d = js_sys::Object::from(d);
-            let _ = js_sys::Reflect::delete_property(&d, &"results".into());
-            let _ = js_sys::Reflect::delete_property(&d, &"ui".into());
+        if was {
+            crate::web::forget_debug(&["results", "ui"]);
         }
         was
     }
@@ -2419,32 +2387,23 @@ fn coarse_pointer() -> bool {
         .is_some_and(|q| q.matches())
 }
 
-fn schedule(raf: Rc<RefCell<Option<AnimationFrame>>>, game: Rc<RefCell<Option<GameLoop>>>) {
+/// The play's loop: `step` on each animation frame while the game lives
+/// (`GameLoop::frame`; `GameLoop::idle` while the start prompt draws, which
+/// measures and readies, drawing nothing).
+fn schedule(
+    raf: Rc<RefCell<Option<AnimationFrame>>>,
+    game: Rc<RefCell<Option<GameLoop>>>,
+    step: fn(&mut GameLoop, f64),
+) {
     let raf2 = raf.clone();
     let game2 = game.clone();
     let handle = request_animation_frame(move |time_ms| {
         if let Some(g) = game2.borrow_mut().as_mut() {
-            g.frame(time_ms);
+            step(g, time_ms);
         } else {
             return;
         }
-        schedule(raf2, game2);
-    });
-    *raf.borrow_mut() = Some(handle);
-}
-
-/// The play's loop while the start prompt draws: it measures and readies,
-/// drawing nothing (`GameLoop::idle`).
-fn schedule_idle(raf: Rc<RefCell<Option<AnimationFrame>>>, game: Rc<RefCell<Option<GameLoop>>>) {
-    let raf2 = raf.clone();
-    let game2 = game.clone();
-    let handle = request_animation_frame(move |time_ms| {
-        if let Some(g) = game2.borrow_mut().as_mut() {
-            g.idle(time_ms);
-        } else {
-            return;
-        }
-        schedule_idle(raf2, game2);
+        schedule(raf2, game2, step);
     });
     *raf.borrow_mut() = Some(handle);
 }
@@ -2532,10 +2491,13 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
             if still_keeps {
                 let id = loaded.entry.id.clone();
                 let entry = loaded.entry.clone();
+                let record = loaded.record.clone();
                 let background_name = background_name.clone();
                 link.send_future(async move {
                     let keep_song = || async {
-                        if let Ok(Some(blob)) = load_background(&entry, &BgImage::Song, &[]).await {
+                        if let Ok(Some(blob)) =
+                            load_background(&entry, &BgImage::Song, &[], record.as_deref()).await
+                        {
                             crate::web::textures::keep(&background_name, Some(blob));
                         }
                     };
@@ -2590,15 +2552,8 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 // Loads alongside the start prompt; the play
                 // never waits for it.
                 let shared = Rc::new(loaded.shared_bg.clone());
-                let images = std::iter::once(BgImage::Song).chain(
-                    loaded
-                        .entry
-                        .bg_images
-                        .iter()
-                        .map(|p| p.to_string())
-                        .chain(loaded.shared_bg.iter().map(|(name, _)| name.clone()))
-                        .map(BgImage::File),
-                );
+                let images = std::iter::once(BgImage::Song)
+                    .chain(bg_images.iter().cloned().map(BgImage::File));
                 // A work's back and mask layers: their images (those the
                 // import kept) and text, under both scroll directions'
                 // data, within the budgets.
@@ -2624,15 +2579,19 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 });
                 for source in sources {
                     let entry = loaded.entry.clone();
+                    let record = loaded.record.clone();
                     link.send_future(async move {
                         let content = match &source {
-                            SpriteSource::Image(name) => match load_layer_image(&entry, name).await
-                            {
-                                Ok(blob) => crate::web::image::decode_sized(&blob, MAX_LAYER_SIDE)
-                                    .await
-                                    .map(|(b, (w, h))| (b, (w as f32, h as f32))),
-                                Err(e) => Err(e),
-                            },
+                            SpriteSource::Image(name) => {
+                                match load_layer_image(&entry, name, record.as_deref()).await {
+                                    Ok(blob) => {
+                                        crate::web::image::decode_sized(&blob, MAX_LAYER_SIDE)
+                                            .await
+                                            .map(|(b, (w, h))| (b, (w as f32, h as f32)))
+                                    }
+                                    Err(e) => Err(e),
+                                }
+                            }
                             SpriteSource::Text { text, size, color } => {
                                 crate::web::image::text_bitmap(text, *size, color, TEXT_SCALE).await
                             }
@@ -2645,10 +2604,18 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                 }
                 for what in images {
                     let entry = loaded.entry.clone();
+                    let record = loaded.record.clone();
                     let shared = shared.clone();
                     let background_name = background_name.clone();
                     link.send_future(async move {
-                        let bitmap = match load_background(&entry, &what, &shared).await {
+                        let bitmap = match load_background(
+                            &entry,
+                            &what,
+                            &shared,
+                            record.as_deref(),
+                        )
+                        .await
+                        {
                             Ok(Some(blob)) => {
                                 // Kept for the prompt's picture and the
                                 // results' backdrop (read once).
@@ -2713,24 +2680,21 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                     .filter(|_| play_videos)
                     .collect();
                 // The movie the song shows first sets the background frame.
-                let first = backgrounds::schedule(
-                    &loaded.song,
-                    &[] as &[String],
-                    &movies.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
-                    false,
-                )
-                .into_iter()
-                .find_map(|s| match s.image {
-                    BgImage::Movie(name) => Some(name),
-                    _ => None,
-                });
+                let first =
+                    backgrounds::schedule(&loaded.song, &[] as &[String], &bg_videos, false)
+                        .into_iter()
+                        .find_map(|s| match s.image {
+                            BgImage::Movie(name) => Some(name),
+                            _ => None,
+                        });
                 for (name, format) in movies {
                     let probe = first.as_ref() == Some(&name);
                     let entry = loaded.entry.clone();
+                    let record = loaded.record.clone();
                     let shared = shared_videos.clone();
                     link.send_future_batch(async move {
                         let what = BgImage::Movie(name.clone());
-                        match load_background(&entry, &what, &shared).await {
+                        match load_background(&entry, &what, &shared, record.as_deref()).await {
                             Ok(Some(blob)) => vec![Msg::MovieLoaded(name, blob, format, probe)],
                             Ok(None) => Vec::new(),
                             Err(e) => {
@@ -2783,7 +2747,7 @@ fn noteskin_ready(
         settings.note_colors,
         settings.chart_colors && c.notes.iter().any(|n| n.color.is_some()),
     )?;
-    let env = crate::noteskins::lua_env(song, c, &layout, settings.reverse);
+    let env = ddi_noteskin::lua::chart_env(song, c, &layout, settings.reverse);
     Some(async move {
         crate::noteskins::prepare(&key, &layout, env)
             .await

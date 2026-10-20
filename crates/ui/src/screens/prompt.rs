@@ -864,12 +864,14 @@ impl Screen for PromptScreen {
             .picture
             .as_ref()
             .map(|p| p.source.clone());
-        if source != self.picture_source {
+        let new_source = source != self.picture_source;
+        if new_source {
             self.picture_source = source;
             self.reveal_time = 0.0;
         }
         if self.picture_source.is_some() {
             let duration = ddi_actor::background::PROMPT_SECONDS;
+            let before = self.reveal_time;
             self.reveal_time = if self.env.reduced() {
                 duration
             } else {
@@ -877,9 +879,13 @@ impl Screen for PromptScreen {
             };
             self.state.borrow_mut().reveal =
                 ddi_actor::background::ease(self.reveal_time / duration);
-            let state = self.state.borrow().clone();
-            if let Some(backdrop) = crate::hit::find_mut(root, "Backdrop") {
-                *backdrop = picture(&self.env, self.screen, &state, cx);
+            // Built again only while it moves: any other change bumps the
+            // version, which builds the whole tree below.
+            if new_source || self.reveal_time != before {
+                let state = self.state.borrow();
+                if let Some(backdrop) = crate::hit::find_mut(root, "Backdrop") {
+                    *backdrop = picture(&self.env, self.screen, &state, cx);
+                }
             }
         }
         let vp = cx.viewport().screen;

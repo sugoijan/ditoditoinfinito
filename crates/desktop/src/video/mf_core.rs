@@ -124,11 +124,16 @@ pub(super) fn nv12(
         out[row * width..(row + 1) * width]
             .copy_from_slice(&bytes[row * stride..row * stride + width]);
     }
-    let uv = stride * rows;
-    for row in 0..height / 2 {
-        for x in 0..width / 2 {
-            out[y + row * width / 2 + x] = bytes[uv + row * stride + 2 * x];
-            out[y + c + row * width / 2 + x] = bytes[uv + row * stride + 2 * x + 1];
+    // The interleaved chroma rows (`span` holds `rows / 2` of them).
+    let (u, v) = out[y..].split_at_mut(c);
+    let cw = width / 2;
+    for ((src, u), v) in bytes[stride * rows..]
+        .chunks(stride)
+        .zip(u.chunks_exact_mut(cw))
+        .zip(v.chunks_exact_mut(cw))
+    {
+        for ((&[cb, cr], u), v) in src[..width].as_chunks::<2>().0.iter().zip(u).zip(v) {
+            (*u, *v) = (cb, cr);
         }
     }
     Ok(out)

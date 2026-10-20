@@ -483,10 +483,13 @@ pub(crate) async fn shared_paths(db: &Db) -> Result<Vec<String>, String> {
 /// an image or movie its background changes show (stored or linked as
 /// `bg/<path>` when imported, or found in a shared folder: `shared` maps
 /// names to shared paths). `None` when the song has no background.
+/// `record`: the imported song's stored record when the caller has it
+/// (`LoadedSong::record`), else it is read.
 pub(crate) async fn load_background(
     entry: &ManifestEntry,
     what: &BgImage,
     shared: &[(String, String)],
+    record: Option<&ImportedSong>,
 ) -> Result<Option<Blob>, String> {
     if let BgImage::File(name) | BgImage::Movie(name) = what
         && let Some((_, path)) = shared.iter().find(|(n, _)| n == name)
@@ -505,7 +508,7 @@ pub(crate) async fn load_background(
     };
     if is_imported_id(&entry.id) {
         let db = Db::open().await?;
-        let song = imported_record(&db, &entry.id).await?;
+        let song = record_or_read(&db, entry, record).await?;
         song_file(&db, &song, &stored)
             .await
             .map(Some)
@@ -518,12 +521,29 @@ pub(crate) async fn load_background(
 
 /// An image a Dancing☆Onigiri work's back or mask layers show (stored or
 /// linked as `layer/<name>` when imported; `docs/plans/overlays.md`).
-pub(crate) async fn load_layer_image(entry: &ManifestEntry, name: &str) -> Result<Blob, String> {
+/// `record` as for [`load_background`].
+pub(crate) async fn load_layer_image(
+    entry: &ManifestEntry,
+    name: &str,
+    record: Option<&ImportedSong>,
+) -> Result<Blob, String> {
     let db = Db::open().await?;
-    let song = imported_record(&db, &entry.id).await?;
+    let song = record_or_read(&db, entry, record).await?;
     song_file(&db, &song, &format!("layer/{name}"))
         .await
         .map_err(|e| e.message())
+}
+
+/// `record`, or the imported song's record read from `db`.
+async fn record_or_read<'a>(
+    db: &Db,
+    entry: &ManifestEntry,
+    record: Option<&'a ImportedSong>,
+) -> Result<std::borrow::Cow<'a, ImportedSong>, String> {
+    Ok(match record {
+        Some(record) => std::borrow::Cow::Borrowed(record),
+        None => std::borrow::Cow::Owned(imported_record(db, &entry.id).await?),
+    })
 }
 
 /// A song with its chart parsed and audio bytes still encoded.
@@ -538,6 +558,9 @@ pub(crate) struct LoadedSong {
     pub(crate) shared_videos: Vec<(String, String)>,
     /// What became of the song's opening still (imported songs).
     pub(crate) still: Option<Still>,
+    /// The imported song's stored record, as read for this load: where
+    /// its files are ([`load_background`], [`load_layer_image`]).
+    pub(crate) record: Option<std::rc::Rc<ImportedSong>>,
 }
 
 /// A song found by id: its entry, where it is from, and its stored
@@ -626,7 +649,7 @@ async fn fill_digests(found: &Found, song: &Song) {
         return;
     }
     let mut record = record.clone();
-    crate::select_data::fill_chart_keys(&mut record.entry, song);
+    ddi_library::works::fill_chart_keys(&mut record.entry, song);
     if record.entry.length <= 0.0 {
         record.entry.length = ddi_library::manifest::song_length(song);
     }
@@ -690,7 +713,7 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
         origin,
         record,
     } = found;
-    let still = record.and_then(|r| r.still);
+    let still = record.as_ref().and_then(|r| r.still.clone());
     // Images the song's folder lacks may be in a shared folder imported
     // before or after it; looked up now so the order does not matter.
     let (shared_bg, shared_videos) = match &origin {
@@ -704,6 +727,7 @@ pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
         shared_bg,
         shared_videos,
         still,
+        record: record.map(std::rc::Rc::new),
     })
 }
 

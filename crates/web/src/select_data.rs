@@ -28,12 +28,6 @@ pub(crate) fn library_styles(library: &Library) -> Vec<Layout> {
     )
 }
 
-/// What the song list keeps of a parsed song's charts for its bests: their
-/// digests and a Dancing☆Onigiri chart's excessive setting.
-pub(crate) fn fill_chart_keys(entry: &mut ManifestEntry, song: &ddi_chart::Song) {
-    ddi_library::works::fill_chart_keys(entry, song);
-}
-
 /// A bundled song (`imported` `None`) or an imported one as the list
 /// shows it: bundled files under `songs/<id>/`, stored ones as `files:`
 /// keys, an imported song's background its opening movie's still first

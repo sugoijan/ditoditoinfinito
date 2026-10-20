@@ -189,9 +189,10 @@ async fn opening(record: &ImportedSong) -> Result<Option<Opening>, String> {
         },
         |v| v.format.clone(),
     );
-    let blob = crate::songs::load_background(entry, &BgImage::Movie(o.movie.clone()), &videos)
-        .await?
-        .ok_or_else(|| format!("{} is not stored", o.movie))?;
+    let blob =
+        crate::songs::load_background(entry, &BgImage::Movie(o.movie.clone()), &videos, None)
+            .await?
+            .ok_or_else(|| format!("{} is not stored", o.movie))?;
     Ok(Some(Opening {
         looping: backgrounds::movie_loops(&schedule, o.segment),
         movie: o.movie,

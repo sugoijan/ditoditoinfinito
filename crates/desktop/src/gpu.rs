@@ -23,10 +23,7 @@ pub const CLEAR: wgpu::Color = wgpu::Color {
 /// numbers and the theme's text face (the web registers the same files
 /// under the same names, `crates/web/src/web/text.rs`).
 pub const FACES: &[(&str, &[u8])] = &[
-    (
-        "Iosevka Custom",
-        include_bytes!("../../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf"),
-    ),
+    ("Iosevka Custom", ddi_render::HUD_FONT),
     (
         "Iosevka Term",
         include_bytes!("../../../assets/fonts/IosevkaTerm-Regular-latin.ttf"),

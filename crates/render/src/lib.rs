@@ -18,6 +18,7 @@ pub mod cosmic;
 pub mod draw2d;
 pub mod field_preview;
 mod gaussian;
+mod gpu;
 mod instances;
 pub mod lyrics;
 mod mipmaps;
@@ -38,6 +39,7 @@ pub mod textured;
 
 pub use background::{Backdrop, BackgroundPipeline, PLAIN, SecondLayer};
 pub use draw2d::{Affine, Blend, Command, DrawList, Quad, TextRun};
+pub use gpu::write_rgba;
 pub use painter::{Painter, PainterStats};
 pub use renderer::{Renderer, SkinBlending};
 pub use scene::{ColorScheme, FieldGeometry, Preview, RenderOptions, ScoreDelta, Skin, field_span};

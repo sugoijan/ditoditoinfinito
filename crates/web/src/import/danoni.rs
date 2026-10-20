@@ -11,8 +11,10 @@ use ddi_library::works::{self, Work, WorkSong};
 use wasm_bindgen::JsCast;
 use web_sys::Blob;
 
-use super::{ImportReport, Source, mime_type, read_blob, read_bytes, source};
-use crate::songs::{ImportedSong, file_key};
+use super::{
+    ImportReport, Source, link_or_copy, mime_type, read_blob, read_bytes, source, write_song,
+};
+use crate::songs::ImportedSong;
 use crate::web::files::bytes_blob;
 use crate::web::idb::{self, Db, Write};
 
@@ -225,18 +227,16 @@ async fn store_song(
     }
     for (name, path) in layers {
         let src = source(sources, path)?;
-        let key = format!("layer/{name}");
-        match src.link(path).filter(|_| link) {
-            Some(l) => {
-                links.insert(key, l);
-            }
-            // A broken image is not worth losing the song over.
-            None => {
-                if let Ok(blob) = read_blob(src, mime_type(path)).await {
-                    files.push((key, blob));
-                }
-            }
-        }
+        // A broken image is not worth losing the song over.
+        link_or_copy(
+            src,
+            path,
+            format!("layer/{name}"),
+            link,
+            &mut links,
+            &mut files,
+        )
+        .await;
     }
     let record = ImportedSong {
         entry,
@@ -250,28 +250,15 @@ async fn store_song(
         still: None,
     };
     let record = serde_json::to_string(&record).map_err(|e| e.to_string())?;
-    let mut writes = vec![Write::DeletePrefix {
-        store: idb::FILES,
-        prefix: file_key(id, ""),
-    }];
-    writes.extend(files.into_iter().map(|(name, blob)| Write::Put {
-        store: idb::FILES,
-        key: file_key(id, &name),
-        value: blob.into(),
-    }));
-    if let Some((key, json)) = shared {
-        writes.push(Write::Put {
+    let shared = match shared {
+        Some((key, json)) => Some(Write::Put {
             store: idb::FILES,
             key: key.clone(),
             value: bytes_blob(json.as_bytes(), "application/json;charset=utf-8")?.into(),
-        });
-    }
-    writes.push(Write::Put {
-        store: idb::SONGS,
-        key: id.to_string(),
-        value: record.into(),
-    });
-    db.write(writes).await?;
+        }),
+        None => None,
+    };
+    write_song(db, id, files, shared, record).await?;
     Ok(title)
 }
 

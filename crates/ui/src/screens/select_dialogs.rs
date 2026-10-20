@@ -1156,25 +1156,14 @@ impl Screen for ImportDialog {
             }
         }
         match input {
+            // Left and Right on a tab, or Select anywhere: the other tab.
             Input::Menu {
-                action: MenuAction::Left | MenuAction::Right,
+                action: action @ (MenuAction::Left | MenuAction::Right | MenuAction::Select),
                 repeat: false,
-            } if self.urls() && matches!(cx.focused(), Some("TabFiles" | "TabDanoni")) => {
-                self.set_tab(
-                    if self.tab == ImportTab::Files {
-                        ImportTab::Danoni
-                    } else {
-                        ImportTab::Files
-                    },
-                    root,
-                    cx,
-                );
-                Handled::Yes
-            }
-            Input::Menu {
-                action: MenuAction::Select,
-                repeat: false,
-            } if self.urls() => {
+            } if self.urls()
+                && (*action == MenuAction::Select
+                    || matches!(cx.focused(), Some("TabFiles" | "TabDanoni"))) =>
+            {
                 self.set_tab(
                     if self.tab == ImportTab::Files {
                         ImportTab::Danoni

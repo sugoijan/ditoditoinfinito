@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use ddi_actor::{Actor, Drawn, Kind, UNTEXTURED};
 use ddi_ui::event::{PointerKind, PointerPhase};
-use ddi_ui::look::{Plain, call_for_tests as call};
+use ddi_ui::look::{Plain, call};
 use ddi_ui::testing::Harness;
 use ddi_ui::widgets::controls::Slider;
 use ddi_ui::widgets::list::{ItemKind, List, ListConfig, ListEvent, ListModel, ListStyle};

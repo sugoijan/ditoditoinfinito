@@ -488,3 +488,34 @@ impl Gfx {
         self.surface.configure(&self.device, &config);
     }
 }
+
+/// Copies `image` (`w × h` pixels) into `texture`'s first level, at its
+/// corner, as sRGB-encoded values with straight alpha.
+pub(crate) fn copy_bitmap(
+    queue: &wgpu::Queue,
+    image: &web_sys::ImageBitmap,
+    texture: &wgpu::Texture,
+    w: u32,
+    h: u32,
+) {
+    queue.copy_external_image_to_texture(
+        &wgpu::CopyExternalImageSourceInfo {
+            source: wgpu::ExternalImageSource::ImageBitmap(image.clone()),
+            origin: wgpu::Origin2d::ZERO,
+            flip_y: false,
+        },
+        wgpu::CopyExternalImageDestInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+            color_space: wgpu::PredefinedColorSpace::Srgb,
+            premultiplied_alpha: false,
+        },
+        wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
+    );
+}

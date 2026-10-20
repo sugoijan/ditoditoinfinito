@@ -30,3 +30,34 @@ use wasm_bindgen::JsValue;
 pub(crate) fn js_err(context: &str, err: JsValue) -> String {
     format!("{context}: {err:?}")
 }
+
+/// `window.__DDI_DEBUG`, what tests read, made when missing; `None`
+/// without a window.
+pub(crate) fn debug_object() -> Option<js_sys::Object> {
+    let window = web_sys::window()?;
+    let key = JsValue::from_str("__DDI_DEBUG");
+    let debug = js_sys::Reflect::get(&window, &key)
+        .ok()
+        .filter(JsValue::is_object)
+        .map(js_sys::Object::from)
+        .unwrap_or_else(|| {
+            let o = js_sys::Object::new();
+            let _ = js_sys::Reflect::set(&window, &key, &o);
+            o
+        });
+    Some(debug)
+}
+
+/// Deletes `keys` from `window.__DDI_DEBUG` (what a page said goes with
+/// it), when there is one.
+pub(crate) fn forget_debug(keys: &[&str]) {
+    if let Some(d) = web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(&w, &"__DDI_DEBUG".into()).ok())
+        .filter(JsValue::is_object)
+    {
+        let d = js_sys::Object::from(d);
+        for key in keys {
+            let _ = js_sys::Reflect::delete_property(&d, &(*key).into());
+        }
+    }
+}

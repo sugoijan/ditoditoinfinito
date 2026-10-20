@@ -256,8 +256,9 @@ fn tokenize(source: &[u8]) -> Vec<Token> {
                 }
             }
             Kind::Trivia
-        } else if c == b'[' && long_bracket(source, pos).is_some() {
-            let level = long_bracket(source, pos).unwrap_or(0);
+        } else if c == b'['
+            && let Some(level) = long_bracket(source, pos)
+        {
             pos = long_end(source, pos, level);
             Kind::Literal
         } else if c == b'"' || c == b'\'' {

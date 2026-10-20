@@ -486,7 +486,7 @@ pub(crate) fn builtin_sprite(textures: &mut Textures, name: &str) -> Actor {
     Actor::new(Kind::Sprite(Sprite::new(id, states, [fw, fh])))
 }
 
-fn visible(on: bool) -> Call {
+pub(crate) fn visible(on: bool) -> Call {
     Call {
         method: "visible".into(),
         args: vec![Arg::Bool(on)],

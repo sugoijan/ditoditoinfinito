@@ -75,6 +75,16 @@ fn send(model: &Rc<RefCell<OptionsModel>>, feed: &OptionsFeed, cx: &mut Cx) {
     cx.broadcast(Message::new(OPTIONS_CHANGED));
 }
 
+/// The connected controllers with a standard mapping, by id.
+fn standard_pads(m: &OptionsModel) -> Vec<String> {
+    m.world
+        .connected
+        .iter()
+        .filter(|p| p.standard)
+        .map(|p| p.id.clone())
+        .collect()
+}
+
 fn call_with(
     env: &Env,
     model: &Rc<RefCell<OptionsModel>>,
@@ -134,13 +144,7 @@ fn call_with(
         Act::Bind(device) => {
             let (layout, controls, standard) = {
                 let m = model.borrow();
-                let standard: Vec<String> = m
-                    .world
-                    .connected
-                    .iter()
-                    .filter(|p| p.standard)
-                    .map(|p| p.id.clone())
-                    .collect();
+                let standard = standard_pads(&m);
                 (m.bind_layout.clone(), m.settings.controls.clone(), standard)
             };
             // A controller bound from its row may hold something already.
@@ -173,14 +177,7 @@ fn call_with(
                 .unwrap_or_default();
             let (controls, standard) = {
                 let m = model.borrow();
-                let standard: Vec<String> = m
-                    .world
-                    .connected
-                    .iter()
-                    .filter(|p| p.standard)
-                    .map(|p| p.id.clone())
-                    .collect();
-                (m.settings.controls.clone(), standard)
+                (m.settings.controls.clone(), standard_pads(&m))
             };
             let (m, f) = (model.clone(), feed.clone());
             cx.overlay(

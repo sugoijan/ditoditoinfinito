@@ -493,6 +493,20 @@ pub(crate) fn field_settings(
     host.borrow().field_settings.clone()
 }
 
+/// Broadcasts message `name` to the host's screens and wakes it, as soon
+/// as the host is free (after the handler that asked returns); nothing
+/// once it is gone.
+pub(crate) fn broadcast_soon(host: Weak<RefCell<Host>>, name: &'static str) {
+    gloo::timers::callback::Timeout::new(0, move || {
+        let Some(h) = host.upgrade() else { return };
+        if let Ok(mut hm) = h.try_borrow_mut() {
+            hm.ui.broadcast(Message::new(name));
+        }
+        wake(&h);
+    })
+    .forget();
+}
+
 /// Draws a frame soon (the UI changed outside its events: a message
 /// broadcast by the shell).
 pub(crate) fn wake(host: &Rc<RefCell<Host>>) {
@@ -609,18 +623,9 @@ pub(crate) fn start_ui(
         let sub = crate::notices::subscribe(
             feed,
             Rc::new(move || {
-                let weak = weak.clone();
                 // As soon as the host is free (a press on the banner may
                 // be what changed them).
-                gloo::timers::callback::Timeout::new(0, move || {
-                    let Some(h) = weak.upgrade() else { return };
-                    if let Ok(mut hm) = h.try_borrow_mut() {
-                        hm.ui
-                            .broadcast(Message::new(theme_screens::notices::NOTICES_CHANGED));
-                    }
-                    wake(&h);
-                })
-                .forget();
+                broadcast_soon(weak.clone(), theme_screens::notices::NOTICES_CHANGED);
             }),
         );
         host.borrow_mut().notices = Some(sub);

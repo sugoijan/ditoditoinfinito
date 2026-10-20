@@ -14,6 +14,8 @@
 //! ([`HEADER_LEN`] is enough for every file seen), [`Avi::idx1_at`] says
 //! where the legacy index would be, [`Avi::odml`] where the OpenDML ones are.
 
+use crate::bytes::{le16, le32, le64};
+
 /// Bytes to read from the start of the file for [`parse_header`].
 pub const HEADER_LEN: usize = 256 * 1024;
 
@@ -63,18 +65,6 @@ pub enum AviError {
     NoVideo,
 }
 
-fn u16_le(b: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_le_bytes(b.get(at..at + 2)?.try_into().ok()?))
-}
-
-fn u32_le(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?))
-}
-
-fn u64_le(b: &[u8], at: usize) -> Option<u64> {
-    Some(u64::from_le_bytes(b.get(at..at + 8)?.try_into().ok()?))
-}
-
 fn fourcc(b: &[u8], at: usize) -> Option<[u8; 4]> {
     b.get(at..at + 4)?.try_into().ok()
 }
@@ -84,7 +74,7 @@ fn fourcc(b: &[u8], at: usize) -> Option<[u8; 4]> {
 fn chunks(b: &[u8], mut at: usize, end: usize) -> Vec<([u8; 4], usize, usize)> {
     let mut out = Vec::new();
     while at + 8 <= end.min(b.len()) && out.len() < 4096 {
-        let (Some(id), Some(size)) = (fourcc(b, at), u32_le(b, at + 4)) else {
+        let (Some(id), Some(size)) = (fourcc(b, at), le32(b, at + 4)) else {
             break;
         };
         let data = at + 8;
@@ -177,19 +167,19 @@ fn hdrl(b: &[u8], start: usize, end: usize) -> Option<Avi> {
         let mut odml = Vec::new();
         if let Some((_, x, xe)) = find(b"indx") {
             // An index of indexes (`bIndexType` 0) of 4-long entries.
-            let entries = u32_le(b, x + 4)? as usize;
-            if u16_le(b, x)? == 4 && b.get(x + 3) == Some(&0) {
+            let entries = le32(b, x + 4)? as usize;
+            if le16(b, x)? == 4 && b.get(x + 3) == Some(&0) {
                 for i in 0..entries {
                     let at = x + 24 + 16 * i;
                     if at + 16 > xe {
                         break;
                     }
-                    odml.push((u64_le(b, at)?, u32_le(b, at + 8)?));
+                    odml.push((le64(b, at)?, le32(b, at + 8)?));
                 }
             }
         }
-        let (scale, rate) = (u32_le(b, h + 20)?, u32_le(b, h + 24)?);
-        let start = u32_le(b, h + 28)?;
+        let (scale, rate) = (le32(b, h + 20)?, le32(b, h + 24)?);
+        let start = le32(b, h + 28)?;
         // FFmpeg ignores a start past an hour.
         let start = if scale > 0 && u64::from(start) * u64::from(scale) > 3600 * u64::from(rate) {
             0
@@ -201,8 +191,8 @@ fn hdrl(b: &[u8], start: usize, end: usize) -> Option<Avi> {
             scale,
             rate,
             start,
-            width: u32_le(b, f + 4)?,
-            height: (u32_le(b, f + 8)? as i32).unsigned_abs(),
+            width: le32(b, f + 4)?,
+            height: (le32(b, f + 8)? as i32).unsigned_abs(),
             compression: fourcc(b, f + 16)?,
             extradata,
             movi: (0, 0),
@@ -236,7 +226,7 @@ impl Avi {
         if &id == b"idx1" || !id.iter().all(|c| c.is_ascii_graphic() || *c == b' ') {
             return None;
         }
-        let size = u64::from(u32_le(header, 4)?);
+        let size = u64::from(le32(header, 4)?);
         Some(at + 8 + size + (size & 1))
     }
 
@@ -246,7 +236,7 @@ impl Avi {
         if data.get(..4) != Some(b"idx1") {
             return Vec::new();
         }
-        let size = u32_le(data, 4).unwrap_or(0) as usize;
+        let size = le32(data, 4).unwrap_or(0) as usize;
         let entries = data
             .get(8..size.saturating_add(8).min(data.len()))
             .unwrap_or_default();
@@ -260,7 +250,7 @@ impl Avi {
         let mut base = None;
         for e in entries.as_chunks::<16>().0 {
             let (Some(id), Some(flags), Some(pos), Some(len)) =
-                (fourcc(e, 0), u32_le(e, 4), u32_le(e, 8), u32_le(e, 12))
+                (fourcc(e, 0), le32(e, 4), le32(e, 8), le32(e, 12))
             else {
                 break;
             };
@@ -301,10 +291,10 @@ impl Avi {
         let mut out = Vec::new();
         let (Some(id), Some(longs), Some(kind), Some(n), Some(base)) = (
             fourcc(data, 0),
-            u16_le(data, 8),
+            le16(data, 8),
             data.get(11),
-            u32_le(data, 12),
-            u64_le(data, 20),
+            le32(data, 12),
+            le64(data, 20),
         ) else {
             return (out, frame);
         };
@@ -314,7 +304,7 @@ impl Avi {
         let mut frame = frame;
         for i in 0..n as usize {
             let at = 32 + 8 * i;
-            let (Some(offset), Some(size)) = (u32_le(data, at), u32_le(data, at + 4)) else {
+            let (Some(offset), Some(size)) = (le32(data, at), le32(data, at + 4)) else {
                 break;
             };
             // Bit 31 marks a frame that is not a keyframe. An offset that
@@ -338,7 +328,7 @@ impl Avi {
     /// chunk's header: the index pointed at the stream's data.
     pub fn check_chunk(&self, header: &[u8], chunk: &Chunk) -> bool {
         fourcc(header, 0).is_some_and(|id| is_video_chunk(id, self.stream))
-            && u32_le(header, 4) == Some(chunk.size)
+            && le32(header, 4) == Some(chunk.size)
     }
 }
 
@@ -594,7 +584,7 @@ mod tests {
                     }
                 }
                 if header.starts_with(b"idx1") {
-                    let size = u32_le(&header, 4).unwrap_or(0) as usize;
+                    let size = le32(&header, 4).unwrap_or(0) as usize;
                     ("idx1", avi.parse_idx1(&read(&mut file, at, size + 8)))
                 } else {
                     ("none", Vec::new())

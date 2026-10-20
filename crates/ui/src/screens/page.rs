@@ -175,12 +175,10 @@ impl PageScreen {
     fn place(&mut self, vp: ddi_actor::screen::VirtualScreen) -> bool {
         let before = (self.screen, self.zoom);
         let compact = super::is_compact(&*self.env.look, vp);
-        let narrow = self.env.metric("Options.Narrow.Width", 480.0);
-        let (screen, zoom) = if !compact || vp.width >= vp.height || vp.width <= narrow {
-            ([vp.width, vp.height], 1.0)
+        let (screen, zoom) = if compact {
+            super::narrow_fit(&self.env, vp)
         } else {
-            let z = vp.width / narrow;
-            ([narrow, vp.height / z], z)
+            ([vp.width, vp.height], 1.0)
         };
         self.screen = screen;
         self.zoom = zoom;

@@ -544,26 +544,7 @@ pub(crate) fn prepare_textures(gfx: &Gfx) {
                 continue;
             }
             p.insert_texture(&gfx.device, id, [w, h], |texture| {
-                gfx.queue.copy_external_image_to_texture(
-                    &wgpu::CopyExternalImageSourceInfo {
-                        source: wgpu::ExternalImageSource::ImageBitmap(image.clone()),
-                        origin: wgpu::Origin2d::ZERO,
-                        flip_y: false,
-                    },
-                    wgpu::CopyExternalImageDestInfo {
-                        texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                        color_space: wgpu::PredefinedColorSpace::Srgb,
-                        premultiplied_alpha: false,
-                    },
-                    wgpu::Extent3d {
-                        width: w,
-                        height: h,
-                        depth_or_array_layers: 1,
-                    },
-                );
+                crate::web::gfx::copy_bitmap(&gfx.queue, &image, texture, w, h);
             });
             copied.push(image);
         }

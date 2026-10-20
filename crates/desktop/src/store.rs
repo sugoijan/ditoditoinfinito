@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use ddi_platform::storage::{self, Area, MemoryStore, Store};
+use ddi_ui::state::settings::{self, Settings};
 
 /// `storage.json` in the configuration folder ([`crate::paths`]:
 /// `$DDI_HOME/config` for a run that is not the player's).
@@ -103,6 +104,29 @@ impl Store for FileStore {
     }
 }
 
+thread_local! {
+    /// The settings last loaded and the stored text they came from.
+    static SETTINGS: RefCell<Option<(Option<String>, Settings)>> = const { RefCell::new(None) };
+}
+
+/// [`Settings::load`], read again only when the stored text changed
+/// (for callers on every turn of the event loop).
+pub fn settings_cached() -> Settings {
+    let raw = storage::get(Area::Local, settings::KEY);
+    let hit = SETTINGS.with_borrow(|c| match c {
+        Some((text, s)) if *text == raw => Some(s.clone()),
+        _ => None,
+    });
+    if let Some(s) = hit {
+        return s;
+    }
+    let s = Settings::load();
+    // Loading may have stored a sanitized copy.
+    let raw = storage::get(Area::Local, settings::KEY);
+    SETTINGS.set(Some((raw, s.clone())));
+    s
+}
+
 /// Installs the file store (or memory, with no configuration folder) and
 /// the system clock.
 pub fn install() {
@@ -110,11 +134,7 @@ pub fn install() {
         Some(path) => storage::install(Rc::new(FileStore::open(path))),
         None => storage::install(Rc::new(MemoryStore::default())),
     }
-    storage::install_clock(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
-    });
+    storage::install_clock(crate::play::epoch_ms);
 }
 
 #[cfg(test)]

@@ -217,18 +217,9 @@ pub(crate) async fn missing_skin(replay: &Replay, layout: &str) -> Option<String
 /// `refused`, `playing`, `ended`), `refused` (why), and once a replay
 /// ended `check` (`matches`, `withRecord`, `problems`).
 pub(crate) fn publish(id: &str, state: &str, refused: Option<&str>, check: Option<&ReplayCheck>) {
-    let Some(window) = web_sys::window() else {
+    let Some(debug) = crate::web::debug_object() else {
         return;
     };
-    let debug = Reflect::get(&window, &"__DDI_DEBUG".into())
-        .ok()
-        .filter(JsValue::is_object)
-        .map(Object::from)
-        .unwrap_or_else(|| {
-            let o = Object::new();
-            let _ = Reflect::set(&window, &"__DDI_DEBUG".into(), &o);
-            o
-        });
     let set = |o: &Object, k: &str, v: JsValue| {
         let _ = Reflect::set(o, &k.into(), &v);
     };

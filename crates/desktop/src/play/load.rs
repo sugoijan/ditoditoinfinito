@@ -122,7 +122,10 @@ impl Files {
                         format!(".{}", e.to_ascii_lowercase())
                     });
                 let key = format!("{}\0{entry}\0{crc:08x}\0{size}", zip.display());
-                let path = dir.join(format!("{:016x}{ext}", fnv1a64(key.as_bytes())));
+                let path = dir.join(format!(
+                    "{:016x}{ext}",
+                    ddi_library::pack::fnv1a64(key.as_bytes())
+                ));
                 if std::fs::metadata(&path).is_ok_and(|m| m.len() == size) {
                     // Used again: the newest for the cache's trimming.
                     let _ = std::fs::File::options()
@@ -212,12 +215,6 @@ pub type MovieAt = (PathBuf, Option<(u64, u64)>);
 
 /// The most the extracted movies keep of the cache folder.
 pub const MOVIE_CACHE: u64 = 2 << 30;
-
-fn fnv1a64(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
-        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
-    })
-}
 
 /// The oldest extracted movies in `dir` removed until they hold at most
 /// `keep` bytes.

@@ -47,41 +47,6 @@ pub fn play_skin(choice: Option<&str>, colors: NoteColors, chart_colors: bool) -
     }
 }
 
-/// What a skin's Lua sees of the chart it is loaded for (the web's
-/// `noteskins::lua_env`).
-pub fn lua_env(
-    song: &ddi_chart::Song,
-    chart: &ddi_chart::Chart,
-    layout: &Layout,
-    reversed: bool,
-) -> Env {
-    use ddi_chart::Difficulty;
-    let style = ddi_noteskin::lua::dance_style(layout);
-    let difficulty = match chart.difficulty {
-        Difficulty::Beginner => "Beginner",
-        Difficulty::Easy => "Easy",
-        Difficulty::Medium => "Medium",
-        Difficulty::Hard => "Hard",
-        Difficulty::Challenge => "Challenge",
-        Difficulty::Edit => "Edit",
-    };
-    let starts = || chart.notes.iter().map(|n| n.tick.beat());
-    let ends = chart.notes.iter().map(|n| match n.kind {
-        ddi_chart::NoteKind::HoldHead { end } | ddi_chart::NoteKind::RollHead { end } => end.beat(),
-        _ => n.tick.beat(),
-    });
-    Env {
-        style: style.into(),
-        columns: layout.lanes.len() as u32,
-        difficulty: format!("Difficulty_{difficulty}"),
-        timing: chart.timing(song).clone(),
-        first_beat: starts().reduce(f64::min).unwrap_or(0.0),
-        last_beat: ends.reduce(f64::max).unwrap_or(0.0),
-        reversed,
-        ..Env::default()
-    }
-}
-
 /// The largest image side kept, and the pixels a skin may hold (the web's).
 const MAX_IMAGE_SIDE: u32 = 4096;
 const MAX_PIXELS: u64 = 64 << 20;
@@ -307,18 +272,6 @@ fn lua_play(
         .map_err(|e| e.to_string())
 }
 
-/// Whether a skin or one it falls back on has Lua of its own.
-fn has_lua(skin: &Skin<'_>) -> bool {
-    !skin.legacy
-        && skin.chain.iter().any(|&d| {
-            skin.folder(d).is_some_and(|f| {
-                f.files
-                    .iter()
-                    .any(|p| p.to_ascii_lowercase().ends_with(".lua"))
-            })
-        })
-}
-
 /// What readying a skin does off the UI thread ([`read`], `Send`): its
 /// folders read, the images its actors use found (its Lua run once for
 /// that), those decoded. [`build`] makes the skin from it on the UI
@@ -383,7 +336,7 @@ fn read_inner(
     if let Some(why) = &lua_off {
         eprintln!("noteskin {}: its Lua is off ({why})", chosen.name);
     }
-    let with_lua = lua_off.is_none() && (has_lua(&skin) || chosen.game == "pump");
+    let with_lua = lua_off.is_none() && (skin.has_lua() || chosen.game == "pump");
     let mut env = env;
     env.game = chosen.game.clone();
     env.style = ddi_noteskin::lua::style_for(&chosen.game, layout).into();

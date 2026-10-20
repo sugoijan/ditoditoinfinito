@@ -1025,27 +1025,7 @@ fn plane_psnr(a: &[u8], b: &[u8]) -> f64 {
 }
 
 /// zlib's CRC-32 (Node's `zlib.crc32`).
-pub fn crc32(bytes: &[u8]) -> u32 {
-    static TABLE: std::sync::OnceLock<[u32; 256]> = std::sync::OnceLock::new();
-    let table = TABLE.get_or_init(|| {
-        let mut t = [0u32; 256];
-        for (i, e) in t.iter_mut().enumerate() {
-            let mut c = i as u32;
-            for _ in 0..8 {
-                c = if c & 1 != 0 {
-                    0xedb8_8320 ^ (c >> 1)
-                } else {
-                    c >> 1
-                };
-            }
-            *e = c;
-        }
-        t
-    });
-    !bytes.iter().fold(!0u32, |c, &b| {
-        table[((c ^ u32::from(b)) & 0xff) as usize] ^ (c >> 8)
-    })
-}
+pub use ddi_library::zip::crc32;
 
 // --- The decoder thread ----------------------------------------------------
 

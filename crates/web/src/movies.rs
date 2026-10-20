@@ -166,11 +166,7 @@ pub(crate) async fn frame_at(
     looping: bool,
     worker: &mut Option<VideoWorker>,
 ) -> Result<VideoFrame, GrabError> {
-    let now = || {
-        web_sys::window()
-            .and_then(|w| w.performance())
-            .map_or(0.0, |p| p.now())
-    };
+    let now = crate::web::clock::PerformanceClock::now_ms;
     let mut browser = webcodecs::may_play(format);
     loop {
         let backend = if browser && webcodecs::available() {
@@ -489,8 +485,12 @@ impl MovieDeck {
                 let BgImage::Movie(name) = &layers.get(layer)?.get(current)?.image else {
                     return None;
                 };
-                self.shown_ids()
-                    .any(|(what, _)| what == BgImage::Movie(name.clone()))
+                // Shown (`MovieDeck::shown_ids`).
+                self.textures
+                    .iter()
+                    .any(|t| {
+                        t.fresh && t.name == *name && !self.failed.iter().any(|(n, _)| *n == t.name)
+                    })
                     .then_some((layer, current))
             })
             .collect();
@@ -836,20 +836,8 @@ impl MovieDeck {
         };
         source.browser = false;
         let (blob, format) = (source.blob.clone(), source.format.clone());
-        let module = match self.worker() {
-            Ok(worker) => match worker.status() {
-                // A worker that stopped answers nothing.
-                ModuleStatus::Failed(e) => Err(e),
-                _ => Ok(worker.open(blob, &name, &format)),
-            },
-            Err(e) => Err(e),
-        };
-        let module = match module {
-            Ok(m) => m,
-            Err(e) => {
-                self.fail(&name, e);
-                return;
-            }
+        let Some(module) = self.open_module(blob, &name, &format) else {
+            return;
         };
         let open = &mut self.open[i];
         open.decoder.fall_back(module);
@@ -860,6 +848,20 @@ impl MovieDeck {
             &mut open.decoder,
             backgrounds::movie_position_in(layers, layer, segment, at),
         );
+    }
+
+    /// Movie `name` opened in the video decoder's worker; `None`, the
+    /// movie failed, when there is no worker or it stopped (it answers
+    /// nothing then).
+    fn open_module(&mut self, blob: Blob, name: &str, format: &VideoFormat) -> Option<WorkerVideo> {
+        let module = match self.worker() {
+            Ok(worker) => match worker.status() {
+                ModuleStatus::Failed(e) => Err(e),
+                _ => Ok(worker.open(blob, name, format)),
+            },
+            Err(e) => Err(e),
+        };
+        module.map_err(|e| self.fail(name, e)).ok()
     }
 
     fn set_fresh(&mut self, name: &str, fresh: bool) {
@@ -889,19 +891,10 @@ impl MovieDeck {
         let backend = if browser && webcodecs::available() {
             Backend::Browser(WebCodecsVideo::open(blob))
         } else {
-            let worker = match self.worker() {
-                Ok(w) => w,
-                Err(e) => {
-                    self.fail(&name, e);
-                    return;
-                }
-            };
-            // A worker that stopped answers nothing: the movie cannot play.
-            if let ModuleStatus::Failed(e) = worker.status() {
-                self.fail(&name, e);
+            let Some(module) = self.open_module(blob, &name, &format) else {
                 return;
-            }
-            Backend::Module(worker.open(blob, &name, &format))
+            };
+            Backend::Module(module)
         };
         let mut decoder = MovieDecoder {
             backend,
@@ -913,14 +906,12 @@ impl MovieDeck {
         let mut track = MovieTrack::new(looping, AHEAD, end);
         // From where the movie stands when the segment starts, or now when
         // it already has.
-        track.start(
-            &mut decoder,
-            backgrounds::movie_position_in(layers, layer, segment, at),
-        );
+        let position = backgrounds::movie_position_in(layers, layer, segment, at);
+        track.start(&mut decoder, position);
         self.open.push(Open {
             layer,
             segment,
-            position: backgrounds::movie_position_in(layers, layer, segment, at),
+            position,
             name,
             decoder,
             track,
@@ -1056,26 +1047,7 @@ impl MovieDeck {
         };
         let scope =
             (self.checks < 4).then(|| device.push_error_scope(wgpu::ErrorFilter::Validation));
-        queue.copy_external_image_to_texture(
-            &wgpu::CopyExternalImageSourceInfo {
-                source: wgpu::ExternalImageSource::ImageBitmap(direct.bitmap().clone()),
-                origin: wgpu::Origin2d::ZERO,
-                flip_y: false,
-            },
-            wgpu::CopyExternalImageDestInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-                color_space: wgpu::PredefinedColorSpace::Srgb,
-                premultiplied_alpha: false,
-            },
-            wgpu::Extent3d {
-                width: frame.width,
-                height: frame.height,
-                depth_or_array_layers: 1,
-            },
-        );
+        crate::web::gfx::copy_bitmap(queue, direct.bitmap(), texture, frame.width, frame.height);
         renderer.background_texture_changed();
         if let Some(scope) = scope {
             self.checks += 1;

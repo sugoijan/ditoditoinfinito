@@ -23,6 +23,26 @@ const MP3_BARE: &[u8] = include_bytes!("../../tests/fixtures/sine-441-bare.mp3")
 const MP3_XING: &[u8] = include_bytes!("../../tests/fixtures/sine-441-xing.mp3");
 const FLAC: &[u8] = include_bytes!("../../tests/fixtures/sine-441.flac");
 
+/// `audio` at `rate`, through rubato's FFT resampler (the whole clip at
+/// once, its delay trimmed); `audio` itself when the rates agree.
+fn resample(audio: DecodedAudio, rate: u32) -> Result<DecodedAudio, DecodeError> {
+    let channels = audio.channels.len();
+    let skipped = audio.skipped_packets;
+    let data = resample_interleaved(audio, rate)?;
+    let n = data.len() / channels.max(1);
+    let mut planar: Vec<Vec<f32>> = (0..channels).map(|_| Vec::with_capacity(n)).collect();
+    for frame in data.chunks_exact(channels.max(1)) {
+        for (c, &s) in frame.iter().enumerate() {
+            planar[c].push(s);
+        }
+    }
+    Ok(DecodedAudio {
+        sample_rate: rate,
+        channels: planar,
+        skipped_packets: skipped,
+    })
+}
+
 /// The fixtures' signal at frame `n`.
 fn sine(n: usize) -> f64 {
     0.25 * (std::f64::consts::TAU * 441.0 * n as f64 / 44_100.0).sin()

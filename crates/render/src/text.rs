@@ -34,7 +34,7 @@ pub struct TextItem {
 /// Frames a cached buffer may go unused before it is dropped.
 const CACHE_TTL_FRAMES: u64 = 120;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Default, PartialEq, Eq, Hash)]
 struct TextKey {
     text: String,
     /// `f32::to_bits` of the font size.
@@ -43,12 +43,12 @@ struct TextKey {
 }
 
 impl TextKey {
-    fn of(item: &TextItem) -> TextKey {
-        TextKey {
-            text: item.text.clone(),
-            size_bits: item.size.to_bits(),
-            bold: item.bold,
-        }
+    /// Makes it `item`'s key, reusing its text's room.
+    fn set(&mut self, item: &TextItem) {
+        self.text.clear();
+        self.text.push_str(&item.text);
+        self.size_bits = item.size.to_bits();
+        self.bold = item.bold;
     }
 }
 
@@ -68,6 +68,8 @@ pub struct TextPipeline {
     /// Glyphon's pipelines, for another target format.
     glyphon_cache: Cache,
     cache: HashMap<TextKey, CachedBuffer>,
+    /// The key [`TextPipeline::prepare`] looks items up with.
+    key: TextKey,
     frame: u64,
     /// Runs shaped since the start (each a cache miss: a new string or
     /// size).
@@ -113,6 +115,7 @@ impl TextPipeline {
             renderer,
             glyphon_cache: cache,
             cache: HashMap::new(),
+            key: TextKey::default(),
             frame: 0,
             shaped: 0,
         }
@@ -153,20 +156,26 @@ impl TextPipeline {
         self.viewport.update(queue, Resolution { width, height });
         self.frame += 1;
         let frame = self.frame;
-        let font_system = &mut self.font_system;
-        let shaped = &mut self.shaped;
+        // One key refilled for each item: no text copied but a new entry's.
+        let key = &mut self.key;
         for item in items {
-            let entry = self.cache.entry(TextKey::of(item)).or_insert_with(|| {
-                *shaped += 1;
-                shape(font_system, item)
-            });
+            key.set(item);
+            let entry = match self.cache.get_mut(key) {
+                Some(entry) => entry,
+                None => {
+                    self.shaped += 1;
+                    let shaped = shape(&mut self.font_system, item);
+                    self.cache.entry(key.clone()).or_insert(shaped)
+                }
+            };
             entry.last_used = frame;
         }
         self.cache
             .retain(|_, e| frame - e.last_used < CACHE_TTL_FRAMES);
         let mut areas = Vec::with_capacity(items.len());
         for item in items {
-            let Some(cached) = self.cache.get(&TextKey::of(item)) else {
+            key.set(item);
+            let Some(cached) = self.cache.get(key) else {
                 continue;
             };
             let left = match item.align {

@@ -558,6 +558,23 @@ pub struct SelectScreen {
     shut: bool,
 }
 
+/// The wheel's model over a screen's fields, each borrowed on its own
+/// (a method borrowing the whole screen would keep `list` from being
+/// borrowed mutably beside it).
+macro_rules! wheel_model {
+    ($s:expr) => {
+        wheel(
+            &$s.items,
+            &$s.data,
+            &$s.packs,
+            &$s.closed,
+            $s.matches.as_deref(),
+            $s.style,
+            $s.layout.compact,
+        )
+    };
+}
+
 impl SelectScreen {
     /// Song select over `data`, with the song `start` selected (else the
     /// first).
@@ -656,7 +673,7 @@ impl SelectScreen {
             s.filter_matches(&search);
         }
         s.lay_out_items();
-        s.list = List::new(wheel_config(&s.layout), &s.model());
+        s.list = List::new(wheel_config(&s.layout), &wheel_model!(s));
         // An explicit start opens its pack. A saved position respects collapsed packs.
         let start_id = start.or_else(|| resume.as_ref().map(|(id, _)| id.as_str()));
         let start_song = start_id.and_then(|id| s.data.songs.iter().position(|x| x.id == id));
@@ -951,18 +968,6 @@ impl SelectScreen {
             })
     }
 
-    fn model(&self) -> Wheel<'_> {
-        wheel(
-            &self.items,
-            &self.data,
-            &self.packs,
-            &self.closed,
-            self.matches.as_deref(),
-            self.style,
-            self.layout.compact,
-        )
-    }
-
     fn lay_out_items(&mut self) {
         self.items.clear();
         for (p, (_, songs)) in self.packs.iter().enumerate() {
@@ -984,15 +989,7 @@ impl SelectScreen {
 
     fn reload(&mut self) {
         self.cancel_navigation();
-        let model = wheel(
-            &self.items,
-            &self.data,
-            &self.packs,
-            &self.closed,
-            self.matches.as_deref(),
-            self.style,
-            self.layout.compact,
-        );
+        let model = wheel_model!(self);
         self.list.reload(&model);
     }
 
@@ -1894,19 +1891,19 @@ impl SelectScreen {
                     .next()
                     .and_then(|n| n.parse().ok())
                     .unwrap_or(0);
-                cx.overlay(
-                    ManageDialog::new(
-                        self.env.clone(),
-                        Manage::Unreadable { count },
-                        self.shell.clone(),
-                        self.busy(),
-                    )
-                    .on(self.import.borrow().platform),
-                    true,
-                );
+                self.open_manage(Manage::Unreadable { count }, cx);
             }
             _ => self.call(SelectCall::Notice(id), cx),
         }
+    }
+
+    /// Opens the manage dialog on `m`.
+    fn open_manage(&self, m: Manage, cx: &mut Cx) {
+        cx.overlay(
+            ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy())
+                .on(self.import.borrow().platform),
+            true,
+        );
     }
 
     fn call(&self, c: SelectCall, cx: &mut Cx) {
@@ -1922,48 +1919,73 @@ impl SelectScreen {
             return;
         }
         let song = match self.shown {
-            Some(Item::Song(i)) => self.data.songs.get(i).map(|s| s.id.clone()),
+            Some(Item::Song(i)) => self.data.songs.get(i).map(|s| &s.id),
             _ => None,
         };
-        if self.told_song.as_ref() != Some(&song) {
+        // Compared by borrow, cloned only when it changed.
+        if self.told_song.as_ref().map(Option::as_ref) != Some(song) {
+            let song = song.cloned();
             self.told_song = Some(song.clone());
             let from_pad = self.from_pad;
-            self.call(
-                SelectCall::Selected {
-                    song: song.clone(),
-                    from_pad,
-                },
-                cx,
-            );
+            self.call(SelectCall::Selected { song, from_pad }, cx);
         }
         let (charts, pick) = self.charts();
         if self.resume.is_some() || self.resume_pack.is_some() {
             return;
         }
+        let chart = pick.and_then(|p| charts.get(p)).map(|c| c.index);
+        if self
+            .told_place
+            .as_ref()
+            .is_some_and(|told| self.place_matches(told, chart))
+        {
+            return;
+        }
         let place = SelectPlace {
-            open: self
-                .packs
-                .iter()
-                .enumerate()
-                .find(|(p, _)| !self.closed.contains(p))
-                .map(|(_, (name, _))| name.clone()),
-            song: match self.selected_item() {
-                Some(Item::Song(i)) => Some(self.data.songs[i].id.clone()),
-                _ => None,
-            },
-            chart: pick.and_then(|p| charts.get(p)).map(|c| c.index),
+            open: self.place_open().cloned(),
+            song: self.place_song().cloned(),
+            chart,
             style: self.style_id().to_string(),
             search: self.search.text.clone(),
-            closed: self
-                .closed
-                .iter()
-                .filter_map(|&p| self.packs.get(p).map(|(n, _)| n.clone()))
-                .collect(),
+            closed: self.place_closed().cloned().collect(),
         };
-        if self.told_place.as_ref() != Some(&place) {
-            self.told_place = Some(place.clone());
-            self.call(SelectCall::Place(place), cx);
+        self.told_place = Some(place.clone());
+        self.call(SelectCall::Place(place), cx);
+    }
+
+    /// The list's place's open pack: the first one not closed.
+    fn place_open(&self) -> Option<&String> {
+        self.packs
+            .iter()
+            .enumerate()
+            .find(|(p, _)| !self.closed.contains(p))
+            .map(|(_, (name, _))| name)
+    }
+
+    /// The list's place's song: the selected row's.
+    fn place_song(&self) -> Option<&String> {
+        match self.selected_item() {
+            Some(Item::Song(i)) => Some(&self.data.songs[i].id),
+            _ => None,
         }
+    }
+
+    /// The list's place's closed packs, by name.
+    fn place_closed(&self) -> impl Iterator<Item = &String> {
+        self.closed
+            .iter()
+            .filter_map(|&p| self.packs.get(p).map(|(n, _)| n))
+    }
+
+    /// Whether `told` is the list's place now (with `chart` picked),
+    /// without building it.
+    fn place_matches(&self, told: &SelectPlace, chart: Option<usize>) -> bool {
+        told.open.as_ref() == self.place_open()
+            && told.song.as_ref() == self.place_song()
+            && told.chart == chart
+            && told.style == self.style_id()
+            && told.search == self.search.text
+            && told.closed.iter().eq(self.place_closed())
     }
 
     /// What the shell sent: new data, the import's progress, notices.
@@ -2091,6 +2113,16 @@ impl SelectScreen {
         }
     }
 
+    /// The row one step from row `i`: back for Up and Left, on for Down
+    /// and Right, within the list.
+    fn step_target(&self, i: usize, action: MenuAction) -> usize {
+        if matches!(action, MenuAction::Up | MenuAction::Left) {
+            i.saturating_sub(1)
+        } else {
+            (i + 1).min(self.items.len().saturating_sub(1))
+        }
+    }
+
     fn apply_navigation(&mut self, events: Vec<NavEvent>, root: &mut Actor, cx: &mut Cx) {
         let now = cx.time();
         let reduced = self.env.reduced();
@@ -2101,11 +2133,7 @@ impl SelectScreen {
                     let Some(i) = self.list.selected() else {
                         continue;
                     };
-                    let to = if matches!(action, MenuAction::Up | MenuAction::Left) {
-                        i.saturating_sub(1)
-                    } else {
-                        (i + 1).min(self.items.len().saturating_sub(1))
-                    };
+                    let to = self.step_target(i, action);
                     let origin = self.list.selection_scroll(i);
                     let target = self.list.selection_scroll(to);
                     let motion = self
@@ -2125,21 +2153,9 @@ impl SelectScreen {
                         let Some(i) = self.list.selected() else {
                             continue;
                         };
-                        let to = if matches!(action, MenuAction::Up | MenuAction::Left) {
-                            i.saturating_sub(1)
-                        } else {
-                            (i + 1).min(self.items.len().saturating_sub(1))
-                        };
+                        let to = self.step_target(i, action);
                         {
-                            let model = wheel(
-                                &self.items,
-                                &self.data,
-                                &self.packs,
-                                &self.closed,
-                                self.matches.as_deref(),
-                                self.style,
-                                self.layout.compact,
-                            );
+                            let model = wheel_model!(self);
                             self.list.select_without_motion(to, &model);
                         }
                         // A pack header keeps the last song passed, even when
@@ -2746,15 +2762,7 @@ impl Screen for SelectScreen {
         }
         let event = {
             let look = self.env.look.clone();
-            let model = wheel(
-                &self.items,
-                &self.data,
-                &self.packs,
-                &self.closed,
-                self.matches.as_deref(),
-                self.style,
-                self.layout.compact,
-            );
+            let model = wheel_model!(self);
             self.list.update(dt, root, &model, &*look, cx)
         };
         if self
@@ -3028,11 +3036,7 @@ impl SelectScreen {
                     && (k.key == "Delete" || k.key == "Backspace" && k.modifiers.command()) =>
             {
                 if let Some(m) = self.manageable() {
-                    cx.overlay(
-                        ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy())
-                            .on(self.import.borrow().platform),
-                        true,
-                    );
+                    self.open_manage(m, cx);
                 }
                 return Handled::Yes;
             }
@@ -3080,15 +3084,7 @@ impl SelectScreen {
                 } else {
                     MenuAction::Down
                 };
-                let model = wheel(
-                    &self.items,
-                    &self.data,
-                    &self.packs,
-                    &self.closed,
-                    self.matches.as_deref(),
-                    self.style,
-                    self.layout.compact,
-                );
+                let model = wheel_model!(self);
                 self.list.input(
                     &Input::Menu {
                         action,
@@ -3158,15 +3154,7 @@ impl SelectScreen {
         }
         // Pointer gestures and scrolling keep the list's usual behavior.
         if !matches!(input, Input::Menu { .. }) {
-            let model = wheel(
-                &self.items,
-                &self.data,
-                &self.packs,
-                &self.closed,
-                self.matches.as_deref(),
-                self.style,
-                self.layout.compact,
-            );
+            let model = wheel_model!(self);
             let (h, e) = self.list.input(input, root, &model);
             if let Some(ListEvent::Activated(_)) = e {
                 self.start(root, cx);
@@ -3265,11 +3253,7 @@ impl SelectScreen {
             "Link.Manage" => {
                 cx.focus("Wheel");
                 if let Some(m) = self.manageable() {
-                    cx.overlay(
-                        ManageDialog::new(self.env.clone(), m, self.shell.clone(), self.busy())
-                            .on(self.import.borrow().platform),
-                        true,
-                    );
+                    self.open_manage(m, cx);
                 }
                 return Handled::Yes;
             }

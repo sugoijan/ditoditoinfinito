@@ -187,12 +187,12 @@ mod tests {
             let mut judge = Judge::new(&notes, &timing, presets::ddr_a().judge);
             let mut events = Vec::new();
             for p in script(judge.notes(), 0.0) {
-                events.extend(judge.update(p.press, &[false]));
+                events.extend(judge.update(p.press));
                 events.extend(judge.press(p.lane, p.press));
-                events.extend(judge.update(p.release, &[true]));
+                events.extend(judge.update(p.release));
                 events.extend(judge.release(p.lane, p.release));
             }
-            events.extend(judge.update(5.0, &[false]));
+            events.extend(judge.update(5.0));
             let kinds: Vec<_> = events
                 .iter()
                 .map(|e| e.kind)

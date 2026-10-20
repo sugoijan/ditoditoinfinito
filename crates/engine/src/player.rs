@@ -325,7 +325,6 @@ impl Player {
             ruleset,
         };
         player.row_notes = vec![Vec::new(); player.judge.rows().len()];
-        player.row_judged = vec![0; player.judge.rows().len()];
         for (index, n) in player.judge.notes().iter().enumerate() {
             if let Some(r) = n.row {
                 player.row_notes[r].push((n.note.lane, index));
@@ -545,29 +544,24 @@ impl Player {
         if usize::from(lane) >= self.held.len() {
             return Vec::new();
         }
-        let ev = InputEvent {
-            lane,
-            pressed,
-            host_time: HostTime(0.0),
-        };
-        self.held[usize::from(ev.lane)] = ev.pressed;
-        let lane = self.judged_lane.unwrap_or(ev.lane);
-        let events = if ev.pressed {
-            self.judge.press(lane, t)
+        self.held[usize::from(lane)] = pressed;
+        let target = self.judged_lane.unwrap_or(lane);
+        let events = if pressed {
+            self.judge.press(target, t)
         } else if self.judged_lane.is_some() && self.held.iter().any(|&h| h) {
             // Another lane still holds the judged one down.
             Vec::new()
         } else {
-            self.judge.release(lane, t)
+            self.judge.release(target, t)
         };
-        if ev.pressed {
+        if pressed {
             // `ReceptorArrow::Step` plays the press's score at once; `Press`
             // comes from the next draw (`ReceptorArrow::DrawPrimitives`).
             // An older note missed on the way (`Judge::press` expires first)
             // is not the press's.
             let step = events
                 .iter()
-                .filter(|e| e.lane == lane)
+                .filter(|e| e.lane == target)
                 .find_map(|e| match e.kind {
                     JudgeEventKind::Tap(j, _) if !j.is_miss() => Some(SkinEventKind::Step(Some(j))),
                     JudgeEventKind::HitMine | JudgeEventKind::HitShock => {
@@ -576,12 +570,12 @@ impl Player {
                     _ => None,
                 })
                 .unwrap_or(SkinEventKind::Step(None));
-            self.skin_event(ev.lane, step, t);
-            self.skin_event(ev.lane, SkinEventKind::Press, t);
+            self.skin_event(lane, step, t);
+            self.skin_event(lane, SkinEventKind::Press, t);
         } else {
-            self.skin_event(ev.lane, SkinEventKind::Lift, t);
+            self.skin_event(lane, SkinEventKind::Lift, t);
         }
-        self.pressing = self.judged_lane.map(|_| ev.lane);
+        self.pressing = self.judged_lane.map(|_| lane);
         let mut events = events;
         self.apply(&mut events);
         self.pressing = None;
@@ -639,7 +633,7 @@ impl Player {
             return Vec::new();
         }
         let t = to_microsecond(song_time);
-        let mut events = self.judge.update(to_microsecond(t - JUDGE_LAG), &self.held);
+        let mut events = self.judge.update(to_microsecond(t - JUDGE_LAG));
         self.apply(&mut events);
         if !self.finished && t >= self.end_time() && self.judge.all_resolved() {
             self.finish();
@@ -951,8 +945,8 @@ impl Player {
     /// Render snapshot for a frame presented at `predicted_present`.
     pub fn frame(&self, predicted_present: HostTime) -> Frame {
         let song_time = self.clock.render_time(predicted_present);
-        let beat = self.timing.beat_at(song_time);
         let scroll = ScrollState::at(self.options.scroll, &self.timing, song_time);
+        let beat = scroll.beat();
         let visible_range = self.options.visible_range;
         let age = |at: f64| (song_time - at).max(0.0) as f32;
 

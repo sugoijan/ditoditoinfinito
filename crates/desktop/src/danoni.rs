@@ -116,12 +116,17 @@ impl Imports {
         };
         view.report = self.report.clone();
     }
-    pub fn changed_view(&mut self) -> Option<ImportView> {
+    /// Song select's import view now (as `Songs::data` builds it).
+    pub fn current_view(&self) -> ImportView {
         let mut view = ImportView {
             platform: ddi_ui::screens::data::Platform::Desktop,
             ..Default::default()
         };
         self.view(&mut view);
+        view
+    }
+    pub fn changed_view(&mut self) -> Option<ImportView> {
+        let view = self.current_view();
         if self.sent.as_ref() == Some(&view) {
             return None;
         }

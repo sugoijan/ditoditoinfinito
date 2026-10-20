@@ -25,27 +25,7 @@ impl Mipmaps {
             label: Some("ddi-mipmaps"),
             source: wgpu::ShaderSource::Wgsl(include_str!("mipmaps.wgsl").into()),
         });
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ddi-mipmaps-bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let layout = crate::gpu::texture_sampler_layout(device, "ddi-mipmaps-bgl");
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ddi-mipmaps-layout"),
             bind_group_layouts: &[Some(&layout)],
@@ -99,31 +79,15 @@ impl Mipmaps {
             return;
         }
         let pipeline = self.pipelines.entry(format).or_insert_with(|| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("ddi-mipmaps-pipeline"),
-                layout: Some(&self.pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &self.shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &self.shader,
-                    entry_point: Some("fs_main"),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
+            crate::gpu::fullscreen_pipeline(
+                device,
+                "ddi-mipmaps-pipeline",
+                &self.pipeline_layout,
+                &self.shader,
+                "fs_main",
+                format,
+                None,
+            )
         });
         let view = |level| {
             texture.create_view(&wgpu::TextureViewDescriptor {

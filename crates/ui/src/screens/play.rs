@@ -53,7 +53,7 @@ const TIER_COLORS: [&str; 6] = [
 ];
 
 /// The panel sets every ruleset offers, its default first.
-pub fn panel_sets(_ruleset: &Ruleset) -> Vec<PanelSet> {
+pub fn panel_sets() -> Vec<PanelSet> {
     let set = |name: &str, panels: &[PanelKind]| PanelSet {
         name: name.into(),
         panels: panels.to_vec(),
@@ -173,7 +173,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         "Mean offset".into(),
         format!(
             "{} ms (σ {:.1})",
-            signed(r.mean_delta * 1000.0),
+            super::results::signed(r.mean_delta * 1000.0, 1),
             r.stddev_delta * 1000.0
         ),
     ));
@@ -215,7 +215,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         r.scroll_action,
         Some((r.lane_map.as_slice(), p.layout)),
     ));
-    let panel_sets = panel_sets(p.ruleset);
+    let panel_sets = panel_sets();
     let panel_set = panel_sets
         .iter()
         .position(|s| s.name == p.panels)
@@ -276,18 +276,6 @@ pub fn mark_replay(data: &mut ResultsData, kind: super::data::ResultsKind, when:
     data.line = format!("{} · REPLAY", data.line);
     if !when.is_empty() {
         data.notes.insert(0, format!("{when}."));
-    }
-}
-
-/// "+1.2", "−3.4": a real minus sign.
-fn signed(v: f64) -> String {
-    let s = format!("{:.1}", v.abs());
-    if s.chars().all(|c| c == '0' || c == '.') {
-        s
-    } else if v < 0.0 {
-        format!("−{s}")
-    } else {
-        format!("+{s}")
     }
 }
 

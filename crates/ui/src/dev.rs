@@ -22,16 +22,17 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ddi_actor::commands::parse;
 use ddi_actor::text::TextStyle;
-use ddi_actor::{Actor, Kind, Problems, Sprite, Text};
+use ddi_actor::{Actor, Kind, Sprite, Text};
 
 use crate::gesture::Gesture;
 use crate::hit::find_mut;
+use crate::look::{command_of, run};
 use crate::message::Message;
 use crate::nav::Focusable;
 use crate::request::{EnterKey, InputHints, InputMode, UiRequest};
 use crate::screen::{Cx, Handled, Input, Screen, TextChange};
+use crate::widgets::set_text;
 
 /// The screen's design size (16:9; the width follows the window).
 pub const DESIGN: [f32; 2] = [960.0, 540.0];
@@ -77,15 +78,6 @@ pub type Shared = Rc<RefCell<DevState>>;
 /// [`DevState::songs`].
 pub const SONGS_MESSAGE: &str = "DevSongs";
 
-fn run(a: &mut Actor, commands: &str) {
-    let mut p = Problems::default();
-    if let Ok(calls) = parse(commands) {
-        for c in calls {
-            let _ = a.call(&c, &mut p, 0);
-        }
-    }
-}
-
 fn actor(kind: Kind, name: &str, init: &str) -> Actor {
     let mut a = Actor::new(kind);
     a.name = name.into();
@@ -109,26 +101,12 @@ fn frame(name: &str, children: Vec<Actor>, init: &str) -> Actor {
     actor(Kind::Frame(children), name, init)
 }
 
-fn set_text(root: &mut Actor, name: &str, s: &str) {
-    if let Some(a) = find_mut(root, name)
-        && let Kind::Text(t) = &mut a.kind
-    {
-        t.set_text(s);
-    }
-}
-
 /// A button: a frame named `name` holding its plate and its label
 /// (`<name>Label`), lit while focused.
 fn button(name: &str, label: &str, x: f32, y: f32, w: f32) -> Actor {
     let mut plate = quad("", [w, 48.0], "diffuse,0.18,0.19,0.24,1");
-    plate.set_command(
-        "GainFocus",
-        parse("diffuse,0.25,0.36,0.75,1").unwrap_or_default(),
-    );
-    plate.set_command(
-        "LoseFocus",
-        parse("diffuse,0.18,0.19,0.24,1").unwrap_or_default(),
-    );
+    command_of(&mut plate, "GainFocus", "diffuse,0.25,0.36,0.75,1");
+    command_of(&mut plate, "LoseFocus", "diffuse,0.18,0.19,0.24,1");
     frame(
         name,
         vec![plate, text(&format!("{name}Label"), label, 20.0, "")],
@@ -574,18 +552,9 @@ impl Screen for DevDialog {
             ],
             "",
         );
-        root.set_command(
-            "On",
-            parse("diffusealpha,0;linear,0.12;diffusealpha,1").unwrap_or_default(),
-        );
-        root.set_command(
-            "Off",
-            parse("linear,0.1;diffusealpha,0").unwrap_or_default(),
-        );
-        root.set_command(
-            "Cancel",
-            parse("linear,0.1;diffusealpha,0").unwrap_or_default(),
-        );
+        command_of(&mut root, "On", "diffusealpha,0;linear,0.12;diffusealpha,1");
+        command_of(&mut root, "Off", "linear,0.1;diffusealpha,0");
+        command_of(&mut root, "Cancel", "linear,0.1;diffusealpha,0");
         root
     }
 

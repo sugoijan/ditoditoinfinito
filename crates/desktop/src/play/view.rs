@@ -15,10 +15,6 @@ use ddi_ui::state::settings::{NoteColors, Settings, VideoMode};
 use super::Play;
 use super::load::Loaded;
 
-/// The HUD's face (the web's `game_loop::FONT`).
-pub const FONT: &[u8] =
-    include_bytes!("../../../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
-
 /// Background images' longest side kept (the web's sizes).
 const MAX_BACKGROUND_SIDE: u32 = 2048;
 const MAX_CHANGE_SIDE: u32 = 1024;
@@ -149,7 +145,13 @@ pub struct View {
 impl View {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, formats: Formats) -> View {
         View {
-            renderer: Renderer::new(device, queue, formats.view, formats.blending(), &[FONT]),
+            renderer: Renderer::new(
+                device,
+                queue,
+                formats.view,
+                formats.blending(),
+                &[ddi_render::HUD_FONT],
+            ),
             formats,
             noteskin: None,
             noteskin_key: String::new(),
@@ -653,11 +655,13 @@ impl View {
             list,
             &mut |_, _| {},
         );
-        self.lyrics_shown = lines
-            .iter()
-            .filter(|l| l.opacity > 0.0)
-            .map(|l| l.text.to_string())
-            .collect();
+        let shown = lines.iter().filter(|l| l.opacity > 0.0).map(|l| &*l.text);
+        if !shown
+            .clone()
+            .eq(self.lyrics_shown.iter().map(String::as_str))
+        {
+            self.lyrics_shown = shown.map(str::to_string).collect();
+        }
     }
 
     /// A content of the song's layers, read.
@@ -700,26 +704,7 @@ impl View {
 
 /// Fills a texture's first level with RGBA rows.
 pub fn write_rgba(queue: &wgpu::Queue, texture: &wgpu::Texture, image: &Rgba) {
-    let [w, h] = image.size;
-    queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        &image.data,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(4 * w),
-            rows_per_image: Some(h),
-        },
-        wgpu::Extent3d {
-            width: w,
-            height: h,
-            depth_or_array_layers: 1,
-        },
-    );
+    ddi_render::write_rgba(queue, texture, image.size, &image.data);
 }
 
 /// Gives the renderer `play`'s textures: the built-in art, and the

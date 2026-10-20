@@ -190,6 +190,8 @@ type Listener = Box<dyn FnMut(&RawInput)>;
 struct State {
     buf: Float64Array,
     scratch: Vec<f64>,
+    /// The pads the last poll read, by index.
+    seen: Vec<u32>,
     generation: f64,
     slots: BTreeMap<u32, Slot>,
     snapshot: PadSnapshot,
@@ -222,7 +224,7 @@ impl State {
         let ids_changed = generation != self.generation;
         self.generation = generation;
 
-        let mut seen: Vec<u32> = Vec::new();
+        self.seen.clear();
         let mut o = 0;
         while o + 5 <= n {
             let index = self.scratch[o] as u32;
@@ -242,15 +244,17 @@ impl State {
             snap.axes
                 .extend_from_slice(&self.scratch[o + 5 + nb..o + 5 + nb + na]);
             o += 5 + nb + na;
-            seen.push(index);
+            self.seen.push(index);
 
-            let known = self.slots.get(&index).map(|s| s.id.clone());
-            if ids_changed || known.is_none() {
-                snap.id = pad_id(index);
-            } else if let Some(id) = known.as_ref() {
-                snap.id.clone_from(id);
+            let known = self.slots.get(&index).map(|s| s.id.as_str());
+            match known {
+                Some(id) if !ids_changed => {
+                    snap.id.clear();
+                    snap.id.push_str(id);
+                }
+                _ => snap.id = pad_id(index),
             }
-            if known.as_deref() != Some(snap.id.as_str()) {
+            if known != Some(snap.id.as_str()) {
                 // A different pad took the slot.
                 if let Some(mut old) = self.slots.remove(&index) {
                     old.tracker.release_all(now, &mut self.queue);
@@ -272,17 +276,15 @@ impl State {
                 slot.tracker.update(snap, now, &mut self.queue);
             }
         }
-        let gone: Vec<u32> = self
-            .slots
-            .keys()
-            .copied()
-            .filter(|k| !seen.contains(k))
-            .collect();
-        for k in gone {
-            if let Some(mut slot) = self.slots.remove(&k) {
-                slot.tracker.release_all(now, &mut self.queue);
+        // The pads gone, released in index order.
+        let (seen, queue) = (&self.seen, &mut self.queue);
+        self.slots.retain(|k, slot| {
+            let kept = seen.contains(k);
+            if !kept {
+                slot.tracker.release_all(now, queue);
             }
-        }
+            kept
+        });
 
         if now_ms - self.window_start >= 1000.0 {
             self.polls_per_second = self.window_polls;
@@ -360,6 +362,7 @@ impl Gamepads {
         let state = Rc::new(RefCell::new(State {
             buf: Float64Array::new_with_length(BUFFER_LEN),
             scratch: Vec::new(),
+            seen: Vec::new(),
             generation: -1.0,
             slots: BTreeMap::new(),
             snapshot: PadSnapshot::default(),

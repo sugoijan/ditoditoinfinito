@@ -20,6 +20,7 @@
 
 pub mod avi;
 pub mod backgrounds;
+pub(crate) mod bytes;
 pub mod danoni;
 pub mod h264;
 pub mod image;

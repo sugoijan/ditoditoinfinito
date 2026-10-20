@@ -6,10 +6,12 @@
 //! `<children>`). `crate::build` makes actors of the nodes. Files are
 //! untrusted: the XML reader is strict and bounded.
 
-use ddi_actor::commands::{Call, parse_legacy};
+use ddi_actor::commands::parse_legacy;
 use ddi_actor::{Actor, Kind, Problems, State};
 
-use crate::build::{Builder, Built, builtin_sprite, fallback_art, image_sprite, model_actor};
+use crate::build::{
+    Builder, Built, builtin_sprite, fallback_art, image_sprite, model_actor, visible,
+};
 use crate::builtin::{LEGACY_NOTE_TYPES, Virtual};
 use crate::ini::{Ini, string_to_float, string_to_int};
 use crate::load::{Button, Source};
@@ -404,13 +406,6 @@ fn state_index(key: &str, prefix: &str) -> Option<usize> {
     (digits.len() == 4 && digits.bytes().all(|b| b.is_ascii_digit()))
         .then(|| digits.parse().ok())
         .flatten()
-}
-
-fn visible(on: bool) -> Call {
-    Call {
-        method: "visible".into(),
-        args: vec![ddi_actor::commands::Arg::Bool(on)],
-    }
 }
 
 impl Builder<'_, '_> {

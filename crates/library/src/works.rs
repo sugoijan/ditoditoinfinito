@@ -362,18 +362,9 @@ pub fn entry(s: &WorkSong, chart: &str, music: &str) -> ManifestEntry {
 pub fn fill_chart_keys(entry: &mut ManifestEntry, song: &Song) {
     for (index, chart) in song.charts.iter().enumerate() {
         if chart.derivation.is_some() && !entry.charts.iter().any(|c| c.index == index) {
-            entry.charts.push(crate::manifest::ChartInfo {
-                index,
-                derivation: chart.derivation.clone(),
-                layout: chart.layout.clone(),
-                difficulty: format!("{:?}", chart.difficulty),
-                meter: chart.meter,
-                name: chart.name.clone(),
-                credit: chart.credit.clone(),
-                notes: chart.judged_note_count(),
-                digest: None,
-                excessive: None,
-            });
+            entry
+                .charts
+                .push(crate::manifest::ChartInfo::of(index, chart, None));
         }
     }
     for c in &mut entry.charts {

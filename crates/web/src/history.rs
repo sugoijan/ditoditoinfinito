@@ -508,26 +508,9 @@ pub(crate) fn tz_minutes(ms: f64) -> i32 {
     -(js_sys::Date::new(&ms.into()).get_timezone_offset() as i32)
 }
 
-/// Forgets every play (Options' Data → Play history → Reset); a chart's
-/// (by content) and a pack's songs' (no screen asks yet).
+/// Forgets every play (Options' Data → Play history → Reset).
 pub(crate) fn remove_all(done: impl FnOnce(Result<(), String>) + 'static) {
     plays().remove_all(move |r| {
-        publish();
-        done(r)
-    });
-}
-
-#[allow(dead_code)]
-pub(crate) fn remove_chart(digest: ChartDigest, done: impl FnOnce(Result<(), String>) + 'static) {
-    plays().remove_chart(digest, move |r| {
-        publish();
-        done(r)
-    });
-}
-
-#[allow(dead_code)]
-pub(crate) fn remove_songs(songs: &[String], done: impl FnOnce(Result<(), String>) + 'static) {
-    plays().remove_songs(songs, move |r| {
         publish();
         done(r)
     });
@@ -618,17 +601,8 @@ pub(crate) fn publish() {
     if let Some(w) = WATCHER.with(|w| w.borrow().clone()) {
         w();
     }
-    let Some(window) = web_sys::window() else {
+    let Some(obj) = crate::web::debug_object() else {
         return;
     };
-    let obj = Reflect::get(&window, &"__DDI_DEBUG".into())
-        .ok()
-        .filter(JsValue::is_object)
-        .map(Object::from)
-        .unwrap_or_else(|| {
-            let o = Object::new();
-            let _ = Reflect::set(&window, &"__DDI_DEBUG".into(), &o);
-            o
-        });
     debug_into(&obj);
 }

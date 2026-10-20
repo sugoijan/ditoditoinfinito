@@ -19,7 +19,6 @@ use ddi_ui::screens::calibration::{self, CalAct};
 use ddi_ui::screens::options_dialogs::ConfirmDialog;
 use ddi_ui::screens::page::{PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageShell};
 use ddi_ui::{Cx, Message, TextMode, Ui, UiRequest};
-use gloo::timers::callback::Timeout;
 use web_sys::HtmlElement;
 
 use crate::components::ui_dev::{self, Host, Started};
@@ -109,12 +108,7 @@ impl Component for PagePage {
         if let Some((host, _, pads)) = &self.started {
             ui_dev::stop_ui(host, pads.as_ref());
         }
-        if let Some(d) = web_sys::window()
-            .and_then(|w| js_sys::Reflect::get(&w, &"__DDI_DEBUG".into()).ok())
-            .filter(|d| d.is_object())
-        {
-            let _ = js_sys::Reflect::delete_property(&js_sys::Object::from(d), &"ui".into());
-        }
+        crate::web::forget_debug(&["ui"]);
     }
 }
 
@@ -173,14 +167,7 @@ fn send(feed: &PageFeed, host: &Rc<RefCell<Option<std::rc::Weak<RefCell<Host>>>>
     let Some(weak) = host.borrow().clone() else {
         return;
     };
-    Timeout::new(0, move || {
-        let Some(h) = weak.upgrade() else { return };
-        if let Ok(mut hm) = h.try_borrow_mut() {
-            hm.ui.broadcast(Message::new(PAGE_CHANGED));
-        }
-        ui_dev::wake(&h);
-    })
-    .forget();
+    ui_dev::broadcast_soon(weak, PAGE_CHANGED);
 }
 
 fn calibration_doc() -> PageDoc {

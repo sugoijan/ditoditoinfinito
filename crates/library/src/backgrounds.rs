@@ -55,6 +55,7 @@
 //! names first, so a name may contain `,` or `=`; the chart importer splits
 //! on them, so such names do not resolve here.
 
+use ddi_chart::formats::sm::{sm_float, sm_int};
 use ddi_chart::{EffectTime, Song, Tick};
 
 use crate::pack::{IMAGE_EXTENSIONS, extension, join_relative};
@@ -188,8 +189,8 @@ impl MovieEffect {
             Some(e) if e.eq_ignore_ascii_case("StretchNoLoop") => MovieEffect::NoLoop,
             Some(e) if e.eq_ignore_ascii_case("StretchRewind") => MovieEffect::Rewind,
             Some(_) => MovieEffect::Normal,
-            None if fields.get(5).is_some_and(|l| leading_int(l) == 0) => MovieEffect::NoLoop,
-            None if fields.get(4).is_some_and(|r| leading_int(r) != 0) => MovieEffect::Rewind,
+            None if fields.get(5).is_some_and(|l| sm_int(l) == 0) => MovieEffect::NoLoop,
+            None if fields.get(4).is_some_and(|r| sm_int(r) != 0) => MovieEffect::Rewind,
             None => MovieEffect::Normal,
         }
     }
@@ -278,47 +279,6 @@ fn is_media(path: &str) -> bool {
 /// `.`/`..` resolved, `/` separators, lower case.
 fn key(reference: &str) -> Option<String> {
     join_relative("song", reference).map(|p| p.to_lowercase())
-}
-
-/// StepMania's `StringToFloat` (`strtof`): the leading decimal number, with
-/// an exponent, 0 if none (hexadecimal floats are left out).
-fn leading_float(s: &str) -> f64 {
-    let s = s.trim();
-    let b = s.as_bytes();
-    let mut i = usize::from(matches!(b.first(), Some(b'+' | b'-')));
-    let digits = |i: &mut usize| {
-        let from = *i;
-        while b.get(*i).is_some_and(u8::is_ascii_digit) {
-            *i += 1;
-        }
-        *i - from
-    };
-    let mut count = digits(&mut i);
-    if b.get(i) == Some(&b'.') {
-        i += 1;
-        count += digits(&mut i);
-    }
-    if count == 0 {
-        return 0.0;
-    }
-    // An exponent only when digits follow it.
-    if matches!(b.get(i), Some(b'e' | b'E')) {
-        let mut j = i + 1 + usize::from(matches!(b.get(i + 1), Some(b'+' | b'-')));
-        if digits(&mut j) > 0 {
-            i = j;
-        }
-    }
-    s[..i].parse().unwrap_or(0.0)
-}
-
-/// StepMania's `StringToInt` (`atoi`): the leading integer, 0 if none.
-fn leading_int(s: &str) -> i64 {
-    let s = s.trim();
-    let end = s
-        .char_indices()
-        .find(|&(i, c)| !(c.is_ascii_digit() || (i == 0 && (c == '-' || c == '+'))))
-        .map_or(s.len(), |(i, _)| i);
-    s[..end].parse().unwrap_or(0)
 }
 
 /// The images `song`'s background changes (on either layer) refer to that
@@ -711,7 +671,7 @@ fn change_seconds(song: &Song, tick: Tick) -> f64 {
 fn change_look(f: &[String], image: &BgImage) -> (f64, f64, MovieEffect) {
     let fade = match f.get(8).map(|s| s.trim()).filter(|s| !s.is_empty()) {
         Some(transition) => transition_seconds(transition).unwrap_or(0.0),
-        None if f.get(3).is_some_and(|s| leading_int(s) != 0) => 1.0,
+        None if f.get(3).is_some_and(|s| sm_int(s) != 0) => 1.0,
         None => 0.0,
     };
     // Only movies have a rate and an effect that matter. Below 0 StepMania
@@ -721,7 +681,7 @@ fn change_look(f: &[String], image: &BgImage) -> (f64, f64, MovieEffect) {
     let (rate, effect) = match image {
         BgImage::Movie(_) => (
             f.get(2).map_or(1.0, |r| {
-                let r = leading_float(r);
+                let r = sm_float(r);
                 if r.is_finite() {
                     r.clamp(0.0, 1000.0)
                 } else {
@@ -2019,28 +1979,5 @@ mod tests {
         // readied; then the restart decodes it for both, other.avi readied.
         assert_eq!(at(4.5).wanted, vec![(0, 1), (1, 3)]);
         assert_eq!(at(6.5).wanted, vec![(1, 3), (0, 2)]);
-    }
-
-    #[test]
-    fn leading_float_reads_like_strtof() {
-        assert_eq!(leading_float("1.000"), 1.0);
-        assert_eq!(leading_float(" 0.5x"), 0.5);
-        assert_eq!(leading_float("-2"), -2.0);
-        assert_eq!(leading_float(""), 0.0);
-        assert_eq!(leading_float("."), 0.0);
-        assert_eq!(leading_float("1.2.3"), 1.2);
-        assert_eq!(leading_float("1e2"), 100.0);
-        assert_eq!(leading_float("2.5E-1x"), 0.25);
-        assert_eq!(leading_float("3e"), 3.0);
-        assert_eq!(leading_float("1e400"), f64::INFINITY);
-    }
-
-    #[test]
-    fn leading_int_reads_like_atoi() {
-        assert_eq!(leading_int("1"), 1);
-        assert_eq!(leading_int(" 1.000"), 1);
-        assert_eq!(leading_int("0.5"), 0);
-        assert_eq!(leading_int(""), 0);
-        assert_eq!(leading_int("-2x"), -2);
     }
 }

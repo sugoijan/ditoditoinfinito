@@ -6,6 +6,8 @@
 //! format a simfile pack uses. Callers read [`IMAGE_HEADER_LEN`] leading
 //! bytes (or the whole file if shorter) and pass them to [`image_size`].
 
+use crate::bytes::{be16, be32, le16, le24, le32};
+
 /// How many leading bytes to read for [`image_size`]. PNG, GIF, BMP and WebP
 /// need under 32; JPEG puts its frame header (SOFn) after the APPn segments,
 /// and an EXIF segment with an embedded thumbnail alone can be 64 KiB, so
@@ -30,27 +32,6 @@ pub fn image_size(header: &[u8]) -> Option<(u32, u32)> {
         None
     }?;
     (size.0 > 0 && size.1 > 0).then_some(size)
-}
-
-fn le16(b: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_le_bytes(b.get(at..at + 2)?.try_into().ok()?))
-}
-
-fn be16(b: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_be_bytes(b.get(at..at + 2)?.try_into().ok()?))
-}
-
-fn le24(b: &[u8], at: usize) -> Option<u32> {
-    let s = b.get(at..at + 3)?;
-    Some(u32::from(s[0]) | u32::from(s[1]) << 8 | u32::from(s[2]) << 16)
-}
-
-fn le32(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?))
-}
-
-fn be32(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes(b.get(at..at + 4)?.try_into().ok()?))
 }
 
 /// IHDR must be the first chunk: signature (8), length (4), type (4), then

@@ -553,17 +553,11 @@ fn print_of(frame: &VideoFrame) -> u64 {
     if frame.external.is_some() {
         0
     } else {
-        fingerprint(&frame.planes)
+        ddi_library::pack::fnv1a64(&frame.planes)
     }
 }
 
 /// FNV-1a over the planes: enough to tell two decodes of a frame apart.
-fn fingerprint(planes: &[u8]) -> u64 {
-    planes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
-        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
-    })
-}
-
 fn sample(index: usize, frame: &VideoFrame) -> Option<Sample> {
     let (y, u, v) = frame.split()?;
     let (w, h) = (frame.width as usize, frame.height as usize);

@@ -73,7 +73,7 @@ pub fn parse_simfile(text: &str, extension: &str) -> Result<Song, ParseError> {
 // ---------------------------------------------------------------------------
 
 /// Longest numeric prefix as `f64`, `0.0` when none (`StringToFloat`).
-pub(crate) fn sm_float(s: &str) -> f64 {
+pub fn sm_float(s: &str) -> f64 {
     let s = s.trim();
     let b = s.as_bytes();
     let mut i = 0;
@@ -116,7 +116,7 @@ pub(crate) fn sm_float(s: &str) -> f64 {
 }
 
 /// Longest integer prefix, `0` when none (`atoi`).
-pub(crate) fn sm_int(s: &str) -> i64 {
+pub fn sm_int(s: &str) -> i64 {
     let s = s.trim();
     let b = s.as_bytes();
     let mut i = 0;
@@ -1261,9 +1261,15 @@ mod tests {
         assert_eq!(sm_float("1e2"), 100.0);
         assert_eq!(sm_float("1e"), 1.0);
         assert_eq!(sm_float(""), 0.0);
+        assert_eq!(sm_float("."), 0.0);
+        assert_eq!(sm_float("1.2.3"), 1.2);
+        assert_eq!(sm_float("2.5E-1x"), 0.25);
+        assert_eq!(sm_float("1e400"), f64::INFINITY);
         assert_eq!(sm_int("12x"), 12);
         assert_eq!(sm_int("-3"), -3);
         assert_eq!(sm_int(""), 0);
+        assert_eq!(sm_int(" 1.000"), 1);
+        assert_eq!(sm_int("0.5"), 0);
         assert!(approx(row_to_beat("96r"), 2.0));
     }
 

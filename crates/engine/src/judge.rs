@@ -984,11 +984,10 @@ impl Judge {
 
     /// Advances time to `song_time`: misses, hold life, mines crossed while
     /// held, mines avoided. The lanes are as the presses and releases left
-    /// them; `held` is not read (each lane's state is known from its edges:
-    /// a judged lane under `judge_all_in` is pressed and released for every
-    /// lane by the player).
-    pub fn update(&mut self, song_time: f64, held: &[bool]) -> Vec<JudgeEvent> {
-        let _ = held;
+    /// them (each lane's state is known from its edges: a judged lane under
+    /// `judge_all_in` is pressed and released for every lane by the
+    /// player).
+    pub fn update(&mut self, song_time: f64) -> Vec<JudgeEvent> {
         let mut out = Vec::new();
         self.advance(song_time, &mut out);
         out
@@ -1181,7 +1180,7 @@ mod tests {
     #[test]
     fn miss_after_window_and_lift_on_release() {
         let mut j = judge();
-        let ev = j.update(1.0 + 0.18 + 0.001, &[false; 4]);
+        let ev = j.update(1.0 + 0.18 + 0.001);
         let misses: Vec<_> = ev
             .iter()
             .filter(|e| matches!(e.kind, JudgeEventKind::Tap(Judgement::Miss, _)))
@@ -1199,28 +1198,28 @@ mod tests {
     #[test]
     fn hold_let_go_and_held() {
         let mut j = judge();
-        j.update(1.9, &[false; 4]);
+        j.update(1.9);
         let ev = j.press(2, 2.0);
         assert!(matches!(ev[0].kind, JudgeEventKind::Tap(Judgement::W1, _)));
         j.release(2, 2.5);
-        let ev = j.update(2.7, &[false; 4]);
+        let ev = j.update(2.7);
         assert!(ev.is_empty());
         assert!(
             matches!(j.notes()[2].state, NoteState::HoldActive { life } if (life - 0.2).abs() < 1e-5)
         );
-        let ev = j.update(2.8, &[false; 4]);
+        let ev = j.update(2.8);
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].kind, JudgeEventKind::LetGo);
         assert!((ev[0].song_time - 2.75).abs() < 1e-9);
 
         let mut j = judge();
-        j.update(1.9, &[false; 4]);
+        j.update(1.9);
         j.press(2, 2.0);
         j.release(2, 3.0);
         j.press(2, 3.2);
         // Judged once past its tail (4.0).
-        assert!(j.update(4.0, &[false, false, true, false]).is_empty());
-        let ev = j.update(4.01, &[false, false, true, false]);
+        assert!(j.update(4.0).is_empty());
+        let ev = j.update(4.01);
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].kind, JudgeEventKind::Held);
         assert_eq!(ev[0].song_time, 4.0);
@@ -1271,7 +1270,7 @@ mod tests {
         let mut j = ticked(&[hold(0.0, 0, 1.0)], TimingMap::constant(60.0, 0.0));
         assert_eq!(j.checkpoint_count(), 4);
         let mut ev = j.press(0, 0.0);
-        ev.extend(j.update(1.5, &[true]));
+        ev.extend(j.update(1.5));
         // Not the head's row; up to and including the tail's.
         assert_eq!(
             ticks(&ev),
@@ -1288,11 +1287,11 @@ mod tests {
         let mut ev = j.press(0, 0.0);
         ev.extend(j.release(0, 0.3));
         // 0.2 s released at 0.5: over the 0.1664 s window.
-        ev.extend(j.update(0.55, &[false]));
+        ev.extend(j.update(0.55));
         // Never dropped on the way: pressed again, it goes on.
         assert!(matches!(j.notes()[0].state, NoteState::HoldActive { .. }));
         ev.extend(j.press(0, 0.6));
-        ev.extend(j.update(1.2, &[true]));
+        ev.extend(j.update(1.2));
         assert_eq!(
             ticks(&ev),
             [(0.25, 1, 0), (0.5, 0, 1), (0.75, 1, 0), (1.0, 1, 0)]
@@ -1302,9 +1301,9 @@ mod tests {
         let mut j = ticked(&[hold(0.0, 0, 1.0)], TimingMap::constant(60.0, 0.0));
         let mut ev = j.press(0, 0.0);
         ev.extend(j.release(0, 0.4));
-        ev.extend(j.update(0.5, &[false]));
+        ev.extend(j.update(0.5));
         ev.extend(j.press(0, 0.52));
-        ev.extend(j.update(1.2, &[true]));
+        ev.extend(j.update(1.2));
         assert!(ticks(&ev).iter().all(|t| t.2 == 0));
         assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
     }
@@ -1318,7 +1317,7 @@ mod tests {
         let mut ev = j.press(0, 0.5);
         assert!(ev.is_empty());
         for t in [1.0, 1.1, 1.2, 1.3, 1.6, 2.1] {
-            ev.extend(j.update(t, &[true]));
+            ev.extend(j.update(t));
         }
         let heads: Vec<_> = ev
             .iter()
@@ -1333,7 +1332,7 @@ mod tests {
         assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
         // Never pressed at all: a miss, its checkpoints missed.
         let mut j = ticked(&[hold(1.0, 0, 2.0)], TimingMap::constant(60.0, 0.0));
-        let ev = j.update(2.5, &[false]);
+        let ev = j.update(2.5);
         assert!(
             ev.iter()
                 .any(|e| matches!(e.kind, JudgeEventKind::Tap(Judgement::Miss, _)))
@@ -1351,7 +1350,7 @@ mod tests {
         // head at 1/3 s.
         let mut j = ticked(&[hold(1.0, 0, 2.0)], TimingMap::constant(180.0, 0.0));
         let head = 1.0 / 3.0;
-        let mut ev = j.update(head + 0.1, &[false]);
+        let mut ev = j.update(head + 0.1);
         // Stepped on 120 ms late: still a W1, with its real offset.
         ev.extend(j.press(0, head + 0.12));
         let tap = ev
@@ -1365,7 +1364,7 @@ mod tests {
         assert!((tap.1 - 0.12).abs() < 1e-9);
         // Up as the head passed, the hold had `InitialHoldLife` (0.05 of
         // the window, 8 ms): the checkpoint 83 ms in was missed.
-        ev.extend(j.update(1.0, &[true]));
+        ev.extend(j.update(1.0));
         let t = ticks(&ev);
         assert_eq!((t[0].1, t[0].2), (0, 1));
         assert!(t[1..].iter().all(|t| t.2 == 0));
@@ -1382,9 +1381,9 @@ mod tests {
         // crossing that row).
         let mut j = ticked(&[hold(0.0, 0, 1.0)], TimingMap::constant(60.0, 0.0));
         let mut ev = j.press(0, 0.0);
-        ev.extend(j.update(0.79, &[true]));
+        ev.extend(j.update(0.79));
         ev.extend(j.release(0, 0.8));
-        ev.extend(j.update(1.5, &[false]));
+        ev.extend(j.update(1.5));
         assert_eq!(ticks(&ev).last(), Some(&(1.0, 0, 1)));
         assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
     }
@@ -1418,7 +1417,7 @@ mod tests {
         j.skip_before(1.5);
         assert_eq!(j.checkpoint_count(), 4);
         let mut ev = j.press(1, 2.0);
-        ev.extend(j.update(3.5, &[false, true]));
+        ev.extend(j.update(3.5));
         assert_eq!(ticks(&ev).len(), 4);
         assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
     }
@@ -1437,7 +1436,7 @@ mod tests {
         ev.extend(j.press(1, 0.0));
         ev.extend(j.press(2, 0.5));
         ev.extend(j.release(1, 0.55));
-        ev.extend(j.update(1.5, &[true, false, false]));
+        ev.extend(j.update(1.5));
         // Two holds a row; lane 1 let go at 0.55 misses 0.75 and 1.0.
         assert_eq!(ticks(&ev), [(0.25, 2, 0), (0.75, 1, 1), (1.0, 1, 1)]);
         let lanes: Vec<u64> = ev
@@ -1469,15 +1468,15 @@ mod tests {
         let mut j = ticked(&notes, timing);
         assert_eq!(j.checkpoint_count(), 2);
         let mut ev = j.press(0, 0.0);
-        ev.extend(j.update(1.5, &[true, false]));
+        ev.extend(j.update(1.5));
         ev.extend(j.release(0, 1.5));
         assert_eq!(ticks(&ev), [(0.5, 1, 0), (1.0, 1, 0)]);
         // Without checkpoints: kept when its head was stepped on.
         ev.extend(j.press(1, 2.0));
         ev.extend(j.release(1, 2.1));
-        ev.extend(j.update(4.0, &[false, false]));
+        ev.extend(j.update(4.0));
         assert_eq!(outcomes(&ev), [JudgeEventKind::Held, JudgeEventKind::Held]);
-        let ev = j.update(5.0, &[false, false]);
+        let ev = j.update(5.0);
         assert_eq!(outcomes(&ev), [JudgeEventKind::LetGo]);
     }
 
@@ -1493,41 +1492,41 @@ mod tests {
         let mut j = ticked(std::slice::from_ref(&roll), TimingMap::constant(60.0, 0.0));
         let mut ev = j.press(0, 0.0);
         for t in [0.4, 0.8, 1.2, 1.6] {
-            ev.extend(j.update(t, &[false]));
+            ev.extend(j.update(t));
             ev.extend(j.press(0, t));
         }
-        ev.extend(j.update(2.5, &[false]));
+        ev.extend(j.update(2.5));
         assert_eq!(ticks(&ev).len(), 8);
         assert_eq!(outcomes(&ev), [JudgeEventKind::Held]);
         // Not tapped past the roll window (0.5 s): its life ran out, but
         // it is only judged at its tail.
         let mut j = ticked(&[roll], TimingMap::constant(60.0, 0.0));
         let mut ev = j.press(0, 0.0);
-        ev.extend(j.update(1.0, &[false]));
+        ev.extend(j.update(1.0));
         assert!(outcomes(&ev).is_empty());
         ev.extend(j.press(0, 1.0));
-        ev.extend(j.update(2.5, &[false]));
+        ev.extend(j.update(2.5));
         assert_eq!(outcomes(&ev), [JudgeEventKind::LetGo]);
     }
 
     #[test]
     fn mines_on_press_and_while_held() {
         let mut j = judge();
-        j.update(2.9, &[false; 4]);
+        j.update(2.9);
         let ev = j.press(3, 3.05);
         assert_eq!(ev[0].kind, JudgeEventKind::HitMine);
 
         // Down since before the mine's window, across its row.
         let mut j = judge();
-        j.update(2.9, &[false; 4]);
+        j.update(2.9);
         assert!(j.press(3, 2.9).is_empty());
-        let ev = j.update(3.1, &[false; 4]);
+        let ev = j.update(3.1);
         assert_eq!(ev[0].kind, JudgeEventKind::HitMine);
         assert_eq!(ev[0].song_time, 3.0);
 
         let mut j = judge();
-        j.update(2.9, &[false; 4]);
-        let ev = j.update(3.2, &[false; 4]);
+        j.update(2.9);
+        let ev = j.update(3.2);
         assert!(ev.iter().all(|e| e.kind != JudgeEventKind::HitMine));
         assert_eq!(j.notes()[3].state, NoteState::MineAvoided);
     }
@@ -1544,33 +1543,33 @@ mod tests {
         let tap = notes[1].tick.beat();
         let table = presets::itg().judge;
         let mut j = Judge::new(&notes, &TimingMap::constant(60.0, 0.0), table.clone());
-        let mut ev = j.update(0.99, &[false]);
+        let mut ev = j.update(0.99);
         ev.extend(j.press(0, tap));
-        ev.extend(j.update(1.03, &[true]));
+        ev.extend(j.update(1.03));
         assert!(ev.iter().all(|e| e.kind != JudgeEventKind::HitMine));
         assert!(matches!(ev[0].kind, JudgeEventKind::Tap(Judgement::W1, _)));
         // Down before it: stepped on.
         let mut j = Judge::new(&notes, &TimingMap::constant(60.0, 0.0), table.clone());
-        let mut ev = j.update(0.9, &[false]);
+        let mut ev = j.update(0.9);
         ev.extend(j.press(0, 0.95));
-        ev.extend(j.update(1.03, &[true]));
+        ev.extend(j.update(1.03));
         assert!(ev.iter().any(|e| e.kind == JudgeEventKind::HitMine));
         // Down since 0.5 and a second key on the lane for the tap: still
         // down when the mine passed.
         let mut j = Judge::new(&notes, &TimingMap::constant(60.0, 0.0), table.clone());
         let mut ev = j.press(0, 0.5);
-        ev.extend(j.update(0.99, &[true]));
+        ev.extend(j.update(0.99));
         ev.extend(j.press(0, tap));
-        ev.extend(j.update(1.03, &[true]));
+        ev.extend(j.update(1.03));
         assert!(ev.iter().any(|e| e.kind == JudgeEventKind::HitMine));
         // Down over the mine, up and down again in the same frame: the
         // lane was down when it passed.
         let mut j = Judge::new(&notes, &TimingMap::constant(60.0, 0.0), table);
         let mut ev = j.press(0, 0.5);
-        ev.extend(j.update(0.99, &[true]));
+        ev.extend(j.update(0.99));
         ev.extend(j.release(0, 1.005));
         ev.extend(j.press(0, 1.019));
-        ev.extend(j.update(1.03, &[true]));
+        ev.extend(j.update(1.03));
         assert!(ev.iter().any(|e| e.kind == JudgeEventKind::HitMine));
     }
 
@@ -1618,13 +1617,13 @@ mod tests {
         let miss_after = presets::sm5().judge.miss_after(); // 0.180
         let mut j = judge();
         // Exactly on the bound: still pending, and a press there is a W5.
-        assert!(j.update(miss_after, &[false; 4]).is_empty());
+        assert!(j.update(miss_after).is_empty());
         assert_eq!(j.notes()[0].state, NoteState::Pending);
         let ev = j.press(0, miss_after);
         assert!(matches!(ev[0].kind, JudgeEventKind::Tap(Judgement::W5, _)));
 
         let mut j = judge();
-        let ev = j.update(miss_after + 1e-9, &[false; 4]);
+        let ev = j.update(miss_after + 1e-9);
         assert_eq!(ev.len(), 1);
         assert!(matches!(
             ev[0].kind,
@@ -1646,11 +1645,11 @@ mod tests {
         let mut j = Judge::new(&roll, &TimingMap::constant(60.0, 0.0), table.clone());
         j.press(0, 2.0);
         // Holding the button does not keep a roll alive.
-        j.update(2.4, &[true]);
+        j.update(2.4);
         assert!(
             matches!(j.notes()[0].state, NoteState::HoldActive { life } if (life - 0.2).abs() < 1e-5)
         );
-        let ev = j.update(2.6, &[true]);
+        let ev = j.update(2.6);
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].kind, JudgeEventKind::LetGo);
         assert!((ev[0].song_time - 2.5).abs() < 1e-9);
@@ -1663,7 +1662,7 @@ mod tests {
             assert!(j.press(0, t).is_empty());
             assert!(matches!(j.notes()[0].state, NoteState::HoldActive { life } if life == 1.0));
         }
-        let ev = j.update(4.01, &[false]);
+        let ev = j.update(4.01);
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].kind, JudgeEventKind::Held);
     }
@@ -1671,14 +1670,14 @@ mod tests {
     #[test]
     fn missed_hold_head_is_never_held() {
         let mut j = judge(); // hold at beat 2 → 4 in lane 2
-        j.update(1.9, &[false; 4]);
-        let ev = j.update(2.3, &[false; 4]);
+        j.update(1.9);
+        let ev = j.update(2.3);
         assert!(ev.iter().any(|e| e.note_index == Some(2)
             && matches!(e.kind, JudgeEventKind::Tap(Judgement::Miss, _))));
         assert_eq!(j.notes()[2].state, NoteState::Missed);
         // Pressing and holding through the tail changes nothing.
         j.press(2, 2.35);
-        let ev = j.update(4.5, &[false, false, true, false]);
+        let ev = j.update(4.5);
         assert!(ev.iter().all(|e| e.note_index != Some(2)));
         assert_eq!(j.notes()[2].state, NoteState::Missed);
     }
@@ -1709,7 +1708,7 @@ mod tests {
         assert_eq!(j.mine_count(), 0);
         assert_eq!(j.notes()[1].state, NoteState::Faked);
         assert_eq!(j.notes()[3].state, NoteState::Faked);
-        let ev = j.update(10.0, &[false, false, false, true]);
+        let ev = j.update(10.0);
         assert_eq!(ev.len(), 3);
         assert!(
             ev.iter()
@@ -1730,7 +1729,7 @@ mod tests {
             &TimingMap::constant(60.0, 0.0),
             presets::sm5().judge,
         );
-        let ev = j.update(10.0, &[false; 3]);
+        let ev = j.update(10.0);
         let order: Vec<_> = ev.iter().map(|e| e.note_index).collect();
         assert_eq!(order, vec![Some(1), Some(0), Some(2)]);
     }
@@ -1769,8 +1768,8 @@ mod tests {
         // Pressing again never refills it: the next release drops it after
         // two more frames.
         j.release(0, 3.0);
-        assert!(j.update(3.0 + 1.5 * F, &[false]).is_empty());
-        let ev = j.update(3.1, &[false]);
+        assert!(j.update(3.0 + 1.5 * F).is_empty());
+        let ev = j.update(3.1);
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].kind, JudgeEventKind::LetGo);
         assert!((ev[0].song_time - (3.0 + 2.0 * F)).abs() < 1e-9);
@@ -1782,7 +1781,7 @@ mod tests {
         j.press(0, 2.5 + 2.0 * F);
         j.release(0, 3.5);
         j.press(0, 3.5 + 2.0 * F);
-        let ev = j.update(4.01, &[true]);
+        let ev = j.update(4.01);
         assert_eq!(ev[0].kind, JudgeEventKind::Held);
     }
 
@@ -1805,12 +1804,12 @@ mod tests {
         assert_eq!(ev[1].kind, JudgeEventKind::LetGo);
         // A start never pressed: N.G. (and a miss when starts are judged).
         let mut j = Judge::new(&one_hold(), &timing, danoni_table(false));
-        let ev = j.update(2.5, &[false]);
+        let ev = j.update(2.5);
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].kind, JudgeEventKind::LetGo);
         assert_eq!(j.judged_note_count(), 0);
         let mut j = Judge::new(&one_hold(), &timing, danoni_table(true));
-        let ev = j.update(2.5, &[false]);
+        let ev = j.update(2.5);
         assert_eq!(ev.len(), 2);
         assert!(matches!(
             ev[0].kind,

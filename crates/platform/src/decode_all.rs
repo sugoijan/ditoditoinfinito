@@ -3,7 +3,7 @@
 //! and D9): MP3, Ogg Vorbis, Ogg Opus, FLAC, WAV and AIFF through
 //! Symphonia's readers, Opus through `rusty-opus` (pure Rust, checked
 //! against libopus in step 7.0; [`crate::opus`], the web fallback's
-//! decoder), and [`resample`] to the output's rate once, as
+//! decoder), and [`resample_interleaved`] to the output's rate once, as
 //! `decodeAudioData` does.
 //!
 //! How each format is cut matches what charts were synced against:
@@ -41,9 +41,7 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::default::formats::OggReader;
 
 pub use crate::decode::DecodedAudio;
-
-/// Reservations are capped so a lying header cannot ask for gigabytes.
-const MAX_RESERVE_SECONDS: u64 = 20 * 60;
+use crate::decode::{Gaps, reserve};
 
 /// Why a file could not be decoded.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -196,12 +194,6 @@ fn limit(until: Option<f64>, rate: u32) -> Option<usize> {
     until.map(|s| (s.max(0.0) * f64::from(rate)).ceil() as usize)
 }
 
-/// Planar channels reserved for `frames` (capped).
-fn reserve(channels: usize, frames: u64, rate: u32) -> Vec<Vec<f32>> {
-    let frames = frames.min(u64::from(rate) * MAX_RESERVE_SECONDS) as usize;
-    (0..channels).map(|_| Vec::with_capacity(frames)).collect()
-}
-
 /// Where decoded audio goes: the frames before the range's start
 /// dropped as they come, the rest kept up to its end.
 struct Kept {
@@ -311,27 +303,6 @@ fn next_packet(
                 }
             }
         }
-    }
-}
-
-/// Where the stream is, from packets' times: a packet that starts after
-/// the last one ended follows audio the reader dropped (a corrupt FLAC
-/// frame, an Ogg page with a bad CRC), which comes back as silence of
-/// its length so the audio after stays in time.
-#[derive(Default)]
-struct Gaps {
-    /// The last packet's end, in its timestamps (`None` before one).
-    end: Option<i64>,
-}
-
-impl Gaps {
-    /// The frames missing before `p`.
-    fn before(&mut self, p: &symphonia::core::packet::Packet) -> usize {
-        let start = p.pts.get();
-        let whole = (p.dur.get() + p.trim_start.get() + p.trim_end.get()) as i64;
-        let gap = self.end.map_or(0, |e| (start - e).max(0) as usize);
-        self.end = Some(start + whole);
-        gap
     }
 }
 
@@ -453,26 +424,6 @@ fn run(
         }
     }
     Ok(audio)
-}
-
-/// `audio` at `rate`, through rubato's FFT resampler (the whole clip at
-/// once, its delay trimmed); `audio` itself when the rates agree.
-pub fn resample(audio: DecodedAudio, rate: u32) -> Result<DecodedAudio, DecodeError> {
-    let channels = audio.channels.len();
-    let skipped = audio.skipped_packets;
-    let data = resample_interleaved(audio, rate)?;
-    let n = data.len() / channels.max(1);
-    let mut planar: Vec<Vec<f32>> = (0..channels).map(|_| Vec::with_capacity(n)).collect();
-    for frame in data.chunks_exact(channels.max(1)) {
-        for (c, &s) in frame.iter().enumerate() {
-            planar[c].push(s);
-        }
-    }
-    Ok(DecodedAudio {
-        sample_rate: rate,
-        channels: planar,
-        skipped_packets: skipped,
-    })
 }
 
 /// `audio` at `rate`, interleaved: what a mixer plays, made with one

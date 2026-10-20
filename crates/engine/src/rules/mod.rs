@@ -647,15 +647,7 @@ impl RulesetKey {
                 None => presets::danoni(),
             },
             "calibration" => presets::calibration(),
-            id => {
-                let mut ruleset = presets::by_id(id).unwrap_or_else(presets::itg);
-                if self.holds.ticks(chart) {
-                    ruleset.judge.hold = HoldRules::Ticked {
-                        checkpoint_window: HoldRules::CHECKPOINT_WINDOW,
-                    };
-                }
-                ruleset
-            }
+            id => presets::stepmania(id, self.holds, chart),
         }
     }
 

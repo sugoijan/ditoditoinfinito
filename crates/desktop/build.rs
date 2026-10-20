@@ -63,12 +63,17 @@ fn main() {
     }
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    // `cfg(danoni_importer)`: the feature on a target the importer supports.
+    let danoni_importer = env::var_os("CARGO_FEATURE_DANONI_IMPORTER").is_some()
+        && (os == "macos" || (os == "linux" && arch == "x86_64"));
+    println!("cargo::rustc-check-cfg=cfg(danoni_importer)");
+    if danoni_importer {
+        println!("cargo::rustc-cfg=danoni_importer");
+    }
     if env::var_os("CARGO_FEATURE_VIDEO").is_some() {
         video_helper(&root, profile, &os);
     }
-    if env::var_os("CARGO_FEATURE_DANONI_IMPORTER").is_none()
-        || !(os == "macos" || (os == "linux" && arch == "x86_64"))
-    {
+    if !danoni_importer {
         return;
     }
     if env::var("DDI_IMPORTER_TEST_ONLY").as_deref() == Ok("1") {

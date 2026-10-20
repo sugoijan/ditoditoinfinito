@@ -283,6 +283,8 @@ pub struct BackgroundPipeline {
     blur_pipeline: wgpu::RenderPipeline,
     composite_pipeline: wgpu::RenderPipeline,
     blur_layout: wgpu::BindGroupLayout,
+    /// The pipelines' layouts: of `layout`, `yuv_layout` and `blur_layout`.
+    pipeline_layouts: [wgpu::PipelineLayout; 3],
     shader: wgpu::ShaderModule,
     blur_shader: wgpu::ShaderModule,
     sampler: wgpu::Sampler,
@@ -368,12 +370,16 @@ impl BackgroundPipeline {
             label: Some("ddi-background-blur-bgl"),
             entries: &[uniform(false), common[1], common[2]],
         });
-        let [pipeline, yuv_pipeline, blur_pipeline, composite_pipeline] = Self::pipelines(
-            device,
-            format,
-            [&layout, &yuv_layout, &blur_layout],
-            [&shader, &blur_shader],
-        );
+        let pipeline_layouts = [&layout, &yuv_layout, &blur_layout].map(|layout| {
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("ddi-background-layout"),
+                bind_group_layouts: &[Some(layout)],
+                immediate_size: 0,
+            })
+        });
+        let [pipeline_layout, yuv_pipeline_layout, _] = &pipeline_layouts;
+        let [pipeline, yuv_pipeline, blur_pipeline, composite_pipeline] =
+            Self::pipelines(device, format, &pipeline_layouts, [&shader, &blur_shader]);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("ddi-background-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -388,7 +394,7 @@ impl BackgroundPipeline {
             base_pipeline: Self::pipeline_for(
                 device,
                 wgpu::TextureFormat::Rgba8Unorm,
-                &layout,
+                pipeline_layout,
                 &shader,
                 "fs_main",
                 Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -396,7 +402,7 @@ impl BackgroundPipeline {
             base_yuv_pipeline: Self::pipeline_for(
                 device,
                 wgpu::TextureFormat::Rgba8Unorm,
-                &yuv_layout,
+                yuv_pipeline_layout,
                 &shader,
                 "fs_yuv",
                 Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -405,7 +411,7 @@ impl BackgroundPipeline {
             base_nv12_pipeline: Self::pipeline_for(
                 device,
                 wgpu::TextureFormat::Rgba8Unorm,
-                &yuv_layout,
+                yuv_pipeline_layout,
                 &shader,
                 "fs_nv12",
                 Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -417,7 +423,7 @@ impl BackgroundPipeline {
             nv12_pipeline: Self::pipeline_for(
                 device,
                 format,
-                &yuv_layout,
+                yuv_pipeline_layout,
                 &shader,
                 "fs_nv12",
                 Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -426,6 +432,7 @@ impl BackgroundPipeline {
             blur_pipeline,
             composite_pipeline,
             blur_layout,
+            pipeline_layouts,
             shader,
             blur_shader,
             sampler,
@@ -455,7 +462,7 @@ impl BackgroundPipeline {
         ] = Self::pipelines(
             device,
             format,
-            [&self.layout, &self.yuv_layout, &self.blur_layout],
+            &self.pipeline_layouts,
             [&self.shader, &self.blur_shader],
         );
         #[cfg(feature = "video-planes")]
@@ -463,7 +470,7 @@ impl BackgroundPipeline {
             self.nv12_pipeline = Self::pipeline_for(
                 device,
                 format,
-                &self.yuv_layout,
+                &self.pipeline_layouts[1],
                 &self.shader,
                 "fs_nv12",
                 Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -480,7 +487,7 @@ impl BackgroundPipeline {
     fn pipelines(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
-        [layout, yuv_layout, blur_layout]: [&wgpu::BindGroupLayout; 3],
+        [layout, yuv_layout, blur_layout]: &[wgpu::PipelineLayout; 3],
         [shader, blur_shader]: [&wgpu::ShaderModule; 2],
     ) -> [wgpu::RenderPipeline; 4] {
         let pipeline_for = |layout, shader, fragment, blend| {
@@ -549,45 +556,20 @@ impl BackgroundPipeline {
     fn pipeline_for(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
-        layout: &wgpu::BindGroupLayout,
+        layout: &wgpu::PipelineLayout,
         shader: &wgpu::ShaderModule,
         fragment: &str,
         blend: Option<wgpu::BlendState>,
     ) -> wgpu::RenderPipeline {
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("ddi-background-layout"),
-            bind_group_layouts: &[Some(layout)],
-            immediate_size: 0,
-        });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("ddi-background-pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: shader,
-                entry_point: Some(fragment),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        })
+        crate::gpu::fullscreen_pipeline(
+            device,
+            "ddi-background-pipeline",
+            layout,
+            shader,
+            fragment,
+            format,
+            blend,
+        )
     }
 
     /// One slot of an image's parameters, as its bind group binds it.
@@ -1225,20 +1207,7 @@ fn wide_pass<'e>(
 
 /// Fills a one-pixel texture.
 fn write_pixel(queue: &wgpu::Queue, texture: &wgpu::Texture, rgba: [u8; 4]) {
-    queue.write_texture(
-        texture.as_image_copy(),
-        &rgba,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(4),
-            rows_per_image: Some(1),
-        },
-        wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        },
-    );
+    crate::gpu::write_rgba(queue, texture, [1, 1], &rgba);
 }
 
 #[cfg(test)]

@@ -174,6 +174,8 @@ pub fn speed_for_chart(
 pub struct ScrollState {
     options: ScrollOptions,
     song_time: f64,
+    /// Beat at `song_time` (`TimingMap::beat_at`).
+    beat: f64,
     /// Displayed beat (after `#SCROLLS`) at `song_time`.
     displayed_beat: f64,
     /// `#SPEEDS` ratio at `song_time`.
@@ -186,6 +188,7 @@ impl ScrollState {
         ScrollState {
             options,
             song_time,
+            beat,
             displayed_beat: timing.displayed_beat(beat),
             speed_ratio: timing.speed_ratio_at(song_time, beat),
         }
@@ -193,6 +196,11 @@ impl ScrollState {
 
     pub fn song_time(&self) -> f64 {
         self.song_time
+    }
+
+    /// The beat at [`ScrollState::song_time`].
+    pub fn beat(&self) -> f64 {
+        self.beat
     }
 
     /// Height of a note above the receptor. `note_seconds` is the note's

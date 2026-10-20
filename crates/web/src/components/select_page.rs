@@ -25,7 +25,7 @@ use ddi_ui::screens::data::Notice;
 use ddi_ui::screens::select::{
     FEED, Feed, OpenFn, PlayFn, SelectCall, SelectScreen, SharedFeed, ShellFn,
 };
-use ddi_ui::{Message, TextMode, Ui, UiRequest};
+use ddi_ui::{TextMode, Ui, UiRequest};
 use gloo::events::{EventListener, EventListenerOptions};
 use gloo::timers::callback::{Interval, Timeout};
 use wasm_bindgen::{JsCast, JsValue};
@@ -433,14 +433,7 @@ impl Component for SelectPage {
             ui_dev::stop_ui(host, pads.as_ref());
         }
         // What the screen said goes with it.
-        if let Some(d) = web_sys::window()
-            .and_then(|w| js_sys::Reflect::get(&w, &"__DDI_DEBUG".into()).ok())
-            .filter(|d| d.is_object())
-        {
-            let d = js_sys::Object::from(d);
-            let _ = js_sys::Reflect::delete_property(&d, &"songs".into());
-            let _ = js_sys::Reflect::delete_property(&d, &"ui".into());
-        }
+        crate::web::forget_debug(&["songs", "ui"]);
     }
 }
 
@@ -682,17 +675,9 @@ impl SelectPage {
 
 /// Tells the screen the feed has something, as soon as the host is free.
 fn broadcast(shared: &Rc<Shared>) {
-    let weak = shared.host.borrow().clone();
-    Timeout::new(0, move || {
-        let Some(host) = weak.and_then(|w| w.upgrade()) else {
-            return;
-        };
-        if let Ok(mut h) = host.try_borrow_mut() {
-            h.ui.broadcast(Message::new(FEED));
-        }
-        ui_dev::wake(&host);
-    })
-    .forget();
+    if let Some(weak) = shared.host.borrow().clone() {
+        ui_dev::broadcast_soon(weak, FEED);
+    }
 }
 
 /// The play route for a chart, with the testing parameters the page was

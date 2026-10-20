@@ -167,23 +167,14 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--danoni-bundle-info") {
-        #[cfg(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        ))]
+        #[cfg(danoni_importer)]
         println!("{}", danoni::bundle_info());
-        #[cfg(not(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        )))]
+        #[cfg(not(danoni_importer))]
         println!("{{\"enabled\":false}}");
         return;
     }
     if args.iter().any(|a| a == "--danoni-importer-check") {
-        #[cfg(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        ))]
+        #[cfg(danoni_importer)]
         match danoni::check() {
             Ok(songs) => println!(
                 "{}",
@@ -194,18 +185,12 @@ pub fn run() {
                 std::process::exit(1);
             }
         }
-        #[cfg(not(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        )))]
+        #[cfg(not(danoni_importer))]
         {
             eprintln!("This build has no supported DanOni importer");
             std::process::exit(2);
         }
-        #[cfg(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        ))]
+        #[cfg(danoni_importer)]
         return;
     }
     clock::epoch();
@@ -530,8 +515,5 @@ pub fn run() {
     }
 }
 
-#[cfg(all(
-    feature = "danoni-importer",
-    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-))]
+#[cfg(danoni_importer)]
 pub mod danoni;

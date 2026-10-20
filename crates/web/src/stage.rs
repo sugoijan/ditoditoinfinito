@@ -70,26 +70,7 @@ impl StageView {
             }
             let (w, h) = (bitmap.width().max(1), bitmap.height().max(1));
             let texture = renderer.create_noteskin_texture(device, w, h, false);
-            queue.copy_external_image_to_texture(
-                &wgpu::CopyExternalImageSourceInfo {
-                    source: wgpu::ExternalImageSource::ImageBitmap(bitmap.clone()),
-                    origin: wgpu::Origin2d::ZERO,
-                    flip_y: false,
-                },
-                wgpu::CopyExternalImageDestInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                    color_space: wgpu::PredefinedColorSpace::Srgb,
-                    premultiplied_alpha: false,
-                },
-                wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
-            );
+            crate::web::gfx::copy_bitmap(queue, bitmap, &texture, w, h);
             let id = renderer.add_noteskin_texture(device, &texture);
             self.textures
                 .insert(source.clone(), StageTexture { id, size: *size });

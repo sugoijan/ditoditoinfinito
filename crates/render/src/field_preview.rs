@@ -159,20 +159,7 @@ impl FieldPreview {
         let mut renderer = Renderer::new(device, queue, FORMAT, blending, fonts);
         let (w, h, rgba) = plate();
         let texture = renderer.create_background_texture(device, w, h);
-        queue.write_texture(
-            texture.as_image_copy(),
-            &rgba,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(w * 4),
-                rows_per_image: Some(h),
-            },
-            wgpu::Extent3d {
-                width: w,
-                height: h,
-                depth_or_array_layers: 1,
-            },
-        );
+        crate::gpu::write_rgba(queue, &texture, [w, h], &rgba);
         let plate = renderer.add_background(device, &texture);
         let options = FieldPreviewOptions::default();
         let mut preview = FieldPreview {

@@ -42,23 +42,6 @@ fn call(method: &str, args: &[JsValue]) {
     });
 }
 
-#[allow(dead_code)]
-pub(crate) fn set_progress(value: f32) {
-    call("setProgress", &[JsValue::from_f64(value as f64)]);
-}
-
-#[allow(dead_code)]
-pub(crate) fn fail(code: &str, message: &str, hint: &str) {
-    call(
-        "fail",
-        &[
-            JsValue::from_str(code),
-            JsValue::from_str(message),
-            JsValue::from_str(hint),
-        ],
-    );
-}
-
 /// Reports a Rust panic to the boot shell, which owns recovery (overlay +
 /// reload). The wasm instance is unusable once this is called.
 pub(crate) fn crash(message: &str) {

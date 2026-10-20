@@ -319,11 +319,12 @@ async fn run(
     // Shared background folders: every file, for telling what exists, and
     // the images, which are stored for the whole library.
     // Nothing inside a song folder is shared, even under a shared name.
-    let in_song = |p: &str| {
-        candidates
-            .iter()
-            .any(|c| !c.dir.is_empty() && p.starts_with(&format!("{}/", c.dir)))
-    };
+    let song_dirs: Vec<String> = candidates
+        .iter()
+        .filter(|c| !c.dir.is_empty())
+        .map(|c| format!("{}/", c.dir))
+        .collect();
+    let in_song = |p: &str| song_dirs.iter().any(|d| p.starts_with(d.as_str()));
     let shared_files: Vec<(String, String)> = paths
         .iter()
         .filter(|p| !in_song(p))
@@ -723,7 +724,7 @@ fn report_music_without_simfile(
             dir.to_string(),
             format!(
                 "has music ({}) but no .sm, .ssc or .dwi simfile",
-                file_name(music.as_str())
+                music.file_name()
             ),
         ));
     }
@@ -821,7 +822,7 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
     let title = entry.title.clone();
     // The keys the song list finds its charts' bests by, and which
     // charts are excessive.
-    crate::select_data::fill_chart_keys(&mut entry, &song);
+    ddi_library::works::fill_chart_keys(&mut entry, &song);
     // Charts are stored as decoded UTF-8 so loading never guesses again.
     let mut files: Vec<(String, Blob)> = vec![(
         entry.chart.to_string(),
@@ -854,16 +855,7 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
     }
     for (name, path) in background.into_iter().chain(bg_files).chain(video_files) {
         let src = source(sources, &path)?;
-        match src.link(&path).filter(|_| linked) {
-            Some(l) => {
-                links.insert(name.to_string(), l);
-            }
-            None => {
-                if let Ok(blob) = read_blob(src, mime_type(&path)).await {
-                    files.push((name.to_string(), blob));
-                }
-            }
-        }
+        link_or_copy(src, &path, name.to_string(), linked, &mut links, &mut files).await;
     }
     let record = ImportedSong {
         entry,
@@ -877,21 +869,7 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
         still: None,
     };
     let json = serde_json::to_string(&record).map_err(|e| e.to_string())?;
-    let mut writes = vec![Write::DeletePrefix {
-        store: idb::FILES,
-        prefix: file_key(&id, ""),
-    }];
-    writes.extend(files.into_iter().map(|(name, blob)| Write::Put {
-        store: idb::FILES,
-        key: file_key(&id, &name),
-        value: blob.into(),
-    }));
-    writes.push(Write::Put {
-        store: idb::SONGS,
-        key: id,
-        value: json.into(),
-    });
-    db.write(writes).await?;
+    write_song(db, &id, files, None, json).await?;
     Ok(Imported {
         title,
         still: crate::stills::may_have(&record.entry),
@@ -1084,10 +1062,6 @@ fn is_image(path: &str) -> bool {
     })
 }
 
-fn file_name(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
-}
-
 fn source(sources: &HashMap<String, Source>, path: impl AsRef<str>) -> Result<&Source, String> {
     let path = path.as_ref();
     sources
@@ -1251,6 +1225,57 @@ async fn read_bytes(source: &Source) -> Result<Vec<u8>, String> {
 /// The file as a blob for storage. Stored zip entries are sliced out of the
 /// archive without being read (and so without a CRC check, which the
 /// decoder or image loader effectively does instead).
+/// A song's file `name`, from `path`: linked to its place in the kept
+/// folder when `link` and it has one, else copied into `files` (left out
+/// when it cannot be read).
+async fn link_or_copy(
+    src: &Source,
+    path: impl AsRef<str>,
+    name: String,
+    link: bool,
+    links: &mut std::collections::BTreeMap<String, crate::songs::Link>,
+    files: &mut Vec<(String, Blob)>,
+) {
+    let path = path.as_ref();
+    match src.link(path).filter(|_| link) {
+        Some(l) => {
+            links.insert(name, l);
+        }
+        None => {
+            if let Ok(blob) = read_blob(src, mime_type(path)).await {
+                files.push((name, blob));
+            }
+        }
+    }
+}
+
+/// Stores imported song `id`: its `files`, in place of those it had,
+/// `extra`, then its record (`record`, its JSON), in one transaction.
+async fn write_song(
+    db: &Db,
+    id: &str,
+    files: Vec<(String, Blob)>,
+    extra: Option<Write>,
+    record: String,
+) -> Result<(), String> {
+    let mut writes = vec![Write::DeletePrefix {
+        store: idb::FILES,
+        prefix: file_key(id, ""),
+    }];
+    writes.extend(files.into_iter().map(|(name, blob)| Write::Put {
+        store: idb::FILES,
+        key: file_key(id, &name),
+        value: blob.into(),
+    }));
+    writes.extend(extra);
+    writes.push(Write::Put {
+        store: idb::SONGS,
+        key: id.to_string(),
+        value: record.into(),
+    });
+    db.write(writes).await
+}
+
 async fn read_blob(source: &Source, mime: &str) -> Result<Blob, String> {
     match source {
         Source::File(f) => Ok(f.clone().into()),

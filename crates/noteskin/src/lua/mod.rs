@@ -126,6 +126,41 @@ pub fn dance_style(layout: &ddi_chart::Layout) -> &'static str {
     }
 }
 
+/// What a skin's Lua sees of the chart it is loaded for, and of the
+/// play (whether the field is reversed).
+pub fn chart_env(
+    song: &ddi_chart::Song,
+    chart: &ddi_chart::Chart,
+    layout: &ddi_chart::Layout,
+    reversed: bool,
+) -> Env {
+    use ddi_chart::Difficulty;
+    let difficulty = match chart.difficulty {
+        Difficulty::Beginner => "Beginner",
+        Difficulty::Easy => "Easy",
+        Difficulty::Medium => "Medium",
+        Difficulty::Hard => "Hard",
+        Difficulty::Challenge => "Challenge",
+        Difficulty::Edit => "Edit",
+    };
+    let starts = || chart.notes.iter().map(|n| n.tick.beat());
+    // Holds and rolls last to their ends.
+    let ends = chart.notes.iter().map(|n| match n.kind {
+        ddi_chart::NoteKind::HoldHead { end } | ddi_chart::NoteKind::RollHead { end } => end.beat(),
+        _ => n.tick.beat(),
+    });
+    Env {
+        style: dance_style(layout).into(),
+        columns: layout.lanes.len() as u32,
+        difficulty: format!("Difficulty_{difficulty}"),
+        timing: chart.timing(song).clone(),
+        first_beat: starts().reduce(f64::min).unwrap_or(0.0),
+        last_beat: ends.reduce(f64::max).unwrap_or(0.0),
+        reversed,
+        ..Env::default()
+    }
+}
+
 /// The style a skin of `game` is told a layout is: a pump skin the pump
 /// style of a pump layout (`single`, `halfdouble`, `double`), a dance
 /// skin [`dance_style`].

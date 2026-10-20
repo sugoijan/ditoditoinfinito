@@ -751,11 +751,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                     device_changed: self.inputs.device_changed(),
                 }
             })
-        } else if self.calibration.is_some()
-            && (self.calibration.as_ref().is_some_and(|(_, c)| c.done())
-                || self
-                    .calibration_outcome()
-                    .is_some_and(|o| o.should_stop_early()))
+        } else if self.calibration.as_ref().is_some_and(|(_, c)| c.done())
+            || self
+                .calibration_outcome()
+                .is_some_and(|o| o.should_stop_early())
         {
             self.audio.master_ramp(None, 0.0, None, 0.3);
             // The test is over: clear the field instead of letting the rest of

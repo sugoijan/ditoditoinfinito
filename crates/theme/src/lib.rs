@@ -148,6 +148,31 @@ impl Infinito {
     fn tinted(&self, a: &mut Actor, command: &str, color: &str) {
         command_of(a, command, &self.tint(color));
     }
+
+    /// The selection's pulse and ring around `[x, y, w, h]`, hidden (their
+    /// commands are the caller's).
+    fn halo(&self, [x, y, w, h]: [f32; 4]) -> (Actor, Actor) {
+        let mut pulse = outline(
+            "Pulse",
+            [x - 5.0, y - 5.0, w + 10.0, h + 10.0],
+            3.0,
+            self.c("Accent"),
+        );
+        hide(&mut pulse);
+        let mut ring = outline(
+            "Ring",
+            [x - 2.0, y - 2.0, w + 4.0, h + 4.0],
+            2.0,
+            self.c("Accent"),
+        );
+        hide(&mut ring);
+        (pulse, ring)
+    }
+
+    /// `command` setting a color at once.
+    fn colored(&self, a: &mut Actor, command: &str, color: &str) {
+        command_of(a, command, &format!("diffuse,{}", rgba(self.c(color))));
+    }
 }
 
 impl Default for Infinito {
@@ -336,11 +361,9 @@ impl Infinito {
         f
     }
 
-    /// The song wheel's row (`h` ≥ 56) or the compact list's, drawn
-    /// [`ROW_INSET`] in from the left so the selected row's ring and
-    /// pulse lie within the list (which clips at its edges).
-    fn song_row(&self, spec: &Spec) -> Actor {
-        let [w, h] = [spec.size[0] - ROW_INSET, spec.size[1]];
+    /// A wheel row `h` high: whether it is the compact list's, its
+    /// plate's height, and the selected row's.
+    fn wheel_row(&self, h: f32) -> (bool, f32, f32) {
         let compact = h < 56.0;
         let gap = self.m("Select.Wheel.Gap");
         let row = if compact {
@@ -353,22 +376,18 @@ impl Infinito {
         } else {
             self.m("Select.Wheel.Selected")
         };
+        (compact, row, big)
+    }
+
+    /// The song wheel's row (`h` ≥ 56) or the compact list's, drawn
+    /// [`ROW_INSET`] in from the left so the selected row's ring and
+    /// pulse lie within the list (which clips at its edges).
+    fn song_row(&self, spec: &Spec) -> Actor {
+        let [w, h] = [spec.size[0] - ROW_INSET, spec.size[1]];
+        let (compact, row, big) = self.wheel_row(h);
         let t = self.m("Motion.Select");
         let grow = big / row;
-        let mut pulse = outline(
-            "Pulse",
-            [-5.0, -5.0, w + 10.0, big + 10.0],
-            3.0,
-            self.c("Accent"),
-        );
-        hide(&mut pulse);
-        let mut ring = outline(
-            "Ring",
-            [-2.0, -2.0, w + 4.0, big + 4.0],
-            2.0,
-            self.c("Accent"),
-        );
-        hide(&mut ring);
+        let (pulse, mut ring) = self.halo([0.0, 0.0, w, big]);
         command_of(
             &mut ring,
             "Select",
@@ -503,36 +522,12 @@ impl Infinito {
             "saturation,0;diffuse,0.6,0.6,0.6,1",
         );
         command_of(&mut banner, "Available", "saturation,1;diffuse,1,1,1,1");
-        command_of(
-            &mut title,
-            "Unavailable",
-            &format!("diffuse,{}", rgba(self.c("Muted"))),
-        );
-        command_of(
-            &mut title,
-            "Available",
-            &format!("diffuse,{}", rgba(self.c("Text"))),
-        );
-        command_of(
-            &mut sub,
-            "Unavailable",
-            &format!("diffuse,{}", rgba(self.c("Off"))),
-        );
-        command_of(
-            &mut sub,
-            "Available",
-            &format!("diffuse,{}", rgba(self.c("Muted"))),
-        );
-        command_of(
-            &mut ring,
-            "Unavailable",
-            &format!("diffuse,{}", rgba(self.c("Greyed"))),
-        );
-        command_of(
-            &mut ring,
-            "Available",
-            &format!("diffuse,{}", rgba(self.c("Accent"))),
-        );
+        self.colored(&mut title, "Unavailable", "Muted");
+        self.colored(&mut title, "Available", "Text");
+        self.colored(&mut sub, "Unavailable", "Off");
+        self.colored(&mut sub, "Available", "Muted");
+        self.colored(&mut ring, "Unavailable", "Greyed");
+        self.colored(&mut ring, "Available", "Accent");
         // The meters, kept at the right edge.
         let mut right = Vec::new();
         let cy = row / 2.0;
@@ -541,16 +536,8 @@ impl Infinito {
                 let x = w - 14.0 - 5.0 * 26.0 - 4.0 * 4.0 + 13.0 + k as f32 * 30.0;
                 let mut cell = round(quad(&format!("Cell{k}"), [26.0, 26.0], self.c("Cell")), 4.0);
                 call(&mut cell, "xy", &[x, cy]);
-                command_of(
-                    &mut cell,
-                    "Full",
-                    &format!("diffuse,{}", rgba(self.c("Cell"))),
-                );
-                command_of(
-                    &mut cell,
-                    "Empty",
-                    &format!("diffuse,{}", rgba(self.c("CellEmpty"))),
-                );
+                self.colored(&mut cell, "Full", "Cell");
+                self.colored(&mut cell, "Empty", "CellEmpty");
                 let meter = at(
                     self.num(&format!("Meter{k}"), "", 14.0, &format!("Difficulty.{d}")),
                     x,
@@ -604,26 +591,9 @@ impl Infinito {
 
     fn song_header(&self, spec: &Spec) -> Actor {
         let [w, h] = [spec.size[0] - ROW_INSET, spec.size[1]];
-        let compact = h < 56.0;
-        let gap = self.m("Select.Wheel.Gap");
-        let row = if compact {
-            h - 2.0
-        } else {
-            self.m("Select.Wheel.Row") - gap
-        };
-        let big = if compact {
-            row
-        } else {
-            self.m("Select.Wheel.Selected")
-        };
+        let (compact, row, big) = self.wheel_row(h);
         let t = self.m("Motion.Select");
-        let mut ring = outline(
-            "Ring",
-            [-2.0, -2.0, w + 4.0, big + 4.0],
-            2.0,
-            self.c("Accent"),
-        );
-        hide(&mut ring);
+        let (_, mut ring) = self.halo([0.0, 0.0, w, big]);
         command_of(
             &mut ring,
             "Select",
@@ -841,33 +811,12 @@ impl Infinito {
             "Edit"
         };
         let color = format!("Difficulty.{d}");
-        let mut pulse = outline(
-            "Pulse",
-            [-5.0, -5.0, w + 10.0, h + 10.0],
-            3.0,
-            self.c("Accent"),
-        );
-        hide(&mut pulse);
-        let mut ring = outline(
-            "Ring",
-            [-2.0, -2.0, w + 4.0, h + 4.0],
-            2.0,
-            self.c("Accent"),
-        );
-        hide(&mut ring);
+        let (pulse, mut ring) = self.halo([0.0, 0.0, w, h]);
         command_of(&mut ring, "Select", "stoptweening;diffusealpha,1");
         command_of(&mut ring, "Deselect", "stoptweening;diffusealpha,0");
         let mut p = round(plate("Plate", [0.0, 0.0], [w, h], self.c("Row")), 6.0);
-        command_of(
-            &mut p,
-            "Select",
-            &format!("diffuse,{}", rgba(self.c("Selected"))),
-        );
-        command_of(
-            &mut p,
-            "Deselect",
-            &format!("diffuse,{}", rgba(self.c("Row"))),
-        );
+        self.colored(&mut p, "Select", "Selected");
+        self.colored(&mut p, "Deselect", "Row");
         let mut bar = round(plate("Bar", [0.0, 0.0], [6.0, h], self.c(&color)), 3.0);
         let label = at_left(
             tracked(self.text("Label", "", 14.0, 600, "Text"), 100),
@@ -968,33 +917,12 @@ impl Infinito {
 
     fn chart_button(&self, spec: &Spec) -> Actor {
         let [w, h] = spec.size;
-        let mut pulse = outline(
-            "Pulse",
-            [-w / 2.0 - 5.0, -h / 2.0 - 5.0, w + 10.0, h + 10.0],
-            3.0,
-            self.c("Accent"),
-        );
-        hide(&mut pulse);
-        let mut ring = outline(
-            "Ring",
-            [-w / 2.0 - 2.0, -h / 2.0 - 2.0, w + 4.0, h + 4.0],
-            2.0,
-            self.c("Accent"),
-        );
-        hide(&mut ring);
+        let (pulse, mut ring) = self.halo([-w / 2.0, -h / 2.0, w, h]);
         command_of(&mut ring, "Select", "diffusealpha,1");
         command_of(&mut ring, "Deselect", "diffusealpha,0");
         let mut p = round(quad("Plate", spec.size, self.c("Plate2")), 6.0);
-        command_of(
-            &mut p,
-            "Select",
-            &format!("diffuse,{}", rgba(self.c("Highlight"))),
-        );
-        command_of(
-            &mut p,
-            "Deselect",
-            &format!("diffuse,{}", rgba(self.c("Plate2"))),
-        );
+        self.colored(&mut p, "Select", "Highlight");
+        self.colored(&mut p, "Deselect", "Plate2");
         let mut top = round(
             plate(
                 "Bar",
@@ -1143,11 +1071,7 @@ impl Infinito {
     fn section(&self, spec: &Spec) -> Actor {
         let [w, h] = spec.size;
         let mut p = round(plate("Plate", [0.0, 0.0], [w, h], [0.0; 4]), 6.0);
-        command_of(
-            &mut p,
-            "Select",
-            &format!("diffuse,{}", rgba(self.c("Selected"))),
-        );
+        self.colored(&mut p, "Select", "Selected");
         command_of(&mut p, "Deselect", "diffuse,0,0,0,0");
         let mut mark = round(
             plate("Mark", [0.0, 6.0], [3.0, h - 12.0], self.c("Accent")),
@@ -1161,16 +1085,8 @@ impl Infinito {
             16.0,
             h / 2.0,
         );
-        command_of(
-            &mut title,
-            "Select",
-            &format!("diffuse,{}", rgba(self.c("Text"))),
-        );
-        command_of(
-            &mut title,
-            "Deselect",
-            &format!("diffuse,{}", rgba(self.c("Muted"))),
-        );
+        self.colored(&mut title, "Select", "Text");
+        self.colored(&mut title, "Deselect", "Muted");
         frame("", vec![p, mark, title])
     }
 
@@ -1188,24 +1104,11 @@ impl Infinito {
         } else {
             ("Select", "Deselect")
         };
-        let mut pulse = outline(
-            "Pulse",
-            [x0 - 5.0, y0 - 5.0, w + 10.0, h + 10.0],
-            3.0,
-            self.c("Accent"),
-        );
-        hide(&mut pulse);
-        let mut ring = outline(
-            "Ring",
-            [x0 - 2.0, y0 - 2.0, w + 4.0, h + 4.0],
-            2.0,
-            self.c("Accent"),
-        );
-        hide(&mut ring);
+        let (pulse, mut ring) = self.halo([x0, y0, w, h]);
         command_of(&mut ring, on, "stoptweening;linear,0.08;diffusealpha,1");
         command_of(&mut ring, off, "stoptweening;linear,0.08;diffusealpha,0");
         let mut p = round(plate("Plate", [x0, y0], [w, h], [0.0; 4]), 6.0);
-        command_of(&mut p, on, &self.tint("Selected"));
+        self.tinted(&mut p, on, "Selected");
         command_of(&mut p, off, "stoptweening;linear,0.08;diffuse,0,0,0,0");
         let mut label = at_left(
             self.text("Label", &spec.text, 15.0, 600, "Secondary"),
@@ -1213,12 +1116,8 @@ impl Infinito {
             y0 + h / 2.0,
         );
         max_width(&mut label, if centred { 186.0 } else { 216.0 });
-        command_of(&mut label, on, &format!("diffuse,{}", rgba(self.c("Text"))));
-        command_of(
-            &mut label,
-            off,
-            &format!("diffuse,{}", rgba(self.c("Secondary"))),
-        );
+        self.colored(&mut label, on, "Text");
+        self.colored(&mut label, off, "Secondary");
         let mut parts = vec![pulse, ring, p, label];
         if centred {
             // Where the choices go (the option row widget's `Choices`).
@@ -1252,16 +1151,8 @@ impl Look for Infinito {
             "Link" => {
                 let label = self.text("Label", &spec.text, 13.0, 400, "Text");
                 let mut label = label;
-                command_of(
-                    &mut label,
-                    "GainFocus",
-                    &format!("diffuse,{}", rgba(self.c("Accent"))),
-                );
-                command_of(
-                    &mut label,
-                    "LoseFocus",
-                    &format!("diffuse,{}", rgba(self.c("Text"))),
-                );
+                self.colored(&mut label, "GainFocus", "Accent");
+                self.colored(&mut label, "LoseFocus", "Text");
                 let lw = mono_width(&spec.text, 13.0) + 8.0;
                 frame(
                     "",
@@ -1277,16 +1168,8 @@ impl Look for Infinito {
                 // chips are not.
                 let r = if h > 28.0 { h / 2.0 } else { 4.0 };
                 let mut p = round(quad("Plate", [lw, h], self.c("Plate2")), r);
-                command_of(
-                    &mut p,
-                    "Selected",
-                    &format!("diffuse,{}", rgba(self.c("Accent"))),
-                );
-                command_of(
-                    &mut p,
-                    "Available",
-                    &format!("diffuse,{}", rgba(self.c("Plate2"))),
-                );
+                self.colored(&mut p, "Selected", "Accent");
+                self.colored(&mut p, "Available", "Plate2");
                 let mut label = if numbers {
                     self.num("Label", &spec.text, size, "Text")
                 } else {
@@ -1298,16 +1181,8 @@ impl Look for Infinito {
                         "Text",
                     )
                 };
-                command_of(
-                    &mut label,
-                    "Selected",
-                    &format!("diffuse,{}", rgba(self.c("OnAccent"))),
-                );
-                command_of(
-                    &mut label,
-                    "Available",
-                    &format!("diffuse,{}", rgba(self.c("Text"))),
-                );
+                self.colored(&mut label, "Selected", "OnAccent");
+                self.colored(&mut label, "Available", "Text");
                 let mut ring = outline_r(
                     "Ring",
                     [-lw / 2.0 - 2.0, -h / 2.0 - 2.0, lw + 4.0, h + 4.0],
@@ -1407,8 +1282,8 @@ impl Look for Infinito {
             }
             "TextField" => {
                 let mut bx = round(quad("Box", spec.size, self.c("Plate2")), 8.0);
-                command_of(&mut bx, "GainFocus", &self.tint("Highlight"));
-                command_of(&mut bx, "LoseFocus", &self.tint("Plate2"));
+                self.tinted(&mut bx, "GainFocus", "Highlight");
+                self.tinted(&mut bx, "LoseFocus", "Plate2");
                 let mut ring = outline_r(
                     "Ring",
                     [-w / 2.0, -h / 2.0, w, h],
@@ -1572,34 +1447,57 @@ impl Look for Infinito {
         let big = self.m("Select.Wheel.Selected");
         let height = row + (big - row) * weight;
         let mix = |a: f32, b: f32| a + (b - a) * weight;
-        let set = |actor: &mut Actor, name: &str, cmd: &str, values: &[f32]| {
+        // Each part's tweens stopped once, then its commands in order.
+        let set = |actor: &mut Actor, name: &str, cmds: &[(&str, &[f32])]| {
             if let Some(p) = ddi_ui::hit::find_mut(actor, name) {
                 call(p, "stoptweening", &[]);
-                call(p, cmd, values);
+                for (cmd, values) in cmds {
+                    call(p, cmd, values);
+                }
             }
         };
-        set(actor, "Plate", "zoomy", &[height / row]);
         let header = ddi_ui::hit::find_mut(actor, "Chevron").is_some();
         let a = self.c(if header { "HeaderRow" } else { "Row" });
         let b = self.c("Raised");
         let color = std::array::from_fn::<_, 4, _>(|i| mix(a[i], b[i]));
-        set(actor, "Plate", "diffuse", &color);
-        set(actor, "Ring", "zoomy", &[(height + 4.0) / (big + 4.0)]);
-        set(actor, "Ring", "diffusealpha", &[weight]);
-        set(actor, "Pulse", "zoomy", &[(height + 10.0) / (big + 10.0)]);
-        set(actor, "Shadow", "zoomy", &[(height + 30.0) / (big + 30.0)]);
-        set(actor, "Shadow", "diffusealpha", &[0.5 * weight]);
+        set(
+            actor,
+            "Plate",
+            &[("zoomy", &[height / row]), ("diffuse", &color)],
+        );
+        set(
+            actor,
+            "Ring",
+            &[
+                ("zoomy", &[(height + 4.0) / (big + 4.0)]),
+                ("diffusealpha", &[weight]),
+            ],
+        );
+        set(
+            actor,
+            "Pulse",
+            &[("zoomy", &[(height + 10.0) / (big + 10.0)])],
+        );
+        set(
+            actor,
+            "Shadow",
+            &[
+                ("zoomy", &[(height + 30.0) / (big + 30.0)]),
+                ("diffusealpha", &[0.5 * weight]),
+            ],
+        );
         if header {
-            set(actor, "Line", "diffusealpha", &[1.0 - weight]);
-            set(actor, "Middle", "y", &[(big - row) * weight / 2.0]);
+            set(actor, "Line", &[("diffusealpha", &[1.0 - weight])]);
+            set(actor, "Middle", &[("y", &[(big - row) * weight / 2.0])]);
         } else {
             for name in ["Banner", "BannerBack"] {
-                set(actor, name, "zoom", &[mix(1.0, 224.0 / 144.0)]);
                 set(
                     actor,
                     name,
-                    "y",
-                    &[mix((row - 45.0) / 2.0, (big - 70.0) / 2.0)],
+                    &[
+                        ("zoom", &[mix(1.0, 224.0 / 144.0)]),
+                        ("y", &[mix((row - 45.0) / 2.0, (big - 70.0) / 2.0)]),
+                    ],
                 );
             }
             let tx = 12.0 + 144.0 + 14.0;
@@ -1611,20 +1509,22 @@ impl Look for Infinito {
             set(
                 actor,
                 "Title",
-                "xy",
-                &[mix(tx, tx2), mix(row * 0.36, big * 0.38)],
+                &[
+                    ("xy", &[mix(tx, tx2), mix(row * 0.36, big * 0.38)]),
+                    ("zoom", &[zoom]),
+                    ("maxwidth", &[room / zoom]),
+                ],
             );
-            set(actor, "Title", "zoom", &[zoom]);
-            set(actor, "Title", "maxwidth", &[room / zoom]);
             set(
                 actor,
                 "Subtitle",
-                "xy",
-                &[mix(tx, tx2), mix(row * 0.72, big * 0.66)],
+                &[
+                    ("xy", &[mix(tx, tx2), mix(row * 0.72, big * 0.66)]),
+                    ("maxwidth", &[room]),
+                ],
             );
-            set(actor, "Subtitle", "maxwidth", &[room]);
         }
-        set(actor, "Right", "y", &[(big - row) * weight / 2.0]);
+        set(actor, "Right", &[("y", &[(big - row) * weight / 2.0])]);
         true
     }
 

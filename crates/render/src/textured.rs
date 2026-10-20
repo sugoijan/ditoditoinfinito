@@ -239,6 +239,8 @@ pub struct TexturedPipeline {
     /// Bound for [`UNTEXTURED`] shapes (its texels unread).
     blank: Option<Texture>,
     instances: crate::instances::InstanceBuffers,
+    /// This frame's instances before the upload, its room reused.
+    staging: Vec<Instance>,
     batches: Vec<Batch>,
 }
 
@@ -263,48 +265,13 @@ impl TexturedPipeline {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ddi-textured-globals-bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let globals_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ddi-textured-globals-bg"),
-            layout: &globals_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: globals.as_entire_binding(),
-            }],
-        });
-        let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ddi-textured-texture-bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let (globals_layout, globals_group) = crate::gpu::uniform_group(
+            device,
+            "ddi-textured-globals",
+            &globals,
+            wgpu::ShaderStages::VERTEX,
+        );
+        let texture_layout = crate::gpu::texture_sampler_layout(device, "ddi-textured-texture-bgl");
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ddi-textured-layout"),
             bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout)],
@@ -345,6 +312,7 @@ impl TexturedPipeline {
                 "ddi-textured-instances",
                 std::mem::size_of::<Instance>(),
             ),
+            staging: Vec::new(),
             batches: Vec::new(),
         };
         let blank = p.create_texture(device, 1, 1, false, false);
@@ -539,7 +507,9 @@ impl TexturedPipeline {
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
         self.batches.clear();
-        let mut instances = Vec::with_capacity(quads.len());
+        let mut instances = std::mem::take(&mut self.staging);
+        instances.clear();
+        instances.reserve(quads.len());
         for q in quads {
             let at = instances.len() as u32;
             match self.batches.last_mut() {
@@ -639,6 +609,7 @@ impl TexturedPipeline {
         }
         self.instances
             .upload(device, queue, bytemuck::cast_slice(&instances));
+        self.staging = instances;
     }
 
     /// Whether it can draw to a plain view of the target ([`TexturedPipeline::new`]).

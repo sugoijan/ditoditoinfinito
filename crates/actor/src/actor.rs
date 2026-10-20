@@ -1178,7 +1178,7 @@ type Mat = [f32; 6];
 const IDENTITY: Mat = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
 /// `a` then `b`: `b ∘ a` in the `x' = m·x` sense, i.e. `parent * local`.
-fn mul(parent: &Mat, local: &Mat) -> Mat {
+pub fn mul(parent: &Mat, local: &Mat) -> Mat {
     [
         parent[0] * local[0] + parent[2] * local[1],
         parent[1] * local[0] + parent[3] * local[1],
@@ -2571,7 +2571,7 @@ impl Actor {
                 // `Sprite::DrawPrimitives`: the sprite as it is, or cropped,
                 // or its faded edges as pieces of their own around the
                 // inside (each drawn as `DrawTexture` draws it).
-                for piece in pieces(&s) {
+                for piece in pieces(&s).into_iter().flatten() {
                     let Some((sub, uv)) = piece.cut(&sized, &sized3, uv_of(sprite)) else {
                         continue;
                     };
@@ -2808,6 +2808,7 @@ impl Actor {
 /// A part of a sprite as `Sprite::DrawPrimitives` draws it: the cut away
 /// (left, top, right, bottom, fractions of the sprite) and its corners'
 /// colors.
+#[derive(Clone, Copy)]
 struct Piece {
     crop: [f32; 4],
     diffuse: [Rgba; 4],
@@ -2850,15 +2851,17 @@ impl Piece {
 /// `Sprite::DrawPrimitives`: the sprite whole; cropped; or, with faded
 /// edges, the inside and each faded edge as a piece of its own, its outer
 /// side transparent (the corners where two fades meet are left out, as
-/// StepMania lops them off).
-fn pieces(s: &TweenState) -> Vec<Piece> {
+/// StepMania lops them off). In drawing order, `None` for the pieces not
+/// drawn (no allocation a sprite a frame).
+fn pieces(s: &TweenState) -> [Option<Piece>; 5] {
     let (crop, fade, d) = (s.crop, s.fade, s.diffuse);
     if fade.iter().all(|f| *f <= 0.0) {
-        return vec![Piece {
+        let whole = Piece {
             crop,
             diffuse: d,
             whole: crop == [0.0; 4],
-        }];
+        };
+        return [Some(whole), None, None, None, None];
     }
     let [fl, ft, fr, fb] = fade;
     let mut size = fade;
@@ -2891,13 +2894,14 @@ fn pieces(s: &TweenState) -> Vec<Piece> {
         c[3] *= k;
         c
     };
-    let mut out = vec![Piece {
+    let mut out = [None; 5];
+    out[0] = Some(Piece {
         crop: [crop[0] + fl, crop[1] + ft, crop[2] + fr, crop[3] + fb],
         diffuse: d,
         whole: false,
-    }];
+    });
     if size[0] > 0.001 {
-        out.push(Piece {
+        out[1] = Some(Piece {
             crop: [
                 crop[0],
                 crop[1] + ft,
@@ -2914,7 +2918,7 @@ fn pieces(s: &TweenState) -> Vec<Piece> {
         });
     }
     if size[2] > 0.001 {
-        out.push(Piece {
+        out[2] = Some(Piece {
             crop: [
                 1.0 - (crop[2] + size[2]),
                 crop[1] + ft,
@@ -2931,7 +2935,7 @@ fn pieces(s: &TweenState) -> Vec<Piece> {
         });
     }
     if size[1] > 0.001 {
-        out.push(Piece {
+        out[3] = Some(Piece {
             crop: [
                 crop[0] + fl,
                 crop[1],
@@ -2948,7 +2952,7 @@ fn pieces(s: &TweenState) -> Vec<Piece> {
         });
     }
     if size[3] > 0.001 {
-        out.push(Piece {
+        out[4] = Some(Piece {
             crop: [
                 crop[0] + fl,
                 1.0 - (crop[3] + size[3]),

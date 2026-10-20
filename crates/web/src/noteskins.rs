@@ -392,7 +392,7 @@ pub(crate) async fn summary(folders: &[Folder], game: &str, name: &str) -> Strin
     };
     let line = if skin.legacy {
         legacy_summary(&skin, button)
-    } else if !has_lua(&skin) && !pump {
+    } else if !skin.has_lua() && !pump {
         native_summary(&skin, button)
     } else {
         lua_summary(folders, &skin, game, name, &layout, button).await
@@ -589,42 +589,6 @@ async fn lua_skin(
         Some(&mut pause),
     )
     .await
-}
-
-/// What a skin's Lua sees of the chart it is loaded for, and of the
-/// play (whether the field is reversed).
-pub(crate) fn lua_env(
-    song: &ddi_chart::Song,
-    chart: &ddi_chart::Chart,
-    layout: &Layout,
-    reversed: bool,
-) -> Env {
-    use ddi_chart::Difficulty;
-    let style = ddi_noteskin::lua::dance_style(layout);
-    let difficulty = match chart.difficulty {
-        Difficulty::Beginner => "Beginner",
-        Difficulty::Easy => "Easy",
-        Difficulty::Medium => "Medium",
-        Difficulty::Hard => "Hard",
-        Difficulty::Challenge => "Challenge",
-        Difficulty::Edit => "Edit",
-    };
-    let starts = || chart.notes.iter().map(|n| n.tick.beat());
-    // Holds and rolls last to their ends.
-    let ends = chart.notes.iter().map(|n| match n.kind {
-        ddi_chart::NoteKind::HoldHead { end } | ddi_chart::NoteKind::RollHead { end } => end.beat(),
-        _ => n.tick.beat(),
-    });
-    Env {
-        style: style.into(),
-        columns: layout.lanes.len() as u32,
-        difficulty: format!("Difficulty_{difficulty}"),
-        timing: chart.timing(song).clone(),
-        first_beat: starts().reduce(f64::min).unwrap_or(0.0),
-        last_beat: ends.reduce(f64::max).unwrap_or(0.0),
-        reversed,
-        ..Env::default()
-    }
 }
 
 /// A skin ready for a play: its actors and the decoded images its
@@ -923,19 +887,6 @@ async fn fetch_blob(dir: &str, path: &str) -> Option<Blob> {
     crate::web::files::bytes_blob(&bytes, mime).ok()
 }
 
-/// Whether a skin or one of the skins it falls back on has Lua of its own.
-fn has_lua(skin: &Skin<'_>) -> bool {
-    // StepMania 3.9's format has none: it is built natively.
-    !skin.legacy
-        && skin.chain.iter().any(|&d| {
-            skin.folder(d).is_some_and(|f| {
-                f.files
-                    .iter()
-                    .any(|p| p.to_ascii_lowercase().ends_with(".lua"))
-            })
-        })
-}
-
 /// A hash seed for a skin's VMs, from the platform's randomness.
 fn hash_seed() -> u64 {
     let mut seed = [0u8; 8];
@@ -1074,7 +1025,7 @@ async fn prepare_until(
     // the same as StepMania's stand-ins' Lua, without its costs. A pump
     // skin's elements are pump/default's Lua's (the right side's taken
     // from the left's): it always runs.
-    let with_lua = chosen.lua_broken.is_none() && (has_lua(&skin) || chosen.game == "pump");
+    let with_lua = chosen.lua_broken.is_none() && (skin.has_lua() || chosen.game == "pump");
     // The skin's Lua is told its own game, and the style it plays.
     let mut env = env;
     env.game = chosen.game.clone();

@@ -400,14 +400,20 @@ pub fn for_chart(
     if use_danoni {
         super::danoni::ruleset(Some(chart), danoni)
     } else {
-        let mut ruleset = by_id(preset).unwrap_or_else(itg);
-        if holds.ticks(chart) {
-            ruleset.judge.hold = HoldRules::Ticked {
-                checkpoint_window: HoldRules::CHECKPOINT_WINDOW,
-            };
-        }
-        ruleset
+        stepmania(preset, holds, chart)
     }
+}
+
+/// The StepMania preset `id` (ITG when unknown) for `chart`, its holds as
+/// `holds` says.
+pub fn stepmania(id: &str, holds: HoldStyle, chart: &Chart) -> Ruleset {
+    let mut ruleset = by_id(id).unwrap_or_else(itg);
+    if holds.ticks(chart) {
+        ruleset.judge.hold = HoldRules::Ticked {
+            checkpoint_window: HoldRules::CHECKPOINT_WINDOW,
+        };
+    }
+    ruleset
 }
 
 /// Preset by id.

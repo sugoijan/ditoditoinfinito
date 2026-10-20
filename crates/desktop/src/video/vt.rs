@@ -518,9 +518,10 @@ pub(super) fn copy(
         dst[y * width..(y + 1) * width].copy_from_slice(row)
     })?;
     rows(1, cw * 2, ch, &mut |row, y, dst| {
-        for x in 0..cw {
-            dst[width * height + y * cw + x] = row[2 * x];
-            dst[width * height + cw * ch + y * cw + x] = row[2 * x + 1];
+        let (u, v) = dst[width * height..].split_at_mut(cw * ch);
+        let (u, v) = (&mut u[y * cw..(y + 1) * cw], &mut v[y * cw..(y + 1) * cw]);
+        for ((&[cb, cr], u), v) in row.as_chunks::<2>().0.iter().zip(u).zip(v) {
+            (*u, *v) = (cb, cr);
         }
     })?;
     Ok(out)

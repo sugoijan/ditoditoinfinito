@@ -126,9 +126,32 @@ struct OpusState {
     /// Where it ends: the last granule less the pre-skip (RFC 7845,
     /// section 4.5), if the reader found it.
     end: Option<usize>,
-    /// The last packet's end, in its timestamps (a later packet's start
-    /// past it follows a page the reader dropped).
-    last: Option<i64>,
+    /// Where the stream is from packets' times (a later packet's start
+    /// past the last one's end follows a page the reader dropped).
+    gaps: Gaps,
+}
+
+/// Where the stream is, from packets' times: a packet that starts after
+/// the last one ended follows audio the reader dropped (a corrupt FLAC
+/// frame, an Ogg page with a bad CRC), which comes back as silence of
+/// its length so the audio after stays in time.
+#[cfg(feature = "opus")]
+#[derive(Default)]
+pub(crate) struct Gaps {
+    /// The last packet's end, in its timestamps (`None` before one).
+    end: Option<i64>,
+}
+
+#[cfg(feature = "opus")]
+impl Gaps {
+    /// The frames missing before `p`.
+    pub(crate) fn before(&mut self, p: &symphonia::core::packet::Packet) -> usize {
+        let start = p.pts.get();
+        let whole = (p.dur.get() + p.trim_start.get() + p.trim_end.get()) as i64;
+        let gap = self.end.map_or(0, |e| (start - e).max(0) as usize);
+        self.end = Some(start + whole);
+        gap
+    }
 }
 
 /// Best-effort name of a file's format, for error messages and to tell
@@ -294,11 +317,47 @@ impl<'a> Decoder<'a> {
         Err(DecodeError::UnsupportedContainer(sniff(bytes)))
     }
 
-    fn ogg(bytes: &'a [u8], seconds: Option<f64>, left: bool) -> Result<Decoder<'a>, DecodeError> {
+    /// A decoder of `reader`'s track `track_id` through `codec`, putting
+    /// its `planes` into `channels` (reserved, maybe the first only).
+    fn with(
+        reader: Box<dyn FormatReader + 'a>,
+        codec: Codec,
+        track_id: u32,
+        rate: u32,
+        channels: Vec<Vec<f32>>,
+        planes: usize,
+        silence_errors: bool,
+    ) -> Decoder<'a> {
+        Decoder {
+            reader,
+            codec,
+            track_id,
+            silence_errors,
+            audio_frames: 0,
+            skip: 0,
+            errors: 0,
+            out: DecodedAudio {
+                sample_rate: rate,
+                channels,
+                skipped_packets: 0,
+            },
+            done: false,
+            planes,
+            scratch: Vec::new(),
+        }
+    }
+
+    /// The Ogg reader of `bytes`, cut after their last whole page
+    /// ([`ogg_pages`]).
+    fn ogg_reader(bytes: &'a [u8]) -> Result<OggReader<'a>, DecodeError> {
         let bytes = &bytes[..ogg_pages(bytes)];
         let source = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
-        let reader = OggReader::try_new(source, FormatOptions::default())
-            .map_err(|e| DecodeError::Malformed(e.to_string()))?;
+        OggReader::try_new(source, FormatOptions::default())
+            .map_err(|e| DecodeError::Malformed(e.to_string()))
+    }
+
+    fn ogg(bytes: &'a [u8], seconds: Option<f64>, left: bool) -> Result<Decoder<'a>, DecodeError> {
+        let reader = Decoder::ogg_reader(bytes)?;
 
         let audio_tracks = || {
             reader.tracks().iter().filter_map(|track| {
@@ -325,23 +384,15 @@ impl<'a> Decoder<'a> {
         let decoder = VorbisDecoder::try_new(params, &AudioDecoderOptions::default())
             .map_err(|e| DecodeError::Malformed(e.to_string()))?;
         let (track_id, rate, channels, frames) = Decoder::shape(track, params)?;
-        Ok(Decoder {
-            reader: Box::new(reader),
-            codec: Codec::Symphonia(Box::new(decoder)),
+        Ok(Decoder::with(
+            Box::new(reader),
+            Codec::Symphonia(Box::new(decoder)),
             track_id,
-            silence_errors: false,
-            audio_frames: 0,
-            skip: 0,
-            errors: 0,
-            out: DecodedAudio {
-                sample_rate: rate,
-                channels: reserve(kept(channels, left), cap(frames, rate, seconds), rate),
-                skipped_packets: 0,
-            },
-            done: false,
-            planes: channels,
-            scratch: Vec::new(),
-        })
+            rate,
+            reserve(kept(channels, left), cap(frames, rate, seconds), rate),
+            channels,
+            false,
+        ))
     }
 
     /// An Ogg Opus stream held in memory, and nothing else (the Vorbis and
@@ -352,10 +403,7 @@ impl<'a> Decoder<'a> {
         if !bytes.starts_with(b"OggS") {
             return Err(DecodeError::UnsupportedContainer(sniff(bytes)));
         }
-        let bytes = &bytes[..ogg_pages(bytes)];
-        let source = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
-        let reader = OggReader::try_new(source, FormatOptions::default())
-            .map_err(|e| DecodeError::Malformed(e.to_string()))?;
+        let reader = Decoder::ogg_reader(bytes)?;
         Decoder::opus(Box::new(reader), None, false)
     }
 
@@ -394,32 +442,24 @@ impl<'a> Decoder<'a> {
             .map(|granule| (granule as usize).saturating_sub(head.pre_skip));
         let rate = crate::opus::RATE;
         let channels = head.channels;
-        Ok(Decoder {
+        Ok(Decoder::with(
             reader,
-            codec: Codec::Opus(Box::new(OpusState {
+            Codec::Opus(Box::new(OpusState {
                 stream,
                 at: 0,
                 end,
-                last: None,
+                gaps: Gaps::default(),
             })),
             track_id,
-            silence_errors: false,
-            audio_frames: 0,
-            skip: 0,
-            errors: 0,
-            out: DecodedAudio {
-                sample_rate: rate,
-                channels: reserve(
-                    kept(channels, left),
-                    cap(end.unwrap_or(0) as u64, rate, seconds),
-                    rate,
-                ),
-                skipped_packets: 0,
-            },
-            done: false,
-            planes: channels,
-            scratch: Vec::new(),
-        })
+            rate,
+            reserve(
+                kept(channels, left),
+                cap(end.unwrap_or(0) as u64, rate, seconds),
+                rate,
+            ),
+            channels,
+            false,
+        ))
     }
 
     /// An MP3 as StepMania 5.1 decodes it (the module's doc), whatever
@@ -487,23 +527,15 @@ impl<'a> Decoder<'a> {
         for c in &mut channels {
             c.resize(silence, 0.0);
         }
-        Ok(Decoder {
-            reader: Box::new(reader),
-            codec: Codec::Symphonia(Box::new(decoder)),
+        Ok(Decoder::with(
+            Box::new(reader),
+            Codec::Symphonia(Box::new(decoder)),
             track_id,
-            silence_errors: true,
-            audio_frames: 0,
-            skip: 0,
-            errors: 0,
-            out: DecodedAudio {
-                sample_rate: rate,
-                channels,
-                skipped_packets: 0,
-            },
-            done: false,
+            rate,
+            channels,
             planes,
-            scratch: Vec::new(),
-        })
+            true,
+        ))
     }
 
     /// A track's id, rate, channels and length (frames, 0 if unknown).
@@ -675,10 +707,7 @@ impl<'a> Decoder<'a> {
         let Codec::Opus(o) = &mut self.codec else {
             return;
         };
-        let start = packet.pts.get();
-        let whole = (packet.dur.get() + packet.trim_start.get() + packet.trim_end.get()) as i64;
-        let lost = o.last.map_or(0, |e| (start - e).max(0) as usize);
-        o.last = Some(start + whole);
+        let lost = o.gaps.before(packet);
         let silence = o.stream.gap(lost);
         let ch = o.stream.channels();
         let (pcm, failed) = o.stream.decode(&packet.data, packet.dur.get());
@@ -732,7 +761,7 @@ fn kept(channels: usize, left: bool) -> usize {
 }
 
 /// Planar channels reserved for `frames` (capped).
-fn reserve(channels: usize, frames: u64, rate: u32) -> Vec<Vec<f32>> {
+pub(crate) fn reserve(channels: usize, frames: u64, rate: u32) -> Vec<Vec<f32>> {
     let frames = frames.min(u64::from(rate) * MAX_RESERVE_SECONDS) as usize;
     (0..channels).map(|_| Vec::with_capacity(frames)).collect()
 }

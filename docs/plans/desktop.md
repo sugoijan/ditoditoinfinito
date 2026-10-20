@@ -1293,7 +1293,7 @@ previews, the developer screen's tone), `decode-all` in `platform`
   AIFF; ID3 and APE tags skipped) and decoders, Ogg Opus through
   `rusty-opus` (pre-skip dropped, ended at the last granule, the
   header's gain applied; mapping family 0 only, which every simfile
-  uses), a `Range` to stop early, and `resample` (rubato's FFT
+  uses), a `Range` to stop early, and `resample_interleaved` (rubato's FFT
   resampler over the whole clip, its delay trimmed). The decoder thread
   reads the file, decodes to the end of what is asked, drops what is
   before its start, resamples once and hands back a `Sound`; a newer

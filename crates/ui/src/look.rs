@@ -211,12 +211,6 @@ pub fn run(a: &mut Actor, commands: &str) {
     }
 }
 
-/// [`call`] under its older name.
-#[doc(hidden)]
-pub fn call_for_tests(a: &mut Actor, method: &str, args: &[f32]) {
-    call(a, method, args);
-}
-
 /// One method call with numbers, no parsing (per frame).
 pub fn call(a: &mut Actor, method: &str, args: &[f32]) {
     let c = Call {
@@ -280,22 +274,18 @@ pub fn command_of(a: &mut Actor, name: &str, s: &str) {
     a.set_command(name, parse(s).unwrap_or_default());
 }
 
-fn command(a: &mut Actor, name: &str, s: &str) {
-    a.set_command(name, parse(s).unwrap_or_default());
-}
-
 fn frame(children: Vec<Actor>) -> Actor {
     Actor::new(Kind::Frame(children))
 }
 
 fn lit_plate(size: [f32; 2]) -> Actor {
     let mut plate = quad("Plate", size, PLATE);
-    command(
+    command_of(
         &mut plate,
         "GainFocus",
         "stoptweening;linear,0.08;diffuse,0.22,0.33,0.72,1",
     );
-    command(
+    command_of(
         &mut plate,
         "LoseFocus",
         "stoptweening;linear,0.08;diffuse,0.11,0.12,0.15,1",
@@ -315,8 +305,8 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
                     lit_plate(spec.size),
                     text("Label", &spec.text, size, TEXT),
                 ]);
-                command(&mut f, "Press", "stoptweening;linear,0.05;zoom,0.95");
-                command(&mut f, "Release", "stoptweening;linear,0.08;zoom,1");
+                command_of(&mut f, "Press", "stoptweening;linear,0.05;zoom,0.95");
+                command_of(&mut f, "Release", "stoptweening;linear,0.08;zoom,1");
                 f
             }
             "Toggle" => {
@@ -343,12 +333,12 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
                 call(&mut bx, "x", &[w / 2.0 - h * 0.5]);
                 let mut mark = quad("Mark", [h * 0.35, h * 0.35], LIT);
                 call(&mut mark, "x", &[w / 2.0 - h * 0.5]);
-                command(
+                command_of(
                     &mut mark,
                     "On",
                     "stoptweening;linear,0.08;zoom,1;diffusealpha,1",
                 );
-                command(
+                command_of(
                     &mut mark,
                     "Off",
                     "stoptweening;linear,0.08;zoom,0.3;diffusealpha,0",
@@ -406,12 +396,12 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
                 call(&mut sub, "xy", &[ban[0] + 14.0, h * 0.72]);
                 call(&mut sub, "halign", &[0.0]);
                 call(&mut sub, "maxwidth", &[w - ban[0] - 24.0]);
-                command(
+                command_of(
                     &mut plate,
                     "Select",
                     "stoptweening;linear,0.06;diffuse,0.22,0.33,0.72,1",
                 );
-                command(
+                command_of(
                     &mut plate,
                     "Deselect",
                     "stoptweening;linear,0.06;diffuse,0.11,0.12,0.15,1",
@@ -422,12 +412,12 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
                 let mut plate = quad("Plate", spec.size, [0.05, 0.05, 0.07, 1.0]);
                 call(&mut plate, "halign", &[0.0]);
                 call(&mut plate, "valign", &[0.0]);
-                command(
+                command_of(
                     &mut plate,
                     "Select",
                     "stoptweening;linear,0.06;diffuse,0.16,0.22,0.45,1",
                 );
-                command(
+                command_of(
                     &mut plate,
                     "Deselect",
                     "stoptweening;linear,0.06;diffuse,0.05,0.05,0.07,1",
@@ -455,12 +445,12 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
             }
             "Popup.Item" => {
                 let mut plate = quad("Plate", spec.size, [0.15, 0.16, 0.2, 1.0]);
-                command(
+                command_of(
                     &mut plate,
                     "Select",
                     "stoptweening;diffuse,0.22,0.33,0.72,1",
                 );
-                command(
+                command_of(
                     &mut plate,
                     "Deselect",
                     "stoptweening;diffuse,0.15,0.16,0.2,1",

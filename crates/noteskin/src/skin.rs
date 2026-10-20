@@ -393,6 +393,19 @@ impl<'a> Skin<'a> {
         }
     }
 
+    /// Whether the skin or one it falls back on has Lua of its own
+    /// (StepMania 3.9's format has none: it is built natively).
+    pub fn has_lua(&self) -> bool {
+        !self.legacy
+            && self.chain.iter().any(|&d| {
+                self.folder(d).is_some_and(|f| {
+                    f.files
+                        .iter()
+                        .any(|p| p.to_ascii_lowercase().ends_with(".lua"))
+                })
+            })
+    }
+
     /// The name of `dir`'s skin.
     pub fn dir_name(&self, dir: Dir) -> &str {
         match dir {

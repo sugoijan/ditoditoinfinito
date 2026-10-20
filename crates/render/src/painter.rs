@@ -384,48 +384,13 @@ impl Gpu {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ddi-painter-globals-bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let globals_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ddi-painter-globals-bg"),
-            layout: &globals_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: globals.as_entire_binding(),
-            }],
-        });
-        let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ddi-painter-texture-bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let (globals_layout, globals_group) = crate::gpu::uniform_group(
+            device,
+            "ddi-painter-globals",
+            &globals,
+            wgpu::ShaderStages::VERTEX_FRAGMENT,
+        );
+        let texture_layout = crate::gpu::texture_sampler_layout(device, "ddi-painter-texture-bgl");
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ddi-painter-layout"),
             bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout)],
@@ -447,20 +412,7 @@ impl Gpu {
             "ddi-painter-blank",
             1,
         );
-        queue.write_texture(
-            white.as_image_copy(),
-            &[255; 4],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: None,
-            },
-            wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-        );
+        crate::gpu::write_rgba(queue, &white, [1, 1], &[255; 4]);
         let blank = bind(device, &texture_layout, &sampler, &white);
         Gpu {
             shader,
@@ -793,20 +745,7 @@ impl Painter {
         rgba: &[u8],
     ) {
         self.insert_texture(device, id, size, |t| {
-            queue.write_texture(
-                t.as_image_copy(),
-                rgba,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(size[0] * 4),
-                    rows_per_image: None,
-                },
-                wgpu::Extent3d {
-                    width: size[0],
-                    height: size[1],
-                    depth_or_array_layers: 1,
-                },
-            );
+            crate::gpu::write_rgba(queue, t, size, rgba);
         });
     }
 

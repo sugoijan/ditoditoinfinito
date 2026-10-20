@@ -554,7 +554,7 @@ impl Shell {
     /// Asks for a frame if the UI needs one and none is coming.
     fn ask(&mut self) {
         let field = self.surface.as_ref().is_some_and(|s| s.gpu.field.shown())
-            || self.play.animating()
+            || self.play.playing()
             || self.play.prompt_changed();
         if self.occluded || self.pending || !(self.ui.needs_redraw() || self.loaded || field) {
             return;
@@ -1250,8 +1250,8 @@ impl ApplicationHandler for Shell {
             self.loaded |= s.gpu.images_ready();
         }
         let field =
-            self.surface.as_ref().is_some_and(|s| s.gpu.field.shown()) || self.play.animating();
-        if self.play.animating() && !self.occluded {
+            self.surface.as_ref().is_some_and(|s| s.gpu.field.shown()) || self.play.playing();
+        if self.play.playing() && !self.occluded {
             match self.pace() {
                 // Blocking frames come one after another (each waits for
                 // the display in `get_current_texture`).
@@ -1292,17 +1292,7 @@ pub fn theme_ui_with(
     fold: FoldFn,
     sound: Option<SharedPlayer>,
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
-    let look = Rc::new(ddi_theme::Infinito::new());
-    let mut env = ThemeEnv::new(look.clone(), fold);
-    if let Some(p) = &sound {
-        env.beat = preview_beat(p.clone());
-    }
-    let settings = ddi_ui::state::settings::Settings::load();
-    env.reduced_motion
-        .set(settings.reduced_motion.reduced(false));
-    env.state.borrow_mut().reduced_motion_setting = settings.reduced_motion as usize;
-    let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Own, false);
-    ui.set_focus_ring(false);
+    let (mut ui, env, look) = theme_base(fold, sound.as_ref().map(|p| preview_beat(p.clone())));
     let changed = options_changed(&env);
     let mut select = sample::select_screen(&env, Some(changed.clone()));
     // Under a page (the credits, calibration's menu) the song list's
@@ -1346,14 +1336,32 @@ pub fn library_ui(
     sound: SharedPlayer,
     songs: &Rc<crate::songs::Songs>,
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
-    let look = Rc::new(ddi_theme::Infinito::new());
-    let mut env = ThemeEnv::new(look.clone(), fold);
-    {
-        // The pulse follows a preview as heard, else the song's BPM.
+    // The pulse follows a preview as heard, else the song's BPM.
+    let beat: theme_screens::BeatFn = {
         let player = sound.clone();
         let by_bpm = theme_screens::bpm_beat();
-        env.beat =
-            Rc::new(move |id, t, bpm| player.borrow().beat(id).or_else(|| by_bpm(id, t, bpm)));
+        Rc::new(move |id, t, bpm| player.borrow().beat(id).or_else(|| by_bpm(id, t, bpm)))
+    };
+    let (mut ui, env, look) = theme_base(fold, Some(beat));
+    ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
+    if first == "options" {
+        let (screen, shared) = crate::options::screen(&env, Some(sound), Some(songs.clone()));
+        *songs.options.borrow_mut() = Some(shared);
+        ui.push(screen);
+    }
+    (ui, env, look)
+}
+
+/// The theme's look, its environment (`beat` its pulse, when given;
+/// motion reduced as the settings say) and a UI for its screens.
+fn theme_base(
+    fold: FoldFn,
+    beat: Option<theme_screens::BeatFn>,
+) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
+    let look = Rc::new(ddi_theme::Infinito::new());
+    let mut env = ThemeEnv::new(look.clone(), fold);
+    if let Some(beat) = beat {
+        env.beat = beat;
     }
     let settings = ddi_ui::state::settings::Settings::load();
     env.reduced_motion
@@ -1361,12 +1369,6 @@ pub fn library_ui(
     env.state.borrow_mut().reduced_motion_setting = settings.reduced_motion as usize;
     let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Own, false);
     ui.set_focus_ring(false);
-    ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
-    if first == "options" {
-        let (screen, shared) = crate::options::screen(&env, Some(sound), Some(songs.clone()));
-        *songs.options.borrow_mut() = Some(shared);
-        ui.push(screen);
-    }
     (ui, env, look)
 }
 

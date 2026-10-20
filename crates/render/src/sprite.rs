@@ -117,8 +117,7 @@ pub struct SpritePipeline {
     layout: wgpu::PipelineLayout,
     globals: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
-    instances: wgpu::Buffer,
-    capacity: usize,
+    instances: crate::instances::InstanceBuffers,
     srgb: bool,
 }
 
@@ -136,35 +135,23 @@ impl SpritePipeline {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ddi-globals-bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ddi-globals-bg"),
-            layout: &bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: globals.as_entire_binding(),
-            }],
-        });
+        let (bgl, bind_group) = crate::gpu::uniform_group(
+            device,
+            "ddi-globals",
+            &globals,
+            wgpu::ShaderStages::VERTEX_FRAGMENT,
+        );
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ddi-sprite-layout"),
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
         let pipeline = Self::pipeline(device, &shader, &layout, format);
-        let capacity = 1024;
-        let instances = Self::make_buffer(device, capacity);
+        let instances = crate::instances::InstanceBuffers::new(
+            device,
+            "ddi-instances",
+            std::mem::size_of::<Instance>(),
+        );
         SpritePipeline {
             pipeline,
             shader,
@@ -172,7 +159,6 @@ impl SpritePipeline {
             globals,
             bind_group,
             instances,
-            capacity,
             srgb: linear,
         }
     }
@@ -219,15 +205,6 @@ impl SpritePipeline {
         })
     }
 
-    fn make_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ddi-instances"),
-            size: (capacity * std::mem::size_of::<Instance>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    }
-
     /// Upload globals for a target of `width × height` pixels, origin top-left,
     /// y down.
     pub fn set_viewport(&self, queue: &wgpu::Queue, width: f32, height: f32, time: f32) {
@@ -241,15 +218,10 @@ impl SpritePipeline {
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
     }
 
-    /// Upload instances; grows the buffer when needed.
+    /// Upload instances; grows the buffers when needed.
     pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, instances: &[Instance]) {
-        if instances.len() > self.capacity {
-            self.capacity = instances.len().next_power_of_two();
-            self.instances = Self::make_buffer(device, self.capacity);
-        }
-        if !instances.is_empty() {
-            queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(instances));
-        }
+        self.instances
+            .upload(device, queue, bytemuck::cast_slice(instances));
     }
 
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, count: usize) {
@@ -263,8 +235,11 @@ impl SpritePipeline {
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
-        pass.set_vertex_buffer(0, self.instances.slice(..));
-        pass.draw(0..6, range);
+        // Past one buffer's worth, the range is drawn from each buffer.
+        for (buffer, range) in self.instances.pieces(range) {
+            pass.set_vertex_buffer(0, buffer.slice(..));
+            pass.draw(0..6, range);
+        }
     }
 }
 

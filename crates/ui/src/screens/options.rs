@@ -137,14 +137,6 @@ impl OptionsScreen {
         self
     }
 
-    /// Opens at the section named `name`.
-    pub fn with_section(mut self, name: &str) -> OptionsScreen {
-        if let Some(i) = self.data.sections.iter().position(|s| s.name == name) {
-            self.section = i;
-        }
-        self
-    }
-
     fn options(&self) -> &[OptionDef] {
         self.data
             .sections
@@ -167,13 +159,8 @@ impl OptionsScreen {
         if !super::is_compact(&*self.env.look, vp) {
             return ([vp.width, vp.height], 1.0, false);
         }
-        let narrow = self.env.metric("Options.Narrow.Width", 480.0);
-        if vp.width >= vp.height || vp.width <= narrow {
-            ([vp.width, vp.height], 1.0, true)
-        } else {
-            let z = vp.width / narrow;
-            ([narrow, vp.height / z], z, true)
-        }
+        let (screen, zoom) = super::narrow_fit(&self.env, vp);
+        (screen, zoom, true)
     }
 
     fn place(&mut self, vp: ddi_actor::screen::VirtualScreen) {

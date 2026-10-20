@@ -126,7 +126,7 @@ impl Watcher {
         let banner = if suppressed || self.dismissed {
             None
         } else {
-            device_notice(&Settings::load(), self.last.as_ref())
+            device_notice(&crate::store::settings_cached(), self.last.as_ref())
         };
         let now = AppNotices {
             banner,

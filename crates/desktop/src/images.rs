@@ -141,8 +141,13 @@ const MAX_ALLOC: u64 = 96 * 1024 * 1024;
 /// background, and is not read whole to find out.
 const MAX_FILE: u64 = 48 * 1024 * 1024;
 
-/// Where `songs/…` and the rest are read from.
+/// Where `songs/…` and the rest are read from (found once a run).
 pub fn assets() -> PathBuf {
+    static FOUND: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    FOUND.get_or_init(find_assets).clone()
+}
+
+fn find_assets() -> PathBuf {
     if let Some(path) = std::env::var_os("DDI_ASSETS") {
         return PathBuf::from(path);
     }

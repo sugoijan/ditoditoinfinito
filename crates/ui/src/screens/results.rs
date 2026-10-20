@@ -84,6 +84,8 @@ pub struct ResultsScreen {
     compact: bool,
     zoom: f32,
     scroll: f32,
+    /// The compact content's height, as last built.
+    content_h: f32,
     /// The banner's texture, kept for the content built again.
     banner: Option<u32>,
 }
@@ -100,6 +102,7 @@ impl ResultsScreen {
             compact: false,
             zoom: 1.0,
             scroll: 0.0,
+            content_h: 0.0,
             banner: None,
         }
     }
@@ -111,13 +114,8 @@ impl ResultsScreen {
         if !super::is_compact(&*self.env.look, vp) {
             return (fit(&*self.env.look, vp), 1.0, false);
         }
-        let narrow = self.env.metric("Options.Narrow.Width", 480.0);
-        if vp.width >= vp.height || vp.width <= narrow {
-            ([vp.width, vp.height], 1.0, true)
-        } else {
-            let z = vp.width / narrow;
-            ([narrow, vp.height / z], z, true)
-        }
+        let (screen, zoom) = super::narrow_fit(&self.env, vp);
+        (screen, zoom, true)
     }
 
     fn place(&mut self, vp: ddi_actor::screen::VirtualScreen) -> bool {
@@ -170,8 +168,8 @@ impl ResultsScreen {
         let (top, bottom, m) = self.compact_bars();
         let mut children = vec![ground(&env, screen), self.backdrop.build(&env, screen)];
         let view = [m, top, w - 2.0 * m, h - top - bottom];
-        let (content, _) = self.compact_content(view[2]);
-        let mut content = content;
+        let (mut content, content_h) = self.compact_content(view[2]);
+        self.content_h = content_h;
         call(&mut content, "y", &[-self.scroll]);
         let mut clip = frame("ResultsClip", vec![content]);
         clip.clip = Some([-4.0, 0.0, view[2] + 4.0, view[3]]);
@@ -195,10 +193,17 @@ impl ResultsScreen {
         }
         children.push(self.bottom_bar([m, h - bottom, w - 2.0 * m, bottom]));
         env.state.borrow_mut().hints = Vec::new();
+        self.finish_root(children, cx)
+    }
+
+    /// The root over `children`, entering, the song's backdrop on it.
+    fn finish_root(&mut self, children: Vec<Actor>, cx: &mut Cx) -> Actor {
+        let env = self.env.clone();
         let mut root = Actor::new(Kind::Frame(children));
         super::entrance(&mut root, &env);
         if let Some(src) = self.data.song.backdrop().map(str::to_string) {
             self.backdrop.set(Some(&src), &mut root, cx, &env);
+            // At once: the screen fades in as a whole.
             if let Some(b) = hit::find_mut(&mut root, "Backdrop") {
                 b.finish_tweening();
                 for c in b.children_mut() {
@@ -258,10 +263,11 @@ impl ResultsScreen {
         (frame("ResultsContent", children), height)
     }
 
+    /// How far the content scrolls: its height (as last built; it
+    /// changes only with what builds it again) past the view's.
     fn max_scroll(&self) -> f32 {
-        let (top, bottom, m) = self.compact_bars();
-        let (_, height) = self.compact_content(self.screen[0] - 2.0 * m);
-        (height - (self.screen[1] - top - bottom)).max(0.0)
+        let (top, bottom, _) = self.compact_bars();
+        (self.content_h - (self.screen[1] - top - bottom)).max(0.0)
     }
 
     fn scroll_by(&mut self, dy: f32, root: &mut Actor) {
@@ -336,19 +342,7 @@ impl ResultsScreen {
         let (f, texts) = footer(&env, screen, &hints, &note, &[]);
         env.state.borrow_mut().hints = texts;
         children.push(f);
-        let mut root = Actor::new(Kind::Frame(children));
-        super::entrance(&mut root, &env);
-        if let Some(src) = self.data.song.backdrop().map(str::to_string) {
-            self.backdrop.set(Some(&src), &mut root, cx, &env);
-            // At once: the screen fades in as a whole.
-            if let Some(b) = hit::find_mut(&mut root, "Backdrop") {
-                b.finish_tweening();
-                for c in b.children_mut() {
-                    c.finish_tweening();
-                }
-            }
-        }
-        root
+        self.finish_root(children, cx)
     }
 
     fn score_column(&self, [x, y, w]: [f32; 3], _cx: &mut Cx) -> Actor {
@@ -1112,8 +1106,9 @@ impl ResultsScreen {
         self.data.panel_set = i;
         if self.compact {
             let (_, _, m) = self.compact_bars();
+            let (mut fresh, content_h) = self.compact_content(self.screen[0] - 2.0 * m);
+            self.content_h = content_h;
             self.scroll = self.scroll.min(self.max_scroll());
-            let (mut fresh, _) = self.compact_content(self.screen[0] - 2.0 * m);
             call(&mut fresh, "y", &[-self.scroll]);
             if let Some(p) = hit::find_mut(root, "ResultsContent") {
                 *p = fresh;
@@ -1217,8 +1212,11 @@ impl ResultsScreen {
     }
 }
 
-/// "−2.1", "+3": a signed number with a real minus sign.
-pub fn signed(v: f32, decimals: usize) -> String {
+/// "−2.1", "+3": a signed number with a real minus sign. (An `f32`
+/// widens exactly, and its digits are those of its exact value: the text
+/// is the same as of the `f32` itself.)
+pub fn signed(v: impl Into<f64>, decimals: usize) -> String {
+    let v: f64 = v.into();
     let s = format!("{:.*}", decimals, v.abs());
     let zero = s.chars().all(|c| c == '0' || c == '.');
     if zero {

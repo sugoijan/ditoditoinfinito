@@ -336,12 +336,7 @@ pub(crate) fn set_autoplay(on: bool) {
     let hash = window.location().hash().unwrap_or_default();
     let path = hash.trim_start_matches('#').split('?').next().unwrap_or("");
     if matches!(path.trim_start_matches('/'), "") {
-        let q = testing();
-        let next = if q.is_empty() {
-            "#/".to_string()
-        } else {
-            format!("#/?{q}")
-        };
+        let next = Route::Home.to_hash();
         if let Ok(h) = window.history() {
             let _ = h.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&next));
         }

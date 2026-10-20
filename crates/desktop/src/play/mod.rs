@@ -99,7 +99,7 @@ impl Request {
     /// The settings the play runs with: the stored ones, or a replay's
     /// over them (`Replay::settings`).
     pub fn settings(&self) -> Settings {
-        let here = Settings::load();
+        let here = crate::store::settings_cached();
         match &self.replay {
             Some(r) => r.settings(&here),
             None => here,

@@ -28,8 +28,8 @@ use ddi_ui::screens::Env as ThemeEnv;
 use ddi_ui::screens::options::{OPTIONS_CHANGED, OptionsFeed, OptionsScreen};
 use ddi_ui::screens::options_model::{OptionsModel, Reset, Sample, World};
 use ddi_ui::screens::options_shell::{self, Leave, OptionsPlatform};
-use ddi_ui::{Cx, Message, TextMode, Ui, UiRequest};
-use gloo::timers::callback::{Interval, Timeout};
+use ddi_ui::{Cx, TextMode, Ui, UiRequest};
+use gloo::timers::callback::Interval;
 use wasm_bindgen::JsValue;
 use web_sys::{AudioBuffer, HtmlElement};
 
@@ -321,14 +321,7 @@ impl Component for OptionsPage {
         if let Some((host, _, pads)) = &self.started {
             ui_dev::stop_ui(host, pads.as_ref());
         }
-        if let Some(d) = web_sys::window()
-            .and_then(|w| js_sys::Reflect::get(&w, &"__DDI_DEBUG".into()).ok())
-            .filter(|d| d.is_object())
-        {
-            let d = js_sys::Object::from(d);
-            let _ = js_sys::Reflect::delete_property(&d, &"options".into());
-            let _ = js_sys::Reflect::delete_property(&d, &"ui".into());
-        }
+        crate::web::forget_debug(&["options", "ui"]);
     }
 }
 
@@ -380,17 +373,9 @@ impl OptionsPage {
 /// Puts the rows in the feed and tells the screen, once the host is free.
 fn send(shared: &Rc<Shared>) {
     *shared.feed.borrow_mut() = Some(shared.model.borrow().data());
-    let weak = shared.host.borrow().clone();
-    Timeout::new(0, move || {
-        let Some(host) = weak.and_then(|w| w.upgrade()) else {
-            return;
-        };
-        if let Ok(mut h) = host.try_borrow_mut() {
-            h.ui.broadcast(Message::new(OPTIONS_CHANGED));
-        }
-        ui_dev::wake(&host);
-    })
-    .forget();
+    if let Some(weak) = shared.host.borrow().clone() {
+        ui_dev::broadcast_soon(weak, OPTIONS_CHANGED);
+    }
 }
 
 fn stop_sample(shared: &Rc<Shared>) {

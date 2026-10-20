@@ -192,6 +192,29 @@ pub struct ChartInfo {
     pub excessive: Option<bool>,
 }
 
+impl ChartInfo {
+    /// What the song list shows of `chart`, at `index` in its song, with
+    /// its `digest` when known (no excessive setting yet).
+    pub fn of(
+        index: usize,
+        chart: &ddi_chart::Chart,
+        digest: Option<ddi_chart::ChartDigest>,
+    ) -> ChartInfo {
+        ChartInfo {
+            derivation: chart.derivation.clone(),
+            index,
+            layout: chart.layout.clone(),
+            difficulty: format!("{:?}", chart.difficulty),
+            meter: chart.meter,
+            name: chart.name.clone(),
+            credit: chart.credit.clone(),
+            notes: chart.judged_note_count(),
+            digest,
+            excessive: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Manifest {
     pub songs: Vec<ManifestEntry>,
@@ -272,18 +295,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         .collect();
     let charts = indexed
         .into_iter()
-        .map(|(index, c)| ChartInfo {
-            derivation: c.derivation.clone(),
-            index,
-            layout: c.layout.clone(),
-            difficulty: format!("{:?}", c.difficulty),
-            meter: c.meter,
-            name: c.name.clone(),
-            credit: c.credit.clone(),
-            notes: c.judged_note_count(),
-            digest: Some(song.chart_digest(index)),
-            excessive: None,
-        })
+        .map(|(index, c)| ChartInfo::of(index, c, Some(song.chart_digest(index))))
         .collect();
     ManifestEntry {
         variants_version: chart_variants_version(song),

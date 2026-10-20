@@ -236,7 +236,7 @@ impl FieldPreviewHost {
         wasm_bindgen_futures::spawn_local(async move {
             let env = ddi_engine::demo::song(&want.layout, BPM).and_then(|song| {
                 let chart = song.charts.first()?;
-                Some(crate::noteskins::lua_env(
+                Some(ddi_noteskin::lua::chart_env(
                     &song,
                     chart,
                     &layout,

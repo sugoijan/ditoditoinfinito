@@ -128,6 +128,7 @@ impl FieldGeometry {
     }
 }
 
+#[derive(Default)]
 pub struct SceneOutput {
     pub instances: Vec<Instance>,
     pub text: Vec<TextItem>,
@@ -636,15 +637,55 @@ pub fn build(
     geo: &FieldGeometry,
     opts: RenderOptions,
     srgb_target: bool,
-    mut layer: Option<&mut dyn NoteLayer>,
+    layer: Option<&mut dyn NoteLayer>,
     stage: (&[TexQuad], &[TexQuad]),
 ) -> SceneOutput {
+    let mut out = SceneOutput::default();
+    build_into(
+        &mut out,
+        frame,
+        layout,
+        names,
+        skin,
+        geo,
+        opts,
+        srgb_target,
+        layer,
+        stage,
+    );
+    out
+}
+
+/// [`build`] into `out`, its lists cleared first and their room reused.
+#[allow(clippy::too_many_arguments)]
+pub fn build_into(
+    out: &mut SceneOutput,
+    frame: &Frame,
+    layout: &Layout,
+    names: &JudgeNames,
+    skin: &Skin,
+    geo: &FieldGeometry,
+    opts: RenderOptions,
+    srgb_target: bool,
+    mut layer: Option<&mut dyn NoteLayer>,
+    stage: (&[TexQuad], &[TexQuad]),
+) {
     // A preview without receptors.
     let no_receptors = opts.preview.is_some_and(|p| !p.receptors);
-    let mut instances = Vec::with_capacity(frame.notes.len() * 2 + 32);
-    let mut text = Vec::with_capacity(8);
-    let mut quads = Vec::new();
-    let mut order = Order::default();
+    fn reuse<T>(v: &mut Vec<T>) -> Vec<T> {
+        let mut v = std::mem::take(v);
+        v.clear();
+        v
+    }
+    let mut instances = reuse(&mut out.instances);
+    instances.reserve(frame.notes.len() * 2 + 32);
+    let mut text = reuse(&mut out.text);
+    text.reserve(8);
+    let mut quads = reuse(&mut out.quads);
+    let mut order = Order {
+        segments: reuse(&mut out.order),
+        ..Order::default()
+    };
     // A work's back layers, over the background and under the field
     // (`docs/plans/overlays.md`).
     quads.extend_from_slice(stage.0);
@@ -782,12 +823,13 @@ pub fn build(
     order.quads(quads.len());
     if opts.preview.is_some() {
         order.sprites(instances.len());
-        return SceneOutput {
+        *out = SceneOutput {
             instances,
             text,
             quads,
             order: order.segments,
         };
+        return;
     }
 
     // HUD: life bar.
@@ -978,12 +1020,12 @@ pub fn build(
     }
 
     order.sprites(instances.len());
-    SceneOutput {
+    *out = SceneOutput {
         instances,
         text,
         quads,
         order: order.segments,
-    }
+    };
 }
 
 fn push_note(

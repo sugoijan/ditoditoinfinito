@@ -32,6 +32,8 @@
 
 use thiserror::Error;
 
+use crate::bytes::{le16, le32, le64};
+
 /// End Of Central Directory record, without its comment.
 const EOCD_LEN: usize = 22;
 /// The comment length is a `u16`.
@@ -169,18 +171,6 @@ pub fn tail_len(file_len: u64) -> u64 {
     TAIL_LEN.min(file_len)
 }
 
-fn u16_at(b: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_le_bytes(b.get(at..at + 2)?.try_into().ok()?))
-}
-
-fn u32_at(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?))
-}
-
-fn u64_at(b: &[u8], at: usize) -> Option<u64> {
-    Some(u64::from_le_bytes(b.get(at..at + 8)?.try_into().ok()?))
-}
-
 /// Finds the End Of Central Directory record in the last bytes of the
 /// archive (`tail`, the final `tail.len()` bytes of a `file_len`-byte file;
 /// see [`tail_len`]).
@@ -197,16 +187,16 @@ pub fn locate_central_directory(tail: &[u8], file_len: u64) -> Result<Locate, Zi
     let candidates = || {
         (0..=tail.len().saturating_sub(EOCD_LEN))
             .rev()
-            .filter(|&p| u32_at(tail, p) == Some(SIG_EOCD))
+            .filter(|&p| le32(tail, p) == Some(SIG_EOCD))
     };
-    let comment_end = |p: usize| p + EOCD_LEN + u16_at(tail, p + 20).unwrap_or(0) as usize;
+    let comment_end = |p: usize| p + EOCD_LEN + le16(tail, p + 20).unwrap_or(0) as usize;
     let pos = candidates()
         .find(|&p| comment_end(p) == tail.len())
         .or_else(|| candidates().find(|&p| comment_end(p) <= tail.len()))
         .ok_or(ZipError::NotAZip)?;
     let eocd = &tail[pos..];
-    let read16 = |at| u16_at(eocd, at).ok_or(ZipError::Corrupt("truncated end record"));
-    let read32 = |at| u32_at(eocd, at).ok_or(ZipError::Corrupt("truncated end record"));
+    let read16 = |at| le16(eocd, at).ok_or(ZipError::Corrupt("truncated end record"));
+    let read32 = |at| le32(eocd, at).ok_or(ZipError::Corrupt("truncated end record"));
     let disk = read16(4)?;
     let cd_disk = read16(6)?;
     let entries_here = read16(8)?;
@@ -215,13 +205,12 @@ pub fn locate_central_directory(tail: &[u8], file_len: u64) -> Result<Locate, Zi
     let offset = read32(16)?;
 
     // ZIP64: the locator sits right in front of the EOCD.
-    if pos >= ZIP64_LOCATOR_LEN && u32_at(tail, pos - ZIP64_LOCATOR_LEN) == Some(SIG_ZIP64_LOCATOR)
-    {
+    if pos >= ZIP64_LOCATOR_LEN && le32(tail, pos - ZIP64_LOCATOR_LEN) == Some(SIG_ZIP64_LOCATOR) {
         let loc = &tail[pos - ZIP64_LOCATOR_LEN..pos];
         let corrupt = ZipError::Corrupt("truncated ZIP64 locator");
-        let record_disk = u32_at(loc, 4).ok_or(corrupt.clone())?;
-        let record_offset = u64_at(loc, 8).ok_or(corrupt.clone())?;
-        let total_disks = u32_at(loc, 16).ok_or(corrupt)?;
+        let record_disk = le32(loc, 4).ok_or(corrupt.clone())?;
+        let record_offset = le64(loc, 8).ok_or(corrupt.clone())?;
+        let total_disks = le32(loc, 16).ok_or(corrupt)?;
         if record_disk != 0 || total_disks > 1 {
             return Err(ZipError::MultiDisk);
         }
@@ -276,15 +265,15 @@ pub fn locate_central_directory(tail: &[u8], file_len: u64) -> Result<Locate, Zi
 /// [`ZIP64_END_RECORD_LEN`] bytes starting at its signature).
 pub fn parse_zip64_end_record(bytes: &[u8]) -> Result<CentralDirectory, ZipError> {
     let corrupt = || ZipError::Corrupt("truncated ZIP64 end record");
-    if u32_at(bytes, 0) != Some(SIG_ZIP64_EOCD) {
+    if le32(bytes, 0) != Some(SIG_ZIP64_EOCD) {
         return Err(ZipError::Corrupt("bad ZIP64 end record signature"));
     }
-    let disk = u32_at(bytes, 16).ok_or_else(corrupt)?;
-    let cd_disk = u32_at(bytes, 20).ok_or_else(corrupt)?;
-    let entries_here = u64_at(bytes, 24).ok_or_else(corrupt)?;
-    let entries = u64_at(bytes, 32).ok_or_else(corrupt)?;
-    let size = u64_at(bytes, 40).ok_or_else(corrupt)?;
-    let offset = u64_at(bytes, 48).ok_or_else(corrupt)?;
+    let disk = le32(bytes, 16).ok_or_else(corrupt)?;
+    let cd_disk = le32(bytes, 20).ok_or_else(corrupt)?;
+    let entries_here = le64(bytes, 24).ok_or_else(corrupt)?;
+    let entries = le64(bytes, 32).ok_or_else(corrupt)?;
+    let size = le64(bytes, 40).ok_or_else(corrupt)?;
+    let offset = le64(bytes, 48).ok_or_else(corrupt)?;
     if disk != 0 || cd_disk != 0 || entries_here != entries {
         return Err(ZipError::MultiDisk);
     }
@@ -315,7 +304,7 @@ pub fn parse_central_directory(
     let mut out = Vec::with_capacity(cap);
     let mut p = 0usize;
     while p < bytes.len() {
-        if u32_at(bytes, p) != Some(SIG_CENTRAL) {
+        if le32(bytes, p) != Some(SIG_CENTRAL) {
             // Some writers pad or put the (ZIP64) end records inside the
             // announced size; stop at the first non-header once all
             // announced entries are read.
@@ -325,8 +314,8 @@ pub fn parse_central_directory(
             return Err(ZipError::Corrupt("bad central directory header signature"));
         }
         let h = bytes.get(p..p + CENTRAL_HEADER_LEN).ok_or_else(truncated)?;
-        let r16 = |at| u16_at(h, at).ok_or_else(truncated);
-        let r32 = |at| u32_at(h, at).ok_or_else(truncated);
+        let r16 = |at| le16(h, at).ok_or_else(truncated);
+        let r32 = |at| le32(h, at).ok_or_else(truncated);
         let flags = r16(8)?;
         let method = r16(10)?;
         let crc = r32(16)?;
@@ -364,7 +353,7 @@ pub fn parse_central_directory(
                     // Only the saturated fields are present, in this order.
                     let mut q = 0;
                     let mut take = |v: &mut u64| -> Result<(), ZipError> {
-                        *v = u64_at(data, q)
+                        *v = le64(data, q)
                             .ok_or(ZipError::Corrupt("truncated ZIP64 extra field"))?;
                         q += 8;
                         Ok(())
@@ -379,7 +368,7 @@ pub fn parse_central_directory(
                         take(&mut local_header_offset)?;
                     }
                     if disk == 0xFFFF {
-                        disk = u32_at(data, q)
+                        disk = le32(data, q)
                             .ok_or(ZipError::Corrupt("truncated ZIP64 extra field"))?;
                     }
                 }
@@ -388,7 +377,7 @@ pub fn parse_central_directory(
                 // renamed the entry without knowing the field leaves it stale).
                 EXTRA_UNICODE_PATH if flags & FLAG_UTF8 == 0 => {
                     if data.first() == Some(&1)
-                        && u32_at(data, 1) == Some(crc32(raw_name))
+                        && le32(data, 1) == Some(crc32(raw_name))
                         && let Some(utf8) = data.get(5..)
                         && let Ok(s) = core::str::from_utf8(utf8)
                     {
@@ -435,8 +424,8 @@ pub fn parse_central_directory(
 /// the first malformed one (some writers pad the block with zeros).
 fn extra_fields(mut extra: &[u8]) -> impl Iterator<Item = (u16, &[u8])> {
     core::iter::from_fn(move || {
-        let id = u16_at(extra, 0)?;
-        let len = u16_at(extra, 2)? as usize;
+        let id = le16(extra, 0)?;
+        let len = le16(extra, 2)? as usize;
         let data = extra.get(4..4 + len)?;
         extra = &extra[4 + len..];
         Some((id, data))
@@ -446,12 +435,12 @@ fn extra_fields(mut extra: &[u8]) -> impl Iterator<Item = (u16, &[u8])> {
 /// Given the [`LOCAL_HEADER_LEN`] bytes at `entry.local_header_offset`,
 /// returns the absolute offset of the entry's data.
 pub fn local_data_offset(header: &[u8], entry: &ZipEntry) -> Result<u64, ZipError> {
-    if u32_at(header, 0) != Some(SIG_LOCAL) {
+    if le32(header, 0) != Some(SIG_LOCAL) {
         return Err(ZipError::Corrupt("bad local file header signature"));
     }
     let truncated = || ZipError::Corrupt("truncated local file header");
-    let name_len = u64::from(u16_at(header, 26).ok_or_else(truncated)?);
-    let extra_len = u64::from(u16_at(header, 28).ok_or_else(truncated)?);
+    let name_len = u64::from(le16(header, 26).ok_or_else(truncated)?);
+    let extra_len = u64::from(le16(header, 28).ok_or_else(truncated)?);
     entry
         .local_header_offset
         .checked_add(LOCAL_HEADER_LEN + name_len + extra_len)
@@ -462,9 +451,7 @@ pub fn local_data_offset(header: &[u8], entry: &ZipEntry) -> Result<u64, ZipErro
 /// checks the size and CRC-32 against the central directory.
 pub fn extract(entry: &ZipEntry, data: &[u8]) -> Result<Vec<u8>, ZipError> {
     if entry.encrypted {
-        return Err(ZipError::Encrypted {
-            name: entry.name.clone(),
-        });
+        return Err(encrypted(entry));
     }
     if data.len() as u64 != entry.compressed_size {
         return Err(ZipError::SizeMismatch {
@@ -476,21 +463,39 @@ pub fn extract(entry: &ZipEntry, data: &[u8]) -> Result<Vec<u8>, ZipError> {
     let out = match entry.method {
         Method::Stored => data.to_vec(),
         Method::Deflated => inflate(data, entry.uncompressed_size)?,
-        Method::Other(method) => {
-            return Err(ZipError::UnsupportedMethod {
-                name: entry.name.clone(),
-                method,
-            });
-        }
+        Method::Other(method) => return Err(unsupported(entry, method)),
     };
-    if out.len() as u64 != entry.uncompressed_size {
+    check_output(entry, out.len() as u64, || crc32(&out))?;
+    Ok(out)
+}
+
+/// The error for an encrypted entry.
+fn encrypted(entry: &ZipEntry) -> ZipError {
+    ZipError::Encrypted {
+        name: entry.name.clone(),
+    }
+}
+
+/// The error for an entry compressed with `method`, which is not read.
+fn unsupported(entry: &ZipEntry, method: u16) -> ZipError {
+    ZipError::UnsupportedMethod {
+        name: entry.name.clone(),
+        method,
+    }
+}
+
+/// Checks an entry's output, `written` bytes, against the central
+/// directory: its size first, then its CRC-32 (`crc`, only computed when
+/// the size matches).
+fn check_output(entry: &ZipEntry, written: u64, crc: impl FnOnce() -> u32) -> Result<(), ZipError> {
+    if written != entry.uncompressed_size {
         return Err(ZipError::SizeMismatch {
             name: entry.name.clone(),
             expected: entry.uncompressed_size,
-            actual: out.len() as u64,
+            actual: written,
         });
     }
-    let actual = crc32(&out);
+    let actual = crc();
     if actual != entry.crc32 {
         return Err(ZipError::CrcMismatch {
             name: entry.name.clone(),
@@ -498,7 +503,7 @@ pub fn extract(entry: &ZipEntry, data: &[u8]) -> Result<Vec<u8>, ZipError> {
             actual,
         });
     }
-    Ok(out)
+    Ok(())
 }
 
 /// [`extract`] in pieces: an entry's `compressed_size` data bytes read
@@ -514,9 +519,7 @@ pub fn extract_to(
     use miniz_oxide::inflate::stream::{InflateState, inflate};
     use miniz_oxide::{DataFormat, MZError, MZFlush, MZStatus};
     if entry.encrypted {
-        return Err(ZipError::Encrypted {
-            name: entry.name.clone(),
-        });
+        return Err(encrypted(entry));
     }
     let io = |e: std::io::Error| ZipError::Inflate(e.to_string());
     let mut left = entry.compressed_size;
@@ -575,29 +578,9 @@ pub fn extract_to(
                 }
             }
         }
-        Method::Other(method) => {
-            return Err(ZipError::UnsupportedMethod {
-                name: entry.name.clone(),
-                method,
-            });
-        }
+        Method::Other(method) => return Err(unsupported(entry, method)),
     }
-    if written != entry.uncompressed_size {
-        return Err(ZipError::SizeMismatch {
-            name: entry.name.clone(),
-            expected: entry.uncompressed_size,
-            actual: written,
-        });
-    }
-    let actual = !crc;
-    if actual != entry.crc32 {
-        return Err(ZipError::CrcMismatch {
-            name: entry.name.clone(),
-            expected: entry.crc32,
-            actual,
-        });
-    }
-    Ok(())
+    check_output(entry, written, || !crc)
 }
 
 /// Inflates a raw deflate stream (no zlib header), refusing to produce more

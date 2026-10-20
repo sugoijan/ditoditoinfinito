@@ -646,6 +646,19 @@ pub(crate) fn fit(look: &dyn Look, vp: ddi_actor::screen::VirtualScreen) -> [f32
     }
 }
 
+/// A compact screen's layout size and zoom: sideways (or no wider than
+/// `Options.Narrow.Width`) as it is; upright, that wide, zoomed to the
+/// screen's width.
+pub(crate) fn narrow_fit(env: &Env, vp: ddi_actor::screen::VirtualScreen) -> ([f32; 2], f32) {
+    let narrow = env.metric("Options.Narrow.Width", 480.0);
+    if vp.width >= vp.height || vp.width <= narrow {
+        ([vp.width, vp.height], 1.0)
+    } else {
+        let z = vp.width / narrow;
+        ([narrow, vp.height / z], z)
+    }
+}
+
 pub(crate) fn fit_root(look: &dyn Look, root: &mut Actor, vp: ddi_actor::screen::VirtualScreen) {
     if is_compact(look, vp) {
         call(root, "zoom", &[vp.height / design_height(look)]);
@@ -653,7 +666,7 @@ pub(crate) fn fit_root(look: &dyn Look, root: &mut Actor, vp: ddi_actor::screen:
 }
 
 /// A screen over song select leaves (`cancel`: backing out).
-pub(crate) fn leave(env: &Env, cx: &mut crate::Cx, cancel: bool) {
+pub fn leave(env: &Env, cx: &mut crate::Cx, cancel: bool) {
     let mut st = env.state.borrow_mut();
     st.over = st.over.saturating_sub(1);
     drop(st);

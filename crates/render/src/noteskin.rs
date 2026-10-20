@@ -225,6 +225,8 @@ pub struct NoteskinPlay {
     quads: std::cell::Cell<usize>,
     /// Models' triangles drawn this frame (at most [`MAX_FRAME_TRIANGLES`]).
     triangles: std::cell::Cell<usize>,
+    /// What an actor drew, reused by each [`NoteskinPlay::emit`].
+    drawn: std::cell::Cell<Vec<Drawn>>,
     /// The field's perspective this frame, for models.
     camera: Camera,
     textures: Textures,
@@ -812,6 +814,7 @@ impl NoteskinPlay {
             name,
             quads: std::cell::Cell::new(0),
             triangles: std::cell::Cell::new(0),
+            drawn: std::cell::Cell::default(),
             camera: Camera {
                 vanish: [0.0; 2],
                 distance: 1.0,
@@ -1265,10 +1268,10 @@ impl NoteskinPlay {
         offset: [f32; 2],
         out: &mut Vec<TexQuad>,
     ) {
-        let mut drawn = Vec::new();
+        let mut drawn = self.drawn.take();
         let view = self.camera.view();
         actor.draw_in(&view, transform, [1.0; 4], [1.0, 1.0, 1.0, 0.0], &mut drawn);
-        for d in drawn {
+        for d in drawn.drain(..) {
             match d {
                 Drawn::Quad(q) => self.push(q, offset, out),
                 Drawn::Model(m) => self.push_model(&m, offset, out),
@@ -1276,6 +1279,7 @@ impl NoteskinPlay {
                 Drawn::Text(_) | Drawn::ClipPush(_) | Drawn::ClipPop => {}
             }
         }
+        self.drawn.set(drawn);
     }
 
     /// A model's triangles (`Model::DrawPrimitives`): every mesh's diffuse

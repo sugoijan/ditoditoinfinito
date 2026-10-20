@@ -13,6 +13,7 @@
 
 use ddi_platform::video::{VideoCodec, VideoContainer, VideoFormat};
 
+use crate::bytes::{be16, be32, be64, le32};
 use crate::pack::extension;
 
 /// File extensions StepMania treats as movies (`ActorUtil.cpp`, 5_1-new).
@@ -58,22 +59,6 @@ pub fn sniff(head: &[u8]) -> VideoFormat {
         (VideoContainer::Unknown, VideoCodec::Unknown)
     };
     VideoFormat { container, codec }
-}
-
-fn u16_be(b: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_be_bytes(b.get(at..at + 2)?.try_into().ok()?))
-}
-
-fn u32_be(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes(b.get(at..at + 4)?.try_into().ok()?))
-}
-
-fn u32_le(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?))
-}
-
-fn u64_be(b: &[u8], at: usize) -> Option<u64> {
-    Some(u64::from_be_bytes(b.get(at..at + 8)?.try_into().ok()?))
 }
 
 fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
@@ -135,7 +120,7 @@ fn riff_chunks(b: &[u8], mut at: usize, end: usize) -> Vec<([u8; 4], usize, usiz
         let Some(id) = b.get(at..at + 4).and_then(|s| <[u8; 4]>::try_from(s).ok()) else {
             break;
         };
-        let size = u32_le(b, at + 4).unwrap_or(0) as usize;
+        let size = le32(b, at + 4).unwrap_or(0) as usize;
         let data = at + 8;
         out.push((id, data, data.saturating_add(size).min(end)));
         // Chunks are padded to an even size.
@@ -191,11 +176,11 @@ pub fn mp4_index_at(head: &[u8]) -> Option<u64> {
             // The next box's header is past what was read: likely the index.
             return Some(at);
         }
-        let size = u64::from(u32_be(head, i)?);
+        let size = u64::from(be32(head, i)?);
         let kind = head.get(i + 4..i + 8)?;
         let total = match size {
             0 => return None,
-            1 => u64_be(head, i + 8)?,
+            1 => be64(head, i + 8)?,
             n => n,
         };
         if total < 8 {
@@ -226,7 +211,7 @@ fn boxes(b: &[u8], mut at: usize, end: usize) -> Vec<([u8; 4], usize, usize)> {
     let end = end.min(b.len());
     let mut out = Vec::new();
     while end.checked_sub(at).is_some_and(|left| left >= 8) && out.len() < 256 {
-        let Some(size) = u32_be(b, at) else { break };
+        let Some(size) = be32(b, at) else { break };
         let Some(kind) = b
             .get(at + 4..at + 8)
             .and_then(|s| <[u8; 4]>::try_from(s).ok())
@@ -235,7 +220,7 @@ fn boxes(b: &[u8], mut at: usize, end: usize) -> Vec<([u8; 4], usize, usize)> {
         };
         let (data, total) = match size {
             0 => (at + 8, end - at),
-            1 => match u64_be(b, at + 8) {
+            1 => match be64(b, at + 8) {
                 Some(large) => (at + 16, usize::try_from(large).unwrap_or(usize::MAX)),
                 None => break,
             },
@@ -258,7 +243,7 @@ fn is_iso_media(b: &[u8]) -> bool {
     const TOP: [&[u8; 4]; 7] = [
         b"ftyp", b"moov", b"mdat", b"free", b"skip", b"wide", b"pnot",
     ];
-    u32_be(b, 0).is_some_and(|s| s == 1 || s >= 8)
+    be32(b, 0).is_some_and(|s| s == 1 || s >= 8)
         && b.get(4..8).is_some_and(|k| TOP.iter().any(|t| k == *t))
 }
 
@@ -424,15 +409,14 @@ fn asf(b: &[u8]) -> VideoCodec {
 
 /// The codec of an FLV file's first video tag.
 fn flv(b: &[u8]) -> VideoCodec {
-    let Some(header) = u32_be(b, 5) else {
+    let Some(header) = be32(b, 5) else {
         return VideoCodec::Unknown;
     };
     // After the header, the first PreviousTagSize, then tags: type, data
     // size (3 bytes), timestamp (4), stream id (3), data, PreviousTagSize.
     let mut at = (header as usize).saturating_add(4);
     for _ in 0..64 {
-        let (Some(&kind), Some(size)) =
-            (b.get(at), u32_be(b, at).map(|v| (v & 0xff_ffff) as usize))
+        let (Some(&kind), Some(size)) = (b.get(at), be32(b, at).map(|v| (v & 0xff_ffff) as usize))
         else {
             break;
         };
@@ -522,12 +506,12 @@ fn transport(b: &[u8], packet: usize) -> VideoCodec {
     };
     // table id, section length (2), id (2), version, section, last section,
     // then programs: number (2), PID (2), until the CRC.
-    let pat_end = 3 + usize::from(u16_be(pat, 1).unwrap_or(0) & 0x0fff);
+    let pat_end = 3 + usize::from(be16(pat, 1).unwrap_or(0) & 0x0fff);
     let pmt_pid = (8..pat_end.saturating_sub(4).min(pat.len()))
         .step_by(4)
         .find_map(|at| {
-            let number = u16_be(pat, at)?;
-            (number != 0).then(|| u16_be(pat, at + 2).map(|p| p & 0x1fff))?
+            let number = be16(pat, at)?;
+            (number != 0).then(|| be16(pat, at + 2).map(|p| p & 0x1fff))?
         });
     let Some(pmt) = pmt_pid.and_then(section) else {
         return VideoCodec::Unknown;
@@ -535,10 +519,10 @@ fn transport(b: &[u8], packet: usize) -> VideoCodec {
     // table id, length, program, version, sections, PCR PID (2), program
     // info length (2), descriptors, then streams: type, PID (2), info
     // length (2), descriptors.
-    let pmt_end = (3 + usize::from(u16_be(pmt, 1).unwrap_or(0) & 0x0fff))
+    let pmt_end = (3 + usize::from(be16(pmt, 1).unwrap_or(0) & 0x0fff))
         .saturating_sub(4)
         .min(pmt.len());
-    let mut at = 12 + usize::from(u16_be(pmt, 10).unwrap_or(0) & 0x0fff);
+    let mut at = 12 + usize::from(be16(pmt, 10).unwrap_or(0) & 0x0fff);
     while at + 5 <= pmt_end {
         let codec = match pmt[at] {
             0x01 => Some(VideoCodec::Mpeg1),
@@ -553,7 +537,7 @@ fn transport(b: &[u8], packet: usize) -> VideoCodec {
         if let Some(codec) = codec {
             return codec;
         }
-        at += 5 + usize::from(u16_be(pmt, at + 3).unwrap_or(0) & 0x0fff);
+        at += 5 + usize::from(be16(pmt, at + 3).unwrap_or(0) & 0x0fff);
     }
     VideoCodec::Unknown
 }

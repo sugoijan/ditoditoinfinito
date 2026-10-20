@@ -27,19 +27,8 @@ use ddi_actor::{Actor, Kind};
 /// `y' = m[1]x + m[3]y + m[5]` (the actor crate's).
 pub type Affine = [f32; 6];
 
-pub const IDENTITY: Affine = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
-
-/// `parent · local`: `local` first.
-pub fn mul(parent: &Affine, local: &Affine) -> Affine {
-    [
-        parent[0] * local[0] + parent[2] * local[1],
-        parent[1] * local[0] + parent[3] * local[1],
-        parent[0] * local[2] + parent[2] * local[3],
-        parent[1] * local[2] + parent[3] * local[3],
-        parent[0] * local[4] + parent[2] * local[5] + parent[4],
-        parent[1] * local[4] + parent[3] * local[5] + parent[5],
-    ]
-}
+/// The identity, and `parent · local` (`local` first): the actor crate's.
+pub use ddi_actor::{TRANSFORM_IDENTITY as IDENTITY, mul};
 
 pub fn apply(m: &Affine, p: [f32; 2]) -> [f32; 2] {
     [

@@ -31,10 +31,7 @@ use crate::preview::SharedPlayer;
 
 /// What song select, options and the shell share of the library.
 pub struct Songs {
-    #[cfg(all(
-        feature = "danoni-importer",
-        any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-    ))]
+    #[cfg(danoni_importer)]
     imports: RefCell<crate::danoni::Imports>,
     pub library: RefCell<Option<Library>>,
     pub plays: Option<Rc<Plays>>,
@@ -70,10 +67,7 @@ impl Songs {
         // Their noteskins too.
         crate::library::set_extra_folders(&extra);
         Rc::new(Songs {
-            #[cfg(all(
-                feature = "danoni-importer",
-                any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-            ))]
+            #[cfg(danoni_importer)]
             imports: RefCell::default(),
             library: RefCell::new(None),
             plays: crate::history::open(),
@@ -96,49 +90,31 @@ impl Songs {
 
     /// Cancel and drain native jobs without joining a live worker on the UI thread.
     pub fn shutdown(&self) -> bool {
-        #[cfg(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        ))]
+        #[cfg(danoni_importer)]
         {
             self.imports.borrow_mut().shutdown()
         }
-        #[cfg(not(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        )))]
+        #[cfg(not(danoni_importer))]
         {
             true
         }
     }
     pub fn drained(&self) -> bool {
-        #[cfg(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        ))]
+        #[cfg(danoni_importer)]
         {
             self.imports.borrow().drained()
         }
-        #[cfg(not(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        )))]
+        #[cfg(not(danoni_importer))]
         {
             false
         }
     }
     pub fn importing(&self) -> bool {
-        #[cfg(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        ))]
+        #[cfg(danoni_importer)]
         {
             self.imports.borrow().busy()
         }
-        #[cfg(not(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        )))]
+        #[cfg(not(danoni_importer))]
         {
             false
         }
@@ -158,10 +134,7 @@ impl Songs {
     /// Starts the scan (the cache's list first); `wake` wakes the loop.
     pub fn start(&self, wake: Arc<dyn Fn() + Send + Sync>) {
         *self.wake.borrow_mut() = Some(wake.clone());
-        #[cfg(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        ))]
+        #[cfg(danoni_importer)]
         self.imports.borrow_mut().load(wake.clone());
         crate::library::set_preview_wake(wake.clone());
         let library = Library::start(
@@ -238,10 +211,7 @@ impl Songs {
         data.autoplay = self.autoplay.get();
         // The screens' wording: song folders read in place.
         data.import.platform = ddi_ui::screens::data::Platform::Desktop;
-        #[cfg(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        ))]
+        #[cfg(danoni_importer)]
         self.imports.borrow().view(&mut data.import);
         data
     }
@@ -298,10 +268,7 @@ impl Songs {
     /// The scan's and the history's news; whether the list was sent.
     pub fn poll(self: &Rc<Self>, ui: &mut Ui) -> bool {
         self.offer(ui);
-        #[cfg(all(
-            feature = "danoni-importer",
-            any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-        ))]
+        #[cfg(danoni_importer)]
         {
             let news = self.imports.borrow_mut().poll();
             if let Some(news) = news {
@@ -316,8 +283,13 @@ impl Songs {
                         self.hidden.borrow().save();
                     }
                 }
-                self.feed.borrow_mut().import = Some(self.data().import);
-                self.send(ui);
+                let data = self.data();
+                {
+                    let mut feed = self.feed.borrow_mut();
+                    feed.import = Some(data.import.clone());
+                    feed.data = Some(data);
+                }
+                ui.broadcast(Message::new(FEED));
             }
             // Build just the import view; rebuilding the complete library each
             // frame is expensive on large song collections.
@@ -477,19 +449,13 @@ impl Songs {
     pub fn call(self: &Rc<Self>, call: SelectCall, sound: Option<&SharedPlayer>, cx: &mut Cx) {
         match call {
             SelectCall::ImportDanoni { url, offline } => {
-                #[cfg(all(
-                    feature = "danoni-importer",
-                    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-                ))]
+                #[cfg(danoni_importer)]
                 if let Some(wake) = self.wake.borrow().clone() {
                     self.imports.borrow_mut().start(url, offline, wake);
-                    self.feed.borrow_mut().import = Some(self.data().import);
+                    self.feed.borrow_mut().import = Some(self.imports.borrow().current_view());
                     cx.broadcast(Message::new(FEED));
                 }
-                #[cfg(not(all(
-                    feature = "danoni-importer",
-                    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-                )))]
+                #[cfg(not(danoni_importer))]
                 let _ = (url, offline);
             }
             SelectCall::DanoniOriginDecision {
@@ -497,24 +463,15 @@ impl Songs {
                 allow,
                 remember,
             } => {
-                #[cfg(all(
-                    feature = "danoni-importer",
-                    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-                ))]
+                #[cfg(danoni_importer)]
                 self.imports
                     .borrow_mut()
                     .origin_decision(request_id, allow, remember);
-                #[cfg(not(all(
-                    feature = "danoni-importer",
-                    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-                )))]
+                #[cfg(not(danoni_importer))]
                 let _ = (request_id, allow, remember);
             }
             SelectCall::CancelDanoni => {
-                #[cfg(all(
-                    feature = "danoni-importer",
-                    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-                ))]
+                #[cfg(danoni_importer)]
                 self.imports.borrow().cancel();
             }
             SelectCall::Selected { song, .. } => {

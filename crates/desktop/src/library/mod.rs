@@ -22,10 +22,7 @@
 //!   the music's path (a zip's extracted once into the cache folder).
 
 pub mod files;
-#[cfg(all(
-    feature = "danoni-importer",
-    any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))
-))]
+#[cfg(danoni_importer)]
 pub mod managed;
 pub mod noteskins;
 pub mod offer;
@@ -1290,8 +1287,13 @@ pub fn find_by_digest(digest: ddi_chart::ChartDigest) -> Option<String> {
 
 /// The bundled songs' entries: the manifest `xtask gen-songs` writes
 /// (`target/songs/index.json`, beside the assets as Trunk builds it), or
-/// none when it was never generated.
+/// none when it was never generated. Read once a run once it is there
+/// (a test may write it after starting).
 pub fn bundled() -> Vec<ManifestEntry> {
+    static READ: std::sync::OnceLock<Vec<ManifestEntry>> = std::sync::OnceLock::new();
+    if let Some(songs) = READ.get() {
+        return songs.clone();
+    }
     let assets = crate::images::assets();
     let candidates = [
         assets.join("../target/songs/index.json"),
@@ -1301,7 +1303,7 @@ pub fn bundled() -> Vec<ManifestEntry> {
         .iter()
         .find_map(|p| std::fs::read_to_string(p).ok())
         .and_then(|t| serde_json::from_str::<Manifest>(&t).ok())
-        .map(|m| m.songs)
+        .map(|m| READ.get_or_init(|| m.songs).clone())
         .unwrap_or_default()
 }
 
@@ -1412,26 +1414,6 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
     if let Some(w) = &s.work {
         return prepare_work_preview(s, w);
     }
-    let music = if s.zip {
-        let dir = cache_dir()?.join("previews");
-        let ext = s.entry.music.extension().unwrap_or("ogg");
-        let stamp = zip_stamp(&s.root)?.replace(':', "-");
-        let key = format!("{}-", s.entry.id);
-        let out = dir.join(format!("{key}{stamp}.{ext}"));
-        if !out.is_file() {
-            let reader = ZipReader::open(&s.root, &shift_jis).ok()?;
-            let bytes = reader.read(&s.rooted(&s.entry.music)).ok()?;
-            std::fs::create_dir_all(&dir).ok()?;
-            let tmp = dir.join(format!(".{key}{}.part", std::process::id()));
-            std::fs::write(&tmp, bytes).ok()?;
-            std::fs::rename(&tmp, &out).ok()?;
-            clean_previews(&dir, &key, &out);
-        }
-        out
-    } else {
-        s.rooted(&s.entry.music).to_path(&s.root)?
-    };
-    // The timing for the beat pulse, from the simfile as it is now.
     let reader: Box<dyn Reader> = if s.zip {
         Box::new(ZipReader::open(&s.root, &shift_jis).ok()?)
     } else {
@@ -1439,6 +1421,21 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
             root: s.root.clone(),
         })
     };
+    let music = if s.zip {
+        let dir = cache_dir()?.join("previews");
+        let ext = s.entry.music.extension().unwrap_or("ogg");
+        let stamp = zip_stamp(&s.root)?.replace(':', "-");
+        let key = format!("{}-", s.entry.id);
+        let out = dir.join(format!("{key}{stamp}.{ext}"));
+        if !out.is_file() {
+            let bytes = reader.read(&s.rooted(&s.entry.music)).ok()?;
+            cache_preview(&dir, &key, &out, &bytes)?;
+        }
+        out
+    } else {
+        s.rooted(&s.entry.music).to_path(&s.root)?
+    };
+    // The timing for the beat pulse, from the simfile as it is now.
     let text = pack::decode_text_with(&reader.read(&s.rooted(&s.entry.chart)).ok()?, shift_jis);
     let ext = s
         .entry
@@ -1478,11 +1475,7 @@ fn prepare_work_preview(s: &LibSong, w: &WorkRef) -> Option<Prepared> {
         let key = format!("{}-", s.entry.id);
         let out = dir.join(format!("{key}{stamp}.{ext}"));
         if !out.is_file() {
-            std::fs::create_dir_all(&dir).ok()?;
-            let tmp = dir.join(format!(".{key}{}.part", std::process::id()));
-            std::fs::write(&tmp, bytes).ok()?;
-            std::fs::rename(&tmp, &out).ok()?;
-            clean_previews(&dir, &key, &out);
+            cache_preview(&dir, &key, &out, &bytes)?;
         }
         out
     } else {
@@ -1495,6 +1488,17 @@ fn prepare_work_preview(s: &LibSong, w: &WorkRef) -> Option<Prepared> {
         target: ddi_session::music_target(&song),
         timing: song.timing,
     })
+}
+
+/// Writes `bytes` as the preview `out` in `dir` (whole, then renamed)
+/// and cleans the folder ([`clean_previews`]).
+fn cache_preview(dir: &Path, key: &str, out: &Path, bytes: &[u8]) -> Option<()> {
+    std::fs::create_dir_all(dir).ok()?;
+    let tmp = dir.join(format!(".{key}{}.part", std::process::id()));
+    std::fs::write(&tmp, bytes).ok()?;
+    std::fs::rename(&tmp, out).ok()?;
+    clean_previews(dir, key, out);
+    Some(())
 }
 
 /// Extracted previews kept at most.

@@ -10,24 +10,11 @@
 use std::time::Instant;
 
 use ddi_chart::Layout;
+use ddi_render::Painter;
 use ddi_render::field_preview::{BPM, FieldPreview, FieldPreviewOptions, SOURCE};
-use ddi_render::{ColorScheme, Painter};
-use ddi_ui::state::settings::{BackgroundFrame, NoteColors, Settings};
+use ddi_ui::state::settings::{BackgroundFrame, Settings};
 
-/// The HUD's face (the web's `game_loop::FONT`).
-const FONT: &[u8] = include_bytes!("../../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
-
-/// The note colors as the renderer has them (the web's
-/// `settings::note_scheme`).
-fn note_scheme(colors: NoteColors) -> ColorScheme {
-    match colors {
-        NoteColors::Quantized => ColorScheme::Quantized,
-        NoteColors::Vivid => ColorScheme::Vivid,
-        NoteColors::Flat => ColorScheme::Flat,
-        NoteColors::Rainbow => ColorScheme::Rainbow,
-        NoteColors::Single => ColorScheme::Single([0.35, 0.85, 1.0, 1.0]),
-    }
-}
+use crate::play::view::note_scheme;
 
 /// The preview's options under `settings`, as the web builds them
 /// (`crates/web/src/field_preview.rs`, play's own).
@@ -197,7 +184,7 @@ impl Field {
                 device,
                 queue,
                 Some(wgpu::TextureFormat::Rgba16Float),
-                &[FONT],
+                &[ddi_render::HUD_FONT],
             )
         });
         preview.set_options(self.options.clone());
@@ -213,7 +200,7 @@ impl Field {
                     let env = ddi_engine::demo::song(&want.layout, BPM)
                         .and_then(|song| {
                             let chart = song.charts.first()?;
-                            Some(crate::play::skins::lua_env(
+                            Some(ddi_noteskin::lua::chart_env(
                                 &song,
                                 chart,
                                 &layout,

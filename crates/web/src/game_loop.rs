@@ -109,13 +109,6 @@ pub(crate) struct GameLoop {
     lua_stop_reported: bool,
 }
 
-fn now_ms() -> f64 {
-    web_sys::window()
-        .and_then(|w| w.performance())
-        .map_or(0.0, |p| p.now())
-}
-
-/// Width over height of the screens pack art was made for.
 impl GameLoop {
     /// `skins`: the player draws layouts with a skin (not the
     /// built-in arrows, chosen to be lighter).
@@ -290,26 +283,7 @@ impl GameLoop {
         let texture = self
             .renderer
             .create_background_texture(&self.gfx.device, width, height);
-        self.gfx.queue.copy_external_image_to_texture(
-            &wgpu::CopyExternalImageSourceInfo {
-                source: wgpu::ExternalImageSource::ImageBitmap(image.clone()),
-                origin: wgpu::Origin2d::ZERO,
-                flip_y: false,
-            },
-            wgpu::CopyExternalImageDestInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-                color_space: wgpu::PredefinedColorSpace::Srgb,
-                premultiplied_alpha: false,
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
+        crate::web::gfx::copy_bitmap(&self.gfx.queue, &image, &texture, width, height);
         match what {
             BgImage::Song => self.frame_shape.song_bg_aspect = Some(width as f32 / height as f32),
             BgImage::Still => self.frame_shape.still_aspect = Some(width as f32 / height as f32),
@@ -467,7 +441,7 @@ impl GameLoop {
         self.stage.forget_textures();
         // Colors as the target blends them: encoded when skins blend as
         // StepMania's do.
-        let srgb = self.renderer.srgb() && !self.renderer.skins_blend_encoded();
+        let srgb = skin_srgb(&self.renderer);
         self.noteskin = play.map(|mut play| {
             play.set_srgb(srgb);
             self.uploaded_images.extend(upload_noteskin(
@@ -560,11 +534,7 @@ impl GameLoop {
         let drawing = self.movies.drawing(&self.background_schedule);
         // As a movie that costs frames would: not while it is paused.
         if self.slow && drawing.is_some() && !self.movies.paused() {
-            let now = || {
-                web_sys::window()
-                    .and_then(|w| w.performance())
-                    .map_or(0.0, |p| p.now())
-            };
+            let now = crate::web::clock::PerformanceClock::now_ms;
             let until = now() + 40.0;
             while now() < until {}
         }
@@ -631,7 +601,7 @@ impl GameLoop {
                     }
                 } else {
                     self.movies_stopped = false;
-                    let before = now_ms();
+                    let before = crate::web::clock::PerformanceClock::now_ms();
                     self.movies.update(
                         &self.background_schedule,
                         frame.song_time,
@@ -640,7 +610,7 @@ impl GameLoop {
                         &self.gfx.queue,
                     );
                     if drawing.is_some() {
-                        let spent = now_ms() - before;
+                        let spent = crate::web::clock::PerformanceClock::now_ms() - before;
                         let (sum, max, n) = &mut self.video_ms;
                         *sum += spent;
                         *max = max.max(spent);
@@ -657,19 +627,21 @@ impl GameLoop {
                         }
                     }
                 }
+                // The field's place on the canvas this frame, and its
+                // pixels to a CSS pixel.
+                let css = self.css_size.get();
+                let (width, height) = self.gfx.size();
+                let ratio = width as f32 / (css.0 as f32).max(1.0);
+                let span = ddi_render::scene::field_span(&session.layout);
+                let geo = ddi_render::FieldGeometry::new(
+                    width as f32,
+                    height as f32,
+                    span,
+                    session.render.reverse,
+                );
                 // The touch screens' quit button, at the canvas's pixels,
                 // clear of the field's receptors and the safe area.
                 let quit = crate::web::touch::quit_shown().then(|| {
-                    let css = self.css_size.get();
-                    let (w, h) = self.gfx.size();
-                    let ratio = w as f32 / (css.0 as f32).max(1.0);
-                    let span = ddi_render::scene::field_span(&session.layout);
-                    let geo = ddi_render::FieldGeometry::new(
-                        w as f32,
-                        h as f32,
-                        span,
-                        session.render.reverse,
-                    );
                     let insets = crate::web::touch::safe_insets(css);
                     let b = ddi_render::scene::quit_button(&geo, &session.layout, ratio, insets);
                     crate::web::touch::set_quit_at(Some(b.map(|v| v / ratio)));
@@ -696,17 +668,8 @@ impl GameLoop {
                     .then_some(frame.song_time);
                 // The lyrics at this frame's time, over the field's middle.
                 if let (Some(track), Some(t)) = (self.lyrics.as_ref(), self.playing_at) {
-                    let (w, h) = self.gfx.size();
-                    let span = ddi_render::scene::field_span(&session.layout);
-                    let geo = ddi_render::FieldGeometry::new(
-                        w as f32,
-                        h as f32,
-                        span,
-                        session.render.reverse,
-                    );
                     let lines = track.at(t);
                     if !lines.is_empty() {
-                        let ratio = w as f32 / (self.css_size.get().0 as f32).max(1.0);
                         let place = ddi_render::lyrics::Place::for_play(
                             &geo,
                             &session.layout,
@@ -751,13 +714,13 @@ impl GameLoop {
                     if stage.pending() {
                         stage.upload(&mut self.renderer, &self.gfx.device, &self.gfx.queue);
                     }
-                    let (w, h) = self.gfx.size();
-                    let (w, h) = (w as f32, h as f32);
-                    let span = ddi_render::scene::field_span(&session.layout);
-                    let geo = ddi_render::FieldGeometry::new(w, h, span, render.reverse);
-                    let srgb = self.renderer.srgb() && !self.renderer.skins_blend_encoded();
-                    let (back, mask) =
-                        stage.quads(frame.song_time, geo.left + geo.arrow * span / 2.0, h, srgb);
+                    let srgb = skin_srgb(&self.renderer);
+                    let (back, mask) = stage.quads(
+                        frame.song_time,
+                        geo.left + geo.arrow * span / 2.0,
+                        height as f32,
+                        srgb,
+                    );
                     self.stage_drawn = (back.len(), mask.len());
                     self.renderer.set_stage_quads(back, mask);
                 }
@@ -767,8 +730,8 @@ impl GameLoop {
                     &mut encoder,
                     &view,
                     plain_view.as_ref(),
-                    self.gfx.size().0,
-                    self.gfx.size().1,
+                    width,
+                    height,
                     &frame,
                     &session.layout,
                     &session.names,
@@ -1139,6 +1102,12 @@ impl GameLoop {
     }
 }
 
+/// Whether skins' colors are made in linear light: on an sRGB target,
+/// unless skins blend as StepMania's do (in encoded values).
+fn skin_srgb(renderer: &ddi_render::Renderer) -> bool {
+    renderer.srgb() && !renderer.skins_blend_encoded()
+}
+
 impl Drop for GameLoop {
     fn drop(&mut self) {
         // A pending resize callback must not run into a dropped closure.
@@ -1173,26 +1142,7 @@ pub(crate) fn upload_noteskin(
                 // A model's texture is mipmapped, as StepMania's are.
                 let mipmaps = play.texture_mipmaps(i);
                 let texture = renderer.create_noteskin_texture(device, w, h, mipmaps);
-                queue.copy_external_image_to_texture(
-                    &wgpu::CopyExternalImageSourceInfo {
-                        source: wgpu::ExternalImageSource::ImageBitmap(image.clone()),
-                        origin: wgpu::Origin2d::ZERO,
-                        flip_y: false,
-                    },
-                    wgpu::CopyExternalImageDestInfo {
-                        texture: &texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                        color_space: wgpu::PredefinedColorSpace::Srgb,
-                        premultiplied_alpha: false,
-                    },
-                    wgpu::Extent3d {
-                        width: w,
-                        height: h,
-                        depth_or_array_layers: 1,
-                    },
-                );
+                crate::web::gfx::copy_bitmap(queue, &image, &texture, w, h);
                 if mipmaps {
                     renderer.generate_noteskin_mipmaps(device, queue, &texture);
                 }

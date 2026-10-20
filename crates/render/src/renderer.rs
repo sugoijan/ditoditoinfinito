@@ -48,12 +48,13 @@ pub struct Renderer {
     format: wgpu::TextureFormat,
     offscreen_format: Option<wgpu::TextureFormat>,
     pub skin: Skin,
-    instance_count: usize,
     /// The target format is sRGB (blending and sampling in linear light).
     srgb: bool,
     /// A work's back and mask layers' quads ([`Renderer::set_stage_quads`]).
     stage_back: Vec<crate::textured::TexQuad>,
     stage_mask: Vec<crate::textured::TexQuad>,
+    /// The last frame's scene, its lists' room reused by the next.
+    scene: scene::SceneOutput,
     /// For skins' masks ([`crate::stencil`]).
     stencil: crate::stencil::Attachment,
     /// [`SkinBlending::Encoded`]: always offscreen, encoded at the end.
@@ -104,10 +105,10 @@ impl Renderer {
             offscreen,
             format,
             skin: Skin::default(),
-            instance_count: 0,
             srgb,
             stage_back: Vec::new(),
             stage_mask: Vec::new(),
+            scene: Default::default(),
             stencil: Default::default(),
             encoded,
         }
@@ -243,25 +244,7 @@ impl Renderer {
     ) -> u32 {
         let art = crate::art::builtin(name);
         let texture = self.create_noteskin_texture(device, art.width, art.height, false);
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &art.rgba,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(art.width * 4),
-                rows_per_image: Some(art.height),
-            },
-            wgpu::Extent3d {
-                width: art.width,
-                height: art.height,
-                depth_or_array_layers: 1,
-            },
-        );
+        crate::gpu::write_rgba(queue, &texture, [art.width, art.height], &art.rgba);
         self.textured.add_texture(device, &texture)
     }
 
@@ -375,7 +358,9 @@ impl Renderer {
         if band.is_some() {
             scene_opts.field_filter = 0.0;
         }
-        let mut scene = scene::build(
+        let mut scene = std::mem::take(&mut self.scene);
+        scene::build_into(
+            &mut scene,
             frame,
             layout,
             names,
@@ -423,7 +408,6 @@ impl Renderer {
         self.sprites
             .set_viewport(queue, width as f32, height as f32, frame.song_time as f32);
         self.sprites.upload(device, queue, &scene.instances);
-        self.instance_count = scene.instances.len();
         self.textured
             .prepare(device, queue, width as f32, height as f32, &scene.quads);
         let _ = self.text.prepare(device, queue, width, height, &scene.text);
@@ -556,46 +540,30 @@ impl Renderer {
             }
         }
         self.text.trim();
+        self.scene = scene;
     }
 }
 
 /// A rectangle of the target, in pixels.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Rect {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-}
-
-impl Rect {
-    fn union(self, o: Rect) -> Rect {
-        let (x, y) = (self.x.min(o.x), self.y.min(o.y));
-        let right = (self.x + self.width).max(o.x + o.width);
-        let bottom = (self.y + self.height).max(o.y + o.height);
-        Rect {
-            x,
-            y,
-            width: right - x,
-            height: bottom - y,
-        }
-    }
-}
+type Rect = crate::atlas::PageRect;
 
 /// The pixels a quad or triangle may touch on a `width × height` target
 /// (its corners' box, two pixels wider for filtering); `None` off it.
 fn quad_rect(q: &crate::textured::TexQuad, width: u32, height: u32) -> Option<Rect> {
     use crate::textured::Shape;
-    let corners: Vec<[f32; 2]> = match q.shape {
-        Shape::Quad { transform: m, .. } => [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)]
-            .iter()
-            .map(|&(u, v)| [m[4] + m[0] * u + m[2] * v, m[5] + m[1] * u + m[3] * v])
-            .collect(),
-        Shape::Triangle { points, .. } => points.to_vec(),
-        Shape::Projected { corners, .. } => corners.to_vec(),
+    let (corners, count) = match q.shape {
+        Shape::Quad { transform: m, .. } => (
+            [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)]
+                .map(|(u, v)| [m[4] + m[0] * u + m[2] * v, m[5] + m[1] * u + m[3] * v]),
+            4,
+        ),
+        Shape::Triangle {
+            points: [a, b, c], ..
+        } => ([a, b, c, c], 3),
+        Shape::Projected { corners, .. } => (corners, 4),
     };
     let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
-    for c in &corners {
+    for c in &corners[..count] {
         if !(c[0].is_finite() && c[1].is_finite()) {
             return None;
         }

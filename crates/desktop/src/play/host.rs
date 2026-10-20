@@ -283,11 +283,6 @@ impl Host {
         matches!(self.stage, Stage::Playing(..))
     }
 
-    /// Frames keep coming (the play).
-    pub fn animating(&self) -> bool {
-        matches!(self.stage, Stage::Playing(..))
-    }
-
     /// The prompt is up.
     pub fn prompting(&self) -> bool {
         matches!(self.stage, Stage::Prompt(_))
@@ -1077,39 +1072,13 @@ impl Host {
             // Kept: its replay can be read.
             .filter(|_| replay.is_none() && matches!(*play.saved.borrow(), Some(Ok(()))))
             .map(|play_id| {
-                let after = self.after.clone();
-                Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
-                    after.set(Some(After::Watch(play_id.clone())));
-                    let mut st = env.state.borrow_mut();
-                    st.over = st.over.saturating_sub(1);
-                    drop(st);
-                    cx.close(true);
-                }) as ActionFn
+                results_action(&self.after, move || After::Watch(play_id.clone()), true)
             });
-        let after = self.after.clone();
-        let retry: ActionFn = Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
-            after.set(Some(After::Retry));
-            let mut st = env.state.borrow_mut();
-            st.over = st.over.saturating_sub(1);
-            drop(st);
-            cx.close(false);
-        });
-        let after = self.after.clone();
-        let song_list: ActionFn = Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
-            after.set(Some(After::Leave));
-            let mut st = env.state.borrow_mut();
-            st.over = st.over.saturating_sub(1);
-            drop(st);
-            cx.close(true);
-        });
+        let retry = results_action(&self.after, || After::Retry, false);
+        let song_list = results_action(&self.after, || After::Leave, true);
         let offset: OffsetFn = Rc::new(move |seconds| {
             let mut s = Settings::load();
             s.set_song_offset(&id, seconds);
-            s.save();
-        });
-        let panels: PanelsFn = Rc::new(|name| {
-            let mut s = Settings::load();
-            s.results_panels = name.to_string();
             s.save();
         });
         ui.push(ResultsScreen::new(
@@ -1119,7 +1088,7 @@ impl Host {
                 retry: Some(retry),
                 song_list: Some(song_list),
                 offset: Some(offset),
-                panels: Some(panels),
+                panels: Some(save_panels()),
                 replay: watch,
             },
         ));
@@ -1232,28 +1201,9 @@ impl Host {
             results.tally.taps,
             ddi_ui::screens::play::score_text(&results)
         ));
-        let after = self.after.clone();
-        let song_list: ActionFn = Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
-            after.set(Some(After::Leave));
-            let mut st = env.state.borrow_mut();
-            st.over = st.over.saturating_sub(1);
-            drop(st);
-            cx.close(true);
-        });
-        let after = self.after.clone();
+        let song_list = results_action(&self.after, || After::Leave, true);
         let id = rp.id.clone();
-        let watch: ActionFn = Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
-            after.set(Some(After::Watch(id.clone())));
-            let mut st = env.state.borrow_mut();
-            st.over = st.over.saturating_sub(1);
-            drop(st);
-            cx.close(true);
-        });
-        let panels: PanelsFn = Rc::new(|name| {
-            let mut s = Settings::load();
-            s.results_panels = name.to_string();
-            s.save();
-        });
+        let watch = results_action(&self.after, move || After::Watch(id.clone()), true);
         ui.push(ResultsScreen::new(
             env.clone(),
             data,
@@ -1261,7 +1211,7 @@ impl Host {
                 retry: None,
                 song_list: Some(song_list),
                 offset: None,
-                panels: Some(panels),
+                panels: Some(save_panels()),
                 replay: Some(watch),
             },
         ));
@@ -1323,7 +1273,7 @@ fn skin_want(
         settings.note_colors,
         settings.chart_colors && c.notes.iter().any(|n| n.color.is_some()),
     )?;
-    let env = super::skins::lua_env(&loaded.song, c, &layout, settings.reverse);
+    let env = ddi_noteskin::lua::chart_env(&loaded.song, c, &layout, settings.reverse);
     Some((key, layout, env))
 }
 
@@ -1365,4 +1315,26 @@ fn read_images(
             }
         });
     rx
+}
+
+/// A results screen's button: what follows the screen, then leave it.
+fn results_action(
+    after: &Rc<Cell<Option<After>>>,
+    what: impl Fn() -> After + 'static,
+    cancel: bool,
+) -> ActionFn {
+    let after = after.clone();
+    Rc::new(move |env: &Env, cx: &mut ddi_ui::Cx| {
+        after.set(Some(what()));
+        ddi_ui::screens::leave(env, cx, cancel);
+    })
+}
+
+/// The results' panel set, kept in the settings.
+fn save_panels() -> PanelsFn {
+    Rc::new(|name| {
+        let mut s = Settings::load();
+        s.results_panels = name.to_string();
+        s.save();
+    })
 }
