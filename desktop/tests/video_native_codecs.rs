@@ -58,6 +58,26 @@ fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
         eprintln!("no video helper: skipped");
         return;
     };
+    let Ok(encoders) = Command::new("ffmpeg")
+        .args(["-hide_banner", "-encoders"])
+        .output()
+    else {
+        eprintln!("no ffmpeg: skipped");
+        return;
+    };
+    assert!(
+        encoders.status.success(),
+        "ffmpeg could not list its encoders"
+    );
+    let encoders = String::from_utf8_lossy(&encoders.stdout);
+    let available = encoders
+        .lines()
+        .filter_map(|line| line.split_whitespace().nth(1))
+        .collect::<Vec<_>>();
+    if !available.contains(&"libx265") || !available.contains(&"libvpx-vp9") {
+        eprintln!("no libx265/libvpx-vp9 for the combined codec suite: skipped");
+        return;
+    }
     let dir =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/scratch/native-codec-tests");
     std::fs::create_dir_all(&dir).unwrap();
@@ -67,11 +87,10 @@ fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
     let mut hardware = VideoHost::with_backend(Some(module.clone()), Backend::VideoToolbox);
     let mut baseline = VideoHost::with_helper(Some(module.clone()));
     let mut auto = VideoHost::with_backend(Some(module.clone()), Backend::Auto);
+    let mut both_hardware = true;
     for (codec, ext) in [("libx265", "mp4"), ("libvpx-vp9", "webm")] {
-        let Some(basic) = encode(&dir, &format!("{codec}.{ext}"), codec, &[]) else {
-            eprintln!("no {codec}: skipped");
-            continue;
-        };
+        let basic = encode(&dir, &format!("{codec}.{ext}"), codec, &[])
+            .expect("available encoder must generate the basic codec fixture");
         let trial = video::check(&mut hardware, &basic, None);
         if !trial.failures.is_empty() {
             assert!(
@@ -89,6 +108,8 @@ fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
                 "not a hardware refusal: {:?}",
                 trial.failures
             );
+            eprintln!("{codec} hardware unavailable: {:?}", trial.failures);
+            both_hardware = false;
             continue;
         }
         let mut paths = vec![basic];
@@ -173,6 +194,10 @@ fn hevc_and_vp9_stream_frames_and_exact_seeks_match_the_module() {
         assert_eq!(got.decoder.unwrap().backend, "software");
     }
 
+    if !both_hardware {
+        eprintln!("combined HEVC/VP9 cases need both hardware decoders: skipped");
+        return;
+    }
     let hevc = dir.join("libx265.mp4");
     let vp9 = dir.join("libvpx-vp9.webm");
     let expected_a = first_frame(&mut baseline, &hevc, None);
@@ -420,7 +445,12 @@ fn read_frame(v: &mut impl VideoDecoder) -> (f64, Vec<u8>) {
 }
 fn first_frame(host: &mut VideoHost, path: &Path, target: Option<f64>) -> (f64, Vec<u8>) {
     let mut v = host.open(path.to_path_buf().into(), "movie.mp4", &unknown_format());
-    assert!(matches!(events(&mut v)[0], VideoEvent::Opened(_)));
+    let opened = events(&mut v);
+    assert!(
+        matches!(opened.first(), Some(VideoEvent::Opened(_))),
+        "{}: {opened:?}",
+        path.display()
+    );
     if let Some(t) = target {
         v.seek(t);
     }

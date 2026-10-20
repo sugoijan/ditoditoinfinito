@@ -40,7 +40,8 @@ pkg-config and a JDK (Ruffle's playerglobal build). Linux also needs the usual
 ALSA/udev development packages. A first feature build obtains the pinned public
 Ruffle release and locked Cargo inputs. It never obtains songs or a runtime from
 a pasted song URL. Later builds reuse an external cache. The builder limits
-Cargo to two jobs, disables LTO for helpers, and checks every child process
+Cargo to two jobs for the SDK/helper and one for the Ruffle worker (including
+LLVM code generation), disables LTO for helpers, and checks every child process
 against 2 GiB RSS. Default/web/Windows checks invoke no helper preparation tools.
 
 ```
@@ -81,8 +82,10 @@ uses its own receipted capture/normalization evidence files internally.
 
 `desktop/build.rs` invokes the build-only Python driver. It selects only the
 SDK and helper packages in one build with the root `importer` profile (unwinding,
-no LTO, optimization level 1, 256 codegen units). Their shared external target
-directory and the worker's separate target directory avoid the parent app's
+no LTO, optimization level 1, 256 codegen units), with optimization disabled
+for the SDK itself to stay under the 2 GiB compiler-memory limit on Linux.
+Its codec and rendering dependencies remain optimized. Their shared external
+target directory and the worker's separate target directory avoid the parent app's
 target lock and jobserver; the child build never selects desktop. Root release
 settings still apply to the game. The root lock participates in the build-cache
 fingerprint and the SDK's compiled runtime identity. The default cache is

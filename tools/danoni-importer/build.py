@@ -245,7 +245,11 @@ def prepare(target, stage):
             bundle_override = os.environ.get('DDI_IMPORTER_WORKER_BUNDLE')
             worker = Path(bundle_override).resolve(strict=True) if bundle_override else worker_root / 'bundle'
             if not worker.exists():
-                cargo(sources / 'worker/Cargo.toml', cache / 'worker-target', target, env)
+                # Cargo's jobserver also bounds rustc's parallel LLVM work.
+                # Ruffle exceeds the per-process memory limit with two slots;
+                # serialize this build while retaining its optimization level.
+                worker_env = dict(env, CARGO_BUILD_JOBS='1')
+                cargo(sources / 'worker/Cargo.toml', cache / 'worker-target', target, worker_env)
                 executable = cache / 'worker-target' / target / 'release/ddi-ruffle-probe'
                 job = worker_root / 'package.json'
                 job.write_bytes(encoded({'schema': 'ddi-danoni-worker-package-job/1', 'sources': str(sources),

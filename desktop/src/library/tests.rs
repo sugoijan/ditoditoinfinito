@@ -139,7 +139,11 @@ fn a_stepmania_folder_with_a_zip_lists_as_the_web_imports() {
     );
     assert_eq!(
         a.root_source(a.pack_banner.as_deref().unwrap()),
-        root.join("Songs/Pack/cover.PNG").display().to_string()
+        root.join("Songs")
+            .join("Pack")
+            .join("cover.PNG")
+            .display()
+            .to_string()
     );
     assert_eq!(
         a.source(a.entry.banner.as_deref().unwrap()),

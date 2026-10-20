@@ -121,3 +121,9 @@ lto = false
 codegen-units = 256
 panic = "unwind"
 debug = 0
+
+# Optimizing the large SDK exceeds the build watchdog's 2 GiB per-process
+# limit on Linux. Keep its control/export code cheap to compile; codec and
+# rendering dependencies retain the importer's optimization above.
+[profile.importer.package.ddi-danoni-export]
+opt-level = 0

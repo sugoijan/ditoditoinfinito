@@ -1292,6 +1292,12 @@ frame). `--video-check` and `tests/video.rs` check every clip against
   play (`play_movie.rs`: 180 frames decoded, none dropped or late, on
   Xvid AVI, H.264 AVI and MP4) and the second layer (`play_layers.rs`)
   pass on macOS as before.
+  The macOS CI job installs the FFmpeg command for fixture generation;
+  the helper's static decoder libraries provide no encoders. The combined
+  HEVC/VP9 suite checks for both encoders before making fixtures, then runs
+  its two-decoder cases only when both hardware trials pass. Genuine hardware
+  refusal can skip those cases; encoding errors and other decoder failures
+  still fail the test.
 - The web module still builds from the refactored `build.sh` (5,893,193
   bytes, the same 31 exports; `+4 KB` from the shim's shared `open_video`).
 

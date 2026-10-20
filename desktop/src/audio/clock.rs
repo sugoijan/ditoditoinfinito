@@ -379,6 +379,7 @@ mod tests {
         let p = std::sync::Arc::new(Published::default());
         assert_eq!(p.read(), None);
         let w = p.clone();
+        let (observed, received) = std::sync::mpsc::channel();
         let writer = std::thread::spawn(move || {
             for i in 1..200_000u64 {
                 w.write(&Reading {
@@ -388,13 +389,20 @@ mod tests {
                     rate: 48_000,
                 });
             }
+            // Stay alive until the reader observes a publication, even if
+            // this thread finishes its writes before the reader is scheduled.
+            received.recv().unwrap();
         });
         let mut seen = 0;
+        let mut observed = Some(observed);
         while !writer.is_finished() {
             if let Some(r) = p.read() {
                 assert_eq!(r.heard_ns, r.frame as i64 * 3);
                 assert_eq!(r.latency_ns, r.frame as i64 * 5);
                 seen += 1;
+                if let Some(observed) = observed.take() {
+                    observed.send(()).unwrap();
+                }
             }
         }
         writer.join().unwrap();
