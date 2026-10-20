@@ -190,6 +190,7 @@ pub struct Ui {
     problems: Problems,
     /// A keyboard key's menu action is being handled ([`Cx::menu_from_keyboard`]).
     menu_key: bool,
+    menu_source: Option<Source>,
     /// A controller's menu action is being handled ([`Cx::menu_from_pad`]).
     menu_pad: bool,
     /// Wheel notches told from trackpad streams.
@@ -233,6 +234,7 @@ impl Ui {
             dirty: true,
             problems: Problems::default(),
             menu_key: false,
+            menu_source: None,
             menu_pad: false,
             wheel_stream: Default::default(),
         }
@@ -365,6 +367,7 @@ impl Ui {
 
     /// The chrome takes the menu's focus (its first action).
     fn enter_chrome(&mut self, gesture: bool) -> bool {
+        self.cancel_directions();
         let Some((id, first)) = self.layers.iter().rev().find_map(|l| {
             let f = l.screen.focusables().into_iter().next()?;
             (l.chrome && matches!(l.phase, Phase::Active)).then_some((l.id, f.name))
@@ -813,6 +816,7 @@ impl Ui {
             self.textures.clone(),
         );
         cx.menu_key = self.menu_key;
+        cx.menu_source = self.menu_source.clone();
         cx.menu_pad = self.menu_pad;
         cx.by_keys = self.ring_shown;
         cx
@@ -877,6 +881,7 @@ impl Ui {
                 .position(|l| l.chrome)
                 .unwrap_or(self.layers.len()),
         };
+        self.cancel_directions();
         self.layers.insert(at, layer);
         self.repeater.clear();
         self.apply(id, cx);
@@ -1224,19 +1229,60 @@ impl Ui {
         self.layer(id).is_some_and(|l| l.modal || !l.overlay)
     }
 
+    fn release_owned_repeat(&mut self, source: &Source) {
+        if self
+            .focus_layer()
+            .and_then(|id| self.layer(id))
+            .is_some_and(|l| l.screen.owns_direction_repeat())
+        {
+            self.repeater.release(source);
+        }
+    }
+
+    fn menu_release(&mut self, source: Source) {
+        for id in self.input_chain() {
+            if self.active(id) && self.layer(id).is_some_and(|l| l.screen.direction_edges()) {
+                self.dispatch(
+                    id,
+                    Input::MenuRelease {
+                        source: source.clone(),
+                    },
+                    false,
+                );
+            }
+            if self.blocks(id) {
+                break;
+            }
+        }
+    }
+
+    fn cancel_directions(&mut self) {
+        for id in self.layer_ids() {
+            if self.layer(id).is_some_and(|l| l.screen.direction_edges()) {
+                self.dispatch(id, Input::CancelDirections, false);
+            }
+        }
+    }
+
     fn menu_event(&mut self, e: MenuEvent) {
         let source = Source::Pad(e.source, e.action);
         if e.down {
-            self.repeater.press(source, e.action);
+            self.repeater.press(source.clone(), e.action);
+            self.menu_source = Some(source.clone());
             // A pad press starts audio where the platform says so, never
             // what needs transient activation ([`UiRequest::pad_may_start`]).
             self.pad_press = e.gesture;
             self.menu_pad = true;
             self.menu(e.action, false, e.gesture);
+            self.release_owned_repeat(&source);
+            self.menu_source = None;
             self.menu_pad = false;
             self.pad_press = false;
         } else {
             self.repeater.release(&source);
+            if e.action.is_direction() {
+                self.menu_release(source);
+            }
         }
     }
 
@@ -1266,6 +1312,9 @@ impl Ui {
         let gesture = k.down && !k.repeat && k.code != "Escape";
         if !k.down {
             self.repeater.release(&Source::Key(k.code.clone()));
+            if nav::key_action(&k.code).is_some_and(|a| a.is_direction()) {
+                self.menu_release(Source::Key(k.code.clone()));
+            }
         }
         // Binding: keys as they are, but never the browser's or the
         // system's shortcuts.
@@ -1314,9 +1363,13 @@ impl Ui {
             return;
         }
         if let Some(action) = action {
-            self.repeater.press(Source::Key(k.code.clone()), action);
+            let source = Source::Key(k.code.clone());
+            self.repeater.press(source.clone(), action);
+            self.menu_source = Some(source.clone());
             self.menu_key = true;
             self.menu(action, false, gesture);
+            self.release_owned_repeat(&source);
+            self.menu_source = None;
             self.menu_key = false;
             return;
         }
@@ -1788,6 +1841,7 @@ impl Ui {
 
     /// Focus lost: held input released, captures cancelled.
     fn blur(&mut self) {
+        self.cancel_directions();
         self.repeater.clear();
         let ids: Vec<u64> = self.pointers.iter().map(|p| p.id).collect();
         for id in ids {

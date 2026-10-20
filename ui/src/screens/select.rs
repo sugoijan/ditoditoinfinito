@@ -51,6 +51,7 @@ use crate::widgets::{part, set_image, set_text};
 
 use super::data::PackEntry;
 use super::select_dialogs::{ImportDialog, Manage, ManageDialog, NoticesDialog};
+use super::select_navigation::{Event as NavEvent, Motion, Navigation};
 
 /// What Start does on a song with a chart (step 6: start play; the
 /// developer routes: show the sample results).
@@ -158,16 +159,6 @@ pub const NOTICE_LINK: &str = "NoticeLink";
 const LADDER_ROWS: usize = 8;
 /// Rows a second past which the wheel's room for its selected row closes.
 const FLICK_ROWS: f32 = 6.0;
-/// Wait for a second press before moving the song; held repeats never
-/// count as taps. Shorter than the menu's initial repeat delay.
-const DOUBLE_TAP: f32 = 0.25;
-
-struct PendingMove {
-    action: MenuAction,
-    remaining: f32,
-    from_pad: bool,
-}
-
 /// The compact layout's left side, from its top (`Phone.dc.html`):
 /// banner 94, the title and a line, then the style button (36), the
 /// chart buttons (44) and Play (48), 8 apart.
@@ -559,8 +550,8 @@ pub struct SelectScreen {
     told_song: Option<Option<String>>,
     /// The input being handled came from a controller.
     from_pad: bool,
-    /// A single arrow press waiting for a possible difficulty double tap.
-    pending_move: Option<PendingMove>,
+    navigation: Navigation,
+    wheel_motion: Option<Motion>,
     /// How open the wheel's room for the selected row is (closed while
     /// it flicks), and whether the selected row was shrunk for it.
     open: f32,
@@ -638,7 +629,8 @@ impl SelectScreen {
             told_place: None,
             told_song: None,
             from_pad: false,
-            pending_move: None,
+            navigation: Navigation::default(),
+            wheel_motion: None,
             open: 1.0,
             shut: false,
         };
@@ -991,6 +983,7 @@ impl SelectScreen {
     }
 
     fn reload(&mut self) {
+        self.cancel_navigation();
         let model = wheel(
             &self.items,
             &self.data,
@@ -1989,7 +1982,7 @@ impl SelectScreen {
             )
         };
         if let Some(d) = data {
-            self.pending_move = None;
+            self.cancel_navigation();
             self.set_data(d, false);
             self.fill_tabs(root);
             self.fill_charts(root);
@@ -2003,12 +1996,12 @@ impl SelectScreen {
             self.notices_dirty = true;
         }
         if let Some(open) = overlay {
-            self.pending_move = None;
+            self.cancel_navigation();
             open(&self.env, cx);
         }
         // Files dropped on the page: the dialog shows how the import goes.
         if open && !self.import_open(cx) {
-            self.pending_move = None;
+            self.cancel_navigation();
             cx.focus("Wheel");
             cx.overlay(
                 ImportDialog::new(self.env.clone(), self.import.clone(), self.shell.clone()),
@@ -2088,68 +2081,129 @@ impl SelectScreen {
 
     // Actions.
 
-    fn move_song(&mut self, action: MenuAction, root: &mut Actor) {
-        let action = match action {
-            MenuAction::Up | MenuAction::Left => MenuAction::Up,
-            _ => MenuAction::Down,
-        };
-        let model = wheel(
-            &self.items,
-            &self.data,
-            &self.packs,
-            &self.closed,
-            self.matches.as_deref(),
-            self.style,
-            self.layout.compact,
-        );
-        self.list.input(
-            &Input::Menu {
-                action,
-                repeat: false,
-            },
-            root,
-            &model,
-        );
-        self.follow();
+    fn cancel_navigation(&mut self) {
+        self.navigation.cancel();
+        if self.wheel_motion.take().is_some()
+            && let Some(i) = self.list.selected()
+        {
+            let target = self.list.selection_scroll(i);
+            self.list.jump(target);
+        }
+    }
+
+    fn apply_navigation(&mut self, events: Vec<NavEvent>, root: &mut Actor, cx: &mut Cx) {
+        let now = cx.time();
+        let reduced = self.env.reduced();
+        let mut moved_from = None;
+        for event in events {
+            match event {
+                NavEvent::Preview(action) => {
+                    let Some(i) = self.list.selected() else {
+                        continue;
+                    };
+                    let to = if matches!(action, MenuAction::Up | MenuAction::Left) {
+                        i.saturating_sub(1)
+                    } else {
+                        (i + 1).min(self.items.len().saturating_sub(1))
+                    };
+                    let origin = self.list.selection_scroll(i);
+                    let target = self.list.selection_scroll(to);
+                    let motion = self
+                        .wheel_motion
+                        .get_or_insert_with(|| Motion::new(self.list.scroll()));
+                    motion.preview(origin, target, now, reduced);
+                }
+                NavEvent::Freeze => {
+                    if let Some(m) = &mut self.wheel_motion {
+                        m.stop(now, None);
+                    }
+                }
+                NavEvent::Move(actions, pad) => {
+                    self.wheel_motion
+                        .get_or_insert_with(|| Motion::new(self.list.scroll()));
+                    for action in actions {
+                        let Some(i) = self.list.selected() else {
+                            continue;
+                        };
+                        let to = if matches!(action, MenuAction::Up | MenuAction::Left) {
+                            i.saturating_sub(1)
+                        } else {
+                            (i + 1).min(self.items.len().saturating_sub(1))
+                        };
+                        {
+                            let model = wheel(
+                                &self.items,
+                                &self.data,
+                                &self.packs,
+                                &self.closed,
+                                self.matches.as_deref(),
+                                self.style,
+                                self.layout.compact,
+                            );
+                            self.list.select_without_motion(to, &model);
+                        }
+                        // A pack header keeps the last song passed, even when
+                        // several buffered taps are committed together.
+                        self.follow();
+                    }
+                    if let Some(i) = self.list.selected() {
+                        self.wheel_motion.as_mut().unwrap().commit(
+                            self.list.selection_scroll(i),
+                            now,
+                            reduced,
+                        );
+                    }
+                    moved_from = Some(pad);
+                }
+                NavEvent::Charts(changes) => {
+                    for by in changes {
+                        self.move_chart(by, root);
+                    }
+                    if let Some(i) = self.list.selected() {
+                        let target = self.list.selection_scroll(i);
+                        if let Some(m) = &mut self.wheel_motion {
+                            m.to(target, now, reduced);
+                        }
+                    }
+                }
+                NavEvent::Stop => {
+                    if let Some(i) = self.list.selected() {
+                        let target = self.list.selection_scroll(i);
+                        if let Some(m) = &mut self.wheel_motion {
+                            m.stop(now, Some(target));
+                        }
+                    }
+                }
+            }
+            self.publish_dirty = true;
+        }
+        if let Some(pad) = moved_from {
+            self.follow();
+            let old = std::mem::replace(&mut self.from_pad, pad);
+            self.tell(cx);
+            self.from_pad = old;
+        }
     }
 
     fn flush_move(&mut self, root: &mut Actor, cx: &mut Cx) {
-        if let Some(pending) = self.pending_move.take() {
-            self.move_song(pending.action, root);
-            // Timer-driven moves keep the original input's source, so the
-            // shell still knows whether a controller chose the preview.
-            let from_pad = std::mem::replace(&mut self.from_pad, pending.from_pad);
-            self.tell(cx);
-            self.from_pad = from_pad;
-        }
+        let events = self.navigation.finish();
+        self.apply_navigation(events, root, cx);
     }
 
     fn arrow(&mut self, action: MenuAction, repeat: bool, root: &mut Actor, cx: &mut Cx) {
         if repeat {
-            self.flush_move(root, cx);
-            self.move_song(action, root);
             return;
         }
-        if self.pending_move.as_ref().is_some_and(|pending| {
-            pending.action == action && pending.from_pad == self.from_pad && pending.remaining > 0.0
-        }) && matches!(self.selected_item(), Some(Item::Song(_)))
-        {
-            self.pending_move = None;
-            let by = if matches!(action, MenuAction::Up | MenuAction::Left) {
-                -1
+        let source = cx.menu_source().cloned().unwrap_or_else(|| {
+            if self.from_pad {
+                crate::nav::Source::Pad(0, action)
             } else {
-                1
-            };
-            self.move_chart(by, root);
-            return;
-        }
-        // Different arrows are separate song moves, even when pressed quickly.
-        self.flush_move(root, cx);
-        self.pending_move = Some(PendingMove {
-            action,
-            remaining: DOUBLE_TAP,
-            from_pad: self.from_pad,
+                crate::nav::Source::Key(format!("{action:?}"))
+            }
         });
+        let charts = matches!(self.selected_item(), Some(Item::Song(_)));
+        let events = self.navigation.down(action, source, cx.time(), charts);
+        self.apply_navigation(events, root, cx);
     }
 
     fn set_style(&mut self, i: usize, root: &mut Actor) {
@@ -2533,6 +2587,7 @@ fn wheel_config(l: &Layout) -> ListConfig {
     c.header = l.row;
     c.bar = 3.0;
     c.margin = l.row * 2.0;
+    c.continuous_selection = !l.compact;
     c.style = if l.compact {
         ListStyle::Plain
     } else {
@@ -2634,20 +2689,25 @@ impl Screen for SelectScreen {
         v
     }
 
+    fn direction_edges(&self) -> bool {
+        true
+    }
+
+    fn owns_direction_repeat(&self) -> bool {
+        self.navigation.holding()
+    }
+
     fn animating(&self) -> bool {
-        self.pending_move.is_some()
+        self.navigation.animating()
+            || self.wheel_motion.is_some()
             || self.list.animating()
             || self.pulse.on
             || (!self.layout.compact && (self.open > 0.0 && self.open < 1.0))
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
-        if let Some(pending) = &mut self.pending_move {
-            pending.remaining -= dt;
-            if pending.remaining <= 0.0 {
-                self.flush_move(root, cx);
-            }
-        }
+        let events = self.navigation.advance(cx.time());
+        self.apply_navigation(events, root, cx);
         // A new size (a window resized or turned, a new design), or
         // reduced motion changed: laid out again.
         let vp = cx.viewport().screen;
@@ -2663,6 +2723,7 @@ impl Screen for SelectScreen {
             || compact != self.layout.compact
             || self.env.reduced() != self.reduced
         {
+            self.cancel_navigation();
             self.reduced = self.env.reduced();
             self.layout = Layout::fit(&self.env, [vp.width, vp.height], compact);
             let selected = self.list.selected();
@@ -2675,7 +2736,14 @@ impl Screen for SelectScreen {
             // The first frame of the new tree shows it as it is.
             root.finish_tweening();
         }
-        self.flick_room(dt, root);
+        if let Some(m) = &self.wheel_motion {
+            self.list.visual_scroll(m.sample(cx.time()).0);
+            self.open = 1.0;
+            self.shut = false;
+            self.env.look.set_wheel_open("Wheel", 1.0);
+        } else {
+            self.flick_room(dt, root);
+        }
         let event = {
             let look = self.env.look.clone();
             let model = wheel(
@@ -2689,6 +2757,14 @@ impl Screen for SelectScreen {
             );
             self.list.update(dt, root, &model, &*look, cx)
         };
+        if self
+            .wheel_motion
+            .as_ref()
+            .is_some_and(|m| !m.animating(cx.time()))
+            && !self.navigation.pending()
+        {
+            self.wheel_motion = None;
+        }
         if let Some(ListEvent::Activated(_)) = event {
             self.start(root, cx);
         }
@@ -2812,6 +2888,16 @@ impl Screen for SelectScreen {
             self.resume = None;
             self.resume_pack = None;
         }
+        if let Input::MenuRelease { source } = input {
+            let events = self.navigation.up(source, cx.time());
+            self.apply_navigation(events, root, cx);
+            self.publish();
+            return Handled::Yes;
+        }
+        if matches!(input, Input::CancelDirections) {
+            self.cancel_navigation();
+            return Handled::Yes;
+        }
         self.from_pad = matches!(input, Input::Menu { .. }) && !cx.menu_from_keyboard();
         match input {
             // Starting or changing style immediately after a single tap acts
@@ -2832,8 +2918,8 @@ impl Screen for SelectScreen {
             | Input::Pointer {
                 gesture: crate::Gesture::Press,
                 ..
-            } => self.pending_move = None,
-            Input::Key(k) if k.down => self.pending_move = None,
+            } => self.cancel_navigation(),
+            Input::Key(k) if k.down => self.cancel_navigation(),
             _ => {}
         }
         // A link a controller pressed: the browser opens it only from a

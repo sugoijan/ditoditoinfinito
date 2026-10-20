@@ -72,6 +72,7 @@ pub mod results;
 pub mod sample;
 pub mod select;
 pub mod select_dialogs;
+mod select_navigation;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

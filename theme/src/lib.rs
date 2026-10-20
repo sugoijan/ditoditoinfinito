@@ -1563,17 +1563,80 @@ impl Look for Infinito {
         self.wheel_open.set(open.clamp(0.0, 1.0));
     }
 
+    fn wheel_focus(&self, list: &str, actor: &mut Actor, width: f32, weight: f32) -> bool {
+        if list != "Wheel" {
+            return false;
+        }
+        let weight = weight * self.wheel_open.get();
+        let row = self.m("Select.Wheel.Row") - self.m("Select.Wheel.Gap");
+        let big = self.m("Select.Wheel.Selected");
+        let height = row + (big - row) * weight;
+        let mix = |a: f32, b: f32| a + (b - a) * weight;
+        let set = |actor: &mut Actor, name: &str, cmd: &str, values: &[f32]| {
+            if let Some(p) = ddi_ui::hit::find_mut(actor, name) {
+                call(p, "stoptweening", &[]);
+                call(p, cmd, values);
+            }
+        };
+        set(actor, "Plate", "zoomy", &[height / row]);
+        let header = ddi_ui::hit::find_mut(actor, "Chevron").is_some();
+        let a = self.c(if header { "HeaderRow" } else { "Row" });
+        let b = self.c("Raised");
+        let color = std::array::from_fn::<_, 4, _>(|i| mix(a[i], b[i]));
+        set(actor, "Plate", "diffuse", &color);
+        set(actor, "Ring", "zoomy", &[(height + 4.0) / (big + 4.0)]);
+        set(actor, "Ring", "diffusealpha", &[weight]);
+        set(actor, "Pulse", "zoomy", &[(height + 10.0) / (big + 10.0)]);
+        set(actor, "Shadow", "zoomy", &[(height + 30.0) / (big + 30.0)]);
+        set(actor, "Shadow", "diffusealpha", &[0.5 * weight]);
+        if header {
+            set(actor, "Line", "diffusealpha", &[1.0 - weight]);
+            set(actor, "Middle", "y", &[(big - row) * weight / 2.0]);
+        } else {
+            for name in ["Banner", "BannerBack"] {
+                set(actor, name, "zoom", &[mix(1.0, 224.0 / 144.0)]);
+                set(
+                    actor,
+                    name,
+                    "y",
+                    &[mix((row - 45.0) / 2.0, (big - 70.0) / 2.0)],
+                );
+            }
+            let tx = 12.0 + 144.0 + 14.0;
+            let tx2 = 12.0 + 224.0 + 16.0;
+            let cells = 5.0 * 26.0 + 4.0 * 4.0 + 28.0 + 24.0;
+            let width = width - ROW_INSET;
+            let room = mix(width - tx - cells - 8.0, width - tx2 - cells - 8.0);
+            let zoom = mix(1.0, 21.0 / 17.0);
+            set(
+                actor,
+                "Title",
+                "xy",
+                &[mix(tx, tx2), mix(row * 0.36, big * 0.38)],
+            );
+            set(actor, "Title", "zoom", &[zoom]);
+            set(actor, "Title", "maxwidth", &[room / zoom]);
+            set(
+                actor,
+                "Subtitle",
+                "xy",
+                &[mix(tx, tx2), mix(row * 0.72, big * 0.66)],
+            );
+            set(actor, "Subtitle", "maxwidth", &[room]);
+        }
+        set(actor, "Right", "y", &[(big - row) * weight / 2.0]);
+        true
+    }
+
     fn wheel(&self, _list: &str, d: f32) -> Option<WheelPlace> {
         let pitch = self.m("Select.Wheel.Row");
         let big = self.m("Select.Wheel.Selected");
         let gap = self.m("Select.Wheel.Gap");
-        // The selected row's top at half its height above the line; the
-        // next one a gap below its bottom.
-        let above = pitch / 2.0 - big / 2.0;
-        let below = big / 2.0 + gap - pitch / 2.0;
-        // Closed while the list flicks past rows: no room on the line
-        // for a selected row that is elsewhere.
-        let y = (above + (below - above) * d.clamp(0.0, 1.0)) * self.wheel_open.get();
+        let row = pitch - gap;
+        let x = d.abs().min(1.0);
+        let ease = x * x * (3.0 - 2.0 * x);
+        let room = (big - row) / 2.0 * self.wheel_open.get();
+        let y = (pitch - row) / 2.0 - room + if d > 0.0 { 2.0 * room * ease } else { 0.0 };
         Some(WheelPlace {
             x: self.m("Wheel.Drift") * d * d,
             y,

@@ -1431,12 +1431,13 @@ fn song_select_upright_by_touch_keys_and_pad() {
     // Keys: single Down moves the wheel, double Left changes the chart.
     let song = state.borrow().song.clone();
     h.key("ArrowDown", "ArrowDown");
-    h.run(0.3);
+    h.run(0.5);
     assert_ne!(state.borrow().song, song);
     let chart = state.borrow().chart.clone();
     h.key("ArrowLeft", "ArrowLeft");
     h.run(0.08);
     h.key("ArrowLeft", "ArrowLeft");
+    h.run(0.2);
     assert_ne!(state.borrow().chart, chart);
     // A pad's Up goes back up the wheel.
     h.pad(ddi_ui::MenuAction::Up, true);

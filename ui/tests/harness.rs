@@ -108,6 +108,8 @@ fn describe(input: &Input) -> String {
         Input::Text { change, field, .. } => format!("text {change:?} {}", field.text()),
         Input::Outside => "outside".into(),
         Input::NeedsGesture(r) => format!("needs {r:?}"),
+        Input::MenuRelease { source } => format!("menu release {source:?}"),
+        Input::CancelDirections => "cancel directions".into(),
         Input::Raw(e) => format!("raw {} {}", e.control, e.pressed),
     }
 }
