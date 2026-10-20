@@ -423,7 +423,7 @@ Checked on it:
 The maintainer published the fork on crates.io as `lunita` (0.1.0, its
 version reset; repository `sugoijan/lunita`, from `536a842`), on the
 released gc-arena 0.7 instead of the revision piccolo pinned. The
-workspace depends on `lunita` (`"0.1.2"` since 2026-10-15); `ddi-lua`
+workspace depends on `lunita` (`"0.1"`, locked at 0.1.2 since 2026-10-15); `ddi-lua`
 re-exports it as `ddi_lua::lunita` (was `ddi_lua::piccolo`). One host change:
 `CompileLimits::for_context` gives a compilation the memory left before
 the limit refuses (gc-arena 0.7's `Metrics` count pointers, not bytes;
@@ -441,7 +441,7 @@ margin). Checked on it:
 
 ## lunita 0.1.2 (2026-10-15)
 
-The workspace requires `lunita = "0.1.2"`: 0.1.1 fixed PUC-Rio
+The workspace requires `lunita = "0.1"`, locked at 0.1.2: 0.1.1 fixed PUC-Rio
 semantics (a `local` statement's scope, the order of a multiple
 assignment's targets, `--[=` comments, `table.sort`/`move` argument
 checks) and bounded host conversions and frame growth; 0.1.2 bounds the

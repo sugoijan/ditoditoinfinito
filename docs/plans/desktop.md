@@ -10,7 +10,7 @@ sections 1, 2, 4 and 5 (clocks, input, native audio and input),
 `docs/research/video-backgrounds.md` (the decoder), and the crates checked
 on crates.io on 2026-10-16 (versions below).
 
-## Where it stands (2026-10-17)
+## Where it stands (2026-10-20)
 
 `cargo run` is the game on desktop: song select on the bundled songs and
 the song folders on disk (simfiles and Dancing☆Onigiri works, folders
@@ -31,7 +31,7 @@ under it in section 7:
 | 7.5 Play | done, and its review's fixes |
 | 7.5b Works | done: Dancing☆Onigiri works, layers, lyrics |
 | 7.6 Calibration | done, and its review's fixes |
-| 7.7 Video | done: module and macOS checked H.264/HEVC/VP9 with opt-in Metal planes; Windows MF/D3D11 experimental opt-in, runtime validation pending |
+| 7.7 Video | done: FFmpeg in a sandboxed helper process (decision 54, since 2026-10-20; the module under wasmtime before) and macOS checked H.264/HEVC/VP9 with opt-in Metal planes; Windows MF/D3D11 experimental opt-in, runtime validation pending |
 | 7.8 Windows and Linux | CI on all three; Windows checked from the Mac; the gilrs change waits |
 | 7.9 Docs | done |
 
@@ -44,22 +44,26 @@ under it in section 7:
   The report now distinguishes target gaps from observed repeats.
   Fullscreen and direct presentation measurements remain to be checked.
 - OS video: checked 8-bit H.264, HEVC and VP9 subsets now use hardware
-  VideoToolbox, with copied planes, exact seeks and module fallback.
-  MP4/Matroska/WebM packets come from a bounded private wasm demuxer;
+  VideoToolbox, with copied planes, exact seeks and the software decoder
+  as fallback. MP4/Matroska/WebM packets come from the sandboxed helper's
+  bounded demuxer (`video/packets.rs`);
   streaming HEVC tracks POC and short-term DPB references, VP9 accepts
   single visible pictures. Windows Media Foundation/D3D11 is implemented as
   an experimental opt-in, with a deferred-host check runner; Windows Auto
-  remains the module until runtime validation. See `native-video.md` section 7.
+  remains the software decoder until runtime validation. See `native-video.md` section 7.
   macOS `video-metal` plus `DDI_VIDEO_PLANES=metal` opts into shared NV12
   planes; copied planes remain the default. Rendered fidelity, real
   offscreen play and bounded GPU-lifetime/fallback tests pass locally;
   other Macs, physical GPU loss and manual play remain to be checked.
   `native-video.md` sections 4f/7 record the gates and validation (decision 50).
-- Packaging and signing (an `.app`, an installer, the video module and
-  the licences beside the executable), in their own plan.
+- Packaging and signing: a relocatable folder exists
+  (`tools/danoni-importer/build.py package`: the app, its assets, the
+  video helper with its LGPL payload, the licences and the importer); an
+  `.app`, an installer and signing remain, in their own plan.
 - Windows: the gilrs change (8 ms polling, stamps from the reading) needs
   the maintainer's account and a Windows machine; a run on Windows
-  hardware; the video module built on Windows and Linux hosts.
+  hardware; the helper's FFmpeg built on Windows (`DDI_VIDEO_NATIVE=1`,
+  untested).
 
 **The maintainer's checks** (what no agent or CI can do here):
 
@@ -2107,7 +2111,7 @@ Done, 7.8 (2026-10-16):
 
 - **CI:** a `desktop` job (`.github/workflows/deploy.yml`) on
   `ubuntu-latest`, `macos-latest` and `windows-latest`, `fail-fast` off:
-  `cargo test -p ddi-desktop`, then with `--features video` (wasmtime),
+  `cargo test -p ddi-desktop`, then with `--features video` (wasmtime; the sandboxed helper since 2026-10-20),
   rust-cache keyed `desktop`, ALSA and udev headers on Linux. Not among
   the deploy's needs: the site does not use the desktop shell, and the
   `test` job still builds and tests it on Linux before every deploy.
@@ -2195,8 +2199,8 @@ Added or changed, all compatible with MIT distribution:
 | image | 0.25.10 | MIT OR Apache-2.0 | desktop | + `gif`, `bmp`, `webp` features |
 | dirs | 7.0.0 | MIT OR Apache-2.0 | desktop | config, data, cache folders |
 | arboard | 3.6.1 → 3.7.0 | MIT OR Apache-2.0 | desktop | |
-| wasmtime | 49.0.3 | Apache-2.0 WITH LLVM-exception | desktop (`video`) | 7.7: `cranelift`, `runtime`, `std`, `anyhow`, `parallel-compilation` only; the WASI calls are ours, no `wasmtime-wasi` |
-| wat | 1.262.0 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | desktop (dev-dependency) | the video host's tests write their stand-in module as text |
+| wasmtime | 49.0.3 | Apache-2.0 WITH LLVM-exception | desktop (`video`) | removed 2026-10-20 (decision 54). 7.7: `cranelift`, `runtime`, `std`, `anyhow`, `parallel-compilation` only; the WASI calls are ours, no `wasmtime-wasi` |
+| wat | 1.262.0 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | desktop (dev-dependency) | removed 2026-10-20 with wasmtime. The video host's tests write their stand-in module as text |
 | winit | 0.30.13 | Apache-2.0 | desktop | 0.31 is still beta (0.31.0-beta.3) |
 | glyphon | 0.12 (workspace) | MIT OR Apache-2.0 OR Zlib | desktop | 7.5b: a work's text layers drawn with its cosmic-text |
 | csscolorparser | 0.9.0 | MIT OR Apache-2.0 | desktop | 7.5b: the text layers' colors, every form a canvas's `fillStyle` reads |
@@ -2251,7 +2255,7 @@ Each with a recommendation; those the lead should decide are marked.
   matches libopus within float rounding at about 300× real time
   (`opus-decoder` was rejected: 16-bit output, 5–7× real time). This
   reopens decision 9 for the web, a separate question.
-- **wasmtime is large** for one feature. *Decided below ("Decided here").* Recommendation:
+- **wasmtime is large** for one feature (superseded 2026-10-20: decision 54 replaced it with a sandboxed FFmpeg helper). *Decided below ("Decided here").* Recommendation:
   take it behind the `video` feature for the same decoder everywhere;
   revisit with `ffmpeg-next` if 7.0's speed figures or the binary size
   disappoint.
@@ -2294,7 +2298,8 @@ step 7 to the lead and may change any of them):
   stays MIT). AGENTS.md's "builds on Debian with no system libraries"
   changes in the same commit that adds them.
 - **Video under wasmtime** behind a `video` feature, as the last step
-  (7.7); native FFmpeg stays a later option.
+  (7.7); native FFmpeg stays a later option. Superseded 2026-10-20:
+  FFmpeg in a sandboxed helper process (PLAN.md decision 54).
 - **MP3 on desktop follows StepMania 5.1's reader** (charts were synced
   against it). Whether the web should match it is its own question,
   measured on local MP3s with encoder-delay headers and settled in a

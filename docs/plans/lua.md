@@ -370,7 +370,8 @@ bundled, and Dito, the built-in arrows as a Lua skin, the default.
 
 - Recording commands that need no live Lua into native ops (69 % of skins,
   research section 5), if the per-frame cost asks for it.
-- MilkShape 3D models (65 % of skins, every classic ITG one).
+- MilkShape 3D models (65 % of skins, every classic ITG one): done
+  2026-10-13, `docs/plans/models.md`.
 - Scripted song backgrounds: a VM of their own (a failing background never
   turns off the arrows), StepMania's effect and transition files, `Quad`,
   theme fonts by stand-in, render targets and geometry capped.

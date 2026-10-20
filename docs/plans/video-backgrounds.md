@@ -159,8 +159,9 @@ The worker:
 Rust side (`video.rs`): a `VideoDecoder` trait in `platform` (configure
 with a codec id and an opaque source; `seek`; `want(n)`; `poll() ->
 Vec<Frame>`; `close`) with this worker as its web implementation; `Frame
-{pts, width, height, planes}`. The desktop implementation (later) wraps
-`ffmpeg-next`.
+{pts, width, height, planes}`. Desktop implements it with the OS's
+decoders and FFmpeg in a sandboxed helper process
+(`docs/plans/native-video.md`, PLAN.md decision 54).
 
 Verification: a headless-Chrome page (verify skill) loads the module from a
 worker and decodes a generated clip; the same page run in Firefox and

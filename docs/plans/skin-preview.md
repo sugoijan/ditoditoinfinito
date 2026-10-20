@@ -72,8 +72,11 @@ format skins.
 
 `PreviewCanvas` (`crates/web/src/components/skin_preview.rs`) is the page's canvas
 as a component: it keeps its device and renderer and loads another skin
-when its options change (an older load gives way to a newer one). Under
-the Arrows choice, Options shows the arrows a play would draw (the chosen
+when its options change (an older load gives way to a newer one). (Superseded 2026-10-16: Options is now
+the theme's screen on the canvas and draws its preview with
+`crates/render/src/field_preview.rs`, `docs/plans/ui-core.md` 6.3;
+`PreviewCanvas` serves `#/skin-preview` alone.) Under
+the Arrows choice, Options showed the arrows a play would draw (the chosen
 skin, or Dito in the note colors, or the built-in arrows) playing the
 demo, with a layout to preview it on: since 2026-10-13 a skin draws
 Dancing☆Onigiri's key modes too (`docs/plans/danoni-skins.md`); the

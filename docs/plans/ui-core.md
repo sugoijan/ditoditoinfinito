@@ -10,8 +10,8 @@ measured, Masonry checked in depth, game UI and rhythm games, what to
 reuse) and `docs/research/stepmania-themes.md` (what a StepMania theme is
 and what hosting one takes).
 
-Status (2026-10-15): steps 0–4 done (results under each step); the menus
-are still Yew until steps 5 and 6. Decided by the maintainer: our
+Status (2026-10-16): steps 0–6 done (results under each step), Yew
+removed; step 7 done through `docs/plans/desktop.md`. Decided by the maintainer: our
 own UI core rather than a toolkit; web and desktop both kept in view;
 StepMania 5 themes later, gameplay and evaluation decorations first;
 Japanese input, a hidden text field being acceptable; accessibility
@@ -1571,9 +1571,10 @@ Done, 6.4 part three (2026-10-16):
 ### Step 7. Desktop parity for the menus
 
 Settings in files, the library read from folders on disk (no IndexedDB),
-file dialogs, system fonts. This joins the rest of phase 9 (audio through
-web-audio-api, gilrs, play, IME and file dialogs on Windows and Linux),
-planned separately.
+file dialogs, system fonts. This joins the rest of phase 9 (audio, gilrs,
+play, IME and file dialogs on Windows and Linux), planned and done in
+`docs/plans/desktop.md` (audio through cpal with our own mixer rather
+than web-audio-api).
 
 ## Later
 

@@ -338,4 +338,5 @@ The theme becomes code in the shape P6 set (`crates/ui/src/look.rs`):
   `PROVENANCE.toml`;
 - art only if it is ours or freely licensed, each with its provenance.
 
-Then step 6 replaces the Yew pages one by one, results first.
+Then step 6 replaces the Yew pages one by one, results first (done
+2026-10-16; Yew is gone).

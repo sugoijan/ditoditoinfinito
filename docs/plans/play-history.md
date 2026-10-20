@@ -387,7 +387,8 @@ export, base64 included (5,004 such short plays export to 40 MB).
    play, a crash's temporary file, the play's file unchanged by a new
    summary, the export in batches, removal, and the model over it.
    Nothing records on desktop until it plays.
-7. **Song select's bests** (`ui-core.md` 6.2).
+7. **Song select's bests** (`ui-core.md` 6.2): done 2026-10-16, the
+   bests on the ladder rows.
 
 ## Replays (phase 10, 2026-10-16)
 

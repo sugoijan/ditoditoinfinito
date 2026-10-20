@@ -8,11 +8,8 @@ of `video/ddivideo.c`, built as a `cdylib` for wasm (the web unchanged)
 and used natively through a safe Rust API. This document surveys the
 candidates, tries that design, measures native FFmpeg against the
 module on this machine, and proposes what to do. The original spike left the
-production decoder unchanged: the native spike is in
-`/home/user/.claude/jobs/2f6f2abd/tmp/spike-native-video/`. The 2026-10-17
-VideoToolbox continuation is in the `next` worktree
-(`/home/user/sugoijan/ditoditoinfinito-next/target/scratch/vt/`); its
-source and measurement logs are also handed over in the main checkout
+production decoder unchanged. The 2026-10-17 VideoToolbox continuation's
+source and measurement logs are kept in the main checkout
 as `target/scratch/video-spike-2026-10-17.tar.gz`, without movie files.
 
 Read first: `docs/plans/video-backgrounds.md` (why the module exists,
@@ -888,12 +885,14 @@ StepMania plays", and H.264 alone has had such bugs.
 
 ## 7. Implementation order (decision 50)
 
-The module remains the baseline decoder and fallback throughout this work.
-The verified macOS H.264, HEVC and VP9 subsets select VideoToolbox automatically;
-`DDI_VIDEO_DECODER=module` forces the module for play.
+The software decoder (the module under wasmtime, since 2026-10-20 the
+sandboxed helper of section 10) remains the baseline and fallback throughout
+this work. The verified macOS H.264, HEVC and VP9 subsets select VideoToolbox
+automatically; `DDI_VIDEO_DECODER=software` (`module` still accepted) forces
+the software decoder for play.
 An OS path is selected for a movie only after its supported stream class
 passes the checks; absence, refusal, bad output or a stalled session moves
-that movie to the module at the same requested time. If the module also
+that movie to the software decoder at the same requested time. If that also
 cannot decode it (AV1 on today's build, for example), keep the existing
 still-background fallback and notice. Report the selected
 backend and fallback reason in `--video-check` and diagnostics. Preserve
@@ -919,7 +918,7 @@ backend and fallback reason in `--video-check` and diagnostics. Preserve
    abandons a stuck session and its outputs without blocking the game.
 3. **Windows copied-plane decoder.** Experimental Media Foundation/D3D11
    implementation and a strict deferred-host test suite are in place, below.
-   Auto stays on the module until real Windows fidelity, device-loss,
+   Auto stays on the software decoder until real Windows fidelity, device-loss,
    performance and isolation evidence exists. Cross compilation cannot
    verify codec availability or GPU output.
 4. **GPU planes where they pay.** IOSurface/Metal now has a rendered
@@ -928,7 +927,7 @@ backend and fallback reason in `--video-check` and diagnostics. Preserve
    D3D11/DX12 sharing still needs compatible adapters, fences and Windows
    runtime evidence; preserve the copied route.
 5. **Linux capability spike.** VA-API, below, if it benefits the remaining
-   hardware. The module continues to cover Linux without it.
+   hardware. The sandboxed helper covers Linux without it.
 6. **Sandboxed native FFmpeg child: done 2026-10-20, section 10.** The
    same pinned tarball, decoder list, `ddivideo.c` and `packets.c`,
    assembly on, frame and slice threads, linked statically into the
@@ -951,14 +950,14 @@ that DLL loaded through COM teardown. Missing MF libraries/exports return
 a refusal instead of adding an unconditional executable import (important
 for Windows N). Startup on a Windows N installation still needs validation.
 
-Windows **Auto remains the module**. Strict diagnostics use
+Windows **Auto remains the software decoder**. Strict diagnostics use
 `--video-check FILE --decoder mediafoundation`; `--decoder both` compares
-the platform's strict native decoder with the module (MF on Windows, VT on
-macOS). For deliberate play experiments,
-`DDI_VIDEO_DECODER=mediafoundation-auto` opts into MF with module recovery;
+the platform's strict native decoder with the software decoder (MF on
+Windows, VT on macOS). For deliberate play experiments,
+`DDI_VIDEO_DECODER=mediafoundation-auto` opts into MF with software recovery;
 `mediafoundation` reports refusals instead. These settings are explicit and
 unsaved. Missing/failed transforms, unsupported streams, identity errors and
-worker deadlines recover through the existing exact-position module path
+worker deadlines recover through the exact-position software path
 only in the opt-in auto mode. No codec extension is installed automatically.
 
 The first class reuses the checked H.264/HEVC/VP9 header and output models
@@ -1003,14 +1002,14 @@ Deferred-host recipe (from a Windows checkout with Rust and FFmpeg's
 libx264/libx265/libvpx-vp9 encoders available):
 
 ```powershell
-.\video\check-windows.ps1 -Module C:\path\to\ddivideo.wasm
+.\video\check-windows.ps1 -Helper C:\path\to\ddi-video-helper.exe
 ```
 
-The module may be the unchanged build from another host. The runner sets a
+The helper must be built on Windows (`DDI_VIDEO_NATIVE=1`). The runner sets a
 scratch home/cache, restores environment afterwards, records OS/GPU driver,
-Rust/FFmpeg versions and module SHA-256, then runs the three ignored tests
+Rust/FFmpeg versions and the helper's SHA-256, then runs the three ignored tests
 in `crates/desktop/tests/video_media_foundation.rs`. It opens no window or sound
-device. Missing encoders/module, unavailable codecs and missing DXGI output
+device. Missing encoders or helper, unavailable codecs and missing DXGI output
 **fail**, rather than turn the hardware suite into skipped successes. Each
 codec has a separate test so failures identify the unsupported class.
 Generated cases cover B/no-B pictures, both container families, fractional
@@ -1019,7 +1018,7 @@ lossless, every harness exact seek/EOF/loop, stored members, simultaneous
 sessions and superseded seeks. Strict and recovery selections must match
 module metadata, frame timestamps and I420 CRCs; refusal cases include
 10-bit input, AVI without packet PTS, HEVC multiple slices and open-GOP seeks.
-Default Auto must select the module. Retain the timestamped report folder
+Default Auto must select the software decoder. Retain the timestamped report folder
 and generated clips on failure. This runner itself also awaits Windows use.
 
 Before broadening Auto: run that suite on real Windows hardware, test
@@ -1053,10 +1052,14 @@ own that path. This is substantially more work than the VT binding.
 Start with mapped planes; `vaExportSurfaceHandle` can expose DMA-BUFs for
 a later Vulkan import, subject to modifiers, plane formats, adapter and
 fence compatibility. Driver code executes in the client process; VA-API
-alone does not provide the module's memory isolation. Capability failures
-and unsupported drivers use the module; no dependency is added now.
+alone does not provide the helper's process isolation. Capability failures
+and unsupported drivers use the software decoder; no dependency is added now.
 
 ### Later helper: IPC and ownership
+
+The design before it was built; section 10 records what was built and
+where it differs (a dead helper fails its open movies, and the next open
+starts a fresh helper).
 
 One helper process serves movies on a worker, matching today's host.
 Use a versioned, length-prefixed binary pipe protocol with bounded payloads;
@@ -1097,6 +1100,47 @@ copy from FFmpeg's strided buffers; benchmark it. Control messages and
 state, another build and per-OS signing/sandbox maintenance. Section 4's
 native speedups exclude all those costs. The earlier unsandboxed helper
 line-count estimate is not an implementation budget.
+
+## 8. Dependencies and packaging
+
+The spike added no production video dependency; the production paths since
+have (objc2's VideoToolbox, CoreMedia, CoreVideo and Metal bindings on macOS,
+`windows` on Windows, and the helper's `libc`, `seccompiler` and `landlock`).
+For macOS, use
+objc2 framework bindings for VideoToolbox/CoreMedia/CoreVideo/Metal alongside
+the existing objc2 family; the experiment's raw FFI is not the production
+wrapper. On Windows use the existing `windows` crate with explicit features.
+Verify current releases and licences when adding either. Linux needs a
+libva binding only when that step is built.
+
+The helper, as built, uses `libc`, `seccompiler`, `landlock` and `windows`
+for its sandboxes and shared memory (section 10), not `libloading` or
+`memmap2`. Section 5's sandbox crates are candidates from the
+first survey, not frozen versions. Keep the C shim: the successful Rust
+port added bindgen/libclang without isolating FFmpeg. The native build
+uses the same pinned FFmpeg and notices as the wasm module; one library
+per platform, with macOS arm64/x86_64 as needed, tested through the shared
+harness. Package helper and library together, with the exact source and
+rebuild instructions; follow [FFmpeg's distribution checklist](https://www.ffmpeg.org/legal.html).
+Signing, library replacement and sandbox entitlements need an explicit
+packaging test. Keep the earlier builds until the maintainer chooses to
+remove them.
+
+## 9. Remaining validation
+
+- Sections 4b–4e implement the checked H.264/HEVC/VP9 subsets and the
+  bounded packet interface. Wider profiles and output classes (including
+  hidden/superframe VP9, HEVC long-term references and higher bit depths)
+  remain with the software decoder until their own fidelity checks pass.
+- Section 4f supersedes the import-only spike with rendered fidelity,
+  throughput and lifetime tests plus opt-in play. Other Macs, physical GPU
+  loss, real presentation latency and manual play remain unverified; the
+  copied path remains the default.
+- Default vs background QoS is a useful weak-CPU proxy, not a general
+  prediction for older Intel machines, Windows GPUs or laptop battery life.
+- Windows has a cross-compiled experimental implementation; Linux remains
+  researched only. Neither has run on a host here. Each requires hardware
+  capability/fidelity tests and fallback tests on its own platform.
 
 ## 10. The sandboxed helper (2026-10-20, decision 54)
 
@@ -1320,40 +1364,3 @@ with four, in line with section 4's figures. A helper starts in 12–16 ms
 load of 5 ms plus a first compilation of 0.85 s. Build: FFmpeg natively
 in about two minutes once, the helper crate in 2–3 s; the desktop crate
 no longer compiles wasmtime (about 90 s of a clean build).
-
-## 8. Dependencies and packaging
-
-No production video dependency is added by this spike. For macOS, use
-objc2 framework bindings for VideoToolbox/CoreMedia/CoreVideo/Metal alongside
-the existing objc2 family; the experiment's raw FFI is not the production
-wrapper. On Windows use the existing `windows` crate with explicit features.
-Verify current releases and licences when adding either. Linux needs a
-libva binding only when that step is built.
-
-The later helper can use `libloading` (ISC), `memmap2` (MIT OR Apache-2.0)
-and per-OS sandbox APIs. Section 5's sandbox crates are candidates from the
-first survey, not frozen versions. Keep the C shim: the successful Rust
-port added bindgen/libclang without isolating FFmpeg. The native build
-uses the same pinned FFmpeg and notices as the wasm module; one library
-per platform, with macOS arm64/x86_64 as needed, tested through the shared
-harness. Package helper and library together, with the exact source and
-rebuild instructions; follow [FFmpeg's distribution checklist](https://www.ffmpeg.org/legal.html).
-Signing, library replacement and sandbox entitlements need an explicit
-packaging test. Keep the earlier builds until the maintainer chooses to
-remove them.
-
-## 9. Remaining validation
-
-- Sections 4b–4e implement the checked H.264/HEVC/VP9 subsets and the
-  bounded packet interface. Wider profiles and output classes (including
-  hidden/superframe VP9, HEVC long-term references and higher bit depths)
-  remain with the module until their own fidelity checks pass.
-- Section 4f supersedes the import-only spike with rendered fidelity,
-  throughput and lifetime tests plus opt-in play. Other Macs, physical GPU
-  loss, real presentation latency and manual play remain unverified; the
-  copied path remains the default.
-- Default vs background QoS is a useful weak-CPU proxy, not a general
-  prediction for older Intel machines, Windows GPUs or laptop battery life.
-- Windows has a cross-compiled experimental implementation; Linux remains
-  researched only. Neither has run on a host here. Each requires hardware
-  capability/fidelity tests and fallback tests on its own platform.

@@ -1,5 +1,10 @@
 # Desktop DanOni URL imports
 
+> Where this differs from `docs/plans/danoni-importer.md` (updated
+> 2026-10-20), that plan is current: the URL tab is a user-triggered
+> single-work download with no site-approval prompt or robots.txt request,
+> and no "Cached files only" switch is shown.
+
 The optional `danoni-importer` feature adds a **DanOni URL** tab to **Add songs**.
 It builds a native importer helper and its pinned Ruffle worker, then stages a
 complete, executable-relative runtime beside the game. `danoni` remains a feature
@@ -44,7 +49,7 @@ python3 tools/danoni-importer/build.py package \
 ```
 
 The ordinary app retains video by default. A video-enabled distribution must also
-include the existing decoder module and its complete LGPL notices, matching
+include the video decoder helper (`video/ddi-video-helper`) and its complete LGPL notices, matching
 source archives and rebuild inputs; the packager refuses an incomplete payload.
 The `package` command audits native dependencies and copies the exact importer
 selected by the application's compiled binding, assets and generated indexes,

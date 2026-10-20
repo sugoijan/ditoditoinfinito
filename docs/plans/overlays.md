@@ -107,7 +107,9 @@ background layers can draw") held only in part.
 
 ## Status (2026-10-14)
 
-Done, steps 1 to 5 (Dancing☆Onigiri's back and mask layers):
+Done, steps 1 to 5 (Dancing☆Onigiri's back and mask layers), and step 6's
+second layer, `#BGCHANGES2` (2026-10-16, PLAN.md decision 48); the
+script-free effects remain:
 
 - `chart`: `back_data`/`mask_data` (and `Rev`) read as `makeSpriteData`
   reads them into `danoni:back`/`danoni:mask` events; the stage's size

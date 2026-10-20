@@ -11,7 +11,8 @@ researching comparable games or writing public copy. Written in Rust and shipped
 as a static web app (wasm via Trunk, deployed to GitHub Pages) and as a
 desktop app (`cargo run`), the same game: what a play does is shared code
 both shells run. `docs/PLAN.md` holds the
-architecture, decisions and roadmap; `docs/research/` holds the sourced notes
+architecture, decisions and roadmap; `docs/plans/` the plans for each piece
+of work, indexed with their status in `docs/plans/README.md`; `docs/research/` holds the sourced notes
 on formats, rules and the tech stack. Read those before changing the engine or
 the importers.
 
@@ -404,109 +405,18 @@ and the helper keeps Firefox away from the maintainer's profiles.
 Playwright's WebKit (not Safari) runs headless with WebGPU; it ignores the
 gesture rule below, so it does not replace the maintainer's Safari check.
 
-Song select keeps one pack expanded while browsing and shows each pack's
-cover when available. Its open pack, song and chart resume across launches
-in both shells (`ddi.menu.v1`, local storage); search is per session and
-shows matches from every pack without replacing the saved browsing place.
-Desktop waits for the initial library scan before restoring an imported song.
-Song select (`#/`) uses all four arrows to browse (Up/Left previous,
-Down/Right next). The first tap after quiet previews 20% of a move over a
-260 ms tap window, then completes the same curve over 160 ms. Isolated
-pairs change difficulty after 180 ms of quiet; quick opposite pairs
-(`Up Up Down Down`) stay provisional without temporary song changes.
-Browsing taps are immediate until 400 ms of quiet rearms pairs. Holds
-repeat after 275 ms, accelerating from 8 to 24 rows/s over 1.2 s;
-release stops and reversing resets the ramp. The UI delivers physical
-menu sources/releases to opted-in screens; other menus keep their usual
-repeat. Enter/Tab resolves pending input; search, Back, pointers, focus
-loss and overlays cancel it. See `docs/plans/song-navigation.md`.
-Song select is our theme's screen on the canvas: drive it by keys,
-a fake pad or taps at `window.__DDI_DEBUG.ui.rects`, read
-`__DDI_DEBUG.ui.select` and `__DDI_DEBUG.songs` (the library, the import,
-the preview), set files on the hidden `.import-panel input[type=file]`
-(the verify skill's "Song select"); `#/?gfx=gl` (and `auto`, `bias`,
-`slow`, given there or on `#/play?…`) stay for the session: every play
-Start opens and the way back to song select carry them. Song select's
-autoplay switch (the header's `Autoplay` pill, `AutoIcon` on a phone;
-`ui.theme.autoplay`; off at first, never saved) sets `auto=1` the same
-way: its plays are flagged in the history, never counted, and their
-results say AUTOPLAY. On a phone the results are one scrolled column
-(`ui.theme.compact`, `scroll`; `ui.rects.ResultsClip`, `Back`).
-Options (`#/options`) is our theme's screen too, on the stored settings:
-drive it the same way (Up/Down rows, Left/Right change, Enter presses a
-row's button, Tab the next section, Escape back). The layout selector above
-the preview is available on every tab (P focuses it; Left/Right change it,
-Up/Down return to the options). Read
-`__DDI_DEBUG.ui.theme` (`section`, `optionId`, `value`, `rows`,
-`notice`, `preview`) and `__DDI_DEBUG.options`, and the settings in
-`localStorage` (`ddi.settings.v1`); the bind dialog takes keys and a
-fake pad's presses as they are (the verify skill's "Options").
-Calibration's menu (`#/calibrate`) and the credits (`#/credits`) are
-pages on the canvas (`ui.theme.pageItems`, `pageFocus`; taps at
-`ui.rects.Item<k>`). The device notices ("First time here?", "New audio
-path: …") are drawn by our theme over every canvas page, read from
-`ui.theme.appNotice` / `appActions`, pressed at `ui.rects.AppNotice.<id>`
-(`later`, `defaults`, `calibrate`), reached by keys with F2 or Up past
-the screen's top (`ui.chromeFocus`); the screen lies below them while
-they show. A fresh profile shows the first-run one: seed
-`audio_profiles` and `display_profiles` in `ddi.settings.v1` (or tap
-`later`) when a test wants the screen without it.
-Useful URL parameters: `#/play?song=<id>&chart=<n>` (chart index as in the
-manifest; the play ends on the theme's results drawn on the canvas, what
-they show in `window.__DDI_DEBUG.results`), `#/play?replay=<play id>` a
-kept play's replay (`&view=results` its results; `__DDI_DEBUG.replay`:
-`state`, `refused`, `fed`/`edges`, and at its end `check.matches`; the
-verify skill's "Replays"; with the `ghost` setting a play's
-`__DDI_DEBUG.ghost` is its lead over the chart's best play), `&auto=1` autoplay, `&bias=<ms>` make the autoplayer late/early,
-`&gfx=gl` force WebGL2 (read at boot, or switching the device once for
-the session; the Graphics setting chooses it too), `&auto=pad` autoplay through a fake gamepad the test
-installs as `window.__DDI_FAKE_PAD` (see the verify skill), `&slow=1`
-frames 40 ms longer while a movie is drawn (forces the automatic video
-rule);
-`#/calibrate/run?mode=visual|audio|combined` runs a
-calibration (same `auto`/`bias` parameters); `#/video-check` runs the
-video decoder on picked movies (`?decoder=both` compares the browser's
-WebCodecs decoder with it frame by frame);
-`#/skin-preview?skin=<key>` draws a noteskin's Down tap note alone
-(`size`, `bg`, `beat`, `bpm`, `notes=4`, `receptors=1`, `gfx=gl`;
-`demo=1` plays a looping autoplayed chart (every judgement, a miss,
-holds and rolls kept and dropped, a mine), `rows`, `speed`, `layout=<id>`; `skin=builtin` for the
-built-in arrows; a test sets `window.__DDI_PREVIEW_BEAT`);
-`#/ui-test` draws the 2D pass's test scene (`t`, `scroll`, `delay`,
-`budget`, `speed`, `all=1`; module doc of `crates/web/src/components/ui_test.rs`);
-`#/ui-dev` runs the UI core's developer screen (every primitive: focus,
-dialog, popup, the text field over a hidden textarea, a flickable strip,
-long press, a sound, a link and a file picker behind gestures) and
-publishes `window.__DDI_DEBUG.ui` (screens, focus, the field's text,
-selection and preedit, last requests, frames, actor rectangles);
-`#/ui-dev?screen=widgets` (or the Widgets button) shows the widgets: a
-10,000-song list, search with suggestions, option rows, a toggle, a
-slider and results-like panels (`--widgets` in the desktop binary);
-`#/ui-dev?screen=select|results|options|prompt` runs the theme's screens on
-sample data (the bundled songs and made-up packs; `--screen select --sample` and
-so on in the desktop binary), with their state in
-`__DDI_DEBUG.ui.theme` (screen, song, style, chart, greyed, search,
-popup, hints, pulse, compact, …; Options' field preview: where it
-shows in `__DDI_DEBUG.ui.fieldPreview`, what draws it in
-`fieldPreviewDrawn`, from the stored settings); a window under 480 CSS pixels high
-or 600 wide gets the compact layout, and `prefers-reduced-motion` (or the
-`reduced_motion` setting) stops the beat pulse.
-`window.__DDI_LOSE_DEVICE()` loses the device (a WebGL2 context too), to test recovery;
-`__DDI_DEBUG` carries the canvas's `screen`, `textures`, `text` and
-`pass2d` counters (`pass2d.blurred`: cached Gaussian jobs, unchanged by
-ordinary frames or cached revisits), and on every page `history` (the play history:
-`count`, `loaded`, `blocked`, `stale`, `unreadable`, `last` (the latest
-play's summary and `id`), and on the play route, once the chart is
-loaded, `song` and its charts' `bests`); on the play route `still`
-(the song's opening still is loaded), while the start prompt shows
-`prompt` (`step`, `notes`, `picture`, `frame`) and `prompt_backdrop`
-(`still`, `background` or `none`: the picture behind it), and `video` (the movies' counters, `update_ms`, `paused`,
-`guard`; `docs/plans/video-backgrounds.md`, step 8). Songs
-played to the end or failed are kept (autoplay flagged, never counted
-toward bests); Options' Data → Play history → Export downloads them as
-JSON lines; song select's P (or "Plays…") lists the chosen chart's
-plays (`ui.theme.plays`), W watches its best play's replay. Imported songs have ids
-`u-<hash>` and play through the same route.
+The UI (song select, options, the pages, the start prompt and the results)
+is our theme's screens on the canvas, not DOM: drive them by keys, a fake
+pad (`window.__DDI_FAKE_PAD`) or taps at `window.__DDI_DEBUG.ui.rects`, and
+read their state from `__DDI_DEBUG.ui.theme`. A fresh profile shows the
+first-run device notice over every page: seed `audio_profiles` and
+`display_profiles` in `ddi.settings.v1` (or tap `later`) when a test wants
+the screen without it. The testing parameters `gfx`, `auto`, `bias` and
+`slow` stay for the session once given on `#/?…` or `#/play?…`. The skill
+lists the routes and their parameters (`#/play`, replays, calibration,
+`#/video-check`, `#/skin-preview`, `#/ui-test`, `#/ui-dev`), what
+`__DDI_DEBUG` carries, and a recipe for each screen and feature; song
+select's arrow gestures are specified in `docs/plans/song-navigation.md`.
 
 Import is tested by setting files on the import panel's inputs (folder or zip)
 in a fresh browser profile; build test packs in a scratch directory, never in
@@ -643,7 +553,8 @@ dependency's licence before adding it.
   names required by external APIs or file formats.
 - Logical file paths use `ddi_library::path::{RelPath, RelPathBuf}`; convert to OS paths only with `to_path(base)`, never by joining their text onto a `PathBuf`.
 - Commit messages: imperative summary line, body explaining why.
-- Keep `docs/PLAN.md` status and decisions current when scope changes.
+- Keep `docs/PLAN.md` status and decisions, and the plan's line in
+  `docs/plans/README.md`, current when scope changes.
 - UI text avoids jargon from specific games except where naming a ruleset
   or a layout by StepMania's own name for its game ("Pump single", from
   StepMania's `pump` game, `docs/plans/pump.md`).
