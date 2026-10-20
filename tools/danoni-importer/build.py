@@ -348,7 +348,7 @@ def package(app, output):
             # The script adds host-dependent flags (--disable-x86asm, --toolchain=msvc) after the pinned ones.
             if metadata['version'] != video_config['version'] or metadata['configure'][:len(expected_configure)] != expected_configure or metadata['target'] != manifest['target']:
                 raise ValueError('Video helper metadata differs from current pinned build recipe or target')
-            check = run([helper, '--sandbox-check'], env, capture=True)
+            check = run([helper, '--sandbox-check'], env, capture=True).decode()
             if 'holds' not in check:
                 raise ValueError('Video helper sandbox check failed: ' + check)
             (output / 'video').mkdir()
