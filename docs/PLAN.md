@@ -26,8 +26,8 @@ first slice (`default.lua` folders, foregrounds too) since
 2026-10-21), phase 9 in progress (the
 UI core, our theme with a start menu, and the desktop shell at parity
 with the web; left: hardware checks, Windows, packaging), phase 10
-partial (replays and the ghost, importing plays, FFR levels, the
-editor planned); per-phase status in the roadmap
+partial (replays and the ghost, importing plays, FFR levels, more
+rulesets, the editor planned); per-phase status in the roadmap
 (section 5). What both shells do lives in shared crates (`session`,
 `shell`, `ui`), so a shell keeps only its platform's code.
 DanOni URL imports (2026-10-19): the `danoni-importer` feature, on by
@@ -360,7 +360,7 @@ Status as of 2026-10-21: one line per phase, the full notes below the table; kno
 | 7 Input devices | done | gamepad poller, dance-pad profiles, touch lanes, WebHID experiment | 1 ms poll loop with pad timestamps, bindings per controller model, touch lanes; WebHID out of scope; notes below |
 | 8 Presentation | partial | skin packs (static/quantized/rainbow/vivid), background layers (BGCHANGES, DanOni back/mask, generative), DDR option set (Boost/Brake/Wave, Hidden/Sudden, Turn, Cut) | done: options, color schemes, `#BGCHANGES`/`#BGCHANGES2`, background videos (`docs/plans/video-backgrounds.md`), noteskins with Lua, models and legacy formats (`docs/plans/noteskins.md` and the skin plans), DanOni overlays and StepMania's named background effects and transitions (`docs/plans/overlays.md`). Scripted backgrounds and `#FGCHANGES`: `default.lua` folders done (`docs/plans/scripted-backgrounds.md`); not done: their movies, StepMania 3.9's and ITG's formats; notes below |
 | 9 UI core & desktop | in progress | the screens drawn by our own UI core (`actor`, `ui`) on web and desktop (`docs/plans/ui-core.md`, decision 45); then the `desktop` crate: winit + wgpu + cpal + gilrs (`docs/plans/desktop.md`); same `engine`/`render`/`chart` | UI core and theme done (`docs/plans/ui-core.md`, `docs/plans/theme.md`); desktop parity steps 7.0–7.9 done (`docs/plans/desktop.md`); movies through OS decoders and a sandboxed FFmpeg helper (`docs/plans/native-video.md`); packaging and draft releases from tags (`docs/plans/packaging.md`); start menu since 2026-10-21 (`docs/plans/start-menu.md`); next: hardware checks, frame pacing measurements, Windows video; notes below |
-| 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); importing plays done, FFR levels imported on both shells (`docs/plans/phase-10.md`; their rules wait for the rulesets); editor planned (`docs/plans/editor.md`); not done: more rulesets, the editor itself |
+| 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); importing plays done, FFR levels imported on both shells (`docs/plans/phase-10.md`; no `ffr` preset, `docs/plans/rulesets.md`); more rulesets done (decision 57, `docs/plans/rulesets.md`: `ddr-extreme`, DDR A's LIFE4, RISKY, FLARE and FLOATING FLARE gauges with FLARE SKILL, LIFE4's lamps); editor planned (`docs/plans/editor.md`); not done: the `ffr` preset, the editor itself |
 
 ### Phase notes
 
@@ -467,13 +467,17 @@ Charts and import:
 
 Rules and options:
 
-- *New:* the `itg`, `itg-fa+`, `sm5`, `ddr-a` and `danoni` presets exist;
-  `ddr-extreme` and `ffr` (section 3.3) are not built.
+- *New:* the `itg`, `itg-fa+`, `sm5`, `ddr-a`, `ddr-extreme` and `danoni`
+  presets exist; `ffr` (section 3.3) is not built, nor DDR SuperNOVA2/X's
+  rules (`docs/plans/rulesets.md`).
 - Not built: lane covers (Hidden+/Sudden+), music rate, a separate judge
-  offset (section 3.3); DDR legacy scoring, FLARE, LIFE4, editor
-  (phase 10). The battery is an option of the StepMania presets, not a
-  preset (`docs/plans/rules-options.md`).
-- DDR A windows and gauge are approximations (section 7);
+  offset (section 3.3); the editor (phase 10); LIFE4's standings and the
+  FLARE SKILL total (across plays and DDR's versions;
+  `docs/plans/rulesets.md`). The battery is an option of the StepMania
+  presets, not a preset (`docs/plans/rules-options.md`).
+- DDR A windows and gauge are approximations (section 7), as are its
+  FLARE drains (community estimates) and DDR EXTREME's life bar
+  (StepMania 3.9's; `docs/plans/rulesets.md`);
   the shock window and hide time are not measured (decision 42);
   `#COMBOS` has no miss counter and comes from `.ssc` only (decision 43);
   ticked holds' known deviations (`docs/plans/pump.md`).
@@ -592,7 +596,7 @@ Tooling:
 - The local-corpus tests (differential, autoplay, skins, Lua) are opt-in,
   not in CI (phase 1, `AGENTS.md`).
 
-## 6. Decisions (1–7 confirmed 2026-10-06; 8–10 made with phase 5, 2026-10-07; 11–12 with phase 7, 2026-10-07; 13–19 with phase 8, 2026-10-08; 20–29 with phase 6, 2026-10-08/09; 30–33 with the loose ends, 2026-10-09; 34–35 with the background videos, 2026-10-10; 36 with noteskins, 2026-10-10; 37–39 with bundled noteskins and skins' scripts, 2026-10-12; 40 with pump layouts, 2026-10-13; 41 with the overlays, 2026-10-14; 42–44 with the local corpus sweep, 2026-10-14; 45 with the UI core, 2026-10-15; 46–47 with desktop parity, 2026-10-16; 48–49 with the second layer and replays, 2026-10-16; 50 with native video, 2026-10-17; 51–52 with DanOni URL imports and simplified charts, 2026-10-18; 53–54 with song navigation and the video helper, 2026-10-20; 55 with the rules options, 56 with skin parameters, 2026-10-21)
+## 6. Decisions (1–7 confirmed 2026-10-06; 8–10 made with phase 5, 2026-10-07; 11–12 with phase 7, 2026-10-07; 13–19 with phase 8, 2026-10-08; 20–29 with phase 6, 2026-10-08/09; 30–33 with the loose ends, 2026-10-09; 34–35 with the background videos, 2026-10-10; 36 with noteskins, 2026-10-10; 37–39 with bundled noteskins and skins' scripts, 2026-10-12; 40 with pump layouts, 2026-10-13; 41 with the overlays, 2026-10-14; 42–44 with the local corpus sweep, 2026-10-14; 45 with the UI core, 2026-10-15; 46–47 with desktop parity, 2026-10-16; 48–49 with the second layer and replays, 2026-10-16; 50 with native video, 2026-10-17; 51–52 with DanOni URL imports and simplified charts, 2026-10-18; 53–54 with song navigation and the video helper, 2026-10-20; 55 with the rules options, 56 with skin parameters, 57 with more rulesets, 2026-10-21)
 
 1. **Licence: MIT.** Bundled songs keep their own licences in `assets/songs/*/LICENSE`.
 2. **Rendering: wgpu from day one** (WebGPU + WebGL2 fallback), not Canvas2D, because desktop parity is a stated goal and heddobureika already proves the wgpu+Trunk path. Costs ~1 MB on the wire.
@@ -709,6 +713,8 @@ remain separate work.
 
 55. **StepMania's player options are options of the StepMania presets, kept with each play** (2026-10-21; `docs/plans/rules-options.md`). The fail type (Immediate, Delayed, Fail at end, Off), the life and judge difficulty as StepMania 5.1's levels (life 1–7, judge 1–8 and Justice, 4 the preset as it is) and the life meter (the preset's bar or a battery of 1–10 lives) apply to `itg`, `itg-fa+`, `sm5` and `ddr-a`, never to Dancing☆Onigiri's rules (its gauges and judge range are its own) or calibration. A play's `RulesetKey` keeps them, so its replay and re-judging build the same rules; bests are kept apart by judge level only (the rest changes whether a play fails, not how it is judged). ITG FA+ is ITG with Simply Love's 15 ms window shown (blue and white Fantastics, Simply Love's EX percentage), not Simply Love's FA+ mode. The event sounds (the mine sound, the assist clap) are made in code and played through the session's audio backend, the clap scheduled on the audio clock where the music plays its row.
 56. **Skins declare their parameters; Dito's looks are its parameters** (2026-10-21; `docs/plans/skin-parameters.md`). Our extension, as SVG images are: a skin's `metrics.ini` lists parameters (`[Parameters] List`, a `[Parameter <name>]` each: a choice, a toggle, a number in a range or a color, with a label, a description and a default; bounded, malformed ones left out with a warning), merged under its fallbacks like any metric. Options shows the chosen skin's as rows under Arrows; the values are kept per skin key in the settings (a default not stored), go into a play's settings snapshot and its drawn record so replays draw the same, and reach the skin's Lua read-only (`NOTESKIN:GetParameter`), with the same values for Options' preview and a play (`ddi_shell::play_skin`, `field_preview_skin`). A choice may name the skin that draws it (one falling back on this one), loaded in its place, so Dito's color schemes stay the skins they were and are its `Colors` choice. The note colors and songs' own colors are Dito's parameters (older settings migrate on load), with `Explosions` (read by its Lua) and `Lighter`, which draws the built-in arrows instead: the visible Built-in choice is retired into it, the procedural arrows staying what missing elements, a stopped Lua and a song's own colors fall back on. The game reads Dito's colors, songs' own colors and lighter by name; other skins' parameters reach only their own Lua. A skin without declarations behaves as before.
+
+57. **DDR's legacy score is a preset of its own, DDR's gauges and LIFE4's lamps go with DDR A** (2026-10-21; `docs/plans/rulesets.md`). `ddr-extreme` is DDRMAX2 and EXTREME's normal play: EXTREME's windows as measured from its `GAME.DAT` (Marvelous only in courses), MAX2's money score by the song's feet, MAX's dance points for the grade (AAA at 100%, E failed), a jump adding two to the combo, and StepMania 3.9's life bar for DDR's unpublished one (approximate). SuperNOVA2/X and an `ffr` preset are not built. DDR A takes DDR's other gauges as a player option (`StepManiaOptions::gauge`: LIFE4, RISKY, FLARE I–EX with BEMANIWiki's WORLD drains, FLOATING FLARE), replaced by StepMania's battery when that is chosen; a DDR A play keeps its gauge, the FLARE rank its gauge kept and its FLARE SKILL points (`Results::ddr`), and earns LIFE4's clear types as lamps (LIFE4 clear, single digit perfects). Bests are kept with every gauge's plays. LIFE4's standings and the FLARE SKILL total are across plays and DDR's own songs, not a play's. `JUDGE_VERSION` 2 judges kept plays again for them.
 
 ## 7. Risks
 

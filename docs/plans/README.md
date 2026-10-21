@@ -67,6 +67,10 @@ architecture, the decisions and the roadmap they belong to. Status as of
   StepMania's fail types, life and judge difficulty, ITG FA+, autoplay
   in the menus (found done), the event sounds, the battery. Left: lane
   covers.
+- [More rulesets](rulesets.md) (2026-10-21): done (decision 57): DDR
+  EXTREME's score, grades and windows, DDR A's LIFE4, RISKY, FLARE and
+  FLOATING FLARE gauges with the FLARE rank and FLARE SKILL, LIFE4's
+  lamps. Left: SuperNOVA2/X, `ffr` (with the FFR import).
 
 ## Presentation and video
 
