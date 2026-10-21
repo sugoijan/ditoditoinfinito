@@ -132,8 +132,8 @@ play: ids are random).
 
 ## Step 2: FFR `beatBox`
 
-Done as a reader (2026-10-21); not yet offered in the import paths (see
-"Left").
+Done (2026-10-21): read, then offered on both import paths the same
+day (see "Offered on import").
 
 ### What a player has
 
@@ -224,19 +224,67 @@ a `beatBox` that is not an array), 3,000 damaged levels without a panic,
 64 notes, all the best judgement, each judged at its frame's time; the
 speed of an x-mod and a c-mod.
 
+### Offered on import
+
+Decided here (the maintainer may change any):
+
+- **A level is a file, and a song.** A level SWF holds its chart and its
+  music; a text `beatBox` (`.as`, as a decompiler exports a level's
+  actions; `.beatbox`; a `.txt` whose name says `beatbox`) takes the
+  audio file of its name beside it, else its folder's only one. Many
+  levels share a folder, unlike StepMania's one song a folder.
+- **The pack is the level's folder** (`Songs/FFR Levels/level_12.swf`:
+  pack "FFR Levels", its cover the folder's image as StepMania finds a
+  pack banner); a level at the import's root goes in the import's pack
+  ("Imported", or a zip's name). The title is the file's name without its
+  extension (a level does not hold its title). The id is
+  `pack::song_id` of the pack and the file's name with its extension, so
+  `level_1.swf` and a song folder `level_1` differ, and both shells give
+  the same.
+- **What is not a level is nothing:** a SWF without a `beatBox`, an `.as`
+  of other actions, a file over 64 MB; no song, nothing reported. A
+  level that cannot play (no notes, no music, a `.beatbox` that does not
+  read) is reported. A level inside a simfile's song folder is left to
+  the simfile.
+- **The web stores what it read**: the `beatBox` as JSON
+  (`chart.beatbox`) and the music, the SWF's MP3 taken out once
+  (`music.mp3`) or the text level's audio, copied (never linked, so the
+  SWF is never read again). **Desktop reads in place**: the level is the
+  chart and, for a SWF, the music, taken out each time it plays and once
+  for song select's sample (the previews cache). Its library cache
+  version is 8, so caches from before read levels.
+- The file pickers take `.swf`, `.as`, `.beatbox` and `.txt`; the import
+  dialogs name "FFR levels (.swf)".
+
+Built: `crates/library/src/ffr.rs` (`find_levels`, `read_level`,
+`entry`, `names_in_place`, `chart_song`, `music`, `is_level_chart`),
+`swf::write_level` (our own levels for tests and fixtures),
+`Value::to_json`, a level's sample window (from its first note, 15 s);
+the web's `import/ffr.rs` and the chart dispatch in `songs.rs`;
+desktop's `scan_levels` (`library/mod.rs`, reused from the cache by the
+level's and its music's files), the chart and music dispatch in
+`play/load.rs` and the sample in `prepare_preview`.
+
+Checked: natively, levels found in a listing (packs, titles, music
+beside, ignored and song-folder files left), a SWF and a text level
+read, their entries, read again from the SWF, the stored JSON and the
+text, the music out of the SWF, files that are no level and broken
+levels; desktop's scan of a folder (two SWFs, a text level with its
+music, a silent level reported, a Flash file of no level passed over,
+the pack's cover), the web's ids for the same files, reuse from the
+cache and one changed level read again; desktop's play of three levels
+headless on a fake clock (`tests/ffr_levels.rs`: the music, a 12 s MP3
+of the platform's fixture tone, decoded out of the SWF; every note the
+top tier). In headless Chrome (WebGPU) and Firefox (WebGL2), the same
+levels (written by `DDI_FFR_FIXTURES=… cargo test -p ddi-desktop --test
+ffr_levels -- --ignored`) imported as a folder through the import
+panel (three songs, packs "FFR Levels" and "Decompiled", no "music
+without a simfile") and a loose SWF dropped on the page (pack
+"Imported"), each autoplayed from `#/play?song=<id>`: 40, 24, 16 and 24
+notes, all the top tier.
+
 Left:
 
-- **Offering it in the import paths.** Both paths read a song folder's
-  chart as text beside its music file; a level is binary and carries its
-  music. The way in: the web's import and desktop's managed library
-  (where Dancing☆Onigiri URL imports already land) take a `.swf` that
-  reads as a level (`swf::level_song`) and keep the level's MP3 as the
-  song's music file beside its chart, kept as the level itself (read
-  with `swf::read` where charts are parsed: `scan::parse_simfile`'s
-  callers in `songs.rs`, `play/load.rs`, `library/mod.rs`,
-  `preview.rs`), or as an `.ssc` with the colors in a side file. That
-  touches the import code of both shells and the library scan, which
-  other work is changing now; it comes next.
 - FFR's rules (above), its playlist's `sync`, title and difficulty
   (a player could give them on import), and a check of the music's
   timing against a real level.

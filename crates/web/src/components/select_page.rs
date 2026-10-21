@@ -45,7 +45,7 @@ const PAD_CHECK_MS: u32 = 1000;
 /// The source's address (the footer's link).
 const SOURCE: &str = "https://github.com/sugoijan/ditoditoinfinito";
 /// What the zip and files input takes.
-const ACCEPT: &str = ".zip,.sm,.ssc,.dwi,.ogg,.oga,.opus,.mp3,.wav,.flac,.png,.jpg,.jpeg,.gif,.bmp,.webp,.avi,.f4v,.flv,.mkv,.mp4,.mpeg,.mpg,.mov,.ogv,.webm,.wmv";
+const ACCEPT: &str = ".zip,.sm,.ssc,.dwi,.swf,.as,.beatbox,.txt,.ogg,.oga,.opus,.mp3,.wav,.flac,.png,.jpg,.jpeg,.gif,.bmp,.webp,.avi,.f4v,.flv,.mkv,.mp4,.mpeg,.mpg,.mov,.ogv,.webm,.wmv";
 
 pub(crate) enum Msg {
     Library(Result<Library, String>),

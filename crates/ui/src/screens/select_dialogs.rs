@@ -749,10 +749,10 @@ impl ImportDialog {
         } else if compact {
             "Choose a folder, ZIP or files, or drop them here. Files stay in this browser.".into()
         } else if v.platform == Platform::Desktop {
-            "Choose a song folder, a Songs folder or a pack's ZIP. StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works are supported. Folders and ZIPs are read where they are; Options lists them.".to_string()
+            "Choose a song folder, a Songs folder or a pack's ZIP. StepMania packs (.sm, .ssc, .dwi), Dancing☆Onigiri works and FFR levels (.swf) are supported. Folders and ZIPs are read where they are; Options lists them.".to_string()
         } else {
             format!(
-                "StepMania packs (.sm, .ssc, .dwi) and Dancing☆Onigiri works: a folder, a zip or files, or drop them on this page. {keeps}"
+                "StepMania packs (.sm, .ssc, .dwi), Dancing☆Onigiri works and FFR levels (.swf): a folder, a zip or files, or drop them on this page. {keeps}"
             )
         };
         let desktop = v.platform == Platform::Desktop;

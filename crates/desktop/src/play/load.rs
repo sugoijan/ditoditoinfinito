@@ -350,23 +350,12 @@ pub fn load_with(
     if let Some(w) = crate::library::song(id).and_then(|s| s.work) {
         return load_work(files, entry, &w, rate);
     }
-    let bytes = files.read(&entry.chart)?;
-    let text = ddi_library::pack::decode_text_with(&bytes, crate::library::legacy_text);
-    let ext = entry
-        .chart
-        .as_str()
-        .rsplit_once('.')
-        .map_or("sm", |(_, e)| e)
-        .to_ascii_lowercase();
-    let mut song = ddi_library::scan::parse_simfile(&text, &ext).map_err(|e| e.to_string())?;
+    let mut song = chart_of(&files, &entry)?;
     song.resolve_change_names(&entry.change_names());
     add_lyrics(&files, &entry, &mut song);
     let music_file = chart.map_or(entry.music.as_rel_path(), |c| entry.music_for(c));
-    let music = files.read(music_file)?;
-    let music_ext = music_file
-        .as_str()
-        .rsplit_once('.')
-        .map(|(_, e)| e.to_ascii_lowercase());
+    // An FFR level's music is inside it.
+    let (music, music_ext) = ddi_library::ffr::music(music_file, files.read(music_file)?)?;
     // A Dancing☆Onigiri work's MP3 where Chrome's decode has it (its
     // notes are timed against that), a simfile's where StepMania's does.
     let range = Range {
@@ -395,7 +384,16 @@ pub fn read_chart(id: &str) -> Result<Song, String> {
     if let Some(w) = crate::library::song(id).and_then(|s| s.work) {
         return read_work(&files, &w);
     }
+    chart_of(&files, &entry)
+}
+
+/// The song's chart file parsed: a simfile, or an FFR level
+/// (`ddi_library::ffr`).
+fn chart_of(files: &Files, entry: &ManifestEntry) -> Result<Song, String> {
     let bytes = files.read(&entry.chart)?;
+    if ddi_library::ffr::is_level_chart(&entry.chart) {
+        return ddi_library::ffr::chart_song(&entry.chart, &bytes, &entry.title);
+    }
     let text = ddi_library::pack::decode_text_with(&bytes, crate::library::legacy_text);
     let ext = entry
         .chart

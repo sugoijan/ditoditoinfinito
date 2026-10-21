@@ -44,8 +44,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [The play history](play-history.md) (2026-10-16): done, replays and the
   ghost included (decision 49); importing plays in `phase-10.md`.
 - [Phase 10](phase-10.md) (2026-10-21): importing plays done; FFR
-  levels read (SWF and text `beatBox`), not yet offered on import, their
-  rules waiting for the rulesets. Rulesets later.
+  levels (SWF and text `beatBox`) imported on both shells, their rules
+  waiting for the rulesets. Rulesets later.
 - [The chart editor](editor.md) (2026-10-21): planned, not started. A
   first version for `.ssc`/`.sm` timing and notes, playtests, saving on
   both shells.

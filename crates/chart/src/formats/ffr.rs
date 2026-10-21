@@ -34,6 +34,8 @@ use crate::timing::TimingMap;
 pub const SYNTHETIC_BPM: f64 = 1500.0;
 /// FFR's frame rate: frames are 1/30 s.
 pub const FRAME_RATE: f64 = 30.0;
+/// How long song select's sample of a level plays, seconds.
+const PREVIEW_SECONDS: f64 = 15.0;
 /// The most notes taken from one level.
 pub const MAX_NOTES: usize = 200_000;
 /// The latest time a note may have, seconds (a day).
@@ -64,6 +66,47 @@ impl Value {
             // ActionScript turns text into a number where one is wanted.
             Value::Text(t) => t.trim().parse().ok(),
             _ => None,
+        }
+    }
+
+    /// The value as JSON, which [`parse_beatbox_text`] reads back (a
+    /// number that is not finite, and an object, as `null`).
+    pub fn to_json(&self) -> String {
+        let mut out = String::new();
+        self.write_json(&mut out);
+        out
+    }
+
+    fn write_json(&self, out: &mut String) {
+        match self {
+            Value::Number(n) if n.is_finite() => out.push_str(&n.to_string()),
+            Value::Text(t) => {
+                out.push('"');
+                for c in t.chars() {
+                    match c {
+                        '"' => out.push_str("\\\""),
+                        '\\' => out.push_str("\\\\"),
+                        '\n' => out.push_str("\\n"),
+                        '\r' => out.push_str("\\r"),
+                        '\t' => out.push_str("\\t"),
+                        c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                        c => out.push(c),
+                    }
+                }
+                out.push('"');
+            }
+            Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            Value::List(items) => {
+                out.push('[');
+                for (i, v) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    v.write_json(out);
+                }
+                out.push(']');
+            }
+            Value::Number(_) | Value::Null | Value::Other => out.push_str("null"),
         }
     }
 
@@ -179,6 +222,7 @@ pub fn song_from_beatbox(beatbox: &Value, info: &LevelInfo) -> Result<Song, Pars
     // sync): ticks are never negative.
     let start = notes.iter().map(|n| n.0).fold(0.0f64, f64::min);
     notes.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    let notes_start = notes[0].0;
     let mut chart_notes: Vec<Note> = Vec::with_capacity(notes.len());
     for (time, lane, name) in notes {
         let tick = Tick(((time - start) * ticks_per_second).round() as i64);
@@ -204,6 +248,9 @@ pub fn song_from_beatbox(beatbox: &Value, info: &LevelInfo) -> Result<Song, Pars
     // No tempo of its own: the scroll speed takes FFR's reference
     // (`ddi_engine::scroll::speed_for_song`) and none is shown.
     song.display_bpm = DisplayBpm::Random;
+    // Song select's sample: from the first note (a level names none).
+    song.preview_start = notes_start.max(0.0);
+    song.preview_length = PREVIEW_SECONDS;
     song.charts.push(Chart {
         derivation: None,
         layout: "dance-single".into(),
@@ -523,6 +570,9 @@ mod tests {
         ] {
             assert!(parse_beatbox_text(bad).is_err(), "{bad}");
         }
+        // JSON written back reads the same.
+        let v = parse_beatbox_text(r#"[[1,"L","r\"e\nd",2.5],[true,null,'é']]"#).unwrap();
+        assert_eq!(parse_beatbox_text(&v.to_json()).unwrap(), v);
         // Nesting and size are bounded.
         let deep = format!("{}{}", "[".repeat(100), "]".repeat(100));
         assert!(parse_beatbox_text(&deep).is_err());

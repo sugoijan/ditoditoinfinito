@@ -47,12 +47,12 @@ use files::{DirReader, Listed, ZipReader};
 pub const FOLDERS_KEY: &str = "ddi.desktop.folders.v1";
 /// Packs and songs the player removed from the list (files kept).
 pub const HIDDEN_KEY: &str = "ddi.desktop.hidden.v1";
-/// The cache's file (in the cache folder) and version (7: jackets, CD
-/// titles, lyrics, preview and charts' music, background
+/// The cache's file (in the cache folder) and version (8: FFR levels;
+/// 7: jackets, CD titles, lyrics, preview and charts' music, background
 /// files named with `,` or `=`; 6: pack covers;
 /// version 5 added generated onigiri-free charts).
 pub const CACHE_FILE: &str = "library-v1.json";
-const CACHE_VERSION: u32 = 7;
+const CACHE_VERSION: u32 = 8;
 
 /// The song folders the settings list.
 pub fn folders() -> Vec<PathBuf> {
@@ -630,7 +630,9 @@ fn scan_songs(
         .map(|(c, _)| {
             c.songs
                 .iter()
-                .filter(|s| s.song.work.is_none())
+                .filter(|s| {
+                    s.song.work.is_none() && !ddi_library::ffr::is_level_chart(&s.song.entry.chart)
+                })
                 .map(|s| (s.song.dir.as_str(), s))
                 .collect()
         })
@@ -690,15 +692,25 @@ fn scan_songs(
         return Err(Superseded);
     }
     scan_works(root, files, paths, listing, cached, out, report);
+    if stale() {
+        return Err(Superseded);
+    }
+    scan_levels(root, files, paths, listing, cached, out, report);
     // Refresh even reused songs: a cover can change without a song changing.
     let mut covers = HashMap::new();
     for cached in &mut out.songs {
         let song = &mut cached.song;
         let dir = root.virtual_path(&song.dir);
+        // An FFR level's folder is its pack's.
+        let pack_dir = if ddi_library::ffr::is_level_chart(&song.entry.chart) {
+            dir.as_rel_path()
+        } else {
+            dir.parent()
+        };
         song.pack_banner = covers
-            .entry(dir.parent().to_owned())
+            .entry(pack_dir.to_owned())
             .or_insert_with(|| {
-                pack::pack_banner(dir.parent(), paths)
+                pack::pack_banner(pack_dir, paths)
                     .map(|p| RelPathBuf::from(root.real_dir(p.as_str())))
             })
             .clone();
@@ -815,6 +827,95 @@ fn scan_works(
                 },
             });
         }
+    }
+}
+
+/// The FFR levels among a root's `paths` (`ddi_library::ffr`) into
+/// `out`, a song each, found as the web's import finds them (the same ids
+/// and packs), read in place: a SWF's music is taken out of it when it
+/// plays. Each reused from the cache while its file (and its music's)
+/// is the same.
+fn scan_levels(
+    root: &Root,
+    files: &dyn Reader,
+    paths: &[RelPathBuf],
+    listing: Option<&[Listed]>,
+    cached: Option<(&CachedRoot, &Force)>,
+    out: &mut CachedRoot,
+    report: &mut Report,
+) {
+    use ddi_library::ffr;
+    for c in ffr::find_levels(paths, &root.fallback) {
+        let label = c.path.to_string();
+        // The level's file and its music's, unchanged.
+        let hash = listing.map_or(0, |l| {
+            let mut h = pack::Fnv1a64::new();
+            for f in l
+                .iter()
+                .filter(|f| f.path == c.path || Some(&f.path) == c.music.as_ref())
+            {
+                h.write(f.path.as_str().as_bytes());
+                h.write(&f.size.to_le_bytes());
+                h.write(&f.modified.to_le_bytes());
+            }
+            h.finish()
+        });
+        let dir = root.real_dir(c.dir.as_str()).to_string();
+        let (chart, music) = ffr::names_in_place(&c);
+        if let (Some(_), Some((cache, force))) = (listing, cached)
+            && !force.pack(&c.pack)
+        {
+            if let Some(s) = cache.songs.iter().find(|s| {
+                s.listing == hash
+                    && s.song.work.is_none()
+                    && s.song.dir.as_str() == dir
+                    && s.song.entry.chart.as_str() == chart
+            }) {
+                report.reused += 1;
+                out.songs.push(s.clone());
+                continue;
+            }
+            if let Some(f) = cache
+                .failed
+                .iter()
+                .find(|(at, _, h)| *h == hash && *at == label)
+            {
+                out.failed.push(f.clone());
+                continue;
+            }
+        }
+        // Too large to be a level: not one.
+        let bytes = match files.read_at(&c.path, 0, ffr::MAX_LEVEL as usize + 1) {
+            Ok(b) if b.len() as u64 > ffr::MAX_LEVEL => continue,
+            Ok(b) => b,
+            Err(e) => {
+                out.failed.push((label, e, hash));
+                continue;
+            }
+        };
+        let read = match ffr::read_level(&c, &bytes) {
+            Ok(Some(r)) => r,
+            Ok(None) => continue,
+            Err(e) => {
+                out.failed.push((label, e, hash));
+                continue;
+            }
+        };
+        report.parsed += 1;
+        out.songs.push(CachedSong {
+            listing: hash,
+            song: LibSong {
+                root: root.path.clone(),
+                zip: root.zip,
+                dir: dir.into(),
+                pack: c.pack.clone(),
+                pack_banner: None,
+                entry: ffr::entry(&c, &read.song, &chart, &music),
+                warnings: Vec::new(),
+                notes: Vec::new(),
+                work: None,
+            },
+        });
     }
 }
 
@@ -1431,29 +1532,48 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
     };
     // A separate preview file (`#PREVIEW`), else the music.
     let file = s.entry.preview.as_ref().unwrap_or(&s.entry.music);
-    let music = if s.zip {
+    // An FFR level's music is inside it: taken out once, as a zip's.
+    let in_level = file
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("swf"));
+    let music = if s.zip || in_level {
         let dir = cache_dir()?.join("previews");
-        let ext = file.extension().unwrap_or("ogg");
-        let stamp = zip_stamp(&s.root)?.replace(':', "-");
+        let ext = if in_level {
+            "mp3"
+        } else {
+            file.extension().unwrap_or("ogg")
+        };
+        let stamp = if s.zip {
+            zip_stamp(&s.root)?.replace(':', "-")
+        } else {
+            let meta = std::fs::metadata(s.rooted(file).to_path(&s.root)?).ok()?;
+            format!("{}-{}", meta.len(), files::modified(&meta))
+        };
         let key = format!("{}-", s.entry.id);
         let out = dir.join(format!("{key}{stamp}.{ext}"));
         if !out.is_file() {
             let bytes = reader.read(&s.rooted(file)).ok()?;
+            let (bytes, _) = ddi_library::ffr::music(file, bytes).ok()?;
             cache_preview(&dir, &key, &out, &bytes)?;
         }
         out
     } else {
         s.rooted(file).to_path(&s.root)?
     };
-    // The timing for the beat pulse, from the simfile as it is now.
-    let text = pack::decode_text_with(&reader.read(&s.rooted(&s.entry.chart)).ok()?, legacy_text);
-    let ext = s
-        .entry
-        .chart
-        .extension()
-        .unwrap_or("sm")
-        .to_ascii_lowercase();
-    let parsed = ddi_chart::formats::sm::parse_simfile(&text, &ext).ok()?;
+    // The timing for the beat pulse, from the chart as it is now.
+    let chart = reader.read(&s.rooted(&s.entry.chart)).ok()?;
+    let parsed = if ddi_library::ffr::is_level_chart(&s.entry.chart) {
+        ddi_library::ffr::chart_song(&s.entry.chart, &chart, &s.entry.title).ok()?
+    } else {
+        let text = pack::decode_text_with(&chart, legacy_text);
+        let ext = s
+            .entry
+            .chart
+            .extension()
+            .unwrap_or("sm")
+            .to_ascii_lowercase();
+        ddi_chart::formats::sm::parse_simfile(&text, &ext).ok()?
+    };
     Some(Prepared {
         music,
         from: if s.entry.preview.is_some() {

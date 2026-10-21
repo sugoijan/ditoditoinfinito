@@ -26,7 +26,7 @@ first slice (`default.lua` folders, foregrounds too) since
 2026-10-21), phase 9 in progress (the
 UI core, our theme with a start menu, and the desktop shell at parity
 with the web; left: hardware checks, Windows, packaging), phase 10
-partial (replays and the ghost, importing plays, FFR levels read, the
+partial (replays and the ghost, importing plays, FFR levels, the
 editor planned); per-phase status in the roadmap
 (section 5). What both shells do lives in shared crates (`session`,
 `shell`, `ui`), so a shell keeps only its platform's code.
@@ -356,7 +356,7 @@ Status as of 2026-10-21: one line per phase, the full notes below the table; kno
 | 7 Input devices | done | gamepad poller, dance-pad profiles, touch lanes, WebHID experiment | 1 ms poll loop with pad timestamps, bindings per controller model, touch lanes; WebHID out of scope; notes below |
 | 8 Presentation | partial | skin packs (static/quantized/rainbow/vivid), background layers (BGCHANGES, DanOni back/mask, generative), DDR option set (Boost/Brake/Wave, Hidden/Sudden, Turn, Cut) | done: options, color schemes, `#BGCHANGES`/`#BGCHANGES2`, background videos (`docs/plans/video-backgrounds.md`), noteskins with Lua, models and legacy formats (`docs/plans/noteskins.md` and the skin plans), DanOni overlays and StepMania's named background effects and transitions (`docs/plans/overlays.md`). Scripted backgrounds and `#FGCHANGES`: `default.lua` folders done (`docs/plans/scripted-backgrounds.md`); not done: their text, sounds and movies, StepMania 3.9's and ITG's formats; notes below |
 | 9 UI core & desktop | in progress | the screens drawn by our own UI core (`actor`, `ui`) on web and desktop (`docs/plans/ui-core.md`, decision 45); then the `desktop` crate: winit + wgpu + cpal + gilrs (`docs/plans/desktop.md`); same `engine`/`render`/`chart` | UI core and theme done (`docs/plans/ui-core.md`, `docs/plans/theme.md`); desktop parity steps 7.0–7.9 done (`docs/plans/desktop.md`); movies through OS decoders and a sandboxed FFmpeg helper (`docs/plans/native-video.md`); packaging and draft releases from tags (`docs/plans/packaging.md`); start menu since 2026-10-21 (`docs/plans/start-menu.md`); next: hardware checks, frame pacing measurements, Windows video; notes below |
-| 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); importing plays done, FFR levels read (`docs/plans/phase-10.md`; not yet offered in the import paths, its rules wait for the rulesets); editor planned (`docs/plans/editor.md`); not done: more rulesets, the editor itself |
+| 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); importing plays done, FFR levels imported on both shells (`docs/plans/phase-10.md`; their rules wait for the rulesets); editor planned (`docs/plans/editor.md`); not done: more rulesets, the editor itself |
 
 ### Phase notes
 
@@ -449,8 +449,8 @@ Charts and import:
   kept, `docs/plans/format-gaps.md` decision 11).
 - Layouts not played (couple, routine, techno, kb7, para, ez2, …) are
   left out with a note (decision 27); KSF, BMS and `.osu` are not
-  read, FFR levels are read but not offered on import yet (section 2.1,
-  phase 10); keysounds are a non-goal (section 1).
+  read (section 2.1); FFR levels play under the rules chosen until
+  theirs come (phase 10); keysounds are a non-goal (section 1).
 - Korean and Chinese legacy encodings are told apart by a heuristic
   (`ddi_library::legacy`, `docs/plans/format-gaps.md`): a short title
   may still be misread.

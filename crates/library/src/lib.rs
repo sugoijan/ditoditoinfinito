@@ -19,12 +19,14 @@
 //! - [`h264`]: H.264 parameters and the FFmpeg module's frame times, for other decoders.
 //! - [`danoni`]: Dancing☆Onigiri works (pages and dumps) in an import.
 //! - [`video`]: which background-change files are movies and what they are.
-//! - [`swf`]: an FFR level's chart and music from its SWF.
+//! - [`swf`]: an FFR level's chart and music from its SWF; [`ffr`]: levels
+//!   found among files, read into songs.
 
 pub mod avi;
 pub mod backgrounds;
 pub(crate) mod bytes;
 pub mod danoni;
+pub mod ffr;
 pub mod h264;
 pub mod image;
 pub mod legacy;

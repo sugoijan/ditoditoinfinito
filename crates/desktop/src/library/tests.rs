@@ -523,3 +523,112 @@ fn works_are_cached_by_their_folders_listing() {
     let (none, _, _) = scan(&folders, None, &[]);
     assert!(none.is_empty());
 }
+
+/// FFR levels in a song folder (`ddi_library::ffr`): a song a level, its
+/// folder its pack, ids as the web's import gives them; a SWF that is no
+/// level is no song and nothing to report, a broken level is reported;
+/// from the cache while their files are the same.
+#[test]
+fn ffr_levels_are_songs_one_a_file_and_cached_by_their_files() {
+    let root = scratch("ffr");
+    let notes: Vec<(f64, &str, &str)> = (0..8)
+        .map(|i| (30.0 + 15.0 * i as f64, ["L", "D", "U", "R"][i % 4], "red"))
+        .collect();
+    let mp3 = [0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0];
+    let level = ddi_library::swf::write_level(&notes, &mp3, true);
+    let silent = ddi_library::swf::write_level(&notes, &[], false);
+    // A SWF of no level: a header and an end.
+    let flash = b"FWS\x08\x0f\x00\x00\x00\x00\x00\x1e\x01\x00\x00\x00";
+    write(
+        &root,
+        &[
+            ("FFR/level_1.swf", &level),
+            ("FFR/level_2.SWF", &level),
+            ("FFR/cover.png", b"img"),
+            ("FFR/silent.swf", &silent),
+            ("FFR/intro.swf", flash),
+            ("Decomp/DoAction.as", b"_root.beatBox = [[30, 'L', 'red']];"),
+            ("Decomp/music.ogg", b"m"),
+        ],
+    );
+    let folders = vec![root.clone()];
+    let (songs, report, cache) = scan(&folders, None, &[]);
+    let mut got: Vec<(String, String, String, String)> = songs
+        .iter()
+        .map(|s| {
+            (
+                s.pack.clone(),
+                s.entry.title.clone(),
+                s.entry.chart.to_string(),
+                s.entry.music.to_string(),
+            )
+        })
+        .collect();
+    got.sort();
+    assert_eq!(
+        got,
+        vec![
+            (
+                "Decomp".into(),
+                "DoAction".into(),
+                "DoAction.as".into(),
+                "music.ogg".into()
+            ),
+            (
+                "FFR".into(),
+                "level_1".into(),
+                "level_1.swf".into(),
+                "level_1.swf".into()
+            ),
+            (
+                "FFR".into(),
+                "level_2".into(),
+                "level_2.SWF".into(),
+                "level_2.SWF".into()
+            ),
+        ]
+    );
+    // The web's ids for the same folder picked.
+    let name = root.file_name().unwrap().to_str().unwrap().to_string();
+    let web: Vec<String> = ddi_library::ffr::find_levels(
+        &[
+            format!("{name}/FFR/level_1.swf"),
+            format!("{name}/FFR/level_2.SWF"),
+            format!("{name}/Decomp/DoAction.as"),
+            format!("{name}/Decomp/music.ogg"),
+        ],
+        pack::LOOSE_PACK,
+    )
+    .into_iter()
+    .map(|c| c.id)
+    .collect();
+    let mut mine: Vec<String> = songs.iter().map(|s| s.entry.id.clone()).collect();
+    let mut web = web;
+    mine.sort();
+    web.sort();
+    assert_eq!(mine, web);
+    // The pack's cover is its folder's.
+    let l1 = songs.iter().find(|s| s.entry.title == "level_1").unwrap();
+    assert_eq!(
+        l1.pack_banner.as_deref().map(RelPath::as_str),
+        Some("FFR/cover.png")
+    );
+    // Only the silent level is reported.
+    assert_eq!(report.failed.len(), 1, "{:?}", report.failed);
+    assert!(
+        report.failed[0].0.ends_with("FFR/silent.swf"),
+        "{:?}",
+        report.failed
+    );
+    assert_eq!(report.parsed, 3);
+    // From the cache; a level changed is read again, alone.
+    let (again, r, cache) = scan(&folders, Some(&cache), &[]);
+    assert_eq!((r.parsed, r.reused), (0, 3));
+    assert_eq!(again.len(), 3);
+    let fewer = ddi_library::swf::write_level(&notes[..4], &mp3, true);
+    write(&root, &[("FFR/level_2.SWF", &fewer)]);
+    let (now, r, _) = scan(&folders, Some(&cache), &[]);
+    assert_eq!((r.parsed, r.reused), (1, 2));
+    let l2 = now.iter().find(|s| s.entry.title == "level_2").unwrap();
+    assert_eq!(l2.entry.charts[0].notes, 4);
+}

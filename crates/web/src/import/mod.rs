@@ -8,6 +8,7 @@
 //! without being read at all.
 
 mod danoni;
+mod ffr;
 
 use ddi_library::path::RelPathBuf;
 
@@ -331,11 +332,13 @@ async fn run(
         .filter_map(|p| Some((pack::shared_path(p)?.into_string(), p.clone())))
         .collect();
     let maybe_works = !ddi_library::danoni::work_sources(&paths).is_empty();
+    let maybe_levels = !ddi_library::ffr::find_levels(&paths, &fallback).is_empty();
     let skins = ddi_noteskin::import::find_skins(&paths);
     // A folder read again with nothing left in it still drops its songs.
     if candidates.is_empty()
         && shared_files.is_empty()
         && !maybe_works
+        && !maybe_levels
         && skins.is_empty()
         && !rescan
     {
@@ -426,7 +429,6 @@ async fn run(
             Err(e) => report.skipped.push((label, e)),
         }
     }
-    store_pack_art(&db, &candidates, &sources, &paths, &mut report).await;
     let works = danoni::import_works(
         &db,
         &sources,
@@ -437,7 +439,25 @@ async fn run(
         origin.as_ref(),
     )
     .await;
-    report_music_without_simfile(&mut report, &paths, &works.music);
+    let levels = ffr::import_levels(
+        &db,
+        &sources,
+        &paths,
+        &fallback,
+        origin.as_ref().map(|o| o.folder.as_str()),
+        &mut report,
+        &progress,
+    )
+    .await;
+    // Pack covers: the simfile packs' folders', the levels' own folders.
+    let mut packs: Vec<(String, RelPathBuf)> = candidates
+        .iter()
+        .filter_map(|c| Some((c.pack.clone(), c.pack_dir()?.to_rel_path_buf())))
+        .collect();
+    packs.extend(levels.packs.iter().cloned());
+    store_pack_art(&db, &packs, &sources, &paths, &mut report).await;
+    let music_used: HashSet<String> = works.music.union(&levels.music).cloned().collect();
+    report_music_without_simfile(&mut report, &paths, &music_used);
     if let Some(origin) = origin.as_ref().filter(|o| o.rescan) {
         match remove_gone(&db, &origin.folder, &paths, &unreadable).await {
             Ok(n) => report.removed = n,
@@ -456,6 +476,7 @@ async fn run(
     if candidates.is_empty()
         && shared_files.is_empty()
         && !works.found
+        && !levels.found
         && report.skipped.is_empty()
         && report.noteskins.is_empty()
     {
@@ -524,8 +545,7 @@ pub(crate) fn stills_status() -> Option<String> {
     SHARED.with(|s| s.borrow().stills.clone())
 }
 
-const NOTHING_FOUND: &str =
-    "No .sm, .ssc or .dwi files, Dancing☆Onigiri works or noteskins were found in what was picked.";
+const NOTHING_FOUND: &str = "No .sm, .ssc or .dwi files, Dancing☆Onigiri works, FFR levels or noteskins were found in what was picked.";
 
 /// "1 noteskin", "3 noteskins".
 fn plural_skins(n: usize) -> String {
@@ -1046,16 +1066,15 @@ async fn remove_gone(
 /// keep what they had.
 async fn store_pack_art(
     db: &Db,
-    candidates: &[SongCandidate],
+    packs: &[(String, RelPathBuf)],
     sources: &HashMap<String, Source>,
     paths: &[String],
     report: &mut ImportReport,
 ) {
     let mut done: HashSet<String> = HashSet::new();
     let mut writes = Vec::new();
-    for c in candidates {
-        let Some(dir) = c.pack_dir() else { continue };
-        if !done.insert(c.pack.to_lowercase()) {
+    for (pack_name, dir) in packs {
+        if !done.insert(pack_name.to_lowercase()) {
             continue;
         }
         let Some(path) = pack::pack_banner(dir, paths) else {
@@ -1064,7 +1083,7 @@ async fn store_pack_art(
         match async { read_blob(source(sources, &path)?, mime_type(&path)).await }.await {
             Ok(blob) => writes.push(Write::Put {
                 store: idb::FILES,
-                key: crate::songs::pack_art_key(&c.pack),
+                key: crate::songs::pack_art_key(pack_name),
                 value: blob.into(),
             }),
             Err(e) => report

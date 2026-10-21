@@ -161,6 +161,74 @@ pub fn level_song(
     Ok((song, level.mp3))
 }
 
+/// A level SWF of our own, as Flash compiles one (tests and fixtures:
+/// no FFR level is ever needed to check the game): `notes` as
+/// `_root.beatBox = [[frame, direction, color], …]` in one `DoAction`,
+/// `mp3` as a 44.1 kHz MP3 sound stream in blocks of a few kilobytes,
+/// zlib-compressed (`CWS`) or not.
+pub fn write_level(notes: &[(f64, &str, &str)], mp3: &[u8], compressed: bool) -> Vec<u8> {
+    fn tag(out: &mut Vec<u8>, code: u16, body: &[u8]) {
+        out.extend_from_slice(&((code << 6) | 0x3f).to_le_bytes());
+        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        out.extend_from_slice(body);
+    }
+    fn push(code: &mut Vec<u8>, values: &[&[u8]]) {
+        let data: Vec<u8> = values.concat();
+        code.push(ACTION_PUSH);
+        code.extend_from_slice(&(data.len() as u16).to_le_bytes());
+        code.extend_from_slice(&data);
+    }
+    let text = |s: &str| [&[0u8][..], s.as_bytes(), &[0]].concat();
+    let double = |x: f64| {
+        let b = x.to_le_bytes();
+        [&[6u8][..], &b[4..], &b[..4]].concat()
+    };
+    let int = |i: i32| [&[7u8][..], &i.to_le_bytes()].concat();
+    let mut code = Vec::new();
+    push(&mut code, &[&text("_root")]);
+    code.push(ACTION_GET_VARIABLE);
+    push(&mut code, &[&text("beatBox")]);
+    for (frame, direction, color) in notes.iter().rev() {
+        push(
+            &mut code,
+            &[&text(color), &text(direction), &double(*frame), &int(3)],
+        );
+        code.push(ACTION_INIT_ARRAY);
+    }
+    push(&mut code, &[&int(notes.len() as i32)]);
+    code.push(ACTION_INIT_ARRAY);
+    code.push(ACTION_SET_MEMBER);
+    code.push(ACTION_END);
+    // A 0-bit rectangle, 30 frames a second, a frame a block.
+    let blocks = mp3.chunks(4096).collect::<Vec<_>>();
+    let mut body = vec![0u8, 0, 30];
+    body.extend_from_slice(&(blocks.len().max(1) as u16).to_le_bytes());
+    // Playback and stream: MP3, 44.1 kHz, 16-bit stereo; 1,470 samples a
+    // frame; no latency.
+    tag(
+        &mut body,
+        TAG_SOUND_STREAM_HEAD2,
+        &[0x0f, 0x2f, 0xbe, 0x05, 0, 0],
+    );
+    tag(&mut body, TAG_DO_ACTION, &code);
+    for block in blocks {
+        let mut b = vec![0xbe, 0x05, 0, 0];
+        b.extend_from_slice(block);
+        tag(&mut body, TAG_SOUND_STREAM_BLOCK, &b);
+        tag(&mut body, 1, &[]);
+    }
+    tag(&mut body, TAG_END, &[]);
+    let mut out = if compressed { b"CWS" } else { b"FWS" }.to_vec();
+    out.push(8);
+    out.extend_from_slice(&((body.len() + 8) as u32).to_le_bytes());
+    if compressed {
+        out.extend(miniz_oxide::deflate::compress_to_vec_zlib(&body, 6));
+    } else {
+        out.extend(body);
+    }
+    out
+}
+
 /// A sound format byte's rate (bits 2–3).
 fn rate(format: u8) -> u32 {
     [5512, 11025, 22050, 44100][usize::from((format >> 2) & 3)]
@@ -730,6 +798,32 @@ pub(crate) mod tests {
             .tag(TAG_SOUND_STREAM_BLOCK, &block(&frames))
             .bytes(false);
         assert!(level_song(&chartless, "a.swf", Default::default()).is_err());
+    }
+
+    #[test]
+    fn a_level_written_reads_back() {
+        let mp3 = mp3_frames(30);
+        let notes = [(30.0, "L", "red"), (31.5, "R", "blue")];
+        for compressed in [false, true] {
+            let level = read(&write_level(&notes, &mp3, compressed)).unwrap();
+            assert_eq!(level.mp3, mp3);
+            assert_eq!(level.sample_rate, 44100);
+            assert_eq!(
+                level.beatbox,
+                Some(Value::List(vec![
+                    Value::List(vec![
+                        Value::Number(30.0),
+                        Value::Text("L".into()),
+                        Value::Text("red".into())
+                    ]),
+                    Value::List(vec![
+                        Value::Number(31.5),
+                        Value::Text("R".into()),
+                        Value::Text("blue".into())
+                    ]),
+                ]))
+            );
+        }
     }
 
     /// An FFR level's chart plays: autoplayed on time, every note the best
