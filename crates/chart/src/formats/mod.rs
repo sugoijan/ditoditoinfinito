@@ -1,5 +1,6 @@
 //! Importers. Each format module exposes a `parse_*` function taking the
 //! file text and returning a [`crate::Song`]. See `docs/research/`.
+//! `sm_write` writes a song back as `.ssc` or `.sm` (the chart editor's).
 
 pub mod danoni;
 pub mod dwi;
@@ -7,6 +8,7 @@ pub mod ffr;
 pub mod lrc;
 pub mod msd;
 pub mod sm;
+pub mod sm_write;
 
 use thiserror::Error;
 

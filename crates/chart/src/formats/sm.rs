@@ -640,7 +640,7 @@ fn normalize_steps_type(s: &str) -> String {
 
 /// Column count of StepMania steps types without a built-in [`Layout`]
 /// (`GameManager.cpp`), used to truncate over-long rows like StepMania does.
-fn known_lane_count(steps_type: &str) -> Option<usize> {
+pub(crate) fn known_lane_count(steps_type: &str) -> Option<usize> {
     if let Some(l) = Layout::builtin(steps_type) {
         return Some(l.lane_count());
     }
@@ -866,7 +866,7 @@ const BG_LAYERS: i64 = 2;
 /// in capitals, or without a number (after optional white space), is the
 /// first layer, `n` is layer `n - 1`, and `None` for a layer StepMania
 /// does not have.
-fn bg_changes_layer(raw: &str) -> Option<u8> {
+pub(crate) fn bg_changes_layer(raw: &str) -> Option<u8> {
     let Some(suffix) = raw.strip_prefix("BGCHANGES") else {
         return Some(0);
     };
@@ -1091,7 +1091,7 @@ fn parse_attacks(tag: &MsdTag, out: &mut Vec<EffectEvent>) {
 }
 
 /// Tags understood but deliberately dropped (cache-only or not modelled).
-fn is_ignored_tag(name: &str) -> bool {
+pub(crate) fn is_ignored_tag(name: &str) -> bool {
     matches!(
         name,
         "SELECTABLE"
@@ -1376,7 +1376,7 @@ fn parse(text: &str, flavor: Flavor) -> Result<Song, ParseError> {
     Ok(song)
 }
 
-fn is_timing_tag(name: &str) -> bool {
+pub(crate) fn is_timing_tag(name: &str) -> bool {
     matches!(
         name,
         "OFFSET"

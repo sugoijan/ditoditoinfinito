@@ -31,6 +31,7 @@ use std::path::{Path, PathBuf};
 
 use danceparser::{NoteKind as DpKind, SMChart};
 use ddi_chart::formats::sm::parse_sm;
+use ddi_chart::formats::sm_write::write_sm;
 use ddi_chart::{NoteKind, Song, TICKS_PER_BEAT, Tick};
 use rgchart::KeyType;
 
@@ -489,6 +490,27 @@ fn generated_timing_matches_rgchart() {
         "only {} notes on stop rows",
         covered.on_stop_rows
     );
+}
+
+/// What the writer writes, read by danceparser: the same charts, notes,
+/// BPMs and stops as ours (`formats::sm_write`; the round trip through
+/// our own reader is `write.rs`).
+#[test]
+fn written_sm_matches_danceparser() {
+    for seed in 1..=GENERATED_FILES / 3 {
+        let mut rng = Rng(seed.wrapping_mul(0x8cb9_2ba7_2f3d_8dd7) | 1);
+        let charts = 1 + rng.below(4) as usize;
+        let ours = parse_sm(&generate(&mut rng, charts, true)).unwrap();
+        let written = write_sm(&ours);
+        let oracle =
+            parse_oracle(&written).unwrap_or_else(|e| panic!("seed {seed}: danceparser: {e}"));
+        let diffs = compare_structure(&ours, &oracle, true);
+        assert!(
+            diffs.is_empty(),
+            "seed {seed}:\n{}\n\n{written}",
+            diffs.join("\n")
+        );
+    }
 }
 
 /// The one repository `.sm` fixture inside the oracles' subset. Left out:
