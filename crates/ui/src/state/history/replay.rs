@@ -250,6 +250,7 @@ impl Replay {
         s.scroll_action = o.scroll.scroll_action;
         s.transform = o.transform;
         s.appearance = o.appearance;
+        s.lane_cover = o.cover;
         s.receptor_snap = o.receptor_snap;
         // This device's.
         s.volume = current.volume;

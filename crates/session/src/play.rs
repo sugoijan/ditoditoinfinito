@@ -12,7 +12,7 @@ use ddi_engine::input::{BindingDevice, Bindings, InputEvent, LaneInput};
 use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
 use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::{JudgeNames, Ruleset};
-use ddi_engine::{ConnectedPad, ControlBindings};
+use ddi_engine::{ConnectedPad, ControlBindings, PadBindings};
 use ddi_platform::{AudioBackend, DeviceId, DeviceProfile, HostTime, RawInput};
 use ddi_ui::state::history::{
     Ghost, GhostDelta, GhostRun, InputDevice, PlayLog, Replay, Replaying, RulesetKey,
@@ -21,6 +21,7 @@ use ddi_ui::state::settings::Settings;
 
 use crate::calibration::{self, CalMode, Calibrator, Outcome};
 use crate::sounds::EventSounds;
+pub use cover::{COVER_DOWN_KEY, COVER_UP_KEY, CoverControl, START_KEYS};
 
 /// Lead time between scheduling the start and the first audio sample, so the
 /// buffer source starts exactly on the audio clock. The play's first frame
@@ -140,6 +141,7 @@ impl SessionConfig {
         self.ruleset = ddi_engine::rules::presets::calibration();
         self.options.transform = Default::default();
         self.options.appearance = Default::default();
+        self.options.cover = Default::default();
         self.options.scroll.scroll_action = Default::default();
         self.hide_notes = mode.hide_notes();
         self.calibration = Some(mode);
@@ -199,6 +201,14 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     input: LaneInput,
     /// Pad controls that act like Escape: `(Gamepad.id, control)`.
     pad_cancel: Vec<(String, String)>,
+    /// Pads' Start controls, which hide and move the lane covers.
+    pad_start: Vec<(String, String)>,
+    /// What the edges do to the lane covers.
+    cover: CoverControl,
+    /// The lane covers' heights to keep in the settings once the play
+    /// ends ([`Settings::keep_cover_heights`]): none for a replay or a
+    /// calibration.
+    keep_cover: bool,
     /// Pads `(Gamepad.id, Gamepad.index)` the bindings were resolved with.
     /// A pad first seen during play (browsers reveal a pad only once a
     /// button is pressed) makes the session resolve them again.
@@ -229,8 +239,9 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     latency: Option<(f64, f64, f64)>,
     /// The fail's report, until the shell takes it.
     fail_report: Option<SessionEvent>,
-    /// A replay: the log's edges, and how many were fed.
-    replay: Option<(PlayLog, usize)>,
+    /// A replay: the log's edges, and how many were fed, and its
+    /// covers' changes likewise.
+    replay: Option<(PlayLog, usize, usize)>,
     /// The best play's ghost played beside it, and how far ahead of it
     /// the play was at its last update.
     ghost: Option<GhostRun>,
@@ -382,20 +393,29 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let bindings = play_bindings(&controls, &layout, &connected);
         let known_pads: Vec<(String, u32)> =
             connected.iter().map(|c| (c.id.clone(), c.index)).collect();
-        let mut pad_cancel: Vec<(String, String)> = settings
-            .controls
-            .pads
-            .iter()
-            .map(|p| p.id.clone())
-            .chain(connected.iter().map(|c| c.id.clone()))
-            .filter_map(|id| {
-                let standard = connected.iter().any(|c| c.id == id && c.standard);
-                let back = settings.pad_bindings(&id, standard)?.back?;
-                Some((id, back))
-            })
+        let pad_ids = || {
+            settings
+                .controls
+                .pads
+                .iter()
+                .map(|p| p.id.clone())
+                .chain(connected.iter().map(|c| c.id.clone()))
+        };
+        let pad_control = |id: String, pick: fn(PadBindings) -> Option<String>| {
+            let standard = connected.iter().any(|c| c.id == id && c.standard);
+            let control = pick(settings.pad_bindings(&id, standard)?)?;
+            Some((id, control))
+        };
+        let mut pad_cancel: Vec<(String, String)> = pad_ids()
+            .filter_map(|id| pad_control(id, |p| p.back))
             .collect();
         pad_cancel.sort();
         pad_cancel.dedup();
+        let mut pad_start: Vec<(String, String)> = pad_ids()
+            .filter_map(|id| pad_control(id, |p| p.start))
+            .collect();
+        pad_start.sort();
+        pad_start.dedup();
         let via_pad = (auto_play && config.auto_pad).then(|| {
             (0..layout.lanes.len() as u8)
                 .map(|lane| {
@@ -419,6 +439,8 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 "ArrowDown",
                 "Space",
                 "Backspace",
+                COVER_UP_KEY,
+                COVER_DOWN_KEY,
             ]
             .iter()
             .map(|s| s.to_string()),
@@ -538,6 +560,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             inputs,
             input: LaneInput::new(bindings),
             pad_cancel,
+            pad_start,
+            cover: CoverControl::new(config.reverse),
+            keep_cover: config.replay.is_none() && config.calibration.is_none(),
             known_pads,
             controls,
             held: vec![false; lanes],
@@ -555,7 +580,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             played_with: Vec::new(),
             latency,
             fail_report: None,
-            replay: config.replay.map(|r| (r.log, 0)),
+            replay: config.replay.map(|r| (r.log, 0, 0)),
             ghost: config.ghost.as_ref().map(Ghost::run),
             ghost_delta: None,
             sounds,
@@ -662,8 +687,17 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 }
                 continue;
             }
-            // A replay's lanes are its log's.
+            // A replay's lanes and covers are its log's.
             if self.replay.is_some() {
+                continue;
+            }
+            if self.cover.feed(
+                &raw,
+                &self.input.bindings,
+                &self.layout,
+                &self.pad_start,
+                &mut self.player,
+            ) {
                 continue;
             }
             if let Some(ev) = self.input.feed(&raw) {
@@ -672,6 +706,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
         }
         self.raw = raw_inputs;
+        self.cover.tick(host_now, &mut self.player);
 
         // Hold-to-quit progress and the hint after a single tap.
         self.view.cancel_progress = match self.cancel_pressed_at {
@@ -838,8 +873,23 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if outcome.is_some() {
             self.inputs.release();
             self.inputs.pads_running(None);
+            self.cover.release();
+            self.keep_cover_heights();
         }
         (events, outcome)
+    }
+
+    /// Keeps the heights the play left the lane covers at in the
+    /// settings, once, for the next song (not a replay's or a
+    /// calibration's).
+    fn keep_cover_heights(&mut self) {
+        if !std::mem::take(&mut self.keep_cover) || !self.player.options().cover.is_on() {
+            return;
+        }
+        let mut settings = Settings::load();
+        if settings.keep_cover_heights(self.player.cover()) {
+            settings.save();
+        }
     }
 
     /// A replay: the log's edges whose judged time has come, each at its
@@ -847,7 +897,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// later than any judged time so far (updates judge behind the
     /// clock), so none is judged late, at any frame rate.
     fn feed_replay(&mut self, host_now: HostTime, events: &mut Vec<JudgeEvent>) {
-        let Some((log, next)) = self.replay.as_mut() else {
+        let Some((log, next, next_cover)) = self.replay.as_mut() else {
             return;
         };
         let now = self.player.judge_time(host_now);
@@ -855,6 +905,15 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         while let Some(i) = log.inputs.get(*next).filter(|i| i.time <= now) {
             due.push(*i);
             *next += 1;
+        }
+        // The covers as the play changed them, up to now.
+        let mut covers = Vec::new();
+        while let Some(c) = log.covers.get(*next_cover).filter(|c| c.time <= now) {
+            covers.push(*c);
+            *next_cover += 1;
+        }
+        for c in covers {
+            self.player.set_cover_at(c.cover, c.time);
         }
         for i in due {
             if let Some(h) = self.held.get_mut(usize::from(i.lane)) {
@@ -877,7 +936,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
 
     /// A replay's edges fed so far, and in all.
     pub fn replay_progress(&self) -> Option<(usize, usize)> {
-        self.replay.as_ref().map(|(log, n)| (*n, log.inputs.len()))
+        self.replay
+            .as_ref()
+            .map(|(log, n, _)| (*n, log.inputs.len()))
     }
 
     /// The play's fail, once, when it happened ([`SessionEvent::Failed`]).
@@ -929,10 +990,16 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let connected = self.inputs.connected_pads();
         self.input.bindings = play_bindings(&self.controls, &self.layout, &connected);
         for c in &connected {
-            if let Some(back) = self.controls.pad(&c.id, c.standard).and_then(|p| p.back)
+            let pad = self.controls.pad(&c.id, c.standard);
+            if let Some(back) = pad.as_ref().and_then(|p| p.back.clone())
                 && !self.pad_cancel.iter().any(|(id, _)| *id == c.id)
             {
                 self.pad_cancel.push((c.id.clone(), back));
+            }
+            if let Some(start) = pad.and_then(|p| p.start)
+                && !self.pad_start.iter().any(|(id, _)| *id == c.id)
+            {
+                self.pad_start.push((c.id.clone(), start));
             }
         }
         self.known_pads = connected.into_iter().map(|c| (c.id, c.index)).collect();
@@ -1004,5 +1071,6 @@ pub fn play_bindings(
     b
 }
 
+mod cover;
 #[cfg(test)]
 mod tests;

@@ -2164,6 +2164,7 @@ mod tests {
             finished: false,
             visible_range: 12.0,
             appearance: Appearance::Visible,
+            cover: Default::default(),
         }
     }
 

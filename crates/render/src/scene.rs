@@ -563,6 +563,112 @@ pub fn filter_band(geo: &FieldGeometry, span: f32) -> [f32; 2] {
     [geo.left + a * span / 2.0, a * (span + 0.3)]
 }
 
+/// The lane covers' panel, the line along its edge and its heights'
+/// text (the theme's dark violet and lavender).
+const COVER: [f32; 4] = [0.075, 0.055, 0.13, 1.0];
+const COVER_EDGE: [f32; 4] = [0.62, 0.55, 0.95, 1.0];
+const COVER_TEXT: [f32; 4] = [0.86, 0.83, 1.0, 1.0];
+
+/// The lane covers ([`ddi_engine::cover`]): opaque panels across the
+/// field's band ([`filter_band`]), Hidden+ from the receptors' far edge
+/// (half an arrow past their middle, so they stay in sight) and Sudden+
+/// from the end of the screen the notes come from, each its share of the
+/// lane between the two, a line along its inner edge; a moment after a
+/// change, its height on it. A layout with receptors at both ends (a
+/// lower row scrolling the other way) has its lanes end at the middle of
+/// the screen, and each lane its own panels.
+fn push_covers(
+    instances: &mut Vec<Instance>,
+    text: &mut Vec<TextItem>,
+    frame: &Frame,
+    layout: &Layout,
+    geo: &FieldGeometry,
+    span: f32,
+) {
+    let view = frame.cover;
+    let (hidden, sudden) = view.cover.drawn();
+    if !view.cover.is_on() || layout.lanes.is_empty() {
+        return;
+    }
+    let a = geo.arrow;
+    let both_ways = layout.lanes.iter().any(|l| l.scroll_sign < 0)
+        && layout.lanes.iter().any(|l| l.scroll_sign >= 0);
+    let groups: Vec<(f32, f32, i8)> = if both_ways {
+        layout
+            .lanes
+            .iter()
+            .map(|l| (geo.lane_x(l.column), a, l.scroll_sign))
+            .collect()
+    } else {
+        let [mid, w] = filter_band(geo, span);
+        vec![(mid, w, layout.lanes[0].scroll_sign)]
+    };
+    let edge = (a * 0.04).max(2.0);
+    // The heights' text fades over its last third of a second.
+    let label_alpha = view
+        .changed
+        .map(|age| ((ddi_engine::cover::COVER_LABEL_SECONDS - age) / 0.3).clamp(0.0, 1.0));
+    let size = (a * 0.3).max(12.0);
+    for (x, w, sign) in groups {
+        let dir = geo.lane_direction(sign);
+        let near = geo.lane_receptor_y(sign) + 0.5 * a * dir;
+        let far = if both_ways {
+            geo.height / 2.0
+        } else if dir > 0.0 {
+            geo.height
+        } else {
+            0.0
+        };
+        let len = (far - near) * dir;
+        if len <= 0.0 {
+            continue;
+        }
+        // A panel from `from` covering `share` of the lane the way
+        // `toward` points (and `past` pixels the other way: past the
+        // screen's edge, so that no soft edge shows there), its edge line
+        // and its label at the inner end.
+        let mut panel = |from: f32, toward: f32, share: f32, past: f32| {
+            let inner = from + toward * share * len;
+            let outer = from - toward * past;
+            let (y0, y1) = (outer.min(inner), outer.max(inner));
+            if share * len >= 0.5 {
+                instances.push(
+                    Instance::new([x, (y0 + y1) / 2.0], [w, y1 - y0], Shape::Rect, COVER)
+                        .params([0.0; 4]),
+                );
+            }
+            instances.push(
+                Instance::new([x, inner], [w, edge], Shape::Rect, COVER_EDGE).params([0.0; 4]),
+            );
+            if let Some(alpha) = label_alpha.filter(|&al| al > 0.0) {
+                // Inside the panel, just behind its edge (outside it when
+                // it is too small to hold the text).
+                let back = if share * len >= size * 1.6 {
+                    -toward
+                } else {
+                    toward
+                };
+                let mid = inner + back * size * 0.9;
+                text.push(TextItem {
+                    text: format!("{}%", (share * 100.0).round()),
+                    x,
+                    y: mid - size * 0.6,
+                    size,
+                    color: [COVER_TEXT[0], COVER_TEXT[1], COVER_TEXT[2], alpha],
+                    align: Align::Center,
+                    bold: true,
+                });
+            }
+        };
+        if view.cover.mode.hidden() {
+            panel(near, dir, hidden, 0.0);
+        }
+        if view.cover.mode.sudden() {
+            panel(far, -dir, sudden, if both_ways { 0.0 } else { a });
+        }
+    }
+}
+
 /// [`filter_band`] of `layout`'s field on a `width` by `height` screen,
 /// as fractions of its width: what the start prompt's picture darkens.
 pub fn filter_fraction(layout: &Layout, width: f32, height: f32, reverse: bool) -> [f32; 2] {
@@ -841,10 +947,16 @@ pub fn build_into(
         push_note(&mut instances, note, layout, skin, geo, &opts, frame.beat);
     }
     order.sprites(instances.len());
+    if !opts.hide_notes
+        && let Some(l) = layer.as_mut()
+    {
+        l.notes(frame, layout, geo, &mut quads);
+    }
+    order.quads(quads.len());
+    // The lane covers over the notes, under the explosions and the HUD.
+    push_covers(&mut instances, &mut text, frame, layout, geo, span);
+    order.sprites(instances.len());
     if let Some(l) = layer.as_mut() {
-        if !opts.hide_notes {
-            l.notes(frame, layout, geo, &mut quads);
-        }
         l.explosions(frame, layout, geo, &mut quads);
     }
     // Its mask layers, over the field and under the HUD.
@@ -1209,6 +1321,7 @@ mod tests {
             finished: false,
             visible_range: 12.0,
             appearance,
+            cover: Default::default(),
         }
     }
 
@@ -1563,5 +1676,83 @@ mod tests {
         for srgb in [false, true] {
             assert!(filter_alpha(0.0, srgb) == 0.0 && filter_alpha(1.0, srgb) == 1.0);
         }
+    }
+
+    #[test]
+    fn lane_covers_cover_their_share_of_the_lanes_over_the_notes() {
+        use ddi_engine::cover::{CoverMode, CoverView, LaneCover};
+        let mut f = frame(
+            vec![note(3.0, SpriteKind::Tap, Appearance::Visible)],
+            Appearance::Visible,
+        );
+        let plain = shapes(&f, RenderOptions::default());
+        let cover = LaneCover {
+            mode: CoverMode::HiddenSudden,
+            sudden: 25,
+            hidden: 30,
+        };
+        f.cover = CoverView {
+            cover,
+            changed: None,
+        };
+        let drawn = shapes(&f, RenderOptions::default());
+        // Two panels and their edges, after the receptors and the note
+        // and before the HUD.
+        assert_eq!(drawn.len(), plain.len() + 4);
+        assert!(
+            drawn[..5]
+                .iter()
+                .zip(&plain[..5])
+                .all(|(a, b)| a.center == b.center && a.shape == b.shape)
+        );
+        let covers = &drawn[5..9];
+        assert!(covers.iter().all(|i| i.shape == Shape::Rect as u32));
+        // On a 1000-pixel screen with 100-pixel arrows: the receptors at
+        // 150, their far edge at 200, the lane 800 pixels to the bottom.
+        let [mid, w] = filter_band(&FieldGeometry::new(1000.0, 1000.0, 4.0, false), 4.0);
+        let close =
+            |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 0.01 && (a[1] - b[1]).abs() < 0.01;
+        assert!(close(covers[0].center, [mid, 320.0]) && close(covers[0].size, [w, 240.0]));
+        assert!(close(covers[1].center, [mid, 440.0]));
+        assert!(close(covers[2].center, [mid, 950.0]) && close(covers[2].size, [w, 300.0]));
+        assert!(close(covers[3].center, [mid, 800.0]));
+        assert_eq!(covers[0].color[3], 1.0);
+        // Under Reverse they swap ends.
+        let layout = Layout::dance_single();
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, true);
+        let rev = build(
+            &f,
+            &layout,
+            &presets::itg().names,
+            &Skin::default(),
+            &geo,
+            RenderOptions::default(),
+            false,
+            None,
+            (&[], &[]),
+        );
+        assert!(close(rev.instances[5].center, [mid, 680.0]));
+        assert!(close(rev.instances[7].center, [mid, 50.0]));
+        // Its heights show a moment after a change, then go.
+        f.cover.changed = Some(0.2);
+        let out = build(
+            &f,
+            &layout,
+            &presets::itg().names,
+            &Skin::default(),
+            &FieldGeometry::new(1000.0, 1000.0, 4.0, false),
+            RenderOptions::default(),
+            false,
+            None,
+            (&[], &[]),
+        );
+        let labels: Vec<&str> = out.text.iter().map(|t| t.text.as_str()).collect();
+        assert!(
+            labels.contains(&"30%") && labels.contains(&"25%"),
+            "{labels:?}"
+        );
+        // Off: nothing.
+        f.cover.cover.mode = CoverMode::Off;
+        assert_eq!(shapes(&f, RenderOptions::default()).len(), plain.len());
     }
 }

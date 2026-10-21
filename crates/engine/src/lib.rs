@@ -13,6 +13,7 @@
 //! - [`judge`]: the per-note state machine.
 //! - [`scroll`]: note positions and scroll actions.
 //! - [`appearance`]: Hidden / Sudden / Stealth visibility.
+//! - [`cover`]: lane covers (Sudden+, Hidden+).
 //! - [`transform`]: Turn and Cut chart transforms.
 //! - [`autoplay`]: the autoplayer's press script.
 //! - [`demo`]: a looping autoplayed chart for skin previews.
@@ -28,6 +29,7 @@ pub mod autoplay;
 pub mod bindings;
 pub mod calibration;
 pub mod clock;
+pub mod cover;
 pub mod demo;
 pub mod frame;
 pub mod history;
@@ -54,6 +56,7 @@ pub const JUDGE_VERSION: u32 = 2;
 pub use appearance::Appearance;
 pub use bindings::{ConnectedPad, ControlBindings, LaneTable, MenuInput, PadBindings, PadUse};
 pub use clock::{ClockOptions, SongClock};
+pub use cover::{CoverMode, LaneCover};
 pub use frame::{
     Frame, HoldFlash, HoldJudgements, HoldKind, HoldPlace, JudgementFlash, NoteSprite,
     ReceptorState, SkinEvent, SkinEventKind, SkinNote, SpriteKind,

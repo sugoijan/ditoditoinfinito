@@ -2278,13 +2278,14 @@ fn results_card(
     if let Some(ex) = ddi_ui::screens::play::ex_text(&r.score) {
         push(ex, "Muted");
     }
-    let mods = mods_summary(
+    let mut mods = mods_summary(
         &r.transform,
         r.appearance,
         r.scroll_action,
         layout.map(|l| (r.lane_map.as_slice(), l)),
-    )
-    .join(" · ");
+    );
+    mods.extend(r.cover.label());
+    let mods = mods.join(" · ");
     if !mods.is_empty() {
         push(mods, "Muted");
     }

@@ -700,6 +700,7 @@ fn still_frame(o: &PreviewOptions, layout: &Layout, beat: f64) -> Frame {
         finished: false,
         visible_range: 1.0,
         appearance: Appearance::Visible,
+        cover: Default::default(),
     }
 }
 

@@ -108,6 +108,7 @@ pub fn options_line(o: &ddi_engine::player::PlayOptions) -> String {
         o.scroll.scroll_action,
         None,
     ));
+    parts.extend(o.cover.label());
     parts.join(" · ")
 }
 
@@ -272,6 +273,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         r.scroll_action,
         Some((r.lane_map.as_slice(), p.layout)),
     ));
+    mods.extend(r.cover.label());
     mods.extend(p.ruleset.stepmania.summary());
     let panel_sets = panel_sets();
     let panel_set = panel_sets
@@ -550,6 +552,7 @@ mod tests {
             lane_map: vec![0, 1, 2, 3],
             seed: 1,
             appearance: Default::default(),
+            cover: Default::default(),
             scroll_action: Default::default(),
             assist: false,
             timeline: Vec::new(),
@@ -895,5 +898,23 @@ mod tests {
         r.failed = true;
         assert_eq!(Lamp::of(&r), Lamp::Failed);
         assert_eq!(lamp(&r).as_deref(), Some("PERFECT FULL COMBO"));
+    }
+
+    #[test]
+    fn the_results_say_the_lane_covers_as_the_play_ended() {
+        use ddi_engine::cover::{CoverMode, LaneCover};
+        let layout = single();
+        let itg = ddi_engine::rules::presets::itg();
+        let mut r = results([10, 0, 0, 0, 0, 0]);
+        assert_eq!(results_data(&info(&r, &itg, &layout)).mods, "×2.5");
+        r.cover = LaneCover {
+            mode: CoverMode::Hidden,
+            sudden: 10,
+            hidden: 35,
+        };
+        assert_eq!(
+            results_data(&info(&r, &itg, &layout)).mods,
+            "×2.5 · hidden+ 35%"
+        );
     }
 }

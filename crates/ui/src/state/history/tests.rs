@@ -74,7 +74,11 @@ pub(super) fn play(
         }
     }
     inputs.sort_by(|a, b| a.time.total_cmp(&b.time));
-    let log = PlayLog { start: 0.0, inputs };
+    let log = PlayLog {
+        start: 0.0,
+        inputs,
+        ..Default::default()
+    };
     let results = replay(song, index, rules, &PlayOptions::default(), &log);
     (log, results)
 }

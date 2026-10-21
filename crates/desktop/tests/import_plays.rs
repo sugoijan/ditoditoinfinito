@@ -111,7 +111,11 @@ fn keep_plays(plays: &Rc<Plays>, of: &[(usize, f64, &str)]) {
             }
         }
         inputs.sort_by(|a, b| a.time.total_cmp(&b.time));
-        let log = PlayLog { start: 0.0, inputs };
+        let log = PlayLog {
+            start: 0.0,
+            inputs,
+            ..Default::default()
+        };
         let results = replay(&song, chart, &rules, &PlayOptions::default(), &log);
         let digest = if id == "beatucada" {
             song.chart_digest(chart)

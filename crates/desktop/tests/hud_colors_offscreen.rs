@@ -116,6 +116,7 @@ fn hud_and_menu_colors_draw_as_written() {
             finished: false,
             visible_range: 8.0,
             appearance: ddi_engine::appearance::Appearance::Visible,
+            cover: Default::default(),
         };
         for (format, blending) in [
             (wgpu::TextureFormat::Rgba8UnormSrgb, SkinBlending::Scene),

@@ -3,6 +3,7 @@
 use ddi_chart::{Color, Quantization};
 
 use crate::appearance::Appearance;
+use crate::cover::CoverView;
 use crate::rules::{Judgement, ScoreView};
 
 /// One lane's receptor.
@@ -219,4 +220,6 @@ pub struct Frame {
     /// For clipping hold bodies ([`Appearance::visible_spans`]); note alphas
     /// already account for it.
     pub appearance: Appearance,
+    /// The lane covers, drawn over the notes ([`crate::cover`]).
+    pub cover: CoverView,
 }

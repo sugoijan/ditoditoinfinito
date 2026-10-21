@@ -1042,3 +1042,125 @@ fn rolls_kept_and_dropped_replay_to_the_same_results() {
         }
     }
 }
+
+/// The lane covers in play: Page Up held moves Sudden+ on as it repeats,
+/// Enter tapped hides it and shows it again, a controller's Start held
+/// with the up arrow's lane moves it; the log keeps every change, the
+/// settings the heights left, and a replay draws the same.
+#[test]
+fn lane_covers_move_and_hide_in_play_and_replay_alike() {
+    use ddi_engine::cover::{CoverMode, LaneCover};
+    let song = bundled("beatucada");
+    let settings = Settings {
+        lane_cover: LaneCover {
+            mode: CoverMode::Sudden,
+            sudden: 25,
+            hidden: 10,
+        },
+        ..Settings::default()
+    };
+    settings.save();
+    let clock: Clock = Rc::new(RefCell::new(100.0));
+    let mut inputs = FakeInputs::new(&clock);
+    let pad = "Pad (STANDARD GAMEPAD)";
+    inputs.pads.push(ConnectedPad {
+        id: pad.into(),
+        index: 0,
+        standard: true,
+    });
+    inputs.key(102.0, "PageUp", true);
+    inputs.key(102.5, "PageUp", false);
+    inputs.key(104.0, "Enter", true);
+    inputs.key(104.1, "Enter", false);
+    let pad_edge = |at: f64, control: &str, pressed: bool| RawInput {
+        device: DeviceId::Gamepad(pad.into()),
+        control: control.into(),
+        pressed,
+        host_time: HostTime(at),
+        slot: 0,
+    };
+    // Hidden: the pad's arrows move nothing yet.
+    inputs.queued.push(pad_edge(104.5, "button:9", true));
+    inputs.queued.push(pad_edge(104.6, "button:12", true));
+    inputs.queued.push(pad_edge(104.65, "button:12", false));
+    inputs.queued.push(pad_edge(104.7, "button:9", false));
+    inputs.key(105.0, "Enter", true);
+    inputs.key(105.1, "Enter", false);
+    inputs.queued.push(pad_edge(106.0, "button:9", true));
+    inputs.queued.push(pad_edge(106.1, "button:12", true));
+    inputs.queued.push(pad_edge(106.15, "button:12", false));
+    inputs.queued.push(pad_edge(106.3, "button:9", false));
+    let config = SessionConfig::from_settings(&settings, false, None);
+    let mut s = PlaySession::start(
+        &song,
+        1,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        inputs,
+    )
+    .unwrap();
+    assert!(
+        s.inputs()
+            .begun
+            .as_ref()
+            .unwrap()
+            .0
+            .iter()
+            .any(|k| k == "PageUp")
+    );
+    let mut seen = Vec::new();
+    let event = loop {
+        *clock.borrow_mut() += 1.0 / 60.0;
+        let now = *clock.borrow();
+        let (_, event) = s.tick(HostTime(now));
+        let cover = s.frame(HostTime(now)).cover.cover;
+        if seen.last() != Some(&cover) {
+            seen.push(cover);
+        }
+        if event.is_some() || now > 400.0 {
+            break event;
+        }
+    };
+    let Some(SessionEvent::Finished { results, facts, .. }) = event else {
+        panic!("no end");
+    };
+    let sudden = |n: u8| LaneCover {
+        mode: CoverMode::Sudden,
+        sudden: n,
+        hidden: 10,
+    };
+    let off = LaneCover {
+        mode: CoverMode::Off,
+        ..sudden(30)
+    };
+    // One step, then five more as it repeats (from 0.35 s, every 0.04 s).
+    let last = seen.iter().position(|c| *c == off).unwrap();
+    assert_eq!(seen[0], sudden(25));
+    assert_eq!(seen[last - 1], sudden(30));
+    assert_eq!(&seen[last..], &[off, sudden(30), sudden(31)]);
+    assert_eq!(results.cover, sudden(31));
+    assert_eq!(facts.log.covers.last().unwrap().cover, sudden(31));
+    // The pad's up arrow still reached its lane.
+    assert!(facts.log.inputs.iter().any(|i| i.lane == 2 && i.pressed));
+    // Kept for the next song.
+    assert_eq!(Settings::load().lane_cover, sudden(31));
+    // A replay draws the covers as the play did, whatever its keys.
+    let replay = kept("beatucada", &song, 1, &results, &facts, false);
+    let clock: Clock = Rc::new(RefCell::new(3.0));
+    let mut keys = FakeInputs::new(&clock);
+    keys.key(4.0, "PageDown", true);
+    keys.key(9.0, "PageDown", false);
+    let (s, event) = watch(&replay, &song, 60.0, 0.0, 0.0, Some(keys), &clock);
+    let Some(SessionEvent::Finished {
+        results: watched, ..
+    }) = event
+    else {
+        panic!("no replay end");
+    };
+    assert_eq!(watched.cover, sudden(31));
+    assert_eq!(s.player.cover(), sudden(31));
+    // Its heights are not kept: the settings stay as the play left them.
+    assert_eq!(Settings::load().lane_cover, sudden(31));
+}

@@ -1153,6 +1153,13 @@ impl GameLoop {
             set("pressed", pressed.into());
             set("finished", p.finished().into());
             set("failed", p.failed().into());
+            // The lane covers now ("sudden+ 30%"; null when off).
+            set(
+                "cover",
+                p.cover()
+                    .label()
+                    .map_or(wasm_bindgen::JsValue::NULL, |l| l.into()),
+            );
             // The assist claps scheduled and the mine sounds played.
             let (claps, mines) = s.event_sounds();
             set("claps", f64::from(claps).into());

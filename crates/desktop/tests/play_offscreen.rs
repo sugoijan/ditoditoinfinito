@@ -264,3 +264,58 @@ fn a_plain_surface_draws_the_same_play() {
     let field = lit(&plain, [SIZE[0] / 2 - 160, 60, SIZE[0] / 2 + 160, 160]);
     assert!(field > 2000, "receptors {field}");
 }
+
+/// Lane covers (Hidden+ and Sudden+, 30% each) over a skin's notes and
+/// the built-in ones: the panels hide every note under them in one flat
+/// color, the receptors above them and the window between them still
+/// show.
+#[test]
+fn lane_covers_hide_the_notes_under_them() {
+    use ddi_engine::cover::{CoverMode, LaneCover};
+    common::indexes();
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (device, queue) = gpu::device(&adapter).unwrap();
+    let g = Gpu { device, queue };
+    for skin in [None, Some("builtin")] {
+        let plain = Settings {
+            noteskin: skin.map(str::to_string),
+            ..Settings::default()
+        };
+        let covered = Settings {
+            lane_cover: LaneCover {
+                mode: CoverMode::HiddenSudden,
+                sudden: 30,
+                hidden: 30,
+            },
+            ..plain.clone()
+        };
+        let (open, _) = frames(&g, &plain, "beatucada", 0, 12.0, true);
+        let (play, name) = frames(&g, &covered, "beatucada", 0, 12.0, true);
+        keep(&play, &format!("covers-{name}"));
+        // 72-pixel arrows: the receptors at 108, their far edge at 144,
+        // 576 pixels of lane below; Hidden+ to 317, Sudden+ from 547.
+        // The judgement draws over Hidden+ from 280.
+        let x = [SIZE[0] / 2 - 140, SIZE[0] / 2 + 140];
+        let hidden = [x[0], 150, x[1], 270];
+        let sudden = [x[0], 555, x[1], SIZE[1]];
+        let window = [x[0], 330, x[1], 540];
+        for (what, area) in [("hidden", hidden), ("sudden", sudden)] {
+            assert!(lit(&open, area) > 500, "{name}: notes in the {what} area");
+            // One flat dark color, nothing through it.
+            let c = px(&play, area[0], area[1]);
+            for y in area[1]..area[3] {
+                for x in area[0]..area[2] {
+                    assert_eq!(px(&play, x, y), c, "{name}: {what} at {x},{y}");
+                }
+            }
+            assert!(c.iter().all(|&v| v < 40), "{name}: {c:?}");
+        }
+        let receptors = [x[0], 60, x[1], 140];
+        assert_eq!(lit(&play, receptors), lit(&open, receptors), "{name}");
+        assert_eq!(lit(&play, window), lit(&open, window), "{name}");
+    }
+}

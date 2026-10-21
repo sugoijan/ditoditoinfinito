@@ -408,3 +408,69 @@ fn dancing_onigiri_keys_hold_the_rule_in_effect() {
     let k = key(Some(true));
     assert_eq!(k.build(chart).key(), k);
 }
+
+/// Lane covers changed during a play: kept in the log, drawn by the
+/// frames, the results' the last shown, and judging untouched; the
+/// replay changes them at the same times.
+#[test]
+fn lane_cover_changes_are_kept_and_judge_nothing() {
+    use ddi_engine::cover::{CoverMode, LaneCover};
+    let song = chart(54, "dance-single");
+    let ruleset = rulesets(&song).remove(0);
+    let sudden = LaneCover {
+        mode: CoverMode::Sudden,
+        sudden: 30,
+        hidden: 25,
+    };
+    let options = PlayOptions {
+        cover: sudden,
+        ..PlayOptions::default()
+    };
+    let probe = Player::new(&song, 0, ruleset.fresh(), options);
+    let script = autoplay_script(&probe);
+    let plain = live(
+        &song,
+        ruleset.fresh(),
+        PlayOptions::default(),
+        &script,
+        &mut steady,
+    );
+
+    let mut player = Player::new(&song, 0, ruleset.fresh(), options);
+    player.clock_sample(steady(0.0));
+    player.start(0.0, 0.0);
+    assert_eq!(player.frame(HostTime(0.5)).cover.cover, sudden);
+    assert_eq!(player.frame(HostTime(0.5)).cover.changed, None);
+    let raised = sudden.moved(10);
+    player.set_cover(raised, HostTime(1.0));
+    let f = player.frame(HostTime(1.5));
+    assert_eq!(f.cover.cover, raised);
+    assert!(f.cover.changed.is_some_and(|a| (a - 0.5).abs() < 1e-3));
+    assert_eq!(player.frame(HostTime(3.0)).cover.changed, None);
+    // Toggled off near the end: the results keep the last shown.
+    let off = LaneCover {
+        mode: CoverMode::Off,
+        ..raised
+    };
+    player.set_cover(off, HostTime(2.0));
+    for &(t, lane, pressed) in &script {
+        player.input(InputEvent {
+            lane,
+            pressed,
+            host_time: HostTime(t),
+        });
+    }
+    player.update(HostTime(player.end_time() + 1.0));
+    assert!(player.finished());
+    let r = player.results();
+    assert_eq!(r.cover, raised);
+    assert_eq!(player.log().covers.len(), 2);
+    assert_eq!(player.log().covers[0].time, 1.0);
+    // The same judgements as without covers.
+    let p = plain.results();
+    assert_eq!(
+        (r.tally, r.score, r.timeline.len()),
+        (p.tally, p.score, p.timeline.len())
+    );
+    assert_replays("covers", &song, &player);
+}

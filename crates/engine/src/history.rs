@@ -12,6 +12,7 @@
 use ddi_chart::Song;
 use serde::{Deserialize, Serialize};
 
+use crate::cover::{CoverChange, CoverMode, LaneCover};
 use crate::judge::JudgeEventKind;
 use crate::player::{Judged, PlayOptions, Player, Results, to_microsecond};
 use crate::rules::{Judgement, RulesetKey};
@@ -34,6 +35,10 @@ pub struct PlayLog {
     pub start: f64,
     /// In the order judged; their times never go back.
     pub inputs: Vec<LoggedInput>,
+    /// The lane covers' changes during the play, in order: drawn only
+    /// ([`crate::cover`]), so that a replay shows them as the play did.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub covers: Vec<CoverChange>,
 }
 
 /// Why a stored log or timing could not be read.
@@ -68,8 +73,10 @@ impl core::fmt::Display for LogError {
 
 impl std::error::Error for LogError {}
 
-/// The log's binary format.
+/// The log's binary format: 1 for the edges alone, 2 with the lane
+/// covers' changes after them.
 const LOG_VERSION: u8 = 1;
+const LOG_VERSION_COVERS: u8 = 2;
 /// The timing's binary format.
 const TIMING_VERSION: u8 = 1;
 /// In a log entry, a lane this high is followed by the lane itself.
@@ -175,10 +182,17 @@ impl PlayLog {
     /// 15 or more is the next byte): three bytes an edge when edges come
     /// within about 30 ms of each other, four up to 4 s. Times are kept
     /// to the microsecond, as the player judges them
-    /// ([`crate::Player::input`]).
+    /// ([`crate::Player::input`]). With lane covers changed (version 2),
+    /// then their number and per change its time the same way (from the
+    /// change before, a signed varint), its mode (a byte) and its two
+    /// heights (a byte each); a log without them keeps version 1.
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(16 + self.inputs.len() * 3);
-        out.push(LOG_VERSION);
+        let mut out = Vec::with_capacity(16 + self.inputs.len() * 3 + self.covers.len() * 6);
+        out.push(if self.covers.is_empty() {
+            LOG_VERSION
+        } else {
+            LOG_VERSION_COVERS
+        });
         out.extend_from_slice(&self.start.to_le_bytes());
         put_varint(&mut out, self.inputs.len() as u64);
         let mut last = 0i64;
@@ -193,6 +207,18 @@ impl PlayLog {
                 out.push(i.lane);
             }
         }
+        if !self.covers.is_empty() {
+            put_varint(&mut out, self.covers.len() as u64);
+            let mut last = 0i64;
+            for c in &self.covers {
+                let us = micros(c.time);
+                put_signed(&mut out, us.saturating_sub(last));
+                last = us;
+                out.push(cover_mode_byte(c.cover.mode));
+                out.push(c.cover.sudden);
+                out.push(c.cover.hidden);
+            }
+        }
         out
     }
 
@@ -200,7 +226,7 @@ impl PlayLog {
     pub fn decode(bytes: &[u8]) -> Result<PlayLog, LogError> {
         let mut r = Reader { bytes, at: 0 };
         let version = r.byte().map_err(|_| LogError::Empty)?;
-        if version != LOG_VERSION {
+        if version != LOG_VERSION && version != LOG_VERSION_COVERS {
             return Err(LogError::Version(version));
         }
         let start = r.f64()?;
@@ -222,8 +248,38 @@ impl PlayLog {
                 pressed: v & 0x10 != 0,
             });
         }
+        let mut covers = Vec::new();
+        if version == LOG_VERSION_COVERS {
+            let n = r.count(4)?;
+            covers.reserve(n);
+            let mut last = 0i64;
+            for _ in 0..n {
+                last = last.checked_add(r.signed()?).ok_or(LogError::Overflow)?;
+                let mode = match r.byte()? {
+                    0 => CoverMode::Off,
+                    1 => CoverMode::Sudden,
+                    2 => CoverMode::Hidden,
+                    3 => CoverMode::HiddenSudden,
+                    k => return Err(LogError::Kind(k)),
+                };
+                let sudden = r.byte()?;
+                let hidden = r.byte()?;
+                covers.push(CoverChange {
+                    time: from_micros(last),
+                    cover: LaneCover {
+                        mode,
+                        sudden,
+                        hidden,
+                    },
+                });
+            }
+        }
         r.end()?;
-        Ok(PlayLog { start, inputs })
+        Ok(PlayLog {
+            start,
+            inputs,
+            covers,
+        })
     }
 
     /// Every judged time moved by `seconds`, to the microsecond: the play
@@ -244,7 +300,25 @@ impl PlayLog {
                     ..*i
                 })
                 .collect(),
+            covers: self
+                .covers
+                .iter()
+                .map(|c| CoverChange {
+                    time: to_microsecond(c.time + seconds),
+                    ..*c
+                })
+                .collect(),
         }
+    }
+}
+
+/// A cover mode's byte in the log's binary form.
+fn cover_mode_byte(mode: CoverMode) -> u8 {
+    match mode {
+        CoverMode::Off => 0,
+        CoverMode::Sudden => 1,
+        CoverMode::Hidden => 2,
+        CoverMode::HiddenSudden => 3,
     }
 }
 
@@ -279,8 +353,16 @@ pub fn replay_with(
 ) -> Results {
     let mut player = Player::new(song, chart, ruleset, *options);
     player.start(0.0, log.start);
+    // The covers as the play changed them (the results say the last).
+    let mut covers = log.covers.iter().peekable();
     for i in &log.inputs {
+        while let Some(c) = covers.next_if(|c| c.time <= i.time) {
+            player.set_cover_at(c.cover, c.time);
+        }
         player.input_at(i.lane, i.pressed, i.time);
+    }
+    for c in covers {
+        player.set_cover_at(c.cover, c.time);
     }
     let last = log.inputs.last().map_or(log.start, |i| i.time);
     player.update_at(last.max(player.song_end_time()));
@@ -504,6 +586,7 @@ mod tests {
                     pressed: true,
                 },
             ],
+            ..PlayLog::default()
         };
         let bytes = log.encode();
         assert_eq!(PlayLog::decode(&bytes), Ok(log.clone()));
@@ -525,6 +608,52 @@ mod tests {
         let s = log.shifted(-0.000_000_4);
         assert_eq!(s.inputs[1].time, log.inputs[1].time);
         assert_eq!(s.inputs[0].time, -0.5);
+    }
+
+    #[test]
+    fn cover_changes_round_trip_and_a_log_without_them_stays_version_1() {
+        let mut log = PlayLog {
+            start: 0.0,
+            inputs: vec![LoggedInput {
+                time: 1.5,
+                lane: 2,
+                pressed: true,
+            }],
+            ..PlayLog::default()
+        };
+        assert_eq!(log.encode()[0], LOG_VERSION);
+        let cover = |mode, sudden, hidden| LaneCover {
+            mode,
+            sudden,
+            hidden,
+        };
+        log.covers = vec![
+            CoverChange {
+                time: 0.25,
+                cover: cover(CoverMode::Sudden, 26, 25),
+            },
+            CoverChange {
+                time: to_microsecond(12.345_678_9),
+                cover: cover(CoverMode::Off, 26, 25),
+            },
+            CoverChange {
+                time: 13.0,
+                cover: cover(CoverMode::HiddenSudden, 100, 0),
+            },
+        ];
+        let bytes = log.encode();
+        assert_eq!(bytes[0], LOG_VERSION_COVERS);
+        assert_eq!(PlayLog::decode(&bytes), Ok(log.clone()));
+        assert_eq!(
+            PlayLog::decode(&bytes[..bytes.len() - 1]),
+            Err(LogError::Truncated)
+        );
+        let mut bad = bytes.clone();
+        let mode = bad.len() - 3;
+        bad[mode] = 7;
+        assert_eq!(PlayLog::decode(&bad), Err(LogError::Kind(7)));
+        // Shifted with the edges.
+        assert_eq!(log.shifted(0.5).covers[0].time, 0.75);
     }
 
     #[test]

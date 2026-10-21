@@ -12,7 +12,7 @@ use ddi_engine::rules::StepManiaOptions;
 use ddi_engine::rules::danoni::DanoniOptions;
 use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
 use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod, SpeedSource};
-use ddi_engine::{Appearance, ControlBindings, TransformOptions};
+use ddi_engine::{Appearance, ControlBindings, LaneCover, TransformOptions};
 use ddi_platform::storage::{self, Area};
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +43,10 @@ pub struct Settings {
     /// Hidden / Sudden / Stealth (drawing only).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub appearance: Appearance,
+    /// Lane covers (Sudden+, Hidden+; drawing only), their heights as a
+    /// play last left them ([`Settings::keep_cover_heights`]).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub lane_cover: LaneCover,
     /// The import report also lists details for pack authors:
     /// inconsistencies that make no difference in play.
     pub import_details: bool,
@@ -293,6 +297,7 @@ impl Default for Settings {
             transform: TransformOptions::default(),
             simplify_onigiri: false,
             appearance: Appearance::Visible,
+            lane_cover: LaneCover::default(),
             noteskin: None,
             pump_noteskin: None,
             skin_params: BTreeMap::new(),
@@ -650,6 +655,7 @@ impl Settings {
             },
             transform: self.transform,
             appearance: self.appearance,
+            cover: self.lane_cover,
             clock: ClockOptions {
                 audio_offset,
                 visual_offset,
@@ -658,6 +664,17 @@ impl Settings {
             receptor_snap: self.receptor_snap,
             ..PlayOptions::default()
         }
+    }
+
+    /// Keeps the heights a play left the lane covers at, as DDR and
+    /// beatmania IIDX keep an adjusted cover for the next song (the mode
+    /// stays the one chosen: a cover toggled off in play is on again).
+    /// Whether anything changed.
+    pub fn keep_cover_heights(&mut self, cover: LaneCover) -> bool {
+        let before = self.lane_cover;
+        self.lane_cover.sudden = cover.sudden;
+        self.lane_cover.hidden = cover.hidden;
+        self.lane_cover != before
     }
 
     pub fn audio_profile(&self, id: &str) -> Option<&OffsetProfile> {

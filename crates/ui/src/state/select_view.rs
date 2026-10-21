@@ -259,6 +259,7 @@ pub fn select_data(
         settings.scroll_action,
         None,
     );
+    mods.extend(settings.lane_cover.label());
     // The StepMania presets' fail type and levels, where they play.
     if settings.ruleset_mode != ddi_engine::rules::presets::RulesetMode::AllDanoni {
         mods.extend(settings.stepmania.summary());

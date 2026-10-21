@@ -1,6 +1,7 @@
 # Rules and options: fail type, difficulty, FA+, autoplay, event sounds
 
-Status: done 2026-10-21 (decision 55); lane covers left. Closes the
+Status: done 2026-10-21 (decision 55); lane covers since in
+`lane-covers.md`. Closes the
 "Rules and options", "Play screen" (event sounds) and "Menus" (autoplay)
 gaps of `docs/PLAN.md` section 5 that this plan lists. Every feature
 lives in the shared crates (`ddi-engine`, `ddi-session`, `ddi-ui`), so
@@ -190,9 +191,9 @@ hit for display/EX only", section 3.3 of the research).
    web's `__DDI_DEBUG.claps` and `mine_sounds`.
 6. The battery. Done (decision 15): `LifeType`, the "Life" and "Battery
    lives" rows, the mods line ("battery 2 lives"). Lane covers
-   (Hidden+/Sudden+) are left: they need the renderer to draw a cover
-   over the lanes and a way to move it during play, beyond this plan's
-   crates; they stay in PLAN.md's gaps.
+   (Hidden+/Sudden+) were left here (they need the renderer to draw a
+   cover over the lanes and a way to move it during play); done since
+   in `lane-covers.md`.
 
 ## Checks
 

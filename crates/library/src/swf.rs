@@ -862,7 +862,11 @@ pub(crate) mod tests {
             }
         }
         inputs.sort_by(|a, b| a.time.total_cmp(&b.time));
-        let log = ddi_engine::history::PlayLog { start: 0.0, inputs };
+        let log = ddi_engine::history::PlayLog {
+            start: 0.0,
+            inputs,
+            ..Default::default()
+        };
         let results = ddi_engine::history::replay(&song, 0, &rules, &PlayOptions::default(), &log);
         assert_eq!(results.tally.taps[0], 64, "{:?}", results.tally);
         assert!(!results.failed);

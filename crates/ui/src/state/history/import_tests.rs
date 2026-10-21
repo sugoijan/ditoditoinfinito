@@ -205,6 +205,7 @@ fn lines_that_are_not_plays_are_counted_and_named() {
             lane: 0,
             pressed: true,
         }],
+        ..PlayLog::default()
     };
     let far = changed(good, |v| v["log"] = base64_encode(&far.encode()).into());
     let mut file = String::new();

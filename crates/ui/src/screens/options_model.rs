@@ -12,7 +12,9 @@ use ddi_engine::rules::ddr::DdrGauge;
 use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
 use ddi_engine::rules::{FailType, JUDGE_SCALES, LIFE_SCALES, LifeType, StepManiaOptions};
 use ddi_engine::scroll::SpeedSource;
-use ddi_engine::{Appearance, ConnectedPad, PadUse, ScrollAction, TimingCut, Turn};
+use ddi_engine::{
+    Appearance, ConnectedPad, CoverMode, LaneCover, PadUse, ScrollAction, TimingCut, Turn,
+};
 use ddi_platform::DeviceId;
 use ddi_platform::gamepad::Control;
 
@@ -425,51 +427,79 @@ impl OptionsModel {
              results.",
         );
         cut.heading = Some("SIMPLIFY".into());
-        section(
-            "Notes",
-            vec![
-                choice(
-                    "turn",
-                    "Turn",
-                    &["Off", "Mirror", "Left", "Right", "Shuffle"],
-                    pos(&TURNS, t.turn),
-                    "Moves every arrow to another lane, the same way for the whole chart; Shuffle \
+        let cover = s.lane_cover;
+        let mut rows = vec![
+            choice(
+                "turn",
+                "Turn",
+                &["Off", "Mirror", "Left", "Right", "Shuffle"],
+                pos(&TURNS, t.turn),
+                "Moves every arrow to another lane, the same way for the whole chart; Shuffle \
                      makes a new lane order each play.",
-                ),
-                choice(
-                    "appearance",
-                    "Appearance",
-                    &["Normal", "Hidden", "Sudden", "Both", "Stealth"],
-                    pos(&APPEARANCES, s.appearance),
-                    "Hidden: notes vanish before the receptors. Sudden: they appear late. \
+            ),
+            choice(
+                "appearance",
+                "Appearance",
+                &["Normal", "Hidden", "Sudden", "Both", "Stealth"],
+                pos(&APPEARANCES, s.appearance),
+                "Hidden: notes vanish before the receptors. Sudden: they appear late. \
                      Stealth: no notes at all.",
-                ),
-                cut,
-                choice(
-                    "simplify_onigiri",
-                    "Without onigiri",
-                    &["Off", "On"],
-                    s.simplify_onigiri as usize,
-                    "Adds separate DanOni charts to Single, Solo, Double and Techno 8-panel, \
+            ),
+            choice(
+                "lane_cover",
+                "Lane cover",
+                &["Off", "Sudden+", "Hidden+", "Both"],
+                pos(&COVER_MODES, cover.mode),
+                "A panel over the lanes. Sudden+ covers the end the notes come from, Hidden+ \
+                     the end they go to. In play, Page Up and Page Down move it and Enter hides \
+                     it (on a controller: hold Start and press up or down; tap Start).",
+            ),
+        ];
+        if cover.mode.sudden() {
+            rows.push(row(
+                "cover_sudden",
+                "Sudden+ height",
+                OptionKind::Stepper(cover_heights()),
+                usize::from(cover.sudden.min(LaneCover::FULL)),
+                "How much of the lane Sudden+ covers. A play keeps the height you leave it at.",
+            ));
+        }
+        if cover.mode.hidden() {
+            rows.push(row(
+                "cover_hidden",
+                "Hidden+ height",
+                OptionKind::Stepper(cover_heights()),
+                usize::from(cover.hidden.min(LaneCover::FULL)),
+                "How much of the lane Hidden+ covers. A play keeps the height you leave it at.",
+            ));
+        }
+        rows.extend([
+            cut,
+            choice(
+                "simplify_onigiri",
+                "Without onigiri",
+                &["Off", "On"],
+                s.simplify_onigiri as usize,
+                "Adds separate DanOni charts to Single, Solo, Double and Techno 8-panel, \
                      without the onigiri notes. Only these versions are marked as assisted; \
                      the original charts stay available.",
-                ),
-                choice(
-                    "no_jumps",
-                    "No jumps",
-                    &["Off", "On"],
-                    t.no_jumps as usize,
-                    "One panel at a time: two arrows at once become one.",
-                ),
-                choice(
-                    "no_holds",
-                    "No holds",
-                    &["Off", "On"],
-                    t.no_holds as usize,
-                    "Holds and rolls become single taps.",
-                ),
-            ],
-        )
+            ),
+            choice(
+                "no_jumps",
+                "No jumps",
+                &["Off", "On"],
+                t.no_jumps as usize,
+                "One panel at a time: two arrows at once become one.",
+            ),
+            choice(
+                "no_holds",
+                "No holds",
+                &["Off", "On"],
+                t.no_holds as usize,
+                "Holds and rolls become single taps.",
+            ),
+        ]);
+        section("Notes", rows)
     }
 
     fn rules(&self) -> OptionSection {
@@ -1341,6 +1371,9 @@ impl OptionsModel {
             "scroll_action" => s.scroll_action = at(&SCROLL_ACTIONS, i),
             "turn" => s.transform.turn = at(&TURNS, i),
             "appearance" => s.appearance = at(&APPEARANCES, i),
+            "lane_cover" => s.lane_cover.mode = at(&COVER_MODES, i),
+            "cover_sudden" => s.lane_cover.sudden = i.min(usize::from(LaneCover::FULL)) as u8,
+            "cover_hidden" => s.lane_cover.hidden = i.min(usize::from(LaneCover::FULL)) as u8,
             "cut" => s.transform.cut = at(&CUTS, i),
             "no_jumps" => s.transform.no_jumps = on,
             "simplify_onigiri" => s.simplify_onigiri = on,
@@ -1902,6 +1935,18 @@ const APPEARANCES: [Appearance; 5] = [
     Appearance::HiddenSudden,
     Appearance::Stealth,
 ];
+const COVER_MODES: [CoverMode; 4] = [
+    CoverMode::Off,
+    CoverMode::Sudden,
+    CoverMode::Hidden,
+    CoverMode::HiddenSudden,
+];
+
+/// A cover's heights as its steppers show them, 0 to 100% by 1.
+fn cover_heights() -> Vec<String> {
+    (0..=LaneCover::FULL).map(|v| format!("{v}%")).collect()
+}
+
 const CUTS: [TimingCut; 3] = [TimingCut::Off, TimingCut::Quarters, TimingCut::Eighths];
 const RULESET_MODES: [RulesetMode; 3] = [
     RulesetMode::AllStepMania,
@@ -2160,6 +2205,45 @@ mod tests {
         assert_eq!(m.settings.noteskin, None);
         assert!(m.settings.skin_params("dance/mine").is_empty());
         assert!(m.settings.lighter());
+    }
+
+    #[test]
+    fn lane_cover_rows_follow_the_covers_chosen() {
+        let mut m = model();
+        let has = |m: &OptionsModel, id: &str| {
+            m.data()
+                .sections
+                .iter()
+                .any(|s| s.options.iter().any(|o| o.id == id))
+        };
+        assert!(has(&m, "lane_cover"));
+        assert!(!has(&m, "cover_sudden") && !has(&m, "cover_hidden"));
+        m.change("lane_cover", 1);
+        assert_eq!(m.settings.lane_cover.mode, CoverMode::Sudden);
+        assert!(has(&m, "cover_sudden") && !has(&m, "cover_hidden"));
+        assert_eq!(find(&m.data(), "cover_sudden").value(), "25%");
+        m.change("cover_sudden", 40);
+        assert_eq!(m.settings.lane_cover.sudden, 40);
+        m.change("lane_cover", 3);
+        assert!(has(&m, "cover_sudden") && has(&m, "cover_hidden"));
+        m.change("cover_hidden", 100);
+        assert_eq!(find(&m.data(), "cover_hidden").value(), "100%");
+        let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
+        assert_eq!(
+            stored.lane_cover,
+            LaneCover {
+                mode: CoverMode::HiddenSudden,
+                sudden: 40,
+                hidden: 100,
+            }
+        );
+        // Played with: the start prompt and song select say it.
+        assert!(
+            super::super::play::options_line(&m.settings.play_options(None))
+                .ends_with("hidden+ 100% sudden+ 0%"),
+        );
+        m.change("lane_cover", 0);
+        assert!(!has(&m, "cover_sudden") && !has(&m, "cover_hidden"));
     }
 
     #[test]

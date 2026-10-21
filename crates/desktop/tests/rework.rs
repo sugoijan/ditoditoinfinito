@@ -51,7 +51,11 @@ fn stale_plays_are_judged_again_off_the_event_loop() {
         }
     }
     inputs.sort_by(|a, b| a.time.total_cmp(&b.time));
-    let log = PlayLog { start: 0.0, inputs };
+    let log = PlayLog {
+        start: 0.0,
+        inputs,
+        ..Default::default()
+    };
     let results = replay(&song, 0, &rules, &PlayOptions::default(), &log);
     let store = FilePlayStore::new(dir.clone());
     let mut fresh = None;

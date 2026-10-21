@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::appearance::Appearance;
 use crate::clock::{ClockOptions, SongClock};
+use crate::cover::{COVER_LABEL_SECONDS, CoverChange, CoverView, LaneCover};
 use std::collections::VecDeque;
 
 use crate::frame::{
@@ -62,6 +63,9 @@ pub struct PlayOptions {
     pub transform: TransformOptions,
     /// Hidden / Sudden / Stealth; drawn only.
     pub appearance: Appearance,
+    /// The lane covers as the play starts (Sudden+, Hidden+); drawn only,
+    /// changed during play ([`Player::set_cover`]).
+    pub cover: LaneCover,
     /// Fixes the Shuffle permutation, so a play can be reproduced.
     pub seed: u64,
     pub clock: ClockOptions,
@@ -80,6 +84,7 @@ impl Default for PlayOptions {
             scroll: ScrollOptions::default(),
             transform: TransformOptions::default(),
             appearance: Appearance::Visible,
+            cover: LaneCover::default(),
             seed: 0,
             clock: ClockOptions::default(),
             visible_range: DEFAULT_VISIBLE_RANGE,
@@ -123,6 +128,10 @@ pub struct Results {
     /// The play's seed, which reproduces a Shuffle.
     pub seed: u64,
     pub appearance: Appearance,
+    /// The lane covers as the play ended (the last shown, if the play
+    /// ended with them toggled off).
+    #[serde(default)]
+    pub cover: LaneCover,
     pub scroll_action: ScrollAction,
     /// Notes were removed or simplified ([`TransformOptions::is_assist`]).
     pub assist: bool,
@@ -250,6 +259,11 @@ pub struct Player {
     skin_events: VecDeque<SkinEvent>,
     autoplay: bool,
     next_seq: u64,
+    /// The lane covers now, the song second they last changed at, and the
+    /// last ones shown ([`Results::cover`]).
+    cover: LaneCover,
+    cover_changed: Option<f64>,
+    shown_cover: LaneCover,
 }
 
 impl Player {
@@ -338,6 +352,9 @@ impl Player {
             skin_events: VecDeque::new(),
             autoplay: false,
             next_seq: 0,
+            cover: options.cover,
+            cover_changed: None,
+            shown_cover: options.cover,
             judge,
             ruleset,
         };
@@ -393,7 +410,7 @@ impl Player {
         self.song_offset = song_offset;
         self.log = PlayLog {
             start: song_offset,
-            inputs: Vec::new(),
+            ..PlayLog::default()
         };
         if song_offset > 0.0 {
             self.judge.skip_before(song_offset);
@@ -523,6 +540,35 @@ impl Player {
     /// [`Player::judge_all_in`], which a replay does not know.
     pub fn log(&self) -> &PlayLog {
         &self.log
+    }
+
+    /// The lane covers now.
+    pub fn cover(&self) -> LaneCover {
+        self.cover
+    }
+
+    /// Changes the lane covers at host time `host` (a key during play):
+    /// drawn from the next frame, kept in the log at the song second it
+    /// is judged at. Nothing judged changes.
+    pub fn set_cover(&mut self, cover: LaneCover, host: HostTime) {
+        let t = self.judge_time(host);
+        self.set_cover_at(cover, t);
+    }
+
+    /// [`Player::set_cover`] at a judged song second (what a replay
+    /// feeds). Ignored before the start, after the end, or when nothing
+    /// changes.
+    pub fn set_cover_at(&mut self, cover: LaneCover, song_time: f64) {
+        if !self.started || self.finished || !song_time.is_finite() || cover == self.cover {
+            return;
+        }
+        let time = to_microsecond(song_time);
+        self.cover = cover;
+        self.cover_changed = Some(time);
+        if cover.is_on() {
+            self.shown_cover = cover;
+        }
+        self.log.covers.push(CoverChange { time, cover });
     }
 
     /// Feeds a lane edge. Returns the per-note judge events it caused.
@@ -1183,6 +1229,13 @@ impl Player {
             finished: self.finished,
             visible_range,
             appearance: self.options.appearance,
+            cover: CoverView {
+                cover: self.cover,
+                changed: self
+                    .cover_changed
+                    .map(age)
+                    .filter(|&a| a < COVER_LABEL_SECONDS),
+            },
         }
     }
 
@@ -1222,6 +1275,7 @@ impl Player {
             lane_map: self.lane_map.clone(),
             seed: self.options.seed,
             appearance: self.options.appearance,
+            cover: self.shown_cover,
             scroll_action: self.options.scroll.scroll_action,
             assist: self.chart_assist || self.options.transform.is_assist(),
             timeline: Vec::new(),

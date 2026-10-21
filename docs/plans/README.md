@@ -65,12 +65,14 @@ architecture, the decisions and the roadmap they belong to. Status as of
   Left: `#PREVIEWVID`, zips with other compression methods.
 - [Rules and options](rules-options.md) (2026-10-21): done (decision 55):
   StepMania's fail types, life and judge difficulty, ITG FA+, autoplay
-  in the menus (found done), the event sounds, the battery. Left: lane
-  covers.
+  in the menus (found done), the event sounds, the battery.
 - [More rulesets](rulesets.md) (2026-10-21): done (decision 57): DDR
   EXTREME's score, grades and windows, DDR A's LIFE4, RISKY, FLARE and
   FLOATING FLARE gauges with the FLARE rank and FLARE SKILL, LIFE4's
   lamps. Left: SuperNOVA2/X, `ffr` (with the FFR import).
+- [Lane covers and the preview video](lane-covers.md) (2026-10-21):
+  lane covers (Sudden+, Hidden+, both) done: drawn over the lanes,
+  moved and hidden in play, kept in the play's log for replays.
 
 ## Presentation and video
 
