@@ -125,6 +125,17 @@ hit for display/EX only", section 3.3 of the research).
 3. ITG FA+. Done: `presets::itg_fa_plus`, `JudgeTable::is_w0`,
    `ScoreCtx::w0`, `DancePoints::with_ex_w0`, `JudgementFlash::w0`, the
    results' rows, EX and bands, the theme's `Judgement.W1White`.
+4. Autoplay in the menus. Found done: song select's header has had an
+   "Autoplay" pill since the theme's screens (`AutoIcon` in the compact
+   layout; `SelectScreen::toggle_autoplay`, both shells: the web's
+   `router::set_autoplay` writes `auto=1` into the address, desktop's
+   `Songs::autoplay`), reached by keys and a controller (Up to the search
+   field, then Right). Kept as it is: a switch for the session, not a
+   saved option, so a player never finds their plays uncounted by a
+   setting they forgot. Autoplayed plays are kept in the history with
+   `PlayRecord::autoplay`, never counted toward bests
+   (`PlaySummary::counts`), and the results say AUTOPLAY (lamp, line, a
+   note). The PLAN gap was stale; checked again in the browser.
 
 ## Checks
 
@@ -150,4 +161,7 @@ hit for display/EX only", section 3.3 of the research).
   history's key keep the options; presses 400 ms late under fail off play
   to the end, not failed, with "The life bar emptied at 0:19: not failed
   (fail off)."; ITG FA+ on time gives 38 blue Fantastics and EX 100.00%,
-  18 ms late 38 white ones and EX 85.71%.
+  18 ms late 38 white ones and EX 85.71%. `select-autoplay.mjs`: a click
+  on song select's Autoplay pill turns it on (`#/select?auto=1`), and the
+  chart played from the ladder opens `#/play?…&auto=1` and plays by itself
+  (WebGPU and WebGL2).

@@ -495,7 +495,6 @@ Play screen:
 
 Menus:
 
-- *New:* autoplay has no switch in the menus, only `&auto=1`.
 - *New:* search: Down on a controller from the field lands on the first
   pack header; the list has no way back up into the field, and only the
   `/` key reaches it (no controller); a short query or Enter on a large
