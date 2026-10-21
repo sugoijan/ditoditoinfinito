@@ -5,7 +5,7 @@ rhythm game) written entirely in Rust. Browser first (wasm, Trunk,
 GitHub Pages at `https://sugoijan.dev/ditoditoinfinito/`), desktop later, with
 the gameplay core shared unchanged between both.
 
-Status (2026-10-15): phases 0–3 done and deployed (scaffold, chart
+Status (2026-10-21): phases 0–3 done and deployed (scaffold, chart
 importers, engine, web platform, renderer, song select, options, credits,
 four bundled OutFox Serenity songs), phase 4 (format breadth), phase 5
 (import and storage), phase 6 (layouts as data: StepMania `dance-solo`,
@@ -14,20 +14,27 @@ holds; Dancing☆Onigiri works in 5, 7, 9A and 9B keys with their own
 rules, colors, speed and lyrics as options) and phase 7 (gamepads,
 bindings, touch lanes; WebHID left out) done, phase 8 partial (play
 options, note color schemes, song backgrounds, image background changes
-and background videos done; imported StepMania noteskins with their Lua
-(on `lunita`, our hardened fork of piccolo), 3D models and StepMania 3.9
-and OpenITG skins, drawing every built-in layout, with a preview; bundled
-ones: Dito, the built-in arrows as a skin and the default, Delta,
-Alpha-Arrows, Dake and Peter Lawrence's CF_CHROME, CF_VIBRANT, CF_ALLOY,
-Peters-DDR-Note and Peters-DDR-Vivid (3D models); Dancing☆Onigiri's
-back and mask layers; StepMania's second background layer and scripted
-backgrounds not); per-phase status in the roadmap (section 5).
-DanOni URL imports (2026-10-19): the optional `danoni-importer` feature
-exposes desktop URL import through a packaged native helper and framed IPC,
-with the ordinary SSC/Opus library handoff. The helper and SDK share the root
-workspace/lock; the pinned generated Ruffle worker remains separate. Browser
-URL import remains separate. See decision 51, [the build contract](plans/danoni-importer.md)
-and [the integration notes](research/danoni-desktop-integration.md).
+on both layers and background videos done; imported StepMania noteskins
+with their Lua (on `lunita`, our hardened fork of piccolo), 3D models and
+StepMania 3.9 and OpenITG skins, drawing every built-in layout, with a
+preview; bundled ones: Dito, the built-in arrows as a skin and the
+default, Delta, Alpha-Arrows, Dake, Peter Lawrence's CF_CHROME,
+CF_VIBRANT, CF_ALLOY, Peters-DDR-Note and Peters-DDR-Vivid (3D models)
+and `DanOni`; Dancing☆Onigiri's back and mask layers; scripted
+backgrounds and named background effects not), phase 9 in progress (the
+UI core, our theme with a start menu, and the desktop shell at parity
+with the web; left: hardware checks, Windows, packaging), phase 10
+partial (replays and the ghost); per-phase status in the roadmap
+(section 5). What both shells do lives in shared crates (`session`,
+`shell`, `ui`), so a shell keeps only its platform's code.
+DanOni URL imports (2026-10-19): the `danoni-importer` feature, on by
+default for desktop since 2026-10-21 (never built for the web or
+Windows), exposes desktop URL import through a packaged native helper and
+framed IPC, with the ordinary SSC/Opus library handoff. The helper and SDK
+share the root workspace/lock; the pinned generated Ruffle worker remains
+separate. Browser URL import remains separate. See decision 51,
+[the build contract](plans/danoni-importer.md) and
+[the integration notes](research/danoni-desktop-integration.md).
 Background continuity (2026-10-20): song select, pre-start and play share
 an encoded Gaussian base. The prompt introduces softly blurred framed
 content; Start finishes sharpening it without delaying audio. The play's
@@ -80,7 +87,7 @@ Detailed research with sources lives in [`docs/research/`](research/):
 - [`stepmania-themes.md`](research/stepmania-themes.md) — StepMania and ITGmania themes: the archive by engine, screens and their layers, actors and fallback, Lua per generation, screen ratios, noteskins, licences, support tiers.
 - [`lua-sandbox.md`](research/lua-sandbox.md) — running untrusted Lua (noteskins, later backgrounds) with the same guarantees natively and in the browser: where rilua and piccolo fall short, what an in-process sandbox needs in Rust (no catchable panics or allocation failures on the web), why a hardened fork of piccolo, how much skin Lua runs during play, what scripted backgrounds and modfiles use.
 
-Implementation plans for larger steps live in [`docs/plans/`](plans/): [`video-backgrounds.md`](plans/video-backgrounds.md) (steps, commits, verification for the video pipeline), [`noteskins.md`](plans/noteskins.md) (imported StepMania noteskins, without their Lua first), [`lua.md`](plans/lua.md) (running noteskins' Lua safely) with [`piccolo-fork.md`](plans/piccolo-fork.md) (the brief for hardening the VM it runs on, done in parallel), [`bundled-skins.md`](plans/bundled-skins.md) (freely licensed noteskins shipped with the game, and the built-in arrows as a Lua skin), [`ui-core.md`](plans/ui-core.md) (the screens drawn by the game's own scene on web and desktop, the first part of phase 9; draft).
+Implementation plans for larger steps live in [`docs/plans/`](plans/), indexed with their status in [`docs/plans/README.md`](plans/README.md).
 
 Reference implementations to consult while building: StepMania 5.1 (`5_1-new` branch) for parsing and timing semantics, [Project OutFox](https://projectoutfox.com/) (the actively developed StepMania fork; its [wiki](https://outfox.wiki/) documents formats and mode support and its Serenity packs are CC-BY), ITGmania / Simply Love for ITG rules, danoniplus for Dancing☆Onigiri, rCubed for FFR.
 
@@ -332,7 +339,7 @@ Definition of done: a chart plays in Chrome, Firefox and Safari with judgements 
 
 ## 5. Roadmap
 
-Status as of 2026-10-20: one line per phase, the full notes below the table; known gaps before phase 9 after them. The plans and their status are indexed in `docs/plans/README.md`.
+Status as of 2026-10-21: one line per phase, the full notes below the table; known gaps before phase 9 after them. The plans and their status are indexed in `docs/plans/README.md`.
 
 | Phase | Status | Deliverable | Notes |
 |---|---|---|---|
@@ -345,7 +352,7 @@ Status as of 2026-10-20: one line per phase, the full notes below the table; kno
 | 6 Layouts & DanOni | done | `Layout` as data in the UI, 6-panel solo, DanOni 5/7/9A/11 key modes (7i until 2026-10-13), onigiri lane, `speed_data`/`boost_data`, color events, lyrics (`word_data`) | solo, double and pump layouts (decisions 20–22, 40); Dancing☆Onigiri key modes and works (decisions 25–29); notes below |
 | 7 Input devices | done | gamepad poller, dance-pad profiles, touch lanes, WebHID experiment | 1 ms poll loop with pad timestamps, bindings per controller model, touch lanes; WebHID out of scope; notes below |
 | 8 Presentation | partial | skin packs (static/quantized/rainbow/vivid), background layers (BGCHANGES, DanOni back/mask, generative), DDR option set (Boost/Brake/Wave, Hidden/Sudden, Turn, Cut) | done: options, color schemes, `#BGCHANGES`/`#BGCHANGES2`, background videos (`docs/plans/video-backgrounds.md`), noteskins with Lua, models and legacy formats (`docs/plans/noteskins.md` and the skin plans), DanOni overlays (`docs/plans/overlays.md`). Not done: scripted backgrounds, `#FGCHANGES`, named background effects; notes below |
-| 9 UI core & desktop | in progress | the screens drawn by our own UI core (`actor`, `ui`) on web and desktop (`docs/plans/ui-core.md`, decision 45); then the `desktop` crate: winit + wgpu + cpal + gilrs (`docs/plans/desktop.md`); same `engine`/`render`/`chart` | UI core and theme done (`docs/plans/ui-core.md`, `docs/plans/theme.md`); desktop parity steps 7.0–7.9 done (`docs/plans/desktop.md`); movies through OS decoders and a sandboxed FFmpeg helper (`docs/plans/native-video.md`); next: hardware checks, frame pacing measurements, Windows video, packaging; notes below |
+| 9 UI core & desktop | in progress | the screens drawn by our own UI core (`actor`, `ui`) on web and desktop (`docs/plans/ui-core.md`, decision 45); then the `desktop` crate: winit + wgpu + cpal + gilrs (`docs/plans/desktop.md`); same `engine`/`render`/`chart` | UI core and theme done (`docs/plans/ui-core.md`, `docs/plans/theme.md`); desktop parity steps 7.0–7.9 done (`docs/plans/desktop.md`); movies through OS decoders and a sandboxed FFmpeg helper (`docs/plans/native-video.md`); start menu since 2026-10-21 (`docs/plans/start-menu.md`); next: hardware checks, frame pacing measurements, Windows video, packaging; notes below |
 | 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); not done: importing plays, FFR, more rulesets, editor |
 
 ### Phase notes
@@ -416,10 +423,11 @@ one sprite per layer. Sharp pictures keep separate cache entries, including
 the start prompt's central picture (`docs/plans/theme.md`).
 
 
-### Known gaps before phase 9 (2026-10-15)
+### Known gaps before phase 9 (2026-10-15, reviewed 2026-10-21)
 
 Everything known to be missing, approximate or unchecked before the
-desktop build, gathered in one place. Items marked *new* were found in
+desktop build, gathered in one place; what has been built since is
+removed. Items marked *new* were found in
 code comments or test reports and were not written down before; the
 others point to where they are described.
 
@@ -457,7 +465,7 @@ Rules and options:
   `EndOfSong`, `Off` exist in the engine), nor a life or judge
   difficulty.
 - Not built: lane covers (Hidden+/Sudden+), music rate, a separate judge
-  offset (section 3.3); DDR legacy scoring, FLARE, LIFE4, replays, editor
+  offset (section 3.3); DDR legacy scoring, FLARE, LIFE4, editor
   (phase 10). The battery gauge has no preset (`docs/plans/pump.md`).
 - DDR A windows and gauge are approximations (section 7);
   the shock window and hide time are not measured (decision 42);
@@ -529,8 +537,8 @@ Audio and video:
 
 Noteskins, Lua and models:
 
-- Pump skins (`NoteSkins/pump/*`) and centre notes for the other bundled
-  skins (`docs/plans/pump.md`); OutFox's `global/` skins
+- Center notes for the other bundled skins (`docs/plans/pump.md`; pump
+  skins, `NoteSkins/pump/*`, since 2026-10-16); OutFox's `global/` skins
   (`docs/plans/noteskins.md`); StepMania 5.1's "newskin" format
   (`docs/research/noteskins.md`).
 - *New:* legacy actor files' `Quad`, `BitmapText`, `ActorScroller` and
@@ -572,9 +580,6 @@ Input and browsers:
 
 Tooling:
 
-- *New:* six old wasm clippy warnings (`game_canvas.rs` `Stage` size and
-  `results_view` arguments, `skin_preview.rs` types, `song_select.rs`
-  `Msg` size, a collapsible `if` in `game_loop.rs`).
 - The local-corpus tests (differential, autoplay, skins, Lua) are opt-in,
   not in CI (phase 1, `AGENTS.md`).
 

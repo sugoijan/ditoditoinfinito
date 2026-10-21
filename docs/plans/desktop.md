@@ -10,7 +10,7 @@ sections 1, 2, 4 and 5 (clocks, input, native audio and input),
 `docs/research/video-backgrounds.md` (the decoder), and the crates checked
 on crates.io on 2026-10-16 (versions below).
 
-## Where it stands (2026-10-20)
+## Where it stands (2026-10-21)
 
 `cargo run` opens the silent Start menu on desktop; Singleplayer opens
 song select on the bundled songs and
@@ -59,7 +59,8 @@ under it in section 7:
   `native-video.md` sections 4f/7 record the gates and validation (decision 50).
 - Packaging and signing: a relocatable folder exists
   (`tools/danoni-importer/build.py package`: the app, its assets, the
-  video helper with its LGPL payload, the licences and the importer); an
+  video helper with its LGPL payload, the licences, the credits and the
+  importer, on by default since 2026-10-21); an
   `.app`, an installer and signing remain, in their own plan.
 - Windows: the gilrs change (8 ms polling, stamps from the reading) needs
   the maintainer's account and a Windows machine; a run on Windows

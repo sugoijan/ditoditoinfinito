@@ -40,7 +40,7 @@ architecture, the decisions and the roadmap they belong to. Status as of
 ## Charts, layouts and play
 
 - [Pump layouts](pump.md) (2026-10-13): done (ticked holds 2026-10-14,
-  pump skins 2026-10-16). Later: centre notes for the other bundled skins.
+  pump skins 2026-10-16). Later: center notes for the other bundled skins.
 - [The play history](play-history.md) (2026-10-16): done, replays and the
   ghost included (decision 49). Not done: importing plays.
 - [Additional charts without onigiri](chart-simplification.md)
@@ -77,9 +77,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
 
 ## Library and import
 
-- [Desktop DanOni URL importer](danoni-importer.md) (2026-10-19*): done as
-  an opt-in feature; the build, package and integrity contract of the
-  native helper. Left (decision 51): Windows confinement, managed-store
+- [Desktop DanOni URL importer](danoni-importer.md) (2026-10-19*): done; on
+  by default for desktop since 2026-10-21 (never for the web or Windows);
+  the build, package and integrity contract of the native helper. Left (decision 51): Windows confinement, managed-store
   durability, browser URL acquisition.
 - [Desktop DanOni URL imports](danoni-import.md) (2026-10-19*): the
   app/helper protocol, storage and verification as first planned; where it
