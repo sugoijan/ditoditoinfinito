@@ -19,6 +19,18 @@ _screen = { w = w, h = h, cx = w / 2, cy = h / 2 }
 local song = GAMESTATE:GetCurrentSong()
 song.GetSongDir = function() return H.song_dir() end
 
+-- `Def.Sound`'s `play` (`ActorSound`): the shell plays its file on the
+-- play's sound; a sprite's `play` is the native one. Its sound's settings
+-- are not kept (`get()` answers but changes nothing), nor is `stop`.
+local native_play = Actor.play
+function Actor:play(...)
+	if H.sound(self) then return self end
+	return native_play(self, ...)
+end
+local sound = {}
+setmetatable(sound, { __index = function() return function() return sound end end })
+function Actor:get() return sound end
+
 -- `Themes/_fallback/Scripts/02 Actor.lua`'s placements on that screen.
 function Actor:Center() return self:xy(SCREEN_CENTER_X, SCREEN_CENTER_Y) end
 function Actor:CenterX() return self:x(SCREEN_CENTER_X) end

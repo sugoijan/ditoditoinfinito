@@ -246,7 +246,26 @@ impl<'gc> Convert<'_, 'gc> {
                 self.note(format!("{where_}: {class} is not drawn here"));
                 (Actor::new(Kind::Actor), 0)
             }
-            "Sound" => (Actor::new(Kind::Actor), 0),
+            "Sound" => {
+                // A song's: its file, for `play` (`ActorSound`).
+                // `ActorUtil::GetAttrPath`: relative to the file that
+                // wrote it.
+                let dir = text(self.get(t, "_Dir")).unwrap_or_default();
+                let path = text(self.get(t, "File")).map(|f| {
+                    if f.starts_with('/') {
+                        f
+                    } else {
+                        format!("{dir}{f}")
+                    }
+                });
+                if self.host.skin.is_song()
+                    && let Some(path) = path
+                    && let Ok(found) = self.host.skin.resolve_path(&path)
+                {
+                    self.host.sounds.insert(id, found.path);
+                }
+                (Actor::new(Kind::Actor), 0)
+            }
             other => {
                 // StepMania reports it and makes a dummy actor.
                 self.note(format!("{where_}: invalid Class \"{other}\""));

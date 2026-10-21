@@ -493,6 +493,25 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
             Ok(CallbackReturn::Return)
         })),
     );
+    // `ActorSound::play`: the actor's file noted for the shell to play;
+    // whether it is a `Sound` actor.
+    let shared = host.clone();
+    set(
+        "sound",
+        func(Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let id = actor_id(ctx, stack.get(0))?;
+            let mut host = shared.borrow_mut();
+            let file = host.sounds.get(&id).cloned();
+            let is = file.is_some();
+            if let Some(f) = file
+                && host.played.len() < 256
+            {
+                host.played.push(f);
+            }
+            stack.replace(ctx, is);
+            Ok(CallbackReturn::Return)
+        })),
+    );
     let shared = host.clone();
     set(
         "screen",

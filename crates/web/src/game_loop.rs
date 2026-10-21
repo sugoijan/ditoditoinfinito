@@ -72,6 +72,12 @@ pub(crate) struct GameLoop {
     scripts: crate::scripts::ScriptView,
     /// The scripts' texts the browser drew, waiting for the next frame.
     script_texts: ScriptTexts,
+    /// The scripts' sounds decoded, their buffers once made (on the play's
+    /// sound), those played this frame, and how many played so far.
+    script_sounds: std::collections::HashMap<String, ddi_platform::decode::DecodedAudio>,
+    sound_buffers: std::collections::HashMap<String, web_sys::AudioBuffer>,
+    sounds_due: Vec<String>,
+    sounds_played: usize,
     scripts_stopped: Option<String>,
     scripts_drawn: (usize, usize),
     /// The chart's lyrics, if it has any and they are shown.
@@ -177,6 +183,10 @@ impl GameLoop {
             backdrop_drawn: Backdrop::default(),
             scripts: Default::default(),
             script_texts: Default::default(),
+            script_sounds: Default::default(),
+            sound_buffers: Default::default(),
+            sounds_due: Vec::new(),
+            sounds_played: 0,
             scripts_stopped: None,
             scripts_drawn: (0, 0),
             lyrics: None,
@@ -389,13 +399,55 @@ impl GameLoop {
     /// The song's scripts, loaded (`None`: none, or they failed).
     pub(crate) fn set_scripts(&mut self, loaded: Option<crate::scripts::Loaded>) {
         self.scripts_stopped = None;
+        self.sound_buffers.clear();
+        self.sounds_due.clear();
         match loaded {
-            Some(l) => self.scripts.set(Some(l.scripts), l.screen, l.images),
-            None => self.scripts.set(None, [854.0, 480.0], Vec::new()),
+            Some(l) => {
+                self.script_sounds = l.sounds.into_iter().collect();
+                self.scripts.set(Some(l.scripts), l.screen, l.images);
+            }
+            None => {
+                self.script_sounds.clear();
+                self.scripts.set(None, [854.0, 480.0], Vec::new());
+            }
         }
         self.script_texts.borrow_mut().clear();
         // Their text as Init left it, drawn while the prompt shows.
         Self::draw_script_texts(&mut self.scripts, &self.script_texts);
+    }
+
+    /// The scripts' sounds played this frame, at once on the play's
+    /// sound at its volume (a buffer made the first time each plays).
+    fn play_script_sounds(&mut self) {
+        use ddi_platform::AudioBackend;
+        let Some(session) = self.session.as_mut() else {
+            self.sounds_due.clear();
+            return;
+        };
+        for f in self.sounds_due.drain(..) {
+            if !self.sound_buffers.contains_key(&f)
+                && let Some(audio) = self.script_sounds.get(&f)
+            {
+                match session
+                    .audio()
+                    .buffer_from_pcm(audio.channels.clone(), f64::from(audio.sample_rate))
+                {
+                    Ok(b) => {
+                        self.sound_buffers.insert(f.clone(), b);
+                    }
+                    Err(e) => web_sys::console::warn_1(&format!("{f}: {e}").into()),
+                }
+            }
+            let Some(buffer) = self.sound_buffers.get(&f) else {
+                continue;
+            };
+            let at = session.audio().now().context_time;
+            let volume = session.volume();
+            match session.audio_mut().play(buffer, at, 0.0, volume) {
+                Ok(_) => self.sounds_played += 1,
+                Err(e) => web_sys::console::warn_1(&format!("{f}: {e}").into()),
+            }
+        }
     }
 
     /// The scripts' texts the browser drew so far go to them; the texts
@@ -775,6 +827,7 @@ impl GameLoop {
                             self.scripts_stopped = Some(why);
                         }
                         Self::draw_script_texts(&mut self.scripts, &self.script_texts);
+                        self.sounds_due.extend(self.scripts.take_sounds());
                         let (device, queue) = (&self.gfx.device, &self.gfx.queue);
                         self.scripts.upload(&mut self.renderer, device, queue);
                         let (w, h) = (width as f32, height as f32);
@@ -827,6 +880,7 @@ impl GameLoop {
                 });
             }
         }
+        self.play_script_sounds();
         // Over the play: the 2D pass (the lyrics, with the browser's text).
         let overlaid = match lyrics {
             Some(l) => self.draw_overlay(&mut encoder, &view, plain_view.as_ref(), l),
@@ -989,6 +1043,7 @@ impl GameLoop {
             ),
             ("fuel", (self.scripts.frame_fuel() as f64).into()),
             ("back", (self.scripts_drawn.0 as u32).into()),
+            ("sounds", (self.sounds_played as u32).into()),
             ("front", (self.scripts_drawn.1 as u32).into()),
         ] {
             let _ = js_sys::Reflect::set(&scripts, &k.into(), &v);

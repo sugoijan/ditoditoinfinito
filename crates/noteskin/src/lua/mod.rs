@@ -290,6 +290,11 @@ pub(crate) struct Host {
     pub stage: Stage,
     /// Frames with an update function.
     pub updating: HashSet<u32>,
+    /// A song's scripts' `Sound` actors: their file (relative to the
+    /// song's folder) by actor id, and the files played since last asked
+    /// ([`LuaSkin::take_sounds`]).
+    pub sounds: std::collections::HashMap<u32, String>,
+    pub played: Vec<String>,
     /// The frame's song position; `None` while loading.
     pub position: Option<Position>,
     /// The skin's parameters (`NOTESKIN:GetParameter`), their values in
@@ -400,6 +405,8 @@ impl LuaSkin {
             warnings: Vec::new(),
             stage: Stage::default(),
             updating: HashSet::new(),
+            sounds: std::collections::HashMap::new(),
+            played: Vec::new(),
             position: None,
             declared,
         }));
@@ -876,6 +883,21 @@ impl LuaSkin {
             built: Built::Actor(tree),
             notes,
         })
+    }
+
+    /// The files a song's scripts' `Sound` actors may play (relative to
+    /// the song's folder), each once.
+    pub fn sound_files(&self) -> Vec<String> {
+        let mut files: Vec<String> = self.host.borrow().sounds.values().cloned().collect();
+        files.sort();
+        files.dedup();
+        files
+    }
+
+    /// The sounds the scripts played (`play` on a `Sound` actor) since
+    /// last asked, in order.
+    pub fn take_sounds(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.host.borrow_mut().played)
     }
 
     // The play.

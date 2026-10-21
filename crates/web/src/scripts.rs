@@ -23,6 +23,9 @@ pub(crate) struct Loaded {
     pub(crate) scripts: Scripts,
     pub(crate) screen: [f64; 2],
     pub(crate) images: Vec<(String, Bitmap)>,
+    /// Their sounds decoded (Ogg Vorbis and MP3, as the music's fallback
+    /// decodes them), by file relative to the song's folder.
+    pub(crate) sounds: Vec<(String, ddi_platform::decode::DecodedAudio)>,
 }
 
 /// Reads `entry`'s scripts and loads them for `song` (as stored: the
@@ -112,14 +115,31 @@ pub(crate) async fn load(
         Some(&mut pause),
     )
     .await?;
-    Ok(scripts.map(|scripts| {
-        for note in scripts.notes() {
-            web_sys::console::info_1(&format!("scripted backgrounds: {note}").into());
+    let Some(scripts) = scripts else {
+        return Ok(None);
+    };
+    for note in scripts.notes() {
+        web_sys::console::info_1(&format!("scripted backgrounds: {note}").into());
+    }
+    let mut sounds = Vec::new();
+    for f in scripts.sound_files() {
+        let decoded = match crate::songs::load_script_file(entry, &f, record).await {
+            Ok(blob) => crate::web::files::blob_bytes(&blob)
+                .await
+                .and_then(|bytes| {
+                    ddi_platform::decode::decode(&bytes).map_err(|e| format!("{e:?}"))
+                }),
+            Err(e) => Err(e),
+        };
+        match decoded {
+            Ok(audio) => sounds.push((f, audio)),
+            Err(e) => web_sys::console::warn_1(&format!("scripted backgrounds: {f}: {e}").into()),
         }
-        Loaded {
-            scripts,
-            screen,
-            images,
-        }
+    }
+    Ok(Some(Loaded {
+        scripts,
+        screen,
+        images,
+        sounds,
     }))
 }

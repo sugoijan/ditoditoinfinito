@@ -119,6 +119,21 @@ impl<C: StageContent> ScriptView<C> {
         self.scripts.as_ref().is_some_and(|s| s.stopped().is_none())
     }
 
+    /// The sounds the scripts played since last asked
+    /// ([`Scripts::take_sounds`]).
+    pub fn take_sounds(&mut self) -> Vec<String> {
+        self.scripts
+            .as_mut()
+            .map_or(Vec::new(), Scripts::take_sounds)
+    }
+
+    /// The sound files the scripts may play ([`Scripts::sound_files`]).
+    pub fn sound_files(&self) -> Vec<String> {
+        self.scripts
+            .as_ref()
+            .map_or(Vec::new(), Scripts::sound_files)
+    }
+
     /// What the scripts noted while loading.
     pub fn notes(&self) -> &[String] {
         self.scripts.as_ref().map_or(&[], |s| s.notes())

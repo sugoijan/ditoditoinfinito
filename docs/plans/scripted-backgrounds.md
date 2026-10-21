@@ -126,9 +126,13 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
    different text, 64 at most a song, and tinted by the actor's colors;
    `settext` and `maxwidth` reach it from Lua; a text not drawn yet is
    measured as a guess and shown once drawn, a frame or so later on the
-   web); `ActorMultiVertex`, `ActorFrameTexture`, `ActorProxy`,
-   `ActorScroller` and `Sound` load as actors that draw nothing (noted
-   once in the log).
+   web); `Sound` (since the second slice: its `play` plays its file at
+   once on the play's sound, at the music's volume; its settings through
+   `get()` and `stop` are not kept; Ogg Vorbis and MP3 on the web, as the
+   music's fallback decodes them, every format on desktop, decoded when
+   the scripts load); `ActorMultiVertex`, `ActorFrameTexture`,
+   `ActorProxy` and `ActorScroller` load as actors that draw nothing
+   (noted once in the log).
    Folders without one keep what the game does now (the song background
    on the first layer, nothing on the second), although StepMania 5.1
    draws an empty actor for `BGAnimation.ini` and `default.xml` folders:
@@ -156,8 +160,9 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
    network, `io`, `os`, `require`, `dofile` or `debug` beyond what the
    skins' sandbox keeps; no screen, player, option, preference or
    profile is reachable (`SCREENMAN`, `GetTopScreen`, `PlayerOptions` and
-   the like are absent or inert, so modfiles do nothing); no sound plays;
-   no movie is decoded for a script; nothing a script does changes
+   the like are absent or inert, so modfiles do nothing); a script's
+   sounds play only through its `Sound` actors, on the play's sound and
+   never again once its scripts stopped; no movie is decoded for a script; nothing a script does changes
    judging, the clock, the score or a replay's inputs (the runtime reads
    the song position, never writes it).
 7. **The time a script sees** is the music's: `GAMESTATE:GetSongPosition()`
@@ -189,9 +194,9 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
    pack in headless Chrome (WebGPU, WebGL2) and Firefox, offscreen on
    desktop.
 6. Later: `BGAnimation.ini`, `default.xml` and 3.0-style layer folders drawn
-   natively (decision 4); the global `BGAnimations/` folder; `Sound`
-   actors on the play's mixer; render targets within a pixel budget;
-   movies in scripts.
+   natively (decision 4); the global `BGAnimations/` folder; render
+   targets within a pixel budget; movies in scripts and as an effect's
+   second file (below).
 
 ## Status (2026-10-21)
 
@@ -259,8 +264,34 @@ Playwright build), the play then drawing it as before.
 Not yet: the images' decoded pixels have no budget of their own beyond the 64 files;
 a script's quads draw over the second image layer; the transitions fade
 a script whatever their kind; scripts read only their folders' files
-(not the song's other files); no sound, movies or render targets; the
-3.9 and ITG formats and 3.0-style layer folders (step 6).
+(not the song's other files); no movies or render targets; the 3.9 and
+ITG formats and 3.0-style layer folders (step 6).
+
+Movies stay out of scripts and of the named effects' second file (second
+slice, 2026-10-21): the movie slots (`ddi_session::movies::MovieSlots`,
+`backgrounds::movie_segments_at`, `movie_position_in`) decode one movie a
+segment, the segment's own file, on a clock its segments make; a second
+file, or a script's sprite, would need a decoder and a clock of its own
+per segment and per actor (StepMania's texture is shared by every actor
+that names it), a change through both shells' movie code, not a cheap
+one. A second file that is a movie draws nothing (StepMania would play
+it); a script's movie sprite draws nothing.
+
+`Sound` since (2026-10-21, second slice, decision 4): the converter keeps
+a song's `Sound` actors' files (relative to the file that wrote them),
+`song.lua`'s `Actor:play` notes a `Sound` actor's play
+(`LuaSkin::take_sounds`; a sprite's `play` is the native one), the
+runtime hands the frame's to the shell (`Scripts::take_sounds`, nothing
+once stopped), which plays each at once through the session's sound
+backend (`AudioBackend::buffer_from_pcm`, `play` at the music's volume):
+the web decodes them with the music's fallback decoder when the scripts
+load and makes each buffer the first time it plays; desktop decodes them
+at the music's rate (`audio::decoder::sound`) when the song is set and
+the host plays them after the frame. Checked natively (a script's `On`
+playing one sound, another's `get():volume()` answered), offscreen on
+desktop (a WAV played through the headless sound once) and in headless
+Chrome (WebGPU, WebGL2) and Firefox (an MP3 played once:
+`__DDI_DEBUG.scripts.sounds`).
 
 `BitmapText` since (2026-10-21, second slice, decision 4): the
 converter makes a song's `BitmapText` a run of text (`Kind::Text`); the

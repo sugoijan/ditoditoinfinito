@@ -312,6 +312,22 @@ impl Scripts {
         &self.notes
     }
 
+    /// The sound files the scripts may play (relative to the song's
+    /// folder), for the shell to decode ahead.
+    pub fn sound_files(&self) -> Vec<String> {
+        self.lua.sound_files()
+    }
+
+    /// The sounds the scripts played since last asked (none once they
+    /// stopped), for the shell to play now.
+    pub fn take_sounds(&mut self) -> Vec<String> {
+        let played = self.lua.take_sounds();
+        if self.stopped.is_some() {
+            return Vec::new();
+        }
+        played
+    }
+
     /// Every actor tree of the scripts (their text measured through it).
     pub fn trees_mut(&mut self) -> impl Iterator<Item = &mut Actor> {
         self.backgrounds

@@ -46,6 +46,7 @@ fn simfile(stop: bool) -> String {
 const BG: &str = "return Def.ActorFrame {\n\
     Def.Quad { OnCommand = cmd(FullScreen; diffuse, color(\"0,0.8,0,1\")) },\n\
     LoadActor(\"star.png\") .. { OnCommand = cmd(xy, 100, 240; zoom, 4) },\n\
+    Def.Sound { File = \"boom.wav\", OnCommand = cmd(play) },\n\
     Def.BitmapText { Font = \"Common Normal\", Text = \"TEXT\",\n\
       OnCommand = cmd(xy, 120, 400; zoom, 2; diffuse, color(\"1,1,0,1\")) },\n\
 }\n";
@@ -91,6 +92,7 @@ fn song(dir: &Path, stop: bool) -> Option<()> {
     wav.extend(b"data");
     wav.extend((data.len() as u32).to_le_bytes());
     wav.extend(data);
+    std::fs::write(song.join("BG/boom.wav"), &wav).ok()?;
     std::fs::write(song.join("music.wav"), wav).ok()?;
     Some(())
 }
@@ -107,7 +109,7 @@ fn play(
     adapter: &wgpu::Adapter,
     root: &Path,
     times: &[f64],
-) -> (Vec<(f64, [[u8; 3]; 2], usize)>, Option<String>) {
+) -> (Vec<(f64, [[u8; 3]; 2], usize)>, Option<String>, usize) {
     let paths: Vec<_> = walk(root).listed.into_iter().map(|l| l.path).collect();
     let reader = DirReader {
         root: root.to_path_buf(),
@@ -122,9 +124,9 @@ fn play(
             .iter()
             .any(|f| f.as_str().starts_with("Stop"))
         {
-            4
+            5
         } else {
-            3
+            4
         },
         "{:?}",
         s.entry.bg_scripts
@@ -218,6 +220,12 @@ fn play(
             .frame(play.session.predicted_present(now))
             .song_time;
         let mut encoder = device.create_command_encoder(&Default::default());
+        // The scripts' sounds, played as the host plays them.
+        for sound in view.take_script_sounds() {
+            use ddi_platform::AudioBackend;
+            let at = play.session.audio().now().context_time;
+            play.session.audio_mut().play(&sound, at, 0.0, 0.0).unwrap();
+        }
         view.draw(
             &device,
             &queue,
@@ -271,7 +279,11 @@ fn play(
             queue.submit(Some(encoder.finish()));
         }
     }
-    (out, view.scripts_stopped().map(str::to_string))
+    (
+        out,
+        view.scripts_stopped().map(str::to_string),
+        view.sounds_played,
+    )
 }
 
 fn near(got: [u8; 3], want: [u8; 3]) -> bool {
@@ -296,8 +308,10 @@ fn scripts_draw_behind_the_field_and_over_it() {
     };
     let plain = dir.join("plain");
     song(&plain, false).expect("the song folder");
-    let (samples, stopped) = play(&adapter, &plain, &[1.0, 3.0, 6.5, 7.5]);
+    let (samples, stopped, sounds) = play(&adapter, &plain, &[1.0, 3.0, 6.5, 7.5]);
     assert_eq!(stopped, None);
+    // The background's `On` played its sound once.
+    assert_eq!(sounds, 1);
     let want = [
         [BLUE, BLUE],
         // The script's screen: green, the star on it.
@@ -320,7 +334,7 @@ fn scripts_draw_behind_the_field_and_over_it() {
     // note on the results.
     let stop = dir.join("stop");
     song(&stop, true).expect("the song folder");
-    let (samples, stopped) = play(&adapter, &stop, &[9.5, 10.5]);
+    let (samples, stopped, _) = play(&adapter, &stop, &[9.5, 10.5]);
     assert!(near(samples[0].1[0], GREEN), "{samples:?}");
     assert!(near(samples[1].1[0], BLUE), "{samples:?}");
     assert!(stopped.is_some());

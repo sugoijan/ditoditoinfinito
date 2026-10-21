@@ -82,6 +82,12 @@ pub struct View {
     /// (`docs/plans/scripted-backgrounds.md`), and why they stopped.
     scripts: ddi_shell::scripted::ScriptView<Rgba>,
     scripts_stopped: Option<String>,
+    /// The scripts' sounds decoded (by file, relative to the song's
+    /// folder), and those played since the host last took them.
+    script_sounds: std::collections::HashMap<String, crate::audio::mixer::Sound>,
+    sounds_due: Vec<crate::audio::mixer::Sound>,
+    /// Sounds the scripts played so far.
+    pub sounds_played: usize,
     /// The layers of the play about to start, set on its first frame.
     stage_track: Option<Option<ddi_engine::sprites::SpriteTrack>>,
     /// The chart's lyrics, when it has some and they are shown.
@@ -134,6 +140,9 @@ impl View {
             stage_drawn: (0, 0),
             scripts: Default::default(),
             scripts_stopped: None,
+            script_sounds: Default::default(),
+            sounds_due: Vec::new(),
+            sounds_played: 0,
             stage_track: None,
             pending_fonts: None,
             lyrics: None,
@@ -168,6 +177,8 @@ impl View {
         self.video = settings.video;
         self.scripts = Default::default();
         self.scripts_stopped = None;
+        self.script_sounds.clear();
+        self.sounds_due.clear();
         if settings.bg_brightness > 0.0 {
             self.load_scripts(loaded, settings);
         }
@@ -253,6 +264,25 @@ impl View {
                     for note in s.notes() {
                         eprintln!("scripted backgrounds: {note}");
                     }
+                    // Their sounds, at the music's rate.
+                    for f in s.sound_files() {
+                        let ext = f.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+                        let rate = loaded.music.rate;
+                        let sound = loaded.files.read(&f).and_then(|bytes| {
+                            crate::audio::decoder::sound(
+                                bytes,
+                                ext.as_deref(),
+                                Default::default(),
+                                rate,
+                            )
+                        });
+                        match sound {
+                            Ok(sound) => {
+                                self.script_sounds.insert(f, sound);
+                            }
+                            Err(e) => eprintln!("scripted backgrounds: {f}: {e}"),
+                        }
+                    }
                 }
                 self.scripts.set(scripts, screen, images);
                 // Their text as Init left it, drawn now rather than in a
@@ -272,6 +302,12 @@ impl View {
                 scripts.add_text(text, image, [w, h]);
             }
         }
+    }
+
+    /// The scripts' sounds played since last asked, for the host to play
+    /// on the play's sound now.
+    pub fn take_script_sounds(&mut self) -> Vec<crate::audio::mixer::Sound> {
+        std::mem::take(&mut self.sounds_due)
     }
 
     /// Why the song's scripts stopped during the play, if they did.
@@ -550,6 +586,12 @@ impl View {
                     self.renderer.set_skins_drawn(device, queue, skins);
                 }
                 Self::draw_script_texts(&mut self.scripts);
+                for f in self.scripts.take_sounds() {
+                    if let Some(s) = self.script_sounds.get(&f) {
+                        self.sounds_due.push(s.clone());
+                        self.sounds_played += 1;
+                    }
+                }
                 self.scripts.upload(&mut self.renderer, device, queue);
                 let rect = ddi_render::background::frame_rect(w, h, frame_aspect)
                     .unwrap_or([0.0, 0.0, w, h]);

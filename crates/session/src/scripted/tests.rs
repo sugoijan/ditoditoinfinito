@@ -172,3 +172,38 @@ fn a_long_load_gives_the_host_its_turns() {
     assert!(matches!(loaded, Ok(Some(_))));
     assert!(turns.get() > 0);
 }
+
+#[test]
+fn sounds_play_when_their_script_says_so() {
+    let song = song();
+    let scripts = ["BG", "FG"];
+    let none: &[&str] = &[];
+    let layers = backgrounds::layers(&song, none, none, &scripts, none, false);
+    let fgs = backgrounds::foregrounds(&song, &scripts);
+    let mut files = files(
+        "return Def.ActorFrame {\n\
+           Def.Sound { File = \"boom.ogg\", OnCommand = cmd(play) },\n\
+           Def.Sound { File = \"quiet.ogg\", OnCommand = function(self) self:get():volume(0) end },\n\
+         }",
+    );
+    files
+        .files
+        .extend(["BG/boom.ogg".into(), "BG/quiet.ogg".into()]);
+    let mut s = Scripts::load(
+        files,
+        env(&song, 16.0 / 9.0),
+        &layers,
+        &fgs,
+        &NoImages,
+        Box::new(|| 0.0),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(s.sound_files(), vec!["BG/boom.ogg", "BG/quiet.ogg"]);
+    s.frame(1.0, 2.0, &layers);
+    assert!(s.take_sounds().is_empty());
+    // The background comes on at 2 s: its `On` plays the one sound.
+    s.frame(2.0, 4.0, &layers);
+    assert_eq!(s.take_sounds(), vec!["BG/boom.ogg"]);
+    assert!(s.take_sounds().is_empty());
+}

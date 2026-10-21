@@ -873,6 +873,15 @@ impl Host {
             v.draw(
                 dev.device, dev.queue, encoder, view, plain, size, play, **render, now,
             );
+            // The scripts' sounds, at once on the play's sound.
+            for sound in v.take_script_sounds() {
+                use ddi_platform::AudioBackend;
+                let at = play.session.audio().now().context_time;
+                let volume = play.session.volume();
+                if let Err(e) = play.session.audio_mut().play(&sound, at, 0.0, volume) {
+                    eprintln!("scripted backgrounds: a sound did not play: {e}");
+                }
+            }
         }
         let Some(ended) = ended else {
             return;
