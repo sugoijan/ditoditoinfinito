@@ -402,6 +402,21 @@ impl Settings {
         }
     }
 
+    /// Lets the chosen skins go that are not `there` (by key; gone, or
+    /// chosen on another machine): what is drawn then is what no choice
+    /// draws. Whether one was.
+    pub fn let_go_missing_skins(&mut self, there: impl Fn(&str) -> bool) -> bool {
+        let missing = |k: &Option<String>| k.as_deref().is_some_and(|k| k != BUILT_IN && !there(k));
+        let (dance, pump) = (missing(&self.noteskin), missing(&self.pump_noteskin));
+        if dance {
+            self.noteskin = None;
+        }
+        if pump {
+            self.pump_noteskin = None;
+        }
+        dance || pump
+    }
+
     /// The values stored for skin `key`'s parameters (what its
     /// declarations take of them is read as it loads).
     pub fn skin_params(&self, key: &str) -> Values {

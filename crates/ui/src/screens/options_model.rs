@@ -44,6 +44,9 @@ pub struct World {
     pub platform: super::data::Platform,
     /// The noteskins one can choose `(key, name)`: bundled, then imported.
     pub noteskins: Vec<(String, String)>,
+    /// Whether [`World::noteskins`] lists them all (desktop's folders'
+    /// are walked after the screen opens).
+    pub noteskins_listed: bool,
     /// The default skin's Lua is off for the session.
     pub default_lua_off: bool,
     /// The parameters skins declare (`docs/plans/skin-parameters.md`),
@@ -361,11 +364,15 @@ impl OptionsModel {
     }
 
     /// The settings the field's preview shows: these, on the layout
-    /// chosen for it.
+    /// chosen for it, without a chosen skin that is not there (as a play
+    /// draws it, and the Arrows row shows it).
     pub fn preview_settings(&self) -> Settings {
         let mut s = self.settings.clone();
         if let Some(l) = &self.preview_layout {
             s.style = l.clone();
+        }
+        if self.world.noteskins_listed {
+            s.let_go_missing_skins(|k| self.world.noteskins.iter().any(|(key, _)| key == k));
         }
         s
     }
@@ -1727,21 +1734,14 @@ impl OptionsModel {
     /// (when every skin could be read: `complete`).
     pub fn set_noteskins(&mut self, skins: Vec<(String, String)>, lua_off: bool, complete: bool) {
         if complete
-            && let Some(k) = &self.settings.noteskin
-            && k != BUILT_IN
-            && !skins.iter().any(|(key, _)| key == k)
+            && self
+                .settings
+                .let_go_missing_skins(|k| skins.iter().any(|(key, _)| key == k))
         {
-            self.settings.noteskin = None;
-            self.settings.save();
-        }
-        if complete
-            && let Some(k) = &self.settings.pump_noteskin
-            && !skins.iter().any(|(key, _)| key == k)
-        {
-            self.settings.pump_noteskin = None;
             self.settings.save();
         }
         self.world.noteskins = skins;
+        self.world.noteskins_listed = true;
         self.world.default_lua_off = lua_off;
     }
 
@@ -2053,6 +2053,25 @@ mod tests {
         skins.pop();
         m.set_noteskins(skins, false, true);
         assert_eq!(m.settings.pump_noteskin, None);
+    }
+
+    /// A chosen skin not among those listed (desktop's, chosen on another
+    /// machine, stays chosen) is previewed as the Arrows row shows it.
+    #[test]
+    fn a_skin_not_listed_previews_as_not_chosen() {
+        let mut m = model();
+        m.settings.noteskin = Some("dance/elsewhere".into());
+        // Not listed yet: as chosen.
+        m.world.noteskins_listed = false;
+        assert_eq!(
+            m.preview_settings().noteskin.as_deref(),
+            Some("dance/elsewhere")
+        );
+        let skins = m.world.noteskins.clone();
+        m.set_noteskins(skins, false, false);
+        assert_eq!(m.settings.noteskin.as_deref(), Some("dance/elsewhere"));
+        assert_eq!(m.preview_settings().noteskin, None);
+        assert_eq!(find(&m.data(), "noteskin").index, 0);
     }
 
     fn find<'a>(d: &'a OptionsData, id: &str) -> &'a OptionDef {

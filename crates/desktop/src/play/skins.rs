@@ -460,6 +460,21 @@ impl Reading {
         Reading::among(key, layout, env, crate::library::all_folders(), wake)
     }
 
+    /// Starts reading the first of `wants` one can pick for `layout`
+    /// ([`ddi_shell::first_there`]: a chosen skin no longer there is
+    /// drawn as Options shows it), as [`Reading::start`]; none for the
+    /// built-in arrows.
+    pub fn first(
+        wants: ddi_shell::SkinWants,
+        layout: &Layout,
+        wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    ) -> Reading {
+        Reading::spawn(crate::library::all_folders(), layout, wake, |skins| {
+            let there = crate::library::noteskins::choices(skins);
+            ddi_shell::first_there(wants, |k| there.iter().any(|(t, _)| t == k))
+        })
+    }
+
     /// [`Reading::start`] among the skins of `folders`.
     pub fn among(
         key: &str,
@@ -468,13 +483,26 @@ impl Reading {
         folders: Vec<std::path::PathBuf>,
         wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Reading {
+        let key = key.to_string();
+        Reading::spawn(folders, layout, wake, |_| Some((key, env)))
+    }
+
+    /// Reads the skin `pick` picks among the skins of `folders` (with
+    /// what its Lua is told), on a thread.
+    fn spawn(
+        folders: Vec<std::path::PathBuf>,
+        layout: &Layout,
+        wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+        pick: impl FnOnce(&[DiskSkin]) -> Option<(String, Env)> + Send + 'static,
+    ) -> Reading {
         let (tx, rx) = std::sync::mpsc::channel();
-        let (key, layout) = (key.to_string(), layout.clone());
+        let layout = layout.clone();
         let _ = std::thread::Builder::new()
             .name("ddi-noteskin".into())
             .spawn(move || {
                 let skins = crate::library::noteskins::all(&folders);
                 let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let (key, env) = pick(&skins)?;
                     read(&key, &layout, env, &skins)
                 }))
                 .unwrap_or(None);

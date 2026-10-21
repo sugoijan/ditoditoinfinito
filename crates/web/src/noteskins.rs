@@ -277,16 +277,7 @@ pub(crate) async fn choices() -> Result<Choices, String> {
             skins
         }
     };
-    // Dito and its colors are the default, chosen as such. Pump skins
-    // are listed too, for the pump layouts (`Settings::pump_noteskin`).
-    let skins =
-        ddi_noteskin::bundled::pickable(stored.iter().map(|s| ddi_noteskin::bundled::Candidate {
-            game: &s.game,
-            name: &s.name,
-            bundled: s.bundled.is_some(),
-            variant: s.variant_of.is_some(),
-            lua_off: s.lua_broken.is_some(),
-        }));
+    let skins = pickable(&stored);
     // What each declares (Dito's are built in).
     let keys: Vec<String> = skins.iter().map(|(k, _)| k.clone()).collect();
     let folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
@@ -302,6 +293,19 @@ pub(crate) async fn choices() -> Result<Choices, String> {
         complete,
         default_lua_off: LUA_OFF.with(|off| off.borrow().get(DITO).cloned()),
     })
+}
+
+/// The skins of `stored` one can pick, `(key, name)`. Dito and its colors
+/// are the default, chosen as such. Pump skins are listed too, for the
+/// pump layouts (`Settings::pump_noteskin`).
+fn pickable(stored: &[StoredSkin]) -> Vec<(String, String)> {
+    ddi_noteskin::bundled::pickable(stored.iter().map(|s| ddi_noteskin::bundled::Candidate {
+        game: &s.game,
+        name: &s.name,
+        bundled: s.bundled.is_some(),
+        variant: s.variant_of.is_some(),
+        lua_off: s.lua_broken.is_some(),
+    }))
 }
 
 /// What each element of a skin is, in a line for the import report: how
@@ -739,17 +743,29 @@ pub(crate) fn forget_stops(key: &str) {
     STOPPED_ONCE.with(|s| s.borrow_mut().remove(key));
 }
 
-/// Readies skin `key` for `layout`, with `env` for its Lua: `None` when
-/// there is no such skin, it does not load, or the layout's lanes are not
-/// dance buttons.
-pub(crate) async fn prepare(key: &str, layout: &Layout, env: Env) -> Option<Prepared> {
-    prepare_while(key, layout, env, Rc::new(|| true)).await
+/// Readies the first of `wants` one can pick ([`ddi_shell::first_there`]:
+/// a chosen skin no longer there is drawn as Options shows it) for
+/// `layout`, with its `Env` for its Lua: `None` for the built-in arrows,
+/// or when it does not load or the layout's lanes are not its buttons.
+pub(crate) async fn prepare_first(
+    wants: ddi_shell::SkinWants,
+    layout: &Layout,
+) -> Option<Prepared> {
+    let db = Db::open().await.ok();
+    let stored = catalogue(db.as_ref()).await;
+    let there = pickable(&stored);
+    let (key, env) = ddi_shell::first_there(wants, |k| there.iter().any(|(t, _)| t == k))?;
+    load(&key, layout, env, Rc::new(|| true), Some((db, stored))).await
 }
 
-/// [`prepare`], given up (`None`) as soon as it is no longer `wanted`
-/// (a preview stepping through skins): between its stages, between
-/// images, and inside the skin's Lua, which its clock ends
-/// ([`load_clock`]). A load given up never counts against the skin's
+/// The skins a load reads among: storage's, when it opens, and the
+/// bundled ones ([`catalogue`]).
+type Among = (Option<Db>, Vec<StoredSkin>);
+
+/// Readies skin `key` for `layout`, as [`prepare_first`], given up
+/// (`None`) as soon as it is no longer `wanted` (a preview stepping
+/// through skins): between its stages, between images, and inside the
+/// skin's Lua, which its clock ends ([`load_clock`]). A load given up never counts against the skin's
 /// Lua.
 pub(crate) async fn prepare_while(
     key: &str,
@@ -757,8 +773,19 @@ pub(crate) async fn prepare_while(
     env: Env,
     wanted: Wanted,
 ) -> Option<Prepared> {
+    load(key, layout, env, wanted, None).await
+}
+
+/// [`prepare_while`], among the skins `among` when they were read.
+async fn load(
+    key: &str,
+    layout: &Layout,
+    env: Env,
+    wanted: Wanted,
+    among: Option<Among>,
+) -> Option<Prepared> {
     let done = Rc::new(Cell::new(false));
-    let prepared = prepare_until(key, layout, env, &wanted, &done).await;
+    let prepared = prepare_until(key, layout, env, &wanted, &done, among).await;
     // The skin's Lua keeps the clock for the play: the host's from now on.
     done.set(true);
     let given_up = !wanted();
@@ -795,11 +822,18 @@ async fn prepare_until(
     env: Env,
     wanted: &Wanted,
     done: &Rc<Cell<bool>>,
+    among: Option<Among>,
 ) -> Option<Prepared> {
     let clock = || load_clock(wanted.clone(), done.clone());
     // A bundled skin plays without storage.
-    let db = Db::open().await.ok();
-    let mut stored = catalogue(db.as_ref()).await;
+    let (db, mut stored) = match among {
+        Some(among) => among,
+        None => {
+            let db = Db::open().await.ok();
+            let stored = catalogue(db.as_ref()).await;
+            (db, stored)
+        }
+    };
     if !wanted() {
         return None;
     }

@@ -219,7 +219,10 @@ elements are its own images, which are Lua, models or StepMania's own).
 Options: "Arrows" (built in, or an imported skin) and removing the chosen
 skin. A play readies the skin while the song loads (images decoded at
 their own size, up to 4096 px), and the debug object reports it
-(`__DDI_DEBUG.noteskin`).
+(`__DDI_DEBUG.noteskin`). A chosen skin that is no longer there (removed,
+or on desktop chosen from a folder another machine has) is drawn as
+Options shows it, as if it were not chosen: Dito with its parameters,
+before Options has been opened too (`ddi_shell::play_skins`, 2026-10-21).
 
 Reviews of steps 2–5 found, and these were fixed: a call budget for
 commands that play each other (a skin's `Init` could freeze the page), hold

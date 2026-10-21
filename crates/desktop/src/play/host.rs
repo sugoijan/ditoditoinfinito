@@ -1236,7 +1236,9 @@ fn filter(loaded: &Loaded, chart: usize, settings: &Settings, ui: &Ui) -> Option
     Some((band, settings.field_filter))
 }
 
-/// The song's chart's noteskin, readied (`None`: the built-in arrows).
+/// The song's chart's noteskin, readied (`None`: the built-in arrows;
+/// a chosen skin no longer there drawn as Options shows it,
+/// [`ddi_shell::play_skins`]).
 pub fn noteskin(
     loaded: &Loaded,
     chart: usize,
@@ -1247,25 +1249,29 @@ pub fn noteskin(
     String,
 )> {
     let shift = settings.song_offset(&loaded.entry.id);
-    let (key, layout, env) = skin_want(loaded, chart, settings, shift)?;
+    let (wants, layout) = skin_wants(loaded, chart, settings, shift)?;
     let skins = crate::library::noteskins::all(&crate::library::all_folders());
+    let there = crate::library::noteskins::choices(&skins);
+    let (key, env) = ddi_shell::first_there(wants, |k| there.iter().any(|(t, _)| t == k))?;
     let p = super::skins::prepare(&key, &layout, env, &skins)?;
     Some((p.play, p.images, p.strike))
 }
 
-/// The skin the song's chart is drawn with, its layout and what its Lua
-/// sees: the timing as the play shifts it by `shift`, the song offset
-/// (`None`: the built-in arrows).
-fn skin_want(
+/// The skins the song's chart may be drawn with, best first, and its
+/// layout ([`ddi_shell::play_skins`]: what their Lua sees, the timing as
+/// the play shifts it by `shift`, the song offset); `None` when it draws
+/// the built-in arrows.
+fn skin_wants(
     loaded: &Loaded,
     chart: usize,
     settings: &Settings,
     shift: f64,
-) -> Option<(String, ddi_chart::Layout, ddi_noteskin::lua::Env)> {
+) -> Option<(ddi_shell::SkinWants, ddi_chart::Layout)> {
     let c = loaded.song.charts.get(chart)?;
     let layout = loaded.song.layout_of(c)?;
-    let (key, env) = ddi_shell::play_skin(settings, &loaded.song, c, &layout, shift)?;
-    Some((key, layout, env))
+    let wants = ddi_shell::play_skins(settings, &loaded.song, c, &layout, shift);
+    wants.first()?.as_ref()?;
+    Some((wants, layout))
 }
 
 /// The song's chart's skin read on a thread (`None`: the built-in
@@ -1277,11 +1283,8 @@ fn read_skin(
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Option<(super::skins::Reading, ddi_chart::Layout)> {
     let shift = request.song_shift(settings);
-    let (key, layout, env) = skin_want(loaded, request.chart, settings, shift)?;
-    Some((
-        super::skins::Reading::start(&key, &layout, env, wake),
-        layout,
-    ))
+    let (wants, layout) = skin_wants(loaded, request.chart, settings, shift)?;
+    Some((super::skins::Reading::first(wants, &layout, wake), layout))
 }
 
 /// Reads the song's pictures on threads; they come through the receiver.

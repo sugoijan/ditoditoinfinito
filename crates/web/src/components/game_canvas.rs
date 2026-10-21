@@ -2749,7 +2749,8 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
 /// Readies the chosen noteskin for `song`'s chart `chart` (its layout,
 /// colors and scroll direction), for [`Msg::NoteskinLoaded`]; its Lua
 /// sees the timing as the play shifts it by `shift` (the song offset).
-/// `None` for the built-in arrows.
+/// `None` for the built-in arrows. A chosen skin no longer there is
+/// drawn as Options shows it ([`ddi_shell::play_skins`]).
 fn noteskin_ready(
     settings: &Settings,
     song: &Song,
@@ -2758,9 +2759,10 @@ fn noteskin_ready(
 ) -> Option<impl std::future::Future<Output = Option<Box<crate::noteskins::Prepared>>> + use<>> {
     let c = song.charts.get(chart)?;
     let layout = song.layout_of(c)?;
-    let (key, env) = ddi_shell::play_skin(settings, song, c, &layout, shift)?;
+    let wants = ddi_shell::play_skins(settings, song, c, &layout, shift);
+    wants.first()?.as_ref()?;
     Some(async move {
-        crate::noteskins::prepare(&key, &layout, env)
+        crate::noteskins::prepare_first(wants, &layout)
             .await
             .map(Box::new)
     })
