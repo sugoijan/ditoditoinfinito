@@ -222,7 +222,12 @@ their own size, up to 4096 px), and the debug object reports it
 (`__DDI_DEBUG.noteskin`). A chosen skin that is no longer there (removed,
 or on desktop chosen from a folder another machine has) is drawn as
 Options shows it, as if it were not chosen: Dito with its parameters,
-before Options has been opened too (`ddi_shell::play_skins`, 2026-10-21).
+before Options has been opened too (`ddi_shell::play_skins`, 2026-10-21). On the web, Start waits for the skin (the
+prompt says "loading the noteskin…"); a bundled skin's files are fetched
+once a session, together, and tried again when a download fails, and the
+chosen skin is fetched in the background soon after the app starts
+(`noteskins::warm`), so a play on a slow network neither starts without
+it nor loses it on the next song.
 
 Reviews of steps 2–5 found, and these were fixed: a call budget for
 commands that play each other (a skin's `Init` could freeze the page), hold

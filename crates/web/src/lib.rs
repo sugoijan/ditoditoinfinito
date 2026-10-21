@@ -43,6 +43,8 @@ pub fn start() {
     web::screen::boot();
     // The play history's summaries, and stale ones worked out again.
     history::start();
+    // The chosen noteskin fetched in the background, for the first play.
+    noteskins::warm();
     let document = web_sys::window()
         .and_then(|window| window.document())
         .expect("document must exist");

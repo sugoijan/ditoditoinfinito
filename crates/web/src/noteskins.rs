@@ -630,7 +630,14 @@ async fn decode(
     pixels: &mut u64,
     wanted: &Wanted,
 ) {
-    for (i, path) in sizes.take_asked() {
+    let asked = sizes.take_asked();
+    // The bundled skins' files downloaded together, decoded in turn.
+    for (i, path) in &asked {
+        if let Some(dir) = stored.get(*i).and_then(|s| s.bundled.as_deref()) {
+            let _ = file_promise(dir, path);
+        }
+    }
+    for (i, path) in asked {
         // A load no longer wanted decodes no more.
         if !wanted() {
             break;
@@ -703,15 +710,26 @@ async fn svg_bitmap(blob: &Blob) -> Result<(ImageBitmap, (u32, u32)), String> {
 }
 
 /// A bundled skin's file `path`, from its folder `dir` under `noteskins/`.
+/// A bundled skin's file, fetched once a session: plays and the preview
+/// share one download of it (a second play never waits for the network
+/// again, nor loses a file to it), tried again after a failed one.
 async fn fetch_blob(dir: &str, path: &str) -> Option<Blob> {
+    wasm_bindgen_futures::JsFuture::from(file_promise(dir, path))
+        .await
+        .ok()?
+        .dyn_into::<Blob>()
+        .ok()
+}
+
+/// The promise of a bundled skin's file's `Blob` (its download started
+/// now, unless it already was): `null` when it could not be fetched, and
+/// then forgotten, for the next load to try again.
+fn file_promise(dir: &str, path: &str) -> js_sys::Promise {
     let encoded: Vec<String> = format!("{dir}/{path}")
         .split('/')
         .map(|p| String::from(js_sys::encode_uri_component(p)))
         .collect();
-    let bytes = crate::songs::fetch_bytes(&format!("noteskins/{}", encoded.join("/")))
-        .await
-        .map_err(|e| web_sys::console::warn_1(&e.into()))
-        .ok()?;
+    let url = format!("noteskins/{}", encoded.join("/"));
     let mime = match path
         .rsplit('.')
         .next()
@@ -725,8 +743,112 @@ async fn fetch_blob(dir: &str, path: &str) -> Option<Blob> {
         Some("svg") => "image/svg+xml",
         _ => "",
     };
-    crate::web::files::bytes_blob(&bytes, mime).ok()
+    FILES.with_borrow_mut(|files| {
+        files
+            .entry(url.clone())
+            .or_insert_with(|| {
+                wasm_bindgen_futures::future_to_promise(async move {
+                    let blob = fetch_again(&url)
+                        .await
+                        .and_then(|bytes| crate::web::files::bytes_blob(&bytes, mime));
+                    Ok(match blob {
+                        Ok(blob) => blob.into(),
+                        Err(e) => {
+                            FILES.with_borrow_mut(|files| files.remove(&url));
+                            web_sys::console::warn_1(&e.into());
+                            JsValue::NULL
+                        }
+                    })
+                })
+            })
+            .clone()
+    })
 }
+
+/// [`crate::songs::fetch_bytes`], tried three times (a slow network may
+/// drop a download partway).
+async fn fetch_again(url: &str) -> Result<Vec<u8>, String> {
+    let mut tries = 0;
+    loop {
+        match crate::songs::fetch_bytes(url).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(e) if tries >= 2 => return Err(e),
+            Err(_) => {
+                tries += 1;
+                gloo::timers::future::TimeoutFuture::new(500 * tries).await;
+            }
+        }
+    }
+}
+
+thread_local! {
+    /// The bundled skins' files fetched this session (or being fetched),
+    /// by URL: a promise of each one's `Blob`.
+    static FILES: RefCell<HashMap<String, js_sys::Promise>> = RefCell::new(HashMap::new());
+}
+
+/// Readies the chosen skin in the background soon after the app starts
+/// (its index and files fetched, [`fetch_blob`]), so that a play or the
+/// preview need not wait for the network: as the preview would draw it,
+/// on the chosen layout. Not counted as a load ([`loads`]).
+pub(crate) fn warm() {
+    wasm_bindgen_futures::spawn_local(async {
+        // After what the start screen itself needs.
+        gloo::timers::future::TimeoutFuture::new(WARM_AFTER_MS).await;
+        let settings = crate::settings::Settings::load();
+        let options = ddi_shell::field_preview_options(&settings);
+        let want = ddi_shell::field_preview_skin(&settings, &options);
+        let Some(key) = want.key.clone() else {
+            return;
+        };
+        let layout = want.layout();
+        let env = want.env(&layout);
+        let params = env.params.clone();
+        let wanted: Wanted = Rc::new(|| true);
+        let done = Rc::new(Cell::new(false));
+        let prepared = prepare_until(&key, &layout, env, &wanted, &done, None).await;
+        done.set(true);
+        if let Some(p) = prepared {
+            p.close();
+        }
+        // Then the rest of its images (and of the skins it falls back
+        // on): those a chart's mines, rolls or other layouts use.
+        let stored = bundled_or_none().await;
+        let Some(chosen) = stored.iter().find(|s| s.key() == key) else {
+            return;
+        };
+        let folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
+        let head = ddi_noteskin::params::head(&folders, &chosen.game, &chosen.name, &params);
+        let Ok(skin) = Skin::load(&folders, &chosen.game, &head) else {
+            return;
+        };
+        for dir in &skin.chain {
+            let Dir::Folder(i) = dir else {
+                continue;
+            };
+            let Some(s) = stored.get(*i) else {
+                continue;
+            };
+            let Some(dir) = &s.bundled else {
+                continue;
+            };
+            for path in s.files.iter().filter(|f| is_image(f)) {
+                let _ = file_promise(dir, path);
+            }
+        }
+    });
+}
+
+/// Whether `path` is an image a skin's actors may use.
+fn is_image(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg"]
+        .iter()
+        .any(|e| lower.ends_with(e))
+}
+
+/// How long after the app starts [`warm`] begins, in ms.
+const WARM_AFTER_MS: u32 = 1500;
 
 /// A hash seed for a skin's VMs, from the platform's randomness.
 fn hash_seed() -> u64 {
