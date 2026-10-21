@@ -289,6 +289,38 @@ keeps the archives as the run's artifacts only):
 - `release.yml`: actionlint (with shellcheck) clean; its script steps run
   here as above. Not run on GitHub yet.
 
+The icon, the window and the console (later on 2026-10-21, the same Mac):
+
+- The `.res` file: the build script run on the Mac with its icon code
+  enabled (a scratch copy with resvg), then linked by `rust-lld -flavor
+  link` into a small `no_std` x86_64 Windows executable, which
+  `llvm-readobj --coff-resources` lists (8 icons, the group, the version)
+  and `pefile` reads independently: the version's strings, `Translation`
+  0409/04B0 and fixed info (signature `FEEF04BD`, 0.1.0, `VOS_NT_WINDOWS32`,
+  `VFT_APP`); the icon group's entries match the images' sizes. The
+  images, gathered back into an `.ico`, decoded by macOS (`sips`): the
+  arrow upright, its colors right, the margin transparent, both a bitmap
+  (16, 48, 64) and the PNG (256). The version-only `.res` a cross check
+  writes links too.
+- The Windows clippy (`ddi-desktop` with and without default features,
+  `ditoditoinfinito`): clean. The Linux code (window icon, app id):
+  `cargo clippy -p ddi-desktop --no-default-features --all-targets` and
+  the icon's test in the `rust:1` image (Linux arm64) through
+  `container`: clean, passing. `shell::tests::the_window_icon_draws`
+  checks the drawing everywhere.
+- `just package` (with `CARGO_PROFILE_DESKTOP_LTO=false`): it failed at
+  `xattr -cr` on the importer's runtime executables, mode 0500 and
+  carrying `com.apple.provenance` from this build, which a read-only file
+  cannot have cleared; `make_app` now gives the owner write for the
+  clearing and restores every mode after. Then `package.py dist`: the zip
+  and the `.dmg`; unpacked from the zip, `codesign --verify --deep
+  --strict` passes, `Signature=adhoc`, 1228 sealed files, the runtime
+  executables 0500 again; `--danoni-importer-check` ready (4 bundled
+  songs) and `--silent --seconds 4 --play beatucada --auto --start`
+  playing, as before.
+- Nothing was run on Windows or on a Linux desktop (the checks under
+  "Left").
+
 ## Left
 
 - Windows: the video helper built in the release job (MSYS2 and the MSVC

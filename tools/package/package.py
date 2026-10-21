@@ -244,8 +244,15 @@ def macos_app(source, app):
     with (contents / 'Info.plist').open('wb') as file:
         plistlib.dump(plist, file)
     (contents / 'PkgInfo').write_text('APPL????')
-    # Finder's and the quarantine's attributes would break the seal.
+    # Finder's and the quarantine's attributes would break the seal. A
+    # read-only file's (the importer's runtime executables are 0500) can
+    # only be cleared with the owner's write, given for that only.
+    modes = {path: path.lstat().st_mode for path in [app, *app.rglob('*')] if not path.is_symlink()}
+    for path, mode in modes.items():
+        path.chmod(stat.S_IMODE(mode) | stat.S_IWUSR)
     subprocess.run(['/usr/bin/xattr', '-cr', str(app)], check=True)
+    for path, mode in modes.items():
+        path.chmod(stat.S_IMODE(mode))
     for executable in importer:
         subprocess.run(['codesign', '--verify', '--strict', str(executable)], check=True)
     if helper.exists():
