@@ -1061,6 +1061,7 @@ dependencies = [
  "ddi-chart",
  "ddi-lua",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

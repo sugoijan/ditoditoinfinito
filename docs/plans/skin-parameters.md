@@ -228,3 +228,32 @@ colors fall back on; `builtin` stays a key the skin preview page
 - `crates/shell`: the preview and a play pass the same key and values,
   Dito's and a chosen skin's; `Lighter` gives the built-in arrows in
   both.
+- Desktop, offscreen on the GPU (`field_skin_offscreen.rs`,
+  `play_offscreen.rs`): the preview shows each color's skin and the
+  built-in arrows for `Lighter`; the preview's skin and a play's are the
+  same skin with the same values (`Explosions` off reaching the Lua), a
+  Lua stop still counted against Dito; a play draws Dito Flat and the
+  lighter built-in arrows.
+
+**Done 2026-10-21.** Checked in headless Chrome on WebGPU and on WebGL2
+(the Graphics setting, so Options' preview too) and in Playwright's
+Firefox (WebGL2): settings stored before (`note_colors` Rainbow,
+`chart_colors` on, `noteskin` `builtin`) load as Dito's parameters;
+Options' Arrows lists `noteskin`, `skin.Colors`, `skin.ChartColors`,
+`skin.Explosions`, `skin.Lighter`, and changing them by keys moves the
+preview to Dito Rainbow, Dito (by subdivision) and Dito Flat, its Lua
+reading `Explosions` off; an autoplay then draws Dito Flat with the same
+values through its Lua (offscreen frames on WebGL2), its replay draws
+the same after the settings changed to Single, and `Lighter` plays with
+no skin and, on WebGL2, no offscreen frames. No console errors. Not
+checked: Safari (the maintainer), the installed Firefox (a pending
+update stalls its headless launch).
+
+## Later
+
+- A color parameter's swatches drawn in its row (the row shows the
+  palette's names).
+- SkinCraft could edit the declarations and preview each value; its pin
+  needs no change (`Env` and `SkinWant` are built with their defaults
+  there), but a preview of Dito's key now shows its default colors'
+  skin.
