@@ -200,6 +200,7 @@ fn render_seo_head(manifest: &SeoManifest, locale: &SeoLocale) -> Result<String>
     });
     if let Some(image) = &manifest.social_image_url {
         main_entity["image"] = serde_json::json!(image);
+        main_entity["screenshot"] = serde_json::json!(image);
     }
     if let Some(alternate_name) = &manifest.alternate_name {
         main_entity["alternateName"] = serde_json::json!(alternate_name);
@@ -230,6 +231,20 @@ fn render_seo_head(manifest: &SeoManifest, locale: &SeoLocale) -> Result<String>
     });
     if let Some(image) = &manifest.social_image_url {
         web_page["image"] = serde_json::json!(image);
+        let mut primary_image = serde_json::json!({
+            "@type": "ImageObject",
+            "contentUrl": image,
+        });
+        if let Some(width) = manifest.social_image_width {
+            primary_image["width"] = serde_json::json!(width);
+        }
+        if let Some(height) = manifest.social_image_height {
+            primary_image["height"] = serde_json::json!(height);
+        }
+        if let Some(caption) = &manifest.social_image_alt {
+            primary_image["caption"] = serde_json::json!(caption);
+        }
+        web_page["primaryImageOfPage"] = primary_image;
     }
     web_page["mainEntity"] = main_entity;
     let structured_data = serde_json::to_string_pretty(&web_page)?;
@@ -402,16 +417,30 @@ fn render_seo_body(locale: &SeoLocale) -> String {
 }
 
 fn render_seo_sitemap(manifest: &SeoManifest) -> String {
+    // The gameplay is a canvas: publish the screenshot here as well so image
+    // discovery does not depend on executing the game or extracting its pixels.
+    let image = manifest
+        .social_image_url
+        .as_ref()
+        .map_or_else(String::new, |url| {
+            format!(
+                "    <image:image><image:loc>{}</image:loc></image:image>\n",
+                escape_html_text(url)
+            )
+        });
     format!(
         concat!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
-            "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
+            "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\" ",
+            "xmlns:image=\"http://www.google.com/schemas/sitemap-image/1.1\">\n",
             "  <url>\n",
             "    <loc>{}</loc>\n",
+            "{}",
             "  </url>\n",
             "</urlset>\n"
         ),
-        escape_html_text(&manifest.canonical_url)
+        escape_html_text(&manifest.canonical_url),
+        image,
     )
 }
 
@@ -673,6 +702,22 @@ mod tests {
         assert!(head.contains(r#""playMode""#));
         assert!(head.contains(r#""SinglePlayer""#));
         assert!(head.contains(r#""isAccessibleForFree": true"#));
+        let json = head
+            .split("<script type=\"application/ld+json\">\n")
+            .nth(1)
+            .unwrap();
+        let data: serde_json::Value =
+            serde_json::from_str(json.split("</script>").next().unwrap()).unwrap();
+        assert_eq!(
+            data["mainEntity"]["screenshot"],
+            "https://example.test/app/img/og.png"
+        );
+        assert_eq!(
+            data["primaryImageOfPage"]["contentUrl"],
+            data["mainEntity"]["image"]
+        );
+        assert_eq!(data["primaryImageOfPage"]["width"], 1080);
+        assert_eq!(data["primaryImageOfPage"]["height"], 1628);
     }
 
     #[test]
@@ -703,6 +748,8 @@ mod tests {
         assert!(!head.contains("og:image"));
         assert!(!head.contains("twitter:image"));
         assert!(!head.contains(r#""image""#));
+        assert!(!head.contains("primaryImageOfPage"));
+        assert!(!head.contains("screenshot"));
         // The twitter card itself survives without an image.
         assert!(head.contains(r#"<meta name="twitter:card" content="summary"/>"#));
     }
@@ -720,9 +767,15 @@ mod tests {
 
     #[test]
     fn sitemap_contains_canonical_url() {
-        let manifest = test_manifest();
+        let mut manifest = test_manifest();
+        manifest.social_image_url = Some("https://example.test/shot.png?a=1&b=2".into());
         let sitemap = render_seo_sitemap(&manifest);
         assert!(sitemap.contains("<loc>https://example.test/app/</loc>"));
+        assert!(
+            sitemap.contains("<image:loc>https://example.test/shot.png?a=1&amp;b=2</image:loc>")
+        );
+        manifest.social_image_url = None;
+        assert!(!render_seo_sitemap(&manifest).contains("<image:image>"));
     }
 
     #[test]
@@ -734,5 +787,28 @@ mod tests {
         let head = render_seo_head(&manifest, locale).unwrap();
         assert!(head.contains("<title>"));
         assert!(head.contains("Dito Dito Infinito"));
+        assert_eq!(
+            manifest.twitter_card.as_deref(),
+            Some("summary_large_image")
+        );
+        let url = manifest.social_image_url.as_deref().unwrap();
+        assert_eq!(url, format!("{}images/readme.png", manifest.canonical_url));
+        assert!(head.contains(&format!(r#"property="og:image" content="{url}""#)));
+        assert!(head.contains(&format!(r#"name="twitter:image" content="{url}""#)));
+        // The metadata must describe the actual shipped image, not just a
+        // plausible URL or dimensions from an earlier screenshot.
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let png = fs::read(root.join("docs/screenshots/readme.png")).unwrap();
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+        assert_eq!(
+            manifest.social_image_width,
+            Some(u32::from_be_bytes(png[16..20].try_into().unwrap()))
+        );
+        assert_eq!(
+            manifest.social_image_height,
+            Some(u32::from_be_bytes(png[20..24].try_into().unwrap()))
+        );
+        let index = fs::read_to_string(root.join("site/index.html")).unwrap();
+        assert!(index.contains(r#"<link data-trunk rel="copy-file" href="../docs/screenshots/readme.png" data-target-path="images" />"#));
     }
 }

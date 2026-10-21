@@ -17,8 +17,12 @@ on formats, rules and the tech stack. Read those before changing the engine or
 the importers.
 
 Public copy (page title, descriptions, README lead, landing-page entry) says
-"dance rhythm game" and never names other games as a selling point. Rust and
-the browser are implementation details, not advertised features.
+"dance rhythm game". Other games may be named to explain supported file
+formats, layouts, rulesets or accurate gameplay comparisons (StepMania
+simfiles, Pump It Up-style five-panel charts, the DDR A ruleset); do not
+imply official affiliation, bundled commercial song catalogs or exact
+emulation. Keep the title focused on this game's own name and genre.
+Rust and the browser are implementation details, not advertised features.
 
 ## Layout
 
@@ -631,6 +635,11 @@ dependency's licence before adding it.
 
 ## Deployment
 
+- SEO lives in `site/seo/metadata.toml`; `xtask regen-seo` generates the
+  static head/body and image sitemap. Trunk publishes the existing
+  `docs/screenshots/readme.png` unchanged as `images/readme.png` for share
+  cards and structured data; keep its metadata dimensions in sync. The
+  deployed audit and post-deploy checks are in `docs/research/seo.md`.
 - GitHub Pages from the `main` branch via the workflow in `.github/`. The
   public URL is lowercase; on a custom domain Pages paths are case-sensitive,
   which is why the repository name is lowercase.

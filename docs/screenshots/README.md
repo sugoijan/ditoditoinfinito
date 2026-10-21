@@ -34,6 +34,13 @@ chart, autoplayed with Dito's Vivid arrows at 60 frames per second, captured
 at song second 24.25 at 1280 × 720. The background brightness is 55% and
 the field filter is 60%. Other settings use the game's defaults.
 
+Trunk also copies this still unchanged to `images/readme.png` in the web
+distribution. `site/seo/metadata.toml` advertises it in Open Graph and Twitter
+cards, the game's structured data and the image sitemap. Keep the declared
+dimensions in sync when changing the capture scenario. The attribution below
+applies to that published copy too; the game's Credits screen credits the
+bundled background and chart.
+
 [`crates/desktop/examples/screenshot.rs`](../../crates/desktop/examples/screenshot.rs)
 runs the actual desktop play session and renderer into an offscreen
 texture. It advances a headless audio clock by fixed frame timestamps,

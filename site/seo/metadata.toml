@@ -5,21 +5,27 @@ theme_color_dark = "#161318"
 canonical_url = "https://sugoijan.dev/ditoditoinfinito/"
 # Relative hrefs resolve correctly under any --public-url (dev and prod).
 favicon_href = "favicon.svg"
+# Trunk copies the existing, attributed gameplay capture without modification.
+social_image_url = "https://sugoijan.dev/ditoditoinfinito/images/readme.png"
+social_image_alt = "Dito Dito Infinito gameplay: four columns of colorful arrows over Beatucada's beach background."
+social_image_type = "image/png"
+social_image_width = 1280
+social_image_height = 720
 robots = "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
 application_category = "GameApplication"
 operating_system = "Web browser"
 genres = ["Rhythm", "Music", "VSRG"]
 play_modes = ["SinglePlayer"]
-twitter_card = "summary"
+twitter_card = "summary_large_image"
 is_accessible_for_free = true
 
 [locales.en]
 lang = "en"
 og_locale = "en_US"
 title = "Dito Dito Infinito (Demo) - a dance rhythm game"
-description = "A free dance rhythm game (4K VSRG): hit the four arrows in time with the music. Plays StepMania simfiles."
-structured_data_description = "Free 4-key vertical scrolling rhythm game (4K VSRG) - hit the arrows in time with the music."
+description = "A free dance rhythm game for keyboard or dance pad. Play bundled songs or import StepMania simfiles, with four-key (4K) and five-panel layouts."
+structured_data_description = "A free dance rhythm game for keyboard or dance pad. Import StepMania .sm and .ssc simfiles; play four-key vertical scrolling rhythm game (4K VSRG) charts or Pump It Up-style five-panel charts. Includes a Dance Dance Revolution (DDR) A ruleset."
 accessible_name = "Dito Dito Infinito (Demo)"
-accessible_summary = "A dance rhythm game. Pick a song and press the arrow keys in time with the arrows reaching the step zone."
+accessible_summary = "A free dance rhythm game for keyboard or dance pad. Pick a bundled song or import StepMania simfiles, and hit the arrows in time with the music. Play four-key (4K) dance charts or Pump It Up-style five-panel charts, with a DDR A ruleset available."
 noscript_title = "JavaScript is required."
 noscript = "Enable JavaScript to play."
