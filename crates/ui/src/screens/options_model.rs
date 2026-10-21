@@ -653,6 +653,20 @@ impl OptionsModel {
                 "Plays a song's preview at this volume.",
             ));
         }
+        v.push(choice(
+            "assist_clap",
+            "Assist clap",
+            &["Off", "On"],
+            s.assist_clap as usize,
+            "A clap on every row of notes, right on the beat: to hear where the steps fall.",
+        ));
+        v.push(choice(
+            "mine_sound",
+            "Mine sound",
+            &["Off", "On"],
+            s.mine_sound as usize,
+            "A sound when you step on a mine or a shock arrow.",
+        ));
         section("Sound", v)
     }
 
@@ -1283,6 +1297,8 @@ impl OptionsModel {
             "audio_offset" => s.audio_offset = offset_at(i),
             "visual_offset" => s.visual_offset = offset_at(i),
             "volume" => s.volume = slider_to_volume(i as f32 / 100.0),
+            "assist_clap" => s.assist_clap = on,
+            "mine_sound" => s.mine_sound = on,
             "show_deltas" => s.show_deltas = on,
             "ghost" => s.ghost = on,
             "receptor_snap" => s.receptor_snap = on,

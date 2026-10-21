@@ -107,6 +107,11 @@ pub struct Settings {
     /// Music gain, 0..=1 (amplitude, not loudness; the options slider maps
     /// it through [`volume_to_slider`]).
     pub volume: f32,
+    /// A clap on every row of notes, on the beat (StepMania's assist
+    /// clap; off by default).
+    pub assist_clap: bool,
+    /// A sound when a mine or a shock is stepped on (on, as StepMania).
+    pub mine_sound: bool,
     /// Keyboard and controller bindings per layout (`keys`, `pads`; older
     /// `keys_single` is migrated on load).
     #[serde(flatten)]
@@ -290,6 +295,8 @@ impl Default for Settings {
             audio_offset: 0.0,
             visual_offset: 0.0,
             volume: 0.8,
+            assist_clap: false,
+            mine_sound: true,
             reduced_motion: ReducedMotion::Auto,
             results_panels: "Overview".into(),
             debug: false,

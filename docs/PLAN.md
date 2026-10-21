@@ -484,8 +484,10 @@ Play screen:
   one); StepMania's squash at the end is a fade here. The play ends once
   the last O.K. or N.G. has shown (`Player::end_time`; StepMania keeps
   drawing judgements through its out transition).
-- *New:* no event sounds: no mine or shock sound, no assist clap; a
-  skin's `Def.Sound` is kept silent (`crates/noteskin/src/lua/convert.rs`).
+- *New:* a skin's `Def.Sound` is kept silent
+  (`crates/noteskin/src/lua/convert.rs`); the game's own mine sound and
+  assist clap, made in code, are the event sounds
+  (`docs/plans/rules-options.md`).
 - *New:* shock rows are drawn as the skin's mine; StepMania skins have no
   shock graphic (decision 42).
 - *New:* in the calibration audio test the beat is held still, but a

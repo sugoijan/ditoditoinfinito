@@ -54,7 +54,7 @@ architecture, the decisions and the roadmap they belong to. Status as of
   Left: `#PREVIEWVID`, zips with other compression methods.
 - [Rules and options](rules-options.md) (2026-10-21): in progress. Done:
   StepMania's fail types, life and judge difficulty, ITG FA+, autoplay
-  in the menus (found done). Left: the event sounds.
+  in the menus (found done), the event sounds.
 
 ## Presentation and video
 

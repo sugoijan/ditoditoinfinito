@@ -19,6 +19,7 @@
 //! - [`stage`]: a Dancing☆Onigiri work's layers' timeline in a play.
 //! - [`record`]: what the play history keeps of a play.
 //! - [`preview`]: song select's previews' length and fades.
+//! - [`sounds`]: the mine sound and the assist clap, made in code.
 
 pub mod backgrounds;
 pub mod calibration;
@@ -26,6 +27,7 @@ pub mod movies;
 pub mod play;
 pub mod preview;
 pub mod record;
+pub mod sounds;
 pub mod stage;
 
 /// Whose decode of an MP3 `song`'s notes are timed against: StepMania's

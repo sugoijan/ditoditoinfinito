@@ -20,6 +20,7 @@ use ddi_ui::state::history::{
 use ddi_ui::state::settings::Settings;
 
 use crate::calibration::{self, CalMode, Calibrator, Outcome};
+use crate::sounds::EventSounds;
 
 /// Lead time between scheduling the start and the first audio sample, so the
 /// buffer source starts exactly on the audio clock. The play's first frame
@@ -234,6 +235,12 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// the play was at its last update.
     ghost: Option<GhostRun>,
     ghost_delta: Option<GhostDelta>,
+    /// The mine sound and the assist clap (none in calibration).
+    sounds: EventSounds<A::Buffer>,
+    /// Where the music's song second `t` plays on the audio clock:
+    /// `start_ctx + (t − song_offset) / rate`.
+    start_ctx: f64,
+    song_offset: f64,
 }
 
 /// Which cue a simulated player follows. In calibration it plays as a
@@ -327,6 +334,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// The music's volume.
     pub fn volume(&self) -> f32 {
         self.volume
+    }
+
+    /// The claps scheduled and the mine sounds played so far.
+    pub fn event_sounds(&self) -> (u32, u32) {
+        (self.sounds.claps, self.sounds.mines)
     }
 
     /// Builds the session and schedules the start on the audio clock.
@@ -493,6 +505,19 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             audio.master_ramp(Some(1.0), 0.0, Some(music_ctx + (at - music_offset)), fade);
         }
         player.start(start_ctx, song_offset);
+        // Nothing may cue the player in calibration.
+        let sounds = if config.calibration.is_some() {
+            EventSounds::none()
+        } else {
+            EventSounds::new(
+                &audio,
+                settings.assist_clap,
+                settings.mine_sound,
+                config.volume,
+                player.judge().notes(),
+                song_offset,
+            )
+        };
         // After the last fallible step: only a session (whose drop turns it
         // off again) may run the fast loop.
         inputs.pads_running(Some(settings.fast_pad_poll));
@@ -533,6 +558,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             replay: config.replay.map(|r| (r.log, 0)),
             ghost: config.ghost.as_ref().map(Ghost::run),
             ghost_delta: None,
+            sounds,
+            start_ctx,
+            song_offset,
         })
     }
 
@@ -741,6 +769,15 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         {
             let t = self.player.judge_time(HostTime(judge_now));
             self.ghost_delta = Some(g.delta(&self.player.ruleset().score.view(), t));
+        }
+        // The event sounds: a mine stepped on now, the claps due soon.
+        if !self.player.finished() {
+            let now = self.audio.now().context_time;
+            self.sounds.judged(&mut self.audio, now, &events);
+            let (start, offset) = (self.start_ctx, self.song_offset);
+            let rate = self.player.clock().options().rate;
+            self.sounds
+                .schedule(&mut self.audio, now, |t| start + (t - offset) / rate);
         }
         for ev in &events {
             if let JudgeEventKind::Tap(j, delta) = ev.kind

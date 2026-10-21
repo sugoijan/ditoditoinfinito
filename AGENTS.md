@@ -120,7 +120,9 @@ the browser are implementation details, not advertised features.
   `docs/plans/desktop.md` 7.1): the play (`play.rs`: the engine's
   `Player`, bindings, the quit gesture, autoplay and `auto=pad`, the
   fail's fade, a work's start and end fades, the facts a play is kept
-  with, a kept play replayed from its log), calibration's modes, chart and click track, backgrounds' frame,
+  with, a kept play replayed from its log), the event sounds (`sounds.rs`:
+  the mine sound and the assist clap, made in code, the clap scheduled on
+  the audio clock), calibration's modes, chart and click track, backgrounds' frame,
   the sides their images are kept at
   and the automatic video setting's step, a work's layers' timeline, the
   play's background movies (`movies.rs`: `MovieSlots`, which segments

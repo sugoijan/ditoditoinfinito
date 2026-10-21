@@ -72,6 +72,20 @@ not below 0. That second way is what the community's events score by,
 and what the engine's `W0` sub-window was made for ("re-classifies a W1
 hit for display/EX only", section 3.3 of the research).
 
+### Event sounds (StepMania 5.1)
+
+- The assist clap (`GameplayAssist::PlayTicks`, the song option
+  `AssistClap`, off by default): every frame StepMania looks a quarter
+  second plus the output latency ahead, and for a row it crosses that has a
+  tap or a hold's head (`IsThereATapOrHoldHeadAtRow`, so not mines, lifts
+  or fakes) on a judgeable row (`IsJudgableAtRow`) it plays the theme's
+  `GameplayAssist clap` with a start time on the sound clock, at the row's
+  second on the music's timeline. The metronome beside it is not asked
+  for here.
+- The mine sound: `Player` plays the theme's `Player mine` when a mine is
+  stepped on (`HandleTapRowScore`/`Step` with `TNS_HitMine`), at once, for
+  every mine type; there is no option for it.
+
 ## Decided here (the maintainer may change any)
 
 1. The fail type and both difficulty levels are the player's
@@ -114,6 +128,30 @@ hit for display/EX only", section 3.3 of the research).
    `w0`, so it shows no split. It is its own preset (a key of its own,
    bests apart from `itg`'s): its EX scores are not `itg`'s.
 9. The ruleset list offers it after ITG.
+10. Event sounds are made in code (`ddi_session::sounds`: a clap of
+    band-passed noise bursts, 120 ms, its first burst on the first sample;
+    a falling low thump under a crackle, 400 ms), so no audio file is
+    bundled or licensed. They are played through the session's
+    `AudioBackend` (`buffer_from_pcm`, `play`), so both shells have them
+    with no code of their own: Web Audio's `start(when)` on the web, the
+    desktop mixer's voices at a sample frame.
+11. The clap goes on the rows StepMania claps on, scheduled 0.3 s ahead
+    on the audio clock at `start + (t − song offset) / rate`, where the
+    music's own sample for song second `t` plays: so it is heard with the
+    beat it marks through any output latency and any calibrated offset (a
+    clap due more than 10 ms ago, after a hitch, is left out rather than
+    heard late). It follows the notes as played (a song's offset, a turn,
+    removed notes) and a work's start part-way.
+12. Options' Sound section: "Assist clap" (off by default) and "Mine
+    sound" (on by default; StepMania has no switch, but a player may want
+    silence). Both at the music's volume, faded with it by a fail.
+13. Neither plays in calibration (nothing may cue the player there; the
+    test's own clicks are the cue), whatever the settings. Replays and
+    autoplay play them as the settings say.
+14. A skin's `Def.Sound` stays silent: it is made a plain actor
+    (`crates/noteskin/src/lua/convert.rs`), so the `play` its commands
+    send does nothing. Skins rarely carry sounds, and one that did would
+    sound over the game's own; the game's sounds stand for them.
 
 ## Steps
 
@@ -136,6 +174,10 @@ hit for display/EX only", section 3.3 of the research).
    `PlayRecord::autoplay`, never counted toward bests
    (`PlaySummary::counts`), and the results say AUTOPLAY (lamp, line, a
    note). The PLAN gap was stale; checked again in the browser.
+5. Event sounds. Done: `ddi_session::sounds` (the sounds, `clap_rows`,
+   `EventSounds`), the session scheduling claps and playing the mine
+   sound, the settings `assist_clap` and `mine_sound` and their rows, the
+   web's `__DDI_DEBUG.claps` and `mine_sounds`.
 
 ## Checks
 
@@ -164,4 +206,17 @@ hit for display/EX only", section 3.3 of the research).
   18 ms late 38 white ones and EX 85.71%. `select-autoplay.mjs`: a click
   on song select's Autoplay pill turns it on (`#/select?auto=1`), and the
   chart played from the ladder opens `#/play?…&auto=1` and plays by itself
-  (WebGPU and WebGL2).
+  (WebGPU and WebGL2). `event-sounds.mjs` (every `AudioBufferSourceNode`
+  start recorded): with the assist clap on, Beatucada Beginner autoplayed
+  schedules 38 claps, each 283–301 ms ahead of `currentTime`, all on the
+  chart's 122 BPM sixteenths to 10⁻¹¹ ms; off, none (WebGPU and WebGL2).
+  `mine-sound.mjs`: every lane held through Beatucada's Challenge chart
+  steps on its mines, 18 mine sounds in 45 s; with the sound off, none.
+- Event sounds: the sounds' shape (`sounds::tests`), the session's claps
+  at the music's time of each row, asked for ahead, the mine sound at the
+  step, none when off
+  (`the_assist_clap_lands_on_each_row_and_a_mine_sounds`), none in
+  calibration (`calibration_converges_on_a_late_player`). Not checked: by
+  ear on the maintainer's hardware, desktop's output on a real device
+  (the session's code is the same; the mixer's scheduled voices are the
+  calibration click track's).

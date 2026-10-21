@@ -933,6 +933,10 @@ impl GameLoop {
             set("pressed", pressed.into());
             set("finished", p.finished().into());
             set("failed", p.failed().into());
+            // The assist claps scheduled and the mine sounds played.
+            let (claps, mines) = s.event_sounds();
+            set("claps", f64::from(claps).into());
+            set("mine_sounds", f64::from(mines).into());
             // A replay's edges fed so far (`__DDI_DEBUG.replay`).
             if let Some((fed, edges)) = s.replay_progress() {
                 crate::replay::progress(fed, edges);

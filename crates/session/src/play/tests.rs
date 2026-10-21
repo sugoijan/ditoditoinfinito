@@ -22,6 +22,9 @@ struct FakeAudio {
     latency: f64,
     running: bool,
     played: Vec<(f64, f64, f32)>,
+    /// Of each sound played: its length and the context time it was
+    /// asked for at.
+    sounds: Vec<(f64, f64)>,
     ramps: Vec<(Option<f32>, f32, Option<f64>, f64)>,
     stopped: u32,
 }
@@ -35,6 +38,7 @@ impl FakeAudio {
             latency,
             running: true,
             played: Vec::new(),
+            sounds: Vec::new(),
             ramps: Vec::new(),
             stopped: 0,
         }
@@ -54,8 +58,9 @@ impl AudioBackend for FakeAudio {
             output_latency: self.latency,
         }
     }
-    fn play(&mut self, _b: &f64, at: f64, offset: f64, volume: f32) -> Result<SoundId, String> {
+    fn play(&mut self, b: &f64, at: f64, offset: f64, volume: f32) -> Result<SoundId, String> {
         self.played.push((at, offset, volume));
+        self.sounds.push((*b, self.now().context_time));
         Ok(1)
     }
     fn duration(&self, b: &f64) -> f64 {
@@ -275,7 +280,11 @@ fn autoplay_through_a_test_pad_is_all_top_tier() {
 
 #[test]
 fn calibration_converges_on_a_late_player() {
-    let settings = Settings::default();
+    // No clap may cue the player, whatever the settings.
+    let settings = Settings {
+        assist_clap: true,
+        ..Settings::default()
+    };
     for (mode, bias) in [(CalMode::Visual, 0.03), (CalMode::Audio, -0.02)] {
         let song = calibration::song(mode);
         let clock: Clock = Rc::new(RefCell::new(1.0));
@@ -306,6 +315,8 @@ fn calibration_converges_on_a_late_player() {
             panic!("{mode:?}: no outcome");
         };
         assert!(o.converged, "{mode:?}: {o:?}");
+        assert_eq!(s.event_sounds(), (0, 0));
+        assert_eq!(s.audio().played.len(), 1, "the click track only");
         assert!(
             (o.total() - bias).abs() < 0.004,
             "{mode:?}: {} for {bias}",
@@ -748,6 +759,88 @@ fn a_delayed_fail_or_fail_off_plays_to_the_end() {
         assert_eq!(
             without_late(&replay.results(&song).unwrap()),
             without_late(&results)
+        );
+    }
+}
+
+/// The assist clap is scheduled ahead on the audio clock where the
+/// music plays each row; a mine stepped on sounds at once; neither
+/// when switched off.
+#[test]
+fn the_assist_clap_lands_on_each_row_and_a_mine_sounds() {
+    use crate::sounds::{CLAP_LOOKAHEAD, clap, clap_rows, mine};
+    let mut song = bundled("beatucada");
+    let chart = 1;
+    // A mine in the first lane two beats before the first note.
+    let first = song.charts[chart].notes[0].tick;
+    let at = first - ddi_chart::Tick::from_beats(2);
+    song.charts[chart]
+        .notes
+        .insert(0, ddi_chart::Note::new(at, 0, ddi_chart::NoteKind::Mine));
+    let mine_at = song.timing.seconds_at(at);
+    let lengths = [clap(48_000.0).len(), mine(48_000.0).len()].map(|n| n as f64 / 48_000.0);
+    for (clap_on, mine_on) in [(true, true), (false, false)] {
+        let settings = Settings {
+            assist_clap: clap_on,
+            mine_sound: mine_on,
+            stepmania: ddi_engine::rules::StepManiaOptions {
+                fail: ddi_engine::rules::FailType::Off,
+                ..Default::default()
+            },
+            ..Settings::default()
+        };
+        let clock: Clock = Rc::new(RefCell::new(100.0));
+        let latency = 0.012;
+        let mut inputs = FakeInputs::new(&clock);
+        // Heard at song second `t`: host `100 + latency + lookahead + t`.
+        let host = |t: f64| 100.0 + latency + START_LOOKAHEAD + t;
+        inputs.key(host(mine_at), "ArrowLeft", true);
+        inputs.key(host(mine_at) + 0.05, "ArrowLeft", false);
+        let mut s = PlaySession::start(
+            &song,
+            chart,
+            &settings,
+            SessionConfig::from_settings(&settings, false, None),
+            FakeAudio::new(&clock, latency),
+            110.0,
+            inputs,
+        )
+        .unwrap();
+        let rows = clap_rows(s.player.judge().notes());
+        let Some(SessionEvent::Finished { results, .. }) = run(&mut s, &clock, 60.0, 200.0) else {
+            panic!("no end");
+        };
+        assert_eq!(results.tally.mine_hit, 1);
+        let music = s.audio().played[0].0;
+        let played: Vec<(f64, f64, f64)> = s
+            .audio()
+            .played
+            .iter()
+            .zip(&s.audio().sounds)
+            .map(|(p, s)| (p.0, s.0, s.1))
+            .collect();
+        let claps: Vec<&(f64, f64, f64)> = played.iter().filter(|p| p.1 == lengths[0]).collect();
+        let mines: Vec<&(f64, f64, f64)> = played.iter().filter(|p| p.1 == lengths[1]).collect();
+        if !clap_on {
+            assert!(claps.is_empty() && mines.is_empty());
+            assert_eq!(s.event_sounds(), (0, 0));
+            continue;
+        }
+        assert_eq!(claps.len(), rows.len());
+        assert_eq!(s.event_sounds(), (rows.len() as u32, 1));
+        for (c, row) in claps.iter().zip(&rows) {
+            // Where the music plays the row, asked for ahead of it.
+            assert!((c.0 - (music + row)).abs() < 1e-9, "{c:?} {row}");
+            let ahead = c.0 - c.2;
+            assert!((0.0..CLAP_LOOKAHEAD).contains(&ahead), "{ahead}");
+        }
+        // The mine sound as the step was judged.
+        assert_eq!(mines.len(), 1);
+        assert!((mines[0].0 - mines[0].2).abs() < 1e-9);
+        assert!(
+            (mines[0].0 - (music + mine_at)).abs() < 0.02,
+            "{:?}",
+            mines[0]
         );
     }
 }
