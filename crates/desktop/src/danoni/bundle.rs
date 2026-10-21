@@ -33,11 +33,17 @@ struct Artifact {
 
 pub(super) fn locate() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let base = exe
-        .parent()
-        .ok_or("Cannot locate application directory")?
-        .join("danoni-importer");
-    directory(&base)?;
+    // Beside the executable, or in a macOS app's resources.
+    let candidates: Vec<_> = crate::paths::package_dirs(&exe)
+        .into_iter()
+        .map(|d| d.join("danoni-importer"))
+        .collect();
+    let base = candidates
+        .iter()
+        .find(|p| fs::symlink_metadata(p).is_ok())
+        .or(candidates.first())
+        .ok_or("Cannot locate application directory")?;
+    directory(base)?;
     let root = base.join(ID);
     verify(&root, ID, MANIFEST_SHA256)
         .map_err(|e| format!("The packaged DanOni importer is missing or damaged: {e}. Reinstall the complete application package."))

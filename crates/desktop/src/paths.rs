@@ -5,7 +5,7 @@
 //! folder, so the player's settings, history and library are never
 //! touched.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// `DDI_HOME`, when set (and not empty).
 pub fn home() -> Option<PathBuf> {
@@ -53,5 +53,53 @@ pub fn cache_dir() -> Option<PathBuf> {
     match home() {
         Some(h) => Some(h.join("cache")),
         None => Some(dirs::cache_dir()?.join(crate::history::APP_FOLDER)),
+    }
+}
+
+/// The folders a package keeps the game's own files in (`assets/`,
+/// `video/`, `danoni-importer/`), nearest first: the executable's folder
+/// (the relocatable folder, a build's profile folder) and, for an
+/// executable in a macOS app's `Contents/MacOS/`, the app's
+/// `Contents/Helpers/` (executables) and `Contents/Resources/` (the rest;
+/// `docs/plans/packaging.md`).
+pub fn package_dirs(exe: &Path) -> Vec<PathBuf> {
+    let Some(dir) = exe.parent() else {
+        return Vec::new();
+    };
+    let mut dirs = vec![dir.to_path_buf()];
+    if dir.file_name().is_some_and(|n| n == "MacOS")
+        && let Some(contents) = dir.parent()
+        && contents.file_name().is_some_and(|n| n == "Contents")
+    {
+        dirs.push(contents.join("Helpers"));
+        dirs.push(contents.join("Resources"));
+    }
+    dirs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_app_bundle_adds_its_helpers_and_resources() {
+        let app = Path::new("/Applications/Dito Dito Infinito.app/Contents");
+        assert_eq!(
+            package_dirs(&app.join("MacOS/ditoditoinfinito")),
+            [
+                app.join("MacOS"),
+                app.join("Helpers"),
+                app.join("Resources")
+            ]
+        );
+        // A plain folder, even one named MacOS outside a bundle.
+        assert_eq!(
+            package_dirs(Path::new("/games/ddi/ditoditoinfinito")),
+            [PathBuf::from("/games/ddi")]
+        );
+        assert_eq!(
+            package_dirs(Path::new("/games/MacOS/ditoditoinfinito")),
+            [PathBuf::from("/games/MacOS")]
+        );
     }
 }

@@ -189,11 +189,12 @@ pub enum HelperStatus {
 pub const HELPER_NAME: &str = "ddi-video-helper";
 
 /// The helper's executable: `DDI_VIDEO_HELPER`, else
-/// `video/ddi-video-helper` beside the executable (as a package has it)
-/// or beside any folder above it (a build's `target/<profile>/video/`,
-/// where `crates/desktop/build.rs` stages it, found from a test's
-/// `target/<profile>/deps/` too). No path from the build is kept in the
-/// binary.
+/// `video/ddi-video-helper` in a package's folders (beside the
+/// executable, a macOS app's `Contents/Helpers/`;
+/// [`crate::paths::package_dirs`]) or beside any folder above it (a
+/// build's `target/<profile>/video/`, where `crates/desktop/build.rs`
+/// stages it, found from a test's `target/<profile>/deps/` too). No path
+/// from the build is kept in the binary.
 pub fn helper_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("DDI_VIDEO_HELPER") {
         return Some(PathBuf::from(p)).filter(|p| p.is_file());
@@ -205,9 +206,14 @@ pub fn helper_path() -> Option<PathBuf> {
 /// [`helper_path`] for the executable at `exe`.
 fn helper_near(exe: &Path) -> Option<PathBuf> {
     let name = format!("{HELPER_NAME}{}", std::env::consts::EXE_SUFFIX);
-    exe.ancestors()
+    let above = exe
+        .ancestors()
         .skip(1)
         .take_while(|a| !a.file_name().is_none_or(|n| n == "target"))
+        .map(Path::to_path_buf);
+    crate::paths::package_dirs(exe)
+        .into_iter()
+        .chain(above)
         .map(|d| d.join("video").join(&name))
         .find(|p| p.is_file())
 }

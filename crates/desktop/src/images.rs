@@ -156,8 +156,13 @@ fn find_assets() -> PathBuf {
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("assets");
-    if beside.is_dir() {
-        return beside;
+    // Beside the executable, or in a macOS app's resources.
+    if let Some(packaged) = crate::paths::package_dirs(&exe)
+        .into_iter()
+        .map(|d| d.join("assets"))
+        .find(|p| p.is_dir())
+    {
+        return packaged;
     }
     // Cargo puts integration tests and examples one directory below a profile.
     if let Some(parent) = exe.parent()
@@ -172,7 +177,7 @@ fn find_assets() -> PathBuf {
         }
     }
     // A development executable can live anywhere below the workspace's target
-    // directory. Packaged builds use only the sibling assets above.
+    // directory. Packaged builds use only the package's assets above.
     exe.ancestors()
         .find(|p| p.file_name().is_some_and(|name| name == "target"))
         .and_then(Path::parent)

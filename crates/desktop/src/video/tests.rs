@@ -153,6 +153,14 @@ fn the_helper_is_found_beside_the_executable() {
         Some(packaged)
     );
     assert_eq!(helper_near(&root.join("bin/ditoditoinfinito")), None);
+    // A macOS app: in its helpers.
+    let bundled = root.join("Game.app/Contents/Helpers/video").join(&name);
+    std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+    std::fs::write(&bundled, b"#!").unwrap();
+    assert_eq!(
+        helper_near(&root.join("Game.app/Contents/MacOS/ditoditoinfinito")),
+        Some(bundled)
+    );
     std::fs::remove_dir_all(&root).unwrap();
 }
 
