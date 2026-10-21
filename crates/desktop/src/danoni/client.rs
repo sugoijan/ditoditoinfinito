@@ -585,9 +585,14 @@ mod tests {
     }
     fn fixture(mode: FixtureMode) -> Fixture {
         use std::os::unix::fs::PermissionsExt;
+        use std::sync::atomic::AtomicUsize;
+        // The clock ticks in microseconds on macOS: tests starting together
+        // in one process are told apart by the count.
+        static FIXTURES: AtomicUsize = AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
-            "ddi-client-pipes-{}-{}",
+            "ddi-client-pipes-{}-{}-{}",
             std::process::id(),
+            FIXTURES.fetch_add(1, Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
