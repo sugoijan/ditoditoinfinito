@@ -109,6 +109,10 @@ pub struct SessionConfig {
     /// The chart's best play's score over the song, to show how far
     /// ahead of it the play is (`Settings::ghost`).
     pub ghost: Option<Ghost>,
+    /// Song second to start at (the chart editor's playtest from its
+    /// cursor): earlier notes are skipped and the music fades in, as
+    /// after a work's `startFrame`.
+    pub start: Option<f64>,
 }
 
 impl SessionConfig {
@@ -131,6 +135,7 @@ impl SessionConfig {
             hide_notes: false,
             replay: None,
             ghost: None,
+            start: None,
         }
     }
 
@@ -496,8 +501,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let song_offset = match &config.replay {
             // Where the play started.
             Some(r) => r.log.start,
-            None => danoni
-                .and_then(|d| d.start)
+            None => config
+                .start
+                .or_else(|| danoni.and_then(|d| d.start))
                 .filter(|s| s.is_finite() && *s > 0.0 && *s < duration)
                 .unwrap_or(0.0),
         };

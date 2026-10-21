@@ -25,6 +25,7 @@ pub mod calibrate;
 pub mod clock;
 pub mod devices;
 pub mod display_link;
+pub mod editor;
 pub mod field_preview;
 pub mod gpu;
 pub mod history;

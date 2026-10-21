@@ -324,8 +324,12 @@ impl EditorScreen {
         };
         let ruler = if compact { 44.0 } else { 64.0 };
         let markers = if compact { 90.0 } else { 150.0 };
-        let lane_w = ((field[2] - ruler - markers) / lanes).clamp(18.0, 64.0);
-        let lanes_x = field[0] + ruler;
+        // The lanes in the middle of the room the ruler and the markers
+        // leave.
+        let room = field[2] - ruler - markers;
+        let widest = if compact { 48.0 } else { 72.0 };
+        let lane_w = (room / lanes).clamp(18.0, widest);
+        let lanes_x = field[0] + ruler + ((room - lane_w * lanes) / 2.0).max(0.0);
         let base = if compact { 56.0 } else { 88.0 };
         let beat_h = base * 2f32.powi(self.zoom_steps);
         Geometry {
@@ -411,7 +415,7 @@ impl EditorScreen {
         let lanes = layout.lane_count();
         let [fx, fy, fw, fh] = g.field;
         let mut c = Vec::new();
-        let mut plate = quad("Field", [fw, fh], [0.04, 0.04, 0.07, 0.85]);
+        let mut plate = quad("Field", [fw, fh], with_alpha(env.color("Plate"), 0.55));
         call(&mut plate, "xy", &[fx + fw / 2.0, fy + fh / 2.0]);
         c.push(plate);
         let lanes_w = g.lane_w * lanes as f32;
@@ -585,7 +589,7 @@ impl EditorScreen {
             c.push(r);
         }
         let mut f = frame("FieldLayer", c);
-        f.clip = Some([fx, fy, fw, fh]);
+        f.clip = Some([fx, fy, fx + fw, fy + fh]);
         f
     }
 

@@ -648,7 +648,11 @@ impl Songs {
                     });
                 }
             }
-            SelectCall::Open(_) | SelectCall::ImportOption(..) | SelectCall::Notice(_) => {}
+            // The editor is opened by `screen`'s calls.
+            SelectCall::Open(_)
+            | SelectCall::ImportOption(..)
+            | SelectCall::Notice(_)
+            | SelectCall::Edit { .. } => {}
         }
     }
 }
@@ -695,6 +699,19 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
                 cx.push(crate::shell::credits_screen(&env));
                 return;
             }
+            // The chart editor (`docs/plans/editor.md`).
+            if let SelectCall::Edit { song, chart } = &call {
+                match crate::editor::screen(&env, &songs, song, *chart) {
+                    Ok(screen) => {
+                        if let Some(p) = &sound {
+                            p.borrow_mut().pause();
+                        }
+                        cx.push(screen);
+                    }
+                    Err(e) => eprintln!("editor: {song}: {e}"),
+                }
+                return;
+            }
             let rows_change = matches!(
                 call,
                 SelectCall::RemovePack(_) | SelectCall::RemoveSong(_) | SelectCall::Reread(_)
@@ -707,7 +724,8 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
         })
     };
     let mut screen = SelectScreen::new(env.clone(), songs.data(), None, play, open)
-        .with_shell(calls, songs.feed.clone());
+        .with_shell(calls, songs.feed.clone())
+        .with_editing();
     // A chart's kept plays (`docs/plans/play-history.md`, Replays).
     if let Some(plays) = &songs.plays {
         screen = screen.with_plays(ddi_ui::state::history::plays_list(

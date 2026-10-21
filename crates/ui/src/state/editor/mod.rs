@@ -36,6 +36,10 @@ pub const MEASURE: i64 = 4 * TICKS_PER_BEAT;
 /// StepMania's `NoteType`s).
 pub const SNAPS: [i64; 9] = [4, 8, 12, 16, 24, 32, 48, 64, 192];
 
+/// Seconds a playtest from the cursor starts before it: time to see the
+/// first notes come.
+pub const PLAYTEST_LEAD: f64 = 2.0;
+
 /// What a lane press places.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NoteTool {
@@ -955,10 +959,11 @@ impl Editor {
     // ---------------------------------------------------------------------
 
     /// What a playtest plays: the song as edited, the chart shown, and
-    /// the second to start at (the cursor's, or the start).
+    /// the second to start at ([`PLAYTEST_LEAD`] before the cursor's, or
+    /// the start).
     pub fn playtest(&self, from_cursor: bool) -> (Song, usize, f64) {
         let start = if from_cursor {
-            self.cursor_seconds()
+            (self.cursor_seconds() - PLAYTEST_LEAD).max(0.0)
         } else {
             0.0
         };

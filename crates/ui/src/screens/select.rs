@@ -108,6 +108,12 @@ pub enum SelectCall {
     WatchPlay(String),
     ShowPlay(String),
     RemovePlay(String),
+    /// Open the chart editor on a song (by id) at a chart (its index):
+    /// E, where the shell offers it (`docs/plans/editor.md`).
+    Edit {
+        song: String,
+        chart: usize,
+    },
 }
 
 /// The plays kept of a song's chart, as the plays list shows them (the
@@ -536,6 +542,8 @@ pub struct SelectScreen {
     feed: Option<SharedFeed>,
     /// The kept plays of a chart (the plays list).
     plays: Option<PlaysFn>,
+    /// E opens the chart editor on the song shown.
+    editing: bool,
     /// The import's state, shared with its dialog.
     import: Rc<RefCell<ImportView>>,
     notices: Vec<Notice>,
@@ -636,6 +644,7 @@ impl SelectScreen {
             shell: None,
             feed: None,
             plays: None,
+            editing: false,
             import,
             notices,
             notices_dirty: true,
@@ -726,6 +735,23 @@ impl SelectScreen {
     pub fn with_plays(mut self, plays: PlaysFn) -> SelectScreen {
         self.plays = Some(plays);
         self
+    }
+
+    /// E opens the chart editor on the song shown ([`SelectCall::Edit`]).
+    pub fn with_editing(mut self) -> SelectScreen {
+        self.editing = true;
+        self
+    }
+
+    /// The chart editor on the song and chart shown.
+    fn edit(&mut self, cx: &mut Cx) {
+        let (charts, pick) = self.charts();
+        let Some(song) = self.song() else {
+            return;
+        };
+        let chart = pick.map_or(0, |p| charts[p].index);
+        let song = song.id.clone();
+        self.call(SelectCall::Edit { song, chart }, cx);
     }
 
     /// The plays list of the chart shown, over song select.
@@ -1813,6 +1839,9 @@ impl SelectScreen {
         }
         if self.plays.is_some() && now == Hints::Song {
             hints.push((&["P"], "Plays"));
+        }
+        if self.editing && now == Hints::Song && !self.layout.compact {
+            hints.push((&["E"], "Edit"));
         }
         let note = if note.is_empty() {
             found.as_str()
@@ -3153,6 +3182,19 @@ impl SelectScreen {
                     self.watch_best(cx);
                 }
                 self.publish();
+                return Handled::Yes;
+            }
+            // The chart editor (E).
+            Input::Key(k)
+                if k.down
+                    && !k.repeat
+                    && !k.composing
+                    && !self.typing
+                    && !k.modifiers.any_but_shift()
+                    && self.editing
+                    && k.key.eq_ignore_ascii_case("e") =>
+            {
+                self.edit(cx);
                 return Handled::Yes;
             }
             Input::Key(k)

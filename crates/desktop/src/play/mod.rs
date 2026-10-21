@@ -59,6 +59,11 @@ pub struct Request {
     /// The chart's best play's ghost beside the play (`Settings::ghost`;
     /// lined up by the song offsets when the play starts).
     pub ghost: Option<Rc<ddi_ui::state::history::Ghost>>,
+    /// The chart editor's song as edited (`crate::editor`): played
+    /// instead of its file's, never kept in the history.
+    pub edited: Option<std::sync::Arc<ddi_chart::Song>>,
+    /// Song second to start at (a playtest from the editor's cursor).
+    pub start: Option<f64>,
 }
 
 impl Request {
@@ -76,6 +81,8 @@ impl Request {
             view_results: false,
             refused: None,
             ghost: None,
+            edited: None,
+            start: None,
         }
     }
 
@@ -93,6 +100,8 @@ impl Request {
             view_results: false,
             refused: None,
             ghost: None,
+            edited: None,
+            start: None,
         }
     }
 
@@ -309,6 +318,7 @@ impl Play {
         config.auto_pad = request.auto_pad;
         config.auto_bias = request.bias;
         config.seed = random_seed();
+        config.start = request.start;
         if let Some(mode) = request.calibration {
             config.calibrate(mode);
         }
@@ -407,10 +417,12 @@ impl Play {
 
     /// Keeps the play in the history, once.
     fn record(&mut self, results: &Results, facts: &PlayFacts, plays: Option<&Rc<Plays>>) {
-        // A calibration test is not a play, nor a replay.
+        // A calibration test is not a play, nor a replay, nor the
+        // editor's playtest.
         if std::mem::replace(&mut self.recorded, true)
             || self.request.calibration.is_some()
             || self.request.replay.is_some()
+            || self.request.edited.is_some()
         {
             return;
         }

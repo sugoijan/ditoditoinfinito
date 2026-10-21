@@ -464,6 +464,48 @@ fn pointers_place_notes_and_holds() {
     }
 }
 
+#[test]
+fn song_select_opens_the_editor_with_e() {
+    use crate::screens::select::{SelectCall, SelectScreen, SharedFeed};
+    let env = env();
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let select = |editing: bool| {
+        let sink = calls.clone();
+        let s = SelectScreen::new(
+            env.clone(),
+            crate::screens::sample::select(),
+            Some("some-things-must"),
+            Rc::new(|_, _, _, _| {}),
+            Rc::new(|_, _| {}),
+        )
+        .with_shell(
+            Rc::new(move |c, _| {
+                if matches!(c, SelectCall::Edit { .. }) {
+                    sink.borrow_mut().push(c);
+                }
+            }),
+            SharedFeed::default(),
+        );
+        if editing { s.with_editing() } else { s }
+    };
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(select(false));
+    h.run(0.5);
+    h.key("KeyE", "e");
+    assert!(calls.borrow().is_empty(), "not offered: nothing");
+    assert!(!env.state.borrow().hints.iter().any(|t| t == "E Edit"));
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(select(true));
+    h.run(0.5);
+    assert!(env.state.borrow().hints.iter().any(|t| t == "E Edit"));
+    h.key("KeyE", "e");
+    let id = env.state.borrow().song_id.clone();
+    match &calls.borrow()[..] {
+        [SelectCall::Edit { song, .. }] => assert_eq!(*song, id),
+        other => panic!("{other:?}"),
+    }
+}
+
 /// Typed into the field being typed into (desktop's way: committed
 /// text).
 fn type_text(h: &mut Harness, text: &str) {

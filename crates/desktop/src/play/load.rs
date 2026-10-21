@@ -332,25 +332,32 @@ pub fn load(id: &str, rate: u32) -> Result<Loaded, String> {
         None,
         rate,
         true,
+        None,
         &std::sync::atomic::AtomicBool::new(false),
     )
 }
 
 /// [`load`]; with `chart`, the music that chart plays (`.ssc` per-chart
 /// `#MUSIC`, `ManifestEntry::music_for`; else the song's); with
-/// `with_movies`, its movies found (a zip's compressed ones extracted).
+/// `with_movies`, its movies found (a zip's compressed ones extracted);
+/// with `edited`, that song (the chart editor's) instead of its file's,
+/// with its files and music.
 pub fn load_with(
     id: &str,
     chart: Option<usize>,
     rate: u32,
     with_movies: bool,
+    edited: Option<&Song>,
     cancel: &std::sync::atomic::AtomicBool,
 ) -> Result<Loaded, String> {
     let (files, entry) = Files::of(id).ok_or_else(|| format!("no song {id}"))?;
     if let Some(w) = crate::library::song(id).and_then(|s| s.work) {
         return load_work(files, entry, &w, rate);
     }
-    let mut song = chart_of(&files, &entry)?;
+    let mut song = match edited {
+        Some(s) => s.clone(),
+        None => chart_of(&files, &entry)?,
+    };
     song.resolve_change_names(&entry.change_names());
     add_lyrics(&files, &entry, &mut song);
     let music_file = chart.map_or(entry.music.as_rel_path(), |c| entry.music_for(c));
@@ -508,12 +515,14 @@ impl Drop for Loading {
 
 impl Loading {
     /// Starts reading song `id` (chart `chart`'s music at `rate` Hz,
-    /// movies when `with_movies`); `wake` wakes the event loop when it is done.
+    /// movies when `with_movies`; the chart editor's song when `edited`);
+    /// `wake` wakes the event loop when it is done.
     pub fn start(
         id: &str,
         chart: Option<usize>,
         rate: u32,
         with_movies: bool,
+        edited: Option<Arc<Song>>,
         wake: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> Loading {
         let (tx, rx) = mpsc::channel();
@@ -524,7 +533,14 @@ impl Loading {
             .name("ddi-play-load".into())
             .spawn(move || {
                 let r = std::panic::catch_unwind(|| {
-                    load_with(&job, chart, rate, with_movies, &cancelled)
+                    load_with(
+                        &job,
+                        chart,
+                        rate,
+                        with_movies,
+                        edited.as_deref(),
+                        &cancelled,
+                    )
                 })
                 .unwrap_or_else(|_| Err("the song could not be read".into()));
                 let _ = tx.send(r);

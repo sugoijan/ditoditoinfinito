@@ -279,6 +279,56 @@ fn autoplay_through_a_test_pad_is_all_top_tier() {
 }
 
 #[test]
+fn a_playtest_starts_part_way_with_the_music_fading_in() {
+    let song = bundled("beatucada");
+    let settings = Settings::default();
+    let clock: Clock = Rc::new(RefCell::new(10.0));
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.start = Some(60.0);
+    let mut s = PlaySession::start(
+        &song,
+        1,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    // The music from 60 s in, faded in from silence.
+    assert_eq!(s.audio().played[0].1, 60.0);
+    assert_eq!(s.audio().ramps[0].0, Some(0.0));
+    let Some(SessionEvent::Finished { facts, .. }) = run(&mut s, &clock, 60.0, 200.0) else {
+        panic!("no end");
+    };
+    assert_eq!(facts.log.start, 60.0);
+    // Only what comes after the start is judged, all top tier.
+    let t = s.player.tally();
+    let judged: u32 = t.taps.iter().sum();
+    let after = song.charts[1]
+        .notes
+        .iter()
+        .filter(|n| song.timing.seconds_at(n.tick) >= 60.0 && n.kind == ddi_chart::NoteKind::Tap)
+        .count() as u32;
+    assert!(judged > 0 && judged <= after + 8, "{judged} of {after}");
+    assert!(t.taps[1..].iter().all(|&n| n == 0), "{t:?}");
+    // Past the music's end: from the start.
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.start = Some(1e6);
+    let s = PlaySession::start(
+        &song,
+        1,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    assert_eq!(s.audio().played[0].1, 0.0);
+}
+
+#[test]
 fn calibration_converges_on_a_late_player() {
     // No clap may cue the player, whatever the settings.
     let settings = Settings {

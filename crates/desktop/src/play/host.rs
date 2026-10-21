@@ -637,6 +637,7 @@ impl Host {
                     Some(r.request.chart),
                     r.rate,
                     movies,
+                    r.request.edited.clone(),
                     self.wake.clone(),
                 ));
             }
@@ -647,7 +648,13 @@ impl Host {
             r.loading = None;
             match result {
                 Ok(loaded) => {
-                    if let Some(told) = &self.chart_loaded {
+                    // The library learns the file's charts, not the
+                    // editor's.
+                    if let Some(told) = self
+                        .chart_loaded
+                        .as_ref()
+                        .filter(|_| r.request.edited.is_none())
+                    {
                         told(&r.request.song, &loaded.song);
                     }
                     r.loaded = Some(Rc::new(loaded))

@@ -265,7 +265,8 @@ fn a_play_reads_its_charts_music_and_the_lyrics() {
     register_for_tests(&songs);
     let id = songs[0].entry.id.clone();
     let cancel = std::sync::atomic::AtomicBool::new(false);
-    let load = |chart| crate::play::load::load_with(&id, chart, 48_000, false, &cancel).unwrap();
+    let load =
+        |chart| crate::play::load::load_with(&id, chart, 48_000, false, None, &cancel).unwrap();
     let easy = load(Some(0));
     assert!(
         (easy.music.duration() - 1.0).abs() < 0.01,
