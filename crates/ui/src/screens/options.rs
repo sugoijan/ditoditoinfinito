@@ -43,6 +43,8 @@ pub const FIELD_PREVIEW: &str = "field-preview";
 
 /// Broadcast by the shell when it put new rows in the [`OptionsFeed`].
 pub const OPTIONS_CHANGED: &str = "Options.Changed";
+/// Timing's Calibrate row, which the footer's link presses too.
+pub const CALIBRATE: &str = "calibrate";
 
 /// Told each change: the section's name and the option as it is now (the
 /// developer routes' sample).
@@ -333,7 +335,11 @@ impl OptionsScreen {
                     (&["ESC"], "Back"),
                 ],
                 "",
-                &[("Link.Back", "Back")],
+                if self.can_calibrate() {
+                    &[("Link.Back", "Back"), ("Link.Calibrate", "Calibrate")]
+                } else {
+                    &[("Link.Back", "Back")]
+                },
             );
             env.state.borrow_mut().hints = texts;
             children.push(f);
@@ -900,6 +906,27 @@ impl OptionsScreen {
         }
     }
 
+    /// Timing's Calibrate is there (not on calibration's own options).
+    fn can_calibrate(&self) -> bool {
+        self.data
+            .sections
+            .iter()
+            .any(|s| s.options.iter().any(|o| o.id == CALIBRATE))
+    }
+
+    /// The footer's Calibrate: Timing's button, from any section.
+    fn calibrate(&mut self, cx: &mut Cx) {
+        if let Some(s) = self.shell.clone() {
+            s(
+                OptionsCall::Action {
+                    id: CALIBRATE.into(),
+                    button: 0,
+                },
+                cx,
+            );
+        }
+    }
+
     fn set_section(&mut self, i: usize, root: &mut Actor) {
         if i >= self.data.sections.len() {
             return;
@@ -1070,6 +1097,9 @@ impl Screen for OptionsScreen {
             v.push(Focusable::new("Back"));
         } else {
             v.push(Focusable::new("Link.Back"));
+            if self.can_calibrate() {
+                v.push(Focusable::new("Link.Calibrate"));
+            }
         }
         v.extend((0..self.data.sections.len()).map(|i| Focusable::new(format!("Section{i}"))));
         v
@@ -1309,6 +1339,8 @@ impl Screen for OptionsScreen {
                     cx.focus("RowsClip");
                 } else if name == "Link.Back" || name == "Back" {
                     self.leave(cx);
+                } else if name == "Link.Calibrate" {
+                    self.calibrate(cx);
                 } else if name == "PreviewLayout" {
                     self.preview_focused = true;
                     self.change(1, root, cx);

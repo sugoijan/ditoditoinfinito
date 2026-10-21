@@ -82,7 +82,6 @@ const KEPT_REQUESTS: usize = 24;
 const THEME_NAMED: &[&str] = &[
     // Replays: the results' button, song select's plays list.
     "WatchReplay",
-    "Link.Plays",
     "Watch",
     "Open",
     "Remove",
@@ -90,8 +89,6 @@ const THEME_NAMED: &[&str] = &[
     "Older",
     "Link.Manage",
     "Link.Calibrate",
-    "Link.Credits",
-    "Link.Source",
     "Notice.Link0",
     "Notice.Link1",
     "Mod0",

@@ -1025,7 +1025,11 @@ Done, 6.2 song select (2026-10-16):
   controller without bindings (bind it in Options), the storage prompt
   ("This site stores about … keep them", asked in the gesture). The
   mods ("Playing with") open the options; the footer's links are
-  Options, Calibrate, Credits and Source (through requests). No "demo"
+  Add songs, Options and Calibrate (through requests; since 2026-10-22
+  the plays are P's alone, the credits the start menu's, the source a
+  link at the top of the credits; Options' footer has Calibrate too).
+  Fewer than ten songs show as one list, without pack headers
+  (`PACKS_FROM`). No "demo"
   tag: the title says Dito Dito Infinito as the theme's header has it.
 - **The ring:** the wheel's rows are drawn 5 px in (`ROW_INSET`, the
   metric `Select.Wheel.Inset`) and the list starts as far out, so the

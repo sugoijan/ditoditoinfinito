@@ -676,6 +676,43 @@ fn song(id: &str, charts: Vec<ChartEntry>) -> SongEntry {
 }
 
 #[test]
+fn a_small_library_is_one_list_without_packs() {
+    let data = |n: usize| SelectData {
+        styles: sample::styles(),
+        songs: (0..n)
+            .map(|i| SongEntry {
+                pack: format!("Pack {}", i % 2),
+                ..song(&format!("s{i}"), vec![])
+            })
+            .collect(),
+        ..Default::default()
+    };
+    // Nine songs in two packs: the nine, no headers, none closed away.
+    let (mut h, s, _, _) = shelled(data(9), None);
+    h.run(0.3);
+    assert_eq!(s.borrow().items, 9);
+    assert_eq!(s.borrow().header, None);
+    for _ in 0..9 {
+        h.key("ArrowDown", "ArrowDown");
+        h.run(0.1);
+        assert_eq!(s.borrow().header, None);
+    }
+    // Ten: by pack, under their headers.
+    let (mut h, s, _, _) = shelled(data(10), None);
+    h.run(0.3);
+    assert!(s.borrow().items < 10 + 2, "a pack closed");
+    h.key("Home", "Home");
+    for _ in 0..12 {
+        if s.borrow().header.is_some() {
+            break;
+        }
+        h.key("ArrowDown", "ArrowDown");
+        h.run(0.1);
+    }
+    assert!(s.borrow().header.is_some());
+}
+
+#[test]
 fn empty_and_tiny_libraries_take_every_key() {
     let style = || StyleDef {
         id: "s".into(),
@@ -1242,16 +1279,15 @@ fn links_and_notices_ask_the_shell() {
     );
     h.tap(PointerKind::Mouse, "Notice.Link1");
     assert_eq!(s.borrow().status, "OPTIONS");
-    for (link, what) in [
-        ("Link.Calibrate", "calibrate"),
-        ("Link.Credits", "credits"),
-        ("Link.Source", "source"),
-    ] {
-        h.tap(PointerKind::Mouse, link);
-        assert!(
-            calls.borrow().contains(&SelectCall::Open(what.into())),
-            "{link}"
-        );
+    h.tap(PointerKind::Mouse, "Link.Calibrate");
+    assert!(
+        calls
+            .borrow()
+            .contains(&SelectCall::Open("calibrate".into()))
+    );
+    // The plays are P's, the credits and the source the start menu's.
+    for gone in ["Link.Plays", "Link.Credits", "Link.Source"] {
+        assert!(h.ui.bounds(gone).is_none(), "{gone}");
     }
     // The mods open the options.
     s.borrow_mut().status.clear();
@@ -1794,7 +1830,7 @@ fn the_devices_line_lets_taps_through_to_the_footer() {
     h.ui.push_chrome(NoticeBar::new(env(), feed, Rc::new(|_, _| {})));
     h.run(0.3);
     let toast = h.ui.bounds("AppToast.Frame").unwrap();
-    let l = h.ui.bounds("Link.Credits").unwrap();
+    let l = h.ui.bounds("Link.Calibrate").unwrap();
     // A point on both: the line's plate over the link's top.
     let link = [
         (l[0] + l[2]) / 2.0,
@@ -1806,7 +1842,9 @@ fn the_devices_line_lets_taps_through_to_the_footer() {
     );
     h.tap_at(PointerKind::Mouse, link);
     assert!(
-        calls.borrow().contains(&SelectCall::Open("credits".into())),
+        calls
+            .borrow()
+            .contains(&SelectCall::Open("calibrate".into())),
         "{:?}",
         calls.borrow()
     );
@@ -1928,8 +1966,8 @@ fn song_selects_plays_list_watches_opens_and_removes() {
     h.key("KeyW", "w");
     assert_eq!(watched(&calls).len(), 4);
     assert_eq!(watched(&calls).last().map(String::as_str), Some("watch p2"));
-    // The footer's link opens the list too.
-    h.tap(PointerKind::Mouse, "Link.Plays");
+    // P opens the list again.
+    h.key("KeyP", "p");
     h.run(0.3);
     assert_eq!(state.borrow().plays.len(), 3);
     assert!(asked.borrow().iter().all(|a| a.starts_with("sweeteners ")));

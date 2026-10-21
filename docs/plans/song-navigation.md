@@ -38,6 +38,7 @@ smoothly to the cap, and stop on physical release. Reversing or resuming
 an older held direction resets acceleration. Catch-up repeats are bounded
 when frames stall. Browsing never adds extra steps to a physical tap.
 Pack headers remain navigable and do not turn taps into chart changes.
+A library of fewer than ten songs has none: its songs are one list.
 
 `Screen::direction_edges` opts into physical `MenuRelease` and cancellation;
 `Cx::menu_source` identifies the actual key or pad slot. A screen owning

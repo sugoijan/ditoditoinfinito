@@ -42,8 +42,6 @@ use ddi_ui::state::place::MenuPlace;
 
 /// How often the connected controllers are checked for missing bindings.
 const PAD_CHECK_MS: u32 = 1000;
-/// The source's address (the footer's link).
-const SOURCE: &str = "https://github.com/sugoijan/ditoditoinfinito";
 /// What the zip and files input takes.
 const ACCEPT: &str = ".zip,.sm,.ssc,.dwi,.swf,.as,.beatbox,.txt,.ogg,.oga,.opus,.mp3,.wav,.flac,.png,.jpg,.jpeg,.gif,.bmp,.webp,.avi,.f4v,.flv,.mkv,.mp4,.mpeg,.mpg,.mov,.ogv,.webm,.wmv";
 
@@ -800,14 +798,13 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
                 crate::router::Route::Edit { song, chart }.to_hash(),
             ));
         }
-        SelectCall::Open(what) => match what.as_str() {
-            "calibrate" => cx.request(UiRequest::Navigate(
-                crate::router::Route::Calibrate.to_hash(),
-            )),
-            "credits" => cx.request(UiRequest::Navigate(crate::router::Route::Credits.to_hash())),
-            "source" => cx.request(UiRequest::OpenUrl(SOURCE.into())),
-            _ => {}
-        },
+        SelectCall::Open(what) => {
+            if what == "calibrate" {
+                cx.request(UiRequest::Navigate(
+                    crate::router::Route::Calibrate.to_hash(),
+                ));
+            }
+        }
         SelectCall::ImportDanoni { .. }
         | SelectCall::DanoniOriginDecision { .. }
         | SelectCall::CancelDanoni => {}

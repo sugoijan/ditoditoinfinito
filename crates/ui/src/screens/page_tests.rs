@@ -42,7 +42,9 @@ fn credits_links_open_from_keys_and_taps() {
     let (mut h, state, calls) = credits_page();
     assert_eq!(state.borrow().screen, "credits");
     let items = state.borrow().page_items.clone();
-    assert_eq!(items[0], "link:https://example.org/songs");
+    // The game's own source first.
+    assert_eq!(items[0], format!("link:{}", credits::SOURCE));
+    assert_eq!(items[1], "link:https://example.org/songs");
     assert!(items.iter().any(|i| i == "link:video/ddivideo.LICENSE.txt"));
     assert!(items.iter().any(|i| i == "fold:configure"));
     // Down to the first link, Enter opens it in the press.
@@ -50,7 +52,7 @@ fn credits_links_open_from_keys_and_taps() {
     assert_eq!(state.borrow().page_focus, 0);
     let r = h.key("Enter", "Enter");
     assert!(
-        r.contains(&UiRequest::OpenUrl("https://example.org/songs".into())),
+        r.contains(&UiRequest::OpenUrl(credits::SOURCE.into())),
         "{r:?}"
     );
     // Down through the page: it scrolls with the focus.
@@ -72,7 +74,7 @@ fn credits_links_open_from_keys_and_taps() {
     h.run(0.1);
     let r = h.tap(PointerKind::Mouse, "Item0");
     assert!(
-        r.contains(&UiRequest::OpenUrl("https://example.org/songs".into())),
+        r.contains(&UiRequest::OpenUrl(credits::SOURCE.into())),
         "{r:?}"
     );
     // The wheel scrolls, Back leaves through the shell.

@@ -165,6 +165,9 @@ pub const NOTICE_LINK: &str = "NoticeLink";
 
 /// Ladder rows at most.
 const LADDER_ROWS: usize = 8;
+/// From this many songs the wheel groups them by pack, under headers;
+/// fewer fit on it as one list.
+const PACKS_FROM: usize = 10;
 /// Rows a second past which the wheel's room for its selected row closes.
 const FLICK_ROWS: f32 = 6.0;
 /// The compact layout's left side, from its top (`Phone.dc.html`):
@@ -989,8 +992,14 @@ impl SelectScreen {
             })
     }
 
+    /// Fewer songs than [`PACKS_FROM`] are one list, without their packs.
+    fn flat(&self) -> bool {
+        self.data.songs.len() < PACKS_FROM
+    }
+
     fn lay_out_items(&mut self) {
         self.items.clear();
+        let flat = self.flat();
         for (p, (_, songs)) in self.packs.iter().enumerate() {
             let shown: Vec<usize> = songs
                 .iter()
@@ -1000,9 +1009,11 @@ impl SelectScreen {
             if shown.is_empty() {
                 continue;
             }
-            self.items.push(Item::Header(p));
+            if !flat {
+                self.items.push(Item::Header(p));
+            }
             // While searching every pack shows its matches.
-            if self.matches.is_some() || !self.closed.contains(&p) {
+            if flat || self.matches.is_some() || !self.closed.contains(&p) {
                 self.items.extend(shown.into_iter().map(Item::Song));
             }
         }
@@ -1771,10 +1782,9 @@ impl SelectScreen {
         }
         self.hints = Some(key);
         let esc = "Back";
+        // The plays are P's (its hint); the credits and the source are
+        // the start menu's and the credits'.
         let mut links: Vec<(&str, &str)> = Vec::new();
-        if self.plays.is_some() && now == Hints::Song {
-            links.push(("Link.Plays", "Plays…"));
-        }
         if manage {
             links.push(("Link.Manage", "Manage…"));
         }
@@ -1782,8 +1792,6 @@ impl SelectScreen {
             ("Link.Add", "+ Add songs"),
             ("Link.Options", "Options"),
             ("Link.Calibrate", "Calibrate"),
-            ("Link.Credits", "Credits"),
-            ("Link.Source", "Source"),
         ]);
         let (hints, note): (&[(&[&str], &str)], &str) = match now {
             Hints::Song => (
@@ -2795,13 +2803,10 @@ impl Screen for SelectScreen {
             v.push(along("Autoplay"));
             for n in [
                 "Back",
-                "Link.Plays",
                 "Link.Manage",
                 "Link.Add",
                 "Link.Options",
                 "Link.Calibrate",
-                "Link.Credits",
-                "Link.Source",
             ] {
                 v.push(Focusable::new(n));
             }
@@ -3367,10 +3372,6 @@ impl SelectScreen {
                 self.status("add songs".into());
                 return Handled::Yes;
             }
-            "Link.Plays" => {
-                self.open_plays(cx);
-                return Handled::Yes;
-            }
             "Link.Manage" => {
                 cx.focus("Wheel");
                 if let Some(m) = self.manageable() {
@@ -3380,8 +3381,6 @@ impl SelectScreen {
             }
             "ClearSearch" => self.clear_search(root, cx),
             "Link.Calibrate" => self.call(SelectCall::Open("calibrate".into()), cx),
-            "Link.Credits" => self.call(SelectCall::Open("credits".into()), cx),
-            "Link.Source" => self.call(SelectCall::Open("source".into()), cx),
             "SearchIcon" => self.begin_search(root, cx),
             "StyleButton" => self.next_style(root),
             "Play" => self.start(root, cx),

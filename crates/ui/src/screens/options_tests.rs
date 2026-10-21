@@ -688,3 +688,12 @@ fn plays_are_imported_from_the_history_row_inside_the_press() {
         super::options_model::Act::Confirm(Reset::History)
     );
 }
+
+#[test]
+fn the_footer_calibrates_from_any_section() {
+    let mut r = rig([1280.0, 720.0], DESIGN);
+    r.section("Data");
+    assert!(r.h.ui.bounds("Link.Calibrate").is_some());
+    r.h.tap(PointerKind::Mouse, "Link.Calibrate");
+    assert!(r.logged("leave Calibrate"), "{:?}", r.fake.log.borrow());
+}

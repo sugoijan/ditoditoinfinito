@@ -476,8 +476,8 @@ noteskin no longer installed.
 - **Results:** "Watch replay" (W) once the play is kept. After a replay
   the results are marked REPLAY, Retry becomes "Watch again", and the
   song offset editor is not offered (a replay changes nothing).
-- **Song select:** P opens the chosen chart's plays (also the footer's
-  "Plays…" link; on a phone, a long press on a chart): every play kept of its content, newest first, eight a
+- **Song select:** P opens the chosen chart's plays (its hint says so;
+  on a phone, a long press on a chart): every play kept of its content, newest first, eight a
   page; when, grade, score, lamp, ruleset and the options as played,
   autoplays marked, the best marked. Each can be watched, opened on the
   results screen (judged again from its log: the same results), or
@@ -518,7 +518,7 @@ Done (2026-10-16).
 - **Screens:** the results' "Watch replay" (W; on top by the title
   beside the offset editor, in the bar on an upright phone), `ResultsKind`
   (`Play`, `Replay`: "Watch again", `Kept`: no Retry) and `mark_replay`;
-  song select's plays list (`PlaysDialog`), P, W, "Plays…", a long press
+  song select's plays list (`PlaysDialog`), P, W, a long press
   on a phone's chart.
 - **Web:** `#/play?replay=<id>[&view=results]` (`crates/web/src/replay.rs`: the
   loader reads the play, finds its chart, looks for its skin, then puts

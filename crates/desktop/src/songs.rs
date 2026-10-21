@@ -692,13 +692,6 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
                 cx.push(crate::calibrate::menu(&env, &songs, sound.clone()));
                 return;
             }
-            if matches!(&call, SelectCall::Open(what) if what == "credits") {
-                if let Some(p) = &sound {
-                    p.borrow_mut().pause();
-                }
-                cx.push(crate::shell::credits_screen(&env));
-                return;
-            }
             // The chart editor (`docs/plans/editor.md`).
             if let SelectCall::Edit { song, chart } = &call {
                 match crate::editor::screen(&env, &songs, song, *chart) {

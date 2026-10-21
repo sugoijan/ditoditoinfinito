@@ -19,6 +19,7 @@ use ddi_platform::DeviceId;
 use ddi_platform::gamepad::Control;
 
 use super::data::{OptionDef, OptionKind, OptionSection, OptionsData};
+use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
     BUILT_IN, BUNDLED, BackgroundFrame, DITO, FIELD_FILTERS, Graphics, PadBindings, ParamValue,
@@ -648,7 +649,7 @@ impl OptionsModel {
         let s = &self.settings;
         let mut rows = vec![
             actions(
-                "calibrate",
+                CALIBRATE,
                 "Calibration",
                 &["Calibrate"],
                 "",
@@ -1498,7 +1499,7 @@ impl OptionsModel {
         let before = self.settings.clone();
         let layout = self.bind_layout.clone();
         let act = match (id, button) {
-            ("calibrate", _) => Act::Calibrate,
+            (CALIBRATE, _) => Act::Calibrate,
             ("sample", _) => Act::Sample,
             ("demo", b) => Act::Demo { gl: b == 1 },
             ("noteskin.remove", _) => match self.settings.noteskin.clone() {

@@ -141,6 +141,9 @@ pub struct FontCredit {
     pub modified: String,
 }
 
+/// The game's own source.
+pub const SOURCE: &str = "https://github.com/sugoijan/ditoditoinfinito";
+
 pub fn parse(json: &str) -> Result<Credits, String> {
     serde_json::from_str(json).map_err(|e| e.to_string())
 }
@@ -206,6 +209,10 @@ pub fn doc(c: &Credits) -> PageDoc {
          under their own licences, credited here as those licences require."
             .into(),
     )];
+    b.push(Block::Link {
+        label: format!("Source: {SOURCE}"),
+        url: SOURCE.into(),
+    });
     b.push(Block::Heading("Songs".into()));
     for s in &c.songs {
         b.push(Block::Subheading(format!("{} — {}", s.title, s.artist)));
