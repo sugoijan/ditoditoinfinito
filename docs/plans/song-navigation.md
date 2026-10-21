@@ -69,6 +69,18 @@ The theme's `Look::wheel_focus` blends row height, banner/text geometry,
 plate color, shadow and ring by visual distance. Selection does not restart
 row tweens at commit. The plain look retains its Select/Deselect commands.
 
+## Returning to Start
+
+Unmodified Escape and Backspace map to the same menu Back action. Text
+editing, dialogs and binding capture get the key first. Ordinary browsing
+leaves for the silent Start menu in one press, retaining the selected
+song/chart, expanded pack and filter. The Clear button beside Search
+clears a filter explicitly; pack headers still toggle by activation.
+Leaving cancels provisional arrows, held repeats and wheel motion before
+the shell stops/cancels preview playback. The desktop header and compact
+Back control lead to Start. Options and Credits return to their caller.
+See [the start-menu contract](start-menu.md).
+
 ## Verification
 
 Pure recognizer/motion tests cover singles, isolated and opposite pairs,

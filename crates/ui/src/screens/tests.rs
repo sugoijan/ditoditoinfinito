@@ -254,8 +254,12 @@ fn songs_without_charts_in_the_style_are_greyed_not_hidden() {
 fn packs_open_and_close() {
     let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
     let items = s.borrow().items;
-    // Back on a song closes its pack, the header selected.
-    h.key("Escape", "Escape");
+    // Activate the pack header to close it (Back now leaves the screen).
+    for _ in 0..3 {
+        h.key("ArrowUp", "ArrowUp");
+        h.run(0.5);
+    }
+    h.key("Enter", "Enter");
     h.run(0.5);
     assert_eq!(s.borrow().closed.len(), 6);
     assert!(s.borrow().closed.contains(&"Bundled songs".into()));
@@ -317,12 +321,12 @@ fn search_filters_the_wheel_and_never_shows_its_popup_while_composing() {
     h.run(0.1);
     assert!(s.borrow().matches >= 1);
     assert!(s.borrow().song.contains("ほしぞら"), "{}", s.borrow().song);
-    // Escape closes the popup, Escape stops typing, Escape clears.
+    // Escape closes the popup and stops typing; Clear removes the filter.
     h.key("Escape", "Escape");
     h.key("Escape", "Escape");
     h.run(0.1);
     assert!(h.ui.text_field().is_none());
-    h.key("Escape", "Escape");
+    h.tap(PointerKind::Mouse, "ClearSearch");
     h.run(0.3);
     assert_eq!(s.borrow().search, "");
     let data = sample::select();
@@ -584,8 +588,12 @@ fn the_pick_survives_a_new_layout() {
 #[test]
 fn clearing_a_search_opens_the_shown_songs_pack() {
     let (mut h, s) = recording(sample::select(), [1280.0, 720.0], DESIGN);
-    // Close Bundled songs on Some Things Must; the header selected.
-    h.key("Escape", "Escape");
+    // Close Bundled songs through its header.
+    for _ in 0..3 {
+        h.key("ArrowUp", "ArrowUp");
+        h.run(0.5);
+    }
+    h.key("Enter", "Enter");
     h.run(0.5);
     h.key("Slash", "/");
     h.sync("Swe", [3, 3], None);
@@ -598,11 +606,11 @@ fn clearing_a_search_opens_the_shown_songs_pack() {
     }
     h.run(0.1);
     assert!(
-        s.borrow().hints.iter().any(|t| t == "ESC Clear search"),
+        s.borrow().hints.iter().any(|t| t == "ESC Back"),
         "{:?}",
         s.borrow().hints
     );
-    h.key("Escape", "Escape");
+    h.tap(PointerKind::Mouse, "ClearSearch");
     h.run(0.5);
     let st = s.borrow();
     assert_eq!(st.search, "");
@@ -648,7 +656,7 @@ fn the_compact_field_hides_when_typing_stops() {
     h.key("Escape", "Escape");
     h.run(0.1);
     assert!(h.actor("Search").visible, "it holds text");
-    h.key("Escape", "Escape");
+    h.tap(PointerKind::Touch, "ClearSearch");
     h.run(0.1);
     assert!(!h.actor("Search").visible);
 }
@@ -1071,14 +1079,11 @@ fn the_shell_hears_the_song_shown_and_the_place() {
     // The style and the packs closed are the place's.
     tab(&mut h);
     assert_eq!(last_place(&calls).style, "dance-double");
+    let place = last_place(&calls);
     h.key("Escape", "Escape");
     h.run(0.3);
-    assert_eq!(last_place(&calls).closed.len(), 7);
-    assert!(
-        last_place(&calls)
-            .closed
-            .contains(&sample::BUNDLED_PACK.to_string())
-    );
+    assert_eq!(last_place(&calls), place);
+    assert!(calls.borrow().contains(&SelectCall::Leave));
 }
 
 #[test]
@@ -1574,12 +1579,12 @@ fn nothing_is_removed_while_an_import_runs() {
     assert_eq!(top(&h), "manage");
     h.key("Escape", "Escape");
     h.run(0.3);
-    // Backspace alone: Back, as Escape (the song's pack closes).
+    // Backspace asks the shell to leave, preserving the selected song.
     assert!(s.borrow().header.is_none());
     h.key("Backspace", "Backspace");
     h.run(0.3);
     assert_eq!(top(&h), "select");
-    assert!(s.borrow().header.is_some());
+    assert!(s.borrow().header.is_none());
 }
 
 #[test]

@@ -340,3 +340,17 @@ The theme becomes code in the shape P6 set (`crates/ui/src/look.rs`):
 
 Then step 6 replaces the Yew pages one by one, results first (done
 2026-10-16; Yew is gone).
+
+## Start menu (2026-10-21)
+
+The shared `StartScreen` is our `ScreenTitleMenu` boundary: stable
+Singleplayer, Multiplayer, Options, Credits and Quit actor IDs. The host
+supplies enabled actions and desktop capability; disabled Multiplayer has
+a focus target with a muted button plate but no action; Quit is last and
+web omits it. `TitleMenu.Primary`,
+`TitleMenu.Choice` and `TitleMenu.Disabled` components dress the choices;
+`TitleMenu.Width`, `RowHeight`, `Gap` and `TitleSize` in `infinito.toml`
+control their layout. Touch rows retain a 44 CSS pixel minimum. Start uses
+the theme ground with no song backdrop, beat pulse or audio. Ordinary
+On/Off and focus commands apply. Importing theme metrics/Lua screen flow
+is still future work. See [start-menu.md](start-menu.md).

@@ -53,7 +53,7 @@ impl From<MenuInput> for MenuAction {
 }
 
 /// The keyboard's menu keys, by physical code: the arrows, Enter (and the
-/// keypad's) and Space to start, Escape to go back, Tab to select (it
+/// keypad's) and Space to start, Escape/Backspace to go back, Tab to select (it
 /// is not a focus key here: focus moves with the arrows).
 pub fn key_action(code: &str) -> Option<MenuAction> {
     Some(match code {
@@ -62,7 +62,7 @@ pub fn key_action(code: &str) -> Option<MenuAction> {
         "ArrowLeft" => MenuAction::Left,
         "ArrowRight" => MenuAction::Right,
         "Enter" | "NumpadEnter" | "Space" => MenuAction::Start,
-        "Escape" => MenuAction::Back,
+        "Escape" | "Backspace" => MenuAction::Back,
         "Tab" => MenuAction::Select,
         _ => return None,
     })

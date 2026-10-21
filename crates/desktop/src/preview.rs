@@ -209,6 +209,8 @@ impl Player {
     pub fn pause(&mut self) {
         self.stop();
         self.paused = true;
+        self.job = None;
+        self.settle = None;
     }
 
     /// Whether a play paused the preview (and nothing resumed it yet).
@@ -250,6 +252,7 @@ impl Player {
             self.close();
             return false;
         }
+        self.paused = false;
         self.set_volume(volume);
         self.select(Some(id));
         self.settle = Some(Instant::now());
@@ -260,6 +263,9 @@ impl Player {
     /// device. When to call again (`None`: on the next event).
     pub fn tick(&mut self) -> Option<Instant> {
         self.audio.tick();
+        if self.paused {
+            return None;
+        }
         let now = Instant::now();
         if let Some(at) = self.settle {
             if now < at {
@@ -396,6 +402,27 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn leaving_during_settle_or_decode_cannot_start_a_preview() {
+        for decoding in [false, true] {
+            let mut p = Player::with(Audio::silent(0.0), PreviewSong::bundled);
+            p.select(Some("sweeteners"));
+            if decoding {
+                p.settle = Some(Instant::now());
+                p.tick();
+            }
+            p.pause();
+            p.invalidate(&["sweeteners".into()]);
+            p.refind();
+            for _ in 0..10 {
+                p.tick();
+            }
+            assert!(p.paused());
+            assert!(p.playing.is_none());
+            assert!(p.job.is_none());
+        }
+    }
 
     #[test]
     fn a_replaced_selected_song_restarts_its_preview_without_changing_pause() {

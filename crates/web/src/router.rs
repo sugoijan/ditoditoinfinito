@@ -1,5 +1,5 @@
 //! Hash routes. The site lives under a sub-path on GitHub Pages, so routing
-//! uses the fragment: `#/`, `#/play?song=<id>&chart=<n>`, `#/options`,
+//! uses the fragment: `#/` (Start), `#/select` (Songs), `#/play?song=<id>&chart=<n>`, `#/options`,
 //! `#/calibrate`, `#/credits`, `#/results`, `#/video-check`,
 //! `#/skin-preview`, `#/ui-test`, `#/ui-dev`.
 
@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Route {
     Home,
+    Songs,
     Play {
         song: String,
         chart: usize,
@@ -86,6 +87,7 @@ impl Route {
             .collect();
         match path {
             "" => Route::Home,
+            "select" => Route::Songs,
             "play" => Route::Play {
                 song: params.get("song").cloned().unwrap_or_default(),
                 chart: params
@@ -150,6 +152,10 @@ impl Route {
             Route::Home => match testing() {
                 t if t.is_empty() => "#/".into(),
                 t => format!("#/?{t}"),
+            },
+            Route::Songs => match testing() {
+                t if t.is_empty() => "#/select".into(),
+                t => format!("#/select?{t}"),
             },
             Route::Play {
                 song,
@@ -238,9 +244,12 @@ impl Route {
     }
 
     pub(crate) fn navigate(&self) {
-        if let Some(window) = web_sys::window() {
-            let _ = window.location().set_hash(&self.to_hash());
-        }
+        navigate(&self.to_hash());
+    }
+
+    /// Return to an existing caller, or replace a direct deep link.
+    pub(crate) fn return_to(&self) {
+        visit(&self.to_hash(), true);
     }
 }
 
@@ -264,14 +273,14 @@ pub(crate) fn keep_testing(hash: &str) {
         .split_once('?')
         .unwrap_or((hash.trim_start_matches('#'), ""));
     let path = path.trim_start_matches('/');
-    if !matches!(path, "" | "play" | "calibrate") {
+    if !matches!(path, "" | "select" | "play" | "calibrate") {
         return;
     }
     let kept: Vec<&str> = query
         .split('&')
         .filter(|kv| matches!(kv.split('=').next(), Some("gfx" | "auto" | "bias" | "slow")))
         .collect();
-    if path.is_empty() {
+    if path == "select" || path.is_empty() && !kept.is_empty() {
         AUTOPLAY.with(|a| a.set(None));
         TESTING.with(|t| {
             let mut t = t.borrow_mut();
@@ -335,10 +344,16 @@ pub(crate) fn set_autoplay(on: bool) {
     };
     let hash = window.location().hash().unwrap_or_default();
     let path = hash.trim_start_matches('#').split('?').next().unwrap_or("");
-    if matches!(path.trim_start_matches('/'), "") {
-        let next = Route::Home.to_hash();
+    if matches!(path.trim_start_matches('/'), "select") {
+        let next = Route::Songs.to_hash();
         if let Ok(h) = window.history() {
-            let _ = h.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&next));
+            let state = history_state();
+            let mut current = trail();
+            if let Some(last) = current.routes.last_mut() {
+                *last = next.clone();
+            }
+            put_trail(&state, &current);
+            let _ = h.replace_state_with_url(&state, "", Some(&next));
         }
     }
 }
@@ -396,6 +411,175 @@ fn hex_value(b: u8) -> Option<u8> {
         b'a'..=b'f' => Some(b - b'a' + 10),
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
+    }
+}
+
+const NAVIGATION: &str = "ddiNavigation";
+
+/// Clone rather than replace the host's overlay markers.
+pub(crate) fn history_state() -> js_sys::Object {
+    let state = web_sys::window()
+        .and_then(|w| w.history().ok())
+        .and_then(|h| h.state().ok());
+    let object = js_sys::Object::new();
+    if let Some(state) = state.filter(|s| s.is_object()) {
+        js_sys::Object::assign(&object, &js_sys::Object::from(state));
+    }
+    object
+}
+
+fn hash() -> String {
+    web_sys::window()
+        .and_then(|w| w.location().hash().ok())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "#/".into())
+}
+
+fn trail() -> ddi_ui::navigation::RouteTrail {
+    let current = hash();
+    let stored = js_sys::Reflect::get(&history_state(), &NAVIGATION.into())
+        .ok()
+        .and_then(|v| v.as_string())
+        .and_then(|s| serde_json::from_str::<ddi_ui::navigation::RouteTrail>(&s).ok());
+    stored
+        .filter(|t| t.routes.last() == Some(&current))
+        .unwrap_or_else(|| ddi_ui::navigation::RouteTrail::at(current))
+}
+
+fn put_trail(state: &js_sys::Object, trail: &ddi_ui::navigation::RouteTrail) {
+    if let Ok(text) = serde_json::to_string(trail) {
+        let _ = js_sys::Reflect::set(state, &NAVIGATION.into(), &text.into());
+    }
+}
+
+fn changed() {
+    if let Some(w) = web_sys::window()
+        && let Ok(event) = web_sys::Event::new("hashchange")
+    {
+        let _ = w.dispatch_event(&event);
+    }
+}
+
+pub(crate) fn navigate(next: &str) {
+    visit(next, false);
+}
+
+fn visit(next: &str, returning: bool) {
+    let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else {
+        return;
+    };
+    let current = trail();
+    if next == hash() {
+        return;
+    }
+    // An explicit return to an ancestor (including song/results returns)
+    // consumes its intervening visits instead of adding a history loop.
+    if let Some(i) = current
+        .routes
+        .iter()
+        .rposition(|s| Route::parse(s) == Route::parse(next))
+    {
+        let _ = history.go_with_delta(i as i32 - current.routes.len() as i32 + 1);
+        return;
+    }
+    if returning {
+        let state = js_sys::Object::new();
+        put_trail(&state, &ddi_ui::navigation::RouteTrail::at(next.into()));
+        if history
+            .replace_state_with_url(&state, "", Some(next))
+            .is_ok()
+        {
+            changed();
+        }
+        return;
+    }
+    let state = history_state();
+    put_trail(&state, &current);
+    let _ = history.replace_state_with_url(&state, "", None);
+    let next_state = js_sys::Object::new();
+    put_trail(&next_state, &current.push(next.into()));
+    if history
+        .push_state_with_url(&next_state, "", Some(next))
+        .is_ok()
+    {
+        changed();
+    }
+}
+
+pub(crate) fn back() {
+    let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else {
+        return;
+    };
+    let current = trail();
+    if current.parent().is_some() {
+        let _ = history.back();
+        return;
+    }
+    use ddi_ui::navigation::Destination;
+    let destination = match Route::current() {
+        Route::Home => Destination::Start,
+        Route::Songs => Destination::Songs,
+        Route::Play { .. } => Destination::Play,
+        Route::Options => Destination::Options,
+        Route::Credits => Destination::Credits,
+        _ => Destination::Calibration,
+    };
+    let parent = match destination.fallback() {
+        Destination::Songs => Route::Songs,
+        _ => Route::Home,
+    }
+    .to_hash();
+    let state = js_sys::Object::new();
+    put_trail(&state, &ddi_ui::navigation::RouteTrail::at(parent.clone()));
+    if history
+        .replace_state_with_url(&state, "", Some(&parent))
+        .is_ok()
+    {
+        changed();
+    }
+}
+
+pub(crate) fn saved_focus() -> Option<String> {
+    js_sys::Reflect::get(&history_state(), &"ddiFocus".into())
+        .ok()?
+        .as_string()
+}
+
+pub(crate) fn saved_options() -> Option<(String, String, f32)> {
+    let text = js_sys::Reflect::get(&history_state(), &"ddiOptions".into())
+        .ok()?
+        .as_string()?;
+    serde_json::from_str(&text).ok()
+}
+
+pub(crate) fn save_view(focus: Option<&str>, theme: Option<&ddi_ui::screens::ThemeState>) {
+    let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else {
+        return;
+    };
+    let state = history_state();
+    let mut changed = false;
+    for (key, value) in [
+        ("ddiFocus", focus.map(str::to_string)),
+        (
+            "ddiOptions",
+            theme.filter(|t| t.screen == "options").and_then(|t| {
+                serde_json::to_string(&(t.section.clone(), t.option_id.clone(), t.scroll)).ok()
+            }),
+        ),
+    ] {
+        if let Some(value) = value
+            && js_sys::Reflect::get(&state, &key.into())
+                .ok()
+                .and_then(|v| v.as_string())
+                .as_deref()
+                != Some(&value)
+        {
+            let _ = js_sys::Reflect::set(&state, &key.into(), &value.into());
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = history.replace_state_with_url(&state, "", None);
     }
 }
 

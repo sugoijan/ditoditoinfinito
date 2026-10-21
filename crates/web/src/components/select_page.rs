@@ -780,6 +780,10 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
                 settings.save();
             }
         }
+        SelectCall::Leave => {
+            crate::select_preview::close();
+            cx.request(UiRequest::Back);
+        }
         SelectCall::WatchPlay(id) => cx.request(UiRequest::Navigate(replay_hash(&id, false))),
         SelectCall::ShowPlay(id) => cx.request(UiRequest::Navigate(replay_hash(&id, true))),
         SelectCall::RemovePlay(id) => crate::history::remove_play(&id),

@@ -314,7 +314,7 @@ pub(crate) struct ThemeHost {
 fn theme_screen(screen: &str) -> bool {
     matches!(
         screen,
-        "select" | "results" | "options" | "credits" | "calibration" | "prompt"
+        "start" | "select" | "results" | "options" | "credits" | "calibration" | "prompt"
     )
 }
 
@@ -530,10 +530,13 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
         let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Mirror, true);
         // The theme draws its own focus.
         ui.set_focus_ring(false);
-        ui.push(sample::select_screen(
-            env,
-            Some(sample::motion_change(env, system_reduced)),
-        ));
+        ui.push(sample::start_screen(env, false));
+        if first != "start" {
+            ui.push(sample::select_screen(
+                env,
+                Some(sample::motion_change(env, system_reduced)),
+            ));
+        }
         match first {
             "results" => ui.push(sample::results_screen(env)),
             "options" => ui.push(sample::options_screen(
@@ -1692,7 +1695,25 @@ impl Host {
                     }
                 }
                 // After our own entries' pops (`navigate_now`).
-                UiRequest::Navigate(route) => self.navigate_after_pops = Some(route),
+                UiRequest::Navigate(route) => {
+                    if let Some(theme) = &self.theme {
+                        crate::router::save_view(
+                            self.ui.focused(),
+                            Some(&theme.env.state.borrow()),
+                        );
+                    }
+                    if matches!(crate::router::Route::current(), crate::router::Route::Songs) {
+                        crate::select_preview::close();
+                    }
+                    self.navigate_after_pops = Some(route);
+                }
+                UiRequest::Back => {
+                    if matches!(crate::router::Route::current(), crate::router::Route::Songs) {
+                        crate::select_preview::close();
+                    }
+                    self.navigate_after_pops = Some("back".into());
+                }
+                UiRequest::Quit => {}
                 UiRequest::StartAudio => self.beep(),
                 UiRequest::PlayPreview { .. } | UiRequest::StopPreview => {}
                 UiRequest::Redraw => {}
@@ -1801,8 +1822,10 @@ impl Host {
         }
         if let Some(route) = self.navigate_after_pops.take() {
             gloo::timers::callback::Timeout::new(0, move || {
-                if let Some(w) = web_sys::window() {
-                    let _ = w.location().set_hash(&route);
+                if route == "back" {
+                    crate::router::back();
+                } else {
+                    crate::router::navigate(&route);
                 }
             })
             .forget();
@@ -1823,7 +1846,7 @@ impl Host {
         let depth = ddi_ui::back_stack::depth(&self.ui.layers());
         let step = ddi_ui::back_stack::step(self.depth, depth);
         for mark in step.push {
-            let marker = js_sys::Object::new();
+            let marker = crate::router::history_state();
             let _ =
                 js_sys::Reflect::set(&marker, &HISTORY_MARK.into(), &JsValue::from(mark as f64));
             let _ = history.push_state(&marker, "");
@@ -1864,6 +1887,11 @@ impl Host {
         };
         self.last_ms = Some(time_ms);
         self.ui.update(dt);
+        if !self.embedded
+            && let Some(theme) = &self.theme
+        {
+            crate::router::save_view(self.ui.focused(), Some(&theme.env.state.borrow()));
+        }
         let frame_requests = self.ui.take_requests();
         self.run(frame_requests);
         self.sync_history();
@@ -2243,7 +2271,11 @@ fn publish(h: &Host) {
         names.push("AppNotice".into());
         // The plays list's rows (by their place in the list).
         names.extend((0..st.plays.len()).map(|i| format!("Row{i}")));
-        if st.screen == "prompt" {
+        names.push("ClearSearch".into());
+        if st.screen == "start" {
+            names.extend(st.page_items.iter().cloned());
+            names.push("Multiplayer".into());
+        } else if st.screen == "prompt" {
             // The start prompt's buttons, by name (`Start`, `Device.defaults`).
             names.extend(st.page_items.iter().cloned());
             names.push("Card".into());

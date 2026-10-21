@@ -12,7 +12,8 @@ on crates.io on 2026-10-16 (versions below).
 
 ## Where it stands (2026-10-20)
 
-`cargo run` is the game on desktop: song select on the bundled songs and
+`cargo run` opens the silent Start menu on desktop; Singleplayer opens
+song select on the bundled songs and
 the song folders on disk (simfiles and Dancing☆Onigiri works, folders
 and zips read in place), options with the bindings, the UI core's start
 prompt, plays through the session the web runs (keyboard and

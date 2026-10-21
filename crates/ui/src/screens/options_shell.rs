@@ -20,8 +20,8 @@ use ddi_platform::DeviceId;
 /// Where the options lead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Leave {
-    /// Back to the songs.
-    Songs,
+    /// Return to the screen that opened Options.
+    Back,
     Calibrate,
     /// Autoplay a bundled song (on WebGL2).
     Demo {
@@ -115,7 +115,8 @@ fn call_with(
             return Some(model.borrow().data());
         }
         OptionsCall::Leave => {
-            platform.leave(Leave::Songs, cx);
+            platform.sample(false, model.borrow().settings.volume, cx);
+            platform.leave(Leave::Back, cx);
             return None;
         }
         OptionsCall::Action { id, button } => model.borrow_mut().action(&id, button),
@@ -123,8 +124,20 @@ fn call_with(
     match act {
         Act::Done => return Some(model.borrow().data()),
         Act::Nothing => {}
-        Act::Calibrate => platform.leave(Leave::Calibrate, cx),
-        Act::Demo { gl } => platform.leave(Leave::Demo { gl }, cx),
+        Act::Calibrate | Act::Demo { .. } => {
+            let volume = model.borrow().settings.volume;
+            platform.sample(false, volume, cx);
+            if model.borrow().world.sample != Sample::None {
+                model.borrow_mut().world.sample = Sample::Ready;
+            }
+            platform.leave(
+                match act {
+                    Act::Demo { gl } => Leave::Demo { gl },
+                    _ => Leave::Calibrate,
+                },
+                cx,
+            );
+        }
         Act::Export => platform.export(),
         Act::AddFolder => platform.add_folder(cx),
         Act::RemoveFolder(i) => platform.remove_folder(i),

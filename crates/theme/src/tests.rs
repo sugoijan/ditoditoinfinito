@@ -256,6 +256,9 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     let env = env(&theme);
     let state = env.state.clone();
     let _ = screens::design_for(&*theme, [844.0, 390.0]);
+    let mut title = harness([1280.0, 720.0], DESIGN);
+    title.push(sample::start_screen(&env, true));
+    title.run(0.3);
     // Song select, then results (both panel sets), then options.
     let mut h = harness([1280.0, 720.0], DESIGN);
     h.push(sample::select_screen(&env, None));
@@ -282,7 +285,7 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
             h.key("Escape", "Escape");
         }
     }
-    h.key("Escape", "Escape");
+    h.tap(PointerKind::Mouse, "ClearSearch");
     h.run(0.3);
     assert_eq!(state.borrow().search, "");
     // The next lit style (Sweeteners has no pump charts), then play.
@@ -362,7 +365,7 @@ fn the_screens_in_the_theme() {
     let texts = h.texts();
     for t in [
         "SELECT MUSIC",
-        "Dito Dito Infinito",
+        "Esc / Backspace: start menu",
         "Some Things Must",
         "(OutFox Edit)",
         "160",

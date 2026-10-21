@@ -100,6 +100,8 @@ pub struct Shell {
     /// Quit after this many seconds (a run under a watchdog).
     pub quit_after: Option<f64>,
     pub error: Option<String>,
+    quitting: bool,
+    quit_ready: bool,
     /// The theme's screens, when asked for (`--screen select`).
     pub theme: Option<(ThemeEnv, Rc<ddi_theme::Infinito>)>,
     /// Decoded images wait for a frame to show them.
@@ -194,7 +196,7 @@ impl Shell {
         let notice_actions: Rc<RefCell<Vec<String>>> = Rc::default();
         let ui = if let Some(songs) = songs
             .as_ref()
-            .filter(|_| matches!(name, "select" | "options"))
+            .filter(|_| matches!(name, "start" | "select" | "options"))
         {
             let (mut ui, env, look) = library_ui(name, fold, sound.clone(), songs);
             // Calibration's menu, opened again when a test leaves.
@@ -217,7 +219,7 @@ impl Shell {
             ui
         } else if matches!(
             name,
-            "select" | "results" | "options" | "credits" | "calibration"
+            "start" | "select" | "results" | "options" | "credits" | "calibration"
         ) {
             let (mut ui, env, look) = theme_ui_with(
                 if name == "options" { "select" } else { name },
@@ -267,6 +269,8 @@ impl Shell {
             files: 0,
             quit_after: None,
             error: None,
+            quitting: false,
+            quit_ready: false,
             theme,
             loaded: false,
             play,
@@ -456,6 +460,14 @@ impl Shell {
         self.run(out.requests);
     }
 
+    fn request_quit(&mut self) {
+        if !self.quitting {
+            self.quitting = true;
+            self.sound.borrow_mut().close();
+            self.quit_ready = self.songs.as_ref().is_none_or(|s| s.shutdown());
+        }
+    }
+
     fn run(&mut self, requests: Vec<UiRequest>) {
         let mut later = Vec::new();
         for r in requests {
@@ -496,7 +508,9 @@ impl Shell {
                     self.dev.borrow_mut().status = "beep".into();
                 }
                 UiRequest::PlayPreview { song } => self.sound.borrow_mut().select(Some(&song)),
-                UiRequest::StopPreview => self.sound.borrow_mut().stop(),
+                UiRequest::StopPreview => self.sound.borrow_mut().pause(),
+                UiRequest::Back => {}
+                UiRequest::Quit => self.request_quit(),
                 UiRequest::CopyText(text) => {
                     let _ = crate::os::copy(&text);
                 }
@@ -956,7 +970,8 @@ impl ApplicationHandler for Shell {
         };
         match event {
             WindowEvent::CloseRequested => {
-                if self.songs.as_ref().is_none_or(|s| s.shutdown()) {
+                self.request_quit();
+                if self.quit_ready || self.songs.as_ref().is_some_and(|s| s.drained()) {
                     event_loop.exit();
                 }
             }
@@ -1141,6 +1156,10 @@ impl ApplicationHandler for Shell {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.quitting && (self.quit_ready || self.songs.as_ref().is_some_and(|s| s.drained())) {
+            event_loop.exit();
+            return;
+        }
         if self
             .lose_device_after
             .is_some_and(|t| self.start.elapsed().as_secs_f64() >= t)
@@ -1198,10 +1217,21 @@ impl ApplicationHandler for Shell {
         }
         // Back on song select after a play (its results and prompt gone):
         // the selected song's preview plays again.
-        if self.sound.borrow().paused()
+        if !self.quitting
+            && self.sound.borrow().paused()
             && !self.play.playing()
-            && self.ui.layers().last().is_some_and(|l| l.name == "select")
+            && self
+                .ui
+                .layers()
+                .last()
+                .is_some_and(|l| l.name == "select" && l.phase != "out")
         {
+            if let Some((env, _)) = &self.theme {
+                let id = env.state.borrow().song_id.clone();
+                if !id.is_empty() {
+                    self.sound.borrow_mut().select(Some(&id));
+                }
+            }
             self.sound.borrow_mut().resume();
         }
         // Sound moves on (a preview settled, decoded, looped); a preview
@@ -1215,7 +1245,8 @@ impl ApplicationHandler for Shell {
         }
         if let Some(limit) = self.quit_after {
             if self.start.elapsed().as_secs_f64() >= limit {
-                if self.songs.as_ref().is_none_or(|s| s.shutdown()) {
+                self.request_quit();
+                if self.quit_ready || self.songs.as_ref().is_some_and(|s| s.drained()) {
                     event_loop.exit();
                 } else {
                     event_loop.set_control_flow(ControlFlow::WaitUntil(
@@ -1308,21 +1339,19 @@ pub fn theme_ui_with(
     sound: Option<SharedPlayer>,
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let (mut ui, env, look) = theme_base(fold, sound.as_ref().map(|p| preview_beat(p.clone())));
-    // Reduced motion changed in options: saved, and followed at once
-    // (desktop has no system preference).
     let changed = sample::motion_change(&env, || false);
-    let mut select = sample::select_screen(&env, Some(changed.clone()));
-    // Under a page (the credits, calibration's menu) the song list's
-    // preview stays quiet.
-    if let Some(p) = sound.filter(|_| !matches!(first, "credits" | "calibration")) {
-        let calls: ShellFn = Rc::new(move |call, _cx| {
-            if let SelectCall::Selected { song, .. } = call {
-                p.borrow_mut().select(song.as_deref());
-            }
-        });
-        select = select.with_shell(calls, SharedFeed::default());
+    let select = match &sound {
+        Some(sound) => sample_select(&env, sound.clone()),
+        None => sample::select_screen(&env, Some(changed.clone())),
+    };
+    if let Some(sound) = sound.clone() {
+        ui.push(title_screen(&env, sound, None));
+    } else {
+        ui.push(sample::start_screen(&env, true));
     }
-    ui.push(select);
+    if first != "start" {
+        ui.push(select);
+    }
     match first {
         "results" => ui.push(sample::results_screen(&env)),
         "options" => ui.push(sample::options_screen(&env, Some(changed))),
@@ -1360,7 +1389,10 @@ pub fn library_ui(
         Rc::new(move |id, t, bpm| player.borrow().beat(id).or_else(|| by_bpm(id, t, bpm)))
     };
     let (mut ui, env, look) = theme_base(fold, Some(beat));
-    ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
+    ui.push(title_screen(&env, sound.clone(), Some(songs.clone())));
+    if first != "start" && first != "options" {
+        ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
+    }
     if first == "options" {
         let (screen, shared) = crate::options::screen(&env, Some(sound), Some(songs.clone()));
         *songs.options.borrow_mut() = Some(shared);
@@ -1429,9 +1461,106 @@ fn types_text(down: bool, was_typing: bool, typing: bool, preedit: bool, m: Modi
     down && was_typing && typing && !preedit && !m.command()
 }
 
+pub(crate) fn credits_screen(env: &ThemeEnv) -> theme_screens::page::PageScreen {
+    let credits = std::fs::read_to_string("target/credits/credits-desktop.json")
+        .ok()
+        .and_then(|t| theme_screens::credits::parse(&t).ok())
+        .unwrap_or_else(theme_screens::credits::sample);
+    sample::credits_screen(
+        env,
+        &theme_screens::credits::Credits {
+            platform: theme_screens::data::Platform::Desktop,
+            ..credits
+        },
+    )
+}
+
+/// Sample screens still obey the real preview's ownership rules.
+fn sample_select(env: &ThemeEnv, sound: SharedPlayer) -> theme_screens::select::SelectScreen {
+    let play_sound = sound.clone();
+    let options_sound = sound.clone();
+    let calls: ShellFn = Rc::new(move |call, cx| match call {
+        SelectCall::Selected { song, .. } => sound.borrow_mut().select(song.as_deref()),
+        SelectCall::Leave => {
+            sound.borrow_mut().pause();
+            cx.close(true);
+        }
+        _ => {}
+    });
+    theme_screens::select::SelectScreen::new(
+        env.clone(),
+        sample::select(),
+        Some("some-things-must"),
+        Rc::new(move |_, _, env, cx| {
+            play_sound.borrow_mut().pause();
+            cx.push(sample::results_screen(env));
+        }),
+        Rc::new(move |env, cx| {
+            options_sound.borrow_mut().pause();
+            cx.push(sample::options_screen(
+                env,
+                Some(sample::motion_change(env, || false)),
+            ));
+        }),
+    )
+    .with_shell(calls, SharedFeed::default())
+}
+
+fn title_screen(
+    env: &ThemeEnv,
+    sound: SharedPlayer,
+    songs: Option<Rc<crate::songs::Songs>>,
+) -> theme_screens::start::StartScreen {
+    let e = env.clone();
+    theme_screens::start::StartScreen::new(
+        env.clone(),
+        true,
+        Rc::new(move |choice, cx| {
+            use theme_screens::start::Choice;
+            sound.borrow_mut().pause();
+            match choice {
+                Choice::Singleplayer => {
+                    if let Some(songs) = &songs {
+                        cx.push(crate::songs::screen(&e, songs, Some(sound.clone())));
+                    } else {
+                        cx.push(sample_select(&e, sound.clone()));
+                    }
+                }
+                Choice::Options if songs.is_none() => {
+                    cx.push(sample::options_screen(
+                        &e,
+                        Some(sample::motion_change(&e, || false)),
+                    ));
+                }
+                Choice::Options => {
+                    let (screen, shared) =
+                        crate::options::screen(&e, Some(sound.clone()), songs.clone());
+                    if let Some(songs) = &songs {
+                        *songs.options.borrow_mut() = Some(shared);
+                        songs.tell_options();
+                    }
+                    cx.push(screen);
+                }
+                Choice::Credits => cx.push(credits_screen(&e)),
+                Choice::Quit => cx.request(UiRequest::Quit),
+            }
+        }),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quit_without_importer_is_ready_and_idempotent() {
+        crate::audio::set_headless(true);
+        let mut shell = Shell::named("start");
+        shell.run(vec![UiRequest::Quit, UiRequest::Quit]);
+        assert!(shell.quitting);
+        assert!(shell.quit_ready);
+        assert!(shell.sound.borrow().status().1.is_none());
+    }
 
     #[test]
     fn the_key_that_opens_a_field_does_not_type_itself() {

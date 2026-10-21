@@ -352,7 +352,7 @@ impl PageScreen {
                 [w, h],
                 &[(&["↑↓"], "Move"), (&["ENTER"], "Open"), (&["ESC"], "Back")],
                 "",
-                &[("Link.Back", "Back to songs")],
+                &[("Link.Back", "Back")],
             );
             env.state.borrow_mut().hints = texts;
             children.push(f);
@@ -641,6 +641,9 @@ impl Screen for PageScreen {
     }
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        if !cx.is_current_screen() {
+            return;
+        }
         if self.place(cx.viewport().screen) {
             self.lay_out();
             self.scroll = self.scroll.clamp(0.0, self.max_scroll());

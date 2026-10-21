@@ -196,7 +196,7 @@ fn rows_change_the_settings_and_save_them() {
     assert!(stored().debug);
     // Back leaves, and the preview goes with the screen.
     r.h.key("Escape", "Escape");
-    assert!(r.logged("leave Songs"));
+    assert!(r.logged("leave Back"));
     assert_eq!(
         r.h.requested(|q| matches!(q, UiRequest::FieldPreview(None))),
         1

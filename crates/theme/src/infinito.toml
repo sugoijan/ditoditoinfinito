@@ -76,6 +76,10 @@ numbers_weight = 800
 "Graph.Axis" = "#3a3542"
 
 [metrics]
+"TitleMenu.Width" = 380
+"TitleMenu.RowHeight" = 52
+"TitleMenu.Gap" = 12
+"TitleMenu.TitleSize" = 30
 # The design size.
 "Design.Width" = 1280
 "Design.Height" = 720

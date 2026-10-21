@@ -73,6 +73,7 @@ pub mod sample;
 pub mod select;
 pub mod select_dialogs;
 mod select_navigation;
+pub mod start;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -648,12 +649,20 @@ pub(crate) fn compact_fit(
     if !is_compact(&*env.look, vp) {
         return ([vp.width, vp.height], 1.0, false);
     }
+    let (size, zoom) = narrow_fit(env, vp);
+    (size, zoom, true)
+}
+
+/// A screen's layout size and zoom on any design: sideways (or no wider
+/// than `Options.Narrow.Width`) as it is; upright, that wide, zoomed to
+/// the screen's width.
+pub(crate) fn narrow_fit(env: &Env, vp: ddi_actor::screen::VirtualScreen) -> ([f32; 2], f32) {
     let narrow = env.metric("Options.Narrow.Width", 480.0);
     if vp.width >= vp.height || vp.width <= narrow {
-        ([vp.width, vp.height], 1.0, true)
+        ([vp.width, vp.height], 1.0)
     } else {
         let z = vp.width / narrow;
-        ([narrow, vp.height / z], z, true)
+        ([narrow, vp.height / z], z)
     }
 }
 

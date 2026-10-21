@@ -865,7 +865,7 @@ impl GameCanvas {
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
                 }
-                back_route(&ctx.props().source).navigate();
+                back_route(&ctx.props().source).return_to();
                 false
             }
             Msg::Begin(audio, from_pad) => self.start(ctx, *audio, from_pad),
@@ -1041,8 +1041,8 @@ impl GameCanvas {
                     game.clear_session();
                 }
                 match &ctx.props().source {
-                    SongSource::Calibration(_) => Route::Calibrate.navigate(),
-                    SongSource::Song { .. } => Route::Home.navigate(),
+                    SongSource::Calibration(_) => Route::Calibrate.return_to(),
+                    SongSource::Song { .. } => Route::Songs.return_to(),
                 }
                 true
             }
@@ -1058,7 +1058,7 @@ impl GameCanvas {
                 "save" => self.handle(ctx, Msg::SaveCalibration),
                 "again" => self.handle(ctx, Msg::Retry),
                 "songs" => {
-                    Route::Home.navigate();
+                    Route::Songs.return_to();
                     false
                 }
                 "next" | "done" => {
@@ -1073,8 +1073,8 @@ impl GameCanvas {
                             // The last step of the guided flow ends it: back
                             // to the songs; earlier ones leave the flow, to
                             // the calibration page.
-                            (_, None) => Route::Home.navigate(),
-                            _ => Route::Calibrate.navigate(),
+                            (_, None) => Route::Songs.return_to(),
+                            _ => Route::Calibrate.return_to(),
                         }
                     }
                     false
@@ -2067,7 +2067,7 @@ impl GameCanvas {
             })
         };
         let song_list: ActionFn = Rc::new(|_, _| {
-            spawn_local(async { Route::Home.navigate() });
+            spawn_local(async { Route::Songs.return_to() });
         });
         let offset = ddi_ui::screens::play::song_offset_saver(id.clone());
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
@@ -2231,7 +2231,7 @@ fn js_debug(
 
 fn back_route(source: &SongSource) -> Route {
     match source {
-        SongSource::Song { .. } => Route::Home,
+        SongSource::Song { .. } => Route::Songs,
         SongSource::Calibration(_) => Route::Calibrate,
     }
 }

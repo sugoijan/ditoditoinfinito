@@ -54,7 +54,7 @@ fn button(
             let (screen, shared) = crate::options::screen(env, sound.cloned(), Some(songs.clone()));
             *songs.options.borrow_mut() = Some(shared);
             songs.tell_options();
-            cx.replace(screen);
+            cx.push(screen);
             None
         }
         CalAct::ConfirmReset => {

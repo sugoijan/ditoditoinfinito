@@ -1135,6 +1135,14 @@ impl Look for Infinito {
     fn component(&self, name: &str, spec: &Spec) -> Option<Actor> {
         let [w, h] = spec.size;
         Some(match name {
+            "TitleMenu.Primary" => self.button(spec, "Accent", "OnAccent", 20.0, 700),
+            "TitleMenu.Choice" => self.button(spec, "Plate2", "Text", 18.0, 600),
+            "TitleMenu.Disabled" => {
+                let mut button = self.button(spec, "Plate2", "Muted", 18.0, 600);
+                command_of(&mut button, "Press", "stoptweening;zoom,1");
+                command_of(&mut button, "Release", "stoptweening;zoom,1");
+                button
+            }
             "Button" => self.button(spec, "Plate2", "Text", 15.0, 600),
             "PlayButton" => self.button(spec, "Accent", "OnAccent", 18.0, 700),
             "IconButton" => self.button(spec, "Plate2", "Text", 20.0, 700),

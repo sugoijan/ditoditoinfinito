@@ -273,14 +273,18 @@ impl OptionsPlatform for Desktop {
         }
     }
 
-    /// Back to the songs under it, or calibration's menu in its place;
+    /// Back to the caller under it, or calibration's menu above it;
     /// the demo play is the web's (a WebGL2 check).
     fn leave(&self, to: Leave, cx: &mut Cx) {
+        if let Some(sound) = &self.0.sound {
+            sound.borrow_mut().pause();
+        }
+        cx.request(ddi_ui::UiRequest::FieldPreview(None));
         match to {
-            Leave::Songs => cx.close(false),
+            Leave::Back => cx.close(false),
             Leave::Calibrate => {
                 if let Some(songs) = &self.0.songs {
-                    cx.replace(crate::calibrate::menu(
+                    cx.push(crate::calibrate::menu(
                         &self.0.env,
                         songs,
                         self.0.sound.clone(),

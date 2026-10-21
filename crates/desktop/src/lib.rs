@@ -245,7 +245,13 @@ pub fn run() {
         Some(i) => args.get(i + 1).cloned().unwrap_or_default(),
         None if args.iter().any(|a| a == "--widgets") => "widgets".into(),
         None if args.iter().any(|a| a == "--dev") => "dev".into(),
-        None => "select".into(),
+        None if args
+            .iter()
+            .any(|a| matches!(a.as_str(), "--play" | "--replay" | "--calibrate")) =>
+        {
+            "select".into()
+        }
+        None => "start".into(),
     };
     let volume = args
         .iter()
@@ -256,7 +262,7 @@ pub fn run() {
     // and the song folders), unless `--sample` asks for the sample data;
     // `--songs <dir>` adds a folder for this run.
     let songs = (!args.iter().any(|a| a == "--sample")
-        && matches!(screen.as_str(), "select" | "options"))
+        && matches!(screen.as_str(), "start" | "select" | "options"))
     .then(|| {
         let extra: Vec<std::path::PathBuf> = args
             .iter()

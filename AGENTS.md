@@ -77,7 +77,7 @@ the browser are implementation details, not advertised features.
   screens with transitions, dialogs, messages to actors, the one-line text
   field (mirroring the web's hidden textarea, or editing itself on
   desktop), and a headless harness; the theme's screens
-  (`crates/ui/src/screens/`: song select, results, options, the pages for
+  (`crates/ui/src/screens/`: start menu, song select, results, options, the pages for
   calibration's menu and the credits, the app's notices as the UI's
   chrome, the play's start prompt, `prompt.rs`) with their sample
   data, options' rows made from the settings and the shell every
@@ -93,7 +93,7 @@ the browser are implementation details, not advertised features.
   a look for the UI core whose components are the maintainer's mockups,
   its colors, faces, sizes, timings and places in
   `crates/theme/src/infinito.toml` (turned into tables at build time). The
-  screens it dresses are `crates/ui/src/screens/` (song select, results,
+  screens it dresses are `crates/ui/src/screens/` (start menu, song select, results,
   options; theme-agnostic, fed plain data). Pure, natively tested.
 - `crates/noteskin/` StepMania noteskins: fallback chains, file lookup and
   redirects, `metrics.ini`, file name hints, what each element is (stand-ins
@@ -143,7 +143,8 @@ the browser are implementation details, not advertised features.
   styles, boot script and SEO data beside it in `site/`),
   `cargo run` for desktop.
 - `crates/web/` the web shell (`ddi-web`): the UI core's screens on the canvas
-  (song select at `#/`, `crates/web/src/components/select_page.rs`; the start
+  (start menu at `#/`, `crates/web/src/components/page_routes.rs`; song
+  select at `#/select`, `crates/web/src/components/select_page.rs`; the start
   prompt and the results on the play route,
   `crates/web/src/components/game_canvas.rs`; options at `#/options`,
   `crates/web/src/components/options_page.rs`; calibration's menu at
@@ -300,11 +301,11 @@ the browser are implementation details, not advertised features.
   defaults to video and the importer; `--no-default-features --features
   danoni-importer` makes a deliberate no-video package, `--no-default-features
   --features video` a build without the importer.
-- `cargo run` opens the desktop app on our theme's song select
+- `cargo run` opens the desktop app on our theme's silent start menu
   (`--profile desktop` for smooth frames: `release` is the wasm bundle's,
   tuned for size and aborting on panics). Flags (`ddi_desktop::run`):
   `--songs DIR` (a folder for this run), `--sample`, `--screen
-  select|results|options|calibration|credits`, `--dev`, `--widgets`,
+  start|select|results|options|calibration|credits`, `--dev`, `--widgets`,
   `--play SONG [--chart N] [--auto | --auto=pad] [--start]`,
   `--replay PLAY_ID [--results] [--start]` (a kept play's replay, or its
   results),
@@ -465,6 +466,13 @@ follows the physical cue (heard audio, or drawn arrows in the muted test), not
 the judged timeline; keep it that way or offset tests become meaningless. In
 play (`&auto=1`) it presses on the judged timeline, so it stays exact under any
 calibrated offset.
+
+Menu Back is unmodified Escape or Backspace after text/binding/dialog handling.
+Song browsing returns to Start in one press, keeping its filter and place;
+Clear beside Search clears the filter explicitly. Options returns to its caller.
+Web route ancestry and Options position live in history state; desktop uses
+the UI stack. Preview audio belongs to visible song select (or an explicit
+Options sample); Start is silent. See `docs/plans/start-menu.md`.
 
 ## Additional chart versions
 

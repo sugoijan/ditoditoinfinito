@@ -3,7 +3,7 @@
 Each plan was written before its work and kept as the record of what was
 built, how it was checked and what was left; `docs/PLAN.md` holds the
 architecture, the decisions and the roadmap they belong to. Status as of
-2026-10-20. Dates are each plan's own (* its first commit).
+2026-10-21. Dates are each plan's own (* its first commit).
 
 ## Noteskins and Lua
 
@@ -64,6 +64,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
 
 ## UI and desktop
 
+- [Start menu and returning between screens](start-menu.md) (2026-10-20):
+  implemented 2026-10-21. Singleplayer entry, a future Multiplayer hint, caller-relative
+  Options, silent return from song select and desktop Quit.
 - [Our own UI core](ui-core.md) (2026-10-15): done 2026-10-16 (step 7
   through `desktop.md`). Later: StepMania themes, accessibility.
 - [Our theme, first version](theme.md) (2026-10-15): done, refined since.

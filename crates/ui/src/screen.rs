@@ -225,6 +225,7 @@ pub struct Cx {
     pub(crate) menu_pad: bool,
     /// The last input was a key or a pad's (not a pointer).
     pub(crate) by_keys: bool,
+    pub(crate) current_screen: bool,
 }
 
 impl Cx {
@@ -246,7 +247,14 @@ impl Cx {
             menu_source: None,
             menu_pad: false,
             by_keys: false,
+            current_screen: true,
         }
+    }
+
+    /// This is the foremost screen, not covered by another screen or leaving.
+    /// Dialogs and app chrome do not change the owning screen.
+    pub fn is_current_screen(&self) -> bool {
+        self.current_screen
     }
 
     /// Whether the player last used keys or a pad (the focus ring shows),

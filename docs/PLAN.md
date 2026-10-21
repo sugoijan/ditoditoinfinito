@@ -368,6 +368,14 @@ What each phase delivered and how it was checked, in full.
 
 ### Beyond the original plan
 
+Start menu (implemented 2026-10-21; [plan](plans/start-menu.md)): a
+Singleplayer-first entry before song select, disabled Multiplayer hint,
+Options returning to its caller, and desktop Quit. Back from ordinary
+song browsing returns to the silent menu in one press, preserving its filter
+and place; Clear resets search explicitly. Web Start is `#/`, Songs is
+`#/select`; app-owned history preserves callers across reload. The shared
+`TitleMenu` actor boundary prepares future theme work.
+
 Done beyond the original plan: calibration that converges on the real
 gameplay path, per-device audio/display offset profiles with app-wide banners,
 receptor snap, fail fade, cancel gesture, debug overlay, calibration drawn

@@ -26,6 +26,7 @@ use crate::router::Route;
 /// Which page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Which {
+    Start,
     Calibration,
     Credits,
 }
@@ -119,6 +120,7 @@ impl PagePage {
         let env = theme.env().clone();
         let which = ctx.props().which;
         let (name, doc) = match which {
+            Which::Start => ("start", PageDoc::default()),
             Which::Calibration => ("calibration", calibration::stored_doc()),
             Which::Credits => ("credits", ddi_ui::screens::credits::waiting(None)),
         };
@@ -127,7 +129,7 @@ impl PagePage {
             let feed = self.feed.clone();
             Rc::new(move |call, cx| match call {
                 PageCall::Leave => {
-                    cx.request(UiRequest::Navigate(Route::Home.to_hash()));
+                    cx.request(UiRequest::Back);
                     None
                 }
                 PageCall::Button(id) if which == Which::Calibration => {
@@ -139,7 +141,33 @@ impl PagePage {
         let screen = PageScreen::new(env, name, doc).with_shell(shell, self.feed.clone());
         let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
         ui.set_focus_ring(false);
-        ui.push(screen);
+        if which == Which::Start {
+            ui.push(
+                ddi_ui::screens::start::StartScreen::new(
+                    theme.env().clone(),
+                    false,
+                    Rc::new(|choice, cx| {
+                        use ddi_ui::screens::start::Choice;
+                        let route = match choice {
+                            Choice::Singleplayer => {
+                                // Stay inside the activating input, before route mounting.
+                                if cx.in_gesture() {
+                                    crate::select_preview::gesture();
+                                }
+                                Route::Songs
+                            }
+                            Choice::Options => Route::Options,
+                            Choice::Credits => Route::Credits,
+                            Choice::Quit => return,
+                        };
+                        cx.request(UiRequest::Navigate(route.to_hash()));
+                    }),
+                )
+                .with_focus(crate::router::saved_focus()),
+            );
+        } else {
+            ui.push(screen);
+        }
         match ui_dev::start_ui(&el, ui, Some(theme), None) {
             Ok(started) => {
                 *self.host.borrow_mut() = Some(Rc::downgrade(&started.0));

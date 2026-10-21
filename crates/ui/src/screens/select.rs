@@ -63,6 +63,8 @@ pub type OpenFn = Rc<dyn Fn(&Env, &mut Cx)>;
 /// gesture-bound requests are made inside the input that asked.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SelectCall {
+    /// Leave song browsing for the start menu.
+    Leave,
     /// The song shown changed (its preview starts): `None`, no song.
     /// `from_pad`: the move came from a controller.
     Selected {
@@ -1124,17 +1126,50 @@ impl SelectScreen {
             }
             children.push(left(title, margin + 56.0, 28.0));
         } else {
-            children.push(header(&env, screen[0], "SELECT MUSIC"));
+            let mut heading = header(&env, screen[0], "SELECT MUSIC");
+            if let Some(title) = part(&mut heading, "Title") {
+                call(title, "x", &[94.0]);
+            }
+            if let Some(subtitle) = part(&mut heading, "Subtitle") {
+                subtitle.visible = false;
+            }
+            children.push(heading);
+            children.push(env.component(
+                "IconButton",
+                "Button",
+                &Spec::new([44.0, 44.0], "‹"),
+                "Back",
+                [54.0, 32.0],
+            ));
+            children.push(left(
+                env.text(
+                    "BackHint",
+                    "Esc / Backspace: start menu",
+                    12.0,
+                    400,
+                    "Muted",
+                ),
+                94.0,
+                42.0,
+            ));
             children.push(self.mods(screen));
         }
         let [fx, fy, fw, fh] = l.field;
         self.search.centre = [fx + fw / 2.0, fy + fh / 2.0];
-        self.search.size = [fw, fh];
+        self.search.size = [(fw - 76.0).max(40.0), fh];
+        self.search.centre[0] -= 38.0;
         let mut field = self.search.build(&*env.look);
         if l.compact {
             field.visible = self.typing || !self.search.text.is_empty();
         }
         children.push(field);
+        children.push(env.component(
+            "Button",
+            "Button",
+            &Spec::new([68.0, fh.max(44.0)], "Clear"),
+            "ClearSearch",
+            [fx + fw - 34.0, fy + fh / 2.0],
+        ));
         children.push(frame("Notices", Vec::new()));
         let mut root = Actor::new(Kind::Frame(children));
         super::entrance(&mut root, &env);
@@ -1695,12 +1730,7 @@ impl SelectScreen {
             return;
         }
         self.hints = Some(key);
-        // Escape clears a search before it closes packs.
-        let esc = if searching {
-            "Clear search"
-        } else {
-            "Close pack"
-        };
+        let esc = "Back";
         let mut links: Vec<(&str, &str)> = Vec::new();
         if self.plays.is_some() && now == Hints::Song {
             links.push(("Link.Plays", "Plays…"));
@@ -1918,13 +1948,15 @@ impl SelectScreen {
     fn call(&self, c: SelectCall, cx: &mut Cx) {
         if let Some(s) = &self.shell {
             s(c, cx);
+        } else if c == SelectCall::Leave {
+            cx.close(true);
         }
     }
 
     /// Tells the shell what changed: the song shown (its preview), the
     /// list's place.
     fn tell(&mut self, cx: &mut Cx) {
-        if self.shell.is_none() {
+        if self.shell.is_none() || !cx.is_current_screen() {
             return;
         }
         let song = match self.shown {
@@ -2342,21 +2374,12 @@ impl SelectScreen {
         let _ = root;
     }
 
-    /// Back: clears the search, else closes the selected song's pack.
-    fn back(&mut self, root: &mut Actor, cx: &mut Cx) -> Handled {
-        if !self.search.text.is_empty() {
-            self.clear_search(root, cx);
-            return Handled::Yes;
-        }
-        if let Some(Item::Song(s)) = self.selected_item() {
-            let pack = &self.data.songs[s].pack;
-            if let Some(p) = self.packs.iter().position(|(n, _)| n == pack) {
-                self.toggle_pack(p);
-                self.follow();
-                return Handled::Yes;
-            }
-        }
-        Handled::No
+    /// Ordinary browsing returns to the title menu, preserving the list.
+    fn back(&mut self, _root: &mut Actor, cx: &mut Cx) -> Handled {
+        self.cancel_navigation();
+        self.tell(cx);
+        self.call(SelectCall::Leave, cx);
+        Handled::Yes
     }
 
     fn clear_search(&mut self, root: &mut Actor, cx: &mut Cx) {
@@ -2707,7 +2730,11 @@ impl Screen for SelectScreen {
             }
             f
         };
-        let mut v = vec![Focusable::new("Wheel"), along(&self.search.name)];
+        let mut v = vec![
+            Focusable::new("Wheel"),
+            along(&self.search.name),
+            Focusable::new("ClearSearch"),
+        ];
         if self.layout.compact {
             for n in [
                 "Back",
@@ -2724,6 +2751,7 @@ impl Screen for SelectScreen {
         } else {
             v.push(along("Autoplay"));
             for n in [
+                "Back",
                 "Link.Plays",
                 "Link.Manage",
                 "Link.Add",
@@ -2762,6 +2790,10 @@ impl Screen for SelectScreen {
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        if !cx.is_current_screen() {
+            self.cancel_navigation();
+            return;
+        }
         let events = self.navigation.advance(cx.time());
         self.apply_navigation(events, root, cx);
         // A new size (a window resized or turned, a new design), or
@@ -2861,6 +2893,9 @@ impl Screen for SelectScreen {
                 call(pp, "diffusealpha", &[v]);
             }
         }
+        if let Some(clear) = hit::find_mut(root, "ClearSearch") {
+            clear.visible = self.typing || !self.search.text.is_empty();
+        }
         // Dimmed while typing.
         if self.dimmed != self.typing
             && let Some(s) = hit::find_mut(root, "Song")
@@ -2871,7 +2906,7 @@ impl Screen for SelectScreen {
         }
         // Back on top of a screen that said what it did: say it again.
         let st = self.env.state.borrow();
-        let back_on_top = st.over == 0 && st.screen != "select";
+        let back_on_top = st.screen != "select";
         drop(st);
         if back_on_top {
             self.publish_dirty = true;
@@ -3055,18 +3090,6 @@ impl SelectScreen {
         match input {
             Input::Key(k) if k.down && !k.composing && k.key == "/" && !self.typing => {
                 self.begin_search(root, cx);
-                return Handled::Yes;
-            }
-            // Backspace is Back, as Escape (closing the song's pack,
-            // clearing a search); typing, it deletes.
-            Input::Key(k)
-                if k.down
-                    && !k.repeat
-                    && !self.typing
-                    && k.key == "Backspace"
-                    && !k.modifiers.any_but_shift() =>
-            {
-                self.back(root, cx);
                 return Handled::Yes;
             }
             // Manage: Delete, or ⌘ Backspace (Ctrl elsewhere: a Mac's
@@ -3299,6 +3322,7 @@ impl SelectScreen {
                 }
                 return Handled::Yes;
             }
+            "ClearSearch" => self.clear_search(root, cx),
             "Link.Calibrate" => self.call(SelectCall::Open("calibrate".into()), cx),
             "Link.Credits" => self.call(SelectCall::Open("credits".into()), cx),
             "Link.Source" => self.call(SelectCall::Open("source".into()), cx),

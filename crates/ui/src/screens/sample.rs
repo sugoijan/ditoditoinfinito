@@ -584,6 +584,24 @@ pub fn options_screen(env: &Env, changed: Option<ChangeFn>) -> OptionsScreen {
     OptionsScreen::new(env.clone(), options(reduced), changed)
 }
 
+/// A complete title/menu flow for developer routes and headless tests.
+pub fn start_screen(env: &Env, desktop: bool) -> super::start::StartScreen {
+    let e = env.clone();
+    super::start::StartScreen::new(
+        env.clone(),
+        desktop,
+        Rc::new(move |choice, cx| {
+            use super::start::Choice;
+            match choice {
+                Choice::Singleplayer => cx.push(select_screen(&e, None)),
+                Choice::Options => cx.push(options_screen(&e, None)),
+                Choice::Credits => cx.push(credits_screen(&e, &super::credits::sample())),
+                Choice::Quit => cx.request(crate::UiRequest::Quit),
+            }
+        }),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

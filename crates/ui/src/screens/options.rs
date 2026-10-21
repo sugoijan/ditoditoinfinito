@@ -137,6 +137,25 @@ impl OptionsScreen {
         self
     }
 
+    /// Restore the caller's view after a route detour; unknown rows fall back.
+    pub fn with_position(mut self, position: Option<(String, String, f32)>) -> Self {
+        if let Some((section, option, scroll)) = position {
+            self.section = self
+                .data
+                .sections
+                .iter()
+                .position(|s| s.name == section)
+                .unwrap_or(0);
+            self.focus = self
+                .options()
+                .iter()
+                .position(|o| o.id == option)
+                .unwrap_or(0);
+            self.scroll = scroll.max(0.0);
+        }
+        self
+    }
+
     fn options(&self) -> &[OptionDef] {
         self.data
             .sections
@@ -314,7 +333,7 @@ impl OptionsScreen {
                     (&["ESC"], "Back"),
                 ],
                 "",
-                &[("Link.Back", "Back to songs")],
+                &[("Link.Back", "Back")],
             );
             env.state.borrow_mut().hints = texts;
             children.push(f);
@@ -1057,6 +1076,12 @@ impl Screen for OptionsScreen {
     }
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        if !cx.is_current_screen() {
+            // The child may have stopped or replaced the field texture.
+            // Publish our preview again when this caller becomes current.
+            self.told = None;
+            return;
+        }
         let vp = cx.viewport().screen;
         let before = self.places;
         self.place(vp);

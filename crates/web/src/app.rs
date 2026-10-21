@@ -125,7 +125,7 @@ impl App {
             Route::Play { .. } | Route::CalibrateRun { .. } => {
                 format!("{}#{}", self.route.to_hash(), self.play_mounts)
             }
-            Route::Home | Route::UiTest { .. } | Route::UiDev { .. } => {
+            Route::Home | Route::Songs | Route::UiTest { .. } | Route::UiDev { .. } => {
                 format!("{}#lost{losses}", self.route.to_hash())
             }
             // Drawn on the new device as they are (the section, the row,
@@ -167,8 +167,15 @@ impl App {
             })
         };
         match &self.route {
-            // Song select, our theme's screen on the canvas (step 6.2).
-            Route::Home => Box::new(mount::<SelectPage>(root, "main", ())),
+            // Title menu and song select share the canvas UI host.
+            Route::Home => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props {
+                    which: Which::Start,
+                },
+            )),
+            Route::Songs => Box::new(mount::<SelectPage>(root, "main", ())),
             // A kept play watched again (or its results): read first.
             Route::Play {
                 replay: Some(id),

@@ -819,6 +819,12 @@ impl Ui {
         cx.menu_source = self.menu_source.clone();
         cx.menu_pad = self.menu_pad;
         cx.by_keys = self.ring_shown;
+        cx.current_screen = self
+            .layers
+            .iter()
+            .rev()
+            .find(|l| !l.chrome && !l.overlay)
+            .is_some_and(|l| l.id == id && !matches!(l.phase, Phase::Leaving(_)));
         cx
     }
 

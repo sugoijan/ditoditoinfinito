@@ -276,7 +276,9 @@ impl Songs {
 
     /// The scan's and the history's news; whether the list was sent.
     pub fn poll(self: &Rc<Self>, ui: &mut Ui) -> bool {
-        self.offer(ui);
+        if ui.layers().last().is_some_and(|l| l.name == "select") {
+            self.offer(ui);
+        }
         #[cfg(danoni_importer)]
         {
             let news = self.imports.borrow_mut().poll();
@@ -515,6 +517,12 @@ impl Songs {
                 #[cfg(danoni_importer)]
                 self.imports.borrow().cancel();
             }
+            SelectCall::Leave => {
+                if let Some(p) = sound {
+                    p.borrow_mut().pause();
+                }
+                cx.close(true);
+            }
             SelectCall::Selected { song, .. } => {
                 if let Some(p) = sound {
                     p.borrow_mut().select(song.as_deref());
@@ -615,6 +623,9 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
     let open: OpenFn = {
         let (songs, sound) = (songs.clone(), sound.clone());
         Rc::new(move |env: &Env, cx: &mut Cx| {
+            if let Some(p) = &sound {
+                p.borrow_mut().pause();
+            }
             let (screen, shared) = crate::options::screen(env, sound.clone(), Some(songs.clone()));
             *songs.options.borrow_mut() = Some(shared);
             songs.tell_options();
@@ -625,7 +636,17 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
         let (songs, env) = (songs.clone(), env.clone());
         Rc::new(move |call, cx| {
             if matches!(&call, SelectCall::Open(what) if what == "calibrate") {
+                if let Some(p) = &sound {
+                    p.borrow_mut().pause();
+                }
                 cx.push(crate::calibrate::menu(&env, &songs, sound.clone()));
+                return;
+            }
+            if matches!(&call, SelectCall::Open(what) if what == "credits") {
+                if let Some(p) = &sound {
+                    p.borrow_mut().pause();
+                }
+                cx.push(crate::shell::credits_screen(&env));
                 return;
             }
             let rows_change = matches!(

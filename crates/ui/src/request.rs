@@ -89,6 +89,10 @@ pub enum UiRequest {
     OpenUrl(String),
     /// Go to a route (`#/play?song=…`).
     Navigate(String),
+    /// Return to the calling menu, or its logical parent on a direct launch.
+    Back,
+    /// Desktop only: the same orderly shutdown as closing the window.
+    Quit,
     /// Make (or resume) the audio context. Placeholder until the screens
     /// that need it move over.
     StartAudio,

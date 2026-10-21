@@ -340,8 +340,9 @@ impl OptionsPage {
             Rc::new(Web(self.shared.clone())),
         );
         let data = self.shared.model.borrow().data();
-        let screen =
-            OptionsScreen::new(env, data, None).with_shell(shell, self.shared.feed.clone());
+        let screen = OptionsScreen::new(env, data, None)
+            .with_position(crate::router::saved_options())
+            .with_shell(shell, self.shared.feed.clone());
         let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
         ui.set_focus_ring(false);
         ui.push(screen);
@@ -489,7 +490,10 @@ impl OptionsPlatform for Web {
 
     fn leave(&self, to: Leave, cx: &mut Cx) {
         let route = match to {
-            Leave::Songs => Route::Home,
+            Leave::Back => {
+                cx.request(UiRequest::Back);
+                return;
+            }
             Leave::Calibrate => Route::Calibrate,
             Leave::Demo { gl } => Route::Play {
                 song: "some-things-must".into(),
