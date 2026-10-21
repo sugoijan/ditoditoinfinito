@@ -55,6 +55,8 @@
 pub mod calibration;
 pub mod credits;
 pub mod data;
+pub mod editor;
+pub mod editor_dialogs;
 pub mod folders_offer;
 pub mod notices;
 pub mod options;
@@ -219,6 +221,8 @@ pub struct ThemeState {
     /// and the chosen row's id.
     pub plays: Vec<String>,
     pub plays_selected: Option<String>,
+    /// The chart editor, while it is up.
+    pub editor: Option<editor::EditorView>,
 }
 
 pub type SharedTheme = Rc<RefCell<ThemeState>>;

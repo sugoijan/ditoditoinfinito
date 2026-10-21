@@ -1363,6 +1363,14 @@ impl Ui {
         let action = (!k.modifiers.any_but_shift())
             .then(|| nav::key_action(&k.code))
             .flatten();
+        // A screen holding keys (the editor's lanes) hears them let go.
+        if !k.down
+            && let Some(id) = self.input_chain().into_iter().find(|&id| {
+                self.active(id) && self.layer(id).is_some_and(|l| l.screen.key_releases())
+            })
+        {
+            self.dispatch(id, Input::Key(k.clone()), false);
+        }
         if !k.down || k.repeat {
             // The OS's repeats of a menu key are ours too (no scrolling).
             self.consumed |= k.repeat && action.is_some() && !self.input_chain().is_empty();

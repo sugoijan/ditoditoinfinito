@@ -77,6 +77,18 @@ const SOURCES: &[(&str, &str)] = &[
         include_str!("../../ui/src/screens/data.rs"),
     ),
     (
+        "crates/ui/src/screens/editor.rs",
+        include_str!("../../ui/src/screens/editor.rs"),
+    ),
+    (
+        "crates/ui/src/screens/editor_dialogs.rs",
+        include_str!("../../ui/src/screens/editor_dialogs.rs"),
+    ),
+    (
+        "crates/ui/src/state/editor/mod.rs",
+        include_str!("../../ui/src/state/editor/mod.rs"),
+    ),
+    (
         "crates/ui/src/screens/mod.rs",
         include_str!("../../ui/src/screens/mod.rs"),
     ),

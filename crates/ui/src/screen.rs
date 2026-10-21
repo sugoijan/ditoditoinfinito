@@ -157,6 +157,13 @@ pub trait Screen {
         false
     }
 
+    /// Whether it is also sent keys' releases ([`Input::Key`] with
+    /// `down` false; menu keys' too): a screen that acts on keys held
+    /// down (the chart editor's lanes).
+    fn key_releases(&self) -> bool {
+        false
+    }
+
     /// The named actors focus moves between, in order (the first is
     /// focused when the screen comes in), with any explicit neighbours.
     fn focusables(&self) -> Vec<Focusable> {

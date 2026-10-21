@@ -398,7 +398,23 @@ impl Editor {
 
     /// The song as it is now has been saved.
     pub fn mark_saved(&mut self) {
-        self.saved = self.undo.last().map(|(s, _)| *s);
+        self.saved = self.revision();
+    }
+
+    /// Which edit the song is at (`None`: none made): what a save that
+    /// ends later marks as saved ([`Editor::mark_saved_at`]).
+    pub fn revision(&self) -> Option<u64> {
+        self.undo.last().map(|(s, _)| *s)
+    }
+
+    /// The song as it was at `revision` has been saved.
+    pub fn mark_saved_at(&mut self, revision: Option<u64>) {
+        self.saved = revision;
+    }
+
+    /// Notes of the chart shown.
+    pub fn note_count(&self) -> usize {
+        self.chart().notes.len()
     }
 
     pub fn can_undo(&self) -> bool {
