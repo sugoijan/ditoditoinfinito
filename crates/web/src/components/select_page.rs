@@ -465,6 +465,11 @@ impl SelectPage {
                 // A linked song's folder may need asking again: only the
                 // gesture can.
                 ask_folder(&shared, &song.id);
+                // The audio context, running, for the play to ready its
+                // music with before Start.
+                if let Some(audio) = crate::select_preview::hand_over(cx.in_gesture()) {
+                    crate::web::audio::keep_for_play(&song.id, chart.index, audio);
+                }
                 cx.request(UiRequest::Navigate(play_hash(&song.id, chart.index)));
             })
         };

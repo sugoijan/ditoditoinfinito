@@ -514,7 +514,11 @@ call `play()` inside the click or key handler, with no `await` (storage read,
 fetch) in between. Safari refuses once the gesture is over, and the headless
 runs (launched with an autoplay override) cannot catch it; for previews, test
 with `--autoplay-policy=document-user-activation-required` and ask the
-maintainer to confirm in Safari.
+maintainer to confirm in Safari. A play opened from song select takes
+song select's context, running from that press (or an earlier one), and
+its start prompt decodes the music on it, so Start only starts the sound
+(`select_preview::hand_over`, `web::audio::keep_for_play`); a play opened
+any other way makes its context at Start, as before.
 
 In calibration the autoplayer
 follows the physical cue (heard audio, or drawn arrows in the muted test), not

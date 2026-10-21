@@ -15,7 +15,8 @@
 //! chart (for the beat) are read then. Before the first gesture the music
 //! is decoded on an `OfflineAudioContext` (any page may make one; no audio
 //! starts), so the gesture only starts the sound. The beat pulse follows
-//! the music as heard ([`beat`]).
+//! the music as heard ([`beat`]). A play opened from song select takes
+//! the context ([`hand_over`]), running, to ready its music before Start.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -183,6 +184,31 @@ pub(crate) fn stop() {
             a.stop_all();
         }
     });
+}
+
+/// A play opens: the page's context for it, running (made or resumed in
+/// this gesture, `in_gesture`, or running since an earlier one: a pad's
+/// press); `None` where none may start. Song select makes another when it
+/// shows again ([`arrive`]).
+pub(crate) fn hand_over(in_gesture: bool) -> Option<WebAudio> {
+    stop();
+    let audio = STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        if s.audio.as_ref().is_some_and(|a| in_gesture || a.running()) {
+            s.audio.take()
+        } else {
+            None
+        }
+    });
+    let audio = match audio {
+        Some(a) => Some(a),
+        None if in_gesture => WebAudio::new().ok(),
+        None => None,
+    }?;
+    audio.resume_now();
+    // A play's master is at full volume (its sounds have their own).
+    audio.set_master_volume(1.0);
+    Some(audio)
 }
 
 /// The page went: nothing plays; the context is kept, suspended, for the

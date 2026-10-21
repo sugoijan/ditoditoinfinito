@@ -970,6 +970,28 @@ impl AudioBackend for WebAudio {
     }
 }
 
+thread_local! {
+    /// The context song select handed to the play it opened, by its song
+    /// and chart ([`keep_for_play`]).
+    static FOR_PLAY: RefCell<Option<((String, usize), WebAudio)>> = const { RefCell::new(None) };
+}
+
+/// Keeps `audio` (made or resumed inside the gesture that opens the play,
+/// or running already) for the play of `song`'s chart `chart`: its start
+/// prompt decodes the music with it, so Start only starts the sound.
+pub(crate) fn keep_for_play(song: &str, chart: usize, audio: WebAudio) {
+    FOR_PLAY.with_borrow_mut(|k| *k = Some(((song.to_string(), chart), audio)));
+}
+
+/// The context kept for the play of `song`'s chart `chart`, if it is the
+/// one it was kept for (another is let go).
+pub(crate) fn take_for_play(song: &str, chart: usize) -> Option<WebAudio> {
+    FOR_PLAY
+        .with_borrow_mut(Option::take)
+        .filter(|((s, c), _)| s == song && *c == chart)
+        .map(|(_, audio)| audio)
+}
+
 impl Drop for WebAudio {
     fn drop(&mut self) {
         self.stop_all();
