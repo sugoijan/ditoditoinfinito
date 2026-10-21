@@ -56,6 +56,20 @@ const RETRY: std::time::Duration = std::time::Duration::from_millis(250);
 /// The mouse's pointer id; touches are numbered after it.
 const MOUSE: u64 = 0;
 
+/// The game's id, as the packages name it (`tools/package/`): the Linux
+/// desktop entry's and its icon's.
+#[cfg(target_os = "linux")]
+const APP_ID: &str = "dev.sugoijan.ditoditoinfinito";
+
+/// The packages' icon (`tools/package/icon.svg`) at `side` pixels, for
+/// the window's (macOS shows the app's own).
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn window_icon(side: u32) -> Option<winit::window::Icon> {
+    let svg = include_str!("../../../tools/package/icon.svg");
+    let rgba = crate::play::skins::rasterize_svg(svg, side, side).ok()?;
+    winit::window::Icon::from_rgba(rgba, side, side).ok()
+}
+
 struct Surface {
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
@@ -297,12 +311,31 @@ impl Shell {
     }
 
     fn open(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
+        let attributes = Window::default_attributes()
+            .with_title("Dito Dito Infinito")
+            .with_inner_size(LogicalSize::new(1280.0, 720.0));
+        #[cfg(target_os = "windows")]
+        let attributes = {
+            use winit::platform::windows::WindowAttributesExtWindows;
+            // The title bar's small icon and the taskbar's big one, which
+            // Windows scales to the display's (16 to 32 and 32 to 64
+            // pixels).
+            attributes
+                .with_window_icon(window_icon(32))
+                .with_taskbar_icon(window_icon(64))
+        };
+        #[cfg(target_os = "linux")]
+        let attributes = {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            // X11's icon (Wayland's desktop takes the entry's, found by
+            // the app id), and the app id and X11 class the desktop entry
+            // is matched by.
+            attributes
+                .with_window_icon(window_icon(64))
+                .with_name(APP_ID, APP_ID)
+        };
         let window = event_loop
-            .create_window(
-                Window::default_attributes()
-                    .with_title("Dito Dito Infinito")
-                    .with_inner_size(LogicalSize::new(1280.0, 720.0)),
-            )
+            .create_window(attributes)
             .map_err(|e| e.to_string())?;
         let window = Arc::new(window);
         self.with_gpu(window)
@@ -1548,6 +1581,18 @@ fn title_screen(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The window's icon (`window_icon`) draws: the margin transparent,
+    /// the tile dark, the arrow pink.
+    #[test]
+    fn the_window_icon_draws() {
+        let svg = include_str!("../../../tools/package/icon.svg");
+        let rgba = crate::play::skins::rasterize_svg(svg, 64, 64).unwrap();
+        let at = |x: usize, y: usize| &rgba[(y * 64 + x) * 4..][..4];
+        assert_eq!(at(1, 1)[3], 0);
+        assert_eq!(at(8, 32), [0x16, 0x13, 0x18, 0xff]);
+        assert_eq!(at(32, 45), [0xff, 0x6e, 0xa0, 0xff]);
+    }
 
     #[test]
     fn quit_without_importer_is_ready_and_idempotent() {

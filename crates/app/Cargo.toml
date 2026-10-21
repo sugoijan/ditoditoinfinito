@@ -14,6 +14,11 @@ ddi-web.workspace = true
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ddi-desktop.workspace = true
 
+# The Windows executable's icon, drawn from `tools/package/icon.svg`
+# (`build.rs`); on Windows hosts only, so other builds skip it.
+[target.'cfg(windows)'.build-dependencies]
+resvg = { version = "0.48.1", default-features = false }
+
 [features]
 default = ["video", "danoni-importer"]
 video = ["ddi-desktop/video"]

@@ -89,6 +89,56 @@ Windows, `DitoDitoInfinito-<version>-windows-x86_64.zip`: the folder
 without `danoni-importer/` (never built for Windows: its confinement is
 still to come, `danoni-importer.md`) and without `video/` (below).
 
+## The icon, the window and the console (Linux, Windows)
+
+- **The window's icon** on Linux (X11) and Windows is the packages' icon
+  (`tools/package/icon.svg`) drawn by resvg when the window opens
+  (`shell::window_icon`; resvg already draws the SVG skins): 64 pixels on
+  X11; on Windows a 32-pixel small icon (title bar) and a 64-pixel big
+  one (taskbar, Alt+Tab), which Windows scales to the display's. macOS
+  shows the app's icon; Wayland has no window icons, its desktop shows
+  the entry's.
+- **The app id**: the window's Wayland app id and X11 class (both parts
+  of `WM_CLASS`) are the bundle id, which names the desktop entry (and
+  its `StartupWMClass`), so the desktop matches the window to it.
+- **The Windows executable's icon and version** (`crates/app/build.rs`):
+  a `.res` file written by the build script itself, in the format
+  `rc.exe` writes, and passed to the linker (`rustc-link-arg-bins`; MSVC's
+  `link.exe` and `lld-link` take `.res` files as they are, as
+  `winresource` hands them `rc.exe`'s), so no resource compiler is
+  needed, here or in CI. The icon group (id 1, the one Explorer shows)
+  holds the SVG drawn at 16, 20, 24, 32, 40, 48 and 64 pixels as 32-bit
+  bitmaps with their mask, and at 256 as a PNG; the version
+  (`VS_VERSIONINFO`, US English, Unicode) has Cargo's version in its
+  numbers and in `FileVersion` and `ProductVersion`, and the product name,
+  description, file names and copyright line (`Info.plist`'s). resvg is
+  a build dependency on Windows hosts only (Cargo matches a target table's
+  build dependencies against the host), so other builds do not compile it
+  for the build script; a cross build (the Mac's Windows clippy) writes
+  the version alone. Only MSVC targets get the resource.
+- **The console** (`ddi_desktop::attach_console`): a Windows build
+  outside debug is a GUI program (`crates/app/src/main.rs`), so started
+  from cmd or PowerShell it had no console, and what its flags print
+  (`--seconds`, `--danoni-bundle-info`, `--video-check`, errors) reached
+  only a file or a pipe it was redirected to. A run given any flag, whose
+  stdout and stderr are both unset, now attaches to its parent's console
+  (`AttachConsole(ATTACH_PARENT_PROCESS)`, first thing in `run`; from
+  Explorer there is none and nothing changes). Attaching fills the unset
+  standard handles with the console's (`GetStdHandle`'s documented
+  attach behavior, unless the parent passed handles with
+  `STARTF_USESTDHANDLES`, as a redirection does, which the check already
+  leaves alone; "unset" is null, invalid or of no file type, and one
+  still unset after attaching, say a stale value the attach left, is
+  opened on the console's `CONOUT$` and set), and Rust's std looks the
+  handle up on every write
+  (`library/std/src/sys/stdio/windows.rs`: `get_handle` calls
+  `GetStdHandle` each time, `WriteConsoleW` for a console), so every
+  later `println!`/`eprintln!` reaches it; nothing in std caches a
+  handle before. A run without flags (a player's) never attaches: an
+  attached process ends with its console's Ctrl+C or its window's close.
+  A debug build is a console program with its handles set, so it never
+  attaches either.
+
 ## Signing and Gatekeeper (macOS)
 
 Inside out, ad hoc (`codesign --sign -`): the video helper (identifier
@@ -161,7 +211,22 @@ keeps the archives as the run's artifacts only):
 - **The icon is the site's favicon** (`site/seo/favicon.svg`, first-party)
   redrawn on the macOS icon grid (`tools/package/icon.svg`: an 824-unit
   tile with a 100-unit margin), rendered by `sips` and `iconutil` at
-  package time; Linux ships the SVG. No icon is committed as pixels.
+  package time; Linux ships the SVG; the Windows executable's icons and
+  the windows' are drawn from it by resvg (at build time, at run time).
+  No icon is committed as pixels. The margin stays on Windows too (one
+  artwork), so the tile is a little smaller there than icons drawn to
+  the edge.
+- **The `.res` file written by our build script**, rather than
+  `winresource` or `embed-resource`, which need `rc.exe` or `llvm-rc`
+  (neither on the Mac, where the Windows clippy runs) and an `.ico`
+  file; the format is small and stable, and was checked here by linking
+  it (below).
+- **Version resource text**: no `CompanyName` (there is no company; a
+  signature, not this field, names a publisher); the copyright line is
+  `Info.plist`'s.
+- **The console is attached only for runs given flags**, and only when
+  neither stdout nor stderr is set: a player's start never ties the game
+  to a console, and a redirection is never overridden.
 - **The helper in `Contents/Helpers/video/`, everything else in
   `Contents/Resources/`**, the importer's bundle included (Apple's places
   for helper tools and resources; its executables are sealed there as
@@ -227,19 +292,38 @@ keeps the archives as the run's artifacts only):
 ## Left
 
 - Windows: the video helper built in the release job (MSYS2 and the MSVC
-  tools, `DDI_VIDEO_NATIVE=1`) once it has run on Windows hardware; the
-  flags' printed output in a console the game was started from (the game
-  is a GUI program outside debug builds since 2026-10-21, so no console
-  window opens beside it, and its output reaches only a file or a pipe it
-  is redirected to; `AttachConsole` once tried on Windows); an icon and
-  version resource in the executable; SmartScreen will warn about an unsigned download.
+  tools, `DDI_VIDEO_NATIVE=1`) once it has run on Windows hardware;
+  SmartScreen will warn about an unsigned download; the checks below.
+- **The maintainer's checks on Windows** (none could run here; the
+  release build's `ditoditoinfinito.exe`, or `cargo build --profile
+  desktop`, whose build script draws the icon on a Windows host):
+  1. Explorer shows the arrow icon on the `.exe` at every view size, and
+     its Properties → Details the description, versions, product name,
+     copyright and original file name.
+  2. The running game's title bar, taskbar button and Alt+Tab show the
+     icon (sharp enough at 100% and at 150% or 200% scale), and a
+     taskbar pin keeps it.
+  3. From cmd: `ditoditoinfinito.exe --danoni-bundle-info` prints
+     `{"enabled":false}` in that window (after the prompt, which cmd
+     shows again at once for a GUI program: Enter redraws it);
+     `start /wait ditoditoinfinito.exe --silent --seconds 3` prints the
+     run's report before the prompt returns. The same in PowerShell
+     (`Start-Process -Wait -NoNewWindow .\ditoditoinfinito.exe -ArgumentList
+     '--silent','--seconds','3'`), and in Windows Terminal.
+  4. Redirected, unchanged: `ditoditoinfinito.exe --danoni-bundle-info >
+     out.txt` writes the file and nothing to the console; `... | more`
+     the same through the pipe; `2> err.txt` alone keeps stdout away
+     from the console too (one redirected handle leaves both alone).
+  5. Started with no flags from cmd, closing the cmd window or Ctrl+C in
+     it leaves the game running; started from Explorer, no console window
+     flashes.
 - Notarization and a Developer ID signature (hardened runtime then
   required, and the importer's executables signed before its manifests
   are written), when the maintainer wants them.
 - An Intel Mac package (an Intel runner, or a universal build once the
   importer and the helper can be built for both).
-- A window icon on Linux and Windows (winit's `with_window_icon`), and an
-  app id on Wayland matching the desktop entry.
+- Linux: the window's icon on X11 and its app id on Wayland checked on a
+  desktop (GNOME, KDE) with the entry installed, and without it.
 - An older glibc baseline for Linux; Flatpak or AppImage if players ask.
 - The release workflow's first real run (it has only been read and its
   steps run locally on macOS).

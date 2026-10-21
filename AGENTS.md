@@ -159,7 +159,9 @@ the browser are implementation details, not advertised features.
   a `main` that starts the web shell on wasm and the desktop shell
   everywhere else; Trunk builds it for the browser (`site/index.html`, with the page's
   styles, boot script and SEO data beside it in `site/`),
-  `cargo run` for desktop.
+  `cargo run` for desktop; its `build.rs` writes the Windows (MSVC)
+  executable's icon and version resource, with no resource compiler
+  (`docs/plans/packaging.md`).
 - `crates/web/` the web shell (`ddi-web`): the UI core's screens on the canvas
   (start menu at `#/`, `crates/web/src/components/page_routes.rs`; song
   select at `#/select`, `crates/web/src/components/select_page.rs`; the start

@@ -3,7 +3,9 @@
 //! else (`cargo run`).
 
 // A Windows build outside debug opens no console window beside the game;
-// output redirected to a file or a pipe still reaches it.
+// output redirected to a file or a pipe still reaches it, and a run given
+// flags prints in the console it was started from (`ddi_desktop::run`).
+// `build.rs` gives the Windows executable its icon and version.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 fn main() {

@@ -62,8 +62,11 @@ under it in section 7:
   assets, the video helper with its LGPL payload, the licences, the credits
   and the importer, on by default since 2026-10-21) and the archives, an ad hoc signed `.app` (zip and `.dmg`), a
   Linux tarball with a desktop entry, a Windows zip; tags `v*` build them
-  in CI (`release.yml`) for a draft release. Left there: notarization,
-  Intel Macs, Windows' video helper, its console output and icon.
+  in CI (`release.yml`) for a draft release; the window's icon (Linux,
+  Windows), the Wayland app id, the Windows executable's icon and
+  version, and a flagged run's output in the console it was started from.
+  Left there: notarization, Intel Macs, Windows' video helper, and those
+  Windows parts checked on Windows.
 - Windows: the gilrs change (8 ms polling, stamps from the reading) needs
   the maintainer's account and a Windows machine; a run on Windows
   hardware; the helper's FFmpeg built on Windows (`DDI_VIDEO_NATIVE=1`,

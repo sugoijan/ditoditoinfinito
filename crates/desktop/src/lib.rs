@@ -122,6 +122,61 @@ fn video_check(args: &[String], at: usize) -> i32 {
     }
 }
 
+/// Windows: the console the game was started from, for what its flags
+/// print. Outside debug builds the game is a GUI program (`crates/app`),
+/// started with no console and, unless redirected, no standard handles,
+/// so its output went nowhere. When neither stdout nor stderr was given
+/// a file or a pipe, this attaches to the parent's console (cmd's,
+/// PowerShell's; from Explorer there is none, and nothing changes):
+/// attaching fills empty standard handles with the console's (one it
+/// leaves unusable is opened here, `CONOUT$`), and std looks them up on
+/// every write (`GetStdHandle`), so what follows reaches it. A run given
+/// no flags (a player's) never attaches: an attached process ends with
+/// its console's Ctrl+C or close, and a shell does not wait for a GUI
+/// program, so its prompt is back while the game runs. A debug build is
+/// a console program and has its handles already.
+#[cfg(windows)]
+fn attach_console() {
+    use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_UNKNOWN, GetFileType,
+        OPEN_EXISTING,
+    };
+    use windows_sys::Win32::System::Console::{
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_HANDLE,
+        STD_OUTPUT_HANDLE, SetStdHandle,
+    };
+    // SAFETY (the calls below): this process's standard handles, read and
+    // set; the console's output opened once and kept as one of them.
+    let unset = |id: STD_HANDLE| unsafe {
+        let handle = GetStdHandle(id);
+        handle.is_null()
+            || handle == INVALID_HANDLE_VALUE
+            || GetFileType(handle) == FILE_TYPE_UNKNOWN
+    };
+    let outputs = [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE];
+    if !outputs.into_iter().all(unset) || unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } == 0 {
+        return;
+    }
+    for id in outputs.into_iter().filter(|&id| unset(id)) {
+        let name: Vec<u16> = "CONOUT$\0".encode_utf16().collect();
+        let console = unsafe {
+            CreateFileW(
+                name.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+        if console != INVALID_HANDLE_VALUE {
+            unsafe { SetStdHandle(id, console) };
+        }
+    }
+}
+
 /// How desktop folds text for the search: Unicode's tables (the web asks
 /// the browser).
 pub use ddi_library::search::Nfkd;
@@ -166,6 +221,10 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// prints what each did when the play ends.
 pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(windows)]
+    if !args.is_empty() {
+        attach_console();
+    }
     if args.iter().any(|a| a == "--danoni-bundle-info") {
         #[cfg(danoni_importer)]
         println!("{}", danoni::bundle_info());

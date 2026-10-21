@@ -115,6 +115,11 @@ objc2-video-toolbox = { version = "0.3.2", optional = true, default-features = f
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62.2", optional = true, features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D10", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Media_MediaFoundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Threading"] }
 
+# The console a Windows build was started from, for its flags' output
+# (`attach_console`, `src/lib.rs`); already in the build through others.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console"] }
+
 # The player's time zone for the plays list's dates (`localtime_r`,
 # `src/play/replays.rs`); already in the build through others.
 [target.'cfg(unix)'.dependencies]

@@ -7,7 +7,7 @@ name: Desktop release
 # a draft release for the maintainer to publish. Run by hand from any
 # branch, it builds and keeps the archives as the run's artifacts only.
 # docs/plans/packaging.md has the layouts and what is left (notarization,
-# Intel Macs, Windows' video helper and icon).
+# Intel Macs, Windows' video helper).
 on:
   push:
     tags: ['v*']

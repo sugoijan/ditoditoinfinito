@@ -109,7 +109,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Packaging and releases](packaging.md) (2026-10-21): done; the release
   workflow's first run waits for a tag. An ad hoc signed `.app` (zip,
   `.dmg`), a Linux tarball and a Windows zip, built for draft releases
-  from tags. Left: notarization, Intel Macs, Windows' video helper and icon.
+  from tags; window icons, the Windows executable's icon and version, the
+  console for flagged runs. Left: notarization, Intel Macs, Windows'
+  video helper, the Windows parts checked on Windows.
 
 ## Library and import
 

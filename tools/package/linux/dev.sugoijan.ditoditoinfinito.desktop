@@ -8,4 +8,4 @@ Icon=dev.sugoijan.ditoditoinfinito
 Terminal=false
 Categories=Game;ArcadeGame;
 Keywords=dance;rhythm;music;stepmania;
-StartupWMClass=ditoditoinfinito
+StartupWMClass=dev.sugoijan.ditoditoinfinito

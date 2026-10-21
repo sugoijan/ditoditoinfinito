@@ -1009,6 +1009,7 @@ dependencies = [
  "url",
  "wgpu",
  "windows",
+ "windows-sys 0.61.2",
  "winit",
 ]
 
@@ -1279,6 +1280,7 @@ version = "0.1.0"
 dependencies = [
  "ddi-desktop",
  "ddi-web",
+ "resvg",
 ]
 
 [[package]]
