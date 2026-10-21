@@ -23,7 +23,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use ddi_chart::Song;
 use ddi_engine::player::{PlayOptions, Results};
-use ddi_engine::rules::{FullCombo, ScoreView, Tally};
+use ddi_engine::rules::ddr::DdrClear;
+use ddi_engine::rules::{FullCombo, Judgement, ScoreView, Tally};
 pub use ddi_platform::history::{PlayEntry, PlayStore, Reply, play_id};
 use serde::{Deserialize, Serialize};
 
@@ -202,27 +203,46 @@ fn first_judge() -> u32 {
 }
 
 /// The lamp a play earns: failed, cleared, or a full combo's kind,
-/// better to the end.
+/// better to the end. Under DDR A's rules, LIFE4's clear types too
+/// (`docs/plans/rulesets.md`): a clear under the LIFE4 gauge (or RISKY)
+/// and single digit perfects, a perfect full combo short of a marvelous
+/// one by 1 to 9 Perfects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Lamp {
     Failed,
     Clear,
+    Life4Clear,
     FullCombo,
     GreatFullCombo,
     PerfectFullCombo,
+    SingleDigitPerfects,
     MarvelousFullCombo,
 }
 
 impl Lamp {
-    pub fn of(failed: bool, full_combo: FullCombo) -> Lamp {
-        match (failed, full_combo) {
-            (true, _) => Lamp::Failed,
-            (false, FullCombo::None) => Lamp::Clear,
-            (false, FullCombo::FC) => Lamp::FullCombo,
-            (false, FullCombo::GreatFC) => Lamp::GreatFullCombo,
-            (false, FullCombo::PerfectFC) => Lamp::PerfectFullCombo,
-            (false, FullCombo::MarvelousFC) => Lamp::MarvelousFullCombo,
+    pub fn of(r: &Results) -> Lamp {
+        if r.failed {
+            Lamp::Failed
+        } else {
+            Lamp::played(r)
+        }
+    }
+
+    /// The lamp the play's judgements earn, failed or not (the results
+    /// show a full combo's kind beside FAILED).
+    pub fn played(r: &Results) -> Lamp {
+        let ddr = r.ddr.as_ref();
+        match r.full_combo {
+            FullCombo::None if ddr.is_some_and(DdrClear::life4) => Lamp::Life4Clear,
+            FullCombo::None => Lamp::Clear,
+            FullCombo::FC => Lamp::FullCombo,
+            FullCombo::GreatFC => Lamp::GreatFullCombo,
+            FullCombo::PerfectFC if ddr.is_some() && r.tally.count(Judgement::W2) < 10 => {
+                Lamp::SingleDigitPerfects
+            }
+            FullCombo::PerfectFC => Lamp::PerfectFullCombo,
+            FullCombo::MarvelousFC => Lamp::MarvelousFullCombo,
         }
     }
 
@@ -231,9 +251,11 @@ impl Lamp {
         match self {
             Lamp::Failed => ("Failed", "FAILED"),
             Lamp::Clear => ("Clear", "CLEAR"),
+            Lamp::Life4Clear => ("Life4Clear", "LIFE4"),
             Lamp::FullCombo => ("FullCombo", "FC"),
             Lamp::GreatFullCombo => ("GreatFullCombo", "GFC"),
             Lamp::PerfectFullCombo => ("PerfectFullCombo", "PFC"),
+            Lamp::SingleDigitPerfects => ("SingleDigitPerfects", "SDP"),
             Lamp::MarvelousFullCombo => ("MarvelousFullCombo", "MFC"),
         }
     }
@@ -271,7 +293,7 @@ impl Worked {
             judge_version: JUDGE_VERSION,
             score: r.score,
             grade: r.grade.clone(),
-            lamp: Lamp::of(r.failed, r.full_combo),
+            lamp: Lamp::of(r),
             full_combo: r.full_combo,
             assist: r.assist,
             failed: r.failed,

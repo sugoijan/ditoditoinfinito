@@ -184,12 +184,14 @@ impl Default for Infinito {
 // Building blocks. Positions are of a top-left origin unless `centered`.
 
 /// The lamps, worst first, as `ddi_ui::state::history::Lamp` names them.
-const LAMPS: [&str; 6] = [
+const LAMPS: [&str; 8] = [
     "Failed",
     "Clear",
+    "Life4Clear",
     "FullCombo",
     "GreatFullCombo",
     "PerfectFullCombo",
+    "SingleDigitPerfects",
     "MarvelousFullCombo",
 ];
 

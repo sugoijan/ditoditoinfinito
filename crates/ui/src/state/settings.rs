@@ -1027,6 +1027,7 @@ mod tests {
                         judge: 5,
                         life_type: ddi_engine::rules::LifeType::Battery,
                         lives: 2,
+                        gauge: ddi_engine::rules::ddr::DdrGauge::Life4,
                     },
                     ..Settings::default()
                 };

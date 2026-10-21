@@ -46,8 +46,10 @@ pub use ddi_platform;
 /// The version of how plays are judged: raised whenever judging, scoring,
 /// grading or a gauge changes what a play shows, so that a record judged
 /// by an older version is judged again from its log
-/// (`docs/plans/play-history.md`).
-pub const JUDGE_VERSION: u32 = 1;
+/// (`docs/plans/play-history.md`). 2: DDR A's plays keep their gauge,
+/// FLARE rank and FLARE SKILL, and earn LIFE4's lamps
+/// (`docs/plans/rulesets.md`).
+pub const JUDGE_VERSION: u32 = 2;
 
 pub use appearance::Appearance;
 pub use bindings::{ConnectedPad, ControlBindings, LaneTable, MenuInput, PadBindings, PadUse};

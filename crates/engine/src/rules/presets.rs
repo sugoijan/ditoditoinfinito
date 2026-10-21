@@ -7,7 +7,7 @@ use super::danoni::DanoniOptions;
 use super::{
     ComboRules, DancePoints, DdrMoney, DdrVariant, EmptyPress, FailPolicy, FixedPercent,
     GradeBasis, GradeTable, HoldRules, HoldStart, JudgeNames, JudgeTable, Judgement, LifeBar,
-    LifeDeltas, Ruleset, StepManiaOptions, Weights, Window,
+    LifeDeltas, Max2, Ruleset, StepManiaOptions, Weights, Window,
 };
 
 fn symmetric(tiers: [f64; 5]) -> [Option<Window>; 5] {
@@ -55,6 +55,7 @@ pub fn itg() -> Ruleset {
             mine_breaks: false,
             neutral: None,
             let_go_loses_full_combo: false,
+            jumps_add_each: false,
         },
         score: Box::new(DancePoints::new(
             Weights::new([5, 4, 2, 0, -6, -12], 5, 0, -6),
@@ -189,6 +190,7 @@ pub fn calibration() -> Ruleset {
             mine_breaks: false,
             neutral: None,
             let_go_loses_full_combo: false,
+            jumps_add_each: false,
         },
         score: Box::new(DancePoints::new(
             Weights::new([1, 0, 0, 0, 0, 0], 0, 0, 0),
@@ -240,6 +242,7 @@ pub fn sm5() -> Ruleset {
             mine_breaks: false,
             neutral: None,
             let_go_loses_full_combo: false,
+            jumps_add_each: false,
         },
         score: Box::new(DancePoints::new(
             Weights::new([3, 2, 1, 0, 0, 0], 3, 0, -2),
@@ -325,6 +328,7 @@ pub fn ddr_a() -> Ruleset {
             mine_breaks: true,
             neutral: None,
             let_go_loses_full_combo: false,
+            jumps_add_each: false,
         },
         score: Box::new(DdrMoney::new(DdrVariant::A)),
         gauge: Box::new(FixedPercent::ddr_a20()),
@@ -362,10 +366,109 @@ pub fn ddr_a() -> Ruleset {
     }
 }
 
+/// DDRMAX2 and DDR EXTREME in normal play (`docs/plans/rulesets.md`):
+/// their score and dance-point grades ([`Max2`]), and their windows as
+/// measured from EXTREME's `GAME.DAT` (Sesse, then PlasmaVenom and
+/// Arcorann, Zenius-I-vanisher thread 7564; 1/150 s ticks, each bound
+/// taken half a tick out): Perfect ±30 ms, Great −90/+76.667, Good
+/// −130/+116.667, Boo −156.667/+183.333. Marvelous judges only in
+/// courses ("It is only used in courses", RemyWiki's AC DDR EXTREME), so
+/// its window falls to Perfect. Great keeps the combo, a jump adds two to
+/// it (per-row judging, [`ComboRules::jumps_add_each`]), an N.G. neither
+/// breaks it nor costs dance points. The life bar is StepMania 3.9's,
+/// which modeled DDR's (its numbers are not public): `LifeMeterBar`'s
+/// defaults with `MercifulDrain`, a regen lockout up to 10 and the harsh
+/// penalty from a full bar.
+pub fn ddr_extreme() -> Ruleset {
+    let mut bar = LifeBar::new(
+        LifeDeltas::new(
+            [0.008, 0.008, 0.004, 0.0, -0.040, -0.080],
+            0.008,
+            -0.080,
+            -0.160,
+        ),
+        0.5,
+        0.2,
+        5,
+        10,
+    );
+    bar.merciful_drain = true;
+    bar.hot_penalty = true;
+    Ruleset {
+        id: "ddr-extreme".into(),
+        name: "DDR EXTREME".into(),
+        approximate: true,
+        judge: JudgeTable {
+            tiers: [
+                None,
+                Some(Window::symmetric(0.030)),
+                Some(Window {
+                    early: 0.090,
+                    late: 0.076_667,
+                }),
+                Some(Window {
+                    early: 0.130,
+                    late: 0.116_667,
+                }),
+                Some(Window {
+                    early: 0.156_667,
+                    late: 0.183_333,
+                }),
+            ],
+            scale: 1.0,
+            add: 0.0,
+            hold_window: 0.25,
+            roll_window: 0.5,
+            mine_window: 0.09,
+            w0: None,
+            empty_press: EmptyPress::Ignore,
+            judge_offset: 0.0,
+            hold: HoldRules::Decay,
+            hold_start: HoldStart::JUDGED,
+            supersede: None,
+            just: None,
+            shock_rows: false,
+        },
+        combo: ComboRules {
+            continue_min: Judgement::W3,
+            per_row: true,
+            held_increments: false,
+            let_go_breaks: false,
+            mine_breaks: false,
+            neutral: None,
+            let_go_loses_full_combo: false,
+            jumps_add_each: true,
+        },
+        score: Box::new(Max2::new()),
+        gauge: Box::new(bar),
+        fail: FailPolicy::Immediate,
+        grades: GradeTable {
+            failed: Some("E".into()),
+            ..grades(
+                GradeBasis::Percent,
+                &[
+                    ("AAA", 1.00),
+                    ("AA", 0.93),
+                    ("A", 0.80),
+                    ("B", 0.65),
+                    ("C", 0.45),
+                    ("D", 0.0),
+                ],
+            )
+        },
+        names: JudgeNames::new(
+            ["Marvelous", "Perfect", "Great", "Good", "Boo", "Miss"],
+            "O.K.",
+            "N.G.",
+        ),
+        danoni: None,
+        stepmania: StepManiaOptions::default(),
+    }
+}
 /// Presets selectable by players, in menu order (excludes `calibration`
 /// and the chart-dependent [`danoni`] rules).
 pub fn all() -> Vec<Ruleset> {
-    vec![itg(), itg_fa_plus(), sm5(), ddr_a()]
+    vec![itg(), itg_fa_plus(), sm5(), ddr_a(), ddr_extreme()]
 }
 
 /// Dancing☆Onigiri rules with danoniplus's defaults, as for a chart from
@@ -461,6 +564,7 @@ pub fn by_id(id: &str) -> Option<Ruleset> {
         "itg-fa+" => Some(itg_fa_plus()),
         "sm5" => Some(sm5()),
         "ddr-a" => Some(ddr_a()),
+        "ddr-extreme" => Some(ddr_extreme()),
         _ => None,
     }
 }

@@ -7,12 +7,13 @@
 
 use ddi_chart::{Glyph, Layout};
 use ddi_engine::judge::JudgeEventKind;
-use ddi_engine::rules::{FailType, FullCombo};
+use ddi_engine::rules::FailType;
+use ddi_engine::rules::ddr::flare_name;
 use ddi_engine::{
     Appearance, Judgement, Results, Ruleset, ScrollAction, TimingCut, TransformOptions, Turn,
 };
 
-use crate::state::history::{Replay, ReplayCheck};
+use crate::state::history::{Lamp, Replay, ReplayCheck};
 use crate::state::settings::Settings;
 
 use super::data::{
@@ -119,15 +120,18 @@ pub fn score_text(r: &Results) -> String {
     }
 }
 
-/// The lamp: a full combo's kind, and "ASSIST" when notes were removed
-/// or simplified.
+/// The lamp: a full combo's kind (LIFE4's single digit perfects and its
+/// clear under DDR A's rules), and "ASSIST" when notes were removed or
+/// simplified.
 pub fn lamp(r: &Results) -> Option<String> {
-    let fc = match r.full_combo {
-        FullCombo::None => "",
-        FullCombo::FC => "FULL COMBO",
-        FullCombo::GreatFC => "GREAT FULL COMBO",
-        FullCombo::PerfectFC => "PERFECT FULL COMBO",
-        FullCombo::MarvelousFC => "MARVELOUS FULL COMBO",
+    let fc = match Lamp::played(r) {
+        Lamp::Failed | Lamp::Clear => "",
+        Lamp::Life4Clear => "LIFE4 CLEAR",
+        Lamp::FullCombo => "FULL COMBO",
+        Lamp::GreatFullCombo => "GREAT FULL COMBO",
+        Lamp::PerfectFullCombo => "PERFECT FULL COMBO",
+        Lamp::SingleDigitPerfects => "SINGLE DIGIT PERFECTS",
+        Lamp::MarvelousFullCombo => "MARVELOUS FULL COMBO",
     };
     match (fc.is_empty(), r.assist) {
         (true, false) => None,
@@ -203,6 +207,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         stats.push(("Stray presses".into(), t.boo.to_string()));
     }
     stats.push(("Max combo".into(), r.max_combo.to_string()));
+    stats.extend(flare_stat(r));
     stats.push(("Fast / slow".into(), format!("{} / {}", r.fast, r.slow)));
     stats.push((
         "Mean offset".into(),
@@ -316,6 +321,22 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         song: p.song.clone(),
         kind: Default::default(),
     }
+}
+
+/// A DDR A play's FLARE rank and FLARE SKILL points, as the results'
+/// stats say them ("FLARE VII · 944 points"), where it kept a rank: none
+/// failed, nor (points) assisted or of a chart level DDR has not.
+pub fn flare_stat(r: &Results) -> Option<(String, String)> {
+    let ddr = r.ddr.as_ref()?;
+    let rank = ddr.flare?;
+    let rank_text = (rank > 0).then(|| format!("FLARE {}", flare_name(rank)));
+    let value = match (rank_text, ddr.points) {
+        (Some(rank), Some(points)) => format!("{rank} · {points} points"),
+        (Some(rank), None) => rank,
+        (None, Some(points)) => format!("{points} points"),
+        (None, None) => return None,
+    };
+    Some(("Flare skill".into(), value))
 }
 
 /// What the fail type made of an empty life bar, where it changed the
@@ -534,6 +555,7 @@ mod tests {
             timeline: Vec::new(),
             life: vec![[0.0, 0.5], [10.0, 0.6]],
             gauge_failed_at: None,
+            ddr: None,
         }
     }
 
@@ -810,5 +832,68 @@ mod tests {
         r.failed = true;
         assert!(note(&rules(FailType::EndOfSong), &r)[0].starts_with("Failed at the end"));
         assert!(note(&rules(FailType::ImmediateContinue), &r)[0].starts_with("Failed at 1:23"));
+    }
+
+    #[test]
+    fn ddr_a_shows_its_gauge_flare_and_life4_lamps() {
+        use ddi_engine::rules::StepManiaOptions;
+        use ddi_engine::rules::ddr::{DdrClear, DdrGauge};
+        let layout = single();
+        let flare = presets::ddr_a().with_stepmania(&StepManiaOptions {
+            gauge: DdrGauge::Flare(7),
+            ..StepManiaOptions::default()
+        });
+        let mut r = results([10, 2, 1, 0, 0, 0]);
+        r.full_combo = FullCombo::GreatFC;
+        r.ddr = Some(DdrClear {
+            gauge: DdrGauge::Flare(7),
+            flare: Some(7),
+            points: Some(944),
+        });
+        let d = results_data(&info(&r, &flare, &layout));
+        assert!(
+            d.stats
+                .contains(&("Flare skill".into(), "FLARE VII · 944 points".into())),
+            "{:?}",
+            d.stats
+        );
+        assert!(d.mods.ends_with("FLARE VII"), "{}", d.mods);
+        assert_eq!(d.lamp.as_deref(), Some("GREAT FULL COMBO"));
+        // Under NORMAL, the points alone; failed, nothing.
+        r.ddr = Some(DdrClear {
+            gauge: DdrGauge::Normal,
+            flare: Some(0),
+            points: Some(665),
+        });
+        assert_eq!(flare_stat(&r).unwrap().1, "665 points");
+        r.ddr = Some(DdrClear {
+            gauge: DdrGauge::Flare(9),
+            flare: None,
+            points: None,
+        });
+        assert_eq!(flare_stat(&r), None);
+        // A LIFE4 clear, and a perfect full combo of 2 Perfects: single
+        // digit perfects (DDR A's rules only).
+        let mut r = results([10, 2, 1, 0, 0, 1]);
+        r.ddr = Some(DdrClear {
+            gauge: DdrGauge::Life4,
+            flare: Some(0),
+            points: None,
+        });
+        assert_eq!(Lamp::of(&r), Lamp::Life4Clear);
+        assert_eq!(lamp(&r).as_deref(), Some("LIFE4 CLEAR"));
+        let mut r = results([10, 2, 0, 0, 0, 0]);
+        r.full_combo = FullCombo::PerfectFC;
+        r.ddr = Some(DdrClear::default());
+        assert_eq!(lamp(&r).as_deref(), Some("SINGLE DIGIT PERFECTS"));
+        r.tally.taps[1] = 10;
+        assert_eq!(lamp(&r).as_deref(), Some("PERFECT FULL COMBO"));
+        r.tally.taps[1] = 2;
+        r.ddr = None;
+        assert_eq!(Lamp::of(&r), Lamp::PerfectFullCombo);
+        // Failed: the lamp kept is FAILED, the full combo still shown.
+        r.failed = true;
+        assert_eq!(Lamp::of(&r), Lamp::Failed);
+        assert_eq!(lamp(&r).as_deref(), Some("PERFECT FULL COMBO"));
     }
 }

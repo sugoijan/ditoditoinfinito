@@ -10,9 +10,10 @@ use common::{Rng, chart, chart_of, script};
 use ddi_chart::Song;
 use ddi_engine::history::{PlayLog, PlayTiming, replay};
 use ddi_engine::player::{PlayOptions, Player, Results};
-use ddi_engine::rules::Ruleset;
 use ddi_engine::rules::danoni::{DanoniOptions, JudgeRange};
+use ddi_engine::rules::ddr::DdrGauge;
 use ddi_engine::rules::presets::{self, HoldStyle, RulesetMode};
+use ddi_engine::rules::{FailType, Ruleset, StepManiaOptions};
 use ddi_engine::{ClockOptions, InputEvent, TimingCut, TransformOptions, Turn, autoplay};
 use ddi_platform::{ClockSample, HostTime};
 
@@ -22,7 +23,7 @@ use ddi_platform::{ClockSample, HostTime};
 fn rulesets(song: &Song) -> Vec<Ruleset> {
     let chart = &song.charts[0];
     let mut out = Vec::new();
-    for id in ["itg", "sm5", "ddr-a"] {
+    for id in ["itg", "sm5", "ddr-a", "ddr-extreme"] {
         for holds in [HoldStyle::Dance, HoldStyle::Ticked, HoldStyle::ByGame] {
             out.push(presets::for_chart(
                 RulesetMode::AllStepMania,
@@ -32,6 +33,23 @@ fn rulesets(song: &Song) -> Vec<Ruleset> {
                 chart,
             ));
         }
+    }
+    // DDR A under DDR's other gauges, failing at once or playing on.
+    for (gauge, fail) in [
+        (DdrGauge::Life4, FailType::Immediate),
+        (DdrGauge::Risky, FailType::Off),
+        (DdrGauge::Flare(5), FailType::Immediate),
+        (DdrGauge::Floating, FailType::ImmediateContinue),
+    ] {
+        out.push(
+            presets::stepmania("ddr-a", HoldStyle::ByGame, chart).with_stepmania(
+                &StepManiaOptions {
+                    gauge,
+                    fail,
+                    ..StepManiaOptions::default()
+                },
+            ),
+        );
     }
     for options in [
         DanoniOptions::default(),

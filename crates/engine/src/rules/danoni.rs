@@ -808,6 +808,7 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
             mine_breaks: false,
             neutral: Some(Judgement::W3),
             let_go_loses_full_combo: true,
+            jumps_add_each: false,
         },
         score: Box::new(DanoniScore::new()),
         gauge: Box::new(DanoniGauge::new(

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{ScoreCtx, ScoreRules, ScoreView};
+use super::{Judgement, ScoreCtx, ScoreRules, ScoreView};
 use crate::judge::{JudgeEvent, JudgeEventKind};
 
 /// Points per event kind.
@@ -283,6 +283,129 @@ impl ScoreRules for DdrMoney {
     }
 }
 
+/// DDRMAX2 and DDR EXTREME's score in normal play (RemyWiki's
+/// "DanceDanceRevolution Scoring System", after aaroninjapan.com), with
+/// their dance points for the grade.
+///
+/// The song's base `B` is 1,000,000 a foot of its rating (StepMania 3.9's
+/// `ScoreKeeperMAX2` clamps the meter to 1–10). Of `N` steps and freezes
+/// (a jump one step; [`ScoreCtx::steps`] under per-row rules), the `n`th
+/// scores `p × floor(B / S) × n` with `S = N(N + 1)/2` and `p` 10 for a
+/// Perfect (or better) and an O.K., 5 for a Great, 0 otherwise; a freeze
+/// scores its O.K. as the step after the last one scored (an N.G. takes
+/// its place for nothing). The last of them, a Perfect or an O.K., adds
+/// what `floor` left out, `10 × (B − floor(B / S) × S)`, so all Perfect is
+/// `10 × B` (RemyWiki writes `× N` there, which cannot give it).
+///
+/// The dance points are MAX's: Perfect 2, Great 1, Good 0, Boo −4, Miss
+/// −8, O.K. 6, N.G. 0, a mine stepped on −8 (StepMania's
+/// `GradeWeightHitMine`), out of 2 a step and 6 a freeze; the percentage
+/// is [`ScoreView::percent`], the grades read it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Max2 {
+    #[serde(skip)]
+    score: i64,
+    /// Steps and freezes scored so far.
+    #[serde(skip)]
+    n: i64,
+    #[serde(skip)]
+    points: i64,
+    #[serde(skip)]
+    ctx: ScoreCtx,
+}
+
+impl Default for Max2 {
+    fn default() -> Max2 {
+        Max2::new()
+    }
+}
+
+impl Max2 {
+    const DANCE_POINTS: Weights = Weights::new([2, 2, 1, 0, -4, -8], 6, 0, -8);
+
+    pub fn new() -> Max2 {
+        Max2 {
+            score: 0,
+            n: 0,
+            points: 0,
+            ctx: ScoreCtx::default(),
+        }
+    }
+
+    /// `B`: a million a foot, the rating clamped to 1–10.
+    fn base(&self) -> i64 {
+        1_000_000 * i64::from(self.ctx.meter.clamp(1, 10))
+    }
+
+    /// `N`: steps and freezes (checkpoint rows for ticked holds), shocks
+    /// counted as freezes as later DDR counts them.
+    fn units(&self) -> i64 {
+        let holds = if self.ctx.ticked {
+            self.ctx.checkpoints
+        } else {
+            self.ctx.holds
+        };
+        i64::from(self.ctx.steps) + i64::from(holds) + i64::from(self.ctx.shocks)
+    }
+
+    /// `p` of a scored unit, `None` for what is not a step or a freeze.
+    fn multiplier(kind: &JudgeEventKind, ticked: bool) -> Option<i64> {
+        Some(match kind.scored_as(ticked)? {
+            JudgeEventKind::Tap(j, _) => match j {
+                Judgement::W1 | Judgement::W2 => 10,
+                Judgement::W3 => 5,
+                _ => 0,
+            },
+            JudgeEventKind::Held => 10,
+            JudgeEventKind::LetGo => 0,
+            _ => return None,
+        })
+    }
+}
+
+impl ScoreRules for Max2 {
+    fn begin(&mut self, ctx: &ScoreCtx) {
+        self.ctx = *ctx;
+    }
+
+    fn on_event(&mut self, ev: &JudgeEvent, ctx: &ScoreCtx) {
+        self.ctx = *ctx;
+        self.points += i64::from(Self::DANCE_POINTS.of(&ev.kind, ctx));
+        let Some(p) = Max2::multiplier(&ev.kind, ctx.ticked) else {
+            return;
+        };
+        let units = self.units();
+        let s = units * (units + 1) / 2;
+        if s == 0 {
+            return;
+        }
+        let per = self.base() / s;
+        self.n += 1;
+        self.score += p * per * self.n;
+        if self.n == units && p == 10 {
+            self.score += 10 * (self.base() - per * s);
+        }
+    }
+
+    fn view(&self) -> ScoreView {
+        let possible = Self::DANCE_POINTS.possible(&self.ctx);
+        ScoreView {
+            money: Some(self.score.max(0) as u64),
+            percent: Some(if possible > 0 {
+                (self.points as f64 / possible as f64).max(0.0)
+            } else {
+                0.0
+            }),
+            ..ScoreView::default()
+        }
+    }
+
+    fn finish(&mut self) {}
+
+    fn fresh(&self) -> Box<dyn ScoreRules> {
+        Box::new(Max2::new())
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5,6 +5,7 @@
 //! [`Ruleset`] bundles one of each; [`presets`] builds the shipped ones.
 
 pub mod danoni;
+pub mod ddr;
 pub mod gauge;
 pub mod presets;
 pub mod score;
@@ -12,7 +13,7 @@ pub mod score;
 use serde::{Deserialize, Serialize};
 
 pub use gauge::{Battery, FixedPercent, LifeBar, LifeDeltas};
-pub use score::{DancePoints, DdrMoney, DdrVariant, Weights};
+pub use score::{DancePoints, DdrMoney, DdrVariant, Max2, Weights};
 
 use crate::judge::{JudgeEvent, JudgeEventKind};
 
@@ -315,6 +316,12 @@ pub struct ComboRules {
     /// the combo (danoniplus keeps a separate hold combo).
     #[serde(default)]
     pub let_go_loses_full_combo: bool,
+    /// With [`ComboRules::per_row`], a row that continues the combo adds
+    /// one for each of its notes (DDRMAX to EXTREME: "Jumps now adding two
+    /// to your combo (but count as only one step for all other
+    /// purposes)", RemyWiki's AC DDRMAX).
+    #[serde(default)]
+    pub jumps_add_each: bool,
 }
 
 /// What happens when the gauge says "failed".
@@ -420,6 +427,10 @@ pub struct StepManiaOptions {
     /// The battery's lives, 1 to [`StepManiaOptions::MAX_LIVES`]
     /// (`BatteryLives`, 4 by default).
     pub lives: u8,
+    /// DDR's DANCE GAUGE, for the DDR presets (with the life meter a
+    /// bar).
+    #[serde(deserialize_with = "crate::lenient")]
+    pub gauge: ddr::DdrGauge,
 }
 
 impl Default for StepManiaOptions {
@@ -430,6 +441,7 @@ impl Default for StepManiaOptions {
             judge: StepManiaOptions::DEFAULT_LEVEL,
             life_type: LifeType::Bar,
             lives: StepManiaOptions::DEFAULT_LIVES,
+            gauge: ddr::DdrGauge::Normal,
         }
     }
 }
@@ -453,6 +465,7 @@ impl StepManiaOptions {
             life: self.life.clamp(1, LIFE_SCALES.len() as u8),
             judge: self.judge.clamp(1, JUDGE_SCALES.len() as u8),
             lives: self.lives.clamp(1, Self::MAX_LIVES),
+            gauge: self.gauge.sanitized(),
             ..self
         }
     }
@@ -485,6 +498,9 @@ impl StepManiaOptions {
             FailType::Off => out.push("fail off".into()),
         }
         let s = self.sanitized();
+        if s.gauge != ddr::DdrGauge::Normal {
+            out.push(s.gauge.name());
+        }
         if s.life_type == LifeType::Battery {
             out.push(format!(
                 "battery {} {}",
@@ -732,6 +748,10 @@ pub struct ScoreCtx {
     /// [`JudgeTable::w0`] (an EX score weighs it apart).
     #[serde(default)]
     pub w0: bool,
+    /// The chart's meter (its foot rating), which DDR's older money
+    /// scores and FLARE SKILL weigh by.
+    #[serde(default)]
+    pub meter: u32,
 }
 
 /// Score as the HUD shows it. Fields a scoring system does not produce are `None`.
@@ -792,6 +812,11 @@ pub trait GaugeRules {
     /// has none (StepMania scales only `LifeMeterBar`).
     fn set_difficulty(&mut self, _scale: f64) -> bool {
         false
+    }
+    /// The FLARE level the gauge is on, where it is a FLARE gauge
+    /// ([`ddr::Flare`]) still alive.
+    fn flare_rank(&self) -> Option<u8> {
+        None
     }
     /// A new instance with the same parameters and no state.
     fn fresh(&self) -> Box<dyn GaugeRules>;
@@ -909,13 +934,20 @@ impl Ruleset {
         !matches!(self.id.as_str(), "danoni" | "calibration")
     }
 
+    /// Whether the player's DDR gauge ([`StepManiaOptions::gauge`])
+    /// applies: DDR A's (A3 and WORLD's DANCE GAUGE option).
+    pub fn takes_ddr_gauge(&self) -> bool {
+        self.id == "ddr-a"
+    }
+
     /// The StepMania preset with the player's fail type, life and judge
     /// difficulty and life meter (`options`); other rules as they are.
     /// The judge level scales every window, holds', rolls' and mines' too
     /// (StepMania's `GetWindowSeconds`); the life level only a life bar's
     /// changes (`LifeMeterBar`), so under a gauge without one (a battery,
     /// DDR A's) the default level is kept, as are the default lives under
-    /// a bar.
+    /// a bar. DDR's gauge replaces DDR A's own under a bar (a battery
+    /// replaces either), and is kept as the default elsewhere.
     pub fn with_stepmania(mut self, options: &StepManiaOptions) -> Ruleset {
         if !self.is_stepmania() {
             return self;
@@ -923,8 +955,15 @@ impl Ruleset {
         let mut options = options.sanitized();
         self.judge.scale *= options.judge_scale();
         match options.life_type {
-            LifeType::Bar => options.lives = StepManiaOptions::DEFAULT_LIVES,
+            LifeType::Bar => {
+                options.lives = StepManiaOptions::DEFAULT_LIVES;
+                match options.gauge.gauge(self.combo.continue_min) {
+                    Some(gauge) if self.takes_ddr_gauge() => self.gauge = gauge,
+                    _ => options.gauge = ddr::DdrGauge::Normal,
+                }
+            }
             LifeType::Battery => {
+                options.gauge = ddr::DdrGauge::Normal;
                 self.gauge = Box::new(Battery::new(u32::from(options.lives), Judgement::W3, 1, 1))
             }
         }
@@ -1037,6 +1076,7 @@ mod tests {
             mine_breaks: false,
             neutral: None,
             let_go_loses_full_combo: false,
+            jumps_add_each: false,
         };
         let mut tally = Tally::default();
         tally.taps[0] = 10;

@@ -15,7 +15,10 @@ use crate::frame::{
 use crate::history::{LoggedInput, PlayLog};
 use crate::input::InputEvent;
 use crate::judge::{Judge, JudgeEvent, JudgeEventKind, NoteState};
-use crate::rules::{FailPolicy, FullCombo, Judgement, Ruleset, ScoreCtx, ScoreView, Tally};
+use crate::rules::ddr::{DdrClear, flare_points};
+use crate::rules::{
+    FailPolicy, FullCombo, Judgement, LifeType, Ruleset, ScoreCtx, ScoreView, Tally,
+};
 use crate::scroll::{ScrollAction, ScrollOptions, ScrollState};
 use crate::transform::{self, TransformOptions};
 
@@ -136,6 +139,10 @@ pub struct Results {
     /// policy made of it (a play under fail off or at the end goes on).
     #[serde(default)]
     pub gauge_failed_at: Option<f32>,
+    /// Under DDR A's rules, the gauge, FLARE rank and FLARE SKILL
+    /// (`docs/plans/rulesets.md`).
+    #[serde(default)]
+    pub ddr: Option<DdrClear>,
 }
 
 /// One judgement of a play ([`Results::timeline`]); a tap's offset to
@@ -178,6 +185,8 @@ pub struct Player {
     ruleset: Ruleset,
     options: PlayOptions,
     chart_assist: bool,
+    /// The chart's meter ([`ScoreCtx::meter`]).
+    meter: u32,
     clock: SongClock,
     judge: Judge,
     lanes: u8,
@@ -288,6 +297,7 @@ impl Player {
         };
         let mut player = Player {
             chart_assist: chart.derivation.is_some(),
+            meter: chart.meter,
             timing,
             clock: SongClock::new(options.clock),
             options,
@@ -366,6 +376,7 @@ impl Player {
             ticked: self.ruleset.judge.hold.is_ticked(),
             checkpoints: self.judge.checkpoint_count(),
             w0: false,
+            meter: self.meter,
         };
         self.ruleset.score.begin(&self.ctx);
         self.ruleset.gauge.begin(&self.ctx);
@@ -888,7 +899,15 @@ impl Player {
                 if combo.neutral == Some(j) {
                     // Neither adds to nor breaks the combo.
                 } else if j <= combo.continue_min {
-                    self.combo += hit_times;
+                    // A jump adds one a note where the ruleset says so.
+                    let notes = if combo.per_row && combo.jumps_add_each {
+                        ev.note_index
+                            .and_then(|i| self.judge.note(i)?.row)
+                            .map_or(1, |r| self.judge.rows()[r].size)
+                    } else {
+                        1
+                    };
+                    self.combo += hit_times * notes;
                     times = hit_times;
                 } else {
                     self.combo = 0;
@@ -1208,7 +1227,27 @@ impl Player {
             timeline: Vec::new(),
             life: Vec::new(),
             gauge_failed_at: self.gauge_failed_at.map(|t| t as f32),
+            ddr: self.ddr_clear(),
         }
+    }
+
+    /// [`Results::ddr`]: under DDR A's rules with a bar, the rank kept by
+    /// a play whose gauge never emptied, and its points unless assisted.
+    fn ddr_clear(&self) -> Option<DdrClear> {
+        let rules = &self.ruleset;
+        if !rules.takes_ddr_gauge() || rules.stepmania.life_type != LifeType::Bar {
+            return None;
+        }
+        let cleared = !self.failed && self.gauge_failed_at.is_none();
+        let flare = cleared.then(|| rules.gauge.flare_rank().unwrap_or(0));
+        let assist = self.chart_assist || self.options.transform.is_assist();
+        Some(DdrClear {
+            gauge: rules.stepmania.gauge,
+            flare,
+            points: flare
+                .filter(|_| !assist)
+                .and_then(|rank| flare_points(self.meter, rank)),
+        })
     }
 }
 

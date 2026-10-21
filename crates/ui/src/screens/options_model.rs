@@ -8,6 +8,7 @@
 
 use ddi_chart::Layout;
 use ddi_engine::rules::danoni::JudgeRange;
+use ddi_engine::rules::ddr::DdrGauge;
 use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
 use ddi_engine::rules::{FailType, JUDGE_SCALES, LIFE_SCALES, LifeType, StepManiaOptions};
 use ddi_engine::scroll::SpeedSource;
@@ -568,6 +569,17 @@ impl OptionsModel {
                     OptionKind::Stepper(levels(usize::from(StepManiaOptions::MAX_LIVES))),
                     usize::from(s.stepmania.lives.max(1) - 1),
                     "How many lives the battery starts with.",
+                ),
+                row(
+                    "ddr_gauge",
+                    "DDR gauge",
+                    OptionKind::Choices(DdrGauge::ALL.iter().map(|g| g.name()).collect()),
+                    DdrGauge::ALL
+                        .iter()
+                        .position(|g| *g == s.stepmania.gauge.sanitized())
+                        .unwrap_or(0),
+                    "DDR A's gauge: LIFE4 has four lives, RISKY one. FLARE never refills and \
+                     keeps its level as a rank; FLOATING FLARE drops a level when one empties.",
                 ),
                 gauge,
                 choice(
@@ -1347,6 +1359,7 @@ impl OptionsModel {
             "lives" => {
                 s.stepmania.lives = (i.min(usize::from(StepManiaOptions::MAX_LIVES) - 1) + 1) as u8
             }
+            "ddr_gauge" => s.stepmania.gauge = DdrGauge::ALL.get(i).copied().unwrap_or_default(),
             "danoni.gauge" => {
                 s.danoni.gauge = DANONI_GAUGES
                     .get(i)

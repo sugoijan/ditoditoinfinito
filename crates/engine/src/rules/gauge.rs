@@ -72,6 +72,10 @@ pub struct LifeBar {
     pub max_regen_combo: u32,
     /// StepMania `MercifulDrain`: scale losses by `0.5 + 0.5 × life`.
     pub merciful_drain: bool,
+    /// StepMania `HarshHotLifePenalty`: a loss from a full bar takes at
+    /// least [`LifeBar::HOT_PENALTY`] (`LifeMeterBar::ChangeLife`).
+    #[serde(default)]
+    pub hot_penalty: bool,
     #[serde(skip)]
     life: f32,
     #[serde(skip)]
@@ -94,12 +98,20 @@ impl LifeBar {
             regen_combo_after_miss,
             max_regen_combo,
             merciful_drain: false,
+            hot_penalty: false,
             life: initial,
             lockout: 0,
         }
     }
 
+    /// The least a loss from a full bar takes under
+    /// [`LifeBar::hot_penalty`].
+    pub const HOT_PENALTY: f32 = -0.10;
+
     fn change(&mut self, mut delta: f32) {
+        if self.hot_penalty && self.life >= 1.0 && delta < 0.0 {
+            delta = delta.min(Self::HOT_PENALTY);
+        }
         if delta > 0.0 {
             delta = (f64::from(delta) * self.difficulty) as f32;
         } else if delta < 0.0 {

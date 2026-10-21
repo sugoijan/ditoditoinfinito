@@ -58,9 +58,13 @@ numbers_weight = 800
 "Difficulty.Edit" = "#8f8a94"
 "Lamp.Failed" = "#e8584a"
 "Lamp.Clear" = "#a39c95"
+# LIFE4's red lamp, a clear under DDR's LIFE4 gauge.
+"Lamp.Life4Clear" = "#ff6f8e"
 "Lamp.FullCombo" = "#4ea3f0"
 "Lamp.GreatFullCombo" = "#73f273"
 "Lamp.PerfectFullCombo" = "#ffe659"
+# LIFE4's single digit perfects: a gold lamp nearer white.
+"Lamp.SingleDigitPerfects" = "#fff2a8"
 "Lamp.MarvelousFullCombo" = "#8cf2ff"
 # Judgements as the HUD draws them (crates/render/src/scene.rs,
 # `judgement_color`), so results read as play does.
