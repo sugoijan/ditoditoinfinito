@@ -73,7 +73,11 @@ architecture, the decisions and the roadmap they belong to. Status as of
   The Infinito look.
 - [Desktop parity](desktop.md) (2026-10-16): in progress. Steps 7.0–7.9
   done. Left: the maintainer's hardware checks, fullscreen frame pacing,
-  Windows (a hardware run, the helper's build), packaging and signing.
+  Windows (a hardware run, the helper's build).
+- [Packaging and releases](packaging.md) (2026-10-21): done; the release
+  workflow's first run waits for a tag. An ad hoc signed `.app` (zip,
+  `.dmg`), a Linux tarball and a Windows zip, built for draft releases
+  from tags. Left: notarization, Intel Macs, Windows' video helper and icon.
 
 ## Library and import
 

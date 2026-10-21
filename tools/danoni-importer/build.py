@@ -310,86 +310,11 @@ def prepare(target, stage):
 
 
 def package(app, output):
-    app = app.resolve(strict=True)
-    env = dict(os.environ)
-    info = json.loads(run([app, '--danoni-bundle-info'], env, capture=True))
-    if not info.get('enabled') or not re_hash(info.get('id')) or not re_hash(info.get('manifestSha256')):
-        raise ValueError('Application has no prepared production importer binding')
-    source = app.parent / 'danoni-importer' / info['id']
-    manifest, digest = verify(source)
-    if digest != info['manifestSha256']:
-        raise ValueError('Application and staged importer differ')
-    app_dependencies = native_dependencies(app, manifest['target'])
-    if output.exists():
-        raise ValueError('Package output must be a fresh directory')
-    output.mkdir(parents=True)
-    try:
-        shutil.copy2(app, output / app.name)
-        shutil.copytree(source, output / 'danoni-importer' / manifest['id'])
-        shutil.copytree(ROOT / 'assets', output / 'assets')
-        for name in ['songs', 'noteskins']:
-            index = ROOT / 'target' / name / 'index.json'
-            if not index.is_file():
-                raise ValueError(f'Generate {name} index with cargo run -p xtask -- gen-{name} before packaging')
-            shutil.copy2(index, output / 'assets' / name / 'index.json')
-        # The Credits screen's generated list (the desktop's, with its Rust
-        # libraries), read beside the assets as the shell.rs credits_screen
-        # looks for it; without it the screen would show sample credits.
-        credits = ROOT / 'target' / 'credits' / 'credits-desktop.json'
-        if not credits.is_file():
-            raise ValueError('Generate the credits with cargo run -p xtask -- gen-credits before packaging')
-        (output / 'assets' / 'credits').mkdir()
-        shutil.copy2(credits, output / 'assets' / 'credits' / credits.name)
-        # The sandboxed decoder helper crates/desktop/build.rs staged beside the app
-        # (video/ddi-video-helper), with its notice and FFmpeg's description.
-        exe = 'ddi-video-helper.exe' if manifest['target'].endswith('windows-msvc') else 'ddi-video-helper'
-        helper = app.parent / 'video' / exe
-        if info.get('video', True) and helper.is_file():
-            import tomllib
-            video_config = tomllib.loads((ROOT / 'video/FFMPEG.toml').read_text())
-            notice = helper.parent / 'ddi-video-helper.LICENSE.txt'
-            metadata_file = helper.parent / 'ffmpeg.json'
-            if not notice.is_file() or not metadata_file.is_file():
-                raise ValueError('Video helper lacks its build metadata/notices; rebuild the app (crates/desktop/build.rs stages them)')
-            metadata = json.loads(metadata_file.read_bytes())
-            expected_configure = video_config['native_configure'] + ['--enable-decoder=' + ','.join(video_config['video_decoders'])]
-            # The script adds host-dependent flags (--disable-x86asm, --toolchain=msvc) after the pinned ones.
-            if metadata['version'] != video_config['version'] or metadata['configure'][:len(expected_configure)] != expected_configure or metadata['target'] != manifest['target']:
-                raise ValueError('Video helper metadata differs from current pinned build recipe or target')
-            check = run([helper, '--sandbox-check'], env, capture=True).decode()
-            if 'holds' not in check:
-                raise ValueError('Video helper sandbox check failed: ' + check)
-            (output / 'video').mkdir()
-            for file in (helper, notice, metadata_file):
-                shutil.copy2(file, output / 'video' / file.name)
-            downloads = ROOT / 'target/video/downloads'
-            # These are the exact unmodified upstream archives named by the
-            # helper's shipped notice. Their hashes are pinned in FFMPEG.toml.
-            for source_url, source_sha in [(video_config['tarball_url'], video_config['tarball_sha256']), (video_config['zlib_url'], video_config['zlib_sha256'])]:
-                name = source_url.rsplit('/', 1)[-1]
-                archive = downloads / name
-                if not archive.is_file() or sha(archive.read_bytes()) != source_sha:
-                    raise ValueError('Video source archive missing or changed: ' + name)
-                shutil.copy2(archive, output / 'video' / archive.name)
-            # The LGPL's relinking route: the shims, the build scripts, the
-            # helper and protocol crates (no build output).
-            shutil.copytree(ROOT / 'video', output / 'video' / 'helper-source', ignore=shutil.ignore_patterns('target', '__pycache__'))
-        elif info.get('video', True):
-            raise ValueError('Video-enabled app needs its built decoder helper beside it (video/ddi-video-helper); rebuild the app, or build it without video')
-        shutil.copytree(ROOT / 'LICENSES', output / 'LICENSES')
-        for name in ['CREDITS.md', 'THIRD_PARTY_RUST.md']:
-            shutil.copy2(ROOT / 'credits' / name, output / name)
-        run([output / 'danoni-importer' / manifest['id'] / manifest['executable'], '--check-bundle'], env, cwd=output)
-        (output / 'PACKAGE.json').write_bytes(encoded({'schema': 'ddi-desktop-distribution/1', 'appSha256': sha(app.read_bytes()), 'importerId': manifest['id'], 'manifestSha256': digest, 'target': manifest['target'], 'appNativeDependencies': app_dependencies}))
-        (output / 'README.txt').write_text('Run ./' + app.name + '\nKeep assets/, video/ (when present), LICENSES/ and danoni-importer/ beside the executable.\nThe importer is self-contained native code; Java/Python/Cargo are build tools only.\nSee danoni-importer/' + manifest['id'] + '/runtime/notices/manifest.json for exact helper/SDK/worker dependency and embedded-font notices.\n')
-    except BaseException:
-        shutil.rmtree(output)
-        raise
-    print(output)
-
-
-def re_hash(value):
-    return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
+    """The relocatable folder, now made by the desktop's packaging script
+    (tools/package/package.py folder), kept here under its old name."""
+    sys.path.insert(0, str(ROOT / 'tools/package'))
+    import package as distribution
+    print(distribution.folder(app, output))
 
 
 def main():

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Dito Dito Infinito
+GenericName=Dance rhythm game
+Comment=A dance rhythm game that plays StepMania simfiles
+Exec=ditoditoinfinito
+Icon=dev.sugoijan.ditoditoinfinito
+Terminal=false
+Categories=Game;ArcadeGame;
+Keywords=dance;rhythm;music;stepmania;
+StartupWMClass=ditoditoinfinito

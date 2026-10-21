@@ -49,7 +49,7 @@ cargo run -p xtask -- gen-songs
 cargo run -p xtask -- gen-noteskins
 cargo run -p xtask -- gen-credits
 cargo build -p ditoditoinfinito
-python3 tools/danoni-importer/build.py package --app target/debug/ditoditoinfinito --output /tmp/ddi-package
+python3 tools/package/package.py folder --app target/debug/ditoditoinfinito --output /tmp/ddi-package
 ```
 
 The app keeps video and the importer enabled by default (`--no-default-features
@@ -99,7 +99,9 @@ pinned Git objects, reviewed hooks, exact source preparation and platform IDs.
 
 A bundle manifest inventories every helper/runtime/notice byte by size and
 SHA-256. Its immutable ID and manifest digest are compiled into desktop.
-Discovery uses only the app executable's sibling `danoni-importer/<id>/`.
+Discovery uses only the app executable's sibling `danoni-importer/<id>/`
+(or, in a macOS app, `Contents/Resources/danoni-importer/<id>/`;
+`packaging.md`).
 Changed, missing, extra or symlinked files are rejected. The helper's own
 runtime lives at `../runtime` relative to its `bin/` directory. No source,
 build-cache or home directory is compiled into runtime discovery. Assets are

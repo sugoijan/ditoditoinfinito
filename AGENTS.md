@@ -203,7 +203,8 @@ the browser are implementation details, not advertised features.
   an adapter or with `DDI_NO_GPU=1`, as in CI's `desktop` job on Linux,
   macOS and Windows, with and without `video`). The video decoder
   helper is found at `DDI_VIDEO_HELPER`, else as `video/ddi-video-helper`
-  beside the executable or beside a folder above it (`crates/desktop/build.rs`
+  beside the executable, in a macOS app's `Contents/Helpers/` or beside a
+  folder above it (`crates/desktop/build.rs`
   stages it in the build's `target/<profile>/video/`, which a test in
   `target/<profile>/deps/` finds too); `cargo test -p ddi-desktop --test
   video` checks it on generated clips; `--decoder both` compares the
@@ -237,7 +238,7 @@ the browser are implementation details, not advertised features.
   never builds it) prepares the pinned worker/helper
   and complete notices through `crates/desktop/build.rs`, stages an immutable bundle
   beside the app, and compiles only its content ID/digest into desktop. The SDK
-  is not linked into the app. `build.py package` copies a complete relocatable
+  is not linked into the app. `tools/package/package.py` copies a complete relocatable
   distribution; see `docs/plans/danoni-importer.md`. Python/Java are build-time
   prerequisites only. No helper preparation runs for wasm or Windows builds or
   with `--no-default-features`. `DDI_IMPORTER_TEST_ONLY=1` skips preparation
@@ -265,6 +266,10 @@ the browser are implementation details, not advertised features.
   `docs/research/danoni-desktop-integration.md` records the research.
 - `xtask/` generators: SEO fragments, the song manifest, `credits/CREDITS.md`
   and `credits/THIRD_PARTY_RUST.md`.
+- `tools/package/` the desktop's packaging (`package.py`: the relocatable
+  folder and each system's archives; the app's `Info.plist`, the Linux
+  desktop entry, the icon), run by `just package` and
+  `.github/workflows/release.yml` (`docs/plans/packaging.md`).
 - `video/` the software video decoder: C shims over FFmpeg's video
   decoders (every format StepMania plays), built two ways from the one
   pinned release (`video/FFMPEG.toml`): for the web to
@@ -293,14 +298,23 @@ the browser are implementation details, not advertised features.
   x86_64 Linux (the default `danoni-importer` feature; a JDK, CMake and
   Python 3.11+ at build time). The first build fetches pinned public
   build inputs; no runtime tools or maintainer configuration are needed by the
-  result. `python3 tools/danoni-importer/build.py package --app
+  result. `python3 tools/package/package.py folder --app
   target/debug/ditoditoinfinito --output /tmp/ddi-package` prepares a fresh
-  relocatable folder. Keep its assets, notices, optional full video payload and
+  relocatable folder (`build.py package` forwards to it). Keep its assets, notices, optional full video payload and
   `danoni-importer/` beside the executable. `--danoni-bundle-info` and
   `--danoni-importer-check` inspect it without a window or sound device. The app
   defaults to video and the importer; `--no-default-features --features
   danoni-importer` makes a deliberate no-video package, `--no-default-features
   --features video` a build without the importer.
+- `just package` builds with `--profile desktop` and packages for this
+  system into `target/dist/` (`package.py dist`: an ad hoc signed `.app`
+  in a zip and a `.dmg` on macOS, its files in `Contents/Resources` and
+  the helper in `Contents/Helpers/video`, found through
+  `ddi_desktop::paths::package_dirs`; a tarball with a desktop entry on
+  Linux; a zip on Windows, `--without-video-helper`), after the packaged
+  game's headless checks. A pushed tag `v<Cargo's version>` runs the same
+  in `.github/workflows/release.yml` on the three systems and attaches the
+  archives to a draft release (`docs/plans/packaging.md`).
 - `cargo run` opens the desktop app on our theme's silent start menu
   (`--profile desktop` for smooth frames: `release` is the wasm bundle's,
   tuned for size and aborting on panics). Flags (`ddi_desktop::run`):

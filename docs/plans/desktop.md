@@ -57,11 +57,13 @@ under it in section 7:
   offscreen play and bounded GPU-lifetime/fallback tests pass locally;
   other Macs, physical GPU loss and manual play remain to be checked.
   `native-video.md` sections 4f/7 record the gates and validation (decision 50).
-- Packaging and signing: a relocatable folder exists
-  (`tools/danoni-importer/build.py package`: the app, its assets, the
-  video helper with its LGPL payload, the licences, the credits and the
-  importer, on by default since 2026-10-21); an
-  `.app`, an installer and signing remain, in their own plan.
+- Packaging and signing: done in their own plan (`packaging.md`):
+  `tools/package/package.py` makes the relocatable folder (the app, its
+  assets, the video helper with its LGPL payload, the licences, the credits
+  and the importer, on by default since 2026-10-21) and the archives, an ad hoc signed `.app` (zip and `.dmg`), a
+  Linux tarball with a desktop entry, a Windows zip; tags `v*` build them
+  in CI (`release.yml`) for a draft release. Left there: notarization,
+  Intel Macs, Windows' video helper, console window and icon.
 - Windows: the gilrs change (8 ms polling, stamps from the reading) needs
   the maintainer's account and a Windows machine; a run on Windows
   hardware; the helper's FFmpeg built on Windows (`DDI_VIDEO_NATIVE=1`,

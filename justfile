@@ -58,6 +58,15 @@ video-check file="": video
     case $file in /*) ;; *) file="{{invocation_directory()}}/$file" ;; esac
     exec node --no-warnings video/check.mjs "$file" --png target/video/check.png
 
+# Builds with the importer and the video helper (docs/plans/packaging.md).
+# Package the desktop game for this system into target/dist/
+package:
+    @cargo run -q -p xtask -- gen-songs
+    @cargo run -q -p xtask -- gen-noteskins
+    @cargo run -q -p xtask -- gen-credits
+    @cargo build --locked -p ditoditoinfinito --profile desktop
+    @python3 tools/package/package.py dist --app target/desktop/ditoditoinfinito --output-dir target/dist
+
 # Run native unit tests
 test:
     @# The bundled songs' and noteskins' indexes the desktop's tests read

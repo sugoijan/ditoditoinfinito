@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- The site's favicon (site/seo/favicon.svg) on the macOS icon grid:
+       an 824-unit tile with a 100-unit margin, scaled 824/64. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#161318"/>
+  <path d="M512 203 L795.25 486.25 H640.75 V821 H383.25 V486.25 H228.75 Z" fill="#ff6ea0"/>
+</svg>
