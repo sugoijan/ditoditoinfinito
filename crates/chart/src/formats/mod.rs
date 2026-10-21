@@ -3,11 +3,26 @@
 
 pub mod danoni;
 pub mod dwi;
+pub mod ffr;
 pub mod lrc;
 pub mod msd;
 pub mod sm;
 
 use thiserror::Error;
+
+use crate::SourceFormat;
+
+/// The synthetic tempo a frame-based format's charts are put on (their
+/// ticks are fractions of a second, not of a beat), or none: a song's
+/// tempo shown and its x-mods are its own reference's
+/// (`ddi_engine::scroll::speed_for_song`), never this one.
+pub fn synthetic_bpm(format: &SourceFormat) -> Option<f64> {
+    match format {
+        SourceFormat::Danoni => Some(danoni::SYNTHETIC_BPM),
+        SourceFormat::Ffr => Some(ffr::SYNTHETIC_BPM),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Error, PartialEq)]
 pub enum ParseError {

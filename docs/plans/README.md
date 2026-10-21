@@ -44,7 +44,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [The play history](play-history.md) (2026-10-16): done, replays and the
   ghost included (decision 49); importing plays in `phase-10.md`.
 - [Phase 10](phase-10.md) (2026-10-21): importing plays done; FFR
-  `beatBox` charts; the editor planned (`editor.md`). Rulesets later.
+  levels read (SWF and text `beatBox`), not yet offered on import, their
+  rules waiting for the rulesets. Rulesets later.
 - [Additional charts without onigiri](chart-simplification.md)
   (2026-10-18): done. DanOni 5/7/9A/9B charts converted to Single, Solo,
   Double and Techno 8-panel, marked as assisted.

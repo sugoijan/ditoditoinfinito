@@ -132,7 +132,114 @@ play: ids are random).
 
 ## Step 2: FFR `beatBox`
 
-See below (filled in as it is built).
+Done as a reader (2026-10-21); not yet offered in the import paths (see
+"Left").
+
+### What a player has
+
+FFR serves its levels only to its own client, through a session
+(`r3-songLoad.php`, research A4); R^3 (the AIR client) caches them
+encrypted. What a player can legitimately have is a **level SWF**
+(`level_<id>.swf`, from the old Flash client's cache or from a
+stepartist's own files), and a **`beatBox` as text** (what a SWF
+decompiler shows of a level they have, or a stepartist's notes).
+Nothing here downloads from FFR, decrypts R^3's cache or reads its
+playlist; levels and their music never enter the repository (the tests
+build their own SWFs).
+
+### Decided here (the maintainer may change any)
+
+- **Accepted input:** an uncompressed (`FWS`) or zlib (`CWS`) SWF; LZMA
+  (`ZWS`) refused (no level is known to use it, and it would need a
+  decoder). And the text form: `_root.beatBox = [...]`, `beatBox = [...]`
+  or a bare array (JSON is one), `//` comments, single or double quotes,
+  `0x` numbers, `true`/`false`/`null`/`undefined`.
+- **Reading the level as R^3 does** (rCubed, read for behavior only, its
+  code being AGPL; the SWF layout from Adobe's published specification):
+  the `DoAction`/`DoInitAction` bytecode run on a machine that knows only
+  what builds an array (constant pool, push of every type, pop,
+  duplicate, registers, get/set variable and member, init array; the
+  rest passed over; a tag whose actions fail is left), then
+  `_root.beatBox`; the music: the MP3 sound stream's blocks less their
+  4-byte header, else the first MP3 `DefineSound` less its 9 bytes.
+- **Notes as R^3 times them:** `(frame + sync) / 30` s from the music's
+  start, or `ms / 1000` when an entry has a fourth value; directions
+  exactly `L`, `D`, `U`, `R` (others left out, as R^3 does), colors the
+  third value, `blue` when falsy. `sync` (the playlist's offset) is not in
+  a level: 0 unless given. A note twice at one time in one lane is one
+  (R^3 would keep both; one press cannot take two).
+- **On the grid:** one `dance-single` chart on a synthetic 1,500 BPM
+  (`ffr::SYNTHETIC_BPM`), 1,200 ticks a second: a frame is exactly 40
+  ticks, a millisecond-timed note within 0.42 ms. Beat 0 is the music's
+  start, or the first note when a negative sync puts one before it.
+  PLAN.md section 4 had 75 BPM (2 ticks a frame); that cannot hold
+  millisecond timings.
+- **Speed:** like Dancing☆Onigiri's works, an x-mod plays as on a
+  150 BPM song (`FRAME_CHART_REFERENCE_BPM`; FFR has no tempo of its
+  own), a c-mod as a c-mod (`formats::synthetic_bpm`, used by
+  `ddi_engine::scroll::speed_for_song`); no BPM is shown (the song
+  list's BPM is empty).
+- **Colors:** FFR's nine names (red, blue, purple, yellow, pink, orange,
+  cyan, green, white) as `Note::color`, in the hues of our quantization
+  palette, shown with "songs' own colors"; other names: the quantization
+  color.
+- **Music timing:** the MP3 as StepMania 5.1 has it (no delay trimmed,
+  decision 46); R^3 plays Flash's own decode of it, whose delay is not
+  documented. To be checked against a level a player has.
+- **Bounds:** 200,000 notes, a day of time, 16 levels of nesting and
+  800,000 values in the text, 256 MB inflated, 20 million actions, a
+  4-million-deep stack, 8 million array values a level.
+- **FFR's rules** (its asymmetric 30 fps windows, Boo on every stray
+  press, ±5 life on 0–100 starting at 50, the raw score and the end
+  formula with combo × 1000; research A2) need a ruleset of their own:
+  they wait for the rulesets work under way (presets and rules options);
+  FFR charts play under the rules chosen until then.
+
+### Built
+
+- `crates/chart/src/formats/ffr.rs`: `Value`, `parse_beatbox_text`,
+  `song_from_beatbox` (`LevelInfo`: title, artist, stepartist, sync,
+  music, meter), `color`, `SYNTHETIC_BPM`; `formats::synthetic_bpm` for
+  every frame-based format.
+- `crates/library/src/swf.rs`: `read` (a `Level`: the `beatBox`, the MP3,
+  its rate, the SWF's frame rate and version), `is_swf`, `level_song`
+  (the song, titled by the file's name, its music `<name>.mp3`, and the
+  MP3's bytes).
+- `ddi_engine::scroll::speed_for_song` and the manifest's BPM take any
+  frame-based format.
+
+Checked natively: frames, sync (negative too, moving beat 0 back),
+millisecond notes to the tick, colors and their default, entries that
+are not notes, duplicates, the text form as decompilers and JSON write
+it and seven malformed texts, nesting bounds, 5,000 damaged texts
+without a panic; SWFs written by the tests (uncompressed and zlib): the
+`beatBox` as Flash compiles `_root.beatBox = [[…]]` (constant pool,
+`GetVariable`, `InitArray`, `SetMember`), as a variable, through a
+register, doubles and floats, a path name, a sprite's init actions; the
+stream's MP3 byte for byte across blocks and frames, the first MP3
+`DefineSound` after an ADPCM one; broken levels (not a SWF, LZMA, cut
+short, not zlib, inflating past its size, six kinds of broken actions,
+a `beatBox` that is not an array), 3,000 damaged levels without a panic,
+24 million actions stopped at the bound; a level autoplayed under ITG:
+64 notes, all the best judgement, each judged at its frame's time; the
+speed of an x-mod and a c-mod.
+
+Left:
+
+- **Offering it in the import paths.** Both paths read a song folder's
+  chart as text beside its music file; a level is binary and carries its
+  music. The way in: the web's import and desktop's managed library
+  (where Dancing☆Onigiri URL imports already land) take a `.swf` that
+  reads as a level (`swf::level_song`) and keep the level's MP3 as the
+  song's music file beside its chart, kept as the level itself (read
+  with `swf::read` where charts are parsed: `scan::parse_simfile`'s
+  callers in `songs.rs`, `play/load.rs`, `library/mod.rs`,
+  `preview.rs`), or as an `.ssc` with the colors in a side file. That
+  touches the import code of both shells and the library scan, which
+  other work is changing now; it comes next.
+- FFR's rules (above), its playlist's `sync`, title and difficulty
+  (a player could give them on import), and a check of the music's
+  timing against a real level.
 
 ## Step 3: the editor
 

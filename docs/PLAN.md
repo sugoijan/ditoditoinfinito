@@ -254,7 +254,7 @@ pub struct Song { title, subtitle, artist, (translits), genre, credit, music: As
                   keysounds: Vec<AssetRef>, source: SourceInfo /* format, version, unknown tags */ }
 ```
 
-Frame-based sources (DanOni 60 fps, FFR 30 fps) import losslessly onto this grid with a synthetic constant tempo: at 75 BPM one beat is 0.8 s = 48 frames at 60 fps, so **1 frame = 1 tick** (FFR: 2 ticks per frame). `blankFrame`/`startFrame`/`adjustment`/`sync` fold into `offset_seconds`; `playbackRate` becomes a music-rate hint. Quantization-based coloring is meaningless for those charts, which matches the source games (DanOni colors per lane group, FFR stores colors per note), so `Note.color` carries the explicit color and skins honour it.
+Frame-based sources (DanOni 60 fps, FFR 30 fps) import losslessly onto this grid with a synthetic constant tempo: at 75 BPM one beat is 0.8 s = 48 frames at 60 fps, so **1 frame = 1 tick** (FFR: 1,500 BPM, 40 ticks a frame, so millisecond-timed notes fit too; `docs/plans/phase-10.md`). `blankFrame`/`startFrame`/`adjustment`/`sync` fold into `offset_seconds`; `playbackRate` becomes a music-rate hint. Quantization-based coloring is meaningless for those charts, which matches the source games (DanOni colors per lane group, FFR stores colors per note), so `Note.color` carries the explicit color and skins honour it.
 
 Importers implement `trait ChartImporter { fn sniff(bytes, name) -> bool; fn import(files: &dyn FileSet) -> Result<Song> }`. `FileSet` abstracts a directory, a zip, or a single text file so the same code runs on web and desktop. Exporting is out of scope but the model keeps enough (`source.unknown_tags`, SSC version) not to preclude it.
 
@@ -353,7 +353,7 @@ Status as of 2026-10-21: one line per phase, the full notes below the table; kno
 | 7 Input devices | done | gamepad poller, dance-pad profiles, touch lanes, WebHID experiment | 1 ms poll loop with pad timestamps, bindings per controller model, touch lanes; WebHID out of scope; notes below |
 | 8 Presentation | partial | skin packs (static/quantized/rainbow/vivid), background layers (BGCHANGES, DanOni back/mask, generative), DDR option set (Boost/Brake/Wave, Hidden/Sudden, Turn, Cut) | done: options, color schemes, `#BGCHANGES`/`#BGCHANGES2`, background videos (`docs/plans/video-backgrounds.md`), noteskins with Lua, models and legacy formats (`docs/plans/noteskins.md` and the skin plans), DanOni overlays (`docs/plans/overlays.md`). Not done: scripted backgrounds, `#FGCHANGES`, named background effects; notes below |
 | 9 UI core & desktop | in progress | the screens drawn by our own UI core (`actor`, `ui`) on web and desktop (`docs/plans/ui-core.md`, decision 45); then the `desktop` crate: winit + wgpu + cpal + gilrs (`docs/plans/desktop.md`); same `engine`/`render`/`chart` | UI core and theme done (`docs/plans/ui-core.md`, `docs/plans/theme.md`); desktop parity steps 7.0–7.9 done (`docs/plans/desktop.md`); movies through OS decoders and a sandboxed FFmpeg helper (`docs/plans/native-video.md`); packaging and draft releases from tags (`docs/plans/packaging.md`); start menu since 2026-10-21 (`docs/plans/start-menu.md`); next: hardware checks, frame pacing measurements, Windows video; notes below |
-| 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); importing plays done (`docs/plans/phase-10.md`); not done: FFR, more rulesets, editor |
+| 10 Later | partial | FFR `beatBox` import (user-owned data), replays (from the play history, phase 9), more rulesets (DDR legacy scoring, FLARE, LIFE4), editor | replays and the ghost done (decision 49, `docs/plans/play-history.md`); importing plays done, FFR levels read (`docs/plans/phase-10.md`; not yet offered in the import paths, its rules wait for the rulesets); not done: more rulesets, editor |
 
 ### Phase notes
 
@@ -445,8 +445,9 @@ Charts and import:
   deflate, or several disks are refused (`crates/library/src/zip.rs`;
   kept, `docs/plans/format-gaps.md` decision 11).
 - Layouts not played (couple, routine, techno, kb7, para, ez2, …) are
-  left out with a note (decision 27); KSF, BMS, `.osu` and FFR are not
-  read (section 2.1, phase 10); keysounds are a non-goal (section 1).
+  left out with a note (decision 27); KSF, BMS and `.osu` are not
+  read, FFR levels are read but not offered on import yet (section 2.1,
+  phase 10); keysounds are a non-goal (section 1).
 - Korean and Chinese legacy encodings are told apart by a heuristic
   (`ddi_library::legacy`, `docs/plans/format-gaps.md`): a short title
   may still be misread.

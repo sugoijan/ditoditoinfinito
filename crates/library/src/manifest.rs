@@ -296,8 +296,9 @@ pub struct EntryMeta {
 /// order is arbitrary.
 pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
     let danoni = song.source.format == SourceFormat::Danoni;
-    let (lo, hi) = if danoni {
-        // The timing's 75 BPM is synthetic; the work declares its own.
+    let (lo, hi) = if ddi_chart::formats::synthetic_bpm(&song.source.format).is_some() {
+        // The timing's tempo is synthetic; a work declares its own (an
+        // FFR level none).
         match song.display_bpm {
             DisplayBpm::Single(b) => (b, b),
             DisplayBpm::Range(a, b) => (a, b),

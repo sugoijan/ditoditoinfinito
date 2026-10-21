@@ -95,7 +95,8 @@ pub const FRAME_CHART_REFERENCE_BPM: f64 = 150.0;
 const MAX_REFERENCE_BPM: f64 = 1000.0;
 
 /// The speed a song is played at (decision 23). Frame-based works
-/// (Dancing☆Onigiri) run on a synthetic tempo, so an x-mod there means a
+/// (Dancing☆Onigiri, FFR) run on a synthetic tempo
+/// (`ddi_chart::formats::synthetic_bpm`), so an x-mod there means a
 /// constant speed at the work's declared BPM (the first value of a range;
 /// [`FRAME_CHART_REFERENCE_BPM`] without one): it plays like the same x-mod
 /// on a StepMania song at that tempo. It stays an x-mod against the
@@ -103,10 +104,9 @@ const MAX_REFERENCE_BPM: f64 = 1000.0;
 /// own speed changes (scroll segments, which a c-mod ignores); a c-mod
 /// becomes the same.
 pub fn speed_for_song(song: &Song, speed: SpeedMod) -> SpeedMod {
-    if song.source.format != SourceFormat::Danoni {
+    let Some(synthetic) = ddi_chart::formats::synthetic_bpm(&song.source.format) else {
         return speed;
-    }
-    let synthetic = ddi_chart::formats::danoni::SYNTHETIC_BPM;
+    };
     let reference = match song.display_bpm {
         // Bounded, so a nonsense declaration cannot make an infinite speed.
         DisplayBpm::Single(b) | DisplayBpm::Range(b, _) if b.is_finite() && b > 0.0 => {
@@ -251,6 +251,21 @@ mod tests {
         // Note at beat 4 (2.0 s), now at 1.0 s (beat 2): 2 beats × 2 = 4.
         assert!((note_y(opts, &t, Tick::from_beats(4), 1.0) - 4.0).abs() < 1e-6);
         assert!((note_y(opts, &t, Tick::from_beats(4), 2.5) + 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_ffr_level_scrolls_as_a_song_at_150_bpm() {
+        let v = ddi_chart::formats::ffr::parse_beatbox_text("[[30,'L'],[60,'R']]").unwrap();
+        let song = ddi_chart::formats::ffr::song_from_beatbox(&v, &Default::default()).unwrap();
+        // 1,500 BPM synthetic, 150 the reference: x2 is a tenth of it.
+        assert_eq!(
+            speed_for_song(&song, SpeedMod::XMod(2.0)),
+            SpeedMod::XMod(2.0 * 150.0 / 1500.0)
+        );
+        assert_eq!(
+            speed_for_song(&song, SpeedMod::CMod(300.0)),
+            SpeedMod::XMod(300.0 / 1500.0)
+        );
     }
 
     #[test]
