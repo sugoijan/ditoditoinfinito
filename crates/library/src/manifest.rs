@@ -10,7 +10,7 @@ use ddi_chart::{DisplayBpm, Layout, Song, SourceFormat};
 use ddi_platform::video::VideoFormat;
 use serde::{Deserialize, Serialize};
 
-use crate::path::RelPathBuf;
+use crate::path::{RelPath, RelPathBuf};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ManifestEntry {
@@ -123,6 +123,22 @@ impl ManifestEntry {
     /// one, [`crate::danoni::STORED_EXT`]).
     pub fn is_danoni_work(&self) -> bool {
         self.chart.as_str().ends_with(crate::danoni::STORED_EXT)
+    }
+
+    /// The names the import found the background changes' files by, as
+    /// [`crate::scan::song_dir_names`] lists a folder's: those with `,` or
+    /// `=` in them, for [`ddi_chart::Song::resolve_change_names`] when the
+    /// simfile is read again for a play (the folder is not listed then).
+    pub fn change_names(&self) -> Vec<String> {
+        let names: Vec<&str> = self
+            .bg_images
+            .iter()
+            .chain(self.bg_shared.iter())
+            .chain(self.bg_scripted.iter())
+            .chain(self.bg_videos.iter().map(|v| &v.name))
+            .map(|p| p.as_str())
+            .collect();
+        crate::scan::song_dir_names(RelPath::new(""), &names)
     }
 
     /// Whether stored chart data should be reread to add missing versions.

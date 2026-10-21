@@ -586,7 +586,12 @@ async fn parse_found(found: &Found) -> Result<Song, LoadError> {
     let song = if ext == ddi_library::danoni::STORED_EXT {
         load_work_song(&chart_text).await
     } else {
-        parse_simfile(&chart_text, ext).map_err(|e| e.to_string())
+        parse_simfile(&chart_text, ext)
+            .map(|mut song| {
+                song.resolve_change_names(&entry.change_names());
+                song
+            })
+            .map_err(|e| e.to_string())
     }
     .map_err(|e| format!("{}: {e}", entry.chart))?;
     fill_digests(found, &song).await;

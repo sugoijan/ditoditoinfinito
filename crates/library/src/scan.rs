@@ -36,6 +36,33 @@ pub fn parse_simfile(
     Ok(song)
 }
 
+/// The files and folders under the song folder `dir` among `paths`
+/// (relative to the root), relative to `dir`: what StepMania matches a
+/// background change's file names against (`SMLoader::GetSongDirFiles`;
+/// [`ddi_chart::Song::resolve_change_names`]). Only names with `,` or `=`
+/// in them change how changes split, so only those are listed.
+pub fn song_dir_names<S: AsRef<str>>(dir: &RelPath, paths: &[S]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for p in paths {
+        let Some(rel) = RelPath::new(p.as_ref()).strip_prefix(dir) else {
+            continue;
+        };
+        let rel = rel.as_str();
+        // The file and each folder it is in.
+        let mut end = rel.len();
+        while rel[..end].contains([',', '=']) {
+            names.push(rel[..end].to_string());
+            match rel[..end].rfind('/') {
+                Some(i) => end = i,
+                None => break,
+            }
+        }
+    }
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
 /// Files of a folder or a zip, by paths relative to its root.
 pub trait Reader {
     /// The whole file.
@@ -181,7 +208,8 @@ pub fn read_song(
 ) -> Result<Reading, String> {
     let mut notes = Vec::new();
     let text = pack::decode_text_with(chart, shift_jis);
-    let song = parse_simfile(&text, c.format.extension()).map_err(|e| e.to_string())?;
+    let mut song = parse_simfile(&text, c.format.extension()).map_err(|e| e.to_string())?;
+    song.resolve_change_names(&song_dir_names(&c.dir, paths));
     let mut unplayed: Vec<&str> = song
         .charts
         .iter()
@@ -712,5 +740,43 @@ mod tests {
         // The animation that exists (another case: found anyway), not the
         // one found nowhere.
         assert_eq!(e.bg_scripted, vec!["Spin"]);
+    }
+
+    #[test]
+    fn background_files_with_commas_and_equals_are_found_whole() {
+        let mut f = BTreeMap::new();
+        let changes = "#BGCHANGES:0=a,b.png=1=0=0=1,2=x=y/c.png=1=0=0=1,4=plain.png=1=0=0=1;";
+        let sm = SM.replace("#BPMS:0=120;", &format!("#BPMS:0=120;{changes}"));
+        f.insert("P/S/s.sm".into(), sm.clone().into_bytes());
+        f.insert("P/S/song.ogg".into(), vec![0; 4]);
+        f.insert("P/S/A,B.png".into(), png(64, 48));
+        f.insert("P/S/x=y/c.png".into(), png(64, 48));
+        f.insert("P/S/plain.png".into(), png(64, 48));
+        let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
+        assert_eq!(
+            song_dir_names(RelPath::new("P/S"), &paths),
+            vec!["A,B.png", "x=y", "x=y/c.png"]
+        );
+        let scan = scan_root(&Files(f), &paths, "Mine", &[], &|_| None);
+        let e = &scan.songs[0].entry;
+        assert_eq!(e.bg_images, vec!["A,B.png", "x=y/c.png", "plain.png"]);
+        assert!(
+            !scan.songs[0]
+                .warnings
+                .iter()
+                .any(|w| w.contains("not found")),
+            "{:?}",
+            scan.songs[0].warnings
+        );
+        // Read again for a play, the entry's names split it the same way.
+        let mut song = parse_simfile(&sm, "sm").unwrap();
+        song.resolve_change_names(&e.change_names());
+        let files: Vec<&str> = song
+            .effects
+            .iter()
+            .filter(|e| e.kind == "bgchange")
+            .map(|e| e.fields[1].as_str())
+            .collect();
+        assert_eq!(files, vec!["A,B.png", "x=y/c.png", "plain.png"]);
     }
 }

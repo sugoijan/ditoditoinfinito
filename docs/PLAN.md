@@ -443,8 +443,6 @@ Charts and import:
 - *New:* `.ssc` per-chart `#MUSIC`, `#PREVIEW` (a separate preview file)
   and `#PREVIEWVID` are not used; `#JACKET` and `#CDTITLE` are read (so
   their images are not taken as banner or background) but never shown.
-- *New:* `#BGCHANGES` file names containing `,` or `=` do not resolve
-  (`crates/library/src/backgrounds.rs`; StepMania matches folder names first).
 - *New:* zips with encrypted entries, compression other than stored or
   deflate, or several disks are refused (`crates/library/src/zip.rs`).
 - Layouts not played (couple, routine, techno, kb7, para, ez2, …) are

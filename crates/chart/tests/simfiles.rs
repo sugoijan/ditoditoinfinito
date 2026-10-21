@@ -299,7 +299,10 @@ fn ssc_split_timing() {
     assert!(approx(t.displayed_beat(12.0), 10.0));
     assert!(!t.judgeable(Tick::from_beats(12)));
     assert!(t.judgeable(Tick::from_beats(13)));
-    assert_eq!(song.effects.len(), 1);
+    assert_eq!(
+        song.effects.iter().filter(|e| e.kind == "bgchange").count(),
+        1
+    );
 
     assert_eq!(song.charts.len(), 2);
     let a = &song.charts[0];

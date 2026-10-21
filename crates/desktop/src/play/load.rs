@@ -343,7 +343,8 @@ pub fn load_with(
         .rsplit_once('.')
         .map_or("sm", |(_, e)| e)
         .to_ascii_lowercase();
-    let song = ddi_library::scan::parse_simfile(&text, &ext).map_err(|e| e.to_string())?;
+    let mut song = ddi_library::scan::parse_simfile(&text, &ext).map_err(|e| e.to_string())?;
+    song.resolve_change_names(&entry.change_names());
     let music = files.read(&entry.music)?;
     let music_ext = entry
         .music

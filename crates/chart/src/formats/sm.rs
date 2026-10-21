@@ -881,23 +881,178 @@ fn bg_changes_layer(raw: &str) -> Option<u8> {
     (1..=BG_LAYERS).contains(&n).then(|| (n - 1) as u8)
 }
 
-/// `#BGCHANGES`/`#FGCHANGES`/`#ANIMATIONS` value → effect events.
-fn parse_bg_changes(value: &str, kind: &str, layer: u8, out: &mut Vec<EffectEvent>) {
+/// Effect kind of a `#BGCHANGES`/`#ANIMATIONS` tag's value as written
+/// (its line breaks removed, in `fields[0]`), put before the tag's
+/// `bgchange` events: [`Song::resolve_change_names`] splits it again
+/// knowing the song folder's files.
+pub const RAW_BG_CHANGES: &str = "bgchanges";
+/// [`RAW_BG_CHANGES`] for `#FGCHANGES` (`fgchange` events).
+pub const RAW_FG_CHANGES: &str = "fgchanges";
+
+/// `#BGCHANGES`/`#FGCHANGES`/`#ANIMATIONS` value → effect events: the
+/// value as written ([`RAW_BG_CHANGES`]), then its changes split without
+/// knowing the song's files ([`split_bg_changes`]).
+fn parse_bg_changes(value: &str, kind: &'static str, layer: u8, out: &mut Vec<EffectEvent>) {
     let joined: String = value.chars().filter(|c| *c != '\r' && *c != '\n').collect();
     if joined.is_empty() {
         return;
     }
-    for entry in joined.split(',') {
-        let fields: Vec<String> = entry.split('=').map(|s| s.to_string()).collect();
-        if fields.len() < 2 {
-            continue;
-        }
-        out.push(EffectEvent {
+    out.push(EffectEvent {
+        at: EffectTime::Beat(Tick::ZERO),
+        kind: raw_kind(kind).to_string(),
+        layer,
+        fields: vec![joined.clone()],
+    });
+    out.extend(change_events(
+        split_bg_changes::<&str>(&joined, &[]),
+        kind,
+        layer,
+    ));
+}
+
+fn raw_kind(kind: &str) -> &'static str {
+    if kind == "fgchange" {
+        RAW_FG_CHANGES
+    } else {
+        RAW_BG_CHANGES
+    }
+}
+
+/// The changes of a split value ([`split_bg_changes`]), those with a beat
+/// and a file at least.
+fn change_events(
+    entries: Vec<Vec<String>>,
+    kind: &'static str,
+    layer: u8,
+) -> impl Iterator<Item = EffectEvent> {
+    entries
+        .into_iter()
+        .filter(|fields| fields.len() >= 2)
+        .map(move |fields| EffectEvent {
             at: EffectTime::Beat(Tick::from_beat_f64(sm_float(&fields[0]))),
             kind: kind.to_string(),
             layer,
             fields,
-        });
+        })
+}
+
+/// A background-change value (line breaks removed) split into changes
+/// and their fields as `SMLoader::ParseBGChangesString` splits it: `,`
+/// between changes and `=` between fields, except that a file field
+/// (the 2nd and 8th) starting with one of `names` (the files and folders
+/// under the song folder, relative to it), any case, followed by the end,
+/// `=` or `,`, takes that whole name, `,` and `=` in it included, in the
+/// name's own case. StepMania takes the first such name its directory
+/// listing gives; the longest is taken here (the listing's order is the
+/// file system's).
+pub fn split_bg_changes<S: AsRef<str>>(value: &str, names: &[S]) -> Vec<Vec<String>> {
+    let mut out: Vec<Vec<String>> = Vec::new();
+    if value.is_empty() {
+        return out;
+    }
+    let bytes = value.as_bytes();
+    let mut start = 0;
+    let mut field = 0;
+    while start <= value.len() {
+        if field == 1 || field == 7 {
+            let rest = &bytes[start..];
+            let found = names
+                .iter()
+                .map(AsRef::as_ref)
+                .filter(|n| {
+                    !n.is_empty()
+                        && rest.len() >= n.len()
+                        && rest[..n.len()].eq_ignore_ascii_case(n.as_bytes())
+                        && matches!(rest.get(n.len()), None | Some(b'=' | b','))
+                })
+                .max_by_key(|n| n.len());
+            if let Some(name) = found {
+                if let Some(last) = out.last_mut() {
+                    last.push(name.to_string());
+                }
+                start += name.len();
+                if start < value.len() {
+                    if bytes[start] == b'=' {
+                        field += 1;
+                    } else {
+                        field = 0;
+                    }
+                    start += 1;
+                }
+                if start == value.len() && field != 0 {
+                    // StepMania's loop ends here too: nothing follows.
+                    break;
+                }
+                continue;
+            }
+        }
+        if field == 0 {
+            out.push(Vec::new());
+        }
+        let rest = &value[start..];
+        let last = out.last_mut().expect("a change was started");
+        match rest.find(['=', ',']) {
+            None => {
+                last.push(rest.to_string());
+                start = value.len() + 1;
+            }
+            Some(i) => {
+                last.push(rest[..i].to_string());
+                if rest.as_bytes()[i] == b'=' {
+                    field += 1;
+                } else {
+                    field = 0;
+                }
+                start += i + 1;
+            }
+        }
+    }
+    out
+}
+
+impl Song {
+    /// Splits the song's background and foreground changes again as
+    /// StepMania does, knowing the song folder's files and folders
+    /// (`names`, relative to it; [`split_bg_changes`]): a file named with
+    /// `,` or `=` in it is then found whole. Changes split as they were
+    /// when no name has either.
+    pub fn resolve_change_names<S: AsRef<str>>(&mut self, names: &[S]) {
+        let names: Vec<&str> = names
+            .iter()
+            .map(AsRef::as_ref)
+            .filter(|n| n.contains([',', '=']))
+            .collect();
+        if names.is_empty()
+            || !self
+                .effects
+                .iter()
+                .any(|e| e.kind == RAW_BG_CHANGES || e.kind == RAW_FG_CHANGES)
+        {
+            return;
+        }
+        let old = std::mem::take(&mut self.effects);
+        let mut skipping: Option<(&'static str, u8)> = None;
+        for e in old {
+            if let Some((kind, layer)) = skipping {
+                if e.kind == kind && e.layer == layer {
+                    continue;
+                }
+                skipping = None;
+            }
+            let kind = match e.kind.as_str() {
+                RAW_BG_CHANGES => "bgchange",
+                RAW_FG_CHANGES => "fgchange",
+                _ => {
+                    self.effects.push(e);
+                    continue;
+                }
+            };
+            let entries = split_bg_changes(e.fields.first().map_or("", String::as_str), &names);
+            let layer = e.layer;
+            self.effects.push(e);
+            self.effects.extend(change_events(entries, kind, layer));
+            skipping = Some((kind, layer));
+        }
     }
 }
 
@@ -1268,6 +1423,84 @@ mod tests {
         assert_eq!(sm_int(" 1.000"), 1);
         assert_eq!(sm_int("0.5"), 0);
         assert!(approx(row_to_beat("96r"), 2.0));
+    }
+
+    #[test]
+    fn bgchanges_split_on_file_names_as_stepmania_splits_them() {
+        let none: &[&str] = &[];
+        let v = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // Without names: `,` between changes, `=` between fields.
+        assert_eq!(
+            split_bg_changes("1=a.png=1=0=0=1,2=b,c=d", none),
+            vec![
+                v(&["1", "a.png", "1", "0", "0", "1"]),
+                v(&["2", "b"]),
+                v(&["c", "d"])
+            ]
+        );
+        assert_eq!(
+            split_bg_changes("1=a,", none),
+            vec![v(&["1", "a"]), v(&[""])]
+        );
+        // A name in the folder is taken whole, in its own case, in the
+        // 2nd and 8th fields only; the longest of those that fit.
+        let names = ["b,c.png", "B", "x=y", "dir,1", "dir,1/m=2.avi"];
+        assert_eq!(
+            split_bg_changes("2=B,C.PNG=1,3=x=y=0.5", &names),
+            vec![v(&["2", "b,c.png", "1"]), v(&["3", "x=y", "0.5"])]
+        );
+        assert_eq!(
+            split_bg_changes("1=dir,1/m=2.avi=1=0=0=1=StretchNoLoop=x=y", &names),
+            vec![v(&[
+                "1",
+                "dir,1/m=2.avi",
+                "1",
+                "0",
+                "0",
+                "1",
+                "StretchNoLoop",
+                "x=y"
+            ])]
+        );
+        // A name must end where a field does; at the value's end nothing
+        // follows (StepMania adds an empty rate there; not copied).
+        assert_eq!(
+            split_bg_changes("1=b,c.pngx", &names),
+            vec![v(&["1", "B"]), v(&["c.pngx"])]
+        );
+        assert_eq!(
+            split_bg_changes("1=b,c.png", &names),
+            vec![v(&["1", "b,c.png"])]
+        );
+        // The song's changes, split again knowing its files.
+        let mut song = parse_simfile(
+            "#BGCHANGES:1=a,b.png=1=0=0=1\n,2=c.png=1=0=0=1;\n#BGCHANGES2:3=a,b.png;\n\
+             #FGCHANGES:4=x=y.png=1=0=0=0;\n#BPMS:0=120;",
+            "sm",
+        )
+        .unwrap();
+        fn files(song: &Song) -> Vec<(&str, u8, String)> {
+            song.effects
+                .iter()
+                .filter(|e| e.kind == "bgchange" || e.kind == "fgchange")
+                .map(|e| (e.kind.as_str(), e.layer, e.fields[1].clone()))
+                .collect()
+        }
+        assert_eq!(files(&song)[0].2, "a");
+        song.resolve_change_names(&["A,B.png", "x=y.png", "c.png"]);
+        assert_eq!(
+            files(&song),
+            vec![
+                ("bgchange", 0, "A,B.png".to_string()),
+                ("bgchange", 0, "c.png".to_string()),
+                ("bgchange", 1, "A,B.png".to_string()),
+                ("fgchange", 0, "x=y.png".to_string()),
+            ]
+        );
+        assert_eq!(
+            song.effects.iter().filter(|e| e.kind == "bgchange").count(),
+            3
+        );
     }
 
     #[test]
