@@ -334,7 +334,9 @@ the browser are implementation details, not advertised features.
   flight, 4 s each in turn on Fifo, a table of each printed when the
   play ends; `docs/plans/desktop.md`, "Frame pacing"). **Agents' and tests' runs set
   `DDI_HOME=$PWD/target/scratch/<name>/home`** (never the maintainer's
-  folders), use `--volume 0.005` or `--silent`, and run under
+  folders; the URL importer refuses a home inside a Git checkout, so
+  `--danoni-importer-check` takes one outside it, as under `/tmp`), use
+  `--volume 0.005` or `--silent`, and run under
   `target/scratch/wd.sh`; prefer offscreen tests: a window takes the
   Mac's focus. The same crate built for wasm is the web app, which Trunk
   builds (`just dev`, `just build`).
