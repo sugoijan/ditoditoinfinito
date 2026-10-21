@@ -3,6 +3,7 @@
 //! web's keys, so both shells read and write the same values.
 
 pub mod bind;
+pub mod editor;
 pub mod history;
 pub mod place;
 pub mod select_view;
