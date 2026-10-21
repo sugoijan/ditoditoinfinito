@@ -497,6 +497,96 @@ fn ditos_parameters_pick_its_colors_skin_and_its_explosions() {
 }
 
 #[test]
+fn peters_parameters_preserve_both_looks_and_control_explosions() {
+    use ddi_noteskin::metrics::{NoteDisplay, Part};
+    use ddi_noteskin::params::{Declared, Value, Values, head};
+    let folders = bundled();
+    let declared = Declared::of_skin(&folders, "dance", "Peters-DDR");
+    assert!(declared.warnings.is_empty(), "{:?}", declared.warnings);
+    assert_eq!(declared.get("Colors").unwrap().label, "Note colors");
+    assert_eq!(
+        head(&folders, "dance", "Peters-DDR", &Values::new()),
+        "Peters-DDR-Vivid"
+    );
+    // Old names still load their original looks for external fallback chains.
+    assert_eq!(
+        head(&folders, "dance", "Peters-DDR-Note", &Values::new()),
+        "Peters-DDR-Note"
+    );
+    assert_eq!(
+        head(&folders, "dance", "Peters-DDR-Vivid", &Values::new()),
+        "Peters-DDR-Vivid"
+    );
+    for (color, expected, vivid) in [
+        ("Vivid", "Peters-DDR-Vivid", true),
+        ("Quantized", "Peters-DDR", false),
+    ] {
+        for on in [true, false] {
+            let params = Values::from([
+                ("Colors".into(), Value::Text(color.into())),
+                ("Explosions".into(), Value::Bool(on)),
+            ]);
+            let name = head(&folders, "dance", "Peters-DDR", &params);
+            assert_eq!(name, expected);
+            let skin = Skin::load(&folders, "dance", &name).unwrap();
+            let metrics = NoteDisplay::read(&skin, "Down");
+            for part in [Part::TapNote, Part::TapFake] {
+                assert_eq!(metrics.part(part).animation_is_vivid, vivid);
+                assert_eq!(
+                    metrics.part(part).color_spacing,
+                    [if vivid { 0.0 } else { 0.0625 }, 0.0]
+                );
+            }
+            let mut lua = LuaSkin::new(
+                skin.into_owned(),
+                Env {
+                    params,
+                    ..Env::default()
+                },
+                ddi_lua::Settings::default(),
+                LoadBudget::default(),
+                Box::new(|| 0.0),
+            )
+            .unwrap();
+            let mut textures = Textures::default();
+            for button in Button::ALL {
+                for name in ["Tap Note", "Tap Fake", "Tap Lift", "Receptor", "Explosion"] {
+                    let built = lua.element(button, name, &mut textures, &AnySize).unwrap();
+                    assert!(
+                        built.notes.is_empty(),
+                        "{color} {button:?} {name}: {:?}",
+                        built.notes
+                    );
+                    let Built::Actor(actor) = built.built else {
+                        panic!("{name}")
+                    };
+                    if name == "Explosion" {
+                        assert_eq!(!actor.children().is_empty(), on);
+                    }
+                    if name == "Receptor" {
+                        assert!(!actor.children().is_empty());
+                    }
+                }
+            }
+            assert!(lua.warnings().is_empty(), "{:?}", lua.warnings());
+            // The selected tap model must still use the original color textures.
+            let expected = if vivid {
+                "textures/colours.png"
+            } else {
+                "textures/Tap Note parts (mipmaps).png"
+            };
+            assert!(
+                textures.keys().iter().any(|key| matches!(key,
+                    ddi_noteskin::build::TextureKey::Skin { path, .. } if path == expected
+                )),
+                "{color}: {:?}",
+                textures.keys()
+            );
+        }
+    }
+}
+
+#[test]
 fn bundled_skins_draw_every_layout_through_their_lua() {
     // Every built-in layout's lanes as the play builds them (the first of
     // a lane's choices whose tap note and receptor build), with the style

@@ -508,6 +508,30 @@ impl Settings {
             self.noteskin = None;
             self.set_dito_param(dito::LIGHTER, ParamValue::Bool(true));
         }
+        // The two Peters skins now share one choice and a Colors parameter.
+        // Keep the selected look, including in a replay's settings snapshot.
+        let colors = match self.noteskin.as_deref() {
+            Some("bundled:dance/peters-ddr-note") => Some("Quantized"),
+            Some("bundled:dance/peters-ddr-vivid") => Some("Vivid"),
+            _ => None,
+        };
+        if let Some(colors) = colors {
+            let old = self.noteskin.take().unwrap();
+            let key = ddi_noteskin::bundled::PETERS_DDR;
+            if let Some(values) = self.skin_params.remove(&old) {
+                self.skin_params
+                    .entry(key.into())
+                    .or_default()
+                    .extend(values);
+            }
+            self.noteskin = Some(key.into());
+            self.set_skin_param(
+                key,
+                "Colors",
+                Some(ParamValue::Text(colors.into())),
+                Some(&ParamValue::Text("Vivid".into())),
+            );
+        }
     }
 
     pub fn load() -> Settings {
@@ -911,6 +935,40 @@ mod tests {
         "note_colors": "NoSuchScheme",
         "gone": 1
     }"#;
+
+    #[test]
+    fn peters_choices_migrate_with_their_colors() {
+        use ddi_noteskin::bundled::PETERS_DDR;
+        for (old, colors) in [
+            ("bundled:dance/peters-ddr-note", Some("Quantized")),
+            ("bundled:dance/peters-ddr-vivid", None),
+        ] {
+            let mut s = Settings {
+                noteskin: Some(old.into()),
+                ..Settings::default()
+            };
+            s.sanitize();
+            assert_eq!(s.noteskin.as_deref(), Some(PETERS_DDR));
+            assert_eq!(
+                s.skin_params(PETERS_DDR).get("Colors"),
+                colors.map(|c| ParamValue::Text(c.into())).as_ref()
+            );
+            let migrated = s.clone();
+            s.sanitize();
+            assert_eq!(s, migrated);
+            let mut roundtrip: Settings =
+                serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+            roundtrip.sanitize();
+            assert_eq!(roundtrip, migrated);
+        }
+        // Imported skins with the same names still belong to the player.
+        let mut imported = Settings {
+            noteskin: Some("dance/peters-ddr-note".into()),
+            ..Settings::default()
+        };
+        imported.sanitize();
+        assert_eq!(imported.noteskin.as_deref(), Some("dance/peters-ddr-note"));
+    }
 
     #[test]
     fn older_settings_load_and_migrate() {

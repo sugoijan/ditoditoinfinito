@@ -39,6 +39,9 @@ pub const BUILT_IN: &str = "builtin";
 /// loads in its place ([`crate::params::head`]).
 pub const DITO: &str = "bundled:dance/dito";
 
+/// Peter Lawrence's DDR skin, with Vivid and subdivision colors.
+pub const PETERS_DDR: &str = "bundled:dance/peters-ddr";
+
 /// Dito's parameters (`assets/noteskins/dance/Dito/metrics.ini`,
 /// `docs/plans/skin-parameters.md`) that the game reads itself, by name:
 /// the built-in arrows draw in Dito's colors, and a song's own colors and

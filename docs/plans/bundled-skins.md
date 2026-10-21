@@ -24,7 +24,7 @@ actors and per-hit presentation metadata, shared by desktop, web and SkinCraft.
 | Dake (hanubeki) | Apache-2.0 (`README.md`, `LICENSE`) | hanubeki/dake @ `e26aa8d0` | every element fails: it calls OutFox's `INPUTFILTER`, `GAMESTATE:GetIsFieldReversed`, `THEME:GetMetric("NoteField", …)` and `_fallback`'s `JudgmentLineToColor`; with those four stubbed, 156 of 156 and at most 20.5k fuel |
 | CF_CHROME, CF_VIBRANT, CF_ALLOY (Peter Lawrence) | Unlicense (CF_CHROME's mine explosion CC0, JangaFX) | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-12: taps, lifts and mines are MilkShape models (`docs/plans/models.md`, step 5) |
 | (2026-10-13) CF_CHROME, CF_VIBRANT, CF_ALLOY's `Center` files | Unlicense | the same | restored byte for byte so the family draws Dancing☆Onigiri's onigiri as its own (`docs/plans/danoni-skins.md`); CF_ALLOY's `Center Tap Lift.lua` left out, CF_CHROME's |
-| Peters-DDR-Vivid, Peters-DDR-Note (Peter Lawrence) | Unlicense | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-13: Vivid's taps a model whose colors cycle in vivid; it falls back on Note (models for taps and lifts, Lua for the rest, 6.2 MB, most of it four mine sheets). Both load all 156 elements as their own; full autoplays all Fantastic on WebGPU, WebGL2 and in Firefox |
+| Peters-DDR (Peter Lawrence) | Unlicense | Pete-Lawrence/Peters-Noteskins @ `6faea8e1` | bundled since 2026-10-13: Vivid's taps a model whose colors cycle in vivid; originally falling back on Note (models for taps and lifts, Lua for the rest, 6.2 MB, most of it four mine sheets). Both load all 156 elements as their own; full autoplays all Fantastic on WebGPU, WebGL2 and in Firefox. Combined as Peters-DDR on 2026-10-22 (below) |
 
 The built-in arrows (`crates/render/src/scene.rs`, `shader.wgsl`,
 `note_colors.rs`) are procedural: an SDF arrow with a darker rim, an
@@ -354,3 +354,38 @@ were kept current at each step; this one added decision 39 and closed
   explosions and the built-in drawing are its parameters
   (`docs/plans/skin-parameters.md`): `Colors` loads each scheme's skin as
   before, and the "built in, without a skin" choice is Dito's `Lighter`.
+
+## Peters-DDR consolidation (2026-10-22)
+
+One selectable skin, **Peters-DDR**, with **Note colors** (Vivid by
+default, By subdivision) and **Explosions** (on by default). This is the
+starting point for a later SVG design closer to Peters' arrows; Dito
+remains the game's default and the existing Peters artwork stays intact.
+
+The former `Peters-DDR-Note` assets now live in `Peters-DDR`. Its original
+metrics draw the subdivision colors; its `Colors` parameter chooses
+`Peters-DDR-Vivid` for Vivid, which falls back on the shared skin. The
+original models and textures are unchanged. The shared explosion script
+returns an empty actor frame when `Explosions` is off, covering taps,
+holds, rolls and mines without disabling receptor feedback.
+
+`Peters-DDR-Note` remains a small fallback alias with Quantized as its
+default; it and Vivid are marked `variant_of` so Options shows only the
+combined skin. Saved bundled Note/Vivid selections migrate to Peters-DDR
+with the matching color choice; imported names are untouched. The aliases
+also preserve old replay drawing records and external fallback chains.
+Provenance lists the moves and parameter additions; notices retain Peter
+Lawrence's Unlicense and identify the MIT additions.
+
+SkinCraft's parameter-controls update exposes Colors and Explosions in its
+preview panel and MCP, saves preview values per project, and retains both
+variants in its file inventory and exports. The Lua guard still keeps
+effects enabled in older hosts without parameter support.
+
+Verified: bundled-skin tests build every element and layout; the Peters
+parameter test checks both color modes, their original textures and
+explosions on/off. Settings tests cover migration, persistence and imported
+names. The desktop GPU field-preview test switches both modes, and the
+actual play renderer captured Beatucada at 24.25 s in Vivid, subdivision
+colors and Vivid with explosions off. Index and credits regenerated;
+REUSE lint passes. This consolidation has not had a new browser run.

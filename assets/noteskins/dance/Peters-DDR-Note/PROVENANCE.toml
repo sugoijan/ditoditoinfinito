@@ -1,19 +1,14 @@
-# Peters-DDR-Note by Peter Lawrence: its dance files, byte for byte, with
-# the repository's LICENSE and README.md. Its taps and lifts are MilkShape
-# models (docs/plans/models.md); Peters-DDR-Vivid falls back on it.
-author = "Peter Lawrence"
+# Compatibility name; artwork and its notice live in Peters-DDR.
+author = "Dito Dito Infinito"
 credit = "Peter Lawrence · The Unlicense"
-modifications = [
-    "LICENSE and README.md copied from the repository's root",
-]
+ours = true
+variant_of = "Peters-DDR"
 
 [source]
-url = "https://github.com/Pete-Lawrence/Peters-Noteskins"
-commit = "6faea8e1a17a76beeb2a3dd1000f3f703c4e52f6"
-path = "SM5/Completed/Peters-DDR-Note"
-retrieved = "2026-10-13"
+url = "https://github.com/sugoijan/ditoditoinfinito"
+path = "assets/noteskins/dance/Peters-DDR-Note"
 
 [[licenses]]
-part = "the skin (models, images, Lua, metrics, notes, README)"
-spdx = "Unlicense"
-holders = ["Peter Lawrence"]
+part = "compatibility metrics"
+spdx = "MIT"
+holders = ["すごいジャン"]

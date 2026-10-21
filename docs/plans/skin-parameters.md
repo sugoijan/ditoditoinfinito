@@ -249,11 +249,22 @@ no skin and, on WebGL2, no offscreen frames. No console errors. Not
 checked: Safari (the maintainer), the installed Firefox (a pending
 update stalls its headless launch).
 
+## Peters-DDR (2026-10-22)
+
+Peters-DDR now uses the same declarations: Colors (Vivid / By subdivision)
+and Explosions. The two old bundled choices migrate to the combined skin,
+retaining their colors; compatibility names remain hidden variants. See
+[bundled-skins.md](bundled-skins.md#peters-ddr-consolidation-2026-10-22).
+
+## SkinCraft (2026-10-22)
+
+The companion editor now reads these declarations for its preview controls
+and MCP. Preview selections are saved per project and passed to the same
+loader; variant assets remain available for editing and export. Runtime
+defaults stay in metrics.ini. Dito's lighter drawing and color choices use
+the shared settings bridge; the demo has no song-specific colors.
+
 ## Later
 
 - A color parameter's swatches drawn in its row (the row shows the
   palette's names).
-- SkinCraft could edit the declarations and preview each value; its pin
-  needs no change (`Env` and `SkinWant` are built with their defaults
-  there), but a preview of Dito's key now shows its default colors'
-  skin.

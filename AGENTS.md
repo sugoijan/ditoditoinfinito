@@ -121,7 +121,9 @@ Rust and the browser are implementation details, not advertised features.
   settings, shown under Options → Arrows and read by its Lua
   (`NOTESKIN:GetParameter`; `crates/noteskin/src/params.rs`, our extension,
   `docs/plans/skin-parameters.md`; Dito's colors, songs' own colors,
-  explosions and lighter drawing are its parameters);
+  explosions and lighter drawing are its parameters; Peters-DDR combines
+  the former Note/Vivid choices with Colors and Explosions, retaining
+  their names as hidden compatibility variants);
   the skin keys settings store (`crates/noteskin/src/bundled.rs`); the same
   Lua host runs a song's scripted backgrounds over its folder
   (`Skin::song`, `LuaSkin::actor_file`, `lua/song.lua`;

@@ -1,10 +1,11 @@
-# Peters-DDR-Vivid by Peter Lawrence: its dance files, byte for byte, with
-# the repository's LICENSE and README.md. It falls back on Peters-DDR-Note
-# for everything but its tap note model and textures.
+# Peters-DDR-Vivid by Peter Lawrence: the Vivid variant of Peters-DDR.
+# Original model, textures, LICENSE and README.md remain byte-identical.
 author = "Peter Lawrence"
 credit = "Peter Lawrence · The Unlicense"
+variant_of = "Peters-DDR"
 modifications = [
     "LICENSE and README.md copied from the repository's root",
+    "Changed metrics.ini fallback to Peters-DDR, which supplies the shared parameters and original Note assets",
 ]
 
 [source]
@@ -17,3 +18,8 @@ retrieved = "2026-10-13"
 part = "the skin (model, textures, metrics, README)"
 spdx = "Unlicense"
 holders = ["Peter Lawrence"]
+
+[[licenses]]
+part = "fallback change in metrics.ini"
+spdx = "MIT"
+holders = ["すごいジャン"]

@@ -42,7 +42,17 @@ fn a_skin_picked_shows_once_read() {
         s.set_dito_param(name, value);
         s
     };
-    let picks: [(Settings, Option<&str>); 7] = [
+    let peters = |colors: &str| {
+        let key = ddi_noteskin::bundled::PETERS_DDR;
+        let mut s = Settings {
+            noteskin: Some(key.into()),
+            ..Settings::default()
+        };
+        s.set_skin_param(key, "Colors", Some(ParamValue::Text(colors.into())), None);
+        s.set_skin_param(key, "Explosions", Some(ParamValue::Bool(false)), None);
+        s
+    };
+    let picks: [(Settings, Option<&str>); 9] = [
         // Dito by default, in the note colors' variant.
         (Settings::default(), Some("Dito Vivid")),
         (
@@ -54,6 +64,8 @@ fn a_skin_picked_shows_once_read() {
             Some("Dito"),
         ),
         (dito("Lighter", ParamValue::Bool(true)), None),
+        (peters("Vivid"), Some("Peters-DDR-Vivid")),
+        (peters("Quantized"), Some("Peters-DDR")),
         (
             Settings {
                 noteskin: Some("bundled:dance/delta".into()),

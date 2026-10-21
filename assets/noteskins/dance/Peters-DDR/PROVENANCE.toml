@@ -1,0 +1,26 @@
+# Peters-DDR combines Peter Lawrence's Note and Vivid through parameters.
+# Original art, models and other scripts remain byte-identical.
+author = "Peter Lawrence"
+credit = "Peter Lawrence · The Unlicense"
+modifications = [
+    "LICENSE and README.md copied from the repository's root",
+    "Renamed Peters-DDR-Note to Peters-DDR; retained the old name as a compatibility skin",
+    "Added Colors and Explosions parameters to metrics.ini",
+    "Added the Explosions parameter guard to Fallback Explosion.lua",
+]
+
+[source]
+url = "https://github.com/Pete-Lawrence/Peters-Noteskins"
+commit = "6faea8e1a17a76beeb2a3dd1000f3f703c4e52f6"
+path = "SM5/Completed/Peters-DDR-Note"
+retrieved = "2026-10-13"
+
+[[licenses]]
+part = "the skin (models, images, Lua, metrics, notes, README)"
+spdx = "Unlicense"
+holders = ["Peter Lawrence"]
+
+[[licenses]]
+part = "parameter declarations and explosion toggle additions"
+spdx = "MIT"
+holders = ["すごいジャン"]

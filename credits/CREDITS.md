@@ -131,19 +131,21 @@ Source: [https://github.com/stepmania/stepmania](https://github.com/stepmania/st
 - **later edits to its Lua and metrics**: AJ Kelly, the StepMania development team and other contributors — [StepMania's licence (MIT-style)](https://github.com/stepmania/stepmania/blob/825467bcd81c812b33ad684dc04dd151b2d5dec3/Docs/Licenses.txt)
 - Modifications: none (files are byte-identical to upstream)
 
-### Peters-DDR-Note — Peter Lawrence
+### Peters-DDR — Peter Lawrence
 
 Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/Pete-Lawrence/Peters-Noteskins) at commit `6faea8e1a17a76beeb2a3dd1000f3f703c4e52f6`, folder `SM5/Completed/Peters-DDR-Note` (retrieved 2026-10-13).
 
 - **the skin (models, images, Lua, metrics, notes, README)**: Peter Lawrence — [The Unlicense](https://unlicense.org/)
-- Modifications: LICENSE and README.md copied from the repository's root
+- **parameter declarations and explosion toggle additions**: すごいジャン — [MIT](https://opensource.org/license/mit)
+- Modifications: LICENSE and README.md copied from the repository's root; Renamed Peters-DDR-Note to Peters-DDR; retained the old name as a compatibility skin; Added Colors and Explosions parameters to metrics.ini; Added the Explosions parameter guard to Fallback Explosion.lua
 
 ### Peters-DDR-Vivid — Peter Lawrence
 
 Source: [https://github.com/Pete-Lawrence/Peters-Noteskins](https://github.com/Pete-Lawrence/Peters-Noteskins) at commit `6faea8e1a17a76beeb2a3dd1000f3f703c4e52f6`, folder `SM5/Completed/Peters-DDR-Vivid` (retrieved 2026-10-13).
 
 - **the skin (model, textures, metrics, README)**: Peter Lawrence — [The Unlicense](https://unlicense.org/)
-- Modifications: LICENSE and README.md copied from the repository's root
+- **fallback change in metrics.ini**: すごいジャン — [MIT](https://opensource.org/license/mit)
+- Modifications: LICENSE and README.md copied from the repository's root; Changed metrics.ini fallback to Peters-DDR, which supplies the shared parameters and original Note assets
 
 ## Fonts
 

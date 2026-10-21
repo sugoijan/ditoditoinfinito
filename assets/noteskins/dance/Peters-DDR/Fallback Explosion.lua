@@ -1,3 +1,8 @@
+-- DDI option; hosts without parameters retain the original effects.
+if NOTESKIN.GetParameter and NOTESKIN:GetParameter("Explosions") == false then
+    return Def.ActorFrame {}
+end
+
 local marvelouscolour = color("#ffffff")
 local perfectcolour = color("#fff064")
 local greatcolour = color("#3fff3f")
