@@ -633,6 +633,38 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
         })),
     );
 
+    // A parameter's value (our extension, `crate::params`): a copy of
+    // what the host resolved at load, and its kind; nil for a name the
+    // skin does not declare.
+    let shared = host.clone();
+    set(
+        "parameter",
+        func(Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
+            let name = string(stack.get(0)).unwrap_or_default();
+            charge(&mut exec, name.len());
+            let host = shared.borrow();
+            let kind = host.declared.get(&name).map(|p| match p.kind {
+                crate::params::Kind::Choice(_) => "choice",
+                crate::params::Kind::Toggle => "toggle",
+                crate::params::Kind::Number { .. } => "number",
+                crate::params::Kind::Color(_) => "color",
+            });
+            let value = match host.env.params.get(&name) {
+                Some(crate::params::Value::Bool(b)) => Value::Boolean(*b),
+                Some(crate::params::Value::Number(n)) => Value::Number(*n),
+                Some(crate::params::Value::Text(t)) => {
+                    charge(&mut exec, t.len());
+                    Value::String(ctx.intern(t.as_bytes()))
+                }
+                None => Value::Nil,
+            };
+            stack.clear();
+            stack.push_back(value);
+            stack.push_back(kind.map_or(Value::Nil, |k| Value::String(ctx.intern(k.as_bytes()))));
+            Ok(CallbackReturn::Return)
+        })),
+    );
+
     let shared = host.clone();
     set(
         "trace_missing",

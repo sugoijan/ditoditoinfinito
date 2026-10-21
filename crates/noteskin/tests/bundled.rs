@@ -429,6 +429,74 @@ fn bundled_skins_build_every_element_through_their_lua() {
 }
 
 #[test]
+fn ditos_parameters_pick_its_colors_skin_and_its_explosions() {
+    use ddi_noteskin::bundled::dito;
+    use ddi_noteskin::params::{Declared, Value, Values, head};
+    let folders: Vec<Folder> = bundled()
+        .into_iter()
+        .filter(|f| f.game == "dance")
+        .collect();
+    let values = |pairs: &[(&str, Value)]| -> Values {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    };
+    // The color schemes: the default's skin, each choice's, and Dito
+    // itself for Quantized.
+    let colors = |c: &str| values(&[(dito::COLORS, Value::Text(c.into()))]);
+    assert_eq!(
+        head(&folders, "dance", "Dito", &Values::new()),
+        "Dito Vivid"
+    );
+    for (scheme, skin) in [
+        ("Vivid", "Dito Vivid"),
+        ("Rainbow", "Dito Rainbow"),
+        ("Quantized", "Dito"),
+        ("Flat", "Dito Flat"),
+        ("single", "Dito Single"),
+    ] {
+        assert_eq!(head(&folders, "dance", "Dito", &colors(scheme)), skin);
+    }
+    // Every scheme declares what Dito does (merged from its metrics).
+    for f in folders.iter().filter(|f| f.name.starts_with("Dito")) {
+        let d = Declared::of_skin(&folders, "dance", &f.name);
+        assert_eq!(&d, ddi_noteskin::bundled::dito_parameters(), "{}", f.name);
+    }
+    // The explosion's Lua reads its toggle: off, an empty frame.
+    let explosion = |on: bool| {
+        let skin = Skin::load(&folders, "dance", "Dito Vivid").unwrap();
+        let start = std::time::Instant::now();
+        let mut lua = LuaSkin::new(
+            skin.into_owned(),
+            Env {
+                params: values(&[(dito::EXPLOSIONS, Value::Bool(on))]),
+                ..Env::default()
+            },
+            ddi_lua::Settings::default(),
+            LoadBudget::default(),
+            Box::new(move || start.elapsed().as_secs_f64()),
+        )
+        .unwrap();
+        let el = lua
+            .element(
+                Button::Down,
+                "Explosion",
+                &mut Textures::default(),
+                &AnySize,
+            )
+            .unwrap();
+        assert!(lua.warnings().is_empty(), "{:?}", lua.warnings());
+        match el.built {
+            Built::Actor(a) => a.children().len(),
+            other => panic!("{other:?}"),
+        }
+    };
+    assert!(explosion(true) > 0);
+    assert_eq!(explosion(false), 0);
+}
+
+#[test]
 fn bundled_skins_draw_every_layout_through_their_lua() {
     // Every built-in layout's lanes as the play builds them (the first of
     // a lane's choices whose tap note and receptor build), with the style

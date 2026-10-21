@@ -159,6 +159,17 @@ pub fn choices(skins: &[DiskSkin]) -> Vec<(String, String)> {
     }))
 }
 
+/// The parameters skins declare, by key (`ddi_noteskin::params`).
+pub type Parameters = std::collections::BTreeMap<String, Vec<ddi_noteskin::params::Parameter>>;
+
+/// The parameters the skins of `choices` among `skins` declare, by key
+/// (Dito's are built in).
+pub fn parameters(skins: &[DiskSkin], choices: &[(String, String)]) -> Parameters {
+    let folders = crate::play::skins::folders(skins);
+    let keys: Vec<String> = choices.iter().map(|(k, _)| k.clone()).collect();
+    ddi_noteskin::params::catalog(folders.iter().zip(skins.iter().map(|s| s.bundled)), &keys)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

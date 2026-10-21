@@ -68,6 +68,7 @@ impl FieldPreviewHost {
                 key: None,
                 layout: "dance-single".into(),
                 reverse: false,
+                params: Default::default(),
             }),
             wanted: None,
             loading: None,

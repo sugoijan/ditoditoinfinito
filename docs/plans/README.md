@@ -36,6 +36,11 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Noteskin authoring with SkinCraft](noteskin-authoring.md) (2026-10-20*):
   reference. SkinCraft lives in its own repository; this covers the shared
   crates it pins and how to test API changes against it.
+- [Skin parameters](skin-parameters.md) (2026-10-21): done. Skins declare
+  controls in their metrics (our extension), kept per skin, read by
+  their Lua and shown under Arrows; Dito's colors, songs' own colors,
+  explosions and the lighter drawing (the Built-in choice retired into
+  it) are its parameters.
 
 ## Charts, layouts and play
 

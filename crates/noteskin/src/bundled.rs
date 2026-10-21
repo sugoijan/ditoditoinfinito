@@ -34,17 +34,38 @@ pub const KEY_PREFIX: &str = "bundled:";
 /// The `noteskin` setting's value for the built-in arrows without a skin.
 pub const BUILT_IN: &str = "builtin";
 
-/// Dito's key, [`key`]`("dance", "Dito", true)` (its color variants' are
-/// `bundled:dance/dito <scheme>`, [`dito`]).
+/// Dito's key, [`key`]`("dance", "Dito", true)`. Its color schemes are
+/// skins of their own (`Dito Vivid`, …) that its `Colors` parameter
+/// loads in its place ([`crate::params::head`]).
 pub const DITO: &str = "bundled:dance/dito";
 
-/// The key of Dito's color variant `scheme` (`vivid`, `flat`, …), or
-/// Dito's own ([`DITO`]) for none.
-pub fn dito(scheme: Option<&str>) -> String {
-    match scheme {
-        Some(scheme) => format!("{DITO} {}", scheme.to_ascii_lowercase()),
-        None => DITO.to_string(),
-    }
+/// Dito's parameters (`assets/noteskins/dance/Dito/metrics.ini`,
+/// `docs/plans/skin-parameters.md`) that the game reads itself, by name:
+/// the built-in arrows draw in Dito's colors, and a song's own colors and
+/// the lighter drawing are drawn by them instead of the skin.
+pub mod dito {
+    /// The note colors: a choice of `Vivid`, `Rainbow`, `Quantized`,
+    /// `Flat`, `Single` (the settings' `NoteColors` names), each drawn by
+    /// its color scheme's skin.
+    pub const COLORS: &str = "Colors";
+    /// A song's own note colors, drawn by the built-in arrows (a toggle).
+    pub const CHART_COLORS: &str = "ChartColors";
+    /// The built-in arrows instead of the skin: no Lua, no explosions, no
+    /// skin blending (a toggle; lighter on slow devices).
+    pub const LIGHTER: &str = "Lighter";
+    /// The explosions (a toggle its Lua reads).
+    pub const EXPLOSIONS: &str = "Explosions";
+}
+
+/// Dito's own `metrics.ini`.
+const DITO_METRICS: &str = include_str!("../../../assets/noteskins/dance/Dito/metrics.ini");
+
+/// Dito's declarations, read from its own `metrics.ini` (built in, so
+/// the settings and Options know them before any skin is read).
+pub fn dito_parameters() -> &'static crate::params::Declared {
+    static DECLARED: std::sync::OnceLock<crate::params::Declared> = std::sync::OnceLock::new();
+    DECLARED
+        .get_or_init(|| crate::params::Declared::from_ini(&crate::ini::Ini::parse(DITO_METRICS)))
 }
 
 /// `<game>/<name>` in lower case (names match ignoring case, as
@@ -128,11 +149,40 @@ mod tests {
     #[test]
     fn keys() {
         assert_eq!(key("dance", "Dito", true), DITO);
-        assert_eq!(dito(None), DITO);
-        assert_eq!(dito(Some("vivid")), key("dance", "Dito vivid", true));
         assert_eq!(key("Pump", "Cmd", false), "pump/cmd");
         assert_eq!(strike_key("dance", "Dito flat", true, Some("Dito")), DITO);
         assert!(!key("dance", "Delta", false).starts_with(KEY_PREFIX));
         assert_ne!(BUILT_IN, key("dance", "builtin", true));
+    }
+
+    #[test]
+    fn dito_declares_what_the_game_reads() {
+        use crate::params::{Kind, Value};
+        let d = dito_parameters();
+        assert!(d.warnings.is_empty(), "{:?}", d.warnings);
+        let colors = d.get(dito::COLORS).unwrap();
+        let Kind::Choice(choices) = &colors.kind else {
+            panic!("{colors:?}")
+        };
+        let ids: Vec<&str> = choices.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["Vivid", "Rainbow", "Quantized", "Flat", "Single"]);
+        assert_eq!(colors.default, Value::Text("Vivid".into()));
+        // Each scheme but Quantized (Dito's own sheets) is a skin.
+        assert!(
+            choices
+                .iter()
+                .all(|c| (c.id == "Quantized") == c.skin.is_none())
+        );
+        for (name, default) in [
+            (dito::CHART_COLORS, false),
+            (dito::LIGHTER, false),
+            (dito::EXPLOSIONS, true),
+        ] {
+            let p = d.get(name).unwrap();
+            assert_eq!(
+                (&p.kind, &p.default),
+                (&Kind::Toggle, &Value::Bool(default))
+            );
+        }
     }
 }

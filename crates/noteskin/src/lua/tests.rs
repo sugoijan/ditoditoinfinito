@@ -1299,3 +1299,146 @@ fn a_song_script_that_fails_loads_blank_and_one_that_loops_stops() {
     assert!(r.is_err(), "{r:?}");
     assert!(lua.failure().is_some());
 }
+
+#[test]
+fn a_skins_lua_reads_its_parameters_and_cannot_change_them() {
+    use crate::params::Value;
+    // Our extension: `NOTESKIN:GetParameter` gives each declared
+    // parameter's value (the default when unset, a stored value only as
+    // the declaration takes it), nil for anything else, and a copy each
+    // time.
+    let folders = vec![folder(
+        "dance",
+        "p",
+        &[
+            (
+                "metrics.ini",
+                "[Global]\nFallbackNoteSkin=default\n\
+                 [Parameters]\nList=Look,Boom,Size,Tint\n\
+                 [Parameter Look]\nType=Choice\nChoices=Plain,Gold\n\
+                 [Parameter Boom]\nType=Toggle\nDefault=1\n\
+                 [Parameter Size]\nType=Number\nMin=1\nMax=2\nStep=0.5\nDefault=1\n\
+                 [Parameter Tint]\nType=Color\nDefault=#FF0000\n",
+            ),
+            (
+                "Down Tap Note.lua",
+                "local look = NOTESKIN:GetParameter('Look')\n\
+                 assert(NOTESKIN:GetParameter('Nothing') == nil)\n\
+                 assert(NOTESKIN:GetParameter(nil) == nil)\n\
+                 local tint = NOTESKIN:GetParameter('Tint')\n\
+                 local red = tint[1]\n\
+                 tint[1] = 9\n\
+                 assert(NOTESKIN:GetParameter('Tint')[1] == red)\n\
+                 local size = NOTESKIN:GetParameter('Size')\n\
+                 local boom = NOTESKIN:GetParameter('Boom')\n\
+                 return Def.Sprite {\n\
+                   Texture = 'tap.png';\n\
+                   InitCommand = function(self)\n\
+                     self:zoom(size):diffuse(NOTESKIN:GetParameter('Tint'))\n\
+                     self:visible(boom):rotationz(look == 'Gold' and 90 or 0)\n\
+                   end;\n\
+                 }\n",
+            ),
+            ("tap.png", ""),
+        ],
+    )];
+    let tap = |params: &[(&str, Value)]| {
+        let skin = Skin::load(&folders, "dance", "p").unwrap().into_owned();
+        let mut skin = load(
+            skin,
+            Env {
+                params: params
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.clone()))
+                    .collect(),
+                ..Env::default()
+            },
+            LoadBudget::default(),
+            Box::new(|| 0.0),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let images = Sizes(vec![("tap.png", (64, 64))]);
+        let tap = built(skin.element(Button::Down, "Tap Note", &mut Textures::default(), &images));
+        assert!(skin.warnings().is_empty(), "{:?}", skin.warnings());
+        tap
+    };
+    // The defaults.
+    let plain = tap(&[]);
+    assert_eq!(plain.current().scale[0], 1.0);
+    assert_eq!(plain.current().diffuse(), [1.0, 0.0, 0.0, 1.0]);
+    assert!(plain.visible);
+    assert_eq!(plain.current().rotation[2], 0.0);
+    // Set values, as their declarations take them; others ignored.
+    let set = tap(&[
+        ("Look", Value::Text("gold".into())),
+        ("Boom", Value::Bool(false)),
+        ("Size", Value::Number(1.6)),
+        ("Tint", Value::Text("#00ff00".into())),
+        ("Nothing", Value::Bool(true)),
+    ]);
+    assert_eq!(set.current().scale[0], 1.5);
+    assert_eq!(set.current().diffuse(), [0.0, 1.0, 0.0, 1.0]);
+    assert!(!set.visible);
+    assert_eq!(set.current().rotation[2], 90.0);
+    // A declaration left out is said with the Lua's warnings.
+    let mut broken = folders.clone();
+    broken[0].texts[0]
+        .1
+        .push_str("[Parameters]\nList=Look,Boom,Size,Tint,Odd\n");
+    let skin = Skin::load(&broken, "dance", "p").unwrap().into_owned();
+    let skin = load(
+        skin,
+        Env::default(),
+        LoadBudget::default(),
+        Box::new(|| 0.0),
+    )
+    .unwrap();
+    assert_eq!(
+        skin.warnings(),
+        ["metrics.ini: parameter Odd: no [Parameter Odd] Type"]
+    );
+    // A value of the wrong kind is the default.
+    let wrong = tap(&[
+        ("Boom", Value::Text("no".into())),
+        ("Size", Value::Bool(true)),
+    ]);
+    assert!(wrong.visible);
+    assert_eq!(wrong.current().scale[0], 1.0);
+}
+
+#[test]
+fn reading_parameters_costs_fuel_like_any_call() {
+    // A script that reads a parameter forever ends on its fuel, as any
+    // loop does.
+    let folders = vec![folder(
+        "dance",
+        "q",
+        &[
+            (
+                "metrics.ini",
+                "[Global]\nFallbackNoteSkin=default\n[Parameters]\nList=Look\n\
+                 [Parameter Look]\nType=Choice\nChoices=Plain\n",
+            ),
+            (
+                "Down Tap Note.lua",
+                "while true do NOTESKIN:GetParameter('Look') end\n",
+            ),
+        ],
+    )];
+    let skin = Skin::load(&folders, "dance", "q").unwrap().into_owned();
+    let mut skin = load(
+        skin,
+        Env::default(),
+        LoadBudget {
+            fuel: 200_000,
+            seconds: 10.0,
+        },
+        Box::new(|| 0.0),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    let images = Sizes(vec![]);
+    assert!(
+        skin.element(Button::Down, "Tap Note", &mut Textures::default(), &images)
+            .is_err()
+    );
+}

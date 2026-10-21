@@ -124,8 +124,14 @@ pub struct ClockSetup {
 pub struct DrawSetup {
     /// `None`: the built-in arrows.
     pub noteskin: Option<String>,
+    /// Dito's note colors and its toggle for a chart's own colors (the
+    /// built-in arrows draw in them too).
     pub note_colors: String,
     pub chart_colors: bool,
+    /// The values set for the drawn skin's parameters
+    /// (`docs/plans/skin-parameters.md`; Dito's when none was chosen).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub skin_params: crate::state::settings::Values,
     pub field_filter: f32,
     pub bg_brightness: f32,
     pub background_frame: String,

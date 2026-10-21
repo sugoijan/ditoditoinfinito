@@ -84,8 +84,13 @@ pub fn play_record(p: &Played, results: &Results, facts: &PlayFacts) -> Option<P
         noteskin: settings
             .noteskin_for(&p.song.charts[p.chart].layout)
             .map(str::to_string),
-        note_colors: setting_name(&settings.note_colors),
-        chart_colors: settings.chart_colors,
+        note_colors: setting_name(&settings.note_colors()),
+        chart_colors: settings.chart_colors(),
+        skin_params: settings.skin_params(
+            settings
+                .noteskin_for(&p.song.charts[p.chart].layout)
+                .unwrap_or(ddi_ui::state::settings::DITO),
+        ),
         field_filter: settings.field_filter,
         bg_brightness: settings.bg_brightness,
         background_frame: setting_name(&settings.background_frame),

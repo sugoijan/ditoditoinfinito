@@ -8,7 +8,7 @@ mod common;
 use ddi_desktop::field_preview::Field;
 use ddi_desktop::gpu;
 use ddi_render::Painter;
-use ddi_ui::state::settings::Settings;
+use ddi_ui::state::settings::{ParamValue, Settings};
 
 #[test]
 fn a_skin_picked_shows_once_read() {
@@ -35,9 +35,25 @@ fn a_skin_picked_shows_once_read() {
         queue.submit(Some(encoder.finish()));
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
     };
-    let picks: [(Settings, Option<&str>); 4] = [
+    // Dito's parameters, as a play takes them: its colors' skin, or
+    // drawn lighter by the built-in arrows.
+    let dito = |name: &str, value: ParamValue| {
+        let mut s = Settings::default();
+        s.set_dito_param(name, value);
+        s
+    };
+    let picks: [(Settings, Option<&str>); 7] = [
         // Dito by default, in the note colors' variant.
         (Settings::default(), Some("Dito Vivid")),
+        (
+            dito("Colors", ParamValue::Text("Rainbow".into())),
+            Some("Dito Rainbow"),
+        ),
+        (
+            dito("Colors", ParamValue::Text("Quantized".into())),
+            Some("Dito"),
+        ),
+        (dito("Lighter", ParamValue::Bool(true)), None),
         (
             Settings {
                 noteskin: Some("bundled:dance/delta".into()),
@@ -82,6 +98,28 @@ fn a_skin_picked_shows_once_read() {
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
     }
+    // The preview's skin with the values a play's has: the same skin,
+    // its Lua reading the same.
+    let mut settings = dito("Colors", ParamValue::Text("Flat".into()));
+    settings.set_dito_param("Explosions", ParamValue::Bool(false));
+    field.set_settings(&settings);
+    let mut frames = 0;
+    while field.skin_name().as_deref() != Some("Dito Flat") || field.reading() {
+        frame(&mut field);
+        frames += 1;
+        assert!(frames < 500, "{:?}", field.skin_name());
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let loaded = ddi_desktop::play::load::load("beatucada", 48_000).unwrap();
+    let (play, _, strike) = ddi_desktop::play::host::noteskin(&loaded, 0, &settings).unwrap();
+    assert_eq!(play.name, "Dito Flat");
+    assert_eq!(play.parameters(), field.skin_parameters());
+    assert_eq!(
+        play.parameters().get("Explosions"),
+        Some(&ParamValue::Bool(false))
+    );
+    // A Lua stop counts against Dito, whichever colors.
+    assert_eq!(strike, ddi_ui::state::settings::DITO);
     // Delta picked and, before it is read, Dito: Dito shows, never Delta.
     field.set_settings(&Settings {
         noteskin: Some("bundled:dance/delta".into()),

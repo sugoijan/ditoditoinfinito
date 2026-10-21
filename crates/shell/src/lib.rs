@@ -3,8 +3,10 @@
 //! renderer (`ddi_render`), so neither keeps a copy of its own:
 //!
 //! - the field's options for a play ([`render_options`]) and for Options'
-//!   field preview ([`field_preview_options`], [`field_preview_skin`]),
-//!   with the note colors as the renderer has them ([`note_scheme`]);
+//!   field preview ([`field_preview_options`]), with the note colors as
+//!   the renderer has them ([`note_scheme`]); the skin a play readies
+//!   ([`play_skin`]) and the preview's ([`field_preview_skin`]), with the
+//!   same values of its parameters;
 //! - the ghost's lead as the HUD shows it ([`score_delta`]);
 //! - [`stage`]: a Dancing☆Onigiri work's layers' textures, over a content
 //!   each shell decodes its own way;
@@ -17,6 +19,7 @@ pub mod scripted;
 pub mod stage;
 
 use ddi_chart::Layout;
+use ddi_noteskin::lua::Env;
 use ddi_render::field_preview::{BPM, FieldPreviewOptions, SkinWant};
 use ddi_render::{ColorScheme, RenderOptions, ScoreDelta};
 use ddi_ui::state::history::GhostDelta;
@@ -44,8 +47,8 @@ pub fn render_options(settings: &Settings) -> RenderOptions {
         show_deltas: settings.show_deltas,
         cancel_progress: 0.0,
         cancel_hint: "",
-        note_colors: note_scheme(settings.note_colors),
-        chart_colors: settings.chart_colors,
+        note_colors: note_scheme(settings.note_colors()),
+        chart_colors: settings.chart_colors(),
         background: settings.bg_brightness,
         backdrop: Default::default(),
         frame_aspect: None,
@@ -92,7 +95,7 @@ pub fn field_preview_options(settings: &Settings) -> FieldPreviewOptions {
         layout,
         play: settings.play_options(None),
         rules,
-        note_colors: note_scheme(settings.note_colors),
+        note_colors: note_scheme(settings.note_colors()),
         field_filter: settings.field_filter,
         show_deltas: settings.show_deltas,
         background: settings.bg_brightness,
@@ -102,10 +105,36 @@ pub fn field_preview_options(settings: &Settings) -> FieldPreviewOptions {
 
 /// The noteskin play would draw the preview's layout with under
 /// `settings`, and what it is readied for (its key, the layout, the
-/// direction): key `None` for the built-in arrows. The demo has no
-/// colors of its own.
+/// direction, its parameters' values as [`play_skin`] passes them): key
+/// `None` for the built-in arrows. The demo has no colors of its own.
 pub fn field_preview_skin(settings: &Settings, options: &FieldPreviewOptions) -> SkinWant {
-    SkinWant::new(settings.play_skin(&options.layout, None), options)
+    let key = settings.play_skin(&options.layout, None);
+    SkinWant {
+        params: key
+            .as_deref()
+            .map(|k| settings.skin_params(k))
+            .unwrap_or_default(),
+        ..SkinWant::new(key, options)
+    }
+}
+
+/// The noteskin a play draws `song`'s chart `chart` (of layout `layout`)
+/// with under `settings`, and what its Lua is told: the play's timing
+/// shifted by `shift` (the song offset), its direction and the values of
+/// the skin's parameters. `None` for the built-in arrows.
+pub fn play_skin(
+    settings: &Settings,
+    song: &ddi_chart::Song,
+    chart: &ddi_chart::Chart,
+    layout: &Layout,
+    shift: f64,
+) -> Option<(String, Env)> {
+    let key = settings.play_skin(&layout.id, Some(chart))?;
+    let env = Env {
+        params: settings.skin_params(&key),
+        ..ddi_noteskin::lua::chart_env(song, chart, layout, settings.reverse).shifted(shift)
+    };
+    Some((key, env))
 }
 
 #[cfg(test)]
@@ -131,7 +160,7 @@ mod tests {
         let render = render_options(&settings);
         assert!(render.reverse && render.show_deltas && !render.hide_notes);
         assert_eq!(render.background, 0.25);
-        assert_eq!(render.note_colors, note_scheme(settings.note_colors));
+        assert_eq!(render.note_colors, note_scheme(settings.note_colors()));
         assert!(render.ghost.is_none() && render.frame_aspect.is_none());
     }
 
@@ -159,6 +188,39 @@ mod tests {
             settings.background_frame = frame;
             assert_eq!(field_preview_options(&settings).frame_aspect, aspect);
         }
+    }
+
+    /// The preview and a play pass the skin the same values of its
+    /// parameters: Dito's whether chosen or not, a chosen skin's own.
+    #[test]
+    fn the_preview_and_a_play_ready_the_skin_with_the_same_values() {
+        use ddi_ui::state::settings::{DITO, ParamValue};
+        let song = ddi_engine::demo::song("dance-single", BPM).unwrap();
+        let chart = &song.charts[0];
+        let layout = Layout::dance_single();
+        let mut settings = Settings::default();
+        settings.set_dito_param("Colors", ParamValue::Text("Flat".into()));
+        settings.set_dito_param("Explosions", ParamValue::Bool(false));
+        settings.set_skin_param("dance/mine", "Size", Some(ParamValue::Number(2.0)), None);
+        for chosen in [None, Some("dance/mine")] {
+            settings.noteskin = chosen.map(str::to_string);
+            let preview = field_preview_skin(&settings, &field_preview_options(&settings));
+            let (key, env) = play_skin(&settings, &song, chart, &layout, 0.0).unwrap();
+            assert_eq!(preview.key.as_deref(), Some(key.as_str()));
+            assert_eq!(preview.env(&layout).params, env.params);
+            assert_eq!(env.params, settings.skin_params(chosen.unwrap_or(DITO)));
+            assert!(!env.params.is_empty());
+        }
+        // Lighter: the built-in arrows, in both.
+        settings.noteskin = None;
+        settings.set_dito_param("Lighter", ParamValue::Bool(true));
+        assert!(play_skin(&settings, &song, chart, &layout, 0.0).is_none());
+        let preview = field_preview_skin(&settings, &field_preview_options(&settings));
+        assert_eq!(preview.key, None);
+        assert_eq!(
+            render_options(&settings).note_colors,
+            note_scheme(NoteColors::Flat)
+        );
     }
 
     #[test]

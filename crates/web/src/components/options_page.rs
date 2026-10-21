@@ -194,6 +194,7 @@ impl Component for OptionsPage {
                     c.default_lua_off.is_some(),
                     c.complete,
                 );
+                s.model.borrow_mut().set_skin_parameters(c.parameters);
                 // A chosen skin let go: the preview follows.
                 if let Some(f) = s.field.borrow().as_ref() {
                     *f.borrow_mut() = Some(s.model.borrow().preview_settings());

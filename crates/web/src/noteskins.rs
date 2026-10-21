@@ -257,6 +257,8 @@ pub(crate) struct Choices {
     pub(crate) complete: bool,
     /// Why the default skin's (Dito's) Lua is off for the session, if it is.
     pub(crate) default_lua_off: Option<String>,
+    /// The parameters each skin declares, by key (`ddi_noteskin::params`).
+    pub(crate) parameters: std::collections::BTreeMap<String, Vec<ddi_noteskin::params::Parameter>>,
 }
 
 /// The dance skins one can pick; an error when none could be read.
@@ -267,7 +269,7 @@ pub(crate) async fn choices() -> Result<Choices, String> {
     };
     let bundled = bundled().await;
     let complete = imported.is_ok() && bundled.is_ok();
-    let skins = match (imported, bundled) {
+    let stored = match (imported, bundled) {
         (Err(e), Err(_)) => return Err(e),
         (i, b) => {
             let mut skins = i.unwrap_or_default();
@@ -278,14 +280,24 @@ pub(crate) async fn choices() -> Result<Choices, String> {
     // Dito and its colors are the default, chosen as such. Pump skins
     // are listed too, for the pump layouts (`Settings::pump_noteskin`).
     let skins =
-        ddi_noteskin::bundled::pickable(skins.iter().map(|s| ddi_noteskin::bundled::Candidate {
+        ddi_noteskin::bundled::pickable(stored.iter().map(|s| ddi_noteskin::bundled::Candidate {
             game: &s.game,
             name: &s.name,
             bundled: s.bundled.is_some(),
             variant: s.variant_of.is_some(),
             lua_off: s.lua_broken.is_some(),
         }));
+    // What each declares (Dito's are built in).
+    let keys: Vec<String> = skins.iter().map(|(k, _)| k.clone()).collect();
+    let folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
+    let parameters = ddi_noteskin::params::catalog(
+        folders
+            .iter()
+            .zip(stored.iter().map(|s| s.bundled.is_some())),
+        &keys,
+    );
     Ok(Choices {
+        parameters,
         skins,
         complete,
         default_lua_off: LUA_OFF.with(|off| off.borrow().get(DITO).cloned()),
@@ -805,8 +817,16 @@ async fn prepare_until(
     let chosen = 0;
     // The `.lua` texts of the folders the skin falls back on.
     let mut folders: Vec<Folder> = stored.iter().map(StoredSkin::folder).collect();
+    // The skin its parameters pick (a color scheme's), loaded in its place
+    // (`ddi_noteskin::params`).
+    let head = ddi_noteskin::params::head(
+        &folders,
+        &stored[chosen].game,
+        &stored[chosen].name,
+        &env.params,
+    );
     let chain: Vec<usize> = {
-        let skin = match Skin::load(&folders, &stored[chosen].game, &stored[chosen].name) {
+        let skin = match Skin::load(&folders, &stored[chosen].game, &head) {
             Ok(s) => s,
             Err(e) => {
                 web_sys::console::warn_1(&format!("noteskin {key}: {e}").into());
@@ -835,10 +855,10 @@ async fn prepare_until(
     let stored = stored;
     let folders = folders;
     let chosen = &stored[chosen];
-    let skin = match Skin::load(&folders, &chosen.game, &chosen.name) {
+    let skin = match Skin::load(&folders, &chosen.game, &head) {
         Ok(s) => s,
         Err(e) => {
-            web_sys::console::warn_1(&format!("noteskin {}: {e}", chosen.name).into());
+            web_sys::console::warn_1(&format!("noteskin {head}: {e}").into());
             return None;
         }
     };
@@ -864,7 +884,7 @@ async fn prepare_until(
         match NoteskinPlay::load_lua(
             &folders,
             &chosen.game,
-            &chosen.name,
+            &head,
             env.clone(),
             seed,
             layout,
@@ -909,7 +929,7 @@ async fn prepare_until(
         match NoteskinPlay::load_lua(
             &folders,
             &chosen.game,
-            &chosen.name,
+            &head,
             env,
             seed,
             layout,

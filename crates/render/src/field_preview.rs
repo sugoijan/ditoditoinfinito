@@ -117,13 +117,15 @@ impl FieldPreviewOptions {
 }
 
 /// The noteskin a preview's layout is drawn with and what it is readied
-/// for: its key (`None`: the built-in arrows), the layout and the
-/// direction. The demo has no colors of its own.
+/// for: its key (`None`: the built-in arrows), the layout, the direction
+/// and the values of its parameters (as a play passes them). The demo has
+/// no colors of its own.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SkinWant {
     pub key: Option<String>,
     pub layout: String,
     pub reverse: bool,
+    pub params: ddi_noteskin::params::Values,
 }
 
 impl SkinWant {
@@ -133,6 +135,7 @@ impl SkinWant {
             key,
             layout: options.layout.clone(),
             reverse: options.play.scroll.reverse,
+            params: Default::default(),
         }
     }
 
@@ -143,9 +146,10 @@ impl SkinWant {
     }
 
     /// What the skin's Lua is told: the demo's song and chart on
-    /// `layout` ([`SkinWant::layout`]), in the direction wanted.
+    /// `layout` ([`SkinWant::layout`]), in the direction wanted, with the
+    /// parameters' values.
     pub fn env(&self, layout: &Layout) -> ddi_noteskin::lua::Env {
-        ddi_engine::demo::song(&self.layout, BPM)
+        let env = ddi_engine::demo::song(&self.layout, BPM)
             .and_then(|song| {
                 let chart = song.charts.first()?;
                 Some(ddi_noteskin::lua::chart_env(
@@ -155,7 +159,11 @@ impl SkinWant {
                     self.reverse,
                 ))
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        ddi_noteskin::lua::Env {
+            params: self.params.clone(),
+            ..env
+        }
     }
 }
 

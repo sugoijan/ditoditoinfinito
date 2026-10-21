@@ -16,3 +16,4 @@ ddi-lua.workspace = true
 
 [dev-dependencies]
 ddi-lua.workspace = true
+serde_json.workspace = true

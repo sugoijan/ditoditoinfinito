@@ -642,7 +642,7 @@ impl Component for GameCanvas {
         }
         // The built-in arrows draw no skin: on WebGL2 frames then go
         // straight to the canvas (`Gfx::skin_blending`).
-        let skins = self.settings.noteskin.as_deref() != Some(crate::noteskins::BUILT_IN);
+        let skins = !self.settings.builtin_arrows();
         let video = self.settings.video;
         let frame = self.settings.background_frame;
         let slow = ctx.props().slow;
@@ -2732,8 +2732,7 @@ fn noteskin_ready(
 ) -> Option<impl std::future::Future<Output = Option<Box<crate::noteskins::Prepared>>> + use<>> {
     let c = song.charts.get(chart)?;
     let layout = song.layout_of(c)?;
-    let key = settings.play_skin(&layout.id, Some(c))?;
-    let env = ddi_noteskin::lua::chart_env(song, c, &layout, settings.reverse).shifted(shift);
+    let (key, env) = ddi_shell::play_skin(settings, song, c, &layout, shift)?;
     Some(async move {
         crate::noteskins::prepare(&key, &layout, env)
             .await

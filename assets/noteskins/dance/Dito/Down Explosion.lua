@@ -2,7 +2,12 @@
 -- receptor in its judgement's color, as a glow and the arrow's outline
 -- (the onigiri's star's, the centre's square's) growing and fading, larger and brighter past 100
 -- combo; a completed hold bursts green; a held hold or roll glows green,
--- pulsing on the beat (a roll faster); a mine flashes red.
+-- pulsing on the beat (a roll faster); a mine flashes red. Nothing when
+-- the player turned Dito's Explosions off (its parameter, metrics.ini).
+if not NOTESKIN:GetParameter("Explosions") then
+	return Def.ActorFrame {}
+end
+
 local colors =
 {
 	TapNoteScore_W1 = color("0.55,0.95,1,1"),

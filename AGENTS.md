@@ -107,6 +107,11 @@ the browser are implementation details, not advertised features.
   (`crates/noteskin/src/lua/`) a skin's Lua run at load over `lua/`; StepMania
   3.9's and OpenITG's format built natively (`crates/noteskin/src/legacy.rs`);
   SVG images in a checked subset (`crates/noteskin/src/svg.rs`, our extension);
+  parameters a skin declares in its metrics, kept per skin in the
+  settings, shown under Options → Arrows and read by its Lua
+  (`NOTESKIN:GetParameter`; `crates/noteskin/src/params.rs`, our extension,
+  `docs/plans/skin-parameters.md`; Dito's colors, songs' own colors,
+  explosions and lighter drawing are its parameters);
   the skin keys settings store (`crates/noteskin/src/bundled.rs`); the same
   Lua host runs a song's scripted backgrounds over its folder
   (`Skin::song`, `LuaSkin::actor_file`, `lua/song.lua`;
@@ -143,7 +148,8 @@ the browser are implementation details, not advertised features.
 - `crates/shell/` what both shells do between the settings (`ddi-ui`) and
   `render` (`ddi-shell`), so neither keeps a copy: a play's
   `RenderOptions` and Options' field preview's options and skin from the
-  settings, the note colors as the renderer has them, the ghost's lead as
+  settings, the skin a play readies with its parameters' values (the
+  preview's the same, `play_skin`), the note colors as the renderer has them, the ghost's lead as
   the HUD shows it, and a work's layers' textures
   (`crates/shell/src/stage.rs`, generic over each shell's decoded content:
   the web's `ImageBitmap`, desktop's RGBA rows) and a song's scripts'

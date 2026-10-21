@@ -18,9 +18,10 @@ use ddi_platform::gamepad::Control;
 use super::data::{OptionDef, OptionKind, OptionSection, OptionsData};
 use crate::state::bind::Bound;
 use crate::state::settings::{
-    BUILT_IN, BUNDLED, BackgroundFrame, FIELD_FILTERS, Graphics, NoteColors, PadBindings,
+    BUILT_IN, BUNDLED, BackgroundFrame, DITO, FIELD_FILTERS, Graphics, PadBindings, ParamValue,
     ReducedMotion, Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
+use ddi_noteskin::params::{Kind as ParamKind, Parameter};
 
 /// The volume sample.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -42,6 +43,9 @@ pub struct World {
     pub noteskins: Vec<(String, String)>,
     /// The default skin's Lua is off for the session.
     pub default_lua_off: bool,
+    /// The parameters skins declare (`docs/plans/skin-parameters.md`),
+    /// by key; Dito's are known without it.
+    pub skin_parameters: std::collections::BTreeMap<String, Vec<Parameter>>,
     /// Layouts the library has charts for (offered for bindings).
     pub library_styles: Vec<Layout>,
     /// The controllers connected, one by one.
@@ -824,23 +828,19 @@ impl OptionsModel {
 
     fn arrows(&self) -> OptionSection {
         let s = &self.settings;
-        let mut names = vec![
-            if self.world.default_lua_off {
-                "Dito (its Lua is off)".to_string()
-            } else {
-                "Dito".to_string()
-            },
-            "Built in".to_string(),
-        ];
+        let mut names = vec![if self.world.default_lua_off {
+            "Dito (its Lua is off)".to_string()
+        } else {
+            "Dito".to_string()
+        }];
         let dance = self.dance_skins();
         names.extend(dance.iter().map(|(_, n)| n.clone()));
         let at = match s.noteskin.as_deref() {
             None => 0,
-            Some(BUILT_IN) => 1,
             Some(k) => dance
                 .iter()
                 .position(|(key, _)| key == k)
-                .map_or(0, |i| i + 2),
+                .map_or(0, |i| i + 1),
         };
         let mut rows = vec![row(
             "noteskin",
@@ -848,32 +848,16 @@ impl OptionsModel {
             OptionKind::Choices(names),
             at,
             if self.world.platform == super::data::Platform::Desktop {
-                "Dito: the built-in arrows in the note colors. Built in: the same without a \
-                 skin (lighter). Or a bundled noteskin, or one from the song folders."
+                "Dito: the game's own arrows, its options below. Or a bundled noteskin, or one \
+                 from the song folders."
             } else {
-                "Dito: the built-in arrows in the note colors. Built in: the same without a \
-                 skin (lighter). Or a bundled or an imported noteskin."
+                "Dito: the game's own arrows, its options below. Or a bundled or an imported \
+                 noteskin."
             },
         )];
-        if matches!(s.noteskin.as_deref(), None | Some(BUILT_IN)) {
-            rows.extend([
-                choice(
-                    "note_colors",
-                    "Note colors",
-                    &["Vivid", "Rainbow", "By subdivision", "Flat", "Single color"],
-                    pos(&NOTE_COLORS, s.note_colors),
-                    "Vivid: a cycling rainbow, shifted by subdivision. Rainbow: by position in the \
-                     beat, flowing. Flat: all notes alike.",
-                ),
-                choice(
-                    "chart_colors",
-                    "Songs' own colors",
-                    &["Off", "On"],
-                    s.chart_colors as usize,
-                    "Uses a song's own note colors when it has them (Dancing☆Onigiri works).",
-                ),
-            ]);
-        }
+        // The chosen skin's parameters.
+        let key = s.noteskin.as_deref().unwrap_or(DITO);
+        rows.extend(self.param_rows(SKIN_ROW, key));
         let desktop = self.world.platform == super::data::Platform::Desktop;
         // Desktop reads skins in place (bundled ones, the song folders'):
         // none is stored to remove.
@@ -922,8 +906,57 @@ impl OptionsModel {
                     "Removes the imported pump noteskin from this browser.",
                 ));
             }
+            if let Some(k) = s.pump_noteskin.as_deref() {
+                rows.extend(self.param_rows(PUMP_SKIN_ROW, k));
+            }
         }
         section("Arrows", rows)
+    }
+
+    /// What skin `key` declares (Dito's built in).
+    fn declared(&self, key: &str) -> &[Parameter] {
+        if key == DITO {
+            &ddi_noteskin::bundled::dito_parameters().parameters
+        } else {
+            self.world
+                .skin_parameters
+                .get(key)
+                .map_or(&[], Vec::as_slice)
+        }
+    }
+
+    /// Skin `key`'s parameters as rows, their ids `prefix` and the name.
+    fn param_rows(&self, prefix: &str, key: &str) -> Vec<OptionDef> {
+        let stored = self.settings.skin_params(key);
+        self.declared(key)
+            .iter()
+            .map(|p| {
+                let (labels, _, at) = param_values(p, stored.get(&p.name));
+                row(
+                    &format!("{prefix}{}", p.name),
+                    &p.label,
+                    match p.kind {
+                        ParamKind::Number { .. } => OptionKind::Stepper(labels),
+                        _ => OptionKind::Choices(labels),
+                    },
+                    at,
+                    &p.description,
+                )
+            })
+            .collect()
+    }
+
+    /// Sets parameter `name` of skin `key` to its row's value `i`.
+    fn set_param(&mut self, key: &str, name: &str, i: usize) {
+        let Some(p) = self.declared(key).iter().find(|p| p.name == name).cloned() else {
+            return;
+        };
+        let stored = self.settings.skin_params(key);
+        let (_, values, _) = param_values(&p, stored.get(name));
+        if let Some(v) = values.get(i) {
+            self.settings
+                .set_skin_param(key, name, Some(v.clone()), Some(&p.default));
+        }
     }
 
     fn preview_layout_option(&self) -> OptionDef {
@@ -1336,8 +1369,6 @@ impl OptionsModel {
             "show_deltas" => s.show_deltas = on,
             "ghost" => s.ghost = on,
             "receptor_snap" => s.receptor_snap = on,
-            "note_colors" => s.note_colors = at(&NOTE_COLORS, i),
-            "chart_colors" => s.chart_colors = on,
             "lyrics" => s.lyrics = on,
             "bg_brightness" => s.bg_brightness = i as f32 / 20.0,
             "video" => s.video = at(&VIDEOS, i),
@@ -1348,12 +1379,19 @@ impl OptionsModel {
             "debug" => s.debug = on,
             "fast_pad_poll" => s.fast_pad_poll = on,
             "noteskin" => {
-                s.noteskin = match i {
-                    0 => None,
-                    1 => Some(BUILT_IN.into()),
-                    n => skins_of(&self.world.noteskins, false)
-                        .get(n - 2)
-                        .map(|(k, _)| k.clone()),
+                s.noteskin = i.checked_sub(1).and_then(|n| {
+                    skins_of(&self.world.noteskins, false)
+                        .get(n)
+                        .map(|(k, _)| k.clone())
+                })
+            }
+            id if id.starts_with(SKIN_ROW) => {
+                let key = s.noteskin.clone().unwrap_or_else(|| DITO.to_string());
+                self.set_param(&key, &id[SKIN_ROW.len()..], i);
+            }
+            id if id.starts_with(PUMP_SKIN_ROW) => {
+                if let Some(key) = s.pump_noteskin.clone() {
+                    self.set_param(&key, &id[PUMP_SKIN_ROW.len()..], i);
                 }
             }
             "pump_noteskin" => {
@@ -1618,6 +1656,9 @@ impl OptionsModel {
                 {
                     self.settings.pump_noteskin = None;
                 }
+                self.settings
+                    .skin_params
+                    .retain(|k, _| k.starts_with(BUNDLED));
             }
             Reset::History => {}
             Reset::Noteskin(k) => {
@@ -1627,6 +1668,7 @@ impl OptionsModel {
                 if self.settings.pump_noteskin.as_deref() == Some(k.as_str()) {
                     self.settings.pump_noteskin = None;
                 }
+                self.settings.skin_params.remove(k);
             }
         }
         self.settings.save();
@@ -1656,6 +1698,67 @@ impl OptionsModel {
         self.world.noteskins = skins;
         self.world.default_lua_off = lua_off;
     }
+
+    /// The parameters the skins declare, by key (the shell reads them
+    /// with the skins, [`ddi_noteskin::params::Declared::of_skin`]).
+    pub fn set_skin_parameters(
+        &mut self,
+        parameters: std::collections::BTreeMap<String, Vec<Parameter>>,
+    ) {
+        self.world.skin_parameters = parameters;
+    }
+}
+
+/// The ids of the chosen skin's parameters' rows (then the name), and of
+/// the chosen pump skin's.
+const SKIN_ROW: &str = "skin.";
+const PUMP_SKIN_ROW: &str = "pump_skin.";
+
+/// A parameter's row: its values' labels, the values, and which is
+/// `stored`'s (as its declaration takes it, else the default's). A color
+/// off the palette is offered after it.
+fn param_values(
+    p: &Parameter,
+    stored: Option<&ParamValue>,
+) -> (Vec<String>, Vec<ParamValue>, usize) {
+    let current = stored
+        .and_then(|v| p.accept(v))
+        .unwrap_or_else(|| p.default.clone());
+    let (labels, values): (Vec<String>, Vec<ParamValue>) = match &p.kind {
+        ParamKind::Choice(choices) => choices
+            .iter()
+            .map(|c| (c.label.clone(), ParamValue::Text(c.id.clone())))
+            .unzip(),
+        ParamKind::Toggle => (
+            vec!["Off".into(), "On".into()],
+            vec![ParamValue::Bool(false), ParamValue::Bool(true)],
+        ),
+        ParamKind::Number { unit, .. } => p
+            .numbers()
+            .into_iter()
+            .map(|n| (format!("{}{unit}", trim(n)), ParamValue::Number(n)))
+            .unzip(),
+        ParamKind::Color(palette) => {
+            let mut pairs: Vec<(String, ParamValue)> = palette
+                .iter()
+                .map(|c| (c.label.clone(), ParamValue::Text(c.id.clone())))
+                .collect();
+            if let ParamValue::Text(t) = &current
+                && !pairs.iter().any(|(_, v)| v == &current)
+            {
+                pairs.push((t.clone(), current.clone()));
+            }
+            pairs.into_iter().unzip()
+        }
+    };
+    let at = match &current {
+        ParamValue::Number(n) => values
+            .iter()
+            .position(|v| matches!(v, ParamValue::Number(x) if (x - n).abs() < 1e-9))
+            .unwrap_or(0),
+        _ => values.iter().position(|v| *v == current).unwrap_or(0),
+    };
+    (labels, values, at)
 }
 
 impl OptionsModel {
@@ -1805,13 +1908,6 @@ const DANONI_GAUGES: [(Option<&str>, &str); 10] = [
     (Some("Easy"), "Easy (border)"),
     (Some("Hard"), "Hard (border)"),
 ];
-const NOTE_COLORS: [NoteColors; 5] = [
-    NoteColors::Vivid,
-    NoteColors::Rainbow,
-    NoteColors::Quantized,
-    NoteColors::Flat,
-    NoteColors::Single,
-];
 const VIDEOS: [VideoMode; 3] = [VideoMode::Auto, VideoMode::On, VideoMode::Off];
 const FRAMES: [BackgroundFrame; 4] = [
     BackgroundFrame::Auto,
@@ -1878,7 +1974,7 @@ mod tests {
         assert_eq!(names, &["As above", "cmd"]);
         m.change("pump_noteskin", 1);
         assert_eq!(m.settings.pump_noteskin.as_deref(), Some("pump/cmd"));
-        m.change("noteskin", 2);
+        m.change("noteskin", 1);
         assert_eq!(m.settings.noteskin_for("pump-single"), Some("pump/cmd"));
         assert_eq!(
             m.settings.noteskin_for("dance-single"),
@@ -1944,7 +2040,7 @@ mod tests {
         assert!(stored.reverse);
         assert_eq!(stored.speed, 3.0);
         assert_eq!(m.data().preview, "Dito · Single · ×3 · Reverse");
-        m.change("noteskin", 3);
+        m.change("noteskin", 2);
         assert_eq!(m.settings.noteskin.as_deref(), Some("dance/mine"));
         assert!(
             m.data()
@@ -1956,6 +2052,101 @@ mod tests {
             m.action("noteskin.remove", 0),
             Act::Confirm(Reset::Noteskin("dance/mine".into()))
         );
+    }
+
+    /// The chosen skin's parameters are rows under Arrows: Dito's (built
+    /// in), or those the shell read for another skin; set values are
+    /// kept per skin, a default forgotten, and a removed skin's let go.
+    #[test]
+    fn a_skins_parameters_are_rows_under_arrows() {
+        use crate::state::settings::NoteColors;
+        use ddi_noteskin::bundled::dito;
+        let mut m = model();
+        let d = m.data();
+        // Dito's, with the arrows' row first; no Built-in choice.
+        let arrows = &d
+            .sections
+            .iter()
+            .find(|s| s.name == "Arrows")
+            .unwrap()
+            .options;
+        let ids: Vec<&str> = arrows.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "noteskin",
+                "skin.Colors",
+                "skin.ChartColors",
+                "skin.Explosions",
+                "skin.Lighter"
+            ]
+        );
+        assert!(!arrows[0].values().iter().any(|v| v.contains("Built")));
+        let colors = find(&d, "skin.Colors");
+        assert_eq!(colors.label, "Note colors");
+        assert_eq!(colors.value(), "Vivid");
+        assert_eq!(find(&d, "skin.Explosions").value(), "On");
+        let rainbow = colors.values().iter().position(|v| v == "Rainbow").unwrap();
+        m.change("skin.Colors", rainbow);
+        assert_eq!(m.settings.note_colors(), NoteColors::Rainbow);
+        assert_eq!(find(&m.data(), "skin.Colors").value(), "Rainbow");
+        // Saved, per skin.
+        let stored: Settings = storage::load(Area::Local, crate::state::settings::KEY).unwrap();
+        assert_eq!(
+            stored.skin_params(DITO).get(dito::COLORS),
+            Some(&ParamValue::Text("Rainbow".into()))
+        );
+        // Back to the default: forgotten.
+        m.change("skin.Colors", 0);
+        assert!(m.settings.skin_params.is_empty());
+        // Lighter: the built-in arrows draw, still in Dito's colors.
+        m.change("skin.Lighter", 1);
+        assert!(m.settings.lighter());
+        assert_eq!(m.settings.play_skin("dance-single", None), None);
+        // Another skin's, as the shell read them.
+        let declared = ddi_noteskin::params::Declared::from_ini(&ddi_noteskin::ini::Ini::parse(
+            "[Parameters]\nList=Size,Tint\n\
+             [Parameter Size]\nType=Number\nMin=0.5\nMax=1.5\nStep=0.25\nDefault=1\nUnit=×\n\
+             [Parameter Tint]\nType=Color\nDefault=#FF8800\nChoices=#FF8800,#0088FF\n\
+             ChoiceLabels=Orange,Blue\n",
+        ));
+        m.set_skin_parameters([("dance/mine".to_string(), declared.parameters)].into());
+        m.change("noteskin", 2);
+        let d = m.data();
+        assert!(
+            d.sections
+                .iter()
+                .all(|s| s.options.iter().all(|o| o.id != "skin.Colors"))
+        );
+        let size = find(&d, "skin.Size");
+        assert!(matches!(size.kind, OptionKind::Stepper(_)));
+        assert_eq!(size.values(), ["0.5×", "0.75×", "1×", "1.25×", "1.5×"]);
+        assert_eq!(size.value(), "1×");
+        m.change("skin.Size", 4);
+        m.change("skin.Tint", 1);
+        assert_eq!(
+            m.settings.skin_params("dance/mine"),
+            [
+                ("Size".to_string(), ParamValue::Number(1.5)),
+                ("Tint".to_string(), ParamValue::Text("#0088FF".into())),
+            ]
+            .into()
+        );
+        // Dito's stay its own.
+        assert!(m.settings.lighter());
+        // A color off the palette (a hand edit) shows as itself.
+        m.settings.set_skin_param(
+            "dance/mine",
+            "Tint",
+            Some(ParamValue::Text("#123456".into())),
+            None,
+        );
+        assert_eq!(find(&m.data(), "skin.Tint").value(), "#123456");
+        // Removed: its values go with it.
+        m.reset(&Reset::Noteskin("dance/mine".into()));
+        assert_eq!(m.settings.noteskin, None);
+        assert!(m.settings.skin_params("dance/mine").is_empty());
+        assert!(m.settings.lighter());
     }
 
     #[test]

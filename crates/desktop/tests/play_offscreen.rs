@@ -17,7 +17,7 @@ use ddi_desktop::gpu;
 use ddi_desktop::play::view::{Formats, Rgba, View};
 use ddi_desktop::play::{Feed, Play, Request, host, load};
 use ddi_platform::HostTime;
-use ddi_ui::state::settings::Settings;
+use ddi_ui::state::settings::{ParamValue, Settings};
 
 const SIZE: [u32; 2] = [1280, 720];
 
@@ -188,16 +188,35 @@ fn a_play_draws_its_field_skin_and_background() {
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
     let g = Gpu { device, queue };
-    for (skin, want) in [
+    // Dito's parameters: its Flat colors' skin, without explosions; and
+    // drawn lighter, by the built-in arrows (`docs/plans/skin-parameters.md`).
+    let dito = |name: &str, value: ParamValue| {
+        let mut s = Settings::default();
+        s.set_dito_param(name, value);
+        s
+    };
+    let mut flat = dito("Colors", ParamValue::Text("Flat".into()));
+    flat.set_dito_param("Explosions", ParamValue::Bool(false));
+    for (settings, want) in [
         // Dito in the default note colors' variant.
-        (None, "Dito Vivid"),
-        (Some("bundled:dance/delta"), "Delta"),
-        (Some("builtin"), "built-in"),
+        (Settings::default(), "Dito Vivid"),
+        (
+            Settings {
+                noteskin: Some("bundled:dance/delta".into()),
+                ..Settings::default()
+            },
+            "Delta",
+        ),
+        (
+            Settings {
+                noteskin: Some("builtin".into()),
+                ..Settings::default()
+            },
+            "built-in",
+        ),
+        (flat, "Dito Flat"),
+        (dito("Lighter", ParamValue::Bool(true)), "built-in"),
     ] {
-        let settings = Settings {
-            noteskin: skin.map(str::to_string),
-            ..Settings::default()
-        };
         // Beatucada's Challenge chart, 12 s in: notes on screen.
         let (play, name) = frames(&g, &settings, "beatucada", 0, 12.0, true);
         keep(&play, want);

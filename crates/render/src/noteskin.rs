@@ -920,6 +920,16 @@ impl NoteskinPlay {
         self.lua.is_some()
     }
 
+    /// The values its Lua reads for the skin's parameters
+    /// (`ddi_noteskin::params`), as its declarations took them; none
+    /// without Lua.
+    pub fn parameters(&self) -> ddi_noteskin::params::Values {
+        self.lua
+            .as_ref()
+            .map(LuaSkin::parameters)
+            .unwrap_or_default()
+    }
+
     /// Why the skin's Lua stopped during the play, if it did.
     pub fn lua_failure(&self) -> Option<&str> {
         self.lua_failure.as_ref().map(|(m, _)| m.as_str())

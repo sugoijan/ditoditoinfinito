@@ -1248,9 +1248,7 @@ fn skin_want(
 ) -> Option<(String, ddi_chart::Layout, ddi_noteskin::lua::Env)> {
     let c = loaded.song.charts.get(chart)?;
     let layout = loaded.song.layout_of(c)?;
-    let key = settings.play_skin(&layout.id, Some(c))?;
-    let env =
-        ddi_noteskin::lua::chart_env(&loaded.song, c, &layout, settings.reverse).shifted(shift);
+    let (key, env) = ddi_shell::play_skin(settings, &loaded.song, c, &layout, shift)?;
     Some((key, layout, env))
 }
 

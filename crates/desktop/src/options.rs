@@ -105,10 +105,11 @@ impl Shared {
             .borrow()
             .as_ref()
             .and_then(|rx| rx.try_recv().ok());
-        if let Some(skins) = skins {
+        if let Some((skins, parameters)) = skins {
             *self.skins.borrow_mut() = None;
             // Not `complete`: a skin chosen on another machine stays chosen.
             self.model.borrow_mut().set_noteskins(skins, false, false);
+            self.model.borrow_mut().set_skin_parameters(parameters);
             *self.feed.borrow_mut() = Some(self.model.borrow().data());
             self.pending.set(true);
         }
@@ -121,8 +122,9 @@ impl Shared {
     }
 }
 
-/// The noteskins one can choose, `(key, name)`.
-type Skins = Vec<(String, String)>;
+/// The noteskins one can choose, `(key, name)`, and the parameters they
+/// declare.
+type Skins = (Vec<(String, String)>, crate::library::noteskins::Parameters);
 
 /// The options screen on the stored settings, and what the shell keeps of
 /// it.
@@ -131,12 +133,16 @@ pub fn screen(
     sound: Option<SharedPlayer>,
     songs: Option<Rc<crate::songs::Songs>>,
 ) -> (OptionsScreen, Rc<Shared>) {
+    // The bundled skins at once; the folders' when their walk is done.
+    let bundled = crate::library::noteskins::bundled();
+    let noteskins = crate::library::noteskins::choices(&bundled);
+    let skin_parameters = crate::library::noteskins::parameters(&bundled, &noteskins);
     let world = World {
         platform: ddi_ui::screens::data::Platform::Desktop,
         pads_supported: true,
         library_styles: songs.as_ref().map_or_else(Vec::new, |s| s.library_styles()),
-        // The bundled ones at once; the folders' when their walk is done.
-        noteskins: crate::library::noteskins::choices(&crate::library::noteskins::bundled()),
+        noteskins,
+        skin_parameters,
         plays: songs
             .as_ref()
             .and_then(|s| s.plays.as_ref())
@@ -167,7 +173,9 @@ pub fn screen(
                 .name("ddi-noteskins".into())
                 .spawn(move || {
                     let skins = crate::library::noteskins::all(&folders);
-                    let _ = tx.send(crate::library::noteskins::choices(&skins));
+                    let choices = crate::library::noteskins::choices(&skins);
+                    let parameters = crate::library::noteskins::parameters(&skins, &choices);
+                    let _ = tx.send((choices, parameters));
                     if let Some(w) = wake {
                         w();
                     }

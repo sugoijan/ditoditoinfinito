@@ -93,6 +93,15 @@ impl Field {
             .map(|n| n.name.clone())
     }
 
+    /// The values the drawn noteskin's Lua reads for its parameters.
+    pub fn skin_parameters(&self) -> ddi_noteskin::params::Values {
+        self.preview
+            .as_ref()
+            .and_then(FieldPreview::noteskin)
+            .map(|n| n.parameters())
+            .unwrap_or_default()
+    }
+
     /// Whether the preview holds its textures (tests).
     pub fn holds_targets(&self) -> bool {
         self.preview.as_ref().is_some_and(FieldPreview::has_targets)

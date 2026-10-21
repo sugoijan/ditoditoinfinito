@@ -987,6 +987,13 @@ impl GameLoop {
                     let _ = js_sys::Reflect::set(&o, &"problems".into(), &problems);
                     let _ =
                         js_sys::Reflect::set(&o, &"quads".into(), &(n.last_quads() as u32).into());
+                    // The parameters' values its Lua reads.
+                    let params = serde_json::to_string(&n.parameters()).unwrap_or_default();
+                    let _ = js_sys::Reflect::set(
+                        &o,
+                        &"params".into(),
+                        &js_sys::JSON::parse(&params).unwrap_or(wasm_bindgen::JsValue::NULL),
+                    );
                     let (fuel, max_fuel) = n.lua_fuel();
                     let lua = js_sys::Object::new();
                     let _ = js_sys::Reflect::set(&lua, &"runs".into(), &n.runs_lua().into());

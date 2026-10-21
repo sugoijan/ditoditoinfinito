@@ -103,6 +103,10 @@ pub struct Env {
     /// StepMania's screen, width and height in its pixels, for a song's
     /// scripts (`SCREEN_WIDTH`, `SCREEN_HEIGHT`; [`SONG_PRELUDE`]).
     pub screen: [f64; 2],
+    /// The values the player set for the skin's parameters (our
+    /// extension, [`crate::params`]), as stored: what its declarations do
+    /// not take is left out at load, and the rest defaulted.
+    pub params: crate::params::Values,
 }
 
 impl Default for Env {
@@ -119,6 +123,7 @@ impl Default for Env {
             reversed: false,
             trace_missing: false,
             screen: [640.0, 480.0],
+            params: crate::params::Values::new(),
         }
     }
 }
@@ -286,6 +291,9 @@ pub(crate) struct Host {
     pub updating: HashSet<u32>,
     /// The frame's song position; `None` while loading.
     pub position: Option<Position>,
+    /// The skin's parameters (`NOTESKIN:GetParameter`), their values in
+    /// [`Env::params`].
+    pub declared: crate::params::Declared,
 }
 
 impl Host {
@@ -380,6 +388,10 @@ impl LuaSkin {
                 Some((path, text))
             })
             .collect();
+        // The parameters' values as the skin's declarations take them.
+        let declared = crate::params::Declared::from_ini(&skin.metrics);
+        let mut env = env;
+        env.params = declared.resolve(&env.params);
         let host = Rc::new(RefCell::new(Host {
             skin,
             env,
@@ -388,7 +400,15 @@ impl LuaSkin {
             stage: Stage::default(),
             updating: HashSet::new(),
             position: None,
+            declared,
         }));
+        // What its declarations left out, said as the Lua's warnings are.
+        {
+            let mut h = host.borrow_mut();
+            for w in h.declared.warnings.clone() {
+                h.warn(format!("metrics.ini: {w}"));
+            }
+        }
         let mut vm = Vm::new(settings);
         let (prelude, h, registries) = vm.lua().enter(|ctx| {
             let (h, registries) = host::table(ctx, &host);
@@ -525,6 +545,12 @@ impl LuaSkin {
     /// Fuel spent in the current frame (since [`LuaSkin::begin_frame`]).
     pub fn frame_fuel(&self) -> u64 {
         self.frame_fuel
+    }
+
+    /// The values of the skin's parameters its Lua reads
+    /// (`NOTESKIN:GetParameter`), as its declarations took them.
+    pub fn parameters(&self) -> crate::params::Values {
+        self.host.borrow().env.params.clone()
     }
 
     /// Why the skin's Lua stopped, if it did.

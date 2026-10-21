@@ -350,3 +350,7 @@ were kept current at each step; this one added decision 39 and closed
 - Done 2026-10-13: Dito's explosions (`Down Explosion.lua`: a glow and
   the note's outline in its judgement's color, the onigiri's star and
   the centre's square for theirs).
+- Done 2026-10-21: Dito's color schemes, songs' own colors, its
+  explosions and the built-in drawing are its parameters
+  (`docs/plans/skin-parameters.md`): `Colors` loads each scheme's skin as
+  before, and the "built in, without a skin" choice is Dito's `Lighter`.

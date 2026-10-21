@@ -252,6 +252,17 @@ function NOTESKIN:GetMetricA(button, name)
 	return nil
 end
 
+-- Our extension (docs/plans/skin-parameters.md): the value the player set
+-- for a parameter the skin declares in its metrics (a choice's id, a
+-- toggle's boolean, a number, a color as `color` makes one), its default
+-- when unset, nil for a name it does not declare. Each call is a copy:
+-- nothing a script does changes what the next one reads.
+function NOTESKIN:GetParameter(name)
+	local v, kind = H.parameter(tostring(name))
+	if kind == "color" then return color(v) end
+	return v
+end
+
 local loader -- the table the NoteSkin.lua chain returned
 
 -- `NoteSkinManager::PushActorTemplate`: the skin's `Load` with the element's

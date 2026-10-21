@@ -71,6 +71,11 @@ position data remains compatible with older skins and manual test commands.
 `Press` and `Lift` also include the autoplay flag. This metadata never changes
 judging, scoring, input timestamps, or recorded replay edges.
 
+Skins may also declare parameters the player sets under Options → Arrows
+(`[Parameters]` in `metrics.ini`, read with `NOTESKIN:GetParameter`; a
+choice may load a variant skin; `docs/plans/skin-parameters.md`). Dito's
+note colors are one; DanOni declares none, so its look stays the proof's.
+
 SkinCraft's **Autoplay flashes** checkbox (also `set_preview`'s
 `autoplay_flashes` MCP argument) compares the two presentations using the
 same timing examples. Choose **Rules → DanOni** (MCP `ruleset: "danoni"`)

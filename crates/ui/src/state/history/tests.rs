@@ -1010,8 +1010,42 @@ fn an_unreadable_snapshot_falls_back_to_how_the_play_was_drawn() {
     assert_eq!(s.bg_brightness, 0.25);
     assert!(s.show_deltas);
     assert_eq!(
-        serde_json::to_value(s.note_colors).unwrap(),
+        serde_json::to_value(s.note_colors()).unwrap(),
         serde_json::json!("Rainbow")
+    );
+    // The drawn skin's parameters, and Dito's (older records kept only
+    // the colors, as settings of their own).
+    use crate::state::settings::{DITO, ParamValue};
+    r.record.setup.drawn.skin_params = [("Size".to_string(), ParamValue::Number(1.5))].into();
+    let s = r.settings(&here);
+    assert_eq!(
+        s.skin_params("dance/metal"),
+        [("Size".to_string(), ParamValue::Number(1.5))].into()
+    );
+    r.record.setup.drawn = DrawSetup {
+        noteskin: None,
+        note_colors: "Flat".into(),
+        chart_colors: true,
+        skin_params: [("Explosions".to_string(), ParamValue::Bool(false))].into(),
+        ..DrawSetup::default()
+    };
+    let s = r.settings(&Settings {
+        skin_params: [(
+            DITO.to_string(),
+            [("Lighter".to_string(), ParamValue::Bool(true))].into(),
+        )]
+        .into(),
+        ..here.clone()
+    });
+    assert_eq!(s.noteskin, None);
+    assert!(s.chart_colors() && !s.lighter());
+    assert_eq!(
+        s.skin_params(DITO).get("Explosions"),
+        Some(&ParamValue::Bool(false))
+    );
+    assert_eq!(
+        serde_json::to_value(s.note_colors()).unwrap(),
+        serde_json::json!("Flat")
     );
     // An older judge's play is said so; today's is not.
     assert_eq!(r.older_judge_note(), None);

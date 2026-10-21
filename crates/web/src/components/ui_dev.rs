@@ -2208,6 +2208,15 @@ fn publish(h: &Host) {
                 p.noteskin()
                     .map_or(JsValue::NULL, |s| s.name.as_str().into()),
             );
+            // The values its Lua reads for the skin's parameters.
+            set(
+                &f,
+                "params",
+                p.noteskin().map_or(JsValue::NULL, |s| {
+                    let json = serde_json::to_string(&s.parameters()).unwrap_or_default();
+                    js_sys::JSON::parse(&json).unwrap_or(JsValue::NULL)
+                }),
+            );
             set(&f, "layout", p.options().layout.as_str().into());
             set(&f, "demoTime", p.demo_time().into());
             set(&f, "textShaped", (p.text_shaped() as f64).into());

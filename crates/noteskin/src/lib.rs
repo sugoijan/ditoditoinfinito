@@ -9,7 +9,8 @@
 //! has the sources, `docs/plans/noteskins.md` the steps. A skin's own Lua
 //! runs at load in a sandboxed VM ([`lua`], `docs/plans/lua.md`); without
 //! it, what needs Lua is reported and drawn built in. Skins may also use
-//! SVG images, our extension ([`svg`]).
+//! SVG images, our extension ([`svg`]), and declare parameters the player
+//! sets, another ([`params`]).
 
 pub mod build;
 pub mod builtin;
@@ -23,6 +24,7 @@ pub mod lua;
 pub mod metrics;
 pub mod model;
 pub mod notes;
+pub mod params;
 pub mod skin;
 pub mod svg;
 

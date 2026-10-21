@@ -265,7 +265,10 @@ fn read_inner(
     stored.insert(0, first);
     let folders = folders(&stored);
     let chosen = &stored[0];
-    let skin = match Skin::load(&folders, &chosen.game, &chosen.name) {
+    // The skin its parameters pick (a color scheme's), loaded in its place
+    // (`ddi_noteskin::params`).
+    let head = ddi_noteskin::params::head(&folders, &chosen.game, &chosen.name, &env.params);
+    let skin = match Skin::load(&folders, &chosen.game, &head) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("noteskin {key}: {e}");
@@ -292,7 +295,7 @@ fn read_inner(
         match lua_play(
             &folders,
             &chosen.game,
-            &chosen.name,
+            &head,
             env.clone(),
             seed,
             layout,
@@ -311,7 +314,7 @@ fn read_inner(
         key: key.to_string(),
         strike,
         game: chosen.game.clone(),
-        name: chosen.name.clone(),
+        name: head,
         dirs: stored.iter().map(|s| s.dir.clone()).collect(),
         names: stored.iter().map(|s| s.name.clone()).collect(),
         folders,
