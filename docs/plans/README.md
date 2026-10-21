@@ -68,9 +68,13 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Video backgrounds](video-backgrounds.md) (2026-10-09): done on the web,
   steps 1–9. Movies through WebCodecs or the FFmpeg wasm module in a
   worker; desktop's in `native-video.md`.
-- [Overlays](overlays.md) (2026-10-14): mostly done: DanOni's back and
-  mask layers, `#BGCHANGES2` (decision 48). Not done: StepMania's
-  script-free background effects, scripted backgrounds, `#FGCHANGES`.
+- [Overlays](overlays.md) (2026-10-14): done: DanOni's back and mask
+  layers, `#BGCHANGES2` (decision 48), StepMania's named background
+  effects and transitions (2026-10-21). Scripted backgrounds and
+  `#FGCHANGES` in their own plan.
+- [Scripted backgrounds and `#FGCHANGES`](scripted-backgrounds.md)
+  (2026-10-21): planned. BGAnimation folders' `default.lua` on the skins'
+  sandboxed Lua host, behind the field and as foregrounds.
 - [OS and native video decoding on desktop](native-video.md) (2026-10-17):
   in progress. Done: VideoToolbox for checked H.264/HEVC/VP9, opt-in Metal
   planes, the sandboxed FFmpeg helper (decision 54). Left: Media Foundation
