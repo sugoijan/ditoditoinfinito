@@ -16,7 +16,8 @@
 //! premultiplied, red is alpha. Bundled faces reach the canvas as
 //! `FontFace`s: the HUD's from the wasm's bytes ([`load_bundled_font`]),
 //! the theme's text face from files served next to the app
-//! ([`load_theme_fonts`], fetched once a theme screen shows). Runs drawn
+//! ([`load_theme_fonts`], fetched at start; the boot shell stays until
+//! every face settled, [`faces`]). Runs drawn
 //! before a face loaded are drawn again once it has
 //! ([`RunRasterizer::fonts_version`]), and pages drawing on demand are
 //! woken for it ([`on_fonts_loaded`]).
@@ -48,6 +49,8 @@ thread_local! {
     static FONTS_VERSION: Rc<Cell<u64>> = Rc::new(Cell::new(0));
     /// The theme's faces were asked for.
     static THEME_ASKED: Cell<bool> = const { Cell::new(false) };
+    /// Each face's load, as asked for.
+    static FACES: RefCell<Vec<js_sys::Promise>> = const { RefCell::new(Vec::new()) };
     /// Called when a face finishes loading; dropped once they answer
     /// false (their page is gone).
     static WAKERS: RefCell<Vec<Box<dyn Fn() -> bool>>> = RefCell::new(Vec::new());
@@ -99,6 +102,7 @@ pub(crate) fn load_theme_fonts() {
         let Ok(promise) = face.load() else {
             continue;
         };
+        FACES.with(|f| f.borrow_mut().push(promise.clone()));
         wasm_bindgen_futures::spawn_local(async move {
             match wasm_bindgen_futures::JsFuture::from(promise).await {
                 Ok(_) => loaded(),
@@ -106,6 +110,12 @@ pub(crate) fn load_theme_fonts() {
             }
         });
     }
+}
+
+/// The loads of the faces asked for so far, each settling when its face
+/// loaded or failed to.
+pub(crate) fn faces() -> Vec<js_sys::Promise> {
+    FACES.with(|f| f.borrow().clone())
 }
 
 /// Faces loaded so far (a page compares it with the last it drew with).
@@ -136,6 +146,7 @@ pub(crate) fn load_bundled_font() {
     let Ok(promise) = face.load() else {
         return;
     };
+    FACES.with(|f| f.borrow_mut().push(promise.clone()));
     wasm_bindgen_futures::spawn_local(async move {
         match wasm_bindgen_futures::JsFuture::from(promise).await {
             Ok(_) => loaded(),

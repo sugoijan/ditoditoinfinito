@@ -41,6 +41,8 @@ pub fn start() {
     web::kv::install();
     // The app's canvas and device, made once for every route.
     web::screen::boot();
+    // The theme's faces, which the first screen waits for (`app::start`).
+    web::text::load_theme_fonts();
     // The play history's summaries, and stale ones worked out again.
     history::start();
     // The chosen noteskin fetched in the background, for the first play.

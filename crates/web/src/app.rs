@@ -4,7 +4,7 @@
 //! another is, and the device watcher over all of them.
 
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use gloo::events::EventListener;
@@ -79,13 +79,32 @@ pub(crate) fn start(root: Element) {
     });
     app.borrow_mut().show();
     // The boot shell stays until the device is there (or known not to
-    // be): the first paint has what it draws with.
-    wasm_bindgen_futures::spawn_local(async {
+    // be) and every face loaded (or failed to): the first paint has what
+    // it draws with, in its own font. Each moves the bar.
+    let faces = crate::web::text::faces();
+    let steps = faces.len() + 1;
+    let done = Rc::new(Cell::new(0));
+    let step = move || {
+        done.set(done.get() + 1);
+        crate::boot::progress(done.get() as f64 / steps as f64);
+        if done.get() == steps {
+            crate::boot::ready();
+        }
+    };
+    for face in faces {
+        let step = step.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = wasm_bindgen_futures::JsFuture::from(face).await;
+            step();
+        });
+    }
+    wasm_bindgen_futures::spawn_local(async move {
         let _ = crate::web::screen::gfx().await;
-        crate::boot::ready();
+        step();
     });
-    // Never longer than this, should the adapter not answer.
-    gloo::timers::callback::Timeout::new(4000, crate::boot::ready).forget();
+    // Never longer than this, should the adapter not answer or a face
+    // crawl in.
+    gloo::timers::callback::Timeout::new(8000, crate::boot::ready).forget();
     // The page's for good.
     std::mem::forget(app);
 }

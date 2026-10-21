@@ -48,6 +48,12 @@ pub(crate) fn crash(message: &str) {
     call("crash", &[JsValue::from_str(message)]);
 }
 
+/// How far the game readied what its first screen needs, 0 to 1 (the
+/// bar's part after the download).
+pub(crate) fn progress(ratio: f64) {
+    call("setStartProgress", &[JsValue::from_f64(ratio)]);
+}
+
 /// Fades out the boot shell. Idempotent.
 pub(crate) fn ready() {
     let already_sent = READY_SENT.with(|flag| flag.replace(true));

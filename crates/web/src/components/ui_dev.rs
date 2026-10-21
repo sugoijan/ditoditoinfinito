@@ -699,10 +699,9 @@ fn host_inputs(el: &HtmlElement) -> Result<(HtmlTextAreaElement, HtmlInputElemen
     Ok((textarea, files))
 }
 
-/// The theme, its faces asked for, motion as the settings and the system
-/// say.
+/// The theme, motion as the settings and the system say (its faces are
+/// asked for at start, `crate::start`).
 pub(crate) fn theme_host(fold: FoldFn) -> ThemeHost {
-    crate::web::text::load_theme_fonts();
     let settings = crate::settings::Settings::load();
     let look = Rc::new(ddi_theme::Infinito::new());
     let env = ThemeEnv::new(look.clone(), fold);

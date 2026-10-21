@@ -361,7 +361,8 @@ Done (2026-10-15):
 
 - **One canvas** (`crates/web/src/web/screen.rs`): canvas and device made in
   `main` before Yew mounts (the boot shell waits for the adapter, at most
-  4 s); the backend chosen at boot (`gfx=gl` in the address, or the new
+  4 s; since 2026-10-22 also for the theme's faces, preloaded beside the
+  wasm, each moving the bar, at most 8 s); the backend chosen at boot (`gfx=gl` in the address, or the new
   Graphics setting), a route asking for WebGL2 later switching it once for
   the session. Pages that draw attach the canvas into their own element
   (play, skin preview); the 2D pass can show it fixed behind the page. A

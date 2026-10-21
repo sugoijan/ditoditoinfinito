@@ -77,6 +77,16 @@
           state.progress = value;
           applyState();
         };
+        // The bar's share for the game's download; the rest is what the
+        // game readies before its first screen (the device, the fonts),
+        // which it reports through setStartProgress.
+        const DOWNLOAD_SHARE = 0.85;
+        const setDownloadProgress = (ratio) => {
+          setProgress(ratio == null ? null : clamp01(ratio) * DOWNLOAD_SHARE);
+        };
+        const setStartProgress = (ratio) => {
+          setProgress(DOWNLOAD_SHARE + clamp01(ratio) * (1 - DOWNLOAD_SHARE));
+        };
         const fail = (code, message, hint) => {
           state.blocked = {
             code: code || "blocked",
@@ -195,6 +205,7 @@
         });
         window.__DDI_BOOT = {
           setProgress,
+          setStartProgress,
           fail,
           ready,
           crash,
@@ -302,18 +313,18 @@
               }
               if (progress && progress.total > 0) {
                 const ratio = progress.loaded / progress.total;
-                setProgress(ratio);
+                setDownloadProgress(ratio);
                 if (!downloadCompleted && ratio >= 1) {
                   downloadCompleted = true;
                 }
               } else {
-                setProgress(null);
+                setDownloadProgress(null);
               }
             },
             onComplete: () => {
               if (!downloadCompleted) {
                 downloadCompleted = true;
-                setProgress(1);
+                setDownloadProgress(1);
               }
             },
             onSuccess: () => {},
@@ -422,6 +433,10 @@
     <link data-trunk rel="copy-file" href="../assets/fonts/IosevkaTerm-Regular-latin.ttf" data-target-path="fonts" />
     <link data-trunk rel="copy-file" href="../assets/fonts/IosevkaTerm-SemiBold-latin.ttf" data-target-path="fonts" />
     <link data-trunk rel="copy-file" href="../assets/fonts/IosevkaTerm-Bold-latin.ttf" data-target-path="fonts" />
+    <!-- The theme's faces, fetched beside the game: its first screen waits for them (`web::text::load_theme_fonts`). -->
+    <link rel="preload" href="fonts/IosevkaTerm-Regular-latin.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="fonts/IosevkaTerm-SemiBold-latin.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="fonts/IosevkaTerm-Bold-latin.ttf" as="font" type="font/ttf" crossorigin />
     <link data-trunk rel="copy-file" href="../target/seo/sitemap.xml" />
   </head>
   <body>
