@@ -1,7 +1,7 @@
 //! Turns an engine [`Frame`] into sprite instances and HUD text.
 //!
 //! Geometry is derived from the target size every frame: the note field is
-//! centred, one lane is one arrow wide, and one "arrow height" of engine
+//! centered, one lane is one arrow wide, and one "arrow height" of engine
 //! distance is one arrow of pixels (x-mod 1 = one arrow per beat).
 
 use ddi_chart::{Color, Glyph, Layout};
@@ -222,7 +222,7 @@ pub struct RenderOptions {
     pub background: f32,
     /// Which background images to show this frame.
     pub backdrop: crate::background::Backdrop,
-    /// The shape (width over height) backgrounds are fitted into, centred,
+    /// The shape (width over height) backgrounds are fitted into, centered,
     /// above the persistent blurred base; `None`: the whole screen.
     pub frame_aspect: Option<f32>,
     /// Visual entrance only; None is settled, fully sharp play.
@@ -358,7 +358,7 @@ pub const LET_GO_COLOR: [f32; 4] = [1.0, 0.43, 0.43, 1.0];
 /// The holds' and shocks' outcomes, under the ruleset's names: over each
 /// lane, 54 units (of an arrow's 64) past the receptor towards the
 /// field's middle (`HoldJudgmentYStandard` −90 against the receptors'
-/// −144, and the same mirrored under Reverse), centred there and no wider
+/// −144, and the same mirrored under Reverse), centered there and no wider
 /// than the lane; or Dancing☆Onigiri's freeze judgement, still, two
 /// arrows right of the tap judgement and 1.4 below it (`mainWindow.js`
 /// places it 100 px right and 70 px below in its 50 px arrows), as large.
@@ -1279,7 +1279,7 @@ mod tests {
     }
 
     #[test]
-    fn hold_outcomes_are_centred_past_the_receptors_and_fit_their_lanes() {
+    fn hold_outcomes_are_centered_past_the_receptors_and_fit_their_lanes() {
         use ddi_engine::frame::HoldPlace;
         let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
         let a = geo.arrow;

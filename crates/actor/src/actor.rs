@@ -3920,7 +3920,7 @@ mod tests {
         assert_eq!(d.metrics.advance, 100.0);
         let top_left = d.line_box_transform();
         assert!(close(top_left[4], 300.0) && close(top_left[5], 50.0));
-        // Centred, zoomed: the pen half the zoomed width left of x.
+        // Centered, zoomed: the pen half the zoomed width left of x.
         run(&mut t, "horizalign,'HorizAlign_Center';zoom,2");
         let out = draw_all(&mut t);
         let Drawn::Text(d) = &out[0] else { panic!() };

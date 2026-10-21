@@ -2,7 +2,7 @@
 //! (`docs/plans/scripted-backgrounds.md`) as textured quads: their actors
 //! drawn on StepMania's screen (480 pixels tall, as wide as the scripts
 //! were told) mapped onto the background frame, its height the frame's,
-//! centred in it; their textures registered as a noteskin's are.
+//! centered in it; their textures registered as a noteskin's are.
 //!
 //! Quads not turned are cut to the frame, as StepMania's screen ends at
 //! its edges (their texture with them, the corners' colors kept); turned
@@ -17,7 +17,7 @@ use crate::textured::{Shape, TexQuad, UNTEXTURED as NO_TEXTURE};
 
 /// The transform from StepMania's `screen` (its width and height) to a
 /// `frame` (`x, y, width, height` in target pixels): the frame's height,
-/// centred across it.
+/// centered across it.
 pub fn screen_transform(frame: [f32; 4], screen: [f32; 2]) -> [f32; 6] {
     let [x, y, w, h] = frame;
     let k = h / screen[1].max(1.0);
@@ -155,16 +155,16 @@ mod tests {
     use ddi_actor::{Kind, Sprite};
 
     #[test]
-    fn the_screen_fills_the_frame_height_centred() {
+    fn the_screen_fills_the_frame_height_centered() {
         // StepMania's 640 × 480 in a 1280 × 720 frame: 1.5 to the pixel,
-        // centred (160 px each side).
+        // centered (160 px each side).
         let m = screen_transform([0.0, 0.0, 1280.0, 720.0], [640.0, 480.0]);
         assert_eq!(m, [1.5, 0.0, 0.0, 1.5, 160.0, 0.0]);
     }
 
     #[test]
     fn quads_are_cut_to_the_frame() {
-        // A quad twice the screen's width, centred: cut to the frame, its
+        // A quad twice the screen's width, centered: cut to the frame, its
         // texture with it.
         let mut quad = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
         let calls = ddi_actor::commands::parse("zoomto,1280,480;xy,320,240").unwrap();

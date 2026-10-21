@@ -13,7 +13,7 @@
 //! Layers are drawn as StepMania's background effects place them
 //! ([`ddi_library::backgrounds::BgDraw`]: covering, cropped to quarters,
 //! stretched or at their own size; tinted, added, cropped behind a soft
-//! edge) into a frame, a centred rectangle of a chosen shape (the screen
+//! edge) into a frame, a centered rectangle of a chosen shape (the screen
 //! the pack's art was made for). A full-screen Gaussian
 //! base follows those same layers, even with a screen-sized frame. Static
 //! sources reuse their filtered copies; video uploads and changed layer
@@ -252,7 +252,7 @@ fn extension_uv(
 }
 
 /// The frame for a `width × height` target and a frame shape (width over
-/// height): `(x, y, width, height)` in pixels, centred and as large as fits;
+/// height): `(x, y, width, height)` in pixels, centered and as large as fits;
 /// `None` for the whole target (no shape, or one within a pixel of it).
 pub fn frame_rect(width: f32, height: f32, aspect: Option<f32>) -> Option<[f32; 4]> {
     let aspect = aspect.filter(|a| a.is_finite() && *a > 0.0)?;
@@ -1240,13 +1240,13 @@ mod tests {
     }
 
     #[test]
-    fn the_frame_is_centred_and_as_large_as_fits() {
+    fn the_frame_is_centered_and_as_large_as_fits() {
         // 4:3 on 16:9: full height, bars at the sides.
         assert_eq!(
             frame_rect(1920.0, 1080.0, Some(4.0 / 3.0)),
             Some([240.0, 0.0, 1440.0, 1080.0])
         );
-        // 16:9 on a portrait phone: full width, centred vertically.
+        // 16:9 on a portrait phone: full width, centered vertically.
         assert_eq!(
             frame_rect(900.0, 1600.0, Some(16.0 / 9.0)),
             Some([0.0, 546.875, 900.0, 506.25])
@@ -1302,7 +1302,7 @@ mod tests {
             (uv, local),
             (([1.0, 1.0], [0.0, 0.0]), [0.0, 0.0, 1.0, 1.0])
         );
-        // At its own size, centred: a 320 × 240 image is half the screen.
+        // At its own size, centered: a 320 × 240 image is half the screen.
         let (rect, _, _) = placement(Place::Native { center: [0.5, 0.5] }, frame, [320.0, 240.0]);
         assert_eq!(rect, [0.25, 0.25, 0.5, 0.5]);
         // Of a frame twice as large, still half: StepMania's screen is

@@ -960,7 +960,7 @@ mod tests {
         f.insert("P/S/fg/default.lua".into(), b"return Def.Actor{}".to_vec());
         f.insert("P/S/old/BGAnimation.ini".into(), Vec::new());
         let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
-        let scan = scan_root(&Files(f), &paths, "Mine", &[], &|_| None);
+        let scan = scan_root(&Files(f), &paths, "Mine", &[], &crate::legacy::none);
         let s = &scan.songs[0];
         assert_eq!(
             s.entry.bg_scripts,

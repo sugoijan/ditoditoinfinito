@@ -110,7 +110,8 @@ fn play(
     let reader = DirReader {
         root: root.to_path_buf(),
     };
-    let scan = ddi_library::scan::scan_root(&reader, &paths, "Mine", &[], &|_| None);
+    let scan =
+        ddi_library::scan::scan_root(&reader, &paths, "Mine", &[], &ddi_library::legacy::none);
     let s = &scan.songs[0];
     assert_eq!(
         s.entry.bg_scripts.len(),

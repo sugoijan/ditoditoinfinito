@@ -14,8 +14,8 @@
 //!   `BackgroundFitMode_CoverPreserve`), tinted by `Color1`;
 //!   `StretchNormalRed`, `…Green`, `…Blue` with that color instead.
 //! - `Centered` and `UpperLeft`: the file at its own size (StepMania's
-//!   screen being 480 px tall), centred on the screen or on its upper
-//!   left corner (a sprite is centred on its position).
+//!   screen being 480 px tall), centered on the screen or on its upper
+//!   left corner (a sprite is centered on its position).
 //! - `OverlayAdd`: covering, added (`BlendMode_Add`). `File1FlashOverlay`:
 //!   the same, fading out over a second from each change.
 //! - `File2Normal`: both files covering, the second over the first, both
@@ -304,7 +304,7 @@ pub(super) fn transition(name: &str) -> Option<(f64, Transition)> {
 /// across and down, StepMania's screen).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Place {
-    /// Scaled, keeping its shape, to cover the box `size` centred at
+    /// Scaled, keeping its shape, to cover the box `size` centered at
     /// `center`, whole: it may reach past the box (the frame cuts it).
     Cover { center: [f32; 2], size: [f32; 2] },
     /// Scaled to cover the box, its texture cropped to it
@@ -317,7 +317,7 @@ pub enum Place {
     /// Stretched to the box (`scaletoclipped`).
     Fill { center: [f32; 2], size: [f32; 2] },
     /// At its own size in StepMania's pixels (the frame being 480 tall),
-    /// centred at `center`.
+    /// centered at `center`.
     Native { center: [f32; 2] },
 }
 
@@ -510,7 +510,7 @@ pub(super) fn leaving(draws: &mut LayerDraws, transition: Transition, progress: 
             }
             Transition::Wipe(w) => {
                 // `crop*,-0.3;fade*,0.3;linear,1.0;crop*,1.3` (to 0.5 on
-                // both sides for the centred ones).
+                // both sides for the centered ones).
                 let edge = -0.3 + 1.6 * p;
                 let middle = -0.3 + 0.8 * p;
                 // Left, top, right, bottom.

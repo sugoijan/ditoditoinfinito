@@ -83,7 +83,7 @@ background layers can draw") held only in part.
 2. **Drawn in the wgpu scene**, not as HTML: back layers lie under the
    arrows, which the canvas draws. The stage maps onto the screen as the
    lyrics' field does (decision 29): a `g_sWidth × g_sHeight` rectangle
-   centred on the field, scaled by the screen's height over 500.
+   centered on the field, scaled by the screen's height over 500.
 3. **Images and text**: images from the work's files (stored with an
    imported work, as background images are, with a cap), text drawn by
    the browser into a texture (the HUD font has no Japanese, decision
@@ -127,7 +127,7 @@ one or two sprites in a fixed way, so each is data here:
 - **Placements.** Covering the frame (`scale_or_crop_background` under
   the default `CoverPreserve`, the sprite whole, so a slide shows what
   overflowed), at the image's own size (`Centered`, and `UpperLeft`,
-  whose sprite is centred on the corner: a quarter of it shows), the
+  whose sprite is centered on the corner: a quarter of it shows), the
   four quarters of the checkerboards and the kaleidoscope (`CropTo`:
   covering the quarter, the texture cropped to it; the kaleidoscope's
   half turn is both zooms negated), and `Visualization2File`'s second
