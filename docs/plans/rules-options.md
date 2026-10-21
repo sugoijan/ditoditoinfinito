@@ -1,10 +1,10 @@
 # Rules and options: fail type, difficulty, FA+, autoplay, event sounds
 
-Status: in progress (2026-10-21). Closes the "Rules and options", "Play
-screen" (event sounds) and "Menus" (autoplay) gaps of `docs/PLAN.md`
-section 5 that this plan lists. Every feature lives in the shared crates
-(`ddi-engine`, `ddi-session`, `ddi-ui`), so both shells get it with no
-platform code beyond what they already have.
+Status: done 2026-10-21 (decision 55); lane covers left. Closes the
+"Rules and options", "Play screen" (event sounds) and "Menus" (autoplay)
+gaps of `docs/PLAN.md` section 5 that this plan lists. Every feature
+lives in the shared crates (`ddi-engine`, `ddi-session`, `ddi-ui`), so
+both shells get it with no platform code beyond what they already have.
 
 ## Research
 

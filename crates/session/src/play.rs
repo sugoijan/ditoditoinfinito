@@ -770,10 +770,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             let t = self.player.judge_time(HostTime(judge_now));
             self.ghost_delta = Some(g.delta(&self.player.ruleset().score.view(), t));
         }
-        // The event sounds: a mine stepped on now, the claps due soon.
+        // The event sounds: a mine stepped on now (the step that failed
+        // the play too), the claps due soon while it goes on.
+        let now = self.audio.now().context_time;
+        self.sounds.judged(&mut self.audio, now, &events);
         if !self.player.finished() {
-            let now = self.audio.now().context_time;
-            self.sounds.judged(&mut self.audio, now, &events);
             let (start, offset) = (self.start_ctx, self.song_offset);
             let rate = self.player.clock().options().rate;
             self.sounds

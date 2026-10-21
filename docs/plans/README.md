@@ -52,7 +52,7 @@ architecture, the decisions and the roadmap they belong to. Status as of
   done: `.lrc` lyrics, jackets and CD titles, per-chart and preview
   music, background names with `,` or `=`, Korean and Chinese text.
   Left: `#PREVIEWVID`, zips with other compression methods.
-- [Rules and options](rules-options.md) (2026-10-21): in progress. Done:
+- [Rules and options](rules-options.md) (2026-10-21): done (decision 55):
   StepMania's fail types, life and judge difficulty, ITG FA+, autoplay
   in the menus (found done), the event sounds, the battery. Left: lane
   covers.
