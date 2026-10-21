@@ -14,6 +14,7 @@
 //! instead keeps them where they are heard, moving each to the tick
 //! nearest its old time (re-syncing a chart).
 
+pub mod autosave;
 mod change;
 #[cfg(test)]
 mod tests;

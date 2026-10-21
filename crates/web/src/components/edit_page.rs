@@ -33,6 +33,8 @@ pub(crate) struct EditPage {
     host: Rc<RefCell<Option<std::rc::Weak<RefCell<Host>>>>>,
     started: Option<Started>,
     failure: Option<String>,
+    /// The song came back from its autosave.
+    recovered: bool,
 }
 
 impl Component for EditPage {
@@ -41,17 +43,25 @@ impl Component for EditPage {
 
     fn create(ctx: &Context<Self>) -> Self {
         let id = ctx.props().song.clone();
+        let mut recovered = false;
         if crate::editor::editing(&id).is_none() {
-            ctx.link().send_future(async move {
-                let song = crate::songs::load_chart(&id).await.map_err(|e| e.message());
-                Msg::Loaded(Box::new(song))
-            });
+            // Unsaved changes from before (a reload, a closed tab) come back.
+            if let Some(a) = crate::editor::autosaved(&id) {
+                crate::editor::begin(&id, Editor::recover(a));
+                recovered = true;
+            } else {
+                ctx.link().send_future(async move {
+                    let song = crate::songs::load_chart(&id).await.map_err(|e| e.message());
+                    Msg::Loaded(Box::new(song))
+                });
+            }
         }
         EditPage {
             root: NodeRef::default(),
             host: Rc::new(RefCell::new(None)),
             started: None,
             failure: None,
+            recovered,
         }
     }
 
@@ -120,12 +130,22 @@ impl EditPage {
         };
         let id = ctx.props().song.clone();
         let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
+        // The music decoded now, for the first press to play it.
+        let listen = Rc::new(RefCell::new(crate::editor::Listen::default()));
+        crate::editor::Listen::read(&listen, &id, editor.borrow().chart_index(), None);
         let host = Rc::new(WebEditorHost {
             id: id.clone(),
             ui: self.host.clone(),
+            listen,
         });
+        let status = if std::mem::take(&mut self.recovered) {
+            "Unsaved changes recovered from the last time; leave without saving to drop them"
+        } else {
+            ""
+        };
         let screen = EditorScreen::shared(theme.env().clone(), editor, crate::editor::place(&id))
-            .with_host(host);
+            .with_host(host)
+            .with_status(status);
         let mut ui = Ui::new(ddi_ui::screens::DESIGN, TextMode::Mirror, true);
         ui.set_focus_ring(false);
         ui.push(screen);

@@ -45,7 +45,8 @@ use crate::message::{Message, Param};
 use crate::nav::MenuAction;
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::state::editor::{
-    ChartInfo, Editor, MEASURE, NoteTool, Retime, Segment, SegmentKind, SongInfo, trim_number,
+    ChartInfo, Editor, MEASURE, NoteTool, Retime, Segment, SegmentKind, SongInfo, autosave,
+    trim_number,
 };
 
 /// Broadcast when a dialog changed the song: the screen draws it again.
@@ -82,6 +83,10 @@ pub enum EditorCall {
     },
     /// The editor is left (stop the music, forget the autosave).
     Leave,
+    /// Keep the song as edited (`state::editor::autosave`): every
+    /// [`autosave::EVERY`] seconds while there are unsaved changes; a
+    /// save that ends well, or leaving, forgets it.
+    Autosave,
 }
 
 /// The shell's side of the editor.
@@ -234,6 +239,9 @@ pub struct EditorScreen {
     /// Trackpad scroll not yet a step.
     scroll: f32,
     status: String,
+    /// The revision last kept by the autosave, and when (the UI's
+    /// seconds).
+    autosaved: (Option<u64>, f64),
 }
 
 impl EditorScreen {
@@ -255,7 +263,14 @@ impl EditorScreen {
             zoom_steps: 0,
             scroll: 0.0,
             status: String::new(),
+            autosaved: (None, 0.0),
         }
+    }
+
+    /// With a line in the panel at first ("Recovered …").
+    pub fn with_status(mut self, status: &str) -> EditorScreen {
+        self.status = status.into();
+        self
     }
 
     /// On an editor the shell keeps (the web's, across a playtest's
@@ -1763,10 +1778,25 @@ impl Screen for EditorScreen {
     }
 
     fn animating(&self) -> bool {
-        self.listening || (self.shown - self.editor.borrow().cursor().0 as f64).abs() > 0.01
+        let e = self.editor.borrow();
+        // Frames come while the field glides or follows the music, and
+        // until changes not kept are autosaved.
+        self.listening
+            || (self.shown - e.cursor().0 as f64).abs() > 0.01
+            || (e.is_dirty() && e.revision() != self.autosaved.0 && self.host.is_some())
     }
 
     fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        // The autosave, while there are changes not kept yet.
+        let (dirty, revision) = {
+            let e = self.editor.borrow();
+            (e.is_dirty(), e.revision())
+        };
+        if dirty && revision != self.autosaved.0 && cx.time() - self.autosaved.1 >= autosave::EVERY
+        {
+            self.autosaved = (revision, cx.time());
+            self.call(EditorCall::Autosave, cx);
+        }
         if self.listening {
             match self.host.as_ref().and_then(|h| h.music_time()) {
                 Some(t) => {

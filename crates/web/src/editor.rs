@@ -9,7 +9,14 @@
 //! made again (`ddi_library::edited`); the files it was imported from
 //! are never touched. A bundled song cannot be saved here: downloaded
 //! only. A download is a link clicked inside the press that asked for
-//! it (browsers allow it then).
+//! it (browsers allow it then). The autosave
+//! (`ddi_ui::state::editor::autosave`) is kept in local storage; opening
+//! its song again (after a reload, a closed tab) recovers it.
+//!
+//! Listening: the chart's music is decoded when the editor opens (on an
+//! offline context: no gesture needed), so the press that asks plays it
+//! at once, on a context made inside that press; asked before the
+//! decode ends, it starts when it does (the context runs by then).
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -17,14 +24,19 @@ use std::rc::{Rc, Weak};
 use ddi_chart::Song;
 use ddi_chart::formats::sm_write;
 use ddi_library::path::RelPathBuf;
+use ddi_platform::storage::{self, Area};
+use ddi_session::listen::Listening;
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, SAVED};
 use ddi_ui::state::editor::Editor;
+use ddi_ui::state::editor::autosave::{self, Autosave};
 use ddi_ui::{Cx, UiRequest};
 use wasm_bindgen::{JsCast, JsValue};
+use web_sys::AudioBuffer;
 
 use crate::components::ui_dev;
 use crate::router::Route;
+use crate::web::audio::{AudioDecoder, WebAudio};
 use crate::web::idb::{self, Db, Write};
 
 /// The song being edited this session.
@@ -76,6 +88,15 @@ fn end() {
     SESSION.with(|s| *s.borrow_mut() = None);
 }
 
+/// The autosave of song `id`, if the last song edited was it.
+pub(crate) fn autosaved(id: &str) -> Option<Autosave> {
+    storage::load::<Autosave>(Area::Local, autosave::KEY).filter(|a| a.song_id == id)
+}
+
+fn forget_autosave() {
+    storage::remove(Area::Local, autosave::KEY);
+}
+
 /// Whether song `id`'s chart file is one the editor writes.
 pub(crate) fn editable(chart: &str) -> bool {
     let ext = chart.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
@@ -93,7 +114,7 @@ pub(crate) fn place(id: &str) -> EditorPlace {
                 .into()
         }),
         export: Some("Download".into()),
-        listen: false,
+        listen: true,
         playtest: true,
     }
 }
@@ -102,6 +123,83 @@ pub(crate) fn place(id: &str) -> EditorPlace {
 pub(crate) struct WebEditorHost {
     pub(crate) id: String,
     pub(crate) ui: Rc<RefCell<Option<Weak<RefCell<ui_dev::Host>>>>>,
+    pub(crate) listen: Rc<RefCell<Listen>>,
+}
+
+/// Listening: the page's audio (made in the first press), the music of a
+/// chart once decoded, what plays.
+#[derive(Default)]
+pub(crate) struct Listen {
+    audio: Option<WebAudio>,
+    /// The chart whose music is decoded or being decoded.
+    chart: Option<usize>,
+    music: Option<AudioBuffer>,
+    /// Asked for while the music decoded: from that second.
+    waiting: Option<f64>,
+    playing: Option<Listening>,
+}
+
+impl Listen {
+    /// Decodes chart `chart`'s music of song `id` (on `decoder`, or an
+    /// offline context).
+    pub(crate) fn read(
+        this: &Rc<RefCell<Listen>>,
+        id: &str,
+        chart: usize,
+        decoder: Option<AudioDecoder>,
+    ) {
+        {
+            let mut l = this.borrow_mut();
+            l.chart = Some(chart);
+            l.music = None;
+        }
+        let Some(decoder) = decoder.or_else(|| AudioDecoder::offline(48_000.0)) else {
+            return;
+        };
+        let (this, id) = (this.clone(), id.to_string());
+        wasm_bindgen_futures::spawn_local(async move {
+            let decoded = match crate::songs::load_song(&id, chart).await {
+                Ok(loaded) => {
+                    let target = ddi_session::music_target(&loaded.song);
+                    decoder.decode(&loaded.music_bytes, target).await
+                }
+                Err(e) => Err(e.message()),
+            };
+            let mut l = this.borrow_mut();
+            if l.chart != Some(chart) {
+                return;
+            }
+            match decoded {
+                Ok(buffer) => {
+                    l.music = Some(buffer);
+                    if let Some(from) = l.waiting.take() {
+                        l.start(from);
+                    }
+                }
+                Err(e) => {
+                    web_sys::console::warn_1(&format!("editor: the music: {e}").into());
+                    l.waiting = None;
+                }
+            }
+        });
+    }
+
+    fn start(&mut self, from: f64) {
+        let (Some(audio), Some(music)) = (self.audio.as_mut(), self.music.as_ref()) else {
+            return;
+        };
+        let s = crate::settings::Settings::load();
+        self.playing = Listening::start(audio, music, from, s.volume, s.audio_offset)
+            .map_err(|e| web_sys::console::warn_1(&format!("editor: listening: {e}").into()))
+            .ok();
+    }
+
+    fn stop(&mut self) {
+        if let (Some(p), Some(audio)) = (self.playing.take(), self.audio.as_mut()) {
+            p.stop(audio);
+        }
+        self.waiting = None;
+    }
 }
 
 impl EditorHost for WebEditorHost {
@@ -113,8 +211,11 @@ impl EditorHost for WebEditorHost {
                 let ui = self.ui.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     let m = match save_imported(&id, &text).await {
-                        Ok(()) => Message::new(SAVED)
-                            .with("Revision", Param::Int(revision.map_or(-1, |r| r as i64))),
+                        Ok(()) => {
+                            forget_autosave();
+                            Message::new(SAVED)
+                                .with("Revision", Param::Int(revision.map_or(-1, |r| r as i64)))
+                        }
                         Err(e) => Message::new(SAVED).with("Error", Param::Str(e)),
                     };
                     if let Some(host) = ui.borrow().clone() {
@@ -153,13 +254,64 @@ impl EditorHost for WebEditorHost {
                 };
                 cx.request(UiRequest::Navigate(route.to_hash()));
             }
+            EditorCall::Listen { from } => {
+                let mut l = self.listen.borrow_mut();
+                l.stop();
+                // Inside the press: the context made and resumed now.
+                if l.audio.is_none() {
+                    match WebAudio::new() {
+                        Ok(a) => l.audio = Some(a),
+                        Err(e) => {
+                            web_sys::console::warn_1(&format!("editor: audio: {e}").into());
+                            return;
+                        }
+                    }
+                }
+                if let Some(a) = &l.audio {
+                    a.resume_now();
+                }
+                let chart = editor.chart_index();
+                if l.chart != Some(chart) {
+                    let decoder = l.audio.as_ref().map(WebAudio::decoder);
+                    drop(l);
+                    Listen::read(&self.listen, &self.id, chart, decoder);
+                    l = self.listen.borrow_mut();
+                }
+                if l.music.is_some() {
+                    l.start(from);
+                } else {
+                    l.waiting = Some(from);
+                }
+            }
+            EditorCall::Stop => self.listen.borrow_mut().stop(),
+            EditorCall::Autosave => {
+                let a = editor.autosave(&self.id, storage::now_ms());
+                if let Err(e) = storage::save(Area::Local, autosave::KEY, &a) {
+                    web_sys::console::warn_1(&format!("editor: autosave: {e}").into());
+                }
+            }
             EditorCall::Leave => {
                 end();
+                forget_autosave();
+                self.listen.borrow_mut().stop();
                 cx.request(UiRequest::Back);
             }
-            // Listening waits for its step (`docs/plans/editor.md`, 5).
-            EditorCall::Listen { .. } | EditorCall::Stop => {}
         }
+    }
+
+    fn music_time(&self) -> Option<f64> {
+        let mut l = self.listen.borrow_mut();
+        if let Some(from) = l.waiting {
+            return Some(from);
+        }
+        let t = match (&l.playing, &l.audio) {
+            (Some(p), Some(a)) => p.time(a),
+            _ => None,
+        };
+        if t.is_none() {
+            l.playing = None;
+        }
+        t
     }
 }
 

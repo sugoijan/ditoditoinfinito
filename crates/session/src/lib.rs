@@ -10,6 +10,8 @@
 //!   recorded with.
 //! - [`calibration`]: the converging calibration's modes, generated chart
 //!   and click track.
+//! - [`listen`]: the chart editor's music from a second on, and the
+//!   second heard.
 //! - [`backgrounds`]: the frame backgrounds are fitted into, the sides
 //!   their images are kept at, the refresh rate measured from frames, the
 //!   automatic video setting's step.
@@ -26,6 +28,7 @@
 
 pub mod backgrounds;
 pub mod calibration;
+pub mod listen;
 pub mod movies;
 pub mod play;
 pub mod preview;

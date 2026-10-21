@@ -2504,6 +2504,8 @@ fn publish(h: &Host) {
                 set(&v, "notes", (e.notes as f64).into());
                 set(&v, "dirty", e.dirty.into());
                 set(&v, "canUndo", e.can_undo.into());
+                set(&v, "listening", e.listening.into());
+                set(&v, "shown", e.shown.into());
                 set(&v, "segments", strings(&e.segments));
                 v.into()
             }),

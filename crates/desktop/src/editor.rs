@@ -13,21 +13,28 @@
 //! is left as it is). Written to a temporary file first and renamed
 //! over, so a failed write leaves the old file whole. A bundled song or
 //! one read from a zip is not saved in place: a copy only. The song's
-//! pack is read again after a save.
+//! pack is read again after a save. The autosave
+//! (`ddi_ui::state::editor::autosave`) is `editor-autosave.json` in the
+//! data folder: opening its song again recovers it.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
 use ddi_chart::Song;
 use ddi_chart::formats::sm_write;
+use ddi_session::listen::Listening;
 use ddi_ui::Cx;
 use ddi_ui::message::{Message, Param};
 use ddi_ui::screens::Env;
 use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, EditorScreen, SAVED};
 use ddi_ui::screens::select::{FEED, SelectCall};
 use ddi_ui::state::editor::Editor;
+use ddi_ui::state::editor::autosave::Autosave;
+
+use crate::audio::{Audio, Sound};
+use crate::play::load::Loading;
 
 use crate::songs::Songs;
 
@@ -105,6 +112,25 @@ pub fn save(song: &Song, file: &Path, backup: bool) -> Result<(), String> {
     })
 }
 
+/// Where the autosave is kept.
+fn autosave_path() -> Option<PathBuf> {
+    Some(crate::paths::data_dir()?.join("editor-autosave.json"))
+}
+
+/// The autosave of song `id`, if the last song edited was it.
+pub fn autosaved(id: &str) -> Option<Autosave> {
+    let text = std::fs::read_to_string(autosave_path()?).ok()?;
+    serde_json::from_str::<Autosave>(&text)
+        .ok()
+        .filter(|a| a.song_id == id)
+}
+
+fn forget_autosave() {
+    if let Some(p) = autosave_path() {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
 /// The editor's calls on desktop.
 struct Host {
     songs: Rc<Songs>,
@@ -112,6 +138,78 @@ struct Host {
     target: Option<Target>,
     /// The `.old` was made this session.
     backed_up: Cell<bool>,
+    listen: RefCell<Listen>,
+}
+
+/// Listening: the editor's own output, the music of a chart (decoded on
+/// a thread from when the editor opens, at the output's rate), what
+/// plays.
+struct Listen {
+    audio: Audio,
+    /// The chart whose music is read or being read.
+    chart: usize,
+    music: Option<Sound>,
+    loading: Option<Loading>,
+    /// Asked for while the music was read: from that second.
+    waiting: Option<f64>,
+    playing: Option<Listening>,
+}
+
+impl Listen {
+    fn new(id: &str, chart: usize) -> Listen {
+        let audio = Audio::new(1.0);
+        let loading = Some(Loading::start(
+            id,
+            Some(chart),
+            audio.sample_rate(),
+            false,
+            None,
+            None,
+        ));
+        Listen {
+            audio,
+            chart,
+            music: None,
+            loading,
+            waiting: None,
+            playing: None,
+        }
+    }
+
+    /// Takes in the music once read; plays it if it was waited for.
+    fn poll(&mut self) {
+        let Some(result) = self.loading.as_ref().and_then(Loading::poll) else {
+            return;
+        };
+        self.loading = None;
+        match result {
+            Ok(loaded) => self.music = Some(loaded.music),
+            Err(e) => {
+                eprintln!("editor: the music: {e}");
+                self.waiting = None;
+            }
+        }
+        if let Some(from) = self.waiting.take() {
+            self.start(from);
+        }
+    }
+
+    fn start(&mut self, from: f64) {
+        let Some(music) = &self.music else {
+            return;
+        };
+        let s = crate::store::settings_cached();
+        self.playing = Listening::start(&mut self.audio, music, from, s.volume, s.audio_offset)
+            .map_err(|e| eprintln!("editor: listening: {e}"))
+            .ok();
+    }
+
+    fn stop(&mut self) {
+        if let Some(p) = self.playing.take() {
+            p.stop(&mut self.audio);
+        }
+        self.waiting = None;
+    }
 }
 
 impl EditorHost for Host {
@@ -128,6 +226,7 @@ impl EditorHost for Host {
                         match save(editor.song(), &t.file, backup) {
                             Ok(()) => {
                                 self.backed_up.set(self.backed_up.get() || backup);
+                                forget_autosave();
                                 // The song list reads the pack again.
                                 self.songs
                                     .call(SelectCall::Reread(t.pack.clone()), None, cx);
@@ -173,9 +272,62 @@ impl EditorHost for Host {
                 r.start = (start > 0.0).then_some(start);
                 *self.songs.play.borrow_mut() = Some(r);
             }
-            // Listening waits for its step (`docs/plans/editor.md`, 5).
-            EditorCall::Listen { .. } | EditorCall::Stop | EditorCall::Leave => {}
+            EditorCall::Autosave => {
+                let a = editor.autosave(&self.id, crate::play::epoch_ms());
+                if let (Some(path), Ok(json)) = (autosave_path(), serde_json::to_string(&a)) {
+                    let tmp = path.with_extension("json.tmp");
+                    let written = std::fs::create_dir_all(path.parent().unwrap_or(&path))
+                        .and_then(|_| std::fs::write(&tmp, json))
+                        .and_then(|_| std::fs::rename(&tmp, &path));
+                    if let Err(e) = written {
+                        eprintln!("editor: autosave: {e}");
+                    }
+                }
+            }
+            EditorCall::Leave => {
+                forget_autosave();
+                self.listen.borrow_mut().stop();
+            }
+            EditorCall::Listen { from } => {
+                let mut l = self.listen.borrow_mut();
+                l.stop();
+                // Another chart's music, which may be another file.
+                let chart = editor.chart_index();
+                if chart != l.chart {
+                    l.chart = chart;
+                    l.music = None;
+                    l.loading = Some(Loading::start(
+                        &self.id,
+                        Some(chart),
+                        l.audio.sample_rate(),
+                        false,
+                        None,
+                        None,
+                    ));
+                }
+                l.poll();
+                if l.music.is_some() {
+                    l.start(from);
+                } else {
+                    l.waiting = Some(from);
+                }
+            }
+            EditorCall::Stop => self.listen.borrow_mut().stop(),
         }
+    }
+
+    fn music_time(&self) -> Option<f64> {
+        let mut l = self.listen.borrow_mut();
+        l.audio.tick();
+        l.poll();
+        if let Some(from) = l.waiting {
+            return Some(from);
+        }
+        let t = l.playing.as_ref().and_then(|p| p.time(&l.audio));
+        if t.is_none() {
+            l.playing = None;
+        }
+        t
     }
 }
 
@@ -196,7 +348,15 @@ pub fn screen(
     id: &str,
     chart: usize,
 ) -> Result<EditorScreen, String> {
-    let editor = read(id, chart)?;
+    // Unsaved changes from before (a crash, the window closed) come back.
+    let recovered = autosaved(id);
+    let status = recovered.as_ref().map_or(String::new(), |_| {
+        "Unsaved changes recovered from the last time; leave without saving to drop them".into()
+    });
+    let editor = match recovered {
+        Some(a) => Editor::recover(a),
+        None => read(id, chart)?,
+    };
     let target = target(id);
     let place = EditorPlace {
         save: target.as_ref().map(|t| t.file.display().to_string()),
@@ -213,7 +373,7 @@ pub fn screen(
             )
         }),
         export: Some("Save a copy".into()),
-        listen: false,
+        listen: true,
         playtest: true,
     };
     let host = Host {
@@ -221,8 +381,11 @@ pub fn screen(
         id: id.to_string(),
         target,
         backed_up: Cell::new(false),
+        listen: RefCell::new(Listen::new(id, editor.chart_index())),
     };
-    Ok(EditorScreen::new(env.clone(), editor, place).with_host(Rc::new(host)))
+    Ok(EditorScreen::new(env.clone(), editor, place)
+        .with_host(Rc::new(host))
+        .with_status(&status))
 }
 
 #[cfg(test)]

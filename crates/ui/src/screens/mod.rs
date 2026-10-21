@@ -13,10 +13,10 @@
 //!
 //! - `Screen.Header` (`Panel`): `Plate`, `Title` (the screen's name),
 //!   `Subtitle`. `Screen.Footer` (`Panel`): `Plate`.
-//! - `KeyHint` (centred; `Button`): its key caps in `Spec::items`, its
+//! - `KeyHint` (centered; `Button`): its key caps in `Spec::items`, its
 //!   label as the text; `Extent` (a hidden quad as large as it is).
-//!   `Pill` (centred; `Button`): `Label`, `Extent`.
-//!   `Link` (centred; `Button`): `Label`, `Extent`.
+//!   `Pill` (centered; `Button`): `Label`, `Extent`.
+//!   `Link` (centered; `Button`): `Label`, `Extent`.
 //! - `SongList.Row` (`List.Row`): `Plate`, `Banner`, `Title`, `Subtitle`
 //!   (the artist), `Right` (kept at the row's right edge as the wheel
 //!   moves rows right) holding `Cell0`…`Cell4` with `Meter0`…`Meter4`
@@ -27,13 +27,13 @@
 //! - `SongInfo` (`Panel`): `Banner`, `Title`, `Subtitle`, `Artist`,
 //!   `Bpm`, `Length`, `Pack`, `Line` (artist, BPM and length on one
 //!   line, for a narrow one).
-//! - `StyleTab` (centred; `Button`): `Label`, `Count`, `Extent`;
+//! - `StyleTab` (centered; `Button`): `Label`, `Count`, `Extent`;
 //!   commands `Selected`, `Available`, `Unavailable`.
 //! - `ChartLadder.Row` (`List.Row`): `Plate`, `Bar`, `Label`, `Notes`,
 //!   `Meter`, `Pulse`; `Select`, `Deselect` and the difficulty's name
 //!   (`Hard`). `ChartLadder.Empty` (`Panel`): `Title`, `Hint`.
-//!   `ChartButton` (centred; `Button`): `Meter`; the same commands.
-//!   `PlayButton`, `IconButton`, `StyleButton` (centred; `Button`).
+//!   `ChartButton` (centered; `Button`): `Meter`; the same commands.
+//!   `PlayButton`, `IconButton`, `StyleButton` (centered; `Button`).
 //! - `Results.Judgement` (`List.Row`): `Name`, `Bar` (as long as the
 //!   row's `Spec` is wide, zoomed by the share), `Count`; its color's
 //!   name as a command (`Judgement.W1`). `Results.Score` (`Panel`):

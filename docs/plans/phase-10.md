@@ -297,5 +297,6 @@ Planned (2026-10-21): `docs/plans/editor.md`. A first version for
 playtests from the editor, saving on desktop and saving or downloading
 on the web; eight steps, the first an `.ssc` writer. Built
 (2026-10-21): the writer, the model, the screen on both shells,
-playtests and saving; left: the field in the player's skin, sound, the
-autosave, new songs (`editor.md`, "Left").
+listening, playtests, saving and the autosave; left: the field in the
+player's skin, the metronome and tap-to-tempo, new songs (`editor.md`,
+"Left").

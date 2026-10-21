@@ -23,6 +23,8 @@ fn the_editor_draws_a_bundled_song() {
         .join("../../target/scratch/editor-offscreen/home");
     // SAFETY: set before any thread of this test reads the environment.
     unsafe { std::env::set_var("DDI_HOME", &home) };
+    // No sound device: the editor's listening runs on the host clock.
+    ddi_desktop::audio::set_headless(true);
     let instance = gpu::instance();
     let Some(adapter) = gpu::adapter(&instance, None) else {
         eprintln!("no GPU adapter: skipped");
@@ -110,4 +112,31 @@ fn the_editor_draws_a_bundled_song() {
     let pixels = gpu.draw_offscreen(&mut ui, [1280, 720], format);
     keep("editor-menu.ppm", &pixels);
     assert_eq!(ui.layers().last().unwrap().name, "editor-actions");
+    // Listening (the music decoded on its thread since the editor
+    // opened): the field follows the second heard, then stops on the
+    // grid.
+    key(&mut ui, "Escape", "Escape");
+    for _ in 0..20 {
+        ui.update(1.0 / 60.0);
+    }
+    key(&mut ui, "Space", " ");
+    let view = || env.state.borrow().editor.clone().unwrap();
+    assert!(view().listening);
+    let started = std::time::Instant::now();
+    while view().shown < 384.0 + 48.0 {
+        assert!(
+            started.elapsed().as_secs() < 60,
+            "the music never played: {:?}",
+            view()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        ui.update(0.02);
+    }
+    key(&mut ui, "Space", " ");
+    ui.update(0.02);
+    let v = view();
+    assert!(
+        !v.listening && v.cursor > 384 && v.cursor % 12 == 0,
+        "{v:?}"
+    );
 }

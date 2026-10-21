@@ -461,6 +461,31 @@ fn pointers_place_notes_and_holds() {
 }
 
 #[test]
+fn unsaved_changes_are_autosaved_every_few_seconds() {
+    let mut s = setup([1280.0, 720.0], DESIGN);
+    let autosaves = |s: &Setup| {
+        s.host
+            .calls
+            .borrow()
+            .iter()
+            .filter(|c| **c == EditorCall::Autosave)
+            .count()
+    };
+    s.h.run(6.0);
+    assert_eq!(autosaves(&s), 0, "nothing to keep");
+    s.h.key("Digit1", "1");
+    s.h.run(0.5);
+    assert_eq!(autosaves(&s), 1, "kept at once after a quiet while");
+    s.h.key("Digit2", "2");
+    s.h.run(1.0);
+    assert_eq!(autosaves(&s), 1, "at most every few seconds");
+    s.h.run(5.0);
+    assert_eq!(autosaves(&s), 2);
+    s.h.run(6.0);
+    assert_eq!(autosaves(&s), 2, "nothing new to keep");
+}
+
+#[test]
 fn song_select_opens_the_editor_with_e() {
     use crate::screens::select::{SelectCall, SelectScreen, SharedFeed};
     let env = env();

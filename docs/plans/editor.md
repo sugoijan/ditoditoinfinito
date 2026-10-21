@@ -5,9 +5,10 @@ timing and notes in the game, try them at once, and keep them
 (`docs/plans/phase-10.md`, step 3).
 
 Status (2026-10-21): the writer, the editing model, the screen on both
-shells, playtests and saving are built (steps 1, 2, 4, 6, 7 and the
-song-select half of 8; see "Built" below); the field in the player's
-skin (3), sound (5), the autosave and new songs from a music file are
+shells, listening, playtests, saving and the autosave are built (steps
+1, 2, 4, 6, 7, the listening of 5 and the song-select half of 8; see
+"Built" below); the field in the player's skin (3), the metronome,
+tap-to-tempo and the overview (5) and new songs from a music file are
 left ("Left").
 
 ## Scope of the first version
@@ -203,6 +204,14 @@ Each step is a commit; steps 1 and 2 can land without any screen.
    reduced motion jumps instead of gliding. Tested in the harness at
    1280×720, 844×390 and 390×844. The UI core sends key releases to a
    screen that asks (`Screen::key_releases`), for the held lanes.
+5. **Listening** (`ddi_session::listen::Listening`, both shells): Space,
+   Enter or a pad's Start plays the chart's music from the cursor and the
+   field follows the second heard (the output's latency and the
+   settings' audio offset taken off, as a play hears it); stopping puts
+   the cursor on the snap's row nearest. The music is decoded when the
+   editor opens (desktop on a thread at the output's rate; the web on an
+   offline context), so the press plays it at once; the web makes its
+   audio context inside that press.
 6. **Playtest**: `EditorCall::Playtest` hands the shell the song as
    edited and a start 2 s before the cursor (`PLAYTEST_LEAD`);
    `SessionConfig::start` starts the session there (earlier notes
@@ -211,7 +220,7 @@ Each step is a commit; steps 1 and 2 can land without any screen.
    kept (`Play::record`), the library not told the edited charts.
    Web: `#/play?…&edit=1` takes the session's song (`crate::editor`),
    is never kept, has no ghost, and goes back to `#/edit`.
-7. **Saving** (no autosave yet). Desktop (`crates/desktop/src/editor.rs`):
+7. **Saving** and **the autosave**. Desktop (`crates/desktop/src/editor.rs`):
    a library song read from `.ssc` is saved over it, the file as it was
    kept as `<name>.old` at the first save of an editor session, after a
    question; one read from `.sm` or `.dwi` gets a `.ssc` beside it,
@@ -223,19 +232,27 @@ Each step is a commit; steps 1 and 2 can land without any screen.
    (`ddi_library::edited::entry_after_edit`, natively tested), after a
    question; the files it was imported from are never touched; any song
    downloads as `.ssc` (or `.sm`), a link clicked inside the press.
+   The autosave (`ddi_ui::state::editor::autosave`): every 5 s while
+   there are unsaved changes the song as edited is kept (desktop:
+   `editor-autosave.json` in the data folder; the web: `ddi.editor.v1`
+   in local storage), forgotten by a save or by leaving; opening that
+   song again recovers it, unsaved, and says so.
 8. **Entry points**: song select's E on both shells
    (`SelectScreen::with_editing`, `SelectCall::Edit`); the web's route
    `#/edit?song=<id>&chart=<n>`.
 
 Verified: the native tests above; desktop offscreen
 (`crates/desktop/tests/editor_offscreen.rs`: the editor in the theme on
-a bundled song, a note placed, the menu) and the library flow
+a bundled song, a note placed, the menu, listening on the headless
+clock) and the library flow
 (`editor.rs`'s tests: an `.sm` song saved as `.ssc` beside it, read back
 as edited, playtested part-way headless and not kept); headless Chrome
 and Firefox (`target/scratch/pw/editor-web.mjs`: deep link, a note, an
 autoplayed playtest from the end and back to the editor as it was, the
 download, song select's E, an imported song saved and read back after a
-reload).
+reload; listening started by a key under Chrome's user-activation
+autoplay policy, stopped on the grid; the autosave kept, recovered after
+a reload and dropped by leaving).
 
 ## Decided here (the maintainer may change any)
 
@@ -269,20 +286,25 @@ reload).
 - The editor's chart index after removing a chart is clamped; a
   removed chart's tags come back in their places on undo.
 - Changing a song's music file name in the editor plays the old file in
-  playtests until saved (desktop reads the library's entry).
+  playtests and listening until saved (both read the library's entry).
+- Listening takes off the settings' default audio offset, not a device
+  profile's (the editor does not ask which device plays).
+- One autosave slot, the last song edited; recovered without asking
+  (leaving without saving drops it).
+- The web's listening may start after the press when the music was not
+  decoded yet (its context runs by then); the maintainer's Safari check
+  should cover a first press right after opening.
 
 ## Left
 
 - **Step 3**: the field in the player's skin and speed (the play
   scene paused at the cursor, `crates/render`), with offscreen tests.
-- **Step 5, sound**: listening from the cursor (`EditorCall::Listen`,
-  the screen follows `EditorHost::music_time`; both shells answer
-  `listen: false` for now), the metronome, tap-to-tempo, the overview.
-- **The autosave** of the session and its recovery.
+- **Step 5, the rest**: the metronome (calibration's click on the
+  beats while listening), tap-to-tempo, the music's overview strip.
 - **New songs from a music file** (`Editor::new_song` exists): the
   start menu's or song select's "New song" with a file picker on both
   shells, and where its folder goes.
-- Desktop's `--edit SONG` flag for runs and screenshots; listening.
+- Desktop's `--edit SONG` flag for runs and screenshots.
 - Notes inside warps and overlapping holds from imported files are
   kept as read; the editor does not report them before a playtest.
 - Song-level `#LASTSECONDHINT` and other cache-only tags are not kept
