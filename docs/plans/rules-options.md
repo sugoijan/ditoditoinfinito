@@ -55,6 +55,23 @@ failure, Practice never fails, and its "Judge range" option (already ours,
 `DanoniOptions::range`) is its window choice. So none of the three applies
 under Dancing☆Onigiri's rules; those keep the gauge and range chosen.
 
+### ITG FA+ (Simply Love)
+
+Simply Love (GPLv3: read for its rules, nothing transcribed; the numbers
+are in `docs/research/rules-ddr-itg-dwi.md` 5.1–5.2) has two ways to the
+15 ms "blue" Fantastic. Its FA+ *mode* shifts every window down a tier
+(W1 13.5 ms, W2 21.5, …, Way Offs gone) with its own percentage. Its ITG
+mode can instead show the FA+ window inside ITG's own judging: a
+Fantastic within 13.5 ms (+ 1.5 ms `TimingWindowAdd`, so 15 ms) is a
+blue one, the rest of the Fantastic window (to 23 ms) a white one
+(`IsW0Judgment` tests a W1's offset against the FA+ W1 window), and the
+EX score weighs them (`CalculateExScore`): blue 3.5, white 3, Excellent
+2, Great 1, Decent, Way Off and Miss 0, held 1, let go 0, a mine hit −1;
+EX% = floor(points / (steps × 3.5 + (holds + rolls) × 1) × 10000) / 100,
+not below 0. That second way is what the community's events score by,
+and what the engine's `W0` sub-window was made for ("re-classifies a W1
+hit for display/EX only", section 3.3 of the research).
+
 ## Decided here (the maintainer may change any)
 
 1. The fail type and both difficulty levels are the player's
@@ -85,6 +102,18 @@ under Dancing☆Onigiri's rules; those keep the gauge and range chosen.
 7. A delayed fail shows no FAILED banner during the song (StepMania shows
    none either); the banner and the music's fade come when the play ends
    failed, as at the end of a fail-at-end play.
+8. `itg-fa+` is ITG with the FA+ window shown, not Simply Love's FA+
+   mode: judged, scored (the percentage), graded and gauged as `itg`, so
+   a play's grade means the same under both; the FA+ window splits the
+   Fantastics (`Tally::w0`, the HUD's Fantastic blue or white, the
+   results' "Blue Fantastic" and "White Fantastic" rows, the timing
+   panel's bands) and gives the EX score as Simply Love's percentage
+   (`ScoreView::ex_percent`, "EX 98.76%"; weights kept in halves, 7, 6,
+   4, 2, held 2, mine −2). The FA+ window scales with the judge level as
+   every window does. The `itg` preset no longer carries the (unused)
+   `w0`, so it shows no split. It is its own preset (a key of its own,
+   bests apart from `itg`'s): its EX scores are not `itg`'s.
+9. The ruleset list offers it after ITG.
 
 ## Steps
 
@@ -93,6 +122,9 @@ under Dancing☆Onigiri's rules; those keep the gauge and range chosen.
    `gauge_failed_at`), settings and Options' Rules rows, results' note and
    mods, the session playing on.
 2. Life and judge difficulty. Done with step 1 (the same options struct).
+3. ITG FA+. Done: `presets::itg_fa_plus`, `JudgeTable::is_w0`,
+   `ScoreCtx::w0`, `DancePoints::with_ex_w0`, `JudgementFlash::w0`, the
+   results' rows, EX and bands, the theme's `Judgement.W1White`.
 
 ## Checks
 
@@ -105,5 +137,17 @@ under Dancing☆Onigiri's rules; those keep the gauge and range chosen.
   (`the_fail_type_shows_where_it_changed_the_outcome`), the history
   (`stepmania_options_are_kept_with_the_play`), song select's best key.
 - Session: `a_delayed_fail_or_fail_off_plays_to_the_end`.
-- Browser: `target/scratch/pw/rules-options.mjs` (headless Chrome, WebGPU
-  and WebGL2).
+- FA+: `fa_plus_splits_the_fantastics_and_scores_ex` (engine: counts, EX
+  91.07% for 5 blue, 2 white and an Excellent, the same percentage and
+  grade as ITG, the HUD flash, the judge level), the results' rows, EX and
+  bands (`fa_plus_shows_blue_and_white_fantastics_and_its_ex`), the HUD's
+  white Fantastic read back from the GPU
+  (`crates/desktop/tests/hud_colors_offscreen.rs`).
+- Browser (2026-10-21, `target/scratch/pw/rules-options.mjs`, headless
+  Chrome, WebGPU and WebGL2, Beatucada Beginner autoplayed): judge
+  Justice with presses 8 ms late gives 38 Excellents where judge 4 gives
+  38 Fantastics, the mods "fail off · life 7 · judge Justice" and the
+  history's key keep the options; presses 400 ms late under fail off play
+  to the end, not failed, with "The life bar emptied at 0:19: not failed
+  (fail off)."; ITG FA+ on time gives 38 blue Fantastics and EX 100.00%,
+  18 ms late 38 white ones and EX 85.71%.

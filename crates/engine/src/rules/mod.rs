@@ -174,6 +174,15 @@ impl JudgeTable {
         self.scaled(self.mine_window)
     }
 
+    /// Whether a hit of tier `tier`, `delta` seconds off, is inside the
+    /// [`JudgeTable::w0`] sub-window (scaled as the tiers are; Simply
+    /// Love's `IsW0Judgment` compares the offset's magnitude the same
+    /// way): `None` where the table has no such window.
+    pub fn is_w0(&self, tier: Judgement, delta: f64) -> Option<bool> {
+        let w0 = self.w0?;
+        Some(tier == Judgement::W1 && delta.abs() <= self.scaled(w0))
+    }
+
     /// Effective window of a tier, or `None` for `Miss` and disabled tiers.
     pub fn window(&self, tier: Judgement) -> Option<Window> {
         let raw = self.tiers.get(tier.index()).copied().flatten()?;
@@ -481,6 +490,10 @@ pub struct Tally {
     pub checkpoint_hit: u32,
     #[serde(default)]
     pub checkpoint_miss: u32,
+    /// Of the `W1` taps, those inside the ruleset's [`JudgeTable::w0`]
+    /// (ITG FA+'s blue Fantastics); 0 where it has none.
+    #[serde(default)]
+    pub w0: u32,
 }
 
 impl Tally {
@@ -632,6 +645,11 @@ pub struct JudgeNames {
     pub held: String,
     /// Dropped hold ("N.G." / "Let Go").
     pub let_go: String,
+    /// Under a [`JudgeTable::w0`] window, the results' names of a `W1`
+    /// inside it and outside it ("Blue Fantastic", "White Fantastic");
+    /// play shows both as `W1`'s name, in two colors.
+    #[serde(default)]
+    pub w0: Option<(String, String)>,
 }
 
 impl JudgeNames {
@@ -640,6 +658,7 @@ impl JudgeNames {
             tiers: tiers.map(String::from),
             held: held.to_string(),
             let_go: let_go.to_string(),
+            w0: None,
         }
     }
 
@@ -668,6 +687,10 @@ pub struct ScoreCtx {
     pub ticked: bool,
     /// Judged checkpoint rows of ticked holds.
     pub checkpoints: u32,
+    /// The current event is a hit inside the ruleset's
+    /// [`JudgeTable::w0`] (an EX score weighs it apart).
+    #[serde(default)]
+    pub w0: bool,
 }
 
 /// Score as the HUD shows it. Fields a scoring system does not produce are `None`.
@@ -685,6 +708,10 @@ pub struct ScoreView {
     pub ex: Option<u32>,
     /// Maximum EX score for the chart.
     pub max_ex: Option<u32>,
+    /// Simply Love's EX score, in `0..=1`: its points over the chart's
+    /// most, floored to a hundredth of a percent (ITG FA+; `ex` and
+    /// `max_ex` are then `None`).
+    pub ex_percent: Option<f64>,
 }
 
 /// A scoring system: consumes judge events and produces a [`ScoreView`].

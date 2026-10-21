@@ -55,11 +55,16 @@ impl Weights {
 /// `weights` is the displayed percentage (`PercentScoreWeight*`),
 /// `grade_weights` the optional second set grades are computed from
 /// (`GradeWeight*`), `ex_weights` the optional EX score (3/2/1 style).
+/// With `ex_w0`, a hit inside the ruleset's `W0` window
+/// ([`ScoreCtx::w0`]) weighs that much in the EX score instead, and the
+/// EX score is Simply Love's percentage ([`ScoreView::ex_percent`]).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DancePoints {
     pub weights: Weights,
     pub grade_weights: Option<Weights>,
     pub ex_weights: Option<Weights>,
+    #[serde(default)]
+    pub ex_w0: Option<i32>,
     #[serde(skip)]
     points: i64,
     #[serde(skip)]
@@ -80,6 +85,7 @@ impl DancePoints {
             weights,
             grade_weights,
             ex_weights,
+            ex_w0: None,
             points: 0,
             grade_points: 0,
             ex: 0,
@@ -92,6 +98,21 @@ impl DancePoints {
             return 0.0;
         }
         (points as f64 / possible as f64).max(0.0)
+    }
+
+    /// With a `W0` weight: `ex_weights` as an EX percentage whose `W0`
+    /// hits weigh `w0` (Simply Love's EX score in halves: 7, 6, 4, 2,
+    /// held 2, mine −2).
+    pub fn with_ex_w0(mut self, w0: i32) -> DancePoints {
+        self.ex_w0 = Some(w0);
+        self
+    }
+
+    /// The most EX points the chart has: every step a `W0` where one is
+    /// weighed apart.
+    fn possible_ex(&self, x: &Weights) -> i64 {
+        let w0_bonus = self.ex_w0.map_or(0, |w| i64::from(w - x.tiers[0]));
+        x.possible(&self.ctx) + i64::from(self.ctx.steps) * w0_bonus
     }
 }
 
@@ -107,7 +128,10 @@ impl ScoreRules for DancePoints {
             self.grade_points += i64::from(g.of(&ev.kind, ctx));
         }
         if let Some(x) = &self.ex_weights {
-            self.ex += i64::from(x.of(&ev.kind, ctx));
+            self.ex += i64::from(match self.ex_w0 {
+                Some(w0) if ctx.w0 => w0,
+                _ => x.of(&ev.kind, ctx),
+            });
         }
     }
 
@@ -118,19 +142,32 @@ impl ScoreRules for DancePoints {
             grade_percent: self
                 .grade_weights
                 .map(|g| Self::percent(self.grade_points, g.possible(&self.ctx))),
-            ex: self.ex_weights.map(|_| self.ex.max(0) as u32),
-            max_ex: self.ex_weights.map(|x| x.possible(&self.ctx).max(0) as u32),
+            ex: self
+                .ex_weights
+                .filter(|_| self.ex_w0.is_none())
+                .map(|_| self.ex.max(0) as u32),
+            max_ex: self
+                .ex_weights
+                .filter(|_| self.ex_w0.is_none())
+                .map(|x| x.possible(&self.ctx).max(0) as u32),
+            // `floor(points / possible × 10000) / 100` percent, never
+            // below 0 (`CalculateExScore`).
+            ex_percent: self.ex_weights.filter(|_| self.ex_w0.is_some()).map(|x| {
+                match self.possible_ex(&x) {
+                    p if p <= 0 => 0.0,
+                    p => (self.ex.max(0) as f64 * 10_000.0 / p as f64).floor() / 10_000.0,
+                }
+            }),
         }
     }
 
     fn finish(&mut self) {}
 
     fn fresh(&self) -> Box<dyn ScoreRules> {
-        Box::new(DancePoints::new(
-            self.weights,
-            self.grade_weights,
-            self.ex_weights,
-        ))
+        Box::new(DancePoints {
+            ex_w0: self.ex_w0,
+            ..DancePoints::new(self.weights, self.grade_weights, self.ex_weights)
+        })
     }
 }
 
@@ -235,6 +272,7 @@ impl ScoreRules for DdrMoney {
             grade_percent: None,
             ex: Some(self.ex.max(0) as u32),
             max_ex: Some((Self::EX.possible(&self.ctx)).max(0) as u32),
+            ex_percent: None,
         }
     }
 

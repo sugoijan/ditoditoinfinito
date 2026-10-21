@@ -685,6 +685,7 @@ impl ScoreRules for DanoniScore {
             grade_percent: None,
             ex: None,
             max_ex: None,
+            ex_percent: None,
         }
     }
 

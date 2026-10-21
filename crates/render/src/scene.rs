@@ -43,6 +43,10 @@ impl Default for Skin {
     }
 }
 
+/// A Fantastic outside ITG FA+'s 15 ms window (Simply Love's white one;
+/// the theme's `Judgement.W1White`).
+pub const W1_OUTSIDE_W0: [f32; 4] = [0.96, 0.95, 0.97, 1.0];
+
 pub fn judgement_color(j: Judgement) -> [f32; 4] {
     match j {
         Judgement::W1 => [0.55, 0.95, 1.0, 1.0],
@@ -945,7 +949,12 @@ pub fn build_into(
     if let Some(flash) = &frame.judgement {
         let fade = (1.0 - (flash.age - 0.5).max(0.0) / 0.3).clamp(0.0, 1.0);
         if fade > 0.0 {
-            let mut color = judgement_color(flash.judgement);
+            // ITG FA+: a Fantastic outside the 15 ms window is a white one.
+            let mut color = if flash.judgement == Judgement::W1 && flash.w0 == Some(false) {
+                W1_OUTSIDE_W0
+            } else {
+                judgement_color(flash.judgement)
+            };
             color[3] *= fade;
             let pop = 1.0 + 0.15 * (1.0 - (flash.age / 0.12).min(1.0));
             let label = names.name(flash.judgement);

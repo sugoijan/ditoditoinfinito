@@ -11,7 +11,7 @@ use std::rc::Rc;
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_engine::frame::{Frame, JudgementFlash, ReceptorState};
 use ddi_engine::rules::{Judgement, presets};
-use ddi_render::scene::judgement_color;
+use ddi_render::scene::{W1_OUTSIDE_W0, judgement_color};
 use ddi_render::{RenderOptions, Renderer, SkinBlending};
 use ddi_ui::UiEvent;
 use ddi_ui::dev_widgets::FoldFn;
@@ -80,7 +80,13 @@ fn hud_and_menu_colors_draw_as_written() {
     let (device, queue) = gpu::device(&adapter).expect("device");
     let layout = ddi_chart::Layout::dance_single();
     let names = presets::itg().names;
-    for j in [Judgement::W1, Judgement::W4, Judgement::Miss] {
+    // ITG FA+'s white Fantastic (a W1 outside its W0 window) last.
+    for (j, w0) in [
+        (Judgement::W1, None),
+        (Judgement::W4, None),
+        (Judgement::Miss, None),
+        (Judgement::W1, Some(false)),
+    ] {
         let frame = Frame {
             song_time: 0.0,
             beat: 0.0,
@@ -99,6 +105,7 @@ fn hud_and_menu_colors_draw_as_written() {
                 delta_seconds: 0.0,
                 age: 0.3,
                 combo_at: 0,
+                w0,
             }),
             holds: Default::default(),
             combo: 0,
@@ -150,7 +157,11 @@ fn hud_and_menu_colors_draw_as_written() {
                 None,
             );
             let px = read(&device, &queue, &tex, enc);
-            let want = bytes(judgement_color(j));
+            let want = bytes(if w0 == Some(false) {
+                W1_OUTSIDE_W0
+            } else {
+                judgement_color(j)
+            });
             let (ok, top) = shows(&px, want);
             assert!(
                 ok,

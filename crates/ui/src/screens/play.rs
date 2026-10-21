@@ -8,7 +8,6 @@
 use ddi_chart::{Glyph, Layout};
 use ddi_engine::judge::JudgeEventKind;
 use ddi_engine::rules::{FailType, FullCombo};
-
 use ddi_engine::{
     Appearance, Judgement, Results, Ruleset, ScrollAction, TimingCut, TransformOptions, Turn,
 };
@@ -44,6 +43,20 @@ pub struct PlayInfo<'a> {
     pub panels: String,
     /// Autoplayed (`&auto=1`, the song list's switch): never counted.
     pub autoplay: bool,
+}
+
+/// The color name of a Fantastic outside ITG FA+'s 15 ms window (Simply
+/// Love's white Fantastic).
+const W1_OUTSIDE_W0: &str = "Judgement.W1White";
+
+/// The EX score as the ruleset keeps it: its points of the chart's most,
+/// or Simply Love's percentage (ITG FA+).
+pub fn ex_text(score: &ddi_engine::ScoreView) -> Option<String> {
+    match (score.ex, score.max_ex, score.ex_percent) {
+        (Some(ex), Some(max), _) => Some(format!("EX {ex} / {max}")),
+        (_, _, Some(p)) => Some(format!("EX {:.2}%", p * 100.0)),
+        _ => None,
+    }
 }
 
 /// The color names of the tiers, best first.
@@ -150,10 +163,28 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
                     || p.ruleset.judge.window(**j).is_some()
                     || r.tally.taps[j.index()] > 0)
         })
-        .map(|j| JudgementCount {
-            name: names.name(*j).to_string(),
-            color: TIER_COLORS[j.index()].to_string(),
-            count: r.tally.taps[j.index()],
+        .flat_map(|j| {
+            let count = r.tally.taps[j.index()];
+            match (&names.w0, j) {
+                // FA+: the Fantastics inside the W0 window and the rest.
+                (Some((blue, white)), Judgement::W1) => vec![
+                    JudgementCount {
+                        name: blue.clone(),
+                        color: TIER_COLORS[0].to_string(),
+                        count: r.tally.w0,
+                    },
+                    JudgementCount {
+                        name: white.clone(),
+                        color: W1_OUTSIDE_W0.to_string(),
+                        count: count.saturating_sub(r.tally.w0),
+                    },
+                ],
+                _ => vec![JudgementCount {
+                    name: names.name(*j).to_string(),
+                    color: TIER_COLORS[j.index()].to_string(),
+                    count,
+                }],
+            }
         })
         .collect();
     let t = &r.tally;
@@ -193,16 +224,32 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
             _ => None,
         })
         .collect();
-    let windows = Judgement::ALL[..5]
-        .iter()
-        .filter_map(|j| {
-            let w = p.ruleset.judge.window(*j)?;
+    // FA+: the blue Fantastics' window first, the rest of the Fantastic
+    // window white (the lanes panel counts what is short of the first).
+    let judge = &p.ruleset.judge;
+    let w0 = judge.w0.map(|w0| {
+        let ms = (judge.scaled(w0) * 1000.0) as f32;
+        Window {
+            early: ms,
+            late: ms,
+            color: TIER_COLORS[0].to_string(),
+        }
+    });
+    let windows = w0
+        .into_iter()
+        .chain(Judgement::ALL[..5].iter().filter_map(|j| {
+            let w = judge.window(*j)?;
             Some(Window {
                 early: (w.early * 1000.0) as f32,
                 late: (w.late * 1000.0) as f32,
-                color: TIER_COLORS[j.index()].to_string(),
+                color: if *j == Judgement::W1 && judge.w0.is_some() {
+                    W1_OUTSIDE_W0
+                } else {
+                    TIER_COLORS[j.index()]
+                }
+                .to_string(),
             })
-        })
+        }))
         .collect();
     let mut notes = Vec::new();
     if p.autoplay {
@@ -235,10 +282,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         mods: mods.join(" · "),
         grade: r.grade.clone(),
         score: score_text(r),
-        ex: match (r.score.ex, r.score.max_ex) {
-            (Some(ex), Some(max)) => Some(format!("EX {ex} / {max}")),
-            _ => None,
-        },
+        ex: ex_text(&r.score),
         failed: r.failed,
         // The autoplayer's lamp would mean nothing: it says it played.
         lamp: if p.autoplay {
@@ -695,6 +739,42 @@ mod tests {
         let mut p = info(&assisted, &rules, &layout);
         p.autoplay = true;
         assert_eq!(results_data(&p).lamp.as_deref(), Some("AUTOPLAY · ASSIST"));
+    }
+
+    #[test]
+    fn fa_plus_shows_blue_and_white_fantastics_and_its_ex() {
+        let rules = ddi_engine::rules::presets::itg_fa_plus();
+        let layout = single();
+        let mut r = results([10, 2, 0, 0, 0, 1]);
+        r.tally.w0 = 7;
+        r.score.ex_percent = Some(0.9107);
+        let d = results_data(&info(&r, &rules, &layout));
+        let rows: Vec<(&str, u32, &str)> = d
+            .judgements
+            .iter()
+            .map(|j| (j.name.as_str(), j.count, j.color.as_str()))
+            .collect();
+        assert_eq!(
+            rows[..3],
+            [
+                ("Blue Fantastic", 7, "Judgement.W1"),
+                ("White Fantastic", 3, "Judgement.W1White"),
+                ("Excellent", 2, "Judgement.W2"),
+            ]
+        );
+        assert_eq!(d.ex.as_deref(), Some("EX 91.07%"));
+        // The timing panel's bands: blue within 15 ms, white to 23.
+        let bands: Vec<(i32, &str)> = d.windows[..2]
+            .iter()
+            .map(|w| ((w.late * 10.0).round() as i32, w.color.as_str()))
+            .collect();
+        assert_eq!(bands, [(150, "Judgement.W1"), (230, "Judgement.W1White")]);
+        assert!(d.line.contains("ITG FA+ (Simply Love)"), "{}", d.line);
+        // ITG has no split.
+        let itg = ddi_engine::rules::presets::itg();
+        let d = results_data(&info(&r, &itg, &layout));
+        assert_eq!(d.judgements[0].name, "Fantastic");
+        assert_eq!(d.judgements[0].count, 10);
     }
 
     #[test]

@@ -37,7 +37,8 @@ pub fn itg() -> Ruleset {
             hold_window: 0.32,
             roll_window: 0.35,
             mine_window: 0.07,
-            w0: Some(0.0135),
+            // The FA+ split is ITG FA+'s ([`itg_fa_plus`]).
+            w0: None,
             empty_press: EmptyPress::Ignore,
             judge_offset: 0.0,
             hold: HoldRules::Decay,
@@ -112,6 +113,39 @@ pub fn itg() -> Ruleset {
         ),
         danoni: None,
         stepmania: StepManiaOptions::default(),
+    }
+}
+
+/// ITG with Simply Love's FA+ window: judged, scored and graded as
+/// [`itg`], every Fantastic within 15 ms (13.5 ms raw, plus
+/// `TimingWindowAdd`; Simply Love's FA+ `W1`, `SL_Init.lua`) a blue one,
+/// the rest of the Fantastic window white ones (`IsW0Judgment`,
+/// `SL-Helpers.lua`), and the EX score as Simply Love scores it
+/// (`CalculateExScore`): blue Fantastic 3.5, white 3, Excellent 2, Great
+/// 1, held 1, a mine hit −1, out of 3.5 a step and 1 a hold or roll
+/// (`docs/research/rules-ddr-itg-dwi.md` 5.2). Kept in halves here.
+pub fn itg_fa_plus() -> Ruleset {
+    let itg = itg();
+    Ruleset {
+        id: "itg-fa+".into(),
+        name: "ITG FA+ (Simply Love)".into(),
+        judge: JudgeTable {
+            w0: Some(0.0135),
+            ..itg.judge
+        },
+        score: Box::new(
+            DancePoints::new(
+                Weights::new([5, 4, 2, 0, -6, -12], 5, 0, -6),
+                None,
+                Some(Weights::new([6, 4, 2, 0, 0, 0], 2, 0, -2)),
+            )
+            .with_ex_w0(7),
+        ),
+        names: JudgeNames {
+            w0: Some(("Blue Fantastic".into(), "White Fantastic".into())),
+            ..itg.names
+        },
+        ..itg
     }
 }
 
@@ -331,7 +365,7 @@ pub fn ddr_a() -> Ruleset {
 /// Presets selectable by players, in menu order (excludes `calibration`
 /// and the chart-dependent [`danoni`] rules).
 pub fn all() -> Vec<Ruleset> {
-    vec![itg(), sm5(), ddr_a()]
+    vec![itg(), itg_fa_plus(), sm5(), ddr_a()]
 }
 
 /// Dancing☆Onigiri rules with danoniplus's defaults, as for a chart from
@@ -424,6 +458,7 @@ pub fn stepmania(id: &str, holds: HoldStyle, chart: &Chart) -> Ruleset {
 pub fn by_id(id: &str) -> Option<Ruleset> {
     match id {
         "itg" => Some(itg()),
+        "itg-fa+" => Some(itg_fa_plus()),
         "sm5" => Some(sm5()),
         "ddr-a" => Some(ddr_a()),
         _ => None,

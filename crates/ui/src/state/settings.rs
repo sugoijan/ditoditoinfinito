@@ -11,7 +11,6 @@ use ddi_engine::player::PlayOptions;
 use ddi_engine::rules::StepManiaOptions;
 use ddi_engine::rules::danoni::DanoniOptions;
 use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
-
 use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod, SpeedSource};
 use ddi_engine::{Appearance, ControlBindings, TransformOptions};
 use ddi_platform::storage::{self, Area};

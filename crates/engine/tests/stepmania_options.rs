@@ -232,3 +232,63 @@ fn other_rules_keep_their_own() {
     assert_eq!(ddr.fail, FailPolicy::Off);
     assert!((ddr.judge.scale - 0.33).abs() < 1e-12);
 }
+
+/// ITG FA+: judged and scored as ITG, every Fantastic within 15 ms a blue
+/// one, and Simply Love's EX score.
+#[test]
+fn fa_plus_splits_the_fantastics_and_scores_ex() {
+    let song = taps(8);
+    let late = [0.0, 0.010, 0.014, 0.016, 0.020, 0.030, 0.0, -0.012];
+    let run = |rules: Ruleset| {
+        let mut p = Player::new(&song, 0, rules, PlayOptions::default());
+        p.start(0.0, 0.0);
+        let mut flashes = Vec::new();
+        for (n, d) in song.charts[0].notes.iter().zip(late) {
+            let t = n.tick.beat() / 2.0 + d;
+            p.input_at(n.lane, true, t);
+            flashes.push(
+                p.frame(ddi_platform::HostTime(0.0))
+                    .judgement
+                    .and_then(|f| f.w0),
+            );
+            p.input_at(n.lane, false, t + 0.05);
+        }
+        p.update_at(1e6);
+        let r = p.results();
+        assert_eq!(replayed(&song, &p), r);
+        (r, flashes)
+    };
+    let (r, flashes) = run(presets::itg_fa_plus());
+    assert_eq!(r.tally.count(Judgement::W1), 7);
+    assert_eq!(r.tally.count(Judgement::W2), 1);
+    assert_eq!(r.tally.w0, 5);
+    // 5 blue (7 halves) + 2 white (6) + an Excellent (4), of 8 × 7.
+    assert_eq!(r.score.ex_percent, Some(0.9107));
+    assert_eq!((r.score.ex, r.score.max_ex), (None, None));
+    // The percentage and grade are ITG's: 7 × 5 + 4 of 8 × 5.
+    assert_eq!(r.score.percent, Some(39.0 / 40.0));
+    let (itg, _) = run(presets::itg());
+    assert_eq!(itg.score.percent, r.score.percent);
+    assert_eq!(itg.grade, r.grade);
+    assert_eq!((itg.tally.w0, itg.score.ex_percent), (0, None));
+    // The HUD's flash: blue, white, or not split (the Excellent).
+    assert_eq!(
+        flashes,
+        [true, true, true, false, false, false, true, true].map(Some)
+    );
+    // The judge level scales the FA+ window too: at 8, 13.5 × 0.33 + 1.5.
+    let strict = presets::itg_fa_plus().with_stepmania(&options(FailType::Immediate, 4, 8));
+    assert_eq!(strict.judge.is_w0(Judgement::W1, 0.0059), Some(true));
+    assert_eq!(strict.judge.is_w0(Judgement::W1, 0.0060), Some(false));
+    assert_eq!(presets::itg().judge.is_w0(Judgement::W1, 0.0), None);
+    // A clean play: 100% EX.
+    let song = taps(4);
+    let mut p = Player::new(&song, 0, presets::itg_fa_plus(), PlayOptions::default());
+    p.start(0.0, 0.0);
+    for n in &song.charts[0].notes {
+        p.input_at(n.lane, true, n.tick.beat() / 2.0);
+    }
+    p.update_at(1e6);
+    assert_eq!(p.results().score.ex_percent, Some(1.0));
+    assert_eq!(presets::by_id("itg-fa+").unwrap().id, "itg-fa+");
+}

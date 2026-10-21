@@ -356,6 +356,8 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
         theme.component(name, &Spec::new([400.0, 42.0], "x"));
     }
     let _ = theme.color("Background");
+    // An ITG FA+ play's white Fantastics (the sample plays ITG).
+    let _ = theme.color("Judgement.W1White");
     // Which design a window gets: short or narrow, the compact one.
     assert_eq!(screens::design_for(&*theme, [390.0, 844.0]), COMPACT);
     assert_eq!(screens::design_for(&*theme, [844.0, 390.0]), COMPACT);

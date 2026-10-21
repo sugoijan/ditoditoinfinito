@@ -2255,8 +2255,8 @@ fn results_card(
 ) -> PromptStep {
     let mut lines: Vec<(String, String)> = Vec::new();
     let mut push = |s: String, color: &str| lines.push((s, color.to_string()));
-    if let (Some(ex), Some(max)) = (r.score.ex, r.score.max_ex) {
-        push(format!("EX {ex} / {max}"), "Muted");
+    if let Some(ex) = ddi_ui::screens::play::ex_text(&r.score) {
+        push(ex, "Muted");
     }
     let mods = mods_summary(
         &r.transform,

@@ -365,6 +365,7 @@ impl Player {
             combo: 0,
             ticked: self.ruleset.judge.hold.is_ticked(),
             checkpoints: self.judge.checkpoint_count(),
+            w0: false,
         };
         self.ruleset.score.begin(&self.ctx);
         self.ruleset.gauge.begin(&self.ctx);
@@ -876,6 +877,12 @@ impl Player {
             self.timing.combo_at(ev.tick)
         };
         let mut times = 1;
+        // A hit inside the FA+ window: counted, and weighed apart by the
+        // EX score.
+        let w0 = match ev.kind {
+            JudgeEventKind::Tap(j, delta) => self.ruleset.judge.is_w0(j, delta) == Some(true),
+            _ => false,
+        };
         match ev.kind {
             JudgeEventKind::Tap(j, _) => {
                 if combo.neutral == Some(j) {
@@ -925,7 +932,11 @@ impl Player {
         }
         self.max_combo = self.max_combo.max(self.combo);
         self.tally.record_times(&ev.kind, times);
+        if w0 {
+            self.tally.w0 += times;
+        }
         self.ctx.combo = self.combo;
+        self.ctx.w0 = w0;
         self.ruleset.score.on_event(ev, &self.ctx);
         // A player failed and playing on gets no life back (StepMania's
         // `LifeMeterBar::ChangeLife`: "no point in letting them fill up
@@ -1107,6 +1118,7 @@ impl Player {
                 delta_seconds,
                 age: age(at),
                 combo_at,
+                w0: self.ruleset.judge.is_w0(judgement, delta_seconds),
             })
             .filter(|f| f.age < FLASH_SECONDS);
 

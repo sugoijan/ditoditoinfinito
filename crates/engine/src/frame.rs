@@ -82,6 +82,10 @@ pub struct JudgementFlash {
     pub age: f32,
     /// Combo right after the judgement.
     pub combo_at: u32,
+    /// Under a ruleset with a `W0` window (ITG FA+), whether the hit was
+    /// inside it (a blue Fantastic; a `W1` outside it is a white one);
+    /// `None` without one.
+    pub w0: Option<bool>,
 }
 
 /// Where a play shows its holds' (and shocks') outcomes, O.K. and N.G.
@@ -209,7 +213,6 @@ pub struct Frame {
     /// The play failed and ended (a delayed fail plays on to the end and
     /// says so only then, as StepMania shows no banner for it).
     pub failed: bool,
-
     pub finished: bool,
     /// Arrow heights above the receptor the renderer should draw.
     pub visible_range: f32,

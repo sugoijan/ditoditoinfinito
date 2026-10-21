@@ -385,6 +385,7 @@ pub fn local_time(ms: f64, tz_minutes: i32) -> String {
 fn ruleset_name(key: &RulesetKey) -> String {
     match key.id.as_str() {
         "itg" => "ITG".into(),
+        "itg-fa+" => "ITG FA+".into(),
         "sm5" => "StepMania 5".into(),
         "ddr-a" => "DDR A".into(),
         "danoni" => "Dancing☆Onigiri".into(),

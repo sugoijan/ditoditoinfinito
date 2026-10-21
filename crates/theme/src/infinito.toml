@@ -65,6 +65,8 @@ numbers_weight = 800
 # Judgements as the HUD draws them (crates/render/src/scene.rs,
 # `judgement_color`), so results read as play does.
 "Judgement.W1" = "#8cf2ff"
+# ITG FA+: a Fantastic outside its 15 ms window (Simply Love's white one).
+"Judgement.W1White" = "#f4f2f7"
 "Judgement.W2" = "#ffe659"
 "Judgement.W3" = "#73f273"
 "Judgement.W4" = "#bf80ff"
