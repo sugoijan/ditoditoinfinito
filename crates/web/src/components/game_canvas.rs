@@ -193,6 +193,9 @@ pub(crate) enum Msg {
     ),
     /// Time to look at the video decoder's download again (start prompt).
     VideoTick,
+    /// The chosen noteskin is being readied: Start waits for it (a skin
+    /// readied mid-play would wait for the next play).
+    NoteskinLoading,
     /// The chosen noteskin, readied for the chart's layout (`None`: the
     /// built-in arrows).
     NoteskinLoaded(Option<Box<crate::noteskins::Prepared>>),
@@ -299,6 +302,8 @@ pub(crate) struct GameCanvas {
     song_picture: Option<(String, f32)>,
     /// The noteskin readied before the game loop was there.
     noteskin: Option<Box<crate::noteskins::Prepared>>,
+    /// The chosen noteskin is still being readied (the prompt says so).
+    skin_loading: bool,
     _video_tick: gloo::timers::callback::Interval,
     _keys: Option<EventListener>,
     /// A song's results, the theme's screen on the canvas (step 6.1).
@@ -589,6 +594,7 @@ impl Component for GameCanvas {
             stage_pixels: 0,
             movies: Vec::new(),
             noteskin: None,
+            skin_loading: false,
             video_line: None,
             prompt: None,
             prompt_state,
@@ -814,7 +820,12 @@ impl GameCanvas {
                 self.apply_background();
                 false
             }
+            Msg::NoteskinLoading => {
+                self.skin_loading = true;
+                false
+            }
             Msg::NoteskinLoaded(prepared) => {
+                self.skin_loading = false;
                 // A second load (after asking for a folder) replaces one
                 // not handed over yet.
                 if let Some(old) = std::mem::replace(&mut self.noteskin, prepared) {
@@ -1699,6 +1710,9 @@ impl GameCanvas {
                 ),
                 SongSource::Song { .. } => PromptStep::Ready,
             },
+            (_, Stage::Idle) if self.skin_loading => {
+                PromptStep::Loading("loading the noteskin…".into())
+            }
             _ => PromptStep::Ready,
         }
     }
@@ -2740,6 +2754,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
         if let Ok(loaded) = &r
             && let Some(skin) = noteskin_ready(&settings, &loaded.song, chart, shift)
         {
+            link.send_message(Msg::NoteskinLoading);
             link.send_future(async move { Msg::NoteskinLoaded(skin.await) });
         }
         Msg::SongLoaded(r)
