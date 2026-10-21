@@ -250,3 +250,23 @@ agent's, phase 10), as a module of its own when that lands.
 - UI: `ddr_a_shows_its_gauge_flare_and_life4_lamps` (stat, mods, lamps),
   every option row (the new row and preset), the options' fit at every
   size (the row's description).
+- Desktop (`crates/desktop/tests/rulesets.rs`, no device, fake clock):
+  Beatucada's Beginner autoplayed from the settings under DDR A FLARE EX
+  (rank EX, 232 points, "FLARE EX · 232 points" on the results' data, the
+  gauge kept in the history, MFC), LIFE4 (rank 0, a LIFE4 clear) and DDR
+  EXTREME (all Perfect, 10,000,000, AAA). The HUD is unchanged (the
+  gauges draw as the life bar), so no offscreen picture was added.
+- Browser (2026-10-21, `target/scratch/pw/rulesets.mjs`, headless
+  Chrome on WebGPU and WebGL2, Beatucada Beginner autoplayed): DDR
+  EXTREME 38 Perfects, 10000000, AAA, the tiers Perfect to Miss; DDR A
+  FLARE EX all Marvelous "FLARE EX · 232 points", mods "FLARE EX"; 400 ms
+  late under FLARE EX fails at the fourth miss (E), as does LIFE4;
+  FLOATING FLARE with 38 Greats stays on EX, with 38 Goods ends on
+  "FLARE IV · 179 points" (EX, IX, VIII, VII, VI and V emptied, as the
+  table says); NORMAL with 38 Perfects "145 points", PFC kept; the
+  history's record keeps `stepmania.gauge` and the lamp. Headless Firefox
+  (Playwright's build, WebGL2): DDR EXTREME and the FLOATING FLARE drop
+  alike. Options' Rules section looked at in a screenshot (the "DDR
+  gauge" row, FLARE VII). Not checked: the maintainer's Firefox and
+  Safari by hand, a LIFE4 clear and SDP lamp in the browser (the
+  autoplayer's bias cannot make one miss; unit tests cover them).
