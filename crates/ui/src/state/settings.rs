@@ -67,7 +67,8 @@ pub struct Settings {
     /// Draw notes in the colors a chart gives them (Dancing☆Onigiri
     /// works) instead of `note_colors` (decision 23: off by default).
     pub chart_colors: bool,
-    /// Show the lyrics of songs that have them (Dancing☆Onigiri works).
+    /// Show the lyrics of songs that have them (Dancing☆Onigiri works, a
+    /// simfile's `.lrc` file).
     pub lyrics: bool,
     /// Song background brightness, 0..=1; 0 turns the background off.
     pub bg_brightness: f32,

@@ -176,6 +176,115 @@ fn a_stepmania_folder_with_a_zip_lists_as_the_web_imports() {
     assert_eq!(r.read(&z.rooted("song.ogg")).unwrap(), b"music");
 }
 
+/// A song's lyrics, jacket, CD title, preview and chart music are found
+/// in place; a Korean simfile reads; a background named with a comma
+/// resolves.
+#[test]
+fn format_extras_are_found_in_place() {
+    let root = scratch("extras");
+    let ssc = "#VERSION:0.83;#TITLE:사랑의 노래;#MUSIC:song.ogg;#JACKET:art.png;\
+               #CDTITLE:logo.png;#PREVIEW:cut.ogg;#BPMS:0=120;\
+               #BGCHANGES:0=a,b.png=1=0=0=1;\n\
+               #NOTEDATA:;#STEPSTYPE:dance-single;#DIFFICULTY:Easy;#METER:1;\
+               #MUSIC:easy.ogg;#NOTES:\n1000\n0000\n0000\n0000\n;\n";
+    let (euc_kr, _, _) = encoding_rs::EUC_KR.encode(ssc);
+    write(
+        &root,
+        &[
+            ("Pack/S/s.ssc", &euc_kr),
+            ("Pack/S/song.ogg", b"music"),
+            ("Pack/S/easy.ogg", b"easy"),
+            ("Pack/S/cut.ogg", b"cut"),
+            ("Pack/S/art.png", b"img"),
+            ("Pack/S/logo.png", b"img"),
+            ("Pack/S/a,b.png", b"img"),
+            ("Pack/S/lyrics.lrc", b"[00:01]la"),
+        ],
+    );
+    let (songs, report, _) = scan(std::slice::from_ref(&root), None, &[]);
+    assert!(report.failed.is_empty(), "{:?}", report.failed);
+    let s = &songs[0];
+    let e = &s.entry;
+    assert_eq!(e.title, "사랑의 노래");
+    assert_eq!(e.jacket.as_deref().map(RelPath::as_str), Some("art.png"));
+    assert_eq!(e.cd_title.as_deref().map(RelPath::as_str), Some("logo.png"));
+    assert_eq!(e.lyrics.as_deref().map(RelPath::as_str), Some("lyrics.lrc"));
+    assert_eq!(e.preview.as_deref().map(RelPath::as_str), Some("cut.ogg"));
+    assert_eq!(e.music_for(0), "easy.ogg");
+    assert_eq!(e.bg_images, vec!["a,b.png"]);
+    assert_eq!(
+        s.source(e.jacket.as_deref().unwrap()),
+        root.join("Pack")
+            .join("S")
+            .join("art.png")
+            .display()
+            .to_string()
+    );
+}
+
+/// A silent 16-bit mono WAV of `seconds` at 48 kHz.
+fn wav(seconds: f64) -> Vec<u8> {
+    let frames = (seconds * 48_000.0) as u32;
+    let mut w = b"RIFF".to_vec();
+    w.extend((36 + frames * 2).to_le_bytes());
+    w.extend(b"WAVEfmt ");
+    w.extend(16u32.to_le_bytes());
+    w.extend(1u16.to_le_bytes());
+    w.extend(1u16.to_le_bytes());
+    w.extend(48_000u32.to_le_bytes());
+    w.extend(96_000u32.to_le_bytes());
+    w.extend(2u16.to_le_bytes());
+    w.extend(16u16.to_le_bytes());
+    w.extend(b"data");
+    w.extend((frames * 2).to_le_bytes());
+    w.resize(w.len() + frames as usize * 2, 0);
+    w
+}
+
+/// A play of a chart with its own music plays that music; its lyrics
+/// are on the song it plays.
+#[test]
+fn a_play_reads_its_charts_music_and_the_lyrics() {
+    let root = scratch("chart-music");
+    let ssc = "#VERSION:0.83;#TITLE:M;#MUSIC:song.wav;#BPMS:0=120;\n\
+               #NOTEDATA:;#STEPSTYPE:dance-single;#DIFFICULTY:Easy;#METER:1;\
+               #MUSIC:easy.wav;#NOTES:\n1000\n0000\n0000\n0000\n;\n\
+               #NOTEDATA:;#STEPSTYPE:dance-single;#DIFFICULTY:Hard;#METER:9;\
+               #NOTES:\n1000\n0000\n0000\n0000\n;\n";
+    write(
+        &root,
+        &[
+            ("Pack/S/s.ssc", ssc.as_bytes()),
+            ("Pack/S/song.wav", &wav(3.0)),
+            ("Pack/S/easy.wav", &wav(1.0)),
+            ("Pack/S/words.lrc", b"[00:00.50]hello"),
+        ],
+    );
+    let (songs, report, _) = scan(std::slice::from_ref(&root), None, &[]);
+    assert!(report.failed.is_empty(), "{:?}", report.failed);
+    register_for_tests(&songs);
+    let id = songs[0].entry.id.clone();
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let load = |chart| crate::play::load::load_with(&id, chart, 48_000, false, &cancel).unwrap();
+    let easy = load(Some(0));
+    assert!(
+        (easy.music.duration() - 1.0).abs() < 0.01,
+        "{}",
+        easy.music.duration()
+    );
+    let hard = load(Some(1));
+    assert!((hard.music.duration() - 3.0).abs() < 0.01);
+    assert!((load(None).music.duration() - 3.0).abs() < 0.01);
+    let lyrics: Vec<&str> = hard
+        .song
+        .effects
+        .iter()
+        .filter(|e| e.kind == ddi_chart::formats::lrc::LYRIC_EVENT)
+        .map(|e| e.fields[0].as_str())
+        .collect();
+    assert_eq!(lyrics, ["hello"]);
+}
+
 #[test]
 fn the_cache_reuses_what_did_not_change() {
     let root = scratch("cache");

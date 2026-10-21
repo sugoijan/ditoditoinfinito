@@ -24,7 +24,7 @@ use ddi_chart::TimingMap;
 use gloo::timers::callback::Timeout;
 use web_sys::AudioBuffer;
 
-use crate::songs::{ManifestEntry, load_chart, load_music};
+use crate::songs::{ManifestEntry, load_chart, load_preview_music};
 use crate::web::audio::WebAudio;
 
 /// Wait after a selection before its preview loads, ms.
@@ -41,6 +41,9 @@ struct Playing {
     started: f64,
     from: f64,
     timing: Option<Rc<TimingMap>>,
+    /// How long it plays, and its file's length (for tests).
+    length: f64,
+    duration: f64,
 }
 
 /// A song's music and timing, read, not decoded yet.
@@ -214,7 +217,7 @@ pub(crate) fn arrive() {
 
 async fn fetch(entry: ManifestEntry, load: u64) {
     let current = || STATE.with(|s| s.borrow().load == load);
-    let (music, chart) = futures_join(load_music(&entry), load_chart(&entry.id)).await;
+    let (music, chart) = futures_join(load_preview_music(&entry), load_chart(&entry.id)).await;
     if !current() {
         return;
     }
@@ -321,10 +324,17 @@ fn play(in_gesture: bool) {
             // Waits for a gesture ([`gesture`]).
             return None;
         }
-        let length = ddi_session::preview::length(entry.preview_length);
-        let from = entry
-            .preview_start
-            .clamp(0.0, (buffer.duration() - 1.0).max(0.0));
+        // A separate preview file (`#PREVIEW`) from its start, else the
+        // music's sample.
+        let (from, length) = if entry.preview.is_some() {
+            let length = ddi_session::preview::file_length(entry.preview_length);
+            (0.0, length.min(buffer.duration()))
+        } else {
+            let from = entry
+                .preview_start
+                .clamp(0.0, (buffer.duration() - 1.0).max(0.0));
+            (from, ddi_session::preview::length(entry.preview_length))
+        };
         let started = audio.context().current_time() + ddi_session::preview::LEAD;
         audio.play_preview(&buffer, from, length, volume).ok()?;
         let load = s.load;
@@ -333,6 +343,8 @@ fn play(in_gesture: bool) {
             started,
             from,
             timing,
+            length,
+            duration: buffer.duration(),
         });
         Some((load, length))
     });
@@ -372,13 +384,19 @@ pub(crate) fn beat(id: &str) -> Option<f64> {
     })
 }
 
-/// For the debug state: the song playing, and whether the context runs.
-pub(crate) fn status() -> (Option<String>, Option<String>, bool) {
+/// A preview playing: its song, and from, length and its file's length.
+pub(crate) type PlayingWindow = (String, [f64; 3]);
+
+/// For the debug state: the song playing (from, length and its file's
+/// length), and whether the context runs.
+pub(crate) fn status() -> (Option<String>, Option<PlayingWindow>, bool) {
     STATE.with(|s| {
         let s = s.borrow();
         (
             s.wanted.as_ref().map(|e| e.id.clone()),
-            s.playing.as_ref().map(|p| p.id.clone()),
+            s.playing
+                .as_ref()
+                .map(|p| (p.id.clone(), [p.from, p.length, p.duration])),
             s.audio.as_ref().is_some_and(WebAudio::running),
         )
     })

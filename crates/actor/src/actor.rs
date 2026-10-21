@@ -264,6 +264,9 @@ pub struct Sprite {
     pub texture: u32,
     /// UI images: center-crop to the drawn rectangle after the texture size is known.
     pub cover: bool,
+    /// UI images: fit whole inside the drawn rectangle, centred, once
+    /// the texture size is known (a CD title in its box).
+    pub contain: bool,
     /// Rounded corners, a soft edge, an outline, saturation: our
     /// extension, not StepMania's ([`Shape`]).
     pub shape: Shape,
@@ -302,6 +305,7 @@ impl Sprite {
         Sprite {
             texture,
             cover: false,
+            contain: false,
             frames: states.iter().map(|s| s.rect).collect(),
             frame_size: size,
             states,
@@ -1199,6 +1203,8 @@ pub struct Quad {
     pub texture: u32,
     /// UI images: center-crop to the drawn rectangle after the texture size is known.
     pub cover: bool,
+    /// UI images: fit whole inside the drawn rectangle, centred.
+    pub contain: bool,
     /// `[left, top, right, bottom]` of the image, before `texcoord_offset`.
     pub uv: [f32; 4],
     pub texcoord_offset: [f32; 2],
@@ -2613,6 +2619,7 @@ impl Actor {
                         transform,
                         texture: sprite.texture,
                         cover: sprite.cover,
+                        contain: sprite.contain,
                         uv,
                         texcoord_offset: sprite.texcoord_offset,
                         diffuse,

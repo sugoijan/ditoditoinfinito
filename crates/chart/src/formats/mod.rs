@@ -3,6 +3,7 @@
 
 pub mod danoni;
 pub mod dwi;
+pub mod lrc;
 pub mod msd;
 pub mod sm;
 

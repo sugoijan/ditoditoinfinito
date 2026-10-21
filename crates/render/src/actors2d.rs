@@ -120,6 +120,7 @@ pub fn append(
                     transform: Affine(q.transform),
                     texture: tex,
                     cover: q.cover,
+                    contain: q.contain,
                     uv: offset_uv(q.uv, q.texcoord_offset),
                     colors: corners(q.diffuse),
                     blend: blend(q.blend),

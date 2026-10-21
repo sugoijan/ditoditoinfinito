@@ -1084,11 +1084,19 @@ fn debug_into(shared: &Shared, obj: &js_sys::Object) {
         "wanted",
         wanted.map_or(JsValue::NULL, |s| s.into()),
     );
+    // What plays, and its window: from, length, the file's length.
+    let window = playing.as_ref().map_or(JsValue::NULL, |(_, w)| {
+        w.iter()
+            .map(|v| JsValue::from(*v))
+            .collect::<js_sys::Array>()
+            .into()
+    });
     set(
         &preview,
         "playing",
-        playing.map_or(JsValue::NULL, |s| s.into()),
+        playing.map_or(JsValue::NULL, |(s, _)| s.into()),
     );
+    set(&preview, "window", window);
     set(&preview, "audio", running.into());
     set(&songs, "preview", preview.into());
     set(obj, "songs", songs.into());

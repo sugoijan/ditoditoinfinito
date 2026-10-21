@@ -7,6 +7,16 @@
 //!
 //! The importer turns `word_data` into `danoni:lyric` effect events
 //! (`[depth, text, fade frames]`, timed in seconds, layer = chart).
+//!
+//! A simfile's `.lrc` lyrics (`ddi_chart::formats::lrc`, events of every
+//! chart) show as StepMania 5.1 shows them when a chart has no lyrics of
+//! its own (`LyricDisplay::Update`, `_fallback`'s `Actor:LyricCommand`
+//! and `[LyricDisplay]` metrics): one line at a time, from its start to
+//! the next one's (the last to the song's last note); it fades in over
+//! 0.2 s to 0.75 opacity, its brighter copy (0.9 of its color, over one
+//! at 0.5) wipes in from the left over three quarters of its time and
+//! stays, and the last one fades out 0.2 s after its time is up. It sits
+//! low on the screen, high under Reverse ([`LyricLook::StepMania`]).
 
 use std::rc::Rc;
 
@@ -48,6 +58,20 @@ pub struct LyricLine {
     /// Font size in px of danoniplus's 500 px tall field ([`FIELD_HEIGHT`]).
     pub size: f32,
     pub opacity: f32,
+    pub look: LyricLook,
+}
+
+/// How a line is drawn.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub enum LyricLook {
+    /// As danoniplus draws its labels, placed on its stage.
+    #[default]
+    Danoni,
+    /// As StepMania's `LyricDisplay`: centred on the screen, near its
+    /// bottom (its top when `top`), in `color` (its copies at 0.5 and
+    /// 0.9 of it); the brighter copy covers the share `wipe` of it from
+    /// the left.
+    StepMania { color: [f32; 3], wipe: f32 },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -125,6 +149,8 @@ pub struct LyricTrack {
     flip: bool,
     /// danoniplus's stage the lines are placed on, its px.
     stage: (f32, f32),
+    /// `.lrc` lyrics, by start: `(start, shown seconds, text, color)`.
+    lrc: Vec<(f64, f64, Rc<str>, [f32; 3])>,
 }
 
 impl LyricTrack {
@@ -215,7 +241,17 @@ impl LyricTrack {
             .and_then(|c| c.danoni.as_ref())
             .and_then(|d| d.stage)
             .map_or((FIELD_HEIGHT, FIELD_HEIGHT), |(w, h)| (w as f32, h as f32));
-        LyricTrack { lines, flip, stage }
+        let lrc = if lines.is_empty() {
+            lrc_lines(song)
+        } else {
+            Vec::new()
+        };
+        LyricTrack {
+            lines,
+            flip: if lrc.is_empty() { flip } else { reverse },
+            stage,
+            lrc,
+        }
     }
 
     /// danoniplus's stage the lines are placed on (`lblWord`), width and
@@ -225,11 +261,14 @@ impl LyricTrack {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.lines.iter().all(Vec::is_empty)
+        self.lines.iter().all(Vec::is_empty) && self.lrc.is_empty()
     }
 
     /// The lines at song second `t` (those with text so far).
     pub fn at(&self, t: f64) -> Vec<LyricLine> {
+        if !self.lrc.is_empty() {
+            return self.lrc_at(t).into_iter().collect();
+        }
         self.lines
             .iter()
             .enumerate()
@@ -246,9 +285,94 @@ impl LyricTrack {
                     align: s.align,
                     size: s.size,
                     opacity: s.opacity(t),
+                    look: LyricLook::Danoni,
                 })
             })
             .collect()
+    }
+}
+
+/// StepMania's lyric fades (`Actor:LyricCommand`'s `linear(0.2)`), the
+/// opacity it fades in to.
+const LRC_FADE: f64 = 0.2;
+const LRC_OPACITY: f32 = 0.75;
+/// The share of a lyric's time its wipe takes (the rest it stays).
+const LRC_WIPE: f64 = 0.75;
+/// The lyrics' size, px on [`FIELD_HEIGHT`] (StepMania's default theme
+/// draws them in its 720-line screen's common font, about 24 lines tall).
+const LRC_SIZE: f32 = FIELD_HEIGHT / 30.0;
+
+/// `song`'s `.lrc` lyrics as `LyricDisplay::Update` times them: each
+/// shown until the next starts, the last until the song's last second
+/// (`Song::GetLastSecond`: the end of its charts' last notes), never less
+/// than nothing (`InLength` and `OutLength` are 0 in `_fallback`).
+fn lrc_lines(song: &Song) -> Vec<(f64, f64, Rc<str>, [f32; 3])> {
+    let mut cues: Vec<(f64, Rc<str>, [f32; 3])> = song
+        .effects
+        .iter()
+        .filter(|e| e.kind == ddi_chart::formats::lrc::LYRIC_EVENT)
+        .filter_map(|e| {
+            let EffectTime::Seconds(at) = e.at else {
+                return None;
+            };
+            let part = |i: usize| e.fields.get(i).and_then(|f| f.parse::<f32>().ok());
+            let color = [part(1)?, part(2)?, part(3)?];
+            Some((at, Rc::from(e.fields.first()?.as_str()), color))
+        })
+        .filter(|(at, ..)| at.is_finite())
+        .collect();
+    if cues.is_empty() {
+        return Vec::new();
+    }
+    cues.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let last = song
+        .charts
+        .iter()
+        .filter_map(|c| {
+            let end = c.notes.iter().map(|n| n.end_tick()).max()?;
+            Some(c.timing(song).seconds_at(end))
+        })
+        .filter(|s| s.is_finite())
+        .fold(f64::NEG_INFINITY, f64::max);
+    (0..cues.len())
+        .map(|i| {
+            let (start, text, color) = cues[i].clone();
+            let end = cues.get(i + 1).map_or(last, |n| n.0);
+            (start, (end - start).max(0.0), text, color)
+        })
+        .collect()
+}
+
+impl LyricTrack {
+    /// The `.lrc` line showing at song second `t`, as `Actor:LyricCommand`
+    /// tweens it: the next line's start cuts it short.
+    fn lrc_at(&self, t: f64) -> Option<LyricLine> {
+        let i = self.lrc.partition_point(|(start, ..)| *start <= t);
+        let (start, shown, text, color) = self.lrc.get(i.checked_sub(1)?)?;
+        let into = t - start;
+        let fade_in = (into / LRC_FADE).clamp(0.0, 1.0);
+        let out_at = LRC_FADE + shown;
+        let fade_out = 1.0 - ((into - out_at) / LRC_FADE).clamp(0.0, 1.0);
+        if fade_out <= 0.0 || text.is_empty() {
+            return None;
+        }
+        let wipe = if *shown > 0.0 {
+            ((into - LRC_FADE) / (shown * LRC_WIPE)).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        Some(LyricLine {
+            depth: 0,
+            top: self.flip,
+            text: text.clone(),
+            align: LyricAlign::Center,
+            size: LRC_SIZE,
+            opacity: LRC_OPACITY * (fade_in * fade_out) as f32,
+            look: LyricLook::StepMania {
+                color: *color,
+                wipe: wipe as f32,
+            },
+        })
     }
 }
 
@@ -256,6 +380,58 @@ impl LyricTrack {
 mod tests {
     use super::*;
     use ddi_chart::formats::danoni::{self, Dos, DosFlags};
+
+    #[test]
+    fn lrc_lyrics_wipe_in_and_last_until_the_next() {
+        let mut s = ddi_chart::formats::sm::parse_simfile(
+            "#OFFSET:0;#BPMS:0=60;#NOTES:dance-single::Easy:1::0000\n0000\n0000\n0000\n,\
+             0000\n0000\n0000\n0000\n,0000\n0000\n0000\n1000\n;",
+            "sm",
+        )
+        .unwrap();
+        // The last note at beat 11: 11 s.
+        ddi_chart::formats::lrc::add_lyrics(&mut s, "[00:01]one\n[COLOUR]0x800000\n[00:05]two");
+        let track = LyricTrack::new(&s, 0, false, true);
+        assert!(!track.is_empty());
+        assert!(track.at(0.5).is_empty());
+        let l = &track.at(1.1)[0];
+        assert_eq!(&*l.text, "one");
+        assert!(!l.top);
+        assert!((l.opacity - 0.375).abs() < 1e-4);
+        assert_eq!(
+            l.look,
+            LyricLook::StepMania {
+                color: [0.0, 1.0, 0.0],
+                wipe: 0.0
+            }
+        );
+        // Four seconds shown: wiped by 1.2 + 3 s, then it stays.
+        let wipe = |t: f64| match track.at(t)[0].look {
+            LyricLook::StepMania { wipe, .. } => wipe,
+            LyricLook::Danoni => panic!(),
+        };
+        assert!((wipe(2.7) - 0.5).abs() < 1e-4);
+        assert_eq!(wipe(4.5), 1.0);
+        assert_eq!(track.at(4.9)[0].opacity, 0.75);
+        // The next replaces it; the last fades out after the last note.
+        let l = &track.at(5.5)[0];
+        assert_eq!(&*l.text, "two");
+        assert_eq!(
+            l.look,
+            LyricLook::StepMania {
+                color: [0.5, 0.0, 0.0],
+                wipe: (0.3 / 4.5) as f32
+            }
+        );
+        assert!((track.at(11.3)[0].opacity - 0.375).abs() < 1e-4);
+        assert!(track.at(11.5).is_empty());
+        // High on the screen under Reverse.
+        assert!(LyricTrack::new(&s, 0, true, true).at(2.0)[0].top);
+        // A work's own lyrics come first.
+        let mut w = song("200,0,a");
+        ddi_chart::formats::lrc::add_lyrics(&mut w, "[00:01]lrc");
+        assert_eq!(&*LyricTrack::new(&w, 0, false, true).at(2.0)[0].text, "a");
+    }
 
     /// A work whose frame `F` sounds at `(F − 140) / 60` s.
     fn song(words: &str) -> Song {

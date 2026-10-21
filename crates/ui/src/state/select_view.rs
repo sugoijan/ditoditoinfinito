@@ -30,9 +30,11 @@ pub struct Listed {
     pub pack: Option<String>,
     /// The pack's own cover, separately from the song banner.
     pub pack_banner: Option<String>,
-    /// Its banner and background as texture sources.
+    /// Its banner, background, jacket and CD title as texture sources.
     pub banner: Option<String>,
     pub background: Option<String>,
+    pub jacket: Option<String>,
+    pub cd_title: Option<String>,
     /// It can be removed from the list.
     pub removable: bool,
 }
@@ -47,6 +49,8 @@ impl Listed {
             pack_banner: None,
             banner: e.banner.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
             background: e.background.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
+            jacket: e.jacket.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
+            cd_title: e.cd_title.as_ref().map(|b| format!("songs/{}/{b}", e.id)),
             removable: false,
         }
     }
@@ -173,6 +177,8 @@ fn song_entry<'a>(
         length: entry.length as f32,
         banner: s.banner.clone(),
         background: s.background.clone(),
+        jacket: s.jacket.clone(),
+        cd_title: s.cd_title.clone(),
         charts: entry
             .charts
             .iter()
@@ -334,6 +340,8 @@ mod tests {
             pack_banner: None,
             banner: None,
             background: None,
+            jacket: None,
+            cd_title: None,
             removable: true,
         }];
         let mut settings = Settings::default();
@@ -408,6 +416,8 @@ mod tests {
             banner: None,
             pack_banner: None,
             background: None,
+            jacket: None,
+            cd_title: None,
             removable: pack.is_some(),
         };
         let mut songs = vec![

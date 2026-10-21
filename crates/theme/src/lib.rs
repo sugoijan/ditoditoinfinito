@@ -690,8 +690,54 @@ impl Infinito {
         call(&mut banner, "halign", &[0.0]);
         call(&mut banner, "valign", &[0.0]);
         banner.visible = false;
+        // With a jacket: the jacket square at the right of the banner's
+        // place, the banner (cropped to it) in the rest.
+        let gap = self.m("Select.Jacket.Gap");
+        let mut short = named(
+            Kind::Sprite(Sprite::quad([(w - bh - gap).max(1.0), bh])),
+            "BannerShort",
+        );
+        let mut jacket = named(Kind::Sprite(Sprite::quad([bh, bh])), "Jacket");
+        call(&mut jacket, "x", &[w - bh]);
+        for s in [&mut short, &mut jacket] {
+            if let Kind::Sprite(sp) = &mut s.kind {
+                sp.cover = true;
+            }
+            call(s, "cornerradius", &[6.0]);
+            call(s, "halign", &[0.0]);
+            call(s, "valign", &[0.0]);
+            s.visible = false;
+        }
+        let jacket_back = {
+            let mut b = round(
+                plate("JacketBack", [w - bh, 0.0], [bh, bh], self.c("BannerEmpty")),
+                6.0,
+            );
+            b.visible = false;
+            b
+        };
+        // The CD title, a small mark in the banner's lower left corner,
+        // whole (its own shape kept).
+        let scale = if compact {
+            bh / self.m("Select.Banner.Height")
+        } else {
+            1.0
+        };
+        let [cw, ch] = [
+            self.m("Select.CdTitle.Width") * scale,
+            self.m("Select.CdTitle.Height") * scale,
+        ];
+        let inset = 8.0 * scale;
+        let mut cd = named(Kind::Sprite(Sprite::quad([cw, ch])), "CdTitle");
+        if let Kind::Sprite(sp) = &mut cd.kind {
+            sp.contain = true;
+        }
+        call(&mut cd, "halign", &[0.0]);
+        call(&mut cd, "valign", &[0.0]);
+        call(&mut cd, "xy", &[inset, bh - inset - ch]);
+        cd.visible = false;
         let edge = outline("Edge", [0.0, 0.0, w, bh], 1.0, [1.0, 1.0, 1.0, 0.08]);
-        let mut c = vec![back, banner, edge];
+        let mut c = vec![back, banner, short, jacket_back, jacket, cd, edge];
         if compact {
             let mut title = at_left(
                 self.text("Title", "", 18.0, 700, "Text"),

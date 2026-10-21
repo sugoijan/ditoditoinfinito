@@ -190,6 +190,8 @@ impl Songs {
                 pack_banner: s.pack_banner.as_deref().map(|p| s.root_source(p)),
                 banner: s.entry.banner.as_deref().map(|b| s.source(b)),
                 background: s.entry.background.as_deref().map(|b| s.source(b)),
+                jacket: s.entry.jacket.as_deref().map(|b| s.source(b)),
+                cd_title: s.entry.cd_title.as_deref().map(|b| s.source(b)),
                 removable: true,
             }))
         });

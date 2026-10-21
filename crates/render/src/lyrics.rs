@@ -13,7 +13,7 @@
 //! ([`ddi_engine::lyrics`]).
 
 use ddi_actor::text::{TextMeasure, TextStyle};
-use ddi_engine::lyrics::{LyricAlign, LyricLine};
+use ddi_engine::lyrics::{FIELD_HEIGHT, LyricAlign, LyricLine, LyricLook};
 
 use crate::draw2d::{Affine, Blend, Command, DrawList, Mask, TextRun};
 
@@ -106,6 +106,10 @@ pub fn draw(
         if alpha <= 0.0 || line.text.is_empty() {
             continue;
         }
+        if let LyricLook::StepMania { color, wipe } = line.look {
+            draw_stepmania(list, line, color, wipe, place, measure);
+            continue;
+        }
         let full = (line.size * s).max(1.0);
         let min = place.min_size.min(full).max(1.0);
         // Sizes from its own down to the smallest, a tenth at a time.
@@ -161,6 +165,105 @@ pub fn draw(
             }
             y += line_h;
         }
+    }
+}
+
+/// Where StepMania's default theme puts a lyric's middle, a share of the
+/// screen's height down (`LyricDisplaySetNoReverseCommand`,
+/// `…SetReverseCommand`: 360 + 260 and 360 − 260 of 720).
+const STEPMANIA_Y: [f32; 2] = [620.0 / 720.0, 100.0 / 720.0];
+/// Its shadow, straight down (`shadowlengthy(5)` on 720 lines), and the
+/// shadow's color (an actor's default, black at half).
+const STEPMANIA_SHADOW: f32 = 5.0 / 720.0;
+
+/// A `.lrc` line as StepMania's `LyricDisplay` draws it
+/// ([`LyricLook::StepMania`]): centred on the screen at its place, two
+/// copies, the dim one (half its color) to the right of the wipe and the
+/// bright one (0.9 of it) to its left, the wipe crossing the widest row.
+/// StepMania squeezes a line wider than the screen; it shrinks here (to
+/// [`Place::min_size`], then wraps). It keeps clear of the HUD like
+/// Dancing☆Onigiri's lines, moving away from the screen's edge.
+fn draw_stepmania(
+    list: &mut DrawList,
+    line: &LyricLine,
+    color: [f32; 3],
+    wipe: f32,
+    place: &Place,
+    measure: &mut dyn TextMeasure,
+) {
+    let [w, h] = place.size;
+    let alpha = line.opacity.clamp(0.0, 1.0);
+    let gap = GAP * h / FIELD_HEIGHT;
+    let room = (w - 2.0 * gap).max(1.0);
+    let full = (line.size * h / FIELD_HEIGHT).max(1.0);
+    let min = place.min_size.min(full).max(1.0);
+    let widest = |size: f32, measure: &mut dyn TextMeasure| {
+        let style = TextStyle::new(FONT, size);
+        line.text
+            .split('\n')
+            .map(|r| measure.measure(r, &style).advance)
+            .fold(0.0, f32::max)
+    };
+    let size = {
+        let at_full = widest(full, measure);
+        if at_full <= room {
+            full
+        } else {
+            (full * room / at_full).max(min)
+        }
+    };
+    let style = TextStyle::new(FONT, size);
+    let line_h = style.line_height();
+    let rows = layout(&line.text, room, &style, measure);
+    let advances: Vec<f32> = rows
+        .iter()
+        .map(|r| measure.measure(r, &style).advance)
+        .collect();
+    let block_w = advances.iter().copied().fold(0.0, f32::max);
+    let block_h = rows.len() as f32 * line_h;
+    let mut y = h * STEPMANIA_Y[usize::from(line.top)] - block_h / 2.0;
+    y = y.clamp(gap, (h - gap - block_h).max(gap));
+    for r in &place.keep_out {
+        let block = [(w - block_w) / 2.0, y, (w + block_w) / 2.0, y + block_h];
+        if overlaps(&block, r) {
+            y = if line.top {
+                r[3] + gap
+            } else {
+                r[1] - gap - block_h
+            };
+        }
+    }
+    let left = (w - block_w) / 2.0;
+    let split = left + block_w * wipe.clamp(0.0, 1.0);
+    let shadow = (h * STEPMANIA_SHADOW).max(1.0);
+    for (clip, share) in [([split, 0.0, w, h], 0.5), ([0.0, 0.0, split, h], 0.9)] {
+        if clip[2] <= clip[0] {
+            continue;
+        }
+        list.push_clip(clip);
+        for (row, (text, advance)) in rows.iter().zip(&advances).enumerate() {
+            let x = (w - advance) / 2.0;
+            let top = y + row as f32 * line_h;
+            for (dy, tint) in [
+                (shadow, [0.0, 0.0, 0.0, 0.5 * alpha]),
+                (
+                    0.0,
+                    [color[0] * share, color[1] * share, color[2] * share, alpha],
+                ),
+            ] {
+                list.push(Command::Text(TextRun {
+                    text: text.as_str().into(),
+                    style: style.clone(),
+                    transform: Affine::translate(x, top + dy),
+                    color: tint,
+                    blend: Blend::Normal,
+                    mask: Mask::None,
+                    perspective: None,
+                    blur: [0.0; 2],
+                }));
+            }
+        }
+        list.pop_clip();
     }
 }
 
@@ -311,6 +414,7 @@ mod tests {
             align,
             size: 14.0,
             opacity: 1.0,
+            look: LyricLook::Danoni,
         }
     }
 
@@ -392,6 +496,74 @@ mod tests {
         }
         // A shadow under each.
         assert_eq!(list.commands.len(), 4);
+    }
+
+    #[test]
+    fn lrc_lines_sit_low_and_wipe_from_the_left() {
+        let mut l = line("hello", false, LyricAlign::Center);
+        l.size = FIELD_HEIGHT / 30.0;
+        l.opacity = 0.75;
+        l.look = LyricLook::StepMania {
+            color: [0.0, 1.0, 0.0],
+            wipe: 0.5,
+        };
+        let place = Place {
+            size: [1280.0, 720.0],
+            stage: (500.0, 500.0),
+            center_x: 400.0,
+            keep_out: Vec::new(),
+            receptors: Vec::new(),
+            min_size: 10.0,
+        };
+        let mut list = DrawList::new();
+        draw(&mut list, &[l.clone()], &place, &mut FixedMeasure);
+        // Two clips (dim right, bright left), a shadow and a run in each.
+        let clips: Vec<[f32; 4]> = list
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::PushClip(r) => Some(*r),
+                _ => None,
+            })
+            .collect();
+        // 24 px, five characters half as wide: 60 px, centred on 640.
+        assert_eq!(
+            clips,
+            vec![[640.0, 0.0, 1280.0, 720.0], [0.0, 0.0, 640.0, 720.0]]
+        );
+        let bright = |list: &DrawList| -> Vec<[f32; 2]> {
+            list.commands
+                .iter()
+                .filter_map(|c| match c {
+                    Command::Text(t) if t.color[1] > 0.6 => {
+                        Some([t.transform.0[4], t.transform.0[5]])
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let r = bright(&list);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0][0], 610.0);
+        let middle = r[0][1] + 24.0 * 1.25 / 2.0;
+        assert!((middle - 620.0).abs() < 0.5, "{middle}");
+        let tints: Vec<[f32; 4]> = list
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Text(t) if t.color[1] > 0.0 => Some(t.color),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tints, vec![[0.0, 0.5, 0.0, 0.75], [0.0, 0.9, 0.0, 0.75]]);
+        // Under Reverse, high; a HUD there pushes it down.
+        l.top = true;
+        let mut list = DrawList::new();
+        let mut hud = place.clone();
+        hud.keep_out.push([500.0, 0.0, 800.0, 140.0]);
+        draw(&mut list, &[l], &hud, &mut FixedMeasure);
+        let y = bright(&list)[0][1];
+        assert!(y >= 140.0, "{y}");
     }
 
     #[test]

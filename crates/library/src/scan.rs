@@ -187,6 +187,15 @@ pub struct Built {
     /// `(name in the entry, path)`.
     pub banner: Option<(RelPathBuf, RelPathBuf)>,
     pub background: Option<(RelPathBuf, RelPathBuf)>,
+    /// The jacket, CD title, `.lrc` lyrics and `#PREVIEW` sound, `(name in
+    /// the entry, path)`.
+    pub jacket: Option<(RelPathBuf, RelPathBuf)>,
+    pub cd_title: Option<(RelPathBuf, RelPathBuf)>,
+    pub lyrics: Option<(RelPathBuf, RelPathBuf)>,
+    pub preview: Option<(RelPathBuf, RelPathBuf)>,
+    /// The charts' own music files other than the song's, `(name in the
+    /// entry, path)` (the entry's charts name theirs).
+    pub chart_music: Vec<(RelPathBuf, RelPathBuf)>,
     /// Background-change images, `(relative, path)`.
     pub bg_images: Vec<(RelPathBuf, RelPathBuf)>,
     /// The movies kept, `(relative, path)`.
@@ -246,11 +255,12 @@ pub fn read_song(
 }
 
 impl Reading {
-    /// The images whose pixel sizes would tell the banner from the
-    /// background (StepMania's last resort), when one of them is still
-    /// to find; empty otherwise.
+    /// The images whose pixel sizes would tell the banner, the background
+    /// and the CD title (and a jacket) apart (StepMania's last resort),
+    /// when one of the first three is still to find; empty otherwise.
     pub fn images_to_size(&self) -> &[RelPathBuf] {
-        if self.assets.banner.is_none() || self.assets.background.is_none() {
+        let a = &self.assets;
+        if a.banner.is_none() || a.background.is_none() || a.cd_title.is_none() {
             &self.assets.unclassified
         } else {
             &[]
@@ -296,7 +306,27 @@ impl Reading {
         // the folder's audio or images instead (`Song::TidyUpData`), and
         // packs often rename files without updating the simfile.
         for (tag, reference) in &assets.missing {
-            let stand_in = match *tag {
+            let tag = tag.as_str();
+            match tag {
+                "#JACKET" | "#CDTITLE" | "#LYRICSPATH" => {
+                    notes.push(format!("{tag} names {reference}, which is missing"));
+                    continue;
+                }
+                "#PREVIEW" => {
+                    notes.push(format!(
+                        "#PREVIEW names {reference}, which is missing; the music's sample plays instead"
+                    ));
+                    continue;
+                }
+                _ if tag.starts_with("#MUSIC (") => {
+                    notes.push(format!(
+                        "{tag} names {reference}, which is missing; the song's music plays instead"
+                    ));
+                    continue;
+                }
+                _ => {}
+            }
+            let stand_in = match tag {
                 "#BANNER" => assets.banner.is_some(),
                 "#BACKGROUND" => assets.background.is_some(),
                 _ => true,
@@ -308,7 +338,7 @@ impl Reading {
                 ));
                 continue;
             }
-            let used = match *tag {
+            let used = match tag {
                 "#MUSIC" => Some(&music),
                 "#BANNER" => assets.banner.as_ref(),
                 _ => assets.background.as_ref(),
@@ -338,6 +368,26 @@ impl Reading {
         let music_name = named("music", &music);
         let banner = assets.banner.map(|p| (named("banner", &p), p));
         let background = assets.background.map(|p| (named("background", &p), p));
+        let jacket = assets.jacket.map(|p| (named("jacket", &p), p));
+        let cd_title = assets.cd_title.map(|p| (named("cdtitle", &p), p));
+        let lyrics = assets.lyrics.map(|p| (named("lyrics", &p), p));
+        let preview = assets.preview.map(|p| (named("preview", &p), p));
+        // Each chart's own music file once, in order of first use; the
+        // song's music file is the song's.
+        let mut chart_music: Vec<(RelPathBuf, RelPathBuf)> = Vec::new();
+        let mut music_of: Vec<(usize, RelPathBuf)> = Vec::new();
+        for (i, p) in assets.chart_music {
+            let name = if p == music {
+                music_name.clone()
+            } else if let Some((n, _)) = chart_music.iter().find(|(_, q)| *q == p) {
+                n.clone()
+            } else {
+                let n = named(&format!("music-{}", chart_music.len() + 1), &p);
+                chart_music.push((n.clone(), p));
+                n
+            };
+            music_of.push((i, name));
+        }
         let mut bg_images = crate::backgrounds::referenced_images(
             &song,
             &c.dir,
@@ -435,6 +485,10 @@ impl Reading {
             &song,
         );
         entry.bg_scripted = scripted;
+        entry.jacket = jacket.as_ref().map(|(n, _)| n.clone());
+        entry.cd_title = cd_title.as_ref().map(|(n, _)| n.clone());
+        entry.lyrics = lyrics.as_ref().map(|(n, _)| n.clone());
+        entry.preview = preview.as_ref().map(|(n, _)| n.clone());
         // The keys the song list finds its charts' bests by (a work's
         // chart's own excessive setting among them).
         for chart in &mut entry.charts {
@@ -442,6 +496,12 @@ impl Reading {
                 chart.digest = Some(song.chart_digest(chart.index));
                 chart.excessive =
                     ddi_engine::rules::danoni::chart_excessive(&song.charts[chart.index]);
+                let own = song.effects_chart(chart.index);
+                chart.music = music_of
+                    .iter()
+                    .find(|(i, _)| *i == own)
+                    .map(|(_, n)| n.clone())
+                    .filter(|n| *n != entry.music);
             }
         }
         // A non-finite float does not survive JSON (`#SAMPLESTART:1e999`
@@ -465,6 +525,11 @@ impl Reading {
             music,
             banner,
             background,
+            jacket,
+            cd_title,
+            lyrics,
+            preview,
+            chart_music,
             bg_images,
             videos,
             videos_playing,
@@ -740,6 +805,78 @@ mod tests {
         // The animation that exists (another case: found anyway), not the
         // one found nowhere.
         assert_eq!(e.bg_scripted, vec!["Spin"]);
+    }
+
+    #[test]
+    fn jacket_cd_title_lyrics_preview_and_chart_music_are_found() {
+        let ssc = "#VERSION:0.83;#TITLE:S;#MUSIC:song.ogg;#JACKET:art/Cover.PNG;\
+                   #PREVIEW:cut.ogg;#BPMS:0=120;\n\
+                   #NOTEDATA:;#STEPSTYPE:dance-single;#DIFFICULTY:Easy;#METER:1;\
+                   #MUSIC:easy.ogg;#NOTES:\n1000\n0000\n0000\n0000\n;\n\
+                   #NOTEDATA:;#STEPSTYPE:dance-single;#DIFFICULTY:Hard;#METER:9;\
+                   #MUSIC:Song.ogg;#NOTES:\n1000\n0000\n0000\n0000\n;\n\
+                   #NOTEDATA:;#STEPSTYPE:dance-single;#DIFFICULTY:Challenge;#METER:10;\
+                   #MUSIC:gone.ogg;#NOTES:\n1000\n0000\n0000\n0000\n;\n";
+        let mut f = BTreeMap::new();
+        f.insert("P/S/s.ssc".into(), ssc.as_bytes().to_vec());
+        f.insert("P/S/song.ogg".into(), vec![0; 4]);
+        f.insert("P/S/easy.ogg".into(), vec![0; 4]);
+        f.insert("P/S/cut.ogg".into(), vec![0; 4]);
+        f.insert("P/S/art/cover.png".into(), png(512, 512));
+        f.insert("P/S/my cdtitle.png".into(), png(200, 60));
+        f.insert("P/S/words.lrc".into(), b"[00:01]la".to_vec());
+        f.insert("P/S/bn.png".into(), png(256, 80));
+        f.insert("P/S/bg.png".into(), png(640, 480));
+        let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
+        let scan = scan_root(&Files(f.clone()), &paths, "Mine", &[], &crate::legacy::none);
+        let s = &scan.songs[0];
+        let e = &s.entry;
+        assert_eq!(
+            e.jacket.as_deref().map(RelPath::as_str),
+            Some("art/cover.png")
+        );
+        assert_eq!(
+            e.cd_title.as_deref().map(RelPath::as_str),
+            Some("my cdtitle.png")
+        );
+        assert_eq!(e.lyrics.as_deref().map(RelPath::as_str), Some("words.lrc"));
+        assert_eq!(e.preview.as_deref().map(RelPath::as_str), Some("cut.ogg"));
+        let music: Vec<(usize, Option<&str>)> = e
+            .charts
+            .iter()
+            .map(|c| (c.index, c.music.as_deref().map(RelPath::as_str)))
+            .collect();
+        // Hard names the song's music (in other capitals): none of its own.
+        assert_eq!(music, vec![(0, Some("easy.ogg")), (1, None), (2, None)]);
+        assert_eq!(e.music_for(0), "easy.ogg");
+        assert_eq!(e.music_for(2), "song.ogg");
+        assert!(
+            s.notes.iter().any(|n| n.contains("gone.ogg")),
+            "{:?}",
+            s.notes
+        );
+        // Stored on the web by role.
+        let c = &pack::find_songs(&paths, "Mine")[0];
+        let reading = read_song(c, ssc.as_bytes(), &paths, &crate::legacy::none).unwrap();
+        let built = reading
+            .finish(&paths, &[], Vec::new(), Naming::Stored)
+            .unwrap();
+        let e = &built.scanned.entry;
+        assert_eq!(e.jacket.as_deref().map(RelPath::as_str), Some("jacket.png"));
+        assert_eq!(
+            e.cd_title.as_deref().map(RelPath::as_str),
+            Some("cdtitle.png")
+        );
+        assert_eq!(e.lyrics.as_deref().map(RelPath::as_str), Some("lyrics.lrc"));
+        assert_eq!(
+            e.preview.as_deref().map(RelPath::as_str),
+            Some("preview.ogg")
+        );
+        assert_eq!(e.music_for(0), "music-1.ogg");
+        assert_eq!(
+            built.chart_music,
+            vec![("music-1.ogg".into(), "P/S/easy.ogg".into())]
+        );
     }
 
     #[test]

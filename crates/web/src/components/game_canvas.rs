@@ -908,6 +908,14 @@ impl GameCanvas {
             }
             Msg::Decoded(Ok((audio, buffer))) => {
                 self.shell.pad_ctx.borrow_mut().take();
+                // The music's length, for tests (a chart's own music).
+                if let Some(d) = crate::web::debug_object() {
+                    let _ = js_sys::Reflect::set(
+                        &d,
+                        &"music_seconds".into(),
+                        &buffer.duration().into(),
+                    );
+                }
                 // Probe the devices now that the context is running.
                 let refresh = self.refresh_hz();
                 let profile = DeviceProfile {
@@ -2369,7 +2377,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
     // Off: no movie file is read and the decoder is never fetched.
     let play_videos = show_background && settings.video != VideoMode::Off;
     ctx.link().send_future(async move {
-        let r = load_song(&id).await.map(|loaded| {
+        let r = load_song(&id, chart).await.map(|loaded| {
             // The song's own images, then those found in shared folders,
             // under the names it uses; the movies that play.
             let bg_images: Vec<String> = loaded

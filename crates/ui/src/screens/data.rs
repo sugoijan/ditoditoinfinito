@@ -250,6 +250,10 @@ pub struct SongEntry {
     /// Texture sources ([`crate::Cx::texture`]).
     pub banner: Option<String>,
     pub background: Option<String>,
+    /// Its jacket (square art) and CD title (a small mark), texture
+    /// sources too.
+    pub jacket: Option<String>,
+    pub cd_title: Option<String>,
     /// Easiest first within a style.
     pub charts: Vec<ChartEntry>,
     /// Imported: it can be removed.

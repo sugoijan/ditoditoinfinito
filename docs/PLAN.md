@@ -438,13 +438,12 @@ Charts and import:
   played anyway (`docs/plans/pump.md`).
 - *New:* `#ATTACKS` (song and chart) is parsed, but no modifier is ever
   applied; per-note `{mods}` are skipped (section 2.1).
-- *New:* `#LYRICSPATH` (`.lrc` lyrics) is ignored; only Dancing☆Onigiri
-  lyrics are drawn.
-- *New:* `.ssc` per-chart `#MUSIC`, `#PREVIEW` (a separate preview file)
-  and `#PREVIEWVID` are not used; `#JACKET` and `#CDTITLE` are read (so
-  their images are not taken as banner or background) but never shown.
+- `.lrc` lyrics, jackets, CD titles, `.ssc` per-chart `#MUSIC` and
+  `#PREVIEW` are used since 2026-10-21 (`docs/plans/format-gaps.md`);
+  `#PREVIEWVID` is read but not shown.
 - *New:* zips with encrypted entries, compression other than stored or
-  deflate, or several disks are refused (`crates/library/src/zip.rs`).
+  deflate, or several disks are refused (`crates/library/src/zip.rs`;
+  kept, `docs/plans/format-gaps.md` decision 11).
 - Layouts not played (couple, routine, techno, kb7, para, ez2, …) are
   left out with a note (decision 27); KSF, BMS, `.osu` and FFR are not
   read (section 2.1, phase 10); keysounds are a non-goal (section 1).
@@ -454,7 +453,8 @@ Charts and import:
 - Songs imported before a change need importing again to gain it:
   transliterations for search, pump charts, legacy skins' files,
   Shift-JIS, Korean and Chinese text, background files named with `,`
-  or `=` (this section; `docs/plans/format-gaps.md`, `docs/plans/pump.md`,
+  or `=`, lyrics, jackets, CD titles, chart and preview music (this
+  section; `docs/plans/format-gaps.md`, `docs/plans/pump.md`,
   `docs/plans/legacy-skins.md`, decision 31).
 
 Rules and options:

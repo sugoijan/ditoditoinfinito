@@ -634,6 +634,7 @@ impl Host {
                     && s.video != ddi_ui::state::settings::VideoMode::Off;
                 r.loading = Some(Loading::start(
                     &r.request.song,
+                    Some(r.request.chart),
                     r.rate,
                     movies,
                     self.wake.clone(),

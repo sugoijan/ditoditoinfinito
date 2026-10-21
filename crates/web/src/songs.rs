@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use ddi_chart::Song;
 use ddi_library::backgrounds::BgImage;
+use ddi_library::path::RelPath;
 use ddi_library::scan::parse_simfile;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
@@ -275,15 +276,24 @@ const PACK_ART_PREFIX: &str = "packs/";
 
 /// A song's encoded audio, bundled or imported (for previews).
 pub(crate) async fn load_music(entry: &ManifestEntry) -> Result<Vec<u8>, String> {
+    load_file(entry, &entry.music).await
+}
+
+/// What song select's preview plays: the `.ssc` `#PREVIEW` file when the
+/// song has one, else its music.
+pub(crate) async fn load_preview_music(entry: &ManifestEntry) -> Result<Vec<u8>, String> {
+    load_file(entry, entry.preview.as_ref().unwrap_or(&entry.music)).await
+}
+
+/// A file of a song, bundled or imported, by the name its entry uses.
+async fn load_file(entry: &ManifestEntry, file: &RelPath) -> Result<Vec<u8>, String> {
     if is_imported_id(&entry.id) {
         let db = Db::open().await?;
         let song = imported_record(&db, &entry.id).await?;
-        let blob = song_file(&db, &song, &entry.music)
-            .await
-            .map_err(|e| e.message())?;
+        let blob = song_file(&db, &song, file).await.map_err(|e| e.message())?;
         blob_bytes(&blob).await
     } else {
-        fetch_bytes(&format!("songs/{}/{}", entry.id, entry.music)).await
+        fetch_bytes(&format!("songs/{}/{file}", entry.id)).await
     }
 }
 
@@ -658,24 +668,37 @@ pub(crate) async fn load_chart(id: &str) -> Result<Song, LoadError> {
     parse_found(&find_song(id).await?).await
 }
 
-/// Finds a song by id among bundled and imported songs and loads it.
-pub(crate) async fn load_song(id: &str) -> Result<LoadedSong, LoadError> {
+/// Finds a song by id among bundled and imported songs and loads it,
+/// with the music chart `chart` plays (`.ssc` per-chart `#MUSIC`) and its
+/// `.lrc` lyrics.
+pub(crate) async fn load_song(id: &str, chart: usize) -> Result<LoadedSong, LoadError> {
     let found = find_song(id).await?;
-    let song = parse_found(&found).await?;
-    let music_bytes = match &found.origin {
-        Origin::Bundled => {
-            let entry = &found.entry;
-            fetch_bytes(&format!("songs/{}/{}", entry.id, entry.music)).await?
-        }
-        Origin::Imported(_) => {
-            let song = found
-                .record
-                .as_ref()
-                .ok_or("the stored song went missing")?;
-            let db = Db::open().await?;
-            blob_bytes(&song_file(&db, song, &found.entry.music).await?).await?
-        }
+    let mut song = parse_found(&found).await?;
+    let music = found.entry.music_for(chart);
+    let read = async |file: &RelPath| -> Result<Vec<u8>, LoadError> {
+        Ok(match &found.origin {
+            Origin::Bundled => fetch_bytes(&format!("songs/{}/{file}", found.entry.id)).await?,
+            Origin::Imported(_) => {
+                let song = found
+                    .record
+                    .as_ref()
+                    .ok_or("the stored song went missing")?;
+                let db = Db::open().await?;
+                blob_bytes(&song_file(&db, song, file).await?).await?
+            }
+        })
     };
+    let music_bytes = read(music).await?;
+    if let Some(lyrics) = &found.entry.lyrics {
+        // A play shows none when they cannot be read.
+        match read(lyrics).await {
+            Ok(bytes) => ddi_chart::formats::lrc::add_lyrics(
+                &mut song,
+                &ddi_library::pack::decode_text_with(&bytes, crate::import::legacy_text),
+            ),
+            Err(e) => web_sys::console::warn_1(&format!("lyrics {lyrics}: {}", e.message()).into()),
+        }
+    }
     let Found {
         entry,
         origin,

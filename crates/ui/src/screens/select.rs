@@ -1369,7 +1369,21 @@ impl SelectScreen {
             560.0
         };
         let banner = song.banner.as_deref().map(|b| cx.texture(b, side));
-        set_image(info, "Banner", banner);
+        // A jacket: its square beside a narrower banner.
+        let jacket = song.jacket.as_deref().map(|j| cx.texture(j, side));
+        let (wide, short) = if jacket.is_some() {
+            (None, banner)
+        } else {
+            (banner, None)
+        };
+        set_image(info, "Banner", wide);
+        set_image(info, "BannerShort", short);
+        set_image(info, "Jacket", jacket);
+        if let Some(back) = part(info, "JacketBack") {
+            back.visible = jacket.is_some();
+        }
+        let cd_title = song.cd_title.as_deref().map(|c| cx.texture(c, 128.0));
+        set_image(info, "CdTitle", cd_title);
         if self.layout.compact {
             let pack = song.pack.clone();
             if let Some(t) = hit::find_mut(root, "PackTitle")

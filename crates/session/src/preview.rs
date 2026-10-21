@@ -18,3 +18,15 @@ pub fn length(sample_length: f64) -> f64 {
         DEFAULT_LENGTH
     }
 }
+
+/// How long a separate preview file (`.ssc` `#PREVIEW`) plays, from its
+/// start: its `#SAMPLELENGTH` when it gives one, else the whole file
+/// (StepMania takes the file's length then, `Song::TidyUpData`), at most
+/// [`MAX_LENGTH`] either way; a shorter file ends sooner.
+pub fn file_length(sample_length: f64) -> f64 {
+    if sample_length > 0.0 {
+        sample_length.min(MAX_LENGTH)
+    } else {
+        MAX_LENGTH
+    }
+}

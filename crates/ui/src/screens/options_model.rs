@@ -698,7 +698,8 @@ impl OptionsModel {
                     "Lyrics",
                     &["Off", "On"],
                     s.lyrics as usize,
-                    "Shows the lyrics of songs that have them (Dancing☆Onigiri works).",
+                    "Shows the lyrics of songs that have them (Dancing☆Onigiri works, songs with a \
+                     lyrics file).",
                 ),
                 brightness,
                 choice(

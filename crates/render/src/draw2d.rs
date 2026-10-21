@@ -89,6 +89,9 @@ pub struct Quad {
     pub texture: Option<TextureId>,
     /// Preserve aspect ratio with a centered cover crop.
     pub cover: bool,
+    /// Preserve aspect ratio, the whole image fitted in the rectangle
+    /// and centred in it (letterboxed).
+    pub contain: bool,
     /// The texture's rectangle, in fractions of it.
     pub uv: Rect,
     /// Top left, top right, bottom right, bottom left; encoded, straight
@@ -179,6 +182,7 @@ impl Quad {
             transform: Affine::IDENTITY,
             texture: None,
             cover: false,
+            contain: false,
             uv: [0.0, 0.0, 1.0, 1.0],
             colors: [color; 4],
             blend: Blend::Normal,

@@ -123,13 +123,30 @@ fn the_plain_looks_components_are_restyled_with_their_parts() {
             "SongInfo",
             s(560.0, 280.0, ""),
             &[
-                "Banner", "Title", "Subtitle", "Artist", "Bpm", "Length", "Pack",
+                "Banner",
+                "BannerShort",
+                "Jacket",
+                "JacketBack",
+                "CdTitle",
+                "Title",
+                "Subtitle",
+                "Artist",
+                "Bpm",
+                "Length",
+                "Pack",
             ],
         ),
         (
             "SongInfo",
             s(300.0, 140.0, ""),
-            &["Banner", "Title", "Line"],
+            &[
+                "Banner",
+                "BannerShort",
+                "Jacket",
+                "CdTitle",
+                "Title",
+                "Line",
+            ],
         ),
         (
             "StyleTab",
@@ -689,6 +706,75 @@ fn a_flick_leaves_no_gap_on_the_wheels_line() {
         worst <= gap + 6.0,
         "a gap of {worst} on the line (rows {gap} apart)"
     );
+}
+
+/// A song's jacket shows beside its banner, its CD title in the banner's
+/// corner; a song without them shows its banner across.
+#[test]
+fn jackets_and_cd_titles_show_with_the_banner() {
+    use ddi_ui::screens::select::SelectScreen;
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let mut d = sample::select();
+    let song = d
+        .songs
+        .iter_mut()
+        .find(|s| s.id == "some-things-must")
+        .unwrap();
+    song.jacket = Some("songs/some-things-must/jacket.png".into());
+    song.cd_title = Some("songs/some-things-must/cd.png".into());
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    h.push(SelectScreen::new(
+        env.clone(),
+        d.clone(),
+        Some("some-things-must"),
+        Rc::new(|_, _, _: &Env, _| {}),
+        Rc::new(|_, _| {}),
+    ));
+    h.run(0.6);
+    let source = |h: &Harness, name: &str| -> Option<String> {
+        let a = h.actor(name);
+        let Kind::Sprite(s) = &a.kind else {
+            panic!("{name}")
+        };
+        a.visible
+            .then(|| h.ui.texture_source(s.texture))
+            .flatten()
+            .map(|t| t.source.to_string())
+    };
+    assert_eq!(
+        source(&h, "Jacket").as_deref(),
+        Some("songs/some-things-must/jacket.png")
+    );
+    assert_eq!(
+        source(&h, "CdTitle").as_deref(),
+        Some("songs/some-things-must/cd.png")
+    );
+    assert!(source(&h, "BannerShort").is_some());
+    let jacket = h.ui.bounds("Jacket").unwrap();
+    let short = h.ui.bounds("BannerShort").unwrap();
+    // Square, at the right of the narrower banner, as tall.
+    assert!(((jacket[2] - jacket[0]) - (jacket[3] - jacket[1])).abs() < 0.5);
+    assert!(short[2] <= jacket[0]);
+    assert!((short[3] - jacket[3]).abs() < 0.5);
+    // Without: the banner across, nothing else.
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    let mut plain = d;
+    for s in &mut plain.songs {
+        s.jacket = None;
+        s.cd_title = None;
+    }
+    h.push(SelectScreen::new(
+        env.clone(),
+        plain,
+        Some("some-things-must"),
+        Rc::new(|_, _, _: &Env, _| {}),
+        Rc::new(|_, _| {}),
+    ));
+    h.run(0.6);
+    assert_eq!(source(&h, "Jacket"), None);
+    assert_eq!(source(&h, "BannerShort"), None);
+    assert_eq!(source(&h, "CdTitle"), None);
 }
 
 /// Many styles: the tabs never run into the wheel; named charts by name,

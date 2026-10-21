@@ -1057,7 +1057,14 @@ impl GameLoop {
             .ok()
             .filter(|v| v.is_object())
         {
-            for key in ["ui", "results", "prompt", "prompt_backdrop", "replay"] {
+            for key in [
+                "ui",
+                "results",
+                "prompt",
+                "prompt_backdrop",
+                "replay",
+                "music_seconds",
+            ] {
                 if let Ok(v) = js_sys::Reflect::get(&old, &key.into())
                     && !v.is_undefined()
                 {

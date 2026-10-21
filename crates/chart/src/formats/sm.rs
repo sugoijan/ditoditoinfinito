@@ -1095,7 +1095,6 @@ fn is_ignored_tag(name: &str) -> bool {
     matches!(
         name,
         "SELECTABLE"
-            | "LYRICSPATH"
             | "MUSICLENGTH"
             | "MUSICBYTES"
             | "LASTSECONDHINT"

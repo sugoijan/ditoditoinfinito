@@ -215,15 +215,27 @@ pub struct ResolvedAssets {
     pub music: Option<RelPathBuf>,
     pub banner: Option<RelPathBuf>,
     pub background: Option<RelPathBuf>,
+    /// The jacket (`#JACKET`) and CD title (`#CDTITLE`), found as the
+    /// banner is, or by size ([`classify_images`]).
+    pub jacket: Option<RelPathBuf>,
+    pub cd_title: Option<RelPathBuf>,
+    /// The `.lrc` lyrics (`#LYRICSPATH`, else the first `.lrc` in the song
+    /// directory, as `Song::TidyUpData` finds them).
+    pub lyrics: Option<RelPathBuf>,
+    /// The `.ssc` `#PREVIEW` sound file, when it exists.
+    pub preview: Option<RelPathBuf>,
+    /// The `.ssc` charts' own `#MUSIC` that exist, `(chart index, path)`.
+    pub chart_music: Vec<(usize, RelPathBuf)>,
     /// Images directly in the song directory that are neither the banner
     /// nor the background, nor recognisably another kind of song image (CD
     /// title, jacket, CD image, disc; see [`resolve_assets`]), sorted.
     /// Candidates for [`classify_images`].
     pub unclassified: Vec<RelPathBuf>,
-    /// `(tag, reference)` for `#MUSIC`, `#BANNER` and `#BACKGROUND` values
-    /// that name a file the import does not have (a fallback may still
-    /// have been found).
-    pub missing: Vec<(&'static str, String)>,
+    /// `(tag, reference)` for `#MUSIC`, `#BANNER`, `#BACKGROUND`,
+    /// `#JACKET`, `#CDTITLE`, `#LYRICSPATH`, `#PREVIEW` and charts'
+    /// `#MUSIC` (as `#MUSIC (chart n)`) values that name a file the import
+    /// does not have (a fallback may still have been found).
+    pub missing: Vec<(String, String)>,
 }
 
 /// Resolves the song's `#MUSIC`, `#BANNER` and `#BACKGROUND` against the
@@ -320,34 +332,76 @@ pub fn resolve_assets<S: AsRef<str>>(
             s.contains("background") || s.ends_with("bg")
         })
     });
-    let other_refs = [find(song.jacket.as_deref()), find(song.cd_title.as_deref())];
+    // The jacket and CD title by their tags, else by their names
+    // (`Song::TidyUpData`: a jacket's starts with `jk_` or contains
+    // `jacket` or `albumart`, a CD title's contains `cdtitle`).
+    let taken = |p: &str| {
+        let p = Some(RelPath::new(p));
+        p != banner.as_deref() && p != background.as_deref()
+    };
+    let named_image = |matches: &dyn Fn(&str) -> bool| -> Option<RelPathBuf> {
+        images
+            .iter()
+            .filter(|p| taken(p))
+            .find(|p| matches(&stem(p).to_lowercase()))
+            .map(|p| RelPathBuf::from(*p))
+    };
+    let jacket = find(song.jacket.as_deref()).or_else(|| {
+        named_image(&|s| s.starts_with("jk_") || s.contains("jacket") || s.contains("albumart"))
+    });
+    let cd_title =
+        find(song.cd_title.as_deref()).or_else(|| named_image(&|s| s.contains("cdtitle")));
     let unclassified = images
         .iter()
+        .filter(|p| taken(p))
         .filter(|p| {
             let p = Some(RelPath::new(**p));
-            p != banner.as_deref()
-                && p != background.as_deref()
-                && !other_refs.iter().any(|r| r.as_deref() == p)
+            p != jacket.as_deref() && p != cd_title.as_deref()
         })
         .filter(|p| !names_other_image(&stem(p).to_lowercase()))
         .map(|p| RelPathBuf::from(*p))
         .collect();
-    let missing = [
+    let lyrics =
+        find(song.lyrics_path()).or_else(|| with_ext(&["lrc"]).first().map(|p| (*p).into()));
+    let preview = find(song.preview_music());
+    let chart_music: Vec<(usize, RelPathBuf)> = (0..song.charts.len())
+        .filter_map(|i| Some((i, find(song.chart_music(i))?)))
+        .collect();
+    let mut missing: Vec<(String, String)> = [
         ("#MUSIC", song.music.as_deref()),
         ("#BANNER", song.banner.as_deref()),
         ("#BACKGROUND", song.background.as_deref()),
+        ("#JACKET", song.jacket.as_deref()),
+        ("#CDTITLE", song.cd_title.as_deref()),
+        ("#LYRICSPATH", song.lyrics_path()),
+        ("#PREVIEW", song.preview_music()),
     ]
     .into_iter()
     .filter_map(|(tag, reference)| {
         let reference = reference?.trim();
         (!reference.is_empty() && find(Some(reference)).is_none())
-            .then(|| (tag, reference.to_string()))
+            .then(|| (tag.to_string(), reference.to_string()))
     })
     .collect();
+    // Each chart's own music once (generated versions name their
+    // original's).
+    for i in 0..song.charts.len() {
+        let Some(reference) = song.chart_music(i).map(str::trim) else {
+            continue;
+        };
+        if song.effects_chart(i) == i && !reference.is_empty() && find(Some(reference)).is_none() {
+            missing.push((format!("#MUSIC (chart {})", i + 1), reference.to_string()));
+        }
+    }
     ResolvedAssets {
         music,
         banner,
         background,
+        jacket,
+        cd_title,
+        lyrics,
+        preview,
+        chart_music,
         unclassified,
         missing,
     }
@@ -450,7 +504,7 @@ fn names_other_image(stem: &str) -> bool {
         || stem.ends_with(" title")
 }
 
-/// Fills a missing banner or background from
+/// Fills a missing banner, background, CD title or jacket from
 /// [`ResolvedAssets::unclassified`] by pixel size, StepMania 5.1's last
 /// resort (`Song::TidyUpData`). `sizes` maps image paths (as listed in
 /// `unclassified`) to `(width, height)`, e.g. from
@@ -462,19 +516,25 @@ fn names_other_image(stem: &str) -> bool {
 /// 1. no background yet, at least 320×240: background;
 /// 2. no banner yet, 100–320 wide and 50–240 high: banner;
 /// 3. no banner yet, wider than 200 and wider than 2:1: banner (overlarge
-///    banners).
+///    banners);
+/// 4. no CD title yet, at most 100×48: CD title;
+/// 5. no jacket yet, square: jacket.
 ///
 /// So a large wide image becomes the background when it comes first. An
 /// image taken for one slot is removed from `unclassified` and never fills
-/// the other. StepMania then goes on to classify CD titles (≤ 100×48),
-/// jackets (square) and discs in the same loop; those cannot change which
-/// image becomes banner or background, since every image is tested for
-/// those first, so they are not modelled. Unlike StepMania, candidates come
-/// in sorted order rather than file system listing order.
+/// another. Once banner, background and CD title are all known the
+/// search stops, as StepMania's loop does (a jacket is then not looked
+/// for). StepMania goes on to classify discs and CD images, which nothing
+/// here shows. Unlike StepMania, candidates come in sorted order rather
+/// than file system listing order.
 pub fn classify_images(assets: &mut ResolvedAssets, sizes: &[(RelPathBuf, (u32, u32))]) {
     let size_of = |path: &RelPath| sizes.iter().find(|(p, _)| p == path).map(|&(_, size)| size);
     let mut remaining = Vec::with_capacity(assets.unclassified.len());
     for path in std::mem::take(&mut assets.unclassified) {
+        if assets.banner.is_some() && assets.background.is_some() && assets.cd_title.is_some() {
+            remaining.push(path);
+            continue;
+        }
         let Some((w, h)) = size_of(&path).filter(|&(w, h)| w > 0 && h > 0) else {
             remaining.push(path);
             continue;
@@ -485,6 +545,10 @@ pub fn classify_images(assets: &mut ResolvedAssets, sizes: &[(RelPathBuf, (u32, 
             assets.background = Some(path);
         } else if assets.banner.is_none() && (banner_sized || overlarge_banner) {
             assets.banner = Some(path);
+        } else if assets.cd_title.is_none() && w <= 100 && h <= 48 {
+            assets.cd_title = Some(path);
+        } else if assets.jacket.is_none() && w == h {
+            assets.jacket = Some(path);
         } else {
             remaining.push(path);
         }
@@ -910,7 +974,10 @@ mod tests {
         );
         // The missing `#MUSIC` is reported even though a fallback was found;
         // an empty `#BANNER` names nothing.
-        assert_eq!(r.missing, vec![("#MUSIC", "missing.ogg".to_string())]);
+        assert_eq!(
+            r.missing,
+            vec![("#MUSIC".to_string(), "missing.ogg".to_string())]
+        );
 
         // A single intro-named file is still the music.
         let r = resolve_assets(&song(""), RelPath::new("S"), &["S/s.sm", "S/Intro.wav"]);
@@ -988,8 +1055,9 @@ mod tests {
         assert_eq!(r.banner.as_deref().map(RelPath::as_str), Some("S/song.png"));
         assert!(r.unclassified.is_empty());
 
-        // Background first when large; overlarge 2:1+ banner; tiny CD
-        // title, square jacket and unknown sizes stay unclassified.
+        // Background first when large; overlarge 2:1+ banner; a tiny
+        // image the CD title, a square one the jacket; unknown sizes stay
+        // unclassified.
         let mut r = ResolvedAssets {
             unclassified: ["a", "b", "c", "d", "e", "f"]
                 .map(RelPathBuf::from)
@@ -1009,7 +1077,20 @@ mod tests {
         assert_eq!(r.background.as_deref().map(RelPath::as_str), Some("c"));
         // 1024×320 is ≥ 320×240, but the background is taken: banner by ratio.
         assert_eq!(r.banner.as_deref().map(RelPath::as_str), Some("d"));
-        assert_eq!(r.unclassified, ["a", "b", "e", "f"]);
+        assert_eq!(r.cd_title.as_deref().map(RelPath::as_str), Some("a"));
+        assert_eq!(r.jacket.as_deref().map(RelPath::as_str), Some("b"));
+        assert_eq!(r.unclassified, ["e", "f"]);
+        // Once banner, background and CD title are known, no jacket is
+        // looked for (StepMania's loop stops).
+        let mut r = ResolvedAssets {
+            banner: Some("bn".into()),
+            background: Some("bg".into()),
+            cd_title: Some("cd".into()),
+            unclassified: vec!["sq".into()],
+            ..Default::default()
+        };
+        classify_images(&mut r, &sizes(&[("sq", (300, 300))]));
+        assert_eq!(r.jacket, None);
 
         // A wide image seen before any background becomes the background,
         // as in StepMania; 300×300 is not banner-shaped.

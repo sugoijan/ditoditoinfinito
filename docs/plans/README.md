@@ -48,6 +48,10 @@ architecture, the decisions and the roadmap they belong to. Status as of
   Double and Techno 8-panel, marked as assisted.
 - [Song-select navigation](song-navigation.md) (2026-10-20): done; the
   reference for the tuned timings of taps, pairs and holds.
+- [Smaller chart and import format gaps](format-gaps.md) (2026-10-21):
+  done: `.lrc` lyrics, jackets and CD titles, per-chart and preview
+  music, background names with `,` or `=`, Korean and Chinese text.
+  Left: `#PREVIEWVID`, zips with other compression methods.
 
 ## Presentation and video
 

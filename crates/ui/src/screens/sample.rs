@@ -154,6 +154,8 @@ pub fn bundled() -> Vec<SongEntry> {
                 length: *length,
                 banner: Some(format!("songs/{id}/{banner}")),
                 background: background.map(|b| format!("songs/{id}/{b}")),
+                jacket: None,
+                cd_title: None,
                 removable: false,
                 offset_ms: 0,
                 title_translit: String::new(),

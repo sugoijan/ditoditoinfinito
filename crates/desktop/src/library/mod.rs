@@ -47,7 +47,8 @@ use files::{DirReader, Listed, ZipReader};
 pub const FOLDERS_KEY: &str = "ddi.desktop.folders.v1";
 /// Packs and songs the player removed from the list (files kept).
 pub const HIDDEN_KEY: &str = "ddi.desktop.hidden.v1";
-/// The cache's file (in the cache folder) and version (7: background
+/// The cache's file (in the cache folder) and version (7: jackets, CD
+/// titles, lyrics, preview and charts' music, background
 /// files named with `,` or `=`; 6: pack covers;
 /// version 5 added generated onigiri-free charts).
 pub const CACHE_FILE: &str = "library-v1.json";
@@ -1315,6 +1316,8 @@ struct Prepared {
     music: PathBuf,
     from: f64,
     length: f64,
+    /// A separate preview file (`#PREVIEW`), played from its start.
+    separate: bool,
     timing: ddi_chart::TimingMap,
     target: ddi_platform::mp3::Target,
 }
@@ -1381,6 +1384,9 @@ pub fn preview_song(id: &str) -> Option<crate::preview::PreviewSong> {
                 p.timing.clone(),
             );
             song.target = p.target;
+            if p.separate {
+                song.length = ddi_session::preview::file_length(p.length);
+            }
             return Some(song);
         }
         Some(Prep::Running | Prep::Failed) => return None,
@@ -1423,19 +1429,21 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
             root: s.root.clone(),
         })
     };
+    // A separate preview file (`#PREVIEW`), else the music.
+    let file = s.entry.preview.as_ref().unwrap_or(&s.entry.music);
     let music = if s.zip {
         let dir = cache_dir()?.join("previews");
-        let ext = s.entry.music.extension().unwrap_or("ogg");
+        let ext = file.extension().unwrap_or("ogg");
         let stamp = zip_stamp(&s.root)?.replace(':', "-");
         let key = format!("{}-", s.entry.id);
         let out = dir.join(format!("{key}{stamp}.{ext}"));
         if !out.is_file() {
-            let bytes = reader.read(&s.rooted(&s.entry.music)).ok()?;
+            let bytes = reader.read(&s.rooted(file)).ok()?;
             cache_preview(&dir, &key, &out, &bytes)?;
         }
         out
     } else {
-        s.rooted(&s.entry.music).to_path(&s.root)?
+        s.rooted(file).to_path(&s.root)?
     };
     // The timing for the beat pulse, from the simfile as it is now.
     let text = pack::decode_text_with(&reader.read(&s.rooted(&s.entry.chart)).ok()?, legacy_text);
@@ -1448,8 +1456,13 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
     let parsed = ddi_chart::formats::sm::parse_simfile(&text, &ext).ok()?;
     Some(Prepared {
         music,
-        from: s.entry.preview_start,
+        from: if s.entry.preview.is_some() {
+            0.0
+        } else {
+            s.entry.preview_start
+        },
         length: s.entry.preview_length,
+        separate: s.entry.preview.is_some(),
         timing: parsed.timing,
         target: Default::default(),
     })
@@ -1487,6 +1500,7 @@ fn prepare_work_preview(s: &LibSong, w: &WorkRef) -> Option<Prepared> {
         music,
         from: 0.0,
         length: 0.0,
+        separate: false,
         target: ddi_session::music_target(&song),
         timing: song.timing,
     })

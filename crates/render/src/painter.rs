@@ -154,6 +154,27 @@ struct Globals {
     _pad: [f32; 3],
 }
 
+/// `rect` (drawn `shown` wide over high) narrowed to an image `image`
+/// wide over high, centred: the whole image in it.
+fn contain_rect(rect: [f32; 4], shown: f32, image: f32) -> [f32; 4] {
+    let [x0, y0, x1, y1] = rect;
+    let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+    if !(shown > 0.0 && image > 0.0) {
+        return rect;
+    }
+    let (sx, sy) = if image > shown {
+        (1.0, shown / image)
+    } else {
+        (image / shown, 1.0)
+    };
+    [
+        cx + (x0 - cx) * sx,
+        cy + (y0 - cy) * sy,
+        cx + (x1 - cx) * sx,
+        cy + (y1 - cy) * sy,
+    ]
+}
+
 /// A color as 8-bit RGBA (memory order r, g, b, a).
 fn pack(c: [f32; 4]) -> u32 {
     let b = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
@@ -941,6 +962,29 @@ impl Painter {
                     } else {
                         q.uv
                     };
+                    // Contained: the rectangle narrowed to the image's shape,
+                    // centred (nothing drawn until its size is known).
+                    let rect = if q.contain {
+                        match bind {
+                            Bind::Image(id) => match textures.get(id) {
+                                Some(image) => {
+                                    let m = q.transform.0;
+                                    let w = (q.rect[2] - q.rect[0]).abs() * m[0].hypot(m[1]);
+                                    let h = (q.rect[3] - q.rect[1]).abs() * m[2].hypot(m[3]);
+                                    contain_rect(
+                                        q.rect,
+                                        w / h.max(f32::MIN_POSITIVE),
+                                        image.texture.width() as f32
+                                            / (image.texture.height() as f32).max(1.0),
+                                    )
+                                }
+                                None => continue,
+                            },
+                            _ => continue,
+                        }
+                    } else {
+                        q.rect
+                    };
                     let colors = if q.cover && matches!(bind, Bind::Blank) && q.texture.is_some() {
                         // Keep the previous base visible while a new picture loads.
                         [[0.0; 4]; 4]
@@ -972,7 +1016,7 @@ impl Painter {
                                 axes,
                                 origin,
                                 mode,
-                                rect: q.rect,
+                                rect,
                                 uv,
                                 colors: colors.map(pack),
                                 shape: [sh.radius[0], sh.radius[1], sh.soft[0], sh.soft[1]],
@@ -1254,6 +1298,24 @@ impl TextMeasure for PainterMeasure<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contained_images_keep_their_shape() {
+        // A 2:1 image in a 1:1 box: full width, half height, centred.
+        assert_eq!(
+            contain_rect([-0.5, -0.5, 0.5, 0.5], 1.0, 2.0),
+            [-0.5, -0.25, 0.5, 0.25]
+        );
+        // A 4:3 image in a 64×48 box fills it; a 1:2 one is narrowed.
+        assert_eq!(
+            contain_rect([0.0, 0.0, 64.0, 48.0], 64.0 / 48.0, 4.0 / 3.0),
+            [0.0, 0.0, 64.0, 48.0]
+        );
+        assert_eq!(
+            contain_rect([0.0, 0.0, 64.0, 48.0], 64.0 / 48.0, 0.5),
+            [20.0, 0.0, 44.0, 48.0]
+        );
+    }
 
     #[test]
     fn shader_validates() {

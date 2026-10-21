@@ -31,6 +31,20 @@ pub struct ManifestEntry {
     pub banner: Option<RelPathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<RelPathBuf>,
+    /// The jacket (square art) and CD title (a small mark) song select
+    /// shows (`#JACKET`, `#CDTITLE`, or found as StepMania finds them).
+    /// Missing in songs imported before 2026-10-21.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jacket: Option<RelPathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cd_title: Option<RelPathBuf>,
+    /// The `.lrc` lyrics a play shows (`#LYRICSPATH`, or the folder's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lyrics: Option<RelPathBuf>,
+    /// The `.ssc` `#PREVIEW` sound song select plays instead of the
+    /// music's sample.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<RelPathBuf>,
     /// Images the song's background changes show, relative to the song
     /// directory as the simfile names them
     /// ([`crate::backgrounds::referenced_images`]). Imported songs store
@@ -141,6 +155,16 @@ impl ManifestEntry {
         crate::scan::song_dir_names(RelPath::new(""), &names)
     }
 
+    /// The music chart `index` (of `Song::charts`) plays: its own, else the
+    /// song's.
+    pub fn music_for(&self, index: usize) -> &RelPath {
+        self.charts
+            .iter()
+            .find(|c| c.index == index)
+            .and_then(|c| c.music.as_deref())
+            .unwrap_or(&self.music)
+    }
+
     /// Whether stored chart data should be reread to add missing versions.
     pub fn needs_chart_variants(&self) -> bool {
         self.variants_version < VARIANTS_VERSION
@@ -212,6 +236,10 @@ pub struct ChartInfo {
     /// older imports when their chart is next read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub excessive: Option<bool>,
+    /// The chart's own music (`.ssc` per-chart `#MUSIC`) when not the
+    /// song's ([`ManifestEntry::music_for`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music: Option<RelPathBuf>,
 }
 
 impl ChartInfo {
@@ -233,6 +261,7 @@ impl ChartInfo {
             notes: chart.judged_note_count(),
             digest,
             excessive: None,
+            music: None,
         }
     }
 }
@@ -328,6 +357,10 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         music: meta.music,
         banner: meta.banner,
         background: meta.background,
+        jacket: None,
+        cd_title: None,
+        lyrics: None,
+        preview: None,
         bg_images: meta.bg_images,
         bg_videos: meta.bg_videos,
         bg_shared: meta.bg_shared,
@@ -473,6 +506,10 @@ mod tests {
             music: "m.ogg".into(),
             banner: None,
             background: Some("bg.png".into()),
+            jacket: None,
+            cd_title: None,
+            lyrics: None,
+            preview: None,
             bg_images: Vec::new(),
             bg_videos: Vec::new(),
             bg_shared: Vec::new(),

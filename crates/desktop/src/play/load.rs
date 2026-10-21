@@ -320,13 +320,21 @@ pub struct Loaded {
 
 /// Reads song `id` and decodes its music at `rate` Hz, its movies found.
 pub fn load(id: &str, rate: u32) -> Result<Loaded, String> {
-    load_with(id, rate, true, &std::sync::atomic::AtomicBool::new(false))
+    load_with(
+        id,
+        None,
+        rate,
+        true,
+        &std::sync::atomic::AtomicBool::new(false),
+    )
 }
 
-/// [`load`]; with `with_movies`, its movies found (a zip's compressed
-/// ones extracted).
+/// [`load`]; with `chart`, the music that chart plays (`.ssc` per-chart
+/// `#MUSIC`, `ManifestEntry::music_for`; else the song's); with
+/// `with_movies`, its movies found (a zip's compressed ones extracted).
 pub fn load_with(
     id: &str,
+    chart: Option<usize>,
     rate: u32,
     with_movies: bool,
     cancel: &std::sync::atomic::AtomicBool,
@@ -345,9 +353,10 @@ pub fn load_with(
         .to_ascii_lowercase();
     let mut song = ddi_library::scan::parse_simfile(&text, &ext).map_err(|e| e.to_string())?;
     song.resolve_change_names(&entry.change_names());
-    let music = files.read(&entry.music)?;
-    let music_ext = entry
-        .music
+    add_lyrics(&files, &entry, &mut song);
+    let music_file = chart.map_or(entry.music.as_rel_path(), |c| entry.music_for(c));
+    let music = files.read(music_file)?;
+    let music_ext = music_file
         .as_str()
         .rsplit_once('.')
         .map(|(_, e)| e.to_ascii_lowercase());
@@ -388,6 +397,22 @@ pub fn read_chart(id: &str) -> Result<Song, String> {
         .map_or("sm", |(_, e)| e)
         .to_ascii_lowercase();
     ddi_library::scan::parse_simfile(&text, &ext).map_err(|e| e.to_string())
+}
+
+/// The song's `.lrc` lyrics (`ManifestEntry::lyrics`), read and kept on
+/// it (`ddi_chart::formats::lrc`); a play shows them without when the
+/// file cannot be read.
+fn add_lyrics(files: &Files, entry: &ManifestEntry, song: &mut Song) {
+    let Some(file) = &entry.lyrics else {
+        return;
+    };
+    match files.read(file) {
+        Ok(bytes) => ddi_chart::formats::lrc::add_lyrics(
+            song,
+            &ddi_library::pack::decode_text_with(&bytes, crate::library::legacy_text),
+        ),
+        Err(e) => eprintln!("lyrics {file}: {e}"),
+    }
 }
 
 /// A work's song read again from where the library found it: its page
@@ -477,10 +502,11 @@ impl Drop for Loading {
 }
 
 impl Loading {
-    /// Starts reading song `id` (music at `rate` Hz, movies when
-    /// `with_movies`); `wake` wakes the event loop when it is done.
+    /// Starts reading song `id` (chart `chart`'s music at `rate` Hz,
+    /// movies when `with_movies`); `wake` wakes the event loop when it is done.
     pub fn start(
         id: &str,
+        chart: Option<usize>,
         rate: u32,
         with_movies: bool,
         wake: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -492,8 +518,10 @@ impl Loading {
         let _ = std::thread::Builder::new()
             .name("ddi-play-load".into())
             .spawn(move || {
-                let r = std::panic::catch_unwind(|| load_with(&job, rate, with_movies, &cancelled))
-                    .unwrap_or_else(|_| Err("the song could not be read".into()));
+                let r = std::panic::catch_unwind(|| {
+                    load_with(&job, chart, rate, with_movies, &cancelled)
+                })
+                .unwrap_or_else(|_| Err("the song could not be read".into()));
                 let _ = tx.send(r);
                 if let Some(w) = wake {
                     w();
@@ -542,6 +570,10 @@ pub fn calibration(mode: ddi_session::calibration::CalMode, rate: u32) -> Loaded
         music: RelPathBuf::new(),
         banner: None,
         background: None,
+        jacket: None,
+        cd_title: None,
+        lyrics: None,
+        preview: None,
         bg_images: Vec::new(),
         bg_videos: Vec::new(),
         bg_shared: Vec::new(),

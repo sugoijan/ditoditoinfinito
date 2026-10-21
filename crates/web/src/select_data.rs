@@ -52,6 +52,14 @@ fn imported(s: &ImportedSong) -> Listed {
                     .filter(|b| !s.links.contains_key(b.as_str()))
                     .map(|b| format!("files:{}", file_key(&entry.id, b)))
             }),
+        jacket: entry
+            .jacket
+            .as_ref()
+            .map(|b| format!("files:{}", file_key(&entry.id, b))),
+        cd_title: entry
+            .cd_title
+            .as_ref()
+            .map(|b| format!("files:{}", file_key(&entry.id, b))),
         removable: true,
     }
 }
