@@ -224,6 +224,8 @@ pub struct ResolvedAssets {
     pub lyrics: Option<RelPathBuf>,
     /// The `.ssc` `#PREVIEW` sound file, when it exists.
     pub preview: Option<RelPathBuf>,
+    /// The `.ssc` `#PREVIEWVID` movie, when it exists and is a movie.
+    pub preview_video: Option<RelPathBuf>,
     /// The `.ssc` charts' own `#MUSIC` that exist, `(chart index, path)`.
     pub chart_music: Vec<(usize, RelPathBuf)>,
     /// Images directly in the song directory that are neither the banner
@@ -232,7 +234,7 @@ pub struct ResolvedAssets {
     /// Candidates for [`classify_images`].
     pub unclassified: Vec<RelPathBuf>,
     /// `(tag, reference)` for `#MUSIC`, `#BANNER`, `#BACKGROUND`,
-    /// `#JACKET`, `#CDTITLE`, `#LYRICSPATH`, `#PREVIEW` and charts'
+    /// `#JACKET`, `#CDTITLE`, `#LYRICSPATH`, `#PREVIEW`, `#PREVIEWVID` and charts'
     /// `#MUSIC` (as `#MUSIC (chart n)`) values that name a file the import
     /// does not have (a fallback may still have been found).
     pub missing: Vec<(String, String)>,
@@ -364,6 +366,7 @@ pub fn resolve_assets<S: AsRef<str>>(
     let lyrics =
         find(song.lyrics_path()).or_else(|| with_ext(&["lrc"]).first().map(|p| (*p).into()));
     let preview = find(song.preview_music());
+    let preview_video = find(song.preview_video()).filter(|p| crate::video::is_movie(p.as_str()));
     let chart_music: Vec<(usize, RelPathBuf)> = (0..song.charts.len())
         .filter_map(|i| Some((i, find(song.chart_music(i))?)))
         .collect();
@@ -375,6 +378,7 @@ pub fn resolve_assets<S: AsRef<str>>(
         ("#CDTITLE", song.cd_title.as_deref()),
         ("#LYRICSPATH", song.lyrics_path()),
         ("#PREVIEW", song.preview_music()),
+        ("#PREVIEWVID", song.preview_video()),
     ]
     .into_iter()
     .filter_map(|(tag, reference)| {
@@ -401,6 +405,7 @@ pub fn resolve_assets<S: AsRef<str>>(
         cd_title,
         lyrics,
         preview,
+        preview_video,
         chart_music,
         unclassified,
         missing,

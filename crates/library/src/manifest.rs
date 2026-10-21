@@ -51,6 +51,11 @@ pub struct ManifestEntry {
     /// each under `bg/<path>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bg_images: Vec<RelPathBuf>,
+    /// The `.ssc` `#PREVIEWVID` movie (`docs/plans/lane-covers.md`,
+    /// "Preview video"), stored or linked as the background movies are,
+    /// under `bg/<name>`. Missing in songs imported before 2026-10-21.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_video: Option<VideoRef>,
     /// Movies the song's background changes play, in order of first use
     /// ([`crate::backgrounds::referenced_movies`]), with what each is.
     /// Imported songs store or link each under `bg/<name>`.
@@ -369,6 +374,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         cd_title: None,
         lyrics: None,
         preview: None,
+        preview_video: None,
         bg_images: meta.bg_images,
         bg_videos: meta.bg_videos,
         bg_shared: meta.bg_shared,
@@ -519,6 +525,7 @@ mod tests {
             cd_title: None,
             lyrics: None,
             preview: None,
+            preview_video: None,
             bg_images: Vec::new(),
             bg_videos: Vec::new(),
             bg_shared: Vec::new(),

@@ -47,12 +47,13 @@ use files::{DirReader, Listed, ZipReader};
 pub const FOLDERS_KEY: &str = "ddi.desktop.folders.v1";
 /// Packs and songs the player removed from the list (files kept).
 pub const HIDDEN_KEY: &str = "ddi.desktop.hidden.v1";
-/// The cache's file (in the cache folder) and version (8: FFR levels;
+/// The cache's file (in the cache folder) and version (9: the preview
+/// video; 8: FFR levels;
 /// 7: jackets, CD titles, lyrics, preview and charts' music, background
 /// files named with `,` or `=`; 6: pack covers;
 /// version 5 added generated onigiri-free charts).
 pub const CACHE_FILE: &str = "library-v1.json";
-const CACHE_VERSION: u32 = 8;
+const CACHE_VERSION: u32 = 9;
 
 /// The song folders the settings list.
 pub fn folders() -> Vec<PathBuf> {

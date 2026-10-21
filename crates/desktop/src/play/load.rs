@@ -579,6 +579,7 @@ pub fn calibration(mode: ddi_session::calibration::CalMode, rate: u32) -> Loaded
         cd_title: None,
         lyrics: None,
         preview: None,
+        preview_video: None,
         bg_images: Vec::new(),
         bg_videos: Vec::new(),
         bg_shared: Vec::new(),

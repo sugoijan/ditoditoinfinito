@@ -1,7 +1,7 @@
 # Lane covers (Sudden+, Hidden+) and the preview video
 
-Status: lane covers done 2026-10-21; `#PREVIEWVID` see "Preview video"
-below. Closes the lane covers left by `rules-options.md` and the
+Status: lane covers done 2026-10-21; `#PREVIEWVID` imported and kept
+2026-10-21, not shown yet ("Preview video" below). Closes the lane covers left by `rules-options.md` and the
 `#PREVIEWVID` left by `format-gaps.md`.
 
 ## Research
@@ -104,4 +104,56 @@ panel with a height the player sets and moves in play.
 
 ## Preview video
 
-See the section added below when it is done.
+**Sources.** `.ssc` `#PREVIEWVID` (`SSCLoader`, `Song::SetPreviewVid`)
+is reachable from Lua only (`Song:GetPreviewVidPath`); StepMania 5.1's
+own themes (`default`, `_fallback`) never draw it. Themes made for Pump
+It Up packs show it in song select's banner place while the song is
+selected, muted (the song's sample plays). Locally 9 of 207 `.ssc`
+files have one, all in one Pump pack (`Preview.mp4` beside the song's
+`BGA.mp4`).
+
+**Done: import and storage.** `ddi_library::pack::resolve_assets` finds
+the file (`ResolvedAssets::preview_video`, case-insensitively, movies
+only; a missing one is a note), `Reading::movies` lists it after the
+background changes' movies, so both shells sniff it and keep it as they
+keep those (desktop reads it in place; the web links it, or copies it
+with "also store background videos", under `bg/<name>`), and
+`ManifestEntry::preview_video` (`VideoRef`) names it. It is not a
+background movie: it never plays in the field, never counts among the
+song's videos, nor makes the opening still, unless a background change
+names it too, or it is the only movie in the folder of a song without
+background changes: StepMania 5.1 then plays it as the background
+(`Song::TidyUpData`, "DWI style"), and so does the game. Songs imported before need importing again; desktop's
+library cache is read again (version 9). Checked: `scan::tests::the_preview_video_is_kept_apart_from_the_background_movies`;
+in headless Chrome a zip of a song with `#PREVIEWVID:Preview.mp4`
+(generated) imports with `preview_video` `{name: "Preview.mp4", format:
+mp4/h264, stored: true}` and `bg/Preview.mp4` in IndexedDB
+(`target/scratch/pw/previewvid-import.mjs`).
+
+**Decided: the display waits** (the maintainer may change any):
+
+1. Where: in the selected song's banner place (the left column,
+   `Select.Banner`, cover-fitted, as the Pump themes do), once its first
+   frame is decoded; the banner shows until then and when it cannot
+   play. Not as song select's background: that is the song background
+   blurred to 20% (`Backdrop`), where a movie would read as noise.
+2. Why it waits: song select is drawn by the 2D pass alone on both
+   shells, which has no movie path. The movie decks (web
+   `crates/web/src/movies.rs` `MovieDeck`, desktop
+   `crates/desktop/src/play/movies.rs`) feed a play's `Renderer`, the
+   web's FFmpeg module worker is one per play session, and neither UI
+   host draws continuously at rest. Showing it means, per shell, a
+   `Renderer` (or a bare `BackgroundPipeline`) drawing the movie into a
+   texture the painter shows as an external image (as Options' field
+   preview does, `Painter::set_external_image`), a deck fed by a wall
+   clock from the selection, frames kept coming only while it plays,
+   and a lifecycle tied to the preview's (`select_preview.rs`,
+   desktop's `preview.rs`): started when the selection settles, stopped
+   when it changes or song select is left, never during a play. Plus a
+   `UiRequest` telling the shell where the banner is and an `Env` flag
+   telling the screen a frame is ready. That is most of a plan of its
+   own across both shells' song select hosts, for one local pack.
+3. The rules it will follow: muted; looped; the Background videos
+   setting off never fetches the decoder or the file (the banner
+   shows); automatic stops it when frames fall behind, as in play;
+   reduced motion shows its first frame still.

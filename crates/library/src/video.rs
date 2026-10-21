@@ -543,7 +543,7 @@ fn transport(b: &[u8], packet: usize) -> VideoCodec {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn format(container: VideoContainer, codec: VideoCodec) -> VideoFormat {
@@ -635,7 +635,7 @@ mod tests {
 
     /// An MP4 with an audio track and then a video track with this sample
     /// entry, the index before or after the media data.
-    fn mp4_file(entry: &[u8; 4], moov_first: bool) -> Vec<u8> {
+    pub(crate) fn mp4_file(entry: &[u8; 4], moov_first: bool) -> Vec<u8> {
         let track = |handler: &[u8; 4], entry: &[u8; 4]| {
             let mut hdlr = vec![0u8; 8];
             hdlr.extend(handler);

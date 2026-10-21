@@ -280,9 +280,16 @@ impl Reading {
         pack::classify_images(&mut self.assets, sizes);
     }
 
-    /// The movies the background changes name, `(relative, path)`.
+    /// The movies the background changes name, then the `#PREVIEWVID`
+    /// movie when it is not one of them, `(relative, path)`.
     pub fn movies(&self, paths: &[RelPathBuf]) -> Vec<(RelPathBuf, RelPathBuf)> {
-        crate::backgrounds::referenced_movies(&self.song, &self.c.dir, paths)
+        let mut movies = crate::backgrounds::referenced_movies(&self.song, &self.c.dir, paths);
+        if let Some(p) = &self.assets.preview_video
+            && !movies.iter().any(|(_, q)| q == p)
+        {
+            movies.push((p.relative_to(&self.c.dir), p.clone()));
+        }
+        movies
     }
 
     /// The song's entry, its files named as `naming` says, with the
@@ -315,7 +322,7 @@ impl Reading {
         for (tag, reference) in &assets.missing {
             let tag = tag.as_str();
             match tag {
-                "#JACKET" | "#CDTITLE" | "#LYRICSPATH" => {
+                "#JACKET" | "#CDTITLE" | "#LYRICSPATH" | "#PREVIEWVID" => {
                     notes.push(format!("{tag} names {reference}, which is missing"));
                     continue;
                 }
@@ -412,9 +419,38 @@ impl Reading {
         let mut videos = Vec::new();
         let mut unplayable = Vec::new();
         let mut left_out = Vec::new();
+        // The preview movie, kept as the background movies are; listed
+        // with them only when a background change plays it too.
+        let mut preview_video = None;
+        let background_movies = crate::backgrounds::referenced_movies(&song, &c.dir, paths);
         for m in movies {
             let playable = m.format.playable();
             let kept = playable && m.kept;
+            if assets.preview_video.as_ref() == Some(&m.path) {
+                preview_video = Some(VideoRef {
+                    name: m.relative.clone(),
+                    format: m.format.clone(),
+                    stored: kept,
+                });
+                if !background_movies.iter().any(|(_, p)| *p == m.path) {
+                    if playable && !kept {
+                        notes.push(format!(
+                            "the preview video {} was not stored (\"also store background videos\" is off)",
+                            m.relative
+                        ));
+                    }
+                    if !playable {
+                        notes.push(format!(
+                            "#PREVIEWVID names {}, in a format the game cannot play",
+                            m.relative
+                        ));
+                    }
+                    if kept {
+                        videos.push((m.relative.clone(), m.path));
+                    }
+                    continue;
+                }
+            }
             if !playable {
                 unplayable.push(format!("{} ({})", m.relative, m.format.describe()));
             } else if !kept {
@@ -513,6 +549,7 @@ impl Reading {
         entry.cd_title = cd_title.as_ref().map(|(n, _)| n.clone());
         entry.lyrics = lyrics.as_ref().map(|(n, _)| n.clone());
         entry.preview = preview.as_ref().map(|(n, _)| n.clone());
+        entry.preview_video = preview_video;
         entry.bg_scripts = script_files.iter().map(|(r, _)| r.clone()).collect();
         // The keys the song list finds its charts' bests by (a work's
         // chart's own excessive setting among them).
@@ -831,6 +868,55 @@ mod tests {
         // The animation that exists (another case: found anyway), not the
         // one found nowhere.
         assert_eq!(e.bg_scripted, vec!["Spin"]);
+    }
+
+    #[test]
+    fn the_preview_video_is_kept_apart_from_the_background_movies() {
+        let ssc = |bg: &str| {
+            format!(
+                "#VERSION:0.83;#TITLE:S;#MUSIC:song.ogg;#PREVIEWVID:Preview.MP4;#BPMS:0=120;\
+                 {bg}\n#NOTEDATA:;#STEPSTYPE:dance-single;#DIFFICULTY:Easy;#METER:1;\
+                 #NOTES:\n1000\n0000\n0000\n0000\n;\n"
+            )
+        };
+        let mp4 = crate::video::tests::mp4_file(b"avc1", true);
+        let mut f = BTreeMap::new();
+        f.insert("P/S/song.ogg".into(), vec![0; 4]);
+        f.insert("P/S/preview.mp4".into(), mp4.clone());
+        f.insert("P/S/bga.mp4".into(), mp4);
+        // Background changes naming another movie: listed apart.
+        f.insert(
+            "P/S/s.ssc".into(),
+            ssc("#BGCHANGES:0=bga.mp4=1=0=0=0;").into_bytes(),
+        );
+        let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
+        let scan = scan_root(&Files(f.clone()), &paths, "Mine", &[], &crate::legacy::none);
+        let e = &scan.songs[0].entry;
+        let preview = e.preview_video.as_ref().expect("a preview video");
+        assert_eq!(preview.name.as_str(), "preview.mp4");
+        assert!(preview.stored && preview.format.playable());
+        let names: Vec<&str> = e.bg_videos.iter().map(|v| v.name.as_str()).collect();
+        assert_eq!(names, vec!["bga.mp4"]);
+        // A background change playing it too: in both.
+        f.insert(
+            "P/S/s.ssc".into(),
+            ssc("#BGCHANGES:0=preview.mp4=1=0=0=0;").into_bytes(),
+        );
+        let scan = scan_root(&Files(f.clone()), &paths, "Mine", &[], &crate::legacy::none);
+        let e = &scan.songs[0].entry;
+        assert!(e.preview_video.is_some());
+        assert_eq!(e.bg_videos.len(), 1);
+        // Missing: a note, none kept.
+        f.remove("P/S/preview.mp4");
+        let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
+        let scan = scan_root(&Files(f), &paths, "Mine", &[], &crate::legacy::none);
+        let s = &scan.songs[0];
+        assert!(s.entry.preview_video.is_none());
+        assert!(
+            s.notes.iter().any(|n| n.contains("#PREVIEWVID")),
+            "{:?}",
+            s.notes
+        );
     }
 
     #[test]
