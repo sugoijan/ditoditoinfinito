@@ -10,7 +10,7 @@ use ddi_chart::Song;
 use ddi_engine::player::Results;
 
 use super::{
-    ChartDigest, History, PlayEntry, PlayLog, PlayRecord, PlayStore, PlaySummary, Worked,
+    ChartDigest, History, Imported, PlayEntry, PlayLog, PlayRecord, PlayStore, PlaySummary, Worked,
     new_entry, rework,
 };
 
@@ -134,6 +134,69 @@ impl Plays {
             }),
         );
         Ok(summary)
+    }
+
+    /// Keeps imported plays ([`super::PlayImport::take`]'s) that are not
+    /// kept yet: in memory at once, in the store behind (all of them
+    /// taken out of both if it fails). Answers with how many were new,
+    /// and how many were kept already.
+    pub fn import(
+        self: &Rc<Self>,
+        plays: Vec<Imported>,
+        done: impl FnOnce(Result<(usize, usize), String>) + 'static,
+    ) {
+        if !self.loaded() {
+            return done(Err("the play history is not read yet".into()));
+        }
+        let mut entries = Vec::new();
+        let mut kept = 0;
+        {
+            let mut h = self.history.borrow_mut();
+            for p in plays {
+                if h.contains(&p.entry.id) {
+                    kept += 1;
+                } else {
+                    h.add(p.entry.id.clone(), p.summary);
+                    entries.push(p.entry);
+                }
+            }
+        }
+        if entries.is_empty() {
+            return done(Ok((0, kept)));
+        }
+        self.changed();
+        let ids: Vec<String> = entries.iter().map(|e| e.id.clone()).collect();
+        let me = self.clone();
+        self.store.append_all(
+            entries,
+            Box::new(move |r| match r {
+                Ok(()) => done(Ok((ids.len(), kept))),
+                Err(e) => {
+                    // None of them, here or in the store.
+                    me.remove(ids, move |_| done(Err(e)));
+                }
+            }),
+        );
+    }
+
+    /// Plays a shell kept in the store itself (desktop imports on a
+    /// thread of its own) into memory; those kept already are left. How
+    /// many were new.
+    pub fn adopt(&self, plays: Vec<(String, PlaySummary)>) -> usize {
+        let mut n = 0;
+        {
+            let mut h = self.history.borrow_mut();
+            for (id, summary) in plays {
+                if !h.contains(&id) {
+                    h.add(id, summary);
+                    n += 1;
+                }
+            }
+        }
+        if n > 0 {
+            self.changed();
+        }
+        n
     }
 
     /// Works out again up to `max` stale plays of `song_id` on `song` (as

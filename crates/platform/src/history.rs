@@ -38,6 +38,12 @@ pub type Reply<T> = Box<dyn FnOnce(Result<T, String>)>;
 pub trait PlayStore {
     /// Keeps a new play.
     fn append(&self, entry: PlayEntry, done: Reply<()>);
+    /// Keeps new plays (an import's batch): by default each appended,
+    /// answered once all are (the first failure, if any: the others
+    /// kept); a store that can writes them in one go.
+    fn append_all(&self, entries: Vec<PlayEntry>, done: Reply<()>) {
+        append_each(self, entries, done)
+    }
     /// Every play's `(id, summary)`, in id order: a play kept without a
     /// summary (or with one that is not text) too, as `None`.
     fn summaries(&self, done: Reply<Vec<(String, Option<String>)>>);
@@ -52,6 +58,38 @@ pub trait PlayStore {
     /// given them as they are read (so the whole history is never in
     /// memory at once); `done` answers with how many there were.
     fn export(&self, batch: usize, each: Box<dyn FnMut(Vec<PlayEntry>)>, done: Reply<usize>);
+}
+
+/// [`PlayStore::append_all`] a play at a time: every append asked, the
+/// answer once all have answered (the first failure, if any).
+fn append_each<S: PlayStore + ?Sized>(store: &S, entries: Vec<PlayEntry>, done: Reply<()>) {
+    if entries.is_empty() {
+        return done(Ok(()));
+    }
+    // Plays left to answer, the answer, the first failure.
+    type Waiting = (usize, Option<Reply<()>>, Option<String>);
+    let waiting: std::rc::Rc<RefCell<Waiting>> =
+        std::rc::Rc::new(RefCell::new((entries.len(), Some(done), None)));
+    for entry in entries {
+        let w = waiting.clone();
+        store.append(
+            entry,
+            Box::new(move |r| {
+                let mut s = w.borrow_mut();
+                s.0 -= 1;
+                if let Err(e) = r {
+                    s.2.get_or_insert(e);
+                }
+                if s.0 == 0
+                    && let Some(done) = s.1.take()
+                {
+                    let failed = s.2.take();
+                    drop(s);
+                    done(failed.map_or(Ok(()), Err));
+                }
+            }),
+        );
+    }
 }
 
 /// A play's id: the time in milliseconds since the Unix epoch, padded so
@@ -313,6 +351,32 @@ mod tests {
         assert_eq!(v["summary"], Value::Null);
         assert_eq!(v["record"], Value::String("{broken".into()));
         assert_eq!(PlayEntry::from_json(&line).unwrap(), odd);
+    }
+
+    #[test]
+    fn plays_are_appended_together_and_answered_once() {
+        let store = MemoryPlayStore::default();
+        let entries: Vec<PlayEntry> = (0..3)
+            .map(|i| PlayEntry {
+                id: play_id(f64::from(i), 0),
+                ..PlayEntry::default()
+            })
+            .collect();
+        let answers = Rc::new(RefCell::new(Vec::new()));
+        let a = answers.clone();
+        store.append_all(entries.clone(), Box::new(move |r| a.borrow_mut().push(r)));
+        assert_eq!(*answers.borrow(), vec![Ok(())]);
+        assert_eq!(store.len(), 3);
+        // None to keep: answered at once; a failing store: its error, once.
+        let a = answers.clone();
+        store.append_all(Vec::new(), Box::new(move |r| a.borrow_mut().push(r)));
+        store.failing.set(true);
+        let a = answers.clone();
+        store.append_all(entries, Box::new(move |r| a.borrow_mut().push(r)));
+        assert_eq!(
+            *answers.borrow(),
+            vec![Ok(()), Ok(()), Err("the store is full".to_string())]
+        );
     }
 
     #[test]

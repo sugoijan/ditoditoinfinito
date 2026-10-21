@@ -55,6 +55,8 @@ pub struct World {
     pub plays: usize,
     /// An import runs (nothing is removed meanwhile).
     pub importing: bool,
+    /// Plays are being imported (the history's row says so).
+    pub importing_plays: bool,
     /// The song folders the library reads in place (desktop), and what
     /// the last scan found; `None` where songs are imported instead (the
     /// web).
@@ -164,6 +166,17 @@ impl Reset {
     }
 }
 
+/// The play history's buttons: Export and Reset with plays kept, Import
+/// unless one runs.
+fn history_buttons(plays: usize, importing: bool) -> &'static [&'static str] {
+    match (plays, importing) {
+        (0, false) => &["Import…"],
+        (0, true) => &[],
+        (_, false) => &["Export", "Import…", "Reset"],
+        (_, true) => &["Export"],
+    }
+}
+
 /// "the 3 plays kept deleted" (a reset's part).
 fn plays_deleted(n: usize) -> String {
     match n {
@@ -188,6 +201,9 @@ pub enum Act {
     Sample,
     /// Download the play history.
     Export,
+    /// Import plays from an export (the platform's picker, inside the
+    /// press).
+    ImportPlays,
     /// Ask first, then [`OptionsModel::reset`] (and the shell's part).
     Confirm(Reset),
     /// Calibration (its own screen).
@@ -1200,25 +1216,28 @@ impl OptionsModel {
                 actions(
                     "history.export",
                     "Play history",
-                    if plays == 0 {
-                        &[]
+                    history_buttons(plays, w.importing_plays),
+                    &if w.importing_plays {
+                        "importing plays…".to_string()
                     } else {
-                        &["Export", "Reset"]
-                    },
-                    &match plays {
-                        0 => "no plays kept yet".to_string(),
-                        1 => "1 play kept".to_string(),
-                        n => format!("{n} plays kept"),
+                        match plays {
+                            0 => "no plays kept yet".to_string(),
+                            1 => "1 play kept".to_string(),
+                            n => format!("{n} plays kept"),
+                        }
                     },
                     if self.world.platform == super::data::Platform::Desktop {
                         "Every song played to the end or failed is kept, with what it was \
                          played with and every press, so its score can be worked out again. \
-                         Export saves them as JSON lines to a file you choose; Reset deletes \
-                         them."
+                         Export saves them as JSON lines to a file you choose; Import adds the \
+                         plays of such a file (from here or the web game) and judges them again; \
+                         Reset deletes them."
                     } else {
                         "Every song played to the end or failed is kept, with what it was \
                          played with and every press, so its score can be worked out again. \
-                         Export downloads them as JSON lines; Reset deletes them."
+                         Export downloads them as JSON lines; Import adds the plays of such a \
+                         file (from here or the desktop game; or drop it on this page) and \
+                         judges them again; Reset deletes them."
                     },
                 ),
                 actions(
@@ -1413,8 +1432,15 @@ impl OptionsModel {
                 );
                 Act::Done
             }
-            ("history.export", 0) => Act::Export,
-            ("history.export", _) => Act::Confirm(Reset::History),
+            ("history.export", b) => {
+                let buttons = history_buttons(self.world.plays, self.world.importing_plays);
+                match buttons.get(b) {
+                    Some(&"Export") => Act::Export,
+                    Some(&"Import…") => Act::ImportPlays,
+                    Some(&"Reset") => Act::Confirm(Reset::History),
+                    _ => Act::Nothing,
+                }
+            }
             ("folders.add", 0) => Act::AddFolder,
             ("folders.add", _) => Act::Rescan,
             ("reset.settings", _) => Act::Confirm(Reset::Settings),

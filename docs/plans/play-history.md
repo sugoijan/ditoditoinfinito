@@ -160,8 +160,8 @@ export, base64 included (5,004 such short plays export to 40 MB).
   trait.
 - **Export.** JSON lines, one record a line, everything included (what
   does not read as JSON kept as a string, a missing summary as `null`),
-  read and written a batch at a time. Import comes later, with a replay
-  viewer.
+  read and written a batch at a time. Imported back on either shell since
+  2026-10-21 (`phase-10.md`, step 1).
 - **Removal:** all, a chart's, or a pack's, and the Reset section's
   "remove imported songs" leaves the history alone unless asked.
 

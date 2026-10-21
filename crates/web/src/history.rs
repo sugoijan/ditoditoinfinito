@@ -5,7 +5,8 @@
 //! read at start, plays recorded as they end, stale summaries worked out
 //! again (a song's when its chart loads, the rest in the background from
 //! their charts alone, a few at a time and never during a play), the
-//! export, and `window.__DDI_DEBUG.history`.
+//! export and the import of an export (`docs/plans/phase-10.md`), and
+//! `window.__DDI_DEBUG.history`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -13,7 +14,8 @@ use std::rc::Rc;
 use ddi_chart::{ChartDigest, Song};
 use ddi_platform::history::{PlayEntry, PlayStore, Reply};
 use ddi_ui::state::history::{
-    PASS_STEP_MS, Plays, REWORK_BATCH, ReworkStep, Reworker, score_value,
+    FOCUS_STEP_MS, ImportReport, Imported, PASS_STEP_MS, PlayImport, Plays, REWORK_BATCH,
+    ReworkStep, Reworker, score_value,
 };
 use js_sys::{Array, Object, Reflect, Uint8Array};
 use wasm_bindgen::{JsCast, JsValue};
@@ -23,6 +25,10 @@ use crate::web::idb::{self, Db, Write};
 
 /// Plays read and written out at a time by the export.
 const EXPORT_BATCH: usize = 100;
+/// The part of an imported file read at a time, bytes.
+const IMPORT_PART: f64 = (1 << 20) as f64;
+/// Plays kept at a time by an import (one IndexedDB transaction).
+const IMPORT_BATCH: usize = 200;
 /// The first wait before reading the summaries again after a failure,
 /// ms (doubled each time, up to a minute).
 const RETRY_MS: u32 = 2000;
@@ -82,6 +88,26 @@ async fn append(e: PlayEntry) -> Result<(), String> {
             key: e.id.clone(),
             value: JsValue::from_str(summary),
         });
+    }
+    db.write(writes).await
+}
+
+async fn append_all(entries: Vec<PlayEntry>) -> Result<(), String> {
+    let db = Db::open().await?;
+    let mut writes = Vec::with_capacity(entries.len() * 2);
+    for e in &entries {
+        writes.push(Write::Put {
+            store: idb::PLAYS,
+            key: e.id.clone(),
+            value: raw_value(e),
+        });
+        if let Some(summary) = &e.summary {
+            writes.push(Write::Put {
+                store: idb::PLAY_SUMMARIES,
+                key: e.id.clone(),
+                value: JsValue::from_str(summary),
+            });
+        }
     }
     db.write(writes).await
 }
@@ -198,6 +224,14 @@ impl PlayStore for IdbPlayStore {
         answer(done, append(entry));
     }
 
+    /// An import's batch in one transaction: all kept, or none.
+    fn append_all(&self, entries: Vec<PlayEntry>, done: Reply<()>) {
+        if entries.is_empty() {
+            return done(Ok(()));
+        }
+        answer(done, append_all(entries));
+    }
+
     fn summaries(&self, done: Reply<Vec<(String, Option<String>)>>) {
         answer(done, summaries());
     }
@@ -242,6 +276,8 @@ thread_local! {
     /// chart is at hand first, never during a play).
     static REWORKER: RefCell<Reworker<Rc<Song>>> = RefCell::new(Reworker::default());
     static STEP: RefCell<Option<gloo::timers::callback::Timeout>> = const { RefCell::new(None) };
+    /// The last import's report (the debug state's `import`).
+    static LAST_IMPORT: RefCell<Option<ImportReport>> = const { RefCell::new(None) };
 }
 
 /// The page's plays.
@@ -437,6 +473,92 @@ pub(crate) fn export(done: impl FnOnce(Result<usize, String>) + 'static) {
     );
 }
 
+/// Imports the plays of an export (Options' Data → Play history →
+/// Import, or the file dropped on Options): the file read a part at a
+/// time and its plays kept a batch at a time (each batch one
+/// transaction), so neither is ever in memory whole; plays kept already
+/// left, lines that are not plays counted (`ddi_ui::state::history::
+/// PlayImport`). The new plays are judged again in the background.
+/// `progress` hears how many are kept so far.
+pub(crate) async fn import(file: web_sys::Blob, progress: impl Fn(usize)) -> ImportReport {
+    let mut reader = PlayImport::new(plays().history().ids());
+    let size = file.size();
+    let mut at = 0.0;
+    let mut kept = 0;
+    let mut failed = None;
+    while at < size && !reader.is_full() && failed.is_none() {
+        let end = (at + IMPORT_PART).min(size);
+        let part = match file.slice_with_f64_and_f64(at, end) {
+            Ok(part) => crate::web::files::blob_bytes(&part).await,
+            Err(_) => Err("the file could not be read".into()),
+        };
+        match part {
+            Ok(bytes) => reader.push(&bytes),
+            Err(e) => failed = Some(e),
+        }
+        at = end;
+        if reader.ready() >= IMPORT_BATCH {
+            keep_imported(&mut reader, &mut failed).await;
+            kept = reader.report().imported;
+            progress(kept);
+        }
+    }
+    if failed.is_none() {
+        reader.finish();
+        keep_imported(&mut reader, &mut failed).await;
+    }
+    let mut report = reader.report().clone();
+    report.error = failed;
+    if report.imported > kept {
+        progress(report.imported);
+    }
+    LAST_IMPORT.with(|l| *l.borrow_mut() = Some(report.clone()));
+    if report.imported > 0 {
+        // The new plays are stale: the background pass takes them.
+        schedule(FOCUS_STEP_MS);
+    }
+    publish();
+    report
+}
+
+/// The plays read so far kept (`Plays::import`), counted in the report.
+async fn keep_imported(reader: &mut PlayImport, failed: &mut Option<String>) {
+    let batch = reader.take();
+    if batch.is_empty() {
+        return;
+    }
+    match keep_batch(batch).await {
+        Ok((new, already)) => {
+            let r = reader.report_mut();
+            r.imported += new;
+            r.duplicates += already;
+        }
+        Err(e) => *failed = Some(e),
+    }
+    publish();
+}
+
+/// Plays new and kept already, or why they could not be kept.
+type Kept = Result<(usize, usize), String>;
+
+/// `Plays::import`'s answer, awaited.
+async fn keep_batch(batch: Vec<Imported>) -> Kept {
+    let out: Rc<RefCell<Option<Kept>>> = Rc::new(RefCell::new(None));
+    let mut batch = Some(batch);
+    let o = out.clone();
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        let o = o.clone();
+        plays().import(batch.take().unwrap_or_default(), move |r| {
+            *o.borrow_mut() = Some(r);
+            let _ = resolve.call0(&JsValue::NULL);
+        });
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+    out.borrow_mut()
+        .take()
+        .unwrap_or_else(|| Err("the play history did not answer".into()))
+}
+
 /// A kept play as stored (its replay); `done` hears it, or why not.
 pub(crate) fn entry(
     id: &str,
@@ -482,7 +604,9 @@ fn json(value: &impl serde::Serialize) -> JsValue {
 
 /// `__DDI_DEBUG.history`: `count`, `loaded`, `error`, `blocked` (the
 /// library waits for another tab), `stale` (plays waiting to be worked
-/// out again), `unreadable`, `last` (the latest play's summary with its
+/// out again), `unreadable`, `import` (the last import's report:
+/// `imported`, `duplicates`, `invalid`, `newer`, `cut`, `problems`,
+/// `error`, `notice`), `last` (the latest play's summary with its
 /// `id`), `song` and `bests` (the play screen's song's charts, once its
 /// chart is loaded: digest, ruleset, assist, score, its value, grade,
 /// lamp, plays, lastPlayed, pending).
@@ -500,6 +624,24 @@ pub(crate) fn debug_into(obj: &Object) {
     set(&o, "blocked", idb::blocked().into());
     set(&o, "stale", (h.stale_count() as f64).into());
     set(&o, "unreadable", (h.unreadable().len() as f64).into());
+    if let Some(r) = LAST_IMPORT.with(|l| l.borrow().clone()) {
+        let i = Object::new();
+        set(&i, "imported", (r.imported as f64).into());
+        set(&i, "duplicates", (r.duplicates as f64).into());
+        set(&i, "invalid", (r.invalid as f64).into());
+        set(&i, "newer", (r.newer as f64).into());
+        set(&i, "cut", r.cut.into());
+        let problems = Array::new();
+        for (line, why) in &r.problems {
+            problems.push(&format!("{line}: {why}").into());
+        }
+        set(&i, "problems", problems.into());
+        if let Some(e) = &r.error {
+            set(&i, "error", e.as_str().into());
+        }
+        set(&i, "notice", r.notice().into());
+        set(&o, "import", i.into());
+    }
     if let Some((id, s)) = h.last() {
         let last = json(s);
         if last.is_object() {

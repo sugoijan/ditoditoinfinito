@@ -67,6 +67,37 @@ impl Shared {
         self.pending.set(true);
     }
 
+    /// The play history's import: the plays kept so far while it runs
+    /// (`None`: none runs), its report when it ends, the plays kept now.
+    /// The rows say so, the next frame.
+    pub fn set_import(
+        &self,
+        importing: Option<usize>,
+        report: Option<ddi_ui::state::history::ImportReport>,
+        plays: usize,
+    ) {
+        {
+            let mut m = self.model.borrow_mut();
+            let notice = match (&report, importing) {
+                (Some(r), _) => r.notice(),
+                (None, Some(0)) => "Importing plays…".to_string(),
+                (None, Some(n)) => format!("Importing plays… {n} kept so far."),
+                (None, None) => m.notice.clone(),
+            };
+            if m.world.importing_plays == importing.is_some()
+                && m.world.plays == plays
+                && m.notice == notice
+            {
+                return;
+            }
+            m.world.importing_plays = importing.is_some();
+            m.world.plays = plays;
+            m.notice = notice;
+        }
+        *self.feed.borrow_mut() = Some(self.model.borrow().data());
+        self.pending.set(true);
+    }
+
     /// Whether the rows changed since the screen was last told.
     pub fn take_pending(&self) -> bool {
         let skins = self
@@ -222,6 +253,28 @@ impl OptionsPlatform for Desktop {
                 shared.pending.set(true);
             },
         );
+    }
+
+    /// Plays from an export the player picks, imported on a thread
+    /// (`crate::history::Rework::import`); the rows follow it
+    /// ([`Shared::set_import`]).
+    fn import_plays(&self, _cx: &mut Cx) {
+        let Some(songs) = &self.0.songs else {
+            return;
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Play history", &["jsonl", "ndjson", "json", "txt"])
+            .pick_file()
+        else {
+            return;
+        };
+        if !songs.import_plays(path) {
+            self.0.model.borrow_mut().notice =
+                "The plays cannot be imported now (an import runs, or the history is not read)."
+                    .into();
+            *self.0.feed.borrow_mut() = Some(self.0.model.borrow().data());
+            self.0.pending.set(true);
+        }
     }
 
     /// The song folders are forgotten (the settings' part, the folders'

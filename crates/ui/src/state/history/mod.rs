@@ -8,7 +8,11 @@
 //! ([`JUDGE_VERSION`]). [`History`] holds the summaries in memory and
 //! answers for the bests; [`Plays`] puts it over a [`PlayStore`] for the
 //! shells, and [`Reworker`] says when stale plays are worked out again.
+//! An export is read back by [`PlayImport`].
 
+mod import;
+#[cfg(test)]
+mod import_tests;
 mod plays;
 mod replay;
 mod reworker;
@@ -28,6 +32,10 @@ pub use ddi_chart::ChartDigest;
 pub use ddi_engine::JUDGE_VERSION;
 pub use ddi_engine::history::{LogError, LoggedInput, PlayLog, PlayTiming, replay};
 pub use ddi_engine::rules::RulesetKey;
+pub use import::{
+    ImportReport, Imported, MAX_LINE, MAX_PLAYS, MAX_PROBLEMS, PlayImport, Refused, is_play_id,
+    read_line,
+};
 pub use plays::{Plays, Reworked, export_lines, rework_entries};
 pub use replay::{
     Ghost, GhostDelta, GhostRun, Replay, ReplayCheck, Replaying, local_time, play_rows, plays_list,
@@ -499,6 +507,11 @@ impl History {
 
     pub fn get(&self, id: &str) -> Option<&PlaySummary> {
         self.plays.get(id)
+    }
+
+    /// Whether play `id` is kept (its summary read or not).
+    pub fn contains(&self, id: &str) -> bool {
+        self.plays.contains_key(id) || self.unreadable.iter().any(|u| u == id)
     }
 
     /// Every play, oldest first.

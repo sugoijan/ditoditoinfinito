@@ -39,6 +39,11 @@ impl OptionsPlatform for Fake {
     fn export(&self) {
         self.log.borrow_mut().push("export".into());
     }
+    fn import_plays(&self, cx: &mut Cx) {
+        self.log
+            .borrow_mut()
+            .push(format!("import {}", cx.in_gesture()));
+    }
     fn remove(&self, reset: &Reset) {
         self.log.borrow_mut().push(format!("remove {reset:?}"));
     }
@@ -620,6 +625,8 @@ fn the_play_history_is_reset_after_asking() {
     r.row("history.export");
     assert_eq!(r.state.borrow().value, "Export");
     r.h.key("ArrowRight", "ArrowRight");
+    assert_eq!(r.state.borrow().value, "Import…");
+    r.h.key("ArrowRight", "ArrowRight");
     assert_eq!(r.state.borrow().value, "Reset");
     r.h.key("Enter", "Enter");
     r.h.run(0.3);
@@ -637,4 +644,47 @@ fn the_play_history_is_reset_after_asking() {
     r.h.run(0.3);
     assert_ne!(r.top(), "confirm");
     assert!(r.logged("remove History"));
+}
+
+#[test]
+fn plays_are_imported_from_the_history_row_inside_the_press() {
+    let mut r = rig([1280.0, 720.0], DESIGN);
+    r.section("Data");
+    r.row("history.export");
+    r.h.key("ArrowRight", "ArrowRight");
+    assert_eq!(r.state.borrow().value, "Import…");
+    r.h.key("Enter", "Enter");
+    assert!(r.logged("import true"));
+    // With no plays kept, Import alone; while one runs, it is not offered.
+    let mut m = OptionsModel::new(Settings::default(), World::default());
+    let row = |m: &OptionsModel| {
+        m.data()
+            .sections
+            .iter()
+            .flat_map(|s| s.options.iter())
+            .find(|o| o.id == "history.export")
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(row(&m).note, "no plays kept yet");
+    assert_eq!(
+        m.action("history.export", 0),
+        super::options_model::Act::ImportPlays
+    );
+    m.world.importing_plays = true;
+    assert_eq!(row(&m).note, "importing plays…");
+    assert_eq!(
+        m.action("history.export", 0),
+        super::options_model::Act::Nothing
+    );
+    m.world.plays = 3;
+    assert_eq!(
+        m.action("history.export", 0),
+        super::options_model::Act::Export
+    );
+    m.world.importing_plays = false;
+    assert_eq!(
+        m.action("history.export", 2),
+        super::options_model::Act::Confirm(Reset::History)
+    );
 }

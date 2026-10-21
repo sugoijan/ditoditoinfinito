@@ -367,6 +367,22 @@ impl Songs {
         };
         let wake = self.wake.borrow().clone();
         rework.poll(plays, playing, shown, self.listed_all(), wake.as_ref());
+        // An import's progress and report, to options while it is open.
+        if let Some(o) = self.options.borrow().as_ref() {
+            let report = rework.take_imported();
+            o.set_import(rework.importing(), report, plays.history().len());
+        }
+    }
+
+    /// Imports the plays of the export at `path` (`crate::history::
+    /// Rework::import`); whether it started (none while one runs).
+    pub fn import_plays(&self, path: PathBuf) -> bool {
+        let mut rework = self.rework.borrow_mut();
+        let (Some(plays), Some(rework)) = (&self.plays, rework.as_mut()) else {
+            return false;
+        };
+        let wake = self.wake.borrow().clone();
+        rework.import(path, plays, wake.as_ref())
     }
 
     /// When [`Songs::rework`] has a step to take, or [`Songs::poll`] bests

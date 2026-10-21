@@ -39,6 +39,10 @@ pub trait OptionsPlatform {
     /// Downloads the play history (the platform says how it went, in
     /// the model's notice, later).
     fn export(&self);
+    /// Imports plays from an export the player picks (the picker, inside
+    /// the press); the platform says how it went in the model's notice
+    /// and `World::importing_plays`.
+    fn import_plays(&self, _cx: &mut Cx) {}
     /// The storage's part of a confirmed reset or removal (imported songs,
     /// a noteskin), after the settings' part is done.
     fn remove(&self, reset: &Reset);
@@ -139,6 +143,7 @@ fn call_with(
             );
         }
         Act::Export => platform.export(),
+        Act::ImportPlays => platform.import_plays(cx),
         Act::AddFolder => platform.add_folder(cx),
         Act::RemoveFolder(i) => platform.remove_folder(i),
         Act::Rescan => platform.rescan(),

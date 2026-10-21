@@ -5,8 +5,10 @@
 //! `~/.local/share/ditoditoinfinito` on Linux, where plays kept in the
 //! config folder before (`~/.config/ditoditoinfinito/plays`) are moved
 //! the first time. Plays judged by an older judge are worked out again
-//! ([`Rework`]) as on the web.
+//! ([`Rework`]) as on the web; an export is imported on a thread of its
+//! own ([`Rework::import`], `docs/plans/phase-10.md`).
 
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -16,7 +18,8 @@ use std::time::{Duration, Instant};
 use ddi_chart::{ChartDigest, Song};
 use ddi_platform::history::{PlayStore, Reply};
 use ddi_ui::state::history::{
-    PASS_STEP_MS, Plays, REWORK_BATCH, ReworkStep, Reworked, Reworker, rework_entries,
+    FOCUS_STEP_MS, ImportReport, PASS_STEP_MS, PlayImport, PlaySummary, Plays, REWORK_BATCH,
+    ReworkStep, Reworked, Reworker, rework_entries,
 };
 
 use crate::plays::FilePlayStore;
@@ -148,6 +151,11 @@ pub fn read_chart(id: &str, digests: &[ChartDigest]) -> Result<Song, String> {
 /// [`Rework::due`].
 pub struct Rework {
     reworker: Reworker<Arc<Song>>,
+    /// An import under way: its thread's answers, and the plays kept so
+    /// far.
+    importing: Option<(Receiver<Imported>, usize)>,
+    /// The last import's report, until taken.
+    imported: Option<ImportReport>,
     /// The plays' folder, for the thread (a clone: it removes nothing).
     store: FilePlayStore,
     /// When the next step is due (`None`: none is scheduled).
@@ -159,6 +167,79 @@ pub struct Rework {
 struct Worker {
     jobs: Sender<Job>,
     answers: Receiver<Answer>,
+}
+
+/// What an import's thread answers.
+enum Imported {
+    /// Plays kept in the folder: into memory.
+    Kept(Vec<(String, PlaySummary)>),
+    Done(ImportReport),
+}
+
+/// The part of an imported file read at a time, bytes.
+const IMPORT_PART: usize = 1 << 20;
+/// Plays written at a time by an import (then handed to the event loop).
+const IMPORT_BATCH: usize = 100;
+
+/// Imports the export at `path` into `store` beside the plays `known`
+/// (their ids): read a part at a time, its plays written a batch at a
+/// time (each file synced) and handed over through `send` as they are.
+/// The report at the end.
+fn import_file(
+    path: &Path,
+    store: &FilePlayStore,
+    known: Vec<String>,
+    send: &dyn Fn(Imported),
+) -> ImportReport {
+    let mut reader = PlayImport::new(known);
+    let mut failed = None;
+    let keep = |reader: &mut PlayImport, failed: &mut Option<String>| {
+        let batch = reader.take();
+        if batch.is_empty() {
+            return;
+        }
+        let kept: Vec<(String, PlaySummary)> = batch
+            .iter()
+            .map(|p| (p.entry.id.clone(), p.summary.clone()))
+            .collect();
+        let entries = batch.into_iter().map(|p| p.entry).collect();
+        match at_once(|d| store.append_all(entries, d)) {
+            Ok(()) => {
+                reader.report_mut().imported += kept.len();
+                send(Imported::Kept(kept));
+            }
+            Err(e) => {
+                // None of the batch (some may have been written).
+                let ids = kept.into_iter().map(|(id, _)| id).collect();
+                let _ = at_once(|d| store.remove(ids, d));
+                *failed = Some(e);
+            }
+        }
+    };
+    match std::fs::File::open(path) {
+        Ok(mut file) => {
+            let mut part = vec![0; IMPORT_PART];
+            while !reader.is_full() && failed.is_none() {
+                match file.read(&mut part) {
+                    Ok(0) => break,
+                    Ok(n) => reader.push(&part[..n]),
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => failed = Some(e.to_string()),
+                }
+                if reader.ready() >= IMPORT_BATCH {
+                    keep(&mut reader, &mut failed);
+                }
+            }
+            if failed.is_none() {
+                reader.finish();
+                keep(&mut reader, &mut failed);
+            }
+        }
+        Err(e) => failed = Some(e.to_string()),
+    }
+    let mut report = reader.report().clone();
+    report.error = failed;
+    report
 }
 
 /// What the thread does.
@@ -242,6 +323,8 @@ impl Rework {
     pub fn new(store: FilePlayStore) -> Rework {
         Rework {
             reworker: Reworker::default(),
+            importing: None,
+            imported: None,
             store,
             next: Some(Instant::now() + Duration::from_millis(PASS_STEP_MS.into())),
             worker: None,
@@ -296,6 +379,7 @@ impl Rework {
         while let Some(answer) = self.worker.as_ref().and_then(|w| w.answers.try_recv().ok()) {
             self.answered(plays, answer, wake);
         }
+        self.import_answers(plays);
         if !ready || self.next.is_none_or(|t| t > Instant::now()) {
             return;
         }
@@ -324,6 +408,86 @@ impl Rework {
                         },
                         wake,
                     );
+                }
+            }
+        }
+    }
+
+    /// Imports the plays of the export at `path` on a thread of its own
+    /// (none while one runs): its plays come into `plays` as they are
+    /// kept ([`Rework::poll`]), and are worked out again after. Whether
+    /// it started.
+    pub fn import(
+        &mut self,
+        path: PathBuf,
+        plays: &Plays,
+        wake: Option<&Arc<dyn Fn() + Send + Sync>>,
+    ) -> bool {
+        if self.importing.is_some() || !plays.loaded() {
+            return false;
+        }
+        let (tx, rx) = mpsc::channel();
+        let store = self.store.clone();
+        let known = plays.history().ids();
+        let woken = wake.cloned();
+        let started = std::thread::Builder::new()
+            .name("ddi-history-import".into())
+            .spawn(move || {
+                let send = |answer| {
+                    let _ = tx.send(answer);
+                    if let Some(w) = &woken {
+                        w();
+                    }
+                };
+                let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    import_file(&path, &store, known, &send)
+                }))
+                .unwrap_or_else(|_| ImportReport {
+                    error: Some("the import stopped".into()),
+                    ..ImportReport::default()
+                });
+                send(Imported::Done(report));
+            });
+        if started.is_err() {
+            return false;
+        }
+        self.imported = None;
+        self.importing = Some((rx, 0));
+        true
+    }
+
+    /// The plays kept so far by the import under way (`None`: none runs).
+    pub fn importing(&self) -> Option<usize> {
+        self.importing.as_ref().map(|(_, n)| *n)
+    }
+
+    /// The last import's report, once.
+    pub fn take_imported(&mut self) -> Option<ImportReport> {
+        self.imported.take()
+    }
+
+    /// The import's answers: its plays into memory; at its end the
+    /// report, and the new plays worked out again.
+    fn import_answers(&mut self, plays: &Plays) {
+        let Some((rx, kept)) = self.importing.as_mut() else {
+            return;
+        };
+        while let Ok(answer) = rx.try_recv() {
+            match answer {
+                Imported::Kept(batch) => *kept += plays.adopt(batch),
+                Imported::Done(mut report) => {
+                    // Plays kept here meanwhile under the same ids
+                    // (none, in practice) count as kept already.
+                    report.duplicates += report.imported - *kept;
+                    report.imported = *kept;
+                    self.imported = Some(report);
+                    self.importing = None;
+                    if self.next.is_none_or(|t| {
+                        t > Instant::now() + Duration::from_millis(FOCUS_STEP_MS.into())
+                    }) {
+                        self.schedule(FOCUS_STEP_MS);
+                    }
+                    return;
                 }
             }
         }

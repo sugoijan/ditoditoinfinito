@@ -8,7 +8,9 @@
 //! (polled: some browsers show a pad only once a button is pressed), the
 //! noteskins and the library's counts read from storage, the volume
 //! sample (an audio context made inside the press, `crate::preview`), the
-//! play history's export, removing imported songs and noteskins. The
+//! play history's export and import (a hidden file input the screen's
+//! Import clicks inside the press, or an export dropped on the page),
+//! removing imported songs and noteskins. The
 //! bind dialog takes controllers' presses as they are (`ui_dev::pad_edge`
 //! sends them raw while it is open).
 //!
@@ -29,9 +31,11 @@ use ddi_ui::screens::options::{OPTIONS_CHANGED, OptionsFeed, OptionsScreen};
 use ddi_ui::screens::options_model::{OptionsModel, Reset, Sample, World};
 use ddi_ui::screens::options_shell::{self, Leave, OptionsPlatform};
 use ddi_ui::{Cx, TextMode, Ui, UiRequest};
+use gloo::events::{EventListener, EventListenerOptions};
 use gloo::timers::callback::Interval;
+use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
-use web_sys::{AudioBuffer, HtmlElement};
+use web_sys::{AudioBuffer, HtmlElement, HtmlInputElement};
 
 use crate::components::ui_dev::{self, Host, Started};
 use crate::import;
@@ -56,6 +60,11 @@ pub(crate) enum Msg {
     SampleDecoded(AudioBuffer),
     SampleEnded,
     PlaysExported(Result<usize, String>),
+    /// A file to import plays from (picked or dropped).
+    ImportPlays(web_sys::Blob),
+    /// Plays kept so far by the import.
+    PlaysImporting(usize),
+    PlaysImported(ddi_ui::state::history::ImportReport),
     ResetDone(Reset, Result<(), String>),
     NoteskinRemoved(Result<(), String>),
     /// The history deleted; whether that was all asked (else part of
@@ -76,6 +85,8 @@ struct Shared {
     pads: RefCell<Option<crate::web::gamepad::Gamepads>>,
     /// The field preview's settings, handed over as they are edited.
     field: RefCell<Option<Rc<RefCell<Option<Settings>>>>>,
+    /// The play history's import's file input (hidden; Import clicks it).
+    plays_input: NodeRef,
 }
 
 pub(crate) struct OptionsPage {
@@ -85,6 +96,8 @@ pub(crate) struct OptionsPage {
     failure: Option<String>,
     history_seen: u64,
     _pad_refresh: Option<Interval>,
+    /// The import's input's and the page's drop listeners.
+    _listeners: Vec<EventListener>,
 }
 
 impl Component for OptionsPage {
@@ -135,6 +148,7 @@ impl Component for OptionsPage {
             sample: RefCell::new(None),
             pads: RefCell::new(None),
             field: RefCell::new(None),
+            plays_input: NodeRef::default(),
         });
         let link = ctx.link().clone();
         OptionsPage {
@@ -146,6 +160,7 @@ impl Component for OptionsPage {
             _pad_refresh: Some(Interval::new(PAD_REFRESH_MS, move || {
                 link.send_message(Msg::PadsTick)
             })),
+            _listeners: Vec::new(),
         }
     }
 
@@ -255,6 +270,42 @@ impl Component for OptionsPage {
                 };
                 send(s);
             }
+            Msg::ImportPlays(file) => {
+                if s.model.borrow().world.importing_plays {
+                    return false;
+                }
+                {
+                    let mut m = s.model.borrow_mut();
+                    m.world.importing_plays = true;
+                    m.notice = "Importing plays…".into();
+                }
+                send(s);
+                let link = s.link.clone();
+                s.link.send_future(async move {
+                    let report = crate::history::import(file, move |n| {
+                        link.send_message(Msg::PlaysImporting(n))
+                    })
+                    .await;
+                    Msg::PlaysImported(report)
+                });
+            }
+            Msg::PlaysImporting(n) => {
+                let mut m = s.model.borrow_mut();
+                if m.world.importing_plays {
+                    m.notice = format!("Importing plays… {n} kept so far.");
+                    drop(m);
+                    send(s);
+                }
+            }
+            Msg::PlaysImported(report) => {
+                {
+                    let mut m = s.model.borrow_mut();
+                    m.world.importing_plays = false;
+                    m.notice = report.notice();
+                    m.world.plays = crate::history::plays().history().len();
+                }
+                send(s);
+            }
             Msg::ResetDone(r, result) => {
                 {
                     let mut m = s.model.borrow_mut();
@@ -330,6 +381,7 @@ impl OptionsPage {
         let Some(el) = self.root.cast::<HtmlElement>() else {
             return;
         };
+        self._listeners = import_listeners(&el, &self.shared, ctx);
         let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
         let env = theme.env().clone();
         *self.shared.env.borrow_mut() = Some(env.clone());
@@ -369,6 +421,83 @@ impl OptionsPage {
             Err(e) => ctx.link().send_message(Msg::Failed(e)),
         }
     }
+}
+
+/// What an export is: its file types, for the picker.
+const PLAYS_ACCEPT: &str =
+    ".jsonl,.ndjson,.json,.txt,application/x-ndjson,application/json,text/plain";
+
+/// The play history's import: a hidden file input (the screen's Import
+/// clicks it) and a file dropped anywhere on the page.
+fn import_listeners(
+    root: &HtmlElement,
+    shared: &Rc<Shared>,
+    ctx: &Context<OptionsPage>,
+) -> Vec<EventListener> {
+    let mut out = Vec::new();
+    let input = crate::component::element(root, "input", "");
+    let _ = input.set_attribute("type", "file");
+    let _ = input.set_attribute("accept", PLAYS_ACCEPT);
+    let _ = input.set_attribute("tabindex", "-1");
+    let _ = input.set_attribute("aria-hidden", "true");
+    let _ = input.set_attribute("data-ddi", "import-plays");
+    input.set_hidden(true);
+    shared.plays_input.set(&input);
+    {
+        let link = ctx.link().clone();
+        let el = input.clone();
+        out.push(EventListener::new(&input, "change", move |_| {
+            let Some(input) = el.dyn_ref::<HtmlInputElement>() else {
+                return;
+            };
+            let file = input.files().and_then(|l| l.get(0));
+            // Cleared so the same file again is a change too.
+            input.set_value("");
+            if let Some(file) = file {
+                link.send_message(Msg::ImportPlays(file.into()));
+            }
+        }));
+    }
+    let Some(window) = web_sys::window() else {
+        return out;
+    };
+    let opts = EventListenerOptions::enable_prevent_default();
+    let carries_files = |e: &web_sys::DragEvent| {
+        e.data_transfer()
+            .is_some_and(|dt| dt.types().includes(&"Files".into(), 0))
+    };
+    out.push(EventListener::new_with_options(
+        &window,
+        "dragover",
+        opts,
+        move |e| {
+            if let Some(e) = e.dyn_ref::<web_sys::DragEvent>()
+                && carries_files(e)
+            {
+                // Without this the browser opens the file instead.
+                e.prevent_default();
+            }
+        },
+    ));
+    let link = ctx.link().clone();
+    out.push(EventListener::new_with_options(
+        &window,
+        "drop",
+        opts,
+        move |e| {
+            let Some(e) = e.dyn_ref::<web_sys::DragEvent>() else {
+                return;
+            };
+            let Some(dt) = e.data_transfer().filter(|_| carries_files(e)) else {
+                return;
+            };
+            e.prevent_default();
+            if let Some(file) = dt.files().and_then(|l| l.get(0)) {
+                link.send_message(Msg::ImportPlays(file.into()));
+            }
+        },
+    ));
+    out
 }
 
 /// Puts the rows in the feed and tells the screen, once the host is free.
@@ -431,6 +560,22 @@ impl OptionsPlatform for Web {
     fn export(&self) {
         let link = self.0.link.clone();
         crate::history::export(move |r| link.send_message(Msg::PlaysExported(r)));
+    }
+
+    /// The file picker, inside the press (a browser opens it only from a
+    /// key, a click or a tap: not from a controller's press).
+    fn import_plays(&self, cx: &mut Cx) {
+        if !cx.in_gesture() || cx.menu_from_pad() {
+            self.0.model.borrow_mut().notice =
+                "Choose Import with a key, a click or a tap (the browser opens its file picker \
+                 only then), or drop the file on this page."
+                    .into();
+            send(&self.0);
+            return;
+        }
+        if let Some(input) = self.0.plays_input.cast::<HtmlInputElement>() {
+            input.click();
+        }
     }
 
     fn remove(&self, reset: &Reset) {
@@ -552,5 +697,6 @@ fn debug_into(shared: &Shared, obj: &js_sys::Object) {
     set(&o, "notice", m.notice.as_str().into());
     set(&o, "imported", (m.world.imported as f64).into());
     set(&o, "plays", (m.world.plays as f64).into());
+    set(&o, "importingPlays", m.world.importing_plays.into());
     set(obj, "options", o.into());
 }

@@ -44,13 +44,18 @@ const SM: &str = "#TITLE:History;#OFFSET:0;#BPMS:0=120;
 ;
 ";
 
-fn song() -> Song {
+pub(super) fn song() -> Song {
     parse_simfile(SM, "sm").unwrap()
 }
 
 /// A play of chart `index` pressed `bias` seconds late (none: no presses):
 /// its log and what it comes to.
-fn play(song: &Song, index: usize, rules: &RulesetKey, bias: Option<f64>) -> (PlayLog, Results) {
+pub(super) fn play(
+    song: &Song,
+    index: usize,
+    rules: &RulesetKey,
+    bias: Option<f64>,
+) -> (PlayLog, Results) {
     let ruleset = rules.build(&song.charts[index]);
     let player = Player::new(song, index, ruleset, PlayOptions::default());
     let mut inputs = Vec::new();
@@ -74,7 +79,13 @@ fn play(song: &Song, index: usize, rules: &RulesetKey, bias: Option<f64>) -> (Pl
     (log, results)
 }
 
-fn record(song: &Song, index: usize, rules: &RulesetKey, time: f64, auto: bool) -> PlayRecord {
+pub(super) fn record(
+    song: &Song,
+    index: usize,
+    rules: &RulesetKey,
+    time: f64,
+    auto: bool,
+) -> PlayRecord {
     PlayRecord {
         version: RECORD_VERSION,
         chart: ChartKey {
@@ -101,11 +112,11 @@ fn record(song: &Song, index: usize, rules: &RulesetKey, time: f64, auto: bool) 
     }
 }
 
-fn itg() -> RulesetKey {
+pub(super) fn itg() -> RulesetKey {
     presets::itg().key()
 }
 
-fn answered<T: 'static>() -> (Rc<RefCell<Option<T>>>, impl FnOnce(T) + 'static) {
+pub(super) fn answered<T: 'static>() -> (Rc<RefCell<Option<T>>>, impl FnOnce(T) + 'static) {
     let cell = Rc::new(RefCell::new(None));
     let c = cell.clone();
     (cell, move |v| *c.borrow_mut() = Some(v))
