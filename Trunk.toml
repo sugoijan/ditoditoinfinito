@@ -56,3 +56,11 @@ command_arguments = ["run", "-p", "xtask", "--", "stage-video"]
 stage = "post_build"
 command = "cargo"
 command_arguments = ["run", "-p", "xtask", "--", "stage-opus"]
+
+# The page draws its loader from its own first bytes: within the first
+# round trip compressed, nothing the first paint waits for fetched
+# (xtask/src/boot_check.rs). Last, on the page as it ships.
+[[hooks]]
+stage = "post_build"
+command = "cargo"
+command_arguments = ["run", "-p", "xtask", "--", "check-boot"]

@@ -7,6 +7,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
+mod boot_check;
 mod credits;
 mod dito;
 mod noteskins;
@@ -73,6 +74,16 @@ enum Commands {
     /// builds' files. Trunk runs this after a build.
     #[command(name = "stage-opus")]
     StageOpus {
+        /// The site's folder (default: $TRUNK_STAGING_DIR).
+        #[arg(long)]
+        dest: Option<PathBuf>,
+    },
+    /// Check the built index.html draws its loader from its own first
+    /// bytes: within the first round trip compressed, with nothing the
+    /// first paint waits for fetched (`xtask/src/boot_check.rs`). Trunk
+    /// runs this after a build.
+    #[command(name = "check-boot")]
+    CheckBoot {
         /// The site's folder (default: $TRUNK_STAGING_DIR).
         #[arg(long)]
         dest: Option<PathBuf>,
@@ -481,6 +492,7 @@ fn main() -> Result<()> {
         Commands::GenCredits { check } => credits::gen_credits(check),
         Commands::StageVideo { dest } => stage_video(dest),
         Commands::StageOpus { dest } => stage_opus(dest),
+        Commands::CheckBoot { dest } => boot_check::check_boot(dest),
     }
 }
 

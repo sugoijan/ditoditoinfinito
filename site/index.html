@@ -7,7 +7,7 @@
     <script id="boot-inline">
       (() => {
         const state = {
-          progress: 0.08,
+          progress: 0,
           blocked: null,
           ready: false,
           crashed: false,
@@ -43,13 +43,8 @@
             return;
           }
           if (root.progressFill) {
-            if (state.progress == null) {
-              root.progressFill.style.width = "10%";
-            } else {
-              const clamped = clamp01(state.progress);
-              const pct = Math.round(clamped * 100);
-              root.progressFill.style.width = `${Math.max(4, pct)}%`;
-            }
+            const pct = Math.round(clamp01(state.progress) * 100);
+            root.progressFill.style.width = `${Math.max(4, pct)}%`;
           }
           if (root.shell) {
             if (state.blocked) {
@@ -73,7 +68,12 @@
             }
           }
         };
+        // The bar never goes back, and an unknown amount keeps it where
+        // it is: it starts at the 4% the stylesheet draws it at.
         const setProgress = (value) => {
+          if (value == null || value <= state.progress) {
+            return;
+          }
           state.progress = value;
           applyState();
         };
@@ -344,20 +344,14 @@
       })();
     </script>
     <style>
+      /* The theme's ground (`Ground`, crates/theme/src/infinito.toml) in
+         either scheme: the game under the loader is always dark, and a
+         light loader would flash as it fades into it. */
       :root {
-        --boot-bg: #ffffff;
-        --boot-bar-track: rgba(0, 0, 0, 0.12);
-        --boot-bar-fill: rgba(0, 0, 0, 0.7);
-        --boot-error: rgba(0, 0, 0, 0.85);
-      }
-
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --boot-bg: #161318;
-          --boot-bar-track: rgba(255, 255, 255, 0.2);
-          --boot-bar-fill: rgba(255, 255, 255, 0.75);
-          --boot-error: rgba(255, 255, 255, 0.88);
-        }
+        --boot-bg: #0a090d;
+        --boot-bar-track: rgba(255, 255, 255, 0.2);
+        --boot-bar-fill: rgba(255, 255, 255, 0.75);
+        --boot-error: rgba(255, 255, 255, 0.88);
       }
 
       body {
@@ -400,7 +394,7 @@
         left: 0;
         top: -2px;
         height: 6px;
-        width: 12%;
+        width: 4%;
         background: var(--boot-bar-fill);
       }
 
@@ -422,7 +416,8 @@
     <link data-trunk rel="rust" href="../crates/app/Cargo.toml" data-initializer="boot-init.js" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
     <!-- The Ogg Opus fallback decoder, a worker fetched only when the browser cannot decode Opus (PLAN.md decision 9); `xtask stage-opus` names its files by their hash. -->
     <link data-trunk rel="rust" href="../crates/opus-worker/Cargo.toml" data-bin="opus-worker" data-type="worker" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int" />
-    <link data-trunk rel="css" href="styles.css" />
+    <!-- Inlined, as everything the loader needs: nothing the first paint waits for comes from another fetch (`xtask check-boot`). -->
+    <link data-trunk rel="inline" href="styles.css" />
     <link data-trunk rel="copy-file" href="seo/favicon.svg" />
     <link data-trunk rel="copy-file" href="../docs/screenshots/readme.png" data-target-path="images" />
     <link data-trunk rel="copy-dir" href="../assets/songs" data-target-path="songs" />

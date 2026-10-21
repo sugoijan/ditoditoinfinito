@@ -1,7 +1,9 @@
 default_locale = "en"
 site_name = "Dito Dito Infinito (Demo)"
-theme_color_light = "#ffffff"
-theme_color_dark = "#161318"
+# The theme's ground in either scheme, as the loader (site/index.html):
+# the game is always dark.
+theme_color_light = "#0a090d"
+theme_color_dark = "#0a090d"
 canonical_url = "https://sugoijan.dev/ditoditoinfinito/"
 # Relative hrefs resolve correctly under any --public-url (dev and prod).
 favicon_href = "favicon.svg"

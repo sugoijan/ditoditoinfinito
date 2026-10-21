@@ -643,6 +643,14 @@ dependency's licence before adding it.
 - GitHub Pages from the `main` branch via the workflow in `.github/`. The
   public URL is lowercase; on a custom domain Pages paths are case-sensitive,
   which is why the repository name is lowercase.
+- The page draws its loader from its own first bytes: its styles
+  (`site/styles.css` inlined) and boot script are in `index.html`, which
+  fits the first round trip compressed (about 12.5 KB gzipped), and
+  nothing the first paint waits for is fetched (no stylesheet links,
+  classic scripts with a source, `@import` or `url()`). `xtask
+  check-boot`, Trunk's last post-build hook, fails a build that breaks
+  it. The loader is the theme's ground in either color scheme, as the
+  game it fades into.
 - `credits/CREDITS.md` and `credits/THIRD_PARTY_RUST.md` are generated and committed;
   `Trunk.toml` ignores them in the watcher so regenerating them does not
   loop the dev server.

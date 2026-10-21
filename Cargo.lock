@@ -6457,6 +6457,7 @@ dependencies = [
  "ddi-noteskin",
  "ddi-platform",
  "ddi-render",
+ "miniz_oxide 0.9.1",
  "serde",
  "serde_json",
  "toml",
