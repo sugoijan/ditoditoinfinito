@@ -243,4 +243,7 @@ Left:
 
 ## Step 3: the editor
 
-`docs/plans/editor.md`.
+Planned (2026-10-21): `docs/plans/editor.md`. A first version for
+`.ssc`/`.sm` timing and notes on the UI core, on both shells, with
+playtests from the editor, saving on desktop and saving or downloading
+on the web; eight steps, the first an `.ssc` writer. Nothing built.

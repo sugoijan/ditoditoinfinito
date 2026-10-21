@@ -46,6 +46,9 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Phase 10](phase-10.md) (2026-10-21): importing plays done; FFR
   levels read (SWF and text `beatBox`), not yet offered on import, their
   rules waiting for the rulesets. Rulesets later.
+- [The chart editor](editor.md) (2026-10-21): planned, not started. A
+  first version for `.ssc`/`.sm` timing and notes, playtests, saving on
+  both shells.
 - [Additional charts without onigiri](chart-simplification.md)
   (2026-10-18): done. DanOni 5/7/9A/9B charts converted to Single, Solo,
   Double and Techno 8-panel, marked as assisted.
