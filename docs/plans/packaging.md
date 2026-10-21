@@ -228,10 +228,11 @@ keeps the archives as the run's artifacts only):
 
 - Windows: the video helper built in the release job (MSYS2 and the MSVC
   tools, `DDI_VIDEO_NATIVE=1`) once it has run on Windows hardware; the
-  game linked as a GUI program (`windows_subsystem = "windows"` in
-  `crates/app`, so no console window opens beside it, with a way to keep
-  the flags' printed output); an icon and version resource in the
-  executable; SmartScreen will warn about an unsigned download.
+  flags' printed output in a console the game was started from (the game
+  is a GUI program outside debug builds since 2026-10-21, so no console
+  window opens beside it, and its output reaches only a file or a pipe it
+  is redirected to; `AttachConsole` once tried on Windows); an icon and
+  version resource in the executable; SmartScreen will warn about an unsigned download.
 - Notarization and a Developer ID signature (hardened runtime then
   required, and the importer's executables signed before its manifests
   are written), when the maintainer wants them.
