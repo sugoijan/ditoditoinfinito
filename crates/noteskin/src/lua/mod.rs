@@ -63,6 +63,10 @@ use self::stage::Stage;
 /// The prelude (ours, after StepMania's `_fallback` scripts).
 const PRELUDE: &str = include_str!("prelude.lua");
 
+/// What a song's scripts read besides a skin's (`Skin::song`; run after
+/// the prelude): StepMania's screen and the song's folder.
+pub const SONG_PRELUDE: &str = include_str!("song.lua");
+
 /// Actors one skin may make, over all its elements (and the copies of its
 /// note elements per color, [`NOTE_COLORS`]).
 pub const MAX_ACTORS: usize = 16384;
@@ -96,6 +100,9 @@ pub struct Env {
     /// there (for finding what skins miss; scripts test for names too, so
     /// it is noise in a report).
     pub trace_missing: bool,
+    /// StepMania's screen, width and height in its pixels, for a song's
+    /// scripts (`SCREEN_WIDTH`, `SCREEN_HEIGHT`; [`SONG_PRELUDE`]).
+    pub screen: [f64; 2],
 }
 
 impl Default for Env {
@@ -111,6 +118,7 @@ impl Default for Env {
             last_beat: 0.0,
             reversed: false,
             trace_missing: false,
+            screen: [640.0, 480.0],
         }
     }
 }
@@ -309,6 +317,8 @@ struct Driver {
     init: StashedFunction,
     play: StashedFunction,
     update: StashedFunction,
+    /// `LoadActor` of a path: a song's background or foreground.
+    actor: StashedFunction,
 }
 
 /// What is left to spend: of the load, or of the current frame.
@@ -386,6 +396,7 @@ impl LuaSkin {
             (prelude.map(|f| ctx.stash(f)), ctx.stash(h), registries)
         });
         let prelude = prelude?;
+        let h_song = h.clone();
         let mut skin = LuaSkin {
             vm,
             host,
@@ -397,6 +408,7 @@ impl LuaSkin {
                 init: prelude.clone(),
                 play: prelude.clone(),
                 update: prelude.clone(),
+                actor: prelude.clone(),
             },
             left: Allowance {
                 fuel: budget.fuel,
@@ -428,9 +440,22 @@ impl LuaSkin {
                 init: f("init")?,
                 play: f("play")?,
                 update: f("update")?,
+                actor: f("actor")?,
             })
         });
         skin.driver = driver.ok_or_else(|| Failure::Error("the prelude did not load".into()))?;
+        if skin.host.borrow().skin.is_song() {
+            let song = skin.vm.lua().enter(|ctx| {
+                ddi_lua::compile(ctx, &settings, "=song", SONG_PRELUDE.as_bytes())
+                    .map(|f| ctx.stash(f))
+            })?;
+            skin.run(
+                &song,
+                move |ctx| vec![Value::Table(ctx.fetch(&h_song))],
+                pause.as_deref_mut(),
+            )
+            .await?;
+        }
 
         // The chain: each script compiled (one that does not compile is
         // skipped, as `RunScript` failing leaves the previous table), then
@@ -725,6 +750,105 @@ impl LuaSkin {
             },
             colored,
         ))
+    }
+
+    /// A song's background or foreground ([`Skin::song`]): `LoadActor` of
+    /// `path` (as Lua names it, `/Songs/<pack>/<song>/<folder>`), in the
+    /// `UpperLeft` effect's frame tinted by `color1` for a background,
+    /// itself for a foreground; converted and initialized as an element
+    /// is. What is not drawn here (text, render targets) stays in the tree
+    /// as actors that draw nothing, with a note: the rest still draws. A
+    /// Lua error is [`Built::Blank`] with its message.
+    pub fn actor_file(
+        &mut self,
+        path: &str,
+        color1: Option<&str>,
+        textures: &mut Textures,
+        images: &dyn Images,
+    ) -> Result<Element, Failure> {
+        now(self.actor_file_sliced(path, color1, textures, images, None))
+    }
+
+    /// [`LuaSkin::actor_file`], giving the host a turn every
+    /// [`LOAD_SLICE`] fuel.
+    pub async fn actor_file_sliced(
+        &mut self,
+        path: &str,
+        color1: Option<&str>,
+        textures: &mut Textures,
+        images: &dyn Images,
+        mut pause: Option<&mut Pause>,
+    ) -> Result<Element, Failure> {
+        let actor = self.driver.actor.clone();
+        let (p, c) = (path.to_string(), color1.map(str::to_string));
+        let results = self
+            .run(
+                &actor,
+                move |ctx| {
+                    let mut args = vec![Value::String(ctx.intern(p.as_bytes()))];
+                    args.extend(c.map(|c| Value::String(ctx.intern(c.as_bytes()))));
+                    args
+                },
+                pause.as_deref_mut(),
+            )
+            .await;
+        let blank = |m: String| Element {
+            built: Built::Blank,
+            notes: vec![m],
+        };
+        let results = match results {
+            Err(Failure::Error(m)) if self.failed.is_none() => return Ok(blank(m)),
+            r => r?,
+        };
+        let host = self.host.clone();
+        let registries = &self.registries;
+        let converted = self.vm.lua().enter(|ctx| {
+            let Some(Value::Table(t)) = results.first().map(|v| ctx.fetch(v)) else {
+                return Ok(None);
+            };
+            let mut host = host.borrow_mut();
+            convert::element(ctx, &mut host, registries, textures, images, t).map(Some)
+        });
+        let converted = match converted {
+            Err(f) => {
+                self.failed = Some(f.clone());
+                return Err(f);
+            }
+            Ok(c) => c,
+        };
+        let Some(converted) = converted else {
+            return Ok(blank(format!("{path}: did not return a table")));
+        };
+        let notes = converted.notes;
+        let Some((_, root_id)) = converted.root else {
+            return Ok(Element {
+                built: Built::Blank,
+                notes,
+            });
+        };
+        let init = self.driver.init.clone();
+        match self
+            .run(
+                &init,
+                move |_| vec![Value::Integer(i64::from(root_id))],
+                pause,
+            )
+            .await
+        {
+            Err(Failure::Error(m)) if self.failed.is_none() => return Ok(blank(m)),
+            r => r?,
+        };
+        let tree = self
+            .host
+            .borrow()
+            .stage
+            .get(root_id)
+            .cloned()
+            .ok_or_else(|| Failure::Error("the actor was lost".into()))?;
+        Ok(Element {
+            built: Built::Actor(tree),
+            notes,
+        })
     }
 
     // The play.

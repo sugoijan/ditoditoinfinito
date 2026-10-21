@@ -180,6 +180,9 @@ pub(crate) enum Msg {
     /// An image or text of a work's back and mask layers, decoded, with
     /// its size in the stage's px.
     StageContentLoaded(SpriteSource, Option<(web_sys::ImageBitmap, (f32, f32))>),
+    /// The song's scripted backgrounds and foregrounds, loaded (`None`:
+    /// they failed; `docs/plans/scripted-backgrounds.md`).
+    ScriptsLoaded(Option<Box<crate::scripts::Loaded>>),
     /// A background movie's file, for the game loop to play; whether it
     /// is the song's first movie (probed for the background frame).
     MovieLoaded(
@@ -267,6 +270,8 @@ pub(crate) struct GameCanvas {
     backgrounds: Vec<(BgImage, web_sys::ImageBitmap)>,
     /// Back and mask contents decoded before the game was there.
     stage_contents: Vec<(SpriteSource, web_sys::ImageBitmap, (f32, f32))>,
+    /// The song's scripts, loaded before the game was there.
+    scripts: Option<Option<Box<crate::scripts::Loaded>>>,
     /// Pixels of the back and mask contents decoded so far.
     stage_pixels: u64,
     /// Movie files loaded before the game loop was there.
@@ -577,6 +582,7 @@ impl Component for GameCanvas {
             touch: coarse_pointer(),
             backgrounds: Vec::new(),
             stage_contents: Vec::new(),
+            scripts: None,
             stage_pixels: 0,
             movies: Vec::new(),
             noteskin: None,
@@ -793,6 +799,11 @@ impl GameCanvas {
                     self.stage_contents.push((source, bitmap, size));
                     self.apply_background();
                 }
+                false
+            }
+            Msg::ScriptsLoaded(loaded) => {
+                self.scripts = Some(loaded);
+                self.apply_background();
                 false
             }
             Msg::MovieLoaded(name, blob, format, probe) => {
@@ -1402,6 +1413,9 @@ impl GameCanvas {
             for (source, bitmap, size) in self.stage_contents.drain(..) {
                 game.add_stage_content(source, bitmap, size);
             }
+            if let Some(scripts) = self.scripts.take() {
+                game.set_scripts(scripts.map(|s| *s));
+            }
             for (name, blob, format, probe) in self.movies.drain(..) {
                 game.add_movie(name, blob, format, probe);
             }
@@ -1465,21 +1479,21 @@ impl GameCanvas {
                             .chain(e.bg_scripted.iter().map(|p| p.as_str()))
                     })
                     .collect();
-                [
-                    backgrounds::schedule(
-                        &play_song,
-                        &song.bg_images,
-                        &song.bg_videos,
-                        song.has_background,
-                    ),
-                    backgrounds::second_layer(
-                        &play_song,
-                        &song.bg_images,
-                        &song.bg_videos,
-                        &unshowable,
-                        song.has_background,
-                    ),
-                ]
+                // Folders with a `default.lua`: scripted backgrounds.
+                let scripts = song.entry.as_ref().map_or(Vec::new(), |e| {
+                    backgrounds::script_folders_of(&e.bg_scripts)
+                });
+                if let Some(game) = self.game.borrow_mut().as_mut() {
+                    game.retime_scripts(&backgrounds::foregrounds(&play_song, &scripts));
+                }
+                backgrounds::layers(
+                    &play_song,
+                    &song.bg_images,
+                    &song.bg_videos,
+                    &scripts,
+                    &unshowable,
+                    song.has_background,
+                )
             }
             SongSource::Calibration(_) => Default::default(),
         };
@@ -2004,13 +2018,19 @@ impl GameCanvas {
             Save::Done(Some(e)) => Some(e.as_str()),
             _ => None,
         };
-        let video_notes = ddi_ui::screens::play::results_notes(
+        let scripts_note = self
+            .game
+            .borrow()
+            .as_ref()
+            .and_then(|g| g.scripts_stopped().map(ddi_session::scripted::stop_note));
+        let mut video_notes = ddi_ui::screens::play::results_notes(
             *video_stopped,
             video_trouble.as_deref(),
             save_error,
             self.replay_check.as_ref(),
             self.kept(),
         );
+        video_notes.extend(scripts_note);
         let kept = self.kept().cloned();
         let mut data = results_data(&PlayInfo {
             results,
@@ -2374,6 +2394,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
     let shift = ddi_session::play::song_shift(&settings, &id, kept, false);
     let background_name = new_play_background(&id);
     let show_background = settings.bg_brightness > 0.0;
+    let script_settings = settings.clone();
     // Off: no movie file is read and the decoder is never fetched.
     let play_videos = show_background && settings.video != VideoMode::Off;
     ctx.link().send_future(async move {
@@ -2492,6 +2513,30 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                     Msg::BackgroundLoaded(BgImage::Still, bitmap)
                 });
             }
+            if !show_background || loaded.entry.bg_scripts.is_empty() {
+                // None for this song (a song before kept the game loop's).
+                link.send_future(async { Msg::ScriptsLoaded(None) });
+            } else {
+                // The song's scripts: read, decoded and loaded alongside
+                // the start prompt; the play never waits for them.
+                let entry = loaded.entry.clone();
+                let record = loaded.record.clone();
+                let song = loaded.song.clone();
+                link.send_future(async move {
+                    let r =
+                        crate::scripts::load(&entry, &song, record.as_deref(), &script_settings)
+                            .await;
+                    Msg::ScriptsLoaded(match r {
+                        Ok(loaded) => loaded.map(Box::new),
+                        Err(e) => {
+                            web_sys::console::warn_1(
+                                &format!("scripted backgrounds did not load: {e}").into(),
+                            );
+                            None
+                        }
+                    })
+                });
+            }
             if show_background {
                 // Loads alongside the start prompt; the play
                 // never waits for it.
@@ -2580,7 +2625,9 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                                     | BgImage::Movie(_)
                                     | BgImage::Still
                                     | BgImage::Clear
-                                    | BgImage::Plain => MAX_CHANGE_SIDE,
+                                    | BgImage::Plain
+                                    | BgImage::Scripted(_)
+                                    | BgImage::Black => MAX_CHANGE_SIDE,
                                 };
                                 crate::web::image::decode(&blob, side)
                                     .await

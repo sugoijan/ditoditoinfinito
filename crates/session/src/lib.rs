@@ -17,6 +17,9 @@
 //!   decoder, their tracks, the frames due and what shows (the shell
 //!   opens the decoders and makes the textures).
 //! - [`stage`]: a Dancing☆Onigiri work's layers' timeline in a play.
+//! - [`scripted`]: a song's scripted backgrounds and foregrounds in a
+//!   play: their Lua, the commands at each change, their updates within a
+//!   budget, what each draws.
 //! - [`record`]: what the play history keeps of a play.
 //! - [`preview`]: song select's previews' length and fades.
 //! - [`sounds`]: the mine sound and the assist clap, made in code.
@@ -27,6 +30,7 @@ pub mod movies;
 pub mod play;
 pub mod preview;
 pub mod record;
+pub mod scripted;
 pub mod sounds;
 pub mod stage;
 

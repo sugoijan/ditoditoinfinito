@@ -585,34 +585,38 @@ impl<S: MovieShell> MovieSlots<S> {
 }
 
 /// The textures a play's backdrop picks from ([`backgrounds::shown`]): the
-/// song's images, the movies' textures that hold a frame of this run, and
-/// the second layer's opaque stand-in for a missing song background
-/// ([`BgImage::Plain`]). Made again only when an image was added or the
-/// movies' [`MovieSlots::version`] changed, not every frame.
+/// song's images, the movies' textures that hold a frame of this run, the
+/// second layer's opaque stand-in for a missing song background
+/// ([`BgImage::Plain`]) and, while the song's scripts run, black under
+/// them ([`BgImage::Black`]). Made again only when an image was added, the
+/// movies' [`MovieSlots::version`] changed or the scripts stopped, not
+/// every frame.
 #[derive(Debug, Default)]
 pub struct BackdropTextures {
     list: Vec<(BgImage, usize)>,
-    /// `(images, movies' version)` the list was made for.
-    key: Option<(usize, u64)>,
+    /// `(images, movies' version, black)` the list was made for.
+    key: Option<(usize, u64, Option<usize>)>,
 }
 
 impl BackdropTextures {
     /// The list for `images` (which only grow) and the movies at `version`,
     /// `movies` their [`MovieSlots::shown_ids`]; `plain` the plain
-    /// backdrop's renderer id.
+    /// backdrop's renderer id, `black` black's while scripts run.
     pub fn get<I: IntoIterator<Item = (BgImage, usize)>>(
         &mut self,
         images: &[(BgImage, usize)],
         version: u64,
         movies: impl FnOnce() -> I,
         plain: usize,
+        black: Option<usize>,
     ) -> &[(BgImage, usize)] {
-        let key = (images.len(), version);
+        let key = (images.len(), version, black);
         if self.key != Some(key) {
             self.list.clear();
             self.list.extend(images.iter().cloned());
             self.list.extend(movies());
             self.list.push((BgImage::Plain, plain));
+            self.list.extend(black.map(|b| (BgImage::Black, b)));
             self.key = Some(key);
         }
         &self.list

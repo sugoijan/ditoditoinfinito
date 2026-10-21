@@ -25,6 +25,10 @@ use crate::path::{RelPath, RelPathBuf};
 /// `songs::MAX_BG_IMAGES`).
 pub const MAX_BG_IMAGES: usize = 32;
 
+/// Files of a song's scripted backgrounds and foregrounds kept, at most
+/// (`docs/plans/scripted-backgrounds.md`, decision 8).
+pub const MAX_SCRIPT_FILES: usize = 64;
+
 /// Reads a simfile for the library or a play, appending any generated
 /// chart versions. The format importer itself preserves the source charts.
 pub fn parse_simfile(
@@ -198,6 +202,9 @@ pub struct Built {
     pub chart_music: Vec<(RelPathBuf, RelPathBuf)>,
     /// Background-change images, `(relative, path)`.
     pub bg_images: Vec<(RelPathBuf, RelPathBuf)>,
+    /// The scripted backgrounds' and foregrounds' files, `(relative,
+    /// path)` ([`crate::manifest::ManifestEntry::bg_scripts`]).
+    pub script_files: Vec<(RelPathBuf, RelPathBuf)>,
     /// The movies kept, `(relative, path)`.
     pub videos: Vec<(RelPathBuf, RelPathBuf)>,
     /// Background-change movies that will play.
@@ -444,6 +451,23 @@ impl Reading {
         let (present, absent): (Vec<_>, Vec<_>) =
             unshown.into_iter().partition(|(_, exists)| *exists);
         let scripted: Vec<RelPathBuf> = present.iter().map(|(n, _)| n.into()).collect();
+        // Scripts (folders with a `default.lua`) play; the rest of what
+        // exists does not.
+        let scripts = crate::backgrounds::script_folders(&song, &c.dir, paths);
+        let mut script_files = crate::backgrounds::script_files(&c.dir, &scripts, paths);
+        if script_files.len() > MAX_SCRIPT_FILES {
+            warnings.push(format!(
+                "{} files in scripted backgrounds; only the first {MAX_SCRIPT_FILES} are kept",
+                script_files.len()
+            ));
+            script_files.truncate(MAX_SCRIPT_FILES);
+        }
+        let is_script = |name: &str| {
+            let name = name.trim().to_lowercase();
+            scripts.iter().any(|s| s.as_str().to_lowercase() == name)
+        };
+        let present: Vec<(String, bool)> =
+            present.into_iter().filter(|(n, _)| !is_script(n)).collect();
         let names = |list: Vec<(String, bool)>| {
             list.into_iter()
                 .map(|(n, _)| n)
@@ -452,7 +476,7 @@ impl Reading {
         };
         if !present.is_empty() {
             notes.push(format!(
-                "background changes use scripted animations, which are not played (the song background shows instead): {}",
+                "background changes use animations made for older StepMania versions, which are not played (the song background shows instead): {}",
                 names(present)
             ));
         }
@@ -489,6 +513,7 @@ impl Reading {
         entry.cd_title = cd_title.as_ref().map(|(n, _)| n.clone());
         entry.lyrics = lyrics.as_ref().map(|(n, _)| n.clone());
         entry.preview = preview.as_ref().map(|(n, _)| n.clone());
+        entry.bg_scripts = script_files.iter().map(|(r, _)| r.clone()).collect();
         // The keys the song list finds its charts' bests by (a work's
         // chart's own excessive setting among them).
         for chart in &mut entry.charts {
@@ -531,6 +556,7 @@ impl Reading {
             preview,
             chart_music,
             bg_images,
+            script_files,
             videos,
             videos_playing,
             videos_left_out: left_out.len(),
@@ -915,5 +941,37 @@ mod tests {
             .map(|e| e.fields[1].as_str())
             .collect();
         assert_eq!(files, vec!["A,B.png", "x=y/c.png", "plain.png"]);
+    }
+
+    #[test]
+    fn scripted_backgrounds_keep_their_folders_files() {
+        let mut f = BTreeMap::new();
+        let sm = SM.replace(
+            "#BPMS:0=120;",
+            "#BPMS:0=120;#BGCHANGES:0=anim=1=0=0=0,2=old=1=0=0=0;#FGCHANGES:4=FG=1=0=0=0;",
+        );
+        f.insert("P/S/s.sm".into(), sm.into_bytes());
+        f.insert("P/S/song.ogg".into(), vec![0; 4]);
+        f.insert(
+            "P/S/Anim/default.lua".into(),
+            b"return Def.Actor{}".to_vec(),
+        );
+        f.insert("P/S/Anim/x.png".into(), png(8, 8));
+        f.insert("P/S/fg/default.lua".into(), b"return Def.Actor{}".to_vec());
+        f.insert("P/S/old/BGAnimation.ini".into(), Vec::new());
+        let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
+        let scan = scan_root(&Files(f), &paths, "Mine", &[], &|_| None);
+        let s = &scan.songs[0];
+        assert_eq!(
+            s.entry.bg_scripts,
+            vec!["Anim/default.lua", "Anim/x.png", "fg/default.lua"]
+        );
+        // Only the folder made for older versions is noted as not played.
+        let note = s
+            .notes
+            .iter()
+            .find(|n| n.contains("older StepMania"))
+            .unwrap();
+        assert!(note.ends_with(": old"), "{note}");
     }
 }

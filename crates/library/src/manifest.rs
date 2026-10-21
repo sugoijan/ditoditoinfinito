@@ -70,6 +70,13 @@ pub struct ManifestEntry {
     /// as it is. Missing in songs imported before 2026-10-16.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bg_scripted: Vec<RelPathBuf>,
+    /// The files of the song's scripted backgrounds and foregrounds
+    /// (folders with a `default.lua`, [`crate::backgrounds::script_folders`]),
+    /// relative to the song directory: what their scripts may load.
+    /// Imported songs store each under `bga/<path>`. Missing in songs
+    /// imported before 2026-10-21 (they show the song background there).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bg_scripts: Vec<RelPathBuf>,
     /// Images a Dancing☆Onigiri work's back and mask layers show, by the
     /// names its data uses, stored as `layer/<name>`
     /// (`docs/plans/overlays.md`).
@@ -366,6 +373,7 @@ pub fn summarize(meta: EntryMeta, song: &Song) -> ManifestEntry {
         bg_videos: meta.bg_videos,
         bg_shared: meta.bg_shared,
         bg_scripted: Vec::new(),
+        bg_scripts: Vec::new(),
         layer_images: Vec::new(),
         credit: meta.credit,
         layouts,
@@ -515,6 +523,7 @@ mod tests {
             bg_videos: Vec::new(),
             bg_shared: Vec::new(),
             bg_scripted: Vec::new(),
+            bg_scripts: Vec::new(),
             layer_images: Vec::new(),
             credit: String::new(),
             bpm: "120".into(),

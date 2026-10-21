@@ -36,7 +36,10 @@ the browser are implementation details, not advertised features.
   cached menu Gaussian images (`crates/render/src/gaussian.rs`, recorded once
   on upload before mipmaps, keyed separately from sharp images), and Options'
   field preview (`crates/render/src/field_preview.rs`: the demo chart drawn as
-  play draws it into a texture the 2D pass shows). No platform
+  play draws it into a texture the 2D pass shows); StepMania's named
+  background effects drawn from `ddi_library::backgrounds::BgDraw`
+  (`crates/render/src/background.rs`) and a song's scripts' actors as quads
+  in the background frame (`crates/render/src/scripted.rs`). No platform
   code.
 - `crates/platform/` traits and plain data the shells implement (audio clock, input,
   device fingerprints), plus the Ogg Vorbis and MP3 fallback decoder behind
@@ -104,7 +107,10 @@ the browser are implementation details, not advertised features.
   (`crates/noteskin/src/lua/`) a skin's Lua run at load over `lua/`; StepMania
   3.9's and OpenITG's format built natively (`crates/noteskin/src/legacy.rs`);
   SVG images in a checked subset (`crates/noteskin/src/svg.rs`, our extension);
-  the skin keys settings store (`crates/noteskin/src/bundled.rs`). Pure,
+  the skin keys settings store (`crates/noteskin/src/bundled.rs`); the same
+  Lua host runs a song's scripted backgrounds over its folder
+  (`Skin::song`, `LuaSkin::actor_file`, `lua/song.lua`;
+  `docs/plans/scripted-backgrounds.md`). Pure,
   natively tested; `docs/plans/noteskins.md`. `crates/render/src/noteskin.rs`
   loads a skin through its Lua for both shells (`NoteskinPlay::load_lua`),
   draws it in play and runs its Lua each frame. Our opt-in
@@ -130,7 +136,8 @@ the browser are implementation details, not advertised features.
   play's background movies (`movies.rs`: `MovieSlots`, which segments
   have a decoder, their tracks and what shows, each shell's decoders
   behind `MovieShell`; `BackdropTextures`, both shells' `movies.rs` run
-  on it); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
+  on it), a song's scripted backgrounds and foregrounds (`scripted.rs`:
+  their VM, the commands at each change, one budget a frame); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
   (`crates/web/src/play.rs` is the web's). Platform-free, natively tested on a
   fake clock.
 - `crates/shell/` what both shells do between the settings (`ddi-ui`) and
@@ -139,7 +146,8 @@ the browser are implementation details, not advertised features.
   settings, the note colors as the renderer has them, the ghost's lead as
   the HUD shows it, and a work's layers' textures
   (`crates/shell/src/stage.rs`, generic over each shell's decoded content:
-  the web's `ImageBitmap`, desktop's RGBA rows). Platform-free (native
+  the web's `ImageBitmap`, desktop's RGBA rows) and a song's scripts'
+  (`crates/shell/src/scripted.rs`). Platform-free (native
   and wasm), natively tested.
 - `crates/app/` the game (`ditoditoinfinito`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell

@@ -1072,6 +1072,8 @@ pub const METHODS: &[&str] = &[
     "rotationy",
     "rotationz",
     "saturation",
+    "scaletocover",
+    "scaletofit",
     "set_use_effect_clock_for_texcoords",
     "setsize",
     "setstate",
@@ -1086,6 +1088,7 @@ pub const METHODS: &[&str] = &[
     "spring",
     "stopeffect",
     "stoptweening",
+    "stretchto",
     "texcoordvelocity",
     "thump",
     "valign",
@@ -1101,6 +1104,8 @@ pub const METHODS: &[&str] = &[
     "zbuffer",
     "zoom",
     "zoomto",
+    "zoomtoheight",
+    "zoomtowidth",
     "zoomx",
     "zoomy",
     "zoomz",
@@ -1317,6 +1322,59 @@ impl Actor {
 
     pub fn tweening(&self) -> bool {
         !self.tweens.is_empty()
+    }
+
+    /// `GetTweenTimeLeft`: seconds until its tweens (and its hibernation)
+    /// end; a frame's, the longest of its own and its children's after its
+    /// hibernation (`ActorFrame::GetTweenTimeLeft`).
+    pub fn tween_time_left(&self) -> f32 {
+        let own = self.hibernate + self.tweens.iter().map(|t| t.left).sum::<f32>();
+        self.children()
+            .iter()
+            .map(|c| self.hibernate + c.tween_time_left())
+            .fold(own, f32::max)
+    }
+
+    /// `InitState`, a frame's children first (`ActorFrame::InitState`):
+    /// tweens stopped, its state, base transform, alignment, effect,
+    /// shadow, draw order and blend back to their defaults, a sprite's
+    /// animation at its first state (`Sprite::InitState`). What it is
+    /// (its kind, texture, size, commands) stays. StepMania runs it on a
+    /// background each time it comes on (`UpdateCurBGChange`).
+    pub fn init_state(&mut self) {
+        let fresh = Actor::new(Kind::Actor);
+        for c in self.children_mut() {
+            c.init_state();
+        }
+        self.tweens.clear();
+        self.start = fresh.start;
+        self.current = fresh.current;
+        self.base_rotation = fresh.base_rotation;
+        self.base_scale = fresh.base_scale;
+        self.base_alpha = fresh.base_alpha;
+        self.halign = fresh.halign;
+        self.valign = fresh.valign;
+        self.effect = fresh.effect;
+        self.secs_into_effect = 0.0;
+        self.effect_delta = 0.0;
+        self.timing = fresh.timing;
+        self.effect_offset = 0.0;
+        self.clock = fresh.clock;
+        self.magnitude = fresh.magnitude;
+        self.effect_color1 = fresh.effect_color1;
+        self.effect_color2 = fresh.effect_color2;
+        self.visible = true;
+        self.shadow = fresh.shadow;
+        self.shadow_color = fresh.shadow_color;
+        self.animating = true;
+        self.hibernate = 0.0;
+        self.draw_order = 0;
+        self.blend = fresh.blend;
+        self.depth = fresh.depth;
+        if let Kind::Sprite(s) = &mut self.kind {
+            s.current = 0;
+            s.secs_into_state = 0.0;
+        }
     }
 
     pub fn children(&self) -> &[Actor] {
@@ -1956,6 +2014,47 @@ impl Actor {
                 }
                 if size[1] != 0.0 {
                     d.scale[1] = h / size[1];
+                }
+            }
+            // `ZoomToWidth`, `ZoomToHeight`: one side's zoom only.
+            "zoomtowidth" | "zoomtoheight" => {
+                let i = usize::from(call.method == "zoomtoheight");
+                let (v, size) = (num(0)?, self.size());
+                if size[i] != 0.0 {
+                    self.dest().scale[i] = v / size[i];
+                }
+            }
+            // `StretchTo` (a rectangle's corners): placed at its centre,
+            // zoomed on each axis to fill it; `ScaleToCover` and
+            // `ScaleToFitInside`: one zoom, the larger or the smaller,
+            // turned half round on an axis whose side is negative
+            // (`Actor::ScaleTo`).
+            "stretchto" | "scaletocover" | "scaletofit" => {
+                let (l, t, r, b) = (num(0)?, num(1)?, num(2)?, num(3)?);
+                let (w, h) = (r - l, b - t);
+                let size = self.size();
+                let zoom = [w / size[0], h / size[1]].map(|z| if z.is_finite() { z } else { 0.0 });
+                let stretch = call.method == "stretchto";
+                let d = self.dest();
+                d.pos[0] = l + w / 2.0;
+                d.pos[1] = t + h / 2.0;
+                if stretch {
+                    d.scale[0] = zoom[0];
+                    d.scale[1] = zoom[1];
+                } else {
+                    let [x, y] = zoom.map(f32::abs);
+                    let z = if call.method == "scaletocover" {
+                        x.max(y)
+                    } else {
+                        x.min(y)
+                    };
+                    d.scale = [z; 3];
+                    if w < 0.0 {
+                        d.rotation[1] = 180.0;
+                    }
+                    if h < 0.0 {
+                        d.rotation[0] = 180.0;
+                    }
                 }
             }
             // Crops and faded edges (`Actor.h:448-456`): left, top,

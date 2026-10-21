@@ -1105,9 +1105,12 @@ dependencies = [
 name = "ddi-session"
 version = "0.1.0"
 dependencies = [
+ "ddi-actor",
  "ddi-chart",
  "ddi-engine",
  "ddi-library",
+ "ddi-lua",
+ "ddi-noteskin",
  "ddi-platform",
  "ddi-ui",
  "serde",
@@ -1120,6 +1123,8 @@ version = "0.1.0"
 dependencies = [
  "ddi-chart",
  "ddi-engine",
+ "ddi-library",
+ "ddi-noteskin",
  "ddi-render",
  "ddi-session",
  "ddi-ui",

@@ -372,7 +372,7 @@ fn backdrop_textures_are_made_again_only_on_a_change() {
     let mut cache = BackdropTextures::default();
     let images = vec![(BgImage::Song, 1)];
     let movies = || vec![(movie("a"), 2)];
-    let list = cache.get(&images, 0, movies, 99).to_vec();
+    let list = cache.get(&images, 0, movies, 99, None).to_vec();
     assert_eq!(
         list,
         vec![(BgImage::Song, 1), (movie("a"), 2), (BgImage::Plain, 99)]
@@ -383,13 +383,20 @@ fn backdrop_textures_are_made_again_only_on_a_change() {
         0,
         || -> Vec<(BgImage, usize)> { unreachable!() },
         99,
+        None,
     );
     assert_eq!(list.len(), 3);
     // A new version or image: made again.
-    assert_eq!(cache.get(&images, 1, Vec::new, 99).len(), 2);
+    assert_eq!(cache.get(&images, 1, Vec::new, 99, None).len(), 2);
     let images = vec![(BgImage::Song, 1), (BgImage::File("x".into()), 3)];
-    assert_eq!(cache.get(&images, 1, Vec::new, 99).len(), 3);
+    assert_eq!(cache.get(&images, 1, Vec::new, 99, None).len(), 3);
     // The first call makes it even with nothing in it.
     let mut empty = BackdropTextures::default();
-    assert_eq!(empty.get(&[], 0, Vec::new, 99), &[(BgImage::Plain, 99)]);
+    assert_eq!(
+        empty.get(&[], 0, Vec::new, 99, None),
+        &[(BgImage::Plain, 99)]
+    );
+    // Black while scripts run, made again when they stop.
+    assert_eq!(empty.get(&[], 0, Vec::new, 99, Some(7)).len(), 2);
+    assert_eq!(empty.get(&[], 0, Vec::new, 99, None).len(), 1);
 }

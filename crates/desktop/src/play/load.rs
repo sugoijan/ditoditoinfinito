@@ -72,6 +72,13 @@ impl Files {
         path.normalize().unwrap_or(path)
     }
 
+    /// The song's folder, relative to the root.
+    pub fn dir(&self) -> &ddi_library::path::RelPath {
+        match self {
+            Files::Dir { dir, .. } | Files::Zip { dir, .. } => dir,
+        }
+    }
+
     /// A file of the song, whole.
     pub fn read(&self, file: impl AsRef<str>) -> Result<Vec<u8>, String> {
         let file = file.as_ref();
@@ -578,6 +585,7 @@ pub fn calibration(mode: ddi_session::calibration::CalMode, rate: u32) -> Loaded
         bg_videos: Vec::new(),
         bg_shared: Vec::new(),
         bg_scripted: Vec::new(),
+        bg_scripts: Vec::new(),
         layer_images: Vec::new(),
         credit: String::new(),
         bpm: format!("{}", ddi_session::calibration::BPM),

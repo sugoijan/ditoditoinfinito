@@ -284,6 +284,9 @@ pub struct Skin<'a> {
     /// fallbacks end in their stand-ins, and its elements are looked up
     /// by button, without dance/default's redirects.
     pub legacy: bool,
+    /// Where its folders are as Lua names them: `/NoteSkins/`, or
+    /// `/Songs/` for a song's folder ([`Skin::song`]).
+    root: &'static str,
     listings: HashMap<Dir, Listing>,
     cache: RefCell<HashMap<(String, String), Result<FileRef, PathError>>>,
     /// Each imported folder's kept texts by lowercased path, built when
@@ -300,6 +303,10 @@ pub struct Skin<'a> {
 /// [`Skin::legacy_nodes`].
 pub(crate) type LegacyNodes =
     HashMap<(Dir, String), Result<std::sync::Arc<crate::legacy::Node>, String>>;
+
+/// Where skins' and songs' files are, as StepMania's paths name them.
+pub const SKINS_ROOT: &str = "/NoteSkins/";
+pub const SONGS_ROOT: &str = "/Songs/";
 
 /// `GAME_BASE_NOTESKIN_NAME`, `GAME_COMMON_NOTESKIN_NAME`.
 pub const BASE: &str = "default";
@@ -322,6 +329,7 @@ impl<'a> Skin<'a> {
             chain: Vec::new(),
             metrics: Ini::default(),
             legacy,
+            root: SKINS_ROOT,
             listings: HashMap::new(),
             cache: RefCell::new(HashMap::new()),
             text_index: RefCell::new(HashMap::new()),
@@ -367,6 +375,36 @@ impl<'a> Skin<'a> {
         Ok(skin)
     }
 
+    /// A song's folder as the Lua host's files, for its background
+    /// scripts (`docs/plans/scripted-backgrounds.md`): `folder` alone (its
+    /// `game` the song's pack, its `name` the song's folder), at
+    /// StepMania's own path, `/Songs/<pack>/<song>/`, without fallbacks
+    /// or metrics.
+    pub fn song(folder: Folder) -> Skin<'static> {
+        let listing = Listing::of_folder(&folder);
+        let dir = Dir::Folder(0);
+        Skin {
+            name: folder.name.clone(),
+            game: folder.game.clone(),
+            folders: Cow::Owned(vec![folder]),
+            chain: vec![dir],
+            metrics: Ini::default(),
+            legacy: false,
+            root: SONGS_ROOT,
+            listings: HashMap::from([(dir, listing)]),
+            cache: RefCell::new(HashMap::new()),
+            text_index: RefCell::new(HashMap::new()),
+            warnings: RefCell::new(Vec::new()),
+            legacy_nodes: RefCell::new(HashMap::new()),
+            legacy_budget: Cell::new(crate::legacy::SKIN_BUDGET),
+        }
+    }
+
+    /// Whether it is a song's folder ([`Skin::song`]).
+    pub fn is_song(&self) -> bool {
+        self.root == SONGS_ROOT
+    }
+
     /// The same skin owning a copy of its folders.
     pub fn into_owned(self) -> Skin<'static> {
         Skin {
@@ -376,6 +414,7 @@ impl<'a> Skin<'a> {
             chain: self.chain,
             metrics: self.metrics,
             legacy: self.legacy,
+            root: self.root,
             listings: self.listings,
             cache: self.cache,
             text_index: self.text_index,
@@ -465,7 +504,8 @@ impl<'a> Skin<'a> {
             Dir::Folder(i) => &self.folders[i].game,
         };
         Hints::parse(&format!(
-            "/NoteSkins/{game}/{}/{}",
+            "{}{game}/{}/{}",
+            self.root,
             self.dir_name(file.dir),
             file.path
         ))
@@ -561,13 +601,13 @@ impl<'a> Skin<'a> {
     }
 
     /// The folder of `dir` as StepMania names it to Lua:
-    /// `/NoteSkins/<game>/<skin>/`.
+    /// `/NoteSkins/<game>/<skin>/` (a song's: `/Songs/<pack>/<song>/`).
     pub fn dir_path(&self, dir: Dir) -> String {
         let game = match dir {
             Dir::BuiltIn(b) => b.game(),
             Dir::Folder(i) => &self.folders[i].game,
         };
-        format!("/NoteSkins/{game}/{}/", self.dir_name(dir))
+        format!("{}{game}/{}/", self.root, self.dir_name(dir))
     }
 
     /// `file` as StepMania's paths name it (`GetPath`'s result).

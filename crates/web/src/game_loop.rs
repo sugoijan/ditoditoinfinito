@@ -66,6 +66,12 @@ pub(crate) struct GameLoop {
     background_schedule: [Vec<BgSegment>; LAYERS],
     /// What the last frame drew behind the field (for the debug state).
     backdrop_drawn: Backdrop,
+    /// The song's scripted backgrounds and foregrounds
+    /// (`docs/plans/scripted-backgrounds.md`), why they stopped, and
+    /// the quads they drew in the last frame.
+    scripts: crate::scripts::ScriptView,
+    scripts_stopped: Option<String>,
+    scripts_drawn: (usize, usize),
     /// The chart's lyrics, if it has any and they are shown.
     lyrics: Option<LyricTrack>,
     /// The 2D pass over the play (the lyrics), made when first needed, and
@@ -163,6 +169,9 @@ impl GameLoop {
             playing_at: None,
             background_schedule: Default::default(),
             backdrop_drawn: Backdrop::default(),
+            scripts: Default::default(),
+            scripts_stopped: None,
+            scripts_drawn: (0, 0),
             lyrics: None,
             overlay: None,
             lyrics_shown: Vec::new(),
@@ -217,12 +226,14 @@ impl GameLoop {
         self.renderer.set_skins_drawn(
             &self.gfx.device,
             &self.gfx.queue,
-            self.noteskin.is_some() || self.stage.shown(),
+            self.noteskin.is_some() || self.stage.shown() || self.scripts.running(),
         );
-        // A retry plays the noteskin's commands from the start again.
+        // A retry plays the noteskin's commands from the start again,
+        // and the song's scripts.
         if let Some(n) = self.noteskin.as_mut() {
             n.restart();
         }
+        self.scripts.restart();
         self.session = Some(session);
         self.done = false;
     }
@@ -347,12 +358,14 @@ impl GameLoop {
         movies: &crate::movies::MovieDeck,
         layers: &[Vec<BgSegment>; LAYERS],
         t: f64,
+        black: Option<usize>,
     ) -> Backdrop {
         let all = cache.get(
             images,
             movies.version(),
             || movies.shown_ids(),
             ddi_render::PLAIN,
+            black,
         );
         let opening = movies.opening_plays(&layers[0]);
         let [first, second] = backgrounds::draws_at(layers, t, all, opening);
@@ -364,6 +377,26 @@ impl GameLoop {
     pub(crate) fn set_stage_track(&mut self, track: Option<ddi_engine::sprites::SpriteTrack>) {
         self.stage.set_track(track);
         self.renderer.set_stage_quads(Vec::new(), Vec::new());
+    }
+
+    /// The song's scripts, loaded (`None`: none, or they failed).
+    pub(crate) fn set_scripts(&mut self, loaded: Option<crate::scripts::Loaded>) {
+        self.scripts_stopped = None;
+        match loaded {
+            Some(l) => self.scripts.set(Some(l.scripts), l.screen, l.images),
+            None => self.scripts.set(None, [854.0, 480.0], Vec::new()),
+        }
+    }
+
+    /// The foregrounds' times for the play about to start (the song
+    /// offset moves them).
+    pub(crate) fn retime_scripts(&mut self, foregrounds: &[ddi_library::backgrounds::Foreground]) {
+        self.scripts.retime(foregrounds);
+    }
+
+    /// Why the song's scripts stopped during the play, if they did.
+    pub(crate) fn scripts_stopped(&self) -> Option<&str> {
+        self.scripts_stopped.as_deref()
     }
 
     /// A content of the song's layers decoded.
@@ -412,6 +445,7 @@ impl GameLoop {
         self.noteskin_key = key;
         self.renderer.clear_noteskin_textures();
         self.stage.forget_textures();
+        self.scripts.forget_textures();
         // Colors as the target blends them: encoded when skins blend as
         // StepMania's do.
         let srgb = self.renderer.skin_colors_linear();
@@ -631,6 +665,8 @@ impl GameLoop {
                     &self.movies,
                     &self.background_schedule,
                     frame.song_time,
+                    // Black under the scripts while they run.
+                    self.scripts.running().then_some(ddi_render::BLACK),
                 );
                 self.backdrop_drawn = render.backdrop;
                 self.playing_at = (session.player.started() && !session.player.finished())
@@ -674,19 +710,50 @@ impl GameLoop {
                     }
                     None => None,
                 };
-                if self.stage.shown() {
-                    let stage = &mut self.stage;
-                    // Images decoded late go up as they come.
-                    if stage.pending() {
-                        stage.upload(&mut self.renderer, &self.gfx.device, &self.gfx.queue);
+                let scripts = self.scripts.running();
+                if self.stage.shown() || scripts {
+                    let srgb = self.renderer.skin_colors_linear();
+                    let (mut back, mut mask) = (Vec::new(), Vec::new());
+                    if self.stage.shown() {
+                        let stage = &mut self.stage;
+                        // Images decoded late go up as they come.
+                        if stage.pending() {
+                            stage.upload(&mut self.renderer, &self.gfx.device, &self.gfx.queue);
+                        }
+                        (back, mask) =
+                            stage.quads(frame.song_time, geo.center_x(span), height as f32, srgb);
+                        self.stage_drawn = (back.len(), mask.len());
                     }
-                    let (back, mask) = stage.quads(
-                        frame.song_time,
-                        geo.center_x(span),
-                        height as f32,
-                        self.renderer.skin_colors_linear(),
-                    );
-                    self.stage_drawn = (back.len(), mask.len());
+                    // The song's scripts, in the background frame.
+                    if scripts {
+                        let (device, queue) = (&self.gfx.device, &self.gfx.queue);
+                        // Drawn as skins' quads are (scripts load while the
+                        // play may have begun; a no-op once so).
+                        self.renderer.set_skins_drawn(device, queue, true);
+                        self.scripts.upload(&mut self.renderer, device, queue);
+                        if let Some(why) = self.scripts.frame(
+                            frame.song_time,
+                            frame.beat,
+                            &self.background_schedule,
+                        ) {
+                            web_sys::console::warn_1(
+                                &format!("scripted backgrounds stopped: {why}").into(),
+                            );
+                            self.scripts_stopped = Some(why);
+                        }
+                        let (w, h) = (width as f32, height as f32);
+                        let rect = ddi_render::background::frame_rect(w, h, frame_aspect)
+                            .unwrap_or([0.0, 0.0, w, h]);
+                        let (b, f) = self.scripts.quads(
+                            frame.song_time,
+                            &self.background_schedule,
+                            rect,
+                            srgb,
+                        );
+                        self.scripts_drawn = (b.len(), f.len());
+                        back.extend(b);
+                        mask.splice(0..0, f);
+                    }
                     self.renderer.set_stage_quads(back, mask);
                 }
                 self.renderer.render(
@@ -870,6 +937,27 @@ impl GameLoop {
         }
         set("lyrics", lyrics.into());
         set("backdrop", self.backdrop_debug().into());
+        // The song's scripts: whether they run, why they stopped, the fuel
+        // of the last frame, the quads drawn (background, foreground).
+        let scripts = js_sys::Object::new();
+        for (k, v) in [
+            (
+                "running",
+                wasm_bindgen::JsValue::from(self.scripts.running()),
+            ),
+            (
+                "stopped",
+                self.scripts_stopped
+                    .as_deref()
+                    .map_or(wasm_bindgen::JsValue::NULL, |s| s.into()),
+            ),
+            ("fuel", (self.scripts.frame_fuel() as f64).into()),
+            ("back", (self.scripts_drawn.0 as u32).into()),
+            ("front", (self.scripts_drawn.1 as u32).into()),
+        ] {
+            let _ = js_sys::Reflect::set(&scripts, &k.into(), &v);
+        }
+        set("scripts", scripts.into());
         let video = self.movies.debug();
         let _ = js_sys::Reflect::set(&video, &"update_ms".into(), &self.video_ms_last.0.into());
         let _ = js_sys::Reflect::set(

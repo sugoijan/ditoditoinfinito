@@ -7,10 +7,13 @@
 //!   with the note colors as the renderer has them ([`note_scheme`]);
 //! - the ghost's lead as the HUD shows it ([`score_delta`]);
 //! - [`stage`]: a Dancing☆Onigiri work's layers' textures, over a content
-//!   each shell decodes its own way.
+//!   each shell decodes its own way;
+//! - [`scripted`]: a song's scripted backgrounds and foregrounds, their
+//!   images' textures (the same contents) and quads.
 //!
 //! Platform-free: built natively and for wasm, with no platform code.
 
+pub mod scripted;
 pub mod stage;
 
 use ddi_chart::Layout;

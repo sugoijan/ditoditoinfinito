@@ -481,7 +481,11 @@ pub(crate) async fn load_background(
         },
         BgImage::File(path) | BgImage::Movie(path) => (format!("bg/{path}"), path.clone()),
         // Not a file of the song's folder (`crate::stills`), or nothing.
-        BgImage::Still | BgImage::Clear | BgImage::Plain => return Ok(None),
+        BgImage::Still
+        | BgImage::Clear
+        | BgImage::Plain
+        | BgImage::Scripted(_)
+        | BgImage::Black => return Ok(None),
     };
     if is_imported_id(&entry.id) {
         let db = Db::open().await?;
@@ -493,6 +497,27 @@ pub(crate) async fn load_background(
     } else {
         let bytes = fetch_bytes(&format!("songs/{}/{}", entry.id, bundled)).await?;
         crate::web::files::bytes_blob(&bytes, "").map(Some)
+    }
+}
+
+/// A file of the song's scripted backgrounds (stored or linked as
+/// `bga/<path>` when imported, a bundled song's own file else;
+/// `docs/plans/scripted-backgrounds.md`). `record` as for
+/// [`load_background`].
+pub(crate) async fn load_script_file(
+    entry: &ManifestEntry,
+    path: &str,
+    record: Option<&ImportedSong>,
+) -> Result<Blob, String> {
+    if is_imported_id(&entry.id) {
+        let db = Db::open().await?;
+        let song = record_or_read(&db, entry, record).await?;
+        song_file(&db, &song, &format!("bga/{path}"))
+            .await
+            .map_err(|e| e.message())
+    } else {
+        let bytes = fetch_bytes(&format!("songs/{}/{path}", entry.id)).await?;
+        crate::web::files::bytes_blob(&bytes, "")
     }
 }
 

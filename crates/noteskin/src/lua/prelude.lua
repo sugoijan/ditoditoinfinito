@@ -551,6 +551,20 @@ return {
 		loader = ret
 	end,
 	template = template,
+	-- A song's background or foreground (`Skin::song`): `LoadActor` of its
+	-- folder (an absolute path). A background with `color1` is in the frame
+	-- the `UpperLeft` effect puts it in, tinted
+	-- (`BackgroundEffects/UpperLeft.lua`); a foreground is the actor itself
+	-- (`Foreground::LoadFromSong`).
+	actor = function(path, color1)
+		if not color1 then return LoadActor(path) end
+		local c = color(color1)
+		return Def.ActorFrame {
+			LoadActor(path) .. {
+				OnCommand = function(self) self:diffuse(c):effectclock("music") end,
+			},
+		}
+	end,
 	init = function(id) init(id, 0) end,
 	play = function(id, name, params) play(id, name, params, 0) end,
 	play_own = play_own,

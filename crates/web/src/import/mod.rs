@@ -818,6 +818,7 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
         preview,
         chart_music,
         bg_images,
+        script_files,
         videos: video_paths,
         videos_playing,
         videos_left_out,
@@ -852,6 +853,10 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
     let video_files = video_paths
         .into_iter()
         .map(|(relative, path)| (RelPathBuf::from(format!("bg/{relative}")), path));
+    // The scripted backgrounds' files, read by their scripts.
+    let script_files = script_files
+        .into_iter()
+        .map(|(relative, path)| (RelPathBuf::from(format!("bga/{relative}")), path));
     // The song list's images and the lyrics are copied (small, and
     // wanted before any folder is read); a separate preview and charts'
     // own music are linked or copied as the music is.
@@ -872,6 +877,7 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
         .chain(chart_music)
         .chain(bg_files)
         .chain(video_files)
+        .chain(script_files)
     {
         let src = source(sources, &path)?;
         link_or_copy(src, &path, name.to_string(), linked, &mut links, &mut files).await;

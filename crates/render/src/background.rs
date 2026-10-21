@@ -36,8 +36,10 @@ const SCREEN_HEIGHT: f32 = 480.0;
 /// The id a [`Backdrop`] shows the plain backdrop by: the color given to
 /// [`BackgroundPipeline::set_plain_color`] (the field's), opaque.
 pub const PLAIN: usize = usize::MAX;
-/// The black base under the first layer.
-const BLACK: usize = usize::MAX - 1;
+/// Black, opaque: the base under the first layer, and the id a
+/// [`Backdrop`] shows black by (under a scripted background,
+/// `ddi_library::backgrounds::BgImage::Black`).
+pub const BLACK: usize = usize::MAX - 1;
 /// Uniform slots of a frame: sharp content, ambient base and soft content,
 /// for each draw (an image can be drawn several times).
 const SLOTS: u64 = 3 * DRAWS as u64;

@@ -1188,3 +1188,114 @@ fn a_shifted_env_times_beats_as_the_shifted_song() {
     // Beats are the chart's: the shift moves only when they sound.
     assert_eq!(played.first_beat, 4.0);
 }
+
+/// A song's folder with a background script (`Skin::song`).
+fn song_folder(script: &str) -> Folder {
+    Folder {
+        game: "Pack".into(),
+        name: "Song".into(),
+        files: vec![
+            "song.sm".into(),
+            "bg.png".into(),
+            "BG/default.lua".into(),
+            "BG/star.png".into(),
+        ],
+        texts: vec![("BG/default.lua".into(), script.into())],
+    }
+}
+
+fn song_lua(script: &str) -> LuaSkin {
+    let env = Env {
+        screen: [854.0, 480.0],
+        ..Env::default()
+    };
+    load(
+        Skin::song(song_folder(script)),
+        env,
+        LoadBudget::default(),
+        Box::new(|| 0.0),
+    )
+    .unwrap_or_else(|e| panic!("{e}"))
+}
+
+#[test]
+fn a_songs_background_script_loads_from_its_folder() {
+    let mut lua = song_lua(
+        "local dir = GAMESTATE:GetCurrentSong():GetSongDir()\n\
+         return Def.ActorFrame {\n\
+           Def.Quad { InitCommand = cmd(FullScreen; diffuse, color(\"0,0,1,1\")) },\n\
+           LoadActor(\"star.png\") .. {\n\
+             InitCommand = cmd(Center),\n\
+             OnCommand = cmd(linear, 2; zoom, 2),\n\
+           },\n\
+           Def.Sprite { Texture = dir .. \"bg.png\", InitCommand = cmd(scale_or_crop_background) },\n\
+           Def.BitmapText { Text = \"hi\" },\n\
+         }\n",
+    );
+    let mut textures = Textures::default();
+    let images = Sizes(vec![("BG/star.png", (32, 32)), ("bg.png", (64, 48))]);
+    let element = lua.actor_file(
+        "/Songs/Pack/Song/BG",
+        Some("#FFFFFF"),
+        &mut textures,
+        &images,
+    );
+    let notes = element
+        .as_ref()
+        .map(|e| e.notes.clone())
+        .unwrap_or_default();
+    let mut tree = Box::new(built(element));
+    // The `UpperLeft` effect's frame around the script's.
+    let script = &tree.children()[0];
+    let [quad, star, bg, text] = script.children() else {
+        panic!("{:?}", script.children().len())
+    };
+    // `FullScreen` on StepMania's screen: 854 × 480, at its centre.
+    assert_eq!(quad.current().pos[..2], [427.0, 240.0]);
+    assert_eq!(quad.current().scale[..2], [854.0, 480.0]);
+    assert_eq!(quad.current().diffuse()[..3], [0.0, 0.0, 1.0]);
+    assert_eq!(star.current().pos[..2], [427.0, 240.0]);
+    // Covering the screen: 64 × 48 zoomed to 854 wide.
+    assert!((bg.current().scale[0] - 854.0 / 64.0).abs() < 1e-4);
+    // Text draws nothing here, with a note.
+    assert_eq!(text.kind, Kind::Actor);
+    assert!(notes.iter().any(|n| n.contains("BitmapText")), "{notes:?}");
+    // Both images are the song's.
+    assert!(
+        textures
+            .keys()
+            .iter()
+            .all(|k| matches!(k, TextureKey::Skin { .. }))
+    );
+    assert_eq!(textures.keys().len(), 2);
+    // `On` starts the star's tween; a second in, it is halfway.
+    assert!(lua.reclaim(&mut tree));
+    lua.begin_frame(Position::default(), FrameBudget::default());
+    assert!(lua.lend(&mut tree));
+    let id = tree.id;
+    lua.play(id, "On", &[]).unwrap();
+    lua.update(id, 1.0, &Clocks::default()).unwrap();
+    assert!(lua.reclaim(&mut tree));
+    let star = &tree.children()[0].children()[1];
+    assert!(
+        (star.current().scale[0] - 1.5).abs() < 1e-4,
+        "{:?}",
+        star.current().scale
+    );
+    assert!(lua.warnings().is_empty(), "{:?}", lua.warnings());
+}
+
+#[test]
+fn a_song_script_that_fails_loads_blank_and_one_that_loops_stops() {
+    let mut lua = song_lua("error('no')");
+    let mut textures = Textures::default();
+    let e = lua
+        .actor_file("/Songs/Pack/Song/BG", None, &mut textures, &Sizes(vec![]))
+        .unwrap();
+    assert_eq!(e.built, Built::Blank);
+    assert!(e.notes.iter().any(|n| n.contains("no")), "{:?}", e.notes);
+    let mut lua = song_lua("while true do end");
+    let r = lua.actor_file("/Songs/Pack/Song/BG", None, &mut textures, &Sizes(vec![]));
+    assert!(r.is_err(), "{r:?}");
+    assert!(lua.failure().is_some());
+}

@@ -988,6 +988,9 @@ impl Host {
                 if xruns == 1 { "" } else { "s" }
             ));
         }
+        if let Some(why) = r.view.as_ref().and_then(|v| v.scripts_stopped()) {
+            notes.push(ddi_session::scripted::stop_note(why));
+        }
         #[cfg(feature = "video")]
         let (video_off, video_trouble) = r
             .view

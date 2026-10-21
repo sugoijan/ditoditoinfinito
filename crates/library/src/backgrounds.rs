@@ -92,6 +92,16 @@ pub enum BgImage {
     /// for a song without a background, where StepMania shows its theme's
     /// fallback graphic ([`second_layer`]). The shell gives it an id.
     Plain,
+    /// A scripted background: a folder of the song with a `default.lua`
+    /// (`docs/plans/scripted-backgrounds.md`), as listed in the scripts
+    /// given to [`layers`]. The shell's script runtime draws it; under it
+    /// the first layer shows [`BgImage::Black`], the second nothing.
+    Scripted(String),
+    /// Black, opaque: what the first layer shows under a script (the
+    /// screen under StepMania's backgrounds). The shell gives it an id
+    /// while its scripts run; without one a script's segment shows the
+    /// song background.
+    Black,
 }
 
 /// A song whose first background change is a movie at or before its first
@@ -573,6 +583,131 @@ pub fn unshown_files<S: AsRef<str>, T: AsRef<str>>(
         .collect()
 }
 
+/// The names `song`'s changes give scripted backgrounds and foregrounds:
+/// both background layers' files and every `#FGCHANGES` file, as written
+/// (trimmed), in order of first use, without duplicates.
+fn script_names(song: &Song) -> Vec<&str> {
+    let foreground = song
+        .effects
+        .iter()
+        .filter(|e| e.kind == "fgchange" && e.fields.len() >= 2 && loaded(&e.fields))
+        .map(|e| e.fields[1].as_str());
+    let mut out: Vec<&str> = Vec::new();
+    for name in all_changes(song)
+        .into_iter()
+        .map(|(_, f)| f[1].as_str())
+        .chain(foreground)
+    {
+        let name = name.trim();
+        if !name.is_empty() && !is_media(name) && !out.iter().any(|o| key(o) == key(name)) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// The folders of `song`'s folder `dir` (any file of the import,
+/// `all_paths`, relative to the import root) that its changes name and
+/// that hold a `default.lua` (`docs/plans/scripted-backgrounds.md`):
+/// paths relative to `dir`, in the files' own case, in order of first use.
+/// StepMania looks a background's name up as a folder of the song first
+/// (`BackgroundUtil::GetSongBGAnimations`) and a foreground's in the song's
+/// folder only (`Foreground::LoadFromSong`).
+pub fn script_folders<S: AsRef<str>>(
+    song: &Song,
+    dir: &RelPath,
+    all_paths: &[S],
+) -> Vec<RelPathBuf> {
+    script_names(song)
+        .into_iter()
+        .filter_map(|name| {
+            let wanted = dir.resolve(name)?.as_str().to_lowercase();
+            let lua = format!("{wanted}/default.lua");
+            let found = all_paths
+                .iter()
+                .map(AsRef::as_ref)
+                .find(|p| p.to_lowercase() == lua)?;
+            let folder = RelPath::new(&found[..found.len() - "/default.lua".len()]);
+            Some(folder.relative_to(dir))
+        })
+        .collect()
+}
+
+/// Every file under `folders` (from [`script_folders`]) of `song`'s
+/// folder `dir`, as `(path relative to dir, path in the import)`: what
+/// the scripts may load, for the import to keep.
+pub fn script_files<S: AsRef<str>>(
+    dir: &RelPath,
+    folders: &[RelPathBuf],
+    all_paths: &[S],
+) -> Vec<(RelPathBuf, RelPathBuf)> {
+    let prefixes: Vec<String> = folders
+        .iter()
+        .filter_map(|f| dir.resolve(f.as_str()))
+        .map(|f| format!("{}/", f.as_str().to_lowercase()))
+        .collect();
+    all_paths
+        .iter()
+        .map(AsRef::as_ref)
+        .filter(|p| {
+            let p = p.to_lowercase();
+            prefixes.iter().any(|f| p.starts_with(f.as_str()))
+        })
+        .map(|p| {
+            let p = RelPath::new(p);
+            (p.relative_to(dir), p.to_owned())
+        })
+        .collect()
+}
+
+/// The script folders among `files` (a song's kept script files,
+/// `ManifestEntry::bg_scripts`): each `default.lua`'s folder, in order.
+pub fn script_folders_of<S: AsRef<str>>(files: &[S]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for f in files.iter().map(AsRef::as_ref) {
+        let Some((folder, name)) = f.rsplit_once('/') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("default.lua") && !out.iter().any(|o| o == folder) {
+            out.push(folder.to_string());
+        }
+    }
+    out
+}
+
+/// One `#FGCHANGES` change that plays ([`foregrounds`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Foreground {
+    /// Song second its beat is reached (at the start of a delay on it).
+    pub seconds: f64,
+    /// The script, as listed in the scripts given to [`foregrounds`].
+    pub script: String,
+}
+
+/// `song`'s foregrounds (`#FGCHANGES`), in file order: the changes naming
+/// one of `scripts` (folders with a `default.lua`, as for [`layers`]).
+/// Others are left out: StepMania shows an image or a movie there for no
+/// time at all (it has no tweens), and the rest are made for older
+/// versions (`docs/plans/scripted-backgrounds.md`, decision 4).
+pub fn foregrounds<S: AsRef<str>>(song: &Song, scripts: &[S]) -> Vec<Foreground> {
+    song.effects
+        .iter()
+        .filter(|e| e.kind == "fgchange" && e.fields.len() >= 2 && loaded(&e.fields))
+        .filter_map(|e| {
+            let EffectTime::Beat(tick) = e.at else {
+                return None;
+            };
+            match resolve_any(&e.fields[1], &[] as &[&str], &[] as &[&str], scripts)? {
+                BgImage::Scripted(script) => Some(Foreground {
+                    seconds: change_seconds(song, tick),
+                    script,
+                }),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 /// Beat at which the song ends: the last note (or hold tail) of any chart.
 fn last_tick(song: &Song) -> Option<Tick> {
     song.charts
@@ -586,6 +721,25 @@ fn last_tick(song: &Song) -> Option<Tick> {
 enum Change<'a> {
     Fields(&'a [String]),
     SongBackground,
+}
+
+/// What a change's file (`name`, as written) resolves to among `images`,
+/// `movies` and `scripts` (folders with a `default.lua`): `None` when it
+/// is none of them.
+fn resolve_any<S: AsRef<str>, T: AsRef<str>, U: AsRef<str>>(
+    name: &str,
+    images: &[S],
+    movies: &[T],
+    scripts: &[U],
+) -> Option<BgImage> {
+    resolve(name, images, movies).or_else(|| {
+        let wanted = key(name.trim())?;
+        scripts
+            .iter()
+            .map(AsRef::as_ref)
+            .find(|s| key(s).as_ref() == Some(&wanted))
+            .map(|s| BgImage::Scripted(s.to_string()))
+    })
 }
 
 /// What a change's file (`name`, as written) resolves to among `images`
@@ -630,6 +784,37 @@ pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
     song: &Song,
     images: &[S],
     movies: &[T],
+    has_background: bool,
+) -> Vec<BgSegment> {
+    first_layer(song, images, movies, &[] as &[&str], has_background)
+}
+
+/// Both layers' schedules ([`schedule`], [`second_layer`]), with `scripts`
+/// (the song's folders with a `default.lua`, paths relative to the song
+/// folder, as from [`script_folders`]) shown as [`BgImage::Scripted`]
+/// where a change names one: on the first layer with the change's
+/// transition and `Color1`, on the second as any change there.
+/// `unshowable` as for [`second_layer`].
+pub fn layers<S: AsRef<str>, T: AsRef<str>, U: AsRef<str>, V: AsRef<str>>(
+    song: &Song,
+    images: &[S],
+    movies: &[T],
+    scripts: &[U],
+    unshowable: &[V],
+    has_background: bool,
+) -> [Vec<BgSegment>; LAYERS] {
+    [
+        first_layer(song, images, movies, scripts, has_background),
+        second(song, images, movies, scripts, unshowable, has_background),
+    ]
+}
+
+/// [`schedule`] with `scripts` ([`layers`]).
+fn first_layer<S: AsRef<str>, T: AsRef<str>, U: AsRef<str>>(
+    song: &Song,
+    images: &[S],
+    movies: &[T],
+    scripts: &[U],
     has_background: bool,
 ) -> Vec<BgSegment> {
     // Stable: changes on the same beat keep their file order.
@@ -677,7 +862,7 @@ pub fn schedule<S: AsRef<str>, T: AsRef<str>>(
         let seconds = change_seconds(song, tick);
         let segment = match change {
             Change::SongBackground => BgSegment::new(seconds, BgImage::Song),
-            Change::Fields(f) => match resolve(&f[1], images, movies) {
+            Change::Fields(f) => match resolve_any(&f[1], images, movies, scripts) {
                 Some(image) => changed(f, seconds, image, look_of(f, images)),
                 // Found nowhere (or `songbackground`): StepMania's static
                 // background in its place, as it is.
@@ -816,6 +1001,25 @@ pub fn second_layer<S: AsRef<str>, T: AsRef<str>, U: AsRef<str>>(
     unshowable: &[U],
     has_background: bool,
 ) -> Vec<BgSegment> {
+    second(
+        song,
+        images,
+        movies,
+        &[] as &[&str],
+        unshowable,
+        has_background,
+    )
+}
+
+/// [`second_layer`] with `scripts` ([`layers`]).
+fn second<S: AsRef<str>, T: AsRef<str>, U: AsRef<str>, V: AsRef<str>>(
+    song: &Song,
+    images: &[S],
+    movies: &[T],
+    scripts: &[U],
+    unshowable: &[V],
+    has_background: bool,
+) -> Vec<BgSegment> {
     let mut changes: Vec<(Tick, &[String])> = layer_changes(song, 1).collect();
     changes.sort_by_key(|(t, _)| *t);
     let mut segments = vec![BgSegment::new(f64::NEG_INFINITY, BgImage::Clear)];
@@ -836,7 +1040,7 @@ pub fn second_layer<S: AsRef<str>, T: AsRef<str>, U: AsRef<str>>(
             Some(BgImage::Song)
         } else if name.is_empty() || is_special(name) || wanted.is_none() {
             None
-        } else if let Some(image) = resolve(name, images, movies) {
+        } else if let Some(image) = resolve_any(name, images, movies, scripts) {
             Some(image)
         } else if unshowable
             .iter()
@@ -1064,7 +1268,8 @@ pub fn shown(
     let id = |index: usize| match &segments[index].image {
         BgImage::Song if index == 0 => song(),
         BgImage::Song | BgImage::Still => find(&BgImage::Song),
-        BgImage::Clear | BgImage::Plain => None,
+        BgImage::Clear | BgImage::Plain | BgImage::Black => None,
+        BgImage::Scripted(_) => find(&BgImage::Black).or_else(|| find(&BgImage::Song)),
         movie @ BgImage::Movie(_) if index == 1 && opening_plays => find(movie).or_else(song),
         file => find(file).or_else(|| find(&BgImage::Song)),
     };
@@ -1099,7 +1304,7 @@ pub fn shown_over(segments: &[BgSegment], t: f64, loaded: &[(BgImage, usize)]) -
         };
     }
     let id = |index: usize| match &segments[index].image {
-        BgImage::Clear | BgImage::Still => None,
+        BgImage::Clear | BgImage::Still | BgImage::Scripted(_) | BgImage::Black => None,
         what => loaded.iter().find(|(k, _)| k == what).map(|(_, id)| *id),
     };
     let state = state_at(segments, t);
@@ -2229,5 +2434,62 @@ mod tests {
         let partial = [(BgImage::Song, 0)];
         let d = layer_draws(&seg, 2.5, shown(&seg, 2.5, &partial, false), &partial, true);
         assert_eq!(d[0], Some(BgDraw::cover(0)));
+    }
+
+    #[test]
+    fn scripted_folders_play_on_both_layers_and_as_foregrounds() {
+        let s = song(
+            "#BGCHANGES:4=anim=1=1=0=0====0^1^0,8=a.png=1=0=0=0,12=old=1=0=0=0,\
+             99999=-nosongbg-;#BGCHANGES2:6=ANIM=1=0=0=0;\
+             #FGCHANGES:2=fg=1=0=0=0,10=a.png=1=0=0=0,14=missing=1=0=0=0;",
+        );
+        let all = [
+            "P/S/s.sm",
+            "P/S/A.png",
+            "P/S/Anim/default.lua",
+            "P/S/Anim/star.png",
+            "P/S/Anim/sub/more.lua",
+            "P/S/old/BGAnimation.ini",
+            "P/S/old/x.png",
+            "P/S/FG/Default.lua",
+        ];
+        let dir = RelPath::new("P/S");
+        // Folders with a `default.lua`, in the files' case; `old` (made
+        // for StepMania 3.9) is not one.
+        let scripts = script_folders(&s, dir, &all);
+        assert_eq!(scripts, vec!["Anim", "FG"]);
+        let files = script_files(dir, &scripts, &all);
+        let relative: Vec<&str> = files.iter().map(|(r, _)| r.as_str()).collect();
+        assert_eq!(
+            relative,
+            vec![
+                "Anim/default.lua",
+                "Anim/star.png",
+                "Anim/sub/more.lua",
+                "FG/Default.lua"
+            ]
+        );
+        let [first, second] = layers(&s, &["A.png"], NO_MOVIES, &scripts, NO_MOVIES, true);
+        assert_eq!(first[1].image, BgImage::Scripted("Anim".into()));
+        // The change's transition and `Color1` stay with it.
+        assert_eq!(first[1].fade, 1.0);
+        assert_eq!(first[1].look.color1, [0.0, 1.0, 0.0, 1.0]);
+        // `old` shows the song background, as before.
+        assert_eq!(first[3].image, BgImage::Song);
+        assert_eq!(second[1].image, BgImage::Scripted("Anim".into()));
+        // The first layer shows black under a script while scripts run,
+        // the song background once they stopped; the second nothing.
+        let running = [(BgImage::Song, 0), (BgImage::Black, 9)];
+        assert_eq!(shown(&first, 2.5, &running, false).current, Some(9));
+        assert_eq!(shown(&first, 2.5, &running[..1], false).current, Some(0));
+        assert_eq!(shown_over(&second, 3.5, &running).current, None);
+        // Foregrounds: only scripts, in file order.
+        assert_eq!(
+            foregrounds(&s, &scripts),
+            vec![Foreground {
+                seconds: 1.0,
+                script: "FG".into()
+            }]
+        );
     }
 }

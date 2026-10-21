@@ -260,7 +260,9 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
                     continue;
                 };
                 let name = frame.chunk_name.display_lossy().to_string();
-                if !name.starts_with("/NoteSkins/") {
+                if !name.starts_with(crate::skin::SKINS_ROOT)
+                    && !name.starts_with(crate::skin::SONGS_ROOT)
+                {
                     continue;
                 }
                 let dir = name.rfind('/').map_or("/", |i| &name[..=i]).to_string();
@@ -476,6 +478,28 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
                     Ok(CallbackReturn::Return)
                 }
             }
+        })),
+    );
+
+    // A song's folder as its scripts name it (`Song::GetSongDir`), and
+    // StepMania's screen for them (`SCREEN_WIDTH`, `SCREEN_HEIGHT`).
+    let shared = host.clone();
+    set(
+        "song_dir",
+        func(Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let host = shared.borrow();
+            let dir = host.skin.chain.first().map(|&d| host.skin.dir_path(d));
+            stack.replace(ctx, ctx.intern(dir.unwrap_or_default().as_bytes()));
+            Ok(CallbackReturn::Return)
+        })),
+    );
+    let shared = host.clone();
+    set(
+        "screen",
+        func(Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let [w, h] = shared.borrow().env.screen;
+            stack.replace(ctx, (w, h));
+            Ok(CallbackReturn::Return)
         })),
     );
 

@@ -29,6 +29,7 @@ mod offscreen;
 pub mod painter;
 pub mod renderer;
 pub mod scene;
+pub mod scripted;
 pub mod sprite;
 pub mod stage;
 pub mod stencil;
@@ -37,7 +38,7 @@ pub mod text_atlas;
 pub mod texture_cache;
 pub mod textured;
 
-pub use background::{Backdrop, BackgroundPipeline, PLAIN};
+pub use background::{BLACK, Backdrop, BackgroundPipeline, PLAIN};
 pub use draw2d::{Affine, Blend, Command, DrawList, Quad, TextRun};
 pub use gpu::write_rgba;
 pub use painter::{Painter, PainterStats};

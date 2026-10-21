@@ -11,6 +11,8 @@ description = "DitoDitoInfinito: what both shells do between the settings and th
 [dependencies]
 ddi-chart.workspace = true
 ddi-engine.workspace = true
+ddi-library.workspace = true
+ddi-noteskin.workspace = true
 ddi-render.workspace = true
 ddi-session.workspace = true
 ddi-ui.workspace = true

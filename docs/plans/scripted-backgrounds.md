@@ -129,17 +129,18 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
    reader parses the same actor files). 3.0-style layer folders come with
    that step too.
 5. **Budgets.** Load: 20 million fuel and 5 s for all of a song's scripts
-   together, in slices between frames on the web (the skins' load
-   budget); play: 100,000 fuel and 8 ms per frame for all of them (half a
-   skin's: the field comes first); 4,096 actors, 64 images and 48 million
-   decoded pixels a song (the work layers' cap), a script's memory under
-   the VM's own limit (`ddi_lua::Settings`). A song's scripts that error
-   at load draw nothing (that one background shows the song background);
-   one that runs out of its budget or memory, or errors at load, at a
-   change or in an update stops all of the song's scripts for the rest of
-   the play (they draw nothing; the first layer shows the song
-   background): one line in the results' notes and the log. A
-   command that errors is reported and the play goes on, as in StepMania.
+   together (the skins' load budget), while the start prompt shows; play:
+   100,000 fuel and 8 ms per frame for all of them (half a skin's: the
+   field comes first); the host's 16,384 actors, 64 kept files a song
+   (images decoded at 1,280 pixels a side at most), the VM's own memory
+   limit (`ddi_lua::Settings`). A script whose Lua errors while it loads
+   draws nothing (StepMania's empty actor: black on the first layer). One
+   that ends the VM (its fuel, its memory, the deadline, a host limit),
+   at load or in play, stops all of the song's scripts for the rest of the
+   play: they draw nothing and the first layer shows the song background
+   where they were; in play one line in the results' notes, and the log.
+   A command that errors is reported and the play goes on, as in
+   StepMania.
 6. **What never runs.** No file is read but the song folder's own files
    the import kept (scripts and images, read-only, through the host); no
    network, `io`, `os`, `require`, `dofile` or `debug` beyond what the
@@ -183,6 +184,66 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
    actors on the play's mixer; render targets within a pixel budget;
    movies in scripts.
 
-## Status
+## Status (2026-10-21)
 
-Planned 2026-10-21; nothing built yet.
+Steps 1 to 5 done, the first slice: folders with a `default.lua` on both
+background layers and as foregrounds, on both shells.
+
+- **Host** (`noteskin`): `Skin::song` (a song's folder at
+  `/Songs/<pack>/<song>/`, no fallbacks, no metrics), `LuaSkin::actor_file`
+  (the prelude's new `actor` entry: `LoadActor` of a path, a background in
+  the `UpperLeft` effect's frame with its `diffuse(Color1)`), `song.lua`
+  (`SCREEN_*`, `_screen`, `GetSongDir`, `Center`, `CenterX`, `CenterY`,
+  `FullScreen`, `align`, `scale_or_crop_background`); natively in
+  `ddi-actor`: `stretchto`, `scaletocover`, `scaletofit`, `zoomtowidth`,
+  `zoomtoheight`, `InitState` (`Actor::init_state`) and
+  `GetTweenTimeLeft` (`Actor::tween_time_left`). Text, render targets,
+  proxies, scrollers and sounds load as actors drawing nothing, with a
+  note; the rest of the tree draws.
+- **Schedule** (`library`): `BgImage::Scripted` on both layers through
+  `backgrounds::layers` (the change's transition and `Color1` kept),
+  `BgImage::Black` under it on the first while scripts run,
+  `backgrounds::foregrounds`, `script_folders` and `script_files` for the
+  import, `ManifestEntry::bg_scripts` (the files kept); the import's note
+  names only folders made for older versions as not played.
+- **Runtime** (`session/src/scripted.rs`): one VM a song, a background
+  built once per script and `Color1`; at a change `LoseFocus` on the
+  script leaving, `InitState`, `On`, `GainFocus` on the one coming, then
+  updated from the change's second; the leaving one updated while its
+  transition runs; foregrounds shown from their beat for their tweens'
+  time after `On`, hidden for good after; one budget a frame, the stop
+  (`stop_note` on the results); a retry starts them over; the
+  foregrounds retimed by the song offset.
+- **Drawing** (`render/src/scripted.rs`, `shell/src/scripted.rs`): the
+  trees on StepMania's screen mapped onto the background frame, quads
+  not turned cut to it, backgrounds among the work layers' back quads,
+  foregrounds before their mask quads; images registered as a skin's
+  (again after a skin replaces them).
+- **Shells**: the web's import stores the files as `bga/<path>`, the
+  play reads them alongside the start prompt (the play never waits),
+  decodes the images, loads the scripts and draws them
+  (`crates/web/src/scripts.rs`; `__DDI_DEBUG.scripts`: `running`,
+  `stopped`, `fuel`, `back`, `front`); desktop reads them in place when
+  the song is set (`View::load_scripts`).
+
+Checked: native tests (the host on synthetic scripts: a frame, a quad,
+a sprite of the folder's, `FullScreen`, `Center`,
+`scale_or_crop_background`, a tween run by `On`, a script that errors, one
+that loops; the schedule, the folders and files kept, the foregrounds;
+the runtime on a fake clock: a foreground's lifetime, a background's
+`InitState` and `On`, a runaway stopping them all; the quads cut to the
+frame), offscreen on desktop (`crates/desktop/tests/play_scripts.rs`: the
+song background, then the script's green screen with the folder's red
+star left of the field, the foreground's white square for its second,
+and a runaway script stopping them all for the song background and a
+results note), and a synthetic pack imported as a zip in headless Chrome
+(WebGPU, WebGL2) and Firefox, sampled as for the named effects, the
+autoplay all top tier.
+
+Not yet: the load is not sliced between frames on the web (a script
+that runs long at load holds the page until its budget ends); the
+images' decoded pixels have no budget of their own beyond the 64 files;
+a script's quads draw over the second image layer; the transitions fade
+a script whatever their kind; scripts read only their folders' files
+(not the song's other files); no `BitmapText`, sound, movies or render
+targets; the 3.9 and ITG formats and 3.0-style layer folders (step 6).

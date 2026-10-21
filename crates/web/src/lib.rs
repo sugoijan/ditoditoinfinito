@@ -24,6 +24,7 @@ mod play;
 mod preview;
 mod replay;
 mod router;
+mod scripts;
 mod select_data;
 mod select_preview;
 mod settings;

@@ -78,6 +78,10 @@ pub struct View {
     /// A work's back and mask layers.
     stage: super::stage::StageView,
     stage_drawn: (usize, usize),
+    /// The song's scripted backgrounds and foregrounds
+    /// (`docs/plans/scripted-backgrounds.md`), and why they stopped.
+    scripts: ddi_shell::scripted::ScriptView<Rgba>,
+    scripts_stopped: Option<String>,
     /// The layers of the play about to start, set on its first frame.
     stage_track: Option<Option<ddi_engine::sprites::SpriteTrack>>,
     /// The chart's lyrics, when it has some and they are shown.
@@ -128,6 +132,8 @@ impl View {
             fps: FpsMeter::new(),
             stage: Default::default(),
             stage_drawn: (0, 0),
+            scripts: Default::default(),
+            scripts_stopped: None,
             stage_track: None,
             pending_fonts: None,
             lyrics: None,
@@ -160,6 +166,11 @@ impl View {
         self.schedule = schedule(&loaded.song, loaded);
         self.frame_shape = FrameShape::new(settings.background_frame);
         self.video = settings.video;
+        self.scripts = Default::default();
+        self.scripts_stopped = None;
+        if settings.bg_brightness > 0.0 {
+            self.load_scripts(loaded, settings);
+        }
         #[cfg(feature = "video")]
         {
             self.movies.reset();
@@ -184,6 +195,79 @@ impl View {
     /// (as the web schedules them).
     pub fn set_played_song(&mut self, song: &ddi_chart::Song, loaded: &Loaded) {
         self.schedule = schedule(song, loaded);
+        let folders = backgrounds::script_folders_of(&loaded.entry.bg_scripts);
+        self.scripts
+            .retime(&backgrounds::foregrounds(song, &folders));
+    }
+
+    /// The song's scripts (`docs/plans/scripted-backgrounds.md`): their
+    /// files read where the library found them, their images decoded,
+    /// their Lua run (told StepMania's 4:3 screen under a 4:3 frame, its
+    /// 16:9 one otherwise). One that fails to load is noted on the log;
+    /// the song background then shows in its place.
+    fn load_scripts(&mut self, loaded: &Loaded, settings: &Settings) {
+        use ddi_session::scripted::{Scripts, Sizes, SongFiles};
+        let e = &loaded.entry;
+        if e.bg_scripts.is_empty() {
+            return;
+        }
+        let dir = loaded.files.dir();
+        let mut files = SongFiles {
+            pack: dir.parent().file_name().to_string(),
+            song: dir.file_name().to_string(),
+            files: e.bg_scripts.iter().map(|f| f.to_string()).collect(),
+            texts: Vec::new(),
+        };
+        let mut sizes = Sizes::default();
+        let mut images = Vec::new();
+        for f in &e.bg_scripts {
+            let lower = f.as_str().to_ascii_lowercase();
+            if lower.ends_with(".lua") {
+                if let Ok(bytes) = loaded.files.read(f) {
+                    let text = String::from_utf8_lossy(&bytes).into_owned();
+                    files.texts.push((f.to_string(), text));
+                }
+            } else if ddi_library::pack::IMAGE_EXTENSIONS
+                .iter()
+                .any(|x| lower.ends_with(&format!(".{x}")))
+                && let Some((size, data, own)) =
+                    crate::images::load_sized(&loaded.files.source(f), MAX_CHANGE_SIDE)
+            {
+                sizes.insert(f.as_str(), own);
+                images.push((f.to_string(), Rgba { size, data }));
+            }
+        }
+        let folders = backgrounds::script_folders_of(&e.bg_scripts);
+        let foregrounds = backgrounds::foregrounds(&loaded.song, &folders);
+        let aspect = match settings.background_frame {
+            ddi_ui::state::settings::BackgroundFrame::FourThree => 4.0 / 3.0,
+            _ => 16.0 / 9.0,
+        };
+        let env = ddi_session::scripted::env(&loaded.song, aspect);
+        let screen = env.screen;
+        let start = std::time::Instant::now();
+        let clock = Box::new(move || start.elapsed().as_secs_f64());
+        match Scripts::load(files, env, &self.schedule, &foregrounds, &sizes, clock) {
+            Ok(scripts) => {
+                if let Some(s) = &scripts {
+                    for note in s.notes() {
+                        eprintln!("scripted backgrounds: {note}");
+                    }
+                }
+                self.scripts.set(scripts, screen, images);
+            }
+            Err(why) => eprintln!("scripted backgrounds did not load: {why}"),
+        }
+    }
+
+    /// Why the song's scripts stopped during the play, if they did.
+    pub fn scripts_stopped(&self) -> Option<&str> {
+        self.scripts_stopped.as_deref()
+    }
+
+    /// Whether the song's scripts draw (loaded, not stopped).
+    pub fn scripts_running(&self) -> bool {
+        self.scripts.running()
     }
 
     /// The images the song shows: what to read, `(what, source,
@@ -254,8 +338,9 @@ impl View {
         play: Option<(NoteskinPlay, Vec<Option<Rgba>>, String)>,
     ) {
         self.renderer.clear_noteskin_textures();
-        // The layers' textures went with them.
+        // The layers' and the scripts' textures went with them.
         self.stage.forget_textures();
+        self.scripts.forget_textures();
         let srgb = self.renderer.skin_colors_linear();
         self.noteskin = play.map(|(mut play, images, key)| {
             self.noteskin_key = key;
@@ -264,7 +349,7 @@ impl View {
             play
         });
         self.renderer
-            .set_skins_drawn(device, queue, self.noteskin.is_some() || self.stage.shown());
+            .set_skins_drawn(device, queue, self.skins_drawn());
     }
 
     /// The noteskin drawn, if any.
@@ -282,6 +367,7 @@ impl View {
         if let Some(n) = self.noteskin.as_mut() {
             n.restart();
         }
+        self.scripts.restart();
         let refresh = self
             .fps
             .refresh_estimate()
@@ -424,13 +510,40 @@ impl View {
         let (w, h) = (size[0] as f32, size[1] as f32);
         let span = ddi_render::scene::field_span(&session.layout);
         let geo = ddi_render::FieldGeometry::new(w, h, span, render.reverse);
-        // A work's back and mask layers, placed as the web places them.
-        if self.stage.shown() {
-            self.stage.upload(&mut self.renderer, device, queue);
+        // A work's back and mask layers, placed as the web places them;
+        // the song's scripts in the background frame.
+        let scripts = self.scripts.running();
+        if self.stage.shown() || scripts {
             let srgb = self.renderer.skin_colors_linear();
-            let (back, mask) = self
-                .stage
-                .quads(frame.song_time, geo.center_x(span), h, srgb);
+            let (mut back, mut mask) = (Vec::new(), Vec::new());
+            if self.stage.shown() {
+                self.stage.upload(&mut self.renderer, device, queue);
+                (back, mask) = self
+                    .stage
+                    .quads(frame.song_time, geo.center_x(span), h, srgb);
+            }
+            if scripts {
+                // Drawn as skins' quads are (a no-op but on a target
+                // that draws them offscreen).
+                self.renderer.set_skins_drawn(device, queue, true);
+                self.scripts.upload(&mut self.renderer, device, queue);
+                if let Some(why) = self
+                    .scripts
+                    .frame(frame.song_time, frame.beat, &self.schedule)
+                {
+                    eprintln!("scripted backgrounds stopped: {why}");
+                    self.scripts_stopped = Some(why);
+                    let skins = layer.is_some() || self.stage.shown();
+                    self.renderer.set_skins_drawn(device, queue, skins);
+                }
+                let rect = ddi_render::background::frame_rect(w, h, frame_aspect)
+                    .unwrap_or([0.0, 0.0, w, h]);
+                let (b, f) = self
+                    .scripts
+                    .quads(frame.song_time, &self.schedule, rect, srgb);
+                back.extend(b);
+                mask.splice(0..0, f);
+            }
             self.stage_drawn = (back.len(), mask.len());
             self.renderer.set_stage_quads(back, mask);
         }
@@ -492,7 +605,13 @@ impl View {
         self.renderer.set_stage_quads(Vec::new(), Vec::new());
         self.stage_drawn = (0, 0);
         self.renderer
-            .set_skins_drawn(device, queue, self.noteskin.is_some() || self.stage.shown());
+            .set_skins_drawn(device, queue, self.skins_drawn());
+    }
+
+    /// Whether quads are drawn as skins' are: a noteskin's, a work's
+    /// layers', the song's scripts'.
+    fn skins_drawn(&self) -> bool {
+        self.noteskin.is_some() || self.stage.shown() || self.scripts.running()
     }
 
     /// The lyrics of the play about to start (`None`: none shown); the
@@ -604,6 +723,8 @@ impl View {
 
     /// What shows behind the field at song second `t`: both layers.
     fn backdrop(&mut self, t: f64) -> Backdrop {
+        // Black under the scripts while they run.
+        let black = self.scripts.running().then_some(ddi_render::BLACK);
         #[cfg(feature = "video")]
         let first = &self.schedule[0];
         #[cfg(feature = "video")]
@@ -614,13 +735,14 @@ impl View {
                 movies.version(),
                 || movies.shown_ids(),
                 ddi_render::PLAIN,
+                black,
             );
             (all, movies.opening_plays(first))
         };
         #[cfg(not(feature = "video"))]
         let (all, opening) = (
             self.backdrop_textures
-                .get(&self.backgrounds, 0, Vec::new, ddi_render::PLAIN),
+                .get(&self.backgrounds, 0, Vec::new, ddi_render::PLAIN, black),
             false,
         );
         let [first, second] = backgrounds::draws_at(&self.schedule, t, all, opening);
@@ -647,16 +769,15 @@ fn schedule(song: &ddi_chart::Song, loaded: &Loaded) -> [Vec<BgSegment>; LAYERS]
         .map(|v| v.name.as_str())
         .chain(e.bg_scripted.iter().map(|p| p.as_str()))
         .collect();
-    [
-        backgrounds::schedule(song, &e.bg_images, &movies, e.background.is_some()),
-        backgrounds::second_layer(
-            song,
-            &e.bg_images,
-            &movies,
-            &unshowable,
-            e.background.is_some(),
-        ),
-    ]
+    let scripts = backgrounds::script_folders_of(&e.bg_scripts);
+    backgrounds::layers(
+        song,
+        &e.bg_images,
+        &movies,
+        &scripts,
+        &unshowable,
+        e.background.is_some(),
+    )
 }
 
 /// Fills a texture's first level with RGBA rows.
