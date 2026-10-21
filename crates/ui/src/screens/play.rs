@@ -7,7 +7,8 @@
 
 use ddi_chart::{Glyph, Layout};
 use ddi_engine::judge::JudgeEventKind;
-use ddi_engine::rules::FullCombo;
+use ddi_engine::rules::{FailType, FullCombo};
+
 use ddi_engine::{
     Appearance, Judgement, Results, Ruleset, ScrollAction, TimingCut, TransformOptions, Turn,
 };
@@ -210,6 +211,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
     if p.device_changed {
         notes.push("An audio device or the display changed during play.".to_string());
     }
+    notes.extend(fail_note(r, p.ruleset));
     notes.extend(p.video_notes.iter().cloned());
     let mut mods = p.mods.clone();
     mods.extend(mods_summary(
@@ -218,6 +220,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         r.scroll_action,
         Some((r.lane_map.as_slice(), p.layout)),
     ));
+    mods.extend(p.ruleset.stepmania.summary());
     let panel_sets = panel_sets();
     let panel_set = panel_sets
         .iter()
@@ -269,6 +272,32 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         song: p.song.clone(),
         kind: Default::default(),
     }
+}
+
+/// What the fail type made of an empty life bar, where it changed the
+/// outcome: a play failed at once ends there, as it always did; one
+/// played on, or not failed, says when the bar emptied.
+pub fn fail_note(r: &Results, ruleset: &Ruleset) -> Option<String> {
+    let at = clock(r.gauge_failed_at?);
+    Some(match ruleset.stepmania.fail {
+        FailType::Immediate => return None,
+        FailType::ImmediateContinue => {
+            format!("Failed at {at}: the life bar emptied, and the play went on (fail delayed).")
+        }
+        FailType::EndOfSong if r.failed => {
+            format!("Failed at the end: the life bar emptied at {at} and was still empty.")
+        }
+        FailType::EndOfSong => {
+            format!("The life bar emptied at {at} and came back: not failed (fail at end).")
+        }
+        FailType::Off => format!("The life bar emptied at {at}: not failed (fail off)."),
+    })
+}
+
+/// A song second as `m:ss`.
+fn clock(seconds: f32) -> String {
+    let s = seconds.max(0.0).floor() as u32;
+    format!("{}:{:02}", s / 60, s % 60)
 }
 
 /// Results of a replay or a kept play: marked so, with when it was
@@ -460,6 +489,7 @@ mod tests {
             assist: false,
             timeline: Vec::new(),
             life: vec![[0.0, 0.5], [10.0, 0.6]],
+            gauge_failed_at: None,
         }
     }
 
@@ -665,5 +695,39 @@ mod tests {
         let mut p = info(&assisted, &rules, &layout);
         p.autoplay = true;
         assert_eq!(results_data(&p).lamp.as_deref(), Some("AUTOPLAY · ASSIST"));
+    }
+
+    #[test]
+    fn the_fail_type_shows_where_it_changed_the_outcome() {
+        use ddi_engine::rules::{FailType, StepManiaOptions};
+        let layout = single();
+        let rules = |fail| {
+            ddi_engine::rules::presets::itg().with_stepmania(&StepManiaOptions {
+                fail,
+                life: 6,
+                judge: 9,
+            })
+        };
+        let mut r = results([10, 0, 0, 0, 0, 0]);
+        // The bar never emptied: nothing to say, the options in the mods.
+        let off = rules(FailType::Off);
+        let d = results_data(&info(&r, &off, &layout));
+        assert!(d.notes.is_empty(), "{:?}", d.notes);
+        assert!(
+            d.mods.ends_with("· fail off · life 6 · judge Justice"),
+            "{}",
+            d.mods
+        );
+        r.gauge_failed_at = Some(83.4);
+        let note = |rules: &Ruleset, r: &Results| results_data(&info(r, rules, &layout)).notes;
+        assert_eq!(
+            note(&off, &r),
+            vec!["The life bar emptied at 1:23: not failed (fail off).".to_string()]
+        );
+        assert!(note(&rules(FailType::Immediate), &r).is_empty());
+        assert!(note(&rules(FailType::EndOfSong), &r)[0].contains("came back"));
+        r.failed = true;
+        assert!(note(&rules(FailType::EndOfSong), &r)[0].starts_with("Failed at the end"));
+        assert!(note(&rules(FailType::ImmediateContinue), &r)[0].starts_with("Failed at 1:23"));
     }
 }

@@ -147,6 +147,11 @@ impl GaugeRules for LifeBar {
         Some(self.danger_threshold)
     }
 
+    fn set_difficulty(&mut self, scale: f64) -> bool {
+        self.difficulty = scale;
+        true
+    }
+
     fn fresh(&self) -> Box<dyn GaugeRules> {
         Box::new(LifeBar {
             life: self.initial,

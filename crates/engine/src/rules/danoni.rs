@@ -743,7 +743,7 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
     let gauge = rules.gauge(options.gauge.as_deref());
     let fail = match gauge.border {
         Some(b) if b > 0.0 => FailPolicy::EndOfSong {
-            min_life: (b / 100.0) as f32,
+            min_life: Some((b / 100.0) as f32),
         },
         _ => FailPolicy::Immediate,
     };
@@ -824,6 +824,7 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
         // Without a chart: danoniplus's defaults for none in particular
         // ([`super::presets::danoni`]), which a key builds again so.
         danoni: chart.map(|_| options.clone()),
+        stepmania: Default::default(),
     }
 }
 

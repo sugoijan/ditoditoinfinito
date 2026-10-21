@@ -253,12 +253,16 @@ pub fn select_data(
         let name = packs[at].name.clone();
         list.push(song_entry(s, &name, settings, &bests, &mut keys));
     }
-    let mods = crate::screens::play::mods_summary(
+    let mut mods = crate::screens::play::mods_summary(
         &settings.transform,
         settings.appearance,
         settings.scroll_action,
         None,
     );
+    // The StepMania presets' fail type and levels, where they play.
+    if settings.ruleset_mode != ddi_engine::rules::presets::RulesetMode::AllDanoni {
+        mods.extend(settings.stepmania.summary());
+    }
     // The first visit: the bundled songs open (else the first pack).
     let is_closed = |name: &String| place.closed.as_ref().is_some_and(|c| c.contains(name));
     let open = if place.closed.is_none() {

@@ -206,7 +206,10 @@ pub struct Frame {
     /// `0..=1`.
     pub life: f32,
     pub danger: bool,
+    /// The play failed and ended (a delayed fail plays on to the end and
+    /// says so only then, as StepMania shows no banner for it).
     pub failed: bool,
+
     pub finished: bool,
     /// Arrow heights above the receptor the renderer should draw.
     pub visible_range: f32,

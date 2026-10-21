@@ -462,9 +462,6 @@ Rules and options:
 - *New:* only the `itg`, `sm5`, `ddr-a` and `danoni` presets exist;
   `ddr-extreme`, `itg-fa+` and `ffr` (section 3.3) are not built, and
   the FA+ window `w0` is in the engine with no preset using it.
-- *New:* the fail policy is not offered as an option (`ImmediateContinue`,
-  `EndOfSong`, `Off` exist in the engine), nor a life or judge
-  difficulty.
 - Not built: lane covers (Hidden+/Sudden+), music rate, a separate judge
   offset (section 3.3); DDR legacy scoring, FLARE, LIFE4, editor
   (phase 10). The battery gauge has no preset (`docs/plans/pump.md`).

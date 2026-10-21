@@ -132,6 +132,10 @@ pub struct Results {
     /// the start of play.
     #[serde(default)]
     pub life: Vec<[f32; 2]>,
+    /// The song second the gauge first said failed, whatever the fail
+    /// policy made of it (a play under fail off or at the end goes on).
+    #[serde(default)]
+    pub gauge_failed_at: Option<f32>,
 }
 
 /// One judgement of a play ([`Results::timeline`]); a tap's offset to
@@ -212,6 +216,8 @@ pub struct Player {
     /// checkpoints are their judgement; shocks' still are).
     holds_shown: bool,
     failed: bool,
+    /// When the gauge first said failed ([`Results::gauge_failed_at`]).
+    gauge_failed_at: Option<f64>,
     finished: bool,
     /// Every press and release judged, at its judged time ([`Player::log`]).
     log: PlayLog,
@@ -309,6 +315,7 @@ impl Player {
             hold_place,
             holds_shown,
             failed: false,
+            gauge_failed_at: None,
             finished: false,
             log: PlayLog::default(),
             timeline: Vec::new(),
@@ -645,7 +652,10 @@ impl Player {
         self.finished = true;
         self.ruleset.score.finish();
         if let FailPolicy::EndOfSong { min_life } = self.ruleset.fail
-            && self.ruleset.gauge.fails_at_end(min_life)
+            && match min_life {
+                Some(min) => self.ruleset.gauge.fails_at_end(min),
+                None => self.ruleset.gauge.failed(),
+            }
         {
             self.failed = true;
         }
@@ -917,7 +927,12 @@ impl Player {
         self.tally.record_times(&ev.kind, times);
         self.ctx.combo = self.combo;
         self.ruleset.score.on_event(ev, &self.ctx);
-        self.ruleset.gauge.on_event(ev, &self.ctx);
+        // A player failed and playing on gets no life back (StepMania's
+        // `LifeMeterBar::ChangeLife`: "no point in letting them fill up
+        // the bar again").
+        if !self.failed {
+            self.ruleset.gauge.on_event(ev, &self.ctx);
+        }
         let life = self.ruleset.gauge.life();
         if self.life.last().is_none_or(|l| l[1] != life) {
             // In time order: a press judged after a miss in the same
@@ -928,6 +943,9 @@ impl Player {
         if let JudgeEventKind::Tap(j, delta) = ev.kind {
             let delta = if j.is_miss() { 0.0 } else { delta };
             self.last_flash = Some((j, delta, ev.song_time, self.combo));
+        }
+        if self.gauge_failed_at.is_none() && self.ruleset.gauge.failed() {
+            self.gauge_failed_at = Some(ev.song_time);
         }
         if !self.failed && self.ruleset.gauge.failed() {
             match self.ruleset.fail {
@@ -1130,7 +1148,7 @@ impl Player {
             score: self.ruleset.score.view(),
             life: self.ruleset.gauge.life(),
             danger: self.ruleset.gauge.danger(),
-            failed: self.failed,
+            failed: self.failed && self.finished,
             finished: self.finished,
             visible_range,
             appearance: self.options.appearance,
@@ -1177,6 +1195,7 @@ impl Player {
             assist: self.chart_assist || self.options.transform.is_assist(),
             timeline: Vec::new(),
             life: Vec::new(),
+            gauge_failed_at: self.gauge_failed_at.map(|t| t as f32),
         }
     }
 }

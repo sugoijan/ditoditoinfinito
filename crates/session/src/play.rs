@@ -753,7 +753,8 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
 
         // An immediate fail: the engine has stopped judging and the field is
         // blank; fade the music and hold the FAILED banner before the results.
-        if self.player.failed() && self.failed_at.is_none() {
+        // (A delayed fail plays on: it comes here once the play ends.)
+        if self.player.failed() && self.player.finished() && self.failed_at.is_none() {
             self.failed_at = Some(host_now.0);
             // Final now: kept even if the hold is cut short (a replay's is
             // not kept).

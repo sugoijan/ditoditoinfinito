@@ -7,7 +7,7 @@ use super::danoni::DanoniOptions;
 use super::{
     ComboRules, DancePoints, DdrMoney, DdrVariant, EmptyPress, FailPolicy, FixedPercent,
     GradeBasis, GradeTable, HoldRules, HoldStart, JudgeNames, JudgeTable, Judgement, LifeBar,
-    LifeDeltas, Ruleset, Weights, Window,
+    LifeDeltas, Ruleset, StepManiaOptions, Weights, Window,
 };
 
 fn symmetric(tiers: [f64; 5]) -> [Option<Window>; 5] {
@@ -111,6 +111,7 @@ pub fn itg() -> Ruleset {
             "Let Go",
         ),
         danoni: None,
+        stepmania: StepManiaOptions::default(),
     }
 }
 
@@ -171,6 +172,7 @@ pub fn calibration() -> Ruleset {
         grades: grades(GradeBasis::Percent, &[("", 0.0)]),
         names: JudgeNames::new(["hit", "", "", "", "", "miss"], "", ""),
         danoni: None,
+        stepmania: StepManiaOptions::default(),
     }
 }
 
@@ -244,6 +246,7 @@ pub fn sm5() -> Ruleset {
             "NG",
         ),
         danoni: None,
+        stepmania: StepManiaOptions::default(),
     }
 }
 
@@ -321,6 +324,7 @@ pub fn ddr_a() -> Ruleset {
             "N.G.",
         ),
         danoni: None,
+        stepmania: StepManiaOptions::default(),
     }
 }
 

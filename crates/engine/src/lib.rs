@@ -60,9 +60,9 @@ pub use input::{Binding, BindingDevice, Bindings, InputEvent, LaneInput};
 pub use judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
 pub use player::{PlayOptions, Player, Results};
 pub use rules::{
-    ComboRules, EmptyPress, FailPolicy, FullCombo, GaugeRules, GradeBasis, GradeTable, JudgeNames,
-    JudgeTable, Judgement, Ruleset, RulesetKey, ScoreCtx, ScoreRules, ScoreView, Tally, Window,
-    presets,
+    ComboRules, EmptyPress, FailPolicy, FailType, FullCombo, GaugeRules, GradeBasis, GradeTable,
+    JudgeNames, JudgeTable, Judgement, Ruleset, RulesetKey, ScoreCtx, ScoreRules, ScoreView,
+    StepManiaOptions, Tally, Window, presets,
 };
 pub use scroll::{ScrollAction, ScrollOptions, ScrollState, SpeedMod, note_y};
 pub use transform::{TimingCut, TransformOptions, Turn};

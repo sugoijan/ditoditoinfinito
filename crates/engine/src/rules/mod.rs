@@ -313,12 +313,143 @@ pub struct ComboRules {
 pub enum FailPolicy {
     /// Arcade: the song ends at once.
     Immediate,
-    /// The play is marked failed but continues to the end.
+    /// The play is marked failed but continues to the end; the gauge
+    /// takes nothing more (StepMania's `LifeMeterBar::ChangeLife` returns
+    /// once the player has failed).
     ImmediateContinue,
-    /// Only checked at the end of the song against `min_life`.
-    EndOfSong { min_life: f32 },
+    /// Only checked at the end of the song: against `min_life`
+    /// ([`GaugeRules::fails_at_end`]), or with `None` whether the gauge
+    /// says failed then (StepMania's `FailType_EndOfSong` marks a player
+    /// failed whose life meter `IsFailing` as the song ends,
+    /// `ScreenGameplay.cpp`).
+    EndOfSong { min_life: Option<f32> },
     /// Never fail.
     Off,
+}
+
+/// StepMania's fail types (`FailType`, `PlayerOptions.cpp`; the player
+/// options' "Fail" row: Immediate, Delayed, Fail at end, Off), which the
+/// player chooses for the StepMania presets.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FailType {
+    /// The song ends when the gauge empties (the presets' own).
+    #[default]
+    Immediate,
+    /// Failed when the gauge empties, played on to the end.
+    ImmediateContinue,
+    /// Failed when the gauge is empty as the song ends.
+    EndOfSong,
+    /// Never failed.
+    Off,
+}
+
+impl FailType {
+    pub const ALL: [FailType; 4] = [
+        FailType::Immediate,
+        FailType::ImmediateContinue,
+        FailType::EndOfSong,
+        FailType::Off,
+    ];
+
+    pub fn policy(self) -> FailPolicy {
+        match self {
+            FailType::Immediate => FailPolicy::Immediate,
+            FailType::ImmediateContinue => FailPolicy::ImmediateContinue,
+            FailType::EndOfSong => FailPolicy::EndOfSong { min_life: None },
+            FailType::Off => FailPolicy::Off,
+        }
+    }
+}
+
+/// StepMania 5.1's `LifeDifficulty` levels' scales, level 1 first
+/// (`ScreenOptionsMasterPrefs.cpp`, "StepMania 3.9 and 4.0 values"): the
+/// `LifeDifficultyScale` preference a life bar multiplies its gains by
+/// and divides its losses by (`LifeMeterBar::ChangeLife`).
+pub const LIFE_SCALES: [f64; 7] = [1.60, 1.40, 1.20, 1.00, 0.80, 0.60, 0.40];
+
+/// StepMania 5.1's judge (`TimingWindowScale`) levels' scales, level 1
+/// first, the ninth "Justice" (`ScreenOptionsMasterPrefs.cpp`): every
+/// window is `scale × seconds + add` (`Player::GetWindowSeconds`).
+pub const JUDGE_SCALES: [f64; 9] = [1.50, 1.33, 1.16, 1.00, 0.84, 0.66, 0.50, 0.33, 0.20];
+
+/// What the player chooses for the StepMania presets beyond the preset:
+/// the fail type, and StepMania's life and judge difficulty as its levels
+/// (4 leaves a preset as it is). Not under Dancing☆Onigiri's rules, whose
+/// gauges and judge range are its own ([`danoni::DanoniOptions`]).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StepManiaOptions {
+    #[serde(deserialize_with = "crate::lenient")]
+    pub fail: FailType,
+    /// 1 (easiest) to 7, [`LIFE_SCALES`].
+    pub life: u8,
+    /// 1 (widest) to 9 (Justice), [`JUDGE_SCALES`].
+    pub judge: u8,
+}
+
+impl Default for StepManiaOptions {
+    fn default() -> StepManiaOptions {
+        StepManiaOptions {
+            fail: FailType::Immediate,
+            life: StepManiaOptions::DEFAULT_LEVEL,
+            judge: StepManiaOptions::DEFAULT_LEVEL,
+        }
+    }
+}
+
+impl StepManiaOptions {
+    /// The level that leaves a preset as it is (StepMania's default, 1.0).
+    pub const DEFAULT_LEVEL: u8 = 4;
+
+    pub fn is_default(&self) -> bool {
+        *self == StepManiaOptions::default()
+    }
+
+    /// The levels clamped to those StepMania has.
+    pub fn sanitized(self) -> StepManiaOptions {
+        StepManiaOptions {
+            life: self.life.clamp(1, LIFE_SCALES.len() as u8),
+            judge: self.judge.clamp(1, JUDGE_SCALES.len() as u8),
+            ..self
+        }
+    }
+
+    pub fn life_scale(&self) -> f64 {
+        LIFE_SCALES[usize::from(self.sanitized().life - 1)]
+    }
+
+    pub fn judge_scale(&self) -> f64 {
+        JUDGE_SCALES[usize::from(self.sanitized().judge - 1)]
+    }
+
+    /// A judge level's name: its number, or "Justice".
+    pub fn judge_name(level: u8) -> String {
+        if usize::from(level) == JUDGE_SCALES.len() {
+            "Justice".into()
+        } else {
+            level.to_string()
+        }
+    }
+
+    /// What differs from the defaults, as the mods line says it ("fail
+    /// off", "life 6", "judge 5").
+    pub fn summary(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        match self.fail {
+            FailType::Immediate => {}
+            FailType::ImmediateContinue => out.push("fail delayed".into()),
+            FailType::EndOfSong => out.push("fail at end".into()),
+            FailType::Off => out.push("fail off".into()),
+        }
+        let s = self.sanitized();
+        if s.life != Self::DEFAULT_LEVEL {
+            out.push(format!("life {}", s.life));
+        }
+        if s.judge != Self::DEFAULT_LEVEL {
+            out.push(format!("judge {}", Self::judge_name(s.judge)));
+        }
+        out
+    }
 }
 
 /// Full-combo lamp.
@@ -588,6 +719,12 @@ pub trait GaugeRules {
     fn fails_at_end(&self, min_life: f32) -> bool {
         self.life() < min_life
     }
+    /// Takes StepMania's `LifeDifficultyScale` (gains multiplied by it,
+    /// losses divided), where the gauge is a life bar; `false` where it
+    /// has none (StepMania scales only `LifeMeterBar`).
+    fn set_difficulty(&mut self, _scale: f64) -> bool {
+        false
+    }
     /// A new instance with the same parameters and no state.
     fn fresh(&self) -> Box<dyn GaugeRules>;
 }
@@ -610,6 +747,10 @@ pub struct Ruleset {
     /// ([`danoni::ruleset`]); `None` for the StepMania presets and for
     /// Dancing☆Onigiri's rules built for no chart.
     pub danoni: Option<danoni::DanoniOptions>,
+    /// The player's StepMania options it was built with
+    /// ([`Ruleset::with_stepmania`]): the defaults for the rest, and the
+    /// default life level where the gauge takes none.
+    pub stepmania: StepManiaOptions,
 }
 
 /// What builds the same [`Ruleset`] again for a chart (a play's record,
@@ -630,6 +771,10 @@ pub struct RulesetKey {
     /// no chart ([`presets::danoni`]), whatever the chart.
     #[serde(default)]
     pub danoni: Option<danoni::DanoniOptions>,
+    /// The StepMania presets' fail type and difficulty levels (the
+    /// defaults under the other rules, and in records kept before them).
+    #[serde(default, skip_serializing_if = "StepManiaOptions::is_default")]
+    pub stepmania: StepManiaOptions,
 }
 
 impl RulesetKey {
@@ -641,19 +786,25 @@ impl RulesetKey {
                 None => presets::danoni(),
             },
             "calibration" => presets::calibration(),
-            id => presets::stepmania(id, self.holds, chart),
+            id => presets::stepmania(id, self.holds, chart).with_stepmania(&self.stepmania),
         }
     }
 
     /// The key bests are kept under: without Dancing☆Onigiri's gauge
-    /// choice, which changes the life bar and whether the play fails but
-    /// not how notes are judged and scored (a best from any gauge counts).
+    /// choice, nor the StepMania presets' fail type and life difficulty,
+    /// which change the life bar and whether the play fails but not how
+    /// notes are judged and scored (a best from any gauge counts; the
+    /// judge difficulty, which changes the windows, stays).
     pub fn best_key(&self) -> RulesetKey {
         RulesetKey {
             danoni: self
                 .danoni
                 .clone()
                 .map(|d| danoni::DanoniOptions { gauge: None, ..d }),
+            stepmania: StepManiaOptions {
+                judge: self.stepmania.judge,
+                ..StepManiaOptions::default()
+            },
             ..self.clone()
         }
     }
@@ -679,7 +830,34 @@ impl Ruleset {
                 )),
                 ..d
             }),
+            stepmania: self.stepmania,
         }
+    }
+
+    /// Whether this is one of the StepMania presets (not
+    /// Dancing☆Onigiri's rules, not calibration's).
+    pub fn is_stepmania(&self) -> bool {
+        !matches!(self.id.as_str(), "danoni" | "calibration")
+    }
+
+    /// The StepMania preset with the player's fail type, life and judge
+    /// difficulty (`options`); other rules as they are. The judge level
+    /// scales every window, holds', rolls' and mines' too (StepMania's
+    /// `GetWindowSeconds`); the life level only a life bar's changes
+    /// (`LifeMeterBar`), so under a gauge without one the default level
+    /// is kept.
+    pub fn with_stepmania(mut self, options: &StepManiaOptions) -> Ruleset {
+        if !self.is_stepmania() {
+            return self;
+        }
+        let mut options = options.sanitized();
+        self.judge.scale *= options.judge_scale();
+        if !self.gauge.set_difficulty(options.life_scale()) {
+            options.life = StepManiaOptions::DEFAULT_LEVEL;
+        }
+        self.fail = options.fail.policy();
+        self.stepmania = options;
+        self
     }
 
     /// A copy with fresh score and gauge state, for a new play.
@@ -696,6 +874,7 @@ impl Ruleset {
             grades: self.grades.clone(),
             names: self.names.clone(),
             danoni: self.danoni.clone(),
+            stepmania: self.stepmania,
         }
     }
 }

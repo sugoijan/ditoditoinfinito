@@ -250,6 +250,49 @@ fn summary(rules: &RulesetKey, time: f64, score: f64, lamp: Lamp) -> PlaySummary
     }
 }
 
+/// A play under the player's fail type and levels is judged again under
+/// them; its best is kept with the plays of any fail type and life level,
+/// apart from those of another judge level.
+#[test]
+fn stepmania_options_are_kept_with_the_play() {
+    use ddi_engine::rules::{FailType, StepManiaOptions};
+    let song = song();
+    let with = |fail, life, judge| {
+        presets::itg()
+            .with_stepmania(&StepManiaOptions { fail, life, judge })
+            .key()
+    };
+    let strict = with(FailType::Off, 7, 8);
+    // 15 ms late: a Fantastic at judge 4, an Excellent at judge 8.
+    let (log, results) = play(&song, 0, &strict, Some(0.015));
+    assert_eq!(results.tally.taps[0], 0, "{:?}", results.tally);
+    let rec = record(&song, 0, &strict, 1.0, false);
+    let (entry, summary) = new_entry("p".into(), &rec, &log, &results).unwrap();
+    assert_eq!(summary.ruleset.stepmania.judge, 8);
+    assert_eq!(Some(rework(&entry, &song).unwrap()), summary.worked);
+    let (_, plain) = play(&song, 0, &itg(), Some(0.015));
+    assert_eq!(plain.tally.taps[0], 8);
+
+    let mut h = History::default();
+    h.add("1".into(), summary.clone());
+    h.add(
+        "2".into(),
+        PlaySummary {
+            ruleset: with(FailType::Immediate, 2, 8),
+            time: 2.0,
+            ..summary
+        },
+    );
+    let digest = song.chart_digest(0);
+    assert_eq!(
+        h.best(digest, &with(FailType::EndOfSong, 4, 8), false)
+            .unwrap()
+            .plays,
+        2
+    );
+    assert!(h.best(digest, &itg(), false).is_none());
+}
+
 #[test]
 fn bests_take_the_best_score_and_lamp_and_leave_autoplay_out() {
     let mut h = History::default();

@@ -517,12 +517,16 @@ fn fail_policies() {
     assert_eq!(p.results().grade, "F");
     // EndOfSong: evaluated once, at the end.
     let mut r = presets::itg();
-    r.fail = FailPolicy::EndOfSong { min_life: 0.5 };
+    r.fail = FailPolicy::EndOfSong {
+        min_life: Some(0.5),
+    };
     let (p, misses) = drive(r);
     assert!(p.failed() && p.finished());
     assert_eq!(misses, 20);
     let mut r = presets::itg();
-    r.fail = FailPolicy::EndOfSong { min_life: 0.0 };
+    r.fail = FailPolicy::EndOfSong {
+        min_life: Some(0.0),
+    };
     let (p, _) = drive(r);
     assert!(!p.failed());
     // Off: never fails.

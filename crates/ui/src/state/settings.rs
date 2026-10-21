@@ -8,8 +8,10 @@ use std::collections::BTreeMap;
 pub use ddi_engine::PadBindings;
 use ddi_engine::clock::ClockOptions;
 use ddi_engine::player::PlayOptions;
+use ddi_engine::rules::StepManiaOptions;
 use ddi_engine::rules::danoni::DanoniOptions;
 use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
+
 use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod, SpeedSource};
 use ddi_engine::{Appearance, ControlBindings, TransformOptions};
 use ddi_platform::storage::{self, Area};
@@ -95,6 +97,10 @@ pub struct Settings {
     /// default (`docs/plans/pump.md`).
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub holds: HoldStyle,
+    /// The fail type and life and judge difficulty under the StepMania
+    /// presets (`docs/plans/rules-options.md`).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub stepmania: StepManiaOptions,
     /// Seconds; positive = you hear the music later than the audio clock says.
     pub audio_offset: f64,
     /// Seconds added to the rendered time only.
@@ -281,6 +287,7 @@ impl Default for Settings {
             ruleset_mode: RulesetMode::AllStepMania,
             danoni: DanoniOptions::default(),
             holds: HoldStyle::ByGame,
+            stepmania: StepManiaOptions::default(),
             audio_offset: 0.0,
             visual_offset: 0.0,
             volume: 0.8,
@@ -450,6 +457,7 @@ impl Settings {
             *v = v.clamp(-MAX_SONG_OFFSET, MAX_SONG_OFFSET);
         }
         self.controls.sanitize();
+        self.stepmania = self.stepmania.sanitized();
         if self.style.is_empty() {
             self.style = defaults.style;
         }
@@ -569,6 +577,7 @@ impl Settings {
     pub fn ruleset(&self) -> ddi_engine::rules::Ruleset {
         ddi_engine::rules::presets::by_id(&self.ruleset)
             .unwrap_or_else(ddi_engine::rules::presets::itg)
+            .with_stepmania(&self.stepmania)
     }
 
     /// The ruleset `chart` is played with.
@@ -580,6 +589,7 @@ impl Settings {
             self.holds,
             chart,
         )
+        .with_stepmania(&self.stepmania)
     }
 
     /// The key the play history keeps a chart's bests under, from what
@@ -781,6 +791,11 @@ mod tests {
             for excessive in [None, Some(true), Some(false)] {
                 let mut s = Settings {
                     ruleset_mode: mode,
+                    stepmania: StepManiaOptions {
+                        fail: ddi_engine::rules::FailType::Off,
+                        life: 6,
+                        judge: 5,
+                    },
                     ..Settings::default()
                 };
                 s.danoni.excessive = excessive;

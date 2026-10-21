@@ -694,6 +694,64 @@ fn a_failed_play_replays_to_its_fail_and_a_replay_can_be_quit() {
     assert!(s.replay_progress().is_some_and(|(fed, _)| fed == 0));
 }
 
+/// Under a delayed fail, or with fail off, a play the life runs out of
+/// plays on to the end: no fade, no early report; the delayed one ends
+/// failed, kept by its rules, and its replay judges the same.
+#[test]
+fn a_delayed_fail_or_fail_off_plays_to_the_end() {
+    use ddi_engine::rules::{FailType, StepManiaOptions};
+    let song = bundled("beatucada");
+    let chart = 1;
+    for fail in [FailType::ImmediateContinue, FailType::Off] {
+        let settings = Settings {
+            stepmania: StepManiaOptions {
+                fail,
+                ..StepManiaOptions::default()
+            },
+            ..Settings::default()
+        };
+        let clock: Clock = Rc::new(RefCell::new(1.0));
+        let mut s = PlaySession::start(
+            &song,
+            chart,
+            &settings,
+            SessionConfig::from_settings(&settings, false, None),
+            FakeAudio::new(&clock, 0.0),
+            110.0,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        let mut end = None;
+        for _ in 0..(200 * 60) {
+            *clock.borrow_mut() += 1.0 / 60.0;
+            let (_, event) = s.tick(HostTime(*clock.borrow()));
+            if event.is_some() {
+                end = event;
+                break;
+            }
+            // Not over before the last note: no fade, no fail reported.
+            if !s.player.finished() {
+                assert!(s.audio().ramps.is_empty(), "{fail:?}");
+                assert!(s.take_fail_report().is_none(), "{fail:?}");
+            }
+        }
+        let Some(SessionEvent::Finished { results, facts, .. }) = end else {
+            panic!("{fail:?}: no end");
+        };
+        assert_eq!(results.failed, fail == FailType::ImmediateContinue);
+        assert!(results.gauge_failed_at.is_some());
+        let misses = results.tally.count(ddi_engine::rules::Judgement::Miss);
+        assert_eq!(misses, results.tally.total_taps(), "{fail:?}");
+        assert!(misses > 30, "{fail:?}: {misses}");
+        assert_eq!(facts.ruleset.stepmania.fail, fail);
+        let replay = kept("beatucada", &song, chart, &results, &facts, false);
+        assert_eq!(
+            without_late(&replay.results(&song).unwrap()),
+            without_late(&results)
+        );
+    }
+}
+
 #[test]
 fn the_ghost_says_how_far_ahead_of_the_best_a_play_is() {
     use ddi_ui::state::history::{Ghost, GhostDelta};

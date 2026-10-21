@@ -425,7 +425,11 @@ pub fn play_rows(
                 mods: s
                     .options
                     .as_ref()
-                    .map_or(String::new(), crate::screens::play::options_line),
+                    .map(crate::screens::play::options_line)
+                    .into_iter()
+                    .chain(s.ruleset.stepmania.summary())
+                    .collect::<Vec<_>>()
+                    .join(" · "),
                 autoplay: s.autoplay,
                 best: best == Some(id.as_str()),
                 pending: s.is_stale(),
