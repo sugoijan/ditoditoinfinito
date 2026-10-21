@@ -115,7 +115,8 @@ fn play(adapter: &wgpu::Adapter, root: &Path, times: &[f64]) -> Vec<(f64, [u8; 3
     let reader = DirReader {
         root: root.to_path_buf(),
     };
-    let scan = ddi_library::scan::scan_root(&reader, &paths, "Mine", &[], &|_| None);
+    let scan =
+        ddi_library::scan::scan_root(&reader, &paths, "Mine", &[], &ddi_library::legacy::none);
     let s = &scan.songs[0];
     let files = Files::Dir {
         root: root.to_path_buf(),

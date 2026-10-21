@@ -237,11 +237,11 @@ fn read_range(f: &mut File, at: u64, len: u64) -> Result<Vec<u8>, String> {
 
 impl ZipReader {
     /// The zip at `path`: its central directory read, its names decoded
-    /// as the web decodes them (UTF-8, else Shift-JIS when it reads as
-    /// Japanese, else CP437).
+    /// as the web decodes them (UTF-8, else the legacy code page they read
+    /// in, else CP437; `pack::decode_legacy_names`).
     pub fn open(
         path: &Path,
-        shift_jis: &dyn Fn(&[u8]) -> Option<String>,
+        legacy_text: ddi_library::legacy::Decoder,
     ) -> Result<ZipReader, String> {
         let mut f = File::open(path).map_err(|e| e.to_string())?;
         let len = f.metadata().map_err(|e| e.to_string())?.len();
@@ -265,7 +265,7 @@ impl ZipReader {
                 .iter()
                 .filter_map(|&i| list[i].legacy_name.as_deref())
                 .collect();
-            let names = pack::decode_legacy_names(&raws, shift_jis);
+            let names = pack::decode_legacy_names(&raws, legacy_text);
             for (&i, name) in legacy.iter().zip(names) {
                 list[i].name = name;
             }

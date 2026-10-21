@@ -92,7 +92,7 @@ pub struct Scanned {
 
 /// The song of `c` among the root's `paths`, read through `files`;
 /// `shared` are the library's shared folders' files (movies and images a
-/// pack shares, as `RandomMovies/`), `shift_jis` decodes a simfile that is
+/// pack shares, as `RandomMovies/`), `legacy` decodes a simfile that is
 /// not UTF-8 (`encoding_rs` on desktop, `TextDecoder` on the web). Its
 /// files are named in place, every movie the game can play is kept.
 pub fn scan_song(
@@ -100,10 +100,10 @@ pub fn scan_song(
     paths: &[RelPathBuf],
     c: &SongCandidate,
     shared: &[RelPathBuf],
-    shift_jis: &dyn Fn(&[u8]) -> Option<String>,
+    legacy: crate::legacy::Decoder,
 ) -> Result<Scanned, String> {
     let bytes = files.read(&c.chart)?;
-    let mut reading = read_song(c, &bytes, paths, shift_jis)?;
+    let mut reading = read_song(c, &bytes, paths, legacy)?;
     drop(bytes);
     if !reading.images_to_size().is_empty() {
         let sizes: Vec<(RelPathBuf, (u32, u32))> = reading
@@ -204,10 +204,10 @@ pub fn read_song(
     c: &SongCandidate,
     chart: &[u8],
     paths: &[RelPathBuf],
-    shift_jis: &dyn Fn(&[u8]) -> Option<String>,
+    legacy: crate::legacy::Decoder,
 ) -> Result<Reading, String> {
     let mut notes = Vec::new();
-    let text = pack::decode_text_with(chart, shift_jis);
+    let text = pack::decode_text_with(chart, legacy);
     let mut song = parse_simfile(&text, c.format.extension()).map_err(|e| e.to_string())?;
     song.resolve_change_names(&song_dir_names(&c.dir, paths));
     let mut unplayed: Vec<&str> = song
@@ -511,7 +511,7 @@ pub fn scan_root(
     paths: &[RelPathBuf],
     fallback_pack: &str,
     shared: &[RelPathBuf],
-    shift_jis: &dyn Fn(&[u8]) -> Option<String>,
+    legacy: crate::legacy::Decoder,
 ) -> RootScan {
     let mut out = RootScan::default();
     let mut seen = Duplicates::default();
@@ -521,7 +521,7 @@ pub fn scan_root(
             continue;
         }
         let paths = pack_paths(paths, &c);
-        match scan_song(files, paths, &c, shared, shift_jis) {
+        match scan_song(files, paths, &c, shared, legacy) {
             Ok(s) => out.songs.push(s),
             Err(e) => out.failed.push((c.dir.clone(), e)),
         }
@@ -666,7 +666,7 @@ mod tests {
         f.insert("Pack/notes.txt".into(), Vec::new());
         let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
         let files = Files(f);
-        let scan = scan_root(&files, &paths, "Fallback", &[], &|_| None);
+        let scan = scan_root(&files, &paths, "Fallback", &[], &crate::legacy::none);
         assert_eq!(scan.songs.len(), 1);
         let s = &scan.songs[0];
         assert_eq!(s.entry.id, pack::song_id("Pack", "Pack/Song A"));
@@ -701,7 +701,7 @@ mod tests {
         );
         f.insert("S/other.mp3".into(), vec![0; 4]);
         let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
-        let scan = scan_root(&Files(f.clone()), &paths, "Mine", &[], &|_| None);
+        let scan = scan_root(&Files(f.clone()), &paths, "Mine", &[], &crate::legacy::none);
         let s = &scan.songs[0];
         assert_eq!(s.pack, "Mine");
         assert_eq!(s.entry.music, "other.mp3");
@@ -718,7 +718,7 @@ mod tests {
         );
         f.remove("S/other.mp3");
         let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
-        let scan = scan_root(&Files(f), &paths, "Mine", &[], &|_| None);
+        let scan = scan_root(&Files(f), &paths, "Mine", &[], &crate::legacy::none);
         assert!(scan.songs.is_empty());
         assert!(scan.failed[0].1.contains("no audio"));
     }
@@ -734,7 +734,7 @@ mod tests {
         f.insert("P/S/over.png".into(), png(64, 48));
         f.insert("P/S/spin/default.xml".into(), Vec::new());
         let paths: Vec<RelPathBuf> = f.keys().map(RelPathBuf::from).collect();
-        let scan = scan_root(&Files(f), &paths, "Mine", &[], &|_| None);
+        let scan = scan_root(&Files(f), &paths, "Mine", &[], &crate::legacy::none);
         let e = &scan.songs[0].entry;
         assert_eq!(e.bg_images, vec!["over.png"]);
         // The animation that exists (another case: found anyway), not the
@@ -757,7 +757,7 @@ mod tests {
             song_dir_names(RelPath::new("P/S"), &paths),
             vec!["A,B.png", "x=y", "x=y/c.png"]
         );
-        let scan = scan_root(&Files(f), &paths, "Mine", &[], &|_| None);
+        let scan = scan_root(&Files(f), &paths, "Mine", &[], &crate::legacy::none);
         let e = &scan.songs[0].entry;
         assert_eq!(e.bg_images, vec!["A,B.png", "x=y/c.png", "plain.png"]);
         assert!(

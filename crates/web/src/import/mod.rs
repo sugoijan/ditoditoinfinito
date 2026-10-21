@@ -773,7 +773,7 @@ async fn import_song(db: &Db, c: &SongCandidate, inputs: &Inputs<'_>) -> Result<
     } = *inputs;
     let linked = link && folder.is_some();
     let chart_bytes = read_bytes(source(sources, &c.chart)?).await?;
-    let mut reading = scan::read_song(c, &chart_bytes, paths, &shift_jis)?;
+    let mut reading = scan::read_song(c, &chart_bytes, paths, &legacy_text)?;
     drop(chart_bytes);
     if !reading.images_to_size().is_empty() {
         // StepMania's last resort: tell banners from backgrounds by size.
@@ -1116,19 +1116,19 @@ async fn zip_entries(file: &File) -> Result<Vec<ZipEntry>, String> {
     let raws: Vec<&[u8]> = legacy.iter().map(|(_, r)| r.as_slice()).collect();
     for ((i, _), name) in legacy
         .iter()
-        .zip(pack::decode_legacy_names(&raws, shift_jis))
+        .zip(pack::decode_legacy_names(&raws, legacy_text))
     {
         entries[*i].name = name;
     }
     Ok(entries)
 }
 
-/// Strict Shift-JIS through the browser's `TextDecoder` (`fatal`), `None`
-/// on any invalid sequence.
-pub(crate) fn shift_jis(bytes: &[u8]) -> Option<String> {
+/// Text in a legacy code page through the browser's `TextDecoder`
+/// (`fatal`), `None` on any invalid sequence (`ddi_library::legacy`).
+pub(crate) fn legacy_text(code_page: ddi_library::legacy::Legacy, bytes: &[u8]) -> Option<String> {
     let opts = web_sys::TextDecoderOptions::new();
     opts.set_fatal(true);
-    web_sys::TextDecoder::new_with_label_and_options("shift_jis", &opts)
+    web_sys::TextDecoder::new_with_label_and_options(code_page.label(), &opts)
         .and_then(|d| d.decode_with_buffer_source(&js_sys::Uint8Array::from(bytes)))
         .ok()
 }

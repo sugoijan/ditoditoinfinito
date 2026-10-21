@@ -282,7 +282,9 @@ fn clips_decode_as_ffmpeg_decodes_them() {
             eprintln!("no zip command: the zip part skipped");
             break;
         }
-        let reader = ddi_desktop::library::files::ZipReader::open(&zipped, &|_| None).unwrap();
+        let reader =
+            ddi_desktop::library::files::ZipReader::open(&zipped, &ddi_library::legacy::none)
+                .unwrap();
         let files = ddi_desktop::play::load::Files::Zip {
             zip: zipped.clone(),
             reader: std::sync::Arc::new(reader),

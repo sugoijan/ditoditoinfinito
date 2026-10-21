@@ -9,6 +9,8 @@
 //!   way StepMania does.
 //! - [`image`]: image dimensions from file headers, for the banner and
 //!   background guess by size.
+//! - [`legacy`]: simfile text in the code pages of Japanese, Korean and
+//!   Chinese packs.
 //! - [`manifest`]: the song list entry shared by bundled and imported songs.
 //! - [`path`]: logical paths (`/`-separated, relative to a root) and the
 //!   one way they become OS paths.
@@ -24,6 +26,7 @@ pub(crate) mod bytes;
 pub mod danoni;
 pub mod h264;
 pub mod image;
+pub mod legacy;
 pub mod manifest;
 pub mod pack;
 pub mod path;

@@ -448,10 +448,13 @@ Charts and import:
 - Layouts not played (couple, routine, techno, kb7, para, ez2, …) are
   left out with a note (decision 27); KSF, BMS, `.osu` and FFR are not
   read (section 2.1, phase 10); keysounds are a non-goal (section 1).
-- Korean and Chinese legacy encodings come out as mojibake (section 7).
+- Korean and Chinese legacy encodings are told apart by a heuristic
+  (`ddi_library::legacy`, `docs/plans/format-gaps.md`): a short title
+  may still be misread.
 - Songs imported before a change need importing again to gain it:
   transliterations for search, pump charts, legacy skins' files,
-  Shift-JIS text (this section; `docs/plans/pump.md`,
+  Shift-JIS, Korean and Chinese text, background files named with `,`
+  or `=` (this section; `docs/plans/format-gaps.md`, `docs/plans/pump.md`,
   `docs/plans/legacy-skins.md`, decision 31).
 
 Rules and options:
@@ -706,7 +709,7 @@ remain separate work.
 - Ecosystem churn (wgpu majors every few months, winit 0.31 beta, Trunk 0.22 rc). Mitigation: pin, upgrade deliberately, keep wgpu behind `render`.
 - DDR's exact modern windows and gauge numbers are not public; presets are approximations and should say so in the UI.
 - Safari: `decodeAudioData` accepting Ogg Vorbis and returning silence; covered by the silence check, but a decode that returns noise instead would not be caught. Previews decode the whole song (~0.5 s before sound).
-- Imported packs: text in legacy encodings other than Shift-JIS (Korean, Chinese) still comes out as Windows-1252/CP437 mojibake (the charts parse); wasm memory grows by a song's raw PCM size after a fallback decode and never shrinks; browsers may evict the library unless `persist()` is granted (Safari's 7-day rule for origins without interaction).
+- Imported packs: text in Korean and Chinese legacy encodings is read by a heuristic (`docs/plans/format-gaps.md`; a short title may be misread, the charts parse either way); wasm memory grows by a song's raw PCM size after a fallback decode and never shrinks; browsers may evict the library unless `persist()` is granted (Safari's 7-day rule for origins without interaction).
 
 - Background videos: the module is 2.4 MB gzipped, downloaded on the first song with a movie that is not an H.264 AVI (a slow connection shows its progress on the start prompt, and the movie starts late rather than the song). Movies in a codec FFmpeg only decodes through hardware or external libraries (AV1) cannot play. WebCodecs differs per browser: Firefox and Safari give frames out in timestamp order and Chrome in bitstream order (frames are identified by their chunk, so both work), Firefox on macOS gives RGB frames in its own colors, and a decoder that stalls or errors moves the movie to the module. Firefox and Safari are checked by hand (`#/video-check?decoder=both`).
 

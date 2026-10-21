@@ -51,7 +51,7 @@ impl Files {
         Ok(if s.zip {
             Files::Zip {
                 zip: s.root.clone(),
-                reader: Arc::new(ZipReader::open(&s.root, &crate::library::shift_jis)?),
+                reader: Arc::new(ZipReader::open(&s.root, &crate::library::legacy_text)?),
                 dir: s.dir.clone(),
             }
         } else {
@@ -336,7 +336,7 @@ pub fn load_with(
         return load_work(files, entry, &w, rate);
     }
     let bytes = files.read(&entry.chart)?;
-    let text = ddi_library::pack::decode_text_with(&bytes, crate::library::shift_jis);
+    let text = ddi_library::pack::decode_text_with(&bytes, crate::library::legacy_text);
     let ext = entry
         .chart
         .as_str()
@@ -380,7 +380,7 @@ pub fn read_chart(id: &str) -> Result<Song, String> {
         return read_work(&files, &w);
     }
     let bytes = files.read(&entry.chart)?;
-    let text = ddi_library::pack::decode_text_with(&bytes, crate::library::shift_jis);
+    let text = ddi_library::pack::decode_text_with(&bytes, crate::library::legacy_text);
     let ext = entry
         .chart
         .as_str()

@@ -192,9 +192,10 @@ impl Hidden {
     }
 }
 
-/// Shift-JIS, strictly (`pack::decode_text_with`'s fallback).
-pub fn shift_jis(b: &[u8]) -> Option<String> {
-    encoding_rs::SHIFT_JIS
+/// Text in a legacy code page, strictly (`pack::decode_text_with`'s
+/// fallbacks; `ddi_library::legacy`).
+pub fn legacy_text(code_page: ddi_library::legacy::Legacy, b: &[u8]) -> Option<String> {
+    encoding_rs::Encoding::for_label(code_page.label().as_bytes())?
         .decode_without_bom_handling_and_without_replacement(b)
         .map(|c| c.into_owned())
 }
@@ -535,7 +536,7 @@ fn scan_root(
             ));
             return Ok(Some(c.clone()));
         }
-        let reader = match ZipReader::open(&root.path, &shift_jis) {
+        let reader = match ZipReader::open(&root.path, &legacy_text) {
             Ok(r) => r,
             Err(e) => {
                 report.missing.push(format!("{}: {e}", root.path.display()));
@@ -673,7 +674,7 @@ fn scan_songs(
             scan::pack_paths(paths, &c),
             &c,
             &root.shared,
-            &shift_jis,
+            &legacy_text,
         ) {
             Ok(s) => out.songs.push(CachedSong {
                 listing: hash,
@@ -1416,7 +1417,7 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
         return prepare_work_preview(s, w);
     }
     let reader: Box<dyn Reader> = if s.zip {
-        Box::new(ZipReader::open(&s.root, &shift_jis).ok()?)
+        Box::new(ZipReader::open(&s.root, &legacy_text).ok()?)
     } else {
         Box::new(DirReader {
             root: s.root.clone(),
@@ -1437,7 +1438,7 @@ fn prepare_preview(s: &LibSong) -> Option<Prepared> {
         s.rooted(&s.entry.music).to_path(&s.root)?
     };
     // The timing for the beat pulse, from the simfile as it is now.
-    let text = pack::decode_text_with(&reader.read(&s.rooted(&s.entry.chart)).ok()?, shift_jis);
+    let text = pack::decode_text_with(&reader.read(&s.rooted(&s.entry.chart)).ok()?, legacy_text);
     let ext = s
         .entry
         .chart

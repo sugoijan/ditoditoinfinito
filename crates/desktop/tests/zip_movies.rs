@@ -37,7 +37,7 @@ fn compressed_movies_extract_once_and_safely() {
     }
     let files = || Files::Zip {
         zip: zip.clone(),
-        reader: Arc::new(ZipReader::open(&zip, &ddi_desktop::library::shift_jis).unwrap()),
+        reader: Arc::new(ZipReader::open(&zip, &ddi_desktop::library::legacy_text).unwrap()),
         dir: "Pack/Song".into(),
     };
     // Two at once: both get the whole movie, at the same place.

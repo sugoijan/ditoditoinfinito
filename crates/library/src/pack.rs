@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 
 use ddi_chart::Song;
 
+use crate::legacy::Legacy;
 use crate::path::{RelPath, RelPathBuf};
 
 /// Simfile formats the importer reads, in order of preference: when a song
@@ -503,23 +504,24 @@ pub(crate) fn join_relative(dir: &str, reference: &str) -> Option<String> {
 /// Windows-1252 byte for byte. Simfile syntax is ASCII, so either way the
 /// chart parses; only the free text (titles, artists, credits) of files in
 /// other legacy encodings comes out wrong. [`decode_text_with`] also tries
-/// Shift-JIS.
+/// Shift-JIS, Korean and Chinese.
 pub fn decode_text(bytes: &[u8]) -> String {
-    decode_text_with(bytes, |_| None)
+    decode_text_with(bytes, crate::legacy::none)
 }
 
-/// [`decode_text`], trying Shift-JIS before Windows-1252: `shift_jis`
-/// decodes strictly (`None` on any invalid sequence; the browser's
-/// `TextDecoder` in the app), and its text is taken when it reads as
-/// Japanese ([`reads_as_japanese`]). StepMania itself only tries UTF-8 and
-/// the system code page, so on a Western system it shows such titles as
-/// mojibake; Japanese packs are common enough to do better.
-pub fn decode_text_with(bytes: &[u8], shift_jis: impl FnOnce(&[u8]) -> Option<String>) -> String {
+/// [`decode_text`], trying the legacy code pages of Japanese, Korean and
+/// Chinese packs before Windows-1252: `legacy` decodes strictly (`None`
+/// on any invalid sequence; the browser's `TextDecoder` in the app), and
+/// [`crate::legacy::decode`] takes the reading that reads as its
+/// language. StepMania itself only tries UTF-8 and the system code page,
+/// so on a Western system it shows such titles as mojibake; such packs
+/// are common enough to do better.
+pub fn decode_text_with(bytes: &[u8], legacy: impl Fn(Legacy, &[u8]) -> Option<String>) -> String {
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     match core::str::from_utf8(bytes) {
         Ok(s) => s.to_string(),
-        Err(_) => shift_jis(bytes)
-            .filter(|s| reads_as_japanese(s))
+        Err(_) => crate::legacy::decode(bytes, &legacy)
+            .map(|(_, s)| s)
             .unwrap_or_else(|| bytes.iter().map(|&b| windows_1252(b)).collect()),
     }
 }
@@ -527,33 +529,34 @@ pub fn decode_text_with(bytes: &[u8], shift_jis: impl FnOnce(&[u8]) -> Option<St
 /// Zip entry names in a legacy code page ([`crate::zip::ZipEntry::legacy_name`]),
 /// decided for the whole archive so a folder never splits between two
 /// readings: UTF-8 when every name is valid UTF-8 (many tools write it
-/// without setting the flag), Shift-JIS when every name decodes strictly
-/// and together they read as Japanese, else CP437 as the format says.
-/// Backslashes become `/` after decoding, like the zip reader's names (a
-/// Shift-JIS trail byte may be 0x5C).
+/// without setting the flag), a legacy code page when together the names
+/// read in it ([`crate::legacy::decode`], each name decoding strictly),
+/// else CP437 as the format says. Backslashes become `/` after decoding,
+/// like the zip reader's names (a Shift-JIS, GBK or Big5 trail byte may be
+/// 0x5C).
 pub fn decode_legacy_names(
     raws: &[&[u8]],
-    shift_jis: impl Fn(&[u8]) -> Option<String>,
+    legacy: impl Fn(Legacy, &[u8]) -> Option<String>,
 ) -> Vec<String> {
     let names: Vec<String> = if raws.iter().all(|r| core::str::from_utf8(r).is_ok()) {
         raws.iter()
             .map(|r| String::from_utf8_lossy(r).into_owned())
             .collect()
     } else {
-        let sjis: Option<Vec<String>> = raws
-            .iter()
-            .map(|r| {
-                if r.is_ascii() {
-                    Some(String::from_utf8_lossy(r).into_owned())
-                } else {
-                    shift_jis(r)
-                }
+        let joined = raws.join(&b'\n');
+        crate::legacy::decode(&joined, &legacy)
+            .and_then(|(code_page, _)| {
+                raws.iter()
+                    .map(|r| {
+                        if r.is_ascii() {
+                            Some(String::from_utf8_lossy(r).into_owned())
+                        } else {
+                            legacy(code_page, r)
+                        }
+                    })
+                    .collect::<Option<Vec<String>>>()
             })
-            .collect();
-        match sjis.filter(|n| reads_as_japanese(&n.join("\n"))) {
-            Some(n) => n,
-            None => raws.iter().map(|r| crate::zip::decode_cp437(r)).collect(),
-        }
+            .unwrap_or_else(|| raws.iter().map(|r| crate::zip::decode_cp437(r)).collect())
     };
     names.into_iter().map(|n| n.replace('\\', "/")).collect()
 }
@@ -1061,10 +1064,7 @@ mod tests {
         assert_eq!(c.pack_dir().map(RelPath::as_str), Some("Songs/Other"));
     }
 
-    fn shift_jis(bytes: &[u8]) -> Option<String> {
-        let (text, had_errors) = encoding_rs::SHIFT_JIS.decode_without_bom_handling(bytes);
-        (!had_errors).then(|| text.into_owned())
-    }
+    use crate::legacy::tests::decoder as shift_jis;
 
     #[test]
     fn shift_jis_text_and_names() {
@@ -1151,7 +1151,7 @@ mod tests {
             ["曲/a.sm"]
         );
         assert_eq!(
-            decode_legacy_names(&[b"a\\b\x82.sm"], |_| None),
+            decode_legacy_names(&[b"a\\b\x82.sm"], crate::legacy::none),
             ["a/bé.sm"]
         );
     }

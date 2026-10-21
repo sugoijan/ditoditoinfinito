@@ -172,7 +172,7 @@ fn a_stepmania_folder_with_a_zip_lists_as_the_web_imports() {
         format!("zip:{}!Zipped/cover.jpg", z.root.display())
     );
     // The zip's files read in place.
-    let r = ZipReader::open(&z.root, &shift_jis).unwrap();
+    let r = ZipReader::open(&z.root, &legacy_text).unwrap();
     assert_eq!(r.read(&z.rooted("song.ogg")).unwrap(), b"music");
 }
 
@@ -341,7 +341,7 @@ fn every_layout_has_the_webs_ids() {
         )
     );
     // Its files read where they are.
-    let r = ZipReader::open(&songs[0].root, &shift_jis).unwrap();
+    let r = ZipReader::open(&songs[0].root, &legacy_text).unwrap();
     assert_eq!(
         r.read(&songs[0].rooted(&songs[0].entry.music)).unwrap(),
         b"m"

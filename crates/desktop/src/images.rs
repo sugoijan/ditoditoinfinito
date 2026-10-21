@@ -228,7 +228,8 @@ fn zip_entry(zip: &Path, entry: &str) -> Option<Vec<u8>> {
             Some(i) => list[i].1.clone(),
             None => {
                 let r = std::sync::Arc::new(
-                    crate::library::files::ZipReader::open(zip, &crate::library::shift_jis).ok()?,
+                    crate::library::files::ZipReader::open(zip, &crate::library::legacy_text)
+                        .ok()?,
                 );
                 // A few zips kept.
                 if list.len() >= 8 {
