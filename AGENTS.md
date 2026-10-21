@@ -649,8 +649,10 @@ dependency's licence before adding it.
   nothing the first paint waits for is fetched (no stylesheet links,
   classic scripts with a source, `@import` or `url()`). `xtask
   check-boot`, Trunk's last post-build hook, fails a build that breaks
-  it. The loader is the theme's ground in either color scheme, as the
-  game it fades into.
+  it. The page follows the game's theme alone, never the system's color
+  scheme: its colors are the theme's (`xtask regen-seo` writes them from
+  `crates/theme/src/infinito.toml` to `target/seo/theme.css`, inlined;
+  the theme-color meta is its ground).
 - `credits/CREDITS.md` and `credits/THIRD_PARTY_RUST.md` are generated and committed;
   `Trunk.toml` ignores them in the watcher so regenerating them does not
   loop the dev server.

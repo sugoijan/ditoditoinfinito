@@ -4,8 +4,9 @@
 //! less what the response's headers and TLS take of it), and nothing the
 //! first paint waits for comes from another fetch: no stylesheet links,
 //! no classic scripts with a source, no `@import` or `url()` in its
-//! styles. The loader's markup comes after its styles. Trunk runs this
-//! after every build.
+//! styles. The loader's markup comes after its styles, and the page
+//! follows the game's theme alone: nothing asks for the system's color
+//! scheme. Trunk runs this after every build.
 
 use std::path::PathBuf;
 
@@ -17,6 +18,9 @@ const WINDOW: usize = 10 * 1460;
 const HEADERS: usize = 2048;
 /// What the compressed page may take.
 pub(crate) const BUDGET: usize = WINDOW - HEADERS;
+
+const SCHEME: &str =
+    "the page asks for the system's color scheme: it follows the game's theme alone";
 
 pub(crate) fn check_boot(dest: Option<PathBuf>) -> Result<()> {
     let dest = match dest {
@@ -96,7 +100,13 @@ pub(crate) fn check(html: &str) -> Report {
                             .into(),
                     );
                 }
+                if css.contains("prefers-color-scheme") {
+                    problems.push(SCHEME.into());
+                }
                 loader_styled |= el.text.contains(".boot-shell");
+            }
+            "meta" if attr("media").is_some_and(|m| m.contains("prefers-color-scheme")) => {
+                problems.push(SCHEME.into());
             }
             _ if attr("id").is_some_and(|id| id == "boot-shell") => {
                 loader = true;
@@ -272,6 +282,18 @@ mod tests {
         ] {
             let html = page(&format!("{STYLE}<style>{css}</style>"), LOADER);
             assert_eq!(problems(&html).len(), 1, "{css}");
+        }
+    }
+
+    #[test]
+    fn the_page_follows_the_theme_not_the_system() {
+        let style =
+            "<style>@media (prefers-color-scheme: light) { :root { --ground: #fff } }</style>";
+        let meta =
+            r##"<meta name="theme-color" content="#fff" media="(prefers-color-scheme: light)">"##;
+        for extra in [style, meta] {
+            let html = page(&format!("{STYLE}{extra}"), LOADER);
+            assert_eq!(problems(&html).len(), 1, "{extra}");
         }
     }
 

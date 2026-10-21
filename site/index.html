@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link data-trunk rel="inline" href="../target/seo/seo-head.html" type="html" />
+    <!-- The theme's colors as CSS variables (`xtask regen-seo`): the loader and the page follow the theme alone. -->
+    <link data-trunk rel="inline" href="../target/seo/theme.css" />
     <script id="boot-inline">
       (() => {
         const state = {
@@ -344,20 +346,10 @@
       })();
     </script>
     <style>
-      /* The theme's ground (`Ground`, crates/theme/src/infinito.toml) in
-         either scheme: the game under the loader is always dark, and a
-         light loader would flash as it fades into it. */
-      :root {
-        --boot-bg: #0a090d;
-        --boot-bar-track: rgba(255, 255, 255, 0.2);
-        --boot-bar-fill: rgba(255, 255, 255, 0.75);
-        --boot-error: rgba(255, 255, 255, 0.88);
-      }
-
       body {
         margin: 0;
         min-height: 100vh;
-        background: var(--boot-bg);
+        background: var(--ground);
       }
 
       .boot-shell {
@@ -367,7 +359,7 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        background: var(--boot-bg);
+        background: var(--ground);
         z-index: 9999;
       }
 
@@ -385,7 +377,7 @@
       .boot-bar-track {
         width: 100%;
         height: 2px;
-        background: var(--boot-bar-track);
+        background: var(--line);
         position: relative;
       }
 
@@ -395,7 +387,7 @@
         top: -2px;
         height: 6px;
         width: 4%;
-        background: var(--boot-bar-fill);
+        background: var(--text);
       }
 
       .boot-shell.is-blocked .boot-bar {
@@ -405,7 +397,7 @@
       .boot-blocked {
         text-align: left;
         font-family: ui-monospace, monospace;
-        color: var(--boot-error);
+        color: var(--text);
         max-width: min(480px, 86vw);
       }
 

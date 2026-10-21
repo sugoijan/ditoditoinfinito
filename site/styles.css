@@ -1,26 +1,15 @@
+/* Colors are the theme's (`--ground`, `--text`, `--muted`, `--accent`,
+   `--line`: target/seo/theme.css, inlined before this). */
 :root {
-  --bg: #ffffff;
-  --fg: #141312;
-  --muted: #6b6560;
-  --accent: #e0407a;
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161318;
-    --fg: #f2eee9;
-    --muted: #9a938c;
-    --accent: #ff6ea0;
-  }
+  color-scheme: dark;
 }
 
 html,
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg);
-  color: var(--fg);
+  background: var(--ground);
+  color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -216,7 +205,7 @@ html.screen-backdrop body {
   position: relative;
   height: 48px;
   margin: 0.75rem 0;
-  border: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -246,7 +235,7 @@ html.screen-backdrop body {
   width: 16px;
   height: 32px;
   border-radius: 4px;
-  background: var(--fg);
+  background: var(--text);
 }
 
 .cal-status {
