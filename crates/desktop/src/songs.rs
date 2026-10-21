@@ -29,6 +29,9 @@ use ddi_ui::{Cx, Ui};
 use crate::library::{Hidden, LibSong, Library};
 use crate::preview::SharedPlayer;
 
+/// How often song select gets the history's bests while it keeps changing.
+const HISTORY_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// What song select, options and the shell share of the library.
 pub struct Songs {
     #[cfg(danoni_importer)]
@@ -53,6 +56,10 @@ pub struct Songs {
     pub bundled: Vec<ManifestEntry>,
     place: RefCell<MenuPlace>,
     history_seen: Cell<u64>,
+    /// When song select last got the history's bests: a change within
+    /// [`HISTORY_EVERY`] of it waits (a pass working out stale plays
+    /// changes the history every few milliseconds).
+    history_sent: Cell<Option<std::time::Instant>>,
     /// The options screen while it is open (its song folders' rows).
     pub options: Rc<RefCell<Option<Rc<crate::options::Shared>>>>,
     /// What song select asked to play (`crate::play::host` takes it).
@@ -85,6 +92,7 @@ impl Songs {
             bundled: crate::library::bundled(),
             place: RefCell::new(MenuPlace::load()),
             history_seen: Cell::new(u64::MAX),
+            history_sent: Cell::new(None),
             options: Rc::default(),
             play: Rc::default(),
             autoplay: Cell::new(false),
@@ -315,7 +323,16 @@ impl Songs {
             .as_mut()
             .is_some_and(Library::take);
         let generation = self.plays.as_ref().map_or(0, |p| p.generation());
-        let history = generation != self.history_seen.replace(generation);
+        // A change soon after the last one sent waits for its turn
+        // (`history_due`), as the web publishes at most once a second.
+        let history = generation != self.history_seen.get()
+            && self
+                .history_due()
+                .is_none_or(|at| at <= std::time::Instant::now());
+        if history {
+            self.history_seen.set(generation);
+            self.history_sent.set(Some(std::time::Instant::now()));
+        }
         if scanned {
             self.show_again();
             self.tell_options();
@@ -350,12 +367,23 @@ impl Songs {
         rework.poll(plays, playing, shown, self.listed_all(), wake.as_ref());
     }
 
-    /// When [`Songs::rework`] has a step to take.
+    /// When [`Songs::rework`] has a step to take, or [`Songs::poll`] bests
+    /// it held back to send.
     pub fn rework_due(&self) -> Option<std::time::Instant> {
-        if !self.listed_all() {
-            return None;
-        }
-        self.rework.borrow().as_ref()?.due()
+        let history = self.history_due().filter(|_| {
+            self.plays.as_ref().map_or(0, |p| p.generation()) != self.history_seen.get()
+        });
+        let rework = if self.listed_all() {
+            self.rework.borrow().as_ref().and_then(|r| r.due())
+        } else {
+            None
+        };
+        history.into_iter().chain(rework).min()
+    }
+
+    /// When song select may next get the history's bests.
+    fn history_due(&self) -> Option<std::time::Instant> {
+        self.history_sent.get().map(|t| t + HISTORY_EVERY)
     }
 
     /// Song `id`'s chart read for its play: its stale plays come first.

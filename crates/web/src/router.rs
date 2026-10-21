@@ -469,7 +469,11 @@ fn visit(next: &str, returning: bool) {
         return;
     };
     let current = trail();
-    if next == hash() {
+    // Already there (an address differing only in what the route does
+    // not read, as testing parameters): nothing to do. Matched below as
+    // the trail's own last entry, it would be `history.go(0)`, a reload.
+    let here = hash();
+    if next == here || Route::parse(next) == Route::parse(&here) {
         return;
     }
     // An explicit return to an ancestor (including song/results returns)

@@ -60,7 +60,7 @@ impl Camera {
     }
 
     /// This camera as `Player::PushPlayerMatrix`'s `LoadMenuPerspective(45,
-    /// …)` sets it, the same as an `fov(45)` frame on the field's centre
+    /// …)` sets it, the same as an `fov(45)` frame on the field's center
     /// ([`Perspective::new`]): the frustum of `GetFrustumMatrix(…, 1,
     /// fDistCameraFromImage + 1000)` (`RageDisplay.cpp`), its near plane
     /// one of StepMania's pixels in front of the eye and its far one 1000
@@ -360,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn the_fields_camera_is_an_fov_45_frame_on_its_centre() {
+    fn the_fields_camera_is_an_fov_45_frame_on_its_center() {
         let camera = Camera {
             vanish: [300.0, 200.0],
             distance: SM_DISTANCE * 1.5,

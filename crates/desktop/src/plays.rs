@@ -30,6 +30,18 @@ pub struct FilePlayStore {
     dir: PathBuf,
 }
 
+/// Held while a summary is rewritten or a play removed: the history's
+/// thread rewriting a summary checks its play is there and writes in one
+/// step, so a play removed meanwhile on the event loop's thread never
+/// gets its summary back.
+static CHANGING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn changing() -> std::sync::MutexGuard<'static, ()> {
+    CHANGING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Whether `id` is a play id this store writes: nothing that could leave
 /// the folder or be read as another file's name.
 fn is_id(id: &str) -> bool {
@@ -150,16 +162,20 @@ impl PlayStore for FilePlayStore {
     }
 
     fn replace_summaries(&self, summaries: Vec<(String, String)>, done: Reply<()>) {
+        let guard = changing();
         let r = summaries.into_iter().try_for_each(|(id, summary)| {
             match (self.raw_path(&id), self.summary_path(&id)) {
                 (Some(raw), Some(sum)) if raw.exists() => self.write_file(&sum, &summary),
                 _ => Ok(()),
             }
         });
+        // Released before the answer, which may use the store again.
+        drop(guard);
         done(r)
     }
 
     fn remove(&self, ids: Vec<String>, done: Reply<()>) {
+        let guard = changing();
         let r = ids.iter().try_for_each(|id| {
             for p in [self.raw_path(id), self.summary_path(id)]
                 .into_iter()
@@ -174,6 +190,7 @@ impl PlayStore for FilePlayStore {
             }
             Ok(())
         });
+        drop(guard);
         done(r)
     }
 

@@ -93,7 +93,7 @@ impl<C: StageContent> StageView<C> {
     }
 
     /// The back and mask quads at song second `t`, on a target `height` px
-    /// tall with the field centred at `center_x`.
+    /// tall with the field centered at `center_x`.
     pub fn quads(
         &self,
         t: f64,

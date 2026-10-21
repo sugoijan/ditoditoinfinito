@@ -76,19 +76,6 @@ impl StartScreen {
             .metric("TitleMenu.RowHeight", 52.0)
             .max(44.0 / css_scale);
         let gap = env.metric("TitleMenu.Gap", 12.0);
-        let count = if self.desktop { 5.0 } else { 4.0 };
-        let total = count * (row + gap) + 70.0;
-        let top = ((h - total) / 2.0).max(8.0);
-        let mut children = vec![ground(env, size)];
-        let mut title = env.text(
-            "Title",
-            "Dito Dito Infinito",
-            env.metric("TitleMenu.TitleSize", 30.0),
-            700,
-            "Text",
-        );
-        call(&mut title, "xy", &[w / 2.0, top + 24.0]);
-        children.push(title);
         let mut entries = vec![
             ("Singleplayer", "Singleplayer", "TitleMenu.Primary"),
             (
@@ -102,6 +89,18 @@ impl StartScreen {
         if self.desktop {
             entries.push(("Quit", "Quit", "TitleMenu.Choice"));
         }
+        let total = entries.len() as f32 * (row + gap) + 70.0;
+        let top = ((h - total) / 2.0).max(8.0);
+        let mut children = vec![ground(env, size)];
+        let mut title = env.text(
+            "Title",
+            "Dito Dito Infinito",
+            env.metric("TitleMenu.TitleSize", 30.0),
+            700,
+            "Text",
+        );
+        call(&mut title, "xy", &[w / 2.0, top + 24.0]);
+        children.push(title);
         for (i, (id, label, component)) in entries.iter().enumerate() {
             children.push(env.component(
                 component,

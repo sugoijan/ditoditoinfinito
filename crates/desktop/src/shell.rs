@@ -1355,19 +1355,7 @@ pub fn theme_ui_with(
     match first {
         "results" => ui.push(sample::results_screen(&env)),
         "options" => ui.push(sample::options_screen(&env, Some(changed))),
-        // The generated credits when they are there (`xtask gen-credits`:
-        // the desktop's, with its own Rust libraries).
-        "credits" => {
-            let credits = std::fs::read_to_string("target/credits/credits-desktop.json")
-                .ok()
-                .and_then(|t| theme_screens::credits::parse(&t).ok())
-                .unwrap_or_else(theme_screens::credits::sample);
-            let credits = theme_screens::credits::Credits {
-                platform: theme_screens::data::Platform::Desktop,
-                ..credits
-            };
-            ui.push(sample::credits_screen(&env, &credits));
-        }
+        "credits" => ui.push(credits_screen(&env)),
         "calibration" => ui.push(sample::calibration_screen(&env)),
         _ => {}
     }
@@ -1461,11 +1449,20 @@ fn types_text(down: bool, was_typing: bool, typing: bool, preedit: bool, m: Modi
     down && was_typing && typing && !preedit && !m.command()
 }
 
+/// The credits page: the generated credits when they are there (`xtask
+/// gen-credits`: the desktop's, with its own Rust libraries), found
+/// beside the assets as the bundled songs' index is (not from the
+/// working folder), else the sample.
 pub(crate) fn credits_screen(env: &ThemeEnv) -> theme_screens::page::PageScreen {
-    let credits = std::fs::read_to_string("target/credits/credits-desktop.json")
-        .ok()
-        .and_then(|t| theme_screens::credits::parse(&t).ok())
-        .unwrap_or_else(theme_screens::credits::sample);
+    let assets = crate::images::assets();
+    let credits = [
+        assets.join("../target/credits/credits-desktop.json"),
+        assets.join("credits/credits-desktop.json"),
+    ]
+    .iter()
+    .find_map(|p| std::fs::read_to_string(p).ok())
+    .and_then(|t| theme_screens::credits::parse(&t).ok())
+    .unwrap_or_else(theme_screens::credits::sample);
     sample::credits_screen(
         env,
         &theme_screens::credits::Credits {

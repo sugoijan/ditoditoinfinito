@@ -332,6 +332,14 @@ def package(app, output):
             if not index.is_file():
                 raise ValueError(f'Generate {name} index with cargo run -p xtask -- gen-{name} before packaging')
             shutil.copy2(index, output / 'assets' / name / 'index.json')
+        # The Credits screen's generated list (the desktop's, with its Rust
+        # libraries), read beside the assets as the shell.rs credits_screen
+        # looks for it; without it the screen would show sample credits.
+        credits = ROOT / 'target' / 'credits' / 'credits-desktop.json'
+        if not credits.is_file():
+            raise ValueError('Generate the credits with cargo run -p xtask -- gen-credits before packaging')
+        (output / 'assets' / 'credits').mkdir()
+        shutil.copy2(credits, output / 'assets' / 'credits' / credits.name)
         # The sandboxed decoder helper crates/desktop/build.rs staged beside the app
         # (video/ddi-video-helper), with its notice and FFmpeg's description.
         exe = 'ddi-video-helper.exe' if manifest['target'].endswith('windows-msvc') else 'ddi-video-helper'

@@ -47,6 +47,7 @@ against 2 GiB RSS. Default/web/Windows checks invoke no helper preparation tools
 ```
 cargo run -p xtask -- gen-songs
 cargo run -p xtask -- gen-noteskins
+cargo run -p xtask -- gen-credits
 cargo build -p ditoditoinfinito
 python3 tools/danoni-importer/build.py package --app target/debug/ditoditoinfinito --output /tmp/ddi-package
 ```
