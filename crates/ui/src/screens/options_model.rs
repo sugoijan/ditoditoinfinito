@@ -1227,17 +1227,13 @@ impl OptionsModel {
                         }
                     },
                     if self.world.platform == super::data::Platform::Desktop {
-                        "Every song played to the end or failed is kept, with what it was \
-                         played with and every press, so its score can be worked out again. \
-                         Export saves them as JSON lines to a file you choose; Import adds the \
-                         plays of such a file (from here or the web game) and judges them again; \
-                         Reset deletes them."
+                        "Every song played to the end or failed is kept, with every press, so \
+                         its score can be worked out again. Export saves them as JSON lines to a \
+                         file you choose; Import adds a file's plays; Reset deletes them."
                     } else {
-                        "Every song played to the end or failed is kept, with what it was \
-                         played with and every press, so its score can be worked out again. \
-                         Export downloads them as JSON lines; Import adds the plays of such a \
-                         file (from here or the desktop game; or drop it on this page) and \
-                         judges them again; Reset deletes them."
+                        "Every song played to the end or failed is kept, with every press, so \
+                         its score can be worked out again. Export downloads them as JSON lines; \
+                         Import (or a drop here) adds a file's plays; Reset deletes them."
                     },
                 ),
                 actions(

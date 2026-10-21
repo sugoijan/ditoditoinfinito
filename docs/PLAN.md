@@ -24,7 +24,8 @@ and `DanOni`; Dancing☆Onigiri's back and mask layers; scripted
 backgrounds and named background effects not), phase 9 in progress (the
 UI core, our theme with a start menu, and the desktop shell at parity
 with the web; left: hardware checks, Windows, packaging), phase 10
-partial (replays and the ghost); per-phase status in the roadmap
+partial (replays and the ghost, importing plays, FFR levels read, the
+editor planned); per-phase status in the roadmap
 (section 5). What both shells do lives in shared crates (`session`,
 `shell`, `ui`), so a shell keeps only its platform's code.
 DanOni URL imports (2026-10-19): the `danoni-importer` feature, on by

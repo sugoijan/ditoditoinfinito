@@ -22,7 +22,8 @@ the browser are implementation details, not advertised features.
 
 ## Layout
 
-- `crates/chart/` chart model and importers (`.sm`/`.ssc`), 48 ticks per beat, exact
+- `crates/chart/` chart model and importers (`.sm`/`.ssc`; FFR's `beatBox`,
+  `formats/ffr.rs`), 48 ticks per beat, exact
   StepMania timing semantics. Pure, natively tested.
 - `crates/engine/` deterministic gameplay: clock, judge, rulesets, scoring, gauges,
   scroll, calibration maths. No I/O. Replay fixtures in `crates/engine/tests/`.
@@ -59,8 +60,9 @@ the browser are implementation details, not advertised features.
   entry type, and the import's core (`scan.rs`: a song's entry, its files
   and the report's warnings from its folder; `works.rs`: a
   Dancing☆Onigiri work's songs, ids, music and layers; the web's import
-  runs them on `Blob`s, desktop's library on its folders). Pure,
-  natively tested.
+  runs them on `Blob`s, desktop's library on its folders), an FFR
+  level's chart and music from its SWF (`swf.rs`). Pure, natively
+  tested.
 - `crates/actor/` StepMania's actor model, shared by noteskins and later our
   screens (`docs/plans/ui-core.md`): actors, the tween queue, effects,
   sprite states, eases, commands as metrics write them, a model's meshes,
@@ -387,6 +389,9 @@ the browser are implementation details, not advertised features.
   judgements against the web's plays of the same charts),
   `DDI_WORKS=<dir>` and `DDI_WEB_WORKS=<jsonl>` (`--test works --
   --ignored`: local works against the web's import, autoplayed),
+  `DDI_WEB_EXPORT=<jsonl>` and `DDI_EXPORT_TO=<jsonl>` (`--test
+  import_plays -- --ignored`: the web's play history export imported and
+  judged again here; plays exported for the web to import),
   `DDI_MOVIE_SONGS`, `DDI_AUDIO_DEVICE_TESTS=1`, `DDI_OFFSCREEN_PPM=<dir>`
   (keeps the offscreen pictures). The VideoToolbox comparisons
   (`video_native*`) run on a Mac only: CI sets `DDI_SKIP_VT=1`, its
