@@ -190,7 +190,7 @@ Noteskins (`docs/plans/noteskins.md`): `python3 -I crates/noteskin/tests/make_te
 
 ## Checks worth repeating after renderer/engine changes
 
-- Receptor order L, D, U, R; arrows colored by quantization; judgement text and combo centred in the field; life bar at the top; score top-right.
+- Receptor order L, D, U, R; arrows colored by quantization; judgement text and combo centered in the field; life bar at the top; score top-right.
 - Autoplay must produce only top-tier judgements (`taps[0]` grows, `taps[5]` stays 0) and `let_go` 0.
 - No console errors (`page.on('console')`, `page.on('pageerror')`).
 

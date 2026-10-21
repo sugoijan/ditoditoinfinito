@@ -264,7 +264,7 @@ pub struct Sprite {
     pub texture: u32,
     /// UI images: center-crop to the drawn rectangle after the texture size is known.
     pub cover: bool,
-    /// UI images: fit whole inside the drawn rectangle, centred, once
+    /// UI images: fit whole inside the drawn rectangle, centered, once
     /// the texture size is known (a CD title in its box).
     pub contain: bool,
     /// Rounded corners, a soft edge, an outline, saturation: our
@@ -943,7 +943,7 @@ pub struct Actor {
     /// `shadowcolor`: the copy's color, its alpha times the actor's.
     pub shadow_color: Rgba,
     /// `motionblur`: what it draws, and everything inside it, smeared
-    /// this far along its own y axis (in its units, centred), as a list's
+    /// this far along its own y axis (in its units, centered), as a list's
     /// rows moving fast are. Our extension, not StepMania's: drawn only by
     /// the 2D pass ([`Quad::blur`]).
     pub motion_blur: f32,
@@ -1203,7 +1203,7 @@ pub struct Quad {
     pub texture: u32,
     /// UI images: center-crop to the drawn rectangle after the texture size is known.
     pub cover: bool,
-    /// UI images: fit whole inside the drawn rectangle, centred.
+    /// UI images: fit whole inside the drawn rectangle, centered.
     pub contain: bool,
     /// `[left, top, right, bottom]` of the image, before `texcoord_offset`.
     pub uv: [f32; 4],
@@ -1221,7 +1221,7 @@ pub struct Quad {
     pub shape: Shape,
     pub size: [f32; 2],
     /// A motion blur ([`Actor::motion_blur`] here and around it): the
-    /// quad smeared along this vector on the target, centred; `[0, 0]`:
+    /// quad smeared along this vector on the target, centered; `[0, 0]`:
     /// none.
     pub blur: [f32; 2],
 }

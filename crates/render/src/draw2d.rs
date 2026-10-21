@@ -90,7 +90,7 @@ pub struct Quad {
     /// Preserve aspect ratio with a centered cover crop.
     pub cover: bool,
     /// Preserve aspect ratio, the whole image fitted in the rectangle
-    /// and centred in it (letterboxed).
+    /// and centered in it (letterboxed).
     pub contain: bool,
     /// The texture's rectangle, in fractions of it.
     pub uv: Rect,
@@ -108,7 +108,7 @@ pub struct Quad {
     /// extension; not drawn in perspective).
     pub shape: Shape,
     /// A motion blur: the quad smeared along this vector, in its rect's
-    /// units, centred (our extension; not drawn in perspective). `[0, 0]`
+    /// units, centered (our extension; not drawn in perspective). `[0, 0]`
     /// draws exactly as before.
     pub blur: [f32; 2],
 }

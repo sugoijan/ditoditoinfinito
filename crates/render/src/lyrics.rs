@@ -4,7 +4,7 @@
 //! Placed as danoniplus places its `lblword` labels (`mainWindow.js`,
 //! "歌詞表示"; `g_lblPosObj.lblWord`): on its stage, mapped onto the screen
 //! as the work's back and mask layers are ([`crate::stage`]: the stage's
-//! height the screen's, centred on the field), a box 100 px in from either
+//! height the screen's, centered on the field), a box 100 px in from either
 //! side, its top 10 px down for even depths and 60 px up from the bottom
 //! for odd ones; the text flows from the box's top, wrapped to its width
 //! and aligned in it; in danoniplus's `title_base` grey, a soft shadow
@@ -30,7 +30,7 @@ const TOP: f32 = 10.0;
 const BOTTOM: f32 = 60.0;
 
 /// Where lyrics go on the target: its size, the work's stage (danoniplus's
-/// px) centred on the field at `center_x`, what they keep clear of if they
+/// px) centered on the field at `center_x`, what they keep clear of if they
 /// can (`keep_out`, `[left, top, right, bottom]` in the target's px: the
 /// HUD's gauge and score, the touch quit button), what they never cover
 /// (`receptors`: the receptor rows and the lanes' approach near them),
@@ -177,7 +177,7 @@ const STEPMANIA_Y: [f32; 2] = [620.0 / 720.0, 100.0 / 720.0];
 const STEPMANIA_SHADOW: f32 = 5.0 / 720.0;
 
 /// A `.lrc` line as StepMania's `LyricDisplay` draws it
-/// ([`LyricLook::StepMania`]): centred on the screen at its place, two
+/// ([`LyricLook::StepMania`]): centered on the screen at its place, two
 /// copies, the dim one (half its color) to the right of the wipe and the
 /// bright one (0.9 of it) to its left, the wipe crossing the widest row.
 /// StepMania squeezes a line wider than the screen; it shrinks here (to
@@ -526,7 +526,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // 24 px, five characters half as wide: 60 px, centred on 640.
+        // 24 px, five characters half as wide: 60 px, centered on 640.
         assert_eq!(
             clips,
             vec![[640.0, 0.0, 1280.0, 720.0], [0.0, 0.0, 640.0, 720.0]]

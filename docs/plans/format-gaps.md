@@ -70,7 +70,7 @@ system whose code page differs. Nothing in StepMania detects them.
    whose text now says "songs with a lyrics file". A chart with
    Dancing☆Onigiri lyrics of its own shows those, never both.
 2. Lyrics are drawn as StepMania's default theme draws them, through the
-   play's lyrics pass (`crates/render/src/lyrics.rs`): centred on the
+   play's lyrics pass (`crates/render/src/lyrics.rs`): centered on the
    screen at 620/720 of its height (100/720 under Reverse), about 1/30
    of the screen high, StepMania's default green where the file sets no
    color. Ours: a line wider than the screen shrinks (to the 10 px

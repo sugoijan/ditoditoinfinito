@@ -249,7 +249,7 @@ fn the_toggle_is_an_empty_box_while_off() {
 fn the_wheel_makes_room_for_the_selected_row() {
     let t = Infinito::new();
     let w = |d| t.wheel("Wheel", d).unwrap();
-    // The selected row (88) centred on the line; neighbours 6 from it.
+    // The selected row (88) centered on the line; neighbours 6 from it.
     assert_eq!(w(0.0).y, -11.0);
     assert_eq!(w(1.0).y, 17.0);
     assert_eq!(w(-1.0).y, -11.0);

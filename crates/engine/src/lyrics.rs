@@ -67,7 +67,7 @@ pub enum LyricLook {
     /// As danoniplus draws its labels, placed on its stage.
     #[default]
     Danoni,
-    /// As StepMania's `LyricDisplay`: centred on the screen, near its
+    /// As StepMania's `LyricDisplay`: centered on the screen, near its
     /// bottom (its top when `top`), in `color` (its copies at 0.5 and
     /// 0.9 of it); the brighter copy covers the share `wipe` of it from
     /// the left.

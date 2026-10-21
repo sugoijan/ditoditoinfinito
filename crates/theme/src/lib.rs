@@ -181,7 +181,7 @@ impl Default for Infinito {
     }
 }
 
-// Building blocks. Positions are of a top-left origin unless `centred`.
+// Building blocks. Positions are of a top-left origin unless `centered`.
 
 /// The lamps, worst first, as `ddi_ui::state::history::Lamp` names them.
 const LAMPS: [&str; 6] = [
@@ -308,7 +308,7 @@ const DIFFICULTIES: [&str; 6] = ["Beginner", "Easy", "Medium", "Hard", "Challeng
 const JUDGEMENTS: [&str; 6] = ["W1", "W2", "W3", "W4", "W5", "Miss"];
 
 impl Infinito {
-    /// A plate and the selection's ring and glow around it (centred), lit
+    /// A plate and the selection's ring and glow around it (centered), lit
     /// on focus.
     fn button(&self, spec: &Spec, fill: &str, label: &str, size: f32, weight: u16) -> Actor {
         let [w, h] = spec.size;
@@ -1136,16 +1136,16 @@ impl Infinito {
         frame("", vec![p, mark, title])
     }
 
-    fn option_row(&self, spec: &Spec, centred: bool) -> Actor {
+    fn option_row(&self, spec: &Spec, centered: bool) -> Actor {
         let [w, h] = spec.size;
-        let (x0, y0) = if centred {
+        let (x0, y0) = if centered {
             (-w / 2.0, -h / 2.0)
         } else {
             (0.0, 0.0)
         };
         // The option row widget is focused; the options screen's rows are
         // told which is (their frame is what takes focus).
-        let (on, off) = if centred {
+        let (on, off) = if centered {
             ("GainFocus", "LoseFocus")
         } else {
             ("Select", "Deselect")
@@ -1161,11 +1161,11 @@ impl Infinito {
             x0 + 16.0,
             y0 + h / 2.0,
         );
-        max_width(&mut label, if centred { 186.0 } else { 216.0 });
+        max_width(&mut label, if centered { 186.0 } else { 216.0 });
         self.colored(&mut label, on, "Text");
         self.colored(&mut label, off, "Secondary");
         let mut parts = vec![pulse, ring, p, label];
-        if centred {
+        if centered {
             // Where the choices go (the option row widget's `Choices`).
             let span = w - 16.0 - 190.0 - 16.0;
             let mut choices = quad("Choices", [span, h], [0.0; 4]);

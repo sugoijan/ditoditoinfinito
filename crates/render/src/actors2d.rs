@@ -290,7 +290,7 @@ mod tests {
         let [Command::Text(r)] = l.commands.as_slice() else {
             panic!("{:?}", l.commands)
         };
-        // 30 wide, a line of 25, centred on (100, 50).
+        // 30 wide, a line of 25, centered on (100, 50).
         assert_eq!(r.transform.apply([0.0, 0.0]), [85.0, 37.5]);
         assert_eq!(r.color, [1.0, 0.5, 0.0, 1.0]);
     }

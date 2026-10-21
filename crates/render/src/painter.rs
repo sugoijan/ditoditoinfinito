@@ -155,7 +155,7 @@ struct Globals {
 }
 
 /// `rect` (drawn `shown` wide over high) narrowed to an image `image`
-/// wide over high, centred: the whole image in it.
+/// wide over high, centered: the whole image in it.
 fn contain_rect(rect: [f32; 4], shown: f32, image: f32) -> [f32; 4] {
     let [x0, y0, x1, y1] = rect;
     let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
@@ -963,7 +963,7 @@ impl Painter {
                         q.uv
                     };
                     // Contained: the rectangle narrowed to the image's shape,
-                    // centred (nothing drawn until its size is known).
+                    // centered (nothing drawn until its size is known).
                     let rect = if q.contain {
                         match bind {
                             Bind::Image(id) => match textures.get(id) {
@@ -1301,7 +1301,7 @@ mod tests {
 
     #[test]
     fn contained_images_keep_their_shape() {
-        // A 2:1 image in a 1:1 box: full width, half height, centred.
+        // A 2:1 image in a 1:1 box: full width, half height, centered.
         assert_eq!(
             contain_rect([-0.5, -0.5, 0.5, 0.5], 1.0, 2.0),
             [-0.5, -0.25, 0.5, 0.25]
