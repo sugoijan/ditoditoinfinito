@@ -103,13 +103,95 @@ background layers can draw") held only in part.
    as on layer 1.
 6. **`#FGCHANGES` joins scripted backgrounds**: a foreground is a script
    or nothing, so it needs the actors and theme effects scripted
-   backgrounds need (a sandboxed VM per song, on the skins' Lua runtime).
+   backgrounds need (a sandboxed VM per song, on the skins' Lua runtime;
+   `docs/plans/scripted-backgrounds.md`).
+
+## Named effects and transitions (2026-10-21)
+
+Done: StepMania's named effects and transitions on both layers, for
+images, movies and the song background
+(`crates/library/src/backgrounds/effects.rs`, drawn by
+`crates/render/src/background.rs`). StepMania 5.1 runs each effect as a
+theme script (`BackgroundEffects/*.lua`), but every one of them places
+one or two sprites in a fixed way, so each is data here:
+
+- **Fields.** Field 7 names the effect (any case; a name StepMania has
+  no file for is `Centered`, as `CreateBackground` falls back), field 8
+  the second file (matched and imported like the first, images only),
+  field 9 the transition, fields 10 and 11 `Color1` and `Color2` (`^`
+  for `,`, then `RageColor::FromString` and `NormalizeColorString`: three
+  or four numbers or `#rrggbb[aa]`, rounded to 8 bits, white when
+  unreadable). A change is the same background as the one before only
+  when its files, effect, movie effect and colors all match
+  (`BackgroundDef`): another color is a change, with its transition.
+- **Placements.** Covering the frame (`scale_or_crop_background` under
+  the default `CoverPreserve`, the sprite whole, so a slide shows what
+  overflowed), at the image's own size (`Centered`, and `UpperLeft`,
+  whose sprite is centred on the corner: a quarter of it shows), the
+  four quarters of the checkerboards and the kaleidoscope (`CropTo`:
+  covering the quarter, the texture cropped to it; the kaleidoscope's
+  half turn is both zooms negated), and `Visualization2File`'s second
+  file stretched to the frame (`scaletoclipped`). StepMania's screen is
+  480 pixels tall and as wide as the frame's shape: an image at its own
+  size keeps its share of it on any window (decoded change images are
+  kept at 1280 pixels at most, so a larger one is drawn at that size).
+- **Colors and blends.** `diffuse` multiplies the encoded colors and the
+  opacity (`StretchNormalRed`, `…Green`, `…Blue` put their color in
+  `Color1`'s place); `BlendMode_Add` adds, in the target's light like
+  every other blend (decision 17), through one premultiplied blend state
+  for both (an added draw writes alpha 0).
+- **Flashes.** `File1FlashOverlay`, `File2Flash` and
+  `Visualization2FileFlash` fade their flashing sprite out over the
+  second after each change, and a change to the same background flashes
+  again (its `On` command runs again; no transition).
+- **Two files.** `File2Normal`, `File2Flash` and
+  `Visualization2FileFlash` test for the second file and draw the first
+  alone without one; the checkerboards' and `Visualization2File`'s
+  scripts fail on `LoadActor(nil)` and draw nothing. A second file found
+  nowhere is StepMania's blank graphic (nothing). `SongBgWithMovieViz`
+  draws the song's background with the file added.
+- **Transitions.** They act on the background that leaves, drawn over
+  the one coming in (decision 48): the crossfades fade it out (1, 0.75,
+  0.5 s); `FadeDown`, `FadeUp`, `FadeLeft`, `FadeRight` crop it from one
+  side and `FadeCenterHorizontal`, `FadeCenterVertical` from two towards
+  its middle, behind a 30 % soft edge over a second (`crop*` from −0.3
+  past 1, `fade*` 0.3, in the sprite's own coordinates, so a covering
+  sprite taller than the frame wipes across its overflow too);
+  `SlideDown`, `SlideUp`, `SlideLeft`, `SlideRight` move it off by a
+  screen while it fades out. A file found nowhere shows the song
+  background plainly (StepMania's static background in its place) with
+  the change's transition.
+
+Left out: a movie as a second file (not decoded; the effect draws
+without it), `StretchPaused` (StepMania's `GainFocus` plays the movie
+right after `On` pauses it, so it plays like `StretchNormal`: so it does
+here), and the `Visualization*` sets of StepMania's random backgrounds
+(no `-random-` movies yet). A flash still running on the background that
+leaves goes on under its transition (StepMania's wipes queue after it).
+Note: some packs exported by an editor write `#000000` as `Color1`
+(seen locally in one OutFox-era pack): StepMania 5.1 draws those
+backgrounds black, and so does the game.
+
+Checked: native tests (fields, colors, every effect's quads, the
+transitions' crops and moves, the schedule's identity, both layers'
+composition, placements against StepMania's sprites), offscreen on
+desktop on a plain and an sRGB target
+(`crates/desktop/tests/background_effects_offscreen.rs`: own size,
+tint, add, a wipe, a mirrored quarter), and a synthetic pack in headless
+Chrome (WebGPU, WebGL2) and Firefox (WebGL2) sampling the screen as each
+change plays: a 320×240 image at its own size in the middle half, the
+song background with the file added (magenta from blue and red), a
+two-file checkerboard, a grey image tinted red (128, 0, 0), `FadeDown`
+early (still the leaving image at the bottom) and halfway (the incoming
+one above the edge), `SlideLeft` halfway, and a second-layer
+`OverlayAdd` of grey over red (255, 128, 128), the autoplay all top
+tier.
 
 ## Status (2026-10-14)
 
 Done, steps 1 to 5 (Dancing☆Onigiri's back and mask layers), and step 6's
-second layer, `#BGCHANGES2` (2026-10-16, PLAN.md decision 48); the
-script-free effects remain:
+second layer, `#BGCHANGES2` (2026-10-16, PLAN.md decision 48), and its
+script-free effects (2026-10-21, above):
 
 - `chart`: `back_data`/`mask_data` (and `Rev`) read as `makeSpriteData`
   reads them into `danoni:back`/`danoni:mask` events; the stage's size
@@ -196,5 +278,6 @@ them again (`makeSpriteWordData`).
    48): stills (with their transparency) and movies over the first
    layer, with the rules StepMania gives that layer alone
    (`backgrounds::second_layer`); still none of the 5,094 local simfiles
-   uses it. The script-free effects (`OverlayAdd`, tints, placements) are
-   not done, on either layer.
+   uses it. **The script-free effects done** (2026-10-21, "Named effects
+   and transitions" above): every effect and transition StepMania 5.1
+   ships, on both layers.

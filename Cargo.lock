@@ -1093,6 +1093,7 @@ dependencies = [
  "ddi-actor",
  "ddi-chart",
  "ddi-engine",
+ "ddi-library",
  "ddi-lua",
  "ddi-noteskin",
  "ddi-platform",

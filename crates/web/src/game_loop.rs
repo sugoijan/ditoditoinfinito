@@ -8,7 +8,7 @@ use crate::component::Callback;
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_platform::HostTime;
 use ddi_platform::video::{GuardAction, StopReason};
-use ddi_render::{Backdrop, Renderer, SecondLayer};
+use ddi_render::{Backdrop, Renderer};
 use ddi_session::backgrounds::{FpsMeter, FrameShape, MovieGuard};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
@@ -64,6 +64,8 @@ pub(crate) struct GameLoop {
     /// The song's background changes, a schedule per layer; empty outside
     /// a song.
     background_schedule: [Vec<BgSegment>; LAYERS],
+    /// What the last frame drew behind the field (for the debug state).
+    backdrop_drawn: Backdrop,
     /// The chart's lyrics, if it has any and they are shown.
     lyrics: Option<LyricTrack>,
     /// The 2D pass over the play (the lyrics), made when first needed, and
@@ -160,6 +162,7 @@ impl GameLoop {
             pending_backgrounds: Vec::new(),
             playing_at: None,
             background_schedule: Default::default(),
+            backdrop_drawn: Backdrop::default(),
             lyrics: None,
             overlay: None,
             lyrics_shown: Vec::new(),
@@ -351,19 +354,9 @@ impl GameLoop {
             || movies.shown_ids(),
             ddi_render::PLAIN,
         );
-        let [first, second] = layers;
-        let shown = backgrounds::shown(first, t, all, movies.opening_plays(first));
-        let over = backgrounds::shown_over(second, t, all);
-        Backdrop {
-            current: shown.current,
-            previous: shown.previous,
-            mix: shown.mix,
-            second: SecondLayer {
-                current: over.current,
-                previous: over.previous,
-                mix: over.mix,
-            },
-        }
+        let opening = movies.opening_plays(&layers[0]);
+        let [first, second] = backgrounds::draws_at(layers, t, all, opening);
+        Backdrop { first, second }
     }
 
     /// The back and mask layers of the play about to start (`None`: none
@@ -639,6 +632,7 @@ impl GameLoop {
                     &self.background_schedule,
                     frame.song_time,
                 );
+                self.backdrop_drawn = render.backdrop;
                 self.playing_at = (session.player.started() && !session.player.finished())
                     .then_some(frame.song_time);
                 // The lyrics at this frame's time, over the field's middle.
@@ -820,6 +814,45 @@ impl GameLoop {
         true
     }
 
+    /// The last frame's background quads, each layer's back to front:
+    /// `{layer, file, add, place, alpha}` (`file` as the schedule names it).
+    fn backdrop_debug(&self) -> js_sys::Array {
+        let out = js_sys::Array::new();
+        let layers = [&self.backdrop_drawn.first, &self.backdrop_drawn.second];
+        for (layer, draws) in layers.into_iter().enumerate() {
+            for d in draws.iter().flatten() {
+                let o = js_sys::Object::new();
+                let file = self
+                    .background_ids
+                    .iter()
+                    .find(|(_, id)| *id == d.id)
+                    .map(|(what, _)| match what {
+                        BgImage::File(f) | BgImage::Movie(f) => f.clone(),
+                        other => format!("{other:?}"),
+                    })
+                    .unwrap_or_else(|| d.id.to_string());
+                let place = match d.place {
+                    backgrounds::Place::Cover { .. } => "cover",
+                    backgrounds::Place::CropTo { .. } => "cropto",
+                    backgrounds::Place::Fill { .. } => "fill",
+                    backgrounds::Place::Native { .. } => "native",
+                };
+                for (k, v) in [
+                    ("layer", wasm_bindgen::JsValue::from(layer as u32)),
+                    ("file", file.as_str().into()),
+                    ("add", d.add.into()),
+                    ("place", place.into()),
+                    ("alpha", f64::from(d.color[3]).into()),
+                    ("crop_top", f64::from(d.crop[1]).into()),
+                ] {
+                    let _ = js_sys::Reflect::set(&o, &k.into(), &v);
+                }
+                out.push(&o);
+            }
+        }
+        out
+    }
+
     /// Debug text for the overlay element and `window.__DDI_DEBUG`.
     fn publish_debug(&self, host_now: HostTime) {
         let Some(window) = web_sys::window() else {
@@ -836,6 +869,7 @@ impl GameLoop {
             lyrics.push(&l.as_str().into());
         }
         set("lyrics", lyrics.into());
+        set("backdrop", self.backdrop_debug().into());
         let video = self.movies.debug();
         let _ = js_sys::Reflect::set(&video, &"update_ms".into(), &self.video_ms_last.0.into());
         let _ = js_sys::Reflect::set(

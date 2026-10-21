@@ -386,7 +386,7 @@ impl Renderer {
         // the target's light.
         let band = (opts.field_filter > 0.0
             && opts.background > 0.0
-            && opts.backdrop.current.is_some()
+            && opts.backdrop.first.iter().any(Option::is_some)
             && self.stage_back.is_empty()
             && !layout.lanes.is_empty())
         .then(|| {

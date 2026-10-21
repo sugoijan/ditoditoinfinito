@@ -28,7 +28,7 @@ impl BackgroundPipeline {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: Self::params_binding(&image.params),
+                    resource: Self::params_binding(&self.params),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,

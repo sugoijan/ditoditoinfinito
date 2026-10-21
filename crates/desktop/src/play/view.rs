@@ -8,7 +8,7 @@
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_platform::HostTime;
 use ddi_render::noteskin::{NoteLayer, NoteskinPlay};
-use ddi_render::{Backdrop, RenderOptions, Renderer, SecondLayer, SkinBlending};
+use ddi_render::{Backdrop, RenderOptions, Renderer, SkinBlending};
 use ddi_session::backgrounds::{
     FpsMeter, FrameShape, MAX_BACKGROUND_SIDE, MAX_CHANGE_SIDE, MovieGuard,
 };
@@ -604,7 +604,8 @@ impl View {
 
     /// What shows behind the field at song second `t`: both layers.
     fn backdrop(&mut self, t: f64) -> Backdrop {
-        let [first, second] = &self.schedule;
+        #[cfg(feature = "video")]
+        let first = &self.schedule[0];
         #[cfg(feature = "video")]
         let (all, opening) = {
             let movies = &self.movies;
@@ -622,18 +623,8 @@ impl View {
                 .get(&self.backgrounds, 0, Vec::new, ddi_render::PLAIN),
             false,
         );
-        let shown = backgrounds::shown(first, t, all, opening);
-        let over = backgrounds::shown_over(second, t, all);
-        Backdrop {
-            current: shown.current,
-            previous: shown.previous,
-            mix: shown.mix,
-            second: SecondLayer {
-                current: over.current,
-                previous: over.previous,
-                mix: over.mix,
-            },
-        }
+        let [first, second] = backgrounds::draws_at(&self.schedule, t, all, opening);
+        Backdrop { first, second }
     }
 }
 

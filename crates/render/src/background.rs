@@ -10,27 +10,36 @@
 //! planes with [`BackgroundPipeline::set_video_frame`]; the shader converts
 //! them, so images and movies crossfade alike.
 //!
-//! Layers are cover-fitted into a frame, a centred rectangle of a chosen
-//! shape (the screen the pack's art was made for). A full-screen Gaussian
+//! Layers are drawn as StepMania's background effects place them
+//! ([`ddi_library::backgrounds::BgDraw`]: covering, cropped to quarters,
+//! stretched or at their own size; tinted, added, cropped behind a soft
+//! edge) into a frame, a centred rectangle of a chosen shape (the screen
+//! the pack's art was made for). A full-screen Gaussian
 //! base follows those same layers, even with a screen-sized frame. Static
 //! sources reuse their filtered copies; video uploads and changed layer
 //! weights refresh them. The entrance temporarily adds softly blurred
 //! content, continuing the prompt's visual progress (`ddi_actor::background`).
 
 use bytemuck::{Pod, Zeroable};
+use ddi_library::backgrounds::{BgDraw, LAYER_DRAWS, LayerDraws, Place};
 
 /// Draws a frame can make: a black base under the first layer, the first
-/// layer's two, then the second's.
-const DRAWS: usize = 5;
-type FilterKey = (u64, [Option<(usize, f32)>; DRAWS]);
+/// layer's, then the second's.
+const DRAWS: usize = 1 + 2 * LAYER_DRAWS;
+type Draws = [Option<BgDraw>; DRAWS];
+type FilterKey = (u64, Draws);
+
+/// StepMania's screen height, in its pixels: what an image drawn at its own
+/// size is measured against.
+const SCREEN_HEIGHT: f32 = 480.0;
 
 /// The id a [`Backdrop`] shows the plain backdrop by: the color given to
 /// [`BackgroundPipeline::set_plain_color`] (the field's), opaque.
 pub const PLAIN: usize = usize::MAX;
 /// The black base under the first layer.
 const BLACK: usize = usize::MAX - 1;
-/// Uniform slots per image: sharp content, ambient base and soft content,
-/// for each place it may be drawn in (an image can show on both layers).
+/// Uniform slots of a frame: sharp content, ambient base and soft content,
+/// for each draw (an image can be drawn several times).
 const SLOTS: u64 = 3 * DRAWS as u64;
 /// `blur.wgsl`'s `Blur` uniform.
 #[repr(C)]
@@ -56,8 +65,18 @@ pub(crate) struct BlurParams {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct Params {
+    /// Where the quad goes: `x, y, width, height` in the viewport's `0..1`.
+    rect: [f32; 4],
     uv_scale: [f32; 2],
     uv_offset: [f32; 2],
+    /// The sprite's own `0..1` from texture coordinates:
+    /// `(uv - local.xy) / local.zw`.
+    local: [f32; 4],
+    /// Cropped and faded parts of the sprite: left, top, right, bottom.
+    crop: [f32; 4],
+    fade: [f32; 4],
+    /// Multiplies the encoded colors (`diffuse`; its alpha is in `alpha`).
+    tint: [f32; 4],
     brightness: f32,
     alpha: f32,
     kr: f32,
@@ -69,91 +88,107 @@ struct Params {
     band: [f32; 2],
     band_keep: f32,
     source_linear: f32,
-    _pad: [f32; 2],
+    /// 1: added to what is under it (`BlendMode_Add`).
+    add: f32,
+    _pad: f32,
 }
 
-/// What to show behind the field in one frame. While `mix < 1` a crossfade
-/// is running from `previous` to `current` (`mix` = how far, 1 = only
-/// `current`). Ids are from [`BackgroundPipeline::add_texture`]; `None` is
-/// no image, the plain field color. `second` is drawn over them.
+/// What to show behind the field in one frame: each background layer's
+/// quads, back to front (`ddi_library::backgrounds::layer_draws`), the
+/// second (`#BGCHANGES2`) over the first. Ids are from
+/// [`BackgroundPipeline::add_texture`] (or [`PLAIN`]); a layer without
+/// quads shows nothing, the first over black when it draws (StepMania's
+/// screen is black under its backgrounds, so a transparent image shows
+/// black), the second over the first. Images keep their own transparency.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Backdrop {
-    pub current: Option<usize>,
-    pub previous: Option<usize>,
-    pub mix: f32,
-    /// The second background layer (`#BGCHANGES2`).
-    pub second: SecondLayer,
-}
-
-/// The second background layer, drawn over the first as StepMania draws a
-/// layer: `current` fully shown, and while `mix < 1` `previous` over it,
-/// fading out (`BackgroundImpl::DrawPrimitives`; a transition fades the
-/// background that leaves). Images keep their own transparency, so the
-/// first layer shows through where they have none.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct SecondLayer {
-    pub current: Option<usize>,
-    pub previous: Option<usize>,
-    pub mix: f32,
-}
-
-impl SecondLayer {
-    /// The draws, back to front: `(id, opacity)`.
-    pub fn layers(&self) -> [Option<(usize, f32)>; 2] {
-        let mix = self.mix.clamp(0.0, 1.0);
-        let current = self.current.map(|c| (c, 1.0));
-        match self.previous {
-            Some(p) if mix < 1.0 => [current, Some((p, 1.0 - mix))],
-            _ => [current, None],
-        }
-    }
+    pub first: LayerDraws,
+    pub second: LayerDraws,
 }
 
 impl Backdrop {
-    /// One image, fully shown.
+    /// One image covering the frame.
     pub fn image(id: usize) -> Backdrop {
+        let mut first = LayerDraws::default();
+        first[0] = Some(BgDraw::cover(id));
         Backdrop {
-            current: Some(id),
-            previous: None,
-            mix: 1.0,
-            second: SecondLayer::default(),
+            first,
+            ..Backdrop::default()
         }
     }
 
-    /// The first layer's draws, back to front: `(id, opacity)`. As
-    /// StepMania draws a layer: the incoming one, then the outgoing one
-    /// over it fading out (`BackgroundImpl::DrawPrimitives`,
-    /// `BackgroundTransitions/CrossFade.xml`), over black (no image
-    /// either way: the black base shows).
-    pub fn layers(&self) -> [Option<(usize, f32)>; 2] {
-        let mix = self.mix.clamp(0.0, 1.0);
-        if mix >= 1.0 || self.previous == self.current {
-            return [self.current.map(|c| (c, 1.0)), None];
-        }
-        match (self.previous, self.current) {
-            (Some(p), Some(c)) => [Some((c, 1.0)), Some((p, 1.0 - mix))],
-            (None, Some(c)) => [Some((c, mix)), None],
-            (Some(p), None) => [Some((p, 1.0 - mix)), None],
-            (None, None) => [None, None],
-        }
+    /// Whether nothing is drawn.
+    pub fn is_empty(&self) -> bool {
+        self.first.iter().chain(&self.second).all(Option::is_none)
     }
 
-    /// Every draw, back to front: black under the first layer when it
-    /// draws (StepMania's screen is black under its backgrounds, so a
-    /// transparent image shows black), the first layer's, the second's.
-    pub fn draws(&self) -> [Option<(usize, f32)>; DRAWS] {
-        let [a, b] = self.layers();
-        let [c, d] = self.second.layers();
-        let base = (a.is_some() || b.is_some()).then_some((BLACK, 1.0));
-        [base, a, b, c, d]
+    /// Every draw, back to front: the black base under the first layer
+    /// when it draws, the first layer's, the second's.
+    fn draws(&self) -> Draws {
+        let mut out: Draws = [None; DRAWS];
+        if self.first.iter().any(Option::is_some) {
+            out[0] = Some(BgDraw::cover(BLACK));
+        }
+        for (slot, d) in out[1..]
+            .iter_mut()
+            .zip(self.first.iter().chain(&self.second))
+        {
+            *slot = *d;
+        }
+        out
     }
 }
 
-/// One registered image or movie. Its parameters have one slot per draw
-/// ([`SLOTS`]), picked by a dynamic offset.
+/// Texture coordinates over a quad: `(scale, offset)`.
+type Uv = ([f32; 2], [f32; 2]);
+
+/// Where a draw goes in a `frame` (`width, height` px) for an `image`
+/// (`width, height`): its rectangle in the frame's `0..1`, the texture
+/// coordinates over it (`scale, offset`; a negative scale mirrors) and the
+/// sprite's own coordinates in texture coordinates (`offset, scale`).
+fn placement(place: Place, frame: [f32; 2], image: [f32; 2]) -> ([f32; 4], Uv, [f32; 4]) {
+    let [fw, fh] = frame.map(|v| v.max(1.0));
+    let [iw, ih] = image.map(|v| v.max(1.0));
+    let whole = ([1.0, 1.0], [0.0, 0.0]);
+    let all = [0.0, 0.0, 1.0, 1.0];
+    let rect = |center: [f32; 2], size: [f32; 2]| {
+        [
+            center[0] - size[0] / 2.0,
+            center[1] - size[1] / 2.0,
+            size[0],
+            size[1],
+        ]
+    };
+    match place {
+        Place::Cover { center, size } => {
+            let zoom = (size[0] * fw / iw).max(size[1] * fh / ih);
+            (rect(center, [iw * zoom / fw, ih * zoom / fh]), whole, all)
+        }
+        Place::CropTo { center, size, flip } => {
+            let (scale, offset) = cover_uv(size[0] * fw, size[1] * fh, iw, ih);
+            let local = [offset[0], offset[1], scale[0], scale[1]];
+            let uv = if flip {
+                (
+                    [-scale[0], -scale[1]],
+                    [offset[0] + scale[0], offset[1] + scale[1]],
+                )
+            } else {
+                (scale, offset)
+            };
+            (rect(center, size), uv, local)
+        }
+        Place::Fill { center, size } => (rect(center, size), whole, all),
+        Place::Native { center } => {
+            let size = [iw * fh / SCREEN_HEIGHT / fw, ih / SCREEN_HEIGHT];
+            (rect(center, size), whole, all)
+        }
+    }
+}
+
+/// One registered image or movie. Its bind group binds the frame's
+/// parameters ([`SLOTS`] of them), a draw's picked by a dynamic offset.
 struct Image {
     group: wgpu::BindGroup,
-    params: wgpu::Buffer,
     width: f32,
     height: f32,
     /// A movie: its planes and the current frame's color tags.
@@ -241,8 +276,8 @@ pub fn brightness_factor(perceived: f32) -> f32 {
 /// What [`BackgroundPipeline::prepare`] set up for one frame.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Prepared {
-    /// `(id, opacity)` of each draw ([`Backdrop::draws`]).
-    layers: [Option<(usize, f32)>; DRAWS],
+    /// Each draw ([`Backdrop::draws`]).
+    layers: Draws,
     /// The content rectangle, including during its entrance.
     frame: Option<[f32; 4]>,
     target: (f32, f32),
@@ -280,6 +315,8 @@ pub struct BackgroundPipeline {
     shader: wgpu::ShaderModule,
     blur_shader: wgpu::ShaderModule,
     sampler: wgpu::Sampler,
+    /// The frame's parameters, every draw's ([`SLOTS`]).
+    params: wgpu::Buffer,
     images: Vec<Image>,
     /// The black base and the plain backdrop, made when first drawn.
     solids: Option<Solids>,
@@ -382,6 +419,12 @@ impl BackgroundPipeline {
         });
         let stride = u64::from(device.limits().min_uniform_buffer_offset_alignment)
             .max(std::mem::size_of::<Params>() as u64);
+        let params = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ddi-background-params"),
+            size: stride * SLOTS,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         BackgroundPipeline {
             base_pipeline: Self::pipeline_for(
                 device,
@@ -389,7 +432,7 @@ impl BackgroundPipeline {
                 pipeline_layout,
                 &shader,
                 "fs_main",
-                Some(wgpu::BlendState::ALPHA_BLENDING),
+                Some(BLEND),
             ),
             base_yuv_pipeline: Self::pipeline_for(
                 device,
@@ -397,7 +440,7 @@ impl BackgroundPipeline {
                 yuv_pipeline_layout,
                 &shader,
                 "fs_yuv",
-                Some(wgpu::BlendState::ALPHA_BLENDING),
+                Some(BLEND),
             ),
             #[cfg(feature = "video-planes")]
             base_nv12_pipeline: Self::pipeline_for(
@@ -406,7 +449,7 @@ impl BackgroundPipeline {
                 yuv_pipeline_layout,
                 &shader,
                 "fs_nv12",
-                Some(wgpu::BlendState::ALPHA_BLENDING),
+                Some(BLEND),
             ),
             pipeline,
             layout,
@@ -418,7 +461,7 @@ impl BackgroundPipeline {
                 yuv_pipeline_layout,
                 &shader,
                 "fs_nv12",
-                Some(wgpu::BlendState::ALPHA_BLENDING),
+                Some(BLEND),
             ),
             yuv_layout,
             blur_pipeline,
@@ -428,6 +471,7 @@ impl BackgroundPipeline {
             shader,
             blur_shader,
             sampler,
+            params,
             images: Vec::new(),
             solids: None,
             plain: [0, 0, 0, 255],
@@ -465,7 +509,7 @@ impl BackgroundPipeline {
                 &self.pipeline_layouts[1],
                 &self.shader,
                 "fs_nv12",
-                Some(wgpu::BlendState::ALPHA_BLENDING),
+                Some(BLEND),
             );
         }
         self.format = format;
@@ -485,10 +529,9 @@ impl BackgroundPipeline {
         let pipeline_for = |layout, shader, fragment, blend| {
             Self::pipeline_for(device, format, layout, shader, fragment, blend)
         };
-        let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
         [
-            pipeline_for(layout, shader, "fs_main", alpha),
-            pipeline_for(yuv_layout, shader, "fs_yuv", alpha),
+            pipeline_for(layout, shader, "fs_main", Some(BLEND)),
+            pipeline_for(yuv_layout, shader, "fs_yuv", Some(BLEND)),
             Self::pipeline_for(
                 device,
                 wgpu::TextureFormat::Rgba8Unorm,
@@ -531,15 +574,6 @@ impl BackgroundPipeline {
         )
     }
 
-    fn params_buffer(&self, device: &wgpu::Device) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ddi-background-params"),
-            size: self.stride * SLOTS,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    }
-
     fn pipeline_for(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -572,11 +606,9 @@ impl BackgroundPipeline {
     /// planes are zeroed, which shows green: register it with the backdrop
     /// only once [`BackgroundPipeline::set_video_frame`] has written a frame.
     pub fn add_video(&mut self, device: &wgpu::Device, width: u32, height: u32) -> usize {
-        let params = self.params_buffer(device);
-        let (planes, group) = self.video_planes(device, &params, width, height);
+        let (planes, group) = self.video_planes(device, width, height);
         self.images.push(Image {
             group,
-            params,
             width: width.max(1) as f32,
             height: height.max(1) as f32,
             video: Some(Video {
@@ -594,7 +626,6 @@ impl BackgroundPipeline {
     fn video_planes(
         &self,
         device: &wgpu::Device,
-        params: &wgpu::Buffer,
         width: u32,
         height: u32,
     ) -> ([wgpu::Texture; 3], wgpu::BindGroup) {
@@ -625,7 +656,7 @@ impl BackgroundPipeline {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: Self::params_binding(params),
+                    resource: Self::params_binding(&self.params),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -682,7 +713,7 @@ impl BackgroundPipeline {
             || image.height != height as f32
             || image.video.as_ref().is_some_and(|v| v.nv12)
         {
-            let (textures, group) = self.video_planes(device, &image.params, width, height);
+            let (textures, group) = self.video_planes(device, width, height);
             let image = &mut self.images[id];
             image.group = group;
             image.width = width as f32;
@@ -791,20 +822,18 @@ impl BackgroundPipeline {
     }
 
     fn make_image(&self, device: &wgpu::Device, texture: &wgpu::Texture) -> Image {
-        let params = self.params_buffer(device);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let group = crate::gpu::uniform_texture_group(
             device,
             "ddi-background-bg",
             &self.layout,
-            Self::params_binding(&params),
+            Self::params_binding(&self.params),
             &view,
             &self.sampler,
         );
         let size = texture.size();
         Image {
             group,
-            params,
             width: size.width as f32,
             height: size.height as f32,
             video: None,
@@ -890,12 +919,12 @@ impl BackgroundPipeline {
         if layers
             .iter()
             .flatten()
-            .any(|&(id, _)| id == PLAIN || id == BLACK)
+            .any(|d| d.id == PLAIN || d.id == BLACK)
         {
             self.solids(device, queue);
         }
         for layer in &mut layers {
-            if !layer.is_some_and(|(id, a)| a > 0.0 && self.image(id).is_some()) {
+            if !layer.is_some_and(|d| d.color[3] > 0.0 && self.image(d.id).is_some()) {
                 *layer = None;
             }
         }
@@ -907,8 +936,8 @@ impl BackgroundPipeline {
             layers
                 .iter()
                 .flatten()
-                .filter(|&&(id, _)| id != BLACK && id != PLAIN)
-                .find_map(|&(id, _)| self.image(id).map(|i| [i.width, i.height]))
+                .filter(|d| d.id != BLACK && d.id != PLAIN)
+                .find_map(|d| self.image(d.id).map(|i| [i.width, i.height]))
                 .unwrap_or([width, height])
         });
         self.base_size = Some(source_size);
@@ -955,34 +984,49 @@ impl BackgroundPipeline {
         let b = BASE_ALPHA
             + (brightness_factor(brightness) - BASE_ALPHA) * reveal.position.clamp(0.0, 1.0);
         let none = ([0.0, 0.0], 1.0);
-        for (k, (id, alpha)) in layers
+        // The frame in the filtered sources (their shape the first image's):
+        // what the content composite shows of them.
+        let (in_wide, wide_offset) = cover_uv(fw, fh, aspect, 1.0);
+        for (k, draw) in layers
             .into_iter()
             .enumerate()
             .filter_map(|(k, l)| l.map(|v| (k as u64, v)))
         {
-            let image = self.image(id).expect("validated");
+            let image = self.image(draw.id).expect("validated");
             let (bt709, full) = image
                 .video
                 .as_ref()
                 .map_or((false, false), |v| (v.bt709, v.full_range));
             let (kr, kb) = weights(bt709);
+            let (rect, (uv_scale, uv_offset), local) =
+                placement(draw.place, [fw, fh], [image.width, image.height]);
             for slot in 0..3u64 {
-                let (tw, th, brightness, alpha, linear_out, filter) = if slot == 0 {
+                let (rect, brightness, alpha, linear_out, filter) = if slot == 0 {
                     (
-                        fw,
-                        fh,
+                        rect,
                         b,
-                        alpha * prepared.alphas[0],
+                        draw.color[3] * prepared.alphas[0],
                         self.srgb,
                         band.unwrap_or(none),
                     )
                 } else {
-                    (aspect, 1.0, 1.0, alpha, false, none)
+                    let [x, y, w, h] = rect;
+                    let wide = [
+                        wide_offset[0] + x * in_wide[0],
+                        wide_offset[1] + y * in_wide[1],
+                        w * in_wide[0],
+                        h * in_wide[1],
+                    ];
+                    (wide, 1.0, draw.color[3], false, none)
                 };
-                let (uv_scale, uv_offset) = cover_uv(tw, th, image.width, image.height);
                 let params = Params {
+                    rect,
                     uv_scale,
                     uv_offset,
+                    local,
+                    crop: draw.crop,
+                    fade: draw.fade,
+                    tint: [draw.color[0], draw.color[1], draw.color[2], 1.0],
                     brightness,
                     alpha,
                     kr,
@@ -992,10 +1036,11 @@ impl BackgroundPipeline {
                     band: filter.0,
                     band_keep: filter.1,
                     source_linear: if self.srgb { 1.0 } else { 0.0 },
-                    _pad: [0.0; 2],
+                    add: if draw.add { 1.0 } else { 0.0 },
+                    _pad: 0.0,
                 };
                 queue.write_buffer(
-                    &image.params,
+                    &self.params,
                     (3 * k + slot) * self.stride,
                     bytemuck::bytes_of(&params),
                 );
@@ -1039,7 +1084,9 @@ impl BackgroundPipeline {
 
     fn draw_layers(&self, pass: &mut wgpu::RenderPass<'_>, prepared: &Prepared, slot: u64) {
         for (k, layer) in prepared.layers.into_iter().enumerate() {
-            let Some((id, _)) = layer else { continue };
+            let Some(BgDraw { id, .. }) = layer else {
+                continue;
+            };
             // The ambient base keeps image transparency over the shared ground.
             if slot == 1 && id == BLACK {
                 continue;
@@ -1137,6 +1184,10 @@ impl BackgroundPipeline {
     }
 }
 
+/// How backgrounds blend: their colors come premultiplied, so one state
+/// both blends (alpha `a`) and adds (alpha 0).
+const BLEND: wgpu::BlendState = wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING;
+
 /// A pass into one of the filter targets, cleared transparent.
 fn wide_pass<'e>(
     encoder: &'e mut wgpu::CommandEncoder,
@@ -1222,70 +1273,55 @@ mod tests {
     }
 
     #[test]
-    fn backdrop_layers_crossfade() {
-        assert_eq!(Backdrop::image(2).layers(), [Some((2, 1.0)), None]);
-        assert_eq!(Backdrop::default().layers(), [None, None]);
-        let fade = |previous, current, mix| Backdrop {
-            current,
-            previous,
-            mix,
+    fn the_black_base_lies_under_the_first_layer_only() {
+        assert!(Backdrop::default().is_empty());
+        let one = Backdrop::image(2).draws();
+        assert_eq!(one[0].map(|d| d.id), Some(BLACK));
+        assert_eq!(one[1].map(|d| d.id), Some(2));
+        let mut second = LayerDraws::default();
+        second[0] = Some(BgDraw::cover(PLAIN));
+        let only_second = Backdrop {
+            second,
             ..Backdrop::default()
         };
-        // Image to image, as StepMania draws it: the new one underneath,
-        // the old one over it fading out.
-        assert_eq!(
-            fade(Some(0), Some(1), 0.25).layers(),
-            [Some((1, 1.0)), Some((0, 0.75))]
-        );
-        // From no image, or to no image, over the black base.
-        assert_eq!(fade(None, Some(1), 0.25).layers(), [Some((1, 0.25)), None]);
-        assert_eq!(fade(Some(0), None, 0.25).layers(), [Some((0, 0.75)), None]);
-        // Done, or nothing to fade.
-        assert_eq!(fade(Some(0), Some(1), 1.0).layers(), [Some((1, 1.0)), None]);
-        assert_eq!(fade(Some(1), Some(1), 0.5).layers(), [Some((1, 1.0)), None]);
+        let d = only_second.draws();
+        assert!(d[0].is_none());
+        assert_eq!(d[1 + LAYER_DRAWS].map(|d| d.id), Some(PLAIN));
     }
 
     #[test]
-    fn the_second_layer_draws_over_the_first() {
-        let second = |previous, current, mix| SecondLayer {
-            current,
-            previous,
-            mix,
-        };
-        // Its current fully shown, the one leaving over it, fading out.
+    fn places_follow_stepmanias_sprites() {
+        let frame = [640.0, 480.0];
+        // Covering: a 16:9 image keeps its shape, overflowing at the sides.
+        let (rect, uv, local) = placement(Place::COVER, frame, [1280.0, 720.0]);
+        let w = 480.0 * 16.0 / 9.0 / 640.0;
+        assert!((rect[2] - w).abs() < 1e-5 && (rect[0] - (1.0 - w) / 2.0).abs() < 1e-5);
         assert_eq!(
-            second(Some(3), Some(4), 0.25).layers(),
-            [Some((4, 1.0)), Some((3, 0.75))]
+            (uv, local),
+            (([1.0, 1.0], [0.0, 0.0]), [0.0, 0.0, 1.0, 1.0])
         );
-        assert_eq!(second(None, Some(4), 1.0).layers(), [Some((4, 1.0)), None]);
-        assert_eq!(second(Some(3), None, 0.5).layers(), [None, Some((3, 0.5))]);
-        assert_eq!(SecondLayer::default().layers(), [None, None]);
-        // After the first layer's draws, in their places.
-        let backdrop = Backdrop {
-            current: Some(1),
-            previous: Some(0),
-            mix: 0.5,
-            second: second(Some(1), Some(2), 0.5),
+        // At its own size, centred: a 320 × 240 image is half the screen.
+        let (rect, _, _) = placement(Place::Native { center: [0.5, 0.5] }, frame, [320.0, 240.0]);
+        assert_eq!(rect, [0.25, 0.25, 0.5, 0.5]);
+        // Of a frame twice as large, still half: StepMania's screen is
+        // 480 tall whatever the window.
+        let (big, _, _) = placement(
+            Place::Native { center: [0.5, 0.5] },
+            [1280.0, 960.0],
+            [320.0, 240.0],
+        );
+        assert_eq!(big, rect);
+        // A quarter, its texture cropped to it and mirrored.
+        let quarter = Place::CropTo {
+            center: [0.75, 0.25],
+            size: [0.5, 0.5],
+            flip: true,
         };
-        assert_eq!(
-            backdrop.draws(),
-            [
-                Some((BLACK, 1.0)),
-                Some((1, 1.0)),
-                Some((0, 0.5)),
-                Some((2, 1.0)),
-                Some((1, 0.5))
-            ]
-        );
-        // No black base without a first layer to draw.
-        let only_second = Backdrop {
-            second: second(None, Some(PLAIN), 1.0),
-            ..Backdrop::default()
-        };
-        assert_eq!(
-            only_second.draws(),
-            [None, None, None, Some((PLAIN, 1.0)), None]
-        );
+        let (rect, (scale, offset), local) = placement(quarter, frame, [640.0, 240.0]);
+        assert_eq!(rect, [0.5, 0.0, 0.5, 0.5]);
+        assert!((scale[0] + 0.5).abs() < 1e-6 && scale[1] == -1.0);
+        assert!((offset[0] - 0.75).abs() < 1e-6 && offset[1] == 1.0);
+        assert!((local[0] - 0.25).abs() < 1e-6 && (local[2] - 0.5).abs() < 1e-6);
     }
 
     #[test]
@@ -1300,7 +1336,7 @@ mod tests {
             .expect("WGSL validates");
         }
         // Params is laid out as the shader reads it.
-        assert_eq!(std::mem::size_of::<Params>(), 64);
+        assert_eq!(std::mem::size_of::<Params>(), 144);
     }
 
     /// The shader's conversion transcribed for the CPU gives the reference's

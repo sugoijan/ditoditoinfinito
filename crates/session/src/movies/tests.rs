@@ -134,13 +134,7 @@ impl MovieShell for FakeShell {
 }
 
 fn seg(seconds: f64, image: BgImage) -> BgSegment {
-    BgSegment {
-        seconds,
-        image,
-        fade: 0.0,
-        rate: 1.0,
-        effect: MovieEffect::Normal,
-    }
+    BgSegment::new(seconds, image)
 }
 
 fn movie(name: &str) -> BgImage {
