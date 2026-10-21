@@ -1240,10 +1240,6 @@ fn a_songs_background_script_loads_from_its_folder() {
         &mut textures,
         &images,
     );
-    let notes = element
-        .as_ref()
-        .map(|e| e.notes.clone())
-        .unwrap_or_default();
     let mut tree = Box::new(built(element));
     // The `UpperLeft` effect's frame around the script's.
     let script = &tree.children()[0];
@@ -1257,9 +1253,11 @@ fn a_songs_background_script_loads_from_its_folder() {
     assert_eq!(star.current().pos[..2], [427.0, 240.0]);
     // Covering the screen: 64 × 48 zoomed to 854 wide.
     assert!((bg.current().scale[0] - 854.0 / 64.0).abs() < 1e-4);
-    // Text draws nothing here, with a note.
-    assert_eq!(text.kind, Kind::Actor);
-    assert!(notes.iter().any(|n| n.contains("BitmapText")), "{notes:?}");
+    // Text, in the face songs' text is drawn in.
+    match &text.kind {
+        Kind::Text(t) => assert_eq!((t.text(), t.style()), ("hi", &song_text_style())),
+        other => panic!("{other:?}"),
+    }
     // Both images are the song's.
     assert!(
         textures

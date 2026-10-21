@@ -46,6 +46,8 @@ fn simfile(stop: bool) -> String {
 const BG: &str = "return Def.ActorFrame {\n\
     Def.Quad { OnCommand = cmd(FullScreen; diffuse, color(\"0,0.8,0,1\")) },\n\
     LoadActor(\"star.png\") .. { OnCommand = cmd(xy, 100, 240; zoom, 4) },\n\
+    Def.BitmapText { Font = \"Common Normal\", Text = \"TEXT\",\n\
+      OnCommand = cmd(xy, 120, 400; zoom, 2; diffuse, color(\"1,1,0,1\")) },\n\
 }\n";
 
 const FG: &str = "return Def.Quad {\n\
@@ -105,7 +107,7 @@ fn play(
     adapter: &wgpu::Adapter,
     root: &Path,
     times: &[f64],
-) -> (Vec<(f64, [[u8; 3]; 2])>, Option<String>) {
+) -> (Vec<(f64, [[u8; 3]; 2], usize)>, Option<String>) {
     let paths: Vec<_> = walk(root).listed.into_iter().map(|l| l.path).collect();
     let reader = DirReader {
         root: root.to_path_buf(),
@@ -256,7 +258,15 @@ fn play(
                 let i = ((y * W + x) * 4) as usize;
                 [pixels[i], pixels[i + 1], pixels[i + 2]]
             };
-            out.push((t, POINTS.map(at)));
+            // The script's yellow text, left of the field's bottom half.
+            let yellow = (270..330)
+                .flat_map(|y| (30..160).map(move |x| (x, y)))
+                .filter(|&p| {
+                    let [r, g, b] = at(p);
+                    r > 150 && g > 150 && b < 90
+                })
+                .count();
+            out.push((t, POINTS.map(at), yellow));
         } else {
             queue.submit(Some(encoder.finish()));
         }
@@ -298,11 +308,14 @@ fn scripts_draw_behind_the_field_and_over_it() {
         [GREEN, RED],
     ];
     assert_eq!(samples.len(), want.len(), "{samples:?}");
-    for ((t, got), want) in samples.iter().zip(want) {
+    for ((t, got, _), want) in samples.iter().zip(want) {
         for (g, w) in got.iter().zip(want) {
             assert!(near(*g, w), "at {t:.3} s: {got:?}, want {want:?}");
         }
     }
+    // The script's text (`BitmapText`), yellow, with the script only.
+    assert_eq!(samples[0].2, 0, "{samples:?}");
+    assert!(samples[1].2 > 40, "{samples:?}");
     // A script that runs away stops them all: the song background, and a
     // note on the results.
     let stop = dir.join("stop");

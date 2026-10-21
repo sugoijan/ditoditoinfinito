@@ -1061,6 +1061,7 @@ pub const METHODS: &[&str] = &[
     "horizalign",
     "hurrytweening",
     "linear",
+    "maxwidth",
     "motionblur",
     "outline",
     "pause",
@@ -1077,6 +1078,7 @@ pub const METHODS: &[&str] = &[
     "set_use_effect_clock_for_texcoords",
     "setsize",
     "setstate",
+    "settext",
     "shadowcolor",
     "shadowlength",
     "shadowlengthx",
@@ -1451,6 +1453,17 @@ impl Actor {
         self.each(&mut |a| {
             if let Kind::Text(t) = &mut a.kind {
                 t.measure(measure);
+            }
+        });
+    }
+
+    /// Forgets every run's metrics, so the next [`Actor::measure`] asks
+    /// again (the measurer learnt better than it answered).
+    pub fn forget_metrics(&mut self) {
+        self.each(&mut |a| {
+            if let Kind::Text(t) = &mut a.kind {
+                t.metrics = None;
+                t.cut = None;
             }
         });
     }

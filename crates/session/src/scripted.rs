@@ -48,6 +48,15 @@ pub const FRAME_BUDGET: FrameBudget = FrameBudget {
 /// StepMania's screen height, in its pixels.
 pub const SCREEN_HEIGHT: f64 = 480.0;
 
+/// The size the shells draw scripts' text at, in StepMania's pixels
+/// (`ddi_noteskin::lua::song_text_style`'s), white, as a work's layers'
+/// text is drawn (`crate::stage::TEXT_SCALE` times finer).
+pub const TEXT_SIZE: u32 = 20;
+
+/// Different texts a song's scripts may show; past it, a new one is not
+/// drawn.
+pub const MAX_TEXTS: usize = 64;
+
 /// The song's files its scripts see (`Skin::song`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SongFiles {
@@ -301,6 +310,18 @@ impl Scripts {
     /// errors they survived).
     pub fn notes(&self) -> &[String] {
         &self.notes
+    }
+
+    /// Every actor tree of the scripts (their text measured through it).
+    pub fn trees_mut(&mut self) -> impl Iterator<Item = &mut Actor> {
+        self.backgrounds
+            .iter_mut()
+            .filter_map(|b| b.tree.as_deref_mut())
+            .chain(
+                self.foregrounds
+                    .iter_mut()
+                    .filter_map(|f| f.tree.as_deref_mut()),
+            )
     }
 
     /// Fuel the scripts spent in the last frame.

@@ -118,9 +118,17 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
 4. **What plays.** Folders with `default.lua`, on either background
    layer and as foregrounds. Classes: `ActorFrame`, `Sprite` (images of
    the song's folder; movies are not decoded for scripts, so a movie
-   sprite draws nothing), `Quad`, `Model`, `Actor`; `BitmapText`,
-   `ActorMultiVertex`, `ActorFrameTexture`, `ActorProxy`, `ActorScroller`
-   and `Sound` load as actors that draw nothing (noted once in the log).
+   sprite draws nothing), `Quad`, `Model`, `Actor`, `BitmapText` (since
+   the second slice: whatever font it names, in the platform's
+   sans-serif face, semibold, 20 pixels a line apart 24, StepMania's
+   `_fallback` `Common Normal` being Open Sans Semibold at 24 pixels a
+   line; drawn white by the shell, as a work's layers' text is, once per
+   different text, 64 at most a song, and tinted by the actor's colors;
+   `settext` and `maxwidth` reach it from Lua; a text not drawn yet is
+   measured as a guess and shown once drawn, a frame or so later on the
+   web); `ActorMultiVertex`, `ActorFrameTexture`, `ActorProxy`,
+   `ActorScroller` and `Sound` load as actors that draw nothing (noted
+   once in the log).
    Folders without one keep what the game does now (the song background
    on the first layer, nothing on the second), although StepMania 5.1
    draws an empty actor for `BGAnimation.ini` and `default.xml` folders:
@@ -180,8 +188,7 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
 5. **Shells**: the web's import and play, desktop's play; a synthetic
    pack in headless Chrome (WebGPU, WebGL2) and Firefox, offscreen on
    desktop.
-6. Later: `BitmapText` with the game's face for theme font names;
-   `BGAnimation.ini`, `default.xml` and 3.0-style layer folders drawn
+6. Later: `BGAnimation.ini`, `default.xml` and 3.0-style layer folders drawn
    natively (decision 4); the global `BGAnimations/` folder; `Sound`
    actors on the play's mixer; render targets within a pixel budget;
    movies in scripts.
@@ -252,5 +259,18 @@ Playwright build), the play then drawing it as before.
 Not yet: the images' decoded pixels have no budget of their own beyond the 64 files;
 a script's quads draw over the second image layer; the transitions fade
 a script whatever their kind; scripts read only their folders' files
-(not the song's other files); no `BitmapText`, sound, movies or render
-targets; the 3.9 and ITG formats and 3.0-style layer folders (step 6).
+(not the song's other files); no sound, movies or render targets; the
+3.9 and ITG formats and 3.0-style layer folders (step 6).
+
+`BitmapText` since (2026-10-21, second slice, decision 4): the
+converter makes a song's `BitmapText` a run of text (`Kind::Text`); the
+shared view measures every tree's runs by the shell's drawings of them
+(`ScriptView::measure`: a run not drawn yet is guessed and asked for,
+`ScriptView::add_text` forgets the guesses), and draws each run as its
+drawing over its line box (`ddi_render::scripted`). Desktop draws them
+with cosmic-text (`play::stage::text_image`, the ones `Init` leaves when
+the song is set, later ones in the frame), the web through a canvas
+(`text_bitmap`, arriving a frame or so later). Checked: native tests (the
+converter, a run's quad), offscreen on desktop (yellow text left of the
+field from the change on) and in headless Chrome (WebGPU, WebGL2) and
+Firefox (the same, with a screenshot looked at).

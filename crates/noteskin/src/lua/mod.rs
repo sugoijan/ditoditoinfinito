@@ -58,6 +58,7 @@ use crate::build::{Built, Element, Images, Textures};
 use crate::load::{Button, sprite_only};
 use crate::skin::Skin;
 
+pub use self::convert::song_text_style;
 use self::stage::Stage;
 
 /// The prelude (ours, after StepMania's `_fallback` scripts).

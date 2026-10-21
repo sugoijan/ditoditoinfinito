@@ -80,8 +80,7 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Scripted backgrounds and `#FGCHANGES`](scripted-backgrounds.md)
   (2026-10-21): first slice done (folders with a `default.lua`, behind
   the field and as foregrounds, on the skins' sandboxed Lua host). Left:
-  text, sounds, movies, render targets, StepMania 3.9's and ITG's
-  formats.
+  sounds, movies, render targets, StepMania 3.9's and ITG's formats.
 - [OS and native video decoding on desktop](native-video.md) (2026-10-17):
   in progress. Done: VideoToolbox for checked H.264/HEVC/VP9, opt-in Metal
   planes, the sandboxed FFmpeg helper (decision 54). Left: Media Foundation

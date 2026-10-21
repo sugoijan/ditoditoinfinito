@@ -6,14 +6,19 @@
 //!
 //! Quads not turned are cut to the frame, as StepMania's screen ends at
 //! its edges (their texture with them, the corners' colors kept); turned
-//! ones and quads seen in perspective are drawn whole. Models and text are
-//! not drawn here.
+//! ones and quads seen in perspective are drawn whole. Text is drawn by
+//! the shell into a texture per run (white, tinted here); models are not
+//! drawn here.
 
 use ddi_actor::{Actor, Drawn, UNTEXTURED, View};
 
 use crate::actors2d;
 use crate::color::to_target;
 use crate::textured::{Shape, TexQuad, UNTEXTURED as NO_TEXTURE};
+
+/// A run's drawing by its text: its texture and size in StepMania's
+/// pixels, `None` while not drawn.
+pub type Texts<'a> = dyn Fn(&str) -> Option<(u32, [f32; 2])> + 'a;
 
 /// The transform from StepMania's `screen` (its width and height) to a
 /// `frame` (`x, y, width, height` in target pixels): the frame's height,
@@ -27,13 +32,16 @@ pub fn screen_transform(frame: [f32; 4], screen: [f32; 2]) -> [f32; 6] {
 /// The quads of `draws` (each an actor tree, its opacity, and whether it
 /// is a foreground), back to front, as `(backgrounds, foregrounds)`;
 /// `textures` gives each texture id the actors carry its registered one
-/// (`None`: not loaded yet, not drawn). Colors as the target expects them
-/// for skins' quads (`srgb`, see [`to_target`]).
+/// (`None`: not loaded yet, not drawn), `texts` a run's drawing (its
+/// texture and size in StepMania's pixels; `None`: not drawn yet). Colors
+/// as the target expects them for skins' quads (`srgb`, see
+/// [`to_target`]).
 pub fn quads<'a>(
     draws: impl IntoIterator<Item = (&'a mut Actor, f32, bool)>,
     frame: [f32; 4],
     screen: [f32; 2],
     textures: &[Option<u32>],
+    texts: &Texts,
     srgb: bool,
 ) -> (Vec<TexQuad>, Vec<TexQuad>) {
     let transform = screen_transform(frame, screen);
@@ -59,8 +67,10 @@ pub fn quads<'a>(
         );
         let out = if foreground { &mut front } else { &mut back };
         for d in drawn.drain(..) {
-            if let Drawn::Quad(q) = d {
-                push(&q, clip, textures, srgb, out);
+            match d {
+                Drawn::Quad(q) => push(&q, clip, textures, srgb, out),
+                Drawn::Text(t) => push_text(&t, texts, srgb, out),
+                Drawn::Model(_) | Drawn::ClipPush(_) | Drawn::ClipPop => {}
             }
         }
     }
@@ -111,6 +121,41 @@ fn push(
     if q.glow[3] > 0.0 {
         out.push(TexQuad {
             color: to_target(q.glow, srgb),
+            glow: true,
+            gradient: None,
+            ..base
+        });
+    }
+}
+
+/// A run's drawing as a quad over its line box (its top the drawing's),
+/// in its colors: the diffuse pass and the glow's.
+fn push_text(t: &ddi_actor::TextDraw, texts: &Texts, srgb: bool, out: &mut Vec<TexQuad>) {
+    let Some(mask) = actors2d::drawn_mask(t.depth, t.blend) else {
+        return;
+    };
+    let Some((texture, [w, h])) = texts(&t.text) else {
+        return;
+    };
+    let top = -t.metrics.baseline;
+    let local = [w, 0.0, 0.0, h, w / 2.0, top + h / 2.0];
+    let shape = Shape::Quad {
+        transform: ddi_actor::mul(&t.transform, &local),
+        uv: [0.0, 0.0, 1.0, 1.0],
+    };
+    let colors = t.diffuse.map(|c| to_target(c, srgb));
+    let base = TexQuad {
+        blend: actors2d::blend(t.blend),
+        gradient: colors.iter().any(|c| *c != colors[0]).then_some(colors),
+        mask,
+        ..TexQuad::new(shape, colors[0], texture)
+    };
+    if t.diffuse.iter().any(|c| c[3] > 0.0) {
+        out.push(base);
+    }
+    if t.glow[3] > 0.0 {
+        out.push(TexQuad {
+            color: to_target(t.glow, srgb),
             glow: true,
             gradient: None,
             ..base
@@ -178,6 +223,7 @@ mod tests {
             [0.0, 0.0, 640.0, 480.0],
             [640.0, 480.0],
             &[],
+            &|_| None,
             false,
         );
         assert!(front.is_empty());
@@ -187,5 +233,42 @@ mod tests {
         assert_eq!(transform, [640.0, 0.0, 0.0, 480.0, 320.0, 240.0]);
         assert_eq!(uv, [0.25, 0.0, 0.75, 1.0]);
         assert_eq!(back[0].color[3], 0.5);
+    }
+
+    #[test]
+    fn text_is_its_drawing_over_its_line_box() {
+        use ddi_actor::text::{FixedMeasure, TextStyle};
+        let style = TextStyle::new("sans-serif", 20.0);
+        let mut text = Actor::new(Kind::Text(ddi_actor::Text::new("hi", style)));
+        let mut p = ddi_actor::Problems::default();
+        for c in &ddi_actor::commands::parse("xy,100,100;diffuse,1,1,0,1").unwrap() {
+            text.call(c, &mut p, 0).unwrap();
+        }
+        text.update(0.0, &ddi_actor::Clocks::default(), &mut p);
+        text.measure(&mut FixedMeasure);
+        let screen = [640.0, 480.0];
+        let frame = [0.0, 0.0, 640.0, 480.0];
+        // Not drawn yet: nothing.
+        let (back, _) = quads(
+            [(&mut text, 1.0, false)],
+            frame,
+            screen,
+            &[],
+            &|_| None,
+            false,
+        );
+        assert!(back.is_empty());
+        // Drawn (20 × 25 in StepMania's pixels, as measured): a quad that
+        // size, centred where the run's box is (centred on the actor), in
+        // its color.
+        let texts = |t: &str| (t == "hi").then_some((7, [20.0, 25.0]));
+        let (_, front) = quads([(&mut text, 1.0, true)], frame, screen, &[], &texts, false);
+        assert_eq!(front.len(), 1);
+        assert_eq!(front[0].texture, 7);
+        assert_eq!(front[0].color, [1.0, 1.0, 0.0, 1.0]);
+        let Shape::Quad { transform, .. } = front[0].shape else {
+            panic!()
+        };
+        assert_eq!(transform, [20.0, 0.0, 0.0, 25.0, 100.0, 100.0]);
     }
 }

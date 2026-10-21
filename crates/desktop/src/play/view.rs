@@ -255,8 +255,22 @@ impl View {
                     }
                 }
                 self.scripts.set(scripts, screen, images);
+                // Their text as Init left it, drawn now rather than in a
+                // frame (the system's fonts are read the first time).
+                Self::draw_script_texts(&mut self.scripts);
             }
             Err(why) => eprintln!("scripted backgrounds did not load: {why}"),
+        }
+    }
+
+    /// The scripts' texts not drawn yet, drawn (white, as a work's
+    /// layers' text is drawn).
+    fn draw_script_texts(scripts: &mut ddi_shell::scripted::ScriptView<Rgba>) {
+        for text in scripts.measure() {
+            let size = ddi_session::scripted::TEXT_SIZE;
+            if let Some((image, (w, h))) = super::stage::text_image(&text, size, "#ffffff") {
+                scripts.add_text(text, image, [w, h]);
+            }
         }
     }
 
@@ -526,7 +540,6 @@ impl View {
                 // Drawn as skins' quads are (a no-op but on a target
                 // that draws them offscreen).
                 self.renderer.set_skins_drawn(device, queue, true);
-                self.scripts.upload(&mut self.renderer, device, queue);
                 if let Some(why) = self
                     .scripts
                     .frame(frame.song_time, frame.beat, &self.schedule)
@@ -536,6 +549,8 @@ impl View {
                     let skins = layer.is_some() || self.stage.shown();
                     self.renderer.set_skins_drawn(device, queue, skins);
                 }
+                Self::draw_script_texts(&mut self.scripts);
+                self.scripts.upload(&mut self.renderer, device, queue);
                 let rect = ddi_render::background::frame_rect(w, h, frame_aspect)
                     .unwrap_or([0.0, 0.0, w, h]);
                 let (b, f) = self

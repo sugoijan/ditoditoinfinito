@@ -70,6 +70,8 @@ pub(crate) struct GameLoop {
     /// (`docs/plans/scripted-backgrounds.md`), why they stopped, and
     /// the quads they drew in the last frame.
     scripts: crate::scripts::ScriptView,
+    /// The scripts' texts the browser drew, waiting for the next frame.
+    script_texts: ScriptTexts,
     scripts_stopped: Option<String>,
     scripts_drawn: (usize, usize),
     /// The chart's lyrics, if it has any and they are shown.
@@ -114,6 +116,10 @@ pub(crate) struct GameLoop {
     /// The noteskin's store key.
     noteskin_key: String,
 }
+
+/// Texts the browser drew for a song's scripts: `(text, drawing, size in
+/// StepMania's pixels)`.
+type ScriptTexts = std::rc::Rc<std::cell::RefCell<Vec<(String, crate::stage::Bitmap, [f32; 2])>>>;
 
 impl GameLoop {
     /// `skins`: the player draws layouts with a skin (not the
@@ -170,6 +176,7 @@ impl GameLoop {
             background_schedule: Default::default(),
             backdrop_drawn: Backdrop::default(),
             scripts: Default::default(),
+            script_texts: Default::default(),
             scripts_stopped: None,
             scripts_drawn: (0, 0),
             lyrics: None,
@@ -385,6 +392,33 @@ impl GameLoop {
         match loaded {
             Some(l) => self.scripts.set(Some(l.scripts), l.screen, l.images),
             None => self.scripts.set(None, [854.0, 480.0], Vec::new()),
+        }
+        self.script_texts.borrow_mut().clear();
+        // Their text as Init left it, drawn while the prompt shows.
+        Self::draw_script_texts(&mut self.scripts, &self.script_texts);
+    }
+
+    /// The scripts' texts the browser drew so far go to them; the texts
+    /// they show that are not drawn yet are drawn (white, as a work's
+    /// layers' text is), arriving in a later frame.
+    fn draw_script_texts(scripts: &mut crate::scripts::ScriptView, inbox: &ScriptTexts) {
+        for (text, bitmap, size) in inbox.borrow_mut().drain(..) {
+            scripts.add_text(text, bitmap, size);
+        }
+        for text in scripts.measure() {
+            let inbox = inbox.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let size = ddi_session::scripted::TEXT_SIZE;
+                let scale = f64::from(ddi_session::stage::TEXT_SCALE);
+                match crate::web::image::text_bitmap(&text, size, "#ffffff", scale).await {
+                    Ok((bitmap, (w, h))) => {
+                        inbox
+                            .borrow_mut()
+                            .push((text, crate::stage::Bitmap(bitmap), [w, h]))
+                    }
+                    Err(e) => web_sys::console::warn_1(&e.into()),
+                }
+            });
         }
     }
 
@@ -730,7 +764,6 @@ impl GameLoop {
                         // Drawn as skins' quads are (scripts load while the
                         // play may have begun; a no-op once so).
                         self.renderer.set_skins_drawn(device, queue, true);
-                        self.scripts.upload(&mut self.renderer, device, queue);
                         if let Some(why) = self.scripts.frame(
                             frame.song_time,
                             frame.beat,
@@ -741,6 +774,9 @@ impl GameLoop {
                             );
                             self.scripts_stopped = Some(why);
                         }
+                        Self::draw_script_texts(&mut self.scripts, &self.script_texts);
+                        let (device, queue) = (&self.gfx.device, &self.gfx.queue);
+                        self.scripts.upload(&mut self.renderer, device, queue);
                         let (w, h) = (width as f32, height as f32);
                         let rect = ddi_render::background::frame_rect(w, h, frame_aspect)
                             .unwrap_or([0.0, 0.0, w, h]);

@@ -5,7 +5,9 @@
 //! their textures registered as a noteskin's are (so again after a skin
 //! replaces them), and the quads each frame (`ddi_render::scripted`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+use ddi_actor::text::{RunMetrics, TextMeasure, TextStyle};
 
 use ddi_library::backgrounds::{BgSegment, LAYERS};
 use ddi_noteskin::build::TextureKey;
@@ -25,6 +27,11 @@ pub struct ScriptView<C> {
     /// The scripts' textures' registered ids, by the ids their sprites
     /// carry; empty since the textures were last cleared.
     textures: Vec<Option<u32>>,
+    /// Their texts drawn (white, by the shell), by text: the drawing, its
+    /// size in StepMania's pixels and its registered texture.
+    texts: HashMap<String, (C, [f32; 2], Option<u32>)>,
+    /// Texts asked of the shell, drawn or not yet.
+    asked: HashSet<String>,
 }
 
 impl<C> Default for ScriptView<C> {
@@ -34,6 +41,8 @@ impl<C> Default for ScriptView<C> {
             screen: [854.0, 480.0],
             images: HashMap::new(),
             textures: Vec::new(),
+            texts: HashMap::new(),
+            asked: HashSet::new(),
         }
     }
 }
@@ -49,6 +58,46 @@ impl<C: StageContent> ScriptView<C> {
             .map(|(p, c)| (p.to_lowercase(), c))
             .collect();
         self.textures.clear();
+        self.texts.clear();
+        self.asked.clear();
+    }
+
+    /// Measures the scripts' text (after [`ScriptView::frame`], before
+    /// [`ScriptView::quads`]): the texts the shell has not been asked to
+    /// draw yet, to draw white at `ddi_session::scripted::TEXT_SIZE`
+    /// ([`ScriptView::add_text`]). Until drawn a text is measured as a
+    /// guess and not shown.
+    pub fn measure(&mut self) -> Vec<String> {
+        let Some(scripts) = self.scripts.as_mut() else {
+            return Vec::new();
+        };
+        let mut m = Measured {
+            texts: &self.texts,
+            missing: Vec::new(),
+        };
+        for tree in scripts.trees_mut() {
+            tree.measure(&mut m);
+        }
+        let mut wanted = Vec::new();
+        for text in m.missing {
+            if self.asked.len() >= ddi_session::scripted::MAX_TEXTS {
+                break;
+            }
+            if self.asked.insert(text.clone()) {
+                wanted.push(text);
+            }
+        }
+        wanted
+    }
+
+    /// A text the shell drew, `size` in StepMania's pixels: measured anew.
+    pub fn add_text(&mut self, text: String, content: C, size: [f32; 2]) {
+        self.texts.insert(text, (content, size, None));
+        if let Some(scripts) = self.scripts.as_mut() {
+            for tree in scripts.trees_mut() {
+                tree.forget_metrics();
+            }
+        }
     }
 
     /// A new play of the same song ([`Scripts::restart`]).
@@ -83,6 +132,9 @@ impl<C: StageContent> ScriptView<C> {
     /// The renderer's skin textures were cleared, and these with them.
     pub fn forget_textures(&mut self) {
         self.textures.clear();
+        for t in self.texts.values_mut() {
+            t.2 = None;
+        }
     }
 
     /// Copies the scripts' images to the GPU, once after each clearing.
@@ -90,6 +142,15 @@ impl<C: StageContent> ScriptView<C> {
         let Some(scripts) = &self.scripts else {
             return;
         };
+        for (content, _, id) in self.texts.values_mut().filter(|t| t.2.is_none()) {
+            let [w, h] = content.size();
+            let pixels = [w.max(1), h.max(1)];
+            *id = Some(
+                renderer.add_noteskin_image(device, queue, pixels, false, |texture| {
+                    content.write(queue, texture, pixels);
+                }),
+            );
+        }
         let keys = scripts.textures().keys();
         if !self.textures.is_empty() || keys.is_empty() {
             return;
@@ -136,6 +197,34 @@ impl<C: StageContent> ScriptView<C> {
             return (Vec::new(), Vec::new());
         };
         let draws = scripts.draws(t, layers);
-        ddi_render::scripted::quads(draws, frame, self.screen, &self.textures, srgb)
+        let texts = |text: &str| {
+            let (_, size, id) = self.texts.get(text)?;
+            Some(((*id)?, *size))
+        };
+        ddi_render::scripted::quads(draws, frame, self.screen, &self.textures, &texts, srgb)
+    }
+}
+
+/// Measures runs by the shell's drawings of them; a run not drawn yet is
+/// guessed ([`ddi_actor::text::FixedMeasure`]) and noted.
+struct Measured<'a, C> {
+    texts: &'a HashMap<String, (C, [f32; 2], Option<u32>)>,
+    missing: Vec<String>,
+}
+
+impl<C> TextMeasure for Measured<'_, C> {
+    fn measure(&mut self, text: &str, style: &TextStyle) -> RunMetrics {
+        let Some((_, [w, h], _)) = self.texts.get(text) else {
+            self.missing.push(text.to_string());
+            return ddi_actor::text::FixedMeasure.measure(text, style);
+        };
+        // The drawing's top is the line box's (the shells draw from the
+        // top, a line 1.2 sizes apart).
+        let baseline = style.line_height() * 0.8;
+        RunMetrics {
+            advance: *w,
+            ink: [0.0, -baseline, *w, h - baseline],
+            baseline,
+        }
     }
 }

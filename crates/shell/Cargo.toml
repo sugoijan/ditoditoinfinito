@@ -9,6 +9,7 @@ repository.workspace = true
 description = "DitoDitoInfinito: what both shells do between the settings and the renderer (the field's options, a work's layers' textures), platform-free"
 
 [dependencies]
+ddi-actor.workspace = true
 ddi-chart.workspace = true
 ddi-engine.workspace = true
 ddi-library.workspace = true

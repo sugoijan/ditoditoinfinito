@@ -31,6 +31,16 @@ const MAX_STATES: usize = 4096;
 /// cut: no skin needs them, and they are copied per actor).
 const MAX_TEXT: usize = 4096;
 
+/// How a song's scripts' `BitmapText` is set, whatever font it names:
+/// StepMania's `_fallback` `Common Normal` is Open Sans Semibold at 24
+/// pixels a line; here the platform's sans-serif face, 20 pixels (a line
+/// 24 apart, as the shells draw runs: `ddi_session::scripted::TEXT_SIZE`).
+pub fn song_text_style() -> ddi_actor::text::TextStyle {
+    let mut style = ddi_actor::text::TextStyle::new("sans-serif", 20.0);
+    style.weight = 600;
+    style
+}
+
 pub(crate) struct Converted {
     /// The tree's index in the stage and its root's id; `None` when its
     /// `Condition` is false.
@@ -223,6 +233,13 @@ impl<'gc> Convert<'_, 'gc> {
             "Quad" => (Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0]))), 1),
             "ActorFrame" => (Actor::new(Kind::Frame(Vec::new())), 2),
             "Model" => (self.model(t, &where_)?, 3),
+            // A song's scripts' text, in the face songs' text is drawn in
+            // (`docs/plans/scripted-backgrounds.md`); skins make none.
+            "BitmapText" if self.host.skin.is_song() => {
+                let text = text(self.get(t, "Text")).unwrap_or_default();
+                let text = ddi_actor::Text::new(text, song_text_style());
+                (Actor::new(Kind::Text(text)), 0)
+            }
             "BitmapText" | "ActorMultiVertex" | "ActorFrameTexture" | "ActorProxy"
             | "BGAnimation" | "ActorScroller" | "RollingNumbers" => {
                 self.unsupported = true;
