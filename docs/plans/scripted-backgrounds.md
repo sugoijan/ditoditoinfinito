@@ -129,7 +129,9 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
    reader parses the same actor files). 3.0-style layer folders come with
    that step too.
 5. **Budgets.** Load: 20 million fuel and 5 s for all of a song's scripts
-   together (the skins' load budget), while the start prompt shows; play:
+   together (the skins' load budget), while the start prompt shows, on
+   the web in slices of 100,000 fuel with the page's turn between them
+   (`Scripts::load_sliced`, as skins load); play:
    100,000 fuel and 8 ms per frame for all of them (half a skin's: the
    field comes first); the host's 16,384 actors, 64 kept files a song
    (images decoded at 1,280 pixels a side at most), the VM's own memory
@@ -240,9 +242,14 @@ results note), and a synthetic pack imported as a zip in headless Chrome
 (WebGPU, WebGL2) and Firefox, sampled as for the named effects, the
 autoplay all top tier.
 
-Not yet: the load is not sliced between frames on the web (a script
-that runs long at load holds the page until its budget ends); the
-images' decoded pixels have no budget of their own beyond the 64 files;
+Since (2026-10-21, second slice): the web loads the scripts in slices
+(`Scripts::load_sliced`, the page's turn every `LOAD_SLICE` fuel, as a
+skin's Lua loads), checked natively (the host's turns counted) and with a
+script spending about a million and a half loop turns at load in headless
+Chrome (no frame later than 17 ms while it loads) and Firefox (50 ms, its
+Playwright build), the play then drawing it as before.
+
+Not yet: the images' decoded pixels have no budget of their own beyond the 64 files;
 a script's quads draw over the second image layer; the transitions fade
 a script whatever their kind; scripts read only their folders' files
 (not the song's other files); no `BitmapText`, sound, movies or render

@@ -98,7 +98,20 @@ pub(crate) async fn load(
     let screen = env.screen;
     let performance = web_sys::window().and_then(|w| w.performance());
     let clock = Box::new(move || performance.as_ref().map_or(0.0, |p| p.now() / 1000.0));
-    let scripts = Scripts::load(files, env, &layers, &foregrounds, &sizes, clock)?;
+    // In slices, the page drawing between them (the start prompt).
+    let mut pause = || -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> {
+        Box::pin(gloo::timers::future::TimeoutFuture::new(0))
+    };
+    let scripts = Scripts::load_sliced(
+        files,
+        env,
+        &layers,
+        &foregrounds,
+        &sizes,
+        clock,
+        Some(&mut pause),
+    )
+    .await?;
     Ok(scripts.map(|scripts| {
         for note in scripts.notes() {
             web_sys::console::info_1(&format!("scripted backgrounds: {note}").into());

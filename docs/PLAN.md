@@ -542,7 +542,7 @@ Audio and video:
   file; scripted backgrounds and `#FGCHANGES` have their first slice
   (2026-10-21): what is left is listed in
   `docs/plans/scripted-backgrounds.md` (text, sounds, movies, render
-  targets, the older formats, a load spread over frames on the web).
+  targets, the older formats).
 
 Noteskins, Lua and models:
 

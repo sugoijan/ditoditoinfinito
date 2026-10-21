@@ -28,7 +28,7 @@ use ddi_actor::{Actor, Clocks};
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
 use ddi_lua::Failure;
 use ddi_noteskin::build::{Built, Images, Textures};
-use ddi_noteskin::lua::{Env, FrameBudget, LoadBudget, LuaSkin, Position};
+use ddi_noteskin::lua::{Env, FrameBudget, LoadBudget, LuaSkin, Pause, Position};
 use ddi_noteskin::skin::{Folder, Skin};
 
 /// What a song's scripts may spend loading, all together (the skins'
@@ -163,6 +163,22 @@ impl Scripts {
         images: &dyn Images,
         clock: Box<dyn FnMut() -> f64>,
     ) -> Result<Option<Scripts>, String> {
+        let load = Scripts::load_sliced(files, env, layers, foregrounds, images, clock, None);
+        ddi_noteskin::lua::now(async { load.await.map_err(Failure::Error) }).map_err(|f| reason(&f))
+    }
+
+    /// [`Scripts::load`], giving the host a turn every
+    /// `ddi_noteskin::lua::LOAD_SLICE` fuel (the page keeps drawing while
+    /// a song's scripts load, as while a skin's do).
+    pub async fn load_sliced(
+        files: SongFiles,
+        env: Env,
+        layers: &[Vec<BgSegment>; LAYERS],
+        foregrounds: &[backgrounds::Foreground],
+        images: &dyn Images,
+        clock: Box<dyn FnMut() -> f64>,
+        mut pause: Option<&mut Pause>,
+    ) -> Result<Option<Scripts>, String> {
         let scripted = |s: &BgSegment| match &s.image {
             BgImage::Scripted(name) => Some((name.clone(), s.look.color1)),
             _ => None,
@@ -182,29 +198,18 @@ impl Scripts {
             files: files.files,
             texts: files.texts,
         };
-        let mut lua = LuaSkin::new(
+        let mut lua = LuaSkin::new_sliced(
             Skin::song(folder),
             env,
             ddi_lua::Settings::default(),
             LOAD_BUDGET,
             clock,
+            pause.as_deref_mut(),
         )
+        .await
         .map_err(|f| reason(&f))?;
         let mut textures = Textures::default();
         let mut notes = Vec::new();
-        let mut build = |lua: &mut LuaSkin, path: &str, color: Option<&str>| {
-            let element = lua
-                .actor_file(path, color, &mut textures, images)
-                .map_err(|f| reason(&f))?;
-            notes.extend(element.notes);
-            Ok::<_, String>(match element.built {
-                Built::Actor(tree) => {
-                    let mut tree = Box::new(tree);
-                    lua.reclaim(&mut tree).then_some(tree)
-                }
-                Built::BuiltIn | Built::Blank => None,
-            })
-        };
         let mut list: Vec<Background> = Vec::new();
         for (script, color) in layers.iter().flatten().filter_map(scripted) {
             if list.iter().any(|b| b.script == script && b.color == color) {
@@ -212,7 +217,14 @@ impl Scripts {
             }
             let [r, g, b, a] = color;
             let tint = format!("{r},{g},{b},{a}");
-            let tree = build(&mut lua, &format!("{root}{script}"), Some(&tint))?;
+            let path = format!("{root}{script}");
+            let tree = build(
+                &mut lua,
+                (&path, Some(&tint)),
+                (&mut textures, images, &mut notes),
+                pause.as_deref_mut(),
+            )
+            .await?;
             list.push(Background {
                 script,
                 color,
@@ -221,7 +233,14 @@ impl Scripts {
         }
         let mut fgs = Vec::new();
         for fg in foregrounds {
-            let tree = build(&mut lua, &format!("{root}{}", fg.script), None)?;
+            let path = format!("{root}{}", fg.script);
+            let tree = build(
+                &mut lua,
+                (&path, None),
+                (&mut textures, images, &mut notes),
+                pause.as_deref_mut(),
+            )
+            .await?;
             fgs.push(Foreground {
                 seconds: fg.seconds,
                 tree,
@@ -493,6 +512,29 @@ impl Scripts {
         }
         out
     }
+}
+
+/// Builds the actor at `path` (a background's with its `Color1`), its
+/// images among `textures` and its notes kept: the tree its Lua holds
+/// for the play, `None` when it draws nothing.
+async fn build(
+    lua: &mut LuaSkin,
+    (path, color): (&str, Option<&str>),
+    (textures, images, notes): (&mut Textures, &dyn Images, &mut Vec<String>),
+    pause: Option<&mut Pause>,
+) -> Result<Option<Box<Actor>>, String> {
+    let element = lua
+        .actor_file_sliced(path, color, textures, images, pause)
+        .await
+        .map_err(|f| reason(&f))?;
+    notes.extend(element.notes);
+    Ok(match element.built {
+        Built::Actor(tree) => {
+            let mut tree = Box::new(tree);
+            lua.reclaim(&mut tree).then_some(tree)
+        }
+        Built::BuiltIn | Built::Blank => None,
+    })
 }
 
 /// A tree of [`Scripts`].

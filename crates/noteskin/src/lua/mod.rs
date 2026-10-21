@@ -1014,7 +1014,7 @@ impl LuaSkin {
 }
 
 /// Runs a future that never waits (no [`Pause`]) to its end.
-fn now<T>(f: impl Future<Output = Result<T, Failure>>) -> Result<T, Failure> {
+pub fn now<T>(f: impl Future<Output = Result<T, Failure>>) -> Result<T, Failure> {
     let mut f = std::pin::pin!(f);
     match f.as_mut().poll(&mut TaskContext::from_waker(Waker::noop())) {
         Poll::Ready(r) => r,

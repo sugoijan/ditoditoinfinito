@@ -144,3 +144,31 @@ fn a_song_without_scripts_has_none() {
     );
     assert!(matches!(r, Ok(None)));
 }
+
+#[test]
+fn a_long_load_gives_the_host_its_turns() {
+    let song = song();
+    let scripts = ["BG", "FG"];
+    let none: &[&str] = &[];
+    let layers = backgrounds::layers(&song, none, none, &scripts, none, false);
+    let fgs = backgrounds::foregrounds(&song, &scripts);
+    let turns = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = turns.clone();
+    let mut pause = move || -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> {
+        counted.set(counted.get() + 1);
+        Box::pin(async {})
+    };
+    let bg = "local n = 0\nfor i = 1, 100000 do n = n + i end\nreturn Def.Actor {}";
+    let load = Scripts::load_sliced(
+        files(bg),
+        env(&song, 16.0 / 9.0),
+        &layers,
+        &fgs,
+        &NoImages,
+        Box::new(|| 0.0),
+        Some(&mut pause),
+    );
+    let loaded = ddi_noteskin::lua::now(async { load.await.map_err(ddi_lua::Failure::Error) });
+    assert!(matches!(loaded, Ok(Some(_))));
+    assert!(turns.get() > 0);
+}
