@@ -98,12 +98,13 @@ pub trait EditorHost {
 /// What the shell can do with the song.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct EditorPlace {
-    /// Where saving puts the song, said before saving ("Songs/Pack/Song/
-    /// song.ssc"); `None`: it cannot be saved there (a bundled song).
+    /// Where saving puts the song ("Songs/Pack/Song/song.ssc"); `None`:
+    /// it cannot be saved there (a bundled song).
     pub save: Option<String>,
-    /// Saving replaces a file the song was read from: confirmed first,
-    /// the old one kept beside it.
-    pub overwrites: bool,
+    /// Saving replaces what the song was read from: what the question
+    /// asked first says (what is replaced, what is kept); `None`: saved
+    /// without asking.
+    pub confirm: Option<String>,
     /// What exporting does ("Download", "Save a copy"); `None`: none.
     pub export: Option<String>,
     /// The music can be listened to.
@@ -257,6 +258,14 @@ impl EditorScreen {
         }
     }
 
+    /// On an editor the shell keeps (the web's, across a playtest's
+    /// page).
+    pub fn shared(env: Env, editor: Rc<RefCell<Editor>>, place: EditorPlace) -> EditorScreen {
+        let mut screen = EditorScreen::new(env, Editor::new_song(None, ""), place);
+        screen.editor = editor;
+        screen
+    }
+
     pub fn with_host(mut self, host: Rc<dyn EditorHost>) -> EditorScreen {
         self.host = Some(host);
         self
@@ -291,11 +300,7 @@ impl EditorScreen {
         let (size, zoom) = super::narrow_fit(&self.env, vp);
         let compact = super::is_compact(&*self.env.look, vp) || size[0] < 700.0;
         let env = &self.env;
-        let head = if compact {
-            env.metric("Editor.Compact.Header", 44.0)
-        } else {
-            env.metric("Header.Height", 64.0)
-        };
+        let head = env.metric("Header.Height", 64.0);
         let foot = env.metric("Footer.Height", 40.0);
         let margin = if compact { 8.0 } else { 16.0 };
         let upright = size[1] > size[0];
@@ -528,7 +533,7 @@ impl EditorScreen {
             call(&mut p, "xy", &[x, y]);
             call(&mut p, "cornerradius", &[head_h * 0.3]);
             c.push(p);
-            let mut glyph = env.text("", text, (head_h * 0.8).min(20.0), 800, "Text");
+            let mut glyph = env.text("", text, (head_h * 0.9).min(24.0), 700, "Text");
             call(&mut glyph, "xy", &[x, y]);
             if matches!(n.kind, NoteKind::Mine) {
                 call(&mut glyph, "diffuse", &[1.0, 0.35, 0.35, 1.0]);
@@ -856,10 +861,10 @@ impl EditorScreen {
     }
 
     fn save(&mut self, cx: &mut Cx) {
-        let Some(target) = self.place.save.clone() else {
+        if self.place.save.is_none() {
             self.say("This song cannot be saved here: export a copy instead");
             return;
-        };
+        }
         let editor = self.editor.clone();
         let host = self.host.clone();
         let save = Rc::new(move |cx: &mut Cx| {
@@ -874,22 +879,20 @@ impl EditorScreen {
                 );
             }
         });
-        if self.place.overwrites {
-            cx.overlay(
+        match &self.place.confirm {
+            Some(body) => cx.overlay(
                 ConfirmDialog::new(
                     self.env.clone(),
-                    "Save over the song's file?",
+                    "Save over the song?",
                     &format!(
-                        "{target} is replaced; the file as it was is kept beside it, ending in \
-                         .old. Charts whose notes changed are new charts for the play history."
+                        "{body} Charts whose notes changed are new charts for the play history."
                     ),
                     "Save",
                     save,
                 ),
                 true,
-            );
-        } else {
-            save(cx);
+            ),
+            None => save(cx),
         }
     }
 

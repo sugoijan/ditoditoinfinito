@@ -651,6 +651,7 @@ impl OptionsPlatform for Web {
                 slow: false,
                 replay: None,
                 view_results: false,
+                edit: false,
             },
         };
         cx.request(UiRequest::Navigate(route.to_hash()));

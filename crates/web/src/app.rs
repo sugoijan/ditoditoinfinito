@@ -206,6 +206,7 @@ impl App {
                 auto_pad,
                 bias_ms,
                 slow,
+                edit,
                 ..
             } => Box::new(mount::<GameCanvas>(
                 root,
@@ -226,8 +227,20 @@ impl App {
                         BackendPreference::Auto
                     },
                     replay: None,
+                    edit: *edit,
                 },
             )),
+            // The chart editor on a song (`docs/plans/editor.md`).
+            Route::Edit { song, chart } => {
+                Box::new(mount::<crate::components::edit_page::EditPage>(
+                    root,
+                    "main",
+                    crate::components::edit_page::Props {
+                        song: song.clone(),
+                        chart: *chart,
+                    },
+                ))
+            }
             Route::CalibrateRun {
                 mode,
                 auto,
@@ -244,6 +257,7 @@ impl App {
                     slow: false,
                     backend: BackendPreference::Auto,
                     replay: None,
+                    edit: false,
                 },
             )),
             // Credits and calibration's menu, our theme's pages on the

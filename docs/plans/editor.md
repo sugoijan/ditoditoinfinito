@@ -1,8 +1,14 @@
 # Plan: a chart editor, first version (2026-10-21)
 
 The last item of phase 10 (`docs/PLAN.md`, section 5): edit a song's
-timing and notes in the game, try them at once, and keep them. A plan
-only; nothing is built yet (`docs/plans/phase-10.md`, step 3).
+timing and notes in the game, try them at once, and keep them
+(`docs/plans/phase-10.md`, step 3).
+
+Status (2026-10-21): the writer, the editing model, the screen on both
+shells, playtests and saving are built (steps 1, 2, 4, 6, 7 and the
+song-select half of 8; see "Built" below); the field in the player's
+skin (3), sound (5), the autosave and new songs from a music file are
+left ("Left").
 
 ## Scope of the first version
 
@@ -53,7 +59,7 @@ only; nothing is built yet (`docs/plans/phase-10.md`, step 3).
 
 - **Chart model and parsers** (`ddi_chart`): `Song`, `Chart`, `Note`,
   `TimingMap` with every segment kind, the `.sm`/`.ssc` parsers. Missing:
-  a **writer** (new: `ddi_chart::formats::ssc_write`), written so that
+  a **writer** (new: `ddi_chart::formats::sm_write`), written so that
   `parse(write(song)) == song` for every bundled and test fixture chart
   (the differential corpus tests give the checks: `DDI_DIFF_CORPUS`), and
   that keeps the tags the parser did not understand
@@ -137,12 +143,147 @@ only; nothing is built yet (`docs/plans/phase-10.md`, step 3).
 
 Each step is a commit; steps 1 and 2 can land without any screen.
 
-## Open questions (decide when building)
+## Built (2026-10-21)
 
-- Whether a bundled song may be opened (read-only, "save as" only), and
-  how a song read in place from another game's folder is saved (in place
-  by default on desktop, with the backup).
-- Whether the first version needs a waveform at all, or the metronome
-  and the overview are enough to sync.
-- How the editor's playtest reports a chart's problems (notes inside a
-  warp, overlapping holds) before playing, or only on save.
+1. **The writer** (`ddi_chart::formats::sm_write`): `write_ssc` (version
+   0.83) and `write_sm`, with `sm_losses` naming what `.sm` cannot say
+   (warps, speeds, scrolls, fakes, labels, combos, split timing, chart
+   names, credits and display BPMs, chart tags, the jacket, notes `.sm`
+   has no character for, a Hard chart described as `smaniac`). Numbers
+   are written to read back bit for bit (shortest decimals; whole ones
+   with three decimals as StepMania does; beats with three or six
+   decimals, the reader rounding to the tick); text escaped as the MSD
+   reader needs (`\`, `;`, `#`, the second `/` of `//`, `:` in one-value
+   tags); background changes from their raw value, attacks in place;
+   tags kept as written (`SourceInfo::unknown_tags`) after the song's
+   own and in their chart's block, except those the target format
+   would read as its own (a `.sm`'s `#COMBOS`); generated charts left
+   out. Tests (`crates/chart/tests/write.rs`): the bundled songs, the
+   fixtures (DWI converted to `.ssc`), 400 generated songs using every
+   field, as `.ssc` and, when nothing is lost, `.sm`, read back equal and
+   written again the same; danceparser reads the written `.sm` as ours
+   (`differential.rs`). `DDI_WRITE_CORPUS=<dir>[:<dir>…]` does the same
+   over local folders: 1,482 of 1,482 local simfiles round-tripped
+   (1,276 as `.sm` too).
+2. **The model** (`ddi_ui::state::editor`): `Editor` holds the song (its
+   generated charts left out), the chart shown, the cursor, the snap
+   (4th to 192nd), the selection, the tool (tap/hold, roll, mine, lift,
+   fake), the clipboard and the undo and redo stacks. Each edit is one
+   `Change` (notes out and in, a timing map swapped, the song's or a
+   chart's fields, a chart inserted or removed with its tags in their
+   places, a batch) applied and inverted; every edit keeps the song as a
+   file keeps it (sorted, one note to a cell, nothing inside a hold in
+   its lane, timing tidy, a 4/4 at 0 when a later time signature is
+   set, text trimmed, refused values: a BPM not above 0, a time
+   signature with a 0). Notes: a press toggles at the cursor (a hold's
+   whole span counts), held while the cursor moves it grows into a hold
+   or a roll (one undo), `place_long`, cut, copy, paste (replacing the
+   rows it covers), delete, shift by the snap, mirror and the turns
+   (`ddi_engine::transform::lane_map`). Timing: every segment kind set
+   or taken away at a tick, the offset, the chart's own timing on or
+   off; `Retime::KeepTimes` moves every chart on that timing to the
+   tick nearest each note's old time. Tests: the operations, random
+   sequences over the bundled songs undone to the song and redone, the
+   song read back after every sequence, and a song read back from its
+   written file edited the same.
+4. **The screen** (`ddi_ui::screens::editor`, dialogs in
+   `editor_dialogs.rs`): the field (lanes, the beat grid at the snap,
+   measure and beat numbers, notes as their lanes' arrows on plates
+   colored by beat, holds and rolls, mines, lifts, fakes, the selection,
+   the timing's markers, the cursor line) drawn with the menus' actors;
+   a panel (the chart, beat, measure and time, snap and tool, BPM, what
+   is at the cursor, notes, selection, saved or not, the last action;
+   Menu, Save, Play); a footer of keys. The menu (Tab, a pad's Select),
+   the timing at the cursor (each kind, the offset, keep beats or
+   times, the chart's own timing), the song's fields and the chart's
+   (difficulty, meter, name, description, step artist; previous, next,
+   add, remove) are lists of buttons in columns that fit; values are
+   typed in a dialog and refused with a reason. Keys as the file's
+   header says; a pointer taps notes, drags holds and selects rows;
+   reduced motion jumps instead of gliding. Tested in the harness at
+   1280×720, 844×390 and 390×844. The UI core sends key releases to a
+   screen that asks (`Screen::key_releases`), for the held lanes.
+6. **Playtest**: `EditorCall::Playtest` hands the shell the song as
+   edited and a start 2 s before the cursor (`PLAYTEST_LEAD`);
+   `SessionConfig::start` starts the session there (earlier notes
+   skipped, the music fading in, as after a work's `startFrame`).
+   Desktop: `play::Request::edited`/`start`, read by `play::load`, never
+   kept (`Play::record`), the library not told the edited charts.
+   Web: `#/play?…&edit=1` takes the session's song (`crate::editor`),
+   is never kept, has no ghost, and goes back to `#/edit`.
+7. **Saving** (no autosave yet). Desktop (`crates/desktop/src/editor.rs`):
+   a library song read from `.ssc` is saved over it, the file as it was
+   kept as `<name>.old` at the first save of an editor session, after a
+   question; one read from `.sm` or `.dwi` gets a `.ssc` beside it,
+   which the library reads first from then on; written through a
+   temporary file renamed over; the pack read again. Bundled songs and
+   zips' are saved as a copy only (the system's dialog, `.ssc` or `.sm`
+   when nothing is lost). Web (`crates/web/src/editor.rs`): an imported
+   song's stored chart becomes `chart.ssc` and its entry is made again
+   (`ddi_library::edited::entry_after_edit`, natively tested), after a
+   question; the files it was imported from are never touched; any song
+   downloads as `.ssc` (or `.sm`), a link clicked inside the press.
+8. **Entry points**: song select's E on both shells
+   (`SelectScreen::with_editing`, `SelectCall::Edit`); the web's route
+   `#/edit?song=<id>&chart=<n>`.
+
+Verified: the native tests above; desktop offscreen
+(`crates/desktop/tests/editor_offscreen.rs`: the editor in the theme on
+a bundled song, a note placed, the menu) and the library flow
+(`editor.rs`'s tests: an `.sm` song saved as `.ssc` beside it, read back
+as edited, playtested part-way headless and not kept); headless Chrome
+and Firefox (`target/scratch/pw/editor-web.mjs`: deep link, a note, an
+autoplayed playtest from the end and back to the editor as it was, the
+download, song select's E, an imported song saved and read back after a
+reload).
+
+## Decided here (the maintainer may change any)
+
+- The writer's module is `formats::sm_write` (it writes both formats).
+- `.sm` export refuses nothing silently: what it would lose is listed
+  (`sm_losses`) and the menu offers `.sm` only when nothing is.
+  `.sm` cannot hold warps here: StepMania's negative-BPM gimmicks read
+  back as warps, and writing warps back as negative stops does not read
+  back as the same model in every case, so such songs are `.ssc`.
+- Charts are written in a 4-beat measure with the fewest rows of
+  StepMania's set that hold them; timing lists on one line (some
+  readers do not trim line breaks inside numbers); no radar values in
+  `.ssc` and five zeros in `.sm` (StepMania ignores both); no
+  `//---` banners (danceparser's buffer trips on them).
+- Bundled songs open but save as a copy only (export); a zip's songs
+  too on desktop.
+- An `.sm` (or `.dwi`) song saved on desktop gets a `.ssc` beside it,
+  the old file untouched; saving over a `.ssc` asks first and keeps
+  `.old` once each time the editor is opened.
+- The field is drawn with the menus' actors, not the play renderer with
+  the player's skin: the same picture on both shells and in the
+  harness; the skin can come later without changing the model.
+- Lanes are the number keys (StepMania's editor); holds grow while a
+  lane key is held and the cursor moves; Tab or a pad's Select opens a
+  menu of every action for controllers and phones.
+- A playtest from the cursor starts 2 s before it; playtests are never
+  kept, have no ghost, and the library is not told their charts.
+- On the web the song being edited lives for the session
+  (`crate::editor`), so a playtest's page and the way back keep the
+  cursor and the undo; a reload starts from the stored song.
+- The editor's chart index after removing a chart is clamped; a
+  removed chart's tags come back in their places on undo.
+- Changing a song's music file name in the editor plays the old file in
+  playtests until saved (desktop reads the library's entry).
+
+## Left
+
+- **Step 3**: the field in the player's skin and speed (the play
+  scene paused at the cursor, `crates/render`), with offscreen tests.
+- **Step 5, sound**: listening from the cursor (`EditorCall::Listen`,
+  the screen follows `EditorHost::music_time`; both shells answer
+  `listen: false` for now), the metronome, tap-to-tempo, the overview.
+- **The autosave** of the session and its recovery.
+- **New songs from a music file** (`Editor::new_song` exists): the
+  start menu's or song select's "New song" with a file picker on both
+  shells, and where its folder goes.
+- Desktop's `--edit SONG` flag for runs and screenshots; listening.
+- Notes inside warps and overlapping holds from imported files are
+  kept as read; the editor does not report them before a playtest.
+- Song-level `#LASTSECONDHINT` and other cache-only tags are not kept
+  (the reader drops them).

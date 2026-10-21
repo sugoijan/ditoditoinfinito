@@ -7,7 +7,8 @@ rest but the rulesets:
 
 1. **Importing plays**, the export read back on either shell.
 2. **FFR `beatBox` import**, for the chart data a player has.
-3. **The editor**: a plan of its own (`editor.md`), no code yet.
+3. **The editor**: a plan of its own (`editor.md`); a first version
+   built.
 
 More rulesets (DDR's older scoring, FLARE, LIFE4) wait for the rulesets
 work under way on the engine's presets and the rules options, and come
@@ -294,4 +295,7 @@ Left:
 Planned (2026-10-21): `docs/plans/editor.md`. A first version for
 `.ssc`/`.sm` timing and notes on the UI core, on both shells, with
 playtests from the editor, saving on desktop and saving or downloading
-on the web; eight steps, the first an `.ssc` writer. Nothing built.
+on the web; eight steps, the first an `.ssc` writer. Built
+(2026-10-21): the writer, the model, the screen on both shells,
+playtests and saving; left: the field in the player's skin, sound, the
+autosave, new songs (`editor.md`, "Left").

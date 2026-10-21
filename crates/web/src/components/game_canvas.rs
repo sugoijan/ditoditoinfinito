@@ -219,6 +219,9 @@ pub(crate) struct Props {
     pub(crate) restart: Callback<()>,
     /// A kept play replayed, or its results shown (`crate::replay`).
     pub(crate) replay: Option<Rc<crate::replay::ReplayProp>>,
+    /// The chart editor's playtest (`crate::editor`): the song as
+    /// edited, from its start second, never kept, back to the editor.
+    pub(crate) edit: bool,
 }
 
 /// The page's few DOM elements around the canvas.
@@ -876,7 +879,7 @@ impl GameCanvas {
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
                 }
-                back_route(&ctx.props().source).return_to();
+                back_route(ctx.props()).return_to();
                 false
             }
             Msg::Begin(audio, from_pad) => self.start(ctx, *audio, from_pad),
@@ -1059,10 +1062,7 @@ impl GameCanvas {
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();
                 }
-                match &ctx.props().source {
-                    SongSource::Calibration(_) => Route::Calibrate.return_to(),
-                    SongSource::Song { .. } => Route::Songs.return_to(),
-                }
+                back_route(ctx.props()).return_to();
                 true
             }
             Msg::Session(SessionEvent::Interrupted) => {
@@ -1077,7 +1077,10 @@ impl GameCanvas {
                 "save" => self.handle(ctx, Msg::SaveCalibration),
                 "again" => self.handle(ctx, Msg::Retry),
                 "songs" => {
-                    Route::Songs.return_to();
+                    match &ctx.props().source {
+                        SongSource::Song { .. } => back_route(ctx.props()).return_to(),
+                        SongSource::Calibration(_) => Route::Songs.return_to(),
+                    }
                     false
                 }
                 "next" | "done" => {
@@ -1145,7 +1148,6 @@ impl GameCanvas {
     fn page(&self, ctx: &Context<Self>) {
         use crate::component::element;
         let root = ctx.root();
-        let source = &ctx.props().source;
         let mut dom = self.dom.borrow_mut();
         let dom = dom.get_or_insert_with(|| {
             let slot = element(root, "div", "game-canvas-slot");
@@ -1157,7 +1159,7 @@ impl GameCanvas {
                 self.debug.set(&debug);
             }
             let back = element(root, "a", "back-link");
-            let _ = back.set_attribute("href", &back_route(source).to_hash());
+            let _ = back.set_attribute("href", &back_route(ctx.props()).to_hash());
             back.set_text_content(Some("← back"));
             let link = ctx.link().clone();
             let touch = self.touch_seen.clone();
@@ -1367,7 +1369,7 @@ impl GameCanvas {
         else {
             return;
         };
-        if !self.settings.ghost || self.replay.is_some() {
+        if !self.settings.ghost || self.replay.is_some() || ctx.props().edit {
             return;
         }
         let best =
@@ -1442,6 +1444,12 @@ impl GameCanvas {
         };
         config.session.auto_bias = ctx.props().auto_bias;
         config.session.auto_pad = ctx.props().auto_pad;
+        // The editor's playtest from its cursor.
+        if ctx.props().edit
+            && let SongSource::Song { id, .. } = &ctx.props().source
+        {
+            config.session.start = crate::editor::playtest(id).map(|(_, start)| start);
+        }
         config.gamepads = self.gamepads.clone();
         config.touch_canvas = crate::web::screen::canvas();
         // A replay: its log on the lanes, its options and rules, the
@@ -1910,6 +1918,10 @@ impl GameCanvas {
         facts: crate::play::PlayFacts,
     ) {
         use ddi_ui::state::history::Autoplay;
+        // The editor's playtests are tests, not plays.
+        if ctx.props().edit {
+            return;
+        }
         let Status::Ready(song) = &self.song else {
             return;
         };
@@ -2079,6 +2091,7 @@ impl GameCanvas {
                 slow: ctx.props().slow,
                 replay: Some(play),
                 view_results: false,
+                edit: false,
             };
             Rc::new(move |_: &ddi_ui::screens::Env, _: &mut ddi_ui::Cx| {
                 let route = route.clone();
@@ -2094,8 +2107,11 @@ impl GameCanvas {
                 spawn_local(async move { link.send_message(Msg::Retry) });
             })
         };
-        let song_list: ActionFn = Rc::new(|_, _| {
-            spawn_local(async { Route::Songs.return_to() });
+        // The song list, or the editor a playtest came from.
+        let back = back_route(ctx.props());
+        let song_list: ActionFn = Rc::new(move |_, _| {
+            let back = back.clone();
+            spawn_local(async move { back.return_to() });
         });
         let offset = ddi_ui::screens::play::song_offset_saver(id.clone());
         let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
@@ -2257,8 +2273,12 @@ fn js_debug(
     set(obj, "results", r.into());
 }
 
-fn back_route(source: &SongSource) -> Route {
-    match source {
+fn back_route(props: &Props) -> Route {
+    match &props.source {
+        SongSource::Song { id, chart } if props.edit => Route::Edit {
+            song: id.clone(),
+            chart: *chart,
+        },
         SongSource::Song { .. } => Route::Songs,
         SongSource::Calibration(_) => Route::Calibrate,
     }
@@ -2398,8 +2418,13 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
     let script_settings = settings.clone();
     // Off: no movie file is read and the decoder is never fetched.
     let play_videos = show_background && settings.video != VideoMode::Off;
+    let edit = ctx.props().edit;
     ctx.link().send_future(async move {
-        let r = load_song(&id, chart).await.map(|loaded| {
+        let r = load_song(&id, chart).await.map(|mut loaded| {
+            // The editor's playtest: the song as edited.
+            if edit && let Some((song, _)) = crate::editor::playtest(&id) {
+                loaded.song = song;
+            }
             // The song's own images, then those found in shared folders,
             // under the names it uses; the movies that play.
             let bg_images: Vec<String> = loaded

@@ -1,7 +1,7 @@
 //! Hash routes. The site lives under a sub-path on GitHub Pages, so routing
 //! uses the fragment: `#/` (Start), `#/select` (Songs), `#/play?song=<id>&chart=<n>`, `#/options`,
-//! `#/calibrate`, `#/credits`, `#/results`, `#/video-check`,
-//! `#/skin-preview`, `#/ui-test`, `#/ui-dev`.
+//! `#/calibrate`, `#/credits`, `#/results`, `#/edit?song=<id>&chart=<n>`,
+//! `#/video-check`, `#/skin-preview`, `#/ui-test`, `#/ui-dev`.
 
 use std::collections::BTreeMap;
 
@@ -29,6 +29,14 @@ pub(crate) enum Route {
         replay: Option<String>,
         /// `view=results`: the kept play's results, not its replay.
         view_results: bool,
+        /// `edit=1`: the chart editor's playtest (`crate::editor`): the
+        /// song as edited, never kept, back to the editor.
+        edit: bool,
+    },
+    /// The chart editor on a song (`components::edit_page`).
+    Edit {
+        song: String,
+        chart: usize,
     },
     Options,
     Calibrate,
@@ -101,6 +109,14 @@ impl Route {
                 slow: params.get("slow").is_some_and(|v| v == "1"),
                 replay: params.get("replay").filter(|r| !r.is_empty()).cloned(),
                 view_results: params.get("view").is_some_and(|v| v == "results"),
+                edit: params.get("edit").is_some_and(|v| v == "1"),
+            },
+            "edit" => Route::Edit {
+                song: params.get("song").cloned().unwrap_or_default(),
+                chart: params
+                    .get("chart")
+                    .and_then(|c| c.parse().ok())
+                    .unwrap_or(0),
             },
             "options" => Route::Options,
             "calibrate" => Route::Calibrate,
@@ -167,9 +183,11 @@ impl Route {
                 slow,
                 replay,
                 view_results,
+                edit,
             } => {
                 let gl = if *force_gl { "&gfx=gl" } else { "" };
                 let slow = if *slow { "&slow=1" } else { "" };
+                let edit = if *edit { "&edit=1" } else { "" };
                 if let Some(id) = replay {
                     let view = if *view_results { "&view=results" } else { "" };
                     return format!("#/play?replay={}{view}{gl}{slow}", percent_encode(id));
@@ -180,10 +198,13 @@ impl Route {
                     (false, false) => "",
                 };
                 format!(
-                    "#/play?song={}&chart={chart}{gl}{auto}{}{slow}",
+                    "#/play?song={}&chart={chart}{gl}{auto}{}{slow}{edit}",
                     percent_encode(song),
                     bias_param(*bias_ms)
                 )
+            }
+            Route::Edit { song, chart } => {
+                format!("#/edit?song={}&chart={chart}", percent_encode(song))
             }
             Route::Options => "#/options".into(),
             Route::Calibrate => "#/calibrate".into(),
@@ -274,6 +295,11 @@ pub(crate) fn keep_testing(hash: &str) {
         .unwrap_or((hash.trim_start_matches('#'), ""));
     let path = path.trim_start_matches('/');
     if !matches!(path, "" | "select" | "play" | "calibrate") {
+        return;
+    }
+    // The chart editor's playtest says nothing about the session's
+    // plays (its `auto` is the editor's choice for that test only).
+    if path == "play" && query.split('&').any(|kv| kv == "edit=1") {
         return;
     }
     let kept: Vec<&str> = query
@@ -523,7 +549,7 @@ pub(crate) fn back() {
     let destination = match Route::current() {
         Route::Home => Destination::Start,
         Route::Songs => Destination::Songs,
-        Route::Play { .. } => Destination::Play,
+        Route::Play { .. } | Route::Edit { .. } => Destination::Play,
         Route::Options => Destination::Options,
         Route::Credits => Destination::Credits,
         _ => Destination::Calibration,
@@ -638,8 +664,18 @@ mod tests {
                 slow: true,
                 replay: None,
                 view_results: false,
+                edit: false,
             }
         );
+        let r = Route::parse("#/edit?song=a%20b&chart=3");
+        assert_eq!(
+            r,
+            Route::Edit {
+                song: "a b".into(),
+                chart: 3
+            }
+        );
+        assert_eq!(Route::parse(&r.to_hash()), r);
         let r = Route::parse("#/play?replay=000001760000000-0a1b2c3d&view=results");
         assert!(matches!(
             &r,

@@ -119,6 +119,7 @@ impl Component for ReplayLoader {
                 slow: p.slow,
                 backend: p.backend,
                 replay: Some(prop),
+                edit: false,
             },
         ));
         false

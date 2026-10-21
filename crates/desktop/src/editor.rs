@@ -200,7 +200,18 @@ pub fn screen(
     let target = target(id);
     let place = EditorPlace {
         save: target.as_ref().map(|t| t.file.display().to_string()),
-        overwrites: target.as_ref().is_some_and(|t| t.overwrites),
+        confirm: target.as_ref().filter(|t| t.overwrites).map(|t| {
+            let name = t
+                .file
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            format!(
+                "{} is replaced; the file as it was is kept beside it as {name}.old (at the \
+                 first save each time the editor is opened).",
+                t.file.display()
+            )
+        }),
         export: Some("Save a copy".into()),
         listen: false,
         playtest: true,

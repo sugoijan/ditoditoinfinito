@@ -24,7 +24,9 @@ the browser are implementation details, not advertised features.
 
 - `crates/chart/` chart model and importers (`.sm`/`.ssc`; FFR's `beatBox`,
   `formats/ffr.rs`), 48 ticks per beat, exact
-  StepMania timing semantics. Pure, natively tested.
+  StepMania timing semantics, and the `.ssc`/`.sm` writer the chart
+  editor saves with (`formats/sm_write.rs`: what is read is written back
+  equal). Pure, natively tested.
 - `crates/engine/` deterministic gameplay: clock, judge, rulesets, scoring, gauges,
   scroll, calibration maths. No I/O. Replay fixtures in `crates/engine/tests/`.
 - `crates/render/` wgpu scene (procedural SDF arrows, glyphon text) and the 2D pass
@@ -65,7 +67,8 @@ the browser are implementation details, not advertised features.
   Dancing☆Onigiri work's songs, ids, music and layers; the web's import
   runs them on `Blob`s, desktop's library on its folders), FFR levels
   (`ffr.rs`: a song a level file, its folder its pack; the chart and
-  music of a SWF, `swf.rs`). Pure, natively tested.
+  music of a SWF, `swf.rs`), a stored song's entry after the chart
+  editor saved it (`edited.rs`). Pure, natively tested.
 - `crates/actor/` StepMania's actor model, shared by noteskins and later our
   screens (`docs/plans/ui-core.md`): actors, the tween queue, effects,
   sprite states, eases, commands as metrics write them, a model's meshes,
@@ -92,8 +95,11 @@ the browser are implementation details, not advertised features.
   library (`select_view.rs`), the play
   history and its replays, `crates/ui/src/state/history/`, and when its
   stale plays are judged again, `reworker.rs`; stored through
-  `ddi_platform::storage`, which each shell installs) and the developer
-  screen both shells run (`crates/ui/src/dev.rs`). Pure, natively tested.
+  `ddi_platform::storage`, which each shell installs), the chart
+  editor's model (`crates/ui/src/state/editor/`: edits with undo) and
+  screen (`crates/ui/src/screens/editor.rs`, `docs/plans/editor.md`) and
+  the developer screen both shells run (`crates/ui/src/dev.rs`). Pure,
+  natively tested.
 - `crates/theme/` our theme (`ddi-theme`, `docs/plans/theme.md`): `Infinito`,
   a look for the UI core whose components are the maintainer's mockups,
   its colors, faces, sizes, timings and places in
@@ -182,7 +188,10 @@ the browser are implementation details, not advertised features.
   and the play history in IndexedDB (`ddi-library` version 3; the plays in
   `plays` and `play_summaries`, `crates/web/src/history.rs`,
   `docs/plans/play-history.md`), replays on the play route
-  (`#/play?replay=<play id>`, `crates/web/src/replay.rs`). Compiles for `wasm32-unknown-unknown` only (empty when
+  (`#/play?replay=<play id>`, `crates/web/src/replay.rs`), the chart
+  editor at `#/edit?song=<id>&chart=<n>` (`components/edit_page.rs`;
+  its session, saving and playtests `#/play?…&edit=1`,
+  `crates/web/src/editor.rs`). Compiles for `wasm32-unknown-unknown` only (empty when
   built natively).
 - `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with
@@ -215,7 +224,9 @@ the browser are implementation details, not advertised features.
   itself turns on; the refreshes from a display link on macOS,
   `display_link.rs`: the view's `CADisplayLink` from macOS 14, else a
   `CVDisplayLink`);
-  calibration's menu and tests (`calibrate.rs`); the
+  calibration's menu and tests (`calibrate.rs`); the chart editor
+  (`editor.rs`: song select's E, saving into the song's folder, its
+  playtests); the
   devices' fingerprints and notices (`devices.rs`). Settings in
   `storage.json` in the config folder; `DDI_HOME` moves the config, data
   and cache folders under it (`paths.rs`). Tested without a sound device
@@ -415,6 +426,9 @@ the browser are implementation details, not advertised features.
   (`video_native*`) run on a Mac only: CI sets `DDI_SKIP_VT=1`, its
   virtual machines' VideoToolbox having stalled in them;
   `DDI_REQUIRE_VT=1` makes a refused hardware session fail them.
+- `DDI_WRITE_CORPUS=<dir>[:<dir>…] cargo test -p ddi-chart --test write local_corpus -- --nocapture`
+  writes every `.sm`/`.ssc` under local folders back as `.ssc` (and
+  `.sm` when nothing is lost) and expects it read back equal.
 - `DDI_DIFF_CORPUS=<dir> cargo test -p ddi-chart --test differential local_corpus -- --nocapture`
   compares every `.sm` under a local folder against the two oracle parsers
   (`DDI_EXTRA_SIMFILES` does the same for plain parsing in `simfiles.rs`;

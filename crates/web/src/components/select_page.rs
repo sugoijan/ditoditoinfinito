@@ -477,6 +477,7 @@ impl SelectPage {
         };
         let screen = SelectScreen::new(env2, data, None, play, options)
             .with_shell(shell, self.shared.feed.clone())
+            .with_editing()
             // A chart's kept plays (`docs/plans/play-history.md`, Replays).
             .with_plays(ddi_ui::state::history::plays_list(
                 crate::history::plays(),
@@ -787,6 +788,13 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
         SelectCall::WatchPlay(id) => cx.request(UiRequest::Navigate(replay_hash(&id, false))),
         SelectCall::ShowPlay(id) => cx.request(UiRequest::Navigate(replay_hash(&id, true))),
         SelectCall::RemovePlay(id) => crate::history::remove_play(&id),
+        // The chart editor (`docs/plans/editor.md`).
+        SelectCall::Edit { song, chart } => {
+            crate::select_preview::close();
+            cx.request(UiRequest::Navigate(
+                crate::router::Route::Edit { song, chart }.to_hash(),
+            ));
+        }
         SelectCall::Open(what) => match what.as_str() {
             "calibrate" => cx.request(UiRequest::Navigate(
                 crate::router::Route::Calibrate.to_hash(),

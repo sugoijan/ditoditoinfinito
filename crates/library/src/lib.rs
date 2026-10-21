@@ -21,11 +21,13 @@
 //! - [`video`]: which background-change files are movies and what they are.
 //! - [`swf`]: an FFR level's chart and music from its SWF; [`ffr`]: levels
 //!   found among files, read into songs.
+//! - [`edited`]: a stored song's entry after the chart editor saved it.
 
 pub mod avi;
 pub mod backgrounds;
 pub(crate) mod bytes;
 pub mod danoni;
+pub mod edited;
 pub mod ffr;
 pub mod h264;
 pub mod image;

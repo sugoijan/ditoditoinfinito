@@ -501,10 +501,15 @@ pub(crate) fn field_settings(
 /// as the host is free (after the handler that asked returns); nothing
 /// once it is gone.
 pub(crate) fn broadcast_soon(host: Weak<RefCell<Host>>, name: &'static str) {
+    broadcast_message_soon(host, Message::new(name));
+}
+
+/// [`broadcast_soon`] with a message's parameters.
+pub(crate) fn broadcast_message_soon(host: Weak<RefCell<Host>>, message: Message) {
     gloo::timers::callback::Timeout::new(0, move || {
         let Some(h) = host.upgrade() else { return };
         if let Ok(mut hm) = h.try_borrow_mut() {
-            hm.ui.broadcast(Message::new(name));
+            hm.ui.broadcast(message);
         }
         wake(&h);
     })
@@ -2288,6 +2293,24 @@ fn publish(h: &Host) {
             // The start prompt's buttons, by name (`Start`, `Device.defaults`).
             names.extend(st.page_items.iter().cloned());
             names.push("Card".into());
+        } else if st.screen == "editor" {
+            // The chart editor's buttons, field and dialogs (a list's
+            // `Item.<id>` in `page_items`).
+            names.extend(
+                [
+                    "Button.Menu",
+                    "Button.Save",
+                    "Button.Play",
+                    "FieldLayer",
+                    "Cursor",
+                    "Value",
+                    "Ok",
+                    "Cancel",
+                    "Confirm",
+                ]
+                .map(String::from),
+            );
+            names.extend(st.page_items.iter().cloned());
         } else if !st.page_items.is_empty() {
             names.extend(["Column".to_string(), "Back".into()]);
             names.extend((0..st.page_items.len()).map(|i| format!("Item{i}")));
@@ -2465,6 +2488,26 @@ fn publish(h: &Host) {
             }),
         );
         set(&o, "status", st.status.as_str().into());
+        // The chart editor's view (`docs/plans/editor.md`).
+        set(
+            &o,
+            "editor",
+            st.editor.as_ref().map_or(JsValue::NULL, |e| {
+                let v = js_sys::Object::new();
+                set(&v, "song", e.song.as_str().into());
+                set(&v, "chart", (e.chart as f64).into());
+                set(&v, "charts", (e.charts as f64).into());
+                set(&v, "layout", e.layout.as_str().into());
+                set(&v, "cursor", (e.cursor as f64).into());
+                set(&v, "snap", (e.snap as f64).into());
+                set(&v, "tool", e.tool.as_str().into());
+                set(&v, "notes", (e.notes as f64).into());
+                set(&v, "dirty", e.dirty.into());
+                set(&v, "canUndo", e.can_undo.into());
+                set(&v, "segments", strings(&e.segments));
+                v.into()
+            }),
+        );
         set(
             &o,
             "best",

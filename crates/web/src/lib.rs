@@ -12,6 +12,7 @@ mod calibration;
 mod component;
 mod components;
 mod crash;
+mod editor;
 mod field_preview;
 mod game_loop;
 mod history;

@@ -94,6 +94,8 @@ impl Screen for ActionsDialog {
             let cy = y + top + row as f32 * (ROW + GAP) + ROW / 2.0;
             c.push(button(&env, &name, &label, [cx_, cy], col_w, "Button"));
         }
+        // Where the shells' debug views find the buttons.
+        env.state.borrow_mut().page_items = self.focusables().into_iter().map(|f| f.name).collect();
         dialog_root(c)
     }
 

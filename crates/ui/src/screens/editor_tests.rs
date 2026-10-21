@@ -51,7 +51,7 @@ fn env() -> Env {
 fn place() -> EditorPlace {
     EditorPlace {
         save: Some("Songs/Pack/Song/song.ssc".into()),
-        overwrites: true,
+        confirm: Some("song.ssc is replaced.".into()),
         export: Some("Download".into()),
         listen: true,
         playtest: true,
@@ -271,11 +271,7 @@ fn playtests_and_saves_go_to_the_shell() {
     // Saving over the file asks first; Cancel saves nothing.
     s.h.tap(PointerKind::Mouse, "Button.Save");
     s.h.run(0.2);
-    assert!(
-        s.h.texts()
-            .iter()
-            .any(|t| t == "Save over the song's file?")
-    );
+    assert!(s.h.texts().iter().any(|t| t == "Save over the song?"));
     s.h.tap(PointerKind::Mouse, "Cancel");
     s.h.run(0.2);
     assert!(view(&s).dirty);
