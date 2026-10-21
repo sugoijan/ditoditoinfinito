@@ -801,6 +801,8 @@ mod tests {
                         fail: ddi_engine::rules::FailType::Off,
                         life: 6,
                         judge: 5,
+                        life_type: ddi_engine::rules::LifeType::Battery,
+                        lives: 2,
                     },
                     ..Settings::default()
                 };

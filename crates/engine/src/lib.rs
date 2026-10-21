@@ -61,8 +61,8 @@ pub use judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
 pub use player::{PlayOptions, Player, Results};
 pub use rules::{
     ComboRules, EmptyPress, FailPolicy, FailType, FullCombo, GaugeRules, GradeBasis, GradeTable,
-    JudgeNames, JudgeTable, Judgement, Ruleset, RulesetKey, ScoreCtx, ScoreRules, ScoreView,
-    StepManiaOptions, Tally, Window, presets,
+    JudgeNames, JudgeTable, Judgement, LifeType, Ruleset, RulesetKey, ScoreCtx, ScoreRules,
+    ScoreView, StepManiaOptions, Tally, Window, presets,
 };
 pub use scroll::{ScrollAction, ScrollOptions, ScrollState, SpeedMod, note_y};
 pub use transform::{TimingCut, TransformOptions, Turn};

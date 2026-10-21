@@ -786,6 +786,7 @@ mod tests {
                 fail,
                 life: 6,
                 judge: 9,
+                ..Default::default()
             })
         };
         let mut r = results([10, 0, 0, 0, 0, 0]);

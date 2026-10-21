@@ -23,7 +23,12 @@ fn taps(n: i64) -> ddi_chart::Song {
 }
 
 fn options(fail: FailType, life: u8, judge: u8) -> StepManiaOptions {
-    StepManiaOptions { fail, life, judge }
+    StepManiaOptions {
+        fail,
+        life,
+        judge,
+        ..StepManiaOptions::default()
+    }
 }
 
 fn itg(o: StepManiaOptions) -> Ruleset {
@@ -291,4 +296,47 @@ fn fa_plus_splits_the_fantastics_and_scores_ex() {
     p.update_at(1e6);
     assert_eq!(p.results().score.ex_percent, Some(1.0));
     assert_eq!(presets::by_id("itg-fa+").unwrap().id, "itg-fa+");
+}
+
+/// StepMania's battery: a life lost for each tap worse than a Great, the
+/// play failed with the last; no life level; bests with the bar's.
+#[test]
+fn the_battery_loses_a_life_a_miss() {
+    use ddi_engine::rules::LifeType;
+    let song = taps(12);
+    let battery = |lives, life| StepManiaOptions {
+        life_type: LifeType::Battery,
+        lives,
+        life,
+        ..StepManiaOptions::default()
+    };
+    // Every other note missed: two lives last four notes.
+    let p = play(&song, itg(battery(2, 7)), |i| i % 2 == 1, 0.0);
+    let r = p.results();
+    assert!(r.failed);
+    assert_eq!(r.tally.count(Judgement::Miss), 2);
+    assert_eq!(r.tally.count(Judgement::W1), 1);
+    assert_eq!(replayed(&song, &p), r);
+    assert_eq!(r.life.last().map(|l| l[1]), Some(0.0));
+    // Greats keep their lives (60 ms late: ITG's Great).
+    let p = play(&song, itg(battery(1, 4)), |_| true, 0.06);
+    let r = p.results();
+    assert_eq!(r.tally.count(Judgement::W3), 12);
+    assert!(!r.failed);
+    assert_eq!(r.life.last().map(|l| l[1]), Some(1.0));
+    // The key: lives kept, the life level not (no bar to scale); the best
+    // key as the bar's.
+    let rules = itg(battery(3, 7));
+    assert_eq!(rules.stepmania, battery(3, 4));
+    assert!(rules.gauge.danger_line().is_none());
+    assert_eq!(rules.key().best_key(), presets::itg().key());
+    assert_eq!(battery(3, 4).summary(), vec!["battery 3 lives".to_string()]);
+    assert_eq!(battery(1, 4).summary(), vec!["battery 1 life".to_string()]);
+    // Under the bar, lives are not kept.
+    let bar = itg(StepManiaOptions {
+        lives: 9,
+        ..StepManiaOptions::default()
+    });
+    assert!(bar.stepmania.is_default());
+    assert_eq!(battery(0, 4).sanitized().lives, 1);
 }

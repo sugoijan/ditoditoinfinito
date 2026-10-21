@@ -9,7 +9,7 @@
 use ddi_chart::Layout;
 use ddi_engine::rules::danoni::JudgeRange;
 use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
-use ddi_engine::rules::{FailType, JUDGE_SCALES, LIFE_SCALES, StepManiaOptions};
+use ddi_engine::rules::{FailType, JUDGE_SCALES, LIFE_SCALES, LifeType, StepManiaOptions};
 use ddi_engine::scroll::SpeedSource;
 use ddi_engine::{Appearance, ConnectedPad, PadUse, ScrollAction, TimingCut, Turn};
 use ddi_platform::DeviceId;
@@ -533,6 +533,21 @@ impl OptionsModel {
                     usize::from(s.stepmania.judge.max(1) - 1),
                     "Higher narrows every timing window (StepMania's levels; 4 is the ruleset's \
                      own, Justice the narrowest). Bests are kept apart for each level.",
+                ),
+                choice(
+                    "life_type",
+                    "Life",
+                    &["Bar", "Battery"],
+                    pos(&LifeType::ALL, s.stepmania.life_type),
+                    "The ruleset's life bar, or a battery of lives: one lost for each step worse \
+                     than a Great, each mine stepped on and each hold let go.",
+                ),
+                row(
+                    "lives",
+                    "Battery lives",
+                    OptionKind::Stepper(levels(usize::from(StepManiaOptions::MAX_LIVES))),
+                    usize::from(s.stepmania.lives.max(1) - 1),
+                    "How many lives the battery starts with.",
                 ),
                 gauge,
                 choice(
@@ -1280,6 +1295,10 @@ impl OptionsModel {
             "fail" => s.stepmania.fail = at(&FailType::ALL, i),
             "life" => s.stepmania.life = (i.min(LIFE_SCALES.len() - 1) + 1) as u8,
             "judge" => s.stepmania.judge = (i.min(JUDGE_SCALES.len() - 1) + 1) as u8,
+            "life_type" => s.stepmania.life_type = at(&LifeType::ALL, i),
+            "lives" => {
+                s.stepmania.lives = (i.min(usize::from(StepManiaOptions::MAX_LIVES) - 1) + 1) as u8
+            }
             "danoni.gauge" => {
                 s.danoni.gauge = DANONI_GAUGES
                     .get(i)

@@ -152,6 +152,16 @@ hit for display/EX only", section 3.3 of the research).
     (`crates/noteskin/src/lua/convert.rs`), so the `play` its commands
     send does nothing. Skins rarely carry sounds, and one that did would
     sound over the game's own; the game's sounds stand for them.
+15. The battery (step 6) is StepMania's "Life" player option, not a
+    preset: `StepManiaOptions::life_type` (Bar, the preset's own gauge, or
+    Battery) and `lives` (1–10, 4 by default, StepMania's
+    `m_BatteryLives`), with `_fallback`'s `LifeMeterBattery` metrics (a
+    life lost for a tap worse than a Great, a mine, a hold let go; none
+    for a missed checkpoint, none gained back within a song). Under it the
+    life level does nothing (StepMania scales only the bar) and is kept at
+    4 in the key. Bests are kept with the bar's: the meter changes whether
+    a play fails, not how it is judged. DDR's LIFE4 is not this (its own
+    rules, phase 10).
 
 ## Steps
 
@@ -178,6 +188,11 @@ hit for display/EX only", section 3.3 of the research).
    `EventSounds`), the session scheduling claps and playing the mine
    sound, the settings `assist_clap` and `mine_sound` and their rows, the
    web's `__DDI_DEBUG.claps` and `mine_sounds`.
+6. The battery. Done (decision 15): `LifeType`, the "Life" and "Battery
+   lives" rows, the mods line ("battery 2 lives"). Lane covers
+   (Hidden+/Sudden+) are left: they need the renderer to draw a cover
+   over the lanes and a way to move it during play, beyond this plan's
+   crates; they stay in PLAN.md's gaps.
 
 ## Checks
 
@@ -212,6 +227,10 @@ hit for display/EX only", section 3.3 of the research).
   chart's 122 BPM sixteenths to 10⁻¹¹ ms; off, none (WebGPU and WebGL2).
   `mine-sound.mjs`: every lane held through Beatucada's Challenge chart
   steps on its mines, 18 mine sounds in 45 s; with the sound off, none.
+- Battery: `the_battery_loses_a_life_a_miss` (engine); in the browser
+  (`rules-options.mjs battery`) two lives and every note missed fail the
+  play at the second miss, "battery 2 lives" in the mods. Options' Rules
+  section looked at in a screenshot (the new rows fit).
 - Event sounds: the sounds' shape (`sounds::tests`), the session's claps
   at the music's time of each row, asked for ahead, the mine sound at the
   step, none when off

@@ -146,7 +146,8 @@ metrics its theme sets for `pump`):
 - **The hold's outcome** at its tail: O.K. when no checkpoint was missed
   and at least one was hit (a hold without checkpoints: when its head
   was stepped on); a roll is O.K. when its life is above zero at its
-  tail. StepMania's battery gauge (no preset uses one yet) loses no life
+  tail. StepMania's battery gauge (the "Life: Battery" option since
+  2026-10-21, `rules-options.md`) loses no life
   on a missed checkpoint and one on a dropped hold, ticked or not.
 - **Display**: a checkpoint shows no judgement word (the `_fallback`
   theme draws none for it), only the combo; held lanes flash as a

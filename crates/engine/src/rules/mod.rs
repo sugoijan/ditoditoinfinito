@@ -381,10 +381,31 @@ pub const LIFE_SCALES: [f64; 7] = [1.60, 1.40, 1.20, 1.00, 0.80, 0.60, 0.40];
 /// window is `scale × seconds + add` (`Player::GetWindowSeconds`).
 pub const JUDGE_SCALES: [f64; 9] = [1.50, 1.33, 1.16, 1.00, 0.84, 0.66, 0.50, 0.33, 0.20];
 
+/// StepMania's life meters the player may choose instead of a preset's
+/// own (`LifeType`, the player options' "Life" row; its third, Lifetime,
+/// is for courses).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LifeType {
+    /// The preset's own gauge.
+    #[default]
+    Bar,
+    /// Lives ([`gauge::Battery`]): one lost for each tap worse than
+    /// `W3`, mine stepped on and hold let go, as `LifeMeterBattery` with
+    /// `_fallback`'s metrics (`MinScoreToKeepLife` W3, `SubtractLives`,
+    /// `MinesSubtractLives` and `LetGoSubtractLives` 1); none gained back
+    /// within a song.
+    Battery,
+}
+
+impl LifeType {
+    pub const ALL: [LifeType; 2] = [LifeType::Bar, LifeType::Battery];
+}
+
 /// What the player chooses for the StepMania presets beyond the preset:
-/// the fail type, and StepMania's life and judge difficulty as its levels
-/// (4 leaves a preset as it is). Not under Dancing☆Onigiri's rules, whose
-/// gauges and judge range are its own ([`danoni::DanoniOptions`]).
+/// the fail type, StepMania's life and judge difficulty as its levels (4
+/// leaves a preset as it is), and the life meter. Not under
+/// Dancing☆Onigiri's rules, whose gauges and judge range are its own
+/// ([`danoni::DanoniOptions`]).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StepManiaOptions {
@@ -394,6 +415,11 @@ pub struct StepManiaOptions {
     pub life: u8,
     /// 1 (widest) to 9 (Justice), [`JUDGE_SCALES`].
     pub judge: u8,
+    #[serde(deserialize_with = "crate::lenient")]
+    pub life_type: LifeType,
+    /// The battery's lives, 1 to [`StepManiaOptions::MAX_LIVES`]
+    /// (`BatteryLives`, 4 by default).
+    pub lives: u8,
 }
 
 impl Default for StepManiaOptions {
@@ -402,6 +428,8 @@ impl Default for StepManiaOptions {
             fail: FailType::Immediate,
             life: StepManiaOptions::DEFAULT_LEVEL,
             judge: StepManiaOptions::DEFAULT_LEVEL,
+            life_type: LifeType::Bar,
+            lives: StepManiaOptions::DEFAULT_LIVES,
         }
     }
 }
@@ -409,16 +437,22 @@ impl Default for StepManiaOptions {
 impl StepManiaOptions {
     /// The level that leaves a preset as it is (StepMania's default, 1.0).
     pub const DEFAULT_LEVEL: u8 = 4;
+    /// StepMania's `PlayerOptions::m_BatteryLives` as it starts.
+    pub const DEFAULT_LIVES: u8 = 4;
+    /// The most lives the options offer (StepMania's battery rows go to
+    /// 10).
+    pub const MAX_LIVES: u8 = 10;
 
     pub fn is_default(&self) -> bool {
         *self == StepManiaOptions::default()
     }
 
-    /// The levels clamped to those StepMania has.
+    /// The levels and lives clamped to those StepMania has.
     pub fn sanitized(self) -> StepManiaOptions {
         StepManiaOptions {
             life: self.life.clamp(1, LIFE_SCALES.len() as u8),
             judge: self.judge.clamp(1, JUDGE_SCALES.len() as u8),
+            lives: self.lives.clamp(1, Self::MAX_LIVES),
             ..self
         }
     }
@@ -451,6 +485,13 @@ impl StepManiaOptions {
             FailType::Off => out.push("fail off".into()),
         }
         let s = self.sanitized();
+        if s.life_type == LifeType::Battery {
+            out.push(format!(
+                "battery {} {}",
+                s.lives,
+                if s.lives == 1 { "life" } else { "lives" }
+            ));
+        }
         if s.life != Self::DEFAULT_LEVEL {
             out.push(format!("life {}", s.life));
         }
@@ -828,6 +869,7 @@ impl RulesetKey {
                 .danoni
                 .clone()
                 .map(|d| danoni::DanoniOptions { gauge: None, ..d }),
+            // The judge level only.
             stepmania: StepManiaOptions {
                 judge: self.stepmania.judge,
                 ..StepManiaOptions::default()
@@ -868,17 +910,24 @@ impl Ruleset {
     }
 
     /// The StepMania preset with the player's fail type, life and judge
-    /// difficulty (`options`); other rules as they are. The judge level
-    /// scales every window, holds', rolls' and mines' too (StepMania's
-    /// `GetWindowSeconds`); the life level only a life bar's changes
-    /// (`LifeMeterBar`), so under a gauge without one the default level
-    /// is kept.
+    /// difficulty and life meter (`options`); other rules as they are.
+    /// The judge level scales every window, holds', rolls' and mines' too
+    /// (StepMania's `GetWindowSeconds`); the life level only a life bar's
+    /// changes (`LifeMeterBar`), so under a gauge without one (a battery,
+    /// DDR A's) the default level is kept, as are the default lives under
+    /// a bar.
     pub fn with_stepmania(mut self, options: &StepManiaOptions) -> Ruleset {
         if !self.is_stepmania() {
             return self;
         }
         let mut options = options.sanitized();
         self.judge.scale *= options.judge_scale();
+        match options.life_type {
+            LifeType::Bar => options.lives = StepManiaOptions::DEFAULT_LIVES,
+            LifeType::Battery => {
+                self.gauge = Box::new(Battery::new(u32::from(options.lives), Judgement::W3, 1, 1))
+            }
+        }
         if !self.gauge.set_difficulty(options.life_scale()) {
             options.life = StepManiaOptions::DEFAULT_LEVEL;
         }

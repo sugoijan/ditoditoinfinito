@@ -463,7 +463,8 @@ Rules and options:
   `ddr-extreme` and `ffr` (section 3.3) are not built.
 - Not built: lane covers (Hidden+/Sudden+), music rate, a separate judge
   offset (section 3.3); DDR legacy scoring, FLARE, LIFE4, editor
-  (phase 10). The battery gauge has no preset (`docs/plans/pump.md`).
+  (phase 10). The battery is an option of the StepMania presets, not a
+  preset (`docs/plans/rules-options.md`).
 - DDR A windows and gauge are approximations (section 7);
   the shock window and hide time are not measured (decision 42);
   `#COMBOS` has no miss counter and comes from `.ssc` only (decision 43);

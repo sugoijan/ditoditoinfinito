@@ -259,7 +259,12 @@ fn stepmania_options_are_kept_with_the_play() {
     let song = song();
     let with = |fail, life, judge| {
         presets::itg()
-            .with_stepmania(&StepManiaOptions { fail, life, judge })
+            .with_stepmania(&StepManiaOptions {
+                fail,
+                life,
+                judge,
+                ..Default::default()
+            })
             .key()
     };
     let strict = with(FailType::Off, 7, 8);
