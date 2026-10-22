@@ -420,6 +420,7 @@ Actor = H.actor_methods
 Sprite = H.sprite_methods
 ActorFrame = H.frame_methods
 Model = H.model_methods
+ActorFrameTexture = H.frame_texture_methods
 
 -- 02 Sprite.lua.
 function Sprite.LinearFrames(NumFrames, Seconds)

@@ -280,6 +280,70 @@ fn stepmania_3_9_animations_draw_natively() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A script drawing a render target: a 64 × 64 `ActorFrameTexture`
+/// whose left half is a red quad, shown by a sprite 150 × 480 at the
+/// screen's left edge over a green screen; with `alpha` the target keeps
+/// its alpha (the green shows through its right half), else it is opaque
+/// (black there).
+fn target_script(alpha: bool) -> String {
+    format!(
+        "local aft\n\
+         return Def.ActorFrame {{\n\
+           Def.Quad {{ OnCommand = cmd(FullScreen; diffuse, color(\"0,0.8,0,1\")) }},\n\
+           Def.ActorFrameTexture {{\n\
+             InitCommand = function(self)\n\
+               aft = self\n\
+               self:SetWidth(64):SetHeight(64):EnableAlphaBuffer({alpha}):Create()\n\
+             end,\n\
+             Def.Quad {{ OnCommand = cmd(zoomto, 32, 64; xy, 16, 32; diffuse, color(\"0.8,0.1,0.1,1\")) }},\n\
+           }},\n\
+           Def.Sprite {{\n\
+             OnCommand = function(self)\n\
+               self:SetTexture(aft:GetTexture()):zoomto(150, 480):xy(75, 240)\n\
+             end,\n\
+           }},\n\
+         }}\n"
+    )
+}
+
+#[test]
+fn render_targets_draw_into_their_textures() {
+    let dir = std::env::temp_dir().join(format!("ddi-play-targets-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let song = dir.join("Pack/Targets");
+    for (folder, alpha) in [("BG", false), ("Alpha", true)] {
+        std::fs::create_dir_all(song.join(folder)).unwrap();
+        std::fs::write(song.join(folder).join("default.lua"), target_script(alpha)).unwrap();
+    }
+    std::fs::write(
+        song.join("song.sm"),
+        simfile(false)
+            .replace("#FGCHANGES:12=FG=1=0=0=0;", "")
+            .replace(",99999=", ",12=Alpha=1=0=0=0,99999="),
+    )
+    .unwrap();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([30, 30, 200, 255]))
+        .save(song.join("bg.png"))
+        .unwrap();
+    std::fs::write(song.join("music.wav"), silence()).unwrap();
+    let (samples, stopped, _) = play(&adapter, &dir, &[1.0, 3.0, 7.0], 2);
+    assert_eq!(stopped, None);
+    const RED: [u8; 3] = [204, 26, 26];
+    const BLACK: [u8; 3] = [0, 0, 0];
+    let want = [[BLUE, BLUE], [RED, BLACK], [RED, GREEN]];
+    for ((t, got, _), want) in samples.iter().zip(want) {
+        for (g, w) in got.iter().zip(want) {
+            assert!(near(*g, w), "at {t:.3} s: {got:?}, want {want:?}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A script whose Lua spends most of the load's fuel before it returns
 /// its actor.
 const BURN: &str = "local n = 0\n\

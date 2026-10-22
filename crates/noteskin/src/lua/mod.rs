@@ -297,6 +297,10 @@ pub(crate) struct Host {
     pub played: Vec<String>,
     /// The frame's song position; `None` while loading.
     pub position: Option<Position>,
+    /// A song's scripts' render targets (`ActorFrameTexture::Create`):
+    /// each one's size, by its index, and the pixels they hold.
+    pub targets: Vec<[u32; 2]>,
+    pub target_pixels: u64,
     /// The skin's parameters (`NOTESKIN:GetParameter`), their values in
     /// [`Env::params`].
     pub declared: crate::params::Declared,
@@ -320,8 +324,9 @@ struct Registries {
     commands: StashedTable,
     /// Actor id → `{ child ids }`.
     children: StashedTable,
-    /// The userdata metatables: Actor, Sprite, ActorFrame, Model.
-    metatables: [StashedTable; 4],
+    /// The userdata metatables: Actor, Sprite, ActorFrame, Model,
+    /// ActorFrameTexture.
+    metatables: [StashedTable; 5],
 }
 
 /// The prelude's entry points.
@@ -408,6 +413,8 @@ impl LuaSkin {
             sounds: std::collections::HashMap::new(),
             played: Vec::new(),
             position: None,
+            targets: Vec::new(),
+            target_pixels: 0,
             declared,
         }));
         // What its declarations left out, said as the Lua's warnings are.
@@ -892,6 +899,12 @@ impl LuaSkin {
         files.sort();
         files.dedup();
         files
+    }
+
+    /// The render targets a song's scripts made (`ActorFrameTexture::Create`),
+    /// each one's size by its index ([`ddi_actor::Target::index`]).
+    pub fn render_targets(&self) -> Vec<[u32; 2]> {
+        self.host.borrow().targets.clone()
     }
 
     /// The sounds the scripts played (`play` on a `Sound` actor) since

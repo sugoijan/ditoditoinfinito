@@ -792,6 +792,48 @@ pub enum Drawn {
     Text(TextDraw),
     ClipPush(Clip),
     ClipPop,
+    /// What an `ActorFrameTexture` draws into its texture.
+    Target(TargetDraw),
+}
+
+/// An `ActorFrameTexture` of a song's scripts: a frame whose children are
+/// drawn into a texture of its own (`ActorFrameTexture::DrawPrimitives`),
+/// not on the screen; sprites show that texture
+/// ([`target_texture`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Target {
+    /// Its texture's index among the song's, once `Create`d (the host
+    /// gives it); nothing is drawn before.
+    pub index: Option<u32>,
+    /// `SetWidth`, `SetHeight` (`m_size`): the texture's size.
+    pub size: [f32; 2],
+    /// `EnableAlphaBuffer`: the texture keeps its alpha (else it is
+    /// opaque, black where nothing is drawn).
+    pub alpha: bool,
+    /// `EnablePreserveTexture`: drawn over what it held (else cleared
+    /// each frame).
+    pub preserve: bool,
+}
+
+/// The texture id a sprite carries to show render target `index`
+/// ([`Target::index`]).
+pub fn target_texture(index: u32) -> u32 {
+    TARGET_TEXTURES | index
+}
+
+/// The ids from here on (up to [`UNTEXTURED`]) are render targets'.
+pub const TARGET_TEXTURES: u32 = 0x8000_0000;
+
+/// A render target's frame drawn ([`Drawn::Target`]): what its children
+/// draw, in its pixels (its upper left at 0, 0).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TargetDraw {
+    pub index: u32,
+    /// Its width and height, whole pixels.
+    pub size: [u32; 2],
+    pub alpha: bool,
+    pub preserve: bool,
+    pub drawn: Vec<Drawn>,
 }
 
 /// Where StepMania's screen is on the target: what an `fov` frame's camera
@@ -988,11 +1030,17 @@ pub struct Actor {
     /// Shared, so playing one does not copy it.
     commands: Vec<(String, Arc<[Call]>)>,
     rng: u64,
+    /// An `ActorFrameTexture`'s render target ([`Target`]).
+    pub target: Option<Box<Target>>,
 }
 
 /// The methods [`Actor::call`] runs (the setters a skin's Lua may call);
 /// `playcommand` is the Lua driver's in a Lua skin.
 pub const METHODS: &[&str] = &[
+    "EnableAlphaBuffer",
+    "EnableDepthBuffer",
+    "EnableFloat",
+    "EnablePreserveTexture",
     "MaskDest",
     "MaskSource",
     "SetAllStateDelays",
@@ -1317,6 +1365,7 @@ impl Actor {
             update_rate: 1.0,
             commands: Vec::new(),
             rng: 0x853c_49e6_748f_ea9b,
+            target: None,
         };
         a.set_effect_period(1.0);
         a
@@ -2457,6 +2506,9 @@ impl Actor {
             }
             "SetWidth" | "SetHeight" => {
                 let v = num(0)?;
+                if let Some(t) = &mut self.target {
+                    t.size[usize::from(call.method == "SetHeight")] = v;
+                }
                 if let Kind::Sprite(s) = &mut self.kind {
                     s.size[usize::from(call.method == "SetHeight")] = v;
                 }
@@ -2536,6 +2588,20 @@ impl Actor {
                     t.max_width = w;
                 }
             }
+            // An `ActorFrameTexture`'s (`ActorFrameTexture.cpp`): its
+            // alpha kept, its texture kept from frame to frame; a depth
+            // buffer and floats change nothing here.
+            "EnableAlphaBuffer" | "EnablePreserveTexture" => {
+                let on = flag(0)?;
+                if let Some(t) = &mut self.target {
+                    if call.method == "EnableAlphaBuffer" {
+                        t.alpha = on;
+                    } else {
+                        t.preserve = on;
+                    }
+                }
+            }
+            "EnableDepthBuffer" | "EnableFloat" => {}
             // Drawn the same here.
             "SetTextureFiltering" | "cullmode" => {}
             other => return Err(format!("{other} is not supported")),
@@ -2607,8 +2673,12 @@ impl Actor {
         })
     }
 
-    /// The size the actor is drawn at (a sprite's frame).
+    /// The size the actor is drawn at (a sprite's frame; a render
+    /// target's texture).
     pub fn size(&self) -> [f32; 2] {
+        if let Some(t) = &self.target {
+            return t.size;
+        }
         match &self.kind {
             Kind::Sprite(s) => s.size,
             Kind::Text(t) => t.size(),
@@ -2840,6 +2910,44 @@ impl Actor {
                 if seen || s.glow[3] > 0.0 {
                     out.push(draw(run, run3, s.diffuse, s.glow));
                 }
+            }
+            Kind::Frame(children) if self.target.is_some() => {
+                // `ActorFrameTexture::DrawPrimitives`: into its texture
+                // once created, nothing on the screen. Its children are
+                // drawn as on a screen its size (`BeginRenderingTo`: no
+                // centering, no world transform, an orthographic camera),
+                // under its colors.
+                let Some(t) = self.target.as_deref() else {
+                    return;
+                };
+                let Some(index) = t.index else {
+                    return;
+                };
+                let size = t.size.map(|v| v.max(1.0).floor());
+                let target_view = View {
+                    transform: IDENTITY,
+                    size,
+                };
+                let inside = Under {
+                    m: IDENTITY,
+                    m3: translation4([0.0; 3]),
+                    diffuse: s.diffuse[0],
+                    glow: s.glow,
+                    camera: FrameCamera::Drawer,
+                    scissor: None,
+                    blur: [0.0; 2],
+                };
+                let mut drawn = Vec::new();
+                for c in children {
+                    c.draw_depth(&inside, &target_view, &mut drawn, depth + 1);
+                }
+                out.push(Drawn::Target(TargetDraw {
+                    index,
+                    size: size.map(|v| v as u32),
+                    alpha: t.alpha,
+                    preserve: t.preserve,
+                    drawn,
+                }));
             }
             Kind::Frame(children) => {
                 // `ActorFrame::BeginDraw`: a camera of the frame's own for

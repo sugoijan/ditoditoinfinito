@@ -1500,3 +1500,72 @@ fn reading_parameters_costs_fuel_like_any_call() {
             .is_err()
     );
 }
+
+#[test]
+fn a_songs_render_target_is_made_within_its_pixels_and_shown_by_a_sprite() {
+    // A 64 × 32 target drawing a quad, a sprite showing it, and a second
+    // target too large for the song's pixels.
+    let mut lua = song_lua(
+        "local aft\n\
+         return Def.ActorFrame {\n\
+           Def.ActorFrameTexture {\n\
+             InitCommand = function(self)\n\
+               aft = self\n\
+               self:SetWidth(64):SetHeight(32):EnableAlphaBuffer(true):Create()\n\
+             end,\n\
+             Def.Quad { InitCommand = cmd(zoomto, 64, 32; xy, 32, 16) },\n\
+           },\n\
+           Def.Sprite {\n\
+             OnCommand = function(self)\n\
+               local t = aft:GetTexture()\n\
+               self:SetTexture(t):xy(t:GetImageWidth(), t:GetImageHeight())\n\
+             end,\n\
+           },\n\
+           Def.ActorFrameTexture {\n\
+             InitCommand = cmd(SetWidth, 4096; SetHeight, 4096; Create),\n\
+           },\n\
+         }\n",
+    );
+    let mut textures = Textures::default();
+    let element = lua.actor_file("/Songs/Pack/Song/BG", None, &mut textures, &Sizes(vec![]));
+    let mut tree = Box::new(built(element));
+    assert_eq!(lua.render_targets(), vec![[64, 32]]);
+    let target = tree.children()[0].target.as_deref().unwrap();
+    assert_eq!(
+        (target.index, target.size, target.alpha),
+        (Some(0), [64.0, 32.0], true)
+    );
+    // The second is past the song's pixels: reported, not made.
+    assert_eq!(tree.children()[2].target.as_deref().unwrap().index, None);
+    assert!(
+        lua.warnings().iter().any(|w| w.contains("pixels")),
+        "{:?}",
+        lua.warnings()
+    );
+    assert!(lua.reclaim(&mut tree));
+    lua.begin_frame(Position::default(), FrameBudget::default());
+    assert!(lua.lend(&mut tree));
+    lua.play(tree.id, "On", &[]).unwrap();
+    assert!(lua.reclaim(&mut tree));
+    let sprite = &tree.children()[1];
+    let Kind::Sprite(s) = &sprite.kind else {
+        panic!("{:?}", sprite.kind)
+    };
+    assert_eq!(s.texture, ddi_actor::target_texture(0));
+    assert_eq!(s.size, [64.0, 32.0]);
+    assert_eq!(sprite.current().pos[..2], [64.0, 32.0]);
+    // Drawn: the target's quad in its pixels, the sprite on the screen.
+    let mut out = Vec::new();
+    tree.draw([1.0, 0.0, 0.0, 1.0, 0.0, 0.0], [1.0; 4], [0.0; 4], &mut out);
+    let Some(ddi_actor::Drawn::Target(t)) = out.first() else {
+        panic!("{out:?}")
+    };
+    assert_eq!((t.index, t.size), (0, [64, 32]));
+    let ddi_actor::Drawn::Quad(q) = &t.drawn[0] else {
+        panic!()
+    };
+    assert_eq!(q.transform, [64.0, 0.0, 0.0, 32.0, 32.0, 16.0]);
+    assert!(
+        matches!(&out[1], ddi_actor::Drawn::Quad(q) if q.texture == ddi_actor::target_texture(0))
+    );
+}

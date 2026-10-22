@@ -1382,8 +1382,8 @@ impl NoteskinPlay {
             match d {
                 Drawn::Quad(q) => self.push(q, offset, out),
                 Drawn::Model(m) => self.push_model(&m, offset, out),
-                // Skins make neither text nor clipping frames.
-                Drawn::Text(_) | Drawn::ClipPush(_) | Drawn::ClipPop => {}
+                // Skins make no text, clipping frames or render targets.
+                Drawn::Text(_) | Drawn::ClipPush(_) | Drawn::ClipPop | Drawn::Target(_) => {}
             }
         }
         self.drawn.set(drawn);

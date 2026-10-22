@@ -57,7 +57,7 @@ struct Convert<'a, 'gc> {
     actors: Table<'gc>,
     commands: Table<'gc>,
     children: Table<'gc>,
-    metatables: [Table<'gc>; 4],
+    metatables: [Table<'gc>; 5],
     textures: &'a mut Textures,
     images: &'a dyn Images,
     root: usize,
@@ -87,7 +87,7 @@ pub(crate) fn element<'gc>(
         actors: ctx.fetch(&registries.actors),
         commands: ctx.fetch(&registries.commands),
         children: ctx.fetch(&registries.children),
-        metatables: [0, 1, 2, 3].map(|i| ctx.fetch(&registries.metatables[i])),
+        metatables: [0, 1, 2, 3, 4].map(|i| ctx.fetch(&registries.metatables[i])),
         textures,
         images,
         root,
@@ -239,6 +239,13 @@ impl<'gc> Convert<'_, 'gc> {
                 let text = text(self.get(t, "Text")).unwrap_or_default();
                 let text = ddi_actor::Text::new(text, song_text_style());
                 (Actor::new(Kind::Text(text)), 0)
+            }
+            // A song's render target: a frame drawn into its texture once
+            // `Create`d (`ddi_actor::Target`).
+            "ActorFrameTexture" if self.host.skin.is_song() => {
+                let mut a = Actor::new(Kind::Frame(Vec::new()));
+                a.target = Some(Box::default());
+                (a, 4)
             }
             "BitmapText" | "ActorMultiVertex" | "ActorFrameTexture" | "ActorProxy"
             | "BGAnimation" | "ActorScroller" | "RollingNumbers" => {

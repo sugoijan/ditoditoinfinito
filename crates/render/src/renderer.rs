@@ -312,6 +312,28 @@ impl Renderer {
         self.add_noteskin_texture(device, &texture)
     }
 
+    /// A texture of `width × height` quads are drawn into each frame they
+    /// are given ([`Renderer::set_target_quads`]; a song's scripts'
+    /// `ActorFrameTexture`s), registered as a noteskin texture is: the id
+    /// quads draw it by. Forgotten with the noteskin textures.
+    pub fn add_render_target(&mut self, device: &wgpu::Device, width: u32, height: u32) -> u32 {
+        self.textured.add_target(device, width, height, self.srgb)
+    }
+
+    /// The quads render target `id` is drawn with in the next frame, in
+    /// its pixels (colors as for skins' quads), before the frame's own
+    /// passes: with `alpha` its alpha kept (else opaque, black where
+    /// nothing is drawn), with `preserve` drawn over what it held.
+    pub fn set_target_quads(
+        &mut self,
+        id: u32,
+        quads: &[crate::textured::TexQuad],
+        alpha: bool,
+        preserve: bool,
+    ) {
+        self.textured.set_target_quads(id, quads, alpha, preserve);
+    }
+
     /// Registers the built-in art standing in for one of StepMania's own
     /// skins' images (`ddi_noteskin::build::TextureKey::BuiltIn`).
     pub fn add_builtin_art(
@@ -444,6 +466,8 @@ impl Renderer {
         if band.is_some() {
             scene_opts.field_filter = 0.0;
         }
+        // Render targets first: the frame samples them as drawn now.
+        self.textured.draw_targets(device, queue, encoder);
         let mut scene = std::mem::take(&mut self.scene);
         scene::build_into(
             &mut scene,

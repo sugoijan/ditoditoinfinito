@@ -8,9 +8,11 @@
 //! its edges (their texture with them, the corners' colors kept); turned
 //! ones and quads seen in perspective are drawn whole. Text is drawn by
 //! the shell into a texture per run (white, tinted here); models are not
-//! drawn here.
+//! drawn here. An `ActorFrameTexture`'s children are drawn into its
+//! texture ([`TargetQuads`], drawn by `Renderer::set_target_quads`
+//! before the frame), which sprites then show.
 
-use ddi_actor::{Actor, Drawn, View};
+use ddi_actor::{Actor, Drawn, TARGET_TEXTURES, View};
 
 use crate::actors2d;
 use crate::textured::{self, Shape, TexQuad};
@@ -28,20 +30,52 @@ pub fn screen_transform(frame: [f32; 4], screen: [f32; 2]) -> [f32; 6] {
     [k, 0.0, 0.0, k, x + (w - screen[0] * k) / 2.0, y]
 }
 
+/// The registered textures quads draw with: by the texture ids the
+/// actors carry (`None`: not loaded yet, not drawn), and the render
+/// targets' by their index ([`ddi_actor::Target::index`]).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Ids<'a> {
+    pub textures: &'a [Option<u32>],
+    pub targets: &'a [Option<u32>],
+}
+
+impl Ids<'_> {
+    /// The registered texture of id `texture` an actor carries.
+    fn of(&self, texture: u32) -> Option<u32> {
+        if texture != ddi_actor::UNTEXTURED && texture >= TARGET_TEXTURES {
+            return *self.targets.get((texture - TARGET_TEXTURES) as usize)?;
+        }
+        *self.textures.get(texture as usize)?
+    }
+}
+
+/// What a render target is drawn with this frame, in its pixels.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TargetQuads {
+    /// Its index among the song's targets.
+    pub index: u32,
+    pub size: [u32; 2],
+    pub alpha: bool,
+    pub preserve: bool,
+    pub quads: Vec<TexQuad>,
+}
+
 /// The quads of `draws` (each an actor tree, its opacity, and whether it
 /// is a foreground), back to front, as `(backgrounds, foregrounds)`;
-/// `textures` gives each texture id the actors carry its registered one
-/// (`None`: not loaded yet, not drawn), `texts` a run's drawing (its
-/// texture and size in StepMania's pixels; `None`: not drawn yet). Colors
-/// as the target expects them for skins' quads (`srgb`, see
-/// [`crate::color::to_target`]).
+/// `ids` gives each texture id the actors carry its registered one,
+/// `texts` a run's drawing (its texture and size in StepMania's pixels;
+/// `None`: not drawn yet). Colors as the target expects them for skins'
+/// quads (`srgb`, see [`crate::color::to_target`]). What render targets
+/// are drawn with goes to `targets`, a target inside another first.
+#[allow(clippy::too_many_arguments)]
 pub fn quads<'a>(
     draws: impl IntoIterator<Item = (&'a mut Actor, f32, bool)>,
     frame: [f32; 4],
     screen: [f32; 2],
-    textures: &[Option<u32>],
+    ids: Ids,
     texts: &Texts,
     srgb: bool,
+    targets: &mut Vec<TargetQuads>,
 ) -> (Vec<TexQuad>, Vec<TexQuad>) {
     let transform = screen_transform(frame, screen);
     let view = View {
@@ -65,29 +99,64 @@ pub fn quads<'a>(
             &mut drawn,
         );
         let out = if foreground { &mut front } else { &mut back };
-        for d in drawn.drain(..) {
-            match d {
-                Drawn::Quad(q) => push(&q, clip, textures, srgb, out),
-                Drawn::Text(t) => push_text(&t, texts, srgb, out),
-                Drawn::Model(_) | Drawn::ClipPush(_) | Drawn::ClipPop => {}
-            }
-        }
+        let drawn = std::mem::take(&mut drawn);
+        push_all(drawn, clip, (ids, texts), srgb, out, targets, 0);
     }
     (back, front)
 }
 
-/// A quad's diffuse and glow passes (`Sprite::DrawTexture`).
-fn push(
-    q: &ddi_actor::Quad,
+/// `drawn` as quads in `out` (cut to `clip`), and the render targets in
+/// it as theirs in `targets`.
+fn push_all(
+    drawn: Vec<Drawn>,
     clip: [f32; 4],
-    textures: &[Option<u32>],
+    (ids, texts): (Ids, &Texts),
     srgb: bool,
     out: &mut Vec<TexQuad>,
+    targets: &mut Vec<TargetQuads>,
+    depth: u32,
 ) {
+    for d in drawn {
+        match d {
+            Drawn::Quad(q) => push(&q, clip, ids, srgb, out),
+            Drawn::Text(t) => push_text(&t, texts, srgb, out),
+            Drawn::Target(t) if depth < 8 => {
+                let mut quads = Vec::new();
+                let [w, h] = t.size.map(|v| v as f32);
+                let clip = [0.0, 0.0, w, h];
+                push_all(
+                    t.drawn,
+                    clip,
+                    (ids, texts),
+                    srgb,
+                    &mut quads,
+                    targets,
+                    depth + 1,
+                );
+                targets.push(TargetQuads {
+                    index: t.index,
+                    size: t.size,
+                    alpha: t.alpha,
+                    preserve: t.preserve,
+                    quads,
+                });
+            }
+            Drawn::Target(_) | Drawn::Model(_) | Drawn::ClipPush(_) | Drawn::ClipPop => {}
+        }
+    }
+}
+
+/// A quad's diffuse and glow passes (`Sprite::DrawTexture`).
+fn push(q: &ddi_actor::Quad, clip: [f32; 4], ids: Ids, srgb: bool, out: &mut Vec<TexQuad>) {
     let Some(mask) = actors2d::drawn_mask(q.depth, q.blend) else {
         return;
     };
-    let Some((shape, texture)) = textured::actor_quad(q, textures, [0.0; 2]) else {
+    let registered = [ids.of(q.texture)];
+    let mut one = *q;
+    if q.texture != ddi_actor::UNTEXTURED {
+        one.texture = 0;
+    }
+    let Some((shape, texture)) = textured::actor_quad(&one, &registered, [0.0; 2]) else {
         return;
     };
     // Texture coordinates past the image (a scrolling texture,
@@ -197,9 +266,10 @@ mod tests {
             [(&mut quad, 0.5, false)],
             [0.0, 0.0, 640.0, 480.0],
             [640.0, 480.0],
-            &[],
+            Ids::default(),
             &|_| None,
             false,
+            &mut Vec::new(),
         );
         assert!(front.is_empty());
         let Shape::Quad { transform, uv } = back[0].shape else {
@@ -220,13 +290,18 @@ mod tests {
         }
         let screen = [640.0, 480.0];
         let frame = [0.0, 0.0, 640.0, 480.0];
+        let ids = Ids {
+            textures: &[Some(3)],
+            targets: &[],
+        };
         let (back, _) = quads(
             [(&mut quad, 1.0, false)],
             frame,
             screen,
-            &[Some(3)],
+            ids,
             &|_| None,
             false,
+            &mut Vec::new(),
         );
         assert!(!back[0].wrap);
         let calls = ddi_actor::commands::parse("texcoordvelocity,0.5,0").unwrap();
@@ -238,11 +313,60 @@ mod tests {
             [(&mut quad, 1.0, false)],
             frame,
             screen,
-            &[Some(3)],
+            ids,
             &|_| None,
             false,
+            &mut Vec::new(),
         );
         assert!(back[0].wrap);
+    }
+
+    #[test]
+    fn render_targets_are_drawn_in_their_pixels_and_shown_by_sprites() {
+        // A 64 × 32 target holding a quad over its right half, and a
+        // sprite showing it on the screen.
+        let mut quad = Actor::new(Kind::Sprite(Sprite::quad([1.0, 1.0])));
+        let mut p = ddi_actor::Problems::default();
+        for c in &ddi_actor::commands::parse("zoomto,32,32;xy,48,16").unwrap() {
+            quad.call(c, &mut p, 0).unwrap();
+        }
+        let mut aft = Actor::new(Kind::Frame(vec![quad]));
+        aft.target = Some(Box::new(ddi_actor::Target {
+            index: Some(0),
+            size: [64.0, 32.0],
+            alpha: false,
+            preserve: false,
+        }));
+        let shown = Sprite::new(ddi_actor::target_texture(0), Vec::new(), [64.0, 32.0]);
+        let mut shown = Actor::new(Kind::Sprite(shown));
+        for c in &ddi_actor::commands::parse("xy,320,240").unwrap() {
+            shown.call(c, &mut p, 0).unwrap();
+        }
+        let mut tree = Actor::new(Kind::Frame(vec![aft, shown]));
+        let ids = Ids {
+            textures: &[],
+            targets: &[Some(9)],
+        };
+        let mut targets = Vec::new();
+        let (back, _) = quads(
+            [(&mut tree, 1.0, false)],
+            [0.0, 0.0, 640.0, 480.0],
+            [640.0, 480.0],
+            ids,
+            &|_| None,
+            false,
+            &mut targets,
+        );
+        assert_eq!(targets.len(), 1);
+        let t = &targets[0];
+        assert_eq!((t.index, t.size, t.alpha), (0, [64, 32], false));
+        let Shape::Quad { transform, .. } = t.quads[0].shape else {
+            panic!()
+        };
+        assert_eq!(transform, [32.0, 0.0, 0.0, 32.0, 48.0, 16.0]);
+        // The sprite draws the target's registered texture.
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].texture, 9);
     }
 
     #[test]
@@ -263,16 +387,25 @@ mod tests {
             [(&mut text, 1.0, false)],
             frame,
             screen,
-            &[],
+            Ids::default(),
             &|_| None,
             false,
+            &mut Vec::new(),
         );
         assert!(back.is_empty());
         // Drawn (20 × 25 in StepMania's pixels, as measured): a quad that
         // size, centred where the run's box is (centred on the actor), in
         // its color.
         let texts = |t: &str| (t == "hi").then_some((7, [20.0, 25.0]));
-        let (_, front) = quads([(&mut text, 1.0, true)], frame, screen, &[], &texts, false);
+        let (_, front) = quads(
+            [(&mut text, 1.0, true)],
+            frame,
+            screen,
+            Ids::default(),
+            &texts,
+            false,
+            &mut Vec::new(),
+        );
         assert_eq!(front.len(), 1);
         assert_eq!(front[0].texture, 7);
         assert_eq!(front[0].color, [1.0, 1.0, 0.0, 1.0]);

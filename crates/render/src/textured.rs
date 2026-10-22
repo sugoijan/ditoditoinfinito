@@ -313,6 +313,7 @@ pub struct TexturedPipeline {
     /// textures (WebGL2) draws quads only to a plain texture.
     plain_textures: bool,
     globals: wgpu::Buffer,
+    globals_layout: wgpu::BindGroupLayout,
     globals_group: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
     clamp: wgpu::Sampler,
@@ -325,6 +326,30 @@ pub struct TexturedPipeline {
     /// This frame's instances before the upload, its room reused.
     staging: Vec<Instance>,
     batches: Vec<Batch>,
+    /// Textures quads are drawn into ([`TexturedPipeline::add_target`]):
+    /// a song's scripts' `ActorFrameTexture`s.
+    targets: Vec<Target>,
+    /// The pipelines drawing into them, with their alpha and without
+    /// (an `ActorFrameTexture` without an alpha buffer stays opaque).
+    target_pipelines: [Pipelines; 2],
+}
+
+/// A texture quads are drawn into, with what draws it.
+struct Target {
+    /// Its id among the textures.
+    id: u32,
+    /// The view drawn to: the plain one where quads blend encoded.
+    view: wgpu::TextureView,
+    format: wgpu::TextureFormat,
+    size: [u32; 2],
+    globals: wgpu::Buffer,
+    globals_group: wgpu::BindGroup,
+    instances: crate::instances::InstanceBuffers,
+    staging: Vec<Instance>,
+    batches: Vec<Batch>,
+    /// Quads given for the next frame: with an alpha buffer, kept from
+    /// the last frame (`EnablePreserveTexture`).
+    pending: Option<(bool, bool)>,
 }
 
 impl TexturedPipeline {
@@ -377,6 +402,7 @@ impl TexturedPipeline {
             masked: false,
             plain_textures,
             globals,
+            globals_layout,
             globals_group,
             texture_layout,
             clamp: sampler(wgpu::AddressMode::ClampToEdge),
@@ -391,6 +417,8 @@ impl TexturedPipeline {
             ),
             staging: Vec::new(),
             batches: Vec::new(),
+            targets: Vec::new(),
+            target_pipelines: [Pipelines::new(), Pipelines::new()],
         };
         let blank = p.create_texture(device, 1, 1, false, false);
         p.blank = Some(p.bind(device, &blank));
@@ -487,9 +515,181 @@ impl TexturedPipeline {
         }
     }
 
-    /// Forgets every texture (a skin was unloaded).
+    /// Forgets every texture (a skin was unloaded), and the targets.
     pub fn clear_textures(&mut self) {
         self.textures.clear();
+        self.targets.clear();
+    }
+
+    /// A texture of `width × height` quads are drawn into
+    /// ([`TexturedPipeline::set_target_quads`]), registered as a filled
+    /// one is: the id quads draw it by. sRGB as [`TexturedPipeline::create_texture`]
+    /// makes it; drawn through its plain view where quads blend encoded.
+    pub fn add_target(
+        &mut self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        srgb: bool,
+    ) -> u32 {
+        let texture = self.create_texture(device, width, height, srgb, false);
+        let id = self.add_texture(device, &texture);
+        let format = if self.gamma.is_some() {
+            texture.format().remove_srgb_suffix()
+        } else {
+            texture.format()
+        };
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(format),
+            ..Default::default()
+        });
+        let globals = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ddi-textured-target-globals"),
+            size: std::mem::size_of::<Globals>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let globals_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ddi-textured-target-globals-bg"),
+            layout: &self.globals_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: globals.as_entire_binding(),
+            }],
+        });
+        self.targets.push(Target {
+            id,
+            view,
+            format,
+            size: [width.max(1), height.max(1)],
+            globals,
+            globals_group,
+            instances: crate::instances::InstanceBuffers::new(
+                device,
+                "ddi-textured-target-instances",
+                std::mem::size_of::<Instance>(),
+            ),
+            staging: Vec::new(),
+            batches: Vec::new(),
+            pending: None,
+        });
+        id
+    }
+
+    /// The quads target `id` ([`TexturedPipeline::add_target`]) is drawn
+    /// with in the next frame ([`TexturedPipeline::draw_targets`]), in its
+    /// pixels; with `alpha` its alpha is kept (else it is opaque, black
+    /// where nothing is drawn), with `preserve` what it held is drawn
+    /// over (else it is cleared). Quads of the target's own texture, and
+    /// those using the mask, are left out.
+    pub fn set_target_quads(&mut self, id: u32, quads: &[TexQuad], alpha: bool, preserve: bool) {
+        let Some(t) = self.targets.iter_mut().find(|t| t.id == id) else {
+            return;
+        };
+        let quads: Vec<TexQuad> = quads
+            .iter()
+            .filter(|q| q.texture != id && q.mask == Mask::None)
+            .copied()
+            .collect();
+        build(&quads, &mut t.staging, &mut t.batches);
+        t.pending = Some((alpha, preserve));
+    }
+
+    /// Draws the targets given quads since the last frame, each in a pass
+    /// of its own, before the frame's (their textures are then sampled
+    /// as drawn this frame).
+    pub fn draw_targets(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        for i in 0..self.targets.len() {
+            let Some((alpha, preserve)) = self.targets[i].pending.take() else {
+                continue;
+            };
+            // The pipelines its runs need.
+            let format = self.targets[i].format;
+            for b in 0..self.targets[i].batches.len() {
+                let blend = self.targets[i].batches[b].blend;
+                if self.target_pipelines[usize::from(alpha)]
+                    .get((blend, None))
+                    .is_none()
+                {
+                    let write = if alpha {
+                        wgpu::ColorWrites::ALL
+                    } else {
+                        wgpu::ColorWrites::COLOR
+                    };
+                    let p = self.make_pipeline_for(device, format, blend_state(blend), None, write);
+                    self.target_pipelines[usize::from(alpha)].insert((blend, None), p);
+                }
+            }
+            let t = &mut self.targets[i];
+            let g = Globals {
+                scale: [2.0 / t.size[0] as f32, -2.0 / t.size[1] as f32],
+                translate: [-1.0, 1.0],
+            };
+            queue.write_buffer(&t.globals, 0, bytemuck::bytes_of(&g));
+            t.instances
+                .upload(device, queue, bytemuck::cast_slice(&t.staging));
+            let t = &self.targets[i];
+            let load = if preserve {
+                wgpu::LoadOp::Load
+            } else {
+                wgpu::LoadOp::Clear(if alpha {
+                    wgpu::Color::TRANSPARENT
+                } else {
+                    wgpu::Color::BLACK
+                })
+            };
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ddi-textured-target"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &t.view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_bind_group(0, &t.globals_group, &[]);
+            let pipelines = &self.target_pipelines[usize::from(alpha)];
+            let gamma = self.gamma.is_some();
+            let mut current = None;
+            for b in &t.batches {
+                let tex = if b.texture == UNTEXTURED {
+                    self.blank.as_ref()
+                } else {
+                    self.textures.get(b.texture as usize)
+                };
+                let Some(tex) = tex else {
+                    continue;
+                };
+                if current != Some(b.blend) {
+                    let Some(p) = pipelines.get((b.blend, None)) else {
+                        continue;
+                    };
+                    pass.set_pipeline(p);
+                    current = Some(b.blend);
+                }
+                let groups = match (&tex.plain, gamma) {
+                    (Some([clamp, repeat]), true) => [clamp, repeat],
+                    _ => [&tex.clamp, &tex.repeat],
+                };
+                pass.set_bind_group(1, groups[usize::from(b.wrap)], &[]);
+                for (buffer, range) in t.instances.pieces(b.start..b.end) {
+                    pass.set_vertex_buffer(0, buffer.slice(..));
+                    pass.draw(0..6, range);
+                }
+            }
+        }
     }
 
     pub fn texture_count(&self) -> usize {
@@ -509,6 +709,18 @@ impl TexturedPipeline {
             (true, Some(f)) => f,
             _ => self.format,
         };
+        self.make_pipeline_for(device, format, blend, depth_stencil, wgpu::ColorWrites::ALL)
+    }
+
+    /// The pipeline drawing `blend` to `format`, writing `write`.
+    fn make_pipeline_for(
+        &self,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        blend: wgpu::BlendState,
+        depth_stencil: Option<wgpu::DepthStencilState>,
+        write: wgpu::ColorWrites,
+    ) -> wgpu::RenderPipeline {
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ddi-textured-pipeline"),
             layout: Some(&self.layout),
@@ -529,7 +741,7 @@ impl TexturedPipeline {
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(blend),
-                    write_mask: wgpu::ColorWrites::ALL,
+                    write_mask: write,
                 })],
             }),
             primitive: wgpu::PrimitiveState {
@@ -571,75 +783,8 @@ impl TexturedPipeline {
             translate: [-1.0, 1.0],
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
-        self.batches.clear();
         let mut instances = std::mem::take(&mut self.staging);
-        instances.clear();
-        instances.reserve(quads.len());
-        for q in quads {
-            let at = instances.len() as u32;
-            match self.batches.last_mut() {
-                Some(b)
-                    if b.texture == q.texture
-                        && b.blend == q.blend
-                        && b.wrap == q.wrap
-                        && b.mask == q.mask =>
-                {
-                    b.end += 1
-                }
-                _ => self.batches.push(Batch {
-                    texture: q.texture,
-                    blend: q.blend,
-                    wrap: q.wrap,
-                    mask: q.mask,
-                    start: at,
-                    end: at + 1,
-                }),
-            }
-            let mode = if q.glow { GLOW } else { 0 }
-                | if q.wrap { WRAP } else { 0 }
-                | if q.texture == UNTEXTURED { BLANK } else { 0 }
-                | if q.gradient.is_some() { GRADIENT } else { 0 };
-            let [c0, c1, c2, c3] = q.gradient.unwrap_or([q.color; 4]);
-            let base = Instance {
-                axes: [0.0; 4],
-                origin: [0.0; 2],
-                uv: [0.0; 4],
-                color: c0,
-                mode,
-                uv2: [0.0; 2],
-                w: [1.0; 4],
-                corner: [0.0; 2],
-                c1,
-                c2,
-                c3,
-            };
-            instances.push(match q.shape {
-                Shape::Quad { transform: m, uv } => Instance {
-                    axes: [m[0], m[1], m[2], m[3]],
-                    origin: [m[4], m[5]],
-                    uv,
-                    ..base
-                },
-                Shape::Triangle { points: p, w, uv } => Instance {
-                    axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
-                    origin: p[2],
-                    uv: [uv[0][0], uv[0][1], uv[1][0], uv[1][1]],
-                    mode: mode | TRIANGLE,
-                    uv2: uv[2],
-                    w: [w[0], w[1], w[2], 1.0],
-                    ..base
-                },
-                Shape::Projected { corners: p, w, uv } => Instance {
-                    axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
-                    origin: p[2],
-                    corner: p[3],
-                    uv,
-                    mode: mode | PROJECTED,
-                    w,
-                    ..base
-                },
-            });
-        }
+        build(quads, &mut instances, &mut self.batches);
         // The pipelines this frame's runs need: in passes with the stencil
         // too once a quad uses the mask.
         self.masked = quads.iter().any(|q| q.mask != Mask::None);
@@ -739,6 +884,79 @@ impl TexturedPipeline {
                 pass.draw(0..6, range);
             }
         }
+    }
+}
+
+/// `quads`' instances, in order, and their runs of one texture, blend,
+/// wrapping and mask.
+fn build(quads: &[TexQuad], instances: &mut Vec<Instance>, batches: &mut Vec<Batch>) {
+    batches.clear();
+    instances.clear();
+    instances.reserve(quads.len());
+    for q in quads {
+        let at = instances.len() as u32;
+        match batches.last_mut() {
+            Some(b)
+                if b.texture == q.texture
+                    && b.blend == q.blend
+                    && b.wrap == q.wrap
+                    && b.mask == q.mask =>
+            {
+                b.end += 1
+            }
+            _ => batches.push(Batch {
+                texture: q.texture,
+                blend: q.blend,
+                wrap: q.wrap,
+                mask: q.mask,
+                start: at,
+                end: at + 1,
+            }),
+        }
+        let mode = if q.glow { GLOW } else { 0 }
+            | if q.wrap { WRAP } else { 0 }
+            | if q.texture == UNTEXTURED { BLANK } else { 0 }
+            | if q.gradient.is_some() { GRADIENT } else { 0 };
+        let [c0, c1, c2, c3] = q.gradient.unwrap_or([q.color; 4]);
+        let base = Instance {
+            axes: [0.0; 4],
+            origin: [0.0; 2],
+            uv: [0.0; 4],
+            color: c0,
+            mode,
+            uv2: [0.0; 2],
+            w: [1.0; 4],
+            corner: [0.0; 2],
+            c1,
+            c2,
+            c3,
+        };
+        instances.push(match q.shape {
+            Shape::Quad { transform: m, uv } => Instance {
+                axes: [m[0], m[1], m[2], m[3]],
+                origin: [m[4], m[5]],
+                uv,
+                ..base
+            },
+            Shape::Triangle { points: p, w, uv } => Instance {
+                axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
+                origin: p[2],
+                uv: [uv[0][0], uv[0][1], uv[1][0], uv[1][1]],
+                mode: mode | TRIANGLE,
+                uv2: uv[2],
+                w: [w[0], w[1], w[2], 1.0],
+                ..base
+            },
+            Shape::Projected { corners: p, w, uv } => Instance {
+                axes: [p[0][0], p[0][1], p[1][0], p[1][1]],
+                origin: p[2],
+                corner: p[3],
+                uv,
+                mode: mode | PROJECTED,
+                w,
+                ..base
+            },
+        });
     }
 }
 

@@ -184,8 +184,9 @@ pub fn append(
             }),
             Drawn::ClipPop => list.pop_clip(),
             // Models need a depth buffer and the field's camera: the play
-            // field's renderer draws them.
-            Drawn::Model(_) => {}
+            // field's renderer draws them. Render targets are a song's
+            // scripts' (`crate::scripted`).
+            Drawn::Model(_) | Drawn::Target(_) => {}
         }
     }
 }

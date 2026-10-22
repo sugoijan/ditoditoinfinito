@@ -130,9 +130,9 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
    once on the play's sound, at the music's volume; its settings through
    `get()` and `stop` are not kept; Ogg Vorbis and MP3 on the web, as the
    music's fallback decodes them, every format on desktop, decoded when
-   the scripts load); `ActorMultiVertex`, `ActorFrameTexture`,
-   `ActorProxy` and `ActorScroller` load as actors that draw nothing
-   (noted once in the log).
+   the scripts load); `ActorFrameTexture` (since step 6: a render
+   target, below); `ActorMultiVertex`, `ActorProxy` and `ActorScroller`
+   load as actors that draw nothing (noted once in the log).
    Folders without one are drawn natively as StepMania 3.9 and ITG drew
    them (since step 6, below), although StepMania 5.1 draws an empty
    actor for `BGAnimation.ini` and `default.xml` folders: they were made
@@ -191,9 +191,10 @@ Sources: StepMania 5.1 (`5_1-new` at `825467b`, MIT): `src/Background.cpp`
    pack in headless Chrome (WebGPU, WebGL2) and Firefox, offscreen on
    desktop.
 6. `BGAnimation.ini`, `default.xml` and 3.0-style layer folders drawn
-   natively (decision 4; done 2026-10-22, below). Later: the global
-   `BGAnimations/` folder; render targets within a pixel budget; movies
-   in scripts and as an effect's second file (below).
+   natively (decision 4; done 2026-10-22, below); render targets within
+   a pixel budget (done 2026-10-22, below). Later: the global
+   `BGAnimations/` folder; movies in scripts and as an effect's second
+   file (below).
 
 ## Status (2026-10-21)
 
@@ -280,7 +281,7 @@ about twenty turns, none much past `LUA_TURN`
 Not yet: the images' decoded pixels have no budget of their own beyond the 64 files;
 a script's quads draw over the second image layer; the transitions fade
 a script whatever their kind; scripts read only their folders' files
-(not the song's other files); no movies or render targets.
+(not the song's other files); no movies.
 
 Movies stay out of scripts and of the named effects' second file (second
 slice, 2026-10-21): the movie slots (`ddi_session::movies::MovieSlots`,
@@ -390,3 +391,56 @@ white square for its `LengthSeconds`, a 3.0 folder's stretched yellow
 image), and the same song imported as a zip in headless Chrome (WebGPU,
 WebGL2) and Firefox, the pixels left of the field the same at each
 change, the autoplay all top tier.
+
+Render targets since (2026-10-22, step 6): a song's `ActorFrameTexture`
+(`Def.ActorFrameTexture`) is a frame whose children are drawn into a
+texture of its own once it is created, as StepMania 5.1 draws one
+(`ActorFrameTexture.cpp`, `RageTextureRenderTarget::BeginRenderingTo`:
+its children on a screen its size, with no world transform and an
+orthographic camera, under its colors), and nothing on the screen;
+sprites show it.
+
+- **Lua** (`crates/noteskin/src/lua/host.rs`, the class
+  `ActorFrameTexture`): `SetWidth`, `SetHeight`, `EnableAlphaBuffer`,
+  `EnablePreserveTexture` (`EnableDepthBuffer`, `EnableFloat` and
+  `SetTextureName` change nothing here), `Create` (its size, whole
+  pixels, at least 1 and at most 4,096 a side; reported and not made
+  past them, or past the song's pixels: 4 Mi pixels for all of a song's
+  targets, `MAX_TARGET_PIXELS`, about ten screens), `GetTexture` (nil
+  before `Create`; a texture with `GetImageWidth`, `GetImageHeight`,
+  `GetSourceWidth`, `GetSourceHeight`, `GetTextureWidth`,
+  `GetTextureHeight`, `GetNumFrames`), and a sprite's `SetTexture` of
+  one (the sprite takes its size, a `Def.Sprite` without a texture
+  becoming one).
+- **The actors** (`ddi_actor::Target`, `Drawn::Target`): what a created
+  target's children draw, in its pixels; sprites carry
+  `ddi_actor::target_texture(index)`.
+- **Drawing** (`ddi_render::scripted::TargetQuads`,
+  `Renderer::add_render_target`, `Renderer::set_target_quads`,
+  `TexturedPipeline::draw_targets`): each frame a target is drawn, its
+  quads go into its texture in a pass of its own before the frame's,
+  cleared to transparent with an alpha buffer and to opaque black
+  without (StepMania's target is RGB then: it samples opaque), or drawn
+  over with `EnablePreserveTexture`; its alpha left as it is without an
+  alpha buffer. Blended as the scripts' other quads (encoded where skins
+  blend so). The shared view (`ScriptView`) makes each target's texture
+  as the scripts create it, again after the skins' textures are
+  cleared, on both shells.
+- **Differences.** Targets are drawn before the frame, so a sprite drawn
+  before its target in the tree shows this frame's drawing (StepMania's,
+  the last frame's); a target that is not drawn (its background not
+  shown) keeps what it held. Quads of a target's own texture inside it,
+  and masks inside a target, are left out. A background fading out
+  fades its target's drawing too (StepMania's transitions run commands
+  on its leaves instead). `Texture` names (`SetTextureName`) are not
+  looked up.
+
+Checked: native tests (the host: `Create` within the song's pixels and
+past them, `GetTexture`, `SetTexture`; the actors: a target's drawing in
+its pixels; the quads: a target's in its pixels and a sprite showing its
+registered texture), offscreen on desktop
+(`play_scripts.rs::render_targets_draw_into_their_textures`: a 64 × 64
+target's red half shown by a sprite, its other half black without an
+alpha buffer and the green screen behind with one), and the same song
+imported as a zip in headless Chrome (WebGPU, WebGL2) and Firefox, the
+same pixels left of the field.

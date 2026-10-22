@@ -472,6 +472,15 @@ impl Scripts {
             .map(Drawn::tree)
     }
 
+    /// The render targets the scripts made (`ActorFrameTexture::Create`),
+    /// each one's size by its index, within the song's pixels
+    /// (`ddi_noteskin::lua::MAX_TARGET_PIXELS`).
+    pub fn render_targets(&self) -> Vec<[u32; 2]> {
+        self.lua
+            .as_ref()
+            .map_or(Vec::new(), LuaSkin::render_targets)
+    }
+
     /// Fuel the scripts spent in the last frame.
     pub fn frame_fuel(&self) -> u64 {
         self.lua.as_ref().map_or(0, LuaSkin::frame_fuel)

@@ -27,6 +27,9 @@ pub struct ScriptView<C> {
     /// The scripts' textures' registered ids, by the ids their sprites
     /// carry; empty since the textures were last cleared.
     textures: Vec<Option<u32>>,
+    /// Their render targets' registered ids, by their index; empty since
+    /// the textures were last cleared.
+    targets: Vec<u32>,
     /// Their texts drawn (white, by the shell), by text: the drawing, its
     /// size in StepMania's pixels and its registered texture.
     texts: HashMap<String, (C, [f32; 2], Option<u32>)>,
@@ -41,6 +44,7 @@ impl<C> Default for ScriptView<C> {
             screen: [854.0, 480.0],
             images: HashMap::new(),
             textures: Vec::new(),
+            targets: Vec::new(),
             texts: HashMap::new(),
             asked: HashSet::new(),
         }
@@ -58,6 +62,7 @@ impl<C: StageContent> ScriptView<C> {
             .map(|(p, c)| (p.to_lowercase(), c))
             .collect();
         self.textures.clear();
+        self.targets.clear();
         self.texts.clear();
         self.asked.clear();
     }
@@ -140,16 +145,22 @@ impl<C: StageContent> ScriptView<C> {
     /// The renderer's skin textures were cleared, and these with them.
     pub fn forget_textures(&mut self) {
         self.textures.clear();
+        self.targets.clear();
         for t in self.texts.values_mut() {
             t.2 = None;
         }
     }
 
-    /// Copies the scripts' images to the GPU, once after each clearing.
+    /// Copies the scripts' images to the GPU, once after each clearing,
+    /// and makes the render targets they made since.
     pub fn upload(&mut self, renderer: &mut Renderer, device: &wgpu::Device, queue: &wgpu::Queue) {
         let Some(scripts) = &self.scripts else {
             return;
         };
+        let targets = scripts.render_targets();
+        for &[w, h] in targets.iter().skip(self.targets.len()) {
+            self.targets.push(renderer.add_render_target(device, w, h));
+        }
         let mut register = |content: &C| {
             let [w, h] = content.size();
             let pixels = [w.max(1), h.max(1)];
@@ -217,7 +228,13 @@ impl<C: StageContent> ScriptView<C> {
         let [w, h] = size;
         let rect = ddi_render::background::frame_rect(w, h, aspect).unwrap_or([0.0, 0.0, w, h]);
         let srgb = renderer.skin_colors_linear();
-        let (b, f) = self.quads(t, layers, rect, srgb);
+        let mut targets = Vec::new();
+        let (b, f) = self.quads(t, layers, rect, srgb, &mut targets);
+        for target in targets {
+            if let Some(&id) = self.targets.get(target.index as usize) {
+                renderer.set_target_quads(id, &target.quads, target.alpha, target.preserve);
+            }
+        }
         let drawn = (b.len(), f.len());
         back.extend(b);
         front.splice(0..0, f);
@@ -229,13 +246,15 @@ impl<C: StageContent> ScriptView<C> {
     }
 
     /// The background and foreground quads at song second `t`, in the
-    /// background `frame` (`x, y, width, height` in target pixels).
+    /// background `frame` (`x, y, width, height` in target pixels); what
+    /// their render targets are drawn with in `targets`.
     pub fn quads(
         &mut self,
         t: f64,
         layers: &[Vec<BgSegment>; LAYERS],
         frame: [f32; 4],
         srgb: bool,
+        targets: &mut Vec<ddi_render::scripted::TargetQuads>,
     ) -> (Vec<TexQuad>, Vec<TexQuad>) {
         let Some(scripts) = self.scripts.as_mut() else {
             return (Vec::new(), Vec::new());
@@ -245,7 +264,12 @@ impl<C: StageContent> ScriptView<C> {
             let (_, size, id) = self.texts.get(text)?;
             Some(((*id)?, *size))
         };
-        ddi_render::scripted::quads(draws, frame, self.screen, &self.textures, &texts, srgb)
+        let registered: Vec<Option<u32>> = self.targets.iter().map(|&id| Some(id)).collect();
+        let ids = ddi_render::scripted::Ids {
+            textures: &self.textures,
+            targets: &registered,
+        };
+        ddi_render::scripted::quads(draws, frame, self.screen, ids, &texts, srgb, targets)
     }
 }
 

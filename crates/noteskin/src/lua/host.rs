@@ -17,6 +17,17 @@ use crate::ini::string_to_float;
 /// The actor a userdata stands for.
 pub(crate) struct ActorRef(pub u32);
 
+/// A render target's texture a userdata stands for
+/// (`ActorFrameTexture:GetTexture`), by its index.
+pub(crate) struct TextureRef(pub u32);
+
+/// The pixels a song's render targets may hold, all together: ten
+/// screens' worth (`ActorFrameTexture`s are mostly screen-sized).
+pub const MAX_TARGET_PIXELS: u64 = 4 << 20;
+
+/// The largest side a render target may have.
+pub const MAX_TARGET_SIDE: u32 = 4096;
+
 /// Actor classes `Def` accepts (`ActorUtil::IsRegisteredClass`, the ones
 /// StepMania registers that a skin could name).
 const CLASSES: &[&str] = &[
@@ -892,10 +903,167 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
             Ok(CallbackReturn::Return)
         }),
     );
+    // `ActorFrameTexture` (a song's): `Create` within the song's pixels,
+    // `GetTexture`; `SetTextureName` names nothing here (sprites show a
+    // target through `SetTexture`).
+    let aft = class(frame);
+    let texture_class = Table::new(&ctx);
+    for (name, image) in [
+        ("GetImageWidth", 0),
+        ("GetImageHeight", 1),
+        ("GetSourceWidth", 0),
+        ("GetSourceHeight", 1),
+        ("GetTextureWidth", 0),
+        ("GetTextureHeight", 1),
+    ] {
+        let shared = host.clone();
+        let _ = texture_class.set(
+            ctx,
+            name,
+            Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+                let index = texture_index(ctx, stack.get(0))?;
+                let size = shared.borrow().targets.get(index as usize).copied();
+                let size = size.ok_or_else(|| error(ctx, format!("{name}: no such texture")))?;
+                stack.replace(ctx, i64::from(size[image]));
+                Ok(CallbackReturn::Return)
+            }),
+        );
+    }
+    let _ = texture_class.set(
+        ctx,
+        "GetNumFrames",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            stack.replace(ctx, 1);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    let texture_mt = Table::new(&ctx);
+    let _ = texture_mt.set(ctx, "__index", texture_class);
+    let shared = host.clone();
+    let _ = aft.set(
+        ctx,
+        "Create",
+        Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
+            let this = stack.get(0);
+            let id = actor_id(ctx, this)?;
+            exec.fuel().consume(64);
+            let mut host = shared.borrow_mut();
+            let host = &mut *host;
+            let made = host.targets.len() as u32;
+            let pixels = host.target_pixels;
+            let problem = match host.stage.get_mut(id).and_then(|a| a.target.as_deref_mut()) {
+                None => Some("Create: not an ActorFrameTexture".to_string()),
+                Some(t) if t.index.is_some() => {
+                    Some("Can't Create an already created ActorFrameTexture".into())
+                }
+                Some(t) => {
+                    let [w, h] = t.size.map(|v| if v.is_finite() { v as i64 } else { 0 });
+                    if w < 1 || h < 1 {
+                        Some("ActorFrameTexture: Cannot have width or height less than 1".into())
+                    } else if w > i64::from(MAX_TARGET_SIDE) || h > i64::from(MAX_TARGET_SIDE) {
+                        Some(format!(
+                            "ActorFrameTexture: {w} × {h} is larger than {MAX_TARGET_SIDE} pixels a side"
+                        ))
+                    } else if pixels + (w * h) as u64 > MAX_TARGET_PIXELS {
+                        Some(format!(
+                            "ActorFrameTexture: the song's render targets would hold more than {MAX_TARGET_PIXELS} pixels"
+                        ))
+                    } else {
+                        t.index = Some(made);
+                        host.targets.push([w as u32, h as u32]);
+                        host.target_pixels += (w * h) as u64;
+                        None
+                    }
+                }
+            };
+            if let Some(p) = problem {
+                // `LuaHelpers::ReportScriptError`: reported, the script
+                // goes on.
+                host.warn(p);
+            }
+            stack.replace(ctx, this);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    let _ = aft.set(
+        ctx,
+        "SetTextureName",
+        Callback::from_fn(&ctx, |ctx, _, mut stack| {
+            let this = stack.get(0);
+            actor_id(ctx, this)?;
+            stack.replace(ctx, this);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    let shared = host.clone();
+    let _ = aft.set(
+        ctx,
+        "GetTexture",
+        Callback::from_fn_with(&ctx, texture_mt, move |&mt, ctx, _, mut stack| {
+            let id = actor_id(ctx, stack.get(0))?;
+            let index = shared
+                .borrow()
+                .stage
+                .get(id)
+                .and_then(|a| a.target.as_ref()?.index);
+            let v = match index {
+                Some(i) => {
+                    let ud = UserData::new_static(&ctx, TextureRef(i));
+                    let _ = ud.set_metatable(&ctx, Some(mt));
+                    Value::UserData(ud)
+                }
+                None => Value::Nil,
+            };
+            stack.replace(ctx, v);
+            Ok(CallbackReturn::Return)
+        }),
+    );
+    // `Sprite::SetTexture` of a render target's texture: the sprite shows
+    // it, at its size.
+    let shared = host.clone();
+    let _ = sprite.set(
+        ctx,
+        "SetTexture",
+        Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
+            let this = stack.get(0);
+            let id = actor_id(ctx, this)?;
+            let index = texture_index(ctx, stack.get(1))?;
+            exec.fuel().consume(16);
+            let mut host = shared.borrow_mut();
+            let size = host
+                .targets
+                .get(index as usize)
+                .copied()
+                .ok_or_else(|| error(ctx, "SetTexture: no such texture"))?;
+            let size = size.map(|v| v as f32);
+            let texture = ddi_actor::target_texture(index);
+            if let Some(a) = host.stage.get_mut(id) {
+                match &mut a.kind {
+                    ddi_actor::Kind::Sprite(s) => {
+                        s.texture = texture;
+                        s.size = size;
+                        s.frame_size = size;
+                        s.padded_to_image = [1.0; 2];
+                    }
+                    kind @ ddi_actor::Kind::Actor => {
+                        *kind = ddi_actor::Kind::Sprite(ddi_actor::Sprite::new(
+                            texture,
+                            Vec::new(),
+                            size,
+                        ));
+                    }
+                    _ => return Err(error(ctx, "SetTexture: not a sprite")),
+                }
+            }
+            stack.replace(ctx, this);
+            Ok(CallbackReturn::Return)
+        }),
+    );
     set("actor_methods", Value::Table(methods));
     set("sprite_methods", Value::Table(sprite));
     set("frame_methods", Value::Table(frame));
     set("model_methods", Value::Table(model));
+    set("frame_texture_methods", Value::Table(aft));
     // An actor is its methods plus fields of its own (`self.n = 1`), as
     // StepMania's actor objects are.
     let fields = Table::new(&ctx);
@@ -972,9 +1140,21 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
             metatable(sprite),
             metatable(frame),
             metatable(model),
+            metatable(aft),
         ],
     };
     (h, registries)
+}
+
+/// The index of the render target's texture `v` stands for.
+fn texture_index<'gc>(ctx: Context<'gc>, v: Value<'gc>) -> Result<u32, Error<'gc>> {
+    match v {
+        Value::UserData(ud) => ud
+            .downcast_static::<TextureRef>()
+            .map(|t| t.0)
+            .map_err(|_| error(ctx, "not a texture")),
+        _ => Err(error(ctx, "not a texture")),
+    }
 }
 
 /// A new userdata for actor `id` with its class's metatable.
