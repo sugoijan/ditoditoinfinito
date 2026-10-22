@@ -95,6 +95,40 @@ of the most), OMNIFLAG, MISSFLAG, AVFLAG, BLACKFLAG, BOOFLAG, AAA (the
 raw score the most). The music starts `mp3Frame` frames into the game
 (`songDelay`; the SWF frame its sound stream begins at, less 2).
 
+**Where a note is in the music (2026-10-22, same commit;
+`docs/plans/phase-10.md`, "Timing as R^3 has it").**
+
+- `ChartFFRLegacy.parseChart`: `var beatPos:int = beat[0] + sync` (the
+  sum made whole toward zero), a note's `time` `beatPos / 30`, or
+  `beat[3] / 1000` when the entry has four values; both on the game's
+  clock.
+- `NoteBox.spawnArrow`: `POSITION = (time + 0.5/30) × 1000` for every
+  note spawned; `GameplayDisplay.judgeScorePosition` judges a press's
+  game time against it, `NoteBox.updateNotePosition` draws the note at
+  the receptor at it.
+- `MP3Extraction.extractSound`: `metadata.frame` is the number of
+  `ShowFrame` tags before the first non-empty `SoundStreamBlock` (once a
+  `SoundStreamHead` named MP3; never unset by a later head), or −1 when
+  the music is the first MP3 `DefineSound` (which ends the extraction).
+  The stream's `SeekSamples` are read and not used.
+- `Song.musicCompleteHandler`: `mp3Frame = metadata.frame − 2`.
+  `GameplayDisplay.initCore`: `songDelay = mp3Frame / songRate × 1000 /
+  30 − GLOBAL_OFFSET_MS`. `GameplayDisplay.e_onFrame`: the music starts
+  once the game's time reaches `songDelay`, and the game's time follows
+  `song.getPosition() + songDelay` (`songOffset`). So a note is heard
+  `time + (0.5 − mp3Frame) / 30` s into the music; `Song.onReverseSound`
+  (`(63 − mp3Frame) × 1470` samples) agrees.
+- Charts with music of their own (`menu/FileLoader.buildSong`: `.sm`,
+  `.ssc`, `.osu`, `.qua`) keep `mp3Frame` 0: the music starts with the
+  game, and their notes get the same half frame. R^3 reads no `beatBox`
+  as text.
+- `sync`: a legacy engine's playlist (`arc_sync`) or its `legacySync`
+  rule (`ChartFFRLegacy.parsePlaylist`). FFR's own playlist gives none:
+  `Playlist` would give FFR's earliest levels fixed syncs
+  (`oldOffsets`) when `isNaN(songInfo.sync)`, but `SongInfo.sync` is an
+  `int`, 0 unless set, so that never happens and FFR's own levels play
+  with sync 0.
+
 ### A3. Options and supported modes
 
 - 4-key only (`noteDirections = ["D","L","U","R"]`, `validDirections`).

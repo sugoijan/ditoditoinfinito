@@ -218,13 +218,13 @@ nothing transcribed):
   (`options.judgeWindow`, from the site's `configJudge`, a score then
   not standard); a level holds none, so the importer has nothing to hand
   on as a ruleset hint (PLAN.md 3.2).
-- **Found for the import, not changed here:** R^3 judges and draws a
-  note half a frame (16.7 ms) after its frame's start, and starts the
-  music `mp3Frame` frames into the game (`songDelay`, the SWF frame the
-  sound stream begins at, less 2), while the importer puts a note at its
-  frame's start from the music's start (`docs/plans/phase-10.md`). Both
-  are the chart's timing under any rules (an FFR level under ITG's too),
-  left to the import's check against a real level ("Left" there).
+- **Found for the import, changed there (2026-10-22):** R^3 judges and
+  draws a note half a frame (16.7 ms) after its frame's start, and
+  starts the music `mp3Frame` frames into the game (`songDelay`, the SWF
+  frame the sound stream begins at, less 2). Both are the chart's timing
+  under any rules (an FFR level under ITG's too), so the import places
+  the notes there (`docs/plans/phase-10.md`, "Timing as R^3 has it");
+  the rules here are unchanged.
 
 ## Decided here (the maintainer may change any)
 
@@ -430,4 +430,6 @@ nothing transcribed):
   Goods (6,900, raw goods 276.0, a full combo); 150 ms late each press
   past its note and 96 ms early on the next (4 Averages), then 7 Boos
   and 7 Misses to an empty life, failed. Not checked: Firefox and Safari
-  by hand, a real FFR level's timing (see "Found for the import").
+  by hand, a real FFR level's music against Flash's decode (the half
+  frame and the music's start are the import's since 2026-10-22, "Found
+  for the import").

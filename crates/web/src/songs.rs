@@ -629,9 +629,9 @@ async fn parse_found(found: &Found) -> Result<Song, LoadError> {
                 .ok_or("the stored song went missing")?;
             let db = Db::open().await?;
             let chart = blob_bytes(&song_file(&db, song, &entry.chart).await?).await?;
-            // An FFR level: its `beatBox` as stored.
+            // An FFR level: its `beatBox` and its music's start as stored.
             if ddi_library::ffr::is_level_chart(&entry.chart) {
-                let song = ddi_library::ffr::chart_song(&entry.chart, &chart, &entry.title)
+                let song = ddi_library::ffr::stored_chart_song(&chart, &entry.title)
                     .map_err(|e| format!("{}: {e}", entry.chart))?;
                 fill_digests(found, &song).await;
                 return Ok(song);

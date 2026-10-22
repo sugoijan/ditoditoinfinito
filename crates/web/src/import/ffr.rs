@@ -1,8 +1,9 @@
 //! Importing FFR levels (`docs/plans/phase-10.md`, step 2): each level
 //! among the import's files (`ddi_library::ffr`, as desktop's library
 //! finds them: the same ids and packs) read here and stored as a song:
-//! its `beatBox` as JSON ([`ffr::STORED_CHART`]) and its music, taken out
-//! of the SWF (or the audio file beside a text level), copied.
+//! its `beatBox` and the game frame its music starts at as JSON
+//! ([`ffr::STORED_CHART`]), and its music, taken out of the SWF (or the
+//! audio file beside a text level), copied.
 
 use std::collections::{HashMap, HashSet};
 

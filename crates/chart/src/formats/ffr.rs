@@ -3,19 +3,27 @@
 //! ActionScript array a level SWF assigns to `_root.beatBox`, one entry a
 //! note: `[frame, direction, color]`, or `[frame, direction, color, ms]`.
 //!
-//! What R^3 does with it (rCubed `ChartFFRLegacy.parseChart`, read for
-//! its behavior): a note's time is `(frame + sync) / 30` seconds from
-//! the start of the level's music, or `ms / 1000` when the entry has a
+//! What R^3 does with it (rCubed `e57179c`, read for its behavior, its
+//! code being AGPL): `ChartFFRLegacy.parseChart` gives a note the time
+//! `int(frame + sync) / 30` seconds, or `ms / 1000` when the entry has a
 //! fourth value; its direction is exactly `L`, `D`, `U` or `R` (anything
 //! else is left out); its color is the third value, `blue` when it is
 //! missing or empty. `sync` is the playlist's per-song frame offset (not
-//! in the level itself; 0 here unless given).
+//! in the level itself; 0 here unless given). That time is on the game's
+//! clock, not the music's: `NoteBox.spawnArrow` draws and judges a note
+//! at its time plus half a frame (`POSITION`), and `GameplayDisplay`
+//! starts the music `mp3Frame` frames into the game (`songDelay`; for a
+//! SWF, the frame its sound stream starts at less 2: `Song`'s load, see
+//! `ddi_library::swf::Level::music_frame`), its clock following the
+//! music's from then on. So a note is heard `time + (0.5 − mp3Frame) / 30`
+//! seconds into the music ([`LevelInfo::music_frame`]).
 //!
 //! Here: one `dance-single` chart (left, down, up, right), on a synthetic
 //! tempo of [`SYNTHETIC_BPM`], where a tick is 1/1200 s: a frame is 40
-//! ticks exactly, and a note timed in milliseconds is within 0.42 ms of
-//! its time. The colors are kept on the notes (`Note::color`, shown with
-//! "songs' own colors"). Two notes at one time in one lane are one.
+//! ticks exactly (half a frame 20), and a note timed in milliseconds is
+//! within 0.42 ms of its time. The colors are kept on the notes
+//! (`Note::color`, shown with "songs' own colors"). Two notes at one time
+//! in one lane are one.
 //!
 //! The array comes as values ([`Value`]): from a level SWF
 //! (`ddi_library::swf` runs the ActionScript that builds it) or written
@@ -122,7 +130,7 @@ impl Value {
     }
 }
 
-/// What a level does not say about itself.
+/// What a level's `beatBox` does not say.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LevelInfo {
     pub title: String,
@@ -131,6 +139,18 @@ pub struct LevelInfo {
     pub credit: String,
     /// The playlist's offset, frames (added to every note's frame).
     pub sync: i64,
+    /// R^3's `mp3Frame`: the game frame the music starts at. A note R^3
+    /// times at `t` seconds (its frame's or its milliseconds) is judged
+    /// at `t + 0.5 / 30` on the game's clock, which is
+    /// `t + (0.5 − music_frame) / 30` into the music. A level SWF's is its
+    /// sound stream's first frame less 2 (`ddi_library::swf`); a text
+    /// level's 0, as R^3 has a chart whose music is a file of its own.
+    pub music_frame: i64,
+    /// Notes at their frame's start from the music's start, no half frame
+    /// and no `music_frame`: how levels were read before 2026-10-22, kept
+    /// for the levels the web stored then (their entries keep those
+    /// charts' digests). Never for a level read now.
+    pub frame_start: bool,
     /// The music's file, relative to the chart's.
     pub music: Option<String>,
     /// FFR's difficulty number, when known.
@@ -178,9 +198,12 @@ fn lane(direction: &Value) -> Option<u8> {
     }
 }
 
-/// A note's time, seconds from the music's start, its lane and its color
+/// A note's time as R^3 has it (`Note.time`: seconds on the game's clock,
+/// before the half frame it is judged at), its lane and its color
 /// ([`color`]; blue when it names none).
-fn note_of(entry: &Value, sync: i64) -> Option<(f64, u8, Option<Color>)> {
+/// `whole`: the frame made a whole number as R^3 does (not as levels
+/// were read before, [`LevelInfo::frame_start`]).
+fn note_of(entry: &Value, sync: i64, whole: bool) -> Option<(f64, u8, Option<Color>)> {
     let Value::List(parts) = entry else {
         return None;
     };
@@ -188,7 +211,11 @@ fn note_of(entry: &Value, sync: i64) -> Option<(f64, u8, Option<Color>)> {
     let time = if parts.len() >= 4 {
         parts[3].number()? / 1000.0
     } else {
-        (parts.first()?.number()? + sync as f64) / FRAME_RATE
+        // `var beatPos:int`: the frame and sync's sum made a whole number,
+        // toward zero.
+        let frame = parts.first()?.number()? + sync as f64;
+        let frame = if whole { frame.trunc() } else { frame };
+        frame / FRAME_RATE
     };
     if !time.is_finite() || time.abs() > MAX_SECONDS {
         return None;
@@ -204,16 +231,27 @@ fn note_of(entry: &Value, sync: i64) -> Option<(f64, u8, Option<Color>)> {
     Some((time, lane, color))
 }
 
-/// A song of one `beatBox`: its notes on [`SYNTHETIC_BPM`], beat 0 at the
-/// music's start (or at the first note, when one comes before it).
-/// Entries that are not notes are left out; none at all is an error.
+/// A song of one `beatBox`: its notes on [`SYNTHETIC_BPM`] where R^3 has
+/// them in the music (half a frame into their frame, `info.music_frame`
+/// frames earlier), beat 0 at the music's start (or at the first note,
+/// when one comes before it). Entries that are not notes are left out;
+/// none at all is an error.
 pub fn song_from_beatbox(beatbox: &Value, info: &LevelInfo) -> Result<Song, ParseError> {
     let Value::List(entries) = beatbox else {
         return Err(ParseError::Malformed("the beatBox is not an array".into()));
     };
+    // From the game's clock to the music's: the half frame a note is
+    // judged at, less the frames before the music starts.
+    let lead = if info.frame_start {
+        0.0
+    } else {
+        (0.5 - info.music_frame as f64) / FRAME_RATE
+    };
     let mut notes: Vec<(f64, u8, Option<Color>)> = entries
         .iter()
-        .filter_map(|e| note_of(e, info.sync))
+        .filter_map(|e| note_of(e, info.sync, !info.frame_start))
+        .map(|(time, lane, color)| (time + lead, lane, color))
+        .filter(|n| n.0.abs() <= MAX_SECONDS)
         .take(MAX_NOTES)
         .collect();
     if notes.is_empty() {
@@ -440,21 +478,28 @@ mod tests {
             .collect()
     }
 
+    fn seconds(song: &Song) -> Vec<f64> {
+        song.charts[0]
+            .notes
+            .iter()
+            .map(|n| song.timing.seconds_at(n.tick))
+            .collect()
+    }
+
     #[test]
-    fn frames_are_thirtieths_of_a_second_from_the_music() {
+    fn frames_are_thirtieths_of_a_second_judged_half_a_frame_in() {
         let v = parse_beatbox_text(
             r#"_root.beatBox = [[30, "L", "red"], [45, 'D', "blue"], [45, "R"], [60, "U", ""]];"#,
         )
         .unwrap();
         let song = song_from_beatbox(&v, &LevelInfo::default()).unwrap();
-        // 40 ticks a frame.
+        // 40 ticks a frame, and half a frame (20) in: R^3's `POSITION`.
         assert_eq!(
             notes(&song),
-            vec![(1200, 0), (1800, 1), (1800, 3), (2400, 2)]
+            vec![(1220, 0), (1820, 1), (1820, 3), (2420, 2)]
         );
-        let timing = &song.timing;
-        for (n, secs) in song.charts[0].notes.iter().zip([1.0, 1.5, 1.5, 2.0]) {
-            assert!((timing.seconds_at(n.tick) - secs).abs() < 1e-9);
+        for (t, secs) in seconds(&song).into_iter().zip([30.5, 45.5, 45.5, 60.5]) {
+            assert!((t - secs / 30.0).abs() < 1e-9, "{t} {secs}");
         }
         // Colors as named; missing or empty: blue.
         let c: Vec<_> = song.charts[0].notes.iter().map(|n| n.color).collect();
@@ -466,22 +511,69 @@ mod tests {
     }
 
     #[test]
+    fn the_music_starts_at_its_frame_of_the_game() {
+        let v = parse_beatbox_text("[[30,'L'],[30,'R','red',1003.4],[0,'D']]").unwrap();
+        // A SWF whose stream starts at its frame 7: `mp3Frame` 5, so frame
+        // 30 is heard 25.5 frames into the music, the milliseconds as
+        // much earlier; frame 0 before the music, which moves beat 0.
+        let song = song_from_beatbox(
+            &v,
+            &LevelInfo {
+                music_frame: 5,
+                ..LevelInfo::default()
+            },
+        )
+        .unwrap();
+        let t = seconds(&song);
+        assert!((t[0] + 4.5 / 30.0).abs() < 1e-9, "{t:?}");
+        assert!((t[1] - 25.5 / 30.0).abs() < 1e-9, "{t:?}");
+        assert!(
+            (t[2] - (1.0034 - 4.5 / 30.0)).abs() <= 0.5 / 1200.0,
+            "{t:?}"
+        );
+        assert_eq!(notes(&song)[..2], [(0, 1), (1200, 0)]);
+        // A stream from the SWF's first frame: `mp3Frame` −2, frame 30
+        // heard 32.5 frames in.
+        let song = song_from_beatbox(
+            &v,
+            &LevelInfo {
+                music_frame: -2,
+                ..LevelInfo::default()
+            },
+        )
+        .unwrap();
+        assert!((seconds(&song)[1] - 32.5 / 30.0).abs() < 1e-9);
+        // As levels were read before: the frame's start from the music's.
+        let song = song_from_beatbox(
+            &v,
+            &LevelInfo {
+                music_frame: -2,
+                frame_start: true,
+                ..LevelInfo::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(notes(&song), vec![(0, 1), (1200, 0), (1204, 3)]);
+    }
+
+    #[test]
     fn milliseconds_win_over_frames_and_sync_moves_frames() {
-        let v = parse_beatbox_text("[[30,\"L\",\"red\",1003.4],[30,\"R\",\"red\"]]").unwrap();
+        let v = parse_beatbox_text("[[30,\"L\",\"red\",1003.4],[30,\"R\",\"red\"],[30.9,\"U\"]]")
+            .unwrap();
         let info = LevelInfo {
             sync: -3,
             ..LevelInfo::default()
         };
         let song = song_from_beatbox(&v, &info).unwrap();
-        let t: Vec<f64> = song.charts[0]
-            .notes
-            .iter()
-            .map(|n| song.timing.seconds_at(n.tick))
-            .collect();
-        // 27 frames for the right; 1.0034 s for the left, to the tick.
-        assert!((t[0] - 0.9).abs() < 1e-9, "{t:?}");
-        assert!((t[1] - 1.0034).abs() <= 0.5 / 1200.0, "{t:?}");
-        assert_eq!(song.charts[0].notes[0].lane, 3);
+        let t = seconds(&song);
+        // 27 frames for the right and the up (`int(30.9 − 3)`), each half
+        // a frame in; 1.0034 s for the left, to the tick, half a frame in.
+        let half = 0.5 / 30.0;
+        assert!((t[0] - (0.9 + half)).abs() < 1e-9, "{t:?}");
+        assert!((t[1] - (0.9 + half)).abs() < 1e-9, "{t:?}");
+        assert!((t[2] - (1.0034 + half)).abs() <= 0.5 / 1200.0, "{t:?}");
+        assert_eq!(song.charts[0].notes[0].lane, 2);
+        assert_eq!(song.charts[0].notes[1].lane, 3);
     }
 
     #[test]
@@ -496,8 +588,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(notes(&song)[0], (0, 0));
-        assert!((song.timing.seconds_at(Tick(0)) + 0.1).abs() < 1e-9);
-        assert!((song.timing.seconds_at(song.charts[0].notes[1].tick) - 0.8).abs() < 1e-9);
+        assert!((song.timing.seconds_at(Tick(0)) + 2.5 / 30.0).abs() < 1e-9);
+        assert!((seconds(&song)[1] - 24.5 / 30.0).abs() < 1e-9);
     }
 
     #[test]
@@ -510,7 +602,7 @@ mod tests {
         let song = song_from_beatbox(&v, &LevelInfo::default()).unwrap();
         // Lowercase and unknown directions, no frame, a bad ms value, a
         // note a day past: out; a note twice: once.
-        assert_eq!(notes(&song), vec![(1200, 2)]);
+        assert_eq!(notes(&song), vec![(1220, 2)]);
         assert!(
             song_from_beatbox(&parse_beatbox_text("[]").unwrap(), &LevelInfo::default()).is_err()
         );

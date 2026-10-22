@@ -339,7 +339,13 @@ fn an_imported_level_plays_by_its_frames() {
         .iter()
         .map(|n| (n.seconds, n.note.lane))
         .collect();
-    assert_eq!(times[3], (2.05, 3));
+    // Each judged half a frame into its frame, as R^3 judges it (a text
+    // level: frame 0 at the music's start), the milliseconds too.
+    let half = 0.5 / 30.0;
+    for ((s, lane), want) in times.iter().zip([1.0, 1.5, 2.0, 2.05]) {
+        assert!((s - (want + half)).abs() < 1e-9, "{s} {lane}");
+    }
+    assert_eq!(times[3].1, 3);
     for (late, flag) in [(1.0, Flag::Aaa), (2.0, Flag::Blackflag)] {
         let mut edges = Vec::new();
         for (i, &(s, lane)) in times.iter().enumerate() {

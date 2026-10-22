@@ -163,16 +163,20 @@ build their own SWFs).
   rest passed over; a tag whose actions fail is left), then
   `_root.beatBox`; the music: the MP3 sound stream's blocks less their
   4-byte header, else the first MP3 `DefineSound` less its 9 bytes.
-- **Notes as R^3 times them:** `(frame + sync) / 30` s from the music's
-  start, or `ms / 1000` when an entry has a fourth value; directions
-  exactly `L`, `D`, `U`, `R` (others left out, as R^3 does), colors the
-  third value, `blue` when falsy. `sync` (the playlist's offset) is not in
-  a level: 0 unless given. A note twice at one time in one lane is one
-  (R^3 would keep both; one press cannot take two).
+- **Notes as R^3 times them:** `int(frame + sync) / 30` s, or
+  `ms / 1000` when an entry has a fourth value, on the game's clock;
+  judged half a frame later, and the music started at the level's
+  `mp3Frame` (since 2026-10-22: "Timing as R^3 has it" below; before,
+  a note was put at its frame's start from the music's start);
+  directions exactly `L`, `D`, `U`, `R` (others left out, as R^3 does),
+  colors the third value, `blue` when falsy. `sync` (the playlist's
+  offset) is not in a level: 0 unless given. A note twice at one time in
+  one lane is one (R^3 would keep both; one press cannot take two).
 - **On the grid:** one `dance-single` chart on a synthetic 1,500 BPM
   (`ffr::SYNTHETIC_BPM`), 1,200 ticks a second: a frame is exactly 40
-  ticks, a millisecond-timed note within 0.42 ms. Beat 0 is the music's
-  start, or the first note when a negative sync puts one before it.
+  ticks (half a frame 20), a millisecond-timed note within 0.42 ms.
+  Beat 0 is the music's start, or the first note when one comes before
+  it.
   PLAN.md section 4 had 75 BPM (2 ticks a frame); that cannot hold
   millisecond timings.
 - **Speed:** like Dancing☆Onigiri's works, an x-mod plays as on a
@@ -185,7 +189,8 @@ build their own SWFs).
   palette, shown with "songs' own colors"; other names: the quantization
   color.
 - **Music timing:** the MP3 as StepMania 5.1 has it (no delay trimmed,
-  decision 46); R^3 plays Flash's own decode of it, whose delay is not
+  decision 46); R^3 plays Flash's own decode of it (the stream's
+  frames joined, its `SeekSamples` not applied), whose delay is not
   documented. To be checked against a level a player has.
 - **Bounds:** 200,000 notes, a day of time, 16 levels of nesting and
   800,000 values in the text, 256 MB inflated, 20 million actions, a
@@ -254,7 +259,8 @@ Decided here (the maintainer may change any):
   SWF is never read again). **Desktop reads in place**: the level is the
   chart and, for a SWF, the music, taken out each time it plays and once
   for song select's sample (the previews cache). Its library cache
-  version is 8, so caches from before read levels.
+  version is 8, so caches from before read levels (10 since the timing
+  below).
 - The file pickers take `.swf`, `.as`, `.beatbox` and `.txt`; the import
   dialogs name "FFR levels (.swf)".
 
@@ -288,14 +294,107 @@ notes, all the top tier.
 Left:
 
 - Its playlist's `sync`, title and difficulty (a player could give
-  them on import), and a check of the music's timing against a real
-  level. Found while building `ffr` (`rulesets.md`, "FFR"), to settle
-  with that check: R^3 judges and draws a note half a frame (16.7 ms)
-  after its frame's start (`NoteBox.spawnArrow`), and starts the music
-  at the game frame its SWF's sound stream begins at, less 2
-  (`Song.mp3Frame`, `songDelay`); the importer puts a note at its
-  frame's start from the music's start. FFR's rules done (decision
-  58).
+  them on import: a legacy engine's levels may have a sync, FFR's own
+  have none, below), and a check of the music's decode against a real
+  level (Flash's MP3 delay). R^3's half frame and music start done
+  (2026-10-22, below); FFR's rules done (decision 58).
+
+### Timing as R^3 has it (2026-10-22)
+
+Found while building `ffr` (`rulesets.md`, "FFR") and read again in
+rCubed `e57179c` (AGPL-3.0: read for its behavior, nothing
+transcribed):
+
+- **A note's time is on the game's clock.** `ChartFFRLegacy.parseChart`
+  makes each entry a `Note` of time `int(frame + sync) / 30` s (the
+  frame and sync's sum an `int`, so made whole toward zero), or
+  `ms / 1000` with a fourth value (its frame still `int(frame + sync)`,
+  which only misses and spawning read).
+- **Judged and drawn half a frame in.** `NoteBox.spawnArrow` gives every
+  note it spawns `POSITION = (time + 0.5 / 30) × 1000` ms;
+  `GameplayDisplay.judgeScorePosition` judges a press's game time
+  against `POSITION`, and `NoteBox.updateNotePosition` draws the note
+  at the receptor at `POSITION`. Any chart's notes, an FFR level's or a
+  file's.
+- **The music starts `mp3Frame` frames into the game.**
+  `MP3Extraction.extractSound` counts the SWF's `ShowFrame` tags before
+  the first `SoundStreamBlock` with data (the stream once named MP3;
+  `metadata.frame`, −1 when the music is a `DefineSound`'s, which also
+  ends the music: nothing after it is read); `Song.musicCompleteHandler`
+  sets `mp3Frame = metadata.frame − 2`. `GameplayDisplay.initCore`
+  makes it `songDelay` (ms, at rate 1 and without a global offset);
+  `e_onFrame` starts the music once the game's time reaches it and from
+  then on keeps the game's time at the music's position plus
+  `songDelay` (`songOffset`, an average of the two's difference). So a
+  note is heard `time + (0.5 − mp3Frame) / 30` s into the music: a
+  stream from the SWF's first frame puts frame `F` at `(F + 2.5) / 30`,
+  one from frame 7 at `(F − 4.5) / 30`, a `DefineSound`'s music at
+  `(F + 3.5) / 30`. The reverse mod's sample arithmetic
+  (`Song.onReverseSound`, `(63 − mp3Frame) × 1470`) agrees: game frame
+  `F` is music sample `(F − mp3Frame) × 1470` at 44.1 kHz.
+- **`sync`** comes from a legacy engine's playlist (`arc_sync`, or the
+  engine's `legacySync` by level; `ChartFFRLegacy.parsePlaylist`). FFR's
+  own playlist gives none: `Playlist` has a table of fixed syncs for
+  FFR's earliest levels (`oldOffsets`), used when
+  `isNaN(songInfo.sync)`, but `SongInfo.sync` is an `int`, 0 unless
+  set, so it is never used and FFR's own levels play with sync 0, as
+  the import has them. Another engine's level with a sync of its own
+  plays off by it until a player can give one (left above).
+
+Decided here (the maintainer may change any):
+
+- **The import times notes where R^3 hears them**
+  (`ddi_chart::formats::ffr::LevelInfo::music_frame`): the half frame
+  and `mp3Frame` folded into the notes' ticks (half a frame is 20
+  ticks: every frame note stays on the grid), so the timing holds under
+  every ruleset and on both shells, which share the import. A SWF's
+  `mp3Frame` is `swf::Level::music_frame` (its `stream_frame` less 2;
+  −3 for a `DefineSound`'s music); the reader now also stops taking
+  music after a `DefineSound`, keeps a stream named MP3 one when a
+  later head names another codec, and makes a frame whole as R^3 does.
+- **A text level's music starts at the game's frame 0** (`mp3Frame` 0),
+  with the half frame. R^3 has no text level; the only way it plays a
+  chart whose music is a file of its own is its file loader
+  (`menu/FileLoader.buildSong`: the `Song`'s music from the file,
+  `mp3Frame` left at 0, each note's frame `floor(time × 30)`), which
+  starts the music at the game's start; and a stepartist writing a
+  `beatBox` against an audio file counts its frames from that file's
+  start. The stream's first frame is not in a decompiled `beatBox`: a
+  decompiled level whose stream began at SWF frame `s` plays `s − 2`
+  frames off, and importing the SWF itself times it exactly.
+- **The web stores where the music starts**: `chart.beatbox` is now
+  `{"musicFrame": n, "beatBox": […]}` (`ffr::stored_chart_song`). One
+  stored before (the `beatBox` alone, its SWF's stream frame lost) is
+  read as levels were then (`LevelInfo::frame_start`: each note at its
+  frame's start from the music's), so its entry's digests stay its
+  chart's; importing the level again times it as R^3 does.
+- **Digests change; nothing is judged again.** Every level's notes
+  move (half a frame at least), so its chart digest is new: as for an
+  edited pack (`play-history.md`, "A chart whose notes change is a new
+  chart"; `editor.md`), the new chart starts with no bests, and plays
+  of the old one stay in the history as plays of a chart this library
+  no longer has (their replays refused as "a chart that changed").
+  `JUDGE_VERSION` stays: judging did not change, and judging the old
+  plays against the moved notes would score inputs made against the
+  old timing. Desktop's library cache is version 10, so desktop reads
+  its levels again (their entries' digests the new ones); on the web,
+  levels imported before keep their old timing and digests until
+  imported again.
+
+Checked: natively, the half frame on frame and millisecond notes and on
+a sync, `int(frame + sync)`, `mp3Frame` −2, 5 and as levels were read
+before, beat 0 moved by a note before the music; SWFs with their
+stream from frame 0, from frame 7 (`swf::write_level_at`) and from
+frame 3 past an empty block and a later head of another codec, a
+`DefineSound`'s music (−3, a stream after it not music); the web's
+stored form read back to the same digest, the old form to the old
+ticks; the engine's level autoplayed at its R^3 times. Desktop
+(`tests/ffr_levels.rs`): a SWF with its stream from frame 0, one from
+frame 7 and a text level, each note judged at `(F + 0.5 − mp3Frame) /
+30` s into its music (exactly, and the autoplay's presses on the
+music's clock within 0.1 ms), AAA under `ffr`, the top tier under ITG,
+and each play's kept log replayed to the same tally, score, FFR result
+and timeline.
 
 ## Step 3: the editor
 

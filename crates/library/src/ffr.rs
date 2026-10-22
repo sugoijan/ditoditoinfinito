@@ -13,9 +13,18 @@
 //! A file that turns out not to be a level (a SWF without a `beatBox`, an
 //! `.as` of other actions) is no song and nothing to report.
 //!
-//! The web stores what it read (the `beatBox` as JSON, the music
-//! extracted: [`STORED_CHART`]); desktop reads the files in place, the
-//! music out of the SWF each time it plays.
+//! Notes go where R^3 has them in the music
+//! (`ddi_chart::formats::ffr`): half a frame into their frame, and for a
+//! SWF as many frames earlier as its sound stream starts later than its
+//! frame 2 (`swf::Level::music_frame`). A text level has no stream: its
+//! frame 0 is its music's start, as R^3 has a chart whose music is a file
+//! of its own (its file loader's songs start the music at the game's
+//! start); a decompiled level whose stream began at SWF frame `s` plays
+//! `s − 2` frames off, which importing the SWF itself avoids.
+//!
+//! The web stores what it read (the `beatBox` and where the music starts,
+//! as JSON, [`STORED_CHART`]; the music extracted); desktop reads the
+//! files in place, the music out of the SWF each time it plays.
 
 use ddi_chart::Song;
 use ddi_chart::formats::ffr::{LevelInfo, Value, parse_beatbox_text, song_from_beatbox};
@@ -27,7 +36,9 @@ use crate::path::{RelPath, RelPathBuf};
 /// The largest file read as a possible level, bytes (a level is its
 /// music: a few megabytes).
 pub const MAX_LEVEL: u64 = 64 << 20;
-/// The name a stored level's chart has (the `beatBox` as JSON).
+/// The name a stored level's chart has: `{"musicFrame": n, "beatBox":
+/// […]}` ([`LevelSong::beatbox`]), or, stored before 2026-10-22, the
+/// `beatBox` alone ([`stored_chart_song`]).
 pub const STORED_CHART: &str = "chart.beatbox";
 
 /// Whether `path` may be a level: a SWF, an `.as` or `.beatbox` file, or a
@@ -150,30 +161,37 @@ pub struct LevelSong {
     /// A SWF's music, an MP3 file; none for a text level (its music is
     /// [`LevelCandidate::music`]).
     pub mp3: Option<Vec<u8>>,
-    /// The `beatBox` as JSON (what the web stores, [`STORED_CHART`]).
+    /// The level as the web stores it ([`STORED_CHART`]): its `beatBox`
+    /// and where its music starts (R^3's `mp3Frame`), as JSON.
     pub beatbox: String,
+}
+
+/// A level's `beatBox` and the game frame its music starts at, as the web
+/// stores them.
+fn stored(beatbox: &Value, music_frame: i64) -> String {
+    format!(
+        "{{\"musicFrame\":{music_frame},\"beatBox\":{}}}",
+        beatbox.to_json()
+    )
 }
 
 /// Candidate `c` read from its bytes: `Ok(None)` when it is not a level
 /// (a SWF without a `beatBox`, a text that is not one), an error when it
 /// is one that cannot be played (no notes, no music).
 pub fn read_level(c: &LevelCandidate, bytes: &[u8]) -> Result<Option<LevelSong>, String> {
-    let info = LevelInfo {
-        title: c.title.clone(),
-        ..LevelInfo::default()
-    };
-    let (beatbox, mp3) = if is_swf_name(&c.path) {
+    let (beatbox, mp3, music_frame) = if is_swf_name(&c.path) {
         if !crate::swf::is_swf(bytes) {
             return Ok(None);
         }
         let level = crate::swf::read(bytes)?;
+        let music_frame = level.music_frame();
         let Some(beatbox) = level.beatbox else {
             return Ok(None);
         };
         if level.mp3.is_empty() {
             return Err("the level has no MP3 music".into());
         }
-        (beatbox, Some(level.mp3))
+        (beatbox, Some(level.mp3), music_frame)
     } else {
         let text = pack::decode_text(bytes);
         let beatbox = match parse_beatbox_text(&text) {
@@ -192,13 +210,18 @@ pub fn read_level(c: &LevelCandidate, bytes: &[u8]) -> Result<Option<LevelSong>,
         if c.music.is_none() {
             return Err("no audio file beside the beatBox".into());
         }
-        (beatbox, None)
+        (beatbox, None, 0)
+    };
+    let info = LevelInfo {
+        title: c.title.clone(),
+        music_frame,
+        ..LevelInfo::default()
     };
     let song = song_from_beatbox(&beatbox, &info).map_err(|e| e.to_string())?;
     Ok(Some(LevelSong {
         song,
         mp3,
-        beatbox: beatbox.to_json(),
+        beatbox: stored(&beatbox, music_frame),
     }))
 }
 
@@ -237,8 +260,8 @@ pub fn is_level_chart(chart: &RelPath) -> bool {
     is_level_file(chart.as_str())
 }
 
-/// A level's song read again from its chart file's bytes (a SWF, a text
-/// level, or a stored `beatBox`), titled `title`.
+/// A level's song read again from its chart file's bytes (a SWF or a
+/// text level, in place), titled `title`.
 pub fn chart_song(chart: &RelPath, bytes: &[u8], title: &str) -> Result<Song, String> {
     chart_song_and_music(chart, bytes, title).map(|(song, _)| song)
 }
@@ -250,20 +273,65 @@ pub fn chart_song_and_music(
     bytes: &[u8],
     title: &str,
 ) -> Result<(Song, Option<Vec<u8>>), String> {
-    let (beatbox, mp3): (Value, _) = if is_swf_name(chart) {
+    let (beatbox, mp3, music_frame): (Value, _, _) = if is_swf_name(chart) {
         let level = crate::swf::read(bytes)?;
+        let music_frame = level.music_frame();
         let beatbox = level.beatbox.ok_or("the level has no beatBox")?;
-        (beatbox, Some(level.mp3).filter(|m| !m.is_empty()))
+        (
+            beatbox,
+            Some(level.mp3).filter(|m| !m.is_empty()),
+            music_frame,
+        )
     } else {
         let text = pack::decode_text(bytes);
-        (parse_beatbox_text(&text).map_err(|e| e.to_string())?, None)
+        (
+            parse_beatbox_text(&text).map_err(|e| e.to_string())?,
+            None,
+            0,
+        )
     };
     let info = LevelInfo {
         title: title.to_string(),
+        music_frame,
         ..LevelInfo::default()
     };
     let song = song_from_beatbox(&beatbox, &info).map_err(|e| e.to_string())?;
     Ok((song, mp3))
+}
+
+/// A level the web stored ([`STORED_CHART`]: [`LevelSong::beatbox`]) read
+/// again, titled `title`. One stored before 2026-10-22 (the `beatBox`
+/// alone, its SWF's stream frame not kept) is read as levels were then,
+/// each note at its frame's start from the music's start
+/// (`LevelInfo::frame_start`), so that its entry's digests stay its
+/// chart's; importing it again times it as R^3 does.
+pub fn stored_chart_song(bytes: &[u8], title: &str) -> Result<Song, String> {
+    let text = pack::decode_text(bytes);
+    let (beatbox, music_frame, frame_start) = if text.trim_start().starts_with('{') {
+        #[derive(serde::Deserialize)]
+        struct Stored {
+            #[serde(rename = "musicFrame")]
+            music_frame: i64,
+            #[serde(rename = "beatBox")]
+            beatbox: serde_json::Value,
+        }
+        let s: Stored = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let beatbox = parse_beatbox_text(&s.beatbox.to_string()).map_err(|e| e.to_string())?;
+        (beatbox, s.music_frame, false)
+    } else {
+        (
+            parse_beatbox_text(&text).map_err(|e| e.to_string())?,
+            0,
+            true,
+        )
+    };
+    let info = LevelInfo {
+        title: title.to_string(),
+        music_frame,
+        frame_start,
+        ..LevelInfo::default()
+    };
+    song_from_beatbox(&beatbox, &info).map_err(|e| e.to_string())
 }
 
 /// A song's music file's bytes as audio: a SWF's MP3 taken out of it
@@ -378,7 +446,8 @@ mod tests {
         assert_eq!(e.bpm, "");
         assert_eq!(e.charts.len(), 1);
         assert!(e.charts[0].digest.is_some());
-        assert!(e.preview_length > 0.0 && (e.preview_start - 1.0).abs() < 1e-9);
+        // From the first note, where R^3 has it: 32.5 frames into the music.
+        assert!(e.preview_length > 0.0 && (e.preview_start - 32.5 / 30.0).abs() < 1e-9);
         // Read again for a play: the same chart; the music out of it.
         let again = chart_song(RelPath::new(&chart), &swf, &e.title).unwrap();
         assert_eq!(again.chart_digest(0), read.song.chart_digest(0));
@@ -387,9 +456,20 @@ mod tests {
         assert_eq!(inside.as_deref(), Some(&mp3[..]));
         let (bytes, ext) = music(RelPath::new(&music_name), swf.clone()).unwrap();
         assert_eq!((bytes, ext.as_deref()), (mp3.clone(), Some("mp3")));
-        // As the web stores it: the beatBox as JSON.
-        let stored = chart_song(RelPath::new(STORED_CHART), read.beatbox.as_bytes(), "t").unwrap();
+        // As the web stores it: the beatBox and where the music starts,
+        // as JSON.
+        assert!(
+            read.beatbox
+                .starts_with("{\"musicFrame\":-2,\"beatBox\":[[30,")
+        );
+        let stored = stored_chart_song(read.beatbox.as_bytes(), "t").unwrap();
         assert_eq!(stored.chart_digest(0), read.song.chart_digest(0));
+        // Stored before: the beatBox alone, each note at its frame's start
+        // from the music's (the stream from frame 0: 2.5 frames later now).
+        let alone = crate::swf::read(&swf).unwrap().beatbox.unwrap().to_json();
+        let old = stored_chart_song(alone.as_bytes(), "t").unwrap();
+        assert_eq!(old.charts[0].notes[0].tick.0, 1200);
+        assert_eq!(read.song.charts[0].notes[0].tick.0, 1300);
         // Other music passes as it is.
         let (bytes, ext) = music(RelPath::new("a.OGG"), vec![1, 2]).unwrap();
         assert_eq!((bytes, ext.as_deref()), (vec![1, 2], Some("ogg")));
@@ -422,5 +502,11 @@ mod tests {
             .unwrap();
         assert_eq!(text.mp3, None);
         assert_eq!(text.song.charts[0].notes.len(), 1);
+        // Its frame 0 the music's start; half a frame in, as R^3 judges.
+        assert_eq!(text.song.charts[0].notes[0].tick.0, 1220);
+        assert!(text.beatbox.starts_with("{\"musicFrame\":0,"));
+        let stored = stored_chart_song(text.beatbox.as_bytes(), "a").unwrap();
+        assert_eq!(stored.chart_digest(0), text.song.chart_digest(0));
+        assert!(stored_chart_song(b"{\"beatBox\":[[30,\"L\"]]}", "a").is_err());
     }
 }

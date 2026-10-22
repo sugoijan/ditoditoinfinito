@@ -16,8 +16,9 @@
 //! - **The music.** The MP3 frames of the level's sound stream
 //!   (`SoundStreamHead` naming MP3, then each `SoundStreamBlock` less its
 //!   four-byte header), or else of its first MP3 `DefineSound` (less its
-//!   nine bytes), joined as they are: an MP3 file. Notes are timed from
-//!   its start.
+//!   nine bytes; nothing after it is music), joined as they are: an MP3
+//!   file. Where it starts in the game ([`Level::music_frame`]): R^3
+//!   counts the `ShowFrame` tags before the stream's first block.
 //!
 //! Compressed levels (`CWS`, zlib) are inflated; LZMA (`ZWS`) ones are
 //! refused. Everything is bounded: the inflated size, the actions run, the
@@ -55,12 +56,27 @@ pub struct Level {
     pub beatbox: Option<Value>,
     /// The music, an MP3 file (empty: none).
     pub mp3: Vec<u8>,
+    /// The SWF frame (from 0) of the sound stream's first block with
+    /// music; none when the music is a `DefineSound`'s, or there is none.
+    pub stream_frame: Option<u32>,
     /// The music's sample rate as the SWF declares it, Hz (0: unknown).
     pub sample_rate: u32,
     /// The SWF's own frame rate, frames a second.
     pub frame_rate: f64,
     /// The SWF version.
     pub version: u8,
+}
+
+impl Level {
+    /// R^3's `mp3Frame` (`ddi_chart::formats::ffr::LevelInfo::music_frame`):
+    /// the game frame its music starts at. `MP3Extraction.extractSound`
+    /// gives the frame of the stream's first block (−1 without a stream),
+    /// and `Song` takes 2 from it, so a stream from the SWF's first frame
+    /// starts two frames before the game's frame 0, and a `DefineSound`'s
+    /// music three.
+    pub fn music_frame(&self) -> i64 {
+        self.stream_frame.map_or(-1, i64::from) - 2
+    }
 }
 
 /// Whether `bytes` start as a SWF does.
@@ -98,8 +114,11 @@ pub fn read(bytes: &[u8]) -> Result<Level, String> {
         ..Level::default()
     };
     let mut machine = Machine::default();
+    // As `extractSound`: a stream once named MP3 stays one, and a
+    // `DefineSound` taken ends the music.
     let mut streaming = false;
     let mut defined = false;
+    let mut frames = 0u32;
     while !r.is_empty() {
         let head = r.u16()?;
         let code = head >> 6;
@@ -110,16 +129,18 @@ pub fn read(bytes: &[u8]) -> Result<Level, String> {
         let tag = r.take(len)?;
         match code {
             TAG_END => break,
+            TAG_SHOW_FRAME => frames = frames.saturating_add(1),
             TAG_DO_ACTION => machine.run(tag),
             // A sprite's id, then its actions.
             TAG_DO_INIT_ACTION if tag.len() >= 2 => machine.run(&tag[2..]),
-            TAG_SOUND_STREAM_HEAD | TAG_SOUND_STREAM_HEAD2 if tag.len() >= 2 => {
-                streaming = tag[1] >> 4 == MP3;
-                if streaming {
-                    level.sample_rate = rate(tag[1]);
-                }
+            TAG_SOUND_STREAM_HEAD | TAG_SOUND_STREAM_HEAD2
+                if !defined && tag.len() >= 2 && tag[1] >> 4 == MP3 =>
+            {
+                streaming = true;
+                level.sample_rate = rate(tag[1]);
             }
-            TAG_SOUND_STREAM_BLOCK if streaming && tag.len() > 4 => {
+            TAG_SOUND_STREAM_BLOCK if streaming && !defined && tag.len() > 4 => {
+                level.stream_frame.get_or_insert(frames);
                 level.mp3.extend_from_slice(&tag[4..]);
             }
             TAG_DEFINE_SOUND if !streaming && !defined && tag.len() > 9 && tag[2] >> 4 == MP3 => {
@@ -141,8 +162,19 @@ pub fn read(bytes: &[u8]) -> Result<Level, String> {
 /// no FFR level is ever needed to check the game): `notes` as
 /// `_root.beatBox = [[frame, direction, color], …]` in one `DoAction`,
 /// `mp3` as a 44.1 kHz MP3 sound stream in blocks of a few kilobytes,
-/// zlib-compressed (`CWS`) or not.
+/// zlib-compressed (`CWS`) or not; the stream from the SWF's first frame.
 pub fn write_level(notes: &[(f64, &str, &str)], mp3: &[u8], compressed: bool) -> Vec<u8> {
+    write_level_at(notes, mp3, compressed, 0)
+}
+
+/// [`write_level`], the stream's first block in SWF frame `stream_frame`
+/// (the frames before it empty but for the chart's actions in the first).
+pub fn write_level_at(
+    notes: &[(f64, &str, &str)],
+    mp3: &[u8],
+    compressed: bool,
+    stream_frame: u16,
+) -> Vec<u8> {
     fn push(code: &mut Vec<u8>, values: &[&[u8]]) {
         let data: Vec<u8> = values.concat();
         code.push(ACTION_PUSH);
@@ -175,6 +207,9 @@ pub fn write_level(notes: &[(f64, &str, &str)], mp3: &[u8], compressed: bool) ->
     let mut swf = Swf::default()
         .tag(TAG_SOUND_STREAM_HEAD2, &[0x0f, 0x2f, 0xbe, 0x05, 0, 0])
         .tag(TAG_DO_ACTION, &code);
+    for _ in 0..stream_frame {
+        swf = swf.tag(TAG_SHOW_FRAME, &[]);
+    }
     for block in mp3.chunks(4096) {
         let mut b = vec![0xbe, 0x05, 0, 0];
         b.extend_from_slice(block);
@@ -712,6 +747,7 @@ pub(crate) mod tests {
             assert_eq!(level.mp3, frames, "compressed {compressed}");
             assert_eq!(level.sample_rate, 44100);
             assert_eq!(level.frame_rate, 30.0);
+            assert_eq!((level.stream_frame, level.music_frame()), (Some(0), -2));
             let Some(Value::List(entries)) = &level.beatbox else {
                 panic!("{:?}", level.beatbox)
             };
@@ -742,9 +778,10 @@ pub(crate) mod tests {
         let level = crate::ffr::read_level(c, &swf).unwrap().unwrap();
         assert_eq!(level.mp3, Some(frames.clone()));
         assert_eq!(level.song.title, "level_42");
+        // The stream from frame 0: frame 30 heard 32.5 frames in.
         let notes = &level.song.charts[0].notes;
-        assert_eq!((notes[0].tick.0, notes[0].lane), (1200, 0));
-        assert_eq!((notes[1].tick.0, notes[1].lane), (1240, 3));
+        assert_eq!((notes[0].tick.0, notes[0].lane), (1300, 0));
+        assert_eq!((notes[1].tick.0, notes[1].lane), (1340, 3));
         // No music: refused; no chart: not a level.
         let silent = Swf::default()
             .tag(TAG_DO_ACTION, &beatbox_actions(&[(30, "L", "red")]))
@@ -765,6 +802,13 @@ pub(crate) mod tests {
             let level = read(&write_level(&notes, &mp3, compressed)).unwrap();
             assert_eq!(level.mp3, mp3);
             assert_eq!(level.sample_rate, 44100);
+            assert_eq!(level.stream_frame, Some(0));
+            let later = read(&write_level_at(&notes, &mp3, compressed, 7)).unwrap();
+            assert_eq!((later.stream_frame, later.music_frame()), (Some(7), 5));
+            assert_eq!(
+                (later.mp3, later.beatbox),
+                (mp3.clone(), level.beatbox.clone())
+            );
             assert_eq!(
                 level.beatbox,
                 Some(Value::List(vec![
@@ -784,7 +828,8 @@ pub(crate) mod tests {
     }
 
     /// An FFR level's chart plays: autoplayed on time, every note the best
-    /// judgement, at the times its frames say.
+    /// judgement, at the times R^3 has its frames in the music (the
+    /// stream from the SWF's first frame: two and a half frames later).
     #[test]
     fn a_level_plays() {
         use ddi_engine::player::{PlayOptions, Player};
@@ -807,7 +852,10 @@ pub(crate) mod tests {
         );
         let judged: Vec<f64> = player.judge().notes().iter().map(|n| n.seconds).collect();
         for (t, (frame, _, _)) in judged.iter().zip(&notes) {
-            assert!((t - f64::from(*frame) / 30.0).abs() < 1e-9, "{t} {frame}");
+            assert!(
+                (t - (f64::from(*frame) + 2.5) / 30.0).abs() < 1e-9,
+                "{t} {frame}"
+            );
         }
         let mut inputs = Vec::new();
         for p in ddi_engine::autoplay::script(player.judge().notes(), 0.0) {
@@ -848,6 +896,46 @@ pub(crate) mod tests {
         assert_eq!(level.mp3, frames);
         assert_eq!(level.sample_rate, 44100);
         assert_eq!(level.beatbox, None);
+        // No stream: R^3's frame −1, less 2.
+        assert_eq!((level.stream_frame, level.music_frame()), (None, -3));
+    }
+
+    #[test]
+    fn the_music_starts_where_the_stream_does() {
+        let frames = mp3_frames(4);
+        let empty = vec![0x80, 0x04, 0, 0];
+        // Frames 0–2 without music (an empty block in frame 1, a stream
+        // head of another codec after the MP3 one), the first block in
+        // frame 3.
+        let mut adpcm_head = stream_head();
+        adpcm_head[1] = 0x1f;
+        let swf = Swf::default()
+            .tag(TAG_SOUND_STREAM_HEAD2, &stream_head())
+            .tag(TAG_DO_ACTION, &beatbox_actions(&[(30, "L", "red")]))
+            .tag(TAG_SHOW_FRAME, &[])
+            .tag(TAG_SOUND_STREAM_BLOCK, &empty)
+            .tag(TAG_SHOW_FRAME, &[])
+            .tag(TAG_SOUND_STREAM_HEAD, &adpcm_head)
+            .tag(TAG_SHOW_FRAME, &[])
+            .tag(TAG_SOUND_STREAM_BLOCK, &block(&frames[..834]))
+            .tag(TAG_SHOW_FRAME, &[])
+            .tag(TAG_SOUND_STREAM_BLOCK, &block(&frames[834..]))
+            .bytes(false);
+        let level = read(&swf).unwrap();
+        assert_eq!(level.mp3, frames);
+        assert_eq!((level.stream_frame, level.music_frame()), (Some(3), 1));
+        // A `DefineSound` taken first: what streams after it is not music.
+        let mut define = vec![2, 0, 0x2e, 0, 0, 0, 0, 0, 0];
+        define.extend_from_slice(&frames[..834]);
+        let swf = Swf::default()
+            .tag(TAG_DEFINE_SOUND, &define)
+            .tag(TAG_SOUND_STREAM_HEAD2, &stream_head())
+            .tag(TAG_SOUND_STREAM_BLOCK, &block(&frames[834..]))
+            .tag(TAG_SHOW_FRAME, &[])
+            .bytes(false);
+        let level = read(&swf).unwrap();
+        assert_eq!(level.mp3, frames[..834]);
+        assert_eq!(level.music_frame(), -3);
     }
 
     #[test]

@@ -52,7 +52,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Phase 10](phase-10.md) (2026-10-21): importing plays done; FFR
   levels (SWF and text `beatBox`) imported on both shells, played by
   FFR's rules (`ffr`, in `rulesets.md`) where each chart is left to its
-  game. Left: their timing against a real level.
+  game, timed as R^3 times them (its half frame and music start,
+  2026-10-22). Left: their music against a real level's.
 - [The chart editor](editor.md) (2026-10-21): in progress. The
   `.ssc`/`.sm` writer, notes and timing with undo, the screen on both
   shells (song select's E, `#/edit`), listening, playtests, saving and

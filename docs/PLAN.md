@@ -261,7 +261,7 @@ pub struct Song { title, subtitle, artist, (translits), genre, credit, music: As
                   keysounds: Vec<AssetRef>, source: SourceInfo /* format, version, unknown tags */ }
 ```
 
-Frame-based sources (DanOni 60 fps, FFR 30 fps) import losslessly onto this grid with a synthetic constant tempo: at 75 BPM one beat is 0.8 s = 48 frames at 60 fps, so **1 frame = 1 tick** (FFR: 1,500 BPM, 40 ticks a frame, so millisecond-timed notes fit too; `docs/plans/phase-10.md`). `blankFrame`/`startFrame`/`adjustment`/`sync` fold into `offset_seconds`; `playbackRate` becomes a music-rate hint. Quantization-based coloring is meaningless for those charts, which matches the source games (DanOni colors per lane group, FFR stores colors per note), so `Note.color` carries the explicit color and skins honour it.
+Frame-based sources (DanOni 60 fps, FFR 30 fps) import losslessly onto this grid with a synthetic constant tempo: at 75 BPM one beat is 0.8 s = 48 frames at 60 fps, so **1 frame = 1 tick** (FFR: 1,500 BPM, 40 ticks a frame, so millisecond-timed notes fit too, and R^3's half frame and music start are whole ticks; `docs/plans/phase-10.md`). `blankFrame`/`startFrame`/`adjustment`/`sync` fold into `offset_seconds`; `playbackRate` becomes a music-rate hint. Quantization-based coloring is meaningless for those charts, which matches the source games (DanOni colors per lane group, FFR stores colors per note), so `Note.color` carries the explicit color and skins honour it.
 
 Importers implement `trait ChartImporter { fn sniff(bytes, name) -> bool; fn import(files: &dyn FileSet) -> Result<Song> }`. `FileSet` abstracts a directory, a zip, or a single text file so the same code runs on web and desktop. Exporting is out of scope but the model keeps enough (`source.unknown_tags`, SSC version) not to preclude it.
 
@@ -455,9 +455,10 @@ Charts and import:
 - Layouts not played (couple, routine, techno, kb7, para, ez2, …) are
   left out with a note (decision 27); KSF, BMS and `.osu` are not
   read (section 2.1); FFR levels play by FFR's rules only where each
-  chart is left to its game (decision 58), and their timing is not yet
-  checked against a real level (R^3's half-frame and music start,
-  `docs/plans/rulesets.md`, "FFR"); keysounds are a non-goal
+  chart is left to its game (decision 58), and are timed as R^3 times
+  them (its half frame and music start, 2026-10-22,
+  `docs/plans/phase-10.md`) but not yet checked against a real level's
+  music (Flash's MP3 decode); keysounds are a non-goal
   (section 1).
 - Korean and Chinese legacy encodings are told apart by a heuristic
   (`ddi_library::legacy`, `docs/plans/format-gaps.md`): a short title
@@ -465,9 +466,10 @@ Charts and import:
 - Songs imported before a change need importing again to gain it:
   transliterations for search, pump charts, legacy skins' files,
   Shift-JIS, Korean and Chinese text, background files named with `,`
-  or `=`, lyrics, jackets, CD titles, chart and preview music (this
-  section; `docs/plans/format-gaps.md`, `docs/plans/pump.md`,
-  `docs/plans/legacy-skins.md`, decision 31).
+  or `=`, lyrics, jackets, CD titles, chart and preview music, FFR
+  levels' timing as R^3's (this section; `docs/plans/format-gaps.md`,
+  `docs/plans/pump.md`, `docs/plans/legacy-skins.md`,
+  `docs/plans/phase-10.md`, decision 31).
 
 Rules and options:
 
@@ -720,7 +722,7 @@ remain separate work.
 
 57. **DDR's legacy score is a preset of its own, DDR's gauges and LIFE4's lamps go with DDR A** (2026-10-21; `docs/plans/rulesets.md`). `ddr-extreme` is DDRMAX2 and EXTREME's normal play: EXTREME's windows as measured from its `GAME.DAT` (Marvelous only in courses), MAX2's money score by the song's feet, MAX's dance points for the grade (AAA at 100%, E failed), a jump adding two to the combo, and StepMania 3.9's life bar for DDR's unpublished one (approximate). SuperNOVA2/X and an `ffr` preset are not built. DDR A takes DDR's other gauges as a player option (`StepManiaOptions::gauge`: LIFE4, RISKY, FLARE I–EX with BEMANIWiki's WORLD drains, FLOATING FLARE), replaced by StepMania's battery when that is chosen; a DDR A play keeps its gauge, the FLARE rank its gauge kept and its FLARE SKILL points (`Results::ddr`), and earns LIFE4's clear types as lamps (LIFE4 clear, single digit perfects). Bests are kept with every gauge's plays. LIFE4's standings and the FLARE SKILL total are across plays and DDR's own songs, not a play's. `JUDGE_VERSION` 2 judges kept plays again for them.
 
-58. **FFR's rules are a preset, `ffr`, as R^3 plays them** (2026-10-22; `docs/plans/rulesets.md`, "FFR"). rCubed (`e57179c`, AGPL-3.0: read for its rules, nothing transcribed) gives the rules: its default judge around the note (Amazing −18/+17 ms, Perfect −51/+50, Good −85/+117, Average −118 early only), a note missed only at its sixth frame (5.5 frames after the instant judged, so a later press goes on to the lane's next note: `JudgeTable::miss_at`), every stray press a Boo from the chart's first note on (`EmptyPress::BooFromFirstNote`), the raw score (50/50/25/5, Boo −5, Miss −10) as the score shown and kept for bests, the total score (with the longest combo × 1,000) and raw goods among the results' stats, a whole-number life of 0–100 from 50 with ±5 that ends the play at 0. No grade: the lamp is R^3's song icon in its own order (PASS, FC, SDG, OMNIFLAG, MISSFLAG, AVFLAG, BLACKFLAG, BOOFLAG, AAA; new `Lamp`s above FC). Charts of other games play as R^3 plays a StepMania chart: holds and rolls taps at their heads, mines and the rest left out (`JudgeTable::taps_only`, not an assist). StepMania's options do not apply (none are FFR's). FFR levels play by `ffr` where each chart is left to its game's rules (`RulesetMode::Original`, `Chart::ffr`), as Dancing☆Onigiri works do by theirs; otherwise by the ruleset chosen, `ffr` among them for any chart. A level holds no judge window, so there is no per-chart hint. Found for the import, not changed: R^3 judges a note half a frame into its frame and starts the music at the SWF frame its stream begins at.
+58. **FFR's rules are a preset, `ffr`, as R^3 plays them** (2026-10-22; `docs/plans/rulesets.md`, "FFR"). rCubed (`e57179c`, AGPL-3.0: read for its rules, nothing transcribed) gives the rules: its default judge around the note (Amazing −18/+17 ms, Perfect −51/+50, Good −85/+117, Average −118 early only), a note missed only at its sixth frame (5.5 frames after the instant judged, so a later press goes on to the lane's next note: `JudgeTable::miss_at`), every stray press a Boo from the chart's first note on (`EmptyPress::BooFromFirstNote`), the raw score (50/50/25/5, Boo −5, Miss −10) as the score shown and kept for bests, the total score (with the longest combo × 1,000) and raw goods among the results' stats, a whole-number life of 0–100 from 50 with ±5 that ends the play at 0. No grade: the lamp is R^3's song icon in its own order (PASS, FC, SDG, OMNIFLAG, MISSFLAG, AVFLAG, BLACKFLAG, BOOFLAG, AAA; new `Lamp`s above FC). Charts of other games play as R^3 plays a StepMania chart: holds and rolls taps at their heads, mines and the rest left out (`JudgeTable::taps_only`, not an assist). StepMania's options do not apply (none are FFR's). FFR levels play by `ffr` where each chart is left to its game's rules (`RulesetMode::Original`, `Chart::ffr`), as Dancing☆Onigiri works do by theirs; otherwise by the ruleset chosen, `ffr` among them for any chart. A level holds no judge window, so there is no per-chart hint. Found for the import and changed there the same day (`docs/plans/phase-10.md`, "Timing as R^3 has it"): R^3 judges a note half a frame into its frame and starts the music at the SWF frame its stream begins at, less 2; the import puts the notes there (new digests; desktop's library cache 10; levels imported on the web before keep their old timing until imported again).
 
 ## 7. Risks
 
