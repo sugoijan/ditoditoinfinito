@@ -78,6 +78,32 @@ struct Readied {
     view_made: Option<Instant>,
     /// A work's layers' contents, read on a thread.
     stage: Option<Receiver<super::stage::Read>>,
+    /// The song's scripted backgrounds, readied while the prompt is up.
+    scripts: SongScripts,
+}
+
+/// A song's scripted backgrounds (`super::scripts`): readied once for
+/// all its plays, kept here while no view draws them (a view made again
+/// after a lost device takes them as they were).
+enum SongScripts {
+    /// Not started: the song is not read yet.
+    Unread,
+    Loading(Box<super::scripts::ScriptLoad>),
+    /// Ready for the next view (`None`: none to show).
+    Held(Option<Box<super::scripts::Ready>>),
+    /// The view draws them.
+    Given,
+}
+
+impl Readied {
+    /// The song's drawing let go (a lost device): its scripts are kept.
+    fn drop_view(&mut self) {
+        if let Some(mut v) = self.view.take()
+            && matches!(self.scripts, SongScripts::Given)
+        {
+            self.scripts = SongScripts::Held(v.take_scripts().map(Box::new));
+        }
+    }
 }
 
 enum Stage {
@@ -302,26 +328,28 @@ impl Host {
         match &mut self.stage {
             Stage::Idle => {}
             Stage::Prompt(r) => {
-                r.view = None;
+                r.drop_view();
                 // Start waits for the song's drawing again.
                 let mut p = r.prompt.borrow_mut();
                 if matches!(p.step, PromptStep::Ready) {
                     p.set_step(PromptStep::Loading("loading…".into()));
                 }
             }
-            Stage::Results(r) => r.view = None,
+            Stage::Results(r) => r.drop_view(),
             Stage::Playing(r, ..) => {
-                r.view = None;
+                r.drop_view();
                 self.feed.borrow_mut().interrupted = true;
             }
         }
     }
 
     /// The prompt waits for something that wakes no one (the play's
-    /// sound to start running): the loop looks again shortly.
+    /// sound to start running, the scripts' Lua to run its next slices):
+    /// the loop looks again shortly.
     pub fn wants_poll(&self) -> bool {
         matches!(&self.stage, Stage::Prompt(r)
-            if matches!(&r.prompt.borrow().step, PromptStep::Loading(what) if what == "preparing audio…"))
+            if matches!(&r.prompt.borrow().step, PromptStep::Loading(what) if what == "preparing audio…")
+                || matches!(&r.scripts, SongScripts::Loading(l) if l.running()))
     }
 
     /// The song's pictures on the device now (tests).
@@ -435,6 +463,7 @@ impl Host {
                 skin: None,
                 stage: None,
                 view_made: None,
+                scripts: SongScripts::Unread,
             };
             // A kept play's results: at once, judged again from its log.
             if readied.request.view_results && readied.request.refused.is_none() {
@@ -674,6 +703,23 @@ impl Host {
         if r.audio.is_none() {
             r.audio = Some((self.open_audio(), Instant::now()));
         }
+        // The song's scripts: their files read on threads, their Lua run
+        // here a turn a poll (the prompt keeps drawing).
+        if let Some(loaded) = &r.loaded {
+            if matches!(r.scripts, SongScripts::Unread) {
+                let settings = r.request.settings();
+                r.scripts =
+                    match super::scripts::ScriptLoad::start(loaded, &settings, self.wake.clone()) {
+                        Some(l) => SongScripts::Loading(Box::new(l)),
+                        None => SongScripts::Held(None),
+                    };
+            }
+            if let SongScripts::Loading(l) = &mut r.scripts
+                && let Some(ready) = l.poll(super::scripts::LUA_TURN)
+            {
+                r.scripts = SongScripts::Held(ready.map(Box::new));
+            }
+        }
         let (Some(loaded), Some(dev)) = (r.loaded.clone(), dev) else {
             return;
         };
@@ -706,6 +752,11 @@ impl Host {
         let Some(view) = r.view.as_mut() else {
             return;
         };
+        if matches!(r.scripts, SongScripts::Held(_))
+            && let SongScripts::Held(ready) = std::mem::replace(&mut r.scripts, SongScripts::Given)
+        {
+            view.set_scripts(ready.map(|r| *r));
+        }
         if let Some(rx) = &r.stage {
             for read in rx.try_iter() {
                 view.add_stage_content(read);
@@ -768,7 +819,10 @@ impl Host {
         let mut p = r.prompt.borrow_mut();
         p.set_picture(picture);
         if matches!(p.step, PromptStep::Loading(_)) {
-            p.set_step(if r.skin.is_some() || !images_done {
+            // Start waits for the scripts as it did when they loaded
+            // with the view: they never load during a play.
+            let scripts = matches!(r.scripts, SongScripts::Unread | SongScripts::Loading(_));
+            p.set_step(if r.skin.is_some() || !images_done || scripts {
                 PromptStep::Loading("loading…".into())
             } else if sound {
                 PromptStep::Ready

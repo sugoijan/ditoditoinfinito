@@ -125,6 +125,10 @@ fn main() -> Result<()> {
     let plain_format = wgpu::TextureFormat::Rgba8Unorm;
     let mut view = View::new(&device, &queue, Formats::of(plain_format, true));
     view.set_song(&loaded, &settings);
+    // Its scripts, readied to their end as the play's host readies them.
+    if let Some(scripts) = ddi_desktop::play::scripts::ScriptLoad::start(&loaded, &settings, None) {
+        view.set_scripts(scripts.wait());
+    }
     view.set_noteskin(&device, &queue, host::noteskin(&loaded, chart, &settings));
     for (what, source, side) in View::images_to_read(&loaded, &settings) {
         let (size, data) = ddi_desktop::images::load(&source, side)

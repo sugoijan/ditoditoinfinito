@@ -12,6 +12,7 @@ use ddi_ui::state::settings::{BackgroundFrame, Settings};
 
 mod common;
 use common::offscreen_play::{OffscreenPlay, load, pixel};
+use ddi_desktop::play::scripts::{LUA_TURN, ScriptLoad};
 
 /// 120 BPM: beat `b` at `b / 2` s. The song background (blue) until 2 s,
 /// then the `BG` script: a green quad over the whole screen and the
@@ -64,7 +65,14 @@ fn song(dir: &Path, stop: bool) -> Option<()> {
             .save(song.join(name))
             .ok()?;
     }
-    // 16 s of 16-bit stereo silence.
+    let wav = silence();
+    std::fs::write(song.join("BG/boom.wav"), &wav).ok()?;
+    std::fs::write(song.join("music.wav"), wav).ok()?;
+    Some(())
+}
+
+/// 16 s of 16-bit stereo silence, a WAV.
+fn silence() -> Vec<u8> {
     let rate = 44_100u32;
     let data = vec![0u8; (rate * 4 * 16) as usize];
     let mut wav = Vec::new();
@@ -81,9 +89,7 @@ fn song(dir: &Path, stop: bool) -> Option<()> {
     wav.extend(b"data");
     wav.extend((data.len() as u32).to_le_bytes());
     wav.extend(data);
-    std::fs::write(song.join("BG/boom.wav"), &wav).ok()?;
-    std::fs::write(song.join("music.wav"), wav).ok()?;
-    Some(())
+    wav
 }
 
 /// The pixels read: left of the field's middle (20, 180) and on the star
@@ -200,5 +206,64 @@ fn scripts_draw_behind_the_field_and_over_it() {
     assert!(near(samples[0].1[0], GREEN), "{samples:?}");
     assert!(near(samples[1].1[0], BLUE), "{samples:?}");
     assert!(stopped.is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A script whose Lua spends most of the load's fuel before it returns
+/// its actor.
+const BURN: &str = "local n = 0\n\
+    for i = 1, 8000000 do n = n + i end\n\
+    return Def.Quad { OnCommand = cmd(FullScreen) }\n";
+
+/// A script that takes long to load is readied a turn at a time: no poll
+/// runs its Lua much past [`LUA_TURN`] (the loop draws between them), and
+/// it loads all the same. No GPU, no window.
+#[test]
+fn scripts_load_a_turn_at_a_time() {
+    let dir = std::env::temp_dir().join(format!("ddi-play-scripts-turns-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let song = dir.join("Pack/Burn");
+    std::fs::create_dir_all(song.join("Burn")).unwrap();
+    std::fs::write(song.join("Burn/default.lua"), BURN).unwrap();
+    std::fs::write(
+        song.join("song.sm"),
+        "#TITLE:Burn;#ARTIST:Test;#MUSIC:music.wav;#OFFSET:0;#BPMS:0=120;\
+         #BGCHANGES:0=Burn=1=0=0=0;\
+         #NOTES:dance-single:x:Easy:1:0,0,0,0,0:1000\n0100\n0010\n0001\n;",
+    )
+    .unwrap();
+    std::fs::write(song.join("music.wav"), silence()).unwrap();
+    let loaded = load(&dir);
+    let settings = Settings {
+        bg_brightness: 1.0,
+        ..Settings::default()
+    };
+    let mut scripts = ScriptLoad::start(&loaded, &settings, None).expect("scripts to load");
+    let started = std::time::Instant::now();
+    let (mut turns, mut longest) = (0, std::time::Duration::ZERO);
+    let ready = loop {
+        let running = scripts.running();
+        let at = std::time::Instant::now();
+        let polled = scripts.poll(LUA_TURN);
+        if running {
+            turns += 1;
+            longest = longest.max(at.elapsed());
+        }
+        if let Some(r) = polled {
+            break r;
+        }
+        assert!(started.elapsed().as_secs() < 60, "the load never ended");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    };
+    eprintln!(
+        "{turns} turns, the longest {:.1} ms, {:.0} ms in all",
+        longest.as_secs_f64() * 1000.0,
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    let ready = ready.expect("the script to load");
+    assert!(ready.view.running());
+    assert!(turns > 10, "{turns} turns");
+    // A turn ends at the first slice past it.
+    assert!(longest < LUA_TURN * 10, "{longest:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -211,6 +211,8 @@ Rust and the browser are implementation details, not advertised features.
   with a cache; a first start offers other games' song folders,
   `offer.rs`); plays through the shared session (`play/`: the UI core's
   start prompt, noteskins with their Lua read on a thread, backgrounds,
+  a song's scripts read on a thread and their Lua run in slices
+  (`play/scripts.rs`),
   movies (feature `video`, on by default: checked 8-bit H.264, HEVC and VP9 subsets through
   hardware VideoToolbox on macOS, experimental opt-in Media Foundation/D3D11
   on Windows (`mf.rs`, `mf_core.rs`; Windows Auto remains the software

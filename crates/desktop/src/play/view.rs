@@ -170,7 +170,8 @@ impl View {
     /// play gives its own: [`View::set_played_song`]), the settings' frame
     /// and video mode, its movies. Its images are read on other threads
     /// ([`View::images_to_read`]) and come in through
-    /// [`View::add_background`].
+    /// [`View::add_background`]; its scripts are readied by the host
+    /// (`super::scripts`) and come in through [`View::set_scripts`].
     pub fn set_song(&mut self, loaded: &Loaded, settings: &Settings) {
         self.schedule = schedule(&loaded.song, loaded);
         self.frame_shape = FrameShape::new(settings.background_frame);
@@ -179,9 +180,6 @@ impl View {
         self.scripts_stopped = None;
         self.script_sounds.clear();
         self.sounds_due.clear();
-        if settings.bg_brightness > 0.0 {
-            self.load_scripts(loaded, settings);
-        }
         #[cfg(feature = "video")]
         {
             self.movies.reset();
@@ -211,91 +209,41 @@ impl View {
             .retime(&backgrounds::foregrounds(song, &folders));
     }
 
-    /// The song's scripts (`docs/plans/scripted-backgrounds.md`): their
-    /// files read where the library found them, their images decoded,
-    /// their Lua run (told StepMania's 4:3 screen under a 4:3 frame, its
-    /// 16:9 one otherwise). One that fails to load is noted on the log;
-    /// the song background then shows in its place.
-    fn load_scripts(&mut self, loaded: &Loaded, settings: &Settings) {
-        use ddi_session::scripted::{FileKind, Scripts, Sizes, SongFiles};
-        let e = &loaded.entry;
-        if e.bg_scripts.is_empty() {
-            return;
+    /// The song's scripts (`docs/plans/scripted-backgrounds.md`), loaded
+    /// (`None`: none, or they did not load; the song background then
+    /// shows in their place). Their textures go up, and skins' quads are
+    /// drawn, from their first frame.
+    pub fn set_scripts(&mut self, ready: Option<super::scripts::Ready>) {
+        let ready = ready.unwrap_or_else(|| super::scripts::Ready {
+            view: Default::default(),
+            sounds: Default::default(),
+        });
+        self.scripts = ready.view;
+        self.scripts.forget_textures();
+        self.script_sounds = ready.sounds;
+        self.scripts_stopped = None;
+    }
+
+    /// The song's scripts taken back (the view is let go: a lost device),
+    /// for the next view to draw ([`View::set_scripts`]); `None` without.
+    pub fn take_scripts(&mut self) -> Option<super::scripts::Ready> {
+        if !self.scripts.loaded() {
+            return None;
         }
-        let dir = loaded.files.dir();
-        let (pack, song) = (dir.parent().file_name(), dir.file_name());
-        let mut files = SongFiles::new(pack.to_string(), song.to_string(), &e.bg_scripts);
-        let mut sizes = Sizes::default();
-        let mut images = Vec::new();
-        for f in &e.bg_scripts {
-            match FileKind::of(f.as_str()) {
-                FileKind::Lua => {
-                    if let Ok(bytes) = loaded.files.read(f) {
-                        let text = String::from_utf8_lossy(&bytes).into_owned();
-                        files.texts.push((f.to_string(), text));
-                    }
-                }
-                FileKind::Image => {
-                    let source = loaded.files.source(f);
-                    if let Some((size, data, own)) =
-                        crate::images::load_sized(&source, MAX_CHANGE_SIDE)
-                    {
-                        sizes.insert(f.as_str(), own);
-                        images.push((f.to_string(), Rgba { size, data }));
-                    }
-                }
-                FileKind::Other => {}
-            }
-        }
-        let folders = backgrounds::script_folders_of(&e.bg_scripts);
-        let foregrounds = backgrounds::foregrounds(&loaded.song, &folders);
-        let aspect = ddi_session::scripted::frame_aspect(settings.background_frame);
-        let env = ddi_session::scripted::env(&loaded.song, aspect);
-        let screen = env.screen;
-        let start = std::time::Instant::now();
-        let clock = Box::new(move || start.elapsed().as_secs_f64());
-        match Scripts::load(files, env, &self.schedule, &foregrounds, &sizes, clock) {
-            Ok(scripts) => {
-                if let Some(s) = &scripts {
-                    for note in s.notes() {
-                        eprintln!("scripted backgrounds: {note}");
-                    }
-                    // Their sounds, at the music's rate.
-                    for f in s.sound_files() {
-                        let ext = f.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
-                        let rate = loaded.music.rate;
-                        let sound = loaded.files.read(&f).and_then(|bytes| {
-                            crate::audio::decoder::sound(
-                                bytes,
-                                ext.as_deref(),
-                                Default::default(),
-                                rate,
-                            )
-                        });
-                        match sound {
-                            Ok(sound) => {
-                                self.script_sounds.insert(f, sound);
-                            }
-                            Err(e) => eprintln!("scripted backgrounds: {f}: {e}"),
-                        }
-                    }
-                }
-                self.scripts.set(scripts, screen, images);
-                // Their text as Init left it, drawn now rather than in a
-                // frame (the system's fonts are read the first time).
-                Self::draw_script_texts(&mut self.scripts);
-            }
-            Err(why) => eprintln!("scripted backgrounds did not load: {why}"),
-        }
+        let mut view = std::mem::take(&mut self.scripts);
+        view.forget_textures();
+        Some(super::scripts::Ready {
+            view,
+            sounds: std::mem::take(&mut self.script_sounds),
+        })
     }
 
     /// The scripts' texts not drawn yet, drawn (white, as a work's
     /// layers' text is drawn).
     fn draw_script_texts(scripts: &mut ddi_shell::scripted::ScriptView<Rgba>) {
         for text in scripts.measure() {
-            let size = ddi_session::scripted::TEXT_SIZE;
-            if let Some((image, (w, h))) = super::stage::text_image(&text, size, "#ffffff") {
-                scripts.add_text(text, image, [w, h]);
+            if let Some((image, size)) = super::scripts::text_image(&text) {
+                scripts.add_text(text, image, size);
             }
         }
     }
@@ -797,7 +745,7 @@ impl View {
 
 /// The background changes of `song` (`loaded`'s, as played or not), a
 /// schedule per layer.
-fn schedule(song: &ddi_chart::Song, loaded: &Loaded) -> [Vec<BgSegment>; LAYERS] {
+pub(super) fn schedule(song: &ddi_chart::Song, loaded: &Loaded) -> [Vec<BgSegment>; LAYERS] {
     let e = &loaded.entry;
     let movies: Vec<String> = e
         .bg_videos

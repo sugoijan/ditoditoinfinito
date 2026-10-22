@@ -237,8 +237,9 @@ background layers and as foregrounds, on both shells.
   play reads them alongside the start prompt (the play never waits),
   decodes the images, loads the scripts and draws them
   (`crates/web/src/scripts.rs`; `__DDI_DEBUG.scripts`: `running`,
-  `stopped`, `fuel`, `back`, `front`); desktop reads them in place when
-  the song is set (`View::load_scripts`).
+  `stopped`, `fuel`, `back`, `front`); desktop readies them while the
+  start prompt is up (`crates/desktop/src/play/scripts.rs`, below) and
+  Start waits for them.
 
 Checked: native tests (the host on synthetic scripts: a frame, a quad,
 a sprite of the folder's, `FullScreen`, `Center`,
@@ -260,6 +261,23 @@ skin's Lua loads), checked natively (the host's turns counted) and with a
 script spending about a million and a half loop turns at load in headless
 Chrome (no frame later than 17 ms while it loads) and Firefox (50 ms, its
 Playwright build), the play then drawing it as before.
+
+Since (2026-10-22): desktop no longer loads the scripts on the event
+loop's thread when the view is made. Their files are read and their
+images decoded on a thread; their Lua runs on the event loop (a song's
+VM, as a skin's, stays on the thread it was made on) through
+`Scripts::load_sliced`, the host polling it for at most `LUA_TURN` (6 ms)
+a poll and the loop looking again 15 ms later (`Host::wants_poll`), so
+the prompt keeps drawing; their sounds are then decoded and the texts
+`Init` left drawn on a thread. Start waits for them, as it did when they
+loaded with the view, so they never load during a play (the web starts
+without them; desktop's load is bounded by the load budget). The host
+keeps them (`SongScripts`) and gives them to the view; a view made again
+after a lost device takes them back as they were, their textures
+uploaded again, instead of loading them again. Checked natively: a
+script spending about 16 million of its 20 million load fuel loads in
+about twenty turns, none much past `LUA_TURN`
+(`play_scripts.rs::scripts_load_a_turn_at_a_time`, no GPU).
 
 Not yet: the images' decoded pixels have no budget of their own beyond the 64 files;
 a script's quads draw over the second image layer; the transitions fade
@@ -286,9 +304,9 @@ once stopped), which plays each at once through the session's sound
 backend (`AudioBackend::buffer_from_pcm`, `play` at the music's volume):
 the web decodes them with the music's fallback decoder when the scripts
 load and makes each buffer the first time it plays; desktop decodes them
-at the music's rate (`audio::decoder::sound`) when the song is set and
-the host plays them after the frame. Checked natively (a script's `On`
-playing one sound, another's `get():volume()` answered), offscreen on
+at the music's rate (`audio::decoder::sound`, on a thread once the
+scripts have loaded) and the host plays them after the frame. Checked
+natively (a script's `On` playing one sound, another's `get():volume()` answered), offscreen on
 desktop (a WAV played through the headless sound once) and in headless
 Chrome (WebGPU, WebGL2) and Firefox (an MP3 played once:
 `__DDI_DEBUG.scripts.sounds`).
@@ -299,9 +317,9 @@ shared view measures every tree's runs by the shell's drawings of them
 (`ScriptView::measure`: a run not drawn yet is guessed and asked for,
 `ScriptView::add_text` forgets the guesses), and draws each run as its
 drawing over its line box (`ddi_render::scripted`). Desktop draws them
-with cosmic-text (`play::stage::text_image`, the ones `Init` leaves when
-the song is set, later ones in the frame), the web through a canvas
-(`text_bitmap`, arriving a frame or so later). Checked: native tests (the
+with cosmic-text (`play::stage::text_image`, the ones `Init` leaves on
+a thread once the scripts have loaded, later ones in the frame), the
+web through a canvas (`text_bitmap`, arriving a frame or so later). Checked: native tests (the
 converter, a run's quad), offscreen on desktop (yellow text left of the
 field from the change on) and in headless Chrome (WebGPU, WebGL2) and
 Firefox (the same, with a screenshot looked at).

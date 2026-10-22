@@ -12,6 +12,7 @@ use ddi_desktop::audio::Audio;
 use ddi_desktop::gpu;
 use ddi_desktop::library::files::{DirReader, walk};
 use ddi_desktop::play::load::{Files, Loaded};
+use ddi_desktop::play::scripts::ScriptLoad;
 use ddi_desktop::play::view::{Formats, Rgba, View};
 use ddi_desktop::play::{Feed, Play, Request};
 use ddi_platform::HostTime;
@@ -80,6 +81,10 @@ impl OffscreenPlay {
             Formats::of(wgpu::TextureFormat::Rgba8Unorm, true),
         );
         view.set_song(&loaded, settings);
+        // Its scripts, readied to their end as the host readies them.
+        if let Some(scripts) = ScriptLoad::start(&loaded, settings, None) {
+            view.set_scripts(scripts.wait());
+        }
         for (what, source, side) in View::images_to_read(&loaded, settings) {
             let (size, data) = ddi_desktop::images::load(&source, side).expect("an image");
             view.add_background(what, Rgba { size, data });

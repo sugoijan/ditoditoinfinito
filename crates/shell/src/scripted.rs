@@ -114,6 +114,11 @@ impl<C: StageContent> ScriptView<C> {
         }
     }
 
+    /// Whether the play has scripts (stopped or not).
+    pub fn loaded(&self) -> bool {
+        self.scripts.is_some()
+    }
+
     /// Whether scripts draw in this play (they have not stopped).
     pub fn running(&self) -> bool {
         self.scripts.as_ref().is_some_and(|s| s.stopped().is_none())

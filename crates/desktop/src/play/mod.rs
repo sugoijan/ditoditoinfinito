@@ -15,6 +15,7 @@ pub mod load;
 #[cfg(feature = "video")]
 pub mod movies;
 pub mod replays;
+pub mod scripts;
 pub mod skins;
 pub mod stage;
 pub mod view;
