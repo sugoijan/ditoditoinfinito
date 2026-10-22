@@ -537,6 +537,28 @@ impl List {
         self.last_pos = self.pos;
     }
 
+    /// Where item `i`'s top shows now, from the list's top (virtual
+    /// pixels; in a wheel, before the look places it).
+    pub fn item_top(&self, i: usize) -> Option<f64> {
+        (i < self.len()).then(|| self.offsets[i] - self.pos)
+    }
+
+    /// Scrolls at once so that item `i`'s top shows at `top` (from
+    /// [`List::item_top`] before the items changed): what the list showed
+    /// stays in its place when the items around it change (a pack opened
+    /// above or below it), and a glide to the selection
+    /// ([`List::select`]) goes on from there.
+    pub fn keep_item_at(&mut self, i: usize, top: f64) {
+        if i >= self.len() {
+            return;
+        }
+        self.pos = self.clamp(self.offsets[i] - top);
+        self.target = None;
+        self.velocity = 0.0;
+        self.stream = None;
+        self.last_pos = self.pos;
+    }
+
     /// The list's actors, to put in the screen's tree.
     pub fn build(&self, look: &dyn Look) -> Actor {
         let [x, y, w, h] = self.config.rect;

@@ -2427,13 +2427,20 @@ impl SelectScreen {
         self.fill_charts(root);
     }
 
+    /// Opens or closes pack `p`, its header staying where it shows (a
+    /// press while the wheel still moves to it included) and gliding on
+    /// to the line from there.
     fn toggle_pack(&mut self, p: usize) {
+        let shown = self.list.selected().and_then(|i| self.list.item_top(i));
         let open = self.closed.contains(&p);
         self.open_pack(open.then_some(p));
         self.lay_out_items();
         self.reload();
         let at = self.items.iter().position(|it| *it == Item::Header(p));
         if let Some(at) = at {
+            if let Some(top) = shown {
+                self.list.keep_item_at(at, top);
+            }
             self.list.select(at);
         }
         let name = self.packs[p].0.clone();

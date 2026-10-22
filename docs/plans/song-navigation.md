@@ -70,6 +70,21 @@ The theme's `Look::wheel_focus` blends row height, banner/text geometry,
 plate color, shadow and ring by visual distance. Selection does not restart
 row tweens at commit. The plain look retains its Select/Deselect commands.
 
+## Opening a pack (2026-10-22)
+
+Start on a pack header (or a tap on the selected one) opens it and
+closes the pack open before. The header stays where it shows at that
+moment and the wheel glides on from there to the line, also when Start
+comes while the wheel still moves to the header (Down, then Start at
+once: the tap is committed first). Only the items around the header
+change (`List::keep_item_at`). Before, opening cut the motion short and
+the header reached the line in one frame, up to a row's jump, which read
+as the list jumping when a pack opened. A song's preview movie
+(`#PREVIEWVID`) has no part in it: it shows in the banner's place on the
+song's side, and the wheel's rows keep their sizes. Checked offscreen on
+desktop with a local library, a pack with preview movies and one without
+opened at rest and mid-glide, and by a UI harness test.
+
 ## The search field from a controller (2026-10-22)
 
 The arrows keep browsing the list as above; the header is reached only

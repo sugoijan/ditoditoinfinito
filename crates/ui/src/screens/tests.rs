@@ -285,6 +285,47 @@ fn packs_open_and_close() {
     assert!(!s.borrow().closed.contains(&"Arrow Basics".into()));
 }
 
+/// Where the wheel's row titled `title` shows (its top), if one does.
+fn row_top(h: &Harness, title: &str) -> Option<f32> {
+    (0..64).find_map(|k| {
+        let name = format!("Wheel#{k}");
+        let mut row = h.ui.actor(&name)?.clone();
+        let shown = crate::widgets::part(&mut row, "Title")
+            .is_some_and(|t| matches!(&t.kind, ddi_actor::Kind::Text(t) if t.text() == title));
+        (row.visible && shown).then(|| h.ui.bounds(&name).map(|b| b[1]))?
+    })
+}
+
+/// A pack opened while the wheel still moves to its header (Down, then
+/// Start at once) keeps the header where it shows, and the wheel glides
+/// on to the line from there: nothing jumps.
+#[test]
+fn a_pack_opened_mid_glide_keeps_its_header_in_place() {
+    let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
+    // The selected song's row on the wheel's line.
+    let line = row_top(&h, "Some Things Must (OutFox Edit)").expect("the song's row");
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.6);
+    // Start while the tap is still provisional: it commits the tap, then
+    // opens the pack.
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.1);
+    let before = row_top(&h, "Arrow Basics").expect("the header's row");
+    assert!(before - line > 10.0, "still on its way: {before} to {line}");
+    h.key("Enter", "Enter");
+    h.frame(1.0 / 60.0);
+    assert_eq!(s.borrow().header.as_deref(), Some("Arrow Basics"));
+    assert!(!s.borrow().closed.contains(&"Arrow Basics".into()));
+    let after = row_top(&h, "Arrow Basics").expect("the header's row");
+    assert!(
+        (after - before).abs() < (before - line) / 2.0,
+        "from {before} to {after} in a frame (the line at {line})"
+    );
+    h.run(1.0);
+    let settled = row_top(&h, "Arrow Basics").expect("the header's row");
+    assert!((settled - line).abs() < 1.0, "{settled} on the line {line}");
+}
+
 #[test]
 fn search_filters_the_wheel_and_never_shows_its_popup_while_composing() {
     let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
