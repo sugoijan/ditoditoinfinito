@@ -229,7 +229,9 @@ Rust and the browser are implementation details, not advertised features.
   replays, `play/replays.rs`); a play's frames paced (`pacing/`: blocking in the
   acquire, or each started as late before its refresh as its
   cost allows (late with two frames in flight by default when a display
-  link is available, block with one elsewhere); pure, with a simulated display in `pacing/sim.rs`, built
+  link is available, block with one elsewhere; late falls back to block
+  for a window state where it keeps missing with its margin at its cap,
+  as modeled for fullscreen); pure, with a simulated display in `pacing/sim.rs`, built
   for tests only: feature `sim`, which the crate's dev-dependency on
   itself turns on; the refreshes from a display link on macOS,
   `display_link.rs`: the view's `CADisplayLink` from macOS 14, else a
