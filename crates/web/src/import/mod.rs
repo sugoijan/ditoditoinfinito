@@ -1184,9 +1184,9 @@ async fn zip_data_start(archive: &File, entry: &ZipEntry) -> Result<u64, String>
     zip::local_data_offset(&header, entry).map_err(|e| e.to_string())
 }
 
-/// The first `len` bytes of a file (all of it if shorter). Of a deflated
-/// zip entry only the start of the stream is inflated (a movie is tens of
-/// megabytes), the whole entry when that was not enough.
+/// The first `len` bytes of a file (all of it if shorter). Of a compressed
+/// zip entry only the start of the stream is decompressed (a movie is tens
+/// of megabytes), the whole entry when that was not enough.
 async fn read_head(source: &Source, len: u64) -> Result<Vec<u8>, String> {
     match source {
         Source::File(f) => read_range(f, 0, len.min(f.size() as u64)).await,
@@ -1197,12 +1197,12 @@ async fn read_head(source: &Source, len: u64) -> Result<Vec<u8>, String> {
             read_range(archive, start, start + len.min(entry.compressed_size)).await
         }
         Source::Zip { archive, entry, .. }
-            if entry.method == Method::Deflated && !entry.encrypted =>
+            if !matches!(entry.method, Method::Stored | Method::Other(_)) && !entry.encrypted =>
         {
             let start = zip_data_start(archive, entry).await?;
             let want = entry.compressed_size.min((len * 16).max(1 << 20));
             let compressed = read_range(archive, start, start + want).await?;
-            let head = zip::inflate_prefix(&compressed, len as usize);
+            let head = zip::extract_prefix(entry, &compressed, len as usize);
             if !head.is_empty() || want == entry.compressed_size {
                 return Ok(head);
             }
@@ -1219,7 +1219,7 @@ async fn read_head(source: &Source, len: u64) -> Result<Vec<u8>, String> {
 }
 
 /// `len` bytes of a file from `start`: for a file or a stored zip entry
-/// (a deflated one would have to be inflated up to there).
+/// (a compressed one would have to be decompressed up to there).
 async fn read_at(source: &Source, start: u64, len: u64) -> Result<Vec<u8>, String> {
     match source {
         Source::File(f) => {

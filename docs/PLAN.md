@@ -449,9 +449,10 @@ Charts and import:
   `#PREVIEW` are used since 2026-10-21 (`docs/plans/format-gaps.md`);
   `#PREVIEWVID` plays in song select's banner place since 2026-10-22
   (`docs/plans/lane-covers.md`, "Preview video").
-- *New:* zips with encrypted entries, compression other than stored or
-  deflate, or several disks are refused (`crates/library/src/zip.rs`;
-  kept, `docs/plans/format-gaps.md` decision 11).
+- *New:* zips with encrypted entries, XZ or PPMd compression, or
+  several disks are refused (`crates/library/src/zip.rs`; Deflate64,
+  bzip2, LZMA and Zstandard are read since 2026-10-22,
+  `docs/plans/format-gaps.md` decision 11).
 - Layouts not played (couple, routine, techno, kb7, para, ez2, …) are
   left out with a note (decision 27); KSF, BMS and `.osu` are not
   read (section 2.1); FFR levels play by FFR's rules only where each

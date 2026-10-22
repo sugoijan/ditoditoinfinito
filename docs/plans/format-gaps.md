@@ -5,8 +5,9 @@ handful of things simfiles carry that the game ignored: `.lrc` lyrics,
 jackets and CD titles, an `.ssc` chart's own music, a separate preview
 file, background-change files named with `,` or `=`, Korean and Chinese
 legacy encodings, and zips with other compression methods. This plan
-closes all but the last, following StepMania 5.1 (`5_1-new`, MIT-style;
-read for behavior, the LRC and background-change splitting ported).
+closes them all (the last on 2026-10-22, decision 11), following
+StepMania 5.1 (`5_1-new`, MIT-style; read for behavior, the LRC and
+background-change splitting ported).
 
 ## Research (StepMania 5.1)
 
@@ -109,10 +110,33 @@ system whose code page differs. Nothing in StepMania detects them.
    names the entry kept (`ManifestEntry::change_names`).
 10. Korean and Chinese text is detected by a heuristic (below) after
     UTF-8 and Shift-JIS; a short title may still be misread.
-11. Zips with other compression methods (Deflate64, bzip2, LZMA, zstd),
-    encryption or several disks stay refused: song packs are stored or
-    deflated in practice (every one met so far). Revisit if a pack
-    turns up.
+11. Zips with other compression methods are read since 2026-10-22
+    (`crates/library/src/zip.rs`): Deflate64 (9, as 7-Zip writes it on
+    request), bzip2 (12), LZMA (14, with or without its end marker, flag
+    bit 1) and Zstandard (93, and 20, its number before the spec moved
+    it; the frames' magic tells it apart). Every decoder is pure Rust,
+    so the web reads them too: `deflate64` 0.1.12 (MIT), `bzip2-rs`
+    0.1.2 (MIT or Apache-2.0; the `bzip2` crate's pure-Rust backend,
+    `libbz2-rs-sys`, is under the bzip2-1.0.6 licence, outside the
+    credits' allowlist), `lzma-rust2` 0.23 (Apache-2.0, its decoder
+    only) and `ruzstd` 0.9.1 (MIT, without its XXH64 check: the CRC-32
+    checks every entry). The reader's rules hold for each method:
+    nothing past the central directory's size comes out (a stream that
+    goes on fails as it passes it), memory follows the output rather
+    than what a header claims (LZMA's dictionary grows with it; a
+    Zstandard frame's window, reserved as it starts, is capped at
+    `ruzstd`'s 128 MB), the size and CRC-32 are checked at the end, an
+    entry is streamed in pieces on desktop (`extract_to`) and only a
+    movie's start is decompressed to sniff it (`extract_prefix`, both
+    shells). XZ (95), PPMd (98) and the older methods (Shrink, Implode,
+    …) stay refused with their number, as do encryption and several
+    disks: no pack writer met uses them, and XZ alone would add about 16
+    KB gzip more. **Size** (release, `wasm-opt -Oz`, measured 2026-10-22
+    against a 7.41 MB raw, 3.04 MB gzip, 2.31 MB brotli app): 128 KB
+    raw, 59 KB gzip, 47 KB brotli (2 %), about a third of it `ruzstd`
+    and a third `bzip2-rs` with the `crc32fast` tables it brings;
+    Deflate64 and LZMA are about 5 KB gzip each. Not behind a feature: a
+    pack in any of them should import wherever it is picked.
 
 ## Legacy encodings
 
@@ -191,9 +215,18 @@ of it; desktop reads its library again (cache version 7).
   Medium the 20 s song music; the lyrics show and change at their times;
   both autoplays all top tier.
 
+- Zips: entries of each method made by real writers (p7zip 17.05,
+  Python's `zipfile`, the `zstd` command; `crates/library/tests/zips/`,
+  made by its `make.py` from texts of our own) read whole, streamed and
+  by their start; cut off and damaged at about a hundred places each (a
+  dozen in the large text; an ignored test fuzzes further, 100 000
+  rounds run in release), sizes
+  and CRC-32 kept, an 8 MB bomb stopped at the 64 KB its entry claims,
+  LZMA with and without its end marker, XZ and PPMd reported.
+
 ## Left
 
-- Zips with other compression methods (decision 11).
+- Zips in XZ or PPMd, encrypted or on several disks (decision 11).
 - The wheel's rows show no jackets; the start prompt and results show
   the banner only.
 - No black stroke on `.lrc` lyrics (our text runs have none).

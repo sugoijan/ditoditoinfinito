@@ -460,6 +460,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "bzip2-rs"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "beeb59e7e4c811ab37cc73680c798c7a5da77fc9989c62b09138e31ee740f735"
+dependencies = [
+ "crc32fast",
+ "tinyvec",
+]
+
+[[package]]
 name = "calloop"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1036,12 +1046,16 @@ dependencies = [
 name = "ddi-library"
 version = "0.1.0"
 dependencies = [
+ "bzip2-rs",
  "ddi-actor",
  "ddi-chart",
  "ddi-engine",
  "ddi-platform",
+ "deflate64",
  "encoding_rs",
+ "lzma-rust2",
  "miniz_oxide 0.9.1",
+ "ruzstd",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1207,6 +1221,12 @@ dependencies = [
  "web-sys",
  "wgpu",
 ]
+
+[[package]]
+name = "deflate64"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac6b926516df9c60bfa16e107b21086399f8285a44ca9711344b9e553c5146e2"
 
 [[package]]
 name = "deranged"
@@ -2714,6 +2734,12 @@ dependencies = [
  "hashbrown 0.17.1",
  "thiserror 2.0.21",
 ]
+
+[[package]]
+name = "lzma-rust2"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1c46f3fcd2e888afdb01a07efc071cb21300e07c68d32c3e8b01b5c8cb1fcaa"
 
 [[package]]
 name = "mach2"
@@ -4331,6 +4357,12 @@ name = "rusty-opus"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70e241f0b809c02cf3a868ab7ad0568ac35eadcc6ba3997663eb920d9f425f75"
+
+[[package]]
+name = "ruzstd"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5"
 
 [[package]]
 name = "ryu"

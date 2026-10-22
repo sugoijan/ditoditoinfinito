@@ -351,8 +351,9 @@ impl Reader for ZipReader {
         zip::extract(e, &data).map_err(|e| e.to_string())
     }
 
-    /// A stored entry's range by a seek; a deflated one's by inflating
-    /// only as far as the range (a movie's header, not the movie).
+    /// A stored entry's range by a seek; a compressed one's by
+    /// decompressing only as far as the range (a movie's header, not the
+    /// movie).
     fn read_at(&self, path: &RelPath, at: u64, len: usize) -> Result<Vec<u8>, String> {
         let e = self.entry(path)?;
         let end = (at + len as u64).min(e.uncompressed_size);
@@ -362,14 +363,15 @@ impl Reader for ZipReader {
         let (mut f, data) = self.data_at(e)?;
         match e.method {
             zip::Method::Stored => read_range(&mut f, data + at, end - at),
-            zip::Method::Deflated => {
+            zip::Method::Other(m) => Err(format!("{path}: compression method {m}")),
+            _ => {
                 // Compressed input in growing chunks until it gives the
                 // range (the stream's ratio is not known ahead).
                 let mut take = (end * 2).max(64 << 10);
                 loop {
                     let whole = take >= e.compressed_size;
                     let input = read_range(&mut f, data, take.min(e.compressed_size))?;
-                    let out = zip::inflate_prefix(&input, end as usize);
+                    let out = zip::extract_prefix(e, &input, end as usize);
                     if out.len() as u64 >= end || whole {
                         let from = (at as usize).min(out.len());
                         return Ok(out[from..].to_vec());
@@ -377,7 +379,6 @@ impl Reader for ZipReader {
                     take *= 4;
                 }
             }
-            zip::Method::Other(m) => Err(format!("{path}: compression method {m}")),
         }
     }
 }

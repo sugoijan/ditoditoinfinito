@@ -19,6 +19,11 @@ ddi-platform.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 miniz_oxide.workspace = true
+# Zip entries compressed with Deflate64, bzip2, LZMA and Zstandard (`zip`).
+deflate64.workspace = true
+bzip2-rs.workspace = true
+lzma-rust2.workspace = true
+ruzstd.workspace = true
 serde_json.workspace = true
 # Unicode's NFKD tables for the search where no browser folds text
 # (desktop); the web uses `String.prototype.normalize`.
@@ -26,6 +31,8 @@ unicode-normalization = { workspace = true, optional = true }
 
 [dev-dependencies]
 encoding_rs.workspace = true
+# LZMA streams with and without their end marker for the zip tests.
+lzma-rust2 = { workspace = true, features = ["encoder"] }
 
 [features]
 nfkd = ["dep:unicode-normalization"]

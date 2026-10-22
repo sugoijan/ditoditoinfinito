@@ -59,6 +59,12 @@ toml = "1"
 ttf-parser = "0.25.1"
 thiserror = "2"
 miniz_oxide = "0.9"
+# Zip entries' other compression methods (`ddi_library::zip`), pure Rust
+# for the wasm build.
+deflate64 = "0.1.12"
+bzip2-rs = "0.1.2"
+lzma-rust2 = { version = "0.23", default-features = false, features = ["std"] }
+ruzstd = { version = "0.9.1", default-features = false, features = ["std"] }
 encoding_rs = "0.8.42"
 unicode-segmentation = "1.13.3"
 unicode-normalization = "0.1.25"

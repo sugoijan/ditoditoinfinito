@@ -21,14 +21,21 @@
 //!    local header's name and extra lengths can differ from the central
 //!    directory's, so the data start is only known after this read.
 //! 4. Read `compressed_size` bytes at that offset and call [`extract`]
-//!    (stored or deflated, CRC-32 checked).
+//!    (size and CRC-32 checked), or hand them over as a reader to
+//!    [`extract_to`] (an entry too large to hold), or read only the start
+//!    of them for [`extract_prefix`] (a movie's header).
 //!
-//! Supported: stored and deflated entries, ZIP64 sizes and offsets, UTF-8
+//! Supported: stored, deflated, Deflate64, bzip2, LZMA and Zstandard
+//! entries (every decoder pure Rust, for the wasm build; no entry
+//! produces more than the central directory says), ZIP64 sizes and offsets, UTF-8
 //! names (flag bit 11 or the Info-ZIP Unicode Path extra field) and CP437
 //! names otherwise, with the raw bytes of such legacy names kept so the
 //! caller can read them as UTF-8 or Shift-JIS instead
 //! ([`crate::pack::decode_legacy_name`]). Not supported: encryption
-//! (reported, never read), other compression methods, multi-disk archives.
+//! (reported, never read), the rarer compression methods (XZ, PPMd and
+//! older ones: reported with their number), multi-disk archives.
+
+use std::io::{BufRead, Read};
 
 use thiserror::Error;
 
@@ -63,6 +70,9 @@ const SIG_LOCAL: u32 = 0x0403_4b50;
 const CENTRAL_HEADER_LEN: usize = 46;
 
 const FLAG_ENCRYPTED: u16 = 1 << 0;
+/// For LZMA, an end-of-stream marker ends the data (the size need not be
+/// known while it is written).
+const FLAG_LZMA_EOS: u16 = 1 << 1;
 const FLAG_UTF8: u16 = 1 << 11;
 
 const EXTRA_ZIP64: u16 = 0x0001;
@@ -78,7 +88,9 @@ pub enum ZipError {
     MultiDisk,
     #[error("`{name}` is encrypted; encrypted zip entries are not supported")]
     Encrypted { name: String },
-    #[error("`{name}` uses compression method {method}; only stored and deflate are supported")]
+    #[error(
+        "`{name}` uses compression method {method}; only stored, deflate, Deflate64, bzip2, LZMA and Zstandard are supported"
+    )]
     UnsupportedMethod { name: String, method: u16 },
     #[error("`{name}`: expected {expected} bytes, got {actual}")]
     SizeMismatch {
@@ -94,6 +106,12 @@ pub enum ZipError {
     },
     #[error("deflate stream is invalid: {0}")]
     Inflate(String),
+    #[error("`{name}`: {method} data is invalid: {message}")]
+    Decode {
+        name: String,
+        method: &'static str,
+        message: String,
+    },
 }
 
 /// Where the central directory lives.
@@ -128,6 +146,17 @@ pub enum Locate {
 pub enum Method {
     Stored,
     Deflated,
+    /// Method 9, PKWARE's Enhanced Deflating: deflate with a 64 KB window
+    /// and longer matches (7-Zip writes it on request).
+    Deflate64,
+    /// Method 12.
+    Bzip2,
+    /// Method 14: a raw LZMA stream behind a header of its own.
+    Lzma,
+    /// Zstandard frames: method 93, or 20, which writers used for it
+    /// before the spec moved it to 93 (the frames' magic number tells
+    /// them apart from anything else).
+    Zstd,
     Other(u16),
 }
 
@@ -136,7 +165,24 @@ impl Method {
         match m {
             0 => Method::Stored,
             8 => Method::Deflated,
+            9 => Method::Deflate64,
+            12 => Method::Bzip2,
+            14 => Method::Lzma,
+            20 | 93 => Method::Zstd,
             other => Method::Other(other),
+        }
+    }
+
+    /// The method's name, for errors.
+    fn name(self) -> &'static str {
+        match self {
+            Method::Stored => "stored",
+            Method::Deflated => "deflate",
+            Method::Deflate64 => "Deflate64",
+            Method::Bzip2 => "bzip2",
+            Method::Lzma => "LZMA",
+            Method::Zstd => "Zstandard",
+            Method::Other(_) => "compressed",
         }
     }
 }
@@ -160,6 +206,8 @@ pub struct ZipEntry {
     pub is_dir: bool,
     /// General purpose flag bit 0. Such entries cannot be read.
     pub encrypted: bool,
+    /// The general purpose flags (the method's options among them).
+    pub flags: u16,
     /// The raw name when it is in a legacy code page (neither flagged UTF-8
     /// nor given a Unicode Path), for a caller that can decode more code
     /// pages than CP437 ([`crate::pack::decode_legacy_name`]).
@@ -408,6 +456,7 @@ pub fn parse_central_directory(
                 .ok_or(ZipError::Corrupt("local header offset overflows"))?,
             is_dir,
             encrypted: flags & FLAG_ENCRYPTED != 0,
+            flags,
             legacy_name: legacy.then(|| raw_name.to_vec()),
         });
         p = next;
@@ -464,6 +513,17 @@ pub fn extract(entry: &ZipEntry, data: &[u8]) -> Result<Vec<u8>, ZipError> {
         Method::Stored => data.to_vec(),
         Method::Deflated => inflate(data, entry.uncompressed_size)?,
         Method::Other(method) => return Err(unsupported(entry, method)),
+        _ => {
+            // Grown as it comes, not reserved from the size a header
+            // claims.
+            let reserve = usize::try_from(entry.uncompressed_size).map_or(0, |n| n.min(16 << 20));
+            let mut out = Vec::with_capacity(reserve);
+            decode_with(entry, data, u64::MAX, |bytes| {
+                out.extend_from_slice(bytes);
+                Ok(())
+            })?;
+            out
+        }
     };
     check_output(entry, out.len() as u64, || crc32(&out))?;
     Ok(out)
@@ -538,9 +598,10 @@ pub fn extract_to(
         out.write_all(bytes)
             .map_err(|e| ZipError::Inflate(e.to_string()))
     };
-    let mut inbuf = vec![0u8; 256 << 10];
+    let inbuf = || vec![0u8; 256 << 10];
     match entry.method {
         Method::Stored => {
+            let mut inbuf = inbuf();
             while left > 0 {
                 let n = (left.min(inbuf.len() as u64)) as usize;
                 input.read_exact(&mut inbuf[..n]).map_err(io)?;
@@ -549,6 +610,7 @@ pub fn extract_to(
             }
         }
         Method::Deflated => {
+            let mut inbuf = inbuf();
             let mut state = InflateState::new_boxed(DataFormat::Raw);
             let mut outbuf = vec![0u8; 512 << 10];
             let (mut have, mut at) = (0usize, 0usize);
@@ -579,8 +641,188 @@ pub fn extract_to(
             }
         }
         Method::Other(method) => return Err(unsupported(entry, method)),
+        _ => {
+            // Only the entry's data; the decoders read ahead.
+            let cap = entry.compressed_size.clamp(1, 64 << 10) as usize;
+            let src = std::io::BufReader::with_capacity(cap, input.take(entry.compressed_size));
+            decode_with(entry, src, u64::MAX, |bytes| emit(bytes, out))?;
+        }
     }
     check_output(entry, written, || !crc)
+}
+
+/// The first `max_out` bytes an entry's data decompresses to, from
+/// `compressed`, the start of that data (or all of it): for sniffing a
+/// large entry without decompressing it whole. Empty when it is
+/// encrypted, of an unknown method or corrupt, and when `compressed` ran
+/// out before `max_out` bytes came out (what came out of a cut-off
+/// stream is not trusted); shorter only when the whole entry is.
+pub fn extract_prefix(entry: &ZipEntry, compressed: &[u8], max_out: usize) -> Vec<u8> {
+    if entry.encrypted {
+        return Vec::new();
+    }
+    match entry.method {
+        Method::Stored => compressed[..compressed.len().min(max_out)].to_vec(),
+        Method::Deflated => inflate_prefix(compressed, max_out),
+        Method::Other(_) => Vec::new(),
+        _ => {
+            let whole = compressed.len() as u64 >= entry.compressed_size;
+            let mut out = Vec::new();
+            let decoded = decode_with(entry, compressed, max_out as u64, |bytes| {
+                out.extend_from_slice(bytes);
+                Ok(())
+            });
+            if decoded.is_err() || (out.len() < max_out && !whole) {
+                out.clear();
+            }
+            out
+        }
+    }
+}
+
+/// Decodes an entry of one of the methods read through a decoder (not
+/// stored, deflated or unknown) from `src`, its data, handing what comes
+/// out to `sink` in pieces until the stream ends or `limit` bytes came
+/// out. More output than the central directory's size fails as soon as
+/// it comes; the caller checks the size and CRC-32 at the end. Returns
+/// the bytes given to `sink`.
+fn decode_with<'a>(
+    entry: &ZipEntry,
+    src: impl BufRead + 'a,
+    limit: u64,
+    mut sink: impl FnMut(&[u8]) -> Result<(), ZipError>,
+) -> Result<u64, ZipError> {
+    let invalid = |e: std::io::Error| ZipError::Decode {
+        name: entry.name.clone(),
+        method: entry.method.name(),
+        message: e.to_string(),
+    };
+    let mut decoder: Box<dyn Read + 'a> = match entry.method {
+        Method::Deflate64 => Box::new(deflate64::Deflate64Decoder::with_buffer(src)),
+        Method::Bzip2 => Box::new(bzip2_rs::DecoderReader::new(src)),
+        Method::Lzma => Box::new(lzma_reader(entry, src).map_err(invalid)?),
+        Method::Zstd => Box::new(Zstd::new(src)),
+        Method::Other(method) => return Err(unsupported(entry, method)),
+        Method::Stored | Method::Deflated => {
+            return Err(ZipError::Corrupt("not a decoder's method"));
+        }
+    };
+    let len = entry
+        .uncompressed_size
+        .saturating_add(1)
+        .min(limit)
+        .clamp(1, 256 << 10);
+    let mut buf = vec![0u8; len as usize];
+    let mut written = 0u64;
+    while written < limit {
+        let n = match decoder.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(invalid(e)),
+        };
+        if written + n as u64 > entry.uncompressed_size {
+            return Err(ZipError::SizeMismatch {
+                name: entry.name.clone(),
+                expected: entry.uncompressed_size,
+                actual: written + n as u64,
+            });
+        }
+        let n = (n as u64).min(limit - written) as usize;
+        sink(&buf[..n])?;
+        written += n as u64;
+    }
+    Ok(written)
+}
+
+/// An LZMA entry's decoder. The data starts with LZMA SDK's version (2
+/// bytes) and the properties' size (2 bytes, 5), then the properties (the
+/// `lc`/`lp`/`pb` byte and the dictionary's size); the stream ends at the
+/// entry's size, or at its end marker where flag bit 1 says there is one.
+/// The dictionary grows with the output, whatever size it declares.
+fn lzma_reader<R: Read>(
+    entry: &ZipEntry,
+    mut src: R,
+) -> std::io::Result<lzma_rust2::LzmaReader<R>> {
+    let mut head = [0u8; 9];
+    src.read_exact(&mut head)?;
+    if u16::from_le_bytes([head[2], head[3]]) != 5 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "LZMA properties of an unknown size",
+        ));
+    }
+    let dict_size = u32::from_le_bytes([head[5], head[6], head[7], head[8]]);
+    let size = if entry.flags & FLAG_LZMA_EOS != 0 {
+        u64::MAX
+    } else {
+        entry.uncompressed_size
+    };
+    lzma_rust2::LzmaReader::new_with_props(src, size, head[4], dict_size, None)
+}
+
+/// Zstandard frames one after the other (skippable frames skipped) as one
+/// reader: `ruzstd`'s streaming decoder reads a single frame. A frame's
+/// window is reserved as it starts, limited to `ruzstd`'s default
+/// (128 MB), past which the frame fails.
+struct Zstd<R> {
+    src: R,
+    frame: ruzstd::decoding::FrameDecoder,
+    /// Inside a frame (its header read).
+    open: bool,
+}
+
+impl<R: BufRead> Zstd<R> {
+    fn new(src: R) -> Self {
+        Zstd {
+            src,
+            frame: ruzstd::decoding::FrameDecoder::new(),
+            open: false,
+        }
+    }
+}
+
+impl<R: BufRead> Read for Zstd<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use ruzstd::decoding::BlockDecodingStrategy;
+        use ruzstd::decoding::errors::{FrameDecoderError, ReadFrameHeaderError};
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            if self.open {
+                while self.frame.can_collect() == 0 && !self.frame.is_finished() {
+                    self.frame
+                        .decode_blocks(&mut self.src, BlockDecodingStrategy::UptoBlocks(1))
+                        .map_err(std::io::Error::other)?;
+                }
+                let n = self.frame.read(buf)?;
+                if n > 0 {
+                    return Ok(n);
+                }
+                self.open = false;
+            }
+            if self.src.fill_buf()?.is_empty() {
+                return Ok(0);
+            }
+            match self.frame.reset(&mut self.src) {
+                Ok(()) => self.open = true,
+                Err(FrameDecoderError::ReadFrameHeaderError(ReadFrameHeaderError::SkipFrame {
+                    length,
+                    ..
+                })) => {
+                    let skipped = std::io::copy(
+                        &mut (&mut self.src).take(u64::from(length)),
+                        &mut std::io::sink(),
+                    )?;
+                    if skipped != u64::from(length) {
+                        return Err(std::io::ErrorKind::UnexpectedEof.into());
+                    }
+                }
+                Err(e) => return Err(std::io::Error::other(e)),
+            }
+        }
+    }
 }
 
 /// Inflates a raw deflate stream (no zlib header), refusing to produce more
@@ -698,6 +940,9 @@ pub(crate) mod tests {
         pub data: &'a [u8],
         pub deflate: bool,
         pub utf8: bool,
+        /// Data compressed elsewhere, with its method and the general
+        /// purpose flags it wants, in place of stored or deflated `data`.
+        pub packed: Option<(u16, u16, &'a [u8])>,
     }
 
     impl<'a> TestFile<'a> {
@@ -707,6 +952,7 @@ pub(crate) mod tests {
                 data,
                 deflate: false,
                 utf8: true,
+                packed: None,
             }
         }
         pub fn deflated(name: &'a str, data: &'a [u8]) -> Self {
@@ -736,13 +982,20 @@ pub(crate) mod tests {
         let mut central = Vec::new();
         for f in files {
             let offset = (out.len() - base) as u64;
-            let payload = if f.deflate {
+            let payload = if let Some((_, _, packed)) = f.packed {
+                packed.to_vec()
+            } else if f.deflate {
                 miniz_oxide::deflate::compress_to_vec(f.data, 6)
             } else {
                 f.data.to_vec()
             };
-            let method: u16 = if f.deflate { 8 } else { 0 };
-            let flags: u16 = if f.utf8 { FLAG_UTF8 } else { 0 };
+            let method: u16 = match f.packed {
+                Some((method, _, _)) => method,
+                None if f.deflate => 8,
+                None => 0,
+            };
+            let flags: u16 =
+                if f.utf8 { FLAG_UTF8 } else { 0 } | f.packed.map_or(0, |(_, flags, _)| flags);
             let crc = crc32(f.data);
             // Local header.
             out.extend_from_slice(&SIG_LOCAL.to_le_bytes());
@@ -1040,6 +1293,7 @@ pub(crate) mod tests {
                 data: SIMFILE,
                 deflate: false,
                 utf8: false,
+                packed: None,
             }],
             &WriteOpts::default(),
         );
@@ -1113,5 +1367,386 @@ pub(crate) mod tests {
         let packed = miniz_oxide::deflate::compress_to_vec(&data, 6);
         assert_eq!(inflate(&packed, 10_000).unwrap(), data);
         assert!(inflate(&packed, 100).is_err());
+    }
+
+    /// Zips of our own texts (below) made by real writers with the other
+    /// methods (`tests/zips/make.py`), and the method each entry is in.
+    const FIXTURES: &[(&str, &[u8], Method)] = &[
+        (
+            "7z-deflate64.zip",
+            include_bytes!("../tests/zips/7z-deflate64.zip"),
+            Method::Deflate64,
+        ),
+        (
+            "7z-bzip2.zip",
+            include_bytes!("../tests/zips/7z-bzip2.zip"),
+            Method::Bzip2,
+        ),
+        (
+            "python-bzip2.zip",
+            include_bytes!("../tests/zips/python-bzip2.zip"),
+            Method::Bzip2,
+        ),
+        (
+            "7z-lzma.zip",
+            include_bytes!("../tests/zips/7z-lzma.zip"),
+            Method::Lzma,
+        ),
+        (
+            "python-lzma.zip",
+            include_bytes!("../tests/zips/python-lzma.zip"),
+            Method::Lzma,
+        ),
+        (
+            "zstd.zip",
+            include_bytes!("../tests/zips/zstd.zip"),
+            Method::Zstd,
+        ),
+    ];
+
+    /// The fixtures' `small.txt` (`make.py` writes it the same way).
+    fn fixture_small() -> Vec<u8> {
+        (0..200u32)
+            .map(|i| format!("#NOTE {i}: {:05}\n", i * 7919 % 10007))
+            .collect::<String>()
+            .into_bytes()
+    }
+
+    /// The fixtures' `big.txt` (and `big-frames.txt`): several bzip2
+    /// blocks at 100 KB.
+    fn fixture_big() -> Vec<u8> {
+        let arrows = ["LEFT", "DOWN", "UP", "RIGHT"];
+        (0..30000u32)
+            .map(|i| {
+                let arrow = arrows[(i * i % 7 % 4) as usize];
+                format!("{:03} {arrow} {:02}\n", i / 4096, i % 97)
+            })
+            .collect::<String>()
+            .into_bytes()
+    }
+
+    fn fixture_text(name: &str) -> Vec<u8> {
+        if name == "small.txt" {
+            fixture_small()
+        } else {
+            fixture_big()
+        }
+    }
+
+    /// An archive's entries, read whole from memory.
+    fn entries(zip: &[u8]) -> Vec<ZipEntry> {
+        let len = zip.len() as u64;
+        let Locate::Found(cd) =
+            locate_central_directory(&zip[(len - tail_len(len)) as usize..], len).unwrap()
+        else {
+            panic!("expected a classic end record");
+        };
+        parse_central_directory(&zip[cd.offset as usize..][..cd.size as usize], &cd).unwrap()
+    }
+
+    /// An entry's compressed data.
+    fn data_of<'z>(zip: &'z [u8], e: &ZipEntry) -> &'z [u8] {
+        let header = &zip[e.local_header_offset as usize..][..LOCAL_HEADER_LEN as usize];
+        let at = local_data_offset(header, e).unwrap() as usize;
+        &zip[at..][..e.compressed_size as usize]
+    }
+
+    /// A writer that counts what it is given, to see how far a bomb gets.
+    struct Count(u64);
+
+    impl std::io::Write for Count {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 += buf.len() as u64;
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn other_methods_from_real_writers() {
+        for &(file, zip, method) in FIXTURES {
+            let files = read_all(zip).unwrap_or_else(|e| panic!("{file}: {e}"));
+            assert_eq!(files.len(), if file == "zstd.zip" { 3 } else { 2 });
+            for (e, data) in &files {
+                let want = fixture_text(&e.name);
+                assert!(*data == want, "{file}: {}", e.name);
+                assert_eq!(e.method, method, "{file}: {}", e.name);
+                let packed = data_of(zip, e);
+                let mut out = Vec::new();
+                extract_to(e, &mut &packed[..], &mut out).unwrap();
+                assert!(out == want, "{file}: {}", e.name);
+                // The start alone, from the whole data or from a part.
+                assert_eq!(extract_prefix(e, packed, 1000), want[..1000]);
+                assert_eq!(extract_prefix(e, packed, usize::MAX), want);
+                for cut in [0, 1, 9, 20, packed.len() / 3, packed.len() - 1] {
+                    let head = extract_prefix(e, &packed[..cut], 2000);
+                    assert!(
+                        head.is_empty() || head == want[..2000],
+                        "{file}: {} cut at {cut}",
+                        e.name
+                    );
+                }
+            }
+        }
+    }
+
+    /// Cut off or damaged, an entry of each method fails or (where the
+    /// damage changed nothing the CRC sees) reads right; never a panic or
+    /// a hang.
+    #[test]
+    fn other_methods_fail_cleanly() {
+        for &(file, zip, _) in FIXTURES {
+            for e in entries(zip) {
+                let want = fixture_text(&e.name);
+                let packed = data_of(zip, &e).to_vec();
+                // About 100 places in the small texts' data, 12 in the
+                // big's (an ignored test below tries many more).
+                let step = packed.len() / if want.len() < 10_000 { 100 } else { 12 };
+                let step = step.max(1);
+                let check = |e: &ZipEntry, data: &[u8], what: &str| {
+                    if let Ok(out) = extract(e, data) {
+                        assert!(out == want, "{file}: {} {what}", e.name);
+                    }
+                    let mut out = Vec::new();
+                    if extract_to(e, &mut &data[..], &mut out).is_ok() {
+                        assert!(out == want, "{file}: {} {what}", e.name);
+                    }
+                    let _ = extract_prefix(e, data, 4096);
+                };
+                for cut in (0..packed.len()).step_by(step) {
+                    let mut short = e.clone();
+                    short.compressed_size = cut as u64;
+                    check(&short, &packed[..cut], &format!("cut at {cut}"));
+                    // Cut off, but the size not told: a cut-off read.
+                    assert!(extract_prefix(&e, &packed[..cut], usize::MAX).is_empty());
+                }
+                for at in (0..packed.len()).step_by(step) {
+                    for flip in [0x01, 0xFF] {
+                        let mut bad = packed.clone();
+                        bad[at] ^= flip;
+                        check(&e, &bad, &format!("byte {at} ^ {flip:#x}"));
+                    }
+                }
+            }
+        }
+    }
+
+    /// [`other_methods_fail_cleanly`] at random, a few bytes damaged at a
+    /// time and the data cut anywhere: `DDI_ZIP_FUZZ` rounds (10 000), in
+    /// release under the watchdog (`cargo test --release -p ddi-library
+    /// --lib zip_fuzz -- --ignored`).
+    #[test]
+    #[ignore]
+    fn zip_fuzz_other_methods() {
+        let rounds: u64 = std::env::var("DDI_ZIP_FUZZ")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(10_000);
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let all: Vec<(ZipEntry, Vec<u8>, Vec<u8>)> = FIXTURES
+            .iter()
+            .flat_map(|&(_, zip, _)| {
+                entries(zip).into_iter().map(move |e| {
+                    let packed = data_of(zip, &e).to_vec();
+                    let want = fixture_text(&e.name);
+                    (e, packed, want)
+                })
+            })
+            .collect();
+        for round in 0..rounds {
+            let (e, packed, want) = &all[(next() % all.len() as u64) as usize];
+            let mut bad = packed.clone();
+            for _ in 0..1 + next() % 4 {
+                let at = (next() % bad.len() as u64) as usize;
+                bad[at] = next() as u8;
+            }
+            if next() % 4 == 0 {
+                bad.truncate((next() % bad.len() as u64) as usize);
+            }
+            let mut e = e.clone();
+            e.compressed_size = bad.len() as u64;
+            if let Ok(out) = extract(&e, &bad) {
+                assert!(out == *want, "round {round}: {}", e.name);
+            }
+            let _ = extract_prefix(&e, &bad, 4096);
+        }
+    }
+
+    /// Sizes, CRC-32 and flags hold for every method as for deflate.
+    #[test]
+    fn other_methods_keep_to_the_central_directory() {
+        for &(file, zip, _) in FIXTURES {
+            for e in entries(zip) {
+                let packed = data_of(zip, &e);
+                let mut small = e.clone();
+                small.uncompressed_size = 100;
+                assert!(
+                    matches!(extract(&small, packed), Err(ZipError::SizeMismatch { .. })),
+                    "{file}: {}",
+                    e.name
+                );
+                // Stopped as soon as it passes the size.
+                let mut count = Count(0);
+                assert!(matches!(
+                    extract_to(&small, &mut &packed[..], &mut count),
+                    Err(ZipError::SizeMismatch { .. })
+                ));
+                assert!(count.0 <= 100, "{file}: {} wrote {}", e.name, count.0);
+                for size in [e.uncompressed_size + 1, u64::MAX / 4] {
+                    let mut large = e.clone();
+                    large.uncompressed_size = size;
+                    assert!(matches!(
+                        extract(&large, packed),
+                        Err(ZipError::SizeMismatch { .. })
+                    ));
+                }
+                let mut bad = e.clone();
+                bad.crc32 ^= 1;
+                assert!(matches!(
+                    extract(&bad, packed),
+                    Err(ZipError::CrcMismatch { .. })
+                ));
+                let mut locked = e.clone();
+                locked.encrypted = true;
+                assert!(matches!(
+                    extract(&locked, packed),
+                    Err(ZipError::Encrypted { .. })
+                ));
+                assert!(extract_prefix(&locked, packed, 100).is_empty());
+                // Data past the stream's end is not the entry's.
+                let mut longer = packed.to_vec();
+                longer.extend_from_slice(b"\x28\xb5\x2f\xfd junk after the stream");
+                let mut more = e.clone();
+                more.compressed_size = longer.len() as u64;
+                if e.method == Method::Zstd {
+                    assert!(extract(&more, &longer).is_err());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rarer_methods_are_reported() {
+        for (method, packed) in [(95u16, &b"\xfd7zXZ\0"[..]), (98, b"\x06\0\0\0"), (6, b"")] {
+            let zip = write_zip(
+                &[TestFile {
+                    packed: Some((method, 0, packed)),
+                    ..TestFile::stored("a.sm", SIMFILE)
+                }],
+                &WriteOpts::default(),
+            );
+            let e = &entries(&zip)[0];
+            assert_eq!(e.method, Method::Other(method));
+            let err = read_all(&zip).unwrap_err();
+            assert_eq!(
+                err,
+                ZipError::UnsupportedMethod {
+                    name: "a.sm".into(),
+                    method
+                }
+            );
+            assert!(err.to_string().contains(&format!("method {method}")));
+            assert!(extract_prefix(e, data_of(&zip, e), 10).is_empty());
+            assert!(extract_to(e, &mut &data_of(&zip, e)[..], &mut Vec::new()).is_err());
+        }
+    }
+
+    /// A raw LZMA stream of `data` behind the zip's LZMA header.
+    fn lzma_packed(data: &[u8], end_marker: bool) -> Vec<u8> {
+        let options = lzma_rust2::LzmaOptions::with_preset(1);
+        let mut packed = vec![16, 2, 5, 0, options.get_props()];
+        packed.extend_from_slice(&options.dict_size.to_le_bytes());
+        let mut w = lzma_rust2::LzmaWriter::new_no_header(packed, &options, end_marker).unwrap();
+        std::io::Write::write_all(&mut w, data).unwrap();
+        w.finish().unwrap()
+    }
+
+    /// LZMA ends at the entry's size without an end marker (flag bit 1
+    /// clear), at its marker with one.
+    #[test]
+    fn lzma_with_and_without_its_end_marker() {
+        let big = fixture_big();
+        let (bare, marked) = (lzma_packed(&big, false), lzma_packed(&big, true));
+        let zip = write_zip(
+            &[
+                TestFile {
+                    packed: Some((14, 0, &bare)),
+                    ..TestFile::stored("bare.txt", &big)
+                },
+                TestFile {
+                    packed: Some((14, FLAG_LZMA_EOS, &marked)),
+                    ..TestFile::stored("marked.txt", &big)
+                },
+            ],
+            &WriteOpts::default(),
+        );
+        for (e, data) in read_all(&zip).unwrap() {
+            assert!(data == big, "{}", e.name);
+        }
+        // An end marker the flags announce but the stream lacks fails.
+        let zip = write_zip(
+            &[TestFile {
+                packed: Some((14, FLAG_LZMA_EOS, &bare)),
+                ..TestFile::stored("a.txt", &big)
+            }],
+            &WriteOpts::default(),
+        );
+        assert!(read_all(&zip).is_err());
+        // Properties of another size.
+        let mut odd = bare.clone();
+        odd[2] = 4;
+        let zip = write_zip(
+            &[TestFile {
+                packed: Some((14, 0, &odd)),
+                ..TestFile::stored("a.txt", &big)
+            }],
+            &WriteOpts::default(),
+        );
+        assert!(matches!(read_all(&zip), Err(ZipError::Decode { .. })));
+    }
+
+    /// 8 MB that pack into a few kilobytes, in an entry that says 64 KB:
+    /// no method gives more than the size it was told.
+    #[test]
+    fn bombs_stop_at_the_size() {
+        let zeros = vec![0u8; 8 << 20];
+        let zstd = ruzstd::encoding::compress_to_vec(
+            &zeros[..],
+            ruzstd::encoding::CompressionLevel::Fastest,
+        );
+        let lzma = lzma_packed(&zeros, true);
+        for (method, flags, packed) in [(93, 0, &zstd), (14, FLAG_LZMA_EOS, &lzma)] {
+            assert!(packed.len() < 64 << 10);
+            let e = ZipEntry {
+                name: "bomb".into(),
+                method: Method::from_u16(method),
+                compressed_size: packed.len() as u64,
+                uncompressed_size: 64 << 10,
+                crc32: 0,
+                local_header_offset: 0,
+                is_dir: false,
+                encrypted: false,
+                flags,
+                legacy_name: None,
+            };
+            let mut count = Count(0);
+            assert!(matches!(
+                extract_to(&e, &mut &packed[..], &mut count),
+                Err(ZipError::SizeMismatch { .. })
+            ));
+            assert!(count.0 <= 64 << 10);
+            assert!(matches!(
+                extract(&e, packed),
+                Err(ZipError::SizeMismatch { .. })
+            ));
+        }
     }
 }

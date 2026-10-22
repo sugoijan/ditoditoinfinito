@@ -605,4 +605,4 @@ THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
 
 ## Rust libraries
 
-The game is built on open-source Rust libraries (crates): 132 in the web build (the app and the Opus worker) and 320 in the desktop app (Linux, macOS and Windows). Their names, versions and licences, and the 154 licence notices they ask to ship, are in [THIRD_PARTY_RUST.md](THIRD_PARTY_RUST.md) and on the Credits screen.
+The game is built on open-source Rust libraries (crates): 137 in the web build (the app and the Opus worker) and 324 in the desktop app (Linux, macOS and Windows). Their names, versions and licences, and the 157 licence notices they ask to ship, are in [THIRD_PARTY_RUST.md](THIRD_PARTY_RUST.md) and on the Credits screen.
