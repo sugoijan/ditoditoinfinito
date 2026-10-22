@@ -609,9 +609,10 @@ pub struct Painter {
     fonts_version: u64,
     /// Images whose Gaussian filter and mipmaps the next draw prepares.
     unprepared: Vec<TextureId>,
-    /// Images the shell draws itself, by source, and their bindings
-    /// (`None`: none yet, the placeholder shows).
-    externals: Vec<(Arc<str>, Option<wgpu::BindGroup>)>,
+    /// Images the shell draws itself, by source, their bindings (`None`:
+    /// none yet, the placeholder shows) and their textures' sizes (for
+    /// [`Fit::Cover`] and [`Fit::Contain`]).
+    externals: Vec<(Arc<str>, Option<wgpu::BindGroup>, [f32; 2])>,
     /// The last frame's, kept for their allocations.
     instances: Vec<Instance>,
     steps: Vec<Step>,
@@ -772,9 +773,10 @@ impl Painter {
         // Loads asked of the platform before are not waited for.
         self.textures.cancel(source);
         let group = texture.map(|t| bind(device, &self.gpu.texture_layout, &self.gpu.sampler, t));
+        let size = texture.map_or([0.0; 2], |t| [t.width() as f32, t.height() as f32]);
         match self.externals.iter_mut().find(|e| &*e.0 == source) {
-            Some(e) => e.1 = group,
-            None => self.externals.push((source.into(), group)),
+            Some(e) => (e.1, e.2) = (group, size),
+            None => self.externals.push((source.into(), group, size)),
         }
     }
 
@@ -947,18 +949,20 @@ impl Painter {
                     // shape, centered (nothing drawn until its size is
                     // known).
                     let image = match bind {
-                        Bind::Image(id) if q.fit != Fit::Stretch => textures.get(id),
+                        _ if q.fit == Fit::Stretch => None,
+                        Bind::Image(id) => textures
+                            .get(id)
+                            .map(|i| [i.texture.width() as f32, i.texture.height() as f32]),
+                        Bind::External(i) => externals.get(i).map(|e| e.2),
                         _ => None,
                     };
                     let (uv, rect) = match (q.fit, image) {
                         (Fit::Stretch, _) | (Fit::Cover, None) => (q.uv, q.rect),
                         (Fit::Contain, None) => continue,
-                        (fit, Some(image)) => {
+                        (fit, Some([iw, ih])) => {
                             let m = q.transform.0;
                             let w = (q.rect[2] - q.rect[0]).abs() * m[0].hypot(m[1]);
                             let h = (q.rect[3] - q.rect[1]).abs() * m[2].hypot(m[3]);
-                            let iw = image.texture.width() as f32;
-                            let ih = image.texture.height() as f32;
                             if fit == Fit::Cover {
                                 (ddi_actor::background::cover_uv(w, h, iw, ih), q.rect)
                             } else {
@@ -1242,7 +1246,7 @@ impl Painter {
 /// one, `Some(None)` a source the shell draws that has none now, `None` an
 /// ordinary texture.
 fn external_image(
-    externals: &[(Arc<str>, Option<wgpu::BindGroup>)],
+    externals: &[(Arc<str>, Option<wgpu::BindGroup>, [f32; 2])],
     textures: &TextureCache<Image>,
     id: TextureId,
 ) -> Option<Option<usize>> {

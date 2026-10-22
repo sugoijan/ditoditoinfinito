@@ -66,8 +66,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Smaller chart and import format gaps](format-gaps.md) (2026-10-21):
   done: `.lrc` lyrics, jackets and CD titles, per-chart and preview
   music, background names with `,` or `=`, Korean and Chinese text.
-  Left: showing `#PREVIEWVID` (kept since `lane-covers.md`), zips with
-  other compression methods.
+  `#PREVIEWVID` shows in song select since 2026-10-22 (`lane-covers.md`).
+  Left: zips with other compression methods.
 - [Rules and options](rules-options.md) (2026-10-21): done (decision 55):
   StepMania's fail types, life and judge difficulty, ITG FA+, autoplay
   in the menus (found done), the event sounds, the battery.
@@ -79,7 +79,8 @@ architecture, the decisions and the roadmap they belong to. Status as of
 - [Lane covers and the preview video](lane-covers.md) (2026-10-21):
   lane covers (Sudden+, Hidden+, both) done: drawn over the lanes,
   moved and hidden in play, kept in the play's log for replays.
-  `#PREVIEWVID` imported and kept; showing it in song select waits.
+  `#PREVIEWVID` imported, kept, and since 2026-10-22 played in song
+  select's banner place on both shells.
 
 ## Presentation and video
 

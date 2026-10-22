@@ -174,6 +174,50 @@ impl Renderer {
         self.add_background(device, &texture)
     }
 
+    /// The size of background image or movie `id` (its latest frame's),
+    /// pixels.
+    pub fn background_size(&self, id: usize) -> Option<[u32; 2]> {
+        self.background.image_size(id)
+    }
+
+    /// Lets every background image and movie go: ids from
+    /// [`Renderer::add_background`] and [`Renderer::add_video`] start
+    /// again from the first (song select's preview movie, one song's at a
+    /// time: `crate::movie_picture`).
+    pub fn clear_backgrounds(&mut self) {
+        self.background.clear_images();
+    }
+
+    /// Records `backdrop` alone, at full brightness and covering the whole
+    /// `width × height` target (no field, no frame, no entrance) into
+    /// `view`, over black.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_backdrop(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        backdrop: crate::Backdrop,
+    ) {
+        let prepared = self.background.prepare(
+            device,
+            queue,
+            width as f32,
+            height as f32,
+            1.0,
+            backdrop,
+            None,
+            None,
+            Default::default(),
+        );
+        self.background.draw_extension(encoder, &prepared);
+        let mut pass = begin_pass(encoder, view, wgpu::LoadOp::Clear(wgpu::Color::BLACK), None);
+        self.background.draw(&mut pass, &prepared);
+    }
+
     /// Refresh filtered copies after an external RGB movie frame upload.
     pub fn background_texture_changed(&mut self) {
         self.background.texture_changed();

@@ -774,6 +774,22 @@ impl BackgroundPipeline {
         self.images.len() - 1
     }
 
+    /// The size of registered image or movie `id`, pixels.
+    pub fn image_size(&self, id: usize) -> Option<[u32; 2]> {
+        self.images
+            .get(id)
+            .map(|i| [i.width as u32, i.height as u32])
+    }
+
+    /// Lets every registered image and movie go (their ids are free
+    /// again); the solids stay.
+    pub fn clear_images(&mut self) {
+        self.images.clear();
+        self.base_size = None;
+        self.filtered = [None, None];
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     /// A registered texture was updated in place (for direct RGB movie uploads).
     pub fn texture_changed(&mut self) {
         self.revision = self.revision.wrapping_add(1);

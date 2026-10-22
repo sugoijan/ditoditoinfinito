@@ -23,6 +23,7 @@ mod noteskins;
 mod notices;
 mod play;
 mod preview;
+mod preview_movie;
 mod replay;
 mod router;
 mod scripts;

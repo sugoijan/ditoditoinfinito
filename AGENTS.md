@@ -40,9 +40,11 @@ Rust and the browser are implementation details, not advertised features.
   play too, through an sRGB surface where there is no plain view, for
   Dancing☆Onigiri's lyrics, `crates/render/src/lyrics.rs`),
   cached menu Gaussian images (`crates/render/src/gaussian.rs`, recorded once
-  on upload before mipmaps, keyed separately from sharp images), and Options'
+  on upload before mipmaps, keyed separately from sharp images), Options'
   field preview (`crates/render/src/field_preview.rs`: the demo chart drawn as
-  play draws it into a texture the 2D pass shows); StepMania's named
+  play draws it into a texture the 2D pass shows) and song select's
+  preview movie's picture (`crates/render/src/movie_picture.rs`, the same
+  way); StepMania's named
   background effects drawn from `ddi_library::backgrounds::BgDraw`
   (`crates/render/src/background.rs`) and a song's scripts' actors as quads
   in the background frame (`crates/render/src/scripted.rs`). No platform
@@ -153,7 +155,7 @@ Rust and the browser are implementation details, not advertised features.
   play's background movies (`movies.rs`: `MovieSlots`, which segments
   have a decoder, their tracks and what shows, each shell's decoders
   behind `MovieShell`; `BackdropTextures`, both shells' `movies.rs` run
-  on it), a song's scripted backgrounds and foregrounds (`scripted.rs`:
+  on it; song select's `#PREVIEWVID` movie, when it plays, `movies/preview.rs`), a song's scripted backgrounds and foregrounds (`scripted.rs`:
   their VM, the commands at each change, one budget a frame); generic over `ddi_platform::AudioBackend` and a shell's `Inputs`
   (`crates/web/src/play.rs` is the web's). Platform-free, natively tested on a
   fake clock.

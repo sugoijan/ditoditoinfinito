@@ -17,6 +17,8 @@
 //! the textures and uploads the frames [`MovieSlots::update`] hands it.
 
 use ddi_library::backgrounds::{self, BgImage, BgSegment, LAYERS};
+
+pub mod preview;
 use ddi_platform::video::{MovieStats, MovieTrack, StopReason, VideoDecoder, VideoFrame};
 use std::cell::Cell;
 

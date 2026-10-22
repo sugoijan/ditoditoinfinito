@@ -1,7 +1,8 @@
 # Lane covers (Sudden+, Hidden+) and the preview video
 
 Status: lane covers done 2026-10-21; `#PREVIEWVID` imported and kept
-2026-10-21, not shown yet ("Preview video" below). Closes the lane covers left by `rules-options.md` and the
+2026-10-21, shown in song select on both shells 2026-10-22 ("Preview
+video" below). Closes the lane covers left by `rules-options.md` and the
 `#PREVIEWVID` left by `format-gaps.md`.
 
 ## Research
@@ -130,30 +131,68 @@ in headless Chrome a zip of a song with `#PREVIEWVID:Preview.mp4`
 mp4/h264, stored: true}` and `bg/Preview.mp4` in IndexedDB
 (`target/scratch/pw/previewvid-import.mjs`).
 
-**Decided: the display waits** (the maintainer may change any):
+**Done: the display (2026-10-22).** The selected song's movie plays in
+song select's banner place, muted (the sample plays as usual), looped,
+from its start, as themes made for Pump packs show it:
 
-1. Where: in the selected song's banner place (the left column,
-   `Select.Banner`, cover-fitted, as the Pump themes do), once its first
-   frame is decoded; the banner shows until then and when it cannot
-   play. Not as song select's background: that is the song background
-   blurred to 20% (`Backdrop`), where a movie would read as noise.
-2. Why it waits: song select is drawn by the 2D pass alone on both
-   shells, which has no movie path. The movie decks (web
-   `crates/web/src/movies.rs` `MovieDeck`, desktop
-   `crates/desktop/src/play/movies.rs`) feed a play's `Renderer`, the
-   web's FFmpeg module worker is one per play session, and neither UI
-   host draws continuously at rest. Showing it means, per shell, a
-   `Renderer` (or a bare `BackgroundPipeline`) drawing the movie into a
-   texture the painter shows as an external image (as Options' field
-   preview does, `Painter::set_external_image`), a deck fed by a wall
-   clock from the selection, frames kept coming only while it plays,
-   and a lifecycle tied to the preview's (`select_preview.rs`,
-   desktop's `preview.rs`): started when the selection settles, stopped
-   when it changes or song select is left, never during a play. Plus a
-   `UiRequest` telling the shell where the banner is and an `Env` flag
-   telling the screen a frame is ready. That is most of a plan of its
-   own across both shells' song select hosts, for one local pack.
-3. The rules it will follow: muted; looped; the Background videos
-   setting off never fetches the decoder or the file (the banner
-   shows); automatic stops it when frames fall behind, as in play;
-   reduced motion shows its first frame still.
+1. Where: the left column's banner (`Select.Banner`; with a jacket the
+   narrower banner beside it), cover-fitted (the painter now fits an
+   external image by its texture's size), rounded as the banner. The
+   banner shows until the first frame is in, when the movie cannot play,
+   and from the moment the selection moves. Not as song select's
+   background (`Backdrop`, the song background blurred to 20%), where a
+   movie would read as noise.
+2. When (`ddi_session::movies::preview::PreviewMovie`, both shells'):
+   followed each frame from the song song select shows (its published
+   `song_id`) while song select is the screen showing (dialogs over it
+   count; Options, the editor or a play over it stop it,
+   `select_shows`); opened 0.3 s after the selection settles (the
+   sample's wait), its clock held at 0 until the first frame is in; a
+   new selection starts over; no first frame within 10 s fails it. Its
+   schedule is one looping segment for the play's shared
+   `MovieSlots`, so it decodes, seeks and loops as a play's background
+   movies do.
+3. Settings: Background videos Off never looks for the movie (no file
+   read, no decoder or module fetched); Automatic plays it as On (the
+   picture is small and song select has no play frames to protect).
+   Reduced motion (the system's or the setting) shows its first frame,
+   still: the decoder closes once it is in, and frames stop.
+4. Drawing: `ddi_render::movie_picture::MoviePicture`, a `Renderer`
+   holding only the movie's textures, records the current frame
+   (`Renderer::render_backdrop`) into an `Rgba8Unorm` texture of the
+   movie's shape (1280 px at most) that the 2D pass shows as the image
+   `preview-movie` (`Painter::set_external_image`); its textures go at
+   each new selection (`Renderer::clear_backgrounds`). The shell tells
+   the screen through song select's feed (`Feed::preview_movie`: the
+   song whose movie the picture holds); the screen swaps the banner's
+   texture for `PREVIEW_MOVIE` only for that song.
+5. Shells, which only find, decode and upload: the web's
+   `crates/web/src/preview_movie.rs`, a frame hook of song select's
+   host (`ui_dev::set_frame_hook`: run before the 2D pass, frames kept
+   coming while it is busy), reads the file as play does (`bg/<name>`,
+   stored or linked) and decodes through play's `MovieDeck` (the
+   browser's decoder for H.264 AVI, else the module's worker); the page
+   going releases the picture. Desktop's `crates/desktop/src/preview_movie.rs`
+   (in `Gpu`, followed by the shell before each menu frame, frames kept
+   coming while busy) finds the file on a thread
+   (`Files::movie`: a folder's, a zip's stored entry in place, a
+   compressed one extracted once) and decodes through play's `Movies`
+   (VideoToolbox, Media Foundation where opted in, or the helper);
+   without the `video` feature nothing plays.
+
+Checked: `movies::preview::tests` (settling, the clock from the first
+frame, a new selection, leaving song select, reduced motion, failures,
+the setting, `select_shows`, and the schedule looping on `MovieSlots`
+with a fake decoder); the theme's
+`the_preview_movie_takes_the_banners_place_while_the_shell_draws_it`;
+desktop's `preview_movie_offscreen` (a generated hue-cycling H.264
+clip in a scanned folder: frames come, the banner's place changes
+color, another song stops it; VideoToolbox here). In headless Chrome
+(WebGPU) and Playwright's Firefox (WebGL2) a zip of two songs with
+generated clips imports, each song's movie shows about 0.5 s after it
+is selected and plays at about 30 frames a second (the module decodes
+MP4), the banner's place cycles through the hues, reduced motion holds
+the first (red) frame with the decoder closed, Off never opens one,
+another song shows its banner, and leaving for the start menu takes the
+picture away (`pass2d.externals` 0)
+(`target/scratch/pw/previewvid-select.mjs`).

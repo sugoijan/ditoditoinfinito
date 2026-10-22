@@ -447,7 +447,7 @@ Charts and import:
   applied; per-note `{mods}` are skipped (section 2.1).
 - `.lrc` lyrics, jackets, CD titles, `.ssc` per-chart `#MUSIC` and
   `#PREVIEW` are used since 2026-10-21 (`docs/plans/format-gaps.md`);
-  `#PREVIEWVID` is imported and kept but not shown in song select yet
+  `#PREVIEWVID` plays in song select's banner place since 2026-10-22
   (`docs/plans/lane-covers.md`, "Preview video").
 - *New:* zips with encrypted entries, compression other than stored or
   deflate, or several disks are refused (`crates/library/src/zip.rs`;

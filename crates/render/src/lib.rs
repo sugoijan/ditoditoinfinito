@@ -23,6 +23,7 @@ mod instances;
 pub mod lyrics;
 mod mipmaps;
 pub mod model;
+pub mod movie_picture;
 pub mod note_colors;
 pub mod noteskin;
 mod offscreen;

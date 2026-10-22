@@ -149,7 +149,17 @@ pub struct Feed {
     /// Open a dialog of the shell's over song select (desktop's first
     /// start offers other games' song folders).
     pub overlay: Option<OverlayFn>,
+    /// The song whose preview movie the shell now draws into
+    /// [`PREVIEW_MOVIE`] (`Some(None)`: none; the banner again), from
+    /// `ddi_session::movies::preview`.
+    pub preview_movie: Option<Option<String>>,
 }
+
+/// The texture the shell draws the selected song's preview movie
+/// (`#PREVIEWVID`) into; shown in the banner's place while
+/// [`Feed::preview_movie`] names the song shown
+/// (`docs/plans/lane-covers.md`, "Preview video").
+pub const PREVIEW_MOVIE: &str = "preview-movie";
 
 /// Opens a shell's dialog over song select ([`Feed::overlay`]).
 pub type OverlayFn = Box<dyn FnOnce(&Env, &mut Cx)>;
@@ -528,6 +538,9 @@ pub struct SelectScreen {
     gesture_note: f32,
     /// The item whose song the left side shows.
     shown: Option<Item>,
+    /// The song whose preview movie shows in the banner's place
+    /// ([`Feed::preview_movie`]).
+    movie: Option<String>,
     /// The left side is to be filled again (a new song, a new tree).
     left_dirty: bool,
     /// The ladder's window as drawn: its first chart and how many.
@@ -638,6 +651,7 @@ impl SelectScreen {
             hints: None,
             gesture_note: 0.0,
             shown: None,
+            movie: None,
             left_dirty: true,
             ladder: (0, 0),
             filtered: String::new(),
@@ -1409,7 +1423,21 @@ impl SelectScreen {
         } else {
             560.0
         };
-        let banner = song.banner.as_deref().map(|b| cx.texture(b, side));
+        // The preview movie in the banner's place once its frames come
+        // (cover-fitted, as the jacket's banner always is).
+        let movie = self.movie.as_deref() == Some(song.id.as_str());
+        let banner = if movie {
+            Some(cx.texture(PREVIEW_MOVIE, side))
+        } else {
+            song.banner.as_deref().map(|b| cx.texture(b, side))
+        };
+        if let Some(Kind::Sprite(s)) = part(info, "Banner").map(|a| &mut a.kind) {
+            s.fit = if movie {
+                ddi_actor::Fit::Cover
+            } else {
+                ddi_actor::Fit::Stretch
+            };
+        }
         // A jacket: its square beside a narrower banner.
         let jacket = song.jacket.as_deref().map(|j| cx.texture(j, side));
         let (wide, short) = if jacket.is_some() {
@@ -2095,7 +2123,7 @@ impl SelectScreen {
         let Some(feed) = self.feed.clone() else {
             return;
         };
-        let (data, import, notices, open, overlay) = {
+        let (data, import, notices, open, overlay, movie) = {
             let mut f = feed.borrow_mut();
             (
                 f.data.take(),
@@ -2103,8 +2131,16 @@ impl SelectScreen {
                 f.notices.take(),
                 std::mem::take(&mut f.open_import),
                 f.overlay.take(),
+                f.preview_movie.take(),
             )
         };
+        if let Some(movie) = movie
+            && movie != self.movie
+        {
+            self.movie = movie;
+            self.fill_info(root, cx);
+            self.publish_dirty = true;
+        }
         if let Some(d) = data {
             self.cancel_navigation();
             self.set_data(d, false);

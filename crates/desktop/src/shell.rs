@@ -610,7 +610,10 @@ impl Shell {
 
     /// Asks for a frame if the UI needs one and none is coming.
     fn ask(&mut self) {
-        let field = self.surface.as_ref().is_some_and(|s| s.gpu.field.shown())
+        let field = self
+            .surface
+            .as_ref()
+            .is_some_and(|s| s.gpu.field.shown() || s.gpu.movie.busy())
             || self.play.playing()
             || self.play.prompt_changed();
         if self.occluded || self.pending || !(self.ui.needs_redraw() || self.loaded || field) {
@@ -733,6 +736,10 @@ impl Shell {
             );
             s.gpu.queue.submit(Some(encoder.finish()));
         } else {
+            if let Some(env) = &env {
+                let feed = self.songs.as_ref().map(|songs| &songs.feed);
+                s.gpu.movie.follow(&self.ui, env, feed);
+            }
             s.gpu.draw(&mut self.ui, &view, size);
         }
         self.loaded = s.gpu.images_ready();
@@ -1353,8 +1360,11 @@ impl ApplicationHandler for Shell {
         if let Some(s) = &mut self.surface {
             self.loaded |= s.gpu.images_ready();
         }
-        let field =
-            self.surface.as_ref().is_some_and(|s| s.gpu.field.shown()) || self.play.playing();
+        let field = self
+            .surface
+            .as_ref()
+            .is_some_and(|s| s.gpu.field.shown() || s.gpu.movie.busy())
+            || self.play.playing();
         if self.play.playing() && !self.occluded {
             match self.pace() {
                 // Blocking frames come one after another (each waits for

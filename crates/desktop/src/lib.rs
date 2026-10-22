@@ -42,6 +42,7 @@ pub mod paths;
 pub mod play;
 pub mod plays;
 pub mod preview;
+pub mod preview_movie;
 pub mod shell;
 pub mod songs;
 pub mod store;

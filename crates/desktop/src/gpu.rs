@@ -96,6 +96,8 @@ pub struct Gpu {
     images: crate::images::Loader,
     /// Options' field preview, where the screen shows it.
     pub field: crate::field_preview::Field,
+    /// Song select's preview movie (`#PREVIEWVID`).
+    pub movie: crate::preview_movie::PreviewMovieHost,
 }
 
 impl Gpu {
@@ -109,6 +111,7 @@ impl Gpu {
             list: DrawList::new(),
             images: crate::images::Loader::new(),
             field: Default::default(),
+            movie: Default::default(),
         }
     }
 
@@ -192,6 +195,14 @@ impl Gpu {
         // The field preview's frame, before the painter shows it.
         self.field
             .draw(&self.device, &self.queue, &mut encoder, &mut self.painter);
+        // Song select's preview movie's frame, the same way.
+        self.movie.draw(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &mut self.painter,
+            ui,
+        );
         let clear = match scene {
             Some(scene) => {
                 scene(&self.device, &self.queue, &mut encoder);

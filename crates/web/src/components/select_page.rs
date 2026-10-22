@@ -9,7 +9,9 @@
 //! through one audio context made in the first gesture
 //! (`crate::select_preview`), the storage estimate and the request to
 //! keep it, kept folders read again, controllers without bindings, and
-//! where the list was (`ddi.menu.v1` in `sessionStorage`).
+//! where the list was (`ddi.menu.v1` in `sessionStorage`), and the
+//! selected song's preview movie drawn into the banner's place
+//! (`crate::preview_movie`, the host's frame hook).
 //!
 //! `window.__DDI_DEBUG.songs` says what the library holds, what the
 //! import does and what plays; `__DDI_DEBUG.ui.select` (as `ui.theme`)
@@ -80,6 +82,8 @@ struct Shared {
     packs: RefCell<Vec<String>>,
     /// The import as the debug state says it, as of its last change.
     import_debug: RefCell<ImportDebug>,
+    /// The selected song's preview movie (`#PREVIEWVID`).
+    movie: RefCell<crate::preview_movie::PreviewMovieHost>,
 }
 
 /// The import, for `__DDI_DEBUG.songs`.
@@ -163,6 +167,7 @@ impl Component for SelectPage {
             place: RefCell::new(MenuPlace::load()),
             packs: RefCell::new(Vec::new()),
             import_debug: RefCell::new(ImportDebug::now()),
+            movie: RefCell::default(),
         });
         let pad_check = {
             let link = ctx.link().clone();
@@ -427,6 +432,12 @@ impl Component for SelectPage {
         crate::history::watch(None);
         crate::select_preview::close();
         self.page.clear();
+        // Before the host lets the surface go (WebGL2's painter is the
+        // menus' surface mode's only).
+        self.shared
+            .movie
+            .borrow_mut()
+            .release(crate::web::screen::current().as_deref());
         if let Some((host, _, pads)) = &self.started {
             ui_dev::stop_ui(host, pads.as_ref());
         }
@@ -496,6 +507,7 @@ impl SelectPage {
         match ui_dev::start_ui(&el, ui, Some(theme), Some(extra)) {
             Ok(started) => {
                 *self.shared.host.borrow_mut() = Some(Rc::downgrade(&started.0));
+                ui_dev::set_frame_hook(&started.0, Some(movie_hook(&self.shared, env.clone())));
                 let link = ctx.link().clone();
                 ui_dev::attach_gfx(started.0.clone(), move |e| {
                     link.send_message(Msg::Failed(e))
@@ -718,6 +730,38 @@ fn replay_hash(id: &str, results: bool) -> String {
         }
     }
     hash
+}
+
+/// Song select's preview movie in each frame (`crate::preview_movie`):
+/// the song the screen shows (its published state) followed, song select
+/// told whose movie shows.
+fn movie_hook(shared: &Rc<Shared>, env: ddi_ui::screens::Env) -> ui_dev::FrameHook {
+    let shared = shared.clone();
+    Box::new(move |gfx, encoder, ui, now_ms| {
+        let song = env.state.borrow().song_id.clone();
+        let entry = |id: &str| {
+            let library = shared.library.borrow();
+            let l = library.as_ref()?;
+            l.bundled
+                .iter()
+                .chain(l.imported.iter().map(|s| &s.entry))
+                .find(|e| e.id == id)
+                .cloned()
+        };
+        let (busy, news) = shared.movie.borrow_mut().frame(
+            gfx,
+            encoder,
+            ui,
+            (Some(&song), env.reduced()),
+            now_ms,
+            &entry,
+        );
+        if let Some(news) = news {
+            shared.feed.borrow_mut().preview_movie = Some(news);
+            broadcast(&shared);
+        }
+        busy
+    })
 }
 
 /// Asks for a linked song's kept folder (inside the gesture).
@@ -1108,6 +1152,7 @@ fn debug_into(shared: &Shared, obj: &js_sys::Object) {
     );
     set(&preview, "window", window);
     set(&preview, "audio", running.into());
+    set(&preview, "movie", shared.movie.borrow().debug().into());
     set(&songs, "preview", preview.into());
     set(obj, "songs", songs.into());
     if let Ok(ui) = js_sys::Reflect::get(obj, &"ui".into())

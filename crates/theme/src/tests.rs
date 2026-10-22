@@ -779,6 +779,103 @@ fn jackets_and_cd_titles_show_with_the_banner() {
     assert_eq!(source(&h, "CdTitle"), None);
 }
 
+/// The shell's preview movie shows in the banner's place, cover-fitted,
+/// while it names the song shown (the jacket's narrower banner with a
+/// jacket); the banner again when it stops or the selection moves on.
+#[test]
+fn the_preview_movie_takes_the_banners_place_while_the_shell_draws_it() {
+    use ddi_actor::Fit;
+    use ddi_ui::screens::select::{
+        FEED, Feed, PREVIEW_MOVIE, SelectCall, SelectScreen, SharedFeed,
+    };
+    let theme = Rc::new(Infinito::new());
+    let env = env(&theme);
+    let data = sample::select();
+    let feed: SharedFeed = Rc::new(std::cell::RefCell::new(Feed::default()));
+    let calls = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let mut h = harness([1280.0, 720.0], DESIGN);
+    let told = calls.clone();
+    h.push(
+        SelectScreen::new(
+            env.clone(),
+            data.clone(),
+            Some("some-things-must"),
+            Rc::new(|_, _, _: &Env, _| {}),
+            Rc::new(|_, _| {}),
+        )
+        .with_shell(
+            Rc::new(move |c: SelectCall, _: &mut ddi_ui::Cx| told.borrow_mut().push(c)),
+            feed.clone(),
+        ),
+    );
+    h.run(0.6);
+    // The left side's (the wheel's rows have banners too).
+    let shown = |h: &Harness, name: &str| -> Option<(String, Fit)> {
+        let mut info = h.actor("Info").clone();
+        let a = ddi_ui::widgets::part(&mut info, name).expect(name);
+        let Kind::Sprite(s) = &a.kind else {
+            panic!("{name}")
+        };
+        a.visible
+            .then(|| h.ui.texture_source(s.texture))
+            .flatten()
+            .map(|t| (t.source.to_string(), s.fit))
+    };
+    let first = env.state.borrow().song_id.clone();
+    let banner = shown(&h, "Banner").expect("the song's banner");
+    assert_ne!(banner.0, PREVIEW_MOVIE);
+    assert_eq!(banner.1, Fit::Stretch);
+    let tell = |h: &mut Harness, song: Option<&str>| {
+        feed.borrow_mut().preview_movie = Some(song.map(str::to_string));
+        h.ui.broadcast(ddi_ui::Message::new(FEED));
+        h.run(0.1);
+    };
+    // The movie of another song changes nothing here.
+    tell(&mut h, Some("another"));
+    assert_eq!(shown(&h, "Banner"), Some(banner.clone()));
+    tell(&mut h, Some(&first));
+    assert_eq!(
+        shown(&h, "Banner"),
+        Some((PREVIEW_MOVIE.to_string(), Fit::Cover))
+    );
+    // Stopped: the banner again, stretched as before.
+    tell(&mut h, None);
+    assert_eq!(shown(&h, "Banner"), Some(banner.clone()));
+    // Shown, then the selection moves on: the next song's banner (the
+    // shell is told, and stops the movie).
+    tell(&mut h, Some(&first));
+    calls.borrow_mut().clear();
+    h.key("ArrowDown", "ArrowDown");
+    h.run(0.6);
+    let now = env.state.borrow().song_id.clone();
+    assert_ne!(now, first);
+    assert!(
+        calls
+            .borrow()
+            .iter()
+            .any(|c| matches!(c, SelectCall::Selected { song: Some(s), .. } if *s == now)),
+        "{:?}",
+        calls.borrow()
+    );
+    assert_ne!(
+        shown(&h, "Banner").map(|b| b.0).as_deref(),
+        Some(PREVIEW_MOVIE)
+    );
+    // With a jacket: the narrower banner shows it.
+    let mut jacketed = data;
+    for s in &mut jacketed.songs {
+        s.jacket = Some(format!("songs/{}/jacket.png", s.id));
+    }
+    feed.borrow_mut().data = Some(jacketed);
+    h.ui.broadcast(ddi_ui::Message::new(FEED));
+    h.run(0.1);
+    tell(&mut h, Some(&now));
+    assert_eq!(
+        shown(&h, "BannerShort").map(|b| b.0).as_deref(),
+        Some(PREVIEW_MOVIE)
+    );
+}
+
 /// Many styles: the tabs never run into the wheel; named charts by name,
 /// counted on the wheel's row; packs say how many songs match.
 #[test]

@@ -94,11 +94,11 @@ system whose code page differs. Nothing in StepMania detects them.
 6. A `#PREVIEW` file plays from its start, for `#SAMPLELENGTH` when it is
    above 0, else the whole file, at most 30 s (the preview's existing
    cap). The beat pulse still follows the song's timing.
-7. `#PREVIEWVID` is read (`Song::preview_video`), and since 2026-10-21
-   imported and kept (`ManifestEntry::preview_video`), but not shown:
-   song select has no movie surface, and StepMania's themes show none
-   either (`lane-covers.md`, "Preview video", says where it will show
-   and what that needs).
+7. `#PREVIEWVID` is read (`Song::preview_video`), since 2026-10-21
+   imported and kept (`ManifestEntry::preview_video`), and since
+   2026-10-22 played in song select's banner place, muted and looping,
+   as themes made for Pump packs show it (StepMania's own themes show
+   none; `lane-covers.md`, "Preview video").
 8. Background-change splitting is StepMania's, but where two names fit
    at a field the longest wins (StepMania's first-listed depends on the
    file system's order). StepMania also adds an empty rate field after a
@@ -193,7 +193,6 @@ of it; desktop reads its library again (cache version 7).
 
 ## Left
 
-- `#PREVIEWVID` kept but not shown (decision 7; `lane-covers.md`).
 - Zips with other compression methods (decision 11).
 - The wheel's rows show no jackets; the start prompt and results show
   the banner only.

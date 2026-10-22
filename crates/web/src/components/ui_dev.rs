@@ -296,7 +296,16 @@ pub(crate) struct Host {
     /// loads), then none.
     field_busy: u32,
     field_size: [u32; 2],
+    /// A page's own drawing before the 2D pass ([`set_frame_hook`]), and
+    /// whether it wanted frames to go on at the last frame.
+    frame_hook: Option<FrameHook>,
+    hook_busy: bool,
 }
+
+/// A page's drawing in each frame, before the 2D pass (song select's
+/// preview movie, `crate::preview_movie`): given the device, the frame's
+/// encoder, the UI and the frame's time (ms); whether frames are to go on.
+pub(crate) type FrameHook = Box<dyn FnMut(&Gfx, &mut wgpu::CommandEncoder, &Ui, f64) -> bool>;
 
 /// The demo's moment the still preview shows (ms).
 const FIELD_STILL_MS: f64 = 2500.0;
@@ -474,6 +483,7 @@ pub(crate) fn stop_ui(host: &Rc<RefCell<Host>>, pads: Option<&Gamepads>) {
         h.attachment = None;
         let _ = h.textarea.blur();
         drop_field(&h);
+        h.frame_hook = None;
         if let Some(gfx) = h.gfx.take() {
             gfx.set_mode(SurfaceMode::Scene);
         }
@@ -497,6 +507,16 @@ pub(crate) fn field_settings(
     host: &Rc<RefCell<Host>>,
 ) -> Rc<RefCell<Option<crate::settings::Settings>>> {
     host.borrow().field_settings.clone()
+}
+
+/// Draws `hook` in each frame from now on (`None`: no more), before the
+/// 2D pass.
+pub(crate) fn set_frame_hook(host: &Rc<RefCell<Host>>, hook: Option<FrameHook>) {
+    if let Ok(mut h) = host.try_borrow_mut() {
+        h.frame_hook = hook;
+        h.hook_busy = false;
+    }
+    schedule(host);
 }
 
 /// Broadcasts message `name` to the host's screens and wakes it, as soon
@@ -789,6 +809,8 @@ fn new_host(
         field_last: None,
         field_busy: 0,
         field_size: [0, 0],
+        frame_hook: None,
+        hook_busy: false,
     }));
     host.borrow().show_cursor();
     host
@@ -1615,6 +1637,7 @@ fn schedule(rc: &Rc<RefCell<Host>>) {
     // The field preview moves, unless motion is reduced (then a still
     // frame, drawn again only when it changes).
     let field = h.field_preview.is_some() && (!h.field_still() || h.field_busy > 0);
+    let field = field || h.hook_busy;
     if !h.ui.needs_redraw() && !h.loading && !field {
         // Idle: the next frame starts its clock afresh, and a screen's
         // deadline wakes frames (the UI needs one once it is met).
@@ -2052,6 +2075,9 @@ impl Host {
             && f.on(&gfx)
         {
             f.release(&gfx);
+        }
+        if let Some(hook) = self.frame_hook.as_mut() {
+            self.hook_busy = hook(&gfx, &mut encoder, &self.ui, time_ms);
         }
         let list = &self.list;
         let after = screen::with_painter(&gfx, |p| {
