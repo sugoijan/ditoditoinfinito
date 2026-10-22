@@ -537,6 +537,9 @@ pub struct SelectScreen {
     /// Something the debug view shows changed.
     publish_dirty: bool,
     typing: bool,
+    /// What had the focus before the search field: given back when typing
+    /// stops by Escape or elsewhere (Enter goes to the wheel).
+    search_from: Option<String>,
     dimmed: bool,
     reduced: bool,
     play: PlayFn,
@@ -640,6 +643,7 @@ impl SelectScreen {
             filtered: String::new(),
             publish_dirty: true,
             typing: false,
+            search_from: None,
             dimmed: false,
             reduced: false,
             play,
@@ -2522,6 +2526,22 @@ impl SelectScreen {
         }
     }
 
+    /// Typing stopped other than by Enter: the focus goes back to where
+    /// it was before the field (the wheel when that is gone), unless it
+    /// already moved on (a press elsewhere).
+    fn stop_typing(&mut self, cx: &mut Cx) {
+        self.typing = false;
+        let from = self.search_from.take();
+        if cx.focused() != Some(self.search.name.as_str()) {
+            return;
+        }
+        let names = self.focusables();
+        let to = from
+            .filter(|f| *f != self.search.name && names.iter().any(|n| n.name == *f))
+            .unwrap_or_else(|| "Wheel".into());
+        cx.focus(to);
+    }
+
     fn status(&self, s: String) {
         self.env.state.borrow_mut().status = s;
     }
@@ -3124,12 +3144,15 @@ impl SelectScreen {
             self.search.input(input, root, cx, &suggest)
         };
         match input {
+            Input::Focus { from, to: Some(to) } if *to == self.search.name => {
+                self.search_from = from.clone()
+            }
             Input::Activate { name } if *name == self.search.name => self.typing = true,
             Input::Text { change, .. } => match change {
-                TextChange::Blurred => self.typing = false,
+                TextChange::Blurred => self.stop_typing(cx),
                 // The first Escape closes the popup, the next stops
                 // typing (the field's).
-                TextChange::Cancel if !popup_before => self.typing = false,
+                TextChange::Cancel if !popup_before => self.stop_typing(cx),
                 _ => {}
             },
             _ => {}

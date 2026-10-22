@@ -562,6 +562,44 @@ fn enter_in_the_search_goes_to_the_song_selected() {
 }
 
 #[test]
+fn escape_from_the_search_gives_the_focus_back() {
+    let (mut h, s) = select([1280.0, 720.0], DESIGN, false);
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    h.key("Slash", "/");
+    h.sync("Swe", [3, 3], None);
+    h.run(0.1);
+    assert_eq!(h.ui.focused(), Some("Search"));
+    assert!(s.borrow().popup);
+    // The first Escape closes the popup, still typing in the field.
+    h.key("Escape", "Escape");
+    h.run(0.1);
+    assert!(h.ui.text_field().is_some());
+    assert_eq!(h.ui.focused(), Some("Search"));
+    // The next stops typing: the field is left for the wheel.
+    h.key("Escape", "Escape");
+    h.run(0.1);
+    assert!(h.ui.text_field().is_none());
+    assert_eq!(h.ui.focused(), Some("Wheel"));
+    assert_eq!(s.borrow().search, "Swe", "the filter stays");
+    // From a header's switch, back to it; a press elsewhere leaves it too.
+    h.tap(PointerKind::Mouse, "Autoplay");
+    h.run(0.1);
+    assert_eq!(h.ui.focused(), Some("Autoplay"));
+    h.key("Slash", "/");
+    h.run(0.1);
+    assert_eq!(h.ui.focused(), Some("Search"));
+    h.key("Escape", "Escape");
+    h.run(0.1);
+    assert_eq!(h.ui.focused(), Some("Autoplay"));
+    h.key("Slash", "/");
+    h.run(0.1);
+    h.send(crate::UiEvent::Text(crate::event::TextEvent::Blurred));
+    h.run(0.1);
+    assert!(h.ui.text_field().is_none());
+    assert_eq!(h.ui.focused(), Some("Autoplay"));
+}
+
+#[test]
 fn the_pick_survives_a_new_layout() {
     let (mut h, s) = recording(sample::select(), [1280.0, 720.0], DESIGN);
     tab(&mut h);
