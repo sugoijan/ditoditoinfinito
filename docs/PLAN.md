@@ -346,7 +346,7 @@ Definition of done: a chart plays in Chrome, Firefox and Safari with judgements 
 
 ## 5. Roadmap
 
-Status as of 2026-10-21: one line per phase, the full notes below the table; known gaps before phase 9 after them. The plans and their status are indexed in `docs/plans/README.md`.
+Status as of 2026-10-22: one line per phase, the full notes below the table; known gaps before phase 9 after them. The plans and their status are indexed in `docs/plans/README.md`.
 
 | Phase | Status | Deliverable | Notes |
 |---|---|---|---|
@@ -430,7 +430,7 @@ one sprite per layer. Sharp pictures keep separate cache entries, including
 the start prompt's central picture (`docs/plans/theme.md`).
 
 
-### Known gaps before phase 9 (2026-10-15, reviewed 2026-10-21)
+### Known gaps before phase 9 (2026-10-15, reviewed 2026-10-22)
 
 Everything known to be missing, approximate or unchecked before the
 desktop build, gathered in one place; what has been built since is
@@ -520,8 +520,8 @@ Menus:
   `/` key reaches it (no controller); a short query or Enter on a large
   library opens most packs (not yet tried on the maintainer's full
   library); kanji titles without a transliteration are not found by
-  romaji (no reading dictionary); input methods were only simulated
-  (to try in Firefox, and in Safari after a push).
+  romaji (no reading dictionary); input methods tried by the
+  maintainer in Safari on the published URL (2026-10-22).
 - *New:* the guided controller binding records one control per lane; a
   second set (face buttons beside the d-pad) comes only from the standard
   defaults, while the keyboard has "add key".
@@ -536,8 +536,6 @@ Audio and video:
   (`docs/plans/video-backgrounds.md`). An autoplay that failed before
   the judged-timeline change needed a calibrated offset near 100 ms,
   which may mean Firefox reports no output latency there; unchecked.
-- *New:* Safari did not start an msmpeg4v3 movie (FFmpeg module) on a
-  local origin; WebKit plays it. To check on the published URL.
 - wasm memory grows after a fallback decode of Ogg Vorbis or MP3 (Opus
   decodes in a worker that is ended after); previews decode the whole
   song (sections 2.3, 7).
@@ -571,8 +569,8 @@ Noteskins, Lua and models:
   (`docs/plans/lua.md`), the VM's known costs (`docs/plans/piccolo-fork.md`),
   NotITG's mods (`docs/plans/legacy-skins.md`); a skin's Lua state over a
   retry, skin images' storage (section 7).
-- Not checked by the maintainer: a phone, WebGPU in Firefox
-  (`docs/plans/bundled-skins.md`).
+- Not checked by the maintainer: a phone. (WebGPU in Firefox is the
+  maintainer's everyday setting; headless Firefox has no adapter.)
 
 Dancing☆Onigiri:
 
@@ -589,9 +587,10 @@ Input and browsers:
 
 - *New:* Firefox's coarse timestamps (`resistFingerprinting`) are named
   as a risk with "detect and warn" (section 7), but nothing detects them.
-- *New:* checks waiting for Safari on the published URL: pump charts with
-  ticked holds, the search field's look and input method, the
-  msmpeg4v3 movie above.
+- Safari on the published URL checked by the maintainer (2026-10-22):
+  the loader drawn at once, Start after song select, the preview after
+  a play, pump charts with ticked holds, the search field, the
+  msmpeg4v3 movie.
 - WebHID left out; Safari takes no pad press as a gesture; small touch
   targets on phones; storage eviction without `persist()`; a browser
   refusing the sRGB view (phase 7, section 7).
